@@ -8,6 +8,7 @@ import 'core/metadata.dart';
 import 'core/selected_scan_workflow.dart';
 import 'core/personal_scrape_coordinator.dart';
 import 'ui/source_browser_page.dart';
+import 'ui/adaptive_poster_title.dart';
 import 'ui/source_editor.dart';
 import 'ui/tmdb_settings_dialog.dart';
 import 'ui/nipaplay_detail_page.dart';
@@ -134,7 +135,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                 2 * horizontalPadding -
                                 (columns - 1) * crossSpacing) /
                             columns;
-                        final cardHeight = cardWidth * 1.5 + 8 + 48 + 20;
+                        final cardHeight = cardWidth * 1.5 + 8 + 48 + 4 + 20;
                         return GridView.builder(
                           padding: const EdgeInsets.all(horizontalPadding),
                           itemCount: matches.length,
@@ -201,18 +202,11 @@ class _LibraryPageState extends State<LibraryPage> {
           ),
         ),
         const SizedBox(height: 8),
-        SizedBox(
-          height: 48,
-          child: Align(
-            alignment: Alignment.topLeft,
-            child: Text(
-              work['title'].toString(),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
+        AdaptivePosterTitle(
+          key: ValueKey('library-title-${work['id']}'),
+          title: work['title'].toString(),
         ),
+        const SizedBox(height: 4),
         SizedBox(
           height: 20,
           child: Text(

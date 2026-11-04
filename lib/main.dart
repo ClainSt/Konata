@@ -357,7 +357,14 @@ class _LibraryPageState extends State<LibraryPage> {
           child: Align(
             alignment: Alignment.topLeft,
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1000),
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.sizeOf(context).width < 600
+                    ? MediaQuery.sizeOf(context).width - 40
+                    : ((MediaQuery.sizeOf(context).width - 40) / 2).clamp(
+                        560.0,
+                        MediaQuery.sizeOf(context).width - 40,
+                      ),
+              ),
               child: Card(
                 clipBehavior: Clip.antiAlias,
                 margin: EdgeInsets.zero,
@@ -477,7 +484,7 @@ class _LibraryPageState extends State<LibraryPage> {
                             ),
                           ],
                         );
-                        return bounds.maxWidth >= 540
+                        return bounds.maxWidth >= 420
                             ? Row(
                                 children: [
                                   Expanded(child: info),

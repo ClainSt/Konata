@@ -5,6 +5,49 @@ import 'package:http/testing.dart';
 import 'package:ccplayer/core/detail_metadata.dart';
 
 void main() {
+  test('Movie main artwork uses the Personal landscape image pipeline', () async {
+    for (final hasBackdrop in [true, false]) {
+      final calls = <String>[];
+      final service = DetailMetadataService(
+        tmdbRequest: (path, params) async {
+          calls.add(path);
+          if (path == '/movie/123') {
+            return {'backdrop_path': hasBackdrop ? '/movie.jpg' : null};
+          }
+          if (path == '/movie/123/images') {
+            expect(params['include_image_language'], 'zh,ja,en,null');
+            return {
+              'backdrops': [
+                {'file_path': '/low.jpg', 'vote_average': 5, 'width': 1920},
+                {'file_path': '/small.jpg', 'vote_average': 8, 'width': 1280},
+                {'file_path': '/best.jpg', 'vote_average': 8, 'width': 1920},
+              ],
+            };
+          }
+          fail('Unexpected request: $path');
+        },
+      );
+      final data = await service.fetch({'tmdb_id': 123, 'tmdb_type': 'movie'});
+      expect(
+        data['movieStill'],
+        'https://image.tmdb.org/t/p/w780/${hasBackdrop ? 'movie' : 'best'}.jpg',
+      );
+      expect(calls.any((path) => path.contains('/season/')), isFalse);
+      expect(calls.contains('/movie/123/images'), !hasBackdrop);
+      service.close();
+    }
+  });
+
+  test('Movie without landscape artwork keeps a neutral placeholder', () async {
+    final service = DetailMetadataService(
+      tmdbRequest: (path, _) async => path.endsWith('/images')
+          ? {'backdrops': []}
+          : {'poster_path': '/poster.jpg'},
+    );
+    final data = await service.fetch({'tmdb_id': 123, 'tmdb_type': 'movie'});
+    expect(data['movieStill'], isNull);
+    service.close();
+  });
   test('principal Bangumi characters precede cameo crossovers', () {
     final entries = <Map<String, dynamic>>[
       {'name': '客串角色A', 'relation': '客串', 'order': 1},

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 import 'package:path/path.dart' as p;
 import 'package:xml/xml.dart';
+import 'package:smb_connect/smb_connect.dart';
 import 'catalog.dart';
 
 class DavEntry {
@@ -14,7 +15,9 @@ class DavEntry {
 }
 
 class WebDav {
-  WebDav(Map<String, Object?> source)
+  factory WebDav(Map<String, Object?> source) =>
+      source['kind'] == 'smb' ? SmbSource(source) : WebDav._(source);
+  WebDav._(Map<String, Object?> source)
     : root = Uri.parse(
         source['location'].toString().endsWith('/')
             ? source['location'].toString()
@@ -128,6 +131,167 @@ class WebDav {
   }
 }
 
+/// Read-only SMB adapter using the same client vendored by NipaPlay Personal.
+/// It exposes the directory interface shared by browsing, scanning and subtitles.
+class SmbSource extends WebDav {
+  SmbSource(Map<String, Object?> source, {this.connector}) : super._(source) {
+    validateLocation(source['location'].toString());
+  }
+  final Future<SmbConnect> Function()? connector;
+
+  static Uri validateLocation(String location) {
+    if (location
+        .replaceAll(RegExp('%2e', caseSensitive: false), '.')
+        .replaceAll(RegExp('%2f|%5c', caseSensitive: false), '/')
+        .replaceAll('\\', '/')
+        .split('/')
+        .any((s) => s == '..' || s == '.')) {
+      throw ArgumentError('SMB 地址不能包含相对路径');
+    }
+    final uri = Uri.tryParse(location.trim());
+    if (uri == null ||
+        uri.scheme != 'smb' ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
+        uri.hasQuery ||
+        uri.hasFragment ||
+        (uri.hasPort && uri.port != 445) ||
+        uri.pathSegments.where((s) => s.isNotEmpty).isEmpty ||
+        uri.pathSegments.any(
+          (s) => s == '..' || s == '.' || s.contains('\\'),
+        )) {
+      throw ArgumentError('请输入 SMB 共享地址，例如 smb://192.168.1.2/共享目录');
+    }
+    return uri;
+  }
+
+  Future<SmbConnect> connect() {
+    if (connector != null) return connector!();
+    final split = username.indexOf('\\');
+    return SmbConnect.connectAuth(
+      host: root.host,
+      domain: split < 0 ? '' : username.substring(0, split),
+      username: split < 0 ? username : username.substring(split + 1),
+      password: password,
+    );
+  }
+
+  String _path(Uri uri) {
+    if (uri.host != root.host ||
+        uri.scheme != 'smb' ||
+        !uri.path.startsWith(root.path) ||
+        uri.pathSegments.any((s) => s == '..')) {
+      throw ArgumentError('SMB 路径不在媒体源内');
+    }
+    return '/${uri.pathSegments.where((s) => s.isNotEmpty).join('/')}';
+  }
+
+  @override
+  Future<List<DavEntry>> list(Uri uri) async {
+    final path = _path(uri);
+    final client = await connect();
+    try {
+      final folder = await client.file(path);
+      final files = await client.listFiles(folder);
+      return files
+          .where((f) => f.name != '.' && f.name != '..')
+          .map(
+            (file) => DavEntry(
+              uri.resolve(
+                '${Uri.encodeComponent(file.name)}${file.isDirectory() ? '/' : ''}',
+              ),
+              file.name,
+              file.isDirectory(),
+              file.size,
+            ),
+          )
+          .toList();
+    } finally {
+      await client.close();
+    }
+  }
+
+  Future<void> serve(HttpRequest request, String relative) async {
+    SmbConnect? client;
+    try {
+      if (request.method != 'GET' && request.method != 'HEAD') {
+        request.response.statusCode = HttpStatus.methodNotAllowed;
+        return;
+      }
+      final path = _path(fileUri(relative));
+      client = await connect();
+      final file = await client.file(path);
+      if (!file.isExists || file.isDirectory()) {
+        request.response.statusCode = HttpStatus.notFound;
+        return;
+      }
+      final size = file.size;
+      SmbByteRange range;
+      try {
+        range = SmbByteRange.parse(
+          request.headers.value(HttpHeaders.rangeHeader),
+          size,
+        );
+      } on FormatException {
+        request.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+        request.response.headers.set(
+          HttpHeaders.contentRangeHeader,
+          'bytes */$size',
+        );
+        return;
+      }
+      request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+      request.response.headers.contentType = ContentType.binary;
+      request.response.contentLength = range.end - range.start;
+      if (range.partial) {
+        request.response.statusCode = HttpStatus.partialContent;
+        request.response.headers.set(
+          HttpHeaders.contentRangeHeader,
+          'bytes ${range.start}-${range.end - 1}/$size',
+        );
+      }
+      if (request.method != 'HEAD' && range.end > range.start) {
+        await request.response.addStream(
+          await client.openRead(file, range.start, range.end),
+        );
+      }
+    } catch (_) {
+      request.response.statusCode = HttpStatus.badGateway;
+    } finally {
+      try {
+        await request.response.close();
+      } finally {
+        await client?.close();
+      }
+    }
+  }
+}
+
+class SmbByteRange {
+  const SmbByteRange(this.start, this.end, this.partial);
+  final int start, end;
+  final bool partial;
+  static SmbByteRange parse(String? header, int size) {
+    if (header == null) return SmbByteRange(0, size, false);
+    final match = RegExp(r'^bytes=(\d*)-(\d*)$').firstMatch(header);
+    if (match == null || size <= 0) {
+      throw const FormatException('Invalid range');
+    }
+    final first = int.tryParse(match[1]!);
+    final last = int.tryParse(match[2]!);
+    if (first == null) {
+      if (last == null || last <= 0) {
+        throw const FormatException('Invalid suffix');
+      }
+      return SmbByteRange(max(0, size - last), size, true);
+    }
+    if (first >= size || (last != null && last < first)) {
+      throw const FormatException('Invalid range');
+    }
+    return SmbByteRange(first, last == null ? size : min(size, last + 1), true);
+  }
+}
+
 class Scanner {
   static Future<int> scan(Map<String, Object?> source) async {
     final cat = Catalog.instance;
@@ -226,6 +390,10 @@ class StreamBroker {
     if (info == null) {
       req.response.statusCode = 404;
       await req.response.close();
+      return;
+    }
+    if (info.source['kind'] == 'smb') {
+      await SmbSource(info.source).serve(req, info.path);
       return;
     }
     final client = HttpClient()..autoUncompress = false;

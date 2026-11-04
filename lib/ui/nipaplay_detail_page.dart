@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../core/catalog.dart';
@@ -81,7 +82,8 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
         cached != null &&
         fetched != null &&
         DateTime.now().difference(fetched) < const Duration(days: 3) &&
-        (cached['schemaVersion'] as int? ?? 0) >= 4) {
+        (cached['schemaVersion'] as int? ?? 0) >=
+            DetailMetadataService.schemaVersion) {
       return;
     }
     if (widget.work['tmdb_id'] == null && widget.work['bangumi_id'] == null) {
@@ -166,6 +168,9 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
       }
       return {};
     }
+    if (widget.work['tmdb_type'] == 'movie' && asset['category'] == 'main') {
+      return {'still': details['movieStill']};
+    }
     if (n == null) return {};
     final seasons = details['seasonEpisodes'];
     final counts = details['seasonEpisodeCounts'];
@@ -210,6 +215,33 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
   }
 
   String episodeTitle(Map<String, Object?> asset) {
+    if (asset['category'] == 'extra') {
+      final label = extraCoverLabel(asset);
+      const names = {
+        'CM': '宣传广告',
+        'PV': '宣传影像',
+        'NCOP': '无字幕片头',
+        'NCED': '无字幕片尾',
+        'MENU': '光盘菜单',
+        'SP': '特别篇',
+        'OVA': 'OVA',
+        'OAD': 'OAD',
+      };
+      final type = extraType(asset);
+      if (type == '其他') {
+        final cleaned = CloudMediaAssetPresentation.cleanedExtraFilename(asset);
+        if (cleaned.isNotEmpty) return cleaned;
+        final name = asset['name']?.toString().trim();
+        if (name != null && name.isNotEmpty) return name;
+        final path = asset['relative_path']?.toString().replaceAll('\\', '/');
+        return path
+                ?.split('/')
+                .lastWhere((part) => part.isNotEmpty, orElse: () => '未命名视频') ??
+            '未命名视频';
+      }
+      final number = RegExp(r'\d+[A-Za-z]?$').firstMatch(label)?.group(0);
+      return '${names[type] ?? type}${number == null ? '' : ' $number'}';
+    }
     final title = episodeInfo(asset)['name']?.toString().trim();
     return title?.isNotEmpty == true
         ? title!
@@ -581,6 +613,16 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                                       ChoiceChip(
                                         label: Text(type),
                                         selected: extraFilter == type,
+                                        selectedColor: NipaPlayStyle.accent,
+                                        checkmarkColor: NipaPlayStyle.onAccent,
+                                        labelStyle: TextStyle(
+                                          color: extraFilter == type
+                                              ? NipaPlayStyle.onAccent
+                                              : text,
+                                          fontWeight: extraFilter == type
+                                              ? FontWeight.w600
+                                              : FontWeight.w400,
+                                        ),
                                         onSelected: (_) =>
                                             setState(() => extraFilter = type),
                                       ),
@@ -622,22 +664,15 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                             else
                               SizedBox(
                                 height: 238,
-                                child: Scrollbar(
+                                child: ListView.separated(
                                   controller: rail,
-                                  thumbVisibility: true,
-                                  child: ListView.separated(
-                                    controller: rail,
-                                    scrollDirection: Axis.horizontal,
-                                    itemCount: selected.length,
-                                    separatorBuilder: (_, _) =>
-                                        const SizedBox(width: 12),
-                                    itemBuilder: (ctx, i) => SizedBox(
-                                      width: 260,
-                                      child: episodeTile(
-                                        selected[i],
-                                        secondary,
-                                      ),
-                                    ),
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: selected.length,
+                                  separatorBuilder: (_, _) =>
+                                      const SizedBox(width: 12),
+                                  itemBuilder: (ctx, i) => SizedBox(
+                                    width: 260,
+                                    child: episodeTile(selected[i], secondary),
                                   ),
                                 ),
                               ),
@@ -659,12 +694,9 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                   child: Container(
                     key: const ValueKey('detail-fixed-toolbar'),
                     height: 64,
-                    decoration: BoxDecoration(
-                      color: surface.withValues(alpha: .96),
-                      border: Border(
-                        bottom: BorderSide(color: text.withValues(alpha: .09)),
-                      ),
-                    ),
+                    // The page artwork already has a readability scrim.
+                    // Keep this overlay clear so it remains one continuous canvas.
+                    color: Colors.transparent,
                     child: Center(
                       child: ConstrainedBox(
                         constraints: BoxConstraints(maxWidth: width),
@@ -674,12 +706,18 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                               key: const ValueKey('detail-back-button'),
                               tooltip: '返回媒体库',
                               onPressed: widget.onBack,
+                              style: IconButton.styleFrom(
+                                backgroundColor: surface.withValues(alpha: .7),
+                              ),
                               icon: Icon(Icons.arrow_back, color: text),
                             ),
                             const Spacer(),
                             PopupMenuButton<String>(
                               key: const ValueKey('detail-more-button'),
                               tooltip: '更多操作',
+                              style: IconButton.styleFrom(
+                                backgroundColor: surface.withValues(alpha: .7),
+                              ),
                               icon: const Icon(Icons.more_horiz),
                               onSelected: (value) {
                                 if (value == 'metadata') {
@@ -760,7 +798,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
             if (score is num && score > 0)
               Text(
                 '★ ${score.toStringAsFixed(1)}',
-                style: const TextStyle(
+                style: TextStyle(
                   color: NipaPlayStyle.accent,
                   fontWeight: FontWeight.w600,
                 ),
@@ -862,10 +900,10 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
   }
 
   Widget episodeTile(Map<String, Object?> asset, Color secondary) {
-    // Never show the anime backdrop on every episode: that was a misleading
-    // fallback, not a genuine thumbnail. Use the correct TMDB still or a
-    // neutral placeholder when no episode artwork is available.
+    // TV uses episode stills; a movie main feature uses landscape work artwork.
     final still = episodeInfo(asset)['still']?.toString();
+    final placeholder =
+        asset['category'] == 'extra' && (still == null || still.isEmpty);
     final ratio = fraction(asset);
     final status = ratio >= .95
         ? '已看'
@@ -885,12 +923,13 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  image(still),
-                  Positioned(
-                    top: 7,
-                    left: 7,
-                    child: badge(episodeLabel(asset)),
-                  ),
+                  if (placeholder) extraCover(asset) else image(still),
+                  if (!placeholder)
+                    Positioned(
+                      top: 7,
+                      left: 7,
+                      child: badge(episodeLabel(asset)),
+                    ),
                   Positioned(
                     top: 7,
                     right: 7,
@@ -925,14 +964,107 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            episodeTitle(asset),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 13, height: 1.4, color: secondary),
+          Tooltip(
+            message: asset['name']?.toString() ?? '',
+            child: Text(
+              episodeTitle(asset),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 13, height: 1.4, color: secondary),
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  String extraCoverLabel(Map<String, Object?> asset) {
+    final type = extraType(asset);
+    if (type == '其他') return '其他';
+    final extracted = CloudMediaAssetPresentation.extraTitle(asset);
+    final number = extracted == null
+        ? null
+        : RegExp(r'\d+[A-Za-z]?$').firstMatch(extracted)?.group(0);
+    final peers = allExtras.where((a) => extraType(a) == type).toList();
+    final index = peers.indexWhere(
+      (a) =>
+          a['id'] == asset['id'] &&
+          a['relative_path'] == asset['relative_path'],
+    );
+    return '$type ${(number ?? asset['episode']?.toString() ?? '${index + 1}').padLeft(2, '0')}';
+  }
+
+  Widget extraCover(Map<String, Object?> asset) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final art = [
+      details['backdrop'],
+      widget.work['manual_cover_url'],
+      widget.work['poster'],
+      details['poster'],
+      widget.work['poster_fallback'],
+    ].whereType<String>().where((url) => url.trim().isNotEmpty).firstOrNull;
+    final surface = dark ? const Color(0xff242832) : const Color(0xffedf0f5);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ColoredBox(color: surface),
+        if (art != null)
+          Opacity(
+            opacity: dark ? .22 : .24,
+            child: ImageFiltered(
+              imageFilter: ui.ImageFilter.blur(sigmaX: 3, sigmaY: 3),
+              child: Image.network(
+                art,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => const SizedBox.expand(),
+              ),
+            ),
+          ),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                surface.withValues(alpha: .9),
+                surface.withValues(alpha: .15),
+              ],
+            ),
+          ),
+        ),
+        if (art == null)
+          Align(
+            alignment: Alignment.centerRight,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 24),
+              child: Icon(
+                extraType(asset) == 'MENU'
+                    ? Icons.menu_book_outlined
+                    : Icons.local_movies_outlined,
+                size: 54,
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: .09),
+              ),
+            ),
+          ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 22),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                extraCoverLabel(asset),
+                style: TextStyle(
+                  fontSize: 30,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.2,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

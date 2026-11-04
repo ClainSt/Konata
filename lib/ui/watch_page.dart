@@ -6,6 +6,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path/path.dart' as p;
 import '../core/catalog.dart';
 import '../core/sources.dart';
+import 'nipaplay_style.dart';
 
 class WatchPage extends StatefulWidget {
   const WatchPage({super.key, required this.asset});
@@ -131,9 +132,29 @@ class _WatchPageState extends State<WatchPage> {
               children: [
                 Expanded(
                   child: Center(
-                    child: Video(
-                      controller: controller,
-                      controls: AdaptiveVideoControls,
+                    child: MaterialDesktopVideoControlsTheme(
+                      normal: MaterialDesktopVideoControlsThemeData(
+                        seekBarPositionColor: NipaPlayStyle.accent,
+                        seekBarThumbColor: NipaPlayStyle.accent,
+                      ),
+                      fullscreen: MaterialDesktopVideoControlsThemeData(
+                        seekBarPositionColor: NipaPlayStyle.accent,
+                        seekBarThumbColor: NipaPlayStyle.accent,
+                      ),
+                      child: MaterialVideoControlsTheme(
+                        normal: MaterialVideoControlsThemeData(
+                          seekBarPositionColor: NipaPlayStyle.accent,
+                          seekBarThumbColor: NipaPlayStyle.accent,
+                        ),
+                        fullscreen: MaterialVideoControlsThemeData(
+                          seekBarPositionColor: NipaPlayStyle.accent,
+                          seekBarThumbColor: NipaPlayStyle.accent,
+                        ),
+                        child: Video(
+                          controller: controller,
+                          controls: AdaptiveVideoControls,
+                        ),
+                      ),
                     ),
                   ),
                 ),

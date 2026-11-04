@@ -7,6 +7,7 @@ import 'anime_detail_metadata.dart';
 /// Standalone adaptation of NipaPlay Personal's public Bangumi cast and TMDB
 /// episode-artwork pipeline. No dependency on NipaPlay's providers or players.
 class DetailMetadataService {
+  static const schemaVersion = 5;
   DetailMetadataService({
     http.Client? client,
     this.tmdbRequest,
@@ -63,7 +64,7 @@ class DetailMetadataService {
     List<Map<String, Object?>> assets = const [],
   }) async {
     final result = <String, dynamic>{
-      'schemaVersion': 4,
+      'schemaVersion': schemaVersion,
       'characters': <Map<String, dynamic>>[],
       'seasonEpisodes': <String, dynamic>{},
       'seasonEpisodeCounts': <String, dynamic>{},
@@ -102,6 +103,39 @@ class DetailMetadataService {
               (overview['first_air_date'] ?? overview['release_date'])
                   ?.toString();
           result['source'] = 'TMDB';
+        }
+        if (type == 'movie') {
+          // Personal uses landscape work artwork for a movie's main feature.
+          // Movies have no TV season/episode still endpoint.
+          var artwork = image(
+            overview?['backdrop_path']?.toString(),
+            size: 'w780',
+          );
+          if (artwork == null) {
+            final images = await _tmdb('/movie/$tmdbId/images', {
+              'include_image_language': 'zh,ja,en,null',
+            });
+            final backdrops = (images?['backdrops'] as List? ?? [])
+                .whereType<Map>()
+                .where((entry) => image(entry['file_path']?.toString()) != null)
+                .toList();
+            backdrops.sort((a, b) {
+              final score = (num.tryParse('${b['vote_average']}') ?? 0)
+                  .compareTo(num.tryParse('${a['vote_average']}') ?? 0);
+              if (score != 0) return score;
+              return (num.tryParse('${b['width']}') ?? 0).compareTo(
+                num.tryParse('${a['width']}') ?? 0,
+              );
+            });
+            if (backdrops.isNotEmpty) {
+              artwork = image(
+                backdrops.first['file_path']?.toString(),
+                size: 'w780',
+              );
+            }
+          }
+          result['movieStill'] = artwork;
+          result['backdrop'] ??= artwork;
         }
         if (type == 'tv') {
           // Unlike the initial prototype, episode artwork is keyed by

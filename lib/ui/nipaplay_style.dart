@@ -1,10 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import '../core/app_theme.dart';
 
-/// CCPlayer temporarily follows the existing NipaPlay Personal desktop/tablet
-/// Material visual language, with its original rose accent and Han font.
+/// Shared NipaPlay Personal visual baseline for every CCPlayer screen.
 class NipaPlayStyle {
-  static const Color accent = Color.fromARGB(255, 255, 46, 85);
+  static Color get accent => AppTheme.instance.accent.color;
+  static Color get onAccent => AppTheme.instance.accent.foreground;
 
   static ThemeData theme(Brightness brightness) {
     final dark = brightness == Brightness.dark;
@@ -16,9 +17,9 @@ class NipaPlayStyle {
       colorScheme: ColorScheme(
         brightness: brightness,
         primary: accent,
-        onPrimary: Colors.white,
+        onPrimary: onAccent,
         secondary: accent,
-        onSecondary: Colors.white,
+        onSecondary: onAccent,
         surface: dark ? const Color(0xff1f1f1f) : Colors.white,
         onSurface: foreground,
         error: Colors.red,
@@ -40,16 +41,61 @@ class NipaPlayStyle {
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: foreground.withValues(alpha: .035),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 14,
           vertical: 12,
         ),
       ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: dark ? const Color(0xff252525) : Colors.white,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        titleTextStyle: TextStyle(
+          fontSize: 21,
+          fontWeight: FontWeight.w600,
+          color: foreground,
+        ),
+      ),
+      dividerTheme: DividerThemeData(
+        color: foreground.withValues(alpha: .09),
+        thickness: 1,
+      ),
+      listTileTheme: ListTileThemeData(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+        iconColor: foreground.withValues(alpha: .65),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+      ),
+      chipTheme: ChipThemeData(
+        backgroundColor: foreground.withValues(alpha: .055),
+        selectedColor: accent.withValues(alpha: .12),
+        side: BorderSide.none,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+      ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: dark ? const Color(0xff292929) : Colors.white,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: dark ? const Color(0xff252525) : Colors.white,
+        surfaceTintColor: Colors.transparent,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+        ),
+      ),
+      progressIndicatorTheme: ProgressIndicatorThemeData(color: accent),
+      sliderTheme: SliderThemeData(
+        activeTrackColor: accent,
+        thumbColor: accent,
+        inactiveTrackColor: foreground.withValues(alpha: .12),
+      ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: accent,
-          foregroundColor: Colors.white,
+          foregroundColor: onAccent,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(10),
           ),

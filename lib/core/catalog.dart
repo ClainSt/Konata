@@ -9,6 +9,7 @@ import 'cloud_media_asset_presentation.dart';
 import 'cloud_media_file_classifier.dart';
 import 'personal_scraper.dart';
 import 'phantom_directory_repair.dart';
+import 'sources.dart' show SmbSource;
 
 class Catalog extends ChangeNotifier {
   Catalog._();
@@ -215,6 +216,7 @@ class Catalog extends ChangeNotifier {
     String? password,
   }) async {
     final source = sourceOf(sourceId);
+    if (source['kind'] == 'smb') SmbSource.validateLocation(location);
     if (source['kind'] == 'webdav') {
       final uri = Uri.tryParse(location);
       if (uri == null ||

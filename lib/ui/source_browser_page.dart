@@ -359,7 +359,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                                   ? Icons.subtitles_outlined
                                   : Icons.insert_drive_file_outlined,
                               color: item.directory
-                                  ? const Color(0xff8dbafa)
+                                  ? Theme.of(context).colorScheme.primary
                                   : null,
                             ),
                           ],

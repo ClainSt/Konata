@@ -17,6 +17,12 @@ class TmdbSettingsDialog {
         context: context,
         builder: (dialogContext) => StatefulBuilder(
           builder: (dialogContext, refresh) {
+            final scheme = Theme.of(dialogContext).colorScheme;
+            final outline = scheme.onSurface.withValues(alpha: .14);
+            final fieldBorder = OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: outline),
+            );
             final controller = mode == 'token' ? token : apiKey;
             Future<void> test() async {
               refresh(() {
@@ -63,16 +69,69 @@ class TmdbSettingsDialog {
             }
 
             return AlertDialog(
-              title: const Text('TMDB / Bangumi 设置'),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              titlePadding: const EdgeInsets.fromLTRB(24, 16, 12, 12),
+              contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+              actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+              scrollable: true,
+              title: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'TMDB API 设置',
+                      style: TextStyle(
+                        fontSize: 21,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '关闭 TMDB 设置',
+                    onPressed: testing
+                        ? null
+                        : () => Navigator.pop(dialogContext),
+                    icon: const Icon(Icons.close, size: 22),
+                  ),
+                ],
+              ),
               content: SizedBox(
                 width: 490,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('TMDB 认证方式'),
+                    const Text(
+                      'TMDB 认证方式',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     const SizedBox(height: 10),
                     SegmentedButton<String>(
+                      style: ButtonStyle(
+                        shape: WidgetStatePropertyAll(
+                          RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        side: WidgetStatePropertyAll(
+                          BorderSide(color: outline),
+                        ),
+                        backgroundColor: WidgetStateProperty.resolveWith(
+                          (states) => states.contains(WidgetState.selected)
+                              ? scheme.primary.withValues(alpha: .16)
+                              : Colors.transparent,
+                        ),
+                        foregroundColor: WidgetStatePropertyAll(
+                          scheme.onSurface,
+                        ),
+                        textStyle: const WidgetStatePropertyAll(
+                          TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                        ),
+                      ),
                       segments: const [
                         ButtonSegment(value: 'token', label: Text('访问令牌')),
                         ButtonSegment(value: 'apiKey', label: Text('API Key')),
@@ -83,12 +142,24 @@ class TmdbSettingsDialog {
                         result = null;
                       }),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 20),
                     TextField(
                       key: ValueKey(mode),
                       controller: controller,
                       obscureText: true,
                       decoration: InputDecoration(
+                        border: fieldBorder,
+                        enabledBorder: fieldBorder,
+                        focusedBorder: fieldBorder.copyWith(
+                          borderSide: BorderSide(
+                            color: scheme.primary,
+                            width: 1.5,
+                          ),
+                        ),
+                        helperMaxLines: 3,
+                        floatingLabelStyle: TextStyle(
+                          color: scheme.onSurface.withValues(alpha: .7),
+                        ),
                         labelText: mode == 'token'
                             ? 'API Read Access Token'
                             : 'API Key',
@@ -96,9 +167,13 @@ class TmdbSettingsDialog {
                       ),
                     ),
                     const SizedBox(height: 14),
-                    const Text(
+                    Text(
                       '元数据来源仅使用 TMDB 和 Bangumi，后者的公开搜索不需要此凭证。',
-                      style: TextStyle(fontSize: 12),
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.6,
+                        color: scheme.onSurface.withValues(alpha: .6),
+                      ),
                     ),
                     if (result != null) ...[
                       const SizedBox(height: 10),
@@ -112,12 +187,26 @@ class TmdbSettingsDialog {
               ),
               actions: [
                 TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: scheme.onSurface.withValues(alpha: .65),
+                  ),
                   onPressed: testing
                       ? null
                       : () => Navigator.pop(dialogContext),
                   child: const Text('取消'),
                 ),
                 OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: scheme.onSurface,
+                    side: BorderSide(color: outline),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 13,
+                    ),
+                  ),
                   onPressed: testing ? null : test,
                   icon: testing
                       ? const SizedBox(

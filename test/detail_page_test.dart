@@ -52,6 +52,14 @@ void main() {
         'relative_path': 'Work/SP.mkv',
         'name': 'SP.mkv',
       },
+      {
+        'id': 'unknown-extra',
+        'work_id': 'work-one',
+        'category': 'extra',
+        'extra_type': '其他',
+        'relative_path': 'Work/制作访谈幕后记录.mkv',
+        'name': '制作访谈幕后记录.mkv',
+      },
     ];
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox());
@@ -86,7 +94,7 @@ void main() {
     expect(find.text('从头播放'), findsNothing);
     expect(find.byTooltip('刷新详情资料'), findsNothing);
     expect(find.text('正片  1'), findsOneWidget);
-    expect(find.text('特典  1'), findsOneWidget);
+    expect(find.text('特典  2'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('detail-more-button')));
     await tester.pumpAndSettle();
@@ -108,8 +116,16 @@ void main() {
     await tester.pumpAndSettle();
     expect(deleteCount, 1);
 
-    await tester.tap(find.text('特典  1'));
+    await tester.tap(find.text('特典  2'));
     await tester.pump();
+    expect(find.text('SP 01'), findsOneWidget);
+    expect(find.text('特别篇 01'), findsOneWidget);
+    expect(find.text('制作访谈幕后记录'), findsOneWidget);
+    expect(find.text('其他 01'), findsNothing);
+    final clearToolbar = tester.widget<Container>(
+      find.byKey(const ValueKey('detail-fixed-toolbar')),
+    );
+    expect(clearToolbar.color, Colors.transparent);
     expect(
       find.byKey(const ValueKey('detail-episode:Work/SP.mkv')),
       findsOneWidget,

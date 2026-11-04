@@ -2,6 +2,49 @@ import 'cloud_media_file_classifier.dart';
 
 /// Filename tokens are used only for matching and short extra labels.
 class CloudMediaAssetPresentation {
+  /// Display-only cleanup: keep content labels and numbering intact.
+  static String cleanedExtraFilename(Map<String, Object?> asset) {
+    final original = asset['name']?.toString().trim();
+    final path =
+        (original?.isNotEmpty == true
+                ? original!
+                : asset['relative_path']?.toString() ?? '')
+            .replaceAll('\\', '/')
+            .split('/')
+            .last;
+    final base = path.replaceFirst(
+      RegExp(r'\.(?:mkv|mp4|avi|mov|m4v|ts|m2ts|webm)$', caseSensitive: false),
+      '',
+    );
+    final technical = RegExp(
+      r'\b(?:\d{3,4}p|\d{3,4}x\d{3,4}|[248]k|ma10p|hi10p|10bit|8bit|x26[45]|h[ .]?26[45]|hevc|avc|av1|aac|flac|opus|dts|ac3|eac3|bdrip|bluray|web-?dl|webrip|hdr10|chs|cht|jpsc|jptc|jpchs|jpcht)\b',
+      caseSensitive: false,
+    );
+    var name = base.replaceAllMapped(
+      RegExp(r'\[([^\]]*)\]|【([^】]*)】|\(([^)]*)\)'),
+      (match) {
+        final value = match.group(1) ?? match.group(2) ?? match.group(3)!;
+        final release = RegExp(
+          r'(?:字幕组|字幕組|压制组|壓製組|VCB-Studio|SweetSub|sub(?:s)?\b|Encode|Rip)',
+          caseSensitive: false,
+        ).hasMatch(value);
+        final checksum = RegExp(r'^[A-Fa-f0-9]{8}$').hasMatch(value.trim());
+        return technical.hasMatch(value.replaceAll('_', ' ')) ||
+                release ||
+                checksum
+            ? ' '
+            : ' $value ';
+      },
+    );
+    name = name
+        .replaceAll(RegExp(r'[_.]+'), ' ')
+        .replaceAll(technical, ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim()
+        .replaceAll(RegExp(r'^[\s-]+|[\s-]+$'), '');
+    return name.isEmpty ? base : name;
+  }
+
   static const _matchableSpecialTypes = {'OVA', 'OAD', 'SP'};
   static const _matchableSpecialFamilies = {'OVA', 'SP'};
   static final _noCreditToken = RegExp(

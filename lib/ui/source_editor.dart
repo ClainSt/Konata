@@ -21,7 +21,8 @@ class SourceEditor {
       text: source['username']?.toString() ?? '',
     );
     final password = TextEditingController();
-    final webdav = source['kind'] == 'webdav';
+    final webdav = source['kind'] != 'local';
+    final smb = source['kind'] == 'smb';
     final previousUsername = username.text.trim();
     bool clearPassword = false, testing = false;
     String? message;
@@ -39,7 +40,17 @@ class SourceEditor {
         message = null;
       });
       try {
-        if (webdav) {
+        if (smb) {
+          SmbSource.validateLocation(location.text.trim());
+          final client = WebDav({
+            'kind': 'smb',
+            'location': location.text.trim(),
+            'username': username.text.trim(),
+            'password': credentialPassword(),
+          });
+          final files = await client.list(client.root);
+          message = '连接成功，共享目录返回 ${files.length} 项';
+        } else if (webdav) {
           final uri = Uri.tryParse(location.text.trim());
           if (uri == null ||
               !uri.hasAuthority ||
@@ -77,7 +88,14 @@ class SourceEditor {
         update(() => message = '名称和地址不能为空');
         return;
       }
-      if (webdav) {
+      if (smb) {
+        try {
+          SmbSource.validateLocation(url);
+        } catch (e) {
+          update(() => message = '$e');
+          return;
+        }
+      } else if (webdav) {
         final uri = Uri.tryParse(url);
         if (uri == null ||
             !uri.hasAuthority ||
@@ -155,7 +173,11 @@ class SourceEditor {
                       controller: location,
                       readOnly: !webdav,
                       decoration: InputDecoration(
-                        labelText: webdav ? 'WebDAV 根目录 URL' : '本地文件夹',
+                        labelText: smb
+                            ? 'SMB 共享地址'
+                            : webdav
+                            ? 'WebDAV 根目录 URL'
+                            : '本地文件夹',
                       ),
                     ),
                     if (!webdav)

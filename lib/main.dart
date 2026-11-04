@@ -3,20 +3,36 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:media_kit/media_kit.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:window_manager/window_manager.dart';
+import 'core/app_theme.dart';
+import 'ui/app_header.dart';
+import 'ui/settings_page.dart';
+import 'ui/add_media_dialog.dart';
+import 'core/sources.dart';
 import 'core/catalog.dart';
 import 'core/metadata.dart';
-import 'core/selected_scan_workflow.dart';
-import 'core/personal_scrape_coordinator.dart';
+
 import 'ui/source_browser_page.dart';
 import 'ui/poster_title.dart';
 import 'ui/source_editor.dart';
-import 'ui/tmdb_settings_dialog.dart';
 import 'ui/nipaplay_detail_page.dart';
 import 'ui/nipaplay_style.dart';
 import 'ui/work_edit_dialogs.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (AppHeader.desktop) {
+    await windowManager.ensureInitialized();
+    await windowManager.waitUntilReadyToShow(
+      const WindowOptions(
+        title: 'CCPlayer',
+        minimumSize: Size(640, 480),
+        titleBarStyle: TitleBarStyle.hidden,
+        windowButtonVisibility: false,
+      ),
+    );
+  }
+  await AppTheme.instance.load();
   MediaKit.ensureInitialized();
   await Catalog.instance.initialize();
   const secure = FlutterSecureStorage();
@@ -28,16 +44,52 @@ Future<void> main() async {
   runApp(const CCPlayer());
 }
 
-class CCPlayer extends StatelessWidget {
+final libraryDestination = ValueNotifier<bool>(false);
+
+class CCPlayer extends StatefulWidget {
   const CCPlayer({super.key});
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'CCPlayer',
-    debugShowCheckedModeBanner: false,
-    theme: NipaPlayStyle.theme(Brightness.light),
-    darkTheme: NipaPlayStyle.theme(Brightness.dark),
-    themeMode: ThemeMode.light,
-    home: const LibraryPage(),
+  State<CCPlayer> createState() => _CCPlayerState();
+}
+
+class _CCPlayerState extends State<CCPlayer> {
+  final navigatorKey = GlobalKey<NavigatorState>();
+  Widget _navigation() => ValueListenableBuilder<bool>(
+    valueListenable: libraryDestination,
+    builder: (context, sources, _) => AppHeader(
+      showSources: sources,
+      onNavigate: (value) {
+        navigatorKey.currentState?.popUntil((route) => route.isFirst);
+        libraryDestination.value = value;
+      },
+      onSettings: () => showDialog<void>(
+        context: navigatorKey.currentContext!,
+        builder: (_) => const SettingsPage(),
+      ),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: AppTheme.instance,
+    builder: (context, _) => MaterialApp(
+      navigatorKey: navigatorKey,
+      title: 'CCPlayer',
+      debugShowCheckedModeBanner: false,
+      theme: NipaPlayStyle.theme(Brightness.light),
+      darkTheme: NipaPlayStyle.theme(Brightness.dark),
+      themeMode: AppTheme.instance.mode,
+      builder: (context, child) => Overlay.wrap(
+        child: Column(
+          children: [
+            if (AppHeader.desktop) _navigation(),
+            Expanded(child: child!),
+            if (!AppHeader.desktop) _navigation(),
+          ],
+        ),
+      ),
+      home: const LibraryPage(),
+    ),
   );
 }
 
@@ -48,7 +100,20 @@ class LibraryPage extends StatefulWidget {
 }
 
 class _LibraryPageState extends State<LibraryPage> {
-  bool showSources = false;
+  bool get showSources => libraryDestination.value;
+  @override
+  void initState() {
+    super.initState();
+    libraryDestination.addListener(_destinationChanged);
+  }
+
+  void _destinationChanged() => setState(() {});
+  @override
+  void dispose() {
+    libraryDestination.removeListener(_destinationChanged);
+    super.dispose();
+  }
+
   String filter = '';
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -63,63 +128,10 @@ class _LibraryPageState extends State<LibraryPage> {
           )
           .toList();
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('CCPlayer'),
-          actions: [
-            IconButton(
-              onPressed: _add,
-              tooltip: '添加媒体源',
-              icon: const Icon(Icons.add_to_photos_outlined),
-            ),
-            if (cat.hiddenWorkEntries.isNotEmpty)
-              IconButton(
-                key: const ValueKey('manage-hidden-works-button'),
-                onPressed: _manageHiddenWorks,
-                tooltip: '管理已隐藏作品',
-                icon: const Icon(Icons.visibility_off_outlined),
-              ),
-            IconButton(
-              onPressed: _settings,
-              tooltip: '元数据设置',
-              icon: const Icon(Icons.settings_outlined),
-            ),
-          ],
-        ),
         body: Column(
           children: [
             if (cat.scanning) const LinearProgressIndicator(),
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                children: [
-                  ChoiceChip(
-                    label: const Text('海报墙'),
-                    selected: !showSources,
-                    onSelected: (_) => setState(() => showSources = false),
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: Text('媒体源 (${cat.sources.length})'),
-                    selected: showSources,
-                    onSelected: (_) => setState(() => showSources = true),
-                  ),
-                  const Spacer(),
-                  Text('${cat.works.length} 部作品'),
-                ],
-              ),
-            ),
-            if (!showSources)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                child: TextField(
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search),
-                    hintText: '搜索动画',
-                    border: OutlineInputBorder(),
-                  ),
-                  onChanged: (v) => setState(() => filter = v),
-                ),
-              ),
+            _libraryToolbar(cat),
             Expanded(
               child: showSources
                   ? _sources(cat)
@@ -170,6 +182,107 @@ class _LibraryPageState extends State<LibraryPage> {
         ),
       );
     },
+  );
+  Widget _libraryToolbar(Catalog cat) => Padding(
+    padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+    child: LayoutBuilder(
+      builder: (context, bounds) {
+        final search = SizedBox(
+          height: 42,
+          child: TextField(
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.search, size: 20),
+              hintText: '搜索动画',
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 10,
+              ),
+              fillColor: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: .045),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+            ),
+            onChanged: (value) => setState(() => filter = value),
+          ),
+        );
+        final row = Row(
+          children: [
+            Text(
+              showSources
+                  ? '${cat.sources.length} 个媒体源'
+                  : '${cat.works.length} 部作品',
+              style: TextStyle(
+                fontSize: 13,
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: .55),
+              ),
+            ),
+            const Spacer(),
+            if (!showSources && bounds.maxWidth >= 700) ...[
+              SizedBox(width: 280, child: search),
+              const SizedBox(width: 16),
+            ],
+            if (cat.hiddenWorkEntries.isNotEmpty)
+              IconButton(
+                key: const ValueKey('manage-hidden-works-button'),
+                onPressed: _manageHiddenWorks,
+                tooltip: '管理已隐藏作品',
+                icon: const Icon(Icons.visibility_off_outlined),
+              ),
+            Tooltip(
+              message: '添加媒体源',
+              child: TextButton.icon(
+                style: ButtonStyle(
+                  foregroundColor: WidgetStateProperty.resolveWith(
+                    (states) =>
+                        states.contains(WidgetState.hovered) ||
+                            states.contains(WidgetState.focused) ||
+                            states.contains(WidgetState.pressed)
+                        ? NipaPlayStyle.accent
+                        : Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: .6),
+                  ),
+                  overlayColor: const WidgetStatePropertyAll(
+                    Colors.transparent,
+                  ),
+                  textStyle: const WidgetStatePropertyAll(
+                    TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                onPressed: _add,
+                icon: const Icon(Icons.add, size: 20),
+                label: const Text('添加媒体源'),
+              ),
+            ),
+          ],
+        );
+        return Column(
+          children: [
+            row,
+            if (!showSources && bounds.maxWidth < 700) ...[
+              const SizedBox(height: 12),
+              search,
+            ],
+          ],
+        );
+      },
+    ),
   );
   Widget _poster(Map<String, Object?> work) => InkWell(
     onTap: () => Navigator.push(
@@ -222,9 +335,9 @@ class _LibraryPageState extends State<LibraryPage> {
     ),
   );
   Widget _blankPoster() => const ColoredBox(
-    color: Color(0xff26364c),
+    color: Color(0xffeeeeee),
     child: Center(
-      child: Icon(Icons.movie_outlined, color: Color(0xff819ab9), size: 46),
+      child: Icon(Icons.movie_outlined, color: Colors.grey, size: 46),
     ),
   );
 
@@ -236,168 +349,273 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Widget _sources(Catalog cat) => ListView(
+    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
     children: [
       for (final source in cat.sources)
-        Card(
-          child: ListTile(
-            leading: Icon(
-              source['kind'] == 'local' ? Icons.folder : Icons.cloud_outlined,
-            ),
-            title: Text(source['label'].toString()),
-            subtitle: Text(
-              '${source['location']}\n已选择 ${cat.rootsFor(source['id'].toString()).length} 个刮削范围',
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            ),
-            onTap: () => _browse(source),
-            trailing: Wrap(
-              children: [
-                IconButton(
-                  tooltip: '编辑媒体源',
-                  icon: const Icon(Icons.edit_outlined),
-                  onPressed: () => SourceEditor.show(context, source),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1000),
+              child: Card(
+                margin: EdgeInsets.zero,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: .08),
+                  ),
                 ),
-                IconButton(
-                  tooltip: '浏览云盘或本地目录并选取刮削文件夹',
-                  onPressed: () => _browse(source),
-                  icon: const Icon(Icons.folder_open_outlined),
-                ),
-                IconButton(
-                  tooltip: '刮削 TMDB / Bangumi 元数据（不重新扫描视频）',
-                  onPressed: cat.scanning
-                      ? null
-                      : () async {
-                          try {
-                            final report = await PersonalScrapeCoordinator()
-                                .scrapeSource(
-                                  source['id'].toString(),
-                                  onlyPending: true,
-                                );
-                            _message(
-                              '刮削完成：成功 ${report.matched}，待复核 ${report.review}，失败 ${report.errors}',
-                            );
-                          } catch (e) {
-                            _message('刮削失败：$e');
-                          }
-                        },
-                  icon: const Icon(Icons.auto_awesome_outlined),
-                ),
-                IconButton(
-                  tooltip: '扫描已选范围',
-                  onPressed: cat.scanning
-                      ? null
-                      : () async {
-                          if (cat.rootsFor(source['id'].toString()).isEmpty) {
-                            _browse(source);
-                            return;
-                          }
-                          try {
-                            await SelectedScanWorkflow.run(source);
-                          } catch (_) {
-                            // Progress inspector owns scanning errors; no snackbar.
-                          }
-                        },
-                  icon: const Icon(Icons.sync),
-                ),
-                IconButton(
-                  tooltip: '移除',
-                  onPressed: () async {
-                    final ok = await showDialog<bool>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('移除媒体源？'),
-                        content: const Text('仅清除索引，不删除源文件。'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx, false),
-                            child: const Text('取消'),
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: LayoutBuilder(
+                    builder: (context, bounds) {
+                      final info = InkWell(
+                        onTap: () => _browse(source),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.primary.withValues(alpha: .09),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(
+                                source['kind'] == 'local'
+                                    ? Icons.folder_outlined
+                                    : Icons.cloud_outlined,
+                                size: 23,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    source['label'].toString(),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 5),
+                                  Text(
+                                    '${source['kind'] == 'local'
+                                        ? '本地目录'
+                                        : source['kind'] == 'smb'
+                                        ? 'SMB'
+                                        : 'WebDAV'} · ${source['location']}',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      height: 1.5,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface
+                                          .withValues(alpha: .55),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                      final actions = Wrap(
+                        children: [
+                          IconButton(
+                            tooltip: '编辑媒体源',
+                            icon: const Icon(Icons.edit_outlined),
+                            onPressed: () => SourceEditor.show(context, source),
                           ),
-                          FilledButton(
-                            onPressed: () => Navigator.pop(ctx, true),
-                            child: const Text('移除'),
+                          IconButton(
+                            tooltip: '浏览云盘或本地目录并选取刮削文件夹',
+                            onPressed: () => _browse(source),
+                            icon: const Icon(Icons.folder_open_outlined),
+                          ),
+                          IconButton(
+                            tooltip: '移除',
+                            onPressed: () async {
+                              final ok = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text('移除媒体源？'),
+                                  content: const Text('仅清除索引，不删除源文件。'),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.pop(ctx, false),
+                                      child: const Text('取消'),
+                                    ),
+                                    FilledButton(
+                                      onPressed: () => Navigator.pop(ctx, true),
+                                      child: const Text('移除'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (ok == true) {
+                                await Catalog.instance.removeSource(
+                                  source['id'].toString(),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.delete_outline),
                           ),
                         ],
-                      ),
-                    );
-                    if (ok == true) {
-                      await Catalog.instance.removeSource(
-                        source['id'].toString(),
                       );
-                    }
-                  },
-                  icon: const Icon(Icons.delete_outline),
+                      return bounds.maxWidth >= 540
+                          ? Row(
+                              children: [
+                                Expanded(child: info),
+                                const SizedBox(width: 20),
+                                actions,
+                              ],
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                info,
+                                const SizedBox(height: 10),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: actions,
+                                ),
+                              ],
+                            );
+                    },
+                  ),
                 ),
-              ],
+              ),
             ),
           ),
         ),
-      Center(
-        child: FilledButton.icon(
-          onPressed: _add,
-          icon: const Icon(Icons.add),
-          label: const Text('添加媒体源'),
-        ),
-      ),
     ],
   );
   Future<void> _add() async {
+    final kind = await AddMediaDialog.show(context);
+    if (kind == null || !mounted) return;
     final name = TextEditingController(),
         location = TextEditingController(),
         username = TextEditingController(),
         password = TextEditingController();
-    String kind = 'webdav';
+    bool obscurePassword = true;
+    InputDecoration fieldDecoration(String label, {Widget? suffixIcon}) =>
+        InputDecoration(
+          labelText: label,
+          suffixIcon: suffixIcon,
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: .25),
+            ),
+          ),
+        );
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, update) => AlertDialog(
-          title: const Text('添加媒体源'),
+          titlePadding: const EdgeInsets.fromLTRB(24, 20, 12, 8),
+          contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+          actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+          title: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  kind == 'local'
+                      ? '添加本地文件夹'
+                      : kind == 'smb'
+                      ? '添加 SMB 共享'
+                      : '添加 WebDAV 服务器',
+                ),
+              ),
+              IconButton(
+                tooltip: '关闭',
+                onPressed: () => Navigator.pop(ctx, false),
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
           content: SizedBox(
             width: 460,
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(value: 'webdav', label: Text('WebDAV')),
-                      ButtonSegment(value: 'local', label: Text('本地')),
-                    ],
-                    selected: {kind},
-                    onSelectionChanged: (v) => update(() => kind = v.first),
-                  ),
+                  if (kind != 'local') ...[
+                    Text(
+                      '连接后可手动选择需要扫描的文件夹。',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Theme.of(
+                          ctx,
+                        ).colorScheme.onSurface.withValues(alpha: .65),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
                   TextField(
                     controller: name,
-                    decoration: const InputDecoration(labelText: '显示名称'),
+                    decoration: fieldDecoration('连接名称（可选）'),
                   ),
                   if (kind == 'local')
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 18),
                       child: Text('点击添加后将打开系统文件夹选择器，可直接选择本地目录。'),
                     ),
-                  if (kind == 'webdav') ...[
+                  if (kind != 'local') ...[
+                    const SizedBox(height: 16),
                     TextField(
                       controller: location,
-                      decoration: const InputDecoration(
-                        labelText: 'WebDAV 根目录 URL',
+                      decoration: fieldDecoration(
+                        kind == 'smb' ? 'SMB 地址（smb://主机/共享目录）' : 'WebDAV 地址',
                       ),
                     ),
+                    const SizedBox(height: 16),
                     TextField(
                       controller: username,
-                      decoration: const InputDecoration(
-                        labelText: '用户名（可留空，匿名访问）',
+                      decoration: fieldDecoration(
+                        kind == 'smb' ? r'用户名（可选，支持 域\用户名）' : '用户名（可选）',
                       ),
                     ),
+                    const SizedBox(height: 16),
                     TextField(
                       controller: password,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: '密码（可留空，匿名访问）',
+                      obscureText: obscurePassword,
+                      decoration: fieldDecoration(
+                        '密码（可选）',
+                        suffixIcon: IconButton(
+                          tooltip: obscurePassword ? '显示密码' : '隐藏密码',
+                          onPressed: () =>
+                              update(() => obscurePassword = !obscurePassword),
+                          icon: Icon(
+                            obscurePassword
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                          ),
+                        ),
                       ),
                     ),
-                    const Text(
-                      '留空用户名和密码即匿名访问。目录浏览支持 Basic/Digest 认证；公网请使用 HTTPS。',
+                    const SizedBox(height: 16),
+                    Text(
+                      '无需认证时，用户名和密码留空即可。',
                       style: TextStyle(
-                        color: Colors.orangeAccent,
+                        color: Theme.of(
+                          ctx,
+                        ).colorScheme.onSurface.withValues(alpha: .6),
                         fontSize: 12,
                       ),
                     ),
@@ -440,7 +658,21 @@ class _LibraryPageState extends State<LibraryPage> {
           return;
         }
         final uri = Uri.tryParse(location.text.trim());
-        if (uri == null ||
+        if (kind == 'smb') {
+          try {
+            SmbSource.validateLocation(location.text.trim());
+            final id = await Catalog.instance.addSource(
+              'smb',
+              name.text.trim().isEmpty ? uri!.host : name.text.trim(),
+              location.text.trim(),
+              username: username.text.trim(),
+              password: password.text,
+            );
+            if (mounted) _browse(Catalog.instance.sourceOf(id));
+          } catch (e) {
+            _message('添加 SMB 失败：$e');
+          }
+        } else if (uri == null ||
             !uri.hasAuthority ||
             (uri.scheme != 'http' && uri.scheme != 'https')) {
           _message('请输入有效的 http(s) WebDAV 地址');
@@ -509,8 +741,6 @@ class _LibraryPageState extends State<LibraryPage> {
       },
     ),
   );
-
-  Future<void> _settings() => TmdbSettingsDialog.show(context);
 
   void _message(String message) {
     if (mounted) {

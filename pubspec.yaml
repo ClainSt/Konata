@@ -100,3 +100,8 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+dependency_overrides:
+  # Reuse the Dart FFI Credential Manager adapter, avoiding Windows ATL.
+  flutter_secure_storage_windows:
+    path: packages/flutter_secure_storage_windows

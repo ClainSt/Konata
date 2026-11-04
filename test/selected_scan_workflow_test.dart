@@ -56,7 +56,7 @@ void main() {
           'CREATE TABLE sources (id TEXT PRIMARY KEY,kind TEXT,label TEXT,location TEXT,username TEXT,password TEXT)',
         );
         await db.execute(
-          'CREATE TABLE works (id TEXT PRIMARY KEY,title TEXT,year INTEGER,tmdb_id INTEGER,tmdb_type TEXT,bangumi_id INTEGER,poster TEXT,poster_fallback TEXT,manual_cover_url TEXT,manual_cover_source TEXT,overview TEXT,manual_lock INTEGER NOT NULL DEFAULT 0,needs_review INTEGER NOT NULL DEFAULT 1)',
+          'CREATE TABLE works (id TEXT PRIMARY KEY,title TEXT,year INTEGER,tmdb_id INTEGER,tmdb_type TEXT,bangumi_id INTEGER,poster TEXT,poster_fallback TEXT,manual_cover_url TEXT,manual_cover_source TEXT,overview TEXT,manual_lock INTEGER NOT NULL DEFAULT 0,needs_review INTEGER NOT NULL DEFAULT 1,hidden INTEGER NOT NULL DEFAULT 0,keep_hidden INTEGER NOT NULL DEFAULT 0)',
         );
         await db.execute(
           'CREATE TABLE assets (id TEXT PRIMARY KEY,source_id TEXT,work_id TEXT,relative_path TEXT,name TEXT,episode INTEGER,season INTEGER NOT NULL DEFAULT 1,category TEXT,extra_type TEXT,size INTEGER, UNIQUE(source_id,relative_path))',

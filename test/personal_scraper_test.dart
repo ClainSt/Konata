@@ -202,7 +202,7 @@ void main() {
       Catalog.instance.db = db;
       try {
         await db.execute(
-          'CREATE TABLE works (id TEXT PRIMARY KEY,title TEXT,year INTEGER,poster TEXT,overview TEXT,tmdb_id INTEGER,tmdb_type TEXT,bangumi_id INTEGER,manual_lock INTEGER,needs_review INTEGER)',
+          'CREATE TABLE works (id TEXT PRIMARY KEY,title TEXT,year INTEGER,poster TEXT,overview TEXT,tmdb_id INTEGER,tmdb_type TEXT,bangumi_id INTEGER,manual_lock INTEGER,needs_review INTEGER,hidden INTEGER NOT NULL DEFAULT 0,keep_hidden INTEGER NOT NULL DEFAULT 0)',
         );
         await db.execute(
           'CREATE TABLE progress (asset_id TEXT PRIMARY KEY,position_ms INTEGER)',

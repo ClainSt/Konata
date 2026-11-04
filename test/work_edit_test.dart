@@ -22,7 +22,7 @@ void main() {
           'CREATE TABLE scan_roots (source_id TEXT,relative_path TEXT)',
         );
         await db.execute(
-          'CREATE TABLE works (id TEXT PRIMARY KEY,title TEXT,year INTEGER,poster TEXT,poster_fallback TEXT,manual_cover_url TEXT,manual_cover_source TEXT,overview TEXT,tmdb_id INTEGER,tmdb_type TEXT,bangumi_id INTEGER,manual_lock INTEGER NOT NULL DEFAULT 0,needs_review INTEGER NOT NULL DEFAULT 1)',
+          'CREATE TABLE works (id TEXT PRIMARY KEY,title TEXT,year INTEGER,poster TEXT,poster_fallback TEXT,manual_cover_url TEXT,manual_cover_source TEXT,overview TEXT,tmdb_id INTEGER,tmdb_type TEXT,bangumi_id INTEGER,manual_lock INTEGER NOT NULL DEFAULT 0,needs_review INTEGER NOT NULL DEFAULT 1,hidden INTEGER NOT NULL DEFAULT 0,keep_hidden INTEGER NOT NULL DEFAULT 0)',
         );
         await db.insert('works', {
           'id': 'id1',
@@ -84,7 +84,7 @@ void main() {
           'CREATE TABLE sources (id TEXT PRIMARY KEY,label TEXT)',
         );
         await db.execute(
-          'CREATE TABLE works (id TEXT PRIMARY KEY,title TEXT,year INTEGER,poster TEXT,poster_fallback TEXT,manual_cover_url TEXT,manual_cover_source TEXT,overview TEXT,tmdb_id INTEGER,tmdb_type TEXT,bangumi_id INTEGER,manual_lock INTEGER NOT NULL DEFAULT 0,needs_review INTEGER NOT NULL DEFAULT 1)',
+          'CREATE TABLE works (id TEXT PRIMARY KEY,title TEXT,year INTEGER,poster TEXT,poster_fallback TEXT,manual_cover_url TEXT,manual_cover_source TEXT,overview TEXT,tmdb_id INTEGER,tmdb_type TEXT,bangumi_id INTEGER,manual_lock INTEGER NOT NULL DEFAULT 0,needs_review INTEGER NOT NULL DEFAULT 1,hidden INTEGER NOT NULL DEFAULT 0,keep_hidden INTEGER NOT NULL DEFAULT 0)',
         );
         await db.execute(
           'CREATE TABLE assets (id TEXT PRIMARY KEY,episode INTEGER,name TEXT)',

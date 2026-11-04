@@ -71,6 +71,13 @@ class _LibraryPageState extends State<LibraryPage> {
               tooltip: '添加媒体源',
               icon: const Icon(Icons.add_to_photos_outlined),
             ),
+            if (cat.hiddenWorkEntries.isNotEmpty)
+              IconButton(
+                key: const ValueKey('manage-hidden-works-button'),
+                onPressed: _manageHiddenWorks,
+                tooltip: '管理已隐藏作品',
+                icon: const Icon(Icons.visibility_off_outlined),
+              ),
             IconButton(
               onPressed: _settings,
               tooltip: '元数据设置',
@@ -455,6 +462,54 @@ class _LibraryPageState extends State<LibraryPage> {
     password.dispose();
   }
 
+  Future<void> _manageHiddenWorks() => showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AnimatedBuilder(
+      animation: Catalog.instance,
+      builder: (context, _) {
+        final hidden = Catalog.instance.hiddenWorkEntries;
+        return AlertDialog(
+          title: const Text('管理已隐藏作品'),
+          content: SizedBox(
+            width: 560,
+            height: 350,
+            child: hidden.isEmpty
+                ? const Center(child: Text('暂无已隐藏作品'))
+                : ListView.builder(
+                    itemCount: hidden.length,
+                    itemBuilder: (context, index) {
+                      final work = hidden[index];
+                      return ListTile(
+                        title: Text(work['title']?.toString() ?? ''),
+                        subtitle: Text(
+                          work['keep_hidden'] == 1
+                              ? '重新扫描后仍保持隐藏'
+                              : '重新扫描后会自动恢复',
+                        ),
+                        trailing: TextButton.icon(
+                          onPressed: () async {
+                            await Catalog.instance.restoreWork(
+                              work['id'].toString(),
+                            );
+                          },
+                          icon: const Icon(Icons.visibility_outlined),
+                          label: const Text('恢复显示'),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('关闭'),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+
   Future<void> _settings() => TmdbSettingsDialog.show(context);
 
   void _message(String message) {
@@ -493,10 +548,74 @@ class _WorkPageState extends State<WorkPage> {
           searchAndBind: () => _match(work),
         ),
         onEditCover: () => WorkEditDialogs.cover(context, work),
+        onDelete: () => _deleteWork(work),
         onBack: () => Navigator.maybePop(context),
       );
     },
   );
+
+  Future<void> _deleteWork(Map<String, Object?> work) async {
+    if (Catalog.instance.scanning) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('扫描或刮削进行中，请完成后再移除作品')));
+      return;
+    }
+    var keepHidden = false;
+    final decision = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, update) => AlertDialog(
+          title: const Text('从媒体库删除该作品？'),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(work['title']?.toString() ?? ''),
+                const SizedBox(height: 12),
+                const Text('仅从 CCPlayer 媒体库中移除，不会删除本地或云盘源文件、人工关联和观看进度。'),
+                const SizedBox(height: 10),
+                CheckboxListTile(
+                  key: const ValueKey('keep-work-hidden-checkbox'),
+                  value: keepHidden,
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('重新扫描后仍保持隐藏'),
+                  subtitle: const Text('不勾选时，重新扫描该作品会再次显示'),
+                  onChanged: (value) =>
+                      update(() => keepHidden = value ?? false),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              key: const ValueKey('confirm-remove-work'),
+              onPressed: () => Navigator.pop(dialogContext, keepHidden),
+              child: const Text('从媒体库移除'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (decision == null || !mounted) return;
+    try {
+      await Catalog.instance.hideWork(widget.workId, keepHidden: decision);
+      if (mounted) Navigator.pop(context);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('移除作品失败：$error')));
+      }
+    }
+  }
 
   Future<void> _match(Map<String, Object?> work) async {
     final query = TextEditingController(

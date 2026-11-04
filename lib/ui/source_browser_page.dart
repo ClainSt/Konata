@@ -14,6 +14,15 @@ class BrowserEntry {
   final int? size;
 }
 
+/// Fast, in-memory filtering of the current folder's 1,000+ children.
+abstract final class SourceBrowserSearch {
+  static List<BrowserEntry> filter(List<BrowserEntry> entries, String query) {
+    final term = query.trim().toLowerCase();
+    if (term.isEmpty) return entries;
+    return entries.where((e) => e.name.toLowerCase().contains(term)).toList();
+  }
+}
+
 class SourceBrowserPage extends StatefulWidget {
   const SourceBrowserPage({super.key, required this.source});
   final Map<String, Object?> source;
@@ -27,6 +36,15 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   bool loading = false, scanning = false;
   String? error;
   int _generation = 0;
+  final TextEditingController _searchController = TextEditingController();
+  String searchTerm = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -45,6 +63,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   Future<void> _load([String? path]) async {
     final target = path ?? current;
     final generation = ++_generation;
+    if (target != current) {
+      _searchController.clear();
+      searchTerm = '';
+    }
     setState(() {
       current = target;
       loading = true;
@@ -152,6 +174,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       animation: catalog,
       builder: (context, _) {
         final selected = catalog.rootsFor(sourceId);
+        final shownEntries = SourceBrowserSearch.filter(entries, searchTerm);
         final breadcrumbs = <({String label, String path})>[
           (label: widget.source['label'].toString(), path: ''),
         ];
@@ -236,6 +259,45 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                   ],
                 ),
               ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 8, 18, 6),
+                child: TextField(
+                  key: const ValueKey('folder-search-field'),
+                  controller: _searchController,
+                  onChanged: (value) => setState(() => searchTerm = value),
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.search),
+                    hintText: '搜索当前文件夹（名称 / TMDB ID）',
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                    suffixIcon: searchTerm.isEmpty
+                        ? null
+                        : IconButton(
+                            key: const ValueKey('clear-folder-search'),
+                            tooltip: '清除搜索',
+                            icon: const Icon(Icons.close),
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() => searchTerm = '');
+                            },
+                          ),
+                  ),
+                ),
+              ),
+              if (searchTerm.trim().isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 3,
+                  ),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '匹配 ${shownEntries.length} / ${entries.length} 项',
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ),
+                ),
               if (loading) const LinearProgressIndicator(),
               if (error != null)
                 Expanded(
@@ -262,7 +324,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
               if (error == null)
                 Expanded(
                   child: ListView.builder(
-                    itemCount: entries.length + (current.isEmpty ? 0 : 1),
+                    itemCount: shownEntries.length + (current.isEmpty ? 0 : 1),
                     itemBuilder: (context, index) {
                       if (current.isNotEmpty && index == 0) {
                         return ListTile(
@@ -273,7 +335,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                           onTap: _up,
                         );
                       }
-                      final item = entries[index - (current.isEmpty ? 0 : 1)];
+                      final item =
+                          shownEntries[index - (current.isEmpty ? 0 : 1)];
                       return ListTile(
                         leading: Row(
                           mainAxisSize: MainAxisSize.min,

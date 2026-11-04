@@ -16,11 +16,12 @@ class NipaPlayDetailPage extends StatefulWidget {
     required this.assets,
     required this.onEditMetadata,
     required this.onEditCover,
+    required this.onDelete,
     required this.onBack,
   });
   final Map<String, Object?> work;
   final List<Map<String, Object?>> assets;
-  final VoidCallback onEditMetadata, onEditCover, onBack;
+  final VoidCallback onEditMetadata, onEditCover, onDelete, onBack;
   @override
   State<NipaPlayDetailPage> createState() => _NipaPlayDetailPageState();
 }
@@ -66,14 +67,21 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     if (!mounted || seq != generation) return;
     setState(() {
       progress = records;
-      if (cached != null) details = cached;
+      if (cached != null) {
+        details = Map<String, dynamic>.from(cached);
+        // Older caches did not retain Bangumi relation ranks: they placed
+        // cameos and minor characters before the four principal characters.
+        if ((cached['schemaVersion'] as int? ?? 0) < 4) {
+          details.remove('characters');
+        }
+      }
     });
     final fetched = await cat.detailFetchedAt(widget.work['id'].toString());
     if (!force &&
         cached != null &&
         fetched != null &&
         DateTime.now().difference(fetched) < const Duration(days: 3) &&
-        (cached['schemaVersion'] as int? ?? 0) >= 3) {
+        (cached['schemaVersion'] as int? ?? 0) >= 4) {
       return;
     }
     if (widget.work['tmdb_id'] == null && widget.work['bangumi_id'] == null) {
@@ -678,6 +686,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                                   widget.onEditMetadata();
                                 }
                                 if (value == 'cover') widget.onEditCover();
+                                if (value == 'delete') widget.onDelete();
                               },
                               itemBuilder: (_) => const [
                                 PopupMenuItem(
@@ -692,6 +701,14 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                                   child: ListTile(
                                     leading: Icon(Icons.image_outlined),
                                     title: Text('编辑封面'),
+                                  ),
+                                ),
+                                PopupMenuDivider(),
+                                PopupMenuItem(
+                                  value: 'delete',
+                                  child: ListTile(
+                                    leading: Icon(Icons.delete_outline),
+                                    title: Text('删除该作品'),
                                   ),
                                 ),
                               ],

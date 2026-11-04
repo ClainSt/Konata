@@ -8,6 +8,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'cloud_media_asset_presentation.dart';
 import 'cloud_media_file_classifier.dart';
 import 'personal_scraper.dart';
+import 'phantom_directory_repair.dart';
 
 class Catalog extends ChangeNotifier {
   Catalog._();
@@ -16,6 +17,7 @@ class Catalog extends ChangeNotifier {
   static const _secrets = FlutterSecureStorage();
   List<Map<String, Object?>> sources = [],
       works = [],
+      hiddenWorkEntries = [],
       assets = [],
       scanRoots = [];
   bool scanning = false;
@@ -30,7 +32,7 @@ class Catalog extends ChangeNotifier {
     await folder.create(recursive: true);
     db = await openDatabase(
       p.join(folder.path, 'ccplayer.db'),
-      version: 10,
+      version: 12,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
           await db.execute(
@@ -97,13 +99,26 @@ class Catalog extends ChangeNotifier {
             'ALTER TABLE works ADD COLUMN manual_cover_source TEXT',
           );
         }
+        if (oldVersion < 11) {
+          // Remove only validated phantom repeated-folder assets. Real files,
+          // manual bindings, metadata and playback history are preserved.
+          await PhantomDirectoryRepair.repair(db);
+        }
+        if (oldVersion < 12) {
+          await db.execute(
+            'ALTER TABLE works ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0',
+          );
+          await db.execute(
+            'ALTER TABLE works ADD COLUMN keep_hidden INTEGER NOT NULL DEFAULT 0',
+          );
+        }
       },
       onCreate: (db, version) async {
         await db.execute(
           'CREATE TABLE sources (id TEXT PRIMARY KEY, kind TEXT NOT NULL, label TEXT NOT NULL, location TEXT NOT NULL, username TEXT, password TEXT)',
         );
         await db.execute(
-          'CREATE TABLE works (id TEXT PRIMARY KEY, title TEXT NOT NULL, year INTEGER, tmdb_id INTEGER, tmdb_type TEXT, bangumi_id INTEGER, poster TEXT, poster_fallback TEXT, manual_cover_url TEXT, manual_cover_source TEXT, overview TEXT, manual_lock INTEGER NOT NULL DEFAULT 0, needs_review INTEGER NOT NULL DEFAULT 1)',
+          'CREATE TABLE works (id TEXT PRIMARY KEY, title TEXT NOT NULL, year INTEGER, tmdb_id INTEGER, tmdb_type TEXT, bangumi_id INTEGER, poster TEXT, poster_fallback TEXT, manual_cover_url TEXT, manual_cover_source TEXT, overview TEXT, manual_lock INTEGER NOT NULL DEFAULT 0, needs_review INTEGER NOT NULL DEFAULT 1, hidden INTEGER NOT NULL DEFAULT 0, keep_hidden INTEGER NOT NULL DEFAULT 0)',
         );
         await db.execute(
           'CREATE TABLE assets (id TEXT PRIMARY KEY, source_id TEXT NOT NULL, work_id TEXT NOT NULL, relative_path TEXT NOT NULL, name TEXT NOT NULL, episode INTEGER, season INTEGER NOT NULL DEFAULT 1, category TEXT NOT NULL, extra_type TEXT, size INTEGER, UNIQUE(source_id,relative_path))',
@@ -112,6 +127,12 @@ class Catalog extends ChangeNotifier {
           'CREATE TABLE progress (asset_id TEXT PRIMARY KEY, position_ms INTEGER NOT NULL, duration_ms INTEGER NOT NULL, completed INTEGER NOT NULL, updated_at TEXT NOT NULL)',
         );
         await db.execute('CREATE INDEX assets_by_work ON assets(work_id)');
+        await db.execute(
+          'CREATE TABLE phantom_asset_archive ('
+          'obsolete_asset_id TEXT PRIMARY KEY, canonical_asset_id TEXT NOT NULL, '
+          'asset_json TEXT NOT NULL, progress_json TEXT, '
+          'override_json TEXT, history_json TEXT, archived_at TEXT NOT NULL)',
+        );
         await db.execute(
           'CREATE TABLE scan_roots (source_id TEXT NOT NULL, relative_path TEXT NOT NULL, mode TEXT NOT NULL, PRIMARY KEY(source_id,relative_path))',
         );
@@ -147,7 +168,9 @@ class Catalog extends ChangeNotifier {
 
   Future<void> reload() async {
     sources = await db.query('sources', orderBy: 'label');
-    works = await db.query('works', orderBy: 'title COLLATE NOCASE');
+    final allWorks = await db.query('works', orderBy: 'title COLLATE NOCASE');
+    works = allWorks.where((row) => row['hidden'] != 1).toList();
+    hiddenWorkEntries = allWorks.where((row) => row['hidden'] == 1).toList();
     assets = await db.query('assets', orderBy: 'episode, name');
     scanRoots = await db.query('scan_roots', orderBy: 'relative_path');
     notifyListeners();
@@ -295,6 +318,34 @@ class Catalog extends ChangeNotifier {
     );
     await reload();
   }
+
+  /// Hide a title from the poster wall without deleting source files,
+  /// indexed assets, manual relations, metadata, or playback progress.
+  /// If keepHidden=false, the next successful reindex makes it visible again.
+  Future<void> hideWork(String workId, {required bool keepHidden}) async {
+    final updated = await db.update(
+      'works',
+      {'hidden': 1, 'keep_hidden': keepHidden ? 1 : 0},
+      where: 'id=?',
+      whereArgs: [workId],
+    );
+    if (updated == 0) throw StateError('作品已不存在');
+    await reload();
+  }
+
+  /// Explicitly restore a title irrespective of its rescan preference.
+  Future<void> restoreWork(String workId) async {
+    await db.update(
+      'works',
+      {'hidden': 0, 'keep_hidden': 0},
+      where: 'id=?',
+      whereArgs: [workId],
+    );
+    await reload();
+  }
+
+  Future<List<Map<String, Object?>>> hiddenWorks() async =>
+      db.query('works', where: 'hidden=1', orderBy: 'title COLLATE NOCASE');
 
   Future<void> removeSource(String sourceId) async {
     await _secrets.delete(key: 'webdav:$sourceId');
@@ -517,6 +568,14 @@ class Catalog extends ChangeNotifier {
         'needs_review': needsReview ? 1 : 0,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
     }
+    // Temporary removal is reversed by a real subsequent scan. Persistent
+    // hidden titles remain suppressed even while their assets are indexed.
+    await db.update(
+      'works',
+      {'hidden': 0},
+      where: 'id=? AND hidden=1 AND keep_hidden=0',
+      whereArgs: [targetWorkId],
+    );
     await db.insert('assets', {
       'id': assetId,
       'source_id': sourceId,

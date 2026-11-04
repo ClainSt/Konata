@@ -59,7 +59,7 @@ void main() {
     });
     await tester.binding.setSurfaceSize(const Size(1350, 860));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    var metadataCount = 0, coverCount = 0, backCount = 0;
+    var metadataCount = 0, coverCount = 0, backCount = 0, deleteCount = 0;
     await tester.pumpWidget(
       MaterialApp(
         theme: NipaPlayStyle.theme(Brightness.light),
@@ -69,6 +69,7 @@ void main() {
           onBack: () => backCount++,
           onEditMetadata: () => metadataCount++,
           onEditCover: () => coverCount++,
+          onDelete: () => deleteCount++,
         ),
       ),
     );
@@ -91,6 +92,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('编辑元数据'), findsOneWidget);
     expect(find.text('编辑封面'), findsOneWidget);
+    expect(find.text('删除该作品'), findsOneWidget);
     expect(find.text('关联管理'), findsNothing);
     await tester.tap(find.text('编辑元数据'));
     await tester.pumpAndSettle();
@@ -100,6 +102,11 @@ void main() {
     await tester.tap(find.text('编辑封面'));
     await tester.pumpAndSettle();
     expect(coverCount, 1);
+    await tester.tap(find.byKey(const ValueKey('detail-more-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除该作品'));
+    await tester.pumpAndSettle();
+    expect(deleteCount, 1);
 
     await tester.tap(find.text('特典  1'));
     await tester.pump();

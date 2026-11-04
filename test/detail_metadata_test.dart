@@ -5,6 +5,26 @@ import 'package:http/testing.dart';
 import 'package:ccplayer/core/detail_metadata.dart';
 
 void main() {
+  test('principal Bangumi characters precede cameo crossovers', () {
+    final entries = <Map<String, dynamic>>[
+      {'name': '客串角色A', 'relation': '客串', 'order': 1},
+      {'name': '配角', 'relation': '配角', 'order': 1},
+      {'name': '主角B', 'relation': '主角', 'order': 2},
+      {'name': '其他', 'relation': '其他', 'order': 1},
+      {'name': '主角A', 'relation': '主角', 'order': 1},
+      {'name': '客串角色B', 'relation': '客串', 'order': 2},
+    ];
+    final sorted = DetailMetadataService.sortSubjectCharacters(entries);
+    expect(sorted.map((e) => e['name']).toList(), [
+      '主角A',
+      '主角B',
+      '配角',
+      '客串角色A',
+      '客串角色B',
+      '其他',
+    ]);
+  });
+
   test(
     'Personal-style TMDB episode stills + Bangumi cast and rating merge',
     () async {

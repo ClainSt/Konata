@@ -63,7 +63,7 @@ class DetailMetadataService {
     List<Map<String, Object?>> assets = const [],
   }) async {
     final result = <String, dynamic>{
-      'schemaVersion': 3,
+      'schemaVersion': 4,
       'characters': <Map<String, dynamic>>[],
       'seasonEpisodes': <String, dynamic>{},
       'seasonEpisodeCounts': <String, dynamic>{},

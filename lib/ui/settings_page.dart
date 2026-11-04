@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:hugeicons/hugeicons.dart';
 import '../core/app_theme.dart';
 import '../core/metadata.dart';
 import 'tmdb_settings_dialog.dart';
@@ -352,9 +351,13 @@ class _SettingsPageState extends State<SettingsPage> {
                       const SizedBox(height: 24),
                       Card(
                         child: ListTile(
-                          leading: const Icon(
-                            HugeIcons.strokeRoundedGithub,
-                            size: 28,
+                          leading: Image.asset(
+                            Theme.of(context).brightness == Brightness.dark
+                                ? 'assets/brand/github-white.png'
+                                : 'assets/brand/github-black.png',
+                            width: 28,
+                            height: 28,
+                            semanticLabel: 'GitHub',
                           ),
                           title: const Text(
                             'ClainSt/CCPlayer',

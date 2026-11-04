@@ -11,6 +11,12 @@ class PosterTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final style = Theme.of(context).textTheme.titleMedium!.copyWith(
+      fontSize: 16,
+      fontWeight: FontWeight.w600,
+      height: 1.5,
+      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .7),
+    );
     return Tooltip(
       message: title,
       child: Text(
@@ -19,12 +25,14 @@ class PosterTitle extends StatelessWidget {
         maxLines: 1,
         softWrap: false,
         overflow: TextOverflow.ellipsis,
-        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-          height: 1.2,
-          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .7),
+        textAlign: TextAlign.left,
+        textDirection: TextDirection.ltr,
+        locale: const Locale('zh', 'Hans'),
+        strutStyle: StrutStyle.fromTextStyle(style, forceStrutHeight: true),
+        textHeightBehavior: const TextHeightBehavior(
+          leadingDistribution: TextLeadingDistribution.even,
         ),
+        style: style,
       ),
     );
   }

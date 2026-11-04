@@ -3,6 +3,50 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ccplayer/ui/poster_title.dart';
 
 void main() {
+  testWidgets('mixed language poster labels share a baseline and left edge', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 180,
+                child: PosterTitle(title: '16bit的感动 ANOTHER LAYER'),
+              ),
+              SizedBox(width: 180, child: PosterTitle(title: '86 -不存在的战区-')),
+              SizedBox(width: 180, child: PosterTitle(title: '古树旋律 剧场版')),
+            ],
+          ),
+        ),
+      ),
+    );
+    final labels = find.byKey(const ValueKey('poster-title-text'));
+    final baselines = <double>[];
+    for (var i = 0; i < 3; i++) {
+      final text = labels.at(i);
+      final label = tester.widget<Text>(text);
+      final painter = TextPainter(
+        text: TextSpan(text: label.data, style: label.style),
+        textDirection: label.textDirection!,
+        strutStyle: label.strutStyle,
+        textHeightBehavior: label.textHeightBehavior,
+        maxLines: 1,
+        ellipsis: '…',
+      )..layout(maxWidth: 180);
+      baselines.add(
+        tester.getTopLeft(text).dy +
+            painter.computeLineMetrics().single.baseline,
+      );
+      painter.dispose();
+      expect(tester.getTopLeft(text).dx, closeTo(i * 180, .1));
+      expect(tester.getSize(text).height, closeTo(24, .1));
+    }
+    expect(baselines[1], closeTo(baselines[0], .1));
+    expect(baselines[2], closeTo(baselines[0], .1));
+  });
   testWidgets('short and long titles have the same compact type scale', (
     tester,
   ) async {

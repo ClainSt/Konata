@@ -15,6 +15,9 @@ void main() {
       await db.execute(
         'CREATE TABLE assets (id TEXT PRIMARY KEY, source_id TEXT, work_id TEXT, relative_path TEXT, name TEXT, episode INTEGER, category TEXT, size INTEGER)',
       );
+      await db.execute(
+        'CREATE TABLE asset_overrides (asset_id TEXT PRIMARY KEY, work_id TEXT, category TEXT, episode INTEGER)',
+      );
       await catalog.indexVideo(
         'source-1',
         '动画-单作品/86 (2021) {tmdb-100565}/[01].mkv',

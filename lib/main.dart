@@ -9,7 +9,9 @@ import 'core/selected_scanner.dart';
 import 'ui/source_browser_page.dart';
 import 'ui/source_editor.dart';
 import 'ui/tmdb_settings_dialog.dart';
-import 'ui/watch_page.dart';
+import 'ui/nipaplay_detail_page.dart';
+import 'ui/nipaplay_style.dart';
+import 'ui/work_association_dialog.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,15 +32,9 @@ class CCPlayer extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
     title: 'CCPlayer',
     debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-      useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xff669dd6),
-        brightness: Brightness.dark,
-      ),
-      scaffoldBackgroundColor: const Color(0xff111722),
-      cardTheme: const CardThemeData(color: Color(0xff1d293a), elevation: 0),
-    ),
+    theme: NipaPlayStyle.theme(Brightness.light),
+    darkTheme: NipaPlayStyle.theme(Brightness.dark),
+    themeMode: ThemeMode.light,
     home: const LibraryPage(),
   );
 }
@@ -243,6 +239,7 @@ class _LibraryPageState extends State<LibraryPage> {
                           }
                           try {
                             await SelectedScanner.scan(source);
+                            await cat.clearScanRoots(source['id'].toString());
                           } catch (e) {
                             _message(e.toString());
                           }
@@ -441,110 +438,22 @@ class _WorkPageState extends State<WorkPage> {
         return const Scaffold(body: Center(child: Text('未找到作品')));
       }
       final work = found.first;
-      final assets = cat.forWork(widget.workId);
-      return Scaffold(
-        appBar: AppBar(
-          title: Text(work['title'].toString()),
-          actions: [
-            IconButton(
-              tooltip: '匹配元数据',
-              onPressed: () => _match(work),
-              icon: const Icon(Icons.manage_search),
-            ),
-          ],
-        ),
-        body: ListView(
-          padding: const EdgeInsets.all(18),
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(
-                  width: 120,
-                  height: 176,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: work['poster'] != null
-                        ? Image.network(
-                            work['poster'].toString(),
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) => const Icon(Icons.movie),
-                          )
-                        : const ColoredBox(
-                            color: Color(0xff293c55),
-                            child: Icon(Icons.movie, size: 52),
-                          ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        work['title'].toString(),
-                        style: Theme.of(context).textTheme.headlineSmall,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        [
-                          if (work['year'] != null) work['year'].toString(),
-                          if (work['tmdb_id'] != null)
-                            'TMDB ${work['tmdb_id']}',
-                          if (work['bangumi_id'] != null)
-                            'Bangumi ${work['bangumi_id']}',
-                        ].join(' · '),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        work['overview']?.toString() ?? '暂无简介',
-                        maxLines: 7,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () => _match(work),
-                        icon: const Icon(Icons.search),
-                        label: const Text('搜索并绑定元数据'),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            Text('正片', style: Theme.of(context).textTheme.titleLarge),
-            for (final asset in assets.where((a) => a['category'] == 'main'))
-              _asset(asset),
-            if (assets.any((a) => a['category'] == 'extra')) ...[
-              const SizedBox(height: 18),
-              Text('特典', style: Theme.of(context).textTheme.titleLarge),
-              for (final asset in assets.where((a) => a['category'] == 'extra'))
-                _asset(asset),
-            ],
-          ],
-        ),
+      return NipaPlayDetailPage(
+        work: work,
+        assets: cat.forWork(widget.workId),
+        onManage: () => _manage(work),
+        onBack: () => Navigator.maybePop(context),
       );
     },
   );
-  Widget _asset(Map<String, Object?> asset) => Card(
-    child: ListTile(
-      leading: const Icon(Icons.play_circle_outline),
-      title: Text(
-        asset['episode'] == null
-            ? asset['name'].toString()
-            : '第 ${asset['episode']} 集',
-      ),
-      subtitle: Text(
-        asset['name'].toString(),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => WatchPage(asset: asset)),
-      ),
-    ),
-  );
+  Future<void> _manage(Map<String, Object?> work) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) =>
+          WorkAssociationDialog(work: work, onSearchBind: () => _match(work)),
+    );
+  }
+
   Future<void> _match(Map<String, Object?> work) async {
     final query = TextEditingController(
       text: Catalog.cleanTitle(work['title'].toString()),

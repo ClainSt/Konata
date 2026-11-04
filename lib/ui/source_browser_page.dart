@@ -28,7 +28,13 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   @override
   void initState() {
     super.initState();
-    _load();
+    _startBrowsing();
+  }
+
+  Future<void> _startBrowsing() async {
+    // Folder checkboxes are a temporary scan selection, not persisted media config.
+    await Catalog.instance.clearScanRoots(sourceId);
+    if (mounted) await _load();
   }
 
   String get sourceId => widget.source['id'].toString();
@@ -127,6 +133,8 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     setState(() => scanning = true);
     try {
       final count = await SelectedScanner.scan(widget.source);
+      // Keep indexed works, manual bindings and progress; clear checkboxes only.
+      await Catalog.instance.clearScanRoots(sourceId);
       _notice('已扫描 $count 个视频，可返回海报墙查看作品');
     } catch (e) {
       _notice('扫描失败：$e');

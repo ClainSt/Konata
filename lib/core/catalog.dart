@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -26,7 +27,7 @@ class Catalog extends ChangeNotifier {
     await folder.create(recursive: true);
     db = await openDatabase(
       p.join(folder.path, 'ccplayer.db'),
-      version: 3,
+      version: 5,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
           await db.execute(
@@ -40,6 +41,19 @@ class Catalog extends ChangeNotifier {
           );
           await db.execute(
             'UPDATE works SET needs_review=0 WHERE tmdb_id IS NOT NULL OR manual_lock=1',
+          );
+        }
+        if (oldVersion < 4) {
+          await db.execute(
+            'CREATE TABLE work_details (work_id TEXT PRIMARY KEY, identity TEXT NOT NULL, payload TEXT NOT NULL, fetched_at TEXT NOT NULL)',
+          );
+        }
+        if (oldVersion < 5) {
+          await db.execute(
+            'CREATE TABLE asset_overrides (asset_id TEXT PRIMARY KEY, work_id TEXT NOT NULL, category TEXT NOT NULL, episode INTEGER)',
+          );
+          await db.execute(
+            'CREATE TABLE asset_override_history (asset_id TEXT PRIMARY KEY, work_id TEXT NOT NULL, category TEXT NOT NULL, episode INTEGER, was_locked INTEGER NOT NULL)',
           );
         }
       },
@@ -60,6 +74,15 @@ class Catalog extends ChangeNotifier {
         await db.execute(
           'CREATE TABLE scan_roots (source_id TEXT NOT NULL, relative_path TEXT NOT NULL, mode TEXT NOT NULL, PRIMARY KEY(source_id,relative_path))',
         );
+        await db.execute(
+          'CREATE TABLE work_details (work_id TEXT PRIMARY KEY, identity TEXT NOT NULL, payload TEXT NOT NULL, fetched_at TEXT NOT NULL)',
+        );
+        await db.execute(
+          'CREATE TABLE asset_overrides (asset_id TEXT PRIMARY KEY, work_id TEXT NOT NULL, category TEXT NOT NULL, episode INTEGER)',
+        );
+        await db.execute(
+          'CREATE TABLE asset_override_history (asset_id TEXT PRIMARY KEY, work_id TEXT NOT NULL, category TEXT NOT NULL, episode INTEGER, was_locked INTEGER NOT NULL)',
+        );
       },
     );
     // Migrate passwords previously kept in the early development SQLite schema.
@@ -76,6 +99,8 @@ class Catalog extends ChangeNotifier {
         );
       }
     }
+    // Scan checkboxes are a temporary UI selection, never persistent library configuration.
+    await db.delete('scan_roots');
     await reload();
   }
 
@@ -216,6 +241,11 @@ class Catalog extends ChangeNotifier {
     }
   }
 
+  Future<void> clearScanRoots(String sourceId) async {
+    await db.delete('scan_roots', where: 'source_id=?', whereArgs: [sourceId]);
+    await reload();
+  }
+
   Future<void> removeScanRoot(String sourceId, String path) async {
     await db.delete(
       'scan_roots',
@@ -232,6 +262,14 @@ class Catalog extends ChangeNotifier {
         'scan_roots',
         where: 'source_id=?',
         whereArgs: [sourceId],
+      );
+      await txn.rawDelete(
+        'DELETE FROM asset_overrides WHERE asset_id IN (SELECT id FROM assets WHERE source_id=?)',
+        [sourceId],
+      );
+      await txn.rawDelete(
+        'DELETE FROM asset_override_history WHERE asset_id IN (SELECT id FROM assets WHERE source_id=?)',
+        [sourceId],
       );
       await txn.delete('assets', where: 'source_id=?', whereArgs: [sourceId]);
       await txn.delete('sources', where: 'id=?', whereArgs: [sourceId]);
@@ -331,8 +369,18 @@ class Catalog extends ChangeNotifier {
       whereArgs: [assetId],
       limit: 1,
     );
-    var targetWorkId = workId;
-    if (existing.isNotEmpty && existing.first['work_id'] != workId) {
+    final manual = await db.query(
+      'asset_overrides',
+      where: 'asset_id=?',
+      whereArgs: [assetId],
+      limit: 1,
+    );
+    var targetWorkId = manual.isNotEmpty
+        ? manual.first['work_id'].toString()
+        : workId;
+    if (manual.isEmpty &&
+        existing.isNotEmpty &&
+        existing.first['work_id'] != workId) {
       final oldId = existing.first['work_id']?.toString();
       if (oldId != null) {
         final oldWork = await db.query(
@@ -363,10 +411,74 @@ class Catalog extends ChangeNotifier {
       'work_id': targetWorkId,
       'relative_path': normalized,
       'name': name,
-      'episode': episode(name),
-      'category': isExtra(normalized) ? 'extra' : 'main',
+      'episode': manual.isNotEmpty ? manual.first['episode'] : episode(name),
+      'category': manual.isNotEmpty
+          ? manual.first['category']
+          : isExtra(normalized)
+          ? 'extra'
+          : 'main',
       'size': size,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  static String detailIdentity(Map<String, Object?> work) =>
+      '${work['tmdb_type'] ?? 'tv'}:${work['tmdb_id'] ?? ''}|${work['bangumi_id'] ?? ''}';
+
+  Future<Map<String, dynamic>?> readWorkDetails(
+    Map<String, Object?> work,
+  ) async {
+    final found = await db.query(
+      'work_details',
+      where: 'work_id=?',
+      whereArgs: [work['id']],
+      limit: 1,
+    );
+    if (found.isEmpty || found.first['identity'] != detailIdentity(work)) {
+      return null;
+    }
+    try {
+      return jsonDecode(found.first['payload']!.toString())
+          as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<DateTime?> detailFetchedAt(String workId) async {
+    final rows = await db.query(
+      'work_details',
+      columns: ['fetched_at'],
+      where: 'work_id=?',
+      whereArgs: [workId],
+      limit: 1,
+    );
+    return rows.isEmpty
+        ? null
+        : DateTime.tryParse(rows.first['fetched_at'].toString());
+  }
+
+  Future<void> saveWorkDetails(
+    Map<String, Object?> work,
+    Map<String, dynamic> payload,
+  ) async {
+    await db.insert('work_details', {
+      'work_id': work['id'],
+      'identity': detailIdentity(work),
+      'payload': jsonEncode(payload),
+      'fetched_at': DateTime.now().toUtc().toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    notifyListeners();
+  }
+
+  Future<Map<String, Map<String, Object?>>> progressForWork(
+    String workId,
+  ) async {
+    final found = await db.rawQuery(
+      'SELECT progress.* FROM progress JOIN assets ON progress.asset_id=assets.id '
+      'WHERE assets.work_id=?',
+      [workId],
+    );
+    return {for (final row in found) row['asset_id'].toString(): row};
   }
 
   /// Remove incorrect automatic groups that no longer own any file after rescanning.
@@ -406,6 +518,114 @@ class Catalog extends ChangeNotifier {
       whereArgs: [workId],
     );
     await reload();
+  }
+
+  /// Save a reversible manual relation. Asset IDs and progress stay stable.
+  Future<void> lockAssetRelation(
+    String assetId, {
+    required String workId,
+    required String category,
+    int? episode,
+  }) async {
+    if (category != 'main' && category != 'extra') {
+      throw ArgumentError('仅支持正片和特典');
+    }
+    if (episode != null && episode < 0) throw ArgumentError('集数不能为负数');
+    final rows = await db.query(
+      'assets',
+      where: 'id=?',
+      whereArgs: [assetId],
+      limit: 1,
+    );
+    if (rows.isEmpty) throw StateError('文件不存在');
+    final old = rows.single;
+    if (!workId.startsWith('work:${old['source_id']}:')) {
+      throw StateError('只能关联相同媒体源内的作品');
+    }
+    final work = await db.query(
+      'works',
+      where: 'id=?',
+      whereArgs: [workId],
+      limit: 1,
+    );
+    if (work.isEmpty) throw StateError('目标作品不存在');
+    final saved = await db.query(
+      'asset_overrides',
+      where: 'asset_id=?',
+      whereArgs: [assetId],
+      limit: 1,
+    );
+    await db.transaction((tx) async {
+      await tx.insert('asset_override_history', {
+        'asset_id': assetId,
+        'work_id': old['work_id'],
+        'category': old['category'],
+        'episode': old['episode'],
+        'was_locked': saved.isNotEmpty ? 1 : 0,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await tx.insert('asset_overrides', {
+        'asset_id': assetId,
+        'work_id': workId,
+        'category': category,
+        'episode': episode,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await tx.update(
+        'assets',
+        {'work_id': workId, 'category': category, 'episode': episode},
+        where: 'id=?',
+        whereArgs: [assetId],
+      );
+    });
+    await reload();
+  }
+
+  Future<bool> undoAssetRelation(String assetId) async {
+    final rows = await db.query(
+      'asset_override_history',
+      where: 'asset_id=?',
+      whereArgs: [assetId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return false;
+    final row = rows.single;
+    await db.transaction((tx) async {
+      await tx.update(
+        'assets',
+        {
+          'work_id': row['work_id'],
+          'category': row['category'],
+          'episode': row['episode'],
+        },
+        where: 'id=?',
+        whereArgs: [assetId],
+      );
+      if (row['was_locked'] == 1) {
+        await tx.insert('asset_overrides', {
+          'asset_id': assetId,
+          'work_id': row['work_id'],
+          'category': row['category'],
+          'episode': row['episode'],
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      } else {
+        await tx.delete(
+          'asset_overrides',
+          where: 'asset_id=?',
+          whereArgs: [assetId],
+        );
+      }
+      await tx.delete(
+        'asset_override_history',
+        where: 'asset_id=?',
+        whereArgs: [assetId],
+      );
+    });
+    await reload();
+    return true;
+  }
+
+  Future<Set<String>> lockedAssetIds() async {
+    final rows = await db.query('asset_overrides', columns: ['asset_id']);
+    return rows.map((r) => r['asset_id'].toString()).toSet();
   }
 
   Future<void> progress(String assetId, int position, int duration) async {

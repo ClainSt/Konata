@@ -75,10 +75,7 @@ class TmdbSettingsDialog {
                     SegmentedButton<String>(
                       segments: const [
                         ButtonSegment(value: 'token', label: Text('访问令牌')),
-                        ButtonSegment(
-                          value: 'apiKey',
-                          label: Text('API Key（v3）'),
-                        ),
+                        ButtonSegment(value: 'apiKey', label: Text('API Key')),
                       ],
                       selected: {mode},
                       onSelectionChanged: (chosen) => refresh(() {
@@ -94,7 +91,7 @@ class TmdbSettingsDialog {
                       decoration: InputDecoration(
                         labelText: mode == 'token'
                             ? 'API Read Access Token'
-                            : 'API Key（v3）',
+                            : 'API Key',
                         helperText: '保存在系统安全存储；两种凭证分别保存，可随时切换',
                       ),
                     ),

@@ -271,7 +271,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(libraryDestination.value, isFalse);
     await tester.pumpAndSettle();
+    expect(find.text('添加媒体源'), findsNothing);
+    expect(find.widgetWithText(TextField, '搜索动画'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('library-search-toggle')));
+    await tester.pumpAndSettle();
     expect(find.widgetWithText(TextField, '搜索动画'), findsOneWidget);
+    await tester.enterText(find.widgetWithText(TextField, '搜索动画'), '不存在的动画');
+    await tester.tap(find.byKey(const ValueKey('library-search-toggle')));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextField, '搜索动画'), findsNothing);
     expect(tester.takeException(), isNull, reason: 'compact library toolbar');
     await tester.pumpWidget(const SizedBox());
   });

@@ -100,6 +100,8 @@ class LibraryPage extends StatefulWidget {
 }
 
 class _LibraryPageState extends State<LibraryPage> {
+  bool searchOpen = false;
+  final searchController = TextEditingController();
   bool get showSources => libraryDestination.value;
   @override
   void initState() {
@@ -110,6 +112,7 @@ class _LibraryPageState extends State<LibraryPage> {
   void _destinationChanged() => setState(() {});
   @override
   void dispose() {
+    searchController.dispose();
     libraryDestination.removeListener(_destinationChanged);
     super.dispose();
   }
@@ -190,6 +193,8 @@ class _LibraryPageState extends State<LibraryPage> {
         final search = SizedBox(
           height: 46,
           child: TextField(
+            controller: searchController,
+            autofocus: true,
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -248,7 +253,7 @@ class _LibraryPageState extends State<LibraryPage> {
               ),
             ),
             const Spacer(),
-            if (!showSources && bounds.maxWidth >= 700) ...[
+            if (!showSources && searchOpen && bounds.maxWidth >= 700) ...[
               SizedBox(width: 280, child: search),
               const SizedBox(width: 16),
             ],
@@ -259,38 +264,52 @@ class _LibraryPageState extends State<LibraryPage> {
                 tooltip: '管理已隐藏作品',
                 icon: const Icon(Icons.visibility_off_outlined),
               ),
-            Tooltip(
-              message: '添加媒体源',
-              child: TextButton.icon(
-                style: ButtonStyle(
-                  foregroundColor: WidgetStateProperty.resolveWith(
-                    (states) =>
-                        states.contains(WidgetState.hovered) ||
-                            states.contains(WidgetState.focused) ||
-                            states.contains(WidgetState.pressed)
-                        ? NipaPlayStyle.accent
-                        : Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: .7),
-                  ),
-                  overlayColor: const WidgetStatePropertyAll(
-                    Colors.transparent,
-                  ),
-                  textStyle: const WidgetStatePropertyAll(
-                    TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                  ),
-                ),
-                onPressed: _add,
-                icon: const Icon(Icons.add, size: 20),
-                label: const Text('添加媒体源'),
+            if (!showSources)
+              IconButton(
+                key: const ValueKey('library-search-toggle'),
+                tooltip: searchOpen ? '关闭搜索' : '搜索动画',
+                icon: Icon(searchOpen ? Icons.close : Icons.search),
+                onPressed: () => setState(() {
+                  searchOpen = !searchOpen;
+                  if (!searchOpen) {
+                    filter = '';
+                    searchController.clear();
+                  }
+                }),
               ),
-            ),
+            if (showSources)
+              Tooltip(
+                message: '添加媒体源',
+                child: TextButton.icon(
+                  style: ButtonStyle(
+                    foregroundColor: WidgetStateProperty.resolveWith(
+                      (states) =>
+                          states.contains(WidgetState.hovered) ||
+                              states.contains(WidgetState.focused) ||
+                              states.contains(WidgetState.pressed)
+                          ? NipaPlayStyle.accent
+                          : Theme.of(
+                              context,
+                            ).colorScheme.onSurface.withValues(alpha: .7),
+                    ),
+                    overlayColor: const WidgetStatePropertyAll(
+                      Colors.transparent,
+                    ),
+                    textStyle: const WidgetStatePropertyAll(
+                      TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  onPressed: _add,
+                  icon: const Icon(Icons.add, size: 20),
+                  label: const Text('添加媒体源'),
+                ),
+              ),
           ],
         );
         return Column(
           children: [
             row,
-            if (!showSources && bounds.maxWidth < 700) ...[
+            if (!showSources && searchOpen && bounds.maxWidth < 700) ...[
               const SizedBox(height: 12),
               search,
             ],

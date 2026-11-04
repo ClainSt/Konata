@@ -20,7 +20,7 @@ class PosterTitle extends StatelessWidget {
         softWrap: false,
         overflow: TextOverflow.ellipsis,
         style: Theme.of(context).textTheme.titleMedium?.copyWith(
-          fontSize: 16,
+          fontSize: 18,
           fontWeight: FontWeight.w500,
           height: 1.2,
         ),

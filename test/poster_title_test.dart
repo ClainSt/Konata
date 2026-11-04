@@ -44,7 +44,7 @@ void main() {
         matching: find.byType(Text),
       ),
     );
-    expect(short.style!.fontSize, 16);
+    expect(short.style!.fontSize, 18);
     expect(long.style!.fontSize, short.style!.fontSize);
     expect(short.style!.fontWeight, FontWeight.w500);
     expect(short.maxLines, 1);
@@ -73,7 +73,7 @@ void main() {
     final title = tester.widget<Text>(
       find.byKey(const ValueKey('poster-title-text')),
     );
-    expect(title.style!.fontSize, 16);
+    expect(title.style!.fontSize, 18);
     expect(title.maxLines, 1);
   });
 }

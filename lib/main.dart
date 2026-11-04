@@ -153,7 +153,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                 2 * horizontalPadding -
                                 (columns - 1) * crossSpacing) /
                             columns;
-                        final cardHeight = cardWidth * 1.5 + 8 + 22;
+                        final cardHeight = cardWidth * 1.5 + 8 + 26;
                         return GridView.builder(
                           padding: const EdgeInsets.all(horizontalPadding),
                           itemCount: matches.length,
@@ -188,8 +188,9 @@ class _LibraryPageState extends State<LibraryPage> {
     child: LayoutBuilder(
       builder: (context, bounds) {
         final search = SizedBox(
-          height: 42,
+          height: 46,
           child: TextField(
+            style: const TextStyle(fontSize: 17),
             decoration: InputDecoration(
               prefixIcon: const Icon(Icons.search, size: 20),
               hintText: '搜索动画',
@@ -226,10 +227,10 @@ class _LibraryPageState extends State<LibraryPage> {
                   ? '${cat.sources.length} 个媒体源'
                   : '${cat.works.length} 部作品',
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 16,
                 color: Theme.of(
                   context,
-                ).colorScheme.onSurface.withValues(alpha: .55),
+                ).colorScheme.onSurface.withValues(alpha: .7),
               ),
             ),
             const Spacer(),
@@ -256,13 +257,13 @@ class _LibraryPageState extends State<LibraryPage> {
                         ? NipaPlayStyle.accent
                         : Theme.of(
                             context,
-                          ).colorScheme.onSurface.withValues(alpha: .6),
+                          ).colorScheme.onSurface.withValues(alpha: .7),
                   ),
                   overlayColor: const WidgetStatePropertyAll(
                     Colors.transparent,
                   ),
                   textStyle: const WidgetStatePropertyAll(
-                    TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                    TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                   ),
                 ),
                 onPressed: _add,
@@ -322,7 +323,7 @@ class _LibraryPageState extends State<LibraryPage> {
         ),
         const SizedBox(height: 8),
         SizedBox(
-          height: 22,
+          height: 26,
           child: Align(
             alignment: Alignment.topLeft,
             child: PosterTitle(

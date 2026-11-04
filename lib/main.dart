@@ -359,6 +359,7 @@ class _LibraryPageState extends State<LibraryPage> {
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 1000),
               child: Card(
+                clipBehavior: Clip.antiAlias,
                 margin: EdgeInsets.zero,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -368,14 +369,14 @@ class _LibraryPageState extends State<LibraryPage> {
                     ).colorScheme.onSurface.withValues(alpha: .08),
                   ),
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.all(18),
-                  child: LayoutBuilder(
-                    builder: (context, bounds) {
-                      final info = InkWell(
-                        onTap: () => _browse(source),
-                        borderRadius: BorderRadius.circular(8),
-                        child: Row(
+                child: InkWell(
+                  onTap: () => _browse(source),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: LayoutBuilder(
+                      builder: (context, bounds) {
+                        final info = Row(
                           children: [
                             Container(
                               width: 44,
@@ -430,71 +431,73 @@ class _LibraryPageState extends State<LibraryPage> {
                               ),
                             ),
                           ],
-                        ),
-                      );
-                      final actions = Wrap(
-                        children: [
-                          IconButton(
-                            tooltip: '编辑媒体源',
-                            icon: const Icon(Icons.edit_outlined),
-                            onPressed: () => SourceEditor.show(context, source),
-                          ),
-                          IconButton(
-                            tooltip: '浏览云盘或本地目录并选取刮削文件夹',
-                            onPressed: () => _browse(source),
-                            icon: const Icon(Icons.folder_open_outlined),
-                          ),
-                          IconButton(
-                            tooltip: '移除',
-                            onPressed: () async {
-                              final ok = await showDialog<bool>(
-                                context: context,
-                                builder: (ctx) => AlertDialog(
-                                  title: const Text('移除媒体源？'),
-                                  content: const Text('仅清除索引，不删除源文件。'),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () =>
-                                          Navigator.pop(ctx, false),
-                                      child: const Text('取消'),
-                                    ),
-                                    FilledButton(
-                                      onPressed: () => Navigator.pop(ctx, true),
-                                      child: const Text('移除'),
-                                    ),
-                                  ],
-                                ),
-                              );
-                              if (ok == true) {
-                                await Catalog.instance.removeSource(
-                                  source['id'].toString(),
+                        );
+                        final actions = Wrap(
+                          children: [
+                            IconButton(
+                              tooltip: '编辑媒体源',
+                              icon: const Icon(Icons.edit_outlined),
+                              onPressed: () =>
+                                  SourceEditor.show(context, source),
+                            ),
+                            IconButton(
+                              tooltip: '浏览云盘或本地目录并选取刮削文件夹',
+                              onPressed: () => _browse(source),
+                              icon: const Icon(Icons.folder_open_outlined),
+                            ),
+                            IconButton(
+                              tooltip: '移除',
+                              onPressed: () async {
+                                final ok = await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: const Text('移除媒体源？'),
+                                    content: const Text('仅清除索引，不删除源文件。'),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, false),
+                                        child: const Text('取消'),
+                                      ),
+                                      FilledButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, true),
+                                        child: const Text('移除'),
+                                      ),
+                                    ],
+                                  ),
                                 );
-                              }
-                            },
-                            icon: const Icon(Icons.delete_outline),
-                          ),
-                        ],
-                      );
-                      return bounds.maxWidth >= 540
-                          ? Row(
-                              children: [
-                                Expanded(child: info),
-                                const SizedBox(width: 20),
-                                actions,
-                              ],
-                            )
-                          : Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                info,
-                                const SizedBox(height: 10),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: actions,
-                                ),
-                              ],
-                            );
-                    },
+                                if (ok == true) {
+                                  await Catalog.instance.removeSource(
+                                    source['id'].toString(),
+                                  );
+                                }
+                              },
+                              icon: const Icon(Icons.delete_outline),
+                            ),
+                          ],
+                        );
+                        return bounds.maxWidth >= 540
+                            ? Row(
+                                children: [
+                                  Expanded(child: info),
+                                  const SizedBox(width: 20),
+                                  actions,
+                                ],
+                              )
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  info,
+                                  const SizedBox(height: 10),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: actions,
+                                  ),
+                                ],
+                              );
+                      },
+                    ),
                   ),
                 ),
               ),

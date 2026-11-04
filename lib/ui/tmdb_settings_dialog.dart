@@ -204,7 +204,7 @@ class TmdbSettingsDialog {
                   style: TextButton.styleFrom(
                     textStyle: const TextStyle(
                       fontSize: 16,
-                      fontWeight: FontWeight.w500,
+                      fontWeight: FontWeight.w600,
                     ),
                     foregroundColor: scheme.onSurface.withValues(alpha: .65),
                   ),
@@ -217,7 +217,7 @@ class TmdbSettingsDialog {
                   style: OutlinedButton.styleFrom(
                     textStyle: const TextStyle(
                       fontSize: 16,
-                      fontWeight: FontWeight.w500,
+                      fontWeight: FontWeight.w600,
                     ),
                     foregroundColor: scheme.onSurface,
                     side: BorderSide(color: outline),

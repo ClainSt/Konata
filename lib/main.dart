@@ -190,10 +190,23 @@ class _LibraryPageState extends State<LibraryPage> {
         final search = SizedBox(
           height: 46,
           child: TextField(
-            style: const TextStyle(fontSize: 17),
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: .7),
+            ),
             decoration: InputDecoration(
               prefixIcon: const Icon(Icons.search, size: 20),
               hintText: '搜索动画',
+              hintStyle: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: .7),
+              ),
               isDense: true,
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 14,
@@ -228,6 +241,7 @@ class _LibraryPageState extends State<LibraryPage> {
                   : '${cat.works.length} 部作品',
               style: TextStyle(
                 fontSize: 16,
+                fontWeight: FontWeight.w600,
                 color: Theme.of(
                   context,
                 ).colorScheme.onSurface.withValues(alpha: .7),

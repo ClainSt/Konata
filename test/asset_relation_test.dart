@@ -19,13 +19,13 @@ void main() {
         'CREATE TABLE works (id TEXT PRIMARY KEY,title TEXT,year INTEGER,tmdb_id INTEGER,tmdb_type TEXT,manual_lock INTEGER NOT NULL DEFAULT 0,needs_review INTEGER NOT NULL DEFAULT 1)',
       );
       await db.execute(
-        'CREATE TABLE assets (id TEXT PRIMARY KEY,source_id TEXT,work_id TEXT,relative_path TEXT,name TEXT,episode INTEGER,category TEXT,size INTEGER)',
+        'CREATE TABLE assets (id TEXT PRIMARY KEY,source_id TEXT,work_id TEXT,relative_path TEXT,name TEXT,episode INTEGER,season INTEGER NOT NULL DEFAULT 1,category TEXT,extra_type TEXT,size INTEGER)',
       );
       await db.execute(
-        'CREATE TABLE asset_overrides (asset_id TEXT PRIMARY KEY,work_id TEXT,category TEXT,episode INTEGER)',
+        'CREATE TABLE asset_overrides (asset_id TEXT PRIMARY KEY,work_id TEXT,category TEXT,episode INTEGER,season INTEGER NOT NULL DEFAULT 1,extra_type TEXT)',
       );
       await db.execute(
-        'CREATE TABLE asset_override_history (asset_id TEXT PRIMARY KEY,work_id TEXT,category TEXT,episode INTEGER,was_locked INTEGER)',
+        'CREATE TABLE asset_override_history (asset_id TEXT PRIMARY KEY,work_id TEXT,category TEXT,episode INTEGER,season INTEGER NOT NULL DEFAULT 1,extra_type TEXT,was_locked INTEGER)',
       );
       await db.execute(
         'CREATE TABLE progress (asset_id TEXT PRIMARY KEY,position_ms INTEGER,duration_ms INTEGER,completed INTEGER,updated_at TEXT)',
@@ -60,6 +60,8 @@ void main() {
         workId: destination,
         category: 'extra',
         episode: 99,
+        season: 0,
+        extraType: 'CM',
       );
       await catalog.indexVideo(
         'source-1',
@@ -75,6 +77,8 @@ void main() {
       expect(overridden['work_id'], destination);
       expect(overridden['category'], 'extra');
       expect(overridden['episode'], 99);
+      expect(overridden['season'], 0);
+      expect(overridden['extra_type'], 'CM');
       expect(
         (await db.query(
           'progress',
@@ -92,6 +96,8 @@ void main() {
       expect(restored['work_id'], originalWork);
       expect(restored['category'], 'main');
       expect(restored['episode'], 1);
+      expect(restored['season'], 1);
+      expect(restored['extra_type'], isNull);
       expect((await db.query('asset_overrides')), isEmpty);
       expect(await catalog.undoAssetRelation(assetId), false);
     } finally {

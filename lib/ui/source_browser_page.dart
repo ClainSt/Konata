@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import '../core/catalog.dart';
 import '../core/sources.dart';
 import '../core/selected_scanner.dart';
+import '../core/personal_scrape_coordinator.dart';
 
 class BrowserEntry {
   const BrowserEntry(this.name, this.relative, this.directory, this.size);
@@ -128,6 +129,21 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     }
   }
 
+  Future<void> _scrape() async {
+    if (scanning || Catalog.instance.scanning) return;
+    setState(() => scanning = true);
+    try {
+      final report = await PersonalScrapeCoordinator().scrapeSource(sourceId);
+      _notice(
+        'TMDB / Bangumi 刮削：成功 ${report.matched}，待复核 ${report.review}，失败 ${report.errors}',
+      );
+    } catch (e) {
+      _notice('元数据刮削失败：$e');
+    } finally {
+      if (mounted) setState(() => scanning = false);
+    }
+  }
+
   Future<void> _scan() async {
     if (scanning || Catalog.instance.scanning) return;
     setState(() => scanning = true);
@@ -135,7 +151,20 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       final count = await SelectedScanner.scan(widget.source);
       // Keep indexed works, manual bindings and progress; clear checkboxes only.
       await Catalog.instance.clearScanRoots(sourceId);
-      _notice('已扫描 $count 个视频，可返回海报墙查看作品');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('已索引 $count 个视频；可继续抓取 TMDB/Bangumi 海报与资料'),
+            duration: const Duration(seconds: 12),
+            action: SnackBarAction(
+              label: '刮削元数据',
+              onPressed: () {
+                _scrape();
+              },
+            ),
+          ),
+        );
+      }
     } catch (e) {
       _notice('扫描失败：$e');
     } finally {

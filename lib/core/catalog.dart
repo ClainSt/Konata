@@ -5,6 +5,9 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'cloud_media_asset_presentation.dart';
+import 'cloud_media_file_classifier.dart';
+import 'personal_scraper.dart';
 
 class Catalog extends ChangeNotifier {
   Catalog._();
@@ -27,7 +30,7 @@ class Catalog extends ChangeNotifier {
     await folder.create(recursive: true);
     db = await openDatabase(
       p.join(folder.path, 'ccplayer.db'),
-      version: 5,
+      version: 10,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
           await db.execute(
@@ -56,16 +59,54 @@ class Catalog extends ChangeNotifier {
             'CREATE TABLE asset_override_history (asset_id TEXT PRIMARY KEY, work_id TEXT NOT NULL, category TEXT NOT NULL, episode INTEGER, was_locked INTEGER NOT NULL)',
           );
         }
+        if (oldVersion < 6) {
+          for (final table in [
+            'assets',
+            'asset_overrides',
+            'asset_override_history',
+          ]) {
+            await db.execute(
+              'ALTER TABLE $table ADD COLUMN season INTEGER NOT NULL DEFAULT 1',
+            );
+            await db.execute(
+              "UPDATE $table SET season=0 WHERE category='extra'",
+            );
+          }
+        }
+        if (oldVersion < 7) {
+          for (final table in [
+            'assets',
+            'asset_overrides',
+            'asset_override_history',
+          ]) {
+            await db.execute('ALTER TABLE $table ADD COLUMN extra_type TEXT');
+          }
+        }
+        if (oldVersion < 8) {
+          // Offline-only upgrade: no WebDAV reads or video hashing.
+          await repairIndexedAssets(db);
+        }
+        if (oldVersion < 9) {
+          await db.execute('ALTER TABLE works ADD COLUMN poster_fallback TEXT');
+        }
+        if (oldVersion < 10) {
+          await db.execute(
+            'ALTER TABLE works ADD COLUMN manual_cover_url TEXT',
+          );
+          await db.execute(
+            'ALTER TABLE works ADD COLUMN manual_cover_source TEXT',
+          );
+        }
       },
       onCreate: (db, version) async {
         await db.execute(
           'CREATE TABLE sources (id TEXT PRIMARY KEY, kind TEXT NOT NULL, label TEXT NOT NULL, location TEXT NOT NULL, username TEXT, password TEXT)',
         );
         await db.execute(
-          'CREATE TABLE works (id TEXT PRIMARY KEY, title TEXT NOT NULL, year INTEGER, tmdb_id INTEGER, tmdb_type TEXT, bangumi_id INTEGER, poster TEXT, overview TEXT, manual_lock INTEGER NOT NULL DEFAULT 0, needs_review INTEGER NOT NULL DEFAULT 1)',
+          'CREATE TABLE works (id TEXT PRIMARY KEY, title TEXT NOT NULL, year INTEGER, tmdb_id INTEGER, tmdb_type TEXT, bangumi_id INTEGER, poster TEXT, poster_fallback TEXT, manual_cover_url TEXT, manual_cover_source TEXT, overview TEXT, manual_lock INTEGER NOT NULL DEFAULT 0, needs_review INTEGER NOT NULL DEFAULT 1)',
         );
         await db.execute(
-          'CREATE TABLE assets (id TEXT PRIMARY KEY, source_id TEXT NOT NULL, work_id TEXT NOT NULL, relative_path TEXT NOT NULL, name TEXT NOT NULL, episode INTEGER, category TEXT NOT NULL, size INTEGER, UNIQUE(source_id,relative_path))',
+          'CREATE TABLE assets (id TEXT PRIMARY KEY, source_id TEXT NOT NULL, work_id TEXT NOT NULL, relative_path TEXT NOT NULL, name TEXT NOT NULL, episode INTEGER, season INTEGER NOT NULL DEFAULT 1, category TEXT NOT NULL, extra_type TEXT, size INTEGER, UNIQUE(source_id,relative_path))',
         );
         await db.execute(
           'CREATE TABLE progress (asset_id TEXT PRIMARY KEY, position_ms INTEGER NOT NULL, duration_ms INTEGER NOT NULL, completed INTEGER NOT NULL, updated_at TEXT NOT NULL)',
@@ -78,10 +119,10 @@ class Catalog extends ChangeNotifier {
           'CREATE TABLE work_details (work_id TEXT PRIMARY KEY, identity TEXT NOT NULL, payload TEXT NOT NULL, fetched_at TEXT NOT NULL)',
         );
         await db.execute(
-          'CREATE TABLE asset_overrides (asset_id TEXT PRIMARY KEY, work_id TEXT NOT NULL, category TEXT NOT NULL, episode INTEGER)',
+          'CREATE TABLE asset_overrides (asset_id TEXT PRIMARY KEY, work_id TEXT NOT NULL, category TEXT NOT NULL, episode INTEGER, season INTEGER NOT NULL DEFAULT 1, extra_type TEXT)',
         );
         await db.execute(
-          'CREATE TABLE asset_override_history (asset_id TEXT PRIMARY KEY, work_id TEXT NOT NULL, category TEXT NOT NULL, episode INTEGER, was_locked INTEGER NOT NULL)',
+          'CREATE TABLE asset_override_history (asset_id TEXT PRIMARY KEY, work_id TEXT NOT NULL, category TEXT NOT NULL, episode INTEGER, season INTEGER NOT NULL DEFAULT 1, extra_type TEXT, was_locked INTEGER NOT NULL)',
         );
       },
     );
@@ -313,15 +354,83 @@ class Catalog extends ChangeNotifier {
     return title.isEmpty ? folder : title;
   }
 
-  static bool isExtra(String name) =>
-      RegExp(
-        r'(^|[/\\])(SPs?|Extra|Bonus|NCOP|NCED|PV)([/\\]|$)',
-        caseSensitive: false,
-      ).hasMatch(name) ||
-      RegExp(
-        r'(NCOP|NCED|Trailer|Preview|PV\d+|CM\d+)',
-        caseSensitive: false,
-      ).hasMatch(p.basename(name));
+  /// Repair older indexed episode numbers and supplemental file types in
+  /// SQLite only; manually locked file relations are never touched.
+  static Future<int> repairIndexedAssets(Database db) async {
+    final lockedRows = await db.query('asset_overrides', columns: ['asset_id']);
+    final locked = lockedRows.map((row) => row['asset_id']?.toString()).toSet();
+    final rows = await db.query(
+      'assets',
+      columns: [
+        'id',
+        'name',
+        'relative_path',
+        'episode',
+        'season',
+        'category',
+        'extra_type',
+      ],
+      where: "episode IS NULL OR (category='extra' AND extra_type IS NULL)",
+    );
+    var corrected = 0;
+    for (final row in rows) {
+      final id = row['id']?.toString();
+      if (id == null || locked.contains(id)) continue;
+      final name = row['name']?.toString() ?? '';
+      final relative = row['relative_path']?.toString() ?? name;
+      final updated = <String, Object?>{};
+      final ep = row['episode'];
+      if (ep == null) {
+        final found = episode(name);
+        if (found != null) updated['episode'] = found;
+      }
+      final extra = isExtra(relative);
+      if (extra && row['category'] == 'main') {
+        updated['category'] = 'extra';
+        updated['season'] = 0;
+      }
+      if ((row['category'] == 'extra' || extra) && row['extra_type'] == null) {
+        updated['extra_type'] = CloudMediaAssetPresentation.extraType({
+          'name': name,
+          'relative_path': relative,
+        });
+      }
+      if (updated.isNotEmpty) {
+        await db.update('assets', updated, where: 'id=?', whereArgs: [id]);
+        corrected++;
+      }
+    }
+    return corrected;
+  }
+
+  static bool isExtra(String name) {
+    final path = name.replaceAll('\\', '/');
+    return CloudMediaFileClassifier.isClearlySupplementary(
+      p.posix.dirname(path),
+      p.posix.basename(path),
+    );
+  }
+
+  /// Derive season from folder / filename when possible; explicit manual
+  /// assignment always takes precedence on re-scan.
+  static int detectedSeason(String relative) {
+    final path = relative.replaceAll('\\', '/');
+    if (isExtra(path)) return 0;
+    final matched = RegExp(
+      r'(?:^|[/\\])(?:Season[ ._-]*|S)(\d{1,2})(?:[/\\]|[ ._-])',
+      caseSensitive: false,
+    ).firstMatch(path);
+    if (matched != null) return int.tryParse(matched.group(1)!) ?? 1;
+    final inFilename = RegExp(
+      r'\bS(\d{1,2})E\d+\b',
+      caseSensitive: false,
+    ).firstMatch(p.basename(path));
+    if (inFilename != null) return int.tryParse(inFilename.group(1)!) ?? 1;
+    final chinese = RegExp(r'第(\d{1,2})季').firstMatch(path);
+    if (chinese != null) return int.tryParse(chinese.group(1)!) ?? 1;
+    return 1;
+  }
+
   static int? episode(String name) {
     final stem = p.basenameWithoutExtension(name);
     for (final re in [
@@ -331,6 +440,9 @@ class Catalog extends ChangeNotifier {
         caseSensitive: false,
       ),
       RegExp(r'^\[(\d{1,3})\]'),
+      // A release group prefix commonly precedes [01], e.g.
+      // [VCB-Studio] Anime Name [01][Ma10p].
+      RegExp(r'\[(\d{1,3})\](?=[^a-zA-Z0-9]|$)'),
       RegExp(r'[#＃](\d{1,3})\b'),
       RegExp(r'\s[-–]\s(\d{1,3})(?=\s|[([]|$)'),
       RegExp(r'^(\d{1,3})(?=$|[._\[(])'),
@@ -412,11 +524,22 @@ class Catalog extends ChangeNotifier {
       'relative_path': normalized,
       'name': name,
       'episode': manual.isNotEmpty ? manual.first['episode'] : episode(name),
+      'season': manual.isNotEmpty
+          ? manual.first['season']
+          : detectedSeason(normalized),
       'category': manual.isNotEmpty
           ? manual.first['category']
           : isExtra(normalized)
           ? 'extra'
           : 'main',
+      'extra_type': manual.isNotEmpty
+          ? manual.first['extra_type']
+          : isExtra(normalized)
+          ? CloudMediaAssetPresentation.extraType({
+              'name': name,
+              'relative_path': normalized,
+            })
+          : null,
       'size': size,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
@@ -520,16 +643,116 @@ class Catalog extends ChangeNotifier {
     await reload();
   }
 
+  /// Updating a work's descriptive fields does not touch asset relations,
+  /// source files or playback history. It locks manual metadata edits.
+  Future<void> updateWorkMetadata(
+    String workId, {
+    required String title,
+    int? year,
+    required String overview,
+  }) async {
+    if (title.trim().isEmpty) throw ArgumentError('作品标题不能为空');
+    await db.update(
+      'works',
+      {
+        'title': title.trim(),
+        'year': year,
+        'overview': overview.trim(),
+        'manual_lock': 1,
+        'needs_review': 0,
+      },
+      where: 'id=?',
+      whereArgs: [workId],
+    );
+    await reload();
+  }
+
+  /// Select a cover independently of the metadata lock. Automatic scraping
+  /// may refresh the provider posters but never replaces this manual choice.
+  Future<void> setManualCover(
+    String workId, {
+    String? source,
+    String? url,
+  }) async {
+    if (source != null && source != 'tmdb' && source != 'bangumi') {
+      throw ArgumentError('封面来源只支持 TMDB 或 Bangumi');
+    }
+    if (source != null && (url == null || url.trim().isEmpty)) {
+      throw ArgumentError('没有可用的封面图片');
+    }
+    await db.update(
+      'works',
+      {
+        'manual_cover_source': source,
+        'manual_cover_url': source == null ? null : url?.trim(),
+      },
+      where: 'id=?',
+      whereArgs: [workId],
+    );
+    await reload();
+  }
+
+  static String? preferredPoster(Map<String, Object?> work) {
+    for (final field in ['manual_cover_url', 'poster', 'poster_fallback']) {
+      final value = work[field]?.toString().trim();
+      if (value != null && value.isNotEmpty) return value;
+    }
+    return null;
+  }
+
+  /// NipaPlay-style metadata-only upsert. User-locked values, file relations,
+  /// watched positions and the source path are never replaced by a scraper.
+  Future<bool> applyScrapedWork(
+    String workId,
+    ScrapedWork scraped, {
+    bool reloadAfter = true,
+  }) async {
+    final records = await db.query(
+      'works',
+      where: 'id=?',
+      whereArgs: [workId],
+      limit: 1,
+    );
+    if (records.isEmpty || records.single['manual_lock'] == 1) return false;
+    final old = records.single;
+    final poster = scraped.poster?.trim();
+    final overview = scraped.overview?.trim();
+    final update = <String, Object?>{
+      'title': scraped.title.trim().isNotEmpty ? scraped.title : old['title'],
+      'year': scraped.year ?? old['year'],
+      'poster': poster != null && poster.isNotEmpty ? poster : old['poster'],
+      'poster_fallback': scraped.bangumiPoster ?? old['poster_fallback'],
+      'overview': overview != null && overview.isNotEmpty
+          ? overview
+          : old['overview'],
+      'tmdb_id': scraped.tmdbId ?? old['tmdb_id'],
+      'tmdb_type': scraped.tmdbType ?? old['tmdb_type'],
+      'bangumi_id': scraped.bangumiId ?? old['bangumi_id'],
+      'needs_review': 0,
+    };
+    await db.update(
+      'works',
+      update,
+      where: 'id=? AND manual_lock=0',
+      whereArgs: [workId],
+    );
+    if (reloadAfter) await reload();
+    return true;
+  }
+
   /// Save a reversible manual relation. Asset IDs and progress stay stable.
   Future<void> lockAssetRelation(
     String assetId, {
     required String workId,
     required String category,
     int? episode,
+    int season = 1,
+    String? extraType,
   }) async {
-    if (category != 'main' && category != 'extra') {
-      throw ArgumentError('仅支持正片和特典');
+    if (category != 'main' && category != 'extra' && category != 'other') {
+      throw ArgumentError('分类必须是正片、特典或其他');
     }
+    if (season < 0) throw ArgumentError('季数不能为负数');
     if (episode != null && episode < 0) throw ArgumentError('集数不能为负数');
     final rows = await db.query(
       'assets',
@@ -561,6 +784,8 @@ class Catalog extends ChangeNotifier {
         'work_id': old['work_id'],
         'category': old['category'],
         'episode': old['episode'],
+        'season': old['season'],
+        'extra_type': old['extra_type'],
         'was_locked': saved.isNotEmpty ? 1 : 0,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
       await tx.insert('asset_overrides', {
@@ -568,10 +793,18 @@ class Catalog extends ChangeNotifier {
         'work_id': workId,
         'category': category,
         'episode': episode,
+        'season': season,
+        'extra_type': category == 'extra' ? extraType : null,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
       await tx.update(
         'assets',
-        {'work_id': workId, 'category': category, 'episode': episode},
+        {
+          'work_id': workId,
+          'category': category,
+          'episode': episode,
+          'season': season,
+          'extra_type': category == 'extra' ? extraType : null,
+        },
         where: 'id=?',
         whereArgs: [assetId],
       );
@@ -595,6 +828,8 @@ class Catalog extends ChangeNotifier {
           'work_id': row['work_id'],
           'category': row['category'],
           'episode': row['episode'],
+          'season': row['season'],
+          'extra_type': row['extra_type'],
         },
         where: 'id=?',
         whereArgs: [assetId],
@@ -605,6 +840,8 @@ class Catalog extends ChangeNotifier {
           'work_id': row['work_id'],
           'category': row['category'],
           'episode': row['episode'],
+          'season': row['season'],
+          'extra_type': row['extra_type'],
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       } else {
         await tx.delete(

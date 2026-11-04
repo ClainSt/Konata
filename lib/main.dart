@@ -6,12 +6,13 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'core/catalog.dart';
 import 'core/metadata.dart';
 import 'core/selected_scanner.dart';
+import 'core/personal_scrape_coordinator.dart';
 import 'ui/source_browser_page.dart';
 import 'ui/source_editor.dart';
 import 'ui/tmdb_settings_dialog.dart';
 import 'ui/nipaplay_detail_page.dart';
 import 'ui/nipaplay_style.dart';
-import 'ui/work_association_dialog.dart';
+import 'ui/work_edit_dialogs.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -162,11 +163,23 @@ class _LibraryPageState extends State<LibraryPage> {
         Expanded(
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            child: work['poster'] != null
+            child: Catalog.preferredPoster(work) != null
                 ? Image.network(
-                    work['poster'].toString(),
+                    Catalog.preferredPoster(work)!,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => _blankPoster(),
+                    errorBuilder: (_, _, _) {
+                      final fallback = work['poster_fallback']?.toString();
+                      if (fallback == null ||
+                          fallback.isEmpty ||
+                          fallback == work['poster']) {
+                        return _blankPoster();
+                      }
+                      return Image.network(
+                        fallback,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => _blankPoster(),
+                      );
+                    },
                   )
                 : _blankPoster(),
           ),
@@ -227,6 +240,26 @@ class _LibraryPageState extends State<LibraryPage> {
                   tooltip: '浏览云盘或本地目录并选取刮削文件夹',
                   onPressed: () => _browse(source),
                   icon: const Icon(Icons.folder_open_outlined),
+                ),
+                IconButton(
+                  tooltip: '刮削 TMDB / Bangumi 元数据（不重新扫描视频）',
+                  onPressed: cat.scanning
+                      ? null
+                      : () async {
+                          try {
+                            final report = await PersonalScrapeCoordinator()
+                                .scrapeSource(
+                                  source['id'].toString(),
+                                  onlyPending: true,
+                                );
+                            _message(
+                              '刮削完成：成功 ${report.matched}，待复核 ${report.review}，失败 ${report.errors}',
+                            );
+                          } catch (e) {
+                            _message('刮削失败：$e');
+                          }
+                        },
+                  icon: const Icon(Icons.auto_awesome_outlined),
                 ),
                 IconButton(
                   tooltip: '扫描已选范围',
@@ -441,18 +474,16 @@ class _WorkPageState extends State<WorkPage> {
       return NipaPlayDetailPage(
         work: work,
         assets: cat.forWork(widget.workId),
-        onManage: () => _manage(work),
+        onEditMetadata: () => WorkEditDialogs.metadata(
+          context,
+          work,
+          searchAndBind: () => _match(work),
+        ),
+        onEditCover: () => WorkEditDialogs.cover(context, work),
         onBack: () => Navigator.maybePop(context),
       );
     },
   );
-  Future<void> _manage(Map<String, Object?> work) async {
-    await showDialog<void>(
-      context: context,
-      builder: (_) =>
-          WorkAssociationDialog(work: work, onSearchBind: () => _match(work)),
-    );
-  }
 
   Future<void> _match(Map<String, Object?> work) async {
     final query = TextEditingController(

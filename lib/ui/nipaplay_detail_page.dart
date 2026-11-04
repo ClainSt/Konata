@@ -3,6 +3,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../core/catalog.dart';
 import '../core/detail_metadata.dart';
+import '../core/episode_grouping.dart';
+import '../core/cloud_media_asset_presentation.dart';
 import 'nipaplay_style.dart';
 import 'watch_page.dart';
 
@@ -12,12 +14,13 @@ class NipaPlayDetailPage extends StatefulWidget {
     super.key,
     required this.work,
     required this.assets,
-    required this.onManage,
+    required this.onEditMetadata,
+    required this.onEditCover,
     required this.onBack,
   });
   final Map<String, Object?> work;
   final List<Map<String, Object?>> assets;
-  final VoidCallback onManage, onBack;
+  final VoidCallback onEditMetadata, onEditCover, onBack;
   @override
   State<NipaPlayDetailPage> createState() => _NipaPlayDetailPageState();
 }
@@ -27,6 +30,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
   Map<String, Map<String, Object?>> progress = {};
   bool loading = false, expanded = false, expandedSummary = false;
   String section = 'main';
+  String extraFilter = '全部';
   int generation = 0;
   final rail = ScrollController();
 
@@ -68,7 +72,8 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     if (!force &&
         cached != null &&
         fetched != null &&
-        DateTime.now().difference(fetched) < const Duration(days: 3)) {
+        DateTime.now().difference(fetched) < const Duration(days: 3) &&
+        (cached['schemaVersion'] as int? ?? 0) >= 3) {
       return;
     }
     if (widget.work['tmdb_id'] == null && widget.work['bangumi_id'] == null) {
@@ -77,7 +82,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     final svc = DetailMetadataService();
     setState(() => loading = true);
     try {
-      final fresh = await svc.fetch(widget.work);
+      final fresh = await svc.fetch(widget.work, assets: widget.assets);
       if (!mounted || seq != generation) return;
       final merged = Map<String, dynamic>.from(details);
       for (final entry in fresh.entries) {
@@ -100,8 +105,27 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     }
   }
 
-  List<Map<String, Object?>> get episodes => _sorted('main');
-  List<Map<String, Object?>> get extras => _sorted('extra');
+  List<EpisodeGroup> get episodeGroups => EpisodeGrouping.main(widget.assets);
+  List<Map<String, Object?>> get episodes =>
+      episodeGroups.map((g) => g.preferred(progress)).toList();
+  List<Map<String, Object?>> get extras => _sorted(
+    'extra',
+  ).where((a) => extraFilter == '全部' || extraType(a) == extraFilter).toList();
+  List<Map<String, Object?>> get allExtras => _sorted('extra');
+  String extraType(Map<String, Object?> asset) =>
+      asset['extra_type']?.toString().isNotEmpty == true
+      ? asset['extra_type'].toString()
+      : CloudMediaAssetPresentation.extraType(asset);
+  List<Map<String, Object?>> variantsFor(Map<String, Object?> asset) {
+    final id = asset['id']?.toString();
+    for (final group in episodeGroups) {
+      if (group.versions.any((e) => e['id']?.toString() == id)) {
+        return group.versions;
+      }
+    }
+    return [asset];
+  }
+
   List<Map<String, Object?>> _sorted(String category) {
     final all = widget.assets.where((a) => a['category'] == category).toList();
     all.sort((a, b) {
@@ -115,10 +139,57 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
   }
 
   Map<String, dynamic> episodeInfo(Map<String, Object?> asset) {
-    final map = details[asset['category'] == 'extra' ? 'specials' : 'episodes'];
-    final id = asset['episode']?.toString() ?? '';
-    if (map is Map && map[id] is Map) {
-      return Map<String, dynamic>.from(map[id] as Map);
+    final n = asset['episode'] as int?;
+    if (asset['category'] == 'extra') {
+      final specials = details['specialAssets'];
+      final path = asset['relative_path']?.toString();
+      if (specials is Map && specials[path] is Map) {
+        return Map<String, dynamic>.from(specials[path] as Map);
+      }
+      // A CM01 number is not the same as TMDB special episode 1.
+      if (!CloudMediaAssetPresentation.isSpecialMappingCandidate(asset)) {
+        return {};
+      }
+      final explicit = CloudMediaAssetPresentation.explicitSpecialNumber(asset);
+      if (explicit == null) return {};
+      final entries = details['specials'];
+      if (entries is Map && entries[explicit.toString()] is Map) {
+        return Map<String, dynamic>.from(entries[explicit.toString()] as Map);
+      }
+      return {};
+    }
+    if (n == null) return {};
+    final seasons = details['seasonEpisodes'];
+    final counts = details['seasonEpisodeCounts'];
+    var season = asset['season'] as int? ?? 1;
+    var local = n;
+    final hasExplicit =
+        CloudMediaAssetPresentation.explicitSeasonNumber(asset) != null;
+    if (!hasExplicit && season == 1 && counts is Map) {
+      final keys =
+          counts.keys
+              .map((e) => int.tryParse(e.toString()))
+              .whereType<int>()
+              .where((e) => e > 0)
+              .toList()
+            ..sort();
+      for (final s in keys) {
+        final count = (counts[s.toString()] as num?)?.toInt() ?? 0;
+        if (count <= 0) break;
+        if (local <= count) {
+          season = s;
+          break;
+        }
+        local -= count;
+      }
+    }
+    final entries = seasons is Map ? seasons[season.toString()] : null;
+    if (entries is Map && entries[local.toString()] is Map) {
+      return Map<String, dynamic>.from(entries[local.toString()] as Map);
+    }
+    final old = details['episodes'];
+    if (old is Map && old[n.toString()] is Map) {
+      return Map<String, dynamic>.from(old[n.toString()] as Map);
     }
     return {};
   }
@@ -126,7 +197,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
   String episodeLabel(Map<String, Object?> asset) {
     final n = asset['episode'];
     return asset['category'] == 'extra'
-        ? (n == null ? '特典' : 'SP $n')
+        ? extraType(asset) + (n == null ? '' : ' $n')
         : (n == null ? '正片' : '第 $n 集');
   }
 
@@ -162,7 +233,44 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
         : episodes.first;
   }
 
-  Future<void> play(Map<String, Object?> asset) async {
+  Future<void> play(
+    Map<String, Object?> asset, {
+    bool offerVersions = false,
+  }) async {
+    if (offerVersions) {
+      final choices = variantsFor(asset);
+      if (choices.length > 1) {
+        final chosen = await showModalBottomSheet<Map<String, Object?>>(
+          context: context,
+          showDragHandle: true,
+          builder: (ctx) => SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const ListTile(title: Text('选择播放版本')),
+                for (final v in choices)
+                  ListTile(
+                    title: Text(
+                      v['name']?.toString() ?? '',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(
+                      v['relative_path']?.toString() ?? '',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: const Icon(Icons.play_arrow),
+                    onTap: () => Navigator.pop(ctx, v),
+                  ),
+              ],
+            ),
+          ),
+        );
+        if (chosen == null || !mounted) return;
+        asset = chosen;
+      }
+    }
     if (!mounted) return;
     await Navigator.push(
       context,
@@ -171,9 +279,16 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     if (mounted) await refresh();
   }
 
-  Widget image(String? url, {Alignment alignment = Alignment.center}) {
+  Widget image(
+    String? url, {
+    Alignment alignment = Alignment.center,
+    String? fallbackUrl,
+  }) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     if (url == null || url.isEmpty) {
+      if (fallbackUrl != null && fallbackUrl.isNotEmpty) {
+        return image(fallbackUrl, alignment: alignment);
+      }
       return ColoredBox(
         color: dark ? const Color(0xff333333) : const Color(0xffeeeeee),
         child: const Center(
@@ -185,12 +300,19 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
       url,
       fit: BoxFit.cover,
       alignment: alignment,
-      errorBuilder: (_, _, _) => ColoredBox(
-        color: Colors.black.withValues(alpha: .06),
-        child: const Center(
-          child: Icon(Icons.movie_outlined, color: Colors.grey),
-        ),
-      ),
+      errorBuilder: (_, _, _) {
+        if (fallbackUrl != null &&
+            fallbackUrl.isNotEmpty &&
+            fallbackUrl != url) {
+          return image(fallbackUrl, alignment: alignment);
+        }
+        return ColoredBox(
+          color: Colors.black.withValues(alpha: .06),
+          child: const Center(
+            child: Icon(Icons.movie_outlined, color: Colors.grey),
+          ),
+        );
+      },
     );
   }
 
@@ -202,8 +324,12 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
         muted = text.withValues(alpha: .55);
     final surface = dark ? const Color(0xff1f1f1f) : Colors.white;
     final title = widget.work['title']?.toString() ?? '未命名作品';
+    final posterFallback = widget.work['poster_fallback']?.toString();
+    final manualPoster = widget.work['manual_cover_url']?.toString();
     final rawPoster = widget.work['poster']?.toString();
-    final poster = rawPoster?.isNotEmpty == true
+    final poster = manualPoster?.isNotEmpty == true
+        ? manualPoster
+        : rawPoster?.isNotEmpty == true
         ? rawPoster
         : details['poster']?.toString();
     final backdrop = details['backdrop']?.toString().isNotEmpty == true
@@ -220,6 +346,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
         .map((e) => e.toString())
         .toList();
     final selected = section == 'main' ? episodes : extras;
+    final typeNames = allExtras.map(extraType).toSet().toList()..sort();
     return Scaffold(
       backgroundColor: surface,
       body: LayoutBuilder(
@@ -239,7 +366,11 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
             children: [
               if (backdrop != null)
                 Positioned.fill(
-                  child: image(backdrop, alignment: Alignment.topCenter),
+                  child: image(
+                    backdrop,
+                    alignment: Alignment.topCenter,
+                    fallbackUrl: posterFallback,
+                  ),
                 ),
               Positioned.fill(
                 child: DecoratedBox(
@@ -283,7 +414,10 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                                     height: posterWidth * 1.5,
                                     child: ClipRRect(
                                       borderRadius: BorderRadius.circular(8),
-                                      child: image(poster),
+                                      child: image(
+                                        poster,
+                                        fallbackUrl: posterFallback,
+                                      ),
                                     ),
                                   ),
                                   SizedBox(width: desktop ? 32 : 20),
@@ -307,7 +441,10 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                                   height: posterWidth * 1.5,
                                   child: ClipRRect(
                                     borderRadius: BorderRadius.circular(8),
-                                    child: image(poster),
+                                    child: image(
+                                      poster,
+                                      fallbackUrl: posterFallback,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -354,6 +491,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                                             child: ClipOval(
                                               child: image(
                                                 c['image']?.toString(),
+                                                alignment: Alignment.topCenter,
                                               ),
                                             ),
                                           ),
@@ -405,7 +543,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                                     sectionTab(
                                       'extra',
                                       '特典',
-                                      extras.length,
+                                      allExtras.length,
                                       muted,
                                     ),
                                   ],
@@ -423,7 +561,24 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 12),
+                            if (section == 'extra' && typeNames.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 16),
+                                child: Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    for (final type in ['全部', ...typeNames])
+                                      ChoiceChip(
+                                        label: Text(type),
+                                        selected: extraFilter == type,
+                                        onSelected: (_) =>
+                                            setState(() => extraFilter = type),
+                                      ),
+                                  ],
+                                ),
+                              ),
                             if (selected.isEmpty)
                               Padding(
                                 padding: const EdgeInsets.symmetric(
@@ -485,7 +640,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                   ),
                 ),
               ),
-              // Keep navigation and association management accessible while
+              // Keep navigation and the more-actions menu accessible while
               // the poster, description and episodes scroll underneath.
               Positioned(
                 top: 0,
@@ -514,11 +669,32 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                               icon: Icon(Icons.arrow_back, color: text),
                             ),
                             const Spacer(),
-                            TextButton.icon(
-                              key: const ValueKey('detail-manage-button'),
-                              onPressed: widget.onManage,
-                              icon: const Icon(Icons.edit_outlined, size: 18),
-                              label: const Text('关联管理'),
+                            PopupMenuButton<String>(
+                              key: const ValueKey('detail-more-button'),
+                              tooltip: '更多操作',
+                              icon: const Icon(Icons.more_horiz),
+                              onSelected: (value) {
+                                if (value == 'metadata') {
+                                  widget.onEditMetadata();
+                                }
+                                if (value == 'cover') widget.onEditCover();
+                              },
+                              itemBuilder: (_) => const [
+                                PopupMenuItem(
+                                  value: 'metadata',
+                                  child: ListTile(
+                                    leading: Icon(Icons.edit_note),
+                                    title: Text('编辑元数据'),
+                                  ),
+                                ),
+                                PopupMenuItem(
+                                  value: 'cover',
+                                  child: ListTile(
+                                    leading: Icon(Icons.image_outlined),
+                                    title: Text('编辑封面'),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -669,9 +845,10 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
   }
 
   Widget episodeTile(Map<String, Object?> asset, Color secondary) {
-    final still = episodeInfo(asset)['still']?.toString().isNotEmpty == true
-        ? episodeInfo(asset)['still']?.toString()
-        : details['backdrop']?.toString() ?? widget.work['poster']?.toString();
+    // Never show the anime backdrop on every episode: that was a misleading
+    // fallback, not a genuine thumbnail. Use the correct TMDB still or a
+    // neutral placeholder when no episode artwork is available.
+    final still = episodeInfo(asset)['still']?.toString();
     final ratio = fraction(asset);
     final status = ratio >= .95
         ? '已看'
@@ -680,7 +857,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
         : '未看';
     return InkWell(
       key: ValueKey('detail-episode:${asset['relative_path']}'),
-      onTap: () => play(asset),
+      onTap: () => play(asset, offerVersions: true),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -707,6 +884,13 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                           : Colors.black54,
                     ),
                   ),
+                  if (asset['category'] == 'main' &&
+                      variantsFor(asset).length > 1)
+                    Positioned(
+                      bottom: 7,
+                      left: 7,
+                      child: badge('${variantsFor(asset).length} 个版本'),
+                    ),
                   if (ratio > 0)
                     Positioned(
                       bottom: 0,

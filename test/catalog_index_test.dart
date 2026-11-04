@@ -13,10 +13,10 @@ void main() {
         'CREATE TABLE works (id TEXT PRIMARY KEY, title TEXT, year INTEGER, tmdb_id INTEGER, tmdb_type TEXT, needs_review INTEGER NOT NULL DEFAULT 1, manual_lock INTEGER NOT NULL DEFAULT 0)',
       );
       await db.execute(
-        'CREATE TABLE assets (id TEXT PRIMARY KEY, source_id TEXT, work_id TEXT, relative_path TEXT, name TEXT, episode INTEGER, category TEXT, size INTEGER)',
+        'CREATE TABLE assets (id TEXT PRIMARY KEY, source_id TEXT, work_id TEXT, relative_path TEXT, name TEXT, episode INTEGER, season INTEGER NOT NULL DEFAULT 1, category TEXT, extra_type TEXT, size INTEGER)',
       );
       await db.execute(
-        'CREATE TABLE asset_overrides (asset_id TEXT PRIMARY KEY, work_id TEXT, category TEXT, episode INTEGER)',
+        'CREATE TABLE asset_overrides (asset_id TEXT PRIMARY KEY, work_id TEXT, category TEXT, episode INTEGER, season INTEGER NOT NULL DEFAULT 1, extra_type TEXT)',
       );
       await catalog.indexVideo(
         'source-1',

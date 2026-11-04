@@ -5,7 +5,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'core/catalog.dart';
 import 'core/metadata.dart';
-import 'core/selected_scanner.dart';
+import 'core/selected_scan_workflow.dart';
 import 'core/personal_scrape_coordinator.dart';
 import 'ui/source_browser_page.dart';
 import 'ui/source_editor.dart';
@@ -120,20 +120,34 @@ class _LibraryPageState extends State<LibraryPage> {
                       child: Text(cat.sources.isEmpty ? '请先添加媒体源' : '暂无匹配作品'),
                     )
                   : LayoutBuilder(
-                      builder: (ctx, bounds) => GridView.builder(
-                        padding: const EdgeInsets.all(14),
-                        itemCount: matches.length,
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: (bounds.maxWidth / 185).floor().clamp(
-                            2,
-                            9,
-                          ),
-                          childAspectRatio: 0.64,
-                          crossAxisSpacing: 12,
-                          mainAxisSpacing: 16,
-                        ),
-                        itemBuilder: (ctx, i) => _poster(matches[i]),
-                      ),
+                      builder: (ctx, bounds) {
+                        // A fixed 2:3 cover and a two-line title slot keep all
+                        // poster tiles aligned regardless of title length.
+                        const horizontalPadding = 14.0;
+                        const crossSpacing = 12.0;
+                        final columns = (bounds.maxWidth / 185).floor().clamp(
+                          2,
+                          9,
+                        );
+                        final cardWidth =
+                            (bounds.maxWidth -
+                                2 * horizontalPadding -
+                                (columns - 1) * crossSpacing) /
+                            columns;
+                        final cardHeight = cardWidth * 1.5 + 8 + 48 + 20;
+                        return GridView.builder(
+                          padding: const EdgeInsets.all(horizontalPadding),
+                          itemCount: matches.length,
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: columns,
+                                mainAxisExtent: cardHeight,
+                                crossAxisSpacing: crossSpacing,
+                                mainAxisSpacing: 16,
+                              ),
+                          itemBuilder: (ctx, i) => _poster(matches[i]),
+                        );
+                      },
                     ),
             ),
             Padding(
@@ -160,7 +174,9 @@ class _LibraryPageState extends State<LibraryPage> {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Expanded(
+        AspectRatio(
+          key: ValueKey('library-poster-${work['id']}'),
+          aspectRatio: 2 / 3,
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: Catalog.preferredPoster(work) != null
@@ -185,17 +201,28 @@ class _LibraryPageState extends State<LibraryPage> {
           ),
         ),
         const SizedBox(height: 8),
-        Text(
-          work['title'].toString(),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w600),
+        SizedBox(
+          height: 48,
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: Text(
+              work['title'].toString(),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
         ),
-        Text(
-          (work['year']?.toString() ?? '') +
-              (work['manual_lock'] == 1 ? ' · 已手动绑定' : '') +
-              (work['needs_review'] == 1 ? ' · 待复核' : ''),
-          style: Theme.of(context).textTheme.labelSmall,
+        SizedBox(
+          height: 20,
+          child: Text(
+            (work['year']?.toString() ?? '') +
+                (work['manual_lock'] == 1 ? ' · 已手动绑定' : '') +
+                (work['needs_review'] == 1 ? ' · 待复核' : ''),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelSmall,
+          ),
         ),
       ],
     ),
@@ -271,10 +298,9 @@ class _LibraryPageState extends State<LibraryPage> {
                             return;
                           }
                           try {
-                            await SelectedScanner.scan(source);
-                            await cat.clearScanRoots(source['id'].toString());
-                          } catch (e) {
-                            _message(e.toString());
+                            await SelectedScanWorkflow.run(source);
+                          } catch (_) {
+                            // Progress inspector owns scanning errors; no snackbar.
                           }
                         },
                   icon: const Icon(Icons.sync),

@@ -1,4 +1,5 @@
 import 'catalog.dart';
+import 'scan_activity.dart';
 import 'personal_scraper.dart';
 
 /// Bounded, read-only metadata workflow. Can retry scraping without
@@ -18,10 +19,12 @@ class PersonalScrapeCoordinator {
     String sourceId, {
     int? limit,
     bool onlyPending = true,
+    Set<String>? workIds,
   }) async {
     if (_catalog.scanning) throw StateError('当前正在扫描或刮削，请勿同时启动');
     final works = _catalog.works
         .where((w) => w['id']?.toString().startsWith('work:$sourceId:') == true)
+        .where((w) => workIds == null || workIds.contains(w['id']?.toString()))
         .toList();
     int matched = 0, skipped = 0, review = 0, errors = 0, attempted = 0;
     final targets = works.where((w) {
@@ -29,6 +32,7 @@ class PersonalScrapeCoordinator {
       final poster = w['poster']?.toString().trim() ?? '';
       return !onlyPending || poster.isEmpty || w['needs_review'] == 1;
     }).toList();
+    ScanActivityStore.instance.beginScraping(sourceId, targets.length);
     _catalog.updateStatus('准备刮削 ${targets.length} 部作品（TMDB / Bangumi）', true);
     try {
       for (final work in targets) {
@@ -49,6 +53,7 @@ class PersonalScrapeCoordinator {
           final candidate = await _scraper.scrape(work, filenames: filenames);
           if (candidate == null) {
             review++;
+            ScanActivityStore.instance.metadataDone(sourceId, review: true);
             continue;
           }
           if (await _catalog.applyScrapedWork(
@@ -57,11 +62,14 @@ class PersonalScrapeCoordinator {
             reloadAfter: false,
           )) {
             matched++;
+            ScanActivityStore.instance.metadataDone(sourceId, matched: true);
           } else {
             skipped++;
+            ScanActivityStore.instance.metadataDone(sourceId);
           }
         } catch (_) {
           errors++;
+          ScanActivityStore.instance.metadataDone(sourceId, error: true);
         }
       }
       skipped += works.length - targets.length;

@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import '../core/catalog.dart';
 import '../core/sources.dart';
-import '../core/selected_scanner.dart';
-import '../core/personal_scrape_coordinator.dart';
+import '../core/selected_scan_workflow.dart';
+import '../core/scan_activity.dart';
+import 'scan_progress_dialog.dart';
 
 class BrowserEntry {
   const BrowserEntry(this.name, this.relative, this.directory, this.size);
@@ -129,44 +130,16 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     }
   }
 
-  Future<void> _scrape() async {
-    if (scanning || Catalog.instance.scanning) return;
-    setState(() => scanning = true);
-    try {
-      final report = await PersonalScrapeCoordinator().scrapeSource(sourceId);
-      _notice(
-        'TMDB / Bangumi 刮削：成功 ${report.matched}，待复核 ${report.review}，失败 ${report.errors}',
-      );
-    } catch (e) {
-      _notice('元数据刮削失败：$e');
-    } finally {
-      if (mounted) setState(() => scanning = false);
-    }
-  }
-
   Future<void> _scan() async {
     if (scanning || Catalog.instance.scanning) return;
     setState(() => scanning = true);
     try {
-      final count = await SelectedScanner.scan(widget.source);
-      // Keep indexed works, manual bindings and progress; clear checkboxes only.
-      await Catalog.instance.clearScanRoots(sourceId);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('已索引 $count 个视频；可继续抓取 TMDB/Bangumi 海报与资料'),
-            duration: const Duration(seconds: 12),
-            action: SnackBarAction(
-              label: '刮削元数据',
-              onPressed: () {
-                _scrape();
-              },
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      _notice('扫描失败：$e');
+      // Successful indexing immediately starts TMDB/Bangumi metadata scraping.
+      // All progress and errors are reported in the top-right inspector.
+      await SelectedScanWorkflow.run(widget.source);
+    } catch (_) {
+      // The workflow already records the error in the progress inspector.
+      // No bottom snackbar is shown during or after a scan.
     } finally {
       if (mounted) setState(() => scanning = false);
     }
@@ -193,10 +166,29 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           appBar: AppBar(
             title: Text('浏览目录 · ${widget.source['label']}'),
             actions: [
-              IconButton(
-                icon: const Icon(Icons.refresh),
-                tooltip: '刷新当前目录',
-                onPressed: loading ? null : () => _load(),
+              AnimatedBuilder(
+                animation: ScanActivityStore.instance,
+                builder: (ctx, _) {
+                  final activity = ScanActivityStore.instance.forSource(
+                    sourceId,
+                  );
+                  final active =
+                      activity?.phase == ScanPhase.scanning ||
+                      activity?.phase == ScanPhase.scraping;
+                  return IconButton(
+                    key: const ValueKey('scan-progress-button'),
+                    tooltip: '扫描进度',
+                    icon: active
+                        ? const SizedBox(
+                            width: 23,
+                            height: 23,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.fact_check_outlined),
+                    onPressed: () =>
+                        ScanProgressDialog.show(context, sourceId: sourceId),
+                  );
+                },
               ),
             ],
           ),

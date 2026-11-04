@@ -72,6 +72,14 @@ class WebDav {
       }
       final doc = XmlDocument.parse(body);
       final entries = <DavEntry>[];
+      // WebDAV PROPFIND Depth:1 includes the queried directory itself.
+      // Compare decoded path *segments* and require exactly one child level.
+      // Comparing URI strings alone can fail for Chinese characters, spaces,
+      // percent-encoding variants and trailing slashes.
+      final parentSegments = uri.pathSegments
+          .where((s) => s.isNotEmpty)
+          .toList();
+      final seen = <String>{};
       for (final item in doc.descendants.whereType<XmlElement>().where(
         (e) => e.name.local == 'response',
       )) {
@@ -84,18 +92,23 @@ class WebDav {
         final target = uri.resolve(href);
         if (target.scheme != root.scheme ||
             target.host != root.host ||
-            target.port != root.port ||
-            !target.path.startsWith(root.path)) {
-          continue;
-        }
-        if (target.path.replaceAll(RegExp(r'/$'), '') ==
-            uri.path.replaceAll(RegExp(r'/$'), '')) {
+            target.port != root.port) {
           continue;
         }
         final segments = target.pathSegments
             .where((x) => x.isNotEmpty)
             .toList();
-        if (segments.isEmpty) continue;
+        if (segments.length != parentSegments.length + 1) continue;
+        var directChild = true;
+        for (var i = 0; i < parentSegments.length; i++) {
+          if (segments[i] != parentSegments[i]) {
+            directChild = false;
+            break;
+          }
+        }
+        if (!directChild) continue;
+        final key = segments.join('/');
+        if (!seen.add(key)) continue;
         final dir = item.descendants.whereType<XmlElement>().any(
           (e) => e.name.local == 'collection',
         );

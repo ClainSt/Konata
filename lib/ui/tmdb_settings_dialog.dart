@@ -105,12 +105,13 @@ class TmdbSettingsDialog {
                     const Text(
                       'TMDB 认证方式',
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: 16,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 10),
                     SegmentedButton<String>(
+                      showSelectedIcon: false,
                       style: ButtonStyle(
                         shape: WidgetStatePropertyAll(
                           RoundedRectangleBorder(
@@ -122,14 +123,16 @@ class TmdbSettingsDialog {
                         ),
                         backgroundColor: WidgetStateProperty.resolveWith(
                           (states) => states.contains(WidgetState.selected)
-                              ? scheme.primary.withValues(alpha: .16)
+                              ? scheme.primary
                               : Colors.transparent,
                         ),
-                        foregroundColor: WidgetStatePropertyAll(
-                          scheme.onSurface,
+                        foregroundColor: WidgetStateProperty.resolveWith(
+                          (states) => states.contains(WidgetState.selected)
+                              ? scheme.onPrimary
+                              : scheme.onSurface,
                         ),
                         textStyle: const WidgetStatePropertyAll(
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                         ),
                       ),
                       segments: const [
@@ -147,6 +150,7 @@ class TmdbSettingsDialog {
                       key: ValueKey(mode),
                       controller: controller,
                       obscureText: true,
+                      style: const TextStyle(fontSize: 16),
                       decoration: InputDecoration(
                         border: fieldBorder,
                         enabledBorder: fieldBorder,
@@ -157,6 +161,12 @@ class TmdbSettingsDialog {
                           ),
                         ),
                         helperMaxLines: 3,
+                        helperStyle: TextStyle(
+                          fontSize: 14,
+                          height: 1.5,
+                          color: scheme.onSurface.withValues(alpha: .65),
+                        ),
+                        labelStyle: const TextStyle(fontSize: 16),
                         floatingLabelStyle: TextStyle(
                           color: scheme.onSurface.withValues(alpha: .7),
                         ),
@@ -170,7 +180,7 @@ class TmdbSettingsDialog {
                     Text(
                       '元数据来源仅使用 TMDB 和 Bangumi，后者的公开搜索不需要此凭证。',
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 14,
                         height: 1.6,
                         color: scheme.onSurface.withValues(alpha: .6),
                       ),
@@ -179,7 +189,11 @@ class TmdbSettingsDialog {
                       const SizedBox(height: 10),
                       Text(
                         result!,
-                        style: Theme.of(dialogContext).textTheme.bodySmall,
+                        style: TextStyle(
+                          fontSize: 15,
+                          height: 1.5,
+                          color: scheme.onSurface,
+                        ),
                       ),
                     ],
                   ],
@@ -188,6 +202,10 @@ class TmdbSettingsDialog {
               actions: [
                 TextButton(
                   style: TextButton.styleFrom(
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
                     foregroundColor: scheme.onSurface.withValues(alpha: .65),
                   ),
                   onPressed: testing
@@ -197,6 +215,10 @@ class TmdbSettingsDialog {
                 ),
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
                     foregroundColor: scheme.onSurface,
                     side: BorderSide(color: outline),
                     shape: RoundedRectangleBorder(
@@ -218,6 +240,12 @@ class TmdbSettingsDialog {
                   label: const Text('测试连接'),
                 ),
                 FilledButton(
+                  style: FilledButton.styleFrom(
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   onPressed: testing ? null : save,
                   child: const Text('保存'),
                 ),

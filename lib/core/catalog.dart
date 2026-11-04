@@ -2,13 +2,14 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:sqflite/sqflite.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class Catalog extends ChangeNotifier {
   Catalog._();
   static final instance = Catalog._();
   late Database db;
+  static const _secrets = FlutterSecureStorage();
   List<Map<String, Object?>> sources = [], works = [], assets = [];
   bool scanning = false;
   String status = '就绪';
@@ -28,6 +29,15 @@ class Catalog extends ChangeNotifier {
         await db.execute('CREATE TABLE progress (asset_id TEXT PRIMARY KEY, position_ms INTEGER NOT NULL, duration_ms INTEGER NOT NULL, completed INTEGER NOT NULL, updated_at TEXT NOT NULL)');
         await db.execute('CREATE INDEX assets_by_work ON assets(work_id)');
       });
+    // Migrate passwords previously kept in the early development SQLite schema.
+    final previous = await db.query('sources', columns:['id','password']);
+    for (final entry in previous) {
+      final oldPassword = entry['password']?.toString() ?? '';
+      if (oldPassword.isNotEmpty) {
+        await _secrets.write(key:'webdav:'+entry['id'].toString(),value:oldPassword);
+        await db.update('sources',{'password':null},where:'id=?',whereArgs:[entry['id']]);
+      }
+    }
     await reload();
   }
 
@@ -44,10 +54,16 @@ class Catalog extends ChangeNotifier {
       {String username = '', String password = ''}) async {
     final id = 'src-${DateTime.now().microsecondsSinceEpoch}';
     await db.insert('sources', {'id': id, 'kind': type, 'label': name,
-      'location': location, 'username': username, 'password': password});
+      'location': location, 'username': username, 'password': null});
+    if (password.isNotEmpty) await _secrets.write(key:'webdav:$id',value:password);
     await reload(); return id;
   }
+  Future<Map<String,Object?>> withCredentials(Map<String,Object?> source) async => {
+    ...source,
+    'password': (await _secrets.read(key:'webdav:${source['id']}')) ?? '',
+  };
   Future<void> removeSource(String sourceId) async {
+    await _secrets.delete(key:'webdav:$sourceId');
     await db.transaction((txn) async {
       await txn.delete('assets', where: 'source_id=?', whereArgs: [sourceId]);
       await txn.delete('sources', where: 'id=?', whereArgs: [sourceId]);

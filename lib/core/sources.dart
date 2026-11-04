@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:path/path.dart' as p;
 import 'package:xml/xml.dart';
 import 'catalog.dart';
@@ -48,6 +49,7 @@ class WebDav {
 class Scanner {
   static Future<int> scan(Map<String,Object?> source) async {
     final cat=Catalog.instance;
+    source = await cat.withCredentials(source);
     final id=source['id'].toString();
     var count=0;
     cat.updateStatus('扫描中：${source['label']}',true);
@@ -101,8 +103,9 @@ class StreamBroker {
   Future<Uri> issue(Map<String,Object?> source,String path) async {
     _server??=await HttpServer.bind(InternetAddress.loopbackIPv4,0);
     if(!_listening){_listening=true;_server!.listen(_handle);}
-    final ticket='${DateTime.now().microsecondsSinceEpoch}-${_tickets.length}';
-    _tickets[ticket]=(source:source,path:path);
+    final random=Random.secure();
+    final ticket=base64UrlEncode(List<int>.generate(32,(_)=>random.nextInt(256))).replaceAll('=','');
+    _tickets[ticket]=(source:await Catalog.instance.withCredentials(source),path:path);
     return Uri.parse('http://127.0.0.1:${_server!.port}/file/$ticket');
   }
   Future<void> _handle(HttpRequest req) async {
@@ -127,6 +130,7 @@ class StreamBroker {
     finally{await req.response.close();client.close(force:true);}
   }
   Future<List<String>> subtitles(Map<String,Object?> source,String relative) async {
+    source=await Catalog.instance.withCredentials(source);
     if(source['kind']=='local'){
       final file=File(p.join(source['location'].toString(),relative.replaceAll('/',Platform.pathSeparator)));
       final folder=file.parent;

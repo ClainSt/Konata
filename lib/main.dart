@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'core/catalog.dart';
 import 'core/metadata.dart';
 import 'core/sources.dart';
@@ -10,7 +10,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   await Catalog.instance.initialize();
-  Metadata.token=(await SharedPreferences.getInstance()).getString('tmdb_token')??'';
+  Metadata.token=(await const FlutterSecureStorage().read(key:'tmdb_token'))??'';
   runApp(const CCPlayer());
 }
 class CCPlayer extends StatelessWidget {
@@ -103,7 +103,7 @@ class _LibraryPageState extends State<LibraryPage>{
         if(kind=='webdav')...[
           TextField(controller:username,decoration:const InputDecoration(labelText:'用户名')),
           TextField(controller:password,obscureText:true,decoration:const InputDecoration(labelText:'密码')),
-          const Text('预览版仅支持 Basic；暂不建议输入真实云盘密码。',style:TextStyle(color:Colors.orangeAccent,fontSize:12))
+          const Text('预览版仅支持 Basic 鉴权；建议使用 HTTPS 测试连接，不要使用真实云盘凭证。',style:TextStyle(color:Colors.orangeAccent,fontSize:12))
         ]
       ]))),
       actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('取消')),
@@ -122,12 +122,12 @@ class _LibraryPageState extends State<LibraryPage>{
       content:SizedBox(width:460,child:Column(mainAxisSize:MainAxisSize.min,children:[
         TextField(controller:token,obscureText:true,decoration:const InputDecoration(labelText:'TMDB Read Access Token')),
         const SizedBox(height:8),
-        const Text('开发版令牌暂存于设备偏好设置；正式版将使用安全存储。',style:TextStyle(fontSize:12))
+        const Text('TMDB 令牌保存在系统安全存储中。',style:TextStyle(fontSize:12))
       ])),
       actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('取消')),
         FilledButton(onPressed:()async{
           Metadata.token=token.text.trim();
-          await (await SharedPreferences.getInstance()).setString('tmdb_token',Metadata.token);
+          await const FlutterSecureStorage().write(key:'tmdb_token',value:Metadata.token);
           if(ctx.mounted)Navigator.pop(ctx);
         },child:const Text('保存'))]
     ));

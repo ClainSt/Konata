@@ -162,8 +162,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
         : episodes.first;
   }
 
-  Future<void> play(Map<String, Object?> asset, {bool restart = false}) async {
-    if (restart) await Catalog.instance.progress(asset['id'].toString(), 0, 0);
+  Future<void> play(Map<String, Object?> asset) async {
     if (!mounted) return;
     await Navigator.push(
       context,
@@ -268,48 +267,13 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                 child: ScrollConfiguration(
                   behavior: const _MouseScroll(),
                   child: SingleChildScrollView(
-                    padding: EdgeInsets.fromLTRB(inset, 10, inset, 48),
+                    padding: EdgeInsets.fromLTRB(inset, 80, inset, 48),
                     child: Center(
                       child: ConstrainedBox(
                         constraints: BoxConstraints(maxWidth: width),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              children: [
-                                IconButton(
-                                  tooltip: '返回媒体库',
-                                  onPressed: widget.onBack,
-                                  icon: Icon(Icons.arrow_back, color: text),
-                                ),
-                                const Spacer(),
-                                if (loading)
-                                  const SizedBox(
-                                    height: 16,
-                                    width: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  ),
-                                IconButton(
-                                  tooltip: '刷新详情资料',
-                                  onPressed: () => refresh(force: true),
-                                  icon: Icon(
-                                    Icons.refresh_outlined,
-                                    color: secondary,
-                                  ),
-                                ),
-                                TextButton.icon(
-                                  onPressed: widget.onManage,
-                                  icon: const Icon(
-                                    Icons.edit_outlined,
-                                    size: 18,
-                                  ),
-                                  label: const Text('关联管理'),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
                             if (wide)
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -521,6 +485,48 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                   ),
                 ),
               ),
+              // Keep navigation and association management accessible while
+              // the poster, description and episodes scroll underneath.
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: SafeArea(
+                  bottom: false,
+                  child: Container(
+                    key: const ValueKey('detail-fixed-toolbar'),
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: surface.withValues(alpha: .96),
+                      border: Border(
+                        bottom: BorderSide(color: text.withValues(alpha: .09)),
+                      ),
+                    ),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: width),
+                        child: Row(
+                          children: [
+                            IconButton(
+                              key: const ValueKey('detail-back-button'),
+                              tooltip: '返回媒体库',
+                              onPressed: widget.onBack,
+                              icon: Icon(Icons.arrow_back, color: text),
+                            ),
+                            const Spacer(),
+                            TextButton.icon(
+                              key: const ValueKey('detail-manage-button'),
+                              onPressed: widget.onManage,
+                              icon: const Icon(Icons.edit_outlined, size: 18),
+                              label: const Text('关联管理'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ],
           );
         },
@@ -585,13 +591,6 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                     ? '继续 ${episodeLabel(current)}'
                     : '开始播放',
               ),
-            ),
-            OutlinedButton.icon(
-              onPressed: episodes.isEmpty
-                  ? null
-                  : () => play(episodes.first, restart: true),
-              icon: const Icon(Icons.restart_alt),
-              label: const Text('从头播放'),
             ),
           ],
         ),

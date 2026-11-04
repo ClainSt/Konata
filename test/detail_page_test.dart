@@ -61,13 +61,16 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1350, 860));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       var manageCount = 0;
+      var backCount = 0;
       await tester.pumpWidget(
         MaterialApp(
           theme: NipaPlayStyle.theme(Brightness.light),
           home: NipaPlayDetailPage(
             work: work,
             assets: assets,
-            onBack: () {},
+            onBack: () {
+              backCount++;
+            },
             onManage: () {
               manageCount++;
             },
@@ -84,7 +87,12 @@ void main() {
       expect(find.text('关联管理'), findsOneWidget);
       expect(find.text('搜索并绑定元数据'), findsNothing);
       expect(find.text('开始播放'), findsOneWidget);
-      expect(find.text('从头播放'), findsOneWidget);
+      expect(find.text('从头播放'), findsNothing);
+      expect(find.byTooltip('刷新详情资料'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('detail-fixed-toolbar')),
+        findsOneWidget,
+      );
       expect(find.text('正片  1'), findsOneWidget);
       expect(find.text('特典  1'), findsOneWidget);
       await tester.tap(find.text('关联管理'));
@@ -95,6 +103,27 @@ void main() {
         find.byKey(const ValueKey('detail-episode:Work/SP.mkv')),
         findsOneWidget,
       );
+
+      // Regression: back/manage actions remain visible and tappable even
+      // after the description and episode list have been scrolled away.
+      await tester.binding.setSurfaceSize(const Size(1350, 420));
+      await tester.pumpAndSettle();
+      final toolbar = find.byKey(const ValueKey('detail-fixed-toolbar'));
+      final topBefore = tester.getTopLeft(toolbar);
+      final contentScroll = find.byType(SingleChildScrollView);
+      await tester.drag(contentScroll, const Offset(0, -460));
+      await tester.pumpAndSettle();
+      final topAfter = tester.getTopLeft(toolbar);
+      expect((topBefore.dy - topAfter.dy).abs(), lessThan(1));
+      expect(find.byKey(const ValueKey('detail-back-button')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('detail-manage-button')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('detail-back-button')));
+      expect(backCount, 1);
+      await tester.tap(find.byKey(const ValueKey('detail-manage-button')));
+      expect(manageCount, 2);
     },
   );
 }

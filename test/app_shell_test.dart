@@ -4,11 +4,51 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ccplayer/core/app_theme.dart';
+import 'package:ccplayer/core/catalog.dart';
 import 'package:ccplayer/main.dart';
 import 'package:ccplayer/ui/nipaplay_style.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  testWidgets(
+    'source card keeps five name characters and all actions at minimum window size',
+    (tester) async {
+      final previous = Catalog.instance.sources;
+      Catalog.instance.sources = [
+        {
+          'id': 'layout-source',
+          'kind': 'webdav',
+          'label': '光鸭动画收藏媒体源',
+          'location': 'https://example.invalid/a/very/long/path',
+        },
+      ];
+      libraryDestination.value = true;
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox());
+        Catalog.instance.sources = previous;
+        libraryDestination.value = false;
+        await tester.binding.setSurfaceSize(null);
+      });
+      await tester.binding.setSurfaceSize(const Size(640, 480));
+      await tester.pumpWidget(const CCPlayer());
+      await tester.pumpAndSettle();
+      final label = find.text('光鸭动画收藏媒体源');
+      final widget = tester.widget<Text>(label);
+      final painter = TextPainter(
+        text: TextSpan(text: '光鸭动画收', style: widget.style),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      expect(tester.getSize(label).width, greaterThanOrEqualTo(painter.width));
+      painter.dispose();
+      for (final tooltip in ['编辑媒体源', '浏览云盘或本地目录并选取刮削文件夹', '移除']) {
+        final rect = tester.getRect(find.byTooltip(tooltip));
+        expect(rect.right, lessThanOrEqualTo(640));
+        expect(rect.bottom, lessThanOrEqualTo(480));
+        expect(rect.width, greaterThanOrEqualTo(40));
+      }
+      expect(tester.takeException(), isNull);
+    },
+  );
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     await AppTheme.instance.load();

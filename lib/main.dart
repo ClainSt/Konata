@@ -8,7 +8,7 @@ import 'core/metadata.dart';
 import 'core/selected_scan_workflow.dart';
 import 'core/personal_scrape_coordinator.dart';
 import 'ui/source_browser_page.dart';
-import 'ui/adaptive_poster_title.dart';
+import 'ui/poster_title.dart';
 import 'ui/source_editor.dart';
 import 'ui/tmdb_settings_dialog.dart';
 import 'ui/nipaplay_detail_page.dart';
@@ -122,8 +122,7 @@ class _LibraryPageState extends State<LibraryPage> {
                     )
                   : LayoutBuilder(
                       builder: (ctx, bounds) {
-                        // A fixed 2:3 cover and a two-line title slot keep all
-                        // poster tiles aligned regardless of title length.
+                        // Poster-first cards: only a 2:3 cover and one compact title line.
                         const horizontalPadding = 14.0;
                         const crossSpacing = 12.0;
                         final columns = (bounds.maxWidth / 185).floor().clamp(
@@ -135,7 +134,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                 2 * horizontalPadding -
                                 (columns - 1) * crossSpacing) /
                             columns;
-                        final cardHeight = cardWidth * 1.5 + 8 + 48 + 4 + 20;
+                        final cardHeight = cardWidth * 1.5 + 8 + 22;
                         return GridView.builder(
                           padding: const EdgeInsets.all(horizontalPadding),
                           itemCount: matches.length,
@@ -202,20 +201,14 @@ class _LibraryPageState extends State<LibraryPage> {
           ),
         ),
         const SizedBox(height: 8),
-        AdaptivePosterTitle(
-          key: ValueKey('library-title-${work['id']}'),
-          title: work['title'].toString(),
-        ),
-        const SizedBox(height: 4),
         SizedBox(
-          height: 20,
-          child: Text(
-            (work['year']?.toString() ?? '') +
-                (work['manual_lock'] == 1 ? ' · 已手动绑定' : '') +
-                (work['needs_review'] == 1 ? ' · 待复核' : ''),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.labelSmall,
+          height: 22,
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: PosterTitle(
+              key: ValueKey('library-title-${work['id']}'),
+              title: work['title'].toString(),
+            ),
           ),
         ),
       ],

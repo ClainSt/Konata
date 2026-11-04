@@ -68,21 +68,21 @@ void main() {
     expect(shortRect.height / shortRect.width, closeTo(1.5, 0.01));
     expect(shortRect.top, closeTo(longRect.top, 0.1));
 
-    // Metadata must follow the actual one-line title immediately instead
-    // of being pushed down by a permanently reserved second title line.
+    // The library card must contain only the 2:3 cover and its name.
     final shortTitle = find.byKey(const ValueKey('library-title-short'));
     final longTitle = find.byKey(const ValueKey('library-title-long'));
-    final shortStatus = find.text('2021 · 已手动绑定');
-    final longStatus = find.text('2023 · 已手动绑定');
-    expect(shortStatus, findsOneWidget);
-    expect(longStatus, findsOneWidget);
+    expect(shortTitle, findsOneWidget);
+    expect(longTitle, findsOneWidget);
+    expect(find.text('2021 · 已手动绑定'), findsNothing);
+    expect(find.text('2023 · 已手动绑定'), findsNothing);
+    expect(find.textContaining('待复核'), findsNothing);
     expect(
-      tester.getTopLeft(shortStatus).dy - tester.getBottomLeft(shortTitle).dy,
-      closeTo(4, 0.5),
+      tester.getTopLeft(shortTitle).dy - tester.getBottomLeft(short).dy,
+      closeTo(8, 0.5),
     );
     expect(
-      tester.getTopLeft(longStatus).dy - tester.getBottomLeft(longTitle).dy,
-      closeTo(4, 0.5),
+      tester.getTopLeft(longTitle).dy - tester.getBottomLeft(long).dy,
+      closeTo(8, 0.5),
     );
 
     await tester.binding.setSurfaceSize(const Size(700, 760));

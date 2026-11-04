@@ -26,11 +26,20 @@ class Catalog extends ChangeNotifier {
     await folder.create(recursive: true);
     db = await openDatabase(
       p.join(folder.path, 'ccplayer.db'),
-      version: 2,
+      version: 3,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
           await db.execute(
             'CREATE TABLE scan_roots (source_id TEXT NOT NULL, relative_path TEXT NOT NULL, mode TEXT NOT NULL, PRIMARY KEY(source_id,relative_path))',
+          );
+        }
+        if (oldVersion < 3) {
+          await db.update('scan_roots', {'mode': 'auto'});
+          await db.execute(
+            'ALTER TABLE works ADD COLUMN needs_review INTEGER NOT NULL DEFAULT 1',
+          );
+          await db.execute(
+            'UPDATE works SET needs_review=0 WHERE tmdb_id IS NOT NULL OR manual_lock=1',
           );
         }
       },
@@ -39,7 +48,7 @@ class Catalog extends ChangeNotifier {
           'CREATE TABLE sources (id TEXT PRIMARY KEY, kind TEXT NOT NULL, label TEXT NOT NULL, location TEXT NOT NULL, username TEXT, password TEXT)',
         );
         await db.execute(
-          'CREATE TABLE works (id TEXT PRIMARY KEY, title TEXT NOT NULL, year INTEGER, tmdb_id INTEGER, tmdb_type TEXT, bangumi_id INTEGER, poster TEXT, overview TEXT, manual_lock INTEGER NOT NULL DEFAULT 0)',
+          'CREATE TABLE works (id TEXT PRIMARY KEY, title TEXT NOT NULL, year INTEGER, tmdb_id INTEGER, tmdb_type TEXT, bangumi_id INTEGER, poster TEXT, overview TEXT, manual_lock INTEGER NOT NULL DEFAULT 0, needs_review INTEGER NOT NULL DEFAULT 1)',
         );
         await db.execute(
           'CREATE TABLE assets (id TEXT PRIMARY KEY, source_id TEXT NOT NULL, work_id TEXT NOT NULL, relative_path TEXT NOT NULL, name TEXT NOT NULL, episode INTEGER, category TEXT NOT NULL, size INTEGER, UNIQUE(source_id,relative_path))',
@@ -58,10 +67,7 @@ class Catalog extends ChangeNotifier {
     for (final entry in previous) {
       final oldPassword = entry['password']?.toString() ?? '';
       if (oldPassword.isNotEmpty) {
-        await _secrets.write(
-          key: 'webdav:${entry['id']}',
-          value: oldPassword,
-        );
+        await _secrets.write(key: 'webdav:${entry['id']}', value: oldPassword);
         await db.update(
           'sources',
           {'password': null},
@@ -110,6 +116,47 @@ class Catalog extends ChangeNotifier {
     return id;
   }
 
+  /// Edit connection settings without changing stable source id or its indexes.
+  /// Null password keeps the existing secret; empty password removes it.
+  Future<void> updateSource(
+    String sourceId, {
+    required String label,
+    required String location,
+    required String username,
+    String? password,
+  }) async {
+    final source = sourceOf(sourceId);
+    if (source['kind'] == 'webdav') {
+      final uri = Uri.tryParse(location);
+      if (uri == null ||
+          !uri.hasAuthority ||
+          (uri.scheme != 'https' && uri.scheme != 'http')) {
+        throw ArgumentError('请输入有效的 HTTP(S) WebDAV 地址');
+      }
+      if (username.isEmpty && password != null && password.isNotEmpty) {
+        throw ArgumentError('匿名访问不能单独填写密码');
+      }
+    }
+    if (password != null) {
+      if (password.isEmpty) {
+        await _secrets.delete(key: 'webdav:$sourceId');
+      } else {
+        await _secrets.write(key: 'webdav:$sourceId', value: password);
+      }
+    }
+    await db.update(
+      'sources',
+      {
+        'label': label.trim(),
+        'location': location.trim(),
+        'username': username.trim(),
+      },
+      where: 'id=?',
+      whereArgs: [sourceId],
+    );
+    await reload();
+  }
+
   Future<Map<String, Object?>> withCredentials(
     Map<String, Object?> source,
   ) async => {
@@ -123,30 +170,50 @@ class Catalog extends ChangeNotifier {
       .join('/');
   List<Map<String, Object?>> rootsFor(String sourceId) =>
       scanRoots.where((r) => r['source_id'] == sourceId).toList();
-  Future<void> addScanRoot(String sourceId, String rawPath, String mode) async {
-    if (mode != 'work' && mode != 'collection') {
-      throw ArgumentError('Invalid scan mode');
-    }
+
+  /// A selection identifies a scan scope only; work/collection inference is automatic.
+  /// Selecting a parent replaces covered child scopes, and vice versa.
+  Future<void> addScanRoot(String sourceId, String rawPath) async {
     final path = normalizeRoot(rawPath);
-    if (path.isEmpty && mode == 'work' && sourceOf(sourceId)['kind'] != 'local') {
-      throw StateError('云盘根目录不能作为单部作品，请选择具体作品目录');
+    if (path.split('/').contains('..')) {
+      throw ArgumentError('不允许扫描父级目录');
     }
-    for (final row in rootsFor(sourceId)) {
-      final current = row['relative_path'].toString();
-      if (current == path) continue;
-      if (current.isEmpty ||
-          path.isEmpty ||
-          current.startsWith('$path/') ||
-          path.startsWith('$current/')) {
-        throw StateError('刮削范围有包含关系，请先删除原有范围再添加');
+    await db.transaction((tx) async {
+      final existing = await tx.query(
+        'scan_roots',
+        where: 'source_id=?',
+        whereArgs: [sourceId],
+      );
+      for (final row in existing) {
+        final other = row['relative_path'].toString();
+        if (path.isEmpty ||
+            other.isEmpty ||
+            path == other ||
+            path.startsWith('$other/') ||
+            other.startsWith('$path/')) {
+          await tx.delete(
+            'scan_roots',
+            where: 'source_id=? AND relative_path=?',
+            whereArgs: [sourceId, other],
+          );
+        }
       }
-    }
-    await db.insert('scan_roots', {
-      'source_id': sourceId,
-      'relative_path': path,
-      'mode': mode,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await tx.insert('scan_roots', {
+        'source_id': sourceId,
+        'relative_path': path,
+        'mode': 'auto',
+      });
+    });
     await reload();
+  }
+
+  Future<void> toggleScanRoot(String sourceId, String rawPath) async {
+    final path = normalizeRoot(rawPath);
+    if (rootsFor(sourceId).any((r) => r['relative_path'] == path)) {
+      await removeScanRoot(sourceId, path);
+    } else {
+      await addScanRoot(sourceId, path);
+    }
   }
 
   Future<void> removeScanRoot(String sourceId, String path) async {
@@ -241,6 +308,7 @@ class Catalog extends ChangeNotifier {
     String relative,
     int? size, {
     String? workFolder,
+    bool needsReview = true,
   }) async {
     final normalized = relative.replaceAll('\\', '/');
     final name = p.posix.basename(normalized);
@@ -255,23 +323,60 @@ class Catalog extends ChangeNotifier {
       return;
     }
     final workId = 'work:$sourceId:${Uri.encodeComponent(folder)}';
-    await db.insert('works', {
-      'id': workId,
-      'title': cleanTitle(displayFolder),
-      'year': year(displayFolder),
-      'tmdb_id': tmdbId(displayFolder),
-      'tmdb_type': tmdbId(displayFolder) == null ? null : 'tv',
-    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    final assetId = 'asset:$sourceId:${Uri.encodeComponent(normalized)}';
+    final existing = await db.query(
+      'assets',
+      columns: ['work_id'],
+      where: 'id=?',
+      whereArgs: [assetId],
+      limit: 1,
+    );
+    var targetWorkId = workId;
+    if (existing.isNotEmpty && existing.first['work_id'] != workId) {
+      final oldId = existing.first['work_id']?.toString();
+      if (oldId != null) {
+        final oldWork = await db.query(
+          'works',
+          columns: ['manual_lock'],
+          where: 'id=?',
+          whereArgs: [oldId],
+          limit: 1,
+        );
+        if (oldWork.isNotEmpty && oldWork.first['manual_lock'] == 1) {
+          targetWorkId = oldId;
+        }
+      }
+    }
+    if (targetWorkId == workId) {
+      await db.insert('works', {
+        'id': workId,
+        'title': cleanTitle(displayFolder),
+        'year': year(displayFolder),
+        'tmdb_id': tmdbId(displayFolder),
+        'tmdb_type': tmdbId(displayFolder) == null ? null : 'tv',
+        'needs_review': needsReview ? 1 : 0,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
     await db.insert('assets', {
-      'id': 'asset:$sourceId:${Uri.encodeComponent(normalized)}',
+      'id': assetId,
       'source_id': sourceId,
-      'work_id': workId,
+      'work_id': targetWorkId,
       'relative_path': normalized,
       'name': name,
       'episode': episode(name),
       'category': isExtra(normalized) ? 'extra' : 'main',
       'size': size,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// Remove incorrect automatic groups that no longer own any file after rescanning.
+  /// Never delete a manually locked work.
+  Future<void> pruneOrphanedWorks() async {
+    await db.rawDelete(
+      'DELETE FROM works WHERE manual_lock=0 '
+      'AND id NOT IN (SELECT DISTINCT work_id FROM assets)',
+    );
+    await reload();
   }
 
   Future<void> bind(
@@ -293,6 +398,7 @@ class Catalog extends ChangeNotifier {
         'poster': poster ?? old['poster'],
         'overview': overview ?? old['overview'],
         'manual_lock': 1,
+        'needs_review': 0,
         if (provider == 'tmdb') ...{'tmdb_id': providerId, 'tmdb_type': type},
         if (provider == 'bangumi') 'bangumi_id': providerId,
       },

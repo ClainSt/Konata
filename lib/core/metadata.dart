@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'tmdb_auth.dart';
 
 class Candidate {
   Candidate({
@@ -19,11 +20,23 @@ class Candidate {
 
 class Metadata {
   static String token = '';
+  static String apiKey = '';
+  static String authMode = 'token';
+  static TmdbCredentials get credentials => TmdbCredentials(
+    mode: authMode,
+    value: authMode == 'apiKey' ? apiKey : token,
+  );
+  static Future<void> testTmdbCredentials(TmdbCredentials credentials) async {
+    await _requestTmdb('/configuration', const {}, credentials);
+  }
+
   static Future<List<Candidate>> search(String keyword, String provider) async {
     final query = keyword.trim();
     if (query.isEmpty) return [];
     if (provider == 'tmdb') {
-      if (token.isEmpty) throw StateError('请先设置 TMDB Read Access Token');
+      if (!credentials.isConfigured) {
+        throw StateError('请先设置 TMDB 访问令牌或 API Key');
+      }
       final candidates = <Candidate>[];
       final numeric = int.tryParse(
         query.replaceFirst(RegExp(r'^(?:tv|movie)[:#]?'), ''),
@@ -107,22 +120,26 @@ class Metadata {
   static Future<Map<String, dynamic>?> _tmdb(
     String path,
     Map<String, String> params,
+  ) => _requestTmdb(path, params, credentials);
+
+  static Future<Map<String, dynamic>?> _requestTmdb(
+    String path,
+    Map<String, String> params,
+    TmdbCredentials auth,
   ) async {
-    final url = Uri.parse(
-      'https://api.themoviedb.org/3$path',
-    ).replace(queryParameters: params);
-    final response = await http
-        .get(
-          url,
-          headers: {
-            'Authorization': 'Bearer $token',
-            'Accept': 'application/json',
-          },
-        )
-        .timeout(const Duration(seconds: 15));
+    if (!auth.isConfigured) throw StateError('请先配置 TMDB 访问凭证');
+    // Avoid including a v3 API key in HTTP exception messages.
+    http.Response response;
+    try {
+      response = await http
+          .get(auth.uri(path, params), headers: auth.headers)
+          .timeout(const Duration(seconds: 15));
+    } catch (_) {
+      throw StateError('TMDB 网络访问失败，请检查网络或代理设置');
+    }
     if (response.statusCode == 404) return null;
     if (response.statusCode != 200) {
-      throw StateError('TMDB HTTP ${response.statusCode}');
+      throw StateError('TMDB HTTP ${response.statusCode}（请检查凭证和网络）');
     }
     return jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
   }

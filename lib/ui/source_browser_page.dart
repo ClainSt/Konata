@@ -106,18 +106,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     _load(segments.join('/'));
   }
 
-  Future<void> _select(String path, String mode) async {
+  Future<void> _toggle(String path) async {
     try {
-      await Catalog.instance.addScanRoot(sourceId, path, mode);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '已选：${path.isEmpty ? "/" : path}（${mode == "work" ? "单部作品" : "作品合集"}）',
-            ),
-          ),
-        );
-      }
+      await Catalog.instance.toggleScanRoot(sourceId, path);
     } catch (e) {
       _notice(e.toString());
     }
@@ -196,6 +187,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                 ),
                 child: Row(
                   children: [
+                    Checkbox(
+                      value: selected.any((r) => r['relative_path'] == current),
+                      onChanged: loading ? null : (_) => _toggle(current),
+                    ),
                     const Icon(Icons.folder_open, size: 19),
                     const SizedBox(width: 8),
                     Expanded(
@@ -251,17 +246,31 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                       }
                       final item = entries[index - (current.isEmpty ? 0 : 1)];
                       return ListTile(
-                        leading: Icon(
-                          item.directory
-                              ? Icons.folder_rounded
-                              : Catalog.isVideo(item.name)
-                              ? Icons.movie_outlined
-                              : Catalog.isSubtitle(item.name)
-                              ? Icons.subtitles_outlined
-                              : Icons.insert_drive_file_outlined,
-                          color: item.directory
-                              ? const Color(0xff8dbafa)
-                              : null,
+                        leading: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (item.directory)
+                              Checkbox(
+                                value: selected.any(
+                                  (r) => r['relative_path'] == item.relative,
+                                ),
+                                onChanged: loading
+                                    ? null
+                                    : (_) => _toggle(item.relative),
+                              ),
+                            Icon(
+                              item.directory
+                                  ? Icons.folder_rounded
+                                  : Catalog.isVideo(item.name)
+                                  ? Icons.movie_outlined
+                                  : Catalog.isSubtitle(item.name)
+                                  ? Icons.subtitles_outlined
+                                  : Icons.insert_drive_file_outlined,
+                              color: item.directory
+                                  ? const Color(0xff8dbafa)
+                                  : null,
+                            ),
+                          ],
                         ),
                         title: Text(
                           item.name,
@@ -277,23 +286,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                               ),
                         onTap: item.directory
                             ? () => _load(item.relative)
-                            : null,
-                        trailing: item.directory
-                            ? PopupMenuButton<String>(
-                                tooltip: '选取此文件夹刮削',
-                                onSelected: (mode) =>
-                                    _select(item.relative, mode),
-                                itemBuilder: (_) => const [
-                                  PopupMenuItem(
-                                    value: 'work',
-                                    child: Text('设为单部作品'),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'collection',
-                                    child: Text('设为作品合集'),
-                                  ),
-                                ],
-                              )
                             : null,
                       );
                     },
@@ -321,9 +313,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                         builder: (ctx) => AlertDialog(
                           title: const Text('怎样选择刮削文件夹？'),
                           content: const Text(
-                            '单部作品：例如 动画-单作品/86 (2021) {tmdb-100565}。\n'
-                            '作品合集：例如 动画-单作品，合集下的每个直属子文件夹视为一部作品。\n'
-                            '点击文件夹进入目录，或点击右侧菜单直接选取。只扫描已选范围，不修改任何媒体文件。',
+                            '勾选文件夹即可加入刮削范围。既能勾选单部作品，也能勾选包含多部作品的上级目录。软件扫描后自动判断作品归属，对不确定的作品标记待复核。点击文件夹名称仍然可以进入子目录。',
                           ),
                           actions: [
                             TextButton(
@@ -348,7 +338,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                       for (final root in selected)
                         InputChip(
                           label: Text(
-                            '${root['relative_path'].toString().isEmpty ? "/" : root['relative_path']} · ${root['mode'] == 'work' ? "作品" : "合集"}',
+                            root['relative_path'].toString().isEmpty
+                                ? '/'
+                                : root['relative_path'].toString(),
                             overflow: TextOverflow.ellipsis,
                           ),
                           onDeleted: () => catalog.removeScanRoot(
@@ -367,20 +359,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                   runSpacing: 8,
                   alignment: WrapAlignment.center,
                   children: [
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.movie_outlined),
-                      label: const Text('此目录是单部作品'),
-                      onPressed: loading || (!local && current.isEmpty)
-                          ? null
-                          : () => _select(current, 'work'),
-                    ),
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.collections_bookmark_outlined),
-                      label: const Text('此目录是作品合集'),
-                      onPressed: loading
-                          ? null
-                          : () => _select(current, 'collection'),
-                    ),
                     FilledButton.icon(
                       icon: scanning
                           ? const SizedBox(

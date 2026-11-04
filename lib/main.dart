@@ -7,14 +7,20 @@ import 'core/catalog.dart';
 import 'core/metadata.dart';
 import 'core/selected_scanner.dart';
 import 'ui/source_browser_page.dart';
+import 'ui/source_editor.dart';
+import 'ui/tmdb_settings_dialog.dart';
 import 'ui/watch_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   await Catalog.instance.initialize();
-  Metadata.token =
-      (await const FlutterSecureStorage().read(key: 'tmdb_token')) ?? '';
+  const secure = FlutterSecureStorage();
+  Metadata.token = (await secure.read(key: 'tmdb_token')) ?? '';
+  Metadata.apiKey = (await secure.read(key: 'tmdb_api_key')) ?? '';
+  Metadata.authMode = (await secure.read(key: 'tmdb_auth_mode')) == 'apiKey'
+      ? 'apiKey'
+      : 'token';
   runApp(const CCPlayer());
 }
 
@@ -178,7 +184,8 @@ class _LibraryPageState extends State<LibraryPage> {
         ),
         Text(
           (work['year']?.toString() ?? '') +
-              (work['manual_lock'] == 1 ? ' · 已手动绑定' : ''),
+              (work['manual_lock'] == 1 ? ' · 已手动绑定' : '') +
+              (work['needs_review'] == 1 ? ' · 待复核' : ''),
           style: Theme.of(context).textTheme.labelSmall,
         ),
       ],
@@ -215,6 +222,11 @@ class _LibraryPageState extends State<LibraryPage> {
             onTap: () => _browse(source),
             trailing: Wrap(
               children: [
+                IconButton(
+                  tooltip: '编辑媒体源',
+                  icon: const Icon(Icons.edit_outlined),
+                  onPressed: () => SourceEditor.show(context, source),
+                ),
                 IconButton(
                   tooltip: '浏览云盘或本地目录并选取刮削文件夹',
                   onPressed: () => _browse(source),
@@ -321,15 +333,19 @@ class _LibraryPageState extends State<LibraryPage> {
                     ),
                     TextField(
                       controller: username,
-                      decoration: const InputDecoration(labelText: '用户名'),
+                      decoration: const InputDecoration(
+                        labelText: '用户名（可留空，匿名访问）',
+                      ),
                     ),
                     TextField(
                       controller: password,
                       obscureText: true,
-                      decoration: const InputDecoration(labelText: '密码'),
+                      decoration: const InputDecoration(
+                        labelText: '密码（可留空，匿名访问）',
+                      ),
                     ),
                     const Text(
-                      '预览版仅支持 Basic 鉴权；建议使用 HTTPS 测试连接，不要使用真实云盘凭证。',
+                      '留空用户名和密码即匿名访问。目录浏览支持 Basic/Digest 认证；公网请使用 HTTPS。',
                       style: TextStyle(
                         color: Colors.orangeAccent,
                         fontSize: 12,
@@ -369,6 +385,10 @@ class _LibraryPageState extends State<LibraryPage> {
           if (mounted) _browse(Catalog.instance.sourceOf(id));
         }
       } else if (location.text.trim().isNotEmpty) {
+        if (username.text.trim().isEmpty && password.text.isNotEmpty) {
+          _message('匿名访问时密码也应留空');
+          return;
+        }
         final uri = Uri.tryParse(location.text.trim());
         if (uri == null ||
             !uri.hasAuthority ||
@@ -392,50 +412,7 @@ class _LibraryPageState extends State<LibraryPage> {
     password.dispose();
   }
 
-  Future<void> _settings() async {
-    final token = TextEditingController(text: Metadata.token);
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('TMDB / Bangumi 设置'),
-        content: SizedBox(
-          width: 460,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: token,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'TMDB Read Access Token',
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text('TMDB 令牌保存在系统安全存储中。', style: TextStyle(fontSize: 12)),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              Metadata.token = token.text.trim();
-              await const FlutterSecureStorage().write(
-                key: 'tmdb_token',
-                value: Metadata.token,
-              );
-              if (ctx.mounted) Navigator.pop(ctx);
-            },
-            child: const Text('保存'),
-          ),
-        ],
-      ),
-    );
-    token.dispose();
-  }
+  Future<void> _settings() => TmdbSettingsDialog.show(context);
 
   void _message(String message) {
     if (mounted) {
@@ -491,8 +468,7 @@ class _WorkPageState extends State<WorkPage> {
                         ? Image.network(
                             work['poster'].toString(),
                             fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) =>
-                                const Icon(Icons.movie),
+                            errorBuilder: (_, _, _) => const Icon(Icons.movie),
                           )
                         : const ColoredBox(
                             color: Color(0xff293c55),

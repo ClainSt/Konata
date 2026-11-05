@@ -3,11 +3,12 @@ import 'package:http/http.dart' as http;
 import 'metadata.dart';
 import 'cloud_media_asset_presentation.dart';
 import 'anime_detail_metadata.dart';
+import 'work_season.dart';
 
 /// Standalone adaptation of NipaPlay Personal's public Bangumi cast and TMDB
 /// episode-artwork pipeline. No dependency on NipaPlay's providers or players.
 class DetailMetadataService {
-  static const schemaVersion = 6;
+  static const schemaVersion = 7;
   DetailMetadataService({
     http.Client? client,
     this.tmdbRequest,
@@ -158,6 +159,7 @@ class DetailMetadataService {
             final explicit = CloudMediaAssetPresentation.explicitSeasonNumber({
               ...asset,
               'episode_number': n,
+              'work_title': WorkSeason.directoryTitle(work),
             });
             final season = (asset['season'] as int? ?? 1);
             if (explicit != null) {
@@ -314,7 +316,15 @@ class DetailMetadataService {
         final rows = episodes is Map
             ? (episodes['data'] as List? ?? [])
             : <dynamic>[];
-        final episodeMap = Map<String, dynamic>.from(result['episodes'] as Map);
+        final fallbackSeason = WorkSeason.explicit(work) ?? 1;
+        final bySeason = Map<String, dynamic>.from(
+          result['seasonEpisodes'] as Map? ?? {},
+        );
+        final episodeMap = Map<String, dynamic>.from(
+          fallbackSeason == 1
+              ? result['episodes'] as Map
+              : bySeason['$fallbackSeason'] as Map? ?? {},
+        );
         for (final item in rows.whereType<Map>()) {
           final number = (item['sort'] as num?)?.toInt();
           if (number == null || number < 1) continue;
@@ -333,7 +343,9 @@ class DetailMetadataService {
           }
           episodeMap[key] = old;
         }
-        result['episodes'] = episodeMap;
+        bySeason['$fallbackSeason'] = episodeMap;
+        result['seasonEpisodes'] = bySeason;
+        if (fallbackSeason == 1) result['episodes'] = episodeMap;
       } catch (_) {
         /* Optional fallback episode names. */
       }

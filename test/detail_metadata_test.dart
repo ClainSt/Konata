@@ -5,6 +5,42 @@ import 'package:http/testing.dart';
 import 'package:ccplayer/core/detail_metadata.dart';
 
 void main() {
+  test(
+    'Bangumi fallback episode names belong to the directory season',
+    () async {
+      final client = MockClient((request) async {
+        Object data = {};
+        if (request.url.path.endsWith('/episodes')) {
+          data = {
+            'data': [
+              {'sort': 1, 'name_cn': '第二季第一话'},
+            ],
+          };
+        } else if (request.url.path.endsWith('/characters')) {
+          data = [];
+        } else if (request.url.path.endsWith('/subjects/42')) {
+          data = {'id': 42, 'name_cn': '动画 第二季', 'tags': []};
+        }
+        return http.Response(
+          jsonEncode(data),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      final service = DetailMetadataService(
+        client: client,
+        tmdbRequest: (_, _) async => null,
+      );
+      final data = await service.fetch({'title': '动画 第二季', 'bangumi_id': 42});
+      expect(
+        ((data['seasonEpisodes'] as Map)['2'] as Map)['1']['name'],
+        '第二季第一话',
+      );
+      expect(data['episodes'], isEmpty);
+      client.close();
+      service.close();
+    },
+  );
   test('Movie main artwork uses the Personal landscape image pipeline', () async {
     for (final hasBackdrop in [true, false]) {
       final calls = <String>[];

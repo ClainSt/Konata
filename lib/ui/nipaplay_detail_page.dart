@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../core/catalog.dart';
 import '../core/detail_metadata.dart';
+import '../core/work_season.dart';
 import '../core/episode_grouping.dart';
 import '../core/cloud_media_asset_presentation.dart';
 import 'nipaplay_style.dart';
@@ -185,10 +186,13 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     if (n == null) return {};
     final seasons = details['seasonEpisodes'];
     final counts = details['seasonEpisodeCounts'];
-    var season = asset['season'] as int? ?? 1;
+    final explicitSeason = CloudMediaAssetPresentation.explicitSeasonNumber({
+      ...asset,
+      'work_title': WorkSeason.directoryTitle(widget.work),
+    });
+    var season = explicitSeason ?? asset['season'] as int? ?? 1;
     var local = n;
-    final hasExplicit =
-        CloudMediaAssetPresentation.explicitSeasonNumber(asset) != null;
+    final hasExplicit = explicitSeason != null;
     if (!hasExplicit && season == 1 && counts is Map) {
       final keys =
           counts.keys
@@ -211,6 +215,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     if (entries is Map && entries[local.toString()] is Map) {
       return Map<String, dynamic>.from(entries[local.toString()] as Map);
     }
+    if (season != 1) return {};
     final old = details['episodes'];
     if (old is Map && old[n.toString()] is Map) {
       return Map<String, dynamic>.from(old[n.toString()] as Map);

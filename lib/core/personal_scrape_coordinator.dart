@@ -1,6 +1,7 @@
 import 'catalog.dart';
 import 'scan_activity.dart';
 import 'personal_scraper.dart';
+import 'work_season.dart';
 
 /// Bounded, read-only metadata workflow. Can retry scraping without
 /// repeating a WebDAV filesystem traversal.
@@ -30,7 +31,10 @@ class PersonalScrapeCoordinator {
     final targets = works.where((w) {
       if (w['manual_lock'] == 1) return false;
       final poster = w['poster']?.toString().trim() ?? '';
-      return !onlyPending || poster.isEmpty || w['needs_review'] == 1;
+      return !onlyPending ||
+          poster.isEmpty ||
+          w['needs_review'] == 1 ||
+          WorkSeason.needsRefresh(w);
     }).toList();
     ScanActivityStore.instance.beginScraping(sourceId, targets.length);
     _catalog.updateStatus('准备刮削 ${targets.length} 部作品（TMDB / Bangumi）', true);

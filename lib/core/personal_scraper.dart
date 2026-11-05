@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'metadata.dart';
 import 'personal_filename_parser.dart';
+import 'work_season.dart';
 
 /// TMDB/Bangumi-only port of the metadata-only NipaPlay Personal cloud
 /// scraper. Never reads video bytes, invokes Dandanplay, or changes filenames.
@@ -52,6 +53,23 @@ class PersonalMetadataScraper {
     return x.length >= 3 && x == y;
   }
 
+  static bool subjectTitleMatches(String query, String candidate, int? year) {
+    if (exactTitle(query, candidate)) return true;
+    // Personal permits subtitle containment. Require a release-year guard
+    // and keep the unique-subject check below before accepting that fallback.
+    if (year == null) return false;
+    final x = normalize(query), y = normalize(candidate);
+    if (x.length < 3 || y.length < 3) return false;
+    final wantedSeason = WorkSeason.explicit({'title': query});
+    final candidateSeason = WorkSeason.explicit({'title': candidate});
+    if (wantedSeason != null &&
+        candidateSeason != null &&
+        wantedSeason != candidateSeason) {
+      return false;
+    }
+    return x.contains(y) || y.contains(x);
+  }
+
   static List<String> queries(String title) {
     final queries = <String>{};
     var name = title
@@ -72,7 +90,8 @@ class PersonalMetadataScraper {
           RegExp(
             r'(?<![a-z0-9])s\d{1,2}(?:[ ._+&~～-]+s?\d{1,2})*|'
             r'第[ ._-]*[0-9一二三四五六七八九十百]+[ ._-]*[季期]|'
-            r'(?<![a-z0-9])season[ ._-]*\d{1,2}',
+            r'(?<![a-z0-9])season[ ._-]*\d{1,2}|'
+            r'\d{1,2}(?:st|nd|rd|th)[ ._-]*season',
             caseSensitive: false,
           ),
           ' ',
@@ -110,7 +129,7 @@ class PersonalMetadataScraper {
     final year = date != null && date.length >= 4
         ? int.tryParse(date.substring(0, 4))
         : null;
-    return year == null || (year - wanted).abs() <= 1;
+    return year == null || year == wanted;
   }
 
   Future<Map<String, dynamic>?> _tmdb(
@@ -170,14 +189,33 @@ class PersonalMetadataScraper {
                   .toString();
           final date = (item['first_air_date'] ?? item['release_date'])
               ?.toString();
-          if (!(exactTitle(query, name) || exactTitle(query, original)) ||
-              !yearCompatible(year, date)) {
+          if (!(exactTitle(query, name) || exactTitle(query, original))) {
             continue;
           }
-          candidates.add({
-            ...Map<String, dynamic>.from(item),
-            '_cc_kind': type,
-          });
+          Map<String, dynamic> full = Map<String, dynamic>.from(item);
+          if (!yearCompatible(year, date)) {
+            if (type != 'tv') continue;
+            final show = await _tmdb('/tv/${item['id']}', {
+              'language': 'zh-CN',
+            });
+            final seasons = (show?['seasons'] as List? ?? [])
+                .whereType<Map>()
+                .toList();
+            final number = WorkSeason.resolve({
+              'title': title,
+              'year': year,
+            }, seasons);
+            if (number == null ||
+                !seasons.any(
+                  (s) =>
+                      s['season_number'] == number &&
+                      yearCompatible(year, s['air_date']?.toString()),
+                )) {
+              continue;
+            }
+            full.addAll(show!);
+          }
+          candidates.add({...full, '_cc_kind': type});
         }
       }
       if (candidates.isNotEmpty) break;
@@ -223,8 +261,16 @@ class PersonalMetadataScraper {
       final all = body is Map ? body['data'] : null;
       if (all is! List) continue;
       final matches = all.whereType<Map>().where((c) {
-        return (exactTitle(query, c['name_cn']?.toString() ?? '') ||
-                exactTitle(query, c['name']?.toString() ?? '')) &&
+        return (subjectTitleMatches(
+                  query,
+                  c['name_cn']?.toString() ?? '',
+                  year,
+                ) ||
+                subjectTitleMatches(
+                  query,
+                  c['name']?.toString() ?? '',
+                  year,
+                )) &&
             yearCompatible(year, c['date']?.toString());
       }).toList();
       final ids = {for (final c in matches) int.tryParse(c['id'].toString())};
@@ -286,9 +332,11 @@ class PersonalMetadataScraper {
     Map<String, Object?> work, {
     List<String> filenames = const [],
   }) async {
-    final title = (work['title']?.toString() ?? '').trim();
+    final title = WorkSeason.directoryTitle(
+      work,
+    ).replaceAll(RegExp(r'\{[^}]*\}|\((?:19|20)\d{2}\)'), '').trim();
     if (title.isEmpty) return null;
-    final year = work['year'] is num ? (work['year'] as num).toInt() : null;
+    final year = WorkSeason.year(work);
     final hints = titleHints(title, filenames);
     final id = work['tmdb_id'] is num ? (work['tmdb_id'] as num).toInt() : null;
     Map<String, dynamic>? tmdb;
@@ -305,7 +353,43 @@ class PersonalMetadataScraper {
         /* Fall back to public Bangumi lookup. */
       }
     }
-    final tmdbTitle = (tmdb?['name'] ?? tmdb?['title'] ?? '').toString();
+    var tmdbTitle = (tmdb?['name'] ?? tmdb?['title'] ?? '').toString();
+    Map? season;
+    if (tmdb?['_cc_kind'] == 'tv') {
+      final seasons = (tmdb?['seasons'] as List? ?? [])
+          .whereType<Map>()
+          .toList();
+      final number = WorkSeason.resolve(work, seasons);
+      if (number == null &&
+          year != null &&
+          seasons.length > 1 &&
+          !WorkSeason.multiple(work)) {
+        return null;
+      }
+      if (WorkSeason.multiple(work)) tmdbTitle = title;
+      if (number != null && number > 0) {
+        final matches = seasons.where((s) => s['season_number'] == number);
+        if (matches.isNotEmpty) season = matches.first;
+        try {
+          final fetched = await _tmdb('/tv/${tmdb!['id']}/season/$number', {
+            'language': 'zh-CN',
+          });
+          if (fetched?['season_number'] == number) season = fetched;
+        } catch (_) {
+          /* Season summary may still provide artwork. */
+        }
+        final date = season?['air_date']?.toString();
+        if (season == null ||
+            (year != null &&
+                date != null &&
+                date.length >= 4 &&
+                int.tryParse(date.substring(0, 4)) != year)) {
+          // An explicit season conflicting with its year must be reviewed.
+          return null;
+        }
+        tmdbTitle = '$tmdbTitle 第$number季';
+      }
+    }
     final bangumi = await _bangumi(
       title,
       year,
@@ -320,7 +404,9 @@ class PersonalMetadataScraper {
             .trim() ??
         '';
     if (tmdb == null && bangumi == null) return null;
-    final posterPath = tmdb?['poster_path']?.toString().trim();
+    final posterPath = (season?['poster_path'] ?? tmdb?['poster_path'])
+        ?.toString()
+        .trim();
     final tmdbPoster = posterPath != null && posterPath.startsWith('/')
         ? 'https://image.tmdb.org/t/p/w500$posterPath'
         : null;
@@ -342,11 +428,12 @@ class PersonalMetadataScraper {
       bangumiId: bangumi?['id'] is num ? (bangumi!['id'] as num).toInt() : null,
       poster: tmdbPoster ?? bangumiPoster,
       bangumiPoster: bangumiPoster,
-      overview:
-          (tmdb?['overview']?.toString().trim().isNotEmpty == true
-                  ? tmdb!['overview']
-                  : bangumi?['summary'])
-              ?.toString(),
+      overview: season?['overview']?.toString().trim().isNotEmpty == true
+          ? season!['overview'].toString()
+          : (tmdb?['overview']?.toString().trim().isNotEmpty == true
+                    ? tmdb!['overview']
+                    : bangumi?['summary'])
+                ?.toString(),
       year:
           year ??
           (date != null && date.length >= 4

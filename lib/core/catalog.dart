@@ -8,6 +8,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'cloud_media_asset_presentation.dart';
 import 'cloud_media_file_classifier.dart';
 import 'personal_scraper.dart';
+import 'work_season.dart';
 import 'phantom_directory_repair.dart';
 import 'sources.dart' show SmbSource;
 
@@ -388,19 +389,38 @@ class Catalog extends ChangeNotifier {
       videoExtensions.contains(p.extension(name).toLowerCase());
   static bool isSubtitle(String name) =>
       subtitleExtensions.contains(p.extension(name).toLowerCase());
-  static int? tmdbId(String title) => int.tryParse(
-    RegExp(
-          r'\{tmdb-(\d+)\}',
-          caseSensitive: false,
-        ).firstMatch(title)?.group(1) ??
-        '',
-  );
-  static int? year(String title) => int.tryParse(
-    RegExp(r'\((19\d\d|20\d\d)\)').firstMatch(title)?.group(1) ?? '',
-  );
+  static int? tmdbId(String title) {
+    for (final pattern in [
+      r'\{\s*tmdb(?:tv|movie|id)?\s*[-=:]\s*(\d+)\s*\}',
+      r'\[\s*tmdb\s*[-=:]\s*(\d+)\s*\]',
+      r'\{\s*\[\s*tmdbid\s*=\s*(\d+)[^\]]*\]\s*\}',
+    ]) {
+      final id = int.tryParse(
+        RegExp(pattern, caseSensitive: false).firstMatch(title)?.group(1) ?? '',
+      );
+      if (id != null && id > 0) return id;
+    }
+    return null;
+  }
+
+  static String? tmdbType(String title) {
+    if (RegExp(
+      r'tmdbmovie\s*[-=:]|type\s*=\s*(movie|film)',
+      caseSensitive: false,
+    ).hasMatch(title)) {
+      return 'movie';
+    }
+    if (tmdbId(title) != null) return 'tv';
+    return null;
+  }
+
+  static int? year(String title) => WorkSeason.year({'title': title});
   static String cleanTitle(String folder) {
     var title = folder.replaceAll(
-      RegExp(r'\{tmdb-\d+\}', caseSensitive: false),
+      RegExp(
+        r'\{\s*tmdb(?:tv|movie|id)?\s*[-=:]\s*\d+\s*\}|\{\s*\[\s*tmdbid[^}]*\}|\[\s*tmdb\s*[-=:]\s*\d+\s*\]',
+        caseSensitive: false,
+      ),
       '',
     );
     title = title.replaceAll(RegExp(r'\(\d{4}\)'), '').trim();
@@ -469,6 +489,10 @@ class Catalog extends ChangeNotifier {
   static int detectedSeason(String relative) {
     final path = relative.replaceAll('\\', '/');
     if (isExtra(path)) return 0;
+    final explicit = CloudMediaAssetPresentation.explicitSeasonNumber({
+      'relative_path': path,
+    });
+    if (explicit != null) return explicit;
     final matched = RegExp(
       r'(?:^|[/\\])(?:Season[ ._-]*|S)(\d{1,2})(?:[/\\]|[ ._-])',
       caseSensitive: false,
@@ -484,27 +508,8 @@ class Catalog extends ChangeNotifier {
     return 1;
   }
 
-  static int? episode(String name) {
-    final stem = p.basenameWithoutExtension(name);
-    for (final re in [
-      RegExp(r'[Ss]\d{1,2}[Ee](\d{1,3})'),
-      RegExp(
-        r'(?<![A-Za-z0-9])(?:EP|Episode|E)[\s._#-]?(\d{1,3})\b',
-        caseSensitive: false,
-      ),
-      RegExp(r'^\[(\d{1,3})\]'),
-      // A release group prefix commonly precedes [01], e.g.
-      // [VCB-Studio] Anime Name [01][Ma10p].
-      RegExp(r'\[(\d{1,3})\](?=[^a-zA-Z0-9]|$)'),
-      RegExp(r'[#＃](\d{1,3})\b'),
-      RegExp(r'\s[-–]\s(\d{1,3})(?=\s|[([]|$)'),
-      RegExp(r'^(\d{1,3})(?=$|[._\[(])'),
-    ]) {
-      final match = re.firstMatch(stem);
-      if (match != null) return int.tryParse(match.group(1)!);
-    }
-    return null;
-  }
+  static int? episode(String name) =>
+      CloudMediaFileClassifier.episodeNumberFromName(name);
 
   Future<void> indexVideo(
     String sourceId,
@@ -566,7 +571,7 @@ class Catalog extends ChangeNotifier {
         'title': cleanTitle(displayFolder),
         'year': year(displayFolder),
         'tmdb_id': tmdbId(displayFolder),
-        'tmdb_type': tmdbId(displayFolder) == null ? null : 'tv',
+        'tmdb_type': tmdbType(displayFolder),
         'needs_review': needsReview ? 1 : 0,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
     }
@@ -584,7 +589,12 @@ class Catalog extends ChangeNotifier {
       'work_id': targetWorkId,
       'relative_path': normalized,
       'name': name,
-      'episode': manual.isNotEmpty ? manual.first['episode'] : episode(name),
+      'episode': manual.isNotEmpty
+          ? manual.first['episode']
+          : CloudMediaFileClassifier.episodeNumberFromNameInDirectory(
+              p.posix.dirname(normalized),
+              name,
+            ),
       'season': manual.isNotEmpty
           ? manual.first['season']
           : detectedSeason(normalized),

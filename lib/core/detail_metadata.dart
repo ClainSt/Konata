@@ -7,7 +7,7 @@ import 'anime_detail_metadata.dart';
 /// Standalone adaptation of NipaPlay Personal's public Bangumi cast and TMDB
 /// episode-artwork pipeline. No dependency on NipaPlay's providers or players.
 class DetailMetadataService {
-  static const schemaVersion = 5;
+  static const schemaVersion = 6;
   DetailMetadataService({
     http.Client? client,
     this.tmdbRequest,
@@ -343,7 +343,8 @@ class DetailMetadataService {
     result['tags'] = AnimeDetailMetadata.tags({
       'metadata_json': jsonEncode({
         'tags': result['tags'],
-        'typeDescription': work['tmdb_type'] == 'movie' ? '剧场版' : 'TV',
+        // TMDB movie is a storage type, not proof of a theatrical release.
+        'typeDescription': work['tmdb_type'] == 'movie' ? null : 'TV',
         'production_companies': result['companies'],
         'infobox': result['infobox'],
       }),

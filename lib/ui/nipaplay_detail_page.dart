@@ -70,6 +70,12 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
       progress = records;
       if (cached != null) {
         details = Map<String, dynamic>.from(cached);
+        if ((cached['schemaVersion'] as int? ?? 0) < 6 &&
+            widget.work['tmdb_type'] == 'movie') {
+          details['tags'] = (details['tags'] as List? ?? [])
+              .where((tag) => tag != '剧场版')
+              .toList();
+        }
         // Older caches did not retain Bangumi relation ranks: they placed
         // cameos and minor characters before the four principal characters.
         if ((cached['schemaVersion'] as int? ?? 0) < 4) {
@@ -169,7 +175,12 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
       return {};
     }
     if (widget.work['tmdb_type'] == 'movie' && asset['category'] == 'main') {
-      return {'still': details['movieStill']};
+      return {
+        'still': details['movieStill'],
+        'name': widget.work['title']?.toString().trim().isNotEmpty == true
+            ? widget.work['title']
+            : details['title'],
+      };
     }
     if (n == null) return {};
     final seasons = details['seasonEpisodes'];

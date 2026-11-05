@@ -149,5 +149,33 @@ void main() {
     await tester.tap(find.text('编辑元数据'));
     await tester.pumpAndSettle();
     expect(metadataCount, 2);
+    await tester.binding.setSurfaceSize(const Size(1350, 860));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: NipaPlayStyle.theme(Brightness.light),
+        home: NipaPlayDetailPage(
+          key: const ValueKey('movie-title-regression'),
+          work: {...work, 'tmdb_type': 'movie'},
+          assets: [
+            {
+              ...assets.first,
+              'episode': null,
+              'name': '[VCB-Studio] Movie [1080p x265].mkv',
+            },
+          ],
+          onBack: () {},
+          onEditMetadata: () {},
+          onEditCover: () {},
+          onDelete: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('测试动画'), findsNWidgets(2));
+    expect(find.text('[VCB-Studio] Movie [1080p x265].mkv'), findsNothing);
+    expect(
+      find.byTooltip('[VCB-Studio] Movie [1080p x265].mkv'),
+      findsOneWidget,
+    );
   });
 }

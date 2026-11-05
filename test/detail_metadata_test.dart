@@ -28,6 +28,7 @@ void main() {
         },
       );
       final data = await service.fetch({'tmdb_id': 123, 'tmdb_type': 'movie'});
+      expect(data['tags'], isNot(contains('剧场版')));
       expect(
         data['movieStill'],
         'https://image.tmdb.org/t/p/w780/${hasBackdrop ? 'movie' : 'best'}.jpg',

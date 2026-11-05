@@ -1,70 +1,116 @@
-# CCPlayer
+<div align="center">
 
-独立的 Windows / Android 动画媒体库播放器（**开发预览版，尚未达到首版验收标准**）。
+<h1>CCPlayer</h1>
 
-技术基础：Flutter / Dart、Media Kit（libmpv）、SQLite。独立于 NipaPlay Personal，不包含其 Git 历史。
+<img src="assets/brand/icons/windows.png" alt="CCPlayer · 山田凉" width="200">
 
-## 已具备的开发功能
+<p>把收藏的动画，整理成自己的海报墙。</p>
 
-- 单一海报墙：本地目录与 WebDAV 资源共用媒体库界面，采用类似网易爆米花的海报优先排版。卡片只显示固定 2:3 封面和统一字号的单行作品名，超长名称用省略号截断，悬停可查看全称；不显示年份或绑定状态。TMDB/Bangumi 封面来源不同也不会改变海报尺寸。
-- 添加媒体源：Windows/Android 使用系统文件夹选择器添加本地目录；WebDAV 按层级浏览全部可访问文件夹和文件（PROPFIND Depth:1），包括中文路径。
-- WebDAV 和本地浏览页使用文件夹左侧复选框，支持多选；所有媒体源的目录浏览共用常驻搜索栏，可按当前目录的中文/英文文件名或 TMDB-ID 过滤。扫描器自动推断单作品/合集/季度目录，对不确定的作品标记待复核。勾选范围仅为临时扫描队列，成功扫描后自动清空，作品和播放数据不受影响。
-- WebDAV 目录浏览已通过模拟服务器的 Basic/Digest HTTP 认证挑战测试；Depth:1 返回的目录自身响应和非直属资源会被过滤，避免出现同名虚假子目录。真实 CloudDrive2 尚待验收。
-- 基于 NipaPlay Personal 的动画目录、TMDB-ID、压制组文件名集数识别；正片 / 特典细分类（CM、PV、OVA、OAD、MENU、NCOP、NCED 等）。
-- TMDB / Bangumi 名称搜索与用户手动作品绑定；TMDB 支持 Read Access Token 或 API Key，两种凭证分别保存在系统安全存储，可切换并测试。
-- 媒体源可编辑名称、地址、用户名、密码或改为匿名访问；不更换源 ID，也不删除观看记录或手动绑定。
-- 本地数据库保存媒体条目、元数据及播放位置；SQLite v12 升级可离线识别旧版 WebDAV 误索引的相邻重名目录，仅归并有真实对应项且大小、类型和集数一致的条目，保留真实多压制版本与旧索引备份。
-- 初版统一沿用 NipaPlay Personal 浅色/深色视觉语言、绯红强调色、字体和圆角组件；当前默认浅色，与参考详情页保持一致。
-- 已移植 NipaPlay Personal 风格详情页：沉浸背景、海报、评分与标签、展开简介、TMDB 剧集剧照与标题、Bangumi 角色/声优、正片/特典、开始/续播、播放进度和完整列表；返回按钮与横向三点操作菜单始终固定在顶部。
-- 详情资料按作品身份保存到 SQLite 缓存，后台从 TMDB / Bangumi 读取；即使网络元数据暂不可用，也保留已索引视频和缓存内容。海报首选 TMDB，加载失败可回退 Bangumi 图片地址。
-- 详情页右上角三点菜单提供「编辑元数据」「编辑封面」和「删除该作品」；删除仅从海报墙隐藏，确认弹窗的「重新扫描后仍保持隐藏」默认不勾选：不勾选则下次重扫自动恢复，勾选后继续隐藏。媒体库顶栏可管理并恢复已隐藏作品。不会删除源文件、已索引视频、关联或观看进度。
-- 内置 Media Kit/libmpv 视频播放 UI；音轨 / 字幕选择入口。
-- 检测同目录同名字幕并尝试自动加载（需要真机及真实 WebDAV 测试）。
+<p>
+  <img src="https://img.shields.io/badge/Flutter-02569B?style=for-the-badge&logo=flutter&logoColor=white" alt="Flutter">
+  <img src="https://img.shields.io/badge/Dart-0175C2?style=for-the-badge&logo=dart&logoColor=white" alt="Dart">
+  <img src="https://img.shields.io/badge/Windows-0078D4?style=for-the-badge" alt="Windows">
+  <img src="https://img.shields.io/badge/Android-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
+</p>
 
-## 尚未实现 / 不符合首版验收
+<p>使用 Flutter 开发的个人动画媒体库与播放器。连接本地文件夹、WebDAV 或 SMB，共用一个海报墙，浏览作品资料、选择剧集，从上次看到的地方继续播放。</p>
 
-- Windows 外部 MPV 启动、IPC、观看进度回写。
-- 播放代理尚未完成 Digest、跨源重定向保护及完整安全审计；当前播放通道仍以 Basic 为主，**与已通过模拟测试的 WebDAV 目录浏览认证是两回事**。
-- WebDAV 密码、TMDB Token 和 API Key 使用系统安全存储；HTTP 明文传输以及完整安全审计尚未完成。**请暂勿用于真实云盘账户**。
-- WebDAV 同步媒体库与观看进度；Bangumi 登录及观看记录同步。
-- 大规模云盘扫描器的完整识别规则、增量删除以及跨作品误归档的最终验收仍待进行。已经实现同作品/同季/同集多版本卡片合并；原始文件仍分别保存。
-- 扫描已选目录成功后自动刮削本次索引到的作品（优先处理缺少海报、待复核条目），重新扫描时可重试需要更新的季度资料；TMDB ID 优先、作品名和文件名搜索及严格年份核验。全库无人值守定时任务、图片文件的完整离线缓存、中国大陆网络环境下的完整实测仍未完成。
-- Android 真实构建和播放、外部字幕/音轨效果、HDR/解码验收。
-- 音频 CD 与 Scans 功能属于后续版本。
+<p>
+  <a href="#功能">功能</a> ·
+  <a href="#开始使用">开始使用</a> ·
+  <a href="#从源码运行">从源码运行</a> ·
+  <a href="https://github.com/ClainSt/CCPlayer/issues">问题反馈</a>
+</p>
 
-> 此仓库目前是可编译的开发骨架，不宜作为可安全连接个人云盘的生产版。
+</div>
 
-详细使用和测试说明：[添加媒体与选择刮削文件夹](docs/MEDIA_SOURCE_BROWSER.md)、[NipaPlay Personal 详情页移植说明](docs/NIPAPLAY_DETAIL_PORT.md)、[TMDB/Bangumi 独立刮削](docs/NIPAPLAY_SCRAPER_PORT.md)。
+> 当前为开发预览版。真实 NAS / WebDAV 环境和 Android 真机播放的兼容性仍在验证中，建议先用测试媒体源体验。
 
-## 首次添加媒体的操作
+## 平台
 
-界面当前整体参考 NipaPlay Personal。左上角切换“媒体库 / 媒体源”，右上角切换日夜模式或打开设置。设置提供“日间模式 / 夜间模式 / 跟随系统”、TMDB API 和关于；主题选择会保存。详见 [界面基准](docs/UI_BASELINE.md)。
+- Windows
+- Android
 
-1. 点击顶部“添加媒体源”。选择 **本地** 后，会出现系统文件夹选择器；选择 **WebDAV** 则填写服务器地址和凭证。
-2. 添加后会自动进入“浏览目录”；也可以在“媒体源”页面点击源卡片或文件夹图标进入。
-3. 浏览至目标目录，勾选文件夹左侧复选框即可选择。也可以在当前目录路径左侧勾选整个目录；不需要自行区分作品或合集。
-4. 在底部确认已选择的范围，点击“扫描已选目录”。成功后自动清空本次勾选，已经索引的作品、绑定和观看记录保留。扫描器自动判断作品层级，不会遍历未选目录或修改媒体文件。
-5. 点击“扫描已选目录”后会自动索引并进行 TMDB / Bangumi 刮削，无需点击底部提示。顶部右侧“扫描进度”可实时查看已访问文件夹及每个文件夹视频数、自动刮削进度与错误；该按钮代替原先刷新按钮。必要时在目录浏览中重新勾选并扫描以重试刮削。无法唯一识别的作品保持“待复核”，可在详情页右上角「···」→「编辑元数据」中搜索并绑定。
+## 功能
 
-## 运行
+### 媒体库
 
-```powershell
+- 本地文件夹、WebDAV 与 SMB 媒体源统一管理。
+- 按层级浏览目录，搜索当前目录的文件名或 TMDB ID，多选文件夹并扫描入库。
+- 海报墙展示作品，详情页查看简介、评分、标签、剧集信息及角色 / 声优资料。
+- 识别季度与集数，区分正片、特典、PV、CM、OVA、OAD、NCOP、NCED 等内容。
+- 同作品、同季、同集的多个视频版本合并展示，保留各自的源文件记录。
+- 编辑媒体源名称、地址与登录凭证。
+- 隐藏作品、管理与恢复已隐藏作品，不删除媒体源中的文件。
+
+### 作品资料
+
+- 扫描后自动通过 TMDB / Bangumi 获取作品资料。
+- 按名称搜索并手动绑定作品，编辑元数据与封面。
+- 支持配置、切换并测试 TMDB API Key / Read Access Token。
+- 作品资料与观看进度保存在本地，已缓存的资料可在元数据服务暂不可用时继续查看。
+
+### 播放
+
+- 基于 Media Kit / libmpv 的内置视频播放器。
+- 播放 / 暂停、进度跳转、音轨与字幕选择。
+- 检测同目录同名外部字幕并尝试自动加载。
+- 自动保存播放位置，支持断点续播。
+
+### 外观
+
+- 日间模式、夜间模式与跟随系统。
+- 可选择主题色，并保存外观设置。
+- 山田凉主题应用图标：Windows 透明背景，Android 白底自适应图标。
+
+## 开始使用
+
+1. 打开右上角添加媒体菜单，选择本地媒体或网络媒体。
+2. 本地媒体选择文件夹；网络媒体填写 WebDAV 或 SMB 地址及登录凭证。SMB 地址格式为 `smb://主机/共享名`。
+3. 浏览目录并勾选需要加入媒体库的文件夹，点击「扫描已选目录」。
+4. 在扫描进度中查看索引与资料获取情况。需要手动修正时，进入作品详情页，通过右上角菜单编辑元数据或封面。
+5. 选择剧集开始播放；已有观看进度的内容可以继续播放。
+
+详细说明：
+
+- [添加媒体与选择扫描目录](docs/MEDIA_SOURCE_BROWSER.md)
+- [SMB 媒体源](docs/SMB_SOURCE.md)
+- [TMDB / Bangumi 资料获取](docs/NIPAPLAY_SCRAPER_PORT.md)
+
+## 从源码运行
+
+准备 Flutter SDK 及对应平台的构建环境。Windows 需要 Visual Studio 的 C++ 桌面开发组件；Android 需要 Android SDK 和 Java 环境。
+
+```sh
 flutter pub get
-flutter test
-flutter analyze
 flutter run -d windows
 ```
 
-Android 需要 Flutter Android SDK、Java 及受支持的原生依赖。
+Android 连接设备后，使用 `flutter devices` 查看设备 ID，再运行：
 
-## 设计边界
+```sh
+flutter run -d <设备ID>
+```
 
-- 元数据源仅使用 TMDB 和 Bangumi，不以弹弹play作为元数据来源。
-- 第一版 Android 仅需内置 MPV；Windows 需要内置与外部 MPV。
-- 云盘扫描不得读取视频正文、修改或重命名云盘文件。
-- TMDB-ID 目录绑定、人工修正关系与用户进度必须在正式版跨端同步。
-- CDs、Scans 预留文件类型，但不在第一版实现。
+构建安装包：
 
-## 验收目标
+```sh
+flutter build windows --release
+flutter build apk --release
+```
 
-参照用户提供的八条《媒体库需求.txt》，前六条为第一版要求，第七、八条后续实现。
+## 反馈
+
+欢迎通过 [Issues](https://github.com/ClainSt/CCPlayer/issues) 提交问题和建议。报告问题时，请附上平台、复现步骤与必要的日志；涉及目录识别时，可提供去除私人信息后的目录结构和文件名示例。
+
+## 致谢
+
+- [Flutter](https://github.com/flutter/flutter)：跨平台界面框架。
+- [Media Kit](https://github.com/media-kit/media-kit) / [mpv](https://github.com/mpv-player/mpv)：视频播放能力。
+- [TMDB](https://www.themoviedb.org/) / [Bangumi](https://bgm.tv/)：作品与剧集资料。
+- NipaPlay Personal：界面设计、媒体识别与 SMB 接入的参考和移植基础，相关说明见 [详情页移植记录](docs/NIPAPLAY_DETAIL_PORT.md) 与 [SMB 文档](docs/SMB_SOURCE.md)。
+- [Kazumi](https://github.com/Predidit/Kazumi)：README 排版参考。
+
+## 图标
+
+应用图标基于用户提供的山田凉插画，经图片处理制作。资源与导出说明见 [图标目录](assets/brand/icons/README.md)。

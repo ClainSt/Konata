@@ -41,9 +41,9 @@ void main() {
           'tmdb_id': 7123,
           'tmdb_type': 'tv',
           'bangumi_id': 1234,
-          'poster': 'https://image.tmdb.org/t/p/w500/old.jpg',
+          'poster': 'https://images.tmdb.org/t/p/w500/old.jpg',
         });
-        expect(covers.tmdb, 'https://image.tmdb.org/t/p/w500/tmdb-latest.jpg');
+        expect(covers.tmdb, 'https://images.tmdb.org/t/p/original/tmdb-latest.jpg');
         expect(covers.bangumi, 'https://lain.bgm.tv/bangumi.jpg');
         expect(requested, contains('/3/tv/7123'));
         expect(requested, contains('/v0/subjects/1234'));
@@ -62,10 +62,10 @@ void main() {
       final service = CoverOptionService();
       try {
         final covers = await service.fetch({
-          'poster': 'https://image.tmdb.org/t/p/w500/old.jpg',
+          'poster': 'https://images.tmdb.org/t/p/w500/old.jpg',
           'poster_fallback': 'https://lain.bgm.tv/stored.jpg',
         });
-        expect(covers.tmdb, 'https://image.tmdb.org/t/p/w500/old.jpg');
+        expect(covers.tmdb, 'https://images.tmdb.org/t/p/w500/old.jpg');
         expect(covers.bangumi, 'https://lain.bgm.tv/stored.jpg');
         expect(CoverOptionService.validUrl('javascript:alert(1)'), isNull);
       } finally {

@@ -4,6 +4,37 @@ import 'package:ccplayer/core/cloud_media_file_classifier.dart';
 import 'package:ccplayer/core/cloud_media_asset_presentation.dart';
 
 void main() {
+  test('Moozzi2 SP tags identify groups rather than individual extras', () {
+    for (final sample in [
+      ('SP00', 'Menu - 01', 'MENU01', 'MENU'),
+      ('SP01', 'Menu - 02', 'MENU02', 'MENU'),
+      ('SP01', 'NCED [ EP.25 ]', 'NCED', 'NCED'),
+      ('SP02', 'Information - 01', 'INFO01', 'INFO'),
+      ('SP02', 'Information - 09', 'INFO09', 'INFO'),
+      (
+        'SP03',
+        'Kuroko no Basket NG Collection - 01',
+        'Kuroko no Basket NG Collection - 01',
+        '其他',
+      ),
+    ]) {
+      final asset = <String, Object?>{
+        'name':
+            '[Moozzi2] Kuroko no Basket S1 [${sample.$1}] ${sample.$2} (BD 1920x1080 x.264 Flac).mkv',
+        'category': 'extra',
+      };
+      expect(CloudMediaAssetPresentation.extraDisplayTitle(asset), sample.$3);
+      expect(CloudMediaAssetPresentation.extraType(asset), sample.$4);
+      expect(
+        CloudMediaAssetPresentation.isSpecialMappingCandidate(asset),
+        isFalse,
+      );
+    }
+    expect(
+      CloudMediaAssetPresentation.extraTitle({'name': 'Show [SP01].mkv'}),
+      'SP01',
+    );
+  });
   test('multi-season collection markers do not pin files to season one', () {
     for (final label in ['S1+S2', 'S01-S02', 'S1&S2', 'S01~S02']) {
       final asset = <String, Object?>{

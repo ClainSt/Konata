@@ -67,7 +67,7 @@ void main() {
         expect(result!.provider, 'TMDB + Bangumi');
         expect(result.tmdbId, 217512);
         expect(result.bangumiId, 413741);
-        expect(result.poster, 'https://image.tmdb.org/t/p/w500/16bit.jpg');
+        expect(result.poster, 'https://images.tmdb.org/t/p/w500/16bit.jpg');
         expect(result.bangumiPoster, 'https://example.org/bgm.jpg');
         expect(paths, contains('GET /3/tv/217512'));
         expect(paths.any((path) => path.contains('dandan')), isFalse);

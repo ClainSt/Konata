@@ -1,8 +1,8 @@
 <div align="center">
 
-<h1>CCPlayer</h1>
+<h1>Konata</h1>
 
-<img src="assets/brand/icons/windows.png" alt="CCPlayer · 山田凉" width="200">
+<img src="assets/brand/icons/windows.png" alt="Konata · 泉此方" width="200">
 
 <p>把收藏的动画，整理成自己的海报墙。</p>
 
@@ -19,7 +19,7 @@
   <a href="#功能">功能</a> ·
   <a href="#开始使用">开始使用</a> ·
   <a href="#从源码运行">从源码运行</a> ·
-  <a href="https://github.com/ClainSt/CCPlayer/issues">问题反馈</a>
+  <a href="https://github.com/ClainSt/Konata/issues">问题反馈</a>
 </p>
 
 </div>
@@ -54,6 +54,8 @@
 
 - 基于 Media Kit / libmpv 的内置视频播放器。
 - 播放 / 暂停、进度跳转、音轨与字幕选择。
+- Android 起播时自动进入横向全屏。点一下画面可显示返回键、片名和进度条；右滑快进，左滑回退，在右半屏向上或向下滑动可调节音量。
+- Windows 和 Android 均支持在播放器设置中选择自己的配置文件夹，每次起播重新读取 `mpv.conf` 和 `input.conf`。
 - 检测同目录同名外部字幕并尝试自动加载。
 - 自动保存播放位置，支持断点续播。
 
@@ -61,7 +63,7 @@
 
 - 日间模式、夜间模式与跟随系统。
 - 可选择主题色，并保存外观设置。
-- 山田凉主题应用图标：Windows 透明背景，Android 白底自适应图标。
+- 泉此方主题应用图标：Windows 透明背景，Android 白底自适应图标。
 
 ## 开始使用
 
@@ -101,7 +103,7 @@ flutter build apk --release
 
 ## 反馈
 
-欢迎通过 [Issues](https://github.com/ClainSt/CCPlayer/issues) 提交问题和建议。报告问题时，请附上平台、复现步骤与必要的日志；涉及目录识别时，可提供去除私人信息后的目录结构和文件名示例。
+欢迎通过 [Issues](https://github.com/ClainSt/Konata/issues) 提交问题和建议。报告问题时，请附上平台、复现步骤与必要的日志；涉及目录识别时，可提供去除私人信息后的目录结构和文件名示例。
 
 ## 致谢
 
@@ -113,4 +115,4 @@ flutter build apk --release
 
 ## 图标
 
-应用图标基于用户提供的山田凉插画，经图片处理制作。资源与导出说明见 [图标目录](assets/brand/icons/README.md)。
+应用图标采用《幸运星》泉此方的水粉风格头像。资源与导出说明见 [图标目录](assets/brand/icons/README.md)。

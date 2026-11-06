@@ -1,0 +1,1415 @@
+{
+  "@@locale": "en",
+  "settings": "Settings",
+  "@settings": {
+    "description": "Konata interface: settings"
+  },
+  "appearance": "Appearance",
+  "@appearance": {
+    "description": "Konata interface: appearance"
+  },
+  "scraping": "Metadata",
+  "@scraping": {
+    "description": "Konata interface: scraping"
+  },
+  "about": "About",
+  "@about": {
+    "description": "Konata interface: about"
+  },
+  "recordsSync": "History & sync",
+  "@recordsSync": {
+    "description": "Konata interface: recordsSync"
+  },
+  "language": "Language",
+  "@language": {
+    "description": "Konata interface: language"
+  },
+  "library": "Library",
+  "@library": {
+    "description": "Konata interface: library"
+  },
+  "sources": "Sources",
+  "@sources": {
+    "description": "Konata interface: sources"
+  },
+  "closeSettings": "Close settings",
+  "@closeSettings": {
+    "description": "Konata interface: closeSettings"
+  },
+  "backSettings": "Back",
+  "@backSettings": {
+    "description": "Konata interface: backSettings"
+  },
+  "followSystem": "System",
+  "@followSystem": {
+    "description": "Konata interface: followSystem"
+  },
+  "interfaceLanguage": "App language",
+  "@interfaceLanguage": {
+    "description": "Konata interface: interfaceLanguage"
+  },
+  "languageSaveFailed": "Couldn't save language. Try again.",
+  "@languageSaveFailed": {
+    "description": "Konata interface: languageSaveFailed"
+  },
+  "languageDescription": "Metadata language stays unchanged. Some pages aren't translated yet.",
+  "@languageDescription": {
+    "description": "Konata interface: languageDescription"
+  },
+  "dayMode": "Light",
+  "@dayMode": {
+    "description": "Konata interface: dayMode"
+  },
+  "nightMode": "Dark",
+  "@nightMode": {
+    "description": "Konata interface: nightMode"
+  },
+  "themeMode": "Theme",
+  "@themeMode": {
+    "description": "Konata interface: themeMode"
+  },
+  "themeDescription": "Light, dark or system",
+  "@themeDescription": {
+    "description": "Konata interface: themeDescription"
+  },
+  "themeSaveFailed": "Couldn't save theme. Try again.",
+  "@themeSaveFailed": {
+    "description": "Konata interface: themeSaveFailed"
+  },
+  "accent": "Accent color",
+  "@accent": {
+    "description": "Konata interface: accent"
+  },
+  "accentDescription": "Choose a highlight color",
+  "@accentDescription": {
+    "description": "Konata interface: accentDescription"
+  },
+  "accentSaveFailed": "Couldn't save color. Try again.",
+  "@accentSaveFailed": {
+    "description": "Konata interface: accentSaveFailed"
+  },
+  "red": "Red",
+  "@red": {
+    "description": "Konata interface: red"
+  },
+  "pink": "Pink",
+  "@pink": {
+    "description": "Konata interface: pink"
+  },
+  "lightBlue": "Light blue",
+  "@lightBlue": {
+    "description": "Konata interface: lightBlue"
+  },
+  "switchLight": "Light mode",
+  "@switchLight": {
+    "description": "Konata interface: switchLight"
+  },
+  "switchDark": "Dark mode",
+  "@switchDark": {
+    "description": "Konata interface: switchDark"
+  },
+  "tmdbSettings": "TMDB API",
+  "@tmdbSettings": {
+    "description": "Konata interface: tmdbSettings"
+  },
+  "credentialsConfigured": "Credentials saved",
+  "@credentialsConfigured": {
+    "description": "Konata interface: credentialsConfigured"
+  },
+  "credentialsMissing": "Add a token or API key",
+  "@credentialsMissing": {
+    "description": "Konata interface: credentialsMissing"
+  },
+  "metadataServicesDescription": "API servers, images and connection tests",
+  "@metadataServicesDescription": {
+    "description": "Konata interface: metadataServicesDescription"
+  },
+  "tmdbIdGuide": "TMDB ID help",
+  "@tmdbIdGuide": {
+    "description": "Konata interface: tmdbIdGuide"
+  },
+  "history": "Playback history",
+  "@history": {
+    "description": "Konata interface: history"
+  },
+  "historyDescription": "Resume playback and manage watched status",
+  "@historyDescription": {
+    "description": "Konata interface: historyDescription"
+  },
+  "historyFailed": "Couldn't update history. Try again.",
+  "@historyFailed": {
+    "description": "Konata interface: historyFailed"
+  },
+  "clearHistoryQuestion": "Clear history?",
+  "@clearHistoryQuestion": {
+    "description": "Konata interface: clearHistoryQuestion"
+  },
+  "removeHistoryQuestion": "Remove from history?",
+  "@removeHistoryQuestion": {
+    "description": "Konata interface: removeHistoryQuestion"
+  },
+  "removeHistoryDescription": "Clears resume points and playback entries. Files and metadata matches stay.",
+  "@removeHistoryDescription": {
+    "description": "Konata interface: removeHistoryDescription"
+  },
+  "cancel": "Cancel",
+  "@cancel": {
+    "description": "Konata interface: cancel"
+  },
+  "confirmDelete": "Delete",
+  "@confirmDelete": {
+    "description": "Konata interface: confirmDelete"
+  },
+  "playFailed": "Can't play this file. Check the source.",
+  "@playFailed": {
+    "description": "Konata interface: playFailed"
+  },
+  "refreshHistory": "Refresh history",
+  "@refreshHistory": {
+    "description": "Konata interface: refreshHistory"
+  },
+  "clearHistory": "Clear history",
+  "@clearHistory": {
+    "description": "Konata interface: clearHistory"
+  },
+  "readHistoryFailed": "Couldn't load history",
+  "@readHistoryFailed": {
+    "description": "Konata interface: readHistoryFailed"
+  },
+  "retry": "Retry",
+  "@retry": {
+    "description": "Konata interface: retry"
+  },
+  "noHistory": "Nothing played yet",
+  "@noHistory": {
+    "description": "Konata interface: noHistory"
+  },
+  "unknownWork": "Unknown title",
+  "@unknownWork": {
+    "description": "Konata interface: unknownWork"
+  },
+  "watched": "Watched",
+  "@watched": {
+    "description": "Konata interface: watched"
+  },
+  "watching": "In progress",
+  "@watching": {
+    "description": "Konata interface: watching"
+  },
+  "manageHistory": "More",
+  "@manageHistory": {
+    "description": "Konata interface: manageHistory"
+  },
+  "markUnwatched": "Mark unwatched",
+  "@markUnwatched": {
+    "description": "Konata interface: markUnwatched"
+  },
+  "markWatched": "Mark watched",
+  "@markWatched": {
+    "description": "Konata interface: markWatched"
+  },
+  "deleteRecord": "Remove from history",
+  "@deleteRecord": {
+    "description": "Konata interface: deleteRecord"
+  },
+  "enableLogs": "Debug logs",
+  "@enableLogs": {
+    "description": "Konata interface: enableLogs"
+  },
+  "logsDescription": "Log scan, network, metadata and image activity.",
+  "@logsDescription": {
+    "description": "Konata interface: logsDescription"
+  },
+  "logsSaveFailed": "Couldn't save log settings",
+  "@logsSaveFailed": {
+    "description": "Konata interface: logsSaveFailed"
+  },
+  "openLogs": "Open log folder",
+  "@openLogs": {
+    "description": "Konata interface: openLogs"
+  },
+  "exportLogsSystem": "Save logs to a file",
+  "@exportLogsSystem": {
+    "description": "Konata interface: exportLogsSystem"
+  },
+  "logsDefaultPath": "App data / logs",
+  "@logsDefaultPath": {
+    "description": "Konata interface: logsDefaultPath"
+  },
+  "versionLabel": "Version 1.0.0",
+  "@versionLabel": {
+    "description": "Konata interface: versionLabel"
+  },
+  "noLogs": "Log folder ready. No logs yet.",
+  "@noLogs": {
+    "description": "Konata interface: noLogs"
+  },
+  "exportLogs": "Export logs",
+  "@exportLogs": {
+    "description": "Konata interface: exportLogs"
+  },
+  "logsAccessFailed": "Can't open logs. Check your file manager.",
+  "@logsAccessFailed": {
+    "description": "Konata interface: logsAccessFailed"
+  },
+  "chooseVersion": "Choose version",
+  "@chooseVersion": {
+    "description": "Konata interface: chooseVersion"
+  },
+  "closeVersion": "Close",
+  "@closeVersion": {
+    "description": "Konata interface: closeVersion"
+  },
+  "filenameHints": "Filename hints only. Check audio and subtitles during playback.",
+  "@filenameHints": {
+    "description": "Konata interface: filenameHints"
+  },
+  "unknownSource": "Unknown source",
+  "@unknownSource": {
+    "description": "Konata interface: unknownSource"
+  },
+  "unnamedSource": "Unnamed source",
+  "@unnamedSource": {
+    "description": "Konata interface: unnamedSource"
+  },
+  "releaseTag": "Release (unclassified)",
+  "@releaseTag": {
+    "description": "Konata interface: releaseTag"
+  },
+  "encoderTag": "Encoder",
+  "@encoderTag": {
+    "description": "Konata interface: encoderTag"
+  },
+  "subtitleGroupTag": "Subtitle group",
+  "@subtitleGroupTag": {
+    "description": "Konata interface: subtitleGroupTag"
+  },
+  "sourceLabel": "Source",
+  "@sourceLabel": {
+    "description": "Konata interface: sourceLabel"
+  },
+  "minimize": "Minimize",
+  "@minimize": {
+    "description": "Konata interface: minimize"
+  },
+  "maximize": "Maximize",
+  "@maximize": {
+    "description": "Konata interface: maximize"
+  },
+  "restoreWindow": "Restore",
+  "@restoreWindow": {
+    "description": "Konata interface: restoreWindow"
+  },
+  "closeWindow": "Close",
+  "@closeWindow": {
+    "description": "Konata interface: closeWindow"
+  },
+  "apiGuideTitle": "Get a TMDB key",
+  "@apiGuideTitle": {
+    "description": "Konata interface: apiGuideTitle"
+  },
+  "apiGuideBody": "1. Sign up or sign in at https://www.themoviedb.org/\n\n2. Go to Account settings → API. Use a desktop browser to apply.\n\n3. Enter your details and accept the terms.\n\n4. Return to Konata → TMDB API.\n\n5. Choose Access token for an API Read Access Token, or API Key for an API key. Don’t mix them up.\n\n6. Test the connection, then save. Keys stay in secure storage. Keep them private.\n\nAPI page: https://www.themoviedb.org/settings/api",
+  "@apiGuideBody": {
+    "description": "Konata interface: apiGuideBody"
+  },
+  "openApiPage": "Open API page",
+  "@openApiPage": {
+    "description": "Konata interface: openApiPage"
+  },
+  "gotIt": "Got it",
+  "@gotIt": {
+    "description": "Konata interface: gotIt"
+  },
+  "browserCopyFailed": "Can't open a browser. Copy the link below.",
+  "@browserCopyFailed": {
+    "description": "Konata interface: browserCopyFailed"
+  },
+  "githubOpenFailed": "Can't open a browser. Visit https://github.com/ClainSt/Konata",
+  "@githubOpenFailed": {
+    "description": "Konata interface: githubOpenFailed"
+  },
+  "subtitleSimplified": "Simplified Chinese",
+  "@subtitleSimplified": {
+    "description": "Konata interface: subtitleSimplified"
+  },
+  "subtitleTraditional": "Traditional Chinese",
+  "@subtitleTraditional": {
+    "description": "Konata interface: subtitleTraditional"
+  },
+  "subtitleBilingual": "Subs: Chinese / Japanese",
+  "@subtitleBilingual": {
+    "description": "Konata interface: subtitleBilingual"
+  },
+  "subtitleAss": "Subs: ASS",
+  "@subtitleAss": {
+    "description": "Konata interface: subtitleAss"
+  },
+  "subtitlePgs": "Subs: PGS",
+  "@subtitlePgs": {
+    "description": "Konata interface: subtitlePgs"
+  },
+  "authMethod": "Sign in with",
+  "@authMethod": {
+    "description": "Konata interface: authMethod"
+  },
+  "accessToken": "Token",
+  "@accessToken": {
+    "description": "Konata interface: accessToken"
+  },
+  "closeTmdb": "Close",
+  "@closeTmdb": {
+    "description": "Konata interface: closeTmdb"
+  },
+  "enterCredentials": "Enter a token or API key first.",
+  "@enterCredentials": {
+    "description": "Konata interface: enterCredentials"
+  },
+  "connectionOk": "Connected",
+  "@connectionOk": {
+    "description": "Konata interface: connectionOk"
+  },
+  "credentialTestFailed": "Connection failed. Check your key and network.",
+  "@credentialTestFailed": {
+    "description": "Konata interface: credentialTestFailed"
+  },
+  "credentialSaveFailed": "Couldn't save credentials. Try again.",
+  "@credentialSaveFailed": {
+    "description": "Konata interface: credentialSaveFailed"
+  },
+  "secureCredentials": "Stored securely. Switch credentials anytime.",
+  "@secureCredentials": {
+    "description": "Konata interface: secureCredentials"
+  },
+  "metadataProviders": "TMDB and Bangumi metadata. No key needed for Bangumi search.",
+  "@metadataProviders": {
+    "description": "Konata interface: metadataProviders"
+  },
+  "testConnection": "Test",
+  "@testConnection": {
+    "description": "Konata interface: testConnection"
+  },
+  "save": "Save",
+  "@save": {
+    "description": "Konata interface: save"
+  },
+  "closeIdGuide": "Close",
+  "@closeIdGuide": {
+    "description": "Konata interface: closeIdGuide"
+  },
+  "idIntroTitle": "TMDB IDs",
+  "@idIntroTitle": {
+    "description": "Konata interface: idIntroTitle"
+  },
+  "idIntroBody": "Add a TMDB ID to a title folder for a more precise match. IDs take priority during scans. No setup needed.",
+  "@idIntroBody": {
+    "description": "Konata interface: idIntroBody"
+  },
+  "idFormatsTitle": "Formats",
+  "@idFormatsTitle": {
+    "description": "Konata interface: idFormatsTitle"
+  },
+  "idFormats": "Use {standard}\nAlso accepted: {alternate}, {brackets}\nKeep the brackets. Case does not matter. For films, use {movie}.",
+  "@idFormats": {
+    "description": "Konata interface: idFormats",
+    "placeholders": {
+      "standard": {
+        "type": "String"
+      },
+      "alternate": {
+        "type": "String"
+      },
+      "brackets": {
+        "type": "String"
+      },
+      "movie": {
+        "type": "String"
+      }
+    }
+  },
+  "idExampleTitle": "Example",
+  "@idExampleTitle": {
+    "description": "Konata interface: idExampleTitle"
+  },
+  "idExample": "{path}\n\nTag each title folder, not the collection folder.",
+  "@idExample": {
+    "description": "Konata interface: idExample",
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "idStepsTitle": "Steps",
+  "@idStepsTitle": {
+    "description": "Konata interface: idStepsTitle"
+  },
+  "idSteps": "1. Find the numeric ID in the TMDB page URL. Check the title and type.\n2. Add the tag to the folder name yourself. Konata does not rename your files.\n3. Rescan the folder. To fix an existing match, search and link it on the details page.",
+  "@idSteps": {
+    "description": "Konata interface: idSteps"
+  },
+  "idNotesTitle": "Notes",
+  "@idNotesTitle": {
+    "description": "Konata interface: idNotesTitle"
+  },
+  "idNotes": "• A working TMDB key and connection are still required.\n• Use S01E01 for episodes and S00E01 for specials. A title ID does not identify episodes.\n• Match the TMDB year, or omit it if unsure.\n• Locked metadata and custom covers stay unchanged.\n• Missing or incomplete entries may need a manual match.",
+  "@idNotes": {
+    "description": "Konata interface: idNotes"
+  },
+  "autoWatched": "Mark watched",
+  "@autoWatched": {
+    "description": "Playback setting: autoWatched"
+  },
+  "autoWatchedDescription": "Mark a file watched after this much playback. Skips, pauses and replays add no extra credit. Manual status takes priority.",
+  "@autoWatchedDescription": {
+    "description": "Playback setting: autoWatchedDescription"
+  },
+  "watchSettingsSaveFailed": "Couldn't save. Try again.",
+  "@watchSettingsSaveFailed": {
+    "description": "Playback setting: watchSettingsSaveFailed"
+  },
+  "progressSaveFailed": "Couldn't save progress. Retrying.",
+  "@progressSaveFailed": {
+    "description": "Playback setting: progressSaveFailed"
+  },
+  "apiAddress": "API URL",
+  "@apiAddress": {
+    "description": "Konata interface: apiAddress"
+  },
+  "imageAddress": "Image URL",
+  "@imageAddress": {
+    "description": "Konata interface: imageAddress"
+  },
+  "testApi": "Test API",
+  "@testApi": {
+    "description": "Konata interface: testApi"
+  },
+  "testImages": "Test images",
+  "@testImages": {
+    "description": "Konata interface: testImages"
+  },
+  "connectionDetails": "Details",
+  "@connectionDetails": {
+    "description": "Konata interface: connectionDetails"
+  },
+  "resetDefaults": "Reset",
+  "@resetDefaults": {
+    "description": "Konata interface: resetDefaults"
+  },
+  "officialServers": "Official",
+  "@officialServers": {
+    "description": "Konata interface: officialServers"
+  },
+  "closeMetadata": "Close",
+  "@closeMetadata": {
+    "description": "Konata interface: closeMetadata"
+  },
+  "serverNotice": "Set API and image URLs separately. Bangumi uses a community mirror by default. HTTP is unencrypted.",
+  "@serverNotice": {
+    "description": "Konata interface: serverNotice"
+  },
+  "autoFallback": "Auto fallback",
+  "@autoFallback": {
+    "description": "Konata interface: autoFallback"
+  },
+  "fallbackDescription": "Use a backup server if requests fail. Tests use the entered URL.",
+  "@fallbackDescription": {
+    "description": "Konata interface: fallbackDescription"
+  },
+  "allowCustomCredentials": "Send credentials to custom TMDB HTTPS servers",
+  "@allowCustomCredentials": {
+    "description": "Konata interface: allowCustomCredentials"
+  },
+  "notTested": "Not tested",
+  "@notTested": {
+    "description": "Konata interface: notTested"
+  },
+  "testing": "Testing…",
+  "@testing": {
+    "description": "Konata interface: testing"
+  },
+  "serverConnected": "Connected",
+  "@serverConnected": {
+    "description": "Konata interface: serverConnected"
+  },
+  "connectionPartial": "Some features failed",
+  "@connectionPartial": {
+    "description": "Konata interface: connectionPartial"
+  },
+  "serverSaveFailed": "Couldn't save. Check URLs and storage access.",
+  "@serverSaveFailed": {
+    "description": "Konata interface: serverSaveFailed"
+  },
+  "diagnosticCredentials": "Add a TMDB key first",
+  "@diagnosticCredentials": {
+    "description": "Konata interface: diagnosticCredentials"
+  },
+  "diagnosticAuth": "Key rejected",
+  "@diagnosticAuth": {
+    "description": "Konata interface: diagnosticAuth"
+  },
+  "diagnosticTimeout": "Timed out",
+  "@diagnosticTimeout": {
+    "description": "Konata interface: diagnosticTimeout"
+  },
+  "diagnosticTls": "TLS failed",
+  "@diagnosticTls": {
+    "description": "Konata interface: diagnosticTls"
+  },
+  "diagnosticNetwork": "Network error",
+  "@diagnosticNetwork": {
+    "description": "Konata interface: diagnosticNetwork"
+  },
+  "diagnosticInvalid": "Invalid URL or response",
+  "@diagnosticInvalid": {
+    "description": "Konata interface: diagnosticInvalid"
+  },
+  "diagnosticHttp": "Server error",
+  "@diagnosticHttp": {
+    "description": "Konata interface: diagnosticHttp"
+  },
+  "diagnosticFailed": "Connection failed. Check URL and access.",
+  "@diagnosticFailed": {
+    "description": "Konata interface: diagnosticFailed"
+  },
+  "audioTracks": "Audio",
+  "@audioTracks": {
+    "description": "Konata interface: audioTracks"
+  },
+  "subtitles": "Subtitles",
+  "@subtitles": {
+    "description": "Konata interface: subtitles"
+  },
+  "chooseSubtitles": "Subtitles",
+  "@chooseSubtitles": {
+    "description": "Konata interface: chooseSubtitles"
+  },
+  "chooseAudio": "Audio tracks",
+  "@chooseAudio": {
+    "description": "Konata interface: chooseAudio"
+  },
+  "subtitlesOff": "Off",
+  "@subtitlesOff": {
+    "description": "Konata interface: subtitlesOff"
+  },
+  "trackAuto": "Auto",
+  "@trackAuto": {
+    "description": "Konata interface: trackAuto"
+  },
+  "rewind10": "Back 10s",
+  "@rewind10": {
+    "description": "Konata interface: rewind10"
+  },
+  "forward10": "Forward 10s",
+  "@forward10": {
+    "description": "Konata interface: forward10"
+  },
+  "play": "Play",
+  "@play": {
+    "description": "Konata interface: play"
+  },
+  "pause": "Pause",
+  "@pause": {
+    "description": "Konata interface: pause"
+  },
+  "playbackFailed": "Can't play. Check the file and source.",
+  "@playbackFailed": {
+    "description": "Konata interface: playbackFailed"
+  },
+  "audioOff": "Off",
+  "@audioOff": {
+    "description": "Playback track picker: audioOff"
+  },
+  "trackSwitchFailed": "Couldn't switch tracks. Try again.",
+  "@trackSwitchFailed": {
+    "description": "Playback track picker: trackSwitchFailed"
+  },
+  "addMedia": "Add media",
+  "@addMedia": {
+    "description": "Media sources: addMedia"
+  },
+  "localMedia": "Local",
+  "@localMedia": {
+    "description": "Media sources: localMedia"
+  },
+  "networkMedia": "Network",
+  "@networkMedia": {
+    "description": "Media sources: networkMedia"
+  },
+  "localFolder": "Local folder",
+  "@localFolder": {
+    "description": "Media sources: localFolder"
+  },
+  "addLocalFolder": "Choose a media folder",
+  "@addLocalFolder": {
+    "description": "Media sources: addLocalFolder"
+  },
+  "addLocalTitle": "Add folder",
+  "@addLocalTitle": {
+    "description": "Media sources: addLocalTitle"
+  },
+  "addWebdav": "Add WebDAV",
+  "@addWebdav": {
+    "description": "Media sources: addWebdav"
+  },
+  "addSmb": "Add SMB",
+  "@addSmb": {
+    "description": "Media sources: addSmb"
+  },
+  "editSource": "Edit source",
+  "@editSource": {
+    "description": "Media sources: editSource"
+  },
+  "sourceName": "Name",
+  "@sourceName": {
+    "description": "Media sources: sourceName"
+  },
+  "smbUrl": "SMB URL",
+  "@smbUrl": {
+    "description": "Media sources: smbUrl"
+  },
+  "webdavUrl": "WebDAV URL",
+  "@webdavUrl": {
+    "description": "Media sources: webdavUrl"
+  },
+  "chooseFolder": "Choose folder",
+  "@chooseFolder": {
+    "description": "Media sources: chooseFolder"
+  },
+  "chooseMediaFolder": "Choose media folder",
+  "@chooseMediaFolder": {
+    "description": "Media sources: chooseMediaFolder"
+  },
+  "usernameOptional": "Username (optional)",
+  "@usernameOptional": {
+    "description": "Media sources: usernameOptional"
+  },
+  "newPassword": "New password (optional)",
+  "@newPassword": {
+    "description": "Media sources: newPassword"
+  },
+  "passwordWillClear": "Saved password will be removed.",
+  "@passwordWillClear": {
+    "description": "Media sources: passwordWillClear"
+  },
+  "keepPassword": "Leave blank to keep the password for the same user. Leave both blank for guest access.",
+  "@keepPassword": {
+    "description": "Media sources: keepPassword"
+  },
+  "undoClearPassword": "Undo",
+  "@undoClearPassword": {
+    "description": "Media sources: undoClearPassword"
+  },
+  "clearSavedPassword": "Clear saved password",
+  "@clearSavedPassword": {
+    "description": "Media sources: clearSavedPassword"
+  },
+  "sourceFieldsRequired": "Enter a name and location.",
+  "@sourceFieldsRequired": {
+    "description": "Media sources: sourceFieldsRequired"
+  },
+  "invalidWebdav": "Enter an HTTP or HTTPS URL.",
+  "@invalidWebdav": {
+    "description": "Media sources: invalidWebdav"
+  },
+  "invalidSmb": "Enter smb://host/share.",
+  "@invalidSmb": {
+    "description": "Media sources: invalidSmb"
+  },
+  "anonymousCredentials": "Leave both fields blank for guest access.",
+  "@anonymousCredentials": {
+    "description": "Media sources: anonymousCredentials"
+  },
+  "changeSourceTitle": "Change location?",
+  "@changeSourceTitle": {
+    "description": "Media sources: changeSourceTitle"
+  },
+  "changeSourceBody": "Titles, manual matches, progress and source ID stay. Rescan if the new folder has different files.",
+  "@changeSourceBody": {
+    "description": "Media sources: changeSourceBody"
+  },
+  "confirmChange": "Change",
+  "@confirmChange": {
+    "description": "Media sources: confirmChange"
+  },
+  "sourceFolderMissing": "The folder or share could not be found.",
+  "sourcePermissionDenied": "Access denied. Check the folder permissions.",
+  "cancelScan": "Cancel scan",
+  "scanCancelled": "Scan cancelled",
+  "scanStopping": "Stopping after the current operation…",
+  "sourceTestFailed": "Connection failed. Check location, login and network.",
+  "@sourceTestFailed": {
+    "description": "Media sources: sourceTestFailed"
+  },
+  "sourceSaveFailed": "Couldn't save source. Try again.",
+  "@sourceSaveFailed": {
+    "description": "Media sources: sourceSaveFailed"
+  },
+  "localAccessible": "Folder found",
+  "@localAccessible": {
+    "description": "Media sources: localAccessible"
+  },
+  "localMissing": "Folder not found",
+  "@localMissing": {
+    "description": "Media sources: localMissing"
+  },
+  "sourceConnectHint": "Connect, then choose folders to scan.",
+  "@sourceConnectHint": {
+    "description": "Media sources: sourceConnectHint"
+  },
+  "connectionName": "Name (optional)",
+  "@connectionName": {
+    "description": "Media sources: connectionName"
+  },
+  "folderPickerHint": "Select Add to choose a folder.",
+  "@folderPickerHint": {
+    "description": "Media sources: folderPickerHint"
+  },
+  "smbUrlHint": "SMB URL (smb://host/share)",
+  "@smbUrlHint": {
+    "description": "Media sources: smbUrlHint"
+  },
+  "usernameCreate": "Username (optional)",
+  "@usernameCreate": {
+    "description": "Media sources: usernameCreate"
+  },
+  "smbUsername": "Username (domain\\user supported)",
+  "@smbUsername": {
+    "description": "Media sources: smbUsername"
+  },
+  "passwordOptional": "Password (optional)",
+  "@passwordOptional": {
+    "description": "Media sources: passwordOptional"
+  },
+  "showPassword": "Show password",
+  "@showPassword": {
+    "description": "Media sources: showPassword"
+  },
+  "hidePassword": "Hide password",
+  "@hidePassword": {
+    "description": "Media sources: hidePassword"
+  },
+  "guestHint": "Leave login fields blank for guest access.",
+  "@guestHint": {
+    "description": "Media sources: guestHint"
+  },
+  "add": "Add",
+  "@add": {
+    "description": "Media sources: add"
+  },
+  "sourceAddFailed": "Couldn't add source. Check the location.",
+  "@sourceAddFailed": {
+    "description": "Media sources: sourceAddFailed"
+  },
+  "scanProgress": "Scan progress",
+  "@scanProgress": {
+    "description": "Media sources: scanProgress"
+  },
+  "folderSearch": "Search folder (name or TMDB ID)",
+  "@folderSearch": {
+    "description": "Media sources: folderSearch"
+  },
+  "clearSearch": "Clear search",
+  "@clearSearch": {
+    "description": "Media sources: clearSearch"
+  },
+  "folderReadFailed": "Couldn't read folder. Check location and connection.",
+  "@folderReadFailed": {
+    "description": "Media sources: folderReadFailed"
+  },
+  "parentFolder": ".. Up",
+  "@parentFolder": {
+    "description": "Media sources: parentFolder"
+  },
+  "fileLabel": "File",
+  "@fileLabel": {
+    "description": "Media sources: fileLabel"
+  },
+  "help": "Help",
+  "@help": {
+    "description": "Media sources: help"
+  },
+  "chooseScanHelpTitle": "Choose folders",
+  "@chooseScanHelpTitle": {
+    "description": "Media sources: chooseScanHelpTitle"
+  },
+  "chooseScanHelp": "Check title folders or whole collections to scan. Uncertain matches are flagged for review. Select a folder name to browse inside.",
+  "@chooseScanHelp": {
+    "description": "Media sources: chooseScanHelp"
+  },
+  "scanFolders": "Scanning folders…",
+  "@scanFolders": {
+    "description": "Media sources: scanFolders"
+  },
+  "scanMetadata": "Fetching metadata…",
+  "@scanMetadata": {
+    "description": "Media sources: scanMetadata"
+  },
+  "scanComplete": "Scan complete",
+  "@scanComplete": {
+    "description": "Media sources: scanComplete"
+  },
+  "scanFailed": "Scan failed",
+  "@scanFailed": {
+    "description": "Media sources: scanFailed"
+  },
+  "noScan": "No scans yet",
+  "@noScan": {
+    "description": "Media sources: noScan"
+  },
+  "noScanHint": "Choose folders to start a scan.",
+  "@noScanHint": {
+    "description": "Media sources: noScanHint"
+  },
+  "scanScope": "Selected folders (including subfolders)",
+  "@scanScope": {
+    "description": "Media sources: scanScope"
+  },
+  "visitedFolders": "Visited folders (direct video counts)",
+  "@visitedFolders": {
+    "description": "Media sources: visitedFolders"
+  },
+  "noFoldersRead": "No folders read yet",
+  "@noFoldersRead": {
+    "description": "Media sources: noFoldersRead"
+  },
+  "scanningShort": "Scanning",
+  "@scanningShort": {
+    "description": "Media sources: scanningShort"
+  },
+  "sourceConnected": "Connected: {count, plural, one {# item} other {# items}}",
+  "@sourceConnected": {
+    "description": "Media sources: sourceConnected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "browseSource": "Browse · {name}",
+  "@browseSource": {
+    "description": "Media sources: browseSource",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "itemCount": "{count, plural, one {# item} other {# items}}",
+  "@itemCount": {
+    "description": "Media sources: itemCount",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "videoCount": "{count, plural, one {# video} other {# videos}}",
+  "@videoCount": {
+    "description": "Media sources: videoCount",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "folderMatches": "{found} of {total} items",
+  "@folderMatches": {
+    "description": "Media sources: folderMatches",
+    "placeholders": {
+      "found": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "selectedScanFolders": "Selected ({count})",
+  "@selectedScanFolders": {
+    "description": "Media sources: selectedScanFolders",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "scanSelectedFolders": "Scan selected ({count})",
+  "@scanSelectedFolders": {
+    "description": "Media sources: scanSelectedFolders",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "scannedFolderCount": "Folders scanned: {count}",
+  "@scannedFolderCount": {
+    "description": "Media sources: scannedFolderCount",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "indexedVideoCount": "Videos indexed: {count}",
+  "@indexedVideoCount": {
+    "description": "Media sources: indexedVideoCount",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "scanMetadataCount": "Metadata: {done}/{total}",
+  "@scanMetadataCount": {
+    "description": "Media sources: scanMetadataCount",
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "scanSummary": "Matched: {matched} · Review: {review} · Failed: {failed}",
+  "@scanSummary": {
+    "description": "Media sources: scanSummary",
+    "placeholders": {
+      "matched": {
+        "type": "int"
+      },
+      "review": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      }
+    }
+  },
+  "currentScanFolder": "Current folder: {path}",
+  "@currentScanFolder": {
+    "description": "Media sources: currentScanFolder",
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "addSource": "Add source",
+  "@addSource": {
+    "description": "Library/source controls: addSource"
+  },
+  "localDirectory": "Local folder",
+  "@localDirectory": {
+    "description": "Library/source controls: localDirectory"
+  },
+  "browseScanFolders": "Browse and choose scan folders",
+  "@browseScanFolders": {
+    "description": "Library/source controls: browseScanFolders"
+  },
+  "remove": "Remove",
+  "@remove": {
+    "description": "Library/source controls: remove"
+  },
+  "removeSourceTitle": "Remove source?",
+  "@removeSourceTitle": {
+    "description": "Library/source controls: removeSourceTitle"
+  },
+  "removeSourceBody": "Remove the index only. Media files stay.",
+  "@removeSourceBody": {
+    "description": "Library/source controls: removeSourceBody"
+  },
+  "addSourceFirst": "Add a source to get started",
+  "@addSourceFirst": {
+    "description": "Library/source controls: addSourceFirst"
+  },
+  "noMatchingTitles": "No matches",
+  "@noMatchingTitles": {
+    "description": "Library/source controls: noMatchingTitles"
+  },
+  "searchTitles": "Search titles",
+  "@searchTitles": {
+    "description": "Library/source controls: searchTitles"
+  },
+  "closeSearch": "Close search",
+  "@closeSearch": {
+    "description": "Library/source controls: closeSearch"
+  },
+  "manageHidden": "Hidden titles",
+  "@manageHidden": {
+    "description": "Library/source controls: manageHidden"
+  },
+  "sourceCount": "{count, plural, one {# source} other {# sources}}",
+  "@sourceCount": {
+    "description": "Library/source controls: sourceCount",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "workCount": "{count, plural, one {# title} other {# titles}}",
+  "@workCount": {
+    "description": "Library/source controls: workCount",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "noHiddenTitles": "No hidden titles",
+  "@noHiddenTitles": {
+    "description": "Title management: noHiddenTitles"
+  },
+  "keepHidden": "Keep hidden after rescans",
+  "@keepHidden": {
+    "description": "Title management: keepHidden"
+  },
+  "restoreOnScan": "Rescans restore this title",
+  "@restoreOnScan": {
+    "description": "Title management: restoreOnScan"
+  },
+  "restoreTitle": "Restore",
+  "@restoreTitle": {
+    "description": "Title management: restoreTitle"
+  },
+  "titleNotFound": "Title not found",
+  "@titleNotFound": {
+    "description": "Title management: titleNotFound"
+  },
+  "scanBeforeRemove": "Wait for the scan to finish.",
+  "@scanBeforeRemove": {
+    "description": "Title management: scanBeforeRemove"
+  },
+  "removeWorkTitle": "Remove title?",
+  "@removeWorkTitle": {
+    "description": "Title management: removeWorkTitle"
+  },
+  "removeWorkBody": "Remove from the library only. Files, manual matches and progress stay.",
+  "@removeWorkBody": {
+    "description": "Title management: removeWorkBody"
+  },
+  "rescanRestoresHint": "Otherwise, rescans restore it.",
+  "@rescanRestoresHint": {
+    "description": "Title management: rescanRestoresHint"
+  },
+  "removeFromLibrary": "Remove",
+  "@removeFromLibrary": {
+    "description": "Title management: removeFromLibrary"
+  },
+  "removeWorkFailed": "Couldn't remove title. Try again.",
+  "@removeWorkFailed": {
+    "description": "Title management: removeWorkFailed"
+  },
+  "manualMatch": "Match title",
+  "@manualMatch": {
+    "description": "Title management: manualMatch"
+  },
+  "nameOrId": "Title or TMDB ID",
+  "@nameOrId": {
+    "description": "Title management: nameOrId"
+  },
+  "search": "Search",
+  "@search": {
+    "description": "Title management: search"
+  },
+  "searchFailed": "Search failed. Check credentials and network.",
+  "@searchFailed": {
+    "description": "Title management: searchFailed"
+  },
+  "bindFailed": "Couldn't save match. Try again.",
+  "@bindFailed": {
+    "description": "Title management: bindFailed"
+  },
+  "editMetadata": "Edit details",
+  "@editMetadata": {
+    "description": "Title management: editMetadata"
+  },
+  "workTitle": "Title",
+  "@workTitle": {
+    "description": "Title management: workTitle"
+  },
+  "year": "Year",
+  "@year": {
+    "description": "Title management: year"
+  },
+  "optional": "Optional",
+  "@optional": {
+    "description": "Title management: optional"
+  },
+  "synopsis": "Synopsis",
+  "@synopsis": {
+    "description": "Title management: synopsis"
+  },
+  "notLinked": "Not linked",
+  "@notLinked": {
+    "description": "Title management: notLinked"
+  },
+  "bangumiIds": "Bangumi IDs",
+  "@bangumiIds": {
+    "description": "Title management: bangumiIds"
+  },
+  "bangumiIdsHint": "Separate IDs with commas, e.g. 302189, 331887. Saving locks the match and keeps the title together.",
+  "@bangumiIdsHint": {
+    "description": "Title management: bangumiIdsHint"
+  },
+  "searchAndLink": "Find match",
+  "@searchAndLink": {
+    "description": "Title management: searchAndLink"
+  },
+  "invalidBangumiIds": "Enter valid Bangumi IDs.",
+  "@invalidBangumiIds": {
+    "description": "Title management: invalidBangumiIds"
+  },
+  "invalidTitleYear": "Enter a title and valid year.",
+  "@invalidTitleYear": {
+    "description": "Title management: invalidTitleYear"
+  },
+  "characterOrder": "Character order",
+  "@characterOrder": {
+    "description": "Title management: characterOrder"
+  },
+  "noCharactersYet": "Load title details to see characters.",
+  "@noCharactersYet": {
+    "description": "Title management: noCharactersYet"
+  },
+  "recropCover": "Crop again",
+  "@recropCover": {
+    "description": "Title management: recropCover"
+  },
+  "editCover": "Edit poster",
+  "@editCover": {
+    "description": "Title management: editCover"
+  },
+  "automaticCover": "Use default",
+  "@automaticCover": {
+    "description": "Title management: automaticCover"
+  },
+  "importImage": "Import image",
+  "@importImage": {
+    "description": "Title management: importImage"
+  },
+  "coverFailed": "Couldn't save poster. Check the image and storage.",
+  "@coverFailed": {
+    "description": "Title management: coverFailed"
+  },
+  "imageDecodeFailed": "Can't open this image.",
+  "@imageDecodeFailed": {
+    "description": "Title management: imageDecodeFailed"
+  },
+  "cropFailed": "Couldn't export crop. Try again.",
+  "@cropFailed": {
+    "description": "Title management: cropFailed"
+  },
+  "cropPoster": "Crop poster · 2:3",
+  "@cropPoster": {
+    "description": "Title management: cropPoster"
+  },
+  "cropHint": "Drag to move. Scroll or pinch to zoom. The frame is your poster.",
+  "@cropHint": {
+    "description": "Title management: cropHint"
+  },
+  "lowResImage": "Low-resolution image. No upscaling.",
+  "@lowResImage": {
+    "description": "Title management: lowResImage"
+  },
+  "reset": "Reset",
+  "@reset": {
+    "description": "Title management: reset"
+  },
+  "saving": "Saving…",
+  "@saving": {
+    "description": "Title management: saving"
+  },
+  "confirmSave": "Save",
+  "@confirmSave": {
+    "description": "Title management: confirmSave"
+  },
+  "mainFeature": "Episodes",
+  "extraFiles": "Extras",
+  "allExtras": "All",
+  "otherExtra": "Other",
+  "unnamedVideo": "Untitled video",
+  "unnamedWork": "Untitled",
+  "cast": "Cast",
+  "crew": "Crew",
+  "characters": "Characters",
+  "collapseList": "Less",
+  "fullList": "Full list",
+  "noExtras": "No extras",
+  "noLinkedEpisodes": "No linked episodes",
+  "backToLibrary": "Back to library",
+  "moreActions": "More",
+  "noMainFeature": "No episodes",
+  "startPlayback": "Play",
+  "noSynopsis": "No synopsis",
+  "collapseSynopsis": "Less",
+  "expandSynopsis": "Read more",
+  "unwatchedStatus": "Unwatched",
+  "commercial": "Commercial",
+  "promoVideo": "Promo",
+  "cleanOpening": "Clean opening",
+  "cleanEnding": "Clean ending",
+  "discMenu": "Disc menu",
+  "specialEpisode": "Special",
+  "episodeLabel": "Ep. {number}",
+  "@episodeLabel": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "detailEpisodeCount": "{count, plural, one {# episode} other {# episodes}}",
+  "@detailEpisodeCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "detailVersionCount": "{count, plural, one {# version} other {# versions}}",
+  "@detailVersionCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "resumeEpisode": "Resume {episode}",
+  "@resumeEpisode": {
+    "placeholders": {
+      "episode": {
+        "type": "String"
+      }
+    }
+  },
+  "resumePlayback": "Resume",
+  "removeTitleAction": "Remove",
+  "seekSeconds": "{count} s",
+  "@seekSeconds": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "tmdbOpenFailed": "Can't open a browser. Visit https://www.themoviedb.org",
+  "manualEdit": "Match episodes",
+  "chooseSeason": "Choose season",
+  "chooseEpisode": "Choose episode",
+  "keepMatch": "Keep match",
+  "mappingHint": "Choose a title and season, then match each file. To change titles, match every file.",
+  "mappingFailed": "Couldn’t save. Check matches and try again.",
+  "loadingMatches": "Loading…",
+  "playbackStats": "Stats",
+  "chapters": "Chapters",
+  "noChapters": "No chapters in this file",
+  "chapterReadFailed": "Couldn’t read chapters. Try again.",
+  "statsUnavailable": "Unknown",
+  "subtitleJapanese": "Japanese",
+  "subtitleChinese": "Chinese",
+  "losslessAudio": "Lossless",
+  "externalTrack": "External",
+  "statVideo": "Video codec",
+  "statResolution": "Resolution",
+  "statFps": "Frame rate",
+  "statOutputFps": "Output FPS",
+  "statHwdec": "Hardware decode",
+  "statDropped": "Dropped frames",
+  "statDecoderDropped": "Decoder drops",
+  "statAudio": "Audio codec",
+  "statSampleRate": "Sample rate (Hz)",
+  "statChannels": "Channels",
+  "statBitrate": "Audio bitrate (bps)",
+  "statCache": "Buffer (s)",
+  "statAvsync": "A/V offset (s)",
+  "timelinePreview": "Timeline preview",
+  "previewOn": "Timeline preview on",
+  "previewOff": "Timeline preview off",
+  "subtitleSimplifiedJapanese": "Chinese (Simplified) + Japanese",
+  "subtitleTraditionalJapanese": "Chinese (Traditional) + Japanese",
+  "containedTrack": "Muxed",
+  "importSubtitle": "Import subtitles",
+  "trackNumber": "Track {number}",
+  "@trackNumber": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "exportLibraryBackup": "Export library backup",
+  "exportLibraryBackupDescription": "Exports library data, viewing history and custom covers; excludes videos and saved credentials.",
+  "exportLibraryBackupDone": "Backup exported",
+  "exportLibraryBackupFailed": "Backup export failed",
+  "exportLibraryBackupTooLarge": "Backup is too large to save on this device",
+  "inspectLibraryBackup": "Inspect backup",
+  "inspectLibraryBackupDescription": "Verify a Konata backup without importing or changing data.",
+  "inspectLibraryBackupFailed": "Backup validation failed",
+  "playerSettings": "Player",
+  "mpvConfiguration": "Native MPV configuration",
+  "mpvEnable": "Use custom mpv.conf and input.conf",
+  "mpvEnableDetail": "Only use trusted files. Konata reads mpv.conf and input.conf before each playback.",
+  "mpvNextPlayback": "Changes take effect when a new player opens.",
+  "mpvEdit": "Edit",
+  "mpvImport": "Import file",
+  "mpvReset": "Restore empty default",
+  "mpvFolderReadError": "Cannot read the configuration folder. Check the files or choose the folder again in player settings.",
+  "mpvUseInternal": "Use in-app configuration",
+  "fullscreen": "Enter fullscreen",
+  "exitFullscreen": "Exit fullscreen",
+  "mpvOpenDirectory": "Choose configuration folder",
+  "mpvError": "MPV settings operation failed",
+  "mpvSave": "Save",
+  "mpvEngineTitle": "Enhanced Windows MPV engine (optional)",
+  "mpvEngineDescription": "Optional download with extra audio codec support, including TrueHD.",
+  "mpvEngineDownload": "Download verified engine",
+  "mpvEngineImport": "Import release archive (.7z)",
+  "mpvEngineEnable": "Use enhanced MPV on Windows",
+  "mpvEngineMissing": "Not installed or checksum invalid",
+  "mpvEngineReady": "Installed and checksum verified",
+  "mpvEngineRestart": "Engine selection takes effect after restarting Konata.",
+  "mpvEngineDownloadConfirm": "Download the optional MPV engine?",
+  "mpvEngineDownloadWarning": "Downloads ~30 MB and installs a verified ~122 MB DLL in application data. The default engine remains unchanged. Review third-party licenses and only use binaries you trust.",
+  "mpvEngineProgress": "Downloading enhancement",
+  "mpvEngineCurrent": "Enhanced engine active in this session",
+  "mpvEngineDefault": "Default engine active in this session",
+  "backupPreviewCounts": "Works / Files / Sources / History / Covers",
+  "confirmEpisodeIdentity": "Confirm episode identity",
+  "revokeEpisodeIdentity": "Remove identity confirmation",
+  "watchStateConflict": "Conflicting watched states",
+  "confirmEpisodeDescription": "Check the title, season and episode. Only confirm if this file matches.",
+  "historyEventsRetained": "Watch events are kept separately; deleting resume history does not mark an episode unwatched or delete events.",
+  "bangumiEpisodeMapping": "Bangumi episode",
+  "bangumiSubjectId": "Subject ID",
+  "bangumiEpisodeId": "Episode ID",
+  "bangumiEpisodeType": "Episode type",
+  "bangumiMainStory": "Main story",
+  "verifyBangumiEpisode": "Check episode",
+  "bangumiMappingDescription": "Check the subject, episode title, number and type. Numbering may differ from TMDB. This only saves a match.",
+  "bangumiMappingFailed": "Episode check failed. Check the IDs and type, then retry.",
+  "revokeBangumiMapping": "Remove episode match",
+  "statMpvVersion": "MPV version",
+  "statHwdecSetting": "Decode setting",
+  "statPixelFormat": "Decoded pixel format",
+  "statUnderlyingPixelFormat": "Underlying pixel format",
+  "statColorMatrix": "Color matrix",
+  "statColorPrimaries": "Color primaries",
+  "statTransferFunction": "Transfer function",
+  "statColorRange": "Color range",
+  "statVideoOutput": "Video output",
+  "statFilteredWidth": "Filtered video width",
+  "statFilteredHeight": "Filtered video height",
+  "statCachePaused": "Paused for cache",
+  "statSourceDepth": "Decoded component depth (known formats)",
+  "statTextureSize": "Flutter texture size",
+  "videoDecoding": "Video decoding",
+  "decodeAutomatic": "Automatic",
+  "decodeHardware": "Hardware preferred",
+  "decodeSoftware": "Software",
+  "decodeCustom": "Follow MPV configuration",
+  "decodeDescription": "Applies to the next playback. Automatic keeps platform defaults. Hardware modes allow software fallback; emulators use software.",
+  "decodePriority": "Automatic and hardware/software modes override hwdec in mpv.conf. Follow MPV configuration keeps its hwdec and scaling options; the player still manages video output. If MPV configuration is off, platform defaults apply."
+}

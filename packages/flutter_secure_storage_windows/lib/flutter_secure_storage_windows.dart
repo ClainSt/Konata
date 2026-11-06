@@ -9,7 +9,7 @@ import 'package:win32/win32.dart';
 /// Windows secure storage backed by the current user's Windows Credential
 /// Manager. Credential Manager protects generic credential blobs with DPAPI.
 class FlutterSecureStorageWindows extends FlutterSecureStoragePlatform {
-  static const _targetPrefix = 'NipaPlay.Personal.SecureStorage.';
+  static const _targetPrefix = 'Konata.SecureStorage.';
 
   static void registerWith() {
     FlutterSecureStoragePlatform.instance = FlutterSecureStorageWindows();
@@ -24,7 +24,7 @@ class FlutterSecureStorageWindows extends FlutterSecureStoragePlatform {
     required Map<String, String> options,
   }) async {
     final target = _target(key).toNativeUtf16();
-    final username = 'NipaPlay Personal'.toNativeUtf16();
+    final username = 'Konata'.toNativeUtf16();
     final bytes = Uint8List.fromList(utf8.encode(value));
     final blob = calloc<Uint8>(bytes.length);
     final credential = calloc<CREDENTIAL>();

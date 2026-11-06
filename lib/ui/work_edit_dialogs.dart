@@ -1,3 +1,14 @@
+import '../l10n/strings.dart';
+import 'uniform_action_bar.dart';
+import 'dart:convert';
+import 'dart:typed_data';
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
+import '../core/image_store.dart';
+import '../core/debug_log.dart';
+import '../core/bangumi_links.dart';
+import 'managed_image.dart';
+import 'poster_crop_page.dart';
 import 'package:flutter/material.dart';
 import '../core/catalog.dart';
 import '../core/cover_options.dart';
@@ -14,45 +25,77 @@ abstract final class WorkEditDialogs {
     final overview = TextEditingController(
       text: work['overview']?.toString() ?? '',
     );
+    final links = TextEditingController(
+      text: BangumiLinks.ids(work).join(', '),
+    );
     var message = '';
     try {
-      final result = await showDialog<String>(
+      final route = DialogRoute<String>(
         context: context,
         builder: (ctx) => StatefulBuilder(
           builder: (ctx, update) => AlertDialog(
-            title: const Text('编辑元数据'),
+            title: Text(ctx.l10n.editMetadata),
             content: SizedBox(
               width: 540,
               child: SingleChildScrollView(
+                padding: const EdgeInsets.only(top: 12, bottom: 4),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     TextField(
                       controller: title,
-                      decoration: const InputDecoration(labelText: '作品标题'),
+                      decoration: InputDecoration(
+                        labelText: ctx.l10n.workTitle,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: year,
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: '年份（可留空）'),
+                      decoration: InputDecoration(
+                        labelText: ctx.l10n.year,
+                        helperText: ctx.l10n.optional,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: overview,
                       maxLines: 6,
                       minLines: 3,
-                      decoration: const InputDecoration(labelText: '作品简介'),
+                      decoration: InputDecoration(labelText: ctx.l10n.synopsis),
                     ),
                     const SizedBox(height: 10),
-                    Text(
-                      'TMDB: ${work['tmdb_id'] ?? '未绑定'}   Bangumi: ${work['bangumi_id'] ?? '未绑定'}',
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          Text(
+                            'TMDB: ${work['tmdb_id'] ?? ctx.l10n.notLinked}',
+                          ),
+                          const SizedBox(width: 16),
+                          Text(
+                            'Bangumi: ${work['bangumi_id'] ?? ctx.l10n.notLinked}',
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    TextField(
+                      controller: links,
+                      decoration: InputDecoration(
+                        labelText: ctx.l10n.bangumiIds,
+                        helperText: ctx.l10n.bangumiIdsHint,
+                        helperMaxLines: 5,
+                        helperStyle: TextStyle(fontSize: 13, height: 1.6),
+                      ),
                     ),
                     if (message.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 10),
                         child: Text(
-                          message,
+                          message == 'ids'
+                              ? ctx.l10n.invalidBangumiIds
+                              : ctx.l10n.invalidTitleYear,
                           style: const TextStyle(color: Colors.red),
                         ),
                       ),
@@ -61,39 +104,68 @@ abstract final class WorkEditDialogs {
               ),
             ),
             actions: [
-              TextButton.icon(
-                key: const ValueKey('metadata-search-bind'),
-                onPressed: () => Navigator.pop(ctx, 'search'),
-                icon: const Icon(Icons.manage_search),
-                label: const Text('搜索并绑定作品'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('取消'),
-              ),
-              FilledButton(
-                key: const ValueKey('metadata-save'),
-                onPressed: () {
-                  final label = title.text.trim();
-                  final y = year.text.trim();
-                  final parsed = y.isEmpty ? null : int.tryParse(y);
-                  if (label.isEmpty ||
-                      (y.isNotEmpty &&
-                          (parsed == null || parsed < 1888 || parsed > 2100))) {
-                    update(() => message = '请输入作品标题和有效年份');
-                    return;
-                  }
-                  Navigator.pop(ctx, 'save');
-                },
-                child: const Text('保存'),
+              UniformActionBar(
+                children: [
+                  TextButton.icon(
+                    key: const ValueKey('metadata-search-bind'),
+                    onPressed: () => Navigator.pop(ctx, 'search'),
+                    icon: const Icon(Icons.manage_search),
+                    label: Text(ctx.l10n.searchAndLink),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: Text(ctx.l10n.cancel),
+                  ),
+                  FilledButton(
+                    key: const ValueKey('metadata-save'),
+                    onPressed: () {
+                      final rawIds = links.text.trim();
+                      if (rawIds.isNotEmpty &&
+                          rawIds
+                              .split(RegExp(r'[,，\s]+'))
+                              .any((s) => (int.tryParse(s) ?? 0) <= 0)) {
+                        update(() => message = 'ids');
+                        return;
+                      }
+                      final label = title.text.trim();
+                      final y = year.text.trim();
+                      final parsed = y.isEmpty ? null : int.tryParse(y);
+                      if (label.isEmpty ||
+                          (y.isNotEmpty &&
+                              (parsed == null ||
+                                  parsed < 1888 ||
+                                  parsed > 2100))) {
+                        update(() => message = 'fields');
+                        return;
+                      }
+                      Navigator.pop(ctx, 'save');
+                    },
+                    child: Text(ctx.l10n.save),
+                  ),
+                ],
               ),
             ],
           ),
         ),
       );
+      final result = await Navigator.of(
+        context,
+        rootNavigator: true,
+      ).push<String>(route);
+      await route.completed;
       if (result == 'search') {
         if (context.mounted) await searchAndBind();
       } else if (result == 'save') {
+        await Catalog.instance.setBangumiLinks(
+          work['id'].toString(),
+          links.text.trim().isEmpty
+              ? []
+              : links.text
+                    .trim()
+                    .split(RegExp(r'[,，\s]+'))
+                    .map(int.parse)
+                    .toList(),
+        );
         await Catalog.instance.updateWorkMetadata(
           work['id'].toString(),
           title: title.text,
@@ -102,10 +174,67 @@ abstract final class WorkEditDialogs {
         );
       }
     } finally {
+      links.dispose();
       title.dispose();
       year.dispose();
       overview.dispose();
     }
+  }
+
+  static Future<void> characterOrder(
+    BuildContext context,
+    Map<String, Object?> work,
+  ) async {
+    final details = await Catalog.instance.readWorkDetails(work);
+    final cast = (details?['characters'] as List? ?? [])
+        .whereType<Map>()
+        .toList();
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialog) => StatefulBuilder(
+        builder: (dialog, refresh) => AlertDialog(
+          title: Text(dialog.l10n.characterOrder),
+          content: SizedBox(
+            width: 400,
+            height: 360,
+            child: cast.isEmpty
+                ? Center(child: Text(dialog.l10n.noCharactersYet))
+                : ReorderableListView.builder(
+                    itemCount: cast.length,
+                    onReorderItem: (oldIndex, newIndex) => refresh(() {
+                      cast.insert(newIndex, cast.removeAt(oldIndex));
+                    }),
+                    itemBuilder: (_, i) => ListTile(
+                      key: ValueKey(cast[i]['id']),
+                      title: Text(cast[i]['name']?.toString() ?? ''),
+                      subtitle: Text(cast[i]['relation']?.toString() ?? ''),
+                    ),
+                  ),
+          ),
+          actions: [
+            UniformActionBar(
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialog),
+                  child: Text(dialog.l10n.cancel),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    await Catalog.instance.setCharacterOrder(
+                      work['id'].toString(),
+                      cast.map((e) => e['id']).whereType<int>().toList(),
+                    );
+                    if (dialog.mounted) Navigator.pop(dialog);
+                  },
+                  child: Text(dialog.l10n.save),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   static Future<void> cover(
@@ -113,146 +242,152 @@ abstract final class WorkEditDialogs {
     Map<String, Object?> work,
   ) async {
     final service = CoverOptionService();
-    final candidates = service.fetch(work);
-    final savedSource = work['manual_cover_source']?.toString();
-    String selected = savedSource == 'tmdb' || savedSource == 'bangumi'
-        ? savedSource!
-        : '';
     try {
-      final action = await showDialog<String>(
+      final optionsFuture = service.fetch(work);
+      if (!context.mounted) return;
+      final choices = <String, String>{};
+      try {
+        final edit = jsonDecode(work['cover_edit_json']?.toString() ?? '{}');
+        if (edit is Map && edit['original'] is String) {
+          choices['重新裁剪当前封面'] = edit['original'];
+        }
+      } catch (_) {}
+      final chosen = await showDialog<String>(
         context: context,
-        builder: (ctx) => StatefulBuilder(
-          builder: (ctx, update) => AlertDialog(
-            title: const Text('编辑封面'),
-            content: SizedBox(
-              width: 545,
-              child: FutureBuilder<CoverOptions>(
-                future: candidates,
-                builder: (ctx, snapshot) {
-                  if (!snapshot.hasData) {
-                    if (snapshot.hasError) return const Text('获取封面来源失败');
-                    return const SizedBox(
-                      height: 96,
-                      child: Center(child: CircularProgressIndicator()),
-                    );
+        builder: (ctx) => AlertDialog(
+          title: Text(ctx.l10n.editCover),
+          content: SizedBox(
+            width: 540,
+            child: FutureBuilder<CoverOptions>(
+              future: optionsFuture,
+              builder: (context, snapshot) {
+                final options = snapshot.data;
+                if (options != null) {
+                  if (options.tmdb != null) choices['TMDB'] = options.tmdb!;
+                  for (final e in options.bangumiCovers.entries) {
+                    choices['Bangumi ${e.key}'] = e.value;
                   }
-                  final options = snapshot.data!;
-                  return Column(
-                    mainAxisSize: MainAxisSize.min,
+                  if (options.bangumiCovers.isEmpty &&
+                      options.bangumi != null) {
+                    choices['Bangumi'] = options.bangumi!;
+                  }
+                }
+                return SingleChildScrollView(
+                  child: Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
                     children: [
-                      for (final source in ['tmdb', 'bangumi'])
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: InkWell(
-                            key: ValueKey('cover-choice-$source'),
-                            onTap: options.forSource(source) == null
-                                ? null
-                                : () => update(() => selected = source),
-                            borderRadius: BorderRadius.circular(8),
-                            child: Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: selected == source
-                                      ? Theme.of(ctx).colorScheme.primary
-                                      : Theme.of(ctx).dividerColor,
-                                  width: selected == source ? 2 : 1,
+                      if (snapshot.connectionState != ConnectionState.done)
+                        const Padding(
+                          padding: EdgeInsets.all(20),
+                          child: CircularProgressIndicator(),
+                        ),
+                      for (final choice in choices.entries)
+                        InkWell(
+                          onTap: () => Navigator.pop(ctx, choice.key),
+                          child: SizedBox(
+                            width: 140,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                AspectRatio(
+                                  aspectRatio: 2 / 3,
+                                  child: ManagedImage(
+                                    choice.value,
+                                    fit: BoxFit.cover,
+                                  ),
                                 ),
-                              ),
-                              child: Row(
-                                children: [
-                                  SizedBox(
-                                    width: 68,
-                                    height: 96,
-                                    child: options.forSource(source) == null
-                                        ? const Center(
-                                            child: Icon(
-                                              Icons
-                                                  .image_not_supported_outlined,
-                                            ),
-                                          )
-                                        : Image.network(
-                                            options.forSource(source)!,
-                                            fit: BoxFit.cover,
-                                            errorBuilder: (_, _, _) =>
-                                                const Icon(
-                                                  Icons.broken_image_outlined,
-                                                ),
-                                          ),
-                                  ),
-                                  const SizedBox(width: 14),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          source == 'tmdb' ? 'TMDB' : 'Bangumi',
-                                          style: Theme.of(
-                                            ctx,
-                                          ).textTheme.titleMedium,
-                                        ),
-                                        Text(
-                                          options.forSource(source) == null
-                                              ? '暂无可用封面，请先绑定对应来源'
-                                              : '使用此来源的作品封面',
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Icon(
-                                    selected == source
-                                        ? Icons.radio_button_checked
-                                        : Icons.radio_button_unchecked,
-                                    color: options.forSource(source) == null
-                                        ? Colors.grey
-                                        : Theme.of(ctx).colorScheme.primary,
-                                  ),
-                                ],
-                              ),
+                                Text(
+                                  choice.key == '重新裁剪当前封面'
+                                      ? context.l10n.recropCover
+                                      : choice.key.startsWith('Bangumi')
+                                      ? 'Bangumi'
+                                      : 'TMDB',
+                                  style: Theme.of(context).textTheme.bodyMedium,
+                                ),
+                              ],
                             ),
                           ),
                         ),
-                      const Text('手动选择会优先于后续自动刮削；恢复自动将重新使用默认封面来源。'),
                     ],
-                  );
-                },
-              ),
+                  ),
+                );
+              },
             ),
-            actions: [
-              TextButton(
-                key: const ValueKey('cover-reset'),
-                onPressed: () => Navigator.pop(ctx, 'reset'),
-                child: const Text('恢复自动'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('取消'),
-              ),
-              FilledButton(
-                key: const ValueKey('cover-save'),
-                onPressed: selected.isEmpty
-                    ? null
-                    : () => Navigator.pop(ctx, 'save'),
-                child: const Text('保存'),
-              ),
-            ],
           ),
+          actions: [
+            UniformActionBar(
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, 'reset'),
+                  child: Text(ctx.l10n.automaticCover),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, 'local'),
+                  child: Text(ctx.l10n.importImage),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: Text(ctx.l10n.cancel),
+                ),
+              ],
+            ),
+          ],
         ),
       );
-      if (action == 'reset') {
+      if (chosen == null) return;
+      if (chosen == 'reset') {
         await Catalog.instance.setManualCover(work['id'].toString());
-      } else if (action == 'save') {
-        final options = await candidates;
-        final url = options.forSource(selected);
-        if (url != null) {
-          await Catalog.instance.setManualCover(
-            work['id'].toString(),
-            source: selected,
-            url: url,
-          );
+        return;
+      }
+      String? original = choices[chosen];
+      String source = chosen.startsWith('TMDB') ? 'tmdb' : 'bangumi';
+      int? subjectId = int.tryParse(chosen.replaceFirst('Bangumi ', ''));
+      if (chosen == 'local') {
+        final picked = await FilePicker.pickFiles(type: FileType.image);
+        if (picked.isEmpty) return;
+        original = picked.single.path;
+        source = 'local';
+        if (original != null &&
+            await File(original).length() > 32 * 1024 * 1024) {
+          throw const FormatException('图片超过 32 MB');
         }
+      } else if (chosen == '重新裁剪当前封面') {
+        final old = jsonDecode(work['cover_edit_json'].toString()) as Map;
+        source = old['source'] as String;
+        subjectId = old['subjectId'] as int?;
+      }
+      if (original == null) return;
+      if (source == 'tmdb') subjectId = (work['tmdb_id'] as num?)?.toInt();
+      DebugLog.write('CoverCrop', 'source=$source crop begin');
+      final bytes = await ImageStore.load(original);
+      await ImageStore.validate(bytes);
+      if (!context.mounted) return;
+      final result = await Navigator.push<Map<String, Object>>(
+        context,
+        MaterialPageRoute(builder: (_) => PosterCropPage(bytes: bytes)),
+      );
+      if (result == null) return;
+      final originalId = await ImageStore.save(bytes, 'original');
+      final output = await ImageStore.save(
+        result['bytes'] as Uint8List,
+        'crop',
+      );
+      await Catalog.instance.saveCroppedCover(
+        work['id'].toString(),
+        source,
+        originalId,
+        output,
+        result['crop']!,
+        subjectId: subjectId,
+      );
+      DebugLog.write('CoverCrop', 'source=$source crop complete');
+    } catch (e) {
+      DebugLog.write('CoverCrop', 'failed ${e.runtimeType}', level: 'ERROR');
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(context.l10n.coverFailed)));
       }
     } finally {
       service.close();

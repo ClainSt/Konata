@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -5,6 +6,47 @@ import 'package:path/path.dart' as p;
 import 'package:xml/xml.dart';
 import 'package:smb_connect/smb_connect.dart';
 import 'catalog.dart';
+import 'webdav_stream.dart';
+
+enum SourceAccessProblem implements Exception {
+  authentication,
+  permission,
+  path,
+  network,
+  timeout,
+  tls,
+  unknown;
+
+  static SourceAccessProblem from(Object error) {
+    if (error is SourceAccessProblem) return error;
+    if (error is TimeoutException) return timeout;
+    if (error is HandshakeException) return tls;
+    if (error is SocketException) return network;
+    if (error is PathAccessException) return permission;
+    if (error is PathNotFoundException) return path;
+    if (error is SmbAuthException) return authentication;
+    // The vendored SMB transport also throws decoded NT status strings.
+    final status = error is SmbException ? error.message : error;
+    if (status is String) {
+      const codes = {
+        NtStatus.NT_STATUS_LOGON_FAILURE: authentication,
+        NtStatus.NT_STATUS_ACCESS_DENIED: permission,
+        NtStatus.NT_STATUS_NETWORK_ACCESS_DENIED: permission,
+        NtStatus.NT_STATUS_BAD_NETWORK_NAME: path,
+        NtStatus.NT_STATUS_OBJECT_NAME_NOT_FOUND: path,
+        NtStatus.NT_STATUS_OBJECT_PATH_NOT_FOUND: path,
+        NtStatus.NT_STATUS_NOT_A_DIRECTORY: path,
+        NtStatus.NT_STATUS_CONNECTION_REFUSED: network,
+      };
+      for (final entry in codes.entries) {
+        if (SmbException.getMessageByCode(entry.key) == status) {
+          return entry.value;
+        }
+      }
+    }
+    return unknown;
+  }
+}
 
 class DavEntry {
   DavEntry(this.uri, this.name, this.isDirectory, this.size);
@@ -43,8 +85,9 @@ class WebDav {
   Future<List<DavEntry>> list(Uri uri) async {
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 15);
+    var retriedAuthentication = false;
     client.authenticate = (url, scheme, realm) async {
-      if (username.isEmpty ||
+      if (retriedAuthentication || username.isEmpty ||
           url.host != root.host ||
           url.port != root.port ||
           url.scheme != root.scheme) {
@@ -54,6 +97,7 @@ class WebDav {
           ? HttpClientDigestCredentials(username, password)
           : HttpClientBasicCredentials(username, password);
       client.addCredentials(url, realm ?? '', credentials);
+      retriedAuthentication = true;
       return true;
     };
     try {
@@ -68,11 +112,20 @@ class WebDav {
       request.write(
         '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:allprop/></d:propfind>',
       );
-      final response = await request.close();
-      final body = await utf8.decodeStream(response);
+      final response = await request.close().timeout(
+        const Duration(seconds: 18),
+      );
       if (response.statusCode != 207) {
-        throw HttpException('PROPFIND HTTP ${response.statusCode}', uri: uri);
+        throw switch (response.statusCode) {
+          401 => SourceAccessProblem.authentication,
+          403 => SourceAccessProblem.permission,
+          404 || 410 => SourceAccessProblem.path,
+          _ => HttpException('PROPFIND HTTP ${response.statusCode}'),
+        };
       }
+      final body = await utf8.decodeStream(
+        response.timeout(const Duration(seconds: 18)),
+      );
       final doc = XmlDocument.parse(body);
       final entries = <DavEntry>[];
       // WebDAV PROPFIND Depth:1 includes the queried directory itself.
@@ -192,6 +245,7 @@ class SmbSource extends WebDav {
     final client = await connect();
     try {
       final folder = await client.file(path);
+      if (!folder.isExists) throw SourceAccessProblem.path;
       final files = await client.listFiles(folder);
       return files
           .where((f) => f.name != '.' && f.name != '..')
@@ -365,7 +419,12 @@ class StreamBroker {
   HttpServer? _server;
   bool _listening = false;
   final Map<String, ({Map<String, Object?> source, String path})> _tickets = {};
-  Future<Uri> issue(Map<String, Object?> source, String path) async {
+  final _relays = <String, WebDavStream>{};
+  Future<Uri> issue(
+    Map<String, Object?> source,
+    String path, {
+    String purpose = 'playback',
+  }) async {
     _server ??= await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     if (!_listening) {
       _listening = true;
@@ -379,7 +438,24 @@ class StreamBroker {
       source: await Catalog.instance.withCredentials(source),
       path: path,
     );
+    if (source['kind'] != 'smb') {
+      final dav = WebDav(_tickets[ticket]!.source);
+      _relays[ticket] = WebDavStream(
+        target: dav.fileUri(path),
+        username: dav.username,
+        password: dav.password,
+        authorization: dav.username.isEmpty ? null : dav.auth,
+        purpose: purpose,
+      );
+    }
     return Uri.parse('http://127.0.0.1:${_server!.port}/file/$ticket');
+  }
+
+  void revoke(Uri uri) {
+    final ticket = uri.pathSegments.lastOrNull;
+    if (ticket == null) return;
+    _tickets.remove(ticket);
+    _relays.remove(ticket)?.close();
   }
 
   Future<void> _handle(HttpRequest req) async {
@@ -396,35 +472,7 @@ class StreamBroker {
       await SmbSource(info.source).serve(req, info.path);
       return;
     }
-    final client = HttpClient()..autoUncompress = false;
-    try {
-      final dav = WebDav(info.source);
-      final upstream = await client.openUrl(req.method, dav.fileUri(info.path));
-      if (dav.username.isNotEmpty) {
-        upstream.headers.set('Authorization', dav.auth);
-      }
-      final range = req.headers.value(HttpHeaders.rangeHeader);
-      if (range != null) upstream.headers.set(HttpHeaders.rangeHeader, range);
-      final response = await upstream.close();
-      req.response.statusCode = response.statusCode;
-      for (final header in [
-        'content-length',
-        'content-range',
-        'accept-ranges',
-        'content-type',
-        'etag',
-        'last-modified',
-      ]) {
-        final value = response.headers.value(header);
-        if (value != null) req.response.headers.set(header, value);
-      }
-      if (req.method != 'HEAD') await req.response.addStream(response);
-    } catch (e) {
-      req.response.statusCode = 502;
-    } finally {
-      await req.response.close();
-      client.close(force: true);
-    }
+    await _relays[ticket]!.serve(req);
   }
 
   Future<List<String>> subtitles(

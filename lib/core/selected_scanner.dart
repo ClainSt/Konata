@@ -1,3 +1,4 @@
+import 'debug_log.dart';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'auto_classifier.dart';
@@ -53,11 +54,15 @@ class SelectedScanner {
     final roots = nonOverlappingRoots(catalog.rootsFor(id));
     if (roots.isEmpty) throw StateError('请先在“浏览目录”中勾选刮削文件夹');
     final activity = ScanActivityStore.instance;
-    activity.begin(
+    final run = activity.begin(
       id,
       roots.map((r) => r['relative_path'].toString()).toList(),
     );
     catalog.updateStatus('正在扫描已选目录', true);
+    DebugLog.write(
+      'Scan',
+      'begin kind=${source['kind']} roots=${roots.length}',
+    );
     var count = 0, reviewCount = 0;
     final scannedPaths = <String>{};
     try {
@@ -65,6 +70,7 @@ class SelectedScanner {
       if (source['kind'] == 'local') {
         final base = Directory(source['location'].toString());
         for (final selected in roots) {
+          run.checkCancelled();
           final root = selected['relative_path'].toString();
           final folder = Directory(
             root.isEmpty
@@ -87,12 +93,14 @@ class SelectedScanner {
                 })
               >[(folder: folder, relative: root, cached: first)];
           while (pending.isNotEmpty) {
+            run.checkCancelled();
             final current = pending.removeLast();
             activity.beginFolder(id, current.relative);
             final entries =
                 current.cached ??
                 await current.folder.list(followLinks: false).toList();
             for (final entity in entries) {
+              run.checkCancelled();
               final name = p.basename(entity.path);
               final relative = current.relative.isEmpty
                   ? name
@@ -132,6 +140,7 @@ class SelectedScanner {
         final dav = WebDav(await catalog.withCredentials(source));
         final visited = <String>{};
         for (final selected in roots) {
+          run.checkCancelled();
           final root = selected['relative_path'].toString();
           final rootUri = dav.directoryUri(root);
           final first = await dav.list(rootUri);
@@ -143,11 +152,13 @@ class SelectedScanner {
                 (uri: rootUri, relative: root, cached: first),
               ];
           while (pending.isNotEmpty) {
+            run.checkCancelled();
             final current = pending.removeLast();
             if (!visited.add(current.uri.toString())) continue;
             activity.beginFolder(id, current.relative);
             final entries = current.cached ?? await dav.list(current.uri);
             for (final entry in entries) {
+              run.checkCancelled();
               final relative = current.relative.isEmpty
                   ? entry.name
                   : '${current.relative}/${entry.name}';
@@ -180,6 +191,7 @@ class SelectedScanner {
           }
         }
       }
+      run.checkCancelled();
       await catalog.pruneOrphanedWorks();
       await catalog.reload();
       final works = catalog.assets
@@ -192,8 +204,21 @@ class SelectedScanner {
           .whereType<String>()
           .toSet();
       catalog.updateStatus('扫描完成：$count 个视频，$reviewCount 个文件需要复核');
+      DebugLog.write(
+        'Scan',
+        'complete files=$count works=${works.length} review=$reviewCount',
+      );
       return SelectedScanResult(count, works);
+    } on ScanCancelled {
+      try {
+        await catalog.reload();
+      } finally {
+        activity.cancelled(id);
+        catalog.updateStatus('扫描已取消');
+      }
+      rethrow;
     } catch (e) {
+      DebugLog.write('Scan', 'failed ${e.runtimeType}', level: 'ERROR');
       activity.fail(id, '扫描失败：$e');
       catalog.updateStatus('扫描失败：$e');
       rethrow;

@@ -1,6 +1,10 @@
 #include "flutter_window.h"
 
+#include <algorithm>
 #include <optional>
+#include <flutter/method_channel.h>
+#include <flutter/standard_method_codec.h>
+#include <set>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -25,7 +29,69 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
-  SetChildContent(flutter_controller_->view()->GetNativeWindow());
+  const HWND view = flutter_controller_->view()->GetNativeWindow();
+  SetChildContent(view);
+  flutter::MethodChannel<flutter::EncodableValue> video_channel(
+      flutter_controller_->engine()->messenger(), "ccplayer/native_video",
+      &flutter::StandardMethodCodec::GetInstance());
+  video_channel.SetMethodCallHandler(
+      [view, hosts = std::set<HWND>{}](const auto& call, auto result) mutable {
+        if (call.method_name() == "create") {
+          // A child of the Flutter client shares its top-level window and DPI.
+          HWND host = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_CLIPCHILDREN,
+                                      0, 0, 1, 1, view, nullptr, nullptr, nullptr);
+          if (!host) {
+            result->Error("create", "Could not create embedded video surface");
+            return;
+          }
+          hosts.insert(host);
+          result->Success(flutter::EncodableValue(reinterpret_cast<int64_t>(host)));
+          return;
+        }
+        const auto* args = std::get_if<flutter::EncodableList>(call.arguments());
+        if (!args || args->empty()) {
+          result->Error("arguments", "Missing surface handle");
+          return;
+        }
+        HWND host = reinterpret_cast<HWND>((*args)[0].LongValue());
+        if (!hosts.count(host)) {
+          result->Success();
+          return;
+        }
+        if (call.method_name() == "pointerAtControls") {
+          POINT point{};
+          RECT bounds{};
+          GetCursorPos(&point);
+          HWND under_pointer = WindowFromPoint(point);
+          GetClientRect(host, &bounds);
+          ScreenToClient(host, &point);
+          bounds.top = (std::max)(0L, bounds.bottom - static_cast<LONG>((*args)[1].LongValue()));
+          result->Success(flutter::EncodableValue(IsWindowVisible(host) &&
+              GetAncestor(under_pointer, GA_ROOT) == GetAncestor(view, GA_ROOT) &&
+              PtInRect(&bounds, point)));
+          return;
+        }
+        if (call.method_name() == "destroy") {
+          hosts.erase(host);
+          DestroyWindow(host);
+        } else if (call.method_name() == "hide") {
+          ShowWindow(host, SW_HIDE);
+        } else if (call.method_name() == "layout" && args->size() == 6) {
+          const int width = std::get<int>((*args)[3]);
+          const int height = std::get<int>((*args)[4]);
+          const int inset = std::get<int>((*args)[5]);
+          // Expose the Flutter controls without changing the swapchain size.
+          HRGN region = inset ? CreateRectRgn(0, 0, width, (std::max)(0, height - inset)) : nullptr;
+          if (!SetWindowRgn(host, region, TRUE) && region) DeleteObject(region);
+          SetWindowPos(host, HWND_TOP, std::get<int>((*args)[1]),
+                       std::get<int>((*args)[2]), std::get<int>((*args)[3]),
+                       std::get<int>((*args)[4]), SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        } else {
+          result->NotImplemented();
+          return;
+        }
+        result->Success();
+      });
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();

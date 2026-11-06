@@ -1,3 +1,5 @@
+import '../l10n/strings.dart';
+import 'uniform_action_bar.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
@@ -6,6 +8,7 @@ import '../core/sources.dart';
 import '../core/selected_scan_workflow.dart';
 import '../core/scan_activity.dart';
 import 'scan_progress_dialog.dart';
+import 'source_access_message.dart';
 
 class BrowserEntry {
   const BrowserEntry(this.name, this.relative, this.directory, this.size);
@@ -34,7 +37,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
   String current = '';
   List<BrowserEntry> entries = [];
   bool loading = false, scanning = false;
-  String? error;
+  SourceAccessProblem? error;
   int _generation = 0;
   final TextEditingController _searchController = TextEditingController();
   String searchTerm = '';
@@ -59,7 +62,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
 
   String get sourceId => widget.source['id'].toString();
   bool get local => widget.source['kind'] == 'local';
-  String get displayPath => current.isEmpty ? '/' : '/$current/';
   Future<void> _load([String? path]) async {
     final target = path ?? current;
     final generation = ++_generation;
@@ -122,7 +124,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
     } catch (e) {
       if (mounted && generation == _generation) {
         setState(() {
-          error = e.toString();
+          error = SourceAccessProblem.from(e);
           loading = false;
         });
       }
@@ -187,7 +189,11 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
         }
         return Scaffold(
           appBar: AppBar(
-            title: Text('浏览目录 · ${widget.source['label']}'),
+            title: Text(
+              context.l10n.browseSource(
+                widget.source['label']?.toString() ?? '',
+              ),
+            ),
             actions: [
               AnimatedBuilder(
                 animation: ScanActivityStore.instance,
@@ -200,7 +206,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                       activity?.phase == ScanPhase.scraping;
                   return IconButton(
                     key: const ValueKey('scan-progress-button'),
-                    tooltip: '扫描进度',
+                    tooltip: context.l10n.scanProgress,
                     icon: active
                         ? const SizedBox(
                             width: 23,
@@ -217,21 +223,6 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
           ),
           body: Column(
             children: [
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: Row(
-                  children: [
-                    for (final crumb in breadcrumbs) ...[
-                      TextButton(
-                        onPressed: loading ? null : () => _load(crumb.path),
-                        child: Text(crumb.label),
-                      ),
-                      const Icon(Icons.chevron_right, size: 17),
-                    ],
-                  ],
-                ),
-              ),
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 18,
@@ -246,14 +237,39 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                     const Icon(Icons.folder_open, size: 19),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        displayPath,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      child: SingleChildScrollView(
+                        key: const ValueKey('folder-breadcrumbs'),
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            for (
+                              var index = 0;
+                              index < breadcrumbs.length;
+                              index++
+                            ) ...[
+                              if (index > 0)
+                                const Icon(Icons.chevron_right, size: 17),
+                              TextButton(
+                                key: ValueKey(
+                                  'breadcrumb-${breadcrumbs[index].path}',
+                                ),
+                                onPressed: loading
+                                    ? null
+                                    : () => _load(breadcrumbs[index].path),
+                                child: Text(
+                                  breadcrumbs[index].label,
+                                  maxLines: 1,
+                                  softWrap: false,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
                       ),
                     ),
+                    const SizedBox(width: 8),
                     Text(
-                      '${entries.length} 项',
+                      context.l10n.itemCount(entries.length),
                       style: Theme.of(context).textTheme.labelSmall,
                     ),
                   ],
@@ -267,14 +283,14 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                   onChanged: (value) => setState(() => searchTerm = value),
                   decoration: InputDecoration(
                     prefixIcon: const Icon(Icons.search),
-                    hintText: '搜索当前文件夹（名称 / TMDB ID）',
+                    hintText: context.l10n.folderSearch,
                     border: const OutlineInputBorder(),
                     isDense: true,
                     suffixIcon: searchTerm.isEmpty
                         ? null
                         : IconButton(
                             key: const ValueKey('clear-folder-search'),
-                            tooltip: '清除搜索',
+                            tooltip: context.l10n.clearSearch,
                             icon: const Icon(Icons.close),
                             onPressed: () {
                               _searchController.clear();
@@ -293,7 +309,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      '匹配 ${shownEntries.length} / ${entries.length} 项',
+                      context.l10n.folderMatches(
+                        shownEntries.length,
+                        entries.length,
+                      ),
                       style: Theme.of(context).textTheme.labelSmall,
                     ),
                   ),
@@ -309,12 +328,15 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                         children: [
                           const Icon(Icons.cloud_off_outlined, size: 42),
                           const SizedBox(height: 12),
-                          Text('目录读取失败：$error', textAlign: TextAlign.center),
+                          Text(
+                            sourceAccessMessage(context.l10n, error!),
+                            textAlign: TextAlign.center,
+                          ),
                           const SizedBox(height: 12),
                           FilledButton.icon(
                             onPressed: () => _load(),
                             icon: const Icon(Icons.refresh),
-                            label: const Text('重试'),
+                            label: Text(context.l10n.retry),
                           ),
                         ],
                       ),
@@ -331,7 +353,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                           leading: const Icon(
                             Icons.drive_folder_upload_outlined,
                           ),
-                          title: const Text('.. 返回上级'),
+                          title: Text(context.l10n.parentFolder),
                           onTap: _up,
                         );
                       }
@@ -373,7 +395,7 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                             ? null
                             : Text(
                                 item.size == null
-                                    ? '文件'
+                                    ? context.l10n.fileLabel
                                     : '${(item.size! / 1048576).toStringAsFixed(1)} MB',
                               ),
                         onTap: item.directory
@@ -393,24 +415,26 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                   children: [
                     Expanded(
                       child: Text(
-                        '已选刮削范围（${selected.length}）',
+                        context.l10n.selectedScanFolders(selected.length),
                         style: Theme.of(context).textTheme.titleSmall,
                       ),
                     ),
                     IconButton(
-                      tooltip: '帮助',
+                      tooltip: context.l10n.help,
                       icon: const Icon(Icons.help_outline),
                       onPressed: () => showDialog<void>(
                         context: context,
                         builder: (ctx) => AlertDialog(
-                          title: const Text('怎样选择刮削文件夹？'),
-                          content: const Text(
-                            '勾选文件夹即可加入刮削范围。既能勾选单部作品，也能勾选包含多部作品的上级目录。软件扫描后自动判断作品归属，对不确定的作品标记待复核。点击文件夹名称仍然可以进入子目录。',
-                          ),
+                          title: Text(context.l10n.chooseScanHelpTitle),
+                          content: Text(context.l10n.chooseScanHelp),
                           actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(ctx),
-                              child: const Text('知道了'),
+                            UniformActionBar(
+                              children: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(ctx),
+                                  child: Text(context.l10n.gotIt),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -459,7 +483,9 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(Icons.travel_explore),
-                      label: Text('扫描已选目录（${selected.length}）'),
+                      label: Text(
+                        context.l10n.scanSelectedFolders(selected.length),
+                      ),
                       onPressed:
                           scanning || catalog.scanning || selected.isEmpty
                           ? null

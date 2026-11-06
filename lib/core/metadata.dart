@@ -1,3 +1,5 @@
+import 'metadata_servers.dart';
+import 'metadata_http.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'tmdb_auth.dart';
@@ -19,6 +21,7 @@ class Candidate {
 }
 
 class Metadata {
+  static final http.Client _client = MetadataHttp();
   static String token = '';
   static String apiKey = '';
   static String authMode = 'token';
@@ -27,7 +30,14 @@ class Metadata {
     value: authMode == 'apiKey' ? apiKey : token,
   );
   static Future<void> testTmdbCredentials(TmdbCredentials credentials) async {
-    await _requestTmdb('/configuration', const {}, credentials);
+    final data = await _requestTmdb('/tv/100565', const {
+      'language': 'zh-CN',
+    }, credentials);
+    if (data?['id'] != 100565 ||
+        data?['name'] is! String ||
+        data?['poster_path'] is! String) {
+      throw const FormatException('TMDB 作品响应无效');
+    }
   }
 
   static Future<List<Candidate>> search(String keyword, String provider) async {
@@ -61,22 +71,20 @@ class Metadata {
       }
       return candidates;
     }
-    final response = await http
-        .post(
-          Uri.parse('https://api.bgm.tv/v0/search/subjects'),
-          headers: {
-            'Content-Type': 'application/json',
-            'User-Agent': 'CCPlayer/0.1 (personal library)',
-          },
-          body: jsonEncode({
-            'keyword': query,
-            'sort': 'match',
-            'filter': {
-              'type': [2],
-            },
-          }),
-        )
-        .timeout(const Duration(seconds: 15));
+    final response = await _client.post(
+      Uri.parse('https://api.bgm.tv/v0/search/subjects'),
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Konata/0.1 (personal library)',
+      },
+      body: jsonEncode({
+        'keyword': query,
+        'sort': 'match',
+        'filter': {
+          'type': [2],
+        },
+      }),
+    );
     if (response.statusCode != 200) {
       throw StateError('Bangumi HTTP ${response.statusCode}');
     }
@@ -102,6 +110,15 @@ class Metadata {
     }).toList();
   }
 
+  static Future<Map<String, dynamic>> tvDetails(int id, {int? season}) async {
+    final data = await _tmdb(
+      '/tv/$id${season == null ? '' : '/season/$season'}',
+      {'language': 'zh-CN'},
+    );
+    if (data == null) throw StateError('TMDB title not found');
+    return data;
+  }
+
   static Candidate _fromTmdb(Map<String, dynamic> item, String type) {
     final date = (item['first_air_date'] ?? item['release_date'] ?? '')
         .toString();
@@ -112,7 +129,7 @@ class Metadata {
       mediaType: type,
       title: (item['name'] ?? item['title'] ?? '未命名').toString(),
       year: int.tryParse(date.length >= 4 ? date.substring(0, 4) : ''),
-      poster: poster == null ? null : 'https://image.tmdb.org/t/p/w500$poster',
+      poster: poster == null ? null : MetadataServers.tmdbImage(poster),
       overview: item['overview']?.toString(),
     );
   }
@@ -131,9 +148,10 @@ class Metadata {
     // Avoid including a v3 API key in HTTP exception messages.
     http.Response response;
     try {
-      response = await http
-          .get(auth.uri(path, params), headers: auth.headers)
-          .timeout(const Duration(seconds: 15));
+      response = await _client.get(
+        auth.uri(path, params),
+        headers: auth.headers,
+      );
     } catch (_) {
       throw StateError('TMDB 网络访问失败，请检查网络或代理设置');
     }

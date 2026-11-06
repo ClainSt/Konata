@@ -1,3 +1,5 @@
+import '../l10n/strings.dart';
+import 'uniform_action_bar.dart';
 import 'package:flutter/material.dart';
 import '../core/scan_activity.dart';
 
@@ -20,151 +22,202 @@ class ScanProgressDialog {
             run?.phase == ScanPhase.scanning ||
             run?.phase == ScanPhase.scraping;
         final stage = switch (run?.phase) {
-          ScanPhase.scanning => '正在扫描文件夹',
-          ScanPhase.scraping => '正在自动刮削 TMDB / Bangumi',
-          ScanPhase.complete => '扫描及自动刮削已完成',
-          ScanPhase.failed => '扫描或自动刮削遇到错误',
-          null => '尚无扫描记录',
+          ScanPhase.scanning => ctx.l10n.scanFolders,
+          ScanPhase.scraping => ctx.l10n.scanMetadata,
+          ScanPhase.complete => ctx.l10n.scanComplete,
+          ScanPhase.cancelled => ctx.l10n.scanCancelled,
+          ScanPhase.failed => ctx.l10n.scanFailed,
+          null => ctx.l10n.noScan,
         };
         return AlertDialog(
-          title: const Row(
+          title: Row(
             children: [
               Icon(Icons.fact_check_outlined),
               SizedBox(width: 10),
-              Expanded(child: Text('扫描进度')),
+              Expanded(child: Text(ctx.l10n.scanProgress)),
             ],
           ),
           content: SizedBox(
             width: 740,
             height: 520,
             child: run == null
-                ? const Center(child: Text('还没有扫描过这个媒体源，选择文件夹后即可查看进度。'))
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(stage, style: theme.textTheme.titleMedium),
-                      const SizedBox(height: 8),
-                      if (isActive)
-                        LinearProgressIndicator(
-                          value:
-                              run.phase == ScanPhase.scraping &&
-                                  run.metadataTotal > 0
-                              ? run.metadataProcessed / run.metadataTotal
-                              : null,
-                        ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 18,
-                        runSpacing: 8,
-                        children: [
-                          Text('已扫描目录：${run.completedFolders.length}'),
-                          Text('索引视频：${run.videoCount}'),
-                          if (run.phase != ScanPhase.scanning)
+                ? Center(child: Text(ctx.l10n.noScanHint))
+                : CustomScrollView(
+                    key: const ValueKey('scan-progress-folder-list'),
+                    slivers: [
+                      SliverToBoxAdapter(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                             Text(
-                              '元数据：${run.metadataProcessed}/${run.metadataTotal}',
+                              isActive && run.cancelRequested
+                                  ? ctx.l10n.scanStopping
+                                  : stage,
+                              style: theme.textTheme.titleMedium,
                             ),
-                          if (run.phase != ScanPhase.scanning)
-                            Text(
-                              '成功：${run.matched} · 待复核：${run.needsReview} · 失败：${run.metadataErrors}',
+                            const SizedBox(height: 8),
+                            if (isActive)
+                              LinearProgressIndicator(
+                                value:
+                                    run.phase == ScanPhase.scraping &&
+                                        run.metadataTotal > 0
+                                    ? run.metadataProcessed / run.metadataTotal
+                                    : null,
+                              ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 18,
+                              runSpacing: 8,
+                              children: [
+                                Text(
+                                  ctx.l10n.scannedFolderCount(
+                                    run.completedFolders.length,
+                                  ),
+                                ),
+                                Text(
+                                  ctx.l10n.indexedVideoCount(run.videoCount),
+                                ),
+                                if (run.phase != ScanPhase.scanning) ...[
+                                  Text(
+                                    ctx.l10n.scanMetadataCount(
+                                      run.metadataProcessed,
+                                      run.metadataTotal,
+                                    ),
+                                  ),
+                                  Text(
+                                    ctx.l10n.scanSummary(
+                                      run.matched,
+                                      run.needsReview,
+                                      run.metadataErrors,
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
-                        ],
-                      ),
-                      if (run.error != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: SelectableText(
-                            run.error!,
-                            style: TextStyle(color: theme.colorScheme.error),
-                          ),
-                        ),
-                      if (run.currentFolder != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(
-                            '当前目录：NaN',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      const SizedBox(height: 12),
-                      const Divider(height: 1),
-                      const SizedBox(height: 8),
-                      Text(
-                        '本次选中的扫描范围（含子目录视频）',
-                        style: theme.textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 5),
-                      for (final root in run.selectedRoots)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 3),
-                          child: Row(
-                            children: [
-                              Expanded(
+                            if (run.error != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: SelectableText(
+                                  run.error!,
+                                  style: TextStyle(
+                                    color: theme.colorScheme.error,
+                                  ),
+                                ),
+                              ),
+                            if (run.currentFolder != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
                                 child: Text(
-                                  root.isEmpty ? '/' : root,
-                                  maxLines: 1,
+                                  ctx.l10n.currentScanFolder(
+                                    run.currentFolder!,
+                                  ),
+                                  maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                              Text('${run.videosUnder(root)} 个视频'),
-                            ],
-                          ),
-                        ),
-                      const Divider(height: 18),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '具体已访问目录（仅统计该目录内视频）',
+                            const SizedBox(height: 12),
+                            const Divider(height: 1),
+                            const SizedBox(height: 8),
+                            Text(
+                              ctx.l10n.scanScope,
                               style: theme.textTheme.titleSmall,
                             ),
-                          ),
-                          Text('${folders.length} 个'),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Expanded(
-                        child: folders.isEmpty
-                            ? const Center(child: Text('尚未读取到目录'))
-                            : ListView.builder(
-                                key: const ValueKey(
-                                  'scan-progress-folder-list',
+                            const SizedBox(height: 5),
+                            for (final root in run.selectedRoots)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 3),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        root.isEmpty ? '/' : root,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    Text(
+                                      ctx.l10n.videoCount(
+                                        run.videosUnder(root),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                itemCount: folders.length,
-                                itemBuilder: (ctx, i) {
-                                  final entry = folders[i];
-                                  final current =
-                                      entry.key == run.currentFolder;
-                                  final complete = run.completedFolders
-                                      .contains(entry.key);
-                                  return ListTile(
-                                    dense: true,
-                                    leading: Icon(
-                                      current
-                                          ? Icons.sync
-                                          : complete
-                                          ? Icons.folder_outlined
-                                          : Icons.pending_outlined,
-                                      size: 21,
-                                    ),
-                                    title: Text(
-                                      entry.key.isEmpty ? '/' : entry.key,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    trailing: Text(
-                                      '${entry.value} 个视频${current ? ' · 扫描中' : ''}',
-                                    ),
-                                  );
-                                },
                               ),
+                            const Divider(height: 18),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    ctx.l10n.visitedFolders,
+                                    style: theme.textTheme.titleSmall,
+                                  ),
+                                ),
+                                Text(ctx.l10n.itemCount(folders.length)),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                          ],
+                        ),
                       ),
+                      if (folders.isEmpty)
+                        SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: Center(child: Text(ctx.l10n.noFoldersRead)),
+                        )
+                      else
+                        SliverList(
+                          delegate: SliverChildBuilderDelegate((ctx, i) {
+                            final entry = folders[i];
+                            final current = entry.key == run.currentFolder;
+                            final complete = run.completedFolders.contains(
+                              entry.key,
+                            );
+                            final compact =
+                                MediaQuery.sizeOf(ctx).width < 600 ||
+                                MediaQuery.textScalerOf(ctx).scale(1) > 1.3;
+                            final count = Text(
+                              '${ctx.l10n.videoCount(entry.value)}${current ? ' · ${ctx.l10n.scanningShort}' : ''}',
+                            );
+                            return ListTile(
+                              dense: true,
+                              leading: Icon(
+                                current
+                                    ? Icons.sync
+                                    : complete
+                                    ? Icons.folder_outlined
+                                    : Icons.pending_outlined,
+                                size: 21,
+                              ),
+                              title: Text(
+                                entry.key.isEmpty ? '/' : entry.key,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: compact ? count : null,
+                              trailing: compact ? null : count,
+                            );
+                          }, childCount: folders.length),
+                        ),
                     ],
                   ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('关闭'),
+            UniformActionBar(
+              children: [
+                if (isActive && run != null)
+                  OutlinedButton(
+                    onPressed: run.cancelRequested
+                        ? null
+                        : () => ScanActivityStore.instance.requestCancel(
+                            sourceId,
+                          ),
+                    child: Text(ctx.l10n.cancelScan),
+                  ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: Text(ctx.l10n.closeWindow),
+                ),
+              ],
             ),
           ],
         );

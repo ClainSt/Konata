@@ -1,19 +1,23 @@
+import 'bangumi_links.dart';
+import 'metadata_servers.dart';
+import 'metadata_http.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'metadata.dart';
 import 'cloud_media_asset_presentation.dart';
 import 'anime_detail_metadata.dart';
 import 'work_season.dart';
+import 'personal_scraper.dart';
 
 /// Standalone adaptation of NipaPlay Personal's public Bangumi cast and TMDB
 /// episode-artwork pipeline. No dependency on NipaPlay's providers or players.
 class DetailMetadataService {
-  static const schemaVersion = 7;
+  static const schemaVersion = 11;
   DetailMetadataService({
     http.Client? client,
     this.tmdbRequest,
     this.bangumiBase = 'https://api.bgm.tv',
-  }) : _client = client ?? http.Client(),
+  }) : _client = client ?? MetadataHttp(),
        _ownsClient = client == null;
 
   final http.Client _client;
@@ -24,7 +28,7 @@ class DetailMetadataService {
     Map<String, String> params,
   )?
   tmdbRequest;
-  static const _userAgent = 'CCPlayer/0.1 (personal anime library)';
+  static const _userAgent = 'Konata/0.1 (personal anime library)';
 
   /// Faithful port of NipaPlay Personal BangumiApiService.sortSubjectCharacters.
   /// Stable original index breaks ties, not `type` grouping.
@@ -56,13 +60,14 @@ class DetailMetadataService {
   static String? image(String? path, {String size = 'w780'}) {
     if (path == null || path.isEmpty) return null;
     if (path.startsWith('https://')) return path;
-    if (path.startsWith('/')) return 'https://image.tmdb.org/t/p/$size$path';
+    if (path.startsWith('/')) return MetadataServers.tmdbImage(path, size);
     return null;
   }
 
   Future<Map<String, dynamic>> fetch(
     Map<String, Object?> work, {
     List<Map<String, Object?>> assets = const [],
+    void Function(List<Map<String, dynamic>>)? onCharacters,
   }) async {
     final result = <String, dynamic>{
       'schemaVersion': schemaVersion,
@@ -75,14 +80,85 @@ class DetailMetadataService {
       'tags': <String>[],
       'errors': <String>[],
     };
+    var characters = _fetchCharacters(
+      work,
+      result['errors'] as List<String>,
+      onCharacters,
+    );
     final tmdbId = work['tmdb_id'] as int?;
-    final bangumiId = work['bangumi_id'] as int?;
     if (tmdbId != null &&
         (tmdbRequest != null || Metadata.credentials.isConfigured)) {
       final type = work['tmdb_type'] == 'movie' ? 'movie' : 'tv';
       try {
-        final overview = await _tmdb('/$type/$tmdbId', {'language': 'zh-CN'});
+        final overview = await _tmdb('/$type/$tmdbId', {
+          'language': 'zh-CN',
+          'append_to_response': type == 'movie'
+              ? 'credits'
+              : 'aggregate_credits',
+        });
         if (overview != null) {
+          final genres = (overview['genres'] as List? ?? []).whereType<Map>();
+          final animation =
+              genres.any((g) => g['id'] == 16) ||
+              (genres.isEmpty && BangumiLinks.ids(work).isNotEmpty);
+          result['isAnimation'] = animation;
+          final seriesTitle = overview['name']?.toString().trim() ?? '';
+          final seasons = (overview['seasons'] as List? ?? []).whereType<Map>();
+          final singleFirstSeason =
+              seasons
+                      .where((s) => (s['season_number'] as num? ?? 0) > 0)
+                      .length ==
+                  1 &&
+              seasons.any((s) => s['season_number'] == 1);
+          if (work['manual_lock'] != 1 &&
+              type == 'tv' &&
+              seriesTitle.isNotEmpty &&
+              singleFirstSeason &&
+              !WorkSeason.showSeasonInTitle(work, seasons) &&
+              work['title'] == '$seriesTitle 第1季') {
+            result['automaticSeriesTitle'] = seriesTitle;
+          }
+          if (animation &&
+              singleFirstSeason &&
+              !WorkSeason.multiple(work) &&
+              (WorkSeason.explicit(work) ?? 1) == 1 &&
+              work['manual_lock'] != 1 &&
+              work['bangumi_link_info'] == null &&
+              BangumiLinks.ids(work).isEmpty &&
+              seriesTitle.isNotEmpty) {
+            // A previously indexed title can have a TMDB match but no cast source.
+            try {
+              final match =
+                  await PersonalMetadataScraper(
+                    client: _client,
+                    bangumiBase: bangumiBase,
+                  ).matchBangumi(
+                    seriesTitle,
+                    WorkSeason.year(work),
+                    tmdbId: tmdbId,
+                  );
+              final id = match?['id'];
+              if (id is int && id > 0) {
+                result['automaticBangumiId'] = id;
+                work = {...work, 'bangumi_id': id};
+                characters = _fetchCharacters(
+                  work,
+                  result['errors'] as List<String>,
+                  onCharacters,
+                );
+              }
+            } catch (_) {
+              (result['errors'] as List<String>).add('角色来源暂时不可用');
+            }
+          }
+          if (!animation) {
+            final credits =
+                overview[type == 'movie' ? 'credits' : 'aggregate_credits'];
+            if (credits is Map) {
+              result['cast'] = _people(credits['cast'], crew: false);
+              result['crew'] = _people(credits['crew'], crew: true);
+            }
+          }
           result['backdrop'] = image(
             overview['backdrop_path']?.toString(),
             size: 'original',
@@ -162,7 +238,9 @@ class DetailMetadataService {
               'work_title': WorkSeason.directoryTitle(work),
             });
             final season = (asset['season'] as int? ?? 1);
-            if (explicit != null) {
+            if (asset['manual_mapping'] == true) {
+              requested.add(season);
+            } else if (explicit != null) {
               requested.add(explicit);
             } else if (season > 1) {
               requested.add(season);
@@ -240,7 +318,8 @@ class DetailMetadataService {
         (result['errors'] as List<String>).add('TMDB 暂时不可用');
       }
     }
-    if (bangumiId != null) {
+    var bangumiOffset = 0;
+    for (final bangumiId in BangumiLinks.ids(work)) {
       try {
         final subject = await _getBangumi('/v0/subjects/$bangumiId');
         if (subject is Map<String, dynamic>) {
@@ -275,41 +354,6 @@ class DetailMetadataService {
         (result['errors'] as List<String>).add('Bangumi 资料暂时不可用');
       }
       try {
-        final cast = await _getBangumi('/v0/subjects/$bangumiId/characters');
-        final entries = cast is List
-            ? cast
-                  .whereType<Map>()
-                  .map((e) => Map<String, dynamic>.from(e))
-                  .toList()
-            : <Map<String, dynamic>>[];
-        final sorted = sortSubjectCharacters(entries);
-        result['characters'] = sorted.take(40).map((c) {
-          final imageSet = c['images'] as Map?;
-          final actors = (c['actors'] as List? ?? [])
-              .whereType<Map>()
-              .map(
-                (a) => a['name_cn']?.toString().trim().isNotEmpty == true
-                    ? a['name_cn'].toString()
-                    : a['name']?.toString() ?? '',
-              )
-              .where((a) => a.isNotEmpty)
-              .toList();
-          return <String, dynamic>{
-            'name': c['name_cn']?.toString().trim().isNotEmpty == true
-                ? c['name_cn'].toString()
-                : c['name']?.toString() ?? '',
-            'image': imageSet?['medium'] ?? imageSet?['small'],
-            'relation': c['relation'],
-            'order': c['order'],
-            'id': c['id'],
-            'actors': actors,
-            'type': c['type'],
-          };
-        }).toList();
-      } catch (_) {
-        (result['errors'] as List<String>).add('角色资料暂时不可用');
-      }
-      try {
         final episodes = await _getBangumi(
           '/v0/episodes?subject_id=$bangumiId&type=0&limit=100',
         );
@@ -328,7 +372,7 @@ class DetailMetadataService {
         for (final item in rows.whereType<Map>()) {
           final number = (item['sort'] as num?)?.toInt();
           if (number == null || number < 1) continue;
-          final key = number.toString();
+          final key = (number + bangumiOffset).toString();
           final old = episodeMap[key] is Map
               ? Map<String, dynamic>.from(episodeMap[key] as Map)
               : <String, dynamic>{};
@@ -346,10 +390,15 @@ class DetailMetadataService {
         bySeason['$fallbackSeason'] = episodeMap;
         result['seasonEpisodes'] = bySeason;
         if (fallbackSeason == 1) result['episodes'] = episodeMap;
+        bangumiOffset += rows
+            .whereType<Map>()
+            .where((e) => e['sort'] is num && (e['sort'] as num) > 0)
+            .length;
       } catch (_) {
         /* Optional fallback episode names. */
       }
     }
+    result['characters'] = await characters;
     // Same stable tag precedence as NipaPlay Personal:
     // format -> studio -> adaptation -> up to 8 remaining tags.
     result['tags'] = AnimeDetailMetadata.tags({
@@ -364,6 +413,152 @@ class DetailMetadataService {
     return result;
   }
 
+  Future<List<Map<String, dynamic>>> _fetchCharacters(
+    Map<String, Object?> work,
+    List<String> errors,
+    void Function(List<Map<String, dynamic>>)? onCharacters,
+  ) async {
+    final characterGroups = <List<Map<String, dynamic>>>[];
+    List<int> manualOrder = [];
+    try {
+      manualOrder =
+          (jsonDecode(work['character_order']?.toString() ?? '[]') as List)
+              .whereType<int>()
+              .toList();
+    } catch (_) {}
+    for (final bangumiId in BangumiLinks.ids(work)) {
+      try {
+        final cast = await _getBangumi('/v0/subjects/$bangumiId/characters');
+        final entries = cast is List
+            ? cast
+                  .whereType<Map>()
+                  .map((e) => Map<String, dynamic>.from(e))
+                  .toList()
+            : <Map<String, dynamic>>[];
+        final sorted = sortSubjectCharacters(entries);
+        if (onCharacters != null && sorted.isNotEmpty) {
+          final preview = [
+            for (final c in sorted)
+              {
+                ...c,
+                'originalName': c['name'],
+                'image':
+                    (c['images'] as Map?)?['medium'] ??
+                    (c['images'] as Map?)?['small'],
+                'actorDetails': c['actors'],
+                'sources': [bangumiId],
+              },
+          ];
+          onCharacters(
+            BangumiLinks.mergeCharacters([
+              ...characterGroups,
+              preview,
+            ], manualOrder: manualOrder),
+          );
+        }
+        characterGroups.add(
+          await Future.wait(
+            sorted.map((c) async {
+              final localized = await _localizedPerson(c, character: true);
+              final imageSet = c['images'] as Map?;
+              final actorRecords = await Future.wait(
+                (c['actors'] as List? ?? []).whereType<Map>().map(
+                  (a) => _localizedPerson(
+                    Map<String, dynamic>.from(a),
+                    character: false,
+                  ),
+                ),
+              );
+              final actors = actorRecords
+                  .whereType<Map>()
+                  .map(
+                    (a) => a['name_cn']?.toString().trim().isNotEmpty == true
+                        ? a['name_cn'].toString()
+                        : a['name']?.toString() ?? '',
+                  )
+                  .where((a) => a.isNotEmpty)
+                  .toList();
+              return <String, dynamic>{
+                'name': localized['name_cn'] ?? c['name'] ?? '',
+                'name_cn': localized['name_cn'],
+                'originalName': c['name'],
+                'image': imageSet?['medium'] ?? imageSet?['small'],
+                'relation': c['relation'],
+                'order': c['order'],
+                'id': c['id'],
+                'sources': [bangumiId],
+                'actors': actors,
+                'actorDetails': actorRecords,
+                'originalOrder': c['order'],
+                'type': c['type'],
+              };
+            }).toList(),
+          ),
+        );
+      } catch (_) {
+        errors.add('角色资料暂时不可用');
+      }
+    }
+    return BangumiLinks.mergeCharacters(
+      characterGroups,
+      manualOrder: manualOrder,
+    );
+  }
+
+  static List<Map<String, dynamic>> _people(Object? raw, {required bool crew}) {
+    if (raw is! List) return [];
+    const jobs = {
+      'Director': '导演',
+      'Screenplay': '编剧',
+      'Writer': '编剧',
+      'Creator': '主创',
+      'Producer': '制片人',
+      'Executive Producer': '执行制片人',
+      'Original Music Composer': '音乐',
+      'Director of Photography': '摄影',
+    };
+    final result = <Map<String, dynamic>>[];
+    final indexes = <String, int>{};
+    for (final person in raw.whereType<Map>()) {
+      final name = person['name']?.toString().trim() ?? '';
+      if (name.isEmpty) continue;
+      final roles = <String>{};
+      if (crew) {
+        for (final entry in [
+          person,
+          ...(person['jobs'] as List? ?? []).whereType<Map>(),
+        ]) {
+          final label = jobs[entry['job']];
+          if (label != null) roles.add(label);
+        }
+        if (roles.isEmpty) continue;
+      } else {
+        for (final entry in [
+          person,
+          ...(person['roles'] as List? ?? []).whereType<Map>(),
+        ]) {
+          final role = entry['character']?.toString().trim() ?? '';
+          if (role.isNotEmpty) roles.add(role);
+        }
+      }
+      final key = '${person['id'] ?? name}';
+      final existing = indexes[key];
+      if (existing != null) {
+        final old = result[existing]['roles'] as List<String>;
+        result[existing]['roles'] = {...old, ...roles}.toList();
+        continue;
+      }
+      indexes[key] = result.length;
+      result.add({
+        'id': person['id'],
+        'name': name,
+        'image': image(person['profile_path']?.toString(), size: 'w185'),
+        'roles': roles.toList(),
+      });
+    }
+    return result;
+  }
+
   Future<Map<String, dynamic>?> _tmdb(
     String resource,
     Map<String, String> params,
@@ -371,9 +566,10 @@ class DetailMetadataService {
     if (tmdbRequest != null) return tmdbRequest!(resource, params);
     final credentials = Metadata.credentials;
     if (!credentials.isConfigured) return null;
-    final response = await _client
-        .get(credentials.uri(resource, params), headers: credentials.headers)
-        .timeout(const Duration(seconds: 15));
+    final response = await _client.get(
+      credentials.uri(resource, params),
+      headers: credentials.headers,
+    );
     if (response.statusCode == 404) return null;
     if (response.statusCode != 200) {
       throw StateError('TMDB HTTP ${response.statusCode}');
@@ -381,13 +577,43 @@ class DetailMetadataService {
     return jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
   }
 
+  final Map<String, Future<Map<String, dynamic>>> _personNames = {};
+  Future<Map<String, dynamic>> _localizedPerson(
+    Map<String, dynamic> row, {
+    required bool character,
+  }) async {
+    if (row['name_cn']?.toString().trim().isNotEmpty == true) return row;
+    final id = row['id'];
+    if (id is! num) return row;
+    final path = '/v0/${character ? 'characters' : 'persons'}/$id';
+    return _personNames.putIfAbsent(path, () async {
+      try {
+        final detail = await _getBangumi(path);
+        if (detail is! Map) return row;
+        String? chinese = detail['name_cn']?.toString();
+        if (chinese == null || chinese.trim().isEmpty) {
+          for (final field
+              in (detail['infobox'] as List? ?? []).whereType<Map>()) {
+            if (field['key'] == '简体中文名' || field['key'] == '中文名') {
+              if (field['value'] is String) chinese = field['value'] as String;
+            }
+          }
+        }
+        return {
+          ...row,
+          if (chinese?.trim().isNotEmpty == true) 'name_cn': chinese!.trim(),
+        };
+      } catch (_) {
+        return row;
+      }
+    });
+  }
+
   Future<dynamic> _getBangumi(String path) async {
-    final response = await _client
-        .get(
-          Uri.parse('$bangumiBase$path'),
-          headers: {'User-Agent': _userAgent, 'Accept': 'application/json'},
-        )
-        .timeout(const Duration(seconds: 15));
+    final response = await _client.get(
+      Uri.parse('$bangumiBase$path'),
+      headers: {'User-Agent': _userAgent, 'Accept': 'application/json'},
+    );
     if (response.statusCode != 200) {
       throw StateError('Bangumi HTTP ${response.statusCode}');
     }

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+import '../l10n/strings.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
@@ -7,23 +9,35 @@ class AppHeader extends StatelessWidget {
   const AppHeader({
     super.key,
     required this.showSources,
+    this.settingsSelected = false,
+    this.mobile,
     required this.onNavigate,
     required this.onSettings,
+    this.playbackTitle,
+    this.onPlaybackBack,
   });
   final bool showSources;
+  final bool settingsSelected;
+  final bool? mobile;
   final ValueChanged<bool> onNavigate;
   final VoidCallback onSettings;
+  final String? playbackTitle;
+  final VoidCallback? onPlaybackBack;
   static bool get desktop =>
       Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
   @override
   Widget build(BuildContext context) {
-    if (!desktop) {
+    if (mobile ?? !desktop) {
       return Material(
         child: SafeArea(
           top: false,
           child: NavigationBar(
-            selectedIndex: showSources ? 1 : 0,
+            selectedIndex: settingsSelected
+                ? 2
+                : showSources
+                ? 1
+                : 0,
             onDestinationSelected: (index) {
               if (index == 2) {
                 onSettings();
@@ -31,20 +45,21 @@ class AppHeader extends StatelessWidget {
                 onNavigate(index == 1);
               }
             },
-            destinations: const [
+            destinations: [
               NavigationDestination(
                 key: ValueKey('nav-library'),
                 icon: Icon(Icons.video_library_outlined),
-                label: '媒体库',
+                label: context.l10n.library,
               ),
               NavigationDestination(
                 key: ValueKey('nav-sources'),
                 icon: Icon(Icons.storage_outlined),
-                label: '媒体源',
+                label: context.l10n.sources,
               ),
               NavigationDestination(
+                key: ValueKey('nav-settings'),
                 icon: Icon(Icons.settings_outlined),
-                label: '设置',
+                label: context.l10n.settings,
               ),
             ],
           ),
@@ -53,116 +68,227 @@ class AppHeader extends StatelessWidget {
     }
     final dark = Theme.of(context).brightness == Brightness.dark;
     return LayoutBuilder(
-      builder: (context, bounds) => Material(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        child: SafeArea(
-          bottom: false,
-          child: SizedBox(
-            height: 72,
-            child: Row(
-              children: [
-                const SizedBox(width: 8),
-                for (final entry in [(false, '媒体库'), (true, '媒体源')])
-                  InkWell(
-                    key: ValueKey('nav-${entry.$1 ? 'sources' : 'library'}'),
-                    onTap: () => onNavigate(entry.$1),
-                    child: Container(
-                      width: 104,
-                      alignment: Alignment.center,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Column(
+      builder: (context, bounds) {
+        final entries = [
+          (false, context.l10n.library),
+          (true, context.l10n.sources),
+        ];
+        final tabStyle = Theme.of(context).textTheme.bodyMedium!.copyWith(
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
+          height: 1.25,
+          letterSpacing: 0,
+        );
+        double tabWidth(String label) {
+          final painter = TextPainter(
+            text: TextSpan(text: label, style: tabStyle),
+            textDirection: Directionality.of(context),
+            textScaler: MediaQuery.textScalerOf(context),
+          )..layout();
+          final width = math.max(104.0, painter.width.ceilToDouble() + 32);
+          painter.dispose();
+          return width;
+        }
+
+        final actionWidth =
+            96.0 +
+            (desktop && bounds.maxWidth >= 600 ? 144 : 0) +
+            (!desktop ? 8 : 0);
+        final navWidth = math.min(
+          entries.fold<double>(0, (sum, entry) => sum + tabWidth(entry.$2)),
+          math.max(0.0, bounds.maxWidth - actionWidth - 8),
+        );
+        return Material(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          child: SafeArea(
+            bottom: false,
+            child: SizedBox(
+              height: 72,
+              child: Row(
+                children: [
+                  const SizedBox(width: 8),
+                  if (playbackTitle != null)
+                    Expanded(
+                      child: Row(
                         children: [
-                          Expanded(
-                            child: Center(
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                ),
-                                child: Text(
-                                  entry.$2,
-                                  style: TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w700,
-                                    color: showSources == entry.$1
-                                        ? Theme.of(context).colorScheme.primary
-                                        : Theme.of(context)
-                                              .colorScheme
-                                              .onSurface
-                                              .withValues(alpha: .6),
-                                  ),
-                                ),
-                              ),
-                            ),
+                          IconButton(
+                            key: const ValueKey('playback-header-back'),
+                            onPressed: onPlaybackBack,
+                            icon: const Icon(Icons.arrow_back),
                           ),
-                          Container(
-                            height: 3,
-                            width: 76,
-                            decoration: BoxDecoration(
-                              color: showSources == entry.$1
-                                  ? Theme.of(context).colorScheme.primary
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(3),
+                          Expanded(
+                            child: Tooltip(
+                              message: playbackTitle!,
+                              child: Text(
+                                playbackTitle!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           ),
                         ],
                       ),
+                    )
+                  else
+                    SizedBox(
+                      width: navWidth,
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            for (final entry in entries)
+                              InkWell(
+                                key: ValueKey(
+                                  'nav-${entry.$1 ? 'sources' : 'library'}',
+                                ),
+                                onTap: () => onNavigate(entry.$1),
+                                child: Container(
+                                  width: tabWidth(entry.$2),
+                                  alignment: Alignment.center,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Expanded(
+                                        child: Center(
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                            ),
+                                            child: Text(
+                                              entry.$2,
+                                              maxLines: 1,
+                                              softWrap: false,
+                                              style: tabStyle.copyWith(
+                                                color: showSources == entry.$1
+                                                    ? Theme.of(
+                                                        context,
+                                                      ).colorScheme.primary
+                                                    : Theme.of(context)
+                                                          .colorScheme
+                                                          .onSurface
+                                                          .withValues(
+                                                            alpha: .6,
+                                                          ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      Container(
+                                        height: 3,
+                                        width: 76,
+                                        decoration: BoxDecoration(
+                                          color: showSources == entry.$1
+                                              ? Theme.of(
+                                                  context,
+                                                ).colorScheme.primary
+                                              : Colors.transparent,
+                                          borderRadius: BorderRadius.circular(
+                                            3,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
-                Expanded(
-                  child: desktop
-                      ? const DragToMoveArea(child: SizedBox.expand())
-                      : const SizedBox(),
-                ),
-                IconButton(
-                  key: const ValueKey('toggle-theme'),
-                  style: IconButton.styleFrom(fixedSize: const Size(48, 48)),
-                  color: Theme.of(context).colorScheme.onSurface,
-                  iconSize: 24,
-                  tooltip: dark ? '切换到日间模式' : '切换到夜间模式',
-                  icon: Icon(
-                    dark ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
-                  ),
-                  onPressed: () async {
-                    try {
-                      await AppTheme.instance.setMode(
-                        dark ? ThemeMode.light : ThemeMode.dark,
-                      );
-                    } catch (_) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('主题设置保存失败，请重试')),
+                  if (playbackTitle == null)
+                    Expanded(
+                      child: desktop
+                          ? const DragToMoveArea(child: SizedBox.expand())
+                          : const SizedBox(),
+                    ),
+                  IconButton(
+                    key: const ValueKey('toggle-theme'),
+                    style: IconButton.styleFrom(fixedSize: const Size(48, 48)),
+                    color: Theme.of(context).colorScheme.onSurface,
+                    iconSize: 24,
+                    tooltip: dark
+                        ? context.l10n.switchLight
+                        : context.l10n.switchDark,
+                    icon: Icon(
+                      dark
+                          ? Icons.dark_mode_outlined
+                          : Icons.light_mode_outlined,
+                    ),
+                    onPressed: () async {
+                      try {
+                        await AppTheme.instance.setMode(
+                          dark ? ThemeMode.light : ThemeMode.dark,
                         );
+                      } catch (_) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(context.l10n.themeSaveFailed),
+                            ),
+                          );
+                        }
                       }
-                    }
-                  },
-                ),
-                IconButton(
-                  key: const ValueKey('open-settings'),
-                  style: IconButton.styleFrom(fixedSize: const Size(48, 48)),
-                  tooltip: '设置',
-                  onPressed: onSettings,
-                  color: Theme.of(context).colorScheme.onSurface,
-                  iconSize: 24,
-                  icon: const Icon(Icons.settings),
-                ),
-                if (desktop && bounds.maxWidth >= 600) const _WindowActions(),
-                if (!desktop) const SizedBox(width: 8),
-              ],
+                    },
+                  ),
+                  IconButton(
+                    key: const ValueKey('open-settings'),
+                    style: IconButton.styleFrom(fixedSize: const Size(48, 48)),
+                    tooltip: context.l10n.settings,
+                    onPressed: onSettings,
+                    color: Theme.of(context).colorScheme.onSurface,
+                    iconSize: 24,
+                    icon: const Icon(Icons.settings),
+                  ),
+                  if (desktop && bounds.maxWidth >= 600) const WindowActions(),
+                  if (!desktop) const SizedBox(width: 8),
+                ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
 
-class _WindowActions extends StatefulWidget {
-  const _WindowActions();
+class PlaybackOverlayTitle extends StatelessWidget {
+  const PlaybackOverlayTitle({
+    super.key,
+    required this.title,
+    required this.draggable,
+  });
+  final String title;
+  final bool draggable;
   @override
-  State<_WindowActions> createState() => _WindowActionsState();
+  Widget build(BuildContext context) {
+    final label = Align(
+      alignment: Alignment.centerLeft,
+      child: Text(
+        title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 16,
+          shadows: [Shadow(blurRadius: 4)],
+        ),
+      ),
+    );
+    return draggable ? DragToMoveArea(child: label) : label;
+  }
 }
 
-class _WindowActionsState extends State<_WindowActions> with WindowListener {
+class WindowActions extends StatefulWidget {
+  const WindowActions({super.key, this.color});
+  final Color? color;
+  @override
+  State<WindowActions> createState() => _WindowActionsState();
+}
+
+class _WindowActionsState extends State<WindowActions> with WindowListener {
   bool maximized = false;
   @override
   void initState() {
@@ -189,9 +315,13 @@ class _WindowActionsState extends State<_WindowActions> with WindowListener {
     mainAxisSize: MainAxisSize.min,
     children: [
       for (final action in [
-        ('最小化', Icons.remove, () async => windowManager.minimize()),
         (
-          maximized ? '还原' : '最大化',
+          context.l10n.minimize,
+          Icons.remove,
+          () async => windowManager.minimize(),
+        ),
+        (
+          maximized ? context.l10n.restoreWindow : context.l10n.maximize,
           maximized ? Icons.filter_none : Icons.crop_square,
           () async {
             if (await windowManager.isMaximized()) {
@@ -201,14 +331,18 @@ class _WindowActionsState extends State<_WindowActions> with WindowListener {
             }
           },
         ),
-        ('关闭', Icons.close, () async => windowManager.close()),
+        (
+          context.l10n.closeWindow,
+          Icons.close,
+          () async => windowManager.close(),
+        ),
       ])
         IconButton(
           key: ValueKey('window-${action.$1}'),
           tooltip: action.$1,
           onPressed: action.$3,
           style: IconButton.styleFrom(fixedSize: const Size(48, 48)),
-          color: Theme.of(context).colorScheme.onSurface,
+          color: widget.color ?? Theme.of(context).colorScheme.onSurface,
           icon: Icon(action.$2, size: 24),
         ),
     ],

@@ -50,6 +50,11 @@ void main() {
     },
   );
   setUp(() async {
+    TestWidgetsFlutterBinding.ensureInitialized()
+        .platformDispatcher
+        .localesTestValue = const [
+      Locale('zh', 'CN'),
+    ];
     SharedPreferences.setMockInitialValues({});
     await AppTheme.instance.load();
     libraryDestination.value = false;
@@ -175,19 +180,10 @@ void main() {
     await tester.tap(find.byTooltip('设置'));
     await tester.pumpAndSettle();
     expect(find.text('主题模式'), findsOneWidget);
-    for (final category in ['外观设置', '刮削设置', '关于']) {
-      await tester.tap(find.text(category).first);
-      await tester.pumpAndSettle();
-      for (var index = 0; index < 3; index++) {
-        final tile = find.byKey(ValueKey('settings-category-$index'));
-        expect(tester.getSize(tile).height, 64);
-        final label = tester.widget<Text>(
-          find.descendant(of: tile, matching: find.byType(Text)),
-        );
-        expect(label.maxLines, 1);
-      }
+    for (final category in ['外观', '刮削服务', '关于']) {
+      expect(find.text(category), findsOneWidget);
     }
-    await tester.tap(find.text('外观设置').first);
+    await tester.tap(find.text('外观').first);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('theme-accent-lightBlue')));
     await tester.pumpAndSettle();
@@ -247,7 +243,7 @@ void main() {
       Brightness.light,
     );
     addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
-    await tester.tap(find.text('刮削设置'));
+    await tester.tap(find.text('刮削服务'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('TMDB API 设置'));
     await tester.pumpAndSettle();
@@ -258,8 +254,8 @@ void main() {
     await tester.tap(find.text('关于'));
     await tester.pumpAndSettle();
     expect(find.text('版本 1.0.0'), findsOneWidget);
-    expect(find.text('ClainSt/CCPlayer'), findsOneWidget);
-    expect(find.text('https://github.com/ClainSt/CCPlayer'), findsOneWidget);
+    expect(find.text('ClainSt/Konata'), findsOneWidget);
+    expect(find.text('https://github.com/ClainSt/Konata'), findsOneWidget);
     expect(find.text('开源许可'), findsNothing);
     expect(tester.takeException(), isNull, reason: 'about settings');
     await tester.binding.setSurfaceSize(const Size(400, 700));

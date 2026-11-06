@@ -13,7 +13,7 @@ class PersonalFilenameParser {
     return p.basenameWithoutExtension(base).trim();
   }
 
-  /// 生成用于弹幕“搜索动画”的关键词（尽量接近番名）。
+  /// 生成在线元数据搜索的标题候选；保留数字番名和括号中的作品名。
   static String extractAnimeTitleKeyword(String pathOrName) {
     var name = baseNameWithoutExtension(pathOrName);
     if (name.isEmpty) return '';
@@ -41,7 +41,10 @@ class PersonalFilenameParser {
     name = name.replaceAll(RegExp(r'\d{1,3}\s*[话話集期]\b'), ' ');
 
     // 形如 [01] / 【01】 的独立集数标识（避免误删番名中的数字）
-    name = name.replaceAll(RegExp(r'[\[【]\s*\d{1,3}\s*[\]】]'), ' ');
+    final numericTitle = RegExp(r'^[\[【]\s*\d{1,3}\s*[\]】]$').hasMatch(name);
+    if (!numericTitle) {
+      name = name.replaceAll(RegExp(r'[\[【]\s*\d{1,3}\s*[\]】]'), ' ');
+    }
 
     // 形如 " - 01" / "_01" 的结尾集数
     name = name.replaceAll(RegExp(r'(?:\s*[-_]\s*)\d{1,3}$'), ' ');
@@ -54,7 +57,7 @@ class PersonalFilenameParser {
 
   /// 在常规标题提取结果上进一步去掉集数、分辨率、编码和字幕语言标签。
   ///
-  /// 该关键词用于文件哈希匹配失败后的动画搜索。调用方仍应保留
+  /// 用于在线名称搜索，不读取视频或计算哈希。调用方仍应保留
   /// [extractAnimeTitleKeyword] 作为更保守的候选，避免数字属于作品名时丢失信息。
   static String extractAnimeSearchKeyword(
     String pathOrName, {
@@ -101,6 +104,23 @@ class PersonalFilenameParser {
   }
 
   static String _stripLeadingGroupTags(String name) {
+    // A bracketed title followed only by an episode/technical tag must survive.
+    // Unknown adjacent bracket blocks cannot be reliably split into title/group.
+    final outside = name
+        .replaceAll(RegExp(r'\[[^\]]*\]|【[^】]*】'), ' ')
+        .replaceAll(
+          RegExp(r'\b(?:S\d+E\d+|EP?\d+|\d+)\b', caseSensitive: false),
+          ' ',
+        )
+        .replaceAll(
+          RegExp(
+            r'\b(?:\d{3,4}p|x26[45]|h26[45]|hevc|avc|flac|aac|bdrip|bluray|chs|cht)\b',
+            caseSensitive: false,
+          ),
+          ' ',
+        )
+        .replaceAll(RegExp(r'[\s._-]+'), '');
+    if (outside.isEmpty) return name;
     var result = name.trimLeft();
     while (true) {
       if (result.startsWith('[')) {
@@ -124,11 +144,14 @@ class PersonalFilenameParser {
 
   static String _stripTrailingTags(String name) {
     var result = name.trimRight();
-    // 反复去掉结尾的 [...] / 【...】 / (...) / （...） 标签块
-    result = result.replaceAll(
-      RegExp(r'(?:\s*(?:\[[^\]]*\]|【[^】]*】|\([^)]*\)|（[^）]*）))+\s*$'),
-      '',
-    );
+    final block = RegExp(r'\s*(?:\[[^\]]*\]|【[^】]*】|\([^)]*\)|（[^）]*）)\s*$');
+    while (true) {
+      final match = block.firstMatch(result);
+      if (match == null) break;
+      final before = result.substring(0, match.start).trimRight();
+      if (before.isEmpty) break;
+      result = before;
+    }
     return result.trim();
   }
 }

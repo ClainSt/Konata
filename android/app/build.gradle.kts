@@ -4,8 +4,11 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val publicKeystore = File(System.getProperty("user.home"), ".ccplayer/ccplayer-release.p12")
+val publicKeyPassword = providers.environmentVariable("CCPLAYER_SIGNING_PASSWORD")
+
 android {
-    namespace = "com.clainst.ccplayer"
+    namespace = "com.anime.konata"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -15,8 +18,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.clainst.ccplayer"
+        applicationId = "com.anime.konata"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -25,11 +27,31 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("publicRelease") {
+            storeFile = publicKeystore
+            storePassword = publicKeyPassword.orNull
+            keyAlias = "ccplayer"
+            keyPassword = publicKeyPassword.orNull
+        }
+    }
     buildTypes {
+        debug {
+            applicationIdSuffix =
+                if (System.getenv("CCPLAYER_ISOLATED_VALIDATION") == "1") ".validation" else ".debug"
+        }
+        getByName("profile") { applicationIdSuffix = ".profile" }
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("publicRelease")
+        }
+    }
+}
+
+// Missing credentials must fail even when AGP would otherwise produce an unsigned APK.
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    doFirst {
+        check(publicKeystore.isFile && !publicKeyPassword.orNull.isNullOrBlank()) {
+            "Public release signing requires ~/.ccplayer/ccplayer-release.p12 and CCPLAYER_SIGNING_PASSWORD."
         }
     }
 }

@@ -1,3 +1,4 @@
+import 'debug_log.dart';
 import 'catalog.dart';
 import 'scan_activity.dart';
 import 'personal_scraper.dart';
@@ -21,6 +22,7 @@ class PersonalScrapeCoordinator {
     int? limit,
     bool onlyPending = true,
     Set<String>? workIds,
+    ScanActivity? run,
   }) async {
     if (_catalog.scanning) throw StateError('当前正在扫描或刮削，请勿同时启动');
     final works = _catalog.works
@@ -28,18 +30,29 @@ class PersonalScrapeCoordinator {
         .where((w) => workIds == null || workIds.contains(w['id']?.toString()))
         .toList();
     int matched = 0, skipped = 0, review = 0, errors = 0, attempted = 0;
+    final seenSeries = <Object>{}, sharedSeries = <Object>{};
+    for (final work in _catalog.works) {
+      final id = work['tmdb_id'];
+      if (id != null && work['tmdb_type'] == 'tv' && !seenSeries.add(id)) {
+        sharedSeries.add(id);
+      }
+    }
     final targets = works.where((w) {
       if (w['manual_lock'] == 1) return false;
       final poster = w['poster']?.toString().trim() ?? '';
       return !onlyPending ||
           poster.isEmpty ||
           w['needs_review'] == 1 ||
-          WorkSeason.needsRefresh(w);
+          WorkSeason.needsRefresh(
+            w,
+            sharedSeries: sharedSeries.contains(w['tmdb_id']),
+          );
     }).toList();
     ScanActivityStore.instance.beginScraping(sourceId, targets.length);
     _catalog.updateStatus('准备刮削 ${targets.length} 部作品（TMDB / Bangumi）', true);
     try {
       for (final work in targets) {
+        run?.checkCancelled();
         if (limit != null && attempted >= limit) break;
         attempted++;
         _catalog.updateStatus(
@@ -55,7 +68,12 @@ class PersonalScrapeCoordinator {
               .take(6)
               .toList();
           final candidate = await _scraper.scrape(work, filenames: filenames);
+          run?.checkCancelled();
           if (candidate == null) {
+            DebugLog.write(
+              'Scrape',
+              'ambiguous or unmatched; manual confirmation required',
+            );
             review++;
             ScanActivityStore.instance.metadataDone(sourceId, review: true);
             continue;
@@ -65,13 +83,20 @@ class PersonalScrapeCoordinator {
             candidate,
             reloadAfter: false,
           )) {
+            DebugLog.write(
+              'Scrape',
+              'matched provider=${candidate.provider} tmdb=${candidate.tmdbId} bangumi=${candidate.bangumiId}',
+            );
             matched++;
             ScanActivityStore.instance.metadataDone(sourceId, matched: true);
           } else {
             skipped++;
             ScanActivityStore.instance.metadataDone(sourceId);
           }
-        } catch (_) {
+        } on ScanCancelled {
+          rethrow;
+        } catch (e) {
+          DebugLog.write('Scrape', 'failed ${e.runtimeType}', level: 'WARN');
           errors++;
           ScanActivityStore.instance.metadataDone(sourceId, error: true);
         }

@@ -1,6 +1,6 @@
 Add-Type -AssemblyName System.Drawing
 $root = (Get-Location).Path
-$source = [Drawing.Image]::FromFile((Join-Path $root 'assets/brand/icons/ryo-master.png'))
+$source = [Drawing.Image]::FromFile((Join-Path $root 'assets/brand/icons/windows.png'))
 function Export-IconPng($path, [int]$size, [bool]$white, [bool]$adaptive) {
   $bitmap = New-Object Drawing.Bitmap $size,$size
   $graphics = [Drawing.Graphics]::FromImage($bitmap)
@@ -12,7 +12,6 @@ function Export-IconPng($path, [int]$size, [bool]$white, [bool]$adaptive) {
   $bitmap.Save((Join-Path $root $path), [Drawing.Imaging.ImageFormat]::Png)
   $graphics.Dispose(); $bitmap.Dispose()
 }
-Export-IconPng 'assets/brand/icons/windows.png' 1024 $false $false
 Export-IconPng 'assets/brand/icons/android.png' 1024 $true $false
 $densities = @{'mdpi'=48; 'hdpi'=72; 'xhdpi'=96; 'xxhdpi'=144; 'xxxhdpi'=192}
 foreach ($density in $densities.Keys) {

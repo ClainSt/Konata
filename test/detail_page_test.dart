@@ -32,7 +32,7 @@ void main() {
       'year': 2023,
       'tmdb_id': null,
       'bangumi_id': null,
-      'poster': null,
+      'poster': 'test-poster.png',
       'overview': '短简介',
     };
     final assets = <Map<String, Object?>>[
@@ -43,6 +43,14 @@ void main() {
         'category': 'main',
         'relative_path': 'Work/01.mkv',
         'name': '01.mkv',
+      },
+      {
+        'id': 'ep1-alt',
+        'work_id': 'work-one',
+        'episode': 1,
+        'category': 'main',
+        'relative_path': 'Work/alternate/01.mkv',
+        'name': '[VCB-Studio] 测试动画 [01][1080p].mkv',
       },
       {
         'id': 'sp1',
@@ -87,6 +95,30 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
 
     expect(find.text('测试动画'), findsOneWidget);
+    final backdrop = find.byKey(const ValueKey('detail-backdrop'));
+    for (final (size, visible) in [
+      (const Size(1350, 860), true),
+      (const Size(1024, 700), true),
+      (const Size(850, 390), false),
+      (const Size(390, 850), false),
+      (const Size(600, 750), false),
+      (const Size(1350, 860), true),
+    ]) {
+      await tester.binding.setSurfaceSize(size);
+      await tester.pump();
+      expect(
+        backdrop,
+        visible ? findsOneWidget : findsNothing,
+        reason: '$size',
+      );
+      final cover = find.byKey(const ValueKey('detail-portrait-cover'));
+      if (size.width < 650 && size.height > size.width) {
+        expect(tester.getSize(cover).width, size.width);
+      } else {
+        expect(cover, findsNothing);
+      }
+      expect(tester.takeException(), isNull);
+    }
     expect(find.text('关联管理'), findsNothing);
     expect(find.byKey(const ValueKey('detail-manage-button')), findsNothing);
     expect(find.byKey(const ValueKey('detail-more-button')), findsOneWidget);
@@ -95,6 +127,15 @@ void main() {
     expect(find.byTooltip('刷新详情资料'), findsNothing);
     expect(find.text('正片  1'), findsOneWidget);
     expect(find.text('特典  2'), findsOneWidget);
+
+    // The primary play button must offer versions too, before opening a player.
+    await tester.tap(find.text('开始播放'));
+    await tester.pumpAndSettle();
+    expect(find.text('选择播放版本'), findsOneWidget);
+    expect(find.textContaining('VCB-Studio'), findsWidgets);
+    await tester.tap(find.byTooltip('关闭版本选择'));
+    await tester.pumpAndSettle();
+    expect(find.text('选择播放版本'), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('detail-more-button')));
     await tester.pumpAndSettle();
@@ -136,7 +177,7 @@ void main() {
     final toolbar = find.byKey(const ValueKey('detail-fixed-toolbar'));
     final topBefore = tester.getTopLeft(toolbar);
     await tester.drag(
-      find.byType(SingleChildScrollView),
+      find.byKey(const ValueKey('detail-content-scroll')),
       const Offset(0, -460),
     );
     await tester.pumpAndSettle();

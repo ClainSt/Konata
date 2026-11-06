@@ -1,4 +1,8 @@
+import '../l10n/strings.dart';
+import 'uniform_action_bar.dart';
+import 'tmdb_api_guide.dart';
 import 'package:flutter/material.dart';
+import 'settings_navigation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../core/metadata.dart';
@@ -13,9 +17,9 @@ class TmdbSettingsDialog {
     var testing = false;
     String? result;
     try {
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) => StatefulBuilder(
+      await openSettingsScreen<void>(
+        context,
+        (dialogContext) => StatefulBuilder(
           builder: (dialogContext, refresh) {
             final scheme = Theme.of(dialogContext).colorScheme;
             final outline = scheme.onSurface.withValues(alpha: .14);
@@ -34,11 +38,17 @@ class TmdbSettingsDialog {
                   mode: mode,
                   value: controller.text.trim(),
                 );
-                if (!auth.isConfigured) throw StateError('请先输入凭证');
+                if (!auth.isConfigured) {
+                  refresh(() {
+                    result = 'missing';
+                    testing = false;
+                  });
+                  return;
+                }
                 await Metadata.testTmdbCredentials(auth);
-                result = 'TMDB 连接验证成功';
-              } catch (e) {
-                result = '验证失败：$e';
+                result = 'success';
+              } catch (_) {
+                result = 'testFailed';
               }
               if (dialogContext.mounted) refresh(() => testing = false);
             }
@@ -46,7 +56,7 @@ class TmdbSettingsDialog {
             Future<void> save() async {
               final value = controller.text.trim();
               if (value.isEmpty) {
-                refresh(() => result = '请先填写所选认证方式的凭证');
+                refresh(() => result = 'missing');
                 return;
               }
               try {
@@ -63,193 +73,224 @@ class TmdbSettingsDialog {
                 Metadata.apiKey = apiKey.text.trim();
                 Metadata.authMode = mode;
                 if (dialogContext.mounted) Navigator.pop(dialogContext);
-              } catch (e) {
-                if (dialogContext.mounted) refresh(() => result = '保存失败：$e');
+              } catch (_) {
+                if (dialogContext.mounted) refresh(() => result = 'saveFailed');
               }
             }
 
-            return AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              titlePadding: const EdgeInsets.fromLTRB(24, 16, 12, 12),
-              contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
-              actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
-              scrollable: true,
-              title: Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'TMDB API 设置',
-                      style: TextStyle(
-                        fontSize: 21,
-                        fontWeight: FontWeight.w600,
+            return SettingsFormSurface(
+              dialog: AlertDialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                titlePadding: const EdgeInsets.fromLTRB(24, 16, 12, 12),
+                contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+                actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+                scrollable: true,
+                title: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        dialogContext.l10n.tmdbSettings,
+                        style: TextStyle(
+                          fontSize: 21,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
+                    IconButton(
+                      tooltip: dialogContext.l10n.closeTmdb,
+                      onPressed: testing
+                          ? null
+                          : () => Navigator.pop(dialogContext),
+                      icon: const Icon(Icons.close, size: 22),
+                    ),
+                  ],
+                ),
+                content: SizedBox(
+                  width: 490,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        dialogContext.l10n.authMethod,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      SegmentedButton<String>(
+                        showSelectedIcon: false,
+                        style: ButtonStyle(
+                          shape: WidgetStatePropertyAll(
+                            RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          side: WidgetStatePropertyAll(
+                            BorderSide(color: outline),
+                          ),
+                          backgroundColor: WidgetStateProperty.resolveWith(
+                            (states) => states.contains(WidgetState.selected)
+                                ? scheme.primary
+                                : Colors.transparent,
+                          ),
+                          foregroundColor: WidgetStateProperty.resolveWith(
+                            (states) => states.contains(WidgetState.selected)
+                                ? scheme.onPrimary
+                                : scheme.onSurface,
+                          ),
+                          textStyle: const WidgetStatePropertyAll(
+                            TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        segments: [
+                          ButtonSegment(
+                            value: 'token',
+                            label: Text(dialogContext.l10n.accessToken),
+                          ),
+                          ButtonSegment(
+                            value: 'apiKey',
+                            label: const Text('API Key'),
+                          ),
+                        ],
+                        selected: {mode},
+                        onSelectionChanged: (chosen) => refresh(() {
+                          mode = chosen.first;
+                          result = null;
+                        }),
+                      ),
+                      const SizedBox(height: 20),
+                      TextField(
+                        key: ValueKey(mode),
+                        controller: controller,
+                        obscureText: true,
+                        style: const TextStyle(fontSize: 16),
+                        decoration: InputDecoration(
+                          border: fieldBorder,
+                          enabledBorder: fieldBorder,
+                          focusedBorder: fieldBorder.copyWith(
+                            borderSide: BorderSide(
+                              color: scheme.primary,
+                              width: 1.5,
+                            ),
+                          ),
+                          helperMaxLines: 3,
+                          helperStyle: TextStyle(
+                            fontSize: 14,
+                            height: 1.5,
+                            color: scheme.onSurface.withValues(alpha: .65),
+                          ),
+                          labelStyle: const TextStyle(fontSize: 16),
+                          floatingLabelStyle: TextStyle(
+                            color: scheme.onSurface.withValues(alpha: .7),
+                          ),
+                          labelText: mode == 'token'
+                              ? 'API Read Access Token'
+                              : 'API Key',
+                          helperText: dialogContext.l10n.secureCredentials,
+                          suffixIcon: IconButton(
+                            key: const ValueKey('tmdb-api-help'),
+                            tooltip: dialogContext.l10n.apiGuideTitle,
+                            onPressed: () => TmdbApiGuide.show(dialogContext),
+                            icon: const Icon(Icons.help_outline),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        dialogContext.l10n.metadataProviders,
+                        style: TextStyle(
+                          fontSize: 14,
+                          height: 1.6,
+                          color: scheme.onSurface.withValues(alpha: .6),
+                        ),
+                      ),
+                      if (result != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          switch (result) {
+                            'success' => dialogContext.l10n.connectionOk,
+                            'missing' => dialogContext.l10n.enterCredentials,
+                            'saveFailed' =>
+                              dialogContext.l10n.credentialSaveFailed,
+                            _ => dialogContext.l10n.credentialTestFailed,
+                          },
+                          style: TextStyle(
+                            fontSize: 15,
+                            height: 1.5,
+                            color: scheme.onSurface,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
-                  IconButton(
-                    tooltip: '关闭 TMDB 设置',
-                    onPressed: testing
-                        ? null
-                        : () => Navigator.pop(dialogContext),
-                    icon: const Icon(Icons.close, size: 22),
+                ),
+                actions: [
+                  UniformActionBar(
+                    children: [
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          textStyle: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          foregroundColor: scheme.onSurface.withValues(
+                            alpha: .65,
+                          ),
+                        ),
+                        onPressed: testing
+                            ? null
+                            : () => Navigator.pop(dialogContext),
+                        child: Text(dialogContext.l10n.cancel),
+                      ),
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          textStyle: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          foregroundColor: scheme.onSurface,
+                          side: BorderSide(color: outline),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 13,
+                          ),
+                        ),
+                        onPressed: testing ? null : test,
+                        icon: testing
+                            ? const SizedBox(
+                                height: 16,
+                                width: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.cloud_done_outlined),
+                        label: Text(dialogContext.l10n.testConnection),
+                      ),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          textStyle: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        onPressed: testing ? null : save,
+                        child: Text(dialogContext.l10n.save),
+                      ),
+                    ],
                   ),
                 ],
               ),
-              content: SizedBox(
-                width: 490,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'TMDB 认证方式',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    SegmentedButton<String>(
-                      showSelectedIcon: false,
-                      style: ButtonStyle(
-                        shape: WidgetStatePropertyAll(
-                          RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        side: WidgetStatePropertyAll(
-                          BorderSide(color: outline),
-                        ),
-                        backgroundColor: WidgetStateProperty.resolveWith(
-                          (states) => states.contains(WidgetState.selected)
-                              ? scheme.primary
-                              : Colors.transparent,
-                        ),
-                        foregroundColor: WidgetStateProperty.resolveWith(
-                          (states) => states.contains(WidgetState.selected)
-                              ? scheme.onPrimary
-                              : scheme.onSurface,
-                        ),
-                        textStyle: const WidgetStatePropertyAll(
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                      segments: const [
-                        ButtonSegment(value: 'token', label: Text('访问令牌')),
-                        ButtonSegment(value: 'apiKey', label: Text('API Key')),
-                      ],
-                      selected: {mode},
-                      onSelectionChanged: (chosen) => refresh(() {
-                        mode = chosen.first;
-                        result = null;
-                      }),
-                    ),
-                    const SizedBox(height: 20),
-                    TextField(
-                      key: ValueKey(mode),
-                      controller: controller,
-                      obscureText: true,
-                      style: const TextStyle(fontSize: 16),
-                      decoration: InputDecoration(
-                        border: fieldBorder,
-                        enabledBorder: fieldBorder,
-                        focusedBorder: fieldBorder.copyWith(
-                          borderSide: BorderSide(
-                            color: scheme.primary,
-                            width: 1.5,
-                          ),
-                        ),
-                        helperMaxLines: 3,
-                        helperStyle: TextStyle(
-                          fontSize: 14,
-                          height: 1.5,
-                          color: scheme.onSurface.withValues(alpha: .65),
-                        ),
-                        labelStyle: const TextStyle(fontSize: 16),
-                        floatingLabelStyle: TextStyle(
-                          color: scheme.onSurface.withValues(alpha: .7),
-                        ),
-                        labelText: mode == 'token'
-                            ? 'API Read Access Token'
-                            : 'API Key',
-                        helperText: '保存在系统安全存储；两种凭证分别保存，可随时切换',
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Text(
-                      '元数据来源仅使用 TMDB 和 Bangumi，后者的公开搜索不需要此凭证。',
-                      style: TextStyle(
-                        fontSize: 14,
-                        height: 1.6,
-                        color: scheme.onSurface.withValues(alpha: .6),
-                      ),
-                    ),
-                    if (result != null) ...[
-                      const SizedBox(height: 10),
-                      Text(
-                        result!,
-                        style: TextStyle(
-                          fontSize: 15,
-                          height: 1.5,
-                          color: scheme.onSurface,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  style: TextButton.styleFrom(
-                    textStyle: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    foregroundColor: scheme.onSurface.withValues(alpha: .65),
-                  ),
-                  onPressed: testing
-                      ? null
-                      : () => Navigator.pop(dialogContext),
-                  child: const Text('取消'),
-                ),
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    textStyle: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    foregroundColor: scheme.onSurface,
-                    side: BorderSide(color: outline),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 13,
-                    ),
-                  ),
-                  onPressed: testing ? null : test,
-                  icon: testing
-                      ? const SizedBox(
-                          height: 16,
-                          width: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.cloud_done_outlined),
-                  label: const Text('测试连接'),
-                ),
-                FilledButton(
-                  style: FilledButton.styleFrom(
-                    textStyle: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  onPressed: testing ? null : save,
-                  child: const Text('保存'),
-                ),
-              ],
             );
           },
         ),

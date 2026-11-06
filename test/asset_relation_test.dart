@@ -28,7 +28,7 @@ void main() {
         'CREATE TABLE asset_override_history (asset_id TEXT PRIMARY KEY,work_id TEXT,category TEXT,episode INTEGER,season INTEGER NOT NULL DEFAULT 1,extra_type TEXT,was_locked INTEGER)',
       );
       await db.execute(
-        'CREATE TABLE progress (asset_id TEXT PRIMARY KEY,position_ms INTEGER,duration_ms INTEGER,completed INTEGER,updated_at TEXT)',
+        'CREATE TABLE progress (asset_id TEXT PRIMARY KEY,position_ms INTEGER,duration_ms INTEGER,completed INTEGER,updated_at TEXT,manual_completed INTEGER,watched_ranges TEXT)',
       );
       await catalog.indexVideo(
         'source-1',

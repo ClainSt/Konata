@@ -1,10 +1,24 @@
+import '../l10n/strings.dart';
+import 'uniform_action_bar.dart';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../core/catalog.dart';
 import '../core/sources.dart';
+import 'source_access_message.dart';
 
 /// NipaPlay-style source editor. No explicit anonymous or password mode switch.
+enum _SourceMessage {
+  connected,
+  localAccessible,
+  testFailed,
+  fieldsRequired,
+  invalidSmb,
+  invalidWebdav,
+  guestCredentials,
+  saveFailed,
+}
+
 class SourceEditor {
   static Future<void> show(
     BuildContext context,
@@ -25,7 +39,9 @@ class SourceEditor {
     final smb = source['kind'] == 'smb';
     final previousUsername = username.text.trim();
     bool clearPassword = false, testing = false;
-    String? message;
+    _SourceMessage? message;
+    var problem = SourceAccessProblem.unknown;
+    int itemCount = 0;
 
     String credentialPassword() {
       if (username.text.trim().isEmpty) return '';
@@ -34,33 +50,43 @@ class SourceEditor {
       return original['password']?.toString() ?? '';
     }
 
-    Future<void> test(StateSetter update) async {
+    _SourceMessage? validateConnection() {
+      if (!webdav) return null;
+      if (username.text.trim().isEmpty && password.text.isNotEmpty) {
+        return _SourceMessage.guestCredentials;
+      }
+      final url = location.text.trim();
+      if (smb) {
+        try {
+          SmbSource.validateLocation(url);
+        } on ArgumentError {
+          return _SourceMessage.invalidSmb;
+        }
+      } else {
+        final uri = Uri.tryParse(url);
+        if (uri == null ||
+            uri.host.isEmpty ||
+            !(uri.isScheme('http') || uri.isScheme('https'))) {
+          return _SourceMessage.invalidWebdav;
+        }
+      }
+      return null;
+    }
+
+    Future<void> test(BuildContext dialogContext, StateSetter update) async {
       update(() {
         testing = true;
         message = null;
       });
       try {
-        if (smb) {
-          SmbSource.validateLocation(location.text.trim());
-          final client = WebDav({
-            'kind': 'smb',
-            'location': location.text.trim(),
-            'username': username.text.trim(),
-            'password': credentialPassword(),
-          });
-          final files = await client.list(client.root);
-          message = '连接成功，共享目录返回 ${files.length} 项';
-        } else if (webdav) {
-          final uri = Uri.tryParse(location.text.trim());
-          if (uri == null ||
-              !uri.hasAuthority ||
-              !(uri.isScheme('http') || uri.isScheme('https'))) {
-            throw StateError('WebDAV 地址无效');
-          }
-          if (username.text.trim().isEmpty && password.text.isNotEmpty) {
-            throw StateError('匿名访问时密码也应留空');
+        if (webdav) {
+          final invalid = validateConnection();
+          if (invalid != null) {
+            message = invalid;
+            return;
           }
           final dav = WebDav({
+            'kind': source['kind'],
             'location': location.text.trim(),
             'username': username.text.trim(),
             'password': credentialPassword(),
@@ -68,16 +94,20 @@ class SourceEditor {
           final files = await dav
               .list(dav.root)
               .timeout(const Duration(seconds: 18));
-          message = '连接成功，根目录返回 ${files.length} 项';
+          itemCount = files.length;
+          message = _SourceMessage.connected;
         } else {
-          message = await Directory(location.text.trim()).exists()
-              ? '本地目录可访问'
-              : '本地目录不存在';
+          await Directory(
+            location.text.trim(),
+          ).list(followLinks: false).take(1).drain<void>();
+          message = _SourceMessage.localAccessible;
         }
       } catch (e) {
-        message = '连接失败：$e';
+        problem = SourceAccessProblem.from(e);
+        message = _SourceMessage.testFailed;
+      } finally {
+        if (dialogContext.mounted) update(() => testing = false);
       }
-      update(() => testing = false);
     }
 
     Future<void> save(BuildContext dialogContext, StateSetter update) async {
@@ -85,43 +115,32 @@ class SourceEditor {
           url = location.text.trim(),
           user = username.text.trim();
       if (label.isEmpty || url.isEmpty) {
-        update(() => message = '名称和地址不能为空');
+        update(() => message = _SourceMessage.fieldsRequired);
         return;
       }
-      if (smb) {
-        try {
-          SmbSource.validateLocation(url);
-        } catch (e) {
-          update(() => message = '$e');
-          return;
-        }
-      } else if (webdav) {
-        final uri = Uri.tryParse(url);
-        if (uri == null ||
-            !uri.hasAuthority ||
-            !(uri.isScheme('http') || uri.isScheme('https'))) {
-          update(() => message = '请输入有效的 WebDAV 地址');
-          return;
-        }
-        if (user.isEmpty && password.text.isNotEmpty) {
-          update(() => message = '匿名访问时请同时留空用户名和密码');
-          return;
-        }
+      final invalid = validateConnection();
+      if (invalid != null) {
+        update(() => message = invalid);
+        return;
       }
       if (url != source['location']) {
         final proceed = await showDialog<bool>(
           context: dialogContext,
           builder: (ctx) => AlertDialog(
-            title: const Text('确认更改媒体源地址'),
-            content: const Text('作品、人工绑定、观看进度及源 ID 将保留。如果新目录不包含原文件，需要重新扫描。'),
+            title: Text(dialogContext.l10n.changeSourceTitle),
+            content: Text(dialogContext.l10n.changeSourceBody),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('取消'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('确认修改'),
+              UniformActionBar(
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: Text(dialogContext.l10n.cancel),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: Text(dialogContext.l10n.confirmChange),
+                  ),
+                ],
               ),
             ],
           ),
@@ -146,17 +165,19 @@ class SourceEditor {
           password: newPassword,
         );
         if (dialogContext.mounted) Navigator.pop(dialogContext);
-      } catch (e) {
-        if (dialogContext.mounted) update(() => message = '保存失败：$e');
+      } catch (_) {
+        if (dialogContext.mounted) {
+          update(() => message = _SourceMessage.saveFailed);
+        }
       }
     }
 
     try {
-      await showDialog<void>(
+      final route = DialogRoute<void>(
         context: context,
         builder: (dialogContext) => StatefulBuilder(
           builder: (dialogContext, update) => AlertDialog(
-            title: const Text('编辑媒体源'),
+            title: Text(dialogContext.l10n.editSource),
             content: SizedBox(
               width: 470,
               child: SingleChildScrollView(
@@ -166,7 +187,9 @@ class SourceEditor {
                   children: [
                     TextField(
                       controller: name,
-                      decoration: const InputDecoration(labelText: '媒体源名称'),
+                      decoration: InputDecoration(
+                        labelText: dialogContext.l10n.sourceName,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     TextField(
@@ -174,31 +197,31 @@ class SourceEditor {
                       readOnly: !webdav,
                       decoration: InputDecoration(
                         labelText: smb
-                            ? 'SMB 共享地址'
+                            ? dialogContext.l10n.smbUrl
                             : webdav
-                            ? 'WebDAV 根目录 URL'
-                            : '本地文件夹',
+                            ? dialogContext.l10n.webdavUrl
+                            : dialogContext.l10n.localFolder,
                       ),
                     ),
                     if (!webdav)
                       TextButton.icon(
                         onPressed: () async {
                           final selected = await FilePicker.getDirectoryPath(
-                            dialogTitle: '选择本地媒体文件夹',
+                            dialogTitle: dialogContext.l10n.chooseMediaFolder,
                           );
                           if (selected != null && dialogContext.mounted) {
                             update(() => location.text = selected);
                           }
                         },
                         icon: const Icon(Icons.folder_open),
-                        label: const Text('选择文件夹'),
+                        label: Text(dialogContext.l10n.chooseFolder),
                       ),
                     if (webdav) ...[
                       const SizedBox(height: 12),
                       TextField(
                         controller: username,
-                        decoration: const InputDecoration(
-                          labelText: '用户名（可留空）',
+                        decoration: InputDecoration(
+                          labelText: dialogContext.l10n.usernameOptional,
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -206,17 +229,19 @@ class SourceEditor {
                         controller: password,
                         obscureText: true,
                         decoration: InputDecoration(
-                          labelText: '新密码（可留空）',
+                          labelText: dialogContext.l10n.newPassword,
                           helperText: clearPassword
-                              ? '保存后清除已有密码'
-                              : '留空保留原密码；用户名和密码均留空表示匿名访问',
+                              ? dialogContext.l10n.passwordWillClear
+                              : dialogContext.l10n.keepPassword,
                           suffixIcon: IconButton(
                             icon: Icon(
                               clearPassword
                                   ? Icons.undo
                                   : Icons.backspace_outlined,
                             ),
-                            tooltip: clearPassword ? '撤销清除密码' : '清除已保存密码',
+                            tooltip: clearPassword
+                                ? dialogContext.l10n.undoClearPassword
+                                : dialogContext.l10n.clearSavedPassword,
                             onPressed: () => update(() {
                               clearPassword = !clearPassword;
                               if (clearPassword) password.clear();
@@ -227,38 +252,66 @@ class SourceEditor {
                     ],
                     const SizedBox(height: 12),
                     if (message != null)
-                      Text(
-                        message!,
-                        style: Theme.of(dialogContext).textTheme.bodySmall,
-                      ),
+                      Text(switch (message!) {
+                        _SourceMessage.connected =>
+                          dialogContext.l10n.sourceConnected(itemCount),
+                        _SourceMessage.localAccessible =>
+                          dialogContext.l10n.localAccessible,
+                        _SourceMessage.testFailed => sourceAccessMessage(
+                          dialogContext.l10n,
+                          problem,
+                        ),
+                        _SourceMessage.fieldsRequired =>
+                          dialogContext.l10n.sourceFieldsRequired,
+                        _SourceMessage.invalidSmb =>
+                          dialogContext.l10n.invalidSmb,
+                        _SourceMessage.invalidWebdav =>
+                          dialogContext.l10n.invalidWebdav,
+                        _SourceMessage.guestCredentials =>
+                          dialogContext.l10n.anonymousCredentials,
+                        _SourceMessage.saveFailed =>
+                          dialogContext.l10n.sourceSaveFailed,
+                      }, style: Theme.of(dialogContext).textTheme.bodySmall),
                   ],
                 ),
               ),
             ),
             actions: [
-              TextButton(
-                onPressed: testing ? null : () => Navigator.pop(dialogContext),
-                child: const Text('取消'),
-              ),
-              OutlinedButton.icon(
-                icon: testing
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.wifi_tethering),
-                onPressed: testing ? null : () => test(update),
-                label: const Text('测试连接'),
-              ),
-              FilledButton(
-                onPressed: testing ? null : () => save(dialogContext, update),
-                child: const Text('保存'),
+              UniformActionBar(
+                children: [
+                  TextButton(
+                    onPressed: testing
+                        ? null
+                        : () => Navigator.pop(dialogContext),
+                    child: Text(dialogContext.l10n.cancel),
+                  ),
+                  OutlinedButton.icon(
+                    icon: testing
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.wifi_tethering),
+                    onPressed: testing
+                        ? null
+                        : () => test(dialogContext, update),
+                    label: Text(dialogContext.l10n.testConnection),
+                  ),
+                  FilledButton(
+                    onPressed: testing
+                        ? null
+                        : () => save(dialogContext, update),
+                    child: Text(dialogContext.l10n.save),
+                  ),
+                ],
               ),
             ],
           ),
         ),
       );
+      await Navigator.of(context, rootNavigator: true).push<void>(route);
+      await route.completed;
     } finally {
       name.dispose();
       location.dispose();

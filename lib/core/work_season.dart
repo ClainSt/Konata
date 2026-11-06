@@ -2,6 +2,17 @@ import 'cloud_media_asset_presentation.dart';
 
 /// Preserve directory identity after provider titles replace the display name.
 abstract final class WorkSeason {
+  static bool showSeasonInTitle(
+    Map<String, Object?> work,
+    Iterable<Map> seasons,
+  ) {
+    final directorySeason = CloudMediaAssetPresentation.explicitSeasonNumber({
+      'work_title': directoryTitle(work),
+    });
+    return directorySeason != null ||
+        seasons.where((s) => (s['season_number'] as num? ?? 0) > 0).length > 1;
+  }
+
   static bool multiple(Map<String, Object?> work) =>
       RegExp(
             r'(?<![a-z0-9])S(\d{1,2})[ ._]*(?:[+&~～]|[-–—])[ ._]*S?(\d{1,2})(?![a-z0-9])',
@@ -10,13 +21,18 @@ abstract final class WorkSeason {
           .allMatches(directoryTitle(work))
           .any((m) => int.parse(m.group(1)!) != int.parse(m.group(2)!));
 
-  static bool needsRefresh(Map<String, Object?> work) {
+  static bool needsRefresh(
+    Map<String, Object?> work, {
+    bool sharedSeries = true,
+  }) {
     if (work['tmdb_type'] != 'tv' || work['tmdb_id'] == null) return false;
     if (multiple(work)) return false;
     final number = explicit(work);
     final title = work['title']?.toString() ?? '';
     if (number != null) return !title.endsWith('第$number季');
-    return year(work) != null && !RegExp(r'第\d+季$').hasMatch(title);
+    return sharedSeries &&
+        year(work) != null &&
+        !RegExp(r'第\d+季$').hasMatch(title);
   }
 
   static String directoryTitle(Map<String, Object?> work) {

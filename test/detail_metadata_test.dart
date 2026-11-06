@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -5,6 +6,104 @@ import 'package:http/testing.dart';
 import 'package:ccplayer/core/detail_metadata.dart';
 
 void main() {
+  test(
+    'repairs an unlocked single-season title and prefers exact cast subject over a second part',
+    () async {
+      const title = '86-不存在的战区-';
+      final work = {
+        'id':
+            'work:tablet:${Uri.encodeComponent('$title (2021) {tmdb-100565}')}',
+        'title': '$title 第1季',
+        'year': 2021,
+        'tmdb_id': 100565,
+        'tmdb_type': 'tv',
+      };
+      final client = MockClient((req) async {
+        final Object body = switch (req.url.path) {
+          '/v0/search/subjects' => {
+            'data': [
+              {'id': 331887, 'name_cn': '$title 第2部分', 'date': '2021-10-02'},
+              {'id': 302189, 'name_cn': '86 -不存在的战区-', 'date': '2021-04-10'},
+            ],
+          },
+          '/v0/subjects/302189' => {'id': 302189, 'date': '2021-04-10'},
+          '/v0/subjects/302189/characters' => [
+            {'id': 1, 'name': '蕾娜', 'relation': '主角', 'actors': []},
+          ],
+          _ => <String, dynamic>{},
+        };
+        return http.Response(
+          jsonEncode(body),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      final service = DetailMetadataService(
+        client: client,
+        tmdbRequest: (path, _) async => path == '/tv/100565'
+            ? {
+                'name': title,
+                'genres': [
+                  {'id': 16},
+                ],
+                'seasons': [
+                  {'season_number': 0},
+                  {'season_number': 1, 'episode_count': 23},
+                ],
+              }
+            : {},
+      );
+      final repaired = await service.fetch(work);
+      expect(repaired['automaticSeriesTitle'], title);
+      expect(repaired['automaticBangumiId'], 302189);
+      expect((repaired['characters'] as List).single['id'], 1);
+      final locked = await service.fetch({...work, 'manual_lock': 1});
+      expect(locked.containsKey('automaticSeriesTitle'), isFalse);
+      expect(locked.containsKey('automaticBangumiId'), isFalse);
+      client.close();
+    },
+  );
+  test(
+    'character roster is visible before season and translation requests finish',
+    () async {
+      final overview = Completer<Map<String, dynamic>?>();
+      final translation = Completer<http.Response>();
+      final preview = Completer<List<Map<String, dynamic>>>();
+      final client = MockClient((request) async {
+        if (request.url.path == '/v0/subjects/302189/characters') {
+          return http.Response(
+            jsonEncode([
+              {'id': 1, 'name': 'Lena', 'actors': [], 'relation': '主角'},
+            ]),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        if (request.url.path == '/v0/characters/1') return translation.future;
+        return http.Response('{}', 200);
+      });
+      addTearDown(client.close);
+      final service = DetailMetadataService(
+        client: client,
+        tmdbRequest: (_, _) => overview.future,
+      );
+      final pending = service.fetch({
+        'tmdb_id': 100565,
+        'bangumi_id': 302189,
+      }, onCharacters: preview.complete);
+      expect(
+        (await preview.future.timeout(
+          const Duration(seconds: 2),
+        )).single['name'],
+        'Lena',
+      );
+      translation.complete(
+        http.Response.bytes(utf8.encode(jsonEncode({'name_cn': '蕾娜'})), 200),
+      );
+      overview.complete(null);
+      expect(((await pending)['characters'] as List).single['name_cn'], '蕾娜');
+    },
+  );
   test(
     'Bangumi fallback episode names belong to the directory season',
     () async {
@@ -67,7 +166,7 @@ void main() {
       expect(data['tags'], isNot(contains('剧场版')));
       expect(
         data['movieStill'],
-        'https://image.tmdb.org/t/p/w780/${hasBackdrop ? 'movie' : 'best'}.jpg',
+        'https://images.tmdb.org/t/p/w780/${hasBackdrop ? 'movie' : 'best'}.jpg',
       );
       expect(calls.any((path) => path.contains('/season/')), isFalse);
       expect(calls.contains('/movie/123/images'), !hasBackdrop);
@@ -124,6 +223,7 @@ void main() {
         } else if (path.endsWith('/characters')) {
           response = [
             {
+              'id': 10001,
               'name': '秋里乐叶',
               'name_cn': '秋里乐叶',
               'images': {'medium': 'https://example.org/char.jpg'},
@@ -189,13 +289,13 @@ void main() {
         expect(detail['source'], 'TMDB + Bangumi');
         expect(
           detail['backdrop'],
-          'https://image.tmdb.org/t/p/original/backdrop.jpg',
+          'https://images.tmdb.org/t/p/original/backdrop.jpg',
         );
         final episodes = detail['episodes'] as Map;
         expect((episodes['1'] as Map)['name'], '第一集');
         expect(
           (episodes['1'] as Map)['still'],
-          'https://image.tmdb.org/t/p/w500/ep01.jpg',
+          'https://images.tmdb.org/t/p/w500/ep01.jpg',
         );
         final characters = detail['characters'] as List;
         expect((characters.first as Map)['name'], '秋里乐叶');

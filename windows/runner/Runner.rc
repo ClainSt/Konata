@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.clainst" "\0"
-            VALUE "FileDescription", "ccplayer" "\0"
+            VALUE "FileDescription", "Konata" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "ccplayer" "\0"
+            VALUE "InternalName", "Konata" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.clainst. All rights reserved." "\0"
-            VALUE "OriginalFilename", "ccplayer.exe" "\0"
-            VALUE "ProductName", "ccplayer" "\0"
+            VALUE "OriginalFilename", "Konata.exe" "\0"
+            VALUE "ProductName", "Konata" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

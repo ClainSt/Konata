@@ -1,3 +1,12 @@
+import 'metadata.dart';
+import 'bangumi_links.dart';
+import 'watched_timeline.dart';
+import 'logical_episode_store.dart';
+import 'watch_event_store.dart';
+import 'watch_event_origin.dart';
+import 'bangumi_episode_mapping.dart';
+import 'debug_log.dart';
+import 'image_store.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
@@ -16,6 +25,7 @@ class Catalog extends ChangeNotifier {
   Catalog._();
   static final instance = Catalog._();
   late Database db;
+  LogicalEpisodeStore get logicalEpisodes => LogicalEpisodeStore(db);
   static const _secrets = FlutterSecureStorage();
   List<Map<String, Object?>> sources = [],
       works = [],
@@ -25,17 +35,56 @@ class Catalog extends ChangeNotifier {
   bool scanning = false;
   String status = '就绪';
 
-  Future<void> initialize() async {
+  Future<void> initialize({Directory? dataDirectory}) async {
     if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
       sqfliteFfiInit();
       databaseFactory = databaseFactoryFfi;
     }
-    final folder = await getApplicationSupportDirectory();
+    final folder = dataDirectory ?? await getApplicationSupportDirectory();
     await folder.create(recursive: true);
     db = await openDatabase(
       p.join(folder.path, 'ccplayer.db'),
-      version: 12,
+      version: 18,
       onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 17) await WatchEventStore.createSchema(db);
+        if (oldVersion < 16) await LogicalEpisodeStore.createSchema(db);
+        if (oldVersion < 15) {
+          final columns = (await db.rawQuery(
+            'PRAGMA table_info(progress)',
+          )).map((r) => r['name']).toSet();
+          if (!columns.contains('watched_ranges')) {
+            await db.execute(
+              'ALTER TABLE progress ADD COLUMN watched_ranges TEXT',
+            );
+          }
+        }
+        if (oldVersion < 14) {
+          final columns = (await db.rawQuery(
+            'PRAGMA table_info(progress)',
+          )).map((row) => row['name']).toSet();
+          if (!columns.contains('manual_completed')) {
+            await db.execute(
+              'ALTER TABLE progress ADD COLUMN manual_completed INTEGER',
+            );
+          }
+        }
+        if (oldVersion < 13) {
+          // Some v12 libraries already contain these fields from earlier builds.
+          // Add only absent columns; existing manual data must stay untouched.
+          final columns = (await db.rawQuery(
+            'PRAGMA table_info(works)',
+          )).map((row) => row['name'].toString()).toSet();
+          for (final column in [
+            'bangumi_ids',
+            'bangumi_link_info',
+            'cover_edit_json',
+            'character_order',
+          ]) {
+            if (!columns.contains(column)) {
+              await db.execute('ALTER TABLE works ADD COLUMN $column TEXT');
+            }
+          }
+        }
         if (oldVersion < 2) {
           await db.execute(
             'CREATE TABLE scan_roots (source_id TEXT NOT NULL, relative_path TEXT NOT NULL, mode TEXT NOT NULL, PRIMARY KEY(source_id,relative_path))',
@@ -114,19 +163,25 @@ class Catalog extends ChangeNotifier {
             'ALTER TABLE works ADD COLUMN keep_hidden INTEGER NOT NULL DEFAULT 0',
           );
         }
+        if (oldVersion < 18) {
+          await WatchEventOrigin.createSchema(db);
+          await BangumiEpisodeMapping.createSchema(db);
+        }
       },
       onCreate: (db, version) async {
+        await WatchEventStore.createSchema(db);
+        await LogicalEpisodeStore.createSchema(db);
         await db.execute(
           'CREATE TABLE sources (id TEXT PRIMARY KEY, kind TEXT NOT NULL, label TEXT NOT NULL, location TEXT NOT NULL, username TEXT, password TEXT)',
         );
         await db.execute(
-          'CREATE TABLE works (id TEXT PRIMARY KEY, title TEXT NOT NULL, year INTEGER, tmdb_id INTEGER, tmdb_type TEXT, bangumi_id INTEGER, poster TEXT, poster_fallback TEXT, manual_cover_url TEXT, manual_cover_source TEXT, overview TEXT, manual_lock INTEGER NOT NULL DEFAULT 0, needs_review INTEGER NOT NULL DEFAULT 1, hidden INTEGER NOT NULL DEFAULT 0, keep_hidden INTEGER NOT NULL DEFAULT 0)',
+          'CREATE TABLE works (id TEXT PRIMARY KEY, title TEXT NOT NULL, year INTEGER, tmdb_id INTEGER, tmdb_type TEXT, bangumi_id INTEGER, bangumi_ids TEXT, bangumi_link_info TEXT, cover_edit_json TEXT, character_order TEXT, poster TEXT, poster_fallback TEXT, manual_cover_url TEXT, manual_cover_source TEXT, overview TEXT, manual_lock INTEGER NOT NULL DEFAULT 0, needs_review INTEGER NOT NULL DEFAULT 1, hidden INTEGER NOT NULL DEFAULT 0, keep_hidden INTEGER NOT NULL DEFAULT 0)',
         );
         await db.execute(
           'CREATE TABLE assets (id TEXT PRIMARY KEY, source_id TEXT NOT NULL, work_id TEXT NOT NULL, relative_path TEXT NOT NULL, name TEXT NOT NULL, episode INTEGER, season INTEGER NOT NULL DEFAULT 1, category TEXT NOT NULL, extra_type TEXT, size INTEGER, UNIQUE(source_id,relative_path))',
         );
         await db.execute(
-          'CREATE TABLE progress (asset_id TEXT PRIMARY KEY, position_ms INTEGER NOT NULL, duration_ms INTEGER NOT NULL, completed INTEGER NOT NULL, updated_at TEXT NOT NULL)',
+          'CREATE TABLE progress (asset_id TEXT PRIMARY KEY, position_ms INTEGER NOT NULL, duration_ms INTEGER NOT NULL, completed INTEGER NOT NULL, updated_at TEXT NOT NULL, manual_completed INTEGER, watched_ranges TEXT)',
         );
         await db.execute('CREATE INDEX assets_by_work ON assets(work_id)');
         await db.execute(
@@ -147,6 +202,8 @@ class Catalog extends ChangeNotifier {
         await db.execute(
           'CREATE TABLE asset_override_history (asset_id TEXT PRIMARY KEY, work_id TEXT NOT NULL, category TEXT NOT NULL, episode INTEGER, season INTEGER NOT NULL DEFAULT 1, extra_type TEXT, was_locked INTEGER NOT NULL)',
         );
+        await WatchEventOrigin.createSchema(db);
+        await BangumiEpisodeMapping.createSchema(db);
       },
     );
     // Migrate passwords previously kept in the early development SQLite schema.
@@ -173,7 +230,23 @@ class Catalog extends ChangeNotifier {
     final allWorks = await db.query('works', orderBy: 'title COLLATE NOCASE');
     works = allWorks.where((row) => row['hidden'] != 1).toList();
     hiddenWorkEntries = allWorks.where((row) => row['hidden'] == 1).toList();
-    assets = await db.query('assets', orderBy: 'episode, name');
+    final hasOverrides = (await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='asset_overrides'",
+    )).isNotEmpty;
+    final lockedAssets =
+        (hasOverrides
+                ? await db.query('asset_overrides', columns: ['asset_id'])
+                : <Map<String, Object?>>[])
+            .map((r) => r['asset_id'])
+            .toSet();
+    assets = (await db.query('assets', orderBy: 'episode, name'))
+        .map(
+          (a) => <String, Object?>{
+            ...a,
+            if (lockedAssets.contains(a['id'])) 'manual_mapping': true,
+          },
+        )
+        .toList();
     scanRoots = await db.query('scan_roots', orderBy: 'relative_path');
     notifyListeners();
   }
@@ -616,7 +689,7 @@ class Catalog extends ChangeNotifier {
   }
 
   static String detailIdentity(Map<String, Object?> work) =>
-      '${work['tmdb_type'] ?? 'tv'}:${work['tmdb_id'] ?? ''}|${work['bangumi_id'] ?? ''}';
+      '${work['tmdb_type'] ?? 'tv'}:${work['tmdb_id'] ?? ''}|${work['bangumi_id'] ?? ''}|${work['bangumi_ids'] ?? ''}';
 
   Future<Map<String, dynamic>?> readWorkDetails(
     Map<String, Object?> work,
@@ -651,17 +724,124 @@ class Catalog extends ChangeNotifier {
         : DateTime.tryParse(rows.first['fetched_at'].toString());
   }
 
+  Future<void> setCharacterOrder(String workId, List<int> order) async {
+    await db.update(
+      'works',
+      {'character_order': jsonEncode(order)},
+      where: 'id=?',
+      whereArgs: [workId],
+    );
+    final rows = await db.query(
+      'work_details',
+      where: 'work_id=?',
+      whereArgs: [workId],
+    );
+    if (rows.isNotEmpty) {
+      final payload =
+          jsonDecode(rows.single['payload'].toString()) as Map<String, dynamic>;
+      final characters = (payload['characters'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+      payload['characters'] = BangumiLinks.mergeCharacters([
+        characters,
+      ], manualOrder: order);
+      await db.update(
+        'work_details',
+        {'payload': jsonEncode(payload)},
+        where: 'work_id=?',
+        whereArgs: [workId],
+      );
+    }
+    await reload();
+  }
+
   Future<void> saveWorkDetails(
     Map<String, Object?> work,
     Map<String, dynamic> payload,
   ) async {
-    await db.insert('work_details', {
-      'work_id': work['id'],
-      'identity': detailIdentity(work),
-      'payload': jsonEncode(payload),
-      'fetched_at': DateTime.now().toUtc().toIso8601String(),
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
-    notifyListeners();
+    final oldDetails = await readWorkDetails(work);
+    final current = (payload['characters'] as List? ?? [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    final oldCharacters = (oldDetails?['characters'] as List? ?? [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    final manual = {
+      for (final c in oldCharacters.where((c) => c['manual'] == true))
+        c['id']: c,
+    };
+    final groups = <List<Map<String, dynamic>>>[current];
+    if ((payload['errors'] as List? ?? []).any(
+      (e) => e.toString().contains('角色'),
+    )) {
+      groups.add(oldCharacters);
+    }
+    var merged = BangumiLinks.mergeCharacters(groups);
+    merged = [
+      for (final c in merged)
+        if (manual.containsKey(c['id'])) {...c, ...manual[c['id']]!} else c,
+    ];
+    List<int> order = [];
+    try {
+      order = (jsonDecode(work['character_order']?.toString() ?? '[]') as List)
+          .whereType<int>()
+          .toList();
+    } catch (_) {}
+    payload['characters'] = BangumiLinks.mergeCharacters([
+      merged,
+    ], manualOrder: order);
+    final seriesTitle = payload.remove('automaticSeriesTitle');
+    final bangumiId = payload.remove('automaticBangumiId');
+    var repaired = false;
+    await db.transaction((tx) async {
+      var identity = detailIdentity(work);
+      if (seriesTitle is String || bangumiId is int) {
+        final rows = await tx.query(
+          'works',
+          where: 'id=?',
+          whereArgs: [work['id']],
+          limit: 1,
+        );
+        if (rows.isEmpty) return;
+        final current = rows.single;
+        if (current['manual_lock'] == 1 || detailIdentity(current) != identity) {
+          return;
+        }
+        final changes = <String, Object?>{
+          if (seriesTitle is String && current['title'] == '$seriesTitle 第1季')
+            'title': seriesTitle,
+          if (bangumiId is int &&
+              bangumiId > 0 &&
+              current['bangumi_link_info'] == null &&
+              BangumiLinks.ids(current).isEmpty)
+            'bangumi_id': bangumiId,
+        };
+        if (changes.isNotEmpty) {
+          await tx.update(
+            'works',
+            changes,
+            where: 'id=?',
+            whereArgs: [work['id']],
+          );
+          identity = detailIdentity({...current, ...changes});
+          repaired = true;
+        }
+      }
+      await tx.insert('work_details', {
+        'work_id': work['id'],
+        'identity': identity,
+        'payload': jsonEncode(payload),
+        'fetched_at': DateTime.now().toUtc().toIso8601String(),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    });
+    if (repaired) {
+      await reload();
+    } else {
+      notifyListeners();
+    }
   }
 
   Future<Map<String, Map<String, Object?>>> progressForWork(
@@ -706,7 +886,17 @@ class Catalog extends ChangeNotifier {
         'manual_lock': 1,
         'needs_review': 0,
         if (provider == 'tmdb') ...{'tmdb_id': providerId, 'tmdb_type': type},
-        if (provider == 'bangumi') 'bangumi_id': providerId,
+        if (provider == 'bangumi') ...{
+          'bangumi_id': providerId,
+          'bangumi_ids': jsonEncode(
+            {...BangumiLinks.ids(old), providerId}.toList(),
+          ),
+          'bangumi_link_info': jsonEncode({
+            'source': 'manual',
+            'confirmed': true,
+            'locked': true,
+          }),
+        },
       },
       where: 'id=?',
       whereArgs: [workId],
@@ -745,8 +935,11 @@ class Catalog extends ChangeNotifier {
     String? source,
     String? url,
   }) async {
-    if (source != null && source != 'tmdb' && source != 'bangumi') {
-      throw ArgumentError('封面来源只支持 TMDB 或 Bangumi');
+    if (source != null &&
+        source != 'tmdb' &&
+        source != 'bangumi' &&
+        source != 'local') {
+      throw ArgumentError('封面来源只支持 TMDB、Bangumi 或本地图片');
     }
     if (source != null && (url == null || url.trim().isEmpty)) {
       throw ArgumentError('没有可用的封面图片');
@@ -763,9 +956,66 @@ class Catalog extends ChangeNotifier {
     await reload();
   }
 
+  Future<void> setBangumiLinks(String workId, List<int> ids) async {
+    final distinct = ids.where((id) => id > 0).toSet().toList();
+    await db.update(
+      'works',
+      {
+        'bangumi_id': distinct.isEmpty ? null : distinct.first,
+        'bangumi_ids': jsonEncode(distinct),
+        'bangumi_link_info': jsonEncode({
+          'source': 'manual',
+          'confirmed': true,
+          'locked': true,
+        }),
+      },
+      where: 'id=?',
+      whereArgs: [workId],
+    );
+    await reload();
+  }
+
+  Future<void> saveCroppedCover(
+    String workId,
+    String source,
+    String original,
+    String output,
+    Object crop, {
+    int? subjectId,
+  }) async {
+    await db.update(
+      'works',
+      {
+        'manual_cover_source': source,
+        'manual_cover_url': output,
+        'cover_edit_json': jsonEncode({
+          'source': source,
+          'subjectId': subjectId,
+          'original': original,
+          'resource': output,
+          'crop': crop,
+          'manual': true,
+        }),
+      },
+      where: 'id=?',
+      whereArgs: [workId],
+    );
+    DebugLog.write('CoverCrop', 'cover state saved');
+    await reload();
+  }
+
   static String? preferredPoster(Map<String, Object?> work) {
     for (final field in ['manual_cover_url', 'poster', 'poster_fallback']) {
       final value = work[field]?.toString().trim();
+      if (field == 'manual_cover_url' &&
+          value != null &&
+          value.startsWith('artwork:') &&
+          ImageStore.root != null &&
+          !File(
+            p.join(ImageStore.root!.path, value.substring(8)),
+          ).existsSync()) {
+        continue;
+      }
       if (value != null && value.isNotEmpty) return value;
     }
     return null;
@@ -798,7 +1048,9 @@ class Catalog extends ChangeNotifier {
           : old['overview'],
       'tmdb_id': scraped.tmdbId ?? old['tmdb_id'],
       'tmdb_type': scraped.tmdbType ?? old['tmdb_type'],
-      'bangumi_id': scraped.bangumiId ?? old['bangumi_id'],
+      'bangumi_id': old['bangumi_link_info'] != null
+          ? old['bangumi_id']
+          : scraped.bangumiId ?? old['bangumi_id'],
       'needs_review': 0,
     };
     await db.update(
@@ -812,6 +1064,100 @@ class Catalog extends ChangeNotifier {
   }
 
   /// Save a reversible manual relation. Asset IDs and progress stay stable.
+  /// Commits the title and selected file corrections together; progress is untouched.
+  Future<void> saveEpisodeMappings(
+    String workId,
+    Candidate candidate,
+    Map<String, ({int season, int? episode})> mappings,
+  ) async {
+    if (scanning) throw StateError('Scan in progress');
+    if (candidate.mediaType != 'tv' || mappings.isEmpty) {
+      throw ArgumentError('TV mapping required');
+    }
+    await db.transaction((tx) async {
+      final works = await tx.query('works', where: 'id=?', whereArgs: [workId]);
+      if (works.isEmpty) throw StateError('Title removed');
+      final previousId = works.single['tmdb_id'];
+      if (previousId != candidate.id) {
+        final count = await tx.query(
+          'assets',
+          columns: ['id'],
+          where: 'work_id=?',
+          whereArgs: [workId],
+        );
+        if (mappings.length != count.length) {
+          throw StateError('Map all files before changing title');
+        }
+      }
+      for (final entry in mappings.entries) {
+        if (entry.value.season < 0 ||
+            (entry.value.episode != null && entry.value.episode! < 1)) {
+          throw ArgumentError('Invalid episode');
+        }
+        final rows = await tx.query(
+          'assets',
+          where: 'id=? AND work_id=?',
+          whereArgs: [entry.key, workId],
+        );
+        if (rows.isEmpty) throw StateError('File changed');
+        final old = rows.single;
+        final locked = await tx.query(
+          'asset_overrides',
+          where: 'asset_id=?',
+          whereArgs: [entry.key],
+        );
+        await tx.insert('asset_override_history', {
+          'asset_id': entry.key,
+          'work_id': workId,
+          'category': old['category'],
+          'episode': old['episode'],
+          'season': old['season'],
+          'extra_type': old['extra_type'],
+          'was_locked': locked.isEmpty ? 0 : 1,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        final values = <String, Object?>{
+          'work_id': workId,
+          'category': entry.value.episode == null
+              ? 'other'
+              : entry.value.season == 0
+              ? 'extra'
+              : 'main',
+          'episode': entry.value.episode,
+          'season': entry.value.season,
+          'extra_type': entry.value.season == 0 && entry.value.episode != null
+              ? 'SP'
+              : null,
+        };
+        await tx.insert('asset_overrides', {
+          'asset_id': entry.key,
+          ...values,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        await tx.update(
+          'assets',
+          values,
+          where: 'id=?',
+          whereArgs: [entry.key],
+        );
+      }
+      await tx.update(
+        'works',
+        {
+          'tmdb_id': candidate.id,
+          'tmdb_type': 'tv',
+          'title': candidate.title,
+          'year': candidate.year,
+          'overview': candidate.overview ?? works.single['overview'],
+          'manual_lock': 1,
+          'needs_review': 0,
+        },
+        where: 'id=?',
+        whereArgs: [workId],
+      );
+      await tx.delete('work_details', where: 'work_id=?', whereArgs: [workId]);
+    });
+    await reload();
+  }
+
   Future<void> lockAssetRelation(
     String assetId, {
     required String workId,
@@ -936,14 +1282,73 @@ class Catalog extends ChangeNotifier {
     return rows.map((r) => r['asset_id'].toString()).toSet();
   }
 
-  Future<void> progress(String assetId, int position, int duration) async {
-    await db.insert('progress', {
-      'asset_id': assetId,
-      'position_ms': position,
-      'duration_ms': duration,
-      'completed': duration > 0 && position / duration > 0.92 ? 1 : 0,
-      'updated_at': DateTime.now().toUtc().toIso8601String(),
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  Future<void> progress(
+    String assetId,
+    int position,
+    int duration, {
+    List<WatchedRange> watchedRanges = const [],
+    int completionPercent = 90,
+  }) async {
+    RangeError.checkValueInInterval(completionPercent, 1, 100);
+    await db.transaction((txn) async {
+      final previous = await txn.query(
+        'progress',
+        where: 'asset_id=?',
+        whereArgs: [assetId],
+      );
+      final manual = previous.isEmpty
+          ? null
+          : previous.first['manual_completed'];
+      final timeline = WatchedTimeline.decode(
+        previous.isEmpty ? null : previous.first['watched_ranges'],
+      )..addAll(watchedRanges);
+      final wasCompleted =
+          previous.isNotEmpty && previous.first['completed'] == 1;
+      await txn.insert('progress', {
+        'asset_id': assetId,
+        'position_ms': position,
+        'duration_ms': duration,
+        'completed':
+            manual ??
+            (wasCompleted || timeline.reaches(duration, completionPercent)
+                ? 1
+                : 0),
+        'manual_completed': manual,
+        'watched_ranges': timeline.encode(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      final hasEvents = (await txn.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='watch_events'",
+      )).isNotEmpty;
+      final logicalKey = hasEvents
+          ? await LogicalEpisodeStore.resolveIn(txn, assetId)
+          : null;
+      if (logicalKey != null) {
+        if (manual != null &&
+            (await txn.query(
+              'watch_events',
+              columns: ['event_id'],
+              where: 'episode_key=? AND kind=?',
+              whereArgs: [logicalKey, 'manual'],
+              limit: 1,
+            )).isEmpty) {
+          await WatchEventStore.recordManual(
+            txn,
+            logicalKey,
+            manual == 1,
+            assetId: assetId,
+          );
+        }
+        await WatchEventStore.recordCoverage(
+          txn,
+          logicalKey,
+          assetId,
+          WatchedTimeline(watchedRanges),
+          duration,
+          completionPercent,
+        );
+      }
+    });
   }
 
   Future<int> resumePosition(String assetId) async {
@@ -953,7 +1358,13 @@ class Catalog extends ChangeNotifier {
       whereArgs: [assetId],
       limit: 1,
     );
-    return rows.isEmpty ? 0 : (rows.first['position_ms'] as int? ?? 0);
+    if (rows.isEmpty) return 0;
+    final position = rows.first['position_ms'] as int? ?? 0;
+    final duration = rows.first['duration_ms'] as int? ?? 0;
+    // The final video frame can precede the container's end timestamp.
+    final endTolerance = (duration ~/ 100).clamp(0, 250);
+    if (duration > 0 && duration - position <= endTolerance) return 0;
+    return position;
   }
 
   List<Map<String, Object?>> forWork(String id) =>

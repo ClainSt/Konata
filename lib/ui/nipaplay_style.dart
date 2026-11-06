@@ -41,6 +41,13 @@ class NipaPlayStyle {
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
+        helperMaxLines: 3,
+        errorMaxLines: 3,
+        helperStyle: TextStyle(
+          fontSize: 13,
+          height: 1.5,
+          color: foreground.withValues(alpha: .65),
+        ),
         filled: true,
         fillColor: foreground.withValues(alpha: .035),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
@@ -96,14 +103,47 @@ class NipaPlayStyle {
         style: FilledButton.styleFrom(
           backgroundColor: accent,
           foregroundColor: onAccent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          minimumSize: const Size(48, 48),
+          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(foregroundColor: accent),
+        style: TextButton.styleFrom(
+          foregroundColor: foreground.withValues(alpha: .75),
+          minimumSize: const Size(48, 48),
+          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: foreground,
+          minimumSize: const Size(48, 48),
+          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          side: BorderSide(color: foreground.withValues(alpha: .18)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          foregroundColor: onAccent,
+          backgroundColor: accent,
+          elevation: 0,
+          minimumSize: const Size(48, 48),
+          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        ),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          minimumSize: const Size(44, 44),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
       ),
     );
     TextStyle? zh(TextStyle? s) =>

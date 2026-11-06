@@ -1,6 +1,10 @@
 import 'package:flutter/foundation.dart';
 
-enum ScanPhase { scanning, scraping, complete, failed }
+enum ScanPhase { scanning, scraping, complete, cancelled, failed }
+
+class ScanCancelled implements Exception {
+  const ScanCancelled();
+}
 
 /// In-memory progress for each media source. Counts refer to VIDEO FILES,
 /// not WebDAV response objects, archives, subtitle files or images.
@@ -18,6 +22,11 @@ class ScanActivity {
   int metadataTotal = 0, metadataProcessed = 0;
   int matched = 0, needsReview = 0, metadataErrors = 0;
   DateTime? finishedAt;
+  bool cancelRequested = false;
+
+  void checkCancelled() {
+    if (cancelRequested) throw const ScanCancelled();
+  }
 
   int videosUnder(String root) => folderVideos.entries
       .where((e) => root.isEmpty || e.key == root || e.key.startsWith('$root/'))
@@ -32,8 +41,26 @@ class ScanActivityStore extends ChangeNotifier {
   final Map<String, ScanActivity> _runs = {};
   ScanActivity? forSource(String sourceId) => _runs[sourceId];
 
-  void begin(String sourceId, List<String> roots) {
-    _runs[sourceId] = ScanActivity(sourceId, List.unmodifiable(roots));
+  ScanActivity begin(String sourceId, List<String> roots) {
+    final run = ScanActivity(sourceId, List.unmodifiable(roots));
+    _runs[sourceId] = run;
+    notifyListeners();
+    return run;
+  }
+
+  void requestCancel(String sourceId) {
+    final run = _runs[sourceId];
+    if (run == null || run.finishedAt != null || run.cancelRequested) return;
+    run.cancelRequested = true;
+    notifyListeners();
+  }
+
+  void cancelled(String sourceId) {
+    final run = _runs[sourceId];
+    if (run == null) return;
+    run.phase = ScanPhase.cancelled;
+    run.currentFolder = null;
+    run.finishedAt = DateTime.now();
     notifyListeners();
   }
 

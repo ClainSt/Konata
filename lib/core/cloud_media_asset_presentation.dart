@@ -55,14 +55,58 @@ class CloudMediaAssetPresentation {
   );
   static final _extraToken = RegExp(
     r'(^|[^a-z])(NCOPED|NCOP|NCED|MENU|OVA|OAD|PV|CM|SP|MV|LOGO|RL|'
-    r'INFO|INTERVIEW|MAKING|DIGEST|TRAILER|TEASER|PROMOTION|EVENT|'
-    r'EYECATCH|ARTWORK|SPOT|OAB|EX)(?:[ ._-]?(\d+(?:[ ._-]?[a-z])?))?'
+    r'INFORMATION|INFO|INTERVIEW|MAKING|DIGEST|TRAILER|TEASER|PROMOTION|EVENT|'
+    r'EYECATCH|ARTWORK|SPOT|OAB|EX)(?:[ ._-]*(\d+(?:[ ._-]?[a-z])?))?'
     r'(?=[^a-z0-9]|$)',
     caseSensitive: false,
   );
 
+  // Releases such as Moozzi2 use [SP02] as a group containing many clips.
+  // A descriptive suffix owns the title; a bare [SP01] stays a numbered SP.
+  static String? _groupedSpecialContent(String name) {
+    final group = RegExp(
+      r'\[SP\d{1,3}\]',
+      caseSensitive: false,
+    ).firstMatch(name);
+    if (group == null) return null;
+    final suffix = name
+        .substring(group.end)
+        .replaceFirst(
+          RegExp(
+            r'\.(?:mkv|mp4|avi|mov|m4v|ts|m2ts|webm|png|jpe?g)$',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .replaceAll(
+          RegExp(
+            r'\([^)]*(?:\bBD\b|1080|1920|x\.?26[45]|Flac)[^)]*\)',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .replaceAll(RegExp(r'\[\s*(?:PNG|JPEG)\s*\]', caseSensitive: false), '')
+        .replaceAll(
+          RegExp(
+            r'\[(?:\d{3,4}p|HEVC\d*|FLAC\d*|Hi10p|x26[45])\]',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .replaceAll(RegExp(r'^[\s_-]+|[\s_-]+$'), '')
+        .trim();
+    if (!RegExp(r'[a-z\u3040-\u9fff]', caseSensitive: false).hasMatch(suffix)) {
+      return null;
+    }
+    // Codec-only trailing tags do not describe a separate content item.
+    final cleaned = cleanedExtraFilename({'name': '$suffix.mkv'});
+    return cleaned.trim().isEmpty ? null : cleaned;
+  }
+
   static String? extraTitle(Map<String, Object?> asset) {
-    final name = asset['name']?.toString() ?? '';
+    final original = asset['name']?.toString() ?? '';
+    final content = _groupedSpecialContent(original);
+    final name = content ?? original;
     if (CloudMediaFileClassifier.isPreview(name)) return null;
     final noCredit = _noCreditLabel(name);
     if (noCredit != null) return noCredit;
@@ -110,10 +154,11 @@ class CloudMediaAssetPresentation {
         }
         return '$prefix${label.group(2)!.toUpperCase()}';
       }
-      return null;
+      return content;
     }
     final number = (match.group(3) ?? '').replaceAll(RegExp(r'[ ._-]'), '');
-    return '${match.group(2)}$number'.toUpperCase();
+    final type = match.group(2)!.toUpperCase();
+    return '${type == 'INFORMATION' ? 'INFO' : type}$number';
   }
 
   static String extraDisplayTitle(Map<String, Object?> asset) {
@@ -129,14 +174,20 @@ class CloudMediaAssetPresentation {
   }
 
   static String extraType(Map<String, Object?> asset) {
-    final name = asset['name']?.toString() ?? '';
+    final original = asset['name']?.toString() ?? '';
+    final content = _groupedSpecialContent(original);
+    final name = content ?? original;
     if (CloudMediaFileClassifier.isPreview(name)) {
       return '预告';
     }
     final noCredit = _noCreditLabel(name);
     if (noCredit != null) return noCredit;
     final match = _extraToken.firstMatch(name);
-    if (match != null) return match.group(2)!.toUpperCase();
+    if (match != null) {
+      final type = match.group(2)!.toUpperCase();
+      return type == 'INFORMATION' ? 'INFO' : type;
+    }
+    if (content != null) return '其他';
     final path = '${asset['relative_path'] ?? ''}'.replaceAll('\\', '/');
     if (RegExp(r'(^|/)menus?(/|$)', caseSensitive: false).hasMatch(path)) {
       return 'MENU';

@@ -83,6 +83,23 @@ void main() {
         await db.insert('sources', source);
         await cat.reload();
         await cat.addScanRoot('test-source', anime);
+        final activities = ScanActivityStore.instance;
+        void cancelAfterFirstFolder() {
+          final run = activities.forSource('test-source');
+          if (run != null && run.completedFolders.isNotEmpty) {
+            activities.requestCancel('test-source');
+          }
+        }
+        activities.addListener(cancelAfterFirstFolder);
+        try {
+          await SelectedScanWorkflow.run(source, scraper: scraper);
+        } finally {
+          activities.removeListener(cancelAfterFirstFolder);
+        }
+        expect(activities.forSource('test-source')!.phase, ScanPhase.cancelled);
+        expect(cat.scanning, isFalse);
+        expect(cat.rootsFor('test-source'), isNotEmpty);
+        expect(cat.assets, hasLength(1));
         await SelectedScanWorkflow.run(source, scraper: scraper);
         final activity = ScanActivityStore.instance.forSource('test-source')!;
         expect(activity.phase, ScanPhase.complete);
@@ -105,7 +122,7 @@ void main() {
         expect(cat.assets.length, 2);
         expect(
           cat.works.single['poster'],
-          'https://image.tmdb.org/t/p/w500/real.jpg',
+          'https://images.tmdb.org/t/p/w500/real.jpg',
         );
         expect(cat.scanning, isFalse);
       } finally {

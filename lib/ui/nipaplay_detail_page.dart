@@ -1,10 +1,15 @@
+import '../core/episode_metadata.dart';
+import 'manual_episode_page.dart';
+import '../l10n/strings.dart';
+import 'managed_image.dart';
+import 'people_section.dart';
+import 'media_version_picker.dart';
 import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../core/catalog.dart';
 import '../core/detail_metadata.dart';
-import '../core/work_season.dart';
 import '../core/episode_grouping.dart';
 import '../core/cloud_media_asset_presentation.dart';
 import 'nipaplay_style.dart';
@@ -48,7 +53,19 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     super.didUpdateWidget(old);
     if (Catalog.detailIdentity(old.work) !=
             Catalog.detailIdentity(widget.work) ||
-        old.work['id'] != widget.work['id']) {
+        old.work['id'] != widget.work['id'] ||
+        old.assets
+                .map(
+                  (a) =>
+                      '${a['id']}:${a['season']}:${a['episode']}:${a['category']}',
+                )
+                .join('|') !=
+            widget.assets
+                .map(
+                  (a) =>
+                      '${a['id']}:${a['season']}:${a['episode']}:${a['category']}',
+                )
+                .join('|')) {
       details = {};
       refresh();
     }
@@ -99,7 +116,18 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     final svc = DetailMetadataService();
     setState(() => loading = true);
     try {
-      final fresh = await svc.fetch(widget.work, assets: widget.assets);
+      final fresh = await svc.fetch(
+        widget.work,
+        assets: widget.assets,
+        onCharacters: (rows) {
+          if (!mounted ||
+              seq != generation ||
+              (details['characters'] as List? ?? []).isNotEmpty) {
+            return;
+          }
+          setState(() => details = {...details, 'characters': rows});
+        },
+      );
       if (!mounted || seq != generation) return;
       final merged = Map<String, dynamic>.from(details);
       for (final entry in fresh.entries) {
@@ -155,91 +183,35 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     return all;
   }
 
-  Map<String, dynamic> episodeInfo(Map<String, Object?> asset) {
-    final n = asset['episode'] as int?;
-    if (asset['category'] == 'extra') {
-      final specials = details['specialAssets'];
-      final path = asset['relative_path']?.toString();
-      if (specials is Map && specials[path] is Map) {
-        return Map<String, dynamic>.from(specials[path] as Map);
-      }
-      // A CM01 number is not the same as TMDB special episode 1.
-      if (!CloudMediaAssetPresentation.isSpecialMappingCandidate(asset)) {
-        return {};
-      }
-      final explicit = CloudMediaAssetPresentation.explicitSpecialNumber(asset);
-      if (explicit == null) return {};
-      final entries = details['specials'];
-      if (entries is Map && entries[explicit.toString()] is Map) {
-        return Map<String, dynamic>.from(entries[explicit.toString()] as Map);
-      }
-      return {};
-    }
-    if (widget.work['tmdb_type'] == 'movie' && asset['category'] == 'main') {
-      return {
-        'still': details['movieStill'],
-        'name': widget.work['title']?.toString().trim().isNotEmpty == true
-            ? widget.work['title']
-            : details['title'],
-      };
-    }
-    if (n == null) return {};
-    final seasons = details['seasonEpisodes'];
-    final counts = details['seasonEpisodeCounts'];
-    final explicitSeason = CloudMediaAssetPresentation.explicitSeasonNumber({
-      ...asset,
-      'work_title': WorkSeason.directoryTitle(widget.work),
-    });
-    var season = explicitSeason ?? asset['season'] as int? ?? 1;
-    var local = n;
-    final hasExplicit = explicitSeason != null;
-    if (!hasExplicit && season == 1 && counts is Map) {
-      final keys =
-          counts.keys
-              .map((e) => int.tryParse(e.toString()))
-              .whereType<int>()
-              .where((e) => e > 0)
-              .toList()
-            ..sort();
-      for (final s in keys) {
-        final count = (counts[s.toString()] as num?)?.toInt() ?? 0;
-        if (count <= 0) break;
-        if (local <= count) {
-          season = s;
-          break;
-        }
-        local -= count;
-      }
-    }
-    final entries = seasons is Map ? seasons[season.toString()] : null;
-    if (entries is Map && entries[local.toString()] is Map) {
-      return Map<String, dynamic>.from(entries[local.toString()] as Map);
-    }
-    if (season != 1) return {};
-    final old = details['episodes'];
-    if (old is Map && old[n.toString()] is Map) {
-      return Map<String, dynamic>.from(old[n.toString()] as Map);
-    }
-    return {};
-  }
+  Map<String, dynamic> episodeInfo(Map<String, Object?> asset) =>
+      EpisodeMetadata.lookup(widget.work, details, asset);
 
   String episodeLabel(Map<String, Object?> asset) {
     final n = asset['episode'];
     return asset['category'] == 'extra'
-        ? extraType(asset) + (n == null ? '' : ' $n')
-        : (n == null ? '正片' : '第 $n 集');
+        ? (extraType(asset) == '其他'
+                  ? context.l10n.otherExtra
+                  : extraType(asset)) +
+              (n == null ? '' : ' $n')
+        : (n == null
+              ? context.l10n.mainFeature
+              : context.l10n.episodeLabel((n as num).toInt()));
   }
 
   String episodeTitle(Map<String, Object?> asset) {
+    if (asset['manual_mapping'] == true) {
+      final title = episodeInfo(asset)['name']?.toString();
+      if (title?.isNotEmpty == true) return title!;
+    }
     if (asset['category'] == 'extra') {
       final label = extraCoverLabel(asset);
-      const names = {
-        'CM': '宣传广告',
-        'PV': '宣传影像',
-        'NCOP': '无字幕片头',
-        'NCED': '无字幕片尾',
-        'MENU': '光盘菜单',
-        'SP': '特别篇',
+      final names = {
+        'CM': context.l10n.commercial,
+        'PV': context.l10n.promoVideo,
+        'NCOP': context.l10n.cleanOpening,
+        'NCED': context.l10n.cleanEnding,
+        'MENU': context.l10n.discMenu,
+        'SP': context.l10n.specialEpisode,
         'OVA': 'OVA',
         'OAD': 'OAD',
       };
@@ -252,8 +224,11 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
         final path = asset['relative_path']?.toString().replaceAll('\\', '/');
         return path
                 ?.split('/')
-                .lastWhere((part) => part.isNotEmpty, orElse: () => '未命名视频') ??
-            '未命名视频';
+                .lastWhere(
+                  (part) => part.isNotEmpty,
+                  orElse: () => context.l10n.unnamedVideo,
+                ) ??
+            context.l10n.unnamedVideo;
       }
       final number = RegExp(r'\d+[A-Za-z]?$').firstMatch(label)?.group(0);
       return '${names[type] ?? type}${number == null ? '' : ' $number'}';
@@ -291,37 +266,19 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
 
   Future<void> play(
     Map<String, Object?> asset, {
-    bool offerVersions = false,
+    bool offerVersions = true,
   }) async {
     if (offerVersions) {
       final choices = variantsFor(asset);
       if (choices.length > 1) {
-        final chosen = await showModalBottomSheet<Map<String, Object?>>(
-          context: context,
-          showDragHandle: true,
-          builder: (ctx) => SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const ListTile(title: Text('选择播放版本')),
-                for (final v in choices)
-                  ListTile(
-                    title: Text(
-                      v['name']?.toString() ?? '',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text(
-                      v['relative_path']?.toString() ?? '',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    trailing: const Icon(Icons.play_arrow),
-                    onTap: () => Navigator.pop(ctx, v),
-                  ),
-              ],
-            ),
-          ),
+        final chosen = await MediaVersionPicker.choose(
+          context,
+          choices,
+          sourceLabels: {
+            for (final source in Catalog.instance.sources)
+              source['id'].toString():
+                  source['label']?.toString() ?? context.l10n.unnamedSource,
+          },
         );
         if (chosen == null || !mounted) return;
         asset = chosen;
@@ -352,7 +309,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
         ),
       );
     }
-    return Image.network(
+    return ManagedImage(
       url,
       fit: BoxFit.cover,
       alignment: alignment,
@@ -379,15 +336,10 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     final secondary = text.withValues(alpha: .7),
         muted = text.withValues(alpha: .55);
     final surface = dark ? const Color(0xff1f1f1f) : Colors.white;
-    final title = widget.work['title']?.toString() ?? '未命名作品';
+    final title = widget.work['title']?.toString() ?? context.l10n.unnamedWork;
     final posterFallback = widget.work['poster_fallback']?.toString();
-    final manualPoster = widget.work['manual_cover_url']?.toString();
-    final rawPoster = widget.work['poster']?.toString();
-    final poster = manualPoster?.isNotEmpty == true
-        ? manualPoster
-        : rawPoster?.isNotEmpty == true
-        ? rawPoster
-        : details['poster']?.toString();
+    final poster =
+        Catalog.preferredPoster(widget.work) ?? details['poster']?.toString();
     final backdrop = details['backdrop']?.toString().isNotEmpty == true
         ? details['backdrop']?.toString()
         : poster;
@@ -408,293 +360,455 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
       body: LayoutBuilder(
         builder: (ctx, size) {
           final wide = size.maxWidth >= 650, desktop = size.maxWidth >= 1100;
+          final showBackdrop =
+              wide && size.maxHeight >= 500 && backdrop != null;
+          final portraitCover =
+              !wide && size.maxHeight > size.maxWidth && poster != null;
           final inset = desktop
               ? 40.0
               : wide
               ? 28.0
               : 16.0;
-          final width = (size.maxWidth - inset * 2).clamp(0.0, 1560.0);
+          final width = (size.maxWidth - inset * 2).clamp(0.0, size.maxWidth);
           final posterWidth = wide
               ? (desktop ? 245.0 : 170.0)
               : (width * .66).clamp(170.0, 310.0);
           return Stack(
             fit: StackFit.expand,
             children: [
-              if (backdrop != null)
+              if (showBackdrop) ...[
                 Positioned.fill(
+                  key: const ValueKey('detail-backdrop'),
                   child: image(
                     backdrop,
                     alignment: Alignment.topCenter,
                     fallbackUrl: posterFallback,
                   ),
                 ),
-              Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      stops: const [0, .58, 1],
-                      colors: dark
-                          ? const [
-                              Color(0xcc1f1f1f),
-                              Color(0xed1f1f1f),
-                              Color(0xff1f1f1f),
-                            ]
-                          : [
-                              Colors.white.withValues(alpha: .72),
-                              Colors.white.withValues(alpha: .91),
-                              Colors.white,
-                            ],
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        stops: const [0, .58, 1],
+                        colors: dark
+                            ? const [
+                                Color(0xcc1f1f1f),
+                                Color(0xed1f1f1f),
+                                Color(0xff1f1f1f),
+                              ]
+                            : [
+                                Colors.white.withValues(alpha: .72),
+                                Colors.white.withValues(alpha: .91),
+                                Colors.white,
+                              ],
+                      ),
                     ),
                   ),
                 ),
-              ),
+              ],
               SafeArea(
+                top: !portraitCover,
                 child: ScrollConfiguration(
                   behavior: const _MouseScroll(),
                   child: SingleChildScrollView(
-                    padding: EdgeInsets.fromLTRB(inset, 80, inset, 48),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(maxWidth: width),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (wide)
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  SizedBox(
-                                    width: posterWidth,
-                                    height: posterWidth * 1.5,
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: image(
-                                        poster,
-                                        fallbackUrl: posterFallback,
-                                      ),
+                    key: const ValueKey('detail-content-scroll'),
+                    child: Column(
+                      children: [
+                        if (portraitCover)
+                          SizedBox(
+                            key: const ValueKey('detail-portrait-cover'),
+                            width: double.infinity,
+                            height: (size.maxWidth * 1.45).clamp(
+                              0.0,
+                              size.maxHeight * .65,
+                            ),
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                image(
+                                  poster,
+                                  alignment: Alignment.topCenter,
+                                  fallbackUrl: posterFallback,
+                                ),
+                                DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      stops: const [0, .58, 1],
+                                      colors: [
+                                        Colors.black26,
+                                        surface.withAlpha(0),
+                                        surface,
+                                      ],
                                     ),
                                   ),
-                                  SizedBox(width: desktop ? 32 : 20),
-                                  Expanded(
-                                    child: information(
+                                ),
+                              ],
+                            ),
+                          ),
+                        Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            inset,
+                            portraitCover ? 0 : 80,
+                            inset,
+                            48,
+                          ),
+                          child: Center(
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(maxWidth: width),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (wide)
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        SizedBox(
+                                          width: posterWidth,
+                                          height: posterWidth * 1.5,
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            child: image(
+                                              poster,
+                                              fallbackUrl: posterFallback,
+                                            ),
+                                          ),
+                                        ),
+                                        SizedBox(width: desktop ? 32 : 20),
+                                        Expanded(
+                                          child: information(
+                                            title,
+                                            overview,
+                                            details['score'],
+                                            tags,
+                                            secondary,
+                                            muted,
+                                            desktop,
+                                          ),
+                                        ),
+                                      ],
+                                    )
+                                  else ...[
+                                    if (!portraitCover) ...[
+                                      Center(
+                                        child: SizedBox(
+                                          width: posterWidth,
+                                          height: posterWidth * 1.5,
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            child: image(
+                                              poster,
+                                              fallbackUrl: posterFallback,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 20),
+                                    ],
+                                    information(
                                       title,
                                       overview,
                                       details['score'],
                                       tags,
                                       secondary,
                                       muted,
-                                      desktop,
+                                      false,
+                                      fullWidthPlay: portraitCover,
                                     ),
-                                  ),
-                                ],
-                              )
-                            else ...[
-                              Center(
-                                child: SizedBox(
-                                  width: posterWidth,
-                                  height: posterWidth * 1.5,
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: image(
-                                      poster,
-                                      fallbackUrl: posterFallback,
+                                  ],
+                                  if (details['isAnimation'] == false) ...[
+                                    PeopleSection(
+                                      title: context.l10n.cast,
+                                      people: (details['cast'] as List? ?? [])
+                                          .whereType<Map<String, dynamic>>()
+                                          .toList(),
                                     ),
+                                    PeopleSection(
+                                      title: context.l10n.crew,
+                                      people: (details['crew'] as List? ?? [])
+                                          .whereType<Map<String, dynamic>>()
+                                          .toList(),
+                                    ),
+                                  ],
+                                  if (loading &&
+                                      cast.isEmpty &&
+                                      details['isAnimation'] != false &&
+                                      widget.work['bangumi_id'] != null)
+                                    const LinearProgressIndicator(),
+                                  if (details['isAnimation'] != false &&
+                                      cast.isNotEmpty) ...[
+                                    const SizedBox(height: 28),
+                                    Text(
+                                      context.l10n.characters,
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        color: secondary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 14),
+                                    SizedBox(
+                                      height:
+                                          96 +
+                                          50 *
+                                              MediaQuery.textScalerOf(
+                                                context,
+                                              ).scale(1),
+                                      child: ListView.separated(
+                                        scrollDirection: Axis.horizontal,
+                                        itemCount: cast.length,
+                                        separatorBuilder: (_, _) =>
+                                            const SizedBox(width: 16),
+                                        itemBuilder: (ctx, i) {
+                                          final c = cast[i];
+                                          final chinese =
+                                              Localizations.localeOf(
+                                                context,
+                                              ).languageCode ==
+                                              'zh';
+                                          final actorDetails =
+                                              c['actorDetails'] as List?;
+                                          final actors = actorDetails != null
+                                              ? actorDetails
+                                                    .whereType<Map>()
+                                                    .map(
+                                                      (a) => chinese
+                                                          ? (a['name_cn'] ??
+                                                                a['name'] ??
+                                                                '')
+                                                          : (a['name'] ??
+                                                                a['name_cn'] ??
+                                                                ''),
+                                                    )
+                                                    .join(' / ')
+                                              : c['actors'] is List
+                                              ? (c['actors'] as List).join(
+                                                  ' / ',
+                                                )
+                                              : '';
+                                          return SizedBox(
+                                            width: characterWidth(
+                                              context,
+                                              (chinese
+                                                          ? c['name_cn'] ??
+                                                                c['name']
+                                                          : c['originalName'] ??
+                                                                c['name'])
+                                                      ?.toString() ??
+                                                  '',
+                                              actors,
+                                            ),
+                                            child: Column(
+                                              children: [
+                                                SizedBox(
+                                                  height: 80,
+                                                  width: 80,
+                                                  child: ClipOval(
+                                                    child: image(
+                                                      c['image']?.toString(),
+                                                      alignment:
+                                                          Alignment.topCenter,
+                                                    ),
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 7),
+                                                Text(
+                                                  (chinese
+                                                              ? c['name_cn'] ??
+                                                                    c['name']
+                                                              : c['originalName'] ??
+                                                                    c['name'])
+                                                          ?.toString() ??
+                                                      '',
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: TextStyle(
+                                                    color: text,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 3),
+                                                Text(
+                                                  actors,
+                                                  maxLines: 1,
+                                                  softWrap: false,
+                                                  textAlign: TextAlign.center,
+                                                  style: TextStyle(
+                                                    color: muted,
+                                                    fontSize: 11,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ],
+                                  const SizedBox(height: 30),
+                                  Wrap(
+                                    alignment: WrapAlignment.spaceBetween,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    spacing: 16,
+                                    runSpacing: 8,
+                                    children: [
+                                      SingleChildScrollView(
+                                        key: const ValueKey(
+                                          'detail-section-tabs',
+                                        ),
+                                        scrollDirection: Axis.horizontal,
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            sectionTab(
+                                              'main',
+                                              context.l10n.mainFeature,
+                                              episodes.length,
+                                              muted,
+                                            ),
+                                            const SizedBox(width: 22),
+                                            sectionTab(
+                                              'extra',
+                                              context.l10n.extraFiles,
+                                              allExtras.length,
+                                              muted,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      TextButton.icon(
+                                        onPressed: () => setState(
+                                          () => expanded = !expanded,
+                                        ),
+                                        icon: Icon(
+                                          expanded
+                                              ? Icons.view_carousel_outlined
+                                              : Icons.view_list_outlined,
+                                          size: 18,
+                                        ),
+                                        label: Text(
+                                          expanded
+                                              ? context.l10n.collapseList
+                                              : context.l10n.fullList,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                              ),
-                              const SizedBox(height: 20),
-                              information(
-                                title,
-                                overview,
-                                details['score'],
-                                tags,
-                                secondary,
-                                muted,
-                                false,
-                              ),
-                            ],
-                            if (cast.isNotEmpty) ...[
-                              const SizedBox(height: 28),
-                              Text(
-                                '角色',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  color: secondary,
-                                ),
-                              ),
-                              const SizedBox(height: 14),
-                              SizedBox(
-                                height: 146,
-                                child: ListView.separated(
-                                  scrollDirection: Axis.horizontal,
-                                  itemCount: cast.length,
-                                  separatorBuilder: (_, _) =>
-                                      const SizedBox(width: 16),
-                                  itemBuilder: (ctx, i) {
-                                    final c = cast[i];
-                                    final actors = c['actors'] is List
-                                        ? (c['actors'] as List).join(' / ')
-                                        : '';
-                                    return SizedBox(
-                                      width: 96,
-                                      child: Column(
+                                  const SizedBox(height: 12),
+                                  if (section == 'extra' &&
+                                      typeNames.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(
+                                        bottom: 16,
+                                      ),
+                                      child: Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
                                         children: [
-                                          SizedBox(
-                                            height: 80,
-                                            width: 80,
-                                            child: ClipOval(
-                                              child: image(
-                                                c['image']?.toString(),
-                                                alignment: Alignment.topCenter,
+                                          for (final type in [
+                                            '全部',
+                                            ...typeNames,
+                                          ])
+                                            ChoiceChip(
+                                              label: Text(
+                                                type == '全部'
+                                                    ? context.l10n.allExtras
+                                                    : type == '其他'
+                                                    ? context.l10n.otherExtra
+                                                    : type,
+                                              ),
+                                              selected: extraFilter == type,
+                                              selectedColor:
+                                                  NipaPlayStyle.accent,
+                                              checkmarkColor:
+                                                  NipaPlayStyle.onAccent,
+                                              labelStyle: TextStyle(
+                                                color: extraFilter == type
+                                                    ? NipaPlayStyle.onAccent
+                                                    : text,
+                                                fontWeight: extraFilter == type
+                                                    ? FontWeight.w600
+                                                    : FontWeight.w400,
+                                              ),
+                                              onSelected: (_) => setState(
+                                                () => extraFilter = type,
                                               ),
                                             ),
-                                          ),
-                                          const SizedBox(height: 7),
-                                          Text(
-                                            c['name']?.toString() ?? '',
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              color: text,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 3),
-                                          Text(
-                                            actors,
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            textAlign: TextAlign.center,
-                                            style: TextStyle(
-                                              color: muted,
-                                              fontSize: 11,
-                                            ),
-                                          ),
                                         ],
                                       ),
-                                    );
-                                  },
-                                ),
-                              ),
-                            ],
-                            const SizedBox(height: 30),
-                            Wrap(
-                              alignment: WrapAlignment.spaceBetween,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              spacing: 16,
-                              runSpacing: 8,
-                              children: [
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    sectionTab(
-                                      'main',
-                                      '正片',
-                                      episodes.length,
-                                      muted,
                                     ),
-                                    const SizedBox(width: 22),
-                                    sectionTab(
-                                      'extra',
-                                      '特典',
-                                      allExtras.length,
-                                      muted,
-                                    ),
-                                  ],
-                                ),
-                                TextButton.icon(
-                                  onPressed: () =>
-                                      setState(() => expanded = !expanded),
-                                  icon: Icon(
-                                    expanded
-                                        ? Icons.view_carousel_outlined
-                                        : Icons.view_list_outlined,
-                                    size: 18,
-                                  ),
-                                  label: Text(expanded ? '收起列表' : '完整列表'),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            if (section == 'extra' && typeNames.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 16),
-                                child: Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    for (final type in ['全部', ...typeNames])
-                                      ChoiceChip(
-                                        label: Text(type),
-                                        selected: extraFilter == type,
-                                        selectedColor: NipaPlayStyle.accent,
-                                        checkmarkColor: NipaPlayStyle.onAccent,
-                                        labelStyle: TextStyle(
-                                          color: extraFilter == type
-                                              ? NipaPlayStyle.onAccent
-                                              : text,
-                                          fontWeight: extraFilter == type
-                                              ? FontWeight.w600
-                                              : FontWeight.w400,
-                                        ),
-                                        onSelected: (_) =>
-                                            setState(() => extraFilter = type),
+                                  if (selected.isEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 30,
                                       ),
-                                  ],
-                                ),
-                              ),
-                            if (selected.isEmpty)
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 30,
-                                ),
-                                child: Text(
-                                  section == 'extra' ? '暂无特典文件' : '暂无已关联正片',
-                                  style: TextStyle(color: muted),
-                                ),
-                              )
-                            else if (expanded)
-                              LayoutBuilder(
-                                builder: (ctx, layout) {
-                                  final count = (layout.maxWidth / 240)
-                                      .floor()
-                                      .clamp(1, 6);
-                                  final tileWidth =
-                                      (layout.maxWidth - 12 * (count - 1)) /
-                                      count;
-                                  return Wrap(
-                                    spacing: 12,
-                                    runSpacing: 18,
-                                    children: [
-                                      for (final asset in selected)
-                                        SizedBox(
-                                          width: tileWidth,
-                                          child: episodeTile(asset, secondary),
+                                      child: Text(
+                                        section == 'extra'
+                                            ? context.l10n.noExtras
+                                            : context.l10n.noLinkedEpisodes,
+                                        style: TextStyle(color: muted),
+                                      ),
+                                    )
+                                  else if (expanded)
+                                    LayoutBuilder(
+                                      builder: (ctx, layout) {
+                                        final count = layout.maxWidth > 0
+                                            ? ((layout.maxWidth + 12) / 252)
+                                                  .ceil()
+                                            : 1;
+                                        final tileWidth =
+                                            (layout.maxWidth -
+                                                12 * (count - 1)) /
+                                            count;
+                                        return Wrap(
+                                          spacing: 12,
+                                          runSpacing: 18,
+                                          children: [
+                                            for (final asset in selected)
+                                              SizedBox(
+                                                width: tileWidth,
+                                                child: episodeTile(
+                                                  asset,
+                                                  secondary,
+                                                ),
+                                              ),
+                                          ],
+                                        );
+                                      },
+                                    )
+                                  else
+                                    SizedBox(
+                                      height: 238,
+                                      child: ListView.separated(
+                                        controller: rail,
+                                        scrollDirection: Axis.horizontal,
+                                        itemCount: selected.length,
+                                        separatorBuilder: (_, _) =>
+                                            const SizedBox(width: 12),
+                                        itemBuilder: (ctx, i) => SizedBox(
+                                          width: 260,
+                                          child: episodeTile(
+                                            selected[i],
+                                            secondary,
+                                          ),
                                         ),
-                                    ],
-                                  );
-                                },
-                              )
-                            else
-                              SizedBox(
-                                height: 238,
-                                child: ListView.separated(
-                                  controller: rail,
-                                  scrollDirection: Axis.horizontal,
-                                  itemCount: selected.length,
-                                  separatorBuilder: (_, _) =>
-                                      const SizedBox(width: 12),
-                                  itemBuilder: (ctx, i) => SizedBox(
-                                    width: 260,
-                                    child: episodeTile(selected[i], secondary),
-                                  ),
-                                ),
+                                      ),
+                                    ),
+                                ],
                               ),
-                          ],
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   ),
                 ),
@@ -720,7 +834,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                           children: [
                             IconButton(
                               key: const ValueKey('detail-back-button'),
-                              tooltip: '返回媒体库',
+                              tooltip: context.l10n.backToLibrary,
                               onPressed: widget.onBack,
                               style: IconButton.styleFrom(
                                 backgroundColor: surface.withValues(alpha: .7),
@@ -730,7 +844,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                             const Spacer(),
                             PopupMenuButton<String>(
                               key: const ValueKey('detail-more-button'),
-                              tooltip: '更多操作',
+                              tooltip: context.l10n.moreActions,
                               style: IconButton.styleFrom(
                                 backgroundColor: surface.withValues(alpha: .7),
                               ),
@@ -739,22 +853,39 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                                 if (value == 'metadata') {
                                   widget.onEditMetadata();
                                 }
+                                if (value == 'manual') {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => ManualEpisodePage(
+                                        work: widget.work,
+                                        assets: widget.assets,
+                                      ),
+                                    ),
+                                  );
+                                }
                                 if (value == 'cover') widget.onEditCover();
                                 if (value == 'delete') widget.onDelete();
                               },
-                              itemBuilder: (_) => const [
+                              itemBuilder: (_) => [
                                 PopupMenuItem(
                                   value: 'metadata',
                                   child: ListTile(
                                     leading: Icon(Icons.edit_note),
-                                    title: Text('编辑元数据'),
+                                    title: Text(context.l10n.editMetadata),
+                                  ),
+                                ),
+                                PopupMenuItem(
+                                  value: 'manual',
+                                  child: ListTile(
+                                    leading: const Icon(Icons.rule),
+                                    title: Text(context.l10n.manualEdit),
                                   ),
                                 ),
                                 PopupMenuItem(
                                   value: 'cover',
                                   child: ListTile(
                                     leading: Icon(Icons.image_outlined),
-                                    title: Text('编辑封面'),
+                                    title: Text(context.l10n.editCover),
                                   ),
                                 ),
                                 PopupMenuDivider(),
@@ -762,7 +893,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                                   value: 'delete',
                                   child: ListTile(
                                     leading: Icon(Icons.delete_outline),
-                                    title: Text('删除该作品'),
+                                    title: Text(context.l10n.removeTitleAction),
                                   ),
                                 ),
                               ],
@@ -788,8 +919,9 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     List<String> tags,
     Color secondary,
     Color muted,
-    bool desktop,
-  ) {
+    bool desktop, {
+    bool fullWidthPlay = false,
+  }) {
     final year =
         widget.work['year']?.toString() ??
         details['year']?.toString().split('-').first;
@@ -820,26 +952,26 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                 ),
               ),
             if (year != null) Text(year, style: TextStyle(color: secondary)),
-            Text('${episodes.length} 集', style: TextStyle(color: secondary)),
+            Text(
+              context.l10n.detailEpisodeCount(episodes.length),
+              style: TextStyle(color: secondary),
+            ),
           ],
         ),
         const SizedBox(height: 22),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            FilledButton.icon(
-              onPressed: current == null ? null : () => play(current),
-              icon: const Icon(Icons.play_arrow_rounded),
-              label: Text(
-                current == null
-                    ? '暂无正片'
-                    : fraction(current) > 0
-                    ? '继续 ${episodeLabel(current)}'
-                    : '开始播放',
-              ),
+        SizedBox(
+          width: fullWidthPlay ? double.infinity : null,
+          child: FilledButton.icon(
+            onPressed: current == null ? null : () => play(current),
+            icon: const Icon(Icons.play_arrow_rounded),
+            label: Text(
+              current == null
+                  ? context.l10n.noMainFeature
+                  : fraction(current) > 0
+                  ? context.l10n.resumeEpisode(episodeLabel(current))
+                  : context.l10n.startPlayback,
             ),
-          ],
+          ),
         ),
         if (tags.isNotEmpty) ...[
           const SizedBox(height: 14),
@@ -869,7 +1001,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
         ],
         const SizedBox(height: 16),
         Text(
-          overview.isNotEmpty ? overview : '暂无作品简介',
+          overview.isNotEmpty ? overview : context.l10n.noSynopsis,
           maxLines: expandedSummary ? null : 5,
           overflow: expandedSummary
               ? TextOverflow.visible
@@ -879,10 +1011,33 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
         if (overview.length > 180)
           TextButton(
             onPressed: () => setState(() => expandedSummary = !expandedSummary),
-            child: Text(expandedSummary ? '收起简介' : '展开简介'),
+            child: Text(
+              expandedSummary
+                  ? context.l10n.collapseSynopsis
+                  : context.l10n.expandSynopsis,
+            ),
           ),
       ],
     );
+  }
+
+  double characterWidth(BuildContext context, String name, String actors) {
+    double width(String text, double size) {
+      final painter = TextPainter(
+        text: TextSpan(
+          text: text,
+          style: TextStyle(fontSize: size),
+        ),
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+      )..layout();
+      final result = painter.width + 8;
+      painter.dispose();
+      return result;
+    }
+
+    final a = width(name, 12), b = width(actors, 11);
+    return [96.0, a, b].reduce((x, y) => x > y ? x : y);
   }
 
   Widget sectionTab(String value, String title, int count, Color muted) {
@@ -905,6 +1060,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
         ),
         child: Text(
           '$title  $count',
+          softWrap: false,
           style: TextStyle(
             fontSize: 17,
             fontWeight: FontWeight.w600,
@@ -922,10 +1078,10 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
         asset['category'] == 'extra' && (still == null || still.isEmpty);
     final ratio = fraction(asset);
     final status = ratio >= .95
-        ? '已看'
+        ? context.l10n.watched
         : ratio > 0
-        ? '继续播放'
-        : '未看';
+        ? context.l10n.resumePlayback
+        : context.l10n.unwatchedStatus;
     return InkWell(
       key: ValueKey('detail-episode:${asset['relative_path']}'),
       onTap: () => play(asset, offerVersions: true),
@@ -961,7 +1117,11 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                     Positioned(
                       bottom: 7,
                       left: 7,
-                      child: badge('${variantsFor(asset).length} 个版本'),
+                      child: badge(
+                        context.l10n.detailVersionCount(
+                          variantsFor(asset).length,
+                        ),
+                      ),
                     ),
                   if (ratio > 0)
                     Positioned(
@@ -996,7 +1156,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
 
   String extraCoverLabel(Map<String, Object?> asset) {
     final type = extraType(asset);
-    if (type == '其他') return '其他';
+    if (type == '其他') return context.l10n.otherExtra;
     final extracted = CloudMediaAssetPresentation.extraTitle(asset);
     final number = extracted == null
         ? null
@@ -1014,7 +1174,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final art = [
       details['backdrop'],
-      widget.work['manual_cover_url'],
+      Catalog.preferredPoster(widget.work),
       widget.work['poster'],
       details['poster'],
       widget.work['poster_fallback'],
@@ -1026,10 +1186,10 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
         ColoredBox(color: surface),
         if (art != null)
           Opacity(
-            opacity: dark ? .22 : .24,
+            opacity: .5,
             child: ImageFiltered(
-              imageFilter: ui.ImageFilter.blur(sigmaX: 3, sigmaY: 3),
-              child: Image.network(
+              imageFilter: ui.ImageFilter.blur(sigmaX: 1.5, sigmaY: 1.5),
+              child: ManagedImage(
                 art,
                 fit: BoxFit.cover,
                 errorBuilder: (_, _, _) => const SizedBox.expand(),
@@ -1040,8 +1200,8 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
-                surface.withValues(alpha: .9),
-                surface.withValues(alpha: .15),
+                surface.withValues(alpha: .35),
+                surface.withValues(alpha: .08),
               ],
             ),
           ),

@@ -1,3 +1,5 @@
+import 'metadata_servers.dart';
+import 'metadata_http.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'metadata.dart';
@@ -32,7 +34,7 @@ class PersonalMetadataScraper {
   PersonalMetadataScraper({
     http.Client? client,
     this._bangumiBase = 'https://api.bgm.tv',
-  }) : _client = client ?? http.Client(),
+  }) : _client = client ?? MetadataHttp(),
        _ownsClient = client == null;
   final http.Client _client;
   final bool _ownsClient;
@@ -140,9 +142,10 @@ class PersonalMetadataScraper {
     if (!credentials.isConfigured) return null;
     http.Response response;
     try {
-      response = await _client
-          .get(credentials.uri(path, params), headers: credentials.headers)
-          .timeout(const Duration(seconds: 15));
+      response = await _client.get(
+        credentials.uri(path, params),
+        headers: credentials.headers,
+      );
     } catch (_) {
       throw StateError('TMDB 网络连接失败');
     }
@@ -227,7 +230,7 @@ class PersonalMetadataScraper {
     return distinct.length == 1 ? distinct.values.first : null;
   }
 
-  Future<Map<String, dynamic>?> _bangumi(
+  Future<Map<String, dynamic>?> matchBangumi(
     String title,
     int? year, {
     int? tmdbId,
@@ -236,23 +239,21 @@ class PersonalMetadataScraper {
     for (final query in hints.isEmpty ? queries(title) : hints) {
       http.Response result;
       try {
-        result = await _client
-            .post(
-              Uri.parse('$_bangumiBase/v0/search/subjects'),
-              headers: {
-                'User-Agent': 'CCPlayer/0.1 (personal media library)',
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-              },
-              body: jsonEncode({
-                'keyword': query,
-                'sort': 'match',
-                'filter': {
-                  'type': [2],
-                },
-              }),
-            )
-            .timeout(const Duration(seconds: 12));
+        result = await _client.post(
+          Uri.parse('$_bangumiBase/v0/search/subjects'),
+          headers: {
+            'User-Agent': 'Konata/0.1 (personal media library)',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: jsonEncode({
+            'keyword': query,
+            'sort': 'match',
+            'filter': {
+              'type': [2],
+            },
+          }),
+        );
       } catch (_) {
         return null;
       }
@@ -273,21 +274,27 @@ class PersonalMetadataScraper {
                 )) &&
             yearCompatible(year, c['date']?.toString());
       }).toList();
-      final ids = {for (final c in matches) int.tryParse(c['id'].toString())};
+      final exact = matches.where(
+        (c) =>
+            exactTitle(query, c['name_cn']?.toString() ?? '') ||
+            exactTitle(query, c['name']?.toString() ?? ''),
+      );
+      final ids = {
+        for (final c in exact.isNotEmpty ? exact : matches)
+          int.tryParse(c['id'].toString()),
+      };
       ids.remove(null);
       if (ids.length != 1) continue;
       final id = ids.first!;
       http.Response info;
       try {
-        info = await _client
-            .get(
-              Uri.parse('$_bangumiBase/v0/subjects/$id'),
-              headers: {
-                'User-Agent': 'CCPlayer/0.1 (personal media library)',
-                'Accept': 'application/json',
-              },
-            )
-            .timeout(const Duration(seconds: 12));
+        info = await _client.get(
+          Uri.parse('$_bangumiBase/v0/subjects/$id'),
+          headers: {
+            'User-Agent': 'Konata/0.1 (personal media library)',
+            'Accept': 'application/json',
+          },
+        );
       } catch (_) {
         continue;
       }
@@ -387,10 +394,12 @@ class PersonalMetadataScraper {
           // An explicit season conflicting with its year must be reviewed.
           return null;
         }
-        tmdbTitle = '$tmdbTitle 第$number季';
+        if (WorkSeason.showSeasonInTitle(work, seasons)) {
+          tmdbTitle = '$tmdbTitle 第$number季';
+        }
       }
     }
-    final bangumi = await _bangumi(
+    final bangumi = await matchBangumi(
       title,
       year,
       hints: hints,
@@ -408,7 +417,7 @@ class PersonalMetadataScraper {
         ?.toString()
         .trim();
     final tmdbPoster = posterPath != null && posterPath.startsWith('/')
-        ? 'https://image.tmdb.org/t/p/w500$posterPath'
+        ? MetadataServers.tmdbImage(posterPath)
         : null;
     final bangumiPoster = _poster(bangumi?['images'] as Map?);
     final date =

@@ -1,9 +1,13 @@
+import 'bangumi_links.dart';
+import 'metadata_servers.dart';
+import 'metadata_http.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'metadata.dart';
 
 class CoverOptions {
-  const CoverOptions({this.tmdb, this.bangumi});
+  const CoverOptions({this.tmdb, this.bangumi, this.bangumiCovers = const {}});
+  final Map<int, String> bangumiCovers;
   final String? tmdb, bangumi;
   String? forSource(String source) => source == 'tmdb'
       ? tmdb
@@ -17,7 +21,7 @@ class CoverOptionService {
   CoverOptionService({
     http.Client? client,
     this.bangumiBase = 'https://api.bgm.tv',
-  }) : _client = client ?? http.Client(),
+  }) : _client = client ?? MetadataHttp(),
        _ownsClient = client == null;
   final http.Client _client;
   final bool _ownsClient;
@@ -43,10 +47,12 @@ class CoverOptionService {
     final fallback = validUrl(work['poster_fallback']?.toString());
     final selected = validUrl(work['manual_cover_url']?.toString());
     final selectedSource = work['manual_cover_source']?.toString();
-    if (saved != null && saved.startsWith('https://image.tmdb.org/')) {
+    final savedIsTmdb =
+        saved != null && MetadataServers.imageResource(saved)?.$1 == 1;
+    if (saved != null && savedIsTmdb) {
       tmdb = saved;
     }
-    if (saved != null && !saved.startsWith('https://image.tmdb.org/')) {
+    if (saved != null && !savedIsTmdb) {
       bangumi = saved;
     }
     if (fallback != null) bangumi = fallback;
@@ -58,18 +64,16 @@ class CoverOptionService {
       final path = work['tmdb_type'] == 'movie' ? 'movie' : 'tv';
       try {
         final auth = Metadata.credentials;
-        final response = await _client
-            .get(
-              auth.uri('/$path/${tmdbId.toInt()}', {'language': 'zh-CN'}),
-              headers: auth.headers,
-            )
-            .timeout(const Duration(seconds: 12));
+        final response = await _client.get(
+          auth.uri('/$path/${tmdbId.toInt()}', {'language': 'zh-CN'}),
+          headers: auth.headers,
+        );
         if (response.statusCode == 200) {
           final body = jsonDecode(utf8.decode(response.bodyBytes));
           if (body is Map) {
             final path = body['poster_path']?.toString() ?? '';
             if (path.startsWith('/')) {
-              tmdb = 'https://image.tmdb.org/t/p/w500$path';
+              tmdb = MetadataServers.tmdbImage(path, 'original');
             }
           }
         }
@@ -77,18 +81,16 @@ class CoverOptionService {
         /* Preserve stored candidate when provider is unavailable. */
       }
     }
-    final bgmId = work['bangumi_id'];
-    if (bgmId is num) {
+    final bangumiCovers = <int, String>{};
+    for (final bgmId in BangumiLinks.ids(work)) {
       try {
-        final response = await _client
-            .get(
-              Uri.parse('$bangumiBase/v0/subjects/${bgmId.toInt()}'),
-              headers: {
-                'User-Agent': 'CCPlayer/0.1 (personal library)',
-                'Accept': 'application/json',
-              },
-            )
-            .timeout(const Duration(seconds: 12));
+        final response = await _client.get(
+          Uri.parse('$bangumiBase/v0/subjects/${bgmId.toInt()}'),
+          headers: {
+            'User-Agent': 'Konata/0.1 (personal library)',
+            'Accept': 'application/json',
+          },
+        );
         if (response.statusCode == 200) {
           final body = jsonDecode(utf8.decode(response.bodyBytes));
           if (body is Map && body['images'] is Map) {
@@ -96,7 +98,8 @@ class CoverOptionService {
             for (final key in ['large', 'common', 'medium', 'small']) {
               final found = validUrl(images[key]?.toString());
               if (found != null) {
-                bangumi = found;
+                bangumiCovers[bgmId] = found;
+                bangumi ??= found;
                 break;
               }
             }
@@ -106,6 +109,10 @@ class CoverOptionService {
         /* Preserve fallback candidate. */
       }
     }
-    return CoverOptions(tmdb: tmdb, bangumi: bangumi);
+    return CoverOptions(
+      tmdb: tmdb,
+      bangumi: bangumi,
+      bangumiCovers: bangumiCovers,
+    );
   }
 }

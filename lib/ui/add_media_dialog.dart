@@ -1,3 +1,4 @@
+import '../l10n/strings.dart';
 import 'package:flutter/material.dart';
 
 /// NipaPlay-style category chooser; only implemented source types are shown.
@@ -12,9 +13,9 @@ class AddMediaDialog extends StatelessWidget {
   Widget build(BuildContext context) => AlertDialog(
     title: Row(
       children: [
-        const Expanded(child: Text('添加媒体')),
+        Expanded(child: Text(context.l10n.addMedia)),
         IconButton(
-          tooltip: '关闭',
+          tooltip: context.l10n.closeWindow,
           onPressed: () => Navigator.pop(context),
           icon: const Icon(Icons.close),
         ),
@@ -84,21 +85,21 @@ class AddMediaDialog extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  '本地媒体',
+                Text(
+                  context.l10n.localMedia,
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 16),
                 card(
                   'local',
-                  '本地文件夹',
-                  '添加本地媒体文件夹',
+                  context.l10n.localFolder,
+                  context.l10n.addLocalFolder,
                   Icons.folder_outlined,
                   const Color(0xffffb74d),
                 ),
                 const SizedBox(height: 28),
-                const Text(
-                  '网络媒体',
+                Text(
+                  context.l10n.networkMedia,
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 16),
@@ -109,14 +110,14 @@ class AddMediaDialog extends StatelessWidget {
                     card(
                       'webdav',
                       'WebDAV',
-                      '添加 WebDAV 服务器',
+                      context.l10n.addWebdav,
                       Icons.cloud_outlined,
                       const Color(0xff64b5f6),
                     ),
                     card(
                       'smb',
                       'SMB',
-                      '添加 SMB 共享',
+                      context.l10n.addSmb,
                       Icons.account_tree_outlined,
                       const Color(0xff66bb6a),
                     ),

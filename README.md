@@ -9,8 +9,6 @@
 <p>
   <img src="https://img.shields.io/badge/Flutter-02569B?style=for-the-badge&logo=flutter&logoColor=white" alt="Flutter">
   <img src="https://img.shields.io/badge/Dart-0175C2?style=for-the-badge&logo=dart&logoColor=white" alt="Dart">
-  <img src="https://img.shields.io/badge/Windows-0078D4?style=for-the-badge" alt="Windows">
-  <img src="https://img.shields.io/badge/Android-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
 </p>
 
 <p>使用 Flutter 开发的个人动画媒体库与播放器。连接本地文件夹、WebDAV 或 SMB，共用一个海报墙，浏览作品资料、选择剧集，从上次看到的地方继续播放。</p>

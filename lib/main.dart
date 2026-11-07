@@ -52,15 +52,16 @@ Future<void> main() async {
   await DebugLog.initialize();
   final previousError = FlutterError.onError;
   FlutterError.onError = (details) {
-    DebugLog.write(
+    DebugLog.exception(
       'App',
-      'Flutter error ${details.exception.runtimeType}',
-      level: 'ERROR',
+      'flutter_error',
+      details.exception,
+      details.stack,
     );
     previousError?.call(details);
   };
   ui.PlatformDispatcher.instance.onError = (error, stack) {
-    DebugLog.write('App', 'uncaught ${error.runtimeType}', level: 'ERROR');
+    DebugLog.exception('App', 'uncaught', error, stack);
     return false;
   };
   await AppTheme.instance.load();

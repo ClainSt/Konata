@@ -11,12 +11,16 @@ class WebDavStream {
     this.username = '',
     this.password = '',
     this.purpose = 'playback',
+    this.diagnosticSession,
     this.headerTimeout = const Duration(seconds: 15),
     this.idleTimeout = const Duration(seconds: 30),
   });
   final Uri target;
   final String? authorization;
   final String username, password, purpose;
+  final String? diagnosticSession;
+  final _streamId = DebugLog.newId('dav');
+  int _requestSerial = 0;
   final Duration headerTimeout, idleTimeout;
   final _clients = <HttpClient>{};
   HttpClient? _idleClient;
@@ -53,6 +57,7 @@ class WebDavStream {
     var reusable = false;
     var bytes = 0, status = 0;
     var headersMs = -1;
+    var firstByteMs = -1, lastDataMs = -1, maxObservedGapMs = 0;
     var phase = 'request', failure = 'none';
     var streaming = false, finished = false, cancelled = false;
     Socket? downstream;
@@ -60,6 +65,42 @@ class WebDavStream {
     final clock = Stopwatch()..start();
     final range = req.headers.value(HttpHeaders.rangeHeader);
     final requested = range == null ? null : _RequestedRange.parse(range);
+    final requestId = '$_streamId-${++_requestSerial}';
+    void record(String event, {String level = 'INFO'}) {
+      DebugLog.event('WebDAVStream', event, {
+        'session': diagnosticSession,
+        'request': requestId,
+        'method': req.method == 'HEAD'
+            ? 'HEAD'
+            : req.method == 'GET'
+            ? 'GET'
+            : 'OTHER',
+        'purpose': ['preview', 'subtitle'].contains(purpose)
+            ? purpose
+            : 'playback',
+        'connectionReused': connectionReused,
+        'rangeStart': requested?.first,
+        'rangeEnd': requested?.last,
+        'rangeBytes': requested?.boundedLength ?? -1,
+        'status': req.response.statusCode,
+        'upstreamStatus': status,
+        'bytes': bytes,
+        'elapsedMs': clock.elapsedMilliseconds,
+        'headersMs': headersMs,
+        'firstByteMs': firstByteMs,
+        'maxObservedGapMs': maxObservedGapMs,
+        'cancelled': cancelled || _closed,
+        'phase': phase,
+        'failure': failure,
+      }, level: level);
+    }
+
+    record('request_start');
+    final waiting = Timer(const Duration(seconds: 3), () {
+      if (!finished && !cancelled && !_closed && firstByteMs < 0) {
+        record('initial_wait', level: 'WARN');
+      }
+    });
     final clients = <HttpClient>{client};
     _clients.add(client);
     void cancel() {
@@ -152,6 +193,7 @@ class WebDavStream {
       }
       final upstream = response!;
       headersMs = clock.elapsedMilliseconds;
+      record('headers', level: 'DEBUG');
       if (status != 200 && status != 206) {
         failure = 'upstreamHttp';
         req.response.statusCode = status;
@@ -232,6 +274,18 @@ class WebDavStream {
         },
       );
       final payload = upstream.timeout(idleTimeout).map((chunk) {
+        if (chunk.isNotEmpty) {
+          final now = clock.elapsedMilliseconds;
+          if (firstByteMs < 0) {
+            firstByteMs = now;
+            waiting.cancel();
+            record('first_body');
+          }
+          if (lastDataMs >= 0 && now - lastDataMs > maxObservedGapMs) {
+            maxObservedGapMs = now - lastDataMs;
+          }
+          lastDataMs = now;
+        }
         if (expected != null && bytes + chunk.length > expected) {
           throw const HttpException('Excess body bytes');
         }
@@ -274,6 +328,7 @@ class WebDavStream {
         downstream?.destroy();
       }
     } finally {
+      waiting.cancel();
       finished = true;
       downstream?.destroy();
       await downstreamInput?.cancel();
@@ -297,21 +352,18 @@ class WebDavStream {
           c.close(force: true);
         }
       }
-      if (DebugLog.enabled) {
-        final span = requested?.boundedLength;
-        DebugLog.write(
-          'WebDAVStream',
-          'connectionReused=$connectionReused method=${req.method == 'HEAD'
-              ? 'HEAD'
-              : req.method == 'GET'
-              ? 'GET'
-              : 'OTHER'} status=${req.response.statusCode} upstreamStatus=$status rangeBytes=${span ?? -1} bytes=$bytes elapsedMs=${clock.elapsedMilliseconds} cancelled=${cancelled || _closed} cacheHit=false purpose=${purpose == 'preview'
-              ? 'preview'
-              : purpose == 'subtitle'
-              ? 'subtitle'
-              : 'playback'} headersMs=$headersMs phase=$phase failure=$failure',
-        );
-      }
+      record(
+        'request_end',
+        level: cancelled || _closed
+            ? 'INFO'
+            : failure != 'none'
+            ? 'ERROR'
+            : headersMs >= 3000 ||
+                  firstByteMs >= 3000 ||
+                  maxObservedGapMs >= 3000
+            ? 'WARN'
+            : 'INFO',
+      );
     }
   }
 }

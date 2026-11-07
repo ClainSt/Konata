@@ -353,7 +353,10 @@ void main() {
       expect(DebugLog.enabled, false);
       DebugLog.write('TMDB', 'should not appear');
       await DebugLog.flush();
-      expect(await DebugLog.directory!.exists(), false);
+      expect(
+        await File('${DebugLog.directory!.path}/current.log').readAsString(),
+        isNot(contains('should not appear')),
+      );
       await DebugLog.setEnabled(true);
       DebugLog.write(
         'TMDB',

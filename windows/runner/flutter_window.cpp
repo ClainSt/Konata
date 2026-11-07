@@ -5,8 +5,20 @@
 #include <flutter/method_channel.h>
 #include <flutter/standard_method_codec.h>
 #include <set>
+#include <map>
+#include <stdexcept>
+#include "d3d11_video.h"
 
 #include "flutter/generated_plugin_registrant.h"
+
+namespace {
+LRESULT CALLBACK RenderSurfaceProc(HWND window, UINT message, WPARAM wparam,
+                                   LPARAM lparam) {
+  // Rendering lives here; pointer input belongs to the Flutter view underneath.
+  if (message == WM_NCHITTEST) return HTTRANSPARENT;
+  return DefWindowProcW(window, message, wparam, lparam);
+}
+}
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -31,15 +43,27 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   const HWND view = flutter_controller_->view()->GetNativeWindow();
   SetChildContent(view);
+  WNDCLASSW render_class{};
+  render_class.lpfnWndProc = RenderSurfaceProc;
+  render_class.hInstance = GetModuleHandleW(nullptr);
+  render_class.lpszClassName = L"KonataRenderSurface";
+  if (!RegisterClassW(&render_class) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+    return false;
+  }
   flutter::MethodChannel<flutter::EncodableValue> video_channel(
       flutter_controller_->engine()->messenger(), "ccplayer/native_video",
       &flutter::StandardMethodCodec::GetInstance());
   video_channel.SetMethodCallHandler(
-      [view, hosts = std::set<HWND>{}](const auto& call, auto result) mutable {
+      [view, hosts = std::set<HWND>{},
+       renderers = std::make_shared<std::map<HWND, std::unique_ptr<D3D11Video>>>()]
+      (const auto& call, auto result) mutable {
         if (call.method_name() == "create") {
           // A child of the Flutter client shares its top-level window and DPI.
-          HWND host = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_CLIPCHILDREN,
-                                      0, 0, 1, 1, view, nullptr, nullptr, nullptr);
+          const auto* render_api = std::get_if<bool>(call.arguments());
+          HWND host = CreateWindowExW(0,
+              render_api && *render_api ? L"KonataRenderSurface" : L"STATIC",
+              L"", WS_CHILD | WS_CLIPCHILDREN, 0, 0, 1, 1, view, nullptr,
+              GetModuleHandleW(nullptr), nullptr);
           if (!host) {
             result->Error("create", "Could not create embedded video surface");
             return;
@@ -58,6 +82,25 @@ bool FlutterWindow::OnCreate() {
           result->Success();
           return;
         }
+        if (call.method_name() == "attachD3D11" && args->size() == 3) {
+          try {
+            if (renderers->count(host)) throw std::runtime_error("Renderer already attached");
+            renderers->emplace(host, std::make_unique<D3D11Video>(host,
+                (*args)[1].LongValue(), std::get<std::string>((*args)[2])));
+            result->Success();
+          } catch (const std::exception& error) {
+            result->Error("d3d11", error.what());
+          }
+          return;
+        }
+        if (call.method_name() == "captureD3D11") {
+          try {
+            result->Success(flutter::EncodableValue(renderers->at(host)->Capture()));
+          } catch (const std::exception& error) {
+            result->Error("capture", error.what());
+          }
+          return;
+        }
         if (call.method_name() == "pointerAtControls") {
           POINT point{};
           RECT bounds{};
@@ -72,6 +115,7 @@ bool FlutterWindow::OnCreate() {
           return;
         }
         if (call.method_name() == "destroy") {
+          renderers->erase(host);
           hosts.erase(host);
           DestroyWindow(host);
         } else if (call.method_name() == "hide") {
@@ -86,6 +130,7 @@ bool FlutterWindow::OnCreate() {
           SetWindowPos(host, HWND_TOP, std::get<int>((*args)[1]),
                        std::get<int>((*args)[2]), std::get<int>((*args)[3]),
                        std::get<int>((*args)[4]), SWP_NOACTIVATE | SWP_SHOWWINDOW);
+          if (renderers->count(host)) renderers->at(host)->Resize();
         } else {
           result->NotImplemented();
           return;

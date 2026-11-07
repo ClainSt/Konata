@@ -102,12 +102,20 @@ Future<void> windowsScreenTrial(WidgetTester tester, Player player) async {
   await gesture.addPointer();
   try {
     debugPrint('SCREEN_TRIAL controls');
-    await pumpFor(2);
     final rect = tester.getRect(find.byType(Scaffold).first);
     await gesture.moveTo(rect.center);
     await gesture.moveTo(Offset(rect.center.dx, rect.bottom - 20));
     await tester.pump();
     final buttons = find.byIcon(Icons.fullscreen);
+    final deadline = Stopwatch()..start();
+    while (buttons.evaluate().isEmpty &&
+        deadline.elapsed.inSeconds <
+            const int.fromEnvironment(
+              'BASELINE_HOST_SECONDS',
+              defaultValue: 60,
+            )) {
+      await pumpFor(1);
+    }
     expect(buttons, findsWidgets);
     await tester.tap(buttons.last);
     await pumpFor(2);
@@ -126,6 +134,25 @@ Future<void> windowsScreenTrial(WidgetTester tester, Player player) async {
     await pumpFor(2);
     expect(player.state.position.inMilliseconds, greaterThan(52000));
     debugPrint('SCREEN_TRIAL playback_ok');
+    if (const bool.fromEnvironment('BASELINE_HOST_INPUTS')) {
+      Future<void> hostStep(String name, bool Function() completed) async {
+        debugPrint('HOST_INPUT $name');
+        final watch = Stopwatch()..start();
+        while (!completed() && watch.elapsed.inSeconds < 90) {
+          await pumpFor(1);
+        }
+        expect(completed(), isTrue, reason: 'Physical input: $name');
+        debugPrint('HOST_INPUT_OK $name');
+      }
+
+      await player.pause();
+      await hostStep('click_to_play', () => player.state.playing);
+      await hostStep('space_to_pause', () => !player.state.playing);
+      final volume = player.state.volume;
+      await hostStep('wheel_volume', () => player.state.volume > volume);
+      await hostStep('double_click_fullscreen', () => playerFullscreen.value);
+      await hostStep('escape_restore', () => !playerFullscreen.value);
+    }
   } finally {
     await gesture.removePointer();
   }

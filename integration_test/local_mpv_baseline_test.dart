@@ -8,6 +8,7 @@ import 'package:media_kit/generated/libmpv/bindings.dart' as api;
 
 import 'package:ccplayer/core/catalog.dart';
 import 'package:ccplayer/core/mpv_config_store.dart';
+import 'package:ccplayer/core/playback_probe.dart';
 import 'package:ccplayer/l10n/app_localizations.dart';
 import 'package:ccplayer/ui/watch_page.dart';
 import 'package:flutter/material.dart';
@@ -22,11 +23,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'local_decoder_trials.dart';
 
 void main() {
-  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   const video = String.fromEnvironment('BASELINE_VIDEO');
   testWidgets('sample effective local WatchPage playback configuration', (
     tester,
   ) async {
+    if (const bool.fromEnvironment('BASELINE_HOST_INPUTS')) {
+      final previous = binding.shouldPropagateDevicePointerEvents;
+      binding.shouldPropagateDevicePointerEvents = true;
+      addTearDown(() => binding.shouldPropagateDevicePointerEvents = previous);
+    }
     MediaKit.ensureInitialized();
     SharedPreferences.setMockInitialValues({});
     final root = await Directory.systemTemp.createTemp('ccplayer-baseline-');
@@ -71,6 +77,10 @@ void main() {
         rootOverride: Directory(p.join(root.path, 'mpv')),
       );
       await store.initialize();
+      const decodeMode = String.fromEnvironment('BASELINE_DECODE_MODE');
+      if (decodeMode.isNotEmpty) {
+        await store.setDecodeMode(VideoDecodeMode.values.byName(decodeMode));
+      }
       await tester.pumpWidget(
         MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -80,7 +90,20 @@ void main() {
       );
       final dynamic page = tester.state(find.byType(WatchPage));
       final player = page.player as Player;
-      await player.setVolume(0);
+      final nativeWarnings = <String>[];
+      final warningSubscription = player.stream.log.listen((entry) {
+        if (nativeWarnings.length < 20 &&
+            ['warn', 'error', 'fatal'].contains(entry.level)) {
+          nativeWarnings.add('${entry.prefix}: ${entry.text}');
+        }
+      });
+      addTearDown(warningSubscription.cancel);
+      await player.setVolume(
+        const int.fromEnvironment(
+          'BASELINE_VOLUME',
+          defaultValue: 0,
+        ).toDouble(),
+      );
       if (Platform.isWindows) {
         await windowManager.ensureInitialized();
         await windowManager.show();
@@ -92,9 +115,87 @@ void main() {
         await tester.pump(const Duration(milliseconds: 50));
         await Future<void>.delayed(const Duration(milliseconds: 50));
       }
+      if (player.state.position.inSeconds < 1) {
+        final native = player.platform as NativePlayer;
+        final status = await PlaybackProbe(native.getProperty).statistics();
+        for (final key in [
+          'pause',
+          'core-idle',
+          'eof-reached',
+          'seeking',
+          'aid',
+          'vid',
+        ]) {
+          status[key] = await native.getProperty(key);
+        }
+        debugPrint('MPV_STARTUP_FAILURE ${jsonEncode(status)}');
+        debugPrint('MPV_STARTUP_WARNINGS ${jsonEncode(nativeWarnings)}');
+      }
       expect(player.state.position.inSeconds, greaterThanOrEqualTo(1));
+      const sampleSeconds = int.fromEnvironment('BASELINE_SAMPLE_SECONDS');
+      if (sampleSeconds > 0) {
+        final startPosition = player.state.position;
+        final watch = Stopwatch()..start();
+        while (watch.elapsed.inSeconds < sampleSeconds) {
+          await tester.pump(const Duration(milliseconds: 100));
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+        expect(
+          (player.state.position - startPosition).inMilliseconds,
+          greaterThan(sampleSeconds * 900),
+          reason: 'Playback must sustain near-real-time progress.',
+        );
+      }
       await player.pause();
       final native = player.platform as NativePlayer;
+      if (const bool.fromEnvironment('BASELINE_ALL_AUDIO')) {
+        final audioResults = <Map<String, String>>[];
+        for (final track in player.state.tracks.audio.where(
+          (track) => track.id != 'auto' && track.id != 'no',
+        )) {
+          await player.setAudioTrack(track);
+          await player.seek(const Duration(seconds: 10));
+          await player.play();
+          for (var i = 0; i < 50; i++) {
+            await tester.pump(const Duration(milliseconds: 100));
+            await Future<void>.delayed(const Duration(milliseconds: 100));
+          }
+          final audio = <String, String>{'track': track.id};
+          for (final key in [
+            'aid',
+            'audio-codec-name',
+            'audio-params/format',
+            'audio-params/samplerate',
+            'audio-params/channels',
+            'audio-out-params/format',
+            'audio-out-params/samplerate',
+            'audio-out-params/channels',
+            'current-ao',
+            'mute',
+            'volume',
+          ]) {
+            audio[key] = await native.getProperty(key);
+          }
+          expect(audio['aid'], track.id);
+          expect(audio['audio-codec-name'], isNotEmpty);
+          expect(audio['current-ao'], isNotEmpty);
+          expect(audio['current-ao'], isNot('null'));
+          expect(
+            int.tryParse(audio['audio-out-params/samplerate']!),
+            greaterThan(0),
+          );
+          expect(audio['mute'], 'no');
+          expect(player.state.position.inSeconds, greaterThan(12));
+          audioResults.add(audio);
+        }
+        expect(audioResults, isNotEmpty);
+        debugPrint('MPV_AUDIO_BASELINE ${jsonEncode(audioResults)}');
+        await player.pause();
+      }
+      if (decodeMode == 'software') {
+        expect(await native.getProperty('hwdec'), 'no');
+        expect(await native.getProperty('hwdec-current'), 'no');
+      }
       if (Platform.isWindows &&
           const bool.fromEnvironment('BASELINE_PAUSED_FULLSCREEN')) {
         // Simulate an input.conf pause without calling Player.pause().
@@ -202,6 +303,17 @@ void main() {
         await windowsScreenTrial(tester, player);
       }
       final fields = <String, String>{};
+      fields.addAll(await PlaybackProbe(native.getProperty).statistics());
+      for (final key in [
+        'track-list/count',
+        'track-list/0/type',
+        'track-list/0/selected',
+        'track-list/0/format-name',
+        'track-list/0/codec-profile',
+        'track-list/0/codec',
+      ]) {
+        fields[key] = await native.getProperty(key);
+      }
       for (final key
           in 'mpv-version ffmpeg-version time-pos current-vo hwdec-current video-params/pixelformat video-params/hw-pixelformat video-params/primaries video-params/gamma video-params/colorlevels video-params/w video-params/h osd-width osd-height scale cscale dscale dither dither-depth correct-downscaling linear-downscaling sigmoid-upscaling hdr-compute-peak deband interpolation tone-mapping d3d11-output-format aid sid sub-ass-override embeddedfonts frame-drop-count decoder-frame-drop-count'
               .split(' ')) {
@@ -213,6 +325,27 @@ void main() {
       }
       expect(int.tryParse(fields['osd-width'] ?? ''), greaterThan(100));
       debugPrint('MPV_LOCAL_BASELINE ${jsonEncode(fields)}');
+      if (const bool.fromEnvironment('BASELINE_PRESENTED_GRADIENT')) {
+        final presented =
+            await page.capturePresentedBuffer() as Map<Object?, Object?>;
+        debugPrint('MPV_PRESENTED_BUFFER ${jsonEncode(presented)}');
+        expect(presented['format'], 'R10G10B10A2_UNORM');
+        for (final key in ['redLevels', 'greenLevels', 'blueLevels']) {
+          expect(presented[key], greaterThan(256));
+        }
+      }
+      if (const bool.fromEnvironment('BASELINE_REQUIRE_PRECISION')) {
+        // Established by the external ffprobe fixture report, not profile name.
+        const sourceDepth = int.fromEnvironment(
+          'BASELINE_EXPECT_DECODED_DEPTH',
+        );
+        final decodedDepth = int.tryParse(
+          fields['decoded-component-depth'] ?? '',
+        );
+        expect(sourceDepth, greaterThan(0));
+        expect(decodedDepth, isNotNull);
+        expect(decodedDepth, greaterThanOrEqualTo(sourceDepth));
+      }
       await tester.pumpWidget(const SizedBox());
       await player.stream.position.drain<void>().timeout(
         const Duration(seconds: 20),

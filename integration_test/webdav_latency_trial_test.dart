@@ -208,8 +208,12 @@ void main() {
         await DebugLog.flush();
         final log = await File('${root.path}/logs/current.log').readAsString();
         record('latency_relay_counts', {
-          'reused': RegExp('connectionReused=true').allMatches(log).length,
-          'fresh': RegExp('connectionReused=false').allMatches(log).length,
+          'reused': RegExp(
+            r'connectionReused=true|"event":"request_end"[^\n]*"connectionReused":true',
+          ).allMatches(log).length,
+          'fresh': RegExp(
+            r'connectionReused=false|"event":"request_end"[^\n]*"connectionReused":false',
+          ).allMatches(log).length,
         });
       } finally {
         before.close();

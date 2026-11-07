@@ -168,10 +168,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get deleteRecord => '删除记录';
 
   @override
-  String get enableLogs => '调试日志';
+  String get enableLogs => '详细调试日志';
 
   @override
-  String get logsDescription => '记录详细运行信息，用于排查媒体扫描、网络连接、刮削和图片加载问题。';
+  String get logsDescription => '平时保留异常和必要的播放记录；复现问题前开启，可补充详细信息。';
 
   @override
   String get logsSaveFailed => '日志设置保存失败';
@@ -180,7 +180,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get openLogs => '打开日志目录';
 
   @override
-  String get exportLogsSystem => '通过系统文件选择器导出日志';
+  String get exportLogsSystem => '仅导出最近一次异常前后的 TXT 文本记录';
 
   @override
   String get logsDefaultPath => '应用数据目录 / logs';
@@ -189,10 +189,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get versionLabel => '版本 1.0.0';
 
   @override
-  String get noLogs => '日志目录已创建，当前没有日志文件';
+  String get noLogs => '当前没有可导出的异常记录';
 
   @override
-  String get exportLogs => '导出日志';
+  String get exportLogs => '导出最近异常日志';
 
   @override
   String get logsAccessFailed => '无法访问日志目录，请检查系统文件应用';
@@ -1333,6 +1333,42 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get statTextureSize => 'Flutter 纹理尺寸';
+
+  @override
+  String get statFilteredDepth => '滤镜后分量位深';
+
+  @override
+  String get statTargetDepth => 'MPV 报告的目标位深';
+
+  @override
+  String get statTargetPrimaries => 'MPV 目标色彩原色';
+
+  @override
+  String get statTargetTransfer => 'MPV 目标传递函数';
+
+  @override
+  String get statPresentationDepth => '最终呈现位深（未测量）';
+
+  @override
+  String get statDecodedAudioFormat => '解码音频样本格式';
+
+  @override
+  String get statOutputAudioFormat => '音频接口样本格式';
+
+  @override
+  String get statOutputSampleRate => '音频接口采样率';
+
+  @override
+  String get statOutputChannels => '音频接口声道布局';
+
+  @override
+  String get statAudioOutput => '音频输出方式';
+
+  @override
+  String get decodePrecisionFallback => '正在切换软件解码，以保留视频位深';
+
+  @override
+  String get decodeUnsupportedFallback => '硬件不支持该视频格式，正在切换软件解码';
 
   @override
   String get videoDecoding => '视频解码';
@@ -1521,10 +1557,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get deleteRecord => '删除记录';
 
   @override
-  String get enableLogs => '调试日志';
+  String get enableLogs => '详细调试日志';
 
   @override
-  String get logsDescription => '记录详细运行信息，用于排查媒体扫描、网络连接、刮削和图片加载问题。';
+  String get logsDescription => '平时保留异常和必要的播放记录；复现问题前开启，可补充详细信息。';
 
   @override
   String get logsSaveFailed => '日志设置保存失败';
@@ -1533,7 +1569,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get openLogs => '打开日志目录';
 
   @override
-  String get exportLogsSystem => '通过系统文件选择器导出日志';
+  String get exportLogsSystem => '仅导出最近一次异常前后的 TXT 文本记录';
 
   @override
   String get logsDefaultPath => '应用数据目录 / logs';
@@ -1542,10 +1578,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get versionLabel => '版本 1.0.0';
 
   @override
-  String get noLogs => '日志目录已创建，当前没有日志文件';
+  String get noLogs => '当前没有可导出的异常记录';
 
   @override
-  String get exportLogs => '导出日志';
+  String get exportLogs => '导出最近异常日志';
 
   @override
   String get logsAccessFailed => '无法访问日志目录，请检查系统文件应用';
@@ -2688,6 +2724,42 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get statTextureSize => 'Flutter 纹理尺寸';
 
   @override
+  String get statFilteredDepth => '滤镜后分量位深';
+
+  @override
+  String get statTargetDepth => 'MPV 报告的目标位深';
+
+  @override
+  String get statTargetPrimaries => 'MPV 目标色彩原色';
+
+  @override
+  String get statTargetTransfer => 'MPV 目标传递函数';
+
+  @override
+  String get statPresentationDepth => '最终呈现位深（未测量）';
+
+  @override
+  String get statDecodedAudioFormat => '解码音频样本格式';
+
+  @override
+  String get statOutputAudioFormat => '音频接口样本格式';
+
+  @override
+  String get statOutputSampleRate => '音频接口采样率';
+
+  @override
+  String get statOutputChannels => '音频接口声道布局';
+
+  @override
+  String get statAudioOutput => '音频输出方式';
+
+  @override
+  String get decodePrecisionFallback => '正在切换软件解码，以保留视频位深';
+
+  @override
+  String get decodeUnsupportedFallback => '硬件不支持该视频格式，正在切换软件解码';
+
+  @override
   String get videoDecoding => '视频解码';
 
   @override
@@ -2874,10 +2946,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get deleteRecord => '刪除記錄';
 
   @override
-  String get enableLogs => '調試日誌';
+  String get enableLogs => '詳細除錯日誌';
 
   @override
-  String get logsDescription => '記錄詳細執行資訊，用於排查媒體掃描、網路連線、刮削和圖片載入問題。';
+  String get logsDescription => '平時保留異常與必要的播放記錄；重現問題前開啟，可補充詳細資訊。';
 
   @override
   String get logsSaveFailed => '日誌設定儲存失敗';
@@ -2886,7 +2958,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get openLogs => '開啟日誌目錄';
 
   @override
-  String get exportLogsSystem => '透過系統檔案選擇器匯出日誌';
+  String get exportLogsSystem => '僅匯出最近一次異常前後的 TXT 文字記錄';
 
   @override
   String get logsDefaultPath => '應用程式資料目錄 / logs';
@@ -2895,10 +2967,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get versionLabel => '版本 1.0.0';
 
   @override
-  String get noLogs => '日誌目錄已建立，目前沒有日誌檔案';
+  String get noLogs => '目前沒有可匯出的異常記錄';
 
   @override
-  String get exportLogs => '匯出日誌';
+  String get exportLogs => '匯出最近異常日誌';
 
   @override
   String get logsAccessFailed => '無法存取日誌目錄，請檢查系統檔案應用程式';
@@ -4039,6 +4111,42 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get statTextureSize => 'Flutter 紋理尺寸';
+
+  @override
+  String get statFilteredDepth => '濾鏡後分量位深';
+
+  @override
+  String get statTargetDepth => 'MPV 回報的目標位深';
+
+  @override
+  String get statTargetPrimaries => 'MPV 目標色彩原色';
+
+  @override
+  String get statTargetTransfer => 'MPV 目標傳遞函數';
+
+  @override
+  String get statPresentationDepth => '最終呈現位深（未測量）';
+
+  @override
+  String get statDecodedAudioFormat => '解碼音訊樣本格式';
+
+  @override
+  String get statOutputAudioFormat => '音訊介面樣本格式';
+
+  @override
+  String get statOutputSampleRate => '音訊介面取樣率';
+
+  @override
+  String get statOutputChannels => '音訊介面聲道配置';
+
+  @override
+  String get statAudioOutput => '音訊輸出方式';
+
+  @override
+  String get decodePrecisionFallback => '正在切換軟體解碼，以保留影片位元深度';
+
+  @override
+  String get decodeUnsupportedFallback => '硬體不支援此影片格式，正在切換軟體解碼';
 
   @override
   String get videoDecoding => '視訊解碼';

@@ -212,11 +212,11 @@
   "@deleteRecord": {
     "description": "Konata interface: deleteRecord"
   },
-  "enableLogs": "Debug logs",
+  "enableLogs": "Detailed debug logging",
   "@enableLogs": {
     "description": "Konata interface: enableLogs"
   },
-  "logsDescription": "Log scan, network, metadata and image activity.",
+  "logsDescription": "Errors and essential playback events are always recorded. Enable before reproducing for more detail.",
   "@logsDescription": {
     "description": "Konata interface: logsDescription"
   },
@@ -228,7 +228,7 @@
   "@openLogs": {
     "description": "Konata interface: openLogs"
   },
-  "exportLogsSystem": "Save logs to a file",
+  "exportLogsSystem": "One TXT file with context around the latest incident",
   "@exportLogsSystem": {
     "description": "Konata interface: exportLogsSystem"
   },
@@ -240,11 +240,11 @@
   "@versionLabel": {
     "description": "Konata interface: versionLabel"
   },
-  "noLogs": "Log folder ready. No logs yet.",
+  "noLogs": "No recorded incident to export",
   "@noLogs": {
     "description": "Konata interface: noLogs"
   },
-  "exportLogs": "Export logs",
+  "exportLogs": "Export latest incident",
   "@exportLogs": {
     "description": "Konata interface: exportLogs"
   },
@@ -1405,6 +1405,18 @@
   "statCachePaused": "Paused for cache",
   "statSourceDepth": "Decoded component depth (known formats)",
   "statTextureSize": "Flutter texture size",
+  "statFilteredDepth": "Component depth after filters",
+  "statTargetDepth": "MPV target depth (reported)",
+  "statTargetPrimaries": "MPV target primaries",
+  "statTargetTransfer": "MPV target transfer function",
+  "statPresentationDepth": "Final presentation depth (unmeasured)",
+  "statDecodedAudioFormat": "Decoded audio sample format",
+  "statOutputAudioFormat": "Audio API sample format",
+  "statOutputSampleRate": "Audio API sample rate",
+  "statOutputChannels": "Audio API channel layout",
+  "statAudioOutput": "Audio output",
+  "decodePrecisionFallback": "Switching to software decoding to preserve video bit depth",
+  "decodeUnsupportedFallback": "Hardware does not support this video format; switching to software decoding",
   "videoDecoding": "Video decoding",
   "decodeAutomatic": "Automatic",
   "decodeHardware": "Hardware preferred",

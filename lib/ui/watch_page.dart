@@ -21,6 +21,9 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
+// Uses the same loaded DLL as NativePlayer for the opt-in render API trial.
+// ignore: implementation_imports
+import 'package:media_kit/src/player/native/core/native_library.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path/path.dart' as p;
 import 'package:window_manager/window_manager.dart';
@@ -51,7 +54,11 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
   // default until native output has passed display and subtitle validation.
   final _nativeWindow =
       Platform.isWindows &&
-      const bool.fromEnvironment('CCPLAYER_NATIVE_SDR_OUTPUT');
+      (const bool.fromEnvironment('CCPLAYER_NATIVE_SDR_OUTPUT') ||
+          const bool.fromEnvironment('CCPLAYER_D3D11_RENDER_API'));
+  static const _d3d11RenderApi = bool.fromEnvironment(
+    'CCPLAYER_D3D11_RENDER_API',
+  );
   static const _surfaces = MethodChannel('ccplayer/native_video');
   final _viewportKey = GlobalKey();
   late final FocusNode _nativePlaybackFocus = FocusNode();
@@ -140,18 +147,96 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
   final _stateSubscriptions = <StreamSubscription<dynamic>>[];
   final _tracker = WatchedTracker();
   final _clock = Stopwatch();
+  final _diagnosticSession = DebugLog.newId('play');
+  int _nativeWarnings = 0, _bufferCount = 0, _bufferTotalMs = 0;
+  int? _bufferStarted, _firstPosition;
+  bool _positionAdvanced = false,
+      _videoParametersLogged = false,
+      _checkingProgress = false;
+  bool _samplingDiagnostics = false;
+  Future<void> _sampleDiagnostics() async {
+    if (!DebugLog.enabled || _samplingDiagnostics || !_opened || !mounted) {
+      return;
+    }
+    _samplingDiagnostics = true;
+    try {
+      final fields = <String, Object?>{'positionMs': current.inMilliseconds};
+      for (final entry in const {
+        'decoderDrops': 'decoder-frame-drop-count',
+        'outputDrops': 'frame-drop-count',
+        'avSync': 'avsync',
+        'cacheSeconds': 'demuxer-cache-duration',
+        'estimatedVideoFps': 'estimated-vf-fps',
+        'displayFps': 'display-fps',
+        'hwdec': 'hwdec-current',
+        'vo': 'current-vo',
+      }.entries) {
+        if (!mounted) return;
+        try {
+          final value = await _property(
+            entry.value,
+          ).timeout(const Duration(milliseconds: 250));
+          fields[entry.key] = value.isEmpty
+              ? 'unavailable'
+              : num.tryParse(value) ?? value;
+        } catch (_) {
+          fields[entry.key] = 'unavailable';
+        }
+      }
+      if (mounted) _log('sample', fields, level: 'DEBUG');
+    } finally {
+      _samplingDiagnostics = false;
+    }
+  }
+
+  Future<void> _recordAdvancing() async {
+    if (_checkingProgress) return;
+    _checkingProgress = true;
+    try {
+      final seeking = await _property(
+        'seeking',
+      ).timeout(const Duration(seconds: 1));
+      if (mounted &&
+          seeking == 'no' &&
+          !_seeking &&
+          !player.state.buffering &&
+          !_positionAdvanced) {
+        _positionAdvanced = true;
+        _log('position_advancing', {'positionMs': current.inMilliseconds});
+      }
+    } catch (_) {
+      /* Missing native telemetry is not a playback error. */
+    } finally {
+      _checkingProgress = false;
+    }
+  }
+
+  void _log(
+    String event,
+    Map<String, Object?> fields, {
+    String level = 'INFO',
+  }) {
+    DebugLog.event('Playback', event, {
+      'session': _diagnosticSession,
+      'elapsedMs': _clock.elapsedMilliseconds,
+      ...fields,
+    }, level: level);
+  }
+
   Future<void> _saveTail = Future.value();
   bool _opened = false,
       _visible = true,
       _seeking = false,
       _saveErrorShown = false;
   Timer? _saver;
+  bool _precisionGuardRunning = false, _softwareFallbackRequested = false;
   bool loading = true;
   String? error;
   List<SubtitleTrack> addedSubtitles = [];
   bool _userAudio = false, _userSubtitle = false;
   String? _lastAudio, _lastSubtitle;
   Future<void> _trackTail = Future.value();
+  Future<Set<String>?>? _decoderCodecs;
   final _previewEnabled = ValueNotifier<bool>(false);
   Timer? _osdTimer;
   final _osd = ValueNotifier<String?>(null);
@@ -171,6 +256,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
       source,
       path,
       purpose: purpose,
+      diagnosticSession: _diagnosticSession,
     );
     if (!mounted) {
       StreamBroker.instance.revoke(uri);
@@ -198,6 +284,12 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
       }
     });
     _clock.start();
+    _log('session_start', {
+      'platform': Platform.operatingSystem,
+      'version': DebugLog.buildVersion,
+      'revision': DebugLog.buildRevision,
+      'detail': DebugLog.enabled,
+    });
     final store = widget.configurationStore ?? MpvConfigStore.instance;
     final folder = store.externalFolder;
     if (store.enabled && folder != null) {
@@ -245,6 +337,16 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
     }
     _positionSubscription = player.stream.position.listen((v) {
       current = v;
+      if (_opened &&
+          player.state.playing &&
+          !player.state.buffering &&
+          !_seeking &&
+          !_positionAdvanced) {
+        _firstPosition ??= v.inMilliseconds;
+        if (v.inMilliseconds > _firstPosition! + 300) {
+          unawaited(_recordAdvancing());
+        }
+      }
       if (_opened && !_seeking) {
         _tracker.sample(
           position: v.inMilliseconds,
@@ -258,6 +360,40 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
       }
     });
     _stateSubscriptions.addAll([
+      player.stream.error.listen(
+        (message) => _log('player_error', {'message': message}, level: 'ERROR'),
+      ),
+      player.stream.log.listen((entry) {
+        if (!['warn', 'error', 'fatal'].contains(entry.level)) return;
+        if (PlaybackProbe.unsupportedMediaCodecProfile(
+          entry.prefix,
+          entry.text,
+        )) {
+          unawaited(_useSoftwareDecoder('unsupported_profile'));
+        }
+        if (++_nativeWarnings <= 20) {
+          _log('native_warning', {
+            'prefix': entry.prefix,
+            'engineLevel': entry.level,
+            'message': entry.text,
+            // A decoder error may be followed by successful fallback. The
+            // application failure stream is logged separately as player_error.
+          }, level: entry.level == 'fatal' ? 'ERROR' : 'WARN');
+        } else if (_nativeWarnings == 21) {
+          _log('native_log_limit', {'limit': 20}, level: 'WARN');
+        }
+      }),
+      player.stream.videoParams.listen((params) {
+        if (params.pixelformat != null) unawaited(_preserveDecodePrecision());
+        if (_videoParametersLogged || params.pixelformat == null) return;
+        _videoParametersLogged = true;
+        _log('decoded_video_parameters', {
+          'width': params.w,
+          'height': params.h,
+          'pixelFormat': params.pixelformat,
+          'hardwarePixelFormat': params.hwPixelformat,
+        });
+      }),
       player.stream.duration
           .where((duration) => duration > Duration.zero)
           .listen((_) {
@@ -267,20 +403,126 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
             if (mounted) setState(() {});
           }),
       player.stream.tracks.listen((_) {
+        unawaited(_preserveDecodePrecision());
         if (_opened) _preferTracks();
       }),
       player.stream.playing.distinct().listen((_) => _tracker.reset()),
-      player.stream.buffering.distinct().listen((_) => _tracker.reset()),
+      player.stream.buffering.distinct().listen((buffering) {
+        _tracker.reset();
+        if (buffering) {
+          _bufferStarted = _clock.elapsedMilliseconds;
+          _bufferCount++;
+          _log('buffer_start', {'positionMs': current.inMilliseconds});
+        } else if (_bufferStarted != null) {
+          final duration = _clock.elapsedMilliseconds - _bufferStarted!;
+          _bufferTotalMs += duration;
+          _bufferStarted = null;
+          _log('buffer_end', {
+            'durationMs': duration,
+            'positionMs': current.inMilliseconds,
+          }, level: duration >= 1000 ? 'WARN' : 'INFO');
+        }
+      }),
       player.stream.rate.distinct().listen((_) => _tracker.reset()),
     ]);
-    _saver = Timer.periodic(const Duration(seconds: 5), (_) => _save());
+    _saver = Timer.periodic(const Duration(seconds: 5), (_) {
+      unawaited(_save());
+      unawaited(_sampleDiagnostics());
+    });
     _open();
+  }
+
+  Future<void> _preserveDecodePrecision() async {
+    final store = widget.configurationStore ?? MpvConfigStore.instance;
+    if (!Platform.isAndroid ||
+        !mounted ||
+        _precisionGuardRunning ||
+        _softwareFallbackRequested ||
+        store.decodeMode == VideoDecodeMode.custom ||
+        store.decodeMode == VideoDecodeMode.software) {
+      return;
+    }
+    _precisionGuardRunning = true;
+    try {
+      final native = player.platform as NativePlayer;
+      if (await native.getProperty('hwdec-current') != 'mediacodec-copy') {
+        return;
+      }
+      final source = await PlaybackProbe(
+        native.getProperty,
+      ).sourceVideoParameters();
+      final decoded = await native.getProperty('video-dec-params/pixelformat');
+      if (!mounted ||
+          !PlaybackProbe.needsPrecisionFallback(
+            sourceFormat: source['format-name'],
+            sourceProfile: source['codec-profile'],
+            decodedFormat: decoded,
+          )) {
+        return;
+      }
+      await _useSoftwareDecoder('precision', {
+        'sourceFormat': source['format-name'],
+        'sourceProfile': source['codec-profile'],
+        'decodedFormat': decoded,
+      });
+    } catch (e) {
+      _log('decode_precision_check_failed', {
+        'type': e.runtimeType.toString(),
+      }, level: 'WARN');
+    } finally {
+      _precisionGuardRunning = false;
+    }
+  }
+
+  Future<void> _useSoftwareDecoder(
+    String reason, [
+    Map<String, Object?> evidence = const {},
+  ]) async {
+    final mode =
+        (widget.configurationStore ?? MpvConfigStore.instance).decodeMode;
+    if (!Platform.isAndroid ||
+        !mounted ||
+        _softwareFallbackRequested ||
+        mode == VideoDecodeMode.custom ||
+        mode == VideoDecodeMode.software) {
+      return;
+    }
+    _softwareFallbackRequested = true;
+    try {
+      final native = player.platform as NativePlayer;
+      // Switch in place even before the first decoded frame. A MediaCodec
+      // profile rejection can otherwise leave the Surface waiting forever.
+      // The log event proves the player is initialized; waiting for the video
+      // controller here would deadlock its first-frame initialization.
+      await native.setProperty('hwdec', 'no', waitForInitialization: false);
+      if (await native.getProperty('hwdec', waitForInitialization: false) !=
+          'no') {
+        throw StateError('Software fallback was not applied');
+      }
+      _log('decode_software_fallback', {'reason': reason, ...evidence});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              reason == 'precision'
+                  ? context.l10n.decodePrecisionFallback
+                  : context.l10n.decodeUnsupportedFallback,
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      _log('decode_software_fallback_failed', {
+        'type': error.runtimeType.toString(),
+      }, level: 'WARN');
+    }
   }
 
   Future<void> _open() async {
     try {
       if (Platform.isAndroid && player.platform!.configuration.libass) {
         await controller.platform.future;
+        _log('controller_ready', {}, level: 'DEBUG');
         final native = player.platform as NativePlayer;
         try {
           if ((await native.getProperty('sub-fonts-dir')).isEmpty) {
@@ -303,7 +545,10 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
       if (_nativeWindow) {
         final native = player.platform as NativePlayer;
         final store = widget.configurationStore ?? MpvConfigStore.instance;
-        final host = await _surfaces.invokeMethod<int>('create');
+        final host = await _surfaces.invokeMethod<int>(
+          'create',
+          _d3d11RenderApi,
+        );
         if (host == null || host == 0) {
           throw StateError('Missing video surface');
         }
@@ -312,25 +557,45 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
           return;
         }
         _surface = host;
-        await native.setProperty('wid', host.toString());
-        if (await native.getProperty('wid') != host.toString()) {
-          throw StateError('Native video did not attach to the player window');
-        }
-        await native.setProperty('vid', 'auto');
-        final options = {
-          'vo': 'gpu',
-          'gpu-api': 'd3d11',
-          'gpu-context': 'd3d11',
-          'd3d11-output-format': 'rgb10_a2',
-          'title': 'Konata',
-          if (store.decodeMode != VideoDecodeMode.custom)
-            'hwdec': store.videoConfiguration.hwdec ?? 'auto-safe',
-        };
-        for (final option in options.entries) {
-          await native.setProperty(option.key, option.value);
-          if (option.key != 'hwdec' &&
-              await native.getProperty(option.key) != option.value) {
-            throw StateError('Unsupported native output option: ${option.key}');
+        if (_d3d11RenderApi) {
+          await native.setProperty('vid', 'auto');
+          await native.setProperty('vo', 'libmpv');
+          if (store.decodeMode != VideoDecodeMode.custom) {
+            await native.setProperty(
+              'hwdec',
+              store.videoConfiguration.hwdec ?? 'auto',
+            );
+          }
+          await _surfaces.invokeMethod<void>('attachD3D11', [
+            host,
+            native.ctx.address,
+            NativeLibrary.path,
+          ]);
+        } else {
+          await native.setProperty('wid', host.toString());
+          if (await native.getProperty('wid') != host.toString()) {
+            throw StateError(
+              'Native video did not attach to the player window',
+            );
+          }
+          await native.setProperty('vid', 'auto');
+          final options = {
+            'vo': 'gpu',
+            'gpu-api': 'd3d11',
+            'gpu-context': 'd3d11',
+            'd3d11-output-format': 'rgb10_a2',
+            'title': 'Konata',
+            if (store.decodeMode != VideoDecodeMode.custom)
+              'hwdec': store.videoConfiguration.hwdec ?? 'auto-safe',
+          };
+          for (final option in options.entries) {
+            await native.setProperty(option.key, option.value);
+            if (option.key != 'hwdec' &&
+                await native.getProperty(option.key) != option.value) {
+              throw StateError(
+                'Unsupported native output option: ${option.key}',
+              );
+            }
           }
         }
       }
@@ -344,11 +609,16 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
           ? await Catalog.instance.resumePosition(asset['id'].toString())
           : 0;
       if (!mounted) return;
+      _log('open_requested', {
+        'sourceKind': source['kind'],
+        'resumeMs': resume,
+      });
       final opening = player.open(
         Media(uri, start: resume > 0 ? Duration(milliseconds: resume) : null),
       );
       final remoteSubs = _webDav ? _webDavSubtitles(source, relative) : null;
       await opening;
+      _log('open_returned', {}, level: 'DEBUG');
       _chapterData = PlaybackProbe(
         _property,
       ).chapters().catchError((Object _) => <VideoChapter>[]);
@@ -390,11 +660,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
         );
         return;
       }
-      DebugLog.write(
-        'Playback',
-        'open failed ${e.runtimeType}',
-        level: 'ERROR',
-      );
+      _log('open_failed', {'type': e.runtimeType.toString()}, level: 'ERROR');
       if (mounted) {
         setState(() {
           error = e.runtimeType.toString();
@@ -478,10 +744,15 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
   }
 
   Future<void> _seek(Duration value) async {
+    _log('seek_requested', {'positionMs': value.inMilliseconds});
+    _firstPosition = null;
     _seeking = true;
     _tracker.reset();
     try {
       await player.seek(value);
+      _log('seek_command_returned', {
+        'positionMs': value.inMilliseconds,
+      }, level: 'DEBUG');
     } finally {
       _tracker.reset();
       _seeking = false;
@@ -490,6 +761,10 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _log('lifecycle', {
+      'state': state.name,
+      'positionMs': current.inMilliseconds,
+    });
     _visible =
         state == AppLifecycleState.resumed ||
         state == AppLifecycleState.inactive;
@@ -498,10 +773,15 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
   }
 
   Future<void> _finish() async {
+    final releaseClock = Stopwatch()..start();
     try {
       await _save();
     } finally {
       try {
+        if (_d3d11RenderApi && _surface != null) {
+          await _surfaces.invokeMethod<void>('destroy', [_surface]);
+          _surface = null;
+        }
         if (_playerCreated) await player.dispose();
       } catch (e) {
         DebugLog.write(
@@ -514,12 +794,29 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
         if (_surface != null) {
           await _surfaces.invokeMethod<void>('destroy', [_surface]);
         }
+        _log('disposed', {'releaseMs': releaseClock.elapsedMilliseconds});
       }
     }
   }
 
+  // Explicit test/diagnostic request; no per-frame readback during playback.
+  Future<Map<Object?, Object?>> capturePresentedBuffer() async =>
+      await _surfaces.invokeMapMethod<Object?, Object?>('captureD3D11', [
+        _surface,
+      ]) ??
+      {};
+
   @override
   void dispose() {
+    _log('session_end', {
+      'positionMs': current.inMilliseconds,
+      'bufferCount': _bufferCount,
+      'bufferTotalMs': _bufferTotalMs,
+      'bufferPendingMs': _bufferStarted == null
+          ? 0
+          : _clock.elapsedMilliseconds - _bufferStarted!,
+      'nativeLogsSuppressed': (_nativeWarnings - 20).clamp(0, _nativeWarnings),
+    });
     if (_surface != null) {
       unawaited(_surfaces.invokeMethod<void>('hide', [_surface]));
     }
@@ -591,6 +888,26 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
         event.logicalKey == LogicalKeyboardKey.escape &&
         playerFullscreen.value) {
       unawaited(_toggleNativeFullscreen());
+      return KeyEventResult.handled;
+    }
+    if (_nativeWindow &&
+        !MpvConfigStore.instance.enabled &&
+        _opened &&
+        (event is KeyDownEvent || event is KeyRepeatEvent)) {
+      final key = event.logicalKey;
+      if (key == LogicalKeyboardKey.space) {
+        if (event is KeyDownEvent) unawaited(player.playOrPause());
+      } else if (key == LogicalKeyboardKey.arrowLeft ||
+          key == LogicalKeyboardKey.arrowRight) {
+        _seek(
+          player.state.position +
+              Duration(seconds: key == LogicalKeyboardKey.arrowLeft ? -5 : 5),
+        );
+      } else if (key == LogicalKeyboardKey.keyF) {
+        if (event is KeyDownEvent) unawaited(_toggleNativeFullscreen());
+      } else {
+        return KeyEventResult.ignored;
+      }
       return KeyEventResult.handled;
     }
     if (!MpvConfigStore.instance.enabled ||
@@ -788,11 +1105,32 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
     );
   }
 
+  Future<Set<String>?> _readDecoderCodecs() async {
+    try {
+      final native = player.platform as NativePlayer;
+      final count = int.parse(await native.getProperty('decoder-list/count'));
+      if (count <= 0 || count > 4096) return null;
+      final codecs = <String>{};
+      for (var i = 0; i < count; i++) {
+        final codec = await native.getProperty('decoder-list/$i/codec');
+        if (codec.isNotEmpty) codecs.add(codec.toLowerCase());
+      }
+      return codecs.isEmpty ? null : codecs;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _preferTracks() {
     _trackTail = _trackTail
         .then((_) async {
           if (!mounted) return;
-          final audio = TrackPreferences.audio(player.state.tracks.audio);
+          final codecs = await (_decoderCodecs ??= _readDecoderCodecs());
+          if (!mounted) return;
+          final audio = TrackPreferences.audio(
+            player.state.tracks.audio,
+            supportedCodecs: codecs,
+          );
           final subtitle = TrackPreferences.subtitle([
             ...player.state.tracks.subtitle,
             ...addedSubtitles,
@@ -857,135 +1195,154 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
     });
   }
 
-  Widget _nativeControls() => ColoredBox(
-    color: Colors.black,
-    child: Stack(
-      fit: StackFit.expand,
-      children: [
-        LayoutBuilder(
-          builder: (context, _) {
-            final route = ModalRoute.of(context);
-            return AnimatedBuilder(
-              animation: route?.animation ?? kAlwaysCompleteAnimation,
-              builder: (context, _) {
-                _layoutSurface(
-                  route?.isCurrent == true &&
-                      route?.animation?.status == AnimationStatus.completed,
-                );
-                return SizedBox.expand(key: _viewportKey);
-              },
-            );
-          },
-        ),
-        if (_barVisible)
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: _barHeight,
-            child: ColoredBox(
-              color: Colors.black,
-              child: Column(
-                children: [
-                  SizedBox(
-                    height: 40,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 18),
-                      child: LayoutBuilder(
-                        builder: (context, constraints) =>
-                            StreamBuilder<Duration>(
-                              stream: player.stream.position,
-                              initialData: player.state.position,
-                              builder: (_, snapshot) {
-                                final duration = player.state.duration;
-                                final end = duration.inMilliseconds.toDouble();
-                                final value =
-                                    (_dragMs ??
-                                            (snapshot.data ?? Duration.zero)
-                                                .inMilliseconds
-                                                .toDouble())
-                                        .clamp(0.0, end);
-                                return Stack(
-                                  alignment: Alignment.center,
-                                  children: [
-                                    SliderTheme(
-                                      data: SliderTheme.of(context).copyWith(
-                                        trackHeight: 6,
-                                        activeTrackColor: NipaPlayStyle.accent,
-                                        inactiveTrackColor: Colors.white54,
-                                        thumbColor: Colors.white,
-                                      ),
-                                      child: Slider(
-                                        padding: EdgeInsets.zero,
-                                        max: end > 0 ? end : 1,
-                                        value: value,
-                                        onChanged: end > 0
-                                            ? (v) => setState(() => _dragMs = v)
-                                            : null,
-                                        onChangeEnd: (v) {
-                                          setState(() => _dragMs = null);
-                                          _seek(
-                                            Duration(milliseconds: v.round()),
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                    Positioned.fill(
-                                      child: IgnorePointer(
-                                        child: _timeline(
-                                          context,
-                                          duration,
-                                          null,
-                                          constraints.maxWidth,
+  Widget _nativeControls() => PlayerScrollVolume(
+    volume: () => player.state.volume,
+    onChanged: player.setVolume,
+    child: ColoredBox(
+      color: Colors.black,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          LayoutBuilder(
+            builder: (context, _) {
+              final route = ModalRoute.of(context);
+              return AnimatedBuilder(
+                animation: route?.animation ?? kAlwaysCompleteAnimation,
+                builder: (context, _) {
+                  _layoutSurface(
+                    route?.isCurrent == true &&
+                        route?.animation?.status == AnimationStatus.completed,
+                  );
+                  return GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _d3d11RenderApi
+                        ? () {
+                            _nativePlaybackFocus.requestFocus();
+                            unawaited(player.playOrPause());
+                          }
+                        : null,
+                    onDoubleTap: _d3d11RenderApi
+                        ? _toggleNativeFullscreen
+                        : null,
+                    child: SizedBox.expand(key: _viewportKey),
+                  );
+                },
+              );
+            },
+          ),
+          if (_barVisible)
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: _barHeight,
+              child: ColoredBox(
+                color: Colors.black,
+                child: Column(
+                  children: [
+                    SizedBox(
+                      height: 40,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 18),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) =>
+                              StreamBuilder<Duration>(
+                                stream: player.stream.position,
+                                initialData: player.state.position,
+                                builder: (_, snapshot) {
+                                  final duration = player.state.duration;
+                                  final end = duration.inMilliseconds
+                                      .toDouble();
+                                  final value =
+                                      (_dragMs ??
+                                              (snapshot.data ?? Duration.zero)
+                                                  .inMilliseconds
+                                                  .toDouble())
+                                          .clamp(0.0, end);
+                                  return Stack(
+                                    alignment: Alignment.center,
+                                    children: [
+                                      SliderTheme(
+                                        data: SliderTheme.of(context).copyWith(
+                                          trackHeight: 6,
+                                          activeTrackColor:
+                                              NipaPlayStyle.accent,
+                                          inactiveTrackColor: Colors.white54,
+                                          thumbColor: Colors.white,
+                                        ),
+                                        child: Slider(
+                                          padding: EdgeInsets.zero,
+                                          max: end > 0 ? end : 1,
+                                          value: value,
+                                          onChanged: end > 0
+                                              ? (v) =>
+                                                    setState(() => _dragMs = v)
+                                              : null,
+                                          onChangeEnd: (v) {
+                                            setState(() => _dragMs = null);
+                                            _seek(
+                                              Duration(milliseconds: v.round()),
+                                            );
+                                          },
                                         ),
                                       ),
-                                    ),
-                                  ],
-                                );
-                              },
-                            ),
+                                      Positioned.fill(
+                                        child: IgnorePointer(
+                                          child: _timeline(
+                                            context,
+                                            duration,
+                                            null,
+                                            constraints.maxWidth,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                        ),
                       ),
                     ),
-                  ),
-                  Expanded(
-                    child: Row(
-                      children: [
-                        StreamBuilder<bool>(
-                          stream: player.stream.playing,
-                          initialData: player.state.playing,
-                          builder: (_, state) => IconButton(
-                            color: Colors.white,
-                            tooltip: state.data == true
-                                ? context.l10n.pause
-                                : context.l10n.play,
-                            icon: Icon(
-                              state.data == true
-                                  ? Icons.pause
-                                  : Icons.play_arrow,
+                    Expanded(
+                      child: Row(
+                        children: [
+                          StreamBuilder<bool>(
+                            stream: player.stream.playing,
+                            initialData: player.state.playing,
+                            builder: (_, state) => IconButton(
+                              color: Colors.white,
+                              tooltip: state.data == true
+                                  ? context.l10n.pause
+                                  : context.l10n.play,
+                              icon: Icon(
+                                state.data == true
+                                    ? Icons.pause
+                                    : Icons.play_arrow,
+                              ),
+                              onPressed: player.playOrPause,
                             ),
-                            onPressed: player.playOrPause,
                           ),
-                        ),
-                        Expanded(child: _tools()),
-                        _volumeControl(),
-                        ValueListenableBuilder<bool>(
-                          valueListenable: playerFullscreen,
-                          builder: (_, full, _) => IconButton(
-                            color: Colors.white,
-                            icon: Icon(
-                              full ? Icons.fullscreen_exit : Icons.fullscreen,
+                          Expanded(child: _tools()),
+                          _volumeControl(),
+                          ValueListenableBuilder<bool>(
+                            valueListenable: playerFullscreen,
+                            builder: (_, full, _) => IconButton(
+                              color: Colors.white,
+                              icon: Icon(
+                                full ? Icons.fullscreen_exit : Icons.fullscreen,
+                              ),
+                              onPressed: _toggleNativeFullscreen,
                             ),
-                            onPressed: _toggleNativeFullscreen,
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-      ],
+        ],
+      ),
     ),
   );
 

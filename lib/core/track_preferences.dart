@@ -56,18 +56,56 @@ abstract final class TrackPreferences {
     return best;
   }
 
-  static AudioTrack? audio(Iterable<AudioTrack> tracks) {
+  static AudioTrack? audio(
+    Iterable<AudioTrack> tracks, {
+    Set<String>? supportedCodecs,
+  }) {
+    var candidates = tracks
+        .where(
+          (t) =>
+              t.id != 'auto' &&
+              t.id != 'no' &&
+              (supportedCodecs == null ||
+                  t.codec == null ||
+                  t.codec!.isEmpty ||
+                  supportedCodecs.contains(t.codec!.toLowerCase())),
+        )
+        .toList();
+    if (candidates.isEmpty) return null;
+    final mainTracks = candidates
+        .where(
+          (t) => !RegExp(
+            r'commentary|评论|評論|解说|解說',
+            caseSensitive: false,
+          ).hasMatch(t.title ?? ''),
+        )
+        .toList();
+    if (mainTracks.isNotEmpty) candidates = mainTracks;
+    // Quality is compared only among the same language/content when known.
+    // Container defaults determine the language; lossless must not override it.
+    final primary = candidates.firstWhere(
+      (t) => t.isDefault == true,
+      orElse: () => candidates.first,
+    );
+    String language(AudioTrack t) => switch ((t.language ?? '')
+        .toLowerCase()
+        .replaceAll('_', '-')
+        .split('-')
+        .first) {
+      'ja' || 'jp' || 'jpn' => 'jpn',
+      'zh' || 'zho' || 'chi' => 'zho',
+      'en' || 'eng' => 'eng',
+      final other => other,
+    };
+    if (language(primary).isNotEmpty && language(primary) != 'und') {
+      candidates = candidates
+          .where((t) => language(t) == language(primary))
+          .toList();
+    }
     AudioTrack? best;
     int score(AudioTrack t) =>
-        (lossless(t) ? 100 : 0) +
-        (t.isDefault == true ? 5 : 0) -
-        (RegExp(
-              r'commentary|评论|評論|解说|解說',
-              caseSensitive: false,
-            ).hasMatch(t.title ?? '')
-            ? 10
-            : 0);
-    for (final track in tracks.where((t) => t.id != 'auto' && t.id != 'no')) {
+        (lossless(t) ? 100 : 0) + (t.isDefault == true ? 5 : 0);
+    for (final track in candidates) {
       if (best == null || score(track) > score(best)) best = track;
     }
     return best;

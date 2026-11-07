@@ -71,10 +71,10 @@ void main() {
           expect(find.text('启用调试日志'), findsNothing);
           expect(
             tester.getTopLeft(find.text('Konata')).dy,
-            lessThan(tester.getTopLeft(find.text('调试日志')).dy),
+            lessThan(tester.getTopLeft(find.text('详细调试日志')).dy),
           );
           final logPanel = find.ancestor(
-            of: find.text('打开日志目录'),
+            of: find.text('导出最近异常日志'),
             matching: find.byType(SettingsPanel),
           );
           expect(

@@ -8,7 +8,7 @@ http.createServer((req, res) => {
   let name;
   try { name = decodeURIComponent(new URL(req.url, 'http://localhost').pathname.slice(1)); }
   catch { res.writeHead(400).end(); return; }
-  if (req.method !== 'GET' || !/^[a-zA-Z0-9_-]+\.(mkv|ass)$/.test(name)) {
+  if (req.method !== 'GET' || !/^[a-zA-Z0-9_-]+\.(mkv|mp4|ass)$/.test(name)) {
     res.writeHead(400).end(); return;
   }
   const file = path.join(root, name);

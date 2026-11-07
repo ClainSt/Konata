@@ -22,6 +22,9 @@ void main() {
       Platform.environment['CCPLAYER_CODEC_REPORT'] ??
       const String.fromEnvironment('BDRIP_CODEC_REPORT');
   const deviceRun = bool.fromEnvironment('BDRIP_NATIVE_INVENTORY');
+  const requireComplete = bool.fromEnvironment('BDRIP_REQUIRE_COMPLETE');
+  const expectedMpv = String.fromEnvironment('BDRIP_EXPECT_MPV');
+  const expectedFfmpeg = String.fromEnvironment('BDRIP_EXPECT_FFMPEG');
   test(
     'query actual libmpv decoder inventory and linked build metadata',
     () async {
@@ -70,6 +73,25 @@ void main() {
             exports[name] = 'not exported by this DLL';
           }
         }
+        const requiredCodecs = {
+          'h264',
+          'hevc',
+          'av1',
+          'flac',
+          'aac',
+          'ac3',
+          'eac3',
+          'opus',
+          'alac',
+          'dts',
+          'truehd',
+          'mlp',
+          'pcm_s16le',
+          'pcm_s24le',
+        };
+        final availableCodecs = decoders.map((d) => d['codec']).toSet();
+        final missingCodecs =
+            requiredCodecs.difference(availableCodecs).toList()..sort();
         final result = {
           'platform': Platform.operatingSystem,
           'engine_sha256_note': 'See paired external hash report',
@@ -77,6 +99,9 @@ void main() {
           'decoder_count': count,
           'decoders': decoders,
           'ffmpeg_exports': exports,
+          'required_codecs': requiredCodecs.toList()..sort(),
+          'missing_required_codecs': missingCodecs,
+          'decoder_inventory_gate': missingCodecs.isEmpty ? 'pass' : 'fail',
           'limitations':
               'decoder-list is vd/ad capability, not proof of usable hardware or complete subtitle support. libass rendering tested separately.',
         };
@@ -94,6 +119,29 @@ void main() {
         expect(decoders.any((d) => d['codec'] == 'hevc'), isTrue);
         expect(decoders.any((d) => d['codec'] == 'flac'), isTrue);
         expect(decoders.any((d) => d['codec'] == 'aac'), isTrue);
+        if (requireComplete) {
+          expect(
+            missingCodecs,
+            isEmpty,
+            reason:
+                'A release candidate must include every required decoder; '
+                'this gate does not replace real audio/video output tests.',
+          );
+        }
+        if (expectedMpv.isNotEmpty) {
+          expect(
+            properties['mpv-version'],
+            matches('^mpv v?${RegExp.escape(expectedMpv)}\$'),
+            reason: 'A development snapshot is not the pinned mpv release.',
+          );
+        }
+        if (expectedFfmpeg.isNotEmpty) {
+          expect(
+            properties['ffmpeg-version'],
+            matches('^n?${RegExp.escape(expectedFfmpeg)}\$'),
+            reason: 'Check linked FFmpeg, not the host ffmpeg executable.',
+          );
+        }
         // Only runtime observations are printed, not a host ffmpeg's feature list.
         print(
           'NATIVE_INVENTORY ${jsonEncode({'count': count, 'properties': properties, 'exports': exports})}',

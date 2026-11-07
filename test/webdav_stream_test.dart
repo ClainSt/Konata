@@ -61,6 +61,95 @@ Future<List<int>> body(HttpClientResponse r) => r
     .timeout(const Duration(seconds: 3));
 void main() {
   test(
+    'completed ranges reuse one connection until its idle timeout',
+    () async {
+      final ports = <int>[];
+      final f = await Fixture.start((r) async {
+        ports.add(r.connectionInfo!.remotePort);
+        r.response.statusCode = 206;
+        r.response.headers.set('content-range', 'bytes 0-3/100');
+        r.response.contentLength = 4;
+        r.response.add([0, 1, 2, 3]);
+        await r.response.close();
+      });
+      Future<void> read() async {
+        expect(await body(await f.request(range: 'bytes=0-3')), [0, 1, 2, 3]);
+        await Future.doWhile(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+          return f.relay.activeRequests != 0;
+        }).timeout(const Duration(seconds: 2));
+      }
+
+      try {
+        await read();
+        await read();
+        expect(ports[1], ports[0]);
+        await Future<void>.delayed(const Duration(milliseconds: 5200));
+        await read();
+        expect(ports[2], isNot(ports[1]));
+        final head = await f.request(range: 'bytes=0-3', method: 'HEAD');
+        expect(head.statusCode, 206);
+        expect(await body(head), isEmpty);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await read();
+        expect(ports[3], ports[2]);
+        expect(ports[4], ports[2]);
+        expect(f.origin.connectionsInfo().total, 1);
+        f.relay.close();
+        await Future.doWhile(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+          return f.origin.connectionsInfo().total != 0;
+        }).timeout(const Duration(seconds: 2));
+        expect((await f.request()).statusCode, 410);
+        expect(ports, hasLength(5));
+      } finally {
+        await f.close();
+      }
+    },
+  );
+
+  test('cancelling one leased connection leaves another read usable', () async {
+    final release = Completer<void>();
+    final ports = <int>[];
+    final f = await Fixture.start((r) async {
+      ports.add(r.connectionInfo!.remotePort);
+      r.response.contentLength = 8;
+      r.response.add([0, 1, 2, 3]);
+      await r.response.flush();
+      await release.future;
+      r.response.add([4, 5, 6, 7]);
+      await r.response.close();
+    });
+    final aborting = HttpClient();
+    try {
+      final request = await aborting.getUrl(
+        Uri.parse('http://127.0.0.1:${f.proxy.port}/ticket'),
+      );
+      final first = await request.close();
+      final subscription = first.listen((_) {}, onError: (Object _) {});
+      final second = await f.request();
+      final completed = body(second);
+      expect(ports.toSet(), hasLength(2));
+      aborting.close(force: true);
+      await subscription.cancel();
+      await Future.doWhile(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+        return f.relay.activeRequests > 1;
+      }).timeout(const Duration(seconds: 2));
+      expect(f.relay.activeRequests, 1);
+      release.complete();
+      expect(await completed, List.generate(8, (i) => i));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(await body(await f.request()), List.generate(8, (i) => i));
+      expect(ports.last, ports[1]);
+    } finally {
+      if (!release.isCompleted) release.complete();
+      aborting.close(force: true);
+      await f.close();
+    }
+  });
+
+  test(
     'downstream disconnect releases a stalled upstream without ticket-wide cancellation',
     () async {
       final release = Completer<void>();

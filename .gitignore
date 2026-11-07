@@ -51,3 +51,9 @@ app.*.map.json
 
 android/.kotlin/
 
+
+# Keep project notes and verification/design artifacts local.
+*.[mM][dD]
+!/README.md
+/design/
+/docs/verification/

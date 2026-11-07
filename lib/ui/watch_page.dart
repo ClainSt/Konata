@@ -534,12 +534,12 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (identical(playingHeader.value, header)) playingHeader.value = null;
     });
+    _releasePreview();
     _previewEnabled.dispose();
     _statsVisible.dispose();
     if (_nativeWindow) _nativePlaybackFocus.dispose();
     _osdTimer?.cancel();
     _osd.dispose();
-    unawaited(_frames?.dispose() ?? Future<void>.value());
     if (_androidFullscreen) {
       playerFullscreen.value = false;
       unawaited(_androidWindow.invokeMethod<void>('fullscreen', false));
@@ -1162,7 +1162,11 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
             if (identical(_previewUri, pending)) _previewUri = null;
             return null;
           }
-          if (!mounted || !_previewEnabled.value) return null;
+          if (!mounted ||
+              !_previewEnabled.value ||
+              !identical(_previewUri, pending)) {
+            return null;
+          }
           _frames ??= TimelineFrames(uri);
           return _frames!.frame(position);
         },
@@ -1172,6 +1176,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
 
   void _togglePreview(BuildContext context) {
     _previewEnabled.value = !_previewEnabled.value;
+    if (!_previewEnabled.value) _releasePreview();
     _osd.value = _previewEnabled.value
         ? context.l10n.previewOn
         : context.l10n.previewOff;
@@ -1179,6 +1184,36 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
     _osdTimer = Timer(const Duration(seconds: 2), () {
       if (mounted) _osd.value = null;
     });
+  }
+
+  void _releasePreview() {
+    final pending = _previewUri;
+    _previewUri = null;
+    final frames = _frames;
+    _frames = null;
+    if (pending != null) {
+      unawaited(
+        pending
+            .then((value) {
+              final uri = Uri.parse(value);
+              // Only revoke a broker ticket owned by this preview. Local files and
+              // the primary playback/subtitle tickets remain untouched.
+              if (_streamTickets.remove(uri)) StreamBroker.instance.revoke(uri);
+            })
+            .catchError((Object _) {}),
+      );
+    }
+    if (frames != null) {
+      unawaited(
+        frames.dispose().catchError((Object e) {
+          DebugLog.write(
+            'Playback',
+            'preview dispose failed ${e.runtimeType}',
+            level: 'ERROR',
+          );
+        }),
+      );
+    }
   }
 
   void _inspect(BuildContext context, bool chapters) {

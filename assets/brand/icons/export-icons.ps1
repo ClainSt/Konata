@@ -1,23 +1,25 @@
+$ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
-$root = (Get-Location).Path
+$root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
 $source = [Drawing.Image]::FromFile((Join-Path $root 'assets/brand/icons/windows.png'))
-function Export-IconPng($path, [int]$size, [bool]$white, [bool]$adaptive) {
+$androidSource = [Drawing.Image]::FromFile((Join-Path $root 'assets/brand/icons/android.png'))
+function Export-IconPng($path, [int]$size, [bool]$white, [bool]$adaptive, $inputImage) {
   $bitmap = New-Object Drawing.Bitmap $size,$size
   $graphics = [Drawing.Graphics]::FromImage($bitmap)
   $graphics.Clear($(if ($white) {[Drawing.Color]::White} else {[Drawing.Color]::Transparent}))
   $graphics.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
   $graphics.CompositingQuality = [Drawing.Drawing2D.CompositingQuality]::HighQuality
-  if ($adaptive) { $offset = $size / 6; $edge = $size * 2 / 3 } else { $offset = 0; $edge = $size }
-  $graphics.DrawImage($source, [single]$offset, [single]$offset, [single]$edge, [single]$edge)
+  # Keep the detached corner stars inside the adaptive icon's circular safe area.
+  if ($adaptive) { $edge = $size * 0.48; $offset = ($size - $edge) / 2 } else { $offset = 0; $edge = $size }
+  $graphics.DrawImage($inputImage, [single]$offset, [single]$offset, [single]$edge, [single]$edge)
   $bitmap.Save((Join-Path $root $path), [Drawing.Imaging.ImageFormat]::Png)
   $graphics.Dispose(); $bitmap.Dispose()
 }
-Export-IconPng 'assets/brand/icons/android.png' 1024 $true $false
 $densities = @{'mdpi'=48; 'hdpi'=72; 'xhdpi'=96; 'xxhdpi'=144; 'xxxhdpi'=192}
 foreach ($density in $densities.Keys) {
   $folder = "android/app/src/main/res/mipmap-$density"
-  Export-IconPng "$folder/ic_launcher.png" $densities[$density] $true $false
-  Export-IconPng "$folder/ic_launcher_foreground.png" ([int]($densities[$density] * 2.25)) $false $true
+  Export-IconPng "$folder/ic_launcher.png" $densities[$density] $true $false $androidSource
+  Export-IconPng "$folder/ic_launcher_foreground.png" ([int]($densities[$density] * 2.25)) $false $true $source
 }
 $sizes = @(16,24,32,48,64,128,256)
 $streams = @()
@@ -43,4 +45,4 @@ for ($i=0; $i -lt $sizes.Count; $i++) {
   $offset += $streams[$i].Length
 }
 foreach ($bytes in $streams) { $writer.Write([byte[]]$bytes) }
-$writer.Dispose(); $source.Dispose()
+$writer.Dispose(); $source.Dispose(); $androidSource.Dispose()

@@ -19,10 +19,15 @@ class WebDavStream {
   final String username, password, purpose;
   final Duration headerTimeout, idleTimeout;
   final _clients = <HttpClient>{};
+  HttpClient? _idleClient;
+  Timer? _idleTimer;
   bool _closed = false;
   int get activeRequests => _clients.length;
   void close() {
     _closed = true;
+    _idleTimer?.cancel();
+    _idleClient?.close(force: true);
+    _idleClient = null;
     for (final client in _clients.toList()) {
       client.close(force: true);
     }
@@ -34,9 +39,18 @@ class WebDavStream {
       uri.port == target.port;
 
   Future<void> serve(HttpRequest req) async {
-    var client = HttpClient()
-      ..autoUncompress = false
-      ..connectionTimeout = headerTimeout;
+    // A completed read may leave one reusable connection for this ticket.
+    // Active requests keep separate clients so cancelling a seek cannot kill
+    // another read. Never drain a cancelled media response just to reuse it.
+    final connectionReused = _idleClient != null;
+    var client =
+        _idleClient ??
+        (HttpClient()
+          ..autoUncompress = false
+          ..connectionTimeout = headerTimeout);
+    _idleTimer?.cancel();
+    _idleClient = null;
+    var reusable = false;
     var bytes = 0, status = 0;
     var headersMs = -1;
     var phase = 'request', failure = 'none';
@@ -197,7 +211,11 @@ class WebDavStream {
         if (value != null) req.response.headers.set(header, value);
       }
       if (expected != null) req.response.contentLength = expected;
-      if (req.method == 'HEAD') return;
+      if (req.method == 'HEAD') {
+        await upstream.drain<void>().timeout(idleTimeout);
+        reusable = _origin(uri) && upstream.persistentConnection;
+        return;
+      }
       req.response.persistentConnection = false;
       req.response.headers.chunkedTransferEncoding = expected == null;
       phase = 'stream';
@@ -239,8 +257,12 @@ class WebDavStream {
       if (expected == null) socket.add('0\r\n\r\n'.codeUnits);
       await socket.flush();
       finished = true;
+      // Only keep a fully consumed, validated response from the original
+      // origin. Redirect/CDN credentials and connections remain isolated.
+      reusable = _origin(uri) && upstream.persistentConnection;
       await socket.close();
     } catch (e) {
+      reusable = false;
       failure = e.runtimeType.toString();
       if (!streaming) {
         try {
@@ -259,14 +281,27 @@ class WebDavStream {
         await req.response.close();
       } catch (_) {}
       for (final c in clients) {
-        c.close(force: true);
         _clients.remove(c);
+        if (identical(c, client) &&
+            reusable &&
+            !cancelled &&
+            !_closed &&
+            _idleClient == null) {
+          _idleClient = c;
+          // Bound both idle sockets and their lifetime; no byte cache is added.
+          _idleTimer = Timer(const Duration(seconds: 5), () {
+            _idleClient?.close(force: true);
+            _idleClient = null;
+          });
+        } else {
+          c.close(force: true);
+        }
       }
       if (DebugLog.enabled) {
         final span = requested?.boundedLength;
         DebugLog.write(
           'WebDAVStream',
-          'method=${req.method == 'HEAD'
+          'connectionReused=$connectionReused method=${req.method == 'HEAD'
               ? 'HEAD'
               : req.method == 'GET'
               ? 'GET'

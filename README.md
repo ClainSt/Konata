@@ -73,12 +73,6 @@
 4. 在扫描进度中查看索引与资料获取情况。需要手动修正时，进入作品详情页，通过右上角菜单编辑元数据或封面。
 5. 选择剧集开始播放；已有观看进度的内容可以继续播放。
 
-详细说明：
-
-- [添加媒体与选择扫描目录](docs/MEDIA_SOURCE_BROWSER.md)
-- [SMB 媒体源](docs/SMB_SOURCE.md)
-- [TMDB / Bangumi 资料获取](docs/NIPAPLAY_SCRAPER_PORT.md)
-
 ## 从源码运行
 
 准备 Flutter SDK 及对应平台的构建环境。Windows 需要 Visual Studio 的 C++ 桌面开发组件；Android 需要 Android SDK 和 Java 环境。
@@ -110,9 +104,9 @@ flutter build apk --release
 - [Flutter](https://github.com/flutter/flutter)：跨平台界面框架。
 - [Media Kit](https://github.com/media-kit/media-kit) / [mpv](https://github.com/mpv-player/mpv)：视频播放能力。
 - [TMDB](https://www.themoviedb.org/) / [Bangumi](https://bgm.tv/)：作品与剧集资料。
-- NipaPlay Personal：界面设计、媒体识别与 SMB 接入的参考和移植基础，相关说明见 [详情页移植记录](docs/NIPAPLAY_DETAIL_PORT.md) 与 [SMB 文档](docs/SMB_SOURCE.md)。
+- 媒体识别、界面参考及 SMB 接入的来源和授权见 [第三方说明](THIRD_PARTY_NOTICES)。
 - [Kazumi](https://github.com/Predidit/Kazumi)：README 排版参考。
 
 ## 图标
 
-应用图标采用《幸运星》泉此方的水粉风格头像。资源与导出说明见 [图标目录](assets/brand/icons/README.md)。
+应用图标采用《幸运星》泉此方的简化贴纸风头像，搭配代表另外三位主角的粉色与紫色星星。Windows 使用透明背景图标，Android 使用白底自适应图标。导出母图位于 [图标目录](assets/brand/icons)，运行 `assets/brand/icons/export-icons.ps1` 可重新生成两端图标资源。

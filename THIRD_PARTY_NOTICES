@@ -1,0 +1,13 @@
+Konata third-party references and licenses
+
+NipaPlay Personal was a reference and porting basis for the initial UI,
+media recognition rules and SMB integration. Referenced rule/test material
+retains the original MIT license and copyright notice in docs/REFERENCE_LICENSE.
+This project does not claim the upstream work as its own original creation.
+
+The vendored SMB client retains its license in packages/smb_connect/LICENSE.
+The media_kit and media_kit_video packages retain their respective LICENSE files.
+
+TMDB and GitHub marks belong to their respective owners. Character artwork
+is based on Konata Izumi from Lucky Star; character rights belong to their
+respective holders.

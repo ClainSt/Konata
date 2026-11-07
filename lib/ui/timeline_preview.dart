@@ -48,7 +48,7 @@ class _TimelinePreviewState extends State<TimelinePreview> {
   void schedule() {
     timer?.cancel();
     final sequence = ++generation;
-    bytes = null;
+    clearImage();
     if (widget.fraction == null || widget.duration <= Duration.zero) return;
     target = widget.duration * widget.fraction!.clamp(0, 1);
     VideoChapter? current;
@@ -77,10 +77,21 @@ class _TimelinePreviewState extends State<TimelinePreview> {
     });
   }
 
+  void clearImage() {
+    final previous = bytes;
+    bytes = null;
+    if (previous != null) {
+      // The compressed frame cache belongs to TimelineFrames. Do not also
+      // retain every decoded hover image in Flutter's global image cache.
+      unawaited(MemoryImage(previous).evict());
+    }
+  }
+
   @override
   void dispose() {
     timer?.cancel();
     generation++;
+    clearImage();
     super.dispose();
   }
 

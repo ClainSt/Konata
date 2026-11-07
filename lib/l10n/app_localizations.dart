@@ -421,13 +421,13 @@ abstract class AppLocalizations {
   /// Konata interface: enableLogs
   ///
   /// In en, this message translates to:
-  /// **'Debug logs'**
+  /// **'Detailed debug logging'**
   String get enableLogs;
 
   /// Konata interface: logsDescription
   ///
   /// In en, this message translates to:
-  /// **'Log scan, network, metadata and image activity.'**
+  /// **'Errors and essential playback events are always recorded. Enable before reproducing for more detail.'**
   String get logsDescription;
 
   /// Konata interface: logsSaveFailed
@@ -445,7 +445,7 @@ abstract class AppLocalizations {
   /// Konata interface: exportLogsSystem
   ///
   /// In en, this message translates to:
-  /// **'Save logs to a file'**
+  /// **'One TXT file with context around the latest incident'**
   String get exportLogsSystem;
 
   /// Konata interface: logsDefaultPath
@@ -463,13 +463,13 @@ abstract class AppLocalizations {
   /// Konata interface: noLogs
   ///
   /// In en, this message translates to:
-  /// **'Log folder ready. No logs yet.'**
+  /// **'No recorded incident to export'**
   String get noLogs;
 
   /// Konata interface: exportLogs
   ///
   /// In en, this message translates to:
-  /// **'Export logs'**
+  /// **'Export latest incident'**
   String get exportLogs;
 
   /// Konata interface: logsAccessFailed
@@ -2636,6 +2636,78 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Flutter texture size'**
   String get statTextureSize;
+
+  /// No description provided for @statFilteredDepth.
+  ///
+  /// In en, this message translates to:
+  /// **'Component depth after filters'**
+  String get statFilteredDepth;
+
+  /// No description provided for @statTargetDepth.
+  ///
+  /// In en, this message translates to:
+  /// **'MPV target depth (reported)'**
+  String get statTargetDepth;
+
+  /// No description provided for @statTargetPrimaries.
+  ///
+  /// In en, this message translates to:
+  /// **'MPV target primaries'**
+  String get statTargetPrimaries;
+
+  /// No description provided for @statTargetTransfer.
+  ///
+  /// In en, this message translates to:
+  /// **'MPV target transfer function'**
+  String get statTargetTransfer;
+
+  /// No description provided for @statPresentationDepth.
+  ///
+  /// In en, this message translates to:
+  /// **'Final presentation depth (unmeasured)'**
+  String get statPresentationDepth;
+
+  /// No description provided for @statDecodedAudioFormat.
+  ///
+  /// In en, this message translates to:
+  /// **'Decoded audio sample format'**
+  String get statDecodedAudioFormat;
+
+  /// No description provided for @statOutputAudioFormat.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio API sample format'**
+  String get statOutputAudioFormat;
+
+  /// No description provided for @statOutputSampleRate.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio API sample rate'**
+  String get statOutputSampleRate;
+
+  /// No description provided for @statOutputChannels.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio API channel layout'**
+  String get statOutputChannels;
+
+  /// No description provided for @statAudioOutput.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio output'**
+  String get statAudioOutput;
+
+  /// No description provided for @decodePrecisionFallback.
+  ///
+  /// In en, this message translates to:
+  /// **'Switching to software decoding to preserve video bit depth'**
+  String get decodePrecisionFallback;
+
+  /// No description provided for @decodeUnsupportedFallback.
+  ///
+  /// In en, this message translates to:
+  /// **'Hardware does not support this video format; switching to software decoding'**
+  String get decodeUnsupportedFallback;
 
   /// No description provided for @videoDecoding.
   ///

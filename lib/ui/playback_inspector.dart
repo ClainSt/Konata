@@ -104,7 +104,17 @@ class _PlaybackInspectorState extends State<PlaybackInspector> {
       'video-out-params/w': l.statFilteredWidth,
       'video-out-params/h': l.statFilteredHeight,
       'paused-for-cache': l.statCachePaused,
-      'source-component-depth': l.statSourceDepth,
+      'decoded-component-depth': l.statSourceDepth,
+      'filtered-component-depth': l.statFilteredDepth,
+      'target-component-depth': l.statTargetDepth,
+      'video-target-params/primaries': l.statTargetPrimaries,
+      'video-target-params/gamma': l.statTargetTransfer,
+      'presentation-component-depth': l.statPresentationDepth,
+      'audio-params/format': l.statDecodedAudioFormat,
+      'audio-out-params/format': l.statOutputAudioFormat,
+      'audio-out-params/samplerate': l.statOutputSampleRate,
+      'audio-out-params/channels': l.statOutputChannels,
+      'current-ao': l.statAudioOutput,
       'flutter-texture-size': l.statTextureSize,
     };
     final position = widget.position();

@@ -1,0 +1,59 @@
+// Local packaging adapter: preserve upstream Java integration and replace only
+// its downloaded native JARs with the pinned, hash-checked Konata build.
+import groovy.json.JsonSlurper
+import java.security.MessageDigest
+
+group 'com.alexmercerind.media_kit_libs_android_video'
+version '1.0'
+buildscript {
+    repositories { google(); mavenCentral() }
+    dependencies { classpath 'com.android.tools.build:gradle:8.13.0' }
+}
+apply plugin: 'com.android.library'
+
+def nativeRoot = file(System.getenv('KONATA_NATIVE_ROOT') ?: "${rootProject.projectDir}/../.dart_tool/konata-native")
+def manifestFile = new File(nativeRoot, 'android-manifest.json')
+android {
+    namespace 'com.alexmercerind.media_kit_libs_android_video'
+    compileSdkVersion 36
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    defaultConfig { minSdkVersion 23 }
+    sourceSets.main.jniLibs.srcDirs = [new File(nativeRoot, 'android')]
+}
+
+def verifyKonataNative = tasks.register('verifyKonataNative') {
+    inputs.file(manifestFile)
+    inputs.dir(new File(nativeRoot, 'android'))
+    doLast {
+        if (!manifestFile.isFile()) {
+            throw new GradleException('Missing Konata native build. Prepare the pinned Android libraries before building.')
+        }
+        def manifest = new JsonSlurper().parse(manifestFile)
+        if (manifest.mpv != '0.42.0' || manifest.ffmpeg != '9.0.2' || manifest.platform != 'android-arm64') {
+            throw new GradleException('Unexpected Konata native version or platform.')
+        }
+        def expectedFiles = manifest.files.keySet().collect { it.toString() }.toSet()
+        def actualFiles = fileTree(new File(nativeRoot, 'android')).matching { include '**/*.so' }.files.collect {
+            nativeRoot.toPath().relativize(it.toPath()).toString().replace('\\', '/')
+        }.toSet()
+        if (actualFiles != expectedFiles || !actualFiles.contains('android/arm64-v8a/libmpv.so')) {
+            throw new GradleException('Native library set differs from its manifest.')
+        }
+        manifest.files.each { relativePath, expected ->
+            def library = new File(nativeRoot, relativePath.toString())
+            def digest = MessageDigest.getInstance('SHA-256')
+            library.withInputStream { stream ->
+                byte[] buffer = new byte[65536]
+                int count
+                while ((count = stream.read(buffer)) != -1) { digest.update(buffer, 0, count) }
+            }
+            if (digest.digest().encodeHex().toString() != expected.sha256 || library.length() != expected.bytes) {
+                throw new GradleException("Native library verification failed: ${relativePath}")
+            }
+        }
+    }
+}
+tasks.named('preBuild').configure { dependsOn verifyKonataNative }

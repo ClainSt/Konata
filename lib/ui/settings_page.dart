@@ -15,6 +15,8 @@ import 'settings_navigation.dart';
 import 'playback_history_page.dart';
 import 'tmdb_id_guide.dart';
 import 'dart:io';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import '../core/debug_log.dart';
 import 'metadata_server_settings.dart';
@@ -64,6 +66,7 @@ enum _SettingsCategory {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
+  bool _exportingLogs = false;
   late _SettingsCategory selected;
   bool historyOpen = false;
   bool _exporting = false;
@@ -539,16 +542,11 @@ class _SettingsPageState extends State<SettingsPage> {
                     const SizedBox(height: 16),
                     SettingsPanel(
                       child: ListTile(
-                        leading: const Icon(Icons.folder_open),
-                        title: Text(context.l10n.openLogs),
-                        subtitle: Text(
-                          Platform.isAndroid
-                              ? context.l10n.exportLogsSystem
-                              : DebugLog.directory?.path ??
-                                    context.l10n.logsDefaultPath,
-                        ),
+                        leading: const Icon(Icons.description_outlined),
+                        title: Text(context.l10n.exportLogs),
+                        subtitle: Text(context.l10n.exportLogsSystem),
                         trailing: const Icon(Icons.chevron_right),
-                        onTap: _openLogs,
+                        onTap: _exportingLogs ? null : _openLogs,
                       ),
                     ),
                     const SizedBox(height: 24),
@@ -744,59 +742,32 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _openLogs() async {
+    if (_exportingLogs) return;
+    setState(() => _exportingLogs = true);
     try {
       if (DebugLog.directory == null) await DebugLog.initialize();
-      final dir = DebugLog.directory!;
-      await dir.create(recursive: true);
-      await DebugLog.flush();
-      if (Platform.isWindows) {
-        final process = await Process.start('explorer.exe', [dir.path]);
-        if (process.pid <= 0) throw StateError('无法打开文件夹');
-      } else if (Platform.isAndroid) {
-        final files = await dir
-            .list()
-            .where((f) => f is File && f.path.endsWith('.log'))
-            .cast<File>()
-            .toList();
-        if (!mounted) return;
-        if (files.isEmpty) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(context.l10n.noLogs)));
-          return;
-        }
-        final selected = await showDialog<File>(
-          context: context,
-          builder: (ctx) => SimpleDialog(
-            title: Text(context.l10n.exportLogs),
-            children: [
-              for (final file in files)
-                SimpleDialogOption(
-                  onPressed: () => Navigator.pop(ctx, file),
-                  child: Text(file.uri.pathSegments.last),
-                ),
-            ],
-          ),
-        );
-        if (selected == null) return;
-        if (!mounted) return;
-        final exportTitle = context.l10n.exportLogs;
-        final logBytes = await selected.readAsBytes();
-        await FilePicker.saveFile(
-          dialogTitle: exportTitle,
-          fileName: selected.uri.pathSegments.last,
-          bytes: logBytes,
-        );
-      } else {
-        final opened = await launchUrl(dir.uri);
-        if (!opened) throw StateError('无法打开目录');
+      final text = await DebugLog.latestIncidentText();
+      if (!mounted) return;
+      if (text == null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(context.l10n.noLogs)));
+        return;
       }
+      await FilePicker.saveFile(
+        dialogTitle: context.l10n.exportLogs,
+        fileName:
+            'Konata-incident-${DateTime.now().toUtc().millisecondsSinceEpoch}.txt',
+        bytes: Uint8List.fromList(utf8.encode(text)),
+      );
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(context.l10n.logsAccessFailed)));
       }
+    } finally {
+      if (mounted) setState(() => _exportingLogs = false);
     }
   }
 

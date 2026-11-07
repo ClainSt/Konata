@@ -171,11 +171,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get deleteRecord => 'Remove from history';
 
   @override
-  String get enableLogs => 'Debug logs';
+  String get enableLogs => 'Detailed debug logging';
 
   @override
   String get logsDescription =>
-      'Log scan, network, metadata and image activity.';
+      'Errors and essential playback events are always recorded. Enable before reproducing for more detail.';
 
   @override
   String get logsSaveFailed => 'Couldn\'t save log settings';
@@ -184,7 +184,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get openLogs => 'Open log folder';
 
   @override
-  String get exportLogsSystem => 'Save logs to a file';
+  String get exportLogsSystem =>
+      'One TXT file with context around the latest incident';
 
   @override
   String get logsDefaultPath => 'App data / logs';
@@ -193,10 +194,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get versionLabel => 'Version 1.0.0';
 
   @override
-  String get noLogs => 'Log folder ready. No logs yet.';
+  String get noLogs => 'No recorded incident to export';
 
   @override
-  String get exportLogs => 'Export logs';
+  String get exportLogs => 'Export latest incident';
 
   @override
   String get logsAccessFailed => 'Can\'t open logs. Check your file manager.';
@@ -1408,6 +1409,44 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get statTextureSize => 'Flutter texture size';
+
+  @override
+  String get statFilteredDepth => 'Component depth after filters';
+
+  @override
+  String get statTargetDepth => 'MPV target depth (reported)';
+
+  @override
+  String get statTargetPrimaries => 'MPV target primaries';
+
+  @override
+  String get statTargetTransfer => 'MPV target transfer function';
+
+  @override
+  String get statPresentationDepth => 'Final presentation depth (unmeasured)';
+
+  @override
+  String get statDecodedAudioFormat => 'Decoded audio sample format';
+
+  @override
+  String get statOutputAudioFormat => 'Audio API sample format';
+
+  @override
+  String get statOutputSampleRate => 'Audio API sample rate';
+
+  @override
+  String get statOutputChannels => 'Audio API channel layout';
+
+  @override
+  String get statAudioOutput => 'Audio output';
+
+  @override
+  String get decodePrecisionFallback =>
+      'Switching to software decoding to preserve video bit depth';
+
+  @override
+  String get decodeUnsupportedFallback =>
+      'Hardware does not support this video format; switching to software decoding';
 
   @override
   String get videoDecoding => 'Video decoding';

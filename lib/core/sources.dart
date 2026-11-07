@@ -87,7 +87,8 @@ class WebDav {
       ..connectionTimeout = const Duration(seconds: 15);
     var retriedAuthentication = false;
     client.authenticate = (url, scheme, realm) async {
-      if (retriedAuthentication || username.isEmpty ||
+      if (retriedAuthentication ||
+          username.isEmpty ||
           url.host != root.host ||
           url.port != root.port ||
           url.scheme != root.scheme) {
@@ -424,6 +425,7 @@ class StreamBroker {
     Map<String, Object?> source,
     String path, {
     String purpose = 'playback',
+    String? diagnosticSession,
   }) async {
     _server ??= await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     if (!_listening) {
@@ -446,6 +448,7 @@ class StreamBroker {
         password: dav.password,
         authorization: dav.username.isEmpty ? null : dav.auth,
         purpose: purpose,
+        diagnosticSession: diagnosticSession,
       );
     }
     return Uri.parse('http://127.0.0.1:${_server!.port}/file/$ticket');

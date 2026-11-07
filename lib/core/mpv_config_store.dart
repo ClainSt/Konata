@@ -50,6 +50,7 @@ class MpvConfigStore {
 
   PlayerConfiguration configurationFor(Directory? profile) =>
       PlayerConfiguration(
+        logLevel: MPVLogLevel.warn,
         libass: Platform.isWindows || Platform.isAndroid,
         mpvConfigurationDirectory: profile?.path,
         mpvRespectRenderingConfiguration:

@@ -2,7 +2,7 @@
 
 <h1>Konata</h1>
 
-<img src="assets/brand/icons/windows.png" alt="Konata · 泉此方" width="200">
+<img src="assets/brand/icons/android-round.png" alt="Konata · 泉此方" width="200">
 
 <p>把收藏的动画，整理成自己的海报墙。</p>
 
@@ -75,6 +75,8 @@
 
 准备 Flutter SDK 及对应平台的构建环境。Windows 需要 Visual Studio 的 C++ 桌面开发组件；Android 需要 Android SDK 和 Java 环境。
 
+当前源码使用固定版本的本地原生库（mpv 0.42.0、FFmpeg 9.0.2）。构建前须按 `tool/native/` 中的脚本准备 Windows x64 或 Android ARM64 库及其校验清单，放入 `.dart_tool/konata-native/`，也可通过 `KONATA_NATIVE_ROOT` 指定目录。原生二进制不存入源码仓库；缺失或校验不符时构建会停止。
+
 ```sh
 flutter pub get
 flutter run -d windows
@@ -90,8 +92,10 @@ flutter run -d <设备ID>
 
 ```sh
 flutter build windows --release
-flutter build apk --release
+flutter build apk --release --target-platform android-arm64 --split-per-abi
 ```
+
+Android 正式签名需要本机发布密钥及 `CCPLAYER_SIGNING_PASSWORD` 环境变量。项目维护者可运行 `tool/build_signed_android.ps1`，在本机交互输入密码；密钥和密码不上传仓库。
 
 ## 反馈
 
@@ -107,4 +111,4 @@ flutter build apk --release
 
 ## 图标
 
-应用图标采用《幸运星》泉此方的简化贴纸风头像，搭配代表另外三位主角的粉色与紫色星星。Windows 使用透明背景图标，Android 使用白底自适应图标。导出母图位于 [图标目录](assets/brand/icons)，运行 `assets/brand/icons/export-icons.ps1` 可重新生成两端图标资源。
+应用图标采用《幸运星》泉此方的简化贴纸风头像，搭配代表另外三位主角的粉色与紫色星星。Windows 使用透明背景图标，Android 使用白底自适应图标；README 展示同一构图的圆形版本。导出母图位于 [图标目录](assets/brand/icons)，运行 `assets/brand/icons/export-icons.ps1` 可重新生成两端图标资源及圆形展示图。

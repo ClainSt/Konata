@@ -1,4 +1,8 @@
 # Run in the key holder's own interactive PowerShell session.
+param(
+    [ValidateRange(2002, 2147483647)] [int] $BuildNumber = 2002,
+    [string] $BuildName = '1.0.0'
+)
 $ErrorActionPreference = 'Stop'
 $Host.UI.RawUI.WindowTitle = 'Konata Android 正式签名'
 $project = Split-Path -Parent $PSScriptRoot
@@ -21,6 +25,10 @@ if (!(Test-Path -LiteralPath $store -PathType Leaf)) { throw "找不到发布密
 $statusDir = Join-Path $project 'build'
 $null = New-Item -ItemType Directory -Force -Path $statusDir
 $statusFile = Join-Path $statusDir 'android-signing-status.txt'
+$previous = Get-Content -LiteralPath (Join-Path $project 'release/latest-build.json') -Raw | ConvertFrom-Json
+if ($BuildNumber -le $previous.androidVersionCode) {
+    throw "新版构建号必须大于现有版本 $($previous.androidVersionCode)。"
+}
 function Set-BuildStage([string]$stage) {
     Set-Content -LiteralPath $statusFile -Encoding utf8 -Value "$(Get-Date -Format o) $stage"
 }
@@ -33,9 +41,12 @@ try {
     & $keytool -exportcert -keystore $store -alias ccplayer -storepass:env CCPLAYER_SIGNING_PASSWORD -file $certFile
     if ($LASTEXITCODE) { throw '无法打开密钥，请核对密码和别名 ccplayer。' }
     $fingerprint = (Get-FileHash -LiteralPath $certFile -Algorithm SHA256).Hash
+    if ($fingerprint -ne $previous.androidCertificateSha256) {
+        throw '密钥证书与现有发布版本不一致，已停止构建。'
+    }
     Set-BuildStage 'building-release'
     # Regenerate the Release plugin registrant after flutter test or pub get.
-    & $flutter build apk --release --target-platform android-arm64 --split-per-abi 2>&1 |
+    & $flutter build apk --release --target-platform android-arm64 --split-per-abi --build-name=$BuildName --build-number=$BuildNumber 2>&1 |
         Tee-Object -FilePath (Join-Path $statusDir 'android-release-build.log')
     if ($LASTEXITCODE) { throw 'Android Release 构建失败。' }
     $apk = Join-Path $project 'build/app/outputs/flutter-apk/app-arm64-v8a-release.apk'

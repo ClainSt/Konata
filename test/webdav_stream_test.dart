@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:convert';
 import 'package:ccplayer/core/webdav_stream.dart';
 import 'package:ccplayer/core/debug_log.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,6 +13,7 @@ class Fixture {
   static Future<Fixture> start(
     Future<void> Function(HttpRequest) handler, {
     String? auth,
+    String? session,
     Duration headerTimeout = const Duration(seconds: 15),
   }) async {
     final origin = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -29,6 +31,7 @@ class Fixture {
         'http://127.0.0.1:${origin.port}/private/movie.mkv?token=secret',
       ),
       authorization: auth,
+      diagnosticSession: session,
       headerTimeout: headerTimeout,
     );
     final proxy = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -60,6 +63,61 @@ Future<List<int>> body(HttpClientResponse r) => r
     .fold<List<int>>([], (a, b) => a..addAll(b))
     .timeout(const Duration(seconds: 3));
 void main() {
+  test(
+    'slow first body is distinct from headers and correlated when detail is off',
+    () async {
+      await DebugLog.flush();
+      final dir = await Directory.systemTemp.createTemp('konata-body-log-');
+      final previous = DebugLog.directory, enabled = DebugLog.enabled;
+      DebugLog.directory = dir;
+      DebugLog.enabled = false;
+      final release = Completer<void>();
+      final f = await Fixture.start((request) async {
+        request.response.contentLength = 2;
+        final socket = await request.response.detachSocket();
+        await socket.flush();
+        await release.future;
+        socket.add([3, 7]);
+        await socket.flush();
+        await socket.close();
+      }, session: 'body-session');
+      try {
+        final response = await f.request();
+        await Future.doWhile(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          await DebugLog.flush();
+          return !(await File(
+            '${dir.path}/current.log',
+          ).readAsString()).contains('initial_wait');
+        }).timeout(const Duration(seconds: 5));
+        release.complete();
+        expect(await body(response), [3, 7]);
+        await Future.doWhile(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          return f.relay.activeRequests != 0;
+        }).timeout(const Duration(seconds: 2));
+        final exported = (await DebugLog.latestIncidentText())!;
+        expect(exported, contains('body-session'));
+        expect(exported, contains('first_body'));
+        final line = exported
+            .split('\n')
+            .lastWhere((l) => l.contains('"event":"request_end"'));
+        final end = jsonDecode(line.substring(line.indexOf('{'))) as Map;
+        expect(end['firstByteMs'], greaterThanOrEqualTo(3000));
+        expect(end['headersMs'], lessThan(end['firstByteMs'] as int));
+        expect(end['cancelled'], false);
+        expect(end['bytes'], 2);
+        expect(end['phase'], 'stream');
+      } finally {
+        if (!release.isCompleted) release.complete();
+        await f.close();
+        await DebugLog.flush();
+        DebugLog.directory = previous;
+        DebugLog.enabled = enabled;
+        await dir.delete(recursive: true);
+      }
+    },
+  );
   test(
     'completed ranges reuse one connection until its idle timeout',
     () async {
@@ -206,8 +264,8 @@ void main() {
         );
         await DebugLog.flush();
         final logs = await File('${dir.path}/current.log').readAsString();
-        expect(logs, contains('rangeBytes=4'));
-        expect(logs, contains('bytes=4'));
+        expect(logs, contains('"rangeBytes":4'));
+        expect(logs, contains('"bytes":4'));
         for (final secret in [
           'secret',
           'private',
@@ -262,30 +320,25 @@ void main() {
         }).timeout(const Duration(seconds: 3));
         await DebugLog.flush();
         final log = await File('${dir.path}/current.log').readAsString();
-        expect(
-          log,
-          matches(
-            RegExp(
-              r'upstreamStatus=502 .*headersMs=\d+ phase=headers failure=upstreamHttp',
-            ),
-          ),
-        );
-        expect(
-          log,
-          matches(
-            RegExp(
-              r'upstreamStatus=0 .*headersMs=-1 phase=headers failure=TimeoutException',
-            ),
-          ),
-        );
-        expect(
-          log,
-          matches(
-            RegExp(
-              r'upstreamStatus=206 .*phase=validate failure=HttpException',
-            ),
-          ),
-        );
+        final ends = const LineSplitter()
+            .convert(log)
+            .where((line) => line.contains('"event":"request_end"'))
+            .map(
+              (line) =>
+                  jsonDecode(line.substring(line.indexOf('{')))
+                      as Map<String, dynamic>,
+            )
+            .toList();
+        expect(ends, hasLength(3));
+        expect(ends[0], containsPair('upstreamStatus', 502));
+        expect(ends[0], containsPair('failure', 'upstreamHttp'));
+        expect(ends[1], containsPair('upstreamStatus', 0));
+        expect(ends[1], containsPair('headersMs', -1));
+        expect(ends[1], containsPair('phase', 'headers'));
+        expect(ends[1], containsPair('failure', 'TimeoutException'));
+        expect(ends[2], containsPair('upstreamStatus', 206));
+        expect(ends[2], containsPair('phase', 'validate'));
+        expect(ends[2], containsPair('failure', 'HttpException'));
       } finally {
         release.complete();
         await f.close();

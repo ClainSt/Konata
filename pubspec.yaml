@@ -115,6 +115,11 @@ flutter:
   # see https://flutter.dev/to/font-from-package
 
 dependency_overrides:
+  media_kit_libs_windows_video:
+    path: packages/media_kit_libs_windows_video
+  # Package only the pinned, locally verified Android native libraries.
+  media_kit_libs_android_video:
+    path: packages/media_kit_libs_android_video
   # Local 1.2.6 patch: opt-in libmpv config/input/scripts before initialization.
   media_kit:
     path: packages/media_kit

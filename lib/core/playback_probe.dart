@@ -64,8 +64,25 @@ class PlaybackProbe {
     'video-out-params/w',
     'video-out-params/h',
     'paused-for-cache',
+    'ffmpeg-version',
+    'video-format',
+    'video-dec-params/pixelformat',
+    'video-dec-params/hw-pixelformat',
+    'video-out-params/pixelformat',
+    'video-out-params/hw-pixelformat',
+    'video-target-params/pixelformat',
+    'video-target-params/primaries',
+    'video-target-params/gamma',
+    'audio-params/format',
+    'audio-params/channels',
+    'audio-out-params/format',
+    'audio-out-params/samplerate',
+    'audio-out-params/channels',
+    'current-ao',
   ];
   static int? componentDepth(String? format) {
+    // Recognize component precision, never average bpp or opaque surfaces.
+    format = format?.toLowerCase();
     if (const {
       'yuv420p',
       'yuv422p',
@@ -77,23 +94,71 @@ class PlaybackProbe {
     }.contains(format)) {
       return 8;
     }
-    if (const {
-      'yuv420p10',
-      'yuv422p10',
-      'yuv444p10',
-      'p010',
-      'yuv420p10le',
-      'yuv420p10be',
-      'yuv422p10le',
-      'yuv422p10be',
-      'yuv444p10le',
-      'yuv444p10be',
-      'p010le',
-      'p010be',
-    }.contains(format)) {
-      return 10;
+    if (format == null) return null;
+    final planar = RegExp(
+      r'^(?:yuva?(?:420|422|444)p|gbra?p|gray)(9|10|12|14|16)(?:msb)?(?:le|be)?$',
+    ).firstMatch(format);
+    if (planar != null) return int.parse(planar.group(1)!);
+    final semiplanar = RegExp(
+      r'^p[024](10|12|16)(?:le|be)?$',
+    ).firstMatch(format);
+    if (semiplanar != null) return int.parse(semiplanar.group(1)!);
+    if (RegExp(r'^(?:rgb48|bgr48|rgba64|bgra64)(?:le|be)?$').hasMatch(format)) {
+      return 16;
     }
     return null;
+  }
+
+  /// Demuxer pixel format of the selected video track, before hwdec conversion.
+  Future<Map<String, String>> sourceVideoParameters() async {
+    try {
+      final count = int.tryParse(await read('track-list/count')) ?? 0;
+      for (var i = 0; i < count.clamp(0, 128); i++) {
+        if (await read('track-list/$i/type') == 'video' &&
+            await read('track-list/$i/selected') == 'yes') {
+          final result = <String, String>{};
+          for (final key in ['format-name', 'codec-profile']) {
+            final value = await read('track-list/$i/$key');
+            if (value.isNotEmpty) result[key] = value;
+          }
+          return result;
+        }
+      }
+    } catch (_) {
+      // Unknown source precision must stay unknown.
+    }
+    return {};
+  }
+
+  static bool losesPrecision(String? source, String? decoded) {
+    final sourceDepth = componentDepth(source);
+    final decodedDepth = componentDepth(decoded);
+    return sourceDepth != null &&
+        decodedDepth != null &&
+        decodedDepth < sourceDepth;
+  }
+
+  static bool unsupportedMediaCodecProfile(String prefix, String message) =>
+      prefix == 'ffmpeg/video' &&
+      message.contains('_mediacodec: Unsupported or unknown profile');
+
+  static bool needsPrecisionFallback({
+    String? sourceFormat,
+    String? sourceProfile,
+    String? decodedFormat,
+  }) {
+    if (componentDepth(sourceFormat) != null) {
+      return losesPrecision(sourceFormat, decodedFormat);
+    }
+    // A high-bit-depth profile is a conservative policy signal, not proof of
+    // encoded bit depth when the demuxer omits the pixel format.
+    return componentDepth(decodedFormat) == 8 &&
+        const {
+          'main 10',
+          'high 10',
+          'high 10 intra',
+          'rext',
+        }.contains(sourceProfile?.toLowerCase());
   }
 
   Future<Map<String, String>> statistics() async {
@@ -106,10 +171,31 @@ class PlaybackProbe {
         /* Unavailable on some outputs. */
       }
     }
-    final depth =
-        componentDepth(values['video-params/hw-pixelformat']) ??
-        componentDepth(values['video-params/pixelformat']);
-    if (depth != null) values['source-component-depth'] = '$depth';
+    final source = await sourceVideoParameters();
+    final sourceFormat = source['format-name'];
+    if (source.containsKey('codec-profile')) {
+      values['source-video-profile'] = source['codec-profile']!;
+    }
+    if (sourceFormat != null) {
+      values['source-video-format'] = sourceFormat;
+      final depth = componentDepth(sourceFormat);
+      if (depth != null) values['source-component-depth'] = '$depth';
+    }
+    // mpv video-params describes decoded frames, not the encoded source.
+    // A Main10 copy path may already have become 8-bit here. Neither these
+    // values nor video-target-params prove the OS compositor/panel precision.
+    for (final stage in {
+      'decoded': values.containsKey('video-dec-params/pixelformat')
+          ? 'video-dec-params'
+          : 'video-params',
+      'filtered': 'video-out-params',
+      'target': 'video-target-params',
+    }.entries) {
+      final depth =
+          componentDepth(values['${stage.value}/hw-pixelformat']) ??
+          componentDepth(values['${stage.value}/pixelformat']);
+      if (depth != null) values['${stage.key}-component-depth'] = '$depth';
+    }
     try {
       final texture = textureResolution?.call();
       if (texture != null && texture.isNotEmpty) {

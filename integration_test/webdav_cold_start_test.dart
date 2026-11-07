@@ -25,6 +25,7 @@ void main() {
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
   const sourceUrl = String.fromEnvironment('DAV_COLD_ROOT');
   const relative = String.fromEnvironment('DAV_COLD_FILE');
+  const resumeMs = int.fromEnvironment('DAV_COLD_RESUME_MS');
   testWidgets(
     'cold app on the original tablet WebDAV chain',
     (tester) async {
@@ -59,6 +60,16 @@ void main() {
         };
         await catalog.db.insert('works', {'id': 'work', 'title': 'diagnostic'});
         await catalog.db.insert('assets', asset);
+        if (resumeMs > 0) {
+          await catalog.db.insert('progress', {
+            'asset_id': 'clip',
+            'position_ms': resumeMs,
+            'duration_ms': 1421098,
+            'completed': 0,
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
+          });
+        }
+        result['requested_resume_ms'] = resumeMs;
         final config = MpvConfigStore(
           rootOverride: Directory('${root.path}/mpv'),
         );
@@ -98,8 +109,9 @@ void main() {
           while (clock.elapsed < const Duration(seconds: 25)) {
             await tester.pump();
             if (frameMs != null &&
-                player.state.position.inMilliseconds >= 1000 &&
-                !player.state.buffering) {
+                player.state.position.inMilliseconds >= resumeMs + 6000 &&
+                !player.state.buffering &&
+                await native.getProperty('seeking') == 'no') {
               break;
             }
             await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -125,6 +137,8 @@ void main() {
           }
           result['playback'] = {
             'frame_ms': frameMs,
+            'frame_signal_scope':
+                'Android controller surface-size callback; not physical first frame',
             'observed_ms': clock.elapsedMilliseconds,
             'position_ms': player.state.position.inMilliseconds,
             'errors': errors,
@@ -144,53 +158,56 @@ void main() {
         final dav = WebDav(await catalog.withCredentials(source));
         final probes = <Map<String, Object?>>[];
         try {
-          for (final direct in [false, true]) {
-            final client = HttpClient()..autoUncompress = false;
-            final watch = Stopwatch()..start();
-            final row = <String, Object?>{
-              'path': direct ? 'direct_device_cd2' : 'product_relay',
-            };
-            try {
-              final req = await client
-                  .getUrl(direct ? dav.fileUri(relative) : ticket)
-                  .timeout(const Duration(seconds: 20));
-              row['connected_ms'] = watch.elapsedMilliseconds;
-              req.followRedirects = false;
-              req.headers.set('Range', 'bytes=0-65535');
-              if (direct) req.headers.set('Authorization', dav.auth);
-              final rsp = await req.close().timeout(
-                const Duration(seconds: 20),
-              );
-              row['headers_ms'] = watch.elapsedMilliseconds;
-              row['status'] = rsp.statusCode;
-              row['range_valid'] = RegExp(
-                r'^bytes 0-65535/\d+$',
-              ).hasMatch(rsp.headers.value('content-range') ?? '');
-              if (rsp.statusCode == 206 && row['range_valid'] == true) {
-                var bytes = 0;
-                final digest = await sha256
-                    .bind(
-                      rsp.timeout(const Duration(seconds: 15)).map((chunk) {
-                        row['first_byte_ms'] ??= watch.elapsedMilliseconds;
-                        bytes += chunk.length;
-                        if (bytes > 65536) {
-                          throw const HttpException('Excess range bytes');
-                        }
-                        return chunk;
-                      }),
-                    )
-                    .first;
-                row['bytes'] = bytes;
-                row['sha256'] = digest.toString();
+          for (final offset in [0, if (resumeMs > 0) 532364675]) {
+            for (final direct in [false, true]) {
+              final client = HttpClient()..autoUncompress = false;
+              final watch = Stopwatch()..start();
+              final row = <String, Object?>{
+                'path': direct ? 'direct_device_cd2' : 'product_relay',
+                'offset': offset,
+              };
+              try {
+                final req = await client
+                    .getUrl(direct ? dav.fileUri(relative) : ticket)
+                    .timeout(const Duration(seconds: 20));
+                row['connected_ms'] = watch.elapsedMilliseconds;
+                req.followRedirects = false;
+                req.headers.set('Range', 'bytes=$offset-${offset + 65535}');
+                if (direct) req.headers.set('Authorization', dav.auth);
+                final rsp = await req.close().timeout(
+                  const Duration(seconds: 20),
+                );
+                row['headers_ms'] = watch.elapsedMilliseconds;
+                row['status'] = rsp.statusCode;
+                row['range_valid'] = RegExp(
+                  '^bytes $offset-${offset + 65535}/[0-9]+\$',
+                ).hasMatch(rsp.headers.value('content-range') ?? '');
+                if (rsp.statusCode == 206 && row['range_valid'] == true) {
+                  var bytes = 0;
+                  final digest = await sha256
+                      .bind(
+                        rsp.timeout(const Duration(seconds: 15)).map((chunk) {
+                          row['first_byte_ms'] ??= watch.elapsedMilliseconds;
+                          bytes += chunk.length;
+                          if (bytes > 65536) {
+                            throw const HttpException('Excess range bytes');
+                          }
+                          return chunk;
+                        }),
+                      )
+                      .first;
+                  row['bytes'] = bytes;
+                  row['sha256'] = digest.toString();
+                }
+              } catch (e) {
+                row['error_type'] = e.runtimeType.toString();
+              } finally {
+                row['total_ms'] = watch.elapsedMilliseconds;
+                client.close(force: true);
               }
-            } catch (e) {
-              row['error_type'] = e.runtimeType.toString();
-            } finally {
-              row['total_ms'] = watch.elapsedMilliseconds;
-              client.close(force: true);
+              probes.add(row);
+              record('cold_probe', row);
             }
-            probes.add(row);
-            record('cold_probe', row);
           }
         } finally {
           StreamBroker.instance.revoke(ticket);
@@ -206,8 +223,9 @@ void main() {
           record('cold_relay', {'line': line});
         }
         binding.reportData = result;
+        result['incident_txt'] = await DebugLog.latestIncidentText();
         // A failed stream is diagnostic data, not a reason to discard the report.
-        expect(probes, hasLength(2));
+        expect(probes, hasLength(resumeMs > 0 ? 4 : 2));
       } finally {
         await DebugLog.flush();
         DebugLog.enabled = false;

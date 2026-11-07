@@ -150,7 +150,7 @@ void main() {
             );
             if (mode == 'no') {
               expect(
-                stats['source-component-depth'],
+                stats['decoded-component-depth'],
                 file.startsWith('h264-8') ||
                         file == 'h264-aac.mkv' ||
                         extraFiles.contains(file)

@@ -15,6 +15,7 @@ function Export-IconPng($path, [int]$size, [bool]$white, [bool]$adaptive, $input
   $graphics.Dispose(); $bitmap.Dispose()
 }
 Export-IconPng 'assets/brand/icons/android.png' 1024 $true $false $source
+Export-IconPng 'assets/brand/konata-ui.png' 128 $false $false $source
 # Match the adaptive foreground (50% of 108 dp) inside a 72 dp round viewport.
 $round = New-Object Drawing.Bitmap 1024,1024
 $roundGraphics = [Drawing.Graphics]::FromImage($round)

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:ccplayer/core/image_store.dart';
+import 'package:ccplayer/core/artwork_cache.dart';
 import 'package:ccplayer/core/optional_features.dart';
 import 'package:ccplayer/core/optional_people.dart';
 import 'package:ccplayer/core/metadata.dart';
@@ -42,6 +43,134 @@ class _PictureSession extends OptionalPeopleSession {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'mirror character and voice URLs survive normalization and stale empty cards refresh',
+    () async {
+      final root = await (await Directory(
+        'build/metadata-latency-tests',
+      ).absolute.create(recursive: true)).createTemp('mirror-');
+      final previous = List<String>.of(MetadataServers.values);
+      SharedPreferences.setMockInitialValues({});
+      ImageStore.root = Directory('${root.path}/artwork');
+      final settings = OptionalFeatures(legacyRoot: root);
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final urls = <Uri>[];
+      final picture = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      );
+      server.listen((request) async {
+        if (request.uri.path.endsWith('/characters')) {
+          request.response.write(
+            jsonEncode([
+              {
+                'id': 1,
+                'name': 'Mirror',
+                'images': {
+                  'medium': 'https://lain.bangumi.lat/r/400/pic.jpg?r=123',
+                },
+                'actors': [
+                  {
+                    'id': 2,
+                    'name': 'Voice',
+                    'images': {
+                      'medium': 'https://pictures.example/art/voice.jpg',
+                    },
+                  },
+                ],
+              },
+              {
+                'id': 3,
+                'name': 'Untrusted',
+                'images': {
+                  'medium': 'https://lain.bgm.tv.evil.invalid/pic.jpg',
+                },
+              },
+              {
+                'id': 4,
+                'name': 'Credential URL',
+                'images': {'medium': 'https://user@lain.bangumi.lat/pic.jpg'},
+              },
+            ]),
+          );
+        } else {
+          request.response.add(picture);
+        }
+        await request.response.close();
+      });
+      OptionalPeopleSession? session;
+      try {
+        await settings.initialize();
+        MetadataServers.values = [...previous]
+          ..[3] = 'https://pictures.example/art';
+        final oldKey = ArtworkCache.digest(
+          jsonEncode([
+            'people-v3',
+            'characters',
+            [42],
+            null,
+            null,
+            'en',
+            'ja',
+            null,
+            [],
+            {},
+          ]),
+        );
+        await (await ImageStore.cache).writeData('mirror-work', oldKey, [
+          {'title': 'Old', 'image': ''},
+        ], checkActive: () {});
+        session = OptionalPeopleSession(
+          settings,
+          OptionalFeature.characters,
+          clientFactory: () => LocalPeopleClient(server.port, urls),
+        );
+        final cards = await session.load({
+          'id': 'mirror-work',
+          'bangumi_id': 42,
+          'original_language': 'ja',
+        }, 'en');
+        expect(cards, hasLength(3));
+        expect(cards[0]['image'], 'https://lain.bgm.tv/r/400/pic.jpg?r=123');
+        expect(cards[0]['alternateImage'], 'https://lain.bgm.tv/voice.jpg');
+        expect(cards[1]['image'], isEmpty);
+        expect(cards[2]['image'], isEmpty);
+        expect(
+          await session.image(
+            cards[0]['image'] as String,
+            Completer<void>().future,
+          ),
+          picture,
+        );
+        expect(
+          urls.last.toString(),
+          'https://pictures.example/art/r/400/pic.jpg?r=123',
+        );
+        session.dispose();
+        await ImageStore.close();
+        session = OptionalPeopleSession(
+          settings,
+          OptionalFeature.characters,
+          clientFactory: () =>
+              throw StateError('Disk cache must not use network'),
+        );
+        expect(
+          await session.image(
+            cards[0]['image'] as String,
+            Completer<void>().future,
+          ),
+          picture,
+        );
+      } finally {
+        session?.dispose();
+        settings.dispose();
+        await server.close(force: true);
+        await ImageStore.close();
+        ImageStore.root = null;
+        MetadataServers.values = previous;
+        await root.delete(recursive: true);
+      }
+    },
+  );
   testWidgets(
     'DPI changes evict old role thumbnails and disable evicts the current one',
     (tester) async {

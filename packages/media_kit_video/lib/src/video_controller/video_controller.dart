@@ -73,6 +73,8 @@ class VideoController {
     this.player, {
     VideoControllerConfiguration configuration =
         const VideoControllerConfiguration(),
+    // Konata: reuse Video controls/lifecycle with an app-owned native surface.
+    Future<PlatformVideoController> Function()? platformFactory,
   }) {
     player.platform?.isVideoControllerAttached = true;
 
@@ -82,7 +84,11 @@ class VideoController {
       await completer.future;
 
       try {
-        if (NativeVideoController.supported) {
+        if (platformFactory != null) {
+          final result = await platformFactory();
+          platform.complete(result);
+          notifier.value = result;
+        } else if (NativeVideoController.supported) {
           final result = await NativeVideoController.create(
             player,
             configuration,

@@ -49,7 +49,7 @@ class Media extends Playable {
       }
       // content:// : Close the possible file descriptor on Android.
       try {
-        if (Platform.isAndroid) {
+        if (Platform.isAndroid && ref[uri] == 0) {
           final data = Uri.parse(uri);
           if (data.isScheme('FD')) {
             final fd = int.parse(data.authority);

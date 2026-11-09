@@ -29,6 +29,7 @@ abstract final class WorkEditDialogs {
       text: BangumiLinks.ids(work).join(', '),
     );
     var message = '';
+    final scroll = ScrollController();
     try {
       final route = DialogRoute<String>(
         context: context,
@@ -37,74 +38,85 @@ abstract final class WorkEditDialogs {
             title: Text(ctx.l10n.editMetadata),
             content: SizedBox(
               width: 540,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.only(top: 12, bottom: 4),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: title,
-                      decoration: InputDecoration(
-                        labelText: ctx.l10n.workTitle,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: year,
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(
-                        labelText: ctx.l10n.year,
-                        helperText: ctx.l10n.optional,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: overview,
-                      maxLines: 6,
-                      minLines: 3,
-                      decoration: InputDecoration(labelText: ctx.l10n.synopsis),
-                    ),
-                    const SizedBox(height: 10),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          Text(
-                            'TMDB: ${work['tmdb_id'] ?? ctx.l10n.notLinked}',
+              child: ScrollConfiguration(
+                behavior: ScrollConfiguration.of(
+                  ctx,
+                ).copyWith(scrollbars: false),
+                child: Scrollbar(
+                  key: const ValueKey('metadata-scrollbar'),
+                  controller: scroll,
+                  thumbVisibility: true,
+                  notificationPredicate: (notification) =>
+                      notification.depth == 0,
+                  child: SingleChildScrollView(
+                    controller: scroll,
+                    padding: const EdgeInsets.fromLTRB(0, 12, 18, 4),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextField(
+                          controller: title,
+                          decoration: InputDecoration(
+                            labelText: ctx.l10n.workTitle,
                           ),
-                          const SizedBox(width: 16),
-                          Text(
-                            'Bangumi: ${work['bangumi_id'] ?? ctx.l10n.notLinked}',
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    TextField(
-                      controller: links,
-                      decoration: InputDecoration(
-                        labelText: ctx.l10n.bangumiIds,
-                        helperText: ctx.l10n.bangumiIdsHint,
-                        helperMaxLines: 5,
-                        helperStyle: TextStyle(fontSize: 13, height: 1.6),
-                      ),
-                    ),
-                    if (message.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 10),
-                        child: Text(
-                          message == 'ids'
-                              ? ctx.l10n.invalidBangumiIds
-                              : ctx.l10n.invalidTitleYear,
-                          style: const TextStyle(color: Colors.red),
                         ),
-                      ),
-                  ],
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: year,
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            labelText: ctx.l10n.year,
+                            helperText: ctx.l10n.optional,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: overview,
+                          maxLines: 6,
+                          minLines: 3,
+                          decoration: InputDecoration(
+                            labelText: ctx.l10n.synopsis,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 16,
+                          runSpacing: 8,
+                          children: [
+                            Text(
+                              'TMDB: ${work['tmdb_id'] ?? ctx.l10n.notLinked}',
+                            ),
+                            Text(
+                              'Bangumi: ${work['bangumi_id'] ?? ctx.l10n.notLinked}',
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+                        TextField(
+                          controller: links,
+                          decoration: InputDecoration(
+                            labelText: ctx.l10n.bangumiIds,
+                          ),
+                        ),
+                        if (message.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 10),
+                            child: Text(
+                              message == 'ids'
+                                  ? ctx.l10n.invalidBangumiIds
+                                  : ctx.l10n.invalidTitleYear,
+                              style: const TextStyle(color: Colors.red),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
             actions: [
               UniformActionBar(
+                stackFirstWhenNarrow: true,
                 children: [
                   TextButton.icon(
                     key: const ValueKey('metadata-search-bind'),
@@ -174,6 +186,7 @@ abstract final class WorkEditDialogs {
         );
       }
     } finally {
+      scroll.dispose();
       links.dispose();
       title.dispose();
       year.dispose();

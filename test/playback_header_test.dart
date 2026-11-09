@@ -27,7 +27,8 @@ void main() {
       );
       expect(find.byKey(const ValueKey('nav-library')), findsNothing);
       expect(find.byKey(const ValueKey('toggle-theme')), findsOneWidget);
-      expect(find.byKey(const ValueKey('open-settings')), findsOneWidget);
+      expect(find.byKey(const ValueKey('open-settings')), findsNothing);
+      expect(find.byIcon(Icons.settings_outlined), findsNothing);
       expect(
         tester.widget<Text>(find.text(title)).overflow,
         TextOverflow.ellipsis,

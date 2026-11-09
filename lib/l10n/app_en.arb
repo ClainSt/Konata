@@ -507,6 +507,7 @@
   "@serverNotice": {
     "description": "Konata interface: serverNotice"
   },
+  "videoOutputRecovered": "Video output recovered.",
   "autoFallback": "Auto fallback",
   "@autoFallback": {
     "description": "Konata interface: autoFallback"
@@ -1028,7 +1029,7 @@
   "@noMatchingTitles": {
     "description": "Library/source controls: noMatchingTitles"
   },
-  "searchTitles": "Search titles",
+  "searchTitles": "Search works",
   "@searchTitles": {
     "description": "Library/source controls: searchTitles"
   },
@@ -1363,19 +1364,6 @@
   "mpvOpenDirectory": "Choose configuration folder",
   "mpvError": "MPV settings operation failed",
   "mpvSave": "Save",
-  "mpvEngineTitle": "Enhanced Windows MPV engine (optional)",
-  "mpvEngineDescription": "Optional download with extra audio codec support, including TrueHD.",
-  "mpvEngineDownload": "Download verified engine",
-  "mpvEngineImport": "Import release archive (.7z)",
-  "mpvEngineEnable": "Use enhanced MPV on Windows",
-  "mpvEngineMissing": "Not installed or checksum invalid",
-  "mpvEngineReady": "Installed and checksum verified",
-  "mpvEngineRestart": "Engine selection takes effect after restarting Konata.",
-  "mpvEngineDownloadConfirm": "Download the optional MPV engine?",
-  "mpvEngineDownloadWarning": "Downloads ~30 MB and installs a verified ~122 MB DLL in application data. The default engine remains unchanged. Review third-party licenses and only use binaries you trust.",
-  "mpvEngineProgress": "Downloading enhancement",
-  "mpvEngineCurrent": "Enhanced engine active in this session",
-  "mpvEngineDefault": "Default engine active in this session",
   "backupPreviewCounts": "Works / Files / Sources / History / Covers",
   "confirmEpisodeIdentity": "Confirm episode identity",
   "revokeEpisodeIdentity": "Remove identity confirmation",
@@ -1415,13 +1403,71 @@
   "statOutputSampleRate": "Audio API sample rate",
   "statOutputChannels": "Audio API channel layout",
   "statAudioOutput": "Audio output",
-  "decodePrecisionFallback": "Switching to software decoding to preserve video bit depth",
-  "decodeUnsupportedFallback": "Hardware does not support this video format; switching to software decoding",
-  "videoDecoding": "Video decoding",
-  "decodeAutomatic": "Automatic",
-  "decodeHardware": "Hardware preferred",
-  "decodeSoftware": "Software",
-  "decodeCustom": "Follow MPV configuration",
-  "decodeDescription": "Applies to the next playback. Automatic keeps platform defaults. Hardware modes allow software fallback; emulators use software.",
-  "decodePriority": "Automatic and hardware/software modes override hwdec in mpv.conf. Follow MPV configuration keeps its hwdec and scaling options; the player still manages video output. If MPV configuration is off, platform defaults apply."
+  "restoreLibraryBackup": "Restore from backup",
+  "restoreLibraryBackupDescription": "Preview and restore your library, history, custom covers and basic settings from a ZIP backup.",
+  "restoreLibraryBackupWarning": "This replaces your current library and playback history; it does not merge them. A backup of current data is saved first. Failed changes are rolled back.\n\nMedia files are not included. Re-enter source passwords. On another device, select and authorize local folders again in Edit source. Restore does not scan or connect to sources.",
+  "restoringLibraryBackup": "Restoring, please wait…",
+  "restoreLibraryBackupDone": "Restore complete. Edit sources to reconnect folders or re-enter passwords if needed.",
+  "restoreLibraryBackupFailed": "Restore did not complete. Check the backup and available storage, then try again.",
+  "restoreLibraryBackupBusy": "Wait for scanning to finish before restoring a backup.",
+  "previousLibraryBackup": "Backups before restore",
+  "previousLibraryBackupDescription": "Preview and restore either of the last two automatic backups.",
+  "noPreviousLibraryBackup": "No automatic backup has been created yet.",
+  "restoreCurrentLibrary": "Current library (works / files / sources)",
+  "extensions": "Extensions",
+  "extensionsDescription": "Enable optional features here. Their settings appear under Scraping services when enabled. Turning a feature off stops its requests and releases its temporary resources.",
+  "characterDetails": "Characters and voice actors",
+  "characterDetailsDescription": "Show Bangumi character and voice actor details on title pages.",
+  "voiceActorPhotos": "Use voice actor photos",
+  "creditsDetails": "Cast and crew",
+  "creditsDetailsDescription": "Show TMDB cast and crew on live-action title pages.",
+  "creditsServiceSettings": "Uses the shared TMDB credentials. Open API settings.",
+  "optionalFeatureFailed": "Could not load or save this feature. Please retry.",
+  "optionalNoResults": "No details available.",
+  "animationCategory": "Animation",
+  "liveActionCategory": "Live action",
+  "featureOff": "Off",
+  "voiceActors": "Voice actors",
+  "sage": "Sage",
+  "allWorks": "All titles",
+  "compactWorkCount": "{count}",
+  "@compactWorkCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "bangumiPeopleData": "Bangumi characters / voice actors",
+  "tmdbPeopleData": "TMDB people",
+  "peopleBar": "Character row",
+  "peopleFallbackTmdb": "When Bangumi is off, use TMDB people.",
+  "peopleFallbackHidden": "When Bangumi is off, hide the character row."
+,
+  "historySelectAll": "Select all",
+  "historyDeselectAll": "Deselect all",
+  "historySelectionCount": "{count} selected",
+  "@historySelectionCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "deleteHistorySelectionQuestion": "Delete {count} selected records?",
+  "@deleteHistorySelectionQuestion": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "imageCache": "Image cache",
+  "measuringCache": "Measuring…",
+  "cacheSizeUnavailable": "Unable to measure",
+  "openCacheDirectory": "Open cache folder",
+  "cacheDirectoryUnavailable": "Cannot open the cache folder.",
+  "detailBackdrop": "Detail page background",
+  "cacheSettingFailed": "Could not save this setting.",
+  "nameOrBangumiId": "Name or Bangumi ID"
 }

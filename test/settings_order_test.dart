@@ -1,5 +1,5 @@
 import 'package:ccplayer/ui/settings_page.dart';
-import 'package:ccplayer/core/app_language.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -21,7 +21,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        final order = [0, 4, 1, 5, 3, 2];
+        final order = [0, 4, 1, 5, 3, 6, 2];
         for (var index = 1; index < order.length; index++) {
           expect(
             tester
@@ -52,7 +52,7 @@ void main() {
         final menuText = tester.widget<Text>(
           find
               .descendant(
-            of: find.byType(PopupMenuItem<AppLanguageChoice>).first,
+                of: find.byType(MenuItemButton).first,
                 matching: find.byType(Text),
               )
               .first,

@@ -7,6 +7,7 @@ import 'watch_event_origin.dart';
 import 'bangumi_episode_mapping.dart';
 import 'debug_log.dart';
 import 'image_store.dart';
+import 'library_backup_restorer.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
@@ -206,6 +207,12 @@ class Catalog extends ChangeNotifier {
         await BangumiEpisodeMapping.createSchema(db);
       },
     );
+    final restorer = LibraryBackupRestorer(
+      database: db,
+      artworkDirectory: Directory(p.join(folder.path, 'artwork')),
+    );
+    await restorer.recover();
+    await restorer.clearAbandonedStaging();
     // Migrate passwords previously kept in the early development SQLite schema.
     final previous = await db.query('sources', columns: ['id', 'password']);
     for (final entry in previous) {
@@ -229,6 +236,9 @@ class Catalog extends ChangeNotifier {
     sources = await db.query('sources', orderBy: 'label');
     final allWorks = await db.query('works', orderBy: 'title COLLATE NOCASE');
     works = allWorks.where((row) => row['hidden'] != 1).toList();
+    for (final work in works) {
+      ImageStore.restoreOwner(work['id'].toString());
+    }
     hiddenWorkEntries = allWorks.where((row) => row['hidden'] == 1).toList();
     final hasOverrides = (await db.rawQuery(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='asset_overrides'",
@@ -319,15 +329,36 @@ class Catalog extends ChangeNotifier {
       where: 'id=?',
       whereArgs: [sourceId],
     );
+    if (password != null) {
+      await db.delete(
+        'library_restored_sources',
+        where: 'source_id=?',
+        whereArgs: [sourceId],
+      );
+    }
     await reload();
   }
 
   Future<Map<String, Object?>> withCredentials(
     Map<String, Object?> source,
-  ) async => {
-    ...source,
-    'password': (await _secrets.read(key: 'webdav:${source['id']}')) ?? '',
-  };
+  ) async {
+    if ((source['username']?.toString() ?? '').isEmpty) {
+      return {...source, 'password': ''};
+    }
+    final restored = await db.query(
+      'library_restored_sources',
+      where: 'source_id=?',
+      whereArgs: [source['id']],
+      limit: 1,
+    );
+    return {
+      ...source,
+      'password': restored.isNotEmpty
+          ? ''
+          : (await _secrets.read(key: 'webdav:${source['id']}')) ?? '',
+    };
+  }
+
   static String normalizeRoot(String raw) => raw
       .replaceAll('\\', '/')
       .split('/')
@@ -406,11 +437,46 @@ class Catalog extends ChangeNotifier {
       whereArgs: [workId],
     );
     if (updated == 0) throw StateError('作品已不存在');
+    try {
+      // Legacy libraries may have shared posters/stills from before ownership
+      // was recorded. Backfill references only on explicit removal, in bounded
+      // batches, so deleting one title cannot discard another title's artwork.
+      if (ImageStore.root != null) {
+        for (var offset = 0; ; offset += 100) {
+          final remaining = await db.rawQuery(
+            'SELECT w.*, d.payload AS artwork_payload FROM works w '
+            'LEFT JOIN work_details d ON w.id=d.work_id WHERE w.hidden=0 '
+            'ORDER BY w.id LIMIT 100 OFFSET ?',
+            [offset],
+          );
+          for (final row in remaining) {
+            Object? details;
+            try {
+              details = jsonDecode(row['artwork_payload']?.toString() ?? '{}');
+            } catch (_) {}
+            await ImageStore.retain(row['id'].toString(), [
+              ...ImageStore.artworkUrls(row),
+              ...ImageStore.artworkUrls(details),
+            ]);
+          }
+          if (remaining.length < 100) break;
+        }
+      }
+      await ImageStore.removeWork(workId);
+    } catch (error, stack) {
+      DebugLog.exception(
+        'Image',
+        'removed_work_cache_cleanup_failed',
+        error,
+        stack,
+      );
+    }
     await reload();
   }
 
   /// Explicitly restore a title irrespective of its rescan preference.
   Future<void> restoreWork(String workId) async {
+    ImageStore.restoreOwner(workId);
     await db.update(
       'works',
       {'hidden': 0, 'keep_hidden': 0},
@@ -761,6 +827,16 @@ class Catalog extends ChangeNotifier {
     Map<String, dynamic> payload,
   ) async {
     final oldDetails = await readWorkDetails(work);
+    // A core metadata refresh no longer owns optional character data.
+    if (!payload.containsKey('characters') &&
+        oldDetails?['characters'] is List) {
+      payload['characters'] = oldDetails!['characters'];
+    }
+    for (final key in ['cast', 'crew']) {
+      if (!payload.containsKey(key) && oldDetails?[key] is List) {
+        payload[key] = oldDetails![key];
+      }
+    }
     final current = (payload['characters'] as List? ?? [])
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
@@ -807,7 +883,8 @@ class Catalog extends ChangeNotifier {
         );
         if (rows.isEmpty) return;
         final current = rows.single;
-        if (current['manual_lock'] == 1 || detailIdentity(current) != identity) {
+        if (current['manual_lock'] == 1 ||
+            detailIdentity(current) != identity) {
           return;
         }
         final changes = <String, Object?>{

@@ -55,83 +55,58 @@ class SettingsChoiceCard<T> extends StatelessWidget {
           );
           final selector = SizedBox(
             width: width,
-            child: Builder(
-              builder: (anchorContext) => TextButton(
+            child: MenuAnchor(
+              consumeOutsideTap: false,
+              alignmentOffset: const Offset(0, 4),
+              style: MenuStyle(
+                alignment: Alignment.bottomLeft,
+                padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+                minimumSize: WidgetStatePropertyAll(Size(width, 0)),
+                maximumSize: WidgetStatePropertyAll(
+                  Size(width, double.infinity),
+                ),
+                backgroundColor: WidgetStatePropertyAll(
+                  theme.colorScheme.surface,
+                ),
+                surfaceTintColor: const WidgetStatePropertyAll(
+                  Colors.transparent,
+                ),
+                elevation: const WidgetStatePropertyAll(2),
+                shape: WidgetStatePropertyAll(
+                  RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+              menuChildren: [
+                for (final option in options)
+                  MenuItemButton(
+                    onPressed: () => onChanged(option),
+                    style: ButtonStyle(
+                      minimumSize: WidgetStatePropertyAll(
+                        Size(width, rowHeight),
+                      ),
+                      padding: const WidgetStatePropertyAll(
+                        EdgeInsets.symmetric(horizontal: 16),
+                      ),
+                      backgroundColor: value == option
+                          ? WidgetStatePropertyAll(
+                              theme.colorScheme.primary.withValues(alpha: .12),
+                            )
+                          : null,
+                    ),
+                    child: Text(label(option), style: choiceStyle),
+                  ),
+              ],
+              builder: (context, controller, child) => TextButton(
                 key: selectorKey,
                 onPressed: !enabled
                     ? null
-                    : () async {
-                        final overlay =
-                            Navigator.of(
-                                  context,
-                                ).overlay!.context.findRenderObject()!
-                                as RenderBox;
-                        final anchor =
-                            anchorContext.findRenderObject()! as RenderBox;
-                        final chosen = await showMenu<T>(
-                          context: context,
-                          menuPadding: EdgeInsets.zero,
-                          constraints: BoxConstraints.tightFor(width: width),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          clipBehavior: Clip.antiAlias,
-                          positionBuilder: (context, constraints) {
-                            final rect =
-                                anchor.localToGlobal(
-                                  Offset.zero,
-                                  ancestor: overlay,
-                                ) &
-                                anchor.size;
-                            final menuHeight = rowHeight * options.length;
-                            final bottom =
-                                overlay.size.height -
-                                MediaQuery.paddingOf(context).bottom -
-                                8;
-                            final top = rect.bottom + 4 + menuHeight <= bottom
-                                ? rect.bottom + 4
-                                : rect.top - 4 - menuHeight;
-                            return RelativeRect.fromRect(
-                              Rect.fromLTWH(rect.left, top, width, 0),
-                              Offset.zero & overlay.size,
-                            );
-                          },
-                          items: [
-                            for (final option in options)
-                              PopupMenuItem<T>(
-                                value: option,
-                                padding: EdgeInsets.zero,
-                                height: rowHeight,
-                                child: Container(
-                                  height: rowHeight,
-                                  alignment: Alignment.centerLeft,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: value == option
-                                        ? theme.colorScheme.primary.withValues(
-                                            alpha: .18,
-                                          )
-                                        : null,
-                                    border: Border(
-                                      bottom: BorderSide(
-                                        color: theme.dividerColor.withValues(
-                                          alpha: .12,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  child: Text(
-                                    label(option),
-                                    style: choiceStyle,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        );
-                        if (chosen != null && context.mounted) {
-                          await onChanged(chosen);
+                    : () {
+                        if (controller.isOpen) {
+                          controller.close();
+                        } else {
+                          controller.open();
                         }
                       },
                 style: TextButton.styleFrom(

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-bool settingsUsePages(BuildContext context) => [
-  TargetPlatform.android,
-  TargetPlatform.iOS,
-].contains(Theme.of(context).platform);
+bool settingsUsePages(BuildContext context) {
+  final size = MediaQuery.sizeOf(context);
+  return size.width < 840 || size.height < 500;
+}
 
 Future<T?> openSettingsScreen<T>(BuildContext context, WidgetBuilder builder) =>
     settingsUsePages(context)

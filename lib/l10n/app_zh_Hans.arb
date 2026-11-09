@@ -1,5 +1,6 @@
 {
   "@@locale": "zh_Hans",
+  "videoOutputRecovered": "画面输出已恢复。",
   "settings": "设置",
   "appearance": "外观",
   "scraping": "刮削服务",
@@ -238,7 +239,7 @@
   "removeSourceBody": "仅清除索引，不删除源文件。",
   "addSourceFirst": "请先添加媒体源",
   "noMatchingTitles": "暂无匹配作品",
-  "searchTitles": "搜索动画",
+  "searchTitles": "搜索作品",
   "closeSearch": "关闭搜索",
   "manageHidden": "管理已隐藏作品",
   "sourceCount": "{count} 个媒体源",
@@ -312,7 +313,7 @@
   "cleanEnding": "无字幕片尾",
   "discMenu": "光盘菜单",
   "specialEpisode": "特别篇",
-  "episodeLabel": "第 {number} 集",
+  "episodeLabel": "第{number}集",
   "@episodeLabel": {
     "placeholders": {
       "number": {
@@ -336,7 +337,7 @@
       }
     }
   },
-  "resumeEpisode": "继续 {episode}",
+  "resumeEpisode": "继续播放{episode}",
   "@resumeEpisode": {
     "placeholders": {
       "episode": {
@@ -422,19 +423,6 @@
   "mpvOpenDirectory": "选择配置目录",
   "mpvError": "MPV 设置操作失败",
   "mpvSave": "保存",
-  "mpvEngineTitle": "Windows MPV 增强引擎（可选）",
-  "mpvEngineDescription": "可按需安装，支持 TrueHD 等额外音频格式。",
-  "mpvEngineDownload": "下载并验证增强引擎",
-  "mpvEngineImport": "从本地导入发布压缩包（.7z）",
-  "mpvEngineEnable": "Windows 使用 MPV 增强引擎",
-  "mpvEngineMissing": "未安装或校验不通过",
-  "mpvEngineReady": "已安装，哈希校验通过",
-  "mpvEngineRestart": "切换引擎后需完全重启 Konata 才能生效。",
-  "mpvEngineDownloadConfirm": "确认下载可选 MPV 增强引擎？",
-  "mpvEngineDownloadWarning": "下载包约 30 MB，验证后提取约 122 MB DLL 到应用数据目录；不修改原版 DLL。请审查第三方许可并仅使用可信二进制文件。",
-  "mpvEngineProgress": "增强引擎下载中",
-  "mpvEngineCurrent": "本次运行使用增强引擎",
-  "mpvEngineDefault": "本次运行使用默认引擎",
   "backupPreviewCounts": "作品 / 文件 / 来源 / 记录 / 封面",
   "confirmEpisodeIdentity": "确认剧集身份",
   "revokeEpisodeIdentity": "撤销身份确认",
@@ -474,13 +462,71 @@
   "statOutputSampleRate": "音频接口采样率",
   "statOutputChannels": "音频接口声道布局",
   "statAudioOutput": "音频输出方式",
-  "decodePrecisionFallback": "正在切换软件解码，以保留视频位深",
-  "decodeUnsupportedFallback": "硬件不支持该视频格式，正在切换软件解码",
-  "videoDecoding": "视频解码",
-  "decodeAutomatic": "自动",
-  "decodeHardware": "硬件优先",
-  "decodeSoftware": "软件解码",
-  "decodeCustom": "跟随 MPV 配置",
-  "decodeDescription": "下次播放生效。自动保持平台默认；硬件模式允许软解回退，模拟器使用软解。",
-  "decodePriority": "自动及硬件／软件模式会覆盖 mpv.conf 的 hwdec。跟随 MPV 配置会保留其 hwdec 和缩放选项，视频输出仍由播放器管理；关闭 MPV 配置时使用平台默认。"
+  "restoreLibraryBackup": "从备份恢复",
+  "restoreLibraryBackupDescription": "选择 ZIP 备份，预览后恢复媒体库、记录、手动封面和基础设置。",
+  "restoreLibraryBackupWarning": "这会替换当前媒体库和播放记录，不会合并。恢复前会自动备份当前数据；失败时回退。\n\n视频文件和本机扩展设置不在备份中。来源密码需要重新填写；跨设备的本地目录需要在“编辑来源”中重新选择并授权。恢复不会自动扫描或连接来源。",
+  "restoringLibraryBackup": "正在恢复，请稍候…",
+  "restoreLibraryBackupDone": "恢复完成。需要时请编辑来源，重新选择目录或填写密码。",
+  "restoreLibraryBackupFailed": "恢复未完成，请检查备份和可用空间后重试。",
+  "restoreLibraryBackupBusy": "请等待扫描结束后再恢复备份。",
+  "previousLibraryBackup": "恢复前的备份",
+  "previousLibraryBackupDescription": "保留最近两次恢复前的备份，可预览后恢复。",
+  "noPreviousLibraryBackup": "还没有自动生成的恢复前备份。",
+  "restoreCurrentLibrary": "当前媒体库（作品 / 文件 / 来源）",
+  "extensions": "扩展",
+  "extensionsDescription": "在此开启可选功能，开启后可在“刮削服务”调整相关设置。关闭后停止相关请求并释放临时资源。",
+  "characterDetails": "角色与声优",
+  "characterDetailsDescription": "在作品详情页显示 Bangumi 角色与声优资料。",
+  "voiceActorPhotos": "显示声优照片",
+  "creditsDetails": "真人演员与制作人员",
+  "creditsDetailsDescription": "在真人影视详情页显示 TMDB 演员与制作人员。",
+  "creditsServiceSettings": "使用共用的 TMDB 凭据，点击打开 API 设置。",
+  "optionalFeatureFailed": "暂时无法加载或保存，请重试。",
+  "optionalNoResults": "暂无相关资料。",
+  "animationCategory": "动画",
+  "liveActionCategory": "真人影视",
+  "featureOff": "关闭",
+  "voiceActors": "声优",
+  "sage": "灰绿",
+  "allWorks": "全部作品",
+  "compactWorkCount": "{count} 部",
+  "@compactWorkCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "bangumiPeopleData": "Bangumi角色/声优资料",
+  "tmdbPeopleData": "TMDB真人资料",
+  "peopleBar": "角色栏",
+  "peopleFallbackTmdb": "关闭 Bangumi 资料时，统一使用 TMDB 资料。",
+  "peopleFallbackHidden": "关闭 Bangumi 资料时，不显示角色栏。"
+,
+  "historySelectAll": "全选",
+  "historyDeselectAll": "取消全选",
+  "historySelectionCount": "已选 {count} 项",
+  "@historySelectionCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "deleteHistorySelectionQuestion": "删除选中的 {count} 条播放记录？",
+  "@deleteHistorySelectionQuestion": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "imageCache": "图片缓存",
+  "measuringCache": "正在计算…",
+  "cacheSizeUnavailable": "暂时无法读取",
+  "openCacheDirectory": "打开缓存目录",
+  "cacheDirectoryUnavailable": "暂时无法打开缓存目录。",
+  "detailBackdrop": "详情页背景图",
+  "cacheSettingFailed": "设置保存失败，请重试。",
+  "nameOrBangumiId": "名称或 Bangumi ID"
 }

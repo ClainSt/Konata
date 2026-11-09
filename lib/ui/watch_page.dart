@@ -10,6 +10,7 @@ import '../core/subtitle_choices.dart';
 import 'app_header.dart';
 import 'package:file_picker/file_picker.dart';
 import '../core/timeline_frames.dart';
+import '../core/android_audio_focus.dart';
 import 'timeline_preview.dart';
 import '../core/player_fullscreen.dart';
 import '../core/track_preferences.dart';
@@ -33,12 +34,20 @@ import '../core/watched_timeline.dart';
 import '../core/watch_settings.dart';
 import '../l10n/strings.dart';
 import '../core/sources.dart';
+import '../core/local_media.dart';
 import 'nipaplay_style.dart';
+import 'android_native_video.dart';
 
 class WatchPage extends StatefulWidget {
-  const WatchPage({super.key, required this.asset, this.configurationStore});
+  const WatchPage({
+    super.key,
+    required this.asset,
+    this.configurationStore,
+    this.createPlayer,
+  });
   final Map<String, Object?> asset;
   final MpvConfigStore? configurationStore;
+  final Player Function(PlayerConfiguration configuration)? createPlayer;
   @override
   State<WatchPage> createState() => _WatchPageState();
 }
@@ -46,19 +55,29 @@ class WatchPage extends StatefulWidget {
 class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
   late final Player player;
   bool _playerCreated = false;
+  AndroidAudioFocus? _audioFocus;
+  bool _audioPauseObserved = false;
   bool _androidFullscreen = false;
   static const _androidWindow = MethodChannel('ccplayer/playback_window');
   Directory? _profile;
+  final _subtitleMedia = <Media>[];
   bool _profileError = false;
-  // Opt-in Windows validation build. Keep the normal embedded surface as the
-  // default until native output has passed display and subtitle validation.
+  // Explicit false remains a build-time rollback to the legacy texture path.
   final _nativeWindow =
       Platform.isWindows &&
       (const bool.fromEnvironment('CCPLAYER_NATIVE_SDR_OUTPUT') ||
-          const bool.fromEnvironment('CCPLAYER_D3D11_RENDER_API'));
+          _d3d11RenderApi);
   static const _d3d11RenderApi = bool.fromEnvironment(
     'CCPLAYER_D3D11_RENDER_API',
+    defaultValue: true,
   );
+  final _nativeAndroid =
+      Platform.isAndroid &&
+      const bool.fromEnvironment(
+        'KONATA_ANDROID_NATIVE_OUTPUT',
+        defaultValue: true,
+      );
+  AndroidNativeVideo? _androidVideo;
   static const _surfaces = MethodChannel('ccplayer/native_video');
   final _viewportKey = GlobalKey();
   late final FocusNode _nativePlaybackFocus = FocusNode();
@@ -67,6 +86,9 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
   static const _barHeight = 88.0;
   bool _barVisible = true;
   bool _checkingPointer = false;
+  Future<void>? _surfaceRecovery;
+  bool _surfaceRecoveryAttempted = false;
+  String _lastNativeVideoTrack = 'auto';
   Timer? _pointerTimer;
   Duration _barUntil = Duration.zero;
   double? _dragMs;
@@ -94,10 +116,70 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
         }
         final visible = _dragMs != null || _clock.elapsed < _barUntil;
         if (_barVisible != visible) setState(() => _barVisible = visible);
+      } on PlatformException catch (e) {
+        if (e.code == 'render_failed' && mounted) {
+          await (_surfaceRecovery ??= _recoverNativeSurface());
+        } else {
+          _log('surface_poll_failed', {'code': e.code}, level: 'WARN');
+        }
       } finally {
         _checkingPointer = false;
       }
     });
+  }
+
+  Future<void> _recoverNativeSurface() async {
+    final wasPlaying = player.state.playing;
+    final native = player.platform as NativePlayer;
+    try {
+      await player.pause();
+      if (_surfaceRecoveryAttempted) {
+        throw StateError('Repeated native output failure');
+      }
+      _surfaceRecoveryAttempted = true;
+      _log('surface_recovery_start', {
+        'positionMs': current.inMilliseconds,
+        'playing': wasPlaying,
+      }, level: 'WARN');
+      // Recreate only the failed output. Keep the loaded media, audio/subtitle
+      // selection and timeline in the same mpv core.
+      await native.setProperty('vid', 'no');
+      await _surfaces.invokeMethod<void>('detachD3D11', [_surface]);
+      if (!mounted) return;
+      if ((await native.getProperty('hwdec')).startsWith('auto')) {
+        await native.setProperty('hwdec', 'no');
+      }
+      await _surfaces.invokeMethod<void>('attachD3D11', [
+        _surface,
+        native.ctx.address,
+        NativeLibrary.path,
+      ]);
+      // Freeing a failed render context makes mpv set vid=no. Restore the last
+      // active selection observed before that automatic disable.
+      await native.setProperty('vid', _lastNativeVideoTrack);
+      if (!mounted) return;
+      if (wasPlaying) await player.play();
+      if (!mounted) return;
+      await native.command([
+        'show-text',
+        context.l10n.videoOutputRecovered,
+        '5000',
+      ]);
+      _log('surface_recovery_complete', {
+        'positionMs': current.inMilliseconds,
+      }, level: 'WARN');
+    } catch (e) {
+      _pointerTimer?.cancel();
+      if (_surface != null) {
+        await _surfaces.invokeMethod<void>('hide', [_surface]);
+      }
+      _log('surface_recovery_failed', {
+        'error': e.runtimeType.toString(),
+      }, level: 'ERROR');
+      if (mounted) setState(() => error = 'native-output');
+    } finally {
+      _surfaceRecovery = null;
+    }
   }
 
   // Give libass the fullscreen letterbox while keeping the picture at its
@@ -291,19 +373,16 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
       'detail': DebugLog.enabled,
     });
     final store = widget.configurationStore ?? MpvConfigStore.instance;
-    final folder = store.externalFolder;
-    if (store.enabled && folder != null) {
-      unawaited(_prepareExternalPlayer(store, folder));
+    if (store.enabled) {
+      unawaited(_prepareConfiguredPlayer(store));
     } else {
       _startPlayer(store, store.playerConfiguration);
     }
   }
 
-  Future<void> _prepareExternalPlayer(
-    MpvConfigStore store,
-    String folder,
-  ) async {
+  Future<void> _prepareConfiguredPlayer(MpvConfigStore store) async {
     try {
+      final folder = store.externalFolder ?? (await store.directory).path;
       final profile = await store.snapshot(folder);
       if (!mounted) {
         await profile.delete(recursive: true);
@@ -322,14 +401,22 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
   }
 
   void _startPlayer(MpvConfigStore store, PlayerConfiguration config) {
-    player = Player(configuration: config);
+    player = widget.createPlayer?.call(config) ?? Player(configuration: config);
     _playerCreated = true;
+    if (Platform.isAndroid) {
+      _audioFocus = AndroidAudioFocus(player.stream.playing, player.pause);
+    }
     if (!_nativeWindow) {
+      if (_nativeAndroid) {
+        _androidVideo = AndroidNativeVideo(player, store.videoConfiguration);
+      }
       controller = VideoController(
         player,
         configuration: store.videoConfiguration,
+        platformFactory: _androidVideo?.initialize,
       );
     }
+    if (_nativeAndroid && mounted) setState(() {});
     if (Platform.isWindows && !_nativeWindow) {
       _stateSubscriptions.add(
         player.stream.videoParams.listen((_) => _scheduleSubtitleCanvas()),
@@ -406,6 +493,10 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
         unawaited(_preserveDecodePrecision());
         if (_opened) _preferTracks();
       }),
+      if (_d3d11RenderApi)
+        player.stream.track.listen((track) {
+          if (track.video.id != 'no') _lastNativeVideoTrack = track.video.id;
+        }),
       player.stream.playing.distinct().listen((_) => _tracker.reset()),
       player.stream.buffering.distinct().listen((buffering) {
         _tracker.reset();
@@ -428,18 +519,16 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
     _saver = Timer.periodic(const Duration(seconds: 5), (_) {
       unawaited(_save());
       unawaited(_sampleDiagnostics());
+      unawaited(_recoverUndecodedVideo());
     });
     _open();
   }
 
   Future<void> _preserveDecodePrecision() async {
-    final store = widget.configurationStore ?? MpvConfigStore.instance;
     if (!Platform.isAndroid ||
         !mounted ||
         _precisionGuardRunning ||
-        _softwareFallbackRequested ||
-        store.decodeMode == VideoDecodeMode.custom ||
-        store.decodeMode == VideoDecodeMode.software) {
+        _softwareFallbackRequested) {
       return;
     }
     _precisionGuardRunning = true;
@@ -454,6 +543,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
       final decoded = await native.getProperty('video-dec-params/pixelformat');
       if (!mounted ||
           !PlaybackProbe.needsPrecisionFallback(
+            sourceCodec: source['codec'],
             sourceFormat: source['format-name'],
             sourceProfile: source['codec-profile'],
             decodedFormat: decoded,
@@ -461,6 +551,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
         return;
       }
       await _useSoftwareDecoder('precision', {
+        'sourceCodec': source['codec'],
         'sourceFormat': source['format-name'],
         'sourceProfile': source['codec-profile'],
         'decodedFormat': decoded,
@@ -474,42 +565,90 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _recoverUndecodedVideo() async {
+    if (!Platform.isAndroid ||
+        !mounted ||
+        !_opened ||
+        _precisionGuardRunning ||
+        _softwareFallbackRequested ||
+        player.state.videoParams.pixelformat != null) {
+      return;
+    }
+    _precisionGuardRunning = true;
+    try {
+      final native = player.platform as NativePlayer;
+      // FFmpeg logs belong to only one libmpv instance. A previous player's
+      // delayed destruction can hide a MediaCodec rejection from this player.
+      // Check an idle, loaded video with no decoded frame instead of relying
+      // exclusively on the warning. Pauses and cache waits are exempt. mpv can
+      // remain "seeking" at startup until the first frame, so that flag alone
+      // cannot disqualify this recovery.
+      final state = <String, String>{};
+      for (final key in [
+        'hwdec',
+        'core-idle',
+        'pause',
+        'paused-for-cache',
+        'seeking',
+        'video-params/w',
+        'video-dec-params',
+        'time-pos',
+      ]) {
+        state[key] = await native.getProperty(key);
+      }
+      if (mounted &&
+          (state['hwdec'] ?? '').startsWith('auto') &&
+          state['core-idle'] == 'yes' &&
+          state['pause'] == 'no' &&
+          state['paused-for-cache'] == 'no' &&
+          (int.tryParse(state['video-params/w'] ?? '') ?? 0) > 0 &&
+          (state['video-dec-params'] ?? '').isEmpty) {
+        await _useSoftwareDecoder('no_decoded_frame', state);
+      }
+    } catch (_) {
+      // Missing state is not evidence of a failed hardware decoder.
+    } finally {
+      _precisionGuardRunning = false;
+    }
+  }
+
   Future<void> _useSoftwareDecoder(
     String reason, [
     Map<String, Object?> evidence = const {},
   ]) async {
-    final mode =
-        (widget.configurationStore ?? MpvConfigStore.instance).decodeMode;
-    if (!Platform.isAndroid ||
-        !mounted ||
-        _softwareFallbackRequested ||
-        mode == VideoDecodeMode.custom ||
-        mode == VideoDecodeMode.software) {
+    if (!Platform.isAndroid || !mounted || _softwareFallbackRequested) {
       return;
     }
-    _softwareFallbackRequested = true;
     try {
       final native = player.platform as NativePlayer;
+      final requested = await native.getProperty(
+        'hwdec',
+        waitForInitialization: false,
+      );
+      if (!mounted ||
+          !requested.startsWith('auto') ||
+          _softwareFallbackRequested) {
+        return;
+      }
+      _softwareFallbackRequested = true;
+      final position = double.tryParse(
+        await native.getProperty('time-pos', waitForInitialization: false),
+      );
       // Switch in place even before the first decoded frame. A MediaCodec
       // profile rejection can otherwise leave the Surface waiting forever.
-      // The log event proves the player is initialized; waiting for the video
-      // controller here would deadlock its first-frame initialization.
+      // A native warning or the observed decoder state proves initialization;
+      // waiting for a first-frame controller here could deadlock startup.
       await native.setProperty('hwdec', 'no', waitForInitialization: false);
       if (await native.getProperty('hwdec', waitForInitialization: false) !=
           'no') {
         throw StateError('Software fallback was not applied');
       }
       _log('decode_software_fallback', {'reason': reason, ...evidence});
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              reason == 'precision'
-                  ? context.l10n.decodePrecisionFallback
-                  : context.l10n.decodeUnsupportedFallback,
-            ),
-          ),
-        );
+      // A new decoder needs the current GOP's reference frames, including
+      // after a precision fallback. Without reseeking, slow network input
+      // leaves playback waiting for the next keyframe.
+      if (mounted && position != null && position.isFinite && position >= 0) {
+        await native.command(['seek', '$position', 'absolute+exact']);
       }
     } catch (error) {
       _log('decode_software_fallback_failed', {
@@ -522,6 +661,11 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
     try {
       if (Platform.isAndroid && player.platform!.configuration.libass) {
         await controller.platform.future;
+        if (_nativeAndroid) {
+          await _androidVideo!.ready.future.timeout(
+            const Duration(seconds: 15),
+          );
+        }
         _log('controller_ready', {}, level: 'DEBUG');
         final native = player.platform as NativePlayer;
         try {
@@ -560,7 +704,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
         if (_d3d11RenderApi) {
           await native.setProperty('vid', 'auto');
           await native.setProperty('vo', 'libmpv');
-          if (store.decodeMode != VideoDecodeMode.custom) {
+          if (!native.configuration.mpvRespectRenderingConfiguration) {
             await native.setProperty(
               'hwdec',
               store.videoConfiguration.hwdec ?? 'auto',
@@ -585,7 +729,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
             'gpu-context': 'd3d11',
             'd3d11-output-format': 'rgb10_a2',
             'title': 'Konata',
-            if (store.decodeMode != VideoDecodeMode.custom)
+            if (!native.configuration.mpvRespectRenderingConfiguration)
               'hwdec': store.videoConfiguration.hwdec ?? 'auto-safe',
           };
           for (final option in options.entries) {
@@ -605,9 +749,9 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
       _webDav = source['kind'] == 'webdav';
       final uri = await _mediaUri(source, relative);
       if (!mounted) return;
-      final resume = _webDav
-          ? await Catalog.instance.resumePosition(asset['id'].toString())
-          : 0;
+      final resume = await Catalog.instance.resumePosition(
+        asset['id'].toString(),
+      );
       if (!mounted) return;
       _log('open_requested', {
         'sourceKind': source['kind'],
@@ -618,20 +762,22 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
       );
       final remoteSubs = _webDav ? _webDavSubtitles(source, relative) : null;
       await opening;
+      if (mounted && _audioFocus != null) {
+        final native = player.platform as NativePlayer;
+        await native.observeProperty('pause', (value) async {
+          if (mounted && _opened) _audioFocus?.updatePlaying(value == 'no');
+        }, waitForInitialization: false);
+        _audioPauseObserved = true;
+      }
       _log('open_returned', {}, level: 'DEBUG');
       _chapterData = PlaybackProbe(
         _property,
       ).chapters().catchError((Object _) => <VideoChapter>[]);
       if (!mounted) return;
-      if (_webDav) {
-        _showPlayback();
-      } else {
-        final saved = await Catalog.instance.resumePosition(
-          asset['id'].toString(),
-        );
-        if (!mounted) return;
-        if (saved > 0) await _seek(Duration(milliseconds: saved));
-      }
+      // A readable media file does not imply its directory can be enumerated.
+      // Show the opened player before optional external subtitle discovery on
+      // every source, including local document providers and SMB shares.
+      _showPlayback();
       if (!mounted) return;
       final subtitleFiles =
           await (remoteSubs ??
@@ -639,12 +785,15 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
       final tracks = <SubtitleTrack>[];
       for (final subtitle in subtitleFiles) {
         if (!mounted) return;
-        final target = source['kind'] == 'local'
-            ? p.join(
-                source['location'].toString(),
-                subtitle.replaceAll('/', Platform.pathSeparator),
-              )
+        var target = source['kind'] == 'local'
+            ? await LocalMedia.uri(source['location'].toString(), subtitle)
             : await _issueStream(source, subtitle, purpose: 'subtitle');
+        if (target.startsWith('content://')) {
+          // Keep the existing media_kit descriptor alive for the subtitle session.
+          final media = Media(target);
+          _subtitleMedia.add(media);
+          target = media.uri;
+        }
         tracks.add(SubtitleTrack.uri(target, title: p.basename(subtitle)));
       }
       if (!mounted) return;
@@ -652,7 +801,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
       await _preferTracks();
       if (mounted && !_opened) _showPlayback();
     } catch (e) {
-      if (_webDav && _opened) {
+      if (_opened) {
         DebugLog.write(
           'Playback',
           'subtitle setup failed ${e.runtimeType}',
@@ -676,10 +825,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
     String purpose = 'playback',
   }) async {
     if (source['kind'] == 'local') {
-      return p.join(
-        source['location'].toString(),
-        path.replaceAll('/', Platform.pathSeparator),
-      );
+      return LocalMedia.uri(source['location'].toString(), path);
     }
     return _issueStream(source, path, purpose: purpose);
   }
@@ -775,14 +921,34 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
   Future<void> _finish() async {
     final releaseClock = Stopwatch()..start();
     try {
+      await _surfaceRecovery;
       await _save();
     } finally {
       try {
-        if (_d3d11RenderApi && _surface != null) {
-          await _surfaces.invokeMethod<void>('destroy', [_surface]);
-          _surface = null;
+        try {
+          await _androidVideo?.close();
+          if (_d3d11RenderApi && _surface != null) {
+            await _surfaces.invokeMethod<void>('destroy', [_surface]);
+            _surface = null;
+          }
+        } finally {
+          // A platform surface failure must not retain the decoder or audio.
+          try {
+            if (_audioPauseObserved) {
+              await (player.platform as NativePlayer).unobserveProperty(
+                'pause',
+                waitForInitialization: false,
+              );
+            }
+          } finally {
+            try {
+              await _audioFocus?.dispose();
+            } finally {
+              if (_playerCreated) await player.dispose();
+            }
+          }
         }
-        if (_playerCreated) await player.dispose();
+        _subtitleMedia.clear();
       } catch (e) {
         DebugLog.write(
           'Playback',
@@ -800,11 +966,22 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
   }
 
   // Explicit test/diagnostic request; no per-frame readback during playback.
-  Future<Map<Object?, Object?>> capturePresentedBuffer() async =>
-      await _surfaces.invokeMapMethod<Object?, Object?>('captureD3D11', [
-        _surface,
-      ]) ??
-      {};
+  Future<Map<Object?, Object?>> capturePresentedBuffer({
+    bool pixels = false,
+  }) async {
+    final result = _nativeAndroid
+        ? await _androidVideo!.capture(pixels: pixels)
+        : await _surfaces.invokeMapMethod<Object?, Object?>('captureD3D11', [
+                _surface,
+              ]) ??
+              {};
+    if (!pixels) result.remove('pixels');
+    return result;
+  }
+
+  // Debug native builds expose the injection; release builds do not.
+  Future<void> simulateNativeOutputFailure() =>
+      _surfaces.invokeMethod<void>('simulateD3D11Failure', [_surface]);
 
   @override
   void dispose() {
@@ -962,7 +1139,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
                       : context.l10n.playbackFailed,
                 ),
               )
-            : loading
+            : loading && !(_nativeAndroid && _playerCreated)
             ? const Center(child: CircularProgressIndicator())
             : _nativeWindow
             ? _nativeControls()
@@ -977,6 +1154,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
                       fullscreen: _touchControls(),
                       child: Video(
                         controller: controller,
+                        surfaceBuilder: _androidVideo?.buildSurface,
                         onEnterFullscreen: () async {
                           playerFullscreen.value = true;
                           await _setWindowFullscreen(true);

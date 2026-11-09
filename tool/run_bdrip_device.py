@@ -17,8 +17,10 @@ import xml.etree.ElementTree as ET
 
 def confirm_install(adb, device):
     command = [adb, '-s', device, 'shell']
-    subprocess.run(command + ['uiautomator', 'dump', '/data/local/tmp/konata-install-ui.xml'],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=8)
+    dumped = subprocess.run(command + ['uiautomator', 'dump', '/data/local/tmp/konata-install-ui.xml'],
+                   capture_output=True, check=True, timeout=8)
+    if b'ERROR' in dumped.stdout + dumped.stderr:
+        raise subprocess.CalledProcessError(1, 'uiautomator dump')
     xml = subprocess.check_output(command + ['cat', '/data/local/tmp/konata-install-ui.xml'], timeout=5)
     installers = {'com.miui.packageinstaller', 'com.miui.securitycenter',
                   'com.android.packageinstaller', 'com.google.android.packageinstaller'}
@@ -47,6 +49,7 @@ def main():
     parser.add_argument('--stage-url', default='')
     parser.add_argument('--mode', default='automatic', choices=['automatic', 'software', 'hardwarePreferred'])
     parser.add_argument('--seconds', type=int, default=20)
+    parser.add_argument('--resume-seconds', type=int, default=0)
     parser.add_argument('--all-audio', action='store_true')
     parser.add_argument('--render-api', action='store_true')
     parser.add_argument('--window-interactions', action='store_true')
@@ -56,6 +59,8 @@ def main():
         parser.error('Android requires --adb and a loopback --stage-url.')
     if not 1 <= args.seconds <= 3600:
         parser.error('--seconds must be 1..3600')
+    if not 0 <= args.resume_seconds <= 3600:
+        parser.error('--resume-seconds must be 0..3600')
     if args.report.exists():
         parser.error('Choose a new report path to preserve previous evidence.')
     root = Path(__file__).resolve().parent.parent
@@ -73,6 +78,7 @@ def main():
             'BASELINE_VIDEO': str(media) if not android else media.name,
             'BASELINE_STAGE_URL': f'{args.stage_url.rstrip("/")}/{media.name}' if android else '',
             'BASELINE_DECODE_MODE': args.mode, 'BASELINE_SAMPLE_SECONDS': args.seconds,
+            'BASELINE_RESUME_SECONDS': args.resume_seconds,
             'BASELINE_VOLUME': 20, 'BASELINE_ALL_AUDIO': args.all_audio,
             'CCPLAYER_D3D11_RENDER_API': args.render_api,
             'BASELINE_WINDOWS_SCREEN': args.window_interactions,
@@ -100,6 +106,7 @@ def main():
         def read_marker(marker):
             return next((json.loads(line.split(marker, 1)[1]) for line in lines if marker in line), None)
         results.append({'file': media.name, 'sha256': digest, 'mode': args.mode,
+                        'resume_seconds': args.resume_seconds,
                         'exit_code': process.returncode,
                         'stats': read_marker('MPV_LOCAL_BASELINE '),
                         'audio_tracks': read_marker('MPV_AUDIO_BASELINE ')})

@@ -33,6 +33,7 @@ migrate_working_dir/
 /build/
 /coverage/
 /release/
+/output/
 
 # Symbolication related
 app.*.symbols
@@ -55,5 +56,10 @@ android/.kotlin/
 # Keep project notes and verification/design artifacts local.
 *.[mM][dD]
 !/README.md
+!/docs/OPTIONAL_FEATURES.md
+!/docs/MPV_ENGINE_RETIREMENT.md
+!/docs/LIBRARY_BACKUP.md
+!/packages/**/KONATA_PATCHES.md
+!/packages/path_provider_windows/README.md
 /design/
 /docs/verification/

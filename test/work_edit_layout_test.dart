@@ -6,61 +6,59 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets(
-    'metadata IDs have spacing and explanatory text lives below the field',
-    (tester) async {
-      await tester.binding.setSurfaceSize(const Size(390, 844));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: NipaPlayStyle.theme(Brightness.light),
-          home: Scaffold(
-            body: Builder(
-              builder: (context) => TextButton(
-                onPressed: () => WorkEditDialogs.metadata(context, {
-                  'id': 'test',
-                  'title': '测试',
-                  'year': 2023,
-                  'overview': '简介',
-                  'tmdb_id': 217512,
-                  'bangumi_id': 413741,
-                }, searchAndBind: () async {}),
-                child: const Text('编辑'),
-              ),
+  testWidgets('metadata IDs have spacing and no obsolete explanatory text', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: NipaPlayStyle.theme(Brightness.light),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => WorkEditDialogs.metadata(context, {
+                'id': 'test',
+                'title': '测试',
+                'year': 2023,
+                'overview': '简介',
+                'tmdb_id': 217512,
+                'bangumi_id': 413741,
+              }, searchAndBind: () async {}),
+              child: const Text('编辑'),
             ),
           ),
         ),
-      );
-      await tester.tap(find.text('编辑'));
-      await tester.pumpAndSettle();
-      expect(find.text('角色排序'), findsNothing);
-      expect(find.text('搜索并绑定'), findsOneWidget);
-      final titleLabel = tester.getRect(find.text('作品标题'));
-      final viewport = tester.getRect(find.byType(SingleChildScrollView).first);
-      expect(titleLabel.top, greaterThanOrEqualTo(viewport.top));
-      final field = find.byWidgetPredicate(
-        (w) => w is TextField && w.decoration?.labelText == '关联 Bangumi ID',
-      );
-      await tester.ensureVisible(field);
-      await tester.pumpAndSettle();
-      final widget = tester.widget<TextField>(field);
-      expect(widget.decoration!.labelText, isNot(contains('（')));
-      expect(widget.decoration!.helperText, contains('逗号分隔'));
-      expect(widget.decoration!.helperMaxLines, greaterThanOrEqualTo(4));
-      expect(
-        tester.getRect(field).top -
-            tester.getRect(find.text('Bangumi: 413741')).bottom,
-        greaterThanOrEqualTo(20),
-      );
-      expect(
-        tester.getRect(find.text('TMDB: 217512')).top,
-        tester.getRect(find.text('Bangumi: 413741')).top,
-      );
-      expect(tester.takeException(), isNull);
-      await tester.tap(find.text('取消'));
-      await tester.pumpAndSettle();
-    },
-  );
+      ),
+    );
+    await tester.tap(find.text('编辑'));
+    await tester.pumpAndSettle();
+    expect(find.text('角色排序'), findsNothing);
+    expect(find.text('搜索并绑定'), findsOneWidget);
+    final titleLabel = tester.getRect(find.text('作品标题'));
+    final viewport = tester.getRect(find.byType(SingleChildScrollView).first);
+    expect(titleLabel.top, greaterThanOrEqualTo(viewport.top));
+    final field = find.byWidgetPredicate(
+      (w) => w is TextField && w.decoration?.labelText == '关联 Bangumi ID',
+    );
+    await tester.ensureVisible(field);
+    await tester.pumpAndSettle();
+    final widget = tester.widget<TextField>(field);
+    expect(widget.decoration!.labelText, isNot(contains('（')));
+    expect(widget.decoration!.helperText, isNull);
+    expect(
+      tester.getRect(field).top -
+          tester.getRect(find.text('Bangumi: 413741')).bottom,
+      greaterThanOrEqualTo(20),
+    );
+    expect(
+      tester.getRect(find.text('Bangumi: 413741')).top,
+      greaterThanOrEqualTo(tester.getRect(find.text('TMDB: 217512')).top),
+    );
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+  });
   testWidgets('local image action uses the same font without scaling down', (
     tester,
   ) async {

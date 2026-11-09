@@ -109,7 +109,18 @@ class PlaybackHistory {
   }
 
   Future<void> remove(String assetId) async {
-    await db.delete('progress', where: 'asset_id=?', whereArgs: [assetId]);
+    await removeMany([assetId]);
+  }
+
+  Future<void> removeMany(Iterable<String> assetIds) async {
+    // One transaction: cancellation or a failure must not partly delete a selection.
+    await db.transaction((tx) async {
+      final batch = tx.batch();
+      for (final id in assetIds.toSet()) {
+        batch.delete('progress', where: 'asset_id=?', whereArgs: [id]);
+      }
+      await batch.commit(noResult: true);
+    });
   }
 
   Future<void> clear() async {

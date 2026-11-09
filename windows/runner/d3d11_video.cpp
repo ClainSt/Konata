@@ -12,12 +12,14 @@
 #include <mutex>
 #include <stdexcept>
 #include <thread>
+#include <cstring>
 
 using Microsoft::WRL::ComPtr;
 using flutter::EncodableMap;
 using flutter::EncodableValue;
 
 namespace {
+std::atomic<int> renderer_generation{0};
 void Check(HRESULT result, const char* message) {
   if (FAILED(result)) throw std::runtime_error(message);
 }
@@ -55,11 +57,15 @@ struct Api {
 
 struct D3D11Video::Impl {
   HWND window;
+  const int generation = ++renderer_generation;
   mpv_handle* player;
   Api api;
   HANDLE wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
   std::atomic<bool> stop{false};
   std::atomic<bool> resize{true};
+#ifndef NDEBUG
+  std::atomic<bool> simulate_failure{false};
+#endif
   std::thread thread;
   std::mutex mutex;
   std::shared_ptr<std::promise<EncodableMap>> capture;
@@ -105,14 +111,19 @@ struct D3D11Video::Impl {
     D3D11_MAPPED_SUBRESOURCE mapped{};
     Check(context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped), "Cannot read presented buffer");
     std::bitset<1024> values[3];
+    std::vector<uint8_t> bytes(static_cast<size_t>(desc.Width) * desc.Height * 4);
     for (UINT y = 0; y < desc.Height; ++y) {
       const auto pixels = reinterpret_cast<const uint32_t*>(
           static_cast<const char*>(mapped.pData) + y * mapped.RowPitch);
+      std::memcpy(bytes.data() + static_cast<size_t>(y) * desc.Width * 4,
+                  pixels, static_cast<size_t>(desc.Width) * 4);
       for (UINT x = 0; x < desc.Width; ++x)
         for (int c = 0; c < 3; ++c) values[c].set((pixels[x] >> (c * 10)) & 1023);
     }
     context->Unmap(staging.Get(), 0);
-    return {{EncodableValue("format"), EncodableValue("R10G10B10A2_UNORM")},
+    return {{EncodableValue("generation"), EncodableValue(generation)},
+            {EncodableValue("pixels"), EncodableValue(std::move(bytes))},
+            {EncodableValue("format"), EncodableValue("R10G10B10A2_UNORM")},
             {EncodableValue("width"), EncodableValue(static_cast<int>(desc.Width))},
             {EncodableValue("height"), EncodableValue(static_cast<int>(desc.Height))},
             {EncodableValue("redLevels"), EncodableValue(static_cast<int>(values[0].count()))},
@@ -161,6 +172,10 @@ struct D3D11Video::Impl {
       while (!stop) {
         WaitForSingleObject(wake, INFINITE);
         if (stop) break;
+#ifndef NDEBUG
+        if (simulate_failure.exchange(false))
+          throw std::runtime_error("Injected presentation failure");
+#endif
         const bool changed = resize.exchange(false);
         const uint64_t flags = api.mpv_render_context_update(render);
         std::shared_ptr<std::promise<EncodableMap>> request;
@@ -206,6 +221,16 @@ D3D11Video::D3D11Video(HWND window, int64_t player, const std::string& library)
     : impl_(std::make_unique<Impl>(window, player, library)) {}
 D3D11Video::~D3D11Video() = default;
 void D3D11Video::Resize() { impl_->resize = true; SetEvent(impl_->wake); }
+std::string D3D11Video::Failure() {
+  std::lock_guard<std::mutex> lock(impl_->mutex);
+  return impl_->failure;
+}
+#ifndef NDEBUG
+void D3D11Video::SimulateFailure() {
+  impl_->simulate_failure = true;
+  SetEvent(impl_->wake);
+}
+#endif
 EncodableMap D3D11Video::Capture() {
   auto request = std::make_shared<std::promise<EncodableMap>>();
   auto result = request->get_future();

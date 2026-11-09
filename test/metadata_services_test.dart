@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -12,11 +13,27 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ccplayer/core/metadata_servers.dart';
 import 'package:ccplayer/core/metadata_http.dart';
 import 'package:ccplayer/core/metadata.dart';
+import 'package:ccplayer/core/tmdb_auth.dart';
 import 'package:ccplayer/core/connection_diagnostic.dart';
 import 'package:ccplayer/core/bangumi_links.dart';
 import 'package:ccplayer/core/debug_log.dart';
 import 'package:ccplayer/core/image_store.dart';
 import 'package:ccplayer/ui/poster_crop_page.dart';
+
+class _StalledMetadataClient extends http.BaseClient {
+  final cancelled = Completer<void>();
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    final result = Completer<http.StreamedResponse>();
+    if (request is http.Abortable) {
+      request.abortTrigger!.then((_) {
+        cancelled.complete();
+        result.completeError(http.RequestAbortedException(request.url));
+      });
+    }
+    return result.future;
+  }
+}
 
 Future<Uint8List> sampleImage({int width = 800, int height = 600}) async {
   final recorder = ui.PictureRecorder();
@@ -54,6 +71,50 @@ Future<void> captureCrop(WidgetTester tester, String name) async {
 }
 
 void main() {
+  test('a metadata header deadline aborts the underlying request', () async {
+    final stalled = _StalledMetadataClient();
+    final client = MetadataHttp(
+      inner: stalled,
+      raw: true,
+      headerTimeout: const Duration(milliseconds: 30),
+    );
+    try {
+      await expectLater(
+        client.get(Uri.https('example.test', '/stall')),
+        throwsA(isA<TimeoutException>()),
+      );
+      await stalled.cancelled.future.timeout(const Duration(seconds: 1));
+    } finally {
+      client.close();
+    }
+  });
+  test(
+    'credential testing cannot succeed from an offline metadata cache',
+    () async {
+      MetadataServers.fallback = false;
+      final warm = MetadataHttp(
+        inner: MockClient(
+          (_) async => http.Response(
+            '{"id":100565,"name":"Cached","poster_path":"/poster.jpg"}',
+            200,
+          ),
+        ),
+      );
+      await warm.get(
+        Uri.https('api.themoviedb.org', '/3/tv/100565', {'language': 'zh-CN'}),
+      );
+      warm.close();
+      await expectLater(
+        Metadata.testTmdbCredentials(
+          const TmdbCredentials(mode: 'token', value: 'new-synthetic-token'),
+          client: MockClient(
+            (_) async => throw const SocketException('offline'),
+          ),
+        ),
+        throwsStateError,
+      );
+    },
+  );
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory temp;
   setUp(() async {
@@ -242,7 +303,7 @@ void main() {
     },
   );
   test(
-    'diagnostics use unsaved exact address and report partial characters failure',
+    'core diagnostics use unsaved exact address without optional character requests',
     () async {
       final addresses = List.of(MetadataServers.defaults);
       addresses[2] = 'https://custom.example/v0';
@@ -252,14 +313,12 @@ void main() {
         addresses,
         client: MockClient((r) async {
           hosts.add(r.url.host);
-          return r.url.path.endsWith('characters')
-              ? http.Response('no', 503)
-              : http.Response('{"id":302189,"name":"86"}', 200);
+          expect(r.url.path, '/v0/subjects/302189');
+          return http.Response('{"id":302189,"name":"86"}', 200);
         }),
       );
-      expect(result.status, DiagnosticStatus.partial);
-      expect(result.issue, DiagnosticIssue.http);
-      expect(result.details, contains('503'));
+      expect(result.status, DiagnosticStatus.connected);
+      expect(hosts, hasLength(1));
       expect(hosts, everyElement('custom.example'));
     },
   );

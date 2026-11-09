@@ -129,43 +129,8 @@ class ConnectionDiagnostic {
             (subject['name'] ?? '').toString().isEmpty) {
           throw const FormatException('作品 JSON 无效');
         }
-        dynamic cast;
-        try {
-          cast = await json(2, 'subjects/302189/characters');
-          if (cast is! List ||
-              cast.isEmpty ||
-              !cast.any(
-                (e) =>
-                    e is Map &&
-                    e['id'] is num &&
-                    e['name'] is String &&
-                    e['relation'] != null &&
-                    e['images'] is Map &&
-                    e['actors'] is List,
-              )) {
-            throw const FormatException('角色 JSON 字段不完整');
-          }
-        } catch (e) {
-          return ConnectionReport(
-            status: DiagnosticStatus.partial,
-            issue: _issue(e),
-            details:
-                'Character endpoint: ${_error(e)}\n${events.join('\n')}\n${watch.elapsedMilliseconds} ms',
-          );
-        }
         if (index == 3) {
           await image(imageUrl(subject['images']['large'], 3));
-          final character = (cast).whereType<Map>().firstWhere(
-            (e) =>
-                e['images'] is Map &&
-                (e['images']['medium'] ?? e['images']['small']) != null,
-          );
-          await image(
-            imageUrl(
-              character['images']['medium'] ?? character['images']['small'],
-              3,
-            ),
-          );
         }
       }
       return ConnectionReport(

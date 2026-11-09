@@ -1,11 +1,7 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
 import 'package:ccplayer/core/catalog.dart';
 import 'package:ccplayer/core/metadata.dart';
-import 'package:ccplayer/core/detail_metadata.dart';
 import 'package:flutter/material.dart';
 import 'package:ccplayer/ui/manual_episode_page.dart';
 import 'package:ccplayer/l10n/app_localizations.dart';
@@ -120,50 +116,4 @@ void main() {
       }
     },
   );
-
-  test('Bangumi infobox supplies Chinese character and voice names', () async {
-    final requested = <String>[];
-    final client = MockClient((request) async {
-      requested.add(request.url.path);
-      final data = switch (request.url.path) {
-        '/v0/subjects/1/characters' => [
-          {
-            'id': 10,
-            'name': 'コノハ',
-            'actors': [
-              {'id': 20, 'name': '古賀葵'},
-            ],
-          },
-        ],
-        '/v0/characters/10' => {
-          'infobox': [
-            {'key': '简体中文名', 'value': '秋里木叶'},
-          ],
-        },
-        '/v0/persons/20' => {
-          'infobox': [
-            {'key': '简体中文名', 'value': '古贺葵'},
-          ],
-        },
-        _ => <String, Object?>{},
-      };
-      return http.Response(
-        jsonEncode(data),
-        200,
-        headers: {'content-type': 'application/json; charset=utf-8'},
-      );
-    });
-    final service = DetailMetadataService(client: client);
-    try {
-      final data = await service.fetch({'id': 'w', 'bangumi_id': 1});
-      final character = (data['characters'] as List).single as Map;
-      expect(character['name_cn'], '秋里木叶');
-      expect(character['originalName'], 'コノハ');
-      expect(character['actors'], ['古贺葵']);
-      expect(requested.where((p) => p == '/v0/persons/20'), hasLength(1));
-    } finally {
-      service.close();
-      client.close();
-    }
-  });
 }

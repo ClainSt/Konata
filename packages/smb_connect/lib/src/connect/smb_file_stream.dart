@@ -20,24 +20,31 @@ int openReadNextNum = 0;
 Stream<Uint8List> smbOpenRead(
     SmbFile file, SmbTree tree, Uint8List? fileId, int fid, int start,
     [int? length]) async* {
-  // int openReadNum = openReadNextNum++;
   length = length ?? (file.size - start);
-  var buffSize = min(length, 0xFFF);
+  final negotiated =
+      tree.transport.getNegotiatedResponse()?.getReceiveBufferSize();
+  // Stay within one existing read request and the negotiated receive limit.
+  // Serial 4 KiB reads otherwise make Wi-Fi RTT dominate media throughput.
+  final blockSize =
+      tree.transport.isSMB2() && negotiated != null && negotiated > 0
+          ? min(64936, negotiated)
+          : 0xFFF;
   var position = 0;
-  Uint8List buff = Uint8List(buffSize);
-  do {
-    var remain = length - position;
-    var readLen = min(buff.length, remain);
-    var res = await smbReadFromFile(
-        file, tree, fileId, fid, buff, position + start, 0, readLen);
-    if (readLen == buff.length) {
-      yield buff;
-    } else {
-      yield Uint8List.view(buff.buffer, 0, readLen);
+  try {
+    while (position < length) {
+      // A stream consumer may retain this chunk after the next read starts.
+      final buff = Uint8List(min(blockSize, length - position));
+      final res = await smbReadFromFile(
+          file, tree, fileId, fid, buff, position + start, 0, buff.length);
+      if (res <= 0 || res > buff.length) {
+        throw StateError('SMB stream ended before the requested range');
+      }
+      yield res == buff.length ? buff : Uint8List.sublistView(buff, 0, res);
+      position += res;
     }
-    position += res;
-  } while (position < length);
-  await smbCloseFile(file, tree, fileId, fid);
+  } finally {
+    await smbCloseFile(file, tree, fileId, fid);
+  }
 }
 
 void readAsync(SmbFile file, SmbTree tree, Uint8List? fileId, int fid,

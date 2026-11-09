@@ -30,6 +30,24 @@ class _PlaybackHistoryPageState extends State<PlaybackHistoryPage> {
   late final history = widget.history ?? PlaybackHistory(Catalog.instance.db);
   late Future<List<Map<String, Object?>>> rows = history.entries();
   bool busy = false;
+  bool managing = false;
+  final selected = <String>{};
+
+  void _toggle(Map<String, Object?> row) => setState(() {
+    final id = row['id'].toString();
+    if (!selected.add(id)) selected.remove(id);
+  });
+
+  Future<void> _deleteSelected() async {
+    final ids = selected.toSet();
+    if (ids.isEmpty || !await _confirm(false, count: ids.length) || !mounted) {
+      return;
+    }
+    await _change(() async {
+      await history.removeMany(ids);
+      if (mounted) setState(() => selected.removeAll(ids));
+    });
+  }
 
   Future<void> _refresh() async {
     if (mounted) {
@@ -55,12 +73,14 @@ class _PlaybackHistoryPageState extends State<PlaybackHistoryPage> {
     }
   }
 
-  Future<bool> _confirm(bool all) async =>
+  Future<bool> _confirm(bool all, {int? count}) async =>
       await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: Text(
-            all
+            count != null
+                ? context.l10n.deleteHistorySelectionQuestion(count)
+                : all
                 ? context.l10n.clearHistoryQuestion
                 : context.l10n.removeHistoryQuestion,
           ),
@@ -150,15 +170,15 @@ class _PlaybackHistoryPageState extends State<PlaybackHistoryPage> {
           icon: const Icon(Icons.refresh),
         ),
         IconButton(
-          tooltip: context.l10n.clearHistory,
+          key: const ValueKey('history-manage'),
+          tooltip: managing ? context.l10n.cancel : context.l10n.manageHistory,
           onPressed: busy
               ? null
-              : () async {
-                  if (await _confirm(true) && mounted) {
-                    await _change(history.clear);
-                  }
-                },
-          icon: const Icon(Icons.delete_sweep_outlined),
+              : () => setState(() {
+                  managing = !managing;
+                  selected.clear();
+                }),
+          icon: Icon(managing ? Icons.close : Icons.checklist_outlined),
         ),
       ],
     ),
@@ -184,184 +204,322 @@ class _PlaybackHistoryPageState extends State<PlaybackHistoryPage> {
         }
         final entries = snapshot.data ?? [];
         if (entries.isEmpty) return Center(child: Text(context.l10n.noHistory));
-        return ListView.separated(
-          itemCount: entries.length,
-          separatorBuilder: (_, _) => const Divider(height: 1),
-          itemBuilder: (context, index) {
-            final row = entries[index];
-            final id = row['id'].toString();
-            final completed =
-                row['_logical_completed'] as bool? ?? row['completed'] == 1;
-            final conflict = row['_logical_conflict'] == true;
-            final work = row['_work'] as Map<String, Object?>;
-            final info = EpisodeMetadata.lookup(
-              work,
-              row['_details'] as Map<String, dynamic>,
-              row,
-            );
-            final number = row['episode'] as int?;
-            final episodeName = info['name']?.toString().trim() ?? '';
-            final episodeLabel = number == null
-                ? ''
-                : row['category'] == 'extra'
-                ? '${row['extra_type'] ?? context.l10n.specialEpisode} $number'
-                : context.l10n.episodeLabel(number);
-            final episodeTitle = [
-              if (episodeLabel.isNotEmpty) episodeLabel,
-              if (episodeName.isNotEmpty && episodeName != row['work_title'])
-                episodeName,
-            ].join(' · ');
-            final still = info['still']?.toString();
-            final date = DateTime.tryParse(
-              row['updated_at']?.toString() ?? '',
-            )?.toLocal();
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+        final visibleSelected = entries
+            .where((row) => selected.contains(row['id']))
+            .toList();
+        return Column(
+          children: [
+            if (managing)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                child: Wrap(
+                  spacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    SizedBox(
-                      width: MediaQuery.sizeOf(context).width < 450 ? 80 : 128,
-                      child: InkWell(
-                        onTap: busy ? null : () => _play(row),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(6),
-                          child: still?.isNotEmpty == true
-                              ? ManagedImage(still!, fit: BoxFit.cover)
-                              : const ColoredBox(
-                                  color: Color(0x11808080),
-                                  child: Icon(Icons.movie_outlined),
-                                ),
-                        ),
+                    Text(
+                      context.l10n.historySelectionCount(
+                        visibleSelected.length,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Text(
-                            row['work_title']?.toString() ??
-                                row['name']?.toString() ??
-                                context.l10n.unknownWork,
-                            softWrap: false,
-                          ),
-                        ),
-                        subtitle: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Text(
-                                episodeTitle.isNotEmpty
-                                    ? episodeTitle
-                                    : row['name']?.toString() ?? '',
-                                softWrap: false,
-                              ),
-                            ),
-                            SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Text(
-                                [
-                                  if (conflict) context.l10n.watchStateConflict,
-                                  '${completed ? context.l10n.watched : context.l10n.watching} · ${PlaybackHistory.time(row['position_ms'])} / ${PlaybackHistory.time(row['duration_ms'])}',
-                                  if (date != null)
-                                    date.toString().split('.').first,
-                                ].join('\n'),
-                                softWrap: false,
-                              ),
-                            ),
-                          ],
-                        ),
-                        isThreeLine: true,
-                        onTap: busy ? null : () => _play(row),
-                        trailing: PopupMenuButton<String>(
-                          enabled: !busy,
-                          tooltip: context.l10n.manageHistory,
-                          onSelected: (action) async {
-                            if (action == 'bangumi') {
-                              await showDialog<void>(
-                                context: context,
-                                barrierDismissible: false,
-                                builder: (_) => BangumiEpisodeMappingDialog(
-                                  store: BangumiEpisodeMapping(history.db),
-                                  assetId: id,
-                                  episodeKey: row['_logical_key'] as String,
-                                  title: row['work_title']?.toString() ?? '',
-                                ),
-                              );
-                              await _refresh();
-                            } else if (action == 'identity') {
-                              await _confirmIdentity(row);
-                            } else if (action == 'revoke') {
-                              await _change(
-                                () =>
-                                    LogicalEpisodeStore(history.db).revoke(id),
-                              );
-                            } else if (action == 'watched' ||
-                                action == 'unwatched') {
-                              await _change(
-                                () => history.setCompleted(
-                                  id,
-                                  conflict ? action == 'watched' : !completed,
-                                ),
-                              );
-                            } else if (await _confirm(false) && mounted) {
-                              await _change(() => history.remove(id));
-                            }
-                          },
-                          itemBuilder: (_) => [
-                            if (row['_logical_key'] != null)
-                              PopupMenuItem(
-                                value: 'bangumi',
-                                child: Text(context.l10n.bangumiEpisodeMapping),
-                              ),
-                            PopupMenuItem(
-                              value: 'watched',
-                              child: Text(
-                                completed && !conflict
-                                    ? context.l10n.markUnwatched
-                                    : context.l10n.markWatched,
-                              ),
-                            ),
-                            if (conflict)
-                              PopupMenuItem(
-                                value: 'unwatched',
-                                child: Text(context.l10n.markUnwatched),
-                              ),
-                            if (row['_logical_key'] == null &&
-                                row['_candidate_key'] != null &&
-                                row['manual_mapping'] != true)
-                              PopupMenuItem(
-                                value: 'identity',
-                                child: Text(
-                                  context.l10n.confirmEpisodeIdentity,
-                                ),
-                              ),
-                            if (row['_logical_key'] != null &&
-                                row['manual_mapping'] != true)
-                              PopupMenuItem(
-                                value: 'revoke',
-                                child: Text(context.l10n.revokeEpisodeIdentity),
-                              ),
-                            PopupMenuItem(
-                              value: 'remove',
-                              child: Text(context.l10n.deleteRecord),
-                            ),
-                          ],
-                        ),
+                    TextButton(
+                      key: const ValueKey('history-select-all'),
+                      onPressed: busy
+                          ? null
+                          : () => setState(() {
+                              if (visibleSelected.length == entries.length) {
+                                selected.clear();
+                              } else {
+                                selected.addAll(
+                                  entries.map((row) => row['id'].toString()),
+                                );
+                              }
+                            }),
+                      child: Text(
+                        visibleSelected.length == entries.length
+                            ? context.l10n.historyDeselectAll
+                            : context.l10n.historySelectAll,
                       ),
                     ),
+                    TextButton.icon(
+                      key: const ValueKey('history-delete-selected'),
+                      onPressed: busy || visibleSelected.isEmpty
+                          ? null
+                          : _deleteSelected,
+                      icon: const Icon(Icons.delete_outline),
+                      label: Text(context.l10n.deleteRecord),
+                    ),
+                    if (visibleSelected.length == 1)
+                      _menu(visibleSelected.single),
                   ],
                 ),
               ),
-            );
-          },
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, bounds) {
+                  // Use this pane's live constraints, including split windows.
+                  // Keep the smaller cards without scaling text or hit targets.
+                  const targetWidth = 450 * .8;
+                  final available = (bounds.maxWidth - 48).clamp(
+                    0.0,
+                    double.infinity,
+                  );
+                  final columns = ((available + 24) / (targetWidth + 24))
+                      .ceil()
+                      .clamp(1, 100);
+                  final width = (available - (columns - 1) * 24) / columns;
+                  return GridView.builder(
+                    padding: const EdgeInsets.all(24),
+                    itemCount: entries.length,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: columns,
+                      crossAxisSpacing: 24,
+                      mainAxisSpacing: 24,
+                      mainAxisExtent:
+                          width * 9 / 16 +
+                          28 +
+                          54 * MediaQuery.textScalerOf(context).scale(1),
+                    ),
+                    itemBuilder: (context, index) => _card(entries[index]),
+                  );
+                },
+              ),
+            ),
+          ],
         );
       },
     ),
   );
+  Widget _card(Map<String, Object?> row) {
+    final work = row['_work'] as Map<String, Object?>;
+    final info = EpisodeMetadata.lookup(
+      work,
+      row['_details'] as Map<String, dynamic>,
+      row,
+    );
+    final number = row['episode'] as int?;
+    final label = number == null
+        ? context.l10n.mainFeature
+        : row['category'] == 'extra'
+        ? '${row['extra_type'] ?? context.l10n.specialEpisode} $number'
+        : context.l10n.episodeLabel(number);
+    final episodeName = info['name']?.toString().trim() ?? '';
+    final episodeDescription = [
+      label,
+      if (episodeName.isNotEmpty) episodeName,
+    ].join(' · ');
+    final date = DateTime.tryParse(
+      row['updated_at']?.toString() ?? '',
+    )?.toLocal();
+    final completed =
+        row['_logical_completed'] as bool? ?? row['completed'] == 1;
+    final still = info['still']?.toString();
+    final title =
+        row['work_title']?.toString() ??
+        row['name']?.toString() ??
+        context.l10n.unknownWork;
+    final duration = (row['duration_ms'] as num?)?.toDouble() ?? 0;
+    final position = (row['position_ms'] as num?)?.toDouble() ?? 0;
+    final progress = duration > 0 ? (position / duration).clamp(0.0, 1.0) : 0.0;
+    final colors = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AspectRatio(
+          aspectRatio: 16 / 9,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(5),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                InkWell(
+                  key: ValueKey('history-card-${row['id']}'),
+                  onTap: busy
+                      ? null
+                      : () => managing ? _toggle(row) : _play(row),
+                  child: Tooltip(
+                    message: episodeDescription,
+                    child: still?.isNotEmpty == true
+                        ? ManagedImage(still!, fit: BoxFit.cover)
+                        : ColoredBox(
+                            color: colors.surfaceContainerHighest,
+                            child: const Icon(Icons.videocam_outlined),
+                          ),
+                  ),
+                ),
+                Positioned(
+                  top: 9,
+                  left: 9,
+                  child: IgnorePointer(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: .7),
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                      child: Text(
+                        label,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                if (progress > 0)
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    child: LinearProgressIndicator(
+                      key: ValueKey('history-progress-${row['id']}'),
+                      value: progress,
+                      color: colors.primary,
+                      backgroundColor: colors.onSurface.withValues(alpha: .15),
+                      trackGap: 0,
+                      stopIndicatorRadius: 0,
+                      minHeight: 3,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        InkWell(
+          onTap: busy ? null : () => managing ? _toggle(row) : _play(row),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Tooltip(
+                      message: title,
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Tooltip(
+                      message:
+                          '${completed ? context.l10n.watched : context.l10n.watching}${date == null ? '' : ' · $date'}',
+                      child: Text(
+                        '${PlaybackHistory.time(row['position_ms'])} / ${PlaybackHistory.time(row['duration_ms'])}',
+                        style: TextStyle(
+                          color: colors.onSurfaceVariant,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    if (row['_logical_conflict'] == true)
+                      Text(
+                        context.l10n.watchStateConflict,
+                        style: TextStyle(color: colors.error, fontSize: 12),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (managing)
+                Checkbox(
+                  key: ValueKey('history-select-${row['id']}'),
+                  value: selected.contains(row['id']),
+                  onChanged: busy ? null : (_) => _toggle(row),
+                )
+              else
+                IconButton.filledTonal(
+                  key: ValueKey('history-play-${row['id']}'),
+                  tooltip: context.l10n.resumePlayback,
+                  onPressed: busy ? null : () => _play(row),
+                  icon: const Icon(Icons.play_arrow_outlined),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _menu(Map<String, Object?> row) {
+    final id = row['id'].toString();
+    final completed =
+        row['_logical_completed'] as bool? ?? row['completed'] == 1;
+    final conflict = row['_logical_conflict'] == true;
+    return PopupMenuButton<String>(
+      enabled: !busy,
+      tooltip: context.l10n.manageHistory,
+      onSelected: (action) async {
+        if (action == 'bangumi') {
+          await showDialog<void>(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => BangumiEpisodeMappingDialog(
+              store: BangumiEpisodeMapping(history.db),
+              assetId: id,
+              episodeKey: row['_logical_key'] as String,
+              title: row['work_title']?.toString() ?? '',
+            ),
+          );
+          await _refresh();
+        } else if (action == 'identity') {
+          await _confirmIdentity(row);
+        } else if (action == 'revoke') {
+          await _change(() => LogicalEpisodeStore(history.db).revoke(id));
+        } else if (action == 'watched' || action == 'unwatched') {
+          await _change(
+            () => history.setCompleted(
+              id,
+              conflict ? action == 'watched' : !completed,
+            ),
+          );
+        } else if (await _confirm(false) && mounted) {
+          await _change(() => history.remove(id));
+        }
+      },
+      itemBuilder: (_) => [
+        if (row['_logical_key'] != null)
+          PopupMenuItem(
+            value: 'bangumi',
+            child: Text(context.l10n.bangumiEpisodeMapping),
+          ),
+        PopupMenuItem(
+          value: 'watched',
+          child: Text(
+            completed && !conflict
+                ? context.l10n.markUnwatched
+                : context.l10n.markWatched,
+          ),
+        ),
+        if (conflict)
+          PopupMenuItem(
+            value: 'unwatched',
+            child: Text(context.l10n.markUnwatched),
+          ),
+        if (row['_logical_key'] == null &&
+            row['_candidate_key'] != null &&
+            row['manual_mapping'] != true)
+          PopupMenuItem(
+            value: 'identity',
+            child: Text(context.l10n.confirmEpisodeIdentity),
+          ),
+        if (row['_logical_key'] != null && row['manual_mapping'] != true)
+          PopupMenuItem(
+            value: 'revoke',
+            child: Text(context.l10n.revokeEpisodeIdentity),
+          ),
+        PopupMenuItem(value: 'remove', child: Text(context.l10n.deleteRecord)),
+      ],
+    );
+  }
 }

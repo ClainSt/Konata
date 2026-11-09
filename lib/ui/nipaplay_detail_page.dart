@@ -2,17 +2,20 @@ import '../core/episode_metadata.dart';
 import 'manual_episode_page.dart';
 import '../l10n/strings.dart';
 import 'managed_image.dart';
-import 'people_section.dart';
+import '../core/artwork_settings.dart';
+import 'optional_details.dart';
 import 'media_version_picker.dart';
 import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'konata_motion.dart';
 import '../core/catalog.dart';
 import '../core/detail_metadata.dart';
 import '../core/episode_grouping.dart';
 import '../core/cloud_media_asset_presentation.dart';
 import 'nipaplay_style.dart';
+import 'horizontal_rail.dart';
 import 'watch_page.dart';
 
 /// CCPlayer adaptation of the NipaPlay Personal detail screen.
@@ -36,7 +39,7 @@ class NipaPlayDetailPage extends StatefulWidget {
 class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
   Map<String, dynamic> details = {};
   Map<String, Map<String, Object?>> progress = {};
-  bool loading = false, expanded = false, expandedSummary = false;
+  bool expanded = false, expandedSummary = false;
   String section = 'main';
   String extraFilter = '全部';
   int generation = 0;
@@ -45,6 +48,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
   @override
   void initState() {
     super.initState();
+    ArtworkSettings.instance.addListener(_artworkChanged);
     refresh();
   }
 
@@ -73,9 +77,14 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
 
   @override
   void dispose() {
+    ArtworkSettings.instance.removeListener(_artworkChanged);
     generation++;
     rail.dispose();
     super.dispose();
+  }
+
+  void _artworkChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> refresh({bool force = false}) async {
@@ -94,11 +103,6 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
               .where((tag) => tag != '剧场版')
               .toList();
         }
-        // Older caches did not retain Bangumi relation ranks: they placed
-        // cameos and minor characters before the four principal characters.
-        if ((cached['schemaVersion'] as int? ?? 0) < 4) {
-          details.remove('characters');
-        }
       }
     });
     final fetched = await cat.detailFetchedAt(widget.work['id'].toString());
@@ -114,20 +118,8 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
       return;
     }
     final svc = DetailMetadataService();
-    setState(() => loading = true);
     try {
-      final fresh = await svc.fetch(
-        widget.work,
-        assets: widget.assets,
-        onCharacters: (rows) {
-          if (!mounted ||
-              seq != generation ||
-              (details['characters'] as List? ?? []).isNotEmpty) {
-            return;
-          }
-          setState(() => details = {...details, 'characters': rows});
-        },
-      );
+      final fresh = await svc.fetch(widget.work, assets: widget.assets);
       if (!mounted || seq != generation) return;
       final merged = Map<String, dynamic>.from(details);
       for (final entry in fresh.entries) {
@@ -146,7 +138,6 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
       /* Preserve cached metadata when providers fail. */
     } finally {
       svc.close();
-      if (mounted && seq == generation) setState(() => loading = false);
     }
   }
 
@@ -199,10 +190,8 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
   }
 
   String episodeTitle(Map<String, Object?> asset) {
-    if (asset['manual_mapping'] == true) {
-      final title = episodeInfo(asset)['name']?.toString();
-      if (title?.isNotEmpty == true) return title!;
-    }
+    final metadataTitle = episodeInfo(asset)['name']?.toString().trim();
+    if (metadataTitle?.isNotEmpty == true) return metadataTitle!;
     if (asset['category'] == 'extra') {
       final label = extraCoverLabel(asset);
       final names = {
@@ -296,6 +285,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     String? url, {
     Alignment alignment = Alignment.center,
     String? fallbackUrl,
+    ManagedArtwork artwork = ManagedArtwork.poster,
   }) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     if (url == null || url.isEmpty) {
@@ -311,6 +301,8 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     }
     return ManagedImage(
       url,
+      owner: widget.work['id'].toString(),
+      artwork: artwork,
       fit: BoxFit.cover,
       alignment: alignment,
       errorBuilder: (_, _, _) {
@@ -329,13 +321,28 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     );
   }
 
+  Widget coverImage(
+    String? url, {
+    Alignment alignment = Alignment.center,
+    String? fallbackUrl,
+    double radius = 8,
+    Gradient? gradient,
+  }) => KonataPoster(
+    tag: 'work-poster-${widget.work['id']}',
+    alignment: alignment,
+    radius: radius,
+    gradient: gradient,
+    image: (alignment) =>
+        image(url, alignment: alignment, fallbackUrl: fallbackUrl),
+  );
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context), dark = theme.brightness == Brightness.dark;
     final text = theme.colorScheme.onSurface;
     final secondary = text.withValues(alpha: .7),
         muted = text.withValues(alpha: .55);
-    final surface = dark ? const Color(0xff1f1f1f) : Colors.white;
+    final surface = theme.scaffoldBackgroundColor;
     final title = widget.work['title']?.toString() ?? context.l10n.unnamedWork;
     final posterFallback = widget.work['poster_fallback']?.toString();
     final poster =
@@ -347,9 +354,6 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     final overview = rawOverview?.isNotEmpty == true
         ? rawOverview!
         : details['overview']?.toString() ?? '';
-    final cast = (details['characters'] as List? ?? [])
-        .whereType<Map>()
-        .toList();
     final tags = (details['tags'] as List? ?? [])
         .map((e) => e.toString())
         .toList();
@@ -361,7 +365,10 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
         builder: (ctx, size) {
           final wide = size.maxWidth >= 650, desktop = size.maxWidth >= 1100;
           final showBackdrop =
-              wide && size.maxHeight >= 500 && backdrop != null;
+              ArtworkSettings.instance.backdrop &&
+              wide &&
+              size.maxHeight >= 500 &&
+              backdrop != null;
           final portraitCover =
               !wide && size.maxHeight > size.maxWidth && poster != null;
           final inset = desktop
@@ -381,6 +388,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                   key: const ValueKey('detail-backdrop'),
                   child: image(
                     backdrop,
+                    artwork: ManagedArtwork.backdrop,
                     alignment: Alignment.topCenter,
                     fallbackUrl: posterFallback,
                   ),
@@ -392,17 +400,11 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                         stops: const [0, .58, 1],
-                        colors: dark
-                            ? const [
-                                Color(0xcc1f1f1f),
-                                Color(0xed1f1f1f),
-                                Color(0xff1f1f1f),
-                              ]
-                            : [
-                                Colors.white.withValues(alpha: .72),
-                                Colors.white.withValues(alpha: .91),
-                                Colors.white,
-                              ],
+                        colors: [
+                          surface.withValues(alpha: dark ? .8 : .72),
+                          surface.withValues(alpha: .91),
+                          surface,
+                        ],
                       ),
                     ),
                   ),
@@ -411,7 +413,9 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
               SafeArea(
                 top: !portraitCover,
                 child: ScrollConfiguration(
-                  behavior: const _MouseScroll(),
+                  behavior: const _MouseScroll().copyWith(
+                    scrollbars: size.maxWidth >= 650,
+                  ),
                   child: SingleChildScrollView(
                     key: const ValueKey('detail-content-scroll'),
                     child: Column(
@@ -424,29 +428,21 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                               0.0,
                               size.maxHeight * .65,
                             ),
-                            child: Stack(
-                              fit: StackFit.expand,
-                              children: [
-                                image(
-                                  poster,
-                                  alignment: Alignment.topCenter,
-                                  fallbackUrl: posterFallback,
-                                ),
-                                DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topCenter,
-                                      end: Alignment.bottomCenter,
-                                      stops: const [0, .58, 1],
-                                      colors: [
-                                        Colors.black26,
-                                        surface.withAlpha(0),
-                                        surface,
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
+                            child: coverImage(
+                              poster,
+                              alignment: Alignment.topCenter,
+                              fallbackUrl: posterFallback,
+                              radius: 0,
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                stops: const [0, .58, 1],
+                                colors: [
+                                  Colors.black26,
+                                  surface.withAlpha(0),
+                                  surface,
+                                ],
+                              ),
                             ),
                           ),
                         Padding(
@@ -474,7 +470,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                                             borderRadius: BorderRadius.circular(
                                               8,
                                             ),
-                                            child: image(
+                                            child: coverImage(
                                               poster,
                                               fallbackUrl: posterFallback,
                                             ),
@@ -504,7 +500,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                                             borderRadius: BorderRadius.circular(
                                               8,
                                             ),
-                                            child: image(
+                                            child: coverImage(
                                               poster,
                                               fallbackUrl: posterFallback,
                                             ),
@@ -524,135 +520,36 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                                       fullWidthPlay: portraitCover,
                                     ),
                                   ],
-                                  if (details['isAnimation'] == false) ...[
-                                    PeopleSection(
-                                      title: context.l10n.cast,
-                                      people: (details['cast'] as List? ?? [])
-                                          .whereType<Map<String, dynamic>>()
+                                  OptionalDetails(
+                                    legacyCredits: {
+                                      'cast': (details['cast'] as List? ?? [])
+                                          .whereType<Map>()
                                           .toList(),
-                                    ),
-                                    PeopleSection(
-                                      title: context.l10n.crew,
-                                      people: (details['crew'] as List? ?? [])
-                                          .whereType<Map<String, dynamic>>()
+                                      'crew': (details['crew'] as List? ?? [])
+                                          .whereType<Map>()
                                           .toList(),
-                                    ),
-                                  ],
-                                  if (loading &&
-                                      cast.isEmpty &&
-                                      details['isAnimation'] != false &&
-                                      widget.work['bangumi_id'] != null)
-                                    const LinearProgressIndicator(),
-                                  if (details['isAnimation'] != false &&
-                                      cast.isNotEmpty) ...[
-                                    const SizedBox(height: 28),
-                                    Text(
-                                      context.l10n.characters,
-                                      style: TextStyle(
-                                        fontSize: 15,
-                                        color: secondary,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 14),
-                                    SizedBox(
-                                      height:
-                                          96 +
-                                          50 *
-                                              MediaQuery.textScalerOf(
-                                                context,
-                                              ).scale(1),
-                                      child: ListView.separated(
-                                        scrollDirection: Axis.horizontal,
-                                        itemCount: cast.length,
-                                        separatorBuilder: (_, _) =>
-                                            const SizedBox(width: 16),
-                                        itemBuilder: (ctx, i) {
-                                          final c = cast[i];
-                                          final chinese =
-                                              Localizations.localeOf(
-                                                context,
-                                              ).languageCode ==
-                                              'zh';
-                                          final actorDetails =
-                                              c['actorDetails'] as List?;
-                                          final actors = actorDetails != null
-                                              ? actorDetails
-                                                    .whereType<Map>()
-                                                    .map(
-                                                      (a) => chinese
-                                                          ? (a['name_cn'] ??
-                                                                a['name'] ??
-                                                                '')
-                                                          : (a['name'] ??
-                                                                a['name_cn'] ??
-                                                                ''),
-                                                    )
-                                                    .join(' / ')
-                                              : c['actors'] is List
-                                              ? (c['actors'] as List).join(
-                                                  ' / ',
-                                                )
-                                              : '';
-                                          return SizedBox(
-                                            width: characterWidth(
-                                              context,
-                                              (chinese
-                                                          ? c['name_cn'] ??
-                                                                c['name']
-                                                          : c['originalName'] ??
-                                                                c['name'])
-                                                      ?.toString() ??
-                                                  '',
-                                              actors,
-                                            ),
-                                            child: Column(
-                                              children: [
-                                                SizedBox(
-                                                  height: 80,
-                                                  width: 80,
-                                                  child: ClipOval(
-                                                    child: image(
-                                                      c['image']?.toString(),
-                                                      alignment:
-                                                          Alignment.topCenter,
-                                                    ),
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 7),
-                                                Text(
-                                                  (chinese
-                                                              ? c['name_cn'] ??
-                                                                    c['name']
-                                                              : c['originalName'] ??
-                                                                    c['name'])
-                                                          ?.toString() ??
-                                                      '',
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: TextStyle(
-                                                    color: text,
-                                                    fontSize: 12,
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 3),
-                                                Text(
-                                                  actors,
-                                                  maxLines: 1,
-                                                  softWrap: false,
-                                                  textAlign: TextAlign.center,
-                                                  style: TextStyle(
-                                                    color: muted,
-                                                    fontSize: 11,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                  ],
+                                    },
+                                    legacyCharacters:
+                                        (details['characters'] as List? ?? [])
+                                            .whereType<Map>()
+                                            .toList(),
+                                    work: {
+                                      ...widget.work,
+                                      'original_language':
+                                          details['original_language'],
+                                      'origin_country':
+                                          details['origin_country'],
+                                      'origin_tags': details['origin_tags'],
+                                      if (details['isAnimation'] is bool)
+                                        'is_animation':
+                                            details['isAnimation'] == true
+                                            ? 1
+                                            : 0,
+                                      if (details['automaticBangumiId'] is int)
+                                        'bangumi_id':
+                                            details['automaticBangumiId'],
+                                    },
+                                  ),
                                   const SizedBox(height: 30),
                                   Wrap(
                                     alignment: WrapAlignment.spaceBetween,
@@ -786,22 +683,17 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                                       },
                                     )
                                   else
-                                    SizedBox(
-                                      height: 238,
-                                      child: ListView.separated(
-                                        controller: rail,
-                                        scrollDirection: Axis.horizontal,
-                                        itemCount: selected.length,
-                                        separatorBuilder: (_, _) =>
-                                            const SizedBox(width: 12),
-                                        itemBuilder: (ctx, i) => SizedBox(
-                                          width: 260,
-                                          child: episodeTile(
-                                            selected[i],
-                                            secondary,
-                                          ),
-                                        ),
-                                      ),
+                                    HorizontalRail(
+                                      controller: rail,
+                                      itemWidth: 260,
+                                      height:
+                                          160 +
+                                          MediaQuery.textScalerOf(
+                                            context,
+                                          ).scale(24),
+                                      itemCount: selected.length,
+                                      itemBuilder: (ctx, i) =>
+                                          episodeTile(selected[i], secondary),
                                     ),
                                 ],
                               ),
@@ -947,7 +839,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
               Text(
                 '★ ${score.toStringAsFixed(1)}',
                 style: TextStyle(
-                  color: NipaPlayStyle.accent,
+                  color: Theme.of(context).colorScheme.primary,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -1021,25 +913,6 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     );
   }
 
-  double characterWidth(BuildContext context, String name, String actors) {
-    double width(String text, double size) {
-      final painter = TextPainter(
-        text: TextSpan(
-          text: text,
-          style: TextStyle(fontSize: size),
-        ),
-        textDirection: Directionality.of(context),
-        textScaler: MediaQuery.textScalerOf(context),
-      )..layout();
-      final result = painter.width + 8;
-      painter.dispose();
-      return result;
-    }
-
-    final a = width(name, 12), b = width(actors, 11);
-    return [96.0, a, b].reduce((x, y) => x > y ? x : y);
-  }
-
   Widget sectionTab(String value, String title, int count, Color muted) {
     final chosen = section == value;
     return InkWell(
@@ -1048,23 +921,24 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
         expanded = false;
         if (rail.hasClients) rail.jumpTo(0);
       }),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
+      child: AnimatedContainer(
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
         decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: chosen ? NipaPlayStyle.accent : Colors.transparent,
-              width: 3,
-            ),
-          ),
+          color: chosen
+              ? NipaPlayStyle.accent.withValues(alpha: .1)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(22),
         ),
         child: Text(
           '$title  $count',
           softWrap: false,
           style: TextStyle(
-            fontSize: 17,
+            fontSize: 14,
             fontWeight: FontWeight.w600,
-            color: chosen ? NipaPlayStyle.accent : muted,
+            color: chosen ? Theme.of(context).colorScheme.primary : muted,
           ),
         ),
       ),
@@ -1077,11 +951,9 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     final placeholder =
         asset['category'] == 'extra' && (still == null || still.isEmpty);
     final ratio = fraction(asset);
-    final status = ratio >= .95
-        ? context.l10n.watched
-        : ratio > 0
-        ? context.l10n.resumePlayback
-        : context.l10n.unwatchedStatus;
+    final status = ratio == 0
+        ? context.l10n.unwatchedStatus
+        : '${(ratio * 100).floor()}%';
     return InkWell(
       key: ValueKey('detail-episode:${asset['relative_path']}'),
       onTap: () => play(asset, offerVersions: true),
@@ -1095,7 +967,10 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  if (placeholder) extraCover(asset) else image(still),
+                  if (placeholder)
+                    extraCover(asset)
+                  else
+                    image(still, artwork: ManagedArtwork.still),
                   if (!placeholder)
                     Positioned(
                       top: 7,
@@ -1141,10 +1016,10 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
           ),
           const SizedBox(height: 8),
           Tooltip(
-            message: asset['name']?.toString() ?? '',
+            message: episodeTitle(asset),
             child: Text(
               episodeTitle(asset),
-              maxLines: 2,
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 13, height: 1.4, color: secondary),
             ),
@@ -1171,7 +1046,6 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
   }
 
   Widget extraCover(Map<String, Object?> asset) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
     final art = [
       details['backdrop'],
       Catalog.preferredPoster(widget.work),
@@ -1179,7 +1053,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
       details['poster'],
       widget.work['poster_fallback'],
     ].whereType<String>().where((url) => url.trim().isNotEmpty).firstOrNull;
-    final surface = dark ? const Color(0xff242832) : const Color(0xffedf0f5);
+    final surface = Theme.of(context).colorScheme.surfaceContainerLow;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -1191,6 +1065,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
               imageFilter: ui.ImageFilter.blur(sigmaX: 1.5, sigmaY: 1.5),
               child: ManagedImage(
                 art,
+                owner: widget.work['id'].toString(),
                 fit: BoxFit.cover,
                 errorBuilder: (_, _, _) => const SizedBox.expand(),
               ),

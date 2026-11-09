@@ -376,14 +376,33 @@ void main() {
         ),
       );
       Future<void> settle() async {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 80)),
-        );
-        await tester.pumpAndSettle();
+        // SQLite runs outside the fake test clock. Wait for the visible busy
+        // state and list refresh instead of assuming disk I/O finishes in 80 ms.
+        for (var attempt = 0; attempt < 100; attempt++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)),
+          );
+          await tester.pump();
+          final refresh = tester.widget<IconButton>(
+            find.byWidgetPredicate(
+              (widget) => widget is IconButton && widget.tooltip == '刷新播放记录',
+            ),
+          );
+          if (refresh.onPressed != null &&
+              find.byType(CircularProgressIndicator).evaluate().isEmpty) {
+            await tester.pumpAndSettle();
+            return;
+          }
+        }
+        fail('History did not finish updating within two seconds');
       }
 
       await settle();
       await tester.tap(find.byTooltip('管理播放记录'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('history-select-file')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(PopupMenuButton<String>));
       await tester.pumpAndSettle();
       await tester.tap(find.text('确认剧集身份'));
       await tester.pumpAndSettle();

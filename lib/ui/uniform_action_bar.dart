@@ -3,8 +3,13 @@ import 'package:flutter/material.dart';
 /// Shared, equal-sized footer actions. Up to three actions stay on one row;
 /// larger groups use equal columns instead of a vertical OverflowBar stack.
 class UniformActionBar extends StatelessWidget {
-  const UniformActionBar({super.key, required this.children});
+  const UniformActionBar({
+    super.key,
+    required this.children,
+    this.stackFirstWhenNarrow = false,
+  });
   final List<Widget> children;
+  final bool stackFirstWhenNarrow;
   static const height = 48.0;
   static const radius = 8.0;
 
@@ -74,6 +79,27 @@ class UniformActionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (stackFirstWhenNarrow && children.length == 3) {
+      // AlertDialog measures actions intrinsically, so a LayoutBuilder here
+      // cannot participate in layout. This opt-in is for its root-overlay
+      // actions; account for dialog insets and padding using the current view.
+      final availableWidth = (MediaQuery.sizeOf(context).width - 128).clamp(
+        0.0,
+        540.0,
+      );
+      if (availableWidth <
+          340 * MediaQuery.textScalerOf(context).scale(14) / 14) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            UniformActionBar(children: children.take(1).toList()),
+            const SizedBox(height: 8),
+            UniformActionBar(children: children.skip(1).toList()),
+          ],
+        );
+      }
+      return UniformActionBar(children: children);
+    }
     final rowHeight =
         (MediaQuery.textScalerOf(context).scale(14) * 2 * 1.2 + 12).clamp(
           height,

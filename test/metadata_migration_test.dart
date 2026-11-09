@@ -178,6 +178,20 @@ void main() {
         expect((await db.query('progress')).single['position_ms'], 9999);
         final work = catalog.works.single;
         await catalog.saveWorkDetails(work, {
+          'cast': [
+            {
+              'id': 7,
+              'name': 'Saved actor',
+              'roles': ['Role'],
+            },
+          ],
+          'crew': [
+            {
+              'id': 8,
+              'name': 'Saved director',
+              'roles': ['导演'],
+            },
+          ],
           'characters': [
             {
               'id': 1,
@@ -207,6 +221,13 @@ void main() {
         });
         final details = await catalog.readWorkDetails(catalog.works.single);
         expect((details!['characters'] as List).map((c) => c['id']), [2, 1]);
+        await catalog.saveWorkDetails(catalog.works.single, {
+          'overview': 'Updated core details',
+        });
+        final preserved = await catalog.readWorkDetails(catalog.works.single);
+        expect((preserved!['characters'] as List).map((c) => c['id']), [2, 1]);
+        expect((preserved['cast'] as List).single['name'], 'Saved actor');
+        expect((preserved['crew'] as List).single['name'], 'Saved director');
         ImageStore.root = Directory('${dir.path}/other-device');
         expect(
           Catalog.preferredPoster(catalog.works.single),

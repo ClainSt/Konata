@@ -1,15 +1,81 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ccplayer/core/app_theme.dart';
 import 'package:ccplayer/core/catalog.dart';
 import 'package:ccplayer/main.dart';
-import 'package:ccplayer/ui/nipaplay_style.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  for (final mobile in [true, false]) {
+    testWidgets(
+      'rapid navigation removes source ghosts and animates the incoming page, mobile=$mobile',
+      (tester) async {
+        final previousSources = Catalog.instance.sources;
+        final previousWorks = Catalog.instance.works;
+        Catalog.instance.sources = [
+          {
+            'id': 'rapid',
+            'kind': 'local',
+            'label': 'rapid-switch-source',
+            'location': '/fixture',
+          },
+        ];
+        Catalog.instance.works = [];
+        await tester.binding.setSurfaceSize(
+          mobile ? const Size(390, 780) : const Size(1200, 800),
+        );
+        addTearDown(() async {
+          await tester.pumpWidget(const SizedBox());
+          Catalog.instance.sources = previousSources;
+          Catalog.instance.works = previousWorks;
+          libraryDestination.value = false;
+          await tester.binding.setSurfaceSize(null);
+        });
+        await tester.pumpWidget(CCPlayer(mobile: mobile));
+        await tester.pumpAndSettle();
+        for (var i = 0; i < 8; i++) {
+          await tester.tap(find.byKey(const ValueKey('nav-sources')));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 65));
+          expect(find.text('rapid-switch-source'), findsOneWidget);
+          await tester.tap(find.byKey(const ValueKey('nav-library')));
+          await tester.pump();
+          expect(
+            find.text('rapid-switch-source'),
+            findsNothing,
+            reason: 'No outgoing directory may paint through poster gaps',
+          );
+          final fade = find.descendant(
+            of: find.byKey(const ValueKey('library-source-switcher')),
+            matching: find.byType(FadeTransition),
+          );
+          expect(fade, findsOneWidget);
+          expect(tester.widget<FadeTransition>(fade).opacity.value, 0);
+          await tester.pump(const Duration(milliseconds: 65));
+          expect(
+            tester.widget<FadeTransition>(fade).opacity.value,
+            inExclusiveRange(0.0, 1.0),
+          );
+        }
+        await tester.tap(find.byKey(const ValueKey('nav-settings')));
+        await tester.pump();
+        expect(
+          find.byKey(const ValueKey('library-source-switcher')),
+          findsNothing,
+        );
+        final pageFade = find.descendant(
+          of: find.byKey(const ValueKey('main-section-switcher')),
+          matching: find.byType(FadeTransition),
+        );
+        expect(tester.widget<FadeTransition>(pageFade.first).opacity.value, 0);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(tester.binding.transientCallbackCount, 0);
+      },
+    );
+  }
   testWidgets(
     'source card keeps five name characters and all actions at minimum window size',
     (tester) async {
@@ -32,6 +98,7 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(640, 480));
       await tester.pumpWidget(const CCPlayer());
       await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('konata-brand-icon')), findsOneWidget);
       final label = find.text('光鸭动画收藏媒体源');
       final widget = tester.widget<Text>(label);
       final painter = TextPainter(
@@ -98,7 +165,6 @@ void main() {
     );
     final controls = [
       'toggle-theme',
-      'open-settings',
       'window-最小化',
       'window-最大化',
       'window-关闭',
@@ -112,28 +178,26 @@ void main() {
     expect(find.text('0 个媒体源'), findsOneWidget);
     expect(find.byTooltip('扫描已选范围'), findsNothing);
     expect(find.byTooltip('刮削 TMDB / Bangumi 元数据（不重新扫描视频）'), findsNothing);
-    expect(find.widgetWithText(TextButton, '添加媒体源'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '添加媒体源'), findsOneWidget);
     expect(find.text('添加媒体源'), findsOneWidget);
-    final addButton = find.widgetWithText(TextButton, '添加媒体源');
-    final addIcon = find.descendant(of: addButton, matching: find.byType(Icon));
-    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
-    await mouse.addPointer(location: const Offset(0, 0));
-    await mouse.moveTo(tester.getCenter(addButton));
-    await tester.pumpAndSettle();
-    expect(IconTheme.of(tester.element(addIcon)).color, NipaPlayStyle.accent);
-    await mouse.moveTo(const Offset(0, 0));
-    await tester.pumpAndSettle();
-    expect(
-      IconTheme.of(tester.element(addIcon)).color,
-      isNot(NipaPlayStyle.accent),
-    );
-    await mouse.removePointer();
     await tester.tap(find.text('添加媒体源'));
     await tester.pumpAndSettle();
-    expect(find.text('本地媒体'), findsOneWidget);
-    expect(find.text('网络媒体'), findsOneWidget);
-    expect(find.text('SMB'), findsOneWidget);
-    await tester.tap(find.text('WebDAV'));
+    await tester.tap(find.byKey(const ValueKey('source-type-selector')));
+    await tester.pumpAndSettle();
+    final sourceField = tester.getRect(
+      find.byKey(const ValueKey('source-type-selector')),
+    );
+    final sourceMenu = tester.getRect(
+      find
+          .ancestor(
+            of: find.text('WebDAV').last,
+            matching: find.byType(Material),
+          )
+          .first,
+    );
+    expect(sourceMenu.left, closeTo(sourceField.left, 1));
+    expect(sourceMenu.width, closeTo(sourceField.width, 1));
+    await tester.tap(find.text('WebDAV').last);
     await tester.pumpAndSettle();
     final fields = find.descendant(
       of: find.byType(AlertDialog),
@@ -154,14 +218,14 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('添加媒体源'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('本地文件夹'));
-    await tester.pumpAndSettle();
     expect(fields, findsOneWidget);
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('添加媒体源'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('SMB'));
+    await tester.tap(find.byKey(const ValueKey('source-type-selector')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('SMB').last);
     await tester.pumpAndSettle();
     expect(find.text('添加 SMB 共享'), findsOneWidget);
     expect(fields, findsNWidgets(4));
@@ -170,16 +234,19 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('toggle-theme')));
     await tester.pumpAndSettle();
     expect(AppTheme.instance.mode, ThemeMode.dark);
-    expect(find.widgetWithText(TextButton, '设置'), findsNothing);
-    expect(
-      tester.getCenter(find.byKey(const ValueKey('open-settings'))).dx,
-      greaterThan(
-        tester.getCenter(find.byKey(const ValueKey('toggle-theme'))).dx,
-      ),
-    );
-    await tester.tap(find.byTooltip('设置'));
+    await tester.tap(find.byKey(const ValueKey('nav-settings')));
     await tester.pumpAndSettle();
     expect(find.text('主题模式'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('settings-category-3')));
+    await tester.pumpAndSettle();
+    // History remains available in the main navigation, not duplicated here.
+    expect(find.text('查看续播位置、管理本地已看状态'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('library-backup-inspect')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('settings-category-0')));
+    await tester.pumpAndSettle();
     for (final category in ['外观', '刮削服务', '关于']) {
       expect(find.text(category), findsOneWidget);
     }
@@ -196,7 +263,7 @@ void main() {
     expect(restoredAccent.accent, ThemeAccent.lightBlue);
     await tester.tap(find.byKey(const ValueKey('settings-theme-mode')));
     await tester.pumpAndSettle();
-    final firstOption = find.widgetWithText(PopupMenuItem<ThemeMode>, '日间模式');
+    final firstOption = find.widgetWithText(MenuItemButton, '日间模式');
     final selector = find.byKey(const ValueKey('settings-theme-mode'));
     expect(
       tester.getSize(firstOption).width,
@@ -218,9 +285,7 @@ void main() {
       ),
     );
     expect(
-      tester
-          .getTopLeft(find.widgetWithText(PopupMenuItem<ThemeMode>, '日间模式'))
-          .dy,
+      tester.getTopLeft(find.widgetWithText(MenuItemButton, '日间模式')).dy,
       greaterThanOrEqualTo(
         tester
             .getBottomLeft(find.byKey(const ValueKey('settings-theme-mode')))
@@ -243,6 +308,8 @@ void main() {
       Brightness.light,
     );
     addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+    await tester.tap(find.byKey(const ValueKey('nav-settings')));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('刮削服务'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('TMDB API 设置'));
@@ -250,6 +317,8 @@ void main() {
     expect(find.text('TMDB 认证方式'), findsOneWidget);
     expect(tester.takeException(), isNull, reason: 'TMDB dialog');
     await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('nav-settings')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('关于'));
     await tester.pumpAndSettle();
@@ -261,21 +330,26 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(400, 700));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    await tester.tap(find.byTooltip('关闭设置'));
-    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-library')));
     await tester.pumpAndSettle();
     expect(libraryDestination.value, isFalse);
     await tester.pumpAndSettle();
     expect(find.text('添加媒体源'), findsNothing);
-    expect(find.widgetWithText(TextField, '搜索动画'), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('library-search-toggle')));
+    expect(find.byKey(const ValueKey('library-search')), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey('library-search')),
+      '不存在的动画',
+    );
     await tester.pumpAndSettle();
-    expect(find.widgetWithText(TextField, '搜索动画'), findsOneWidget);
-    await tester.enterText(find.widgetWithText(TextField, '搜索动画'), '不存在的动画');
-    await tester.tap(find.byKey(const ValueKey('library-search-toggle')));
+    await tester.tap(find.byTooltip('关闭搜索'));
     await tester.pumpAndSettle();
-    expect(find.widgetWithText(TextField, '搜索动画'), findsNothing);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('library-search')))
+          .controller!
+          .text,
+      isEmpty,
+    );
     expect(tester.takeException(), isNull, reason: 'compact library toolbar');
     await tester.pumpWidget(const SizedBox());
   });

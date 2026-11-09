@@ -1,9 +1,17 @@
 import 'settings_panel.dart';
+import 'extensions_panel.dart';
+import 'optional_scraping_settings.dart';
+import 'image_cache_settings.dart';
+import '../core/optional_features.dart';
 import 'mpv_settings_panel.dart';
 import '../core/catalog.dart';
 import '../core/image_store.dart';
+import '../core/artwork_settings.dart';
 import '../core/library_backup_exporter.dart';
-import '../core/library_backup_inspector.dart';
+import '../core/library_backup_restorer.dart';
+import '../core/app_language.dart';
+import '../core/watch_settings.dart';
+import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as p;
 import 'settings_choice_card.dart';
@@ -12,9 +20,9 @@ import 'watched_threshold_settings.dart';
 import 'language_settings.dart';
 import '../l10n/strings.dart';
 import 'settings_navigation.dart';
-import 'playback_history_page.dart';
 import 'tmdb_id_guide.dart';
 import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
@@ -34,11 +42,13 @@ class SettingsPage extends StatefulWidget {
     this.category,
     this.onClose,
     this.wideLayout,
+    this.featureSettings,
   });
   final bool embedded;
   final int? category;
   final VoidCallback? onClose;
   final bool? wideLayout;
+  final OptionalFeatures? featureSettings;
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
@@ -49,6 +59,7 @@ enum _SettingsCategory {
   scraping(1, Icons.movie_filter_outlined),
   player(5, Icons.play_circle_outline),
   records(3, Icons.history),
+  extensions(6, Icons.extension_outlined),
   about(2, Icons.info_outline);
 
   const _SettingsCategory(this.id, this.icon);
@@ -61,6 +72,7 @@ enum _SettingsCategory {
     scraping => context.l10n.scraping,
     player => context.l10n.playerSettings,
     records => context.l10n.recordsSync,
+    extensions => context.l10n.extensions,
     about => context.l10n.about,
   };
 }
@@ -68,7 +80,6 @@ enum _SettingsCategory {
 class _SettingsPageState extends State<SettingsPage> {
   bool _exportingLogs = false;
   late _SettingsCategory selected;
-  bool historyOpen = false;
   bool _exporting = false;
   bool _inspectingBackup = false;
 
@@ -103,39 +114,53 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ),
       Expanded(
-        child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          children: [
-            for (final category in _SettingsCategory.values)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: ListTile(
-                  key: ValueKey('settings-category-${category.id}'),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 12,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  leading: Icon(category.icon, size: 26),
-                  title: Text(
-                    category.label(context),
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w600,
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 900),
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              children: [
+                for (final category in _SettingsCategory.values)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: ListTile(
+                      key: ValueKey('settings-category-${category.id}'),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(4),
+                        side: BorderSide(
+                          color: Theme.of(
+                            context,
+                          ).dividerColor.withValues(alpha: .1),
+                        ),
+                      ),
+                      leading: Icon(category.icon, size: 26),
+                      title: Text(
+                        category.label(context),
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.of(context).push<void>(
+                        MaterialPageRoute(
+                          builder: (_) => SettingsPage(
+                            embedded: true,
+                            category: category.id,
+                            featureSettings: widget.featureSettings,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.of(context).push<void>(
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          SettingsPage(embedded: true, category: category.id),
-                    ),
-                  ),
-                ),
-              ),
-          ],
+              ],
+            ),
+          ),
         ),
       ),
     ],
@@ -146,8 +171,7 @@ class _SettingsPageState extends State<SettingsPage> {
     builder: (context, bounds) {
       final twoPane =
           widget.wideLayout ??
-          ((!widget.embedded && !settingsUsePages(context)) ||
-              bounds.maxWidth >= 840);
+          (bounds.maxWidth >= 840 && bounds.maxHeight >= 500);
       final content = twoPane || widget.category != null
           ? _content(twoPane: twoPane)
           : _home();
@@ -175,9 +199,7 @@ class _SettingsPageState extends State<SettingsPage> {
               if (widget.category != null && !twoPane)
                 IconButton(
                   tooltip: context.l10n.backSettings,
-                  onPressed: historyOpen
-                      ? () => setState(() => historyOpen = false)
-                      : () => Navigator.pop(context),
+                  onPressed: () => Navigator.pop(context),
                   icon: const Icon(Icons.arrow_back),
                 ),
               Expanded(
@@ -240,7 +262,6 @@ class _SettingsPageState extends State<SettingsPage> {
                         child: InkWell(
                           onTap: () => setState(() {
                             selected = category;
-                            historyOpen = false;
                           }),
                           hoverColor: Theme.of(
                             context,
@@ -447,31 +468,26 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    const ImageCacheSettings(),
+                    OptionalScrapingSettings(settings: widget.featureSettings),
                   ],
                   if (selected == _SettingsCategory.language)
                     const LanguageSettings(),
                   if (selected == _SettingsCategory.player)
                     const MpvSettingsPanel(),
+                  if (selected == _SettingsCategory.extensions)
+                    ExtensionsPanel(settings: widget.featureSettings),
                   if (selected == _SettingsCategory.records) ...[
-                    SettingsPanel(
-                      child: ListTile(
-                        leading: const Icon(Icons.history),
-                        title: Text(context.l10n.history),
-                        subtitle: Text(context.l10n.historyDescription),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => setState(() => historyOpen = true),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
                     const WatchedThresholdSettings(),
                     const SizedBox(height: 16),
                     SettingsPanel(
                       child: ListTile(
                         key: const ValueKey('library-backup-inspect'),
                         leading: const Icon(Icons.fact_check_outlined),
-                        title: Text(context.l10n.inspectLibraryBackup),
+                        title: Text(context.l10n.restoreLibraryBackup),
                         subtitle: Text(
-                          context.l10n.inspectLibraryBackupDescription,
+                          context.l10n.restoreLibraryBackupDescription,
                         ),
                         trailing: _inspectingBackup
                             ? const SizedBox(
@@ -482,7 +498,23 @@ class _SettingsPageState extends State<SettingsPage> {
                                 ),
                               )
                             : const Icon(Icons.chevron_right),
-                        onTap: _inspectingBackup ? null : _inspectLibraryBackup,
+                        onTap: _inspectingBackup || _exporting
+                            ? null
+                            : _restoreLibraryBackup,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    SettingsPanel(
+                      child: ListTile(
+                        key: const ValueKey('library-backup-previous'),
+                        leading: const Icon(Icons.settings_backup_restore),
+                        title: Text(context.l10n.previousLibraryBackup),
+                        subtitle: Text(
+                          context.l10n.previousLibraryBackupDescription,
+                        ),
+                        onTap: _inspectingBackup || _exporting
+                            ? null
+                            : _restorePreviousBackup,
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -503,7 +535,9 @@ class _SettingsPageState extends State<SettingsPage> {
                                 ),
                               )
                             : const Icon(Icons.chevron_right),
-                        onTap: _exporting ? null : _exportLibraryBackup,
+                        onTap: _exporting || _inspectingBackup
+                            ? null
+                            : _exportLibraryBackup,
                       ),
                     ),
                   ],
@@ -592,13 +626,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   ],
                 ],
               );
-              final content =
-                  selected == _SettingsCategory.records && historyOpen
-                  ? PlaybackHistoryPage(
-                      embedded: true,
-                      onBack: () => setState(() => historyOpen = false),
-                    )
-                  : settingsContent;
+              final content = settingsContent;
               if (!twoPane) return content;
               if (compact) {
                 return Column(
@@ -614,7 +642,6 @@ class _SettingsPageState extends State<SettingsPage> {
                               selected: selected == category,
                               onSelected: (_) => setState(() {
                                 selected = category;
-                                historyOpen = false;
                               }),
                             ),
                         ],
@@ -638,54 +665,167 @@ class _SettingsPageState extends State<SettingsPage> {
     ),
   );
 
-  Future<void> _inspectLibraryBackup() async {
+  Future<LibraryBackupRestorer> _restorer() async => LibraryBackupRestorer(
+    database: Catalog.instance.db,
+    artworkDirectory: await ImageStore.directory(),
+    preferences: await SharedPreferences.getInstance(),
+  );
+
+  Future<void> _restorePreviousBackup() async {
+    try {
+      final backups = await (await _restorer()).recoveryBackups();
+      if (!mounted) return;
+      if (backups.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.noPreviousLibraryBackup)),
+        );
+        return;
+      }
+      final file = await showDialog<File>(
+        context: context,
+        builder: (ctx) => SimpleDialog(
+          title: Text(ctx.l10n.previousLibraryBackup),
+          children: [
+            for (final file in backups)
+              SimpleDialogOption(
+                onPressed: () => Navigator.pop(ctx, file),
+                child: Text(
+                  DateTime.fromMicrosecondsSinceEpoch(
+                    int.parse(
+                      p
+                          .basename(file.path)
+                          .replaceFirst('before-restore-', '')
+                          .replaceFirst('.zip', ''),
+                    ),
+                  ).toLocal().toString(),
+                ),
+              ),
+          ],
+        ),
+      );
+      if (file != null && mounted) await _restoreLibraryBackup(file);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.restoreLibraryBackupFailed)),
+        );
+      }
+    }
+  }
+
+  Future<void> _restoreLibraryBackup([File? input]) async {
     if (_inspectingBackup) return;
     setState(() => _inspectingBackup = true);
+    PreparedLibraryBackup? prepared;
     try {
-      final picked = await FilePicker.pickFile(
-        type: FileType.custom,
-        allowedExtensions: const ['zip'],
-      );
-      if (picked == null || !mounted) return;
-      final path = picked.path;
-      if (path == null) {
-        throw const FileSystemException('No readable backup file');
+      if (Catalog.instance.scanning) throw StateError('Scan running');
+      if (input == null) {
+        final picked = await FilePicker.pickFile(
+          type: FileType.custom,
+          allowedExtensions: const ['zip'],
+        );
+        if (picked == null || !mounted) return;
+        final path = picked.path;
+        if (path == null) {
+          throw const FileSystemException('No readable backup file');
+        }
+        input = File(path);
       }
-      final preview = await LibraryBackupInspector.inspect(File(path));
+      prepared = await (await _restorer()).prepare(input);
+      final preview = prepared.preview;
       if (!mounted) return;
-      await showDialog<void>(
+      final confirmed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: Text(context.l10n.inspectLibraryBackup),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(preview.createdAt.toLocal().toString()),
-              const SizedBox(height: 12),
-              Text(context.l10n.backupPreviewCounts),
-              Text(
-                '${preview.works} / ${preview.assets} / ${preview.sources} / ${preview.history} / ${preview.artwork}',
-              ),
-            ],
+          title: Text(context.l10n.restoreLibraryBackup),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(context.l10n.restoreCurrentLibrary),
+                Text(
+                  '${Catalog.instance.works.length + Catalog.instance.hiddenWorkEntries.length} / '
+                  '${Catalog.instance.assets.length} / ${Catalog.instance.sources.length}',
+                ),
+                const SizedBox(height: 12),
+                Text(preview.createdAt.toLocal().toString()),
+                const SizedBox(height: 12),
+                Text(context.l10n.backupPreviewCounts),
+                Text(
+                  '${preview.works} / ${preview.assets} / ${preview.sources} / ${preview.history} / ${preview.artwork}',
+                ),
+                const SizedBox(height: 12),
+                Text(context.l10n.restoreLibraryBackupWarning),
+              ],
+            ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
               child: Text(
-                MaterialLocalizations.of(dialogContext).closeButtonTooltip,
+                MaterialLocalizations.of(dialogContext).cancelButtonLabel,
               ),
+            ),
+            FilledButton(
+              key: const ValueKey('library-backup-confirm'),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(context.l10n.restoreLibraryBackup),
             ),
           ],
         ),
       );
+      if (confirmed != true || !mounted) return;
+      if (Catalog.instance.scanning) throw StateError('Scan running');
+      Catalog.instance.scanning = true;
+      final navigator = Navigator.of(context, rootNavigator: true);
+      final progress = DialogRoute<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => PopScope(
+          canPop: false,
+          child: AlertDialog(
+            content: Row(
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(width: 20),
+                Expanded(child: Text(ctx.l10n.restoringLibraryBackup)),
+              ],
+            ),
+          ),
+        ),
+      );
+      unawaited(navigator.push(progress));
+      try {
+        await (await _restorer()).restore(prepared);
+        await Catalog.instance.reload();
+        await AppTheme.instance.load();
+        await ArtworkSettings.instance.load();
+        await AppLanguage.instance.load();
+        await WatchSettings.instance.load();
+      } finally {
+        Catalog.instance.scanning = false;
+        if (progress.isActive) navigator.removeRoute(progress);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.restoreLibraryBackupDone)),
+        );
+      }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.inspectLibraryBackupFailed)),
+          SnackBar(
+            content: Text(
+              Catalog.instance.scanning
+                  ? context.l10n.restoreLibraryBackupBusy
+                  : context.l10n.restoreLibraryBackupFailed,
+            ),
+          ),
         );
       }
     } finally {
+      await prepared?.dispose();
       if (mounted) setState(() => _inspectingBackup = false);
     }
   }
@@ -695,7 +835,7 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() => _exporting = true);
     Directory? temporary;
     try {
-      temporary = await Directory.systemTemp.createTemp('ccplayer-backup-');
+      temporary = await (await getTemporaryDirectory()).createTemp('ccplayer-backup-');
       final archive = File(p.join(temporary.path, 'ccplayer-library.zip'));
       final exporter = LibraryBackupExporter(
         database: Catalog.instance.db,
@@ -782,6 +922,7 @@ class _SettingsPageState extends State<SettingsPage> {
   );
 
   String _accentLabel(ThemeAccent accent) => switch (accent) {
+    ThemeAccent.sage => context.l10n.sage,
     ThemeAccent.red => context.l10n.red,
     ThemeAccent.pink => context.l10n.pink,
     ThemeAccent.lightBlue => context.l10n.lightBlue,

@@ -1,20 +1,17 @@
 import 'package:ccplayer/core/detail_metadata.dart';
-import 'package:ccplayer/ui/people_section.dart';
+import 'package:ccplayer/ui/people_cards.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   for (final type in ['movie', 'tv']) {
     test(
-      '$type credits preserve actor roles and selected production jobs',
+      '$type core metadata does not request or interpret optional credits',
       () async {
         final service = DetailMetadataService(
           tmdbRequest: (path, params) async {
             if (path != '/$type/42') return {};
-            expect(
-              params['append_to_response'],
-              type == 'movie' ? 'credits' : 'aggregate_credits',
-            );
+            expect(params.containsKey('append_to_response'), isFalse);
             return {
               'genres': [
                 {'id': 18, 'name': '剧情'},
@@ -52,12 +49,8 @@ void main() {
         );
         final result = await service.fetch({'tmdb_id': 42, 'tmdb_type': type});
         expect(result['isAnimation'], false);
-        final cast = result['cast'] as List;
-        expect(cast.length, 2);
-        expect(cast.first['roles'], ['角色甲', '角色乙', '角色丙']);
-        expect(cast.last['roles'], isEmpty);
-        expect((result['crew'] as List).first['roles'], ['导演', '编剧']);
-        expect((result['crew'] as List).length, 2);
+        expect(result['cast'], isNull);
+        expect(result['crew'], isNull);
         service.close();
       },
     );
@@ -119,14 +112,15 @@ void main() {
           home: Scaffold(
             body: Column(
               children: [
-                const PeopleSection(title: '制作人员', people: []),
-                PeopleSection(
-                  title: '演员',
-                  people: List.generate(
+                const PeopleCards(cards: []),
+                PeopleCards(
+                  imageBuilder: (_) => const SizedBox(width: 80, height: 80),
+                  cards: List.generate(
                     12,
                     (i) => {
-                      'name': '演员$i',
-                      'roles': ['很长的饰演角色', '第二个角色'],
+                      'title': '演员$i',
+                      'subtitle': '很长的饰演角色 / 第二个角色',
+                      'section': '演员',
                     },
                   ),
                 ),

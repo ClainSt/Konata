@@ -21,6 +21,11 @@ add_executable(${BINARY_NAME} WIN32
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})
 
+# Normal Release entry with separate path_provider/preferences storage for QA.
+if("$ENV{KONATA_RELEASE_VALIDATION}" STREQUAL "1")
+  target_compile_definitions(${BINARY_NAME} PRIVATE "KONATA_RELEASE_VALIDATION")
+endif()
+
 # Add preprocessor definitions for the build version.
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION=\"${FLUTTER_VERSION}\"")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_MAJOR=${FLUTTER_VERSION_MAJOR}")

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:ccplayer/core/catalog.dart';
+import 'package:ccplayer/core/artwork_settings.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ccplayer/ui/nipaplay_detail_page.dart';
 import 'package:ccplayer/ui/nipaplay_style.dart';
 
@@ -120,6 +122,13 @@ void main() {
       expect(tester.takeException(), isNull);
     }
     expect(find.text('关联管理'), findsNothing);
+    SharedPreferences.setMockInitialValues({});
+    await ArtworkSettings.instance.setBackdrop(false);
+    await tester.pump();
+    expect(backdrop, findsNothing);
+    await ArtworkSettings.instance.setBackdrop(true);
+    await tester.pump();
+    expect(backdrop, findsOneWidget);
     expect(find.byKey(const ValueKey('detail-manage-button')), findsNothing);
     expect(find.byKey(const ValueKey('detail-more-button')), findsOneWidget);
     expect(find.text('开始播放'), findsOneWidget);
@@ -127,6 +136,8 @@ void main() {
     expect(find.byTooltip('刷新详情资料'), findsNothing);
     expect(find.text('正片  1'), findsOneWidget);
     expect(find.text('特典  2'), findsOneWidget);
+    expect(find.text('未看'), findsOneWidget);
+    expect(find.text('0%'), findsNothing);
 
     // The primary play button must offer versions too, before opening a player.
     await tester.tap(find.text('开始播放'));
@@ -214,9 +225,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('测试动画'), findsNWidgets(2));
     expect(find.text('[VCB-Studio] Movie [1080p x265].mkv'), findsNothing);
-    expect(
-      find.byTooltip('[VCB-Studio] Movie [1080p x265].mkv'),
-      findsOneWidget,
-    );
+    expect(find.byTooltip('测试动画'), findsOneWidget);
   });
 }

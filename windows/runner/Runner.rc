@@ -95,7 +95,11 @@ BEGIN
             VALUE "InternalName", "Konata" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.clainst. All rights reserved." "\0"
             VALUE "OriginalFilename", "Konata.exe" "\0"
+#ifdef KONATA_RELEASE_VALIDATION
+            VALUE "ProductName", "KonataValidationBDRip" "\0"
+#else
             VALUE "ProductName", "Konata" "\0"
+#endif
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

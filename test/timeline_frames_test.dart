@@ -15,6 +15,9 @@ class PreviewDecoder implements NativePlayer {
   Completer<void>? pendingOpen;
   Completer<Uint8List?>? pendingScreenshot;
   int imageBytes = 64;
+  String? reportedTime;
+  int loadingPolls = 0;
+  bool seekDuringLoad = false;
 
   @override
   Future<void> open(
@@ -28,6 +31,7 @@ class PreviewDecoder implements NativePlayer {
 
   @override
   Future<void> seek(Duration position, {bool synchronized = true}) async {
+    seekDuringLoad = loadingPolls > 0;
     seeks.add(position);
   }
 
@@ -41,8 +45,20 @@ class PreviewDecoder implements NativePlayer {
   Future<String> getProperty(
     String property, {
     bool waitForInitialization = true,
-  }) async =>
-      property == 'seeking' ? 'no' : '${seeks.last.inMilliseconds / 1000}';
+  }) async {
+    if (property == 'idle-active') return 'no';
+    if (property == 'seeking') return 'no';
+    if (property == 'time-pos') {
+      if (loadingPolls > 0) {
+        loadingPolls--;
+        return '';
+      }
+      return reportedTime ??
+          '${seeks.isEmpty ? 0 : seeks.last.inMilliseconds / 1000}';
+    }
+    return '';
+  }
+
   @override
   Future<Uint8List?> screenshot({
     String? format = 'image/jpeg',
@@ -74,6 +90,24 @@ void main() {
     );
   });
   tearDown(() => frames.dispose());
+
+  test(
+    'never screenshots or caches a frame before the target is reached',
+    () async {
+      decoder.reportedTime = '0';
+      expect(await frames.frame(const Duration(seconds: 18)), isNull);
+      expect(decoder.screenshots, 0);
+      decoder.reportedTime = null;
+      expect(await frames.frame(const Duration(seconds: 18)), isNotNull);
+      expect(decoder.screenshots, 1);
+    },
+  );
+
+  test('waits for media readiness before the first seek', () async {
+    decoder.loadingPolls = 3;
+    expect(await frames.frame(const Duration(seconds: 3)), isNotNull);
+    expect(decoder.seekDuringLoad, isFalse);
+  });
 
   test(
     'closing starts decoder disposal before a pending screenshot completes',

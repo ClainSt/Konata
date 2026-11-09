@@ -7,7 +7,7 @@ import 'package:ffi/ffi.dart';
 import 'package:media_kit/generated/libmpv/bindings.dart' as api;
 
 import 'package:ccplayer/core/catalog.dart';
-import 'package:ccplayer/core/mpv_config_store.dart';
+import 'support/diagnostic_mpv_config.dart';
 import 'package:ccplayer/core/playback_probe.dart';
 import 'package:ccplayer/l10n/app_localizations.dart';
 import 'package:ccplayer/ui/watch_page.dart';
@@ -24,15 +24,21 @@ import 'local_decoder_trials.dart';
 
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  if (const bool.fromEnvironment('BASELINE_HOST_INPUTS')) {
+    final previousPointers = binding.shouldPropagateDevicePointerEvents;
+    binding.shouldPropagateDevicePointerEvents = true;
+    tearDownAll(
+      () => binding.shouldPropagateDevicePointerEvents = previousPointers,
+    );
+    // Windows UI Automation can enable engine semantics during host interaction.
+    // Establish that engine-owned handle before the test records its leak baseline.
+    binding.platformDispatcher.semanticsEnabledTestValue = true;
+    tearDownAll(binding.platformDispatcher.clearSemanticsEnabledTestValue);
+  }
   const video = String.fromEnvironment('BASELINE_VIDEO');
   testWidgets('sample effective local WatchPage playback configuration', (
     tester,
   ) async {
-    if (const bool.fromEnvironment('BASELINE_HOST_INPUTS')) {
-      final previous = binding.shouldPropagateDevicePointerEvents;
-      binding.shouldPropagateDevicePointerEvents = true;
-      addTearDown(() => binding.shouldPropagateDevicePointerEvents = previous);
-    }
     MediaKit.ensureInitialized();
     SharedPreferences.setMockInitialValues({});
     final root = await Directory.systemTemp.createTemp('ccplayer-baseline-');
@@ -73,7 +79,17 @@ void main() {
       };
       await catalog.db.insert('works', {'id': 'baseline', 'title': 'baseline'});
       await catalog.db.insert('assets', asset);
-      final store = MpvConfigStore(
+      const resumeSeconds = int.fromEnvironment('BASELINE_RESUME_SECONDS');
+      if (resumeSeconds > 0) {
+        await catalog.db.insert('progress', {
+          'asset_id': 'baseline',
+          'position_ms': resumeSeconds * 1000,
+          'duration_ms': (resumeSeconds + 120) * 1000,
+          'completed': 0,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        });
+      }
+      final store = DiagnosticMpvConfigStore(
         rootOverride: Directory(p.join(root.path, 'mpv')),
       );
       await store.initialize();
@@ -90,6 +106,13 @@ void main() {
       );
       final dynamic page = tester.state(find.byType(WatchPage));
       final player = page.player as Player;
+      if (const bool.fromEnvironment('BASELINE_PRESENTED_GRADIENT')) {
+        final native = player.platform as NativePlayer;
+        for (final option in ['scale', 'dscale', 'cscale']) {
+          await native.setProperty(option, 'nearest');
+        }
+        await native.setProperty('dither', 'no');
+      }
       final nativeWarnings = <String>[];
       final warningSubscription = player.stream.log.listen((entry) {
         if (nativeWarnings.length < 20 &&
@@ -132,6 +155,14 @@ void main() {
         debugPrint('MPV_STARTUP_WARNINGS ${jsonEncode(nativeWarnings)}');
       }
       expect(player.state.position.inSeconds, greaterThanOrEqualTo(1));
+      if (resumeSeconds > 0) {
+        expect(
+          player.state.position.inSeconds,
+          inInclusiveRange(resumeSeconds, resumeSeconds + 5),
+          reason:
+              'Saved position must apply during load, before a first-frame seek can race.',
+        );
+      }
       const sampleSeconds = int.fromEnvironment('BASELINE_SAMPLE_SECONDS');
       if (sampleSeconds > 0) {
         final startPosition = player.state.position;
@@ -329,7 +360,10 @@ void main() {
         final presented =
             await page.capturePresentedBuffer() as Map<Object?, Object?>;
         debugPrint('MPV_PRESENTED_BUFFER ${jsonEncode(presented)}');
-        expect(presented['format'], 'R10G10B10A2_UNORM');
+        expect(
+          presented[Platform.isAndroid ? 'readback' : 'format'],
+          Platform.isAndroid ? 'RGBA_F16' : 'R10G10B10A2_UNORM',
+        );
         for (final key in ['redLevels', 'greenLevels', 'blueLevels']) {
           expect(presented[key], greaterThan(256));
         }
@@ -345,6 +379,89 @@ void main() {
         expect(sourceDepth, greaterThan(0));
         expect(decodedDepth, isNotNull);
         expect(decodedDepth, greaterThanOrEqualTo(sourceDepth));
+      }
+      if (const bool.fromEnvironment('BASELINE_OUTPUT_RECOVERY')) {
+        const recoverWhilePlaying = bool.fromEnvironment(
+          'BASELINE_RECOVERY_PLAYING',
+        );
+        if (recoverWhilePlaying) {
+          await player.play();
+        } else {
+          await player.pause();
+        }
+        await player.setVolume(37);
+        await player.setRate(1.25);
+        final beforePosition = player.state.position;
+        final beforeAudio = await native.getProperty('aid');
+        final beforeSubtitle = await native.getProperty('sid');
+        final before =
+            await page.capturePresentedBuffer() as Map<Object?, Object?>;
+        await page.simulateNativeOutputFailure();
+        Map<Object?, Object?>? recovered;
+        final until = DateTime.now().add(const Duration(seconds: 15));
+        while (DateTime.now().isBefore(until)) {
+          await tester.pump(const Duration(milliseconds: 100));
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+          try {
+            // An OSD message on a black frame must not count as recovered video.
+            await native.command(['show-text', '']);
+            final frame =
+                await page.capturePresentedBuffer() as Map<Object?, Object?>;
+            if (frame['generation'] != before['generation'] &&
+                (frame['redLevels'] as int) > 1 &&
+                player.state.playing == recoverWhilePlaying) {
+              recovered = frame;
+              break;
+            }
+          } catch (_) {
+            // The failed renderer must be unavailable until recreation finishes.
+          }
+        }
+        debugPrint(
+          'MPV_RECOVERY_STATE ${jsonEncode({'vid': await native.getProperty('vid'), 'hwdec': await native.getProperty('hwdec'), 'vo': await native.getProperty('current-vo'), 'recovered': recovered})}',
+        );
+        expect(
+          recovered,
+          isNotNull,
+          reason: 'Output must recover within 15 seconds',
+        );
+        expect(recovered!['format'], 'R10G10B10A2_UNORM');
+        expect(recovered['redLevels'], greaterThan(1));
+        expect(player.state.playing, recoverWhilePlaying);
+        final pausedPositionDelta =
+            (player.state.position - beforePosition).inMilliseconds;
+        expect(
+          (player.state.position - beforePosition).inMilliseconds.abs(),
+          lessThan(recoverWhilePlaying ? 3000 : 500),
+        );
+        expect(await native.getProperty('aid'), beforeAudio);
+        expect(await native.getProperty('sid'), beforeSubtitle);
+        expect(player.state.volume, 37);
+        expect(player.state.rate, 1.25);
+        expect(await native.getProperty('hwdec'), 'no');
+        await player.play();
+        for (var i = 0; i < 30; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+          if (player.state.position >
+              beforePosition + const Duration(seconds: 2)) {
+            break;
+          }
+        }
+        expect(
+          player.state.position,
+          greaterThan(beforePosition + const Duration(seconds: 2)),
+        );
+        await page.simulateNativeOutputFailure();
+        for (var i = 0; i < 50 && page.error == null; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+        expect(page.error, 'native-output');
+        expect(player.state.playing, isFalse);
+        debugPrint(
+          'MPV_OUTPUT_RECOVERY ${jsonEncode({'before': before, 'after': recovered, 'pausedPositionDeltaMs': pausedPositionDelta, 'repeatedFailurePaused': !player.state.playing})}',
+        );
       }
       await tester.pumpWidget(const SizedBox());
       await player.stream.position.drain<void>().timeout(

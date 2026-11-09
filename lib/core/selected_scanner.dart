@@ -1,10 +1,9 @@
 import 'debug_log.dart';
-import 'dart:io';
-import 'package:path/path.dart' as p;
 import 'auto_classifier.dart';
 import 'catalog.dart';
 import 'scan_activity.dart';
 import 'sources.dart';
+import 'local_media.dart';
 
 class SelectedScanResult {
   const SelectedScanResult(this.videoCount, this.workIds);
@@ -66,49 +65,39 @@ class SelectedScanner {
     var count = 0, reviewCount = 0;
     final scannedPaths = <String>{};
     try {
-      final localName = p.basename(p.normalize(source['location'].toString()));
+      final localName = LocalMedia.label(source['location'].toString());
       if (source['kind'] == 'local') {
-        final base = Directory(source['location'].toString());
+        final base = source['location'].toString();
         for (final selected in roots) {
           run.checkCancelled();
           final root = selected['relative_path'].toString();
-          final folder = Directory(
-            root.isEmpty
-                ? base.path
-                : p.joinAll([base.path, ...root.split('/')]),
-          );
-          if (!await folder.exists()) {
-            throw FileSystemException('已选文件夹不存在', folder.path);
-          }
-          final first = await folder.list(followLinks: false).toList();
+          final first = await LocalMedia.list(base, root);
           final direct = first.any(
-            (entry) => entry is File && Catalog.isVideo(entry.path),
+            (entry) => !entry.directory && Catalog.isVideo(entry.name),
           );
           final pending =
               <
                 ({
-                  Directory folder,
                   String relative,
-                  List<FileSystemEntity>? cached,
+                  List<({String name, bool directory, int? size})>? cached,
                 })
-              >[(folder: folder, relative: root, cached: first)];
+              >[(relative: root, cached: first)];
           while (pending.isNotEmpty) {
             run.checkCancelled();
             final current = pending.removeLast();
             activity.beginFolder(id, current.relative);
             final entries =
-                current.cached ??
-                await current.folder.list(followLinks: false).toList();
+                current.cached ?? await LocalMedia.list(base, current.relative);
             for (final entity in entries) {
               run.checkCancelled();
-              final name = p.basename(entity.path);
+              final name = entity.name;
               final relative = current.relative.isEmpty
                   ? name
                   : '${current.relative}/$name';
               if (_excluded(relative, root)) continue;
-              if (entity is Directory) {
-                pending.add((folder: entity, relative: relative, cached: null));
-              } else if (entity is File && Catalog.isVideo(entity.path)) {
+              if (entity.directory) {
+                pending.add((relative: relative, cached: null));
+              } else if (Catalog.isVideo(entity.name)) {
                 final decision = AutoClassifier.decide(
                   relativePath: relative,
                   selectedRoot: root,
@@ -119,7 +108,7 @@ class SelectedScanner {
                 await catalog.indexVideo(
                   id,
                   relative,
-                  (await entity.stat()).size,
+                  entity.size,
                   workFolder: decision.folder,
                   needsReview: decision.needsReview,
                 );

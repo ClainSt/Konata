@@ -3,6 +3,7 @@ import 'metadata_http.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'tmdb_auth.dart';
+import 'debug_log.dart';
 
 class Candidate {
   Candidate({
@@ -25,18 +26,50 @@ class Metadata {
   static String token = '';
   static String apiKey = '';
   static String authMode = 'token';
+  static Future<void> loadCredentials(
+    Future<String?> Function(String) read,
+  ) async {
+    token = '';
+    apiKey = '';
+    authMode = 'token';
+    try {
+      token = await read('tmdb_token') ?? '';
+      apiKey = await read('tmdb_api_key') ?? '';
+      authMode = await read('tmdb_auth_mode') == 'apiKey' ? 'apiKey' : 'token';
+    } catch (_) {
+      token = '';
+      apiKey = '';
+      DebugLog.write(
+        'Credentials',
+        'Stored TMDB credentials unavailable; re-enter in settings',
+        level: 'WARN',
+      );
+    }
+  }
+
   static TmdbCredentials get credentials => TmdbCredentials(
     mode: authMode,
     value: authMode == 'apiKey' ? apiKey : token,
   );
-  static Future<void> testTmdbCredentials(TmdbCredentials credentials) async {
-    final data = await _requestTmdb('/tv/100565', const {
-      'language': 'zh-CN',
-    }, credentials);
-    if (data?['id'] != 100565 ||
-        data?['name'] is! String ||
-        data?['poster_path'] is! String) {
-      throw const FormatException('TMDB 作品响应无效');
+  static Future<void> testTmdbCredentials(
+    TmdbCredentials credentials, {
+    http.Client? client,
+  }) async {
+    final transport = MetadataHttp(inner: client, fresh: true);
+    try {
+      final data = await _requestTmdb(
+        '/tv/100565',
+        const {'language': 'zh-CN'},
+        credentials,
+        client: transport,
+      );
+      if (data?['id'] != 100565 ||
+          data?['name'] is! String ||
+          data?['poster_path'] is! String) {
+        throw const FormatException('TMDB 作品响应无效');
+      }
+    } finally {
+      transport.close();
     }
   }
 
@@ -142,13 +175,14 @@ class Metadata {
   static Future<Map<String, dynamic>?> _requestTmdb(
     String path,
     Map<String, String> params,
-    TmdbCredentials auth,
-  ) async {
+    TmdbCredentials auth, {
+    http.Client? client,
+  }) async {
     if (!auth.isConfigured) throw StateError('请先配置 TMDB 访问凭证');
     // Avoid including a v3 API key in HTTP exception messages.
     http.Response response;
     try {
-      response = await _client.get(
+      response = await (client ?? _client).get(
         auth.uri(path, params),
         headers: auth.headers,
       );

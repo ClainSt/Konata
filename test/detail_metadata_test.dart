@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -56,7 +55,7 @@ void main() {
       final repaired = await service.fetch(work);
       expect(repaired['automaticSeriesTitle'], title);
       expect(repaired['automaticBangumiId'], 302189);
-      expect((repaired['characters'] as List).single['id'], 1);
+      expect(repaired.containsKey('characters'), isFalse);
       final locked = await service.fetch({...work, 'manual_lock': 1});
       expect(locked.containsKey('automaticSeriesTitle'), isFalse);
       expect(locked.containsKey('automaticBangumiId'), isFalse);
@@ -64,44 +63,21 @@ void main() {
     },
   );
   test(
-    'character roster is visible before season and translation requests finish',
+    'core detail fetch never requests optional characters or persons',
     () async {
-      final overview = Completer<Map<String, dynamic>?>();
-      final translation = Completer<http.Response>();
-      final preview = Completer<List<Map<String, dynamic>>>();
+      final paths = <String>[];
       final client = MockClient((request) async {
-        if (request.url.path == '/v0/subjects/302189/characters') {
-          return http.Response(
-            jsonEncode([
-              {'id': 1, 'name': 'Lena', 'actors': [], 'relation': '主角'},
-            ]),
-            200,
-            headers: {'content-type': 'application/json; charset=utf-8'},
-          );
-        }
-        if (request.url.path == '/v0/characters/1') return translation.future;
+        paths.add(request.url.path);
         return http.Response('{}', 200);
       });
-      addTearDown(client.close);
-      final service = DetailMetadataService(
-        client: client,
-        tmdbRequest: (_, _) => overview.future,
-      );
-      final pending = service.fetch({
-        'tmdb_id': 100565,
-        'bangumi_id': 302189,
-      }, onCharacters: preview.complete);
+      final service = DetailMetadataService(client: client);
+      final result = await service.fetch({'bangumi_id': 1});
+      expect(result.containsKey('characters'), isFalse);
       expect(
-        (await preview.future.timeout(
-          const Duration(seconds: 2),
-        )).single['name'],
-        'Lena',
+        paths.any((p) => p.contains('/characters') || p.contains('/persons')),
+        isFalse,
       );
-      translation.complete(
-        http.Response.bytes(utf8.encode(jsonEncode({'name_cn': '蕾娜'})), 200),
-      );
-      overview.complete(null);
-      expect(((await pending)['characters'] as List).single['name_cn'], '蕾娜');
+      client.close();
     },
   );
   test(
@@ -184,26 +160,6 @@ void main() {
     expect(data['movieStill'], isNull);
     service.close();
   });
-  test('principal Bangumi characters precede cameo crossovers', () {
-    final entries = <Map<String, dynamic>>[
-      {'name': '客串角色A', 'relation': '客串', 'order': 1},
-      {'name': '配角', 'relation': '配角', 'order': 1},
-      {'name': '主角B', 'relation': '主角', 'order': 2},
-      {'name': '其他', 'relation': '其他', 'order': 1},
-      {'name': '主角A', 'relation': '主角', 'order': 1},
-      {'name': '客串角色B', 'relation': '客串', 'order': 2},
-    ];
-    final sorted = DetailMetadataService.sortSubjectCharacters(entries);
-    expect(sorted.map((e) => e['name']).toList(), [
-      '主角A',
-      '主角B',
-      '配角',
-      '客串角色A',
-      '客串角色B',
-      '其他',
-    ]);
-  });
-
   test(
     'Personal-style TMDB episode stills + Bangumi cast and rating merge',
     () async {
@@ -289,7 +245,7 @@ void main() {
         expect(detail['source'], 'TMDB + Bangumi');
         expect(
           detail['backdrop'],
-          'https://images.tmdb.org/t/p/original/backdrop.jpg',
+          'https://images.tmdb.org/t/p/w1280/backdrop.jpg',
         );
         final episodes = detail['episodes'] as Map;
         expect((episodes['1'] as Map)['name'], '第一集');
@@ -297,9 +253,7 @@ void main() {
           (episodes['1'] as Map)['still'],
           'https://images.tmdb.org/t/p/w500/ep01.jpg',
         );
-        final characters = detail['characters'] as List;
-        expect((characters.first as Map)['name'], '秋里乐叶');
-        expect(((characters.first as Map)['actors'] as List).single, '古贺葵');
+        expect(detail.containsKey('characters'), isFalse);
         expect(calls, contains('/tv/217512/season/0'));
       } finally {
         service.close();

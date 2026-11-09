@@ -400,6 +400,9 @@ class AppLocalizationsEn extends AppLocalizations {
       'Set API and image URLs separately. Bangumi uses a community mirror by default. HTTP is unencrypted.';
 
   @override
+  String get videoOutputRecovered => 'Video output recovered.';
+
+  @override
   String get autoFallback => 'Auto fallback';
 
   @override
@@ -800,7 +803,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get noMatchingTitles => 'No matches';
 
   @override
-  String get searchTitles => 'Search titles';
+  String get searchTitles => 'Search works';
 
   @override
   String get closeSearch => 'Close search';
@@ -1277,48 +1280,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get mpvSave => 'Save';
 
   @override
-  String get mpvEngineTitle => 'Enhanced Windows MPV engine (optional)';
-
-  @override
-  String get mpvEngineDescription =>
-      'Optional download with extra audio codec support, including TrueHD.';
-
-  @override
-  String get mpvEngineDownload => 'Download verified engine';
-
-  @override
-  String get mpvEngineImport => 'Import release archive (.7z)';
-
-  @override
-  String get mpvEngineEnable => 'Use enhanced MPV on Windows';
-
-  @override
-  String get mpvEngineMissing => 'Not installed or checksum invalid';
-
-  @override
-  String get mpvEngineReady => 'Installed and checksum verified';
-
-  @override
-  String get mpvEngineRestart =>
-      'Engine selection takes effect after restarting Konata.';
-
-  @override
-  String get mpvEngineDownloadConfirm => 'Download the optional MPV engine?';
-
-  @override
-  String get mpvEngineDownloadWarning =>
-      'Downloads ~30 MB and installs a verified ~122 MB DLL in application data. The default engine remains unchanged. Review third-party licenses and only use binaries you trust.';
-
-  @override
-  String get mpvEngineProgress => 'Downloading enhancement';
-
-  @override
-  String get mpvEngineCurrent => 'Enhanced engine active in this session';
-
-  @override
-  String get mpvEngineDefault => 'Default engine active in this session';
-
-  @override
   String get backupPreviewCounts =>
       'Works / Files / Sources / History / Covers';
 
@@ -1441,33 +1402,157 @@ class AppLocalizationsEn extends AppLocalizations {
   String get statAudioOutput => 'Audio output';
 
   @override
-  String get decodePrecisionFallback =>
-      'Switching to software decoding to preserve video bit depth';
+  String get restoreLibraryBackup => 'Restore from backup';
 
   @override
-  String get decodeUnsupportedFallback =>
-      'Hardware does not support this video format; switching to software decoding';
+  String get restoreLibraryBackupDescription =>
+      'Preview and restore your library, history, custom covers and basic settings from a ZIP backup.';
 
   @override
-  String get videoDecoding => 'Video decoding';
+  String get restoreLibraryBackupWarning =>
+      'This replaces your current library and playback history; it does not merge them. A backup of current data is saved first. Failed changes are rolled back.\n\nMedia files are not included. Re-enter source passwords. On another device, select and authorize local folders again in Edit source. Restore does not scan or connect to sources.';
 
   @override
-  String get decodeAutomatic => 'Automatic';
+  String get restoringLibraryBackup => 'Restoring, please wait…';
 
   @override
-  String get decodeHardware => 'Hardware preferred';
+  String get restoreLibraryBackupDone =>
+      'Restore complete. Edit sources to reconnect folders or re-enter passwords if needed.';
 
   @override
-  String get decodeSoftware => 'Software';
+  String get restoreLibraryBackupFailed =>
+      'Restore did not complete. Check the backup and available storage, then try again.';
 
   @override
-  String get decodeCustom => 'Follow MPV configuration';
+  String get restoreLibraryBackupBusy =>
+      'Wait for scanning to finish before restoring a backup.';
 
   @override
-  String get decodeDescription =>
-      'Applies to the next playback. Automatic keeps platform defaults. Hardware modes allow software fallback; emulators use software.';
+  String get previousLibraryBackup => 'Backups before restore';
 
   @override
-  String get decodePriority =>
-      'Automatic and hardware/software modes override hwdec in mpv.conf. Follow MPV configuration keeps its hwdec and scaling options; the player still manages video output. If MPV configuration is off, platform defaults apply.';
+  String get previousLibraryBackupDescription =>
+      'Preview and restore either of the last two automatic backups.';
+
+  @override
+  String get noPreviousLibraryBackup =>
+      'No automatic backup has been created yet.';
+
+  @override
+  String get restoreCurrentLibrary =>
+      'Current library (works / files / sources)';
+
+  @override
+  String get extensions => 'Extensions';
+
+  @override
+  String get extensionsDescription =>
+      'Enable optional features here. Their settings appear under Scraping services when enabled. Turning a feature off stops its requests and releases its temporary resources.';
+
+  @override
+  String get characterDetails => 'Characters and voice actors';
+
+  @override
+  String get characterDetailsDescription =>
+      'Show Bangumi character and voice actor details on title pages.';
+
+  @override
+  String get voiceActorPhotos => 'Use voice actor photos';
+
+  @override
+  String get creditsDetails => 'Cast and crew';
+
+  @override
+  String get creditsDetailsDescription =>
+      'Show TMDB cast and crew on live-action title pages.';
+
+  @override
+  String get creditsServiceSettings =>
+      'Uses the shared TMDB credentials. Open API settings.';
+
+  @override
+  String get optionalFeatureFailed =>
+      'Could not load or save this feature. Please retry.';
+
+  @override
+  String get optionalNoResults => 'No details available.';
+
+  @override
+  String get animationCategory => 'Animation';
+
+  @override
+  String get liveActionCategory => 'Live action';
+
+  @override
+  String get featureOff => 'Off';
+
+  @override
+  String get voiceActors => 'Voice actors';
+
+  @override
+  String get sage => 'Sage';
+
+  @override
+  String get allWorks => 'All titles';
+
+  @override
+  String compactWorkCount(int count) {
+    return '$count';
+  }
+
+  @override
+  String get bangumiPeopleData => 'Bangumi characters / voice actors';
+
+  @override
+  String get tmdbPeopleData => 'TMDB people';
+
+  @override
+  String get peopleBar => 'Character row';
+
+  @override
+  String get peopleFallbackTmdb => 'When Bangumi is off, use TMDB people.';
+
+  @override
+  String get peopleFallbackHidden =>
+      'When Bangumi is off, hide the character row.';
+
+  @override
+  String get historySelectAll => 'Select all';
+
+  @override
+  String get historyDeselectAll => 'Deselect all';
+
+  @override
+  String historySelectionCount(int count) {
+    return '$count selected';
+  }
+
+  @override
+  String deleteHistorySelectionQuestion(int count) {
+    return 'Delete $count selected records?';
+  }
+
+  @override
+  String get imageCache => 'Image cache';
+
+  @override
+  String get measuringCache => 'Measuring…';
+
+  @override
+  String get cacheSizeUnavailable => 'Unable to measure';
+
+  @override
+  String get openCacheDirectory => 'Open cache folder';
+
+  @override
+  String get cacheDirectoryUnavailable => 'Cannot open the cache folder.';
+
+  @override
+  String get detailBackdrop => 'Detail page background';
+
+  @override
+  String get cacheSettingFailed => 'Could not save this setting.';
+
+  @override
+  String get nameOrBangumiId => 'Name or Bangumi ID';
 }

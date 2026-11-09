@@ -128,8 +128,12 @@ class SocketReader1 extends SocketReader {
 class SocketReader2 extends SocketReader {
   final bool debugPrint;
   late StreamSubscription _subscription;
+  Object? _failure;
+  StackTrace? _failureStack;
+  final void Function(Object, StackTrace)? onFailure;
 
-  SocketReader2(super._socket, Function update, {this.debugPrint = false}) {
+  SocketReader2(super._socket, Function update,
+      {this.debugPrint = false, this.onFailure}) {
     _subscription = _socket.listen(
       (event) {
         if (debugPrint) {
@@ -144,9 +148,28 @@ class SocketReader2 extends SocketReader {
         if (debugPrint) {
           print("Smb Reader closed");
         }
-        _socket.close();
+        // Peer EOF can arrive while the output sink is bound to a pending
+        // flush. A graceful close would throw from this stream callback.
+        _finish(const SocketException('SMB peer closed'), StackTrace.current);
       },
+      onError: (Object error, StackTrace stack) => _finish(error, stack),
     );
+  }
+
+  void _finish(Object error, StackTrace stack) {
+    if (_failure != null) return;
+    _failure = error;
+    _failureStack = stack;
+    _socket.destroy();
+    // Buffered final bytes can still satisfy an already running read. Its
+    // parser reports truncation if it needs more; an empty reader fails now.
+    if (available() == 0) onFailure?.call(error, stack);
+  }
+
+  void checkReadable() {
+    if (available() == 0 && _failure != null) {
+      Error.throwWithStackTrace(_failure!, _failureStack!);
+    }
   }
 
   @override
@@ -154,6 +177,9 @@ class SocketReader2 extends SocketReader {
     var readed = _readedBytes();
     int n = 0;
     while (bytes > readed) {
+      if (_failure != null) {
+        Error.throwWithStackTrace(_failure!, _failureStack!);
+      }
       await Future.delayed(Duration(milliseconds: 1));
       readed = _readedBytes();
       n++;
@@ -165,6 +191,7 @@ class SocketReader2 extends SocketReader {
   }
 
   Future close() async {
+    _finish(const SocketException('SMB reader closed'), StackTrace.current);
     await _subscription.cancel();
   }
 }

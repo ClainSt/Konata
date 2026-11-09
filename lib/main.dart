@@ -1,12 +1,13 @@
 import 'core/player_fullscreen.dart';
+import 'core/optional_features.dart';
 import 'core/mpv_config_store.dart';
-import 'core/mpv_engine_store.dart';
 import 'l10n/strings.dart';
 import 'ui/uniform_action_bar.dart';
 import 'core/app_language.dart';
 import 'core/watch_settings.dart';
 import 'l10n/app_localizations.dart';
 import 'core/image_store.dart';
+import 'core/artwork_settings.dart';
 import 'dart:ui' as ui;
 import 'core/metadata_servers.dart';
 import 'core/metadata_http.dart';
@@ -14,16 +15,17 @@ import 'core/debug_log.dart';
 import 'ui/managed_image.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:path/path.dart' as p;
 import 'package:media_kit/media_kit.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:window_manager/window_manager.dart';
 import 'core/app_theme.dart';
 import 'ui/app_header.dart';
 import 'ui/settings_page.dart';
-import 'ui/add_media_dialog.dart';
 import 'core/sources.dart';
 import 'core/catalog.dart';
+import 'core/local_media.dart';
+import 'package:android_file_picker/android_file_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'core/metadata.dart';
 
 import 'ui/source_browser_page.dart';
@@ -31,10 +33,34 @@ import 'ui/poster_title.dart';
 import 'ui/source_editor.dart';
 import 'ui/nipaplay_detail_page.dart';
 import 'ui/nipaplay_style.dart';
+import 'ui/konata_motion.dart';
+import 'ui/playback_history_page.dart';
+import 'ui/library_source_filter.dart';
 import 'ui/work_edit_dialogs.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    // Complete portable-data migration before preferences, cache or SQLite open.
+    await getApplicationSupportDirectory();
+  } catch (_) {
+    runApp(
+      const MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: SelectableText(
+                '无法打开 Konata 数据目录。请关闭其他 Konata 实例，并将整个程序文件夹移到可写位置后重试。旧数据未删除。\n\n'
+                'Cannot open Konata data. Close other copies and move the whole folder to a writable location. Existing data has been preserved.',
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    return;
+  }
   if (AppHeader.desktop) {
     await windowManager.ensureInitialized();
     await windowManager.waitUntilReadyToShow(
@@ -64,38 +90,20 @@ Future<void> main() async {
     DebugLog.exception('App', 'uncaught', error, stack);
     return false;
   };
+  await Catalog.instance.initialize();
+  await ArtworkSettings.instance.load();
   await AppTheme.instance.load();
   await AppLanguage.instance.load();
   await WatchSettings.instance.load();
-  await MpvConfigStore.instance.initialize();
-  final engineStore = MpvEngineStore.instance;
-  await engineStore.initialize();
-  final enhancedLibrary = await engineStore.preferredStartupLibrary();
-  if (enhancedLibrary != null) {
-    try {
-      MediaKit.ensureInitialized(libmpv: enhancedLibrary);
-      engineStore.recordStartupResult(enhanced: true);
-    } catch (error) {
-      // If an optional native build is unavailable, retain default playback.
-      DebugLog.write(
-        'MPV',
-        'optional engine init failed: ${error.runtimeType}',
-        level: 'ERROR',
-      );
-      MediaKit.ensureInitialized();
-      engineStore.recordStartupResult(enhanced: false);
-    }
-  } else {
-    MediaKit.ensureInitialized();
-    engineStore.recordStartupResult(enhanced: false);
+  try {
+    await OptionalFeatures.instance.initialize();
+  } catch (error, stack) {
+    DebugLog.exception('OptionalFeatures', 'initialize_failed', error, stack);
   }
-  await Catalog.instance.initialize();
+  await MpvConfigStore.instance.initialize();
+  MediaKit.ensureInitialized();
   const secure = FlutterSecureStorage();
-  Metadata.token = (await secure.read(key: 'tmdb_token')) ?? '';
-  Metadata.apiKey = (await secure.read(key: 'tmdb_api_key')) ?? '';
-  Metadata.authMode = (await secure.read(key: 'tmdb_auth_mode')) == 'apiKey'
-      ? 'apiKey'
-      : 'token';
+  await Metadata.loadCredentials((key) => secure.read(key: key));
   runApp(const CCPlayer());
 }
 
@@ -111,41 +119,39 @@ class CCPlayer extends StatefulWidget {
 class _CCPlayerState extends State<CCPlayer> {
   final navigatorKey = GlobalKey<NavigatorState>();
   bool settingsSelected = false;
-  bool settingsDialogOpen = false;
+  bool historySelected = false;
   bool get mobile => widget.mobile ?? !AppHeader.desktop;
-  Widget _navigation() => ValueListenableBuilder<bool>(
-    valueListenable: libraryDestination,
-    builder: (context, sources, _) => ValueListenableBuilder<PlayingHeader?>(
-      valueListenable: playingHeader,
-      builder: (context, playback, _) => playback?.videoOverlay == true
-          ? const SizedBox.shrink()
-          : AppHeader(
-              playbackTitle: playback?.title,
-              onPlaybackBack: playback?.onBack,
-              showSources: sources,
-              mobile: mobile,
-              settingsSelected: settingsSelected,
-              onNavigate: (value) {
-                navigatorKey.currentState?.popUntil((route) => route.isFirst);
-                setState(() => settingsSelected = false);
-                libraryDestination.value = value;
-              },
-              onSettings: () {
-                if (!mobile) {
-                  if (settingsDialogOpen) return;
-                  settingsDialogOpen = true;
-                  showDialog<void>(
-                    context: navigatorKey.currentContext!,
-                    builder: (_) => const SettingsPage(wideLayout: true),
-                  ).whenComplete(() => settingsDialogOpen = false);
-                  return;
-                }
-                navigatorKey.currentState?.popUntil((route) => route.isFirst);
-                setState(() => settingsSelected = true);
-              },
+  void _select(int index) {
+    navigatorKey.currentState?.popUntil((route) => route.isFirst);
+    setState(() {
+      settingsSelected = index == 3;
+      historySelected = index == 2;
+    });
+    if (index < 2) libraryDestination.value = index == 1;
+  }
+
+  Widget _navigation(KonataNavigationLayout layout) =>
+      ValueListenableBuilder<bool>(
+        valueListenable: libraryDestination,
+        builder: (context, sources, _) =>
+            ValueListenableBuilder<PlayingHeader?>(
+              valueListenable: playingHeader,
+              builder: (context, playback, _) => playback?.videoOverlay == true
+                  ? const SizedBox.shrink()
+                  : AppHeader(
+                      playbackTitle: playback?.title,
+                      onPlaybackBack: playback?.onBack,
+                      showSources: sources,
+                      mobile: mobile,
+                      layout: layout,
+                      settingsSelected: settingsSelected,
+                      historySelected: historySelected,
+                      onNavigate: (value) => _select(value ? 1 : 0),
+                      onHistory: () => _select(2),
+                      onSettings: () => _select(3),
+                    ),
             ),
-    ),
-  );
+      );
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -169,37 +175,62 @@ class _CCPlayerState extends State<CCPlayer> {
             top: mobile && !fullscreen,
             bottom: false,
             child: Overlay.wrap(
-              child: Column(
-                children: [
-                  if (!mobile)
-                    fullscreen ? const SizedBox.shrink() : _navigation(),
-                  Expanded(child: child!),
-                  if (mobile)
-                    fullscreen ? const SizedBox.shrink() : _navigation(),
-                ],
+              child: LayoutBuilder(
+                builder: (context, bounds) {
+                  if (fullscreen) return child!;
+                  final layout = navigationLayout(
+                    bounds.biggest,
+                    desktop: !mobile,
+                  );
+                  if (layout == KonataNavigationLayout.rail) {
+                    return Row(
+                      children: [
+                        _navigation(layout),
+                        Expanded(child: child!),
+                      ],
+                    );
+                  }
+                  return Column(
+                    children: [
+                      if (layout == KonataNavigationLayout.top)
+                        _navigation(layout),
+                      Expanded(child: child!),
+                      if (layout == KonataNavigationLayout.bottom)
+                        _navigation(layout),
+                    ],
+                  );
+                },
               ),
             ),
           ),
         ),
       ),
       home: PopScope(
-        canPop: !settingsSelected,
+        canPop: !settingsSelected && !historySelected,
         onPopInvokedWithResult: (didPop, result) {
-          if (!didPop && settingsSelected) {
-            setState(() => settingsSelected = false);
-          }
+          if (!didPop) _select(0);
         },
-        child: IndexedStack(
-          index: settingsSelected ? 1 : 0,
-          children: [
-            LibraryPage(mobile: mobile),
-            SettingsPage(
-              embedded: true,
-              onClose: mobile
-                  ? null
-                  : () => setState(() => settingsSelected = false),
-            ),
-          ],
+        child: LayoutBuilder(
+          builder: (context, bounds) => AnimatedSwitcher(
+            key: const ValueKey('main-section-switcher'),
+            duration: KonataMotion.duration(context),
+            transitionBuilder: (child, animation) =>
+                KonataMotion.sectionTransition(animation, child),
+            layoutBuilder: KonataMotion.sectionLayout,
+            child: settingsSelected
+                ? SettingsPage(
+                    key: ValueKey('settings'),
+                    embedded: true,
+                    wideLayout:
+                        bounds.maxWidth >= 840 && bounds.maxHeight >= 500,
+                  )
+                : historySelected
+                ? const PlaybackHistoryPage(
+                    key: ValueKey('history'),
+                    embedded: true,
+                  )
+                : LibraryPage(key: const ValueKey('library'), mobile: mobile),
+          ),
         ),
       ),
     ),
@@ -215,6 +246,7 @@ class LibraryPage extends StatefulWidget {
 
 class _LibraryPageState extends State<LibraryPage> {
   bool searchOpen = false;
+  Set<String> sourceKinds = {...librarySourceKinds};
   final searchController = TextEditingController();
   bool get showSources => libraryDestination.value;
   @override
@@ -237,208 +269,169 @@ class _LibraryPageState extends State<LibraryPage> {
     animation: Catalog.instance,
     builder: (ctx, _) {
       final cat = Catalog.instance;
-      final matches = cat.works
-          .where(
-            (w) => w['title'].toString().toLowerCase().contains(
-              filter.toLowerCase(),
-            ),
-          )
-          .toList();
+      final matches = filterLibraryWorks(
+        works: cat.works,
+        assets: cat.assets,
+        sources: cat.sources,
+        kinds: sourceKinds,
+        query: filter,
+      );
       return Scaffold(
         body: Column(
           children: [
             if (cat.scanning) const LinearProgressIndicator(),
-            _libraryToolbar(cat),
+            _libraryToolbar(cat, matches.length),
+            const Divider(height: 1),
             Expanded(
-              child: showSources
-                  ? _sources(cat)
-                  : matches.isEmpty
-                  ? Center(
-                      child: Text(
-                        cat.sources.isEmpty
-                            ? context.l10n.addSourceFirst
-                            : context.l10n.noMatchingTitles,
-                      ),
-                    )
-                  : LayoutBuilder(
-                      builder: (ctx, bounds) {
-                        // Poster-first cards: only a 2:3 cover and one compact title line.
-                        const horizontalPadding = 14.0;
-                        const crossSpacing = 12.0;
-                        const preferredPosterWidth = 164.0;
-                        final available =
-                            bounds.maxWidth - 2 * horizontalPadding;
-                        final columns = available > 0
-                            ? ((available + crossSpacing) /
-                                      (preferredPosterWidth + crossSpacing))
-                                  .ceil()
-                            : 1;
-                        final cardWidth =
-                            (bounds.maxWidth -
-                                2 * horizontalPadding -
-                                (columns - 1) * crossSpacing) /
-                            columns;
-                        final cardHeight =
-                            cardWidth * 1.5 + 8 + _posterTitleHeight;
-                        return GridView.builder(
-                          padding: const EdgeInsets.all(horizontalPadding),
-                          itemCount: matches.length,
-                          gridDelegate:
-                              SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: columns,
-                                mainAxisExtent: cardHeight,
-                                crossAxisSpacing: crossSpacing,
-                                mainAxisSpacing: 16,
-                              ),
-                          itemBuilder: (ctx, i) => _poster(matches[i]),
-                        );
-                      },
-                    ),
+              child: AnimatedSwitcher(
+                key: const ValueKey('library-source-switcher'),
+                duration: KonataMotion.duration(context),
+                transitionBuilder: (child, animation) =>
+                    KonataMotion.sectionTransition(animation, child),
+                layoutBuilder: KonataMotion.sectionLayout,
+                child: KeyedSubtree(
+                  key: ValueKey(showSources),
+                  child: showSources
+                      ? _sources(cat)
+                      : matches.isEmpty
+                      ? Center(
+                          child: Text(
+                            cat.sources.isEmpty
+                                ? context.l10n.addSourceFirst
+                                : context.l10n.noMatchingTitles,
+                          ),
+                        )
+                      : LayoutBuilder(
+                          builder: (ctx, bounds) {
+                            // Poster-first cards: only a 2:3 cover and one compact title line.
+                            final horizontalPadding = bounds.maxWidth < 600
+                                ? 20.0
+                                : 32.0;
+                            final crossSpacing = bounds.maxWidth < 600
+                                ? 16.0
+                                : 24.0;
+                            const preferredPosterWidth = 220.0;
+                            final available =
+                                bounds.maxWidth - 2 * horizontalPadding;
+                            final columns = available > 0
+                                ? ((available + crossSpacing) /
+                                          (preferredPosterWidth + crossSpacing))
+                                      .ceil()
+                                      .clamp(2, 12)
+                                : 1;
+                            final cardWidth =
+                                (bounds.maxWidth -
+                                    2 * horizontalPadding -
+                                    (columns - 1) * crossSpacing) /
+                                columns;
+                            final cardHeight =
+                                cardWidth * 1.5 + 8 + _posterTitleHeight;
+                            return GridView.builder(
+                              padding: EdgeInsets.all(horizontalPadding),
+                              itemCount: matches.length,
+                              gridDelegate:
+                                  SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: columns,
+                                    mainAxisExtent: cardHeight,
+                                    crossAxisSpacing: crossSpacing,
+                                    mainAxisSpacing: 24,
+                                  ),
+                              itemBuilder: (ctx, i) => _poster(matches[i]),
+                            );
+                          },
+                        ),
+                ),
+              ),
             ),
           ],
         ),
       );
     },
   );
-  Widget _libraryToolbar(Catalog cat) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+  Widget _libraryToolbar(Catalog cat, int count) => Padding(
+    padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
     child: LayoutBuilder(
       builder: (context, bounds) {
-        final toolbarHeight =
-            (MediaQuery.textScalerOf(context).scale(16) * 1.5 + 20).clamp(
-              48.0,
-              double.infinity,
-            );
-        final search = SizedBox(
-          height: toolbarHeight,
-          child: TextField(
-            controller: searchController,
-            autofocus: true,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: .7),
+        final compact = bounds.maxWidth < 500;
+        final search = TextField(
+          key: const ValueKey('library-search'),
+          controller: searchController,
+          decoration: InputDecoration(
+            hintText: context.l10n.searchTitles,
+            prefixIcon: const Icon(Icons.search, size: 19),
+            suffixIcon: filter.isEmpty
+                ? null
+                : IconButton(
+                    tooltip: context.l10n.closeSearch,
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: () => setState(() {
+                      searchController.clear();
+                      filter = '';
+                    }),
+                  ),
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
             ),
-            decoration: InputDecoration(
-              prefixIcon: const Icon(Icons.search, size: 20),
-              hintText: context.l10n.searchTitles,
-              hintStyle: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Theme.of(
-                  context,
-                ).colorScheme.onSurface.withValues(alpha: .7),
-              ),
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 10,
-              ),
-              fillColor: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: .045),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-              ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(28),
+              borderSide: BorderSide.none,
             ),
-            onChanged: (value) => setState(() => filter = value),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(28),
+              borderSide: BorderSide.none,
+            ),
           ),
+          onChanged: (value) => setState(() => filter = value),
         );
-        final row = Row(
+        return Row(
+          key: const ValueKey('library-toolbar-row'),
           children: [
-            if (!showSources && searchOpen && bounds.maxWidth < 700)
-              Expanded(child: search)
-            else ...[
-              Text(
-                showSources
-                    ? context.l10n.sourceCount(cat.sources.length)
-                    : context.l10n.workCount(cat.works.length),
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: .7),
+            if (!showSources && !(compact && searchOpen))
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: LibrarySourceFilter(
+                    kinds: sourceKinds,
+                    count: count,
+                    onChanged: (value) => setState(() => sourceKinds = value),
+                  ),
                 ),
-              ),
-              const Spacer(),
-            ],
-            if (!showSources && searchOpen && bounds.maxWidth >= 700) ...[
-              SizedBox(width: 280, child: search),
-              const SizedBox(width: 16),
-            ],
-            if (cat.hiddenWorkEntries.isNotEmpty &&
-                !(searchOpen && bounds.maxWidth < 700))
-              IconButton(
-                key: const ValueKey('manage-hidden-works-button'),
-                onPressed: _manageHiddenWorks,
-                tooltip: context.l10n.manageHidden,
-                icon: const Icon(Icons.visibility_off_outlined),
-              ),
-            if (!showSources)
-              IconButton(
-                key: const ValueKey('library-search-toggle'),
-                style: IconButton.styleFrom(
-                  fixedSize: Size(toolbarHeight, toolbarHeight),
-                ),
-                tooltip: searchOpen
-                    ? context.l10n.closeSearch
-                    : context.l10n.searchTitles,
-                icon: Icon(searchOpen ? Icons.close : Icons.search),
-                onPressed: () => setState(() {
-                  searchOpen = !searchOpen;
-                  if (!searchOpen) {
-                    filter = '';
-                    searchController.clear();
-                  }
-                }),
               ),
             if (showSources)
-              Tooltip(
-                message: context.l10n.addSource,
-                child: TextButton.icon(
-                  style: ButtonStyle(
-                    foregroundColor: WidgetStateProperty.resolveWith(
-                      (states) =>
-                          states.contains(WidgetState.hovered) ||
-                              states.contains(WidgetState.focused) ||
-                              states.contains(WidgetState.pressed)
-                          ? NipaPlayStyle.accent
-                          : Theme.of(
-                              context,
-                            ).colorScheme.onSurface.withValues(alpha: .7),
-                    ),
-                    overlayColor: const WidgetStatePropertyAll(
-                      Colors.transparent,
-                    ),
-                    textStyle: const WidgetStatePropertyAll(
-                      TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                    ),
+              Text(
+                context.l10n.sourceCount(cat.sources.length),
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            if (!showSources) ...[
+              const SizedBox(width: 8),
+              SizedBox(
+                width: (bounds.maxWidth * .4).clamp(80.0, 300.0),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 300),
+                    child: search,
                   ),
-                  onPressed: _add,
-                  icon: const Icon(Icons.add, size: 20),
-                  label: Text(context.l10n.addSource),
                 ),
               ),
+            ] else
+              const Spacer(),
+            if (cat.hiddenWorkEntries.isNotEmpty)
+              IconButton(
+                key: const ValueKey('manage-hidden-works-button'),
+                tooltip: context.l10n.manageHidden,
+                icon: const Icon(Icons.visibility_off_outlined),
+                onPressed: _manageHiddenWorks,
+              ),
+            if (showSources)
+              FilledButton.icon(
+                onPressed: _add,
+                icon: const Icon(Icons.add, size: 20),
+                label: Text(context.l10n.addSource),
+              ),
           ],
-        );
-        return SizedBox(
-          key: const ValueKey('library-toolbar-row'),
-          height: toolbarHeight,
-          child: row,
         );
       },
     ),
@@ -449,8 +442,16 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget _poster(Map<String, Object?> work) => InkWell(
     onTap: () => Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => WorkPage(workId: work['id'].toString()),
+      PageRouteBuilder<void>(
+        transitionDuration: KonataMotion.coverDuration(context),
+        reverseTransitionDuration: KonataMotion.coverDuration(
+          context,
+          reverse: true,
+        ),
+        transitionsBuilder: (context, animation, secondary, child) =>
+            KonataMotion.coverTransition(animation, child),
+        pageBuilder: (_, animation, secondary) =>
+            WorkPage(workId: work['id'].toString()),
       ),
     ),
     child: Column(
@@ -459,12 +460,14 @@ class _LibraryPageState extends State<LibraryPage> {
         AspectRatio(
           key: ValueKey('library-poster-${work['id']}'),
           aspectRatio: 2 / 3,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Catalog.preferredPoster(work) != null
+          child: KonataPoster(
+            tag: 'work-poster-${work['id']}',
+            image: (alignment) => Catalog.preferredPoster(work) != null
                 ? ManagedImage(
                     Catalog.preferredPoster(work)!,
+                    owner: work['id'].toString(),
                     fit: BoxFit.cover,
+                    alignment: alignment,
                     errorBuilder: (_, _, _) {
                       final fallback = work['poster_fallback']?.toString();
                       if (fallback == null ||
@@ -474,7 +477,9 @@ class _LibraryPageState extends State<LibraryPage> {
                       }
                       return ManagedImage(
                         fallback,
+                        owner: work['id'].toString(),
                         fit: BoxFit.cover,
+                        alignment: alignment,
                         errorBuilder: (_, _, _) => _blankPoster(),
                       );
                     },
@@ -673,8 +678,7 @@ class _LibraryPageState extends State<LibraryPage> {
     ],
   );
   Future<void> _add() async {
-    final kind = await AddMediaDialog.show(context);
-    if (kind == null || !mounted) return;
+    var kind = 'local';
     final name = TextEditingController(),
         location = TextEditingController(),
         username = TextEditingController(),
@@ -725,6 +729,43 @@ class _LibraryPageState extends State<LibraryPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    ButtonTheme(
+                      alignedDropdown: true,
+                      child: DropdownButtonFormField<String>(
+                        key: const ValueKey('source-type-selector'),
+                        initialValue: kind,
+                        isExpanded: true,
+                        elevation: 2,
+                        dropdownColor: Theme.of(ctx).colorScheme.surface,
+                        borderRadius: BorderRadius.circular(12),
+                        decoration: fieldDecoration(ctx.l10n.sourceLabel),
+                        items: [
+                          for (final option in [
+                            (
+                              'local',
+                              ctx.l10n.localFolder,
+                              Icons.folder_outlined,
+                            ),
+                            ('webdav', 'WebDAV', Icons.dns_outlined),
+                            ('smb', 'SMB', Icons.storage_outlined),
+                          ])
+                            DropdownMenuItem(
+                              value: option.$1,
+                              child: Row(
+                                children: [
+                                  Icon(option.$3, size: 20),
+                                  const SizedBox(width: 12),
+                                  Text(option.$2),
+                                ],
+                              ),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) update(() => kind = value);
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 20),
                     if (kind != 'local') ...[
                       Text(
                         ctx.l10n.sourceConnectHint,
@@ -828,13 +869,16 @@ class _LibraryPageState extends State<LibraryPage> {
         if (kind == 'local') {
           final chosen = await FilePicker.getDirectoryPath(
             dialogTitle: context.l10n.chooseMediaFolder,
+            androidOptions: const FilePickerAndroidOptions(
+              safOptions: AndroidSAFOptions(grant: AndroidSAFGrant.lifetime),
+            ),
           );
           if (!mounted) return;
           if (chosen != null && chosen.isNotEmpty) {
             final id = await Catalog.instance.addSource(
               'local',
               name.text.trim().isEmpty
-                  ? p.basename(p.normalize(chosen))
+                  ? LocalMedia.label(chosen)
                   : name.text.trim(),
               chosen,
             );
@@ -1061,31 +1105,41 @@ class _WorkPageState extends State<WorkPage> {
           content: SizedBox(
             width: 540,
             height: 490,
-            child: Column(
+            child: ListView(
+              padding: const EdgeInsets.only(right: 12, top: 8),
               children: [
                 SegmentedButton<String>(
+                  key: const ValueKey('manual-match-provider'),
+                  showSelectedIcon: false,
                   segments: const [
                     ButtonSegment(value: 'tmdb', label: Text('TMDB')),
                     ButtonSegment(value: 'bangumi', label: Text('Bangumi')),
                   ],
                   selected: {provider},
-                  onSelectionChanged: (v) => update(() {
-                    provider = v.first;
-                    results = [];
-                  }),
+                  onSelectionChanged: loading
+                      ? null
+                      : (v) => update(() {
+                          provider = v.first;
+                          results = [];
+                        }),
                 ),
                 const SizedBox(height: 10),
                 Row(
                   children: [
                     Expanded(
                       child: TextField(
+                        key: const ValueKey('manual-match-query'),
                         controller: query,
                         decoration: InputDecoration(
-                          labelText: ctx.l10n.nameOrId,
+                          labelText: provider == 'tmdb'
+                              ? ctx.l10n.nameOrId
+                              : ctx.l10n.nameOrBangumiId,
                         ),
                       ),
                     ),
+                    const SizedBox(width: 12),
                     IconButton.filled(
+                      key: const ValueKey('manual-match-search'),
                       tooltip: ctx.l10n.search,
                       icon: const Icon(Icons.search),
                       onPressed: loading
@@ -1129,63 +1183,59 @@ class _WorkPageState extends State<WorkPage> {
                         : ctx.l10n.bindFailed,
                     style: const TextStyle(color: Colors.orangeAccent),
                   ),
-                Expanded(
-                  child: ListView(
-                    children: [
-                      for (final result in results)
-                        ListTile(
-                          leading: result.poster == null
-                              ? const Icon(Icons.movie)
-                              : ManagedImage(
-                                  result.poster!,
-                                  width: 45,
-                                  height: 65,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, _, _) =>
-                                      const Icon(Icons.movie),
-                                ),
-                          title: Text(result.title),
-                          subtitle: Text(
-                            '${result.year?.toString() ?? '?'} · ${result.provider} #${result.id}',
-                          ),
-                          trailing: const Icon(Icons.link),
-                          onTap: loading
-                              ? null
-                              : () async {
+                ...[
+                  for (final result in results)
+                    ListTile(
+                      leading: result.poster == null
+                          ? const Icon(Icons.movie)
+                          : ManagedImage(
+                              result.poster!,
+                              width: 45,
+                              height: 65,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) =>
+                                  const Icon(Icons.movie),
+                            ),
+                      title: Text(result.title),
+                      subtitle: Text(
+                        '${result.year?.toString() ?? '?'} · ${result.provider} #${result.id}',
+                      ),
+                      trailing: const Icon(Icons.link),
+                      onTap: loading
+                          ? null
+                          : () async {
+                              update(() {
+                                loading = true;
+                                failure = null;
+                              });
+                              try {
+                                await Catalog.instance.bind(
+                                  widget.workId,
+                                  provider: result.provider,
+                                  providerId: result.id,
+                                  title: result.title,
+                                  year: result.year,
+                                  poster: result.poster,
+                                  overview: result.overview,
+                                  type: result.mediaType,
+                                );
+                                if (ctx.mounted) Navigator.pop(ctx);
+                              } catch (e) {
+                                DebugLog.write(
+                                  'Match',
+                                  'bind failed ${e.runtimeType}',
+                                  level: 'WARN',
+                                );
+                                if (ctx.mounted) {
                                   update(() {
-                                    loading = true;
-                                    failure = null;
+                                    loading = false;
+                                    failure = 'bind';
                                   });
-                                  try {
-                                    await Catalog.instance.bind(
-                                      widget.workId,
-                                      provider: result.provider,
-                                      providerId: result.id,
-                                      title: result.title,
-                                      year: result.year,
-                                      poster: result.poster,
-                                      overview: result.overview,
-                                      type: result.mediaType,
-                                    );
-                                    if (ctx.mounted) Navigator.pop(ctx);
-                                  } catch (e) {
-                                    DebugLog.write(
-                                      'Match',
-                                      'bind failed ${e.runtimeType}',
-                                      level: 'WARN',
-                                    );
-                                    if (ctx.mounted) {
-                                      update(() {
-                                        loading = false;
-                                        failure = 'bind';
-                                      });
-                                    }
-                                  }
-                                },
-                        ),
-                    ],
-                  ),
-                ),
+                                }
+                              }
+                            },
+                    ),
+                ],
               ],
             ),
           ),

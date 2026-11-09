@@ -98,6 +98,11 @@ class AutoClassifier {
     if (!knownGroup && rootName.isNotEmpty) {
       return AutoWork(root.isEmpty ? rootName : root, needsReview: true);
     }
-    return null;
+    // Direct files in a collection/root must remain available for file-level
+    // matching and manual review, rather than silently disappearing.
+    return AutoWork(
+      root.isEmpty ? '@unclassified' : '$root/@unclassified',
+      needsReview: true,
+    );
   }
 }

@@ -44,6 +44,103 @@ class _PictureSession extends OptionalPeopleSession {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   test(
+    'partial Chinese names survive reopen and only missing names are retried',
+    () async {
+      final root = await (await Directory(
+        'build/metadata-latency-tests',
+      ).absolute.create(recursive: true)).createTemp('partial-');
+      SharedPreferences.setMockInitialValues({});
+      ImageStore.root = Directory('${root.path}/artwork');
+      final settings = OptionalFeatures(legacyRoot: root);
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      var lists = 0, firstNames = 0, secondNames = 0;
+      server.listen((request) async {
+        if (request.uri.path.endsWith('/subjects/42/characters')) {
+          lists++;
+          request.response.write(
+            '[{"id":1,"name":"First"},{"id":2,"name":"Second"}]',
+          );
+        } else if (request.uri.path.endsWith('/characters/1')) {
+          firstNames++;
+          request.response.write('{"name_cn":"第一"}');
+        } else {
+          secondNames++;
+          if (secondNames == 1) {
+            request.response.statusCode = 429;
+          } else {
+            request.response.write('{"name_cn":"第二"}');
+          }
+        }
+        await request.response.close();
+      });
+      try {
+        await settings.initialize();
+        for (var round = 0; round < 3; round++) {
+          final snapshots = <List<String>>[];
+          final session = OptionalPeopleSession(
+            settings,
+            OptionalFeature.characters,
+            clientFactory: () => LocalPeopleClient(server.port, []),
+          );
+          session.onCardsReady = (cards) =>
+              snapshots.add(cards.map((c) => c['title'] as String).toList());
+          final cards = await session.load({
+            'id': 'partial',
+            'bangumi_id': 42,
+            'original_language': 'ja',
+          }, 'zh');
+          if (round == 1) expect(snapshots.first, ['第一', 'Second']);
+          expect(
+            cards.map((c) => c['title']),
+            round == 0 ? ['第一', 'Second'] : ['第一', '第二'],
+          );
+          session.dispose();
+          await ImageStore.close();
+        }
+        expect(lists, 1);
+        expect(firstNames, 1);
+        expect(secondNames, 2);
+        final db = await (await ImageStore.cache).database;
+        final rows = await db.query(
+          'data',
+          where: 'owner=?',
+          whereArgs: ['partial'],
+        );
+        final state = jsonDecode(rows.single['payload'] as String) as Map;
+        state['expiresAt'] = 0;
+        await db.update(
+          'data',
+          {'payload': jsonEncode(state)},
+          where: 'owner=?',
+          whereArgs: ['partial'],
+        );
+        final refreshed = OptionalPeopleSession(
+          settings,
+          OptionalFeature.characters,
+          clientFactory: () => LocalPeopleClient(server.port, []),
+        );
+        await refreshed.load({
+          'id': 'partial',
+          'bangumi_id': 42,
+          'original_language': 'ja',
+        }, 'zh');
+        refreshed.dispose();
+        expect(
+          lists,
+          2,
+          reason:
+              'Expired fields must refresh instead of staying cached forever',
+        );
+      } finally {
+        settings.dispose();
+        await server.close(force: true);
+        await ImageStore.close();
+        ImageStore.root = null;
+        await root.delete(recursive: true);
+      }
+    },
+  );
+  test(
     'mirror character and voice URLs survive normalization and stale empty cards refresh',
     () async {
       final root = await (await Directory(

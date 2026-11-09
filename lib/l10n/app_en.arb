@@ -1469,5 +1469,11 @@
   "cacheDirectoryUnavailable": "Cannot open the cache folder.",
   "detailBackdrop": "Detail page background",
   "cacheSettingFailed": "Could not save this setting.",
-  "nameOrBangumiId": "Name or Bangumi ID"
+  "nameOrBangumiId": "Name or Bangumi ID",
+  "unclassified": "Unclassified",
+  "assignToWork": "Assign to title",
+  "workName": "Title name",
+  "createClassification": "Create title with this name",
+  "classificationHint": "Only library assignments change; original files stay in place. Select files from one source, then assign them to an existing or new title.",
+  "selectSourceFiles": "Select all from this source"
 }

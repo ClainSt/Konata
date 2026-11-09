@@ -67,7 +67,19 @@ void main() {
   test('file outside selected path is excluded', () {
     expect(classify('动画-单作品/86', '动画-单作品/Other/[01].mkv'), isNull);
   });
-  test('video in a generic collection root is left unresolved', () {
-    expect(classify('动画-单作品', '动画-单作品/unknown.mkv', direct: true), isNull);
+  test(
+    'video in a generic collection root is retained for file-level review',
+    () {
+      expect(
+        classify('动画-单作品', '动画-单作品/unknown.mkv', direct: true)?.folder,
+        '动画-单作品/@unclassified',
+      );
+    },
+  );
+  test('WMV video remains indexed for metadata review', () {
+    expect(
+      classify('动画-单作品', '动画-单作品/Title/episode.WMV')?.folder,
+      '动画-单作品/Title',
+    );
   });
 }

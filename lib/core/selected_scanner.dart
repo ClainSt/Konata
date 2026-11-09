@@ -88,6 +88,8 @@ class SelectedScanner {
             activity.beginFolder(id, current.relative);
             final entries =
                 current.cached ?? await LocalMedia.list(base, current.relative);
+            final videos =
+                <({String relative, int? size, String folder, bool review})>[];
             for (final entity in entries) {
               run.checkCancelled();
               final name = entity.name;
@@ -105,18 +107,24 @@ class SelectedScanner {
                   localRootName: localName,
                 );
                 if (decision == null) continue;
-                await catalog.indexVideo(
-                  id,
-                  relative,
-                  entity.size,
-                  workFolder: decision.folder,
-                  needsReview: decision.needsReview,
-                );
-                scannedPaths.add(relative);
-                activity.video(id, current.relative);
-                if (decision.needsReview) reviewCount++;
-                count++;
+                videos.add((
+                  relative: relative,
+                  size: entity.size,
+                  folder: decision.folder,
+                  review: decision.needsReview,
+                ));
               }
+            }
+            await catalog.indexVideos(
+              id,
+              videos,
+              checkCancelled: run.checkCancelled,
+            );
+            for (final video in videos) {
+              scannedPaths.add(video.relative);
+              activity.video(id, current.relative);
+              if (video.review) reviewCount++;
+              count++;
             }
             activity.endFolder(id, current.relative);
             catalog.updateStatus(
@@ -146,6 +154,8 @@ class SelectedScanner {
             if (!visited.add(current.uri.toString())) continue;
             activity.beginFolder(id, current.relative);
             final entries = current.cached ?? await dav.list(current.uri);
+            final videos =
+                <({String relative, int? size, String folder, bool review})>[];
             for (final entry in entries) {
               run.checkCancelled();
               final relative = current.relative.isEmpty
@@ -162,18 +172,24 @@ class SelectedScanner {
                   localRootName: '',
                 );
                 if (decision == null) continue;
-                await catalog.indexVideo(
-                  id,
-                  relative,
-                  entry.size,
-                  workFolder: decision.folder,
-                  needsReview: decision.needsReview,
-                );
-                scannedPaths.add(relative);
-                activity.video(id, current.relative);
-                if (decision.needsReview) reviewCount++;
-                count++;
+                videos.add((
+                  relative: relative,
+                  size: entry.size,
+                  folder: decision.folder,
+                  review: decision.needsReview,
+                ));
               }
+            }
+            await catalog.indexVideos(
+              id,
+              videos,
+              checkCancelled: run.checkCancelled,
+            );
+            for (final video in videos) {
+              scannedPaths.add(video.relative);
+              activity.video(id, current.relative);
+              if (video.review) reviewCount++;
+              count++;
             }
             activity.endFolder(id, current.relative);
             catalog.updateStatus('已扫描 ${visited.length} 个目录，$count 个视频', true);

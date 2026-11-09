@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'metadata_servers.dart';
 import 'debug_log.dart';
 import 'request_budget.dart';
+import 'transient_tls.dart';
 
 /// Shared transport: bounded retries, no credential-bearing redirects, disk JSON
 /// fallback. Diagnostics use [raw] to test exactly the entered server.
@@ -119,10 +120,14 @@ class MetadataHttp extends http.BaseClient {
       }
     }
     Object? failure;
+    final hasHealthyRoute = candidates.any(
+      (uri) => !(_unhealthy[uri.host]?.isAfter(DateTime.now()) ?? false),
+    );
     for (final uri in candidates) {
       if (!raw &&
           !fresh &&
           candidates.length > 1 &&
+          hasHealthyRoute &&
           _unhealthy[uri.host]?.isAfter(DateTime.now()) == true) {
         continue;
       }
@@ -139,16 +144,28 @@ class MetadataHttp extends http.BaseClient {
       final watch = Stopwatch()..start();
       final abort = Completer<void>();
       try {
-        final copy =
-            http.AbortableRequest(
-                request.method,
-                uri,
-                abortTrigger: abort.future,
-              )
-              ..headers.addAll(headers)
-              ..bodyBytes = bytes;
-        copy.followRedirects = !hasAuth;
-        final streamed = await _inner.send(copy).timeout(headerTimeout);
+        Future<http.StreamedResponse> open() {
+          final copy =
+              http.AbortableRequest(
+                  request.method,
+                  uri,
+                  abortTrigger: abort.future,
+                )
+                ..headers.addAll(headers)
+                ..bodyBytes = bytes;
+          copy.followRedirects = !hasAuth;
+          return _inner.send(copy);
+        }
+
+        final streamed =
+            await ((request.method == 'GET' ||
+                            index == 2 &&
+                                request.method == 'POST' &&
+                                source.path == '/v0/search/subjects') &&
+                        !raw
+                    ? retryInterruptedTls(open)
+                    : open())
+                .timeout(headerTimeout);
         final body = BytesBuilder();
         await for (final chunk in streamed.stream.timeout(
           const Duration(seconds: 20),
@@ -166,6 +183,7 @@ class MetadataHttp extends http.BaseClient {
         if (streamed.statusCode >= 500) {
           throw HttpException('HTTP ${streamed.statusCode}');
         }
+        _unhealthy.remove(uri.host);
         // Authentication/rate limiting are returned without retrying or cached success.
         if (streamed.statusCode == 200 && cache != null) {
           try {

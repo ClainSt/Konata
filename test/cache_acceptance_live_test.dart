@@ -23,7 +23,7 @@ void main() {
     'live cache and scraping acceptance without a desktop window',
     () async {
       final root = Directory(
-        'release/validation/cache-2004/windows-headless',
+        'release/validation/network-2005/windows-headless',
       ).absolute;
       // Existing empty userdata suppresses legacy migration in this isolated run.
       await Directory(p.join(root.path, 'userdata')).create(recursive: true);
@@ -53,6 +53,10 @@ void main() {
       for (final sample in samples.where((s) => s['kind'] == 'offlineImages')) {
         expect(sample['count'], 4);
       }
+      expect(
+        samples.singleWhere((s) => s['kind'] == 'classification')['correct'],
+        true,
+      );
       expect(
         samples
             .where((s) => s['kind'] == 'scrape')

@@ -189,6 +189,7 @@ Future<Map<String, Object?>> runCacheAcceptance() async {
     for (final work in [
       <String, Object?>{'title': '地狱乐', 'year': 2023},
       <String, Object?>{'title': 'ちょびっツ', 'year': 2002},
+      <String, Object?>{'title': 'Jigokuraku', 'year': 2023},
     ]) {
       final scraper = PersonalMetadataScraper();
       final watch = Stopwatch()..start();
@@ -208,6 +209,28 @@ Future<Map<String, Object?>> runCacheAcceptance() async {
       } finally {
         scraper.close();
       }
+    }
+    final groupingScraper = PersonalMetadataScraper();
+    try {
+      final result = await groupingScraper.classify(
+        {'title': '@unclassified'},
+        [
+          {'id': 'a', 'name': '[Group] Jigokuraku (2023) - 01.mkv'},
+          {'id': 'b', 'name': '[Group] Chobits (2002) - 01.mkv'},
+          {'id': 'unknown', 'name': 'Unidentified private footage.mkv'},
+        ],
+      );
+      record({
+        'kind': 'classification',
+        'correct':
+            result['a']?.bangumiId == 325808 &&
+            result['b']?.bangumiId == 12 &&
+            result['unknown'] == null,
+      });
+    } catch (error) {
+      record({'kind': 'classification', 'error': error.runtimeType.toString()});
+    } finally {
+      groupingScraper.close();
     }
     report['diskBytes'] = await ImageStore.diskBytes();
     report['files'] = await root

@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'metadata_servers.dart';
 import 'debug_log.dart';
 import 'request_budget.dart';
+import 'transient_tls.dart';
 import 'artwork_cache.dart';
 import 'package:flutter/foundation.dart';
 
@@ -248,10 +249,18 @@ class ImageStore {
         );
       }
     }
+    final hasHealthyRoute = targets.any(
+      (target) =>
+          !(_unhealthy[Uri.parse(target).host]?.isAfter(DateTime.now()) ??
+              false),
+    );
     for (final target in targets.toSet()) {
       checkOwner(owner);
       final host = Uri.parse(target).host;
-      if (_unhealthy[host]?.isAfter(DateTime.now()) == true) continue;
+      if (hasHealthyRoute &&
+          _unhealthy[host]?.isAfter(DateTime.now()) == true) {
+        continue;
+      }
       try {
         // Share only transport bytes. Each consumer retains its own lifetime
         // checks and cache write, so removing one work cannot cancel another.
@@ -262,6 +271,7 @@ class ImageStore {
           }),
         );
         checkOwner(owner);
+        _unhealthy.remove(host);
         try {
           await storeCached(raw, bytes, checkActive: () => checkOwner(owner));
           if (owner == null) await (await cache).trimUnowned();
@@ -293,9 +303,9 @@ class ImageStore {
     final owned = client == null;
     final c = client ?? http.Client();
     try {
-      final response = await c
-          .send(http.Request('GET', Uri.parse(url)))
-          .timeout(const Duration(seconds: 15));
+      final response = await retryInterruptedTls(
+        () => c.send(http.Request('GET', Uri.parse(url))),
+      ).timeout(const Duration(seconds: 15));
       if (response.statusCode != 200) {
         throw HttpException('HTTP ${response.statusCode}');
       }

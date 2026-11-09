@@ -528,5 +528,11 @@
   "cacheDirectoryUnavailable": "暫時無法開啟快取目錄。",
   "detailBackdrop": "詳情頁背景圖",
   "cacheSettingFailed": "設定儲存失敗，請重試。",
-  "nameOrBangumiId": "名稱或 Bangumi ID"
+  "nameOrBangumiId": "名稱或 Bangumi ID",
+  "unclassified": "待歸類",
+  "assignToWork": "歸入作品",
+  "workName": "作品名稱",
+  "createClassification": "以此名稱建立作品",
+  "classificationHint": "僅調整媒體庫歸屬，不移動或重新命名原始檔案。選取同一媒體源的檔案後，可批次歸入已有作品或新建作品。",
+  "selectSourceFiles": "選取此媒體源全部檔案"
 }

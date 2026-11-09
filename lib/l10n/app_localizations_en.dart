@@ -1555,4 +1555,23 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get nameOrBangumiId => 'Name or Bangumi ID';
+
+  @override
+  String get unclassified => 'Unclassified';
+
+  @override
+  String get assignToWork => 'Assign to title';
+
+  @override
+  String get workName => 'Title name';
+
+  @override
+  String get createClassification => 'Create title with this name';
+
+  @override
+  String get classificationHint =>
+      'Only library assignments change; original files stay in place. Select files from one source, then assign them to an existing or new title.';
+
+  @override
+  String get selectSourceFiles => 'Select all from this source';
 }

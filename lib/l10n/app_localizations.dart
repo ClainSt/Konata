@@ -2894,6 +2894,42 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Name or Bangumi ID'**
   String get nameOrBangumiId;
+
+  /// No description provided for @unclassified.
+  ///
+  /// In en, this message translates to:
+  /// **'Unclassified'**
+  String get unclassified;
+
+  /// No description provided for @assignToWork.
+  ///
+  /// In en, this message translates to:
+  /// **'Assign to title'**
+  String get assignToWork;
+
+  /// No description provided for @workName.
+  ///
+  /// In en, this message translates to:
+  /// **'Title name'**
+  String get workName;
+
+  /// No description provided for @createClassification.
+  ///
+  /// In en, this message translates to:
+  /// **'Create title with this name'**
+  String get createClassification;
+
+  /// No description provided for @classificationHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Only library assignments change; original files stay in place. Select files from one source, then assign them to an existing or new title.'**
+  String get classificationHint;
+
+  /// No description provided for @selectSourceFiles.
+  ///
+  /// In en, this message translates to:
+  /// **'Select all from this source'**
+  String get selectSourceFiles;
 }
 
 class _AppLocalizationsDelegate

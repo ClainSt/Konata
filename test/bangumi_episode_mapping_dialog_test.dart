@@ -105,9 +105,16 @@ void main() {
         );
         Future<void> settle() async {
           await tester.pump();
-          await tester.runAsync(
-            () => Future<void>.delayed(const Duration(milliseconds: 100)),
-          );
+          // SQLite runs outside the fake clock. Wait for its busy indicator
+          // instead of assuming the real I/O finishes within a fixed 100 ms.
+          for (var i = 0; i < 200; i++) {
+            await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 25)),
+            );
+            await tester.pump();
+            if (find.byType(LinearProgressIndicator).evaluate().isEmpty) break;
+          }
+          expect(find.byType(LinearProgressIndicator), findsNothing);
           await tester.pumpAndSettle();
         }
 

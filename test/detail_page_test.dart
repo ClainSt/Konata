@@ -114,10 +114,35 @@ void main() {
         reason: '$size',
       );
       final cover = find.byKey(const ValueKey('detail-portrait-cover'));
+      final backButton = tester.widget<IconButton>(
+        find.byKey(const ValueKey('detail-back-button')),
+      );
+      final moreButton = tester.widget<PopupMenuButton<String>>(
+        find.byKey(const ValueKey('detail-more-button')),
+      );
       if (size.width < 650 && size.height > size.width) {
         expect(tester.getSize(cover).width, size.width);
+        expect(
+          backButton.style?.backgroundColor?.resolve({}),
+          Colors.transparent,
+        );
+        expect(
+          moreButton.style?.backgroundColor?.resolve({}),
+          Colors.transparent,
+        );
+        expect((backButton.icon as Icon).color, Colors.white);
+        expect((moreButton.icon as Icon).color, Colors.white);
+        expect((backButton.icon as Icon).shadows, isNotEmpty);
+        expect(
+          find.byKey(const ValueKey('detail-navigation-scrim')),
+          findsOneWidget,
+        );
       } else {
         expect(cover, findsNothing);
+        expect(
+          find.byKey(const ValueKey('detail-navigation-scrim')),
+          findsNothing,
+        );
       }
       expect(tester.takeException(), isNull);
     }
@@ -138,6 +163,14 @@ void main() {
     expect(find.text('特典  2'), findsOneWidget);
     expect(find.text('未看'), findsOneWidget);
     expect(find.text('0%'), findsNothing);
+    final mainPlaceholder = find.byKey(
+      const ValueKey('detail-episode-placeholder:Work/01.mkv'),
+    );
+    expect(mainPlaceholder, findsOneWidget);
+    expect(
+      find.descendant(of: mainPlaceholder, matching: find.byType(FittedBox)),
+      findsOneWidget,
+    );
 
     // The primary play button must offer versions too, before opening a player.
     await tester.tap(find.text('开始播放'));

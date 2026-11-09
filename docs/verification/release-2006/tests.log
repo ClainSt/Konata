@@ -1,0 +1,939 @@
+00:00 +0: loading D:/Codex-Projects/Konata/build/offline-release/test/adaptive_shell_layout_test.dart
+00:00 +0: D:/Codex-Projects/Konata/build/offline-release/test/adaptive_shell_layout_test.dart: tablet landscape uses two panes and phone width uses category home
+00:00 +1: D:/Codex-Projects/Konata/build/offline-release/test/adaptive_shell_layout_test.dart: tablet landscape uses two panes and phone width uses category home
+00:00 +2: D:/Codex-Projects/Konata/build/offline-release/test/adaptive_shell_layout_test.dart: tablet landscape uses two panes and phone width uses category home
+00:00 +3: D:/Codex-Projects/Konata/build/offline-release/test/adaptive_shell_layout_test.dart: tablet landscape uses two panes and phone width uses category home
+00:00 +4: D:/Codex-Projects/Konata/build/offline-release/test/adaptive_shell_layout_test.dart: tablet landscape uses two panes and phone width uses category home
+00:00 +5: D:/Codex-Projects/Konata/build/offline-release/test/adaptive_shell_layout_test.dart: tablet landscape uses two panes and phone width uses category home
+00:00 +6: D:/Codex-Projects/Konata/build/offline-release/test/adaptive_shell_layout_test.dart: tablet landscape uses two panes and phone width uses category home
+00:00 +7: D:/Codex-Projects/Konata/build/offline-release/test/adaptive_shell_layout_test.dart: tablet landscape uses two panes and phone width uses category home
+00:01 +8: D:/Codex-Projects/Konata/build/offline-release/test/app_language_test.dart: real app navigation switches language while keeping current settings page
+00:01 +9: D:/Codex-Projects/Konata/build/offline-release/test/app_language_test.dart: real app navigation switches language while keeping current settings page
+00:01 +10: D:/Codex-Projects/Konata/build/offline-release/test/app_language_test.dart: real app navigation switches language while keeping current settings page
+00:01 +11: D:/Codex-Projects/Konata/build/offline-release/test/app_language_test.dart: real app navigation switches language while keeping current settings page
+00:01 +12: D:/Codex-Projects/Konata/build/offline-release/test/app_language_test.dart: real app navigation switches language while keeping current settings page
+00:01 +13: D:/Codex-Projects/Konata/build/offline-release/test/app_language_test.dart: real app navigation switches language while keeping current settings page
+00:01 +14: D:/Codex-Projects/Konata/build/offline-release/test/app_language_test.dart: real app navigation switches language while keeping current settings page
+00:01 +15: D:/Codex-Projects/Konata/build/offline-release/test/app_language_test.dart: real app navigation switches language while keeping current settings page
+00:02 +16: D:/Codex-Projects/Konata/build/offline-release/test/app_language_test.dart: real app navigation switches language while keeping current settings page
+00:02 +17: D:/Codex-Projects/Konata/build/offline-release/test/app_language_test.dart: real app navigation switches language while keeping current settings page
+00:02 +18: D:/Codex-Projects/Konata/build/offline-release/test/app_language_test.dart: real app navigation switches language while keeping current settings page
+00:02 +19: D:/Codex-Projects/Konata/build/offline-release/test/app_shell_test.dart: rapid navigation removes source ghosts and animates the incoming page, mobile=true
+00:02 +20: D:/Codex-Projects/Konata/build/offline-release/test/app_shell_test.dart: rapid navigation removes source ghosts and animates the incoming page, mobile=true
+00:02 +21: D:/Codex-Projects/Konata/build/offline-release/test/app_shell_test.dart: rapid navigation removes source ghosts and animates the incoming page, mobile=true
+00:02 +22: D:/Codex-Projects/Konata/build/offline-release/test/app_shell_test.dart: rapid navigation removes source ghosts and animates the incoming page, mobile=true
+00:02 +23: D:/Codex-Projects/Konata/build/offline-release/test/app_shell_test.dart: rapid navigation removes source ghosts and animates the incoming page, mobile=true
+00:02 +24: D:/Codex-Projects/Konata/build/offline-release/test/app_shell_test.dart: rapid navigation removes source ghosts and animates the incoming page, mobile=true
+00:02 +25: D:/Codex-Projects/Konata/build/offline-release/test/app_shell_test.dart: rapid navigation removes source ghosts and animates the incoming page, mobile=true
+00:03 +26: D:/Codex-Projects/Konata/build/offline-release/test/app_shell_test.dart: rapid navigation removes source ghosts and animates the incoming page, mobile=true
+00:03 +27: D:/Codex-Projects/Konata/build/offline-release/test/app_shell_test.dart: rapid navigation removes source ghosts and animates the incoming page, mobile=true
+00:03 +28: D:/Codex-Projects/Konata/build/offline-release/test/app_shell_test.dart: rapid navigation removes source ghosts and animates the incoming page, mobile=true
+00:03 +28: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_episode_mapping_test.dart: wrong parent, specials, redirects, auth/rate errors and malformed JSON never persist
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:03 +29: D:/Codex-Projects/Konata/build/offline-release/test/app_shell_test.dart: rapid navigation removes source ghosts and animates the incoming page, mobile=true
+00:03 +29: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_episode_mapping_test.dart: identity edits during network verification abort persistence
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:03 +30: D:/Codex-Projects/Konata/build/offline-release/test/app_shell_test.dart: rapid navigation removes source ghosts and animates the incoming page, mobile=true
+00:03 +31: D:/Codex-Projects/Konata/build/offline-release/test/app_shell_test.dart: rapid navigation removes source ghosts and animates the incoming page, mobile=true
+00:03 +32: D:/Codex-Projects/Konata/build/offline-release/test/app_shell_test.dart: rapid navigation removes source ghosts and animates the incoming page, mobile=true
+00:03 +33: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_episode_mapping_dialog_test.dart: review/save/revoke on narrow large-text en
+00:03 +34: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_episode_mapping_dialog_test.dart: review/save/revoke on narrow large-text en
+00:03 +35: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_episode_mapping_dialog_test.dart: review/save/revoke on narrow large-text en
+00:04 +36: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_episode_mapping_dialog_test.dart: review/save/revoke on narrow large-text en
+00:04 +37: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_episode_mapping_dialog_test.dart: review/save/revoke on narrow large-text en
+00:04 +37 ~1: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_episode_mapping_dialog_test.dart: review/save/revoke on narrow large-text en
+00:04 +37 ~2: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_episode_mapping_dialog_test.dart: review/save/revoke on narrow large-text en
+00:04 +38 ~2: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_episode_mapping_dialog_test.dart: review/save/revoke on narrow large-text en
+00:04 +39 ~2: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_episode_mapping_dialog_test.dart: review/save/revoke on narrow large-text en
+00:04 +40 ~2: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_episode_mapping_dialog_test.dart: review/save/revoke on narrow large-text en
+00:04 +40 ~3: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_episode_mapping_dialog_test.dart: review/save/revoke on narrow large-text en
+00:04 +41 ~3: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_episode_mapping_dialog_test.dart: review/save/revoke on narrow large-text en
+00:04 +42 ~3: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_episode_mapping_dialog_test.dart: review/save/revoke on narrow large-text en
+00:04 +43 ~3: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_episode_mapping_dialog_test.dart: review/save/revoke on narrow large-text en
+00:04 +44 ~3: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_offline_download_test.dart: cancelled official download resumes and validates before atomic replacement
+00:04 +44 ~3: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_episode_mapping_dialog_test.dart: review/save/revoke on narrow large-text zh-Hant
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:05 +45 ~3: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_offline_download_test.dart: cancelled official download resumes and validates before atomic replacement
+00:05 +46 ~3: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_offline_download_test.dart: cancelled official download resumes and validates before atomic replacement
+00:05 +47 ~3: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_offline_download_test.dart: cancelled official download resumes and validates before atomic replacement
+00:05 +48 ~3: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_offline_download_test.dart: cancelled official download resumes and validates before atomic replacement
+00:05 +49 ~3: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_offline_download_test.dart: cancelled official download resumes and validates before atomic replacement
+00:05 +50 ~3: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_offline_download_test.dart: cancelled official download resumes and validates before atomic replacement
+00:05 +51 ~3: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_offline_download_test.dart: cancelled official download resumes and validates before atomic replacement
+00:05 +52 ~3: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_offline_download_test.dart: cancelled official download resumes and validates before atomic replacement
+00:05 +52 ~4: D:/Codex-Projects/Konata/build/offline-release/test/bangumi_offline_download_test.dart: cancelled official download resumes and validates before atomic replacement
+00:06 +53 ~4: D:/Codex-Projects/Konata/build/offline-release/test/app_shell_test.dart: top navigation, theme shortcut and categorized settings work
+00:06 +53 ~5: D:/Codex-Projects/Konata/build/offline-release/test/app_shell_test.dart: top navigation, theme shortcut and categorized settings work
+00:06 +53 ~6: D:/Codex-Projects/Konata/build/offline-release/test/app_shell_test.dart: top navigation, theme shortcut and categorized settings work
+00:06 +53 ~7: D:/Codex-Projects/Konata/build/offline-release/test/app_shell_test.dart: top navigation, theme shortcut and categorized settings work
+00:07 +54 ~7: D:/Codex-Projects/Konata/build/offline-release/test/app_shell_test.dart: top navigation, theme shortcut and categorized settings work
+00:07 +55 ~7: D:/Codex-Projects/Konata/build/offline-release/test/app_shell_test.dart: top navigation, theme shortcut and categorized settings work
+00:07 +56 ~7: D:/Codex-Projects/Konata/build/offline-release/test/debug_log_test.dart: large legacy errors remain bounded and retain their anchor
+00:07 +57 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_localization_test.dart: localized detail controls at narrow large text: false
+00:07 +58 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_localization_test.dart: localized detail controls at narrow large text: false
+00:07 +59 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_localization_test.dart: localized detail controls at narrow large text: false
+00:07 +60 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_localization_test.dart: localized detail controls at narrow large text: false
+00:07 +61 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_localization_test.dart: localized detail controls at narrow large text: false
+00:07 +62 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_localization_test.dart: localized detail controls at narrow large text: false
+00:07 +63 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_localization_test.dart: localized detail controls at narrow large text: false
+00:07 +64 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_localization_test.dart: localized detail controls at narrow large text: false
+00:07 +65 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_localization_test.dart: localized detail controls at narrow large text: false
+00:07 +66 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_localization_test.dart: localized detail controls at narrow large text: false
+00:08 +67 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_localization_test.dart: localized detail controls at narrow large text: false
+00:08 +68 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_localization_test.dart: localized detail controls at narrow large text: false
+00:08 +69 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_localization_test.dart: localized detail controls at narrow large text: false
+00:08 +70 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_localization_test.dart: localized detail controls at narrow large text: false
+00:08 +71 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_localization_test.dart: localized detail controls at narrow large text: false
+00:08 +72 ~7: D:/Codex-Projects/Konata/build/offline-release/test/debug_log_test.dart: flood bounds pending writes; export keeps anchor and reports loss
+00:08 +73 ~7: D:/Codex-Projects/Konata/build/offline-release/test/debug_log_test.dart: flood bounds pending writes; export keeps anchor and reports loss
+00:08 +74 ~7: D:/Codex-Projects/Konata/build/offline-release/test/debug_log_test.dart: flood bounds pending writes; export keeps anchor and reports loss
+00:08 +75 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:09 +76 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:09 +77 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:09 +78 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:09 +79 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:09 +80 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:09 +81 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:09 +82 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:09 +83 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:09 +84 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:09 +85 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:09 +86 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:09 +87 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:09 +88 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:09 +89 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:09 +90 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:09 +91 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:09 +92 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:10 +93 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:10 +94 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:10 +95 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:10 +96 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:10 +97 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:10 +98 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:10 +99 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:10 +100 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:10 +101 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:10 +102 ~7: D:/Codex-Projects/Konata/build/offline-release/test/detail_page_test.dart: NipaPlay detail has only more menu and fixed back navigation
+00:10 +103 ~7: D:/Codex-Projects/Konata/build/offline-release/test/konata_ui_test.dart: library filter and search update count, no overflowing toolbar
+00:11 +104 ~7: D:/Codex-Projects/Konata/build/offline-release/test/konata_ui_test.dart: library filter and search update count, no overflowing toolbar
+00:11 +104 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restorer_test.dart: cache cleanup failure allows another restore and later retries safely
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:11 +105 ~7: D:/Codex-Projects/Konata/build/offline-release/test/konata_ui_test.dart: library filter and search update count, no overflowing toolbar
+00:11 +106 ~7: D:/Codex-Projects/Konata/build/offline-release/test/konata_ui_test.dart: library filter and search update count, no overflowing toolbar
+00:12 +107 ~7: D:/Codex-Projects/Konata/build/offline-release/test/konata_ui_test.dart: library filter and search update count, no overflowing toolbar
+00:12 +107 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restorer_test.dart: failed replacement keeps the current library cache owners
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:12 +108 ~7: D:/Codex-Projects/Konata/build/offline-release/test/konata_ui_test.dart: library filter and search update count, no overflowing toolbar
+00:12 +109 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:12 +110 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:12 +111 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:12 +112 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:12 +113 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:12 +114 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:12 +114 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restorer_test.dart: full replacement preserves all portable tables and supports undo backup
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:12 +115 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:12 +115 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restorer_test.dart: SQL failure rolls back records and removes only newly imported artwork
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:12 +116 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:12 +117 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:13 +118 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:13 +118 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restorer_test.dart: startup recovers interrupted preference writes (committed=0)
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:13 +119 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:13 +119 ~7: D:/Codex-Projects/Konata/build/offline-release/test/logical_episode_store_test.dart: confirmed identity persists across paths, respects corrections and revokes
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:13 +120 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:13 +120 ~7: D:/Codex-Projects/Konata/build/offline-release/test/logical_episode_store_test.dart: v15 upgrade preserves history and both backup schemas remain readable
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:13 +120 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restorer_test.dart: startup recovers interrupted preference writes (committed=0)
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:13 +121 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:13 +121 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restorer_test.dart: startup recovers interrupted preference writes (committed=1)
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:13 +122 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:13 +122 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restorer_test.dart: startup recovers interrupted preference writes (committed=1)
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:13 +123 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:13 +123 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restorer_test.dart: restores schema 15 without inventing missing events
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:13 +124 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:13 +125 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:13 +125 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restorer_test.dart: restores schema 16 without inventing missing events
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:14 +126 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:14 +126 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restorer_test.dart: restores schema 17 without inventing missing events
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:14 +127 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:14 +127 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restorer_test.dart: invalid preference types rejected before writes
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:14 +128 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:14 +129 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:14 +130 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:14 +131 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:14 +132 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:14 +133 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:14 +134 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:14 +135 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:14 +135 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restorer_test.dart: preference write failure also rolls back committed-looking settings and DB
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:14 +136 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:14 +136 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restorer_test.dart: unknown columns rejected before writes
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:14 +137 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:14 +138 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:14 +138 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restorer_test.dart: duplicate primary keys abort whole replacement
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:15 +139 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:15 +140 ~7: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:15 +140 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:15 +141 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:15 +142 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:15 +143 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:15 +144 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:15 +144 ~8: D:/Codex-Projects/Konata/build/offline-release/test/manual_match_layout_test.dart: manual match uses highlight and a separate search button TargetPlatform.windows Size(844.0, 390.0)
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:16 +145 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +145 ~8: D:/Codex-Projects/Konata/build/offline-release/test/metadata_migration_test.dart: v12 containing 1 metadata columns upgrades without overwriting user data
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:16 +146 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +146 ~8: D:/Codex-Projects/Konata/build/offline-release/test/metadata_migration_test.dart: v12 containing 4 metadata columns upgrades without overwriting user data
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:16 +147 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +147 ~8: D:/Codex-Projects/Konata/build/offline-release/test/metadata_migration_test.dart: v12 upgrade preserves progress and bindings; cropped artwork survives scrape and restart
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:16 +148 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +149 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +149 ~8: D:/Codex-Projects/Konata/build/offline-release/test/metadata_migration_test.dart: v12 upgrade preserves progress and bindings; cropped artwork survives scrape and restart
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:16 +150 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +151 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +152 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +153 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +154 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +155 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +156 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +157 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +158 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +159 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +160 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +161 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +162 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +163 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +164 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +165 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +165 ~8: D:/Codex-Projects/Konata/build/offline-release/test/manual_match_layout_test.dart: manual match uses highlight and a separate search button TargetPlatform.windows Size(1366.0, 900.0)
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:16 +166 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +167 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +168 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +169 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +170 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:16 +171 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:17 +172 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:17 +172 ~8: D:/Codex-Projects/Konata/build/offline-release/test/metadata_latency_test.dart: independent TV and movie searches overlap without changing ambiguous-match rules
+SEARCH_BENCH elapsedMs=126 maxConcurrent=2
+00:17 +173 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:17 +174 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:17 +174 ~8: D:/Codex-Projects/Konata/build/offline-release/test/manual_match_layout_test.dart: manual match uses highlight and a separate search button TargetPlatform.android Size(320.0, 640.0)
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:17 +175 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:17 +176 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:17 +177 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:17 +178 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:17 +179 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:17 +180 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:17 +180 ~8: D:/Codex-Projects/Konata/build/offline-release/test/manual_match_layout_test.dart: manual match uses highlight and a separate search button TargetPlatform.android Size(844.0, 390.0)
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:18 +181 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:18 +182 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:18 +183 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:18 +184 ~8: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:18 +184 ~9: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:18 +185 ~9: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:18 +185 ~9: D:/Codex-Projects/Konata/build/offline-release/test/manual_match_layout_test.dart: manual match uses highlight and a separate search button TargetPlatform.android Size(1366.0, 900.0)
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:18 +185 ~10: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:18 +185 ~11: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:18 +186 ~11: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:19 +187 ~11: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:19 +188 ~11: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:19 +188 ~12: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:19 +189 ~12: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:19 +190 ~12: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:19 +190 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:19 +191 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:19 +192 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:19 +193 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +194 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +195 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +196 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +197 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +198 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +199 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +200 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +201 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +202 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +203 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +204 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +205 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +206 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +207 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +208 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +209 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +210 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +211 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +212 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +213 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +214 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +215 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +216 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:20 +217 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +218 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +219 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +220 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +221 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +222 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +223 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +224 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +225 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +226 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +227 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +228 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +229 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +230 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +231 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +232 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +233 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +234 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +235 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +236 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +237 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +238 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +239 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +240 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +241 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +242 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +243 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +244 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +245 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +246 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +247 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +248 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +249 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +250 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +251 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +252 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +253 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +254 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +255 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +256 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +257 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +258 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:21 +259 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:22 +260 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:22 +261 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:22 +262 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:22 +263 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:22 +264 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:22 +265 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:22 +266 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:22 +267 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:22 +268 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:22 +269 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:23 +270 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:23 +271 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:23 +272 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:23 +273 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:23 +274 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:23 +275 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:23 +276 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:23 +277 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:23 +278 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:23 +279 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:23 +280 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:23 +281 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:24 +282 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:24 +283 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:24 +284 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:24 +285 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:24 +286 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:24 +287 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:24 +288 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:24 +289 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:24 +290 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:24 +291 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:24 +292 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:24 +293 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:24 +294 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:24 +295 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:24 +296 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:24 +297 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:24 +298 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:24 +299 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:25 +300 ~13: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:25 +300 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:25 +301 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:25 +302 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:25 +303 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +303 ~14: D:/Codex-Projects/Konata/build/offline-release/test/playback_history_test.dart: v13 progress migrates and manual state persists across reopen
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:26 +304 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +304 ~14: D:/Codex-Projects/Konata/build/offline-release/test/playback_history_test.dart: v13 progress migrates and manual state persists across reopen
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:26 +305 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +306 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +307 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +308 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +309 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +310 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +311 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +312 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +313 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +314 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +315 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +316 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +317 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +318 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +319 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +320 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +321 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +322 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +323 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +324 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +325 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:26 +326 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:27 +327 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:27 +327 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: rescraping virtual groups isolates pending files and protects locked targets
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:27 +328 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:27 +328 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: virtual grouping survives rescan, manual batch is atomic and preserves progress
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:27 +329 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:27 +330 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:27 +330 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:27 +331 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:27 +332 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:27 +333 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:27 +334 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:27 +335 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:27 +336 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:27 +337 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:27 +338 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:27 +339 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:27 +340 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:27 +341 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:27 +342 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:27 +343 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:27 +344 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:28 +345 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:28 +346 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+00:28 +347 ~14: D:/Codex-Projects/Konata/build/offline-release/test/library_backup_restore_flow_test.dart: preview cancel, confirm restore, and restore the automatic backup
+BACKUP_RESTORE_UI_PASS 16682ms windows
+00:28 +348 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:28 +349 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:28 +350 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:28 +351 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:28 +352 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:28 +353 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:29 +354 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:29 +355 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:29 +356 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:29 +357 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:29 +358 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:29 +359 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:29 +360 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:29 +361 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:29 +362 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:29 +363 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:29 +364 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:29 +365 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:29 +366 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:29 +367 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:29 +368 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:29 +369 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:29 +370 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:29 +371 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:30 +372 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:30 +373 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:30 +374 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:30 +375 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:30 +376 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:30 +377 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:30 +378 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:30 +379 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:32 +380 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:32 +381 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:32 +382 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:32 +383 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:32 +384 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:32 +385 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:33 +386 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:33 +387 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:33 +388 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:33 +389 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:33 +390 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:34 +391 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:34 +392 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:34 +393 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:34 +394 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:34 +395 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:34 +396 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:34 +397 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:34 +398 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:34 +399 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:34 +400 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:35 +401 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:35 +402 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:35 +403 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:35 +404 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:35 +405 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:35 +406 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:35 +407 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:35 +408 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:35 +409 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:35 +410 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:35 +411 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:36 +412 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:36 +413 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:36 +414 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:36 +415 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:36 +416 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:36 +417 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:36 +418 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:36 +419 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:36 +420 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:36 +421 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:36 +422 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:36 +423 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:36 +424 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:36 +425 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:36 +426 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:36 +427 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:36 +428 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:36 +429 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:36 +430 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +431 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +432 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +433 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +434 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +435 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +436 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +436 ~14: D:/Codex-Projects/Konata/build/offline-release/test/watched_progress_test.dart: v14 migration preserves old progress; intervals persist, deduplicate and respect manual status
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:37 +437 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +438 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +439 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +439 ~14: D:/Codex-Projects/Konata/build/offline-release/test/watched_progress_test.dart: v14 migration preserves old progress; intervals persist, deduplicate and respect manual status
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:37 +440 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +441 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +442 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +443 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +444 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +445 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +446 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +447 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +448 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +449 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +450 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +451 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +452 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:37 +453 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:38 +454 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:38 +454 ~14: D:/Codex-Projects/Konata/build/offline-release/test/watch_event_origin_test.dart: rename is stable; identity change-back and reconfirm never resurrect old evidence
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:38 +455 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:38 +455 ~14: D:/Codex-Projects/Konata/build/offline-release/test/watch_event_origin_test.dart: retractions replicate, survive reverse delivery, and cannot revoke another device
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:38 +456 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:38 +457 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:38 +458 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:38 +459 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:38 +459 ~14: D:/Codex-Projects/Konata/build/offline-release/test/watch_event_origin_test.dart: one bad version does not revoke independent evidence; manual unwatched is eligible
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:38 +460 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:38 +460 ~14: D:/Codex-Projects/Konata/build/offline-release/test/watch_event_store_test.dart: real save path is atomic, persists and does not backfill seek positions
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:39 +461 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:39 +461 ~14: D:/Codex-Projects/Konata/build/offline-release/test/watch_event_origin_test.dart: manual binding change, deletion and transaction rollback invalidate precisely
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:39 +461 ~14: D:/Codex-Projects/Konata/build/offline-release/test/watch_event_store_test.dart: real save path is atomic, persists and does not backfill seek positions
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:39 +462 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:39 +462 ~14: D:/Codex-Projects/Konata/build/offline-release/test/watch_event_store_test.dart: history confirms and revokes an episode; conflict offers both decisions
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:39 +462 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:39 +463 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:39 +463 ~14: D:/Codex-Projects/Konata/build/offline-release/test/watch_event_origin_test.dart: 17 upgrade preserves legacy events but never guesses provenance
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:39 +464 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:39 +465 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:39 +466 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:39 +466 ~14: D:/Codex-Projects/Konata/build/offline-release/test/watch_event_origin_test.dart: 17 upgrade preserves legacy events but never guesses provenance
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:39 +467 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:39 +468 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:40 +469 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:40 +470 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:40 +471 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:40 +472 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:41 +473 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:41 +474 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:41 +475 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:41 +476 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:41 +477 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:42 +478 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:42 +479 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+00:42 +480 ~14: D:/Codex-Projects/Konata/build/offline-release/test/scrape_classification_test.dart: 1001 TV works / 12012 files use two metadata requests per title and skip completed on resume
+SCRAPE_SCALE titles=1001 assets=12012 requests=2002 elapsedMs=14867
+00:42 +481 ~14: D:/Codex-Projects/Konata/build/offline-release/test/webdav_scrape_scale_test.dart: 1001 WebDAV BDRip directories scan and scrape without reading media bytes
+00:42 +482 ~14: D:/Codex-Projects/Konata/build/offline-release/test/webdav_scrape_scale_test.dart: 1001 WebDAV BDRip directories scan and scrape without reading media bytes
+00:42 +483 ~14: D:/Codex-Projects/Konata/build/offline-release/test/webdav_scrape_scale_test.dart: 1001 WebDAV BDRip directories scan and scrape without reading media bytes
+00:44 +484 ~14: D:/Codex-Projects/Konata/build/offline-release/test/webdav_scrape_scale_test.dart: 1001 WebDAV BDRip directories scan and scrape without reading media bytes
+00:49 +485 ~14: D:/Codex-Projects/Konata/build/offline-release/test/webdav_scrape_scale_test.dart: 1001 WebDAV BDRip directories scan and scrape without reading media bytes
+00:49 +486 ~14: D:/Codex-Projects/Konata/build/offline-release/test/webdav_scrape_scale_test.dart: 1001 WebDAV BDRip directories scan and scrape without reading media bytes
+00:49 +487 ~14: D:/Codex-Projects/Konata/build/offline-release/test/webdav_scrape_scale_test.dart: 1001 WebDAV BDRip directories scan and scrape without reading media bytes
+00:50 +488 ~14: D:/Codex-Projects/Konata/build/offline-release/test/webdav_scrape_scale_test.dart: 1001 WebDAV BDRip directories scan and scrape without reading media bytes
+00:50 +489 ~14: D:/Codex-Projects/Konata/build/offline-release/test/webdav_scrape_scale_test.dart: 1001 WebDAV BDRip directories scan and scrape without reading media bytes
+00:50 +490 ~14: D:/Codex-Projects/Konata/build/offline-release/test/webdav_scrape_scale_test.dart: 1001 WebDAV BDRip directories scan and scrape without reading media bytes
+00:50 +491 ~14: D:/Codex-Projects/Konata/build/offline-release/test/webdav_scrape_scale_test.dart: 1001 WebDAV BDRip directories scan and scrape without reading media bytes
+00:50 +492 ~14: D:/Codex-Projects/Konata/build/offline-release/test/webdav_scrape_scale_test.dart: 1001 WebDAV BDRip directories scan and scrape without reading media bytes
+00:50 +493 ~14: D:/Codex-Projects/Konata/build/offline-release/test/webdav_scrape_scale_test.dart: 1001 WebDAV BDRip directories scan and scrape without reading media bytes
+00:50 +494 ~14: D:/Codex-Projects/Konata/build/offline-release/test/webdav_scrape_scale_test.dart: 1001 WebDAV BDRip directories scan and scrape without reading media bytes
+00:50 +495 ~14: D:/Codex-Projects/Konata/build/offline-release/test/webdav_scrape_scale_test.dart: 1001 WebDAV BDRip directories scan and scrape without reading media bytes
+WEBDAV_SCALE directories=1002 titles=1001 assets=12012 mediaReads=0 metadataRequests=2002 elapsedMs=27159
+01:07 +496 ~14: All tests passed!

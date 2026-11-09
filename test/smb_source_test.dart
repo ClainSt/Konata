@@ -282,6 +282,9 @@ void main() {
           }
           final response = await request.close();
           expect(response.statusCode, entry.$3);
+          if (entry.$1 == 'GET' && entry.$3 != 416) {
+            expect(response.persistentConnection, isFalse);
+          }
           expect(
             await response.fold<List<int>>([], (a, b) => a..addAll(b)),
             entry.$4,

@@ -1489,6 +1489,68 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get selectSourceFiles => '选择此媒体源全部文件';
+
+  @override
+  String get offlineBangumi => 'Bangumi 离线数据库';
+
+  @override
+  String get offlineBangumiHint => '本地识别动画名称，缺失资料与图片按需联网获取。';
+
+  @override
+  String get offlineNotInstalled => '尚未安装离线数据库';
+
+  @override
+  String get offlineInstalled => '已安装快照';
+
+  @override
+  String get offlineCheck => '检查更新';
+
+  @override
+  String get offlineDownload => '下载／更新';
+
+  @override
+  String get offlineImport => '导入官方 ZIP';
+
+  @override
+  String get offlineUpToDate => '当前快照已是最新。';
+
+  @override
+  String get offlineAvailable => '可用快照及下载大小';
+
+  @override
+  String get offlineImporting => '正在整理动画索引…';
+
+  @override
+  String get offlineIndexing => '正在建立动画索引…';
+
+  @override
+  String get offlineDownloading => '正在下载官方快照…';
+
+  @override
+  String get offlineReady => '离线数据库已就绪。';
+
+  @override
+  String get offlineFailed => '更新失败，原数据库已保留。可以重试或导入官方 ZIP。';
+
+  @override
+  String get offlineUpdateHelp =>
+      '仅在你点击时检查更新。下载可取消并续传，更新期间仍可使用旧索引，校验通过后才替换。更新索引不会自动重新刮削媒体库。移除索引和下载临时文件不会影响媒体库与观看记录。';
+
+  @override
+  String get offlineSnapshotHelp =>
+      '请选择 bangumi/Archive 发布的 ZIP。同一 ZIP 可传到另一台设备直接导入，无需重复下载。';
+
+  @override
+  String get offlineOfficialSite => '官方快照下载';
+
+  @override
+  String get offlineRemove => '移除索引及下载临时文件';
+
+  @override
+  String get offlineCount => '动画条目';
+
+  @override
+  String get offlineIndexSize => '索引大小';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -2976,6 +3038,68 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get selectSourceFiles => '选择此媒体源全部文件';
+
+  @override
+  String get offlineBangumi => 'Bangumi 离线数据库';
+
+  @override
+  String get offlineBangumiHint => '本地识别动画名称，缺失资料与图片按需联网获取。';
+
+  @override
+  String get offlineNotInstalled => '尚未安装离线数据库';
+
+  @override
+  String get offlineInstalled => '已安装快照';
+
+  @override
+  String get offlineCheck => '检查更新';
+
+  @override
+  String get offlineDownload => '下载／更新';
+
+  @override
+  String get offlineImport => '导入官方 ZIP';
+
+  @override
+  String get offlineUpToDate => '当前快照已是最新。';
+
+  @override
+  String get offlineAvailable => '可用快照及下载大小';
+
+  @override
+  String get offlineImporting => '正在整理动画索引…';
+
+  @override
+  String get offlineIndexing => '正在建立动画索引…';
+
+  @override
+  String get offlineDownloading => '正在下载官方快照…';
+
+  @override
+  String get offlineReady => '离线数据库已就绪。';
+
+  @override
+  String get offlineFailed => '更新失败，原数据库已保留。可以重试或导入官方 ZIP。';
+
+  @override
+  String get offlineUpdateHelp =>
+      '仅在你点击时检查更新。下载可取消并续传，更新期间仍可使用旧索引，校验通过后才替换。更新索引不会自动重新刮削媒体库。移除索引和下载临时文件不会影响媒体库与观看记录。';
+
+  @override
+  String get offlineSnapshotHelp =>
+      '请选择 bangumi/Archive 发布的 ZIP。同一 ZIP 可传到另一台设备直接导入，无需重复下载。';
+
+  @override
+  String get offlineOfficialSite => '官方快照下载';
+
+  @override
+  String get offlineRemove => '移除索引及下载临时文件';
+
+  @override
+  String get offlineCount => '动画条目';
+
+  @override
+  String get offlineIndexSize => '索引大小';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4463,4 +4587,66 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get selectSourceFiles => '選取此媒體源全部檔案';
+
+  @override
+  String get offlineBangumi => 'Bangumi 離線資料庫';
+
+  @override
+  String get offlineBangumiHint => '本機識別動畫名稱，缺少的資料與圖片按需連線取得。';
+
+  @override
+  String get offlineNotInstalled => '尚未安裝離線資料庫';
+
+  @override
+  String get offlineInstalled => '已安裝快照';
+
+  @override
+  String get offlineCheck => '檢查更新';
+
+  @override
+  String get offlineDownload => '下載／更新';
+
+  @override
+  String get offlineImport => '匯入官方 ZIP';
+
+  @override
+  String get offlineUpToDate => '目前快照已是最新。';
+
+  @override
+  String get offlineAvailable => '可用快照及下載大小';
+
+  @override
+  String get offlineImporting => '正在整理動畫索引…';
+
+  @override
+  String get offlineIndexing => '正在建立動畫索引…';
+
+  @override
+  String get offlineDownloading => '正在下載官方快照…';
+
+  @override
+  String get offlineReady => '離線資料庫已就緒。';
+
+  @override
+  String get offlineFailed => '更新失敗，原資料庫已保留。可以重試或匯入官方 ZIP。';
+
+  @override
+  String get offlineUpdateHelp =>
+      '僅在你點選時檢查更新。下載可取消並續傳，更新期間仍可使用舊索引，驗證通過後才替換。更新索引不會自動重新刮削媒體庫。移除索引和下載暫存檔案不會影響媒體庫與觀看紀錄。';
+
+  @override
+  String get offlineSnapshotHelp =>
+      '請選擇 bangumi/Archive 發布的 ZIP。同一 ZIP 可傳到另一台裝置直接匯入，無需重複下載。';
+
+  @override
+  String get offlineOfficialSite => '官方快照下載';
+
+  @override
+  String get offlineRemove => '移除索引及下載暫存檔案';
+
+  @override
+  String get offlineCount => '動畫條目';
+
+  @override
+  String get offlineIndexSize => '索引大小';
 }

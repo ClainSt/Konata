@@ -1,0 +1,73 @@
+{
+  "androidVersionCode": 4006,
+  "limitations": [
+    "No full-library human ground truth",
+    "Phone direct github.com archive download timed out; manifest and manual import passed",
+    "No CPU/GPU/power measurement",
+    "Concurrent HDR changes excluded"
+  ],
+  "testsPassed": 496,
+  "androidBytes": 59158728,
+  "windowsPayloadBytes": 126894125,
+  "baselineInventory": {
+    "finishedGroups": 3211,
+    "totalGroups": 3211,
+    "groupStatus": {
+      "matched": 1788,
+      "needs_review": 1313,
+      "conflict": 38,
+      "error": 72
+    },
+    "titleOnlyStatus": {
+      "consistent": 2138,
+      "no_reference": 296,
+      "unlinked_providers": 291,
+      "unmatched_or_ambiguous": 444,
+      "identity_conflict": 42
+    },
+    "distinctMainFilenameIdentityStatus": {
+      "consistent_with_reference": 1902,
+      "unmatched_or_ambiguous": 2823,
+      "no_reference": 170,
+      "unlinked_providers": 68,
+      "consistent_unverified_reference": 48,
+      "identity_conflict": 32,
+      "episode_or_generic_extra": 8
+    },
+    "groupsWithTransportFailure": 309,
+    "requests": 53711,
+    "interpretation": "Independent filename searches against folder identity, not production classify acceptance or human-verified accuracy. Missing cross-provider links are review, not proven conflicts. Partial run until finishedGroups=totalGroups."
+  },
+  "androidCertificateSha256": "246ebde02b7af20e692962cad88fef958a6ff91afc9b76e04bd94ae73a599e03",
+  "analyzer": "No issues found",
+  "optInSkipped": 14,
+  "androidNativeLibrariesUnchanged": 10,
+  "windowsBytes": 52940383,
+  "offlineComparison": {
+    "online": {
+      "files": 146,
+      "ms": 235614,
+      "requests": 224,
+      "searches": 167,
+      "transportFailures": 75,
+      "groups": 14,
+      "errors": 6,
+      "matchedFiles": 43,
+      "pendingFiles": 31,
+      "filesInFailedGroups": 72
+    },
+    "offline": {
+      "files": 146,
+      "ms": 191176,
+      "requests": 191,
+      "searches": 120,
+      "transportFailures": 34,
+      "groups": 14,
+      "errors": 0,
+      "matchedFiles": 84,
+      "pendingFiles": 62,
+      "filesInFailedGroups": 0
+    }
+  },
+  "version": "1.0.0+2006"
+}

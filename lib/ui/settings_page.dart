@@ -2,6 +2,7 @@ import 'settings_panel.dart';
 import 'extensions_panel.dart';
 import 'optional_scraping_settings.dart';
 import 'image_cache_settings.dart';
+import 'bangumi_offline_settings.dart';
 import '../core/optional_features.dart';
 import 'mpv_settings_panel.dart';
 import '../core/catalog.dart';
@@ -470,6 +471,19 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     const SizedBox(height: 12),
                     const ImageCacheSettings(),
+                    const SizedBox(height: 12),
+                    SettingsPanel(
+                      child: ListTile(
+                        leading: const Icon(Icons.storage_outlined),
+                        title: Text(context.l10n.offlineBangumi),
+                        subtitle: Text(context.l10n.offlineBangumiHint),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => openSettingsScreen<void>(
+                          context,
+                          (_) => const BangumiOfflineSettings(),
+                        ),
+                      ),
+                    ),
                     OptionalScrapingSettings(settings: widget.featureSettings),
                   ],
                   if (selected == _SettingsCategory.language)
@@ -835,7 +849,9 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() => _exporting = true);
     Directory? temporary;
     try {
-      temporary = await (await getTemporaryDirectory()).createTemp('ccplayer-backup-');
+      temporary = await (await getTemporaryDirectory()).createTemp(
+        'ccplayer-backup-',
+      );
       final archive = File(p.join(temporary.path, 'ccplayer-library.zip'));
       final exporter = LibraryBackupExporter(
         database: Catalog.instance.db,

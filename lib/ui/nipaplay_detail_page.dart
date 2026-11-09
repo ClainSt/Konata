@@ -707,6 +707,30 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
               ),
               // Keep navigation and the more-actions menu accessible while
               // the poster, description and episodes scroll underneath.
+              if (portraitCover)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: MediaQuery.paddingOf(context).top + 100,
+                  child: const IgnorePointer(
+                    child: DecoratedBox(
+                      key: ValueKey('detail-navigation-scrim'),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black54,
+                            Colors.black38,
+                            Colors.transparent,
+                          ],
+                          stops: [0, .65, 1],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               Positioned(
                 top: 0,
                 left: 0,
@@ -729,18 +753,46 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                               tooltip: context.l10n.backToLibrary,
                               onPressed: widget.onBack,
                               style: IconButton.styleFrom(
-                                backgroundColor: surface.withValues(alpha: .7),
+                                backgroundColor: portraitCover
+                                    ? Colors.transparent
+                                    : surface.withValues(alpha: .7),
                               ),
-                              icon: Icon(Icons.arrow_back, color: text),
+                              icon: Icon(
+                                Icons.arrow_back,
+                                color: portraitCover ? Colors.white : text,
+                                shadows: portraitCover
+                                    ? const [
+                                        Shadow(
+                                          color: Colors.black87,
+                                          blurRadius: 4,
+                                          offset: Offset(0, 1),
+                                        ),
+                                      ]
+                                    : null,
+                              ),
                             ),
                             const Spacer(),
                             PopupMenuButton<String>(
                               key: const ValueKey('detail-more-button'),
                               tooltip: context.l10n.moreActions,
                               style: IconButton.styleFrom(
-                                backgroundColor: surface.withValues(alpha: .7),
+                                backgroundColor: portraitCover
+                                    ? Colors.transparent
+                                    : surface.withValues(alpha: .7),
                               ),
-                              icon: const Icon(Icons.more_horiz),
+                              icon: Icon(
+                                Icons.more_horiz,
+                                color: portraitCover ? Colors.white : text,
+                                shadows: portraitCover
+                                    ? const [
+                                        Shadow(
+                                          color: Colors.black87,
+                                          blurRadius: 4,
+                                          offset: Offset(0, 1),
+                                        ),
+                                      ]
+                                    : null,
+                              ),
                               onSelected: (value) {
                                 if (value == 'metadata') {
                                   widget.onEditMetadata();
@@ -948,8 +1000,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
   Widget episodeTile(Map<String, Object?> asset, Color secondary) {
     // TV uses episode stills; a movie main feature uses landscape work artwork.
     final still = episodeInfo(asset)['still']?.toString();
-    final placeholder =
-        asset['category'] == 'extra' && (still == null || still.isEmpty);
+    final placeholder = episodeCover(asset);
     final ratio = fraction(asset);
     final status = ratio == 0
         ? context.l10n.unwatchedStatus
@@ -967,15 +1018,29 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  if (placeholder)
-                    extraCover(asset)
+                  if (still == null || still.trim().isEmpty)
+                    placeholder
                   else
-                    image(still, artwork: ManagedArtwork.still),
-                  if (!placeholder)
-                    Positioned(
-                      top: 7,
-                      left: 7,
-                      child: badge(episodeLabel(asset)),
+                    ManagedImage(
+                      still,
+                      owner: widget.work['id'].toString(),
+                      artwork: ManagedArtwork.still,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => placeholder,
+                      frameBuilder: (_, child, frame, synchronous) =>
+                          frame == null && !synchronous
+                          ? placeholder
+                          : Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                child,
+                                Positioned(
+                                  top: 7,
+                                  left: 7,
+                                  child: badge(episodeLabel(asset)),
+                                ),
+                              ],
+                            ),
                     ),
                   Positioned(
                     top: 7,
@@ -1045,7 +1110,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     return '$type ${(number ?? asset['episode']?.toString() ?? '${index + 1}').padLeft(2, '0')}';
   }
 
-  Widget extraCover(Map<String, Object?> asset) {
+  Widget episodeCover(Map<String, Object?> asset) {
     final art = [
       details['backdrop'],
       Catalog.preferredPoster(widget.work),
@@ -1055,6 +1120,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     ].whereType<String>().where((url) => url.trim().isNotEmpty).firstOrNull;
     final surface = Theme.of(context).colorScheme.surfaceContainerLow;
     return Stack(
+      key: ValueKey('detail-episode-placeholder:${asset['relative_path']}'),
       fit: StackFit.expand,
       children: [
         ColoredBox(color: surface),
@@ -1104,7 +1170,9 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
             child: FittedBox(
               fit: BoxFit.scaleDown,
               child: Text(
-                extraCoverLabel(asset),
+                asset['category'] == 'extra'
+                    ? extraCoverLabel(asset)
+                    : episodeLabel(asset),
                 style: TextStyle(
                   fontSize: 30,
                   fontWeight: FontWeight.w600,

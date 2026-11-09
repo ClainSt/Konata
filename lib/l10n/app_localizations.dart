@@ -2930,6 +2930,126 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Select all from this source'**
   String get selectSourceFiles;
+
+  /// No description provided for @offlineBangumi.
+  ///
+  /// In en, this message translates to:
+  /// **'Bangumi offline database'**
+  String get offlineBangumi;
+
+  /// No description provided for @offlineBangumiHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Identify animation titles locally; fetch missing details and images online.'**
+  String get offlineBangumiHint;
+
+  /// No description provided for @offlineNotInstalled.
+  ///
+  /// In en, this message translates to:
+  /// **'No offline database installed'**
+  String get offlineNotInstalled;
+
+  /// No description provided for @offlineInstalled.
+  ///
+  /// In en, this message translates to:
+  /// **'Installed snapshot'**
+  String get offlineInstalled;
+
+  /// No description provided for @offlineCheck.
+  ///
+  /// In en, this message translates to:
+  /// **'Check for updates'**
+  String get offlineCheck;
+
+  /// No description provided for @offlineDownload.
+  ///
+  /// In en, this message translates to:
+  /// **'Download / update'**
+  String get offlineDownload;
+
+  /// No description provided for @offlineImport.
+  ///
+  /// In en, this message translates to:
+  /// **'Import official ZIP'**
+  String get offlineImport;
+
+  /// No description provided for @offlineUpToDate.
+  ///
+  /// In en, this message translates to:
+  /// **'This snapshot is up to date.'**
+  String get offlineUpToDate;
+
+  /// No description provided for @offlineAvailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Available snapshot and download size'**
+  String get offlineAvailable;
+
+  /// No description provided for @offlineImporting.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing animation index…'**
+  String get offlineImporting;
+
+  /// No description provided for @offlineIndexing.
+  ///
+  /// In en, this message translates to:
+  /// **'Building animation index…'**
+  String get offlineIndexing;
+
+  /// No description provided for @offlineDownloading.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading official snapshot…'**
+  String get offlineDownloading;
+
+  /// No description provided for @offlineReady.
+  ///
+  /// In en, this message translates to:
+  /// **'Offline database ready.'**
+  String get offlineReady;
+
+  /// No description provided for @offlineFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Update failed. The previous database is kept. Retry or import the official ZIP.'**
+  String get offlineFailed;
+
+  /// No description provided for @offlineUpdateHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Updates are checked only when requested. Downloads can be cancelled and resumed. Your existing index remains usable during updates; validated data replaces it when ready. Updating the index does not automatically rescrape your library. Removing the index and partial download leaves your library and history intact.'**
+  String get offlineUpdateHelp;
+
+  /// No description provided for @offlineSnapshotHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Use a ZIP from bangumi/Archive releases. You can transfer the same ZIP to another device and import it without downloading again.'**
+  String get offlineSnapshotHelp;
+
+  /// No description provided for @offlineOfficialSite.
+  ///
+  /// In en, this message translates to:
+  /// **'Official snapshots'**
+  String get offlineOfficialSite;
+
+  /// No description provided for @offlineRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove index and partial download'**
+  String get offlineRemove;
+
+  /// No description provided for @offlineCount.
+  ///
+  /// In en, this message translates to:
+  /// **'Animation entries'**
+  String get offlineCount;
+
+  /// No description provided for @offlineIndexSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Index size'**
+  String get offlineIndexSize;
 }
 
 class _AppLocalizationsDelegate

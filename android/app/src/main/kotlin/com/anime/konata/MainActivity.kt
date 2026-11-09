@@ -102,6 +102,36 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
+        MethodChannel(messenger, "ccplayer/network", StandardMethodCodec.INSTANCE,
+            messenger.makeBackgroundTaskQueue()).setMethodCallHandler { call, result ->
+            if (call.method != "proxy") {
+                result.notImplemented()
+                return@setMethodCallHandler
+            }
+            try {
+                val uri = java.net.URI(call.arguments as String)
+                require(uri.scheme == "https" || uri.scheme == "http")
+                val routes = java.net.ProxySelector.getDefault()?.select(uri)
+                    ?: listOf(java.net.Proxy.NO_PROXY)
+                val value = routes.map { proxy ->
+                    when (proxy.type()) {
+                        java.net.Proxy.Type.DIRECT -> "DIRECT"
+                        java.net.Proxy.Type.HTTP -> {
+                            val address = proxy.address() as java.net.InetSocketAddress
+                            val host = address.hostString
+                            require(!host.contains(';') && !host.any { it.isWhitespace() })
+                            val literal = if (host.contains(':')) "[$host]" else host
+                            "PROXY $literal:${address.port}"
+                        }
+                        else -> throw java.io.IOException("Unsupported system proxy")
+                    }
+                }.joinToString("; ")
+                require(value.isNotEmpty())
+                result.success(value)
+            } catch (_: Exception) {
+                result.error("proxy_unavailable", "Cannot resolve system proxy", null)
+            }
+        }
         audioFocusChannel = MethodChannel(messenger, "ccplayer/audio_focus").also { channel ->
             channel.setMethodCallHandler { call, result ->
                 when (call.method) {

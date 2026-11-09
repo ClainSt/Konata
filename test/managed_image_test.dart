@@ -20,16 +20,48 @@ void main() {
       image.dispose();
       picture.dispose();
     });
+    Object? loadError;
+    Widget artwork(String path) => MaterialApp(
+      home: Center(
+        child: ManagedImage(
+          path,
+          frameBuilder: (_, child, frame, synchronous) =>
+              frame == null && !synchronous
+              ? const Text('episode placeholder')
+              : child,
+          errorBuilder: (_, error, _) {
+            loadError = error;
+            return const Text('episode placeholder');
+          },
+        ),
+      ),
+    );
     await tester.runAsync(() async {
-      await tester.pumpWidget(
-        MaterialApp(home: Center(child: ManagedImage(file.path))),
-      );
-    });
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await tester.pumpWidget(artwork(file.path));
+      expect(find.text('episode placeholder'), findsOneWidget);
+      for (
+        var attempt = 0;
+        attempt < 100 && find.text('episode placeholder').evaluate().isNotEmpty;
+        attempt++
+      ) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        await tester.pump();
+      }
     });
     await tester.pumpAndSettle();
     expect(find.byType(Image), findsOneWidget);
+    expect(find.text('episode placeholder'), findsNothing);
+    expect(tester.widget<RawImage>(find.byType(RawImage)).image, isNotNull);
+    expect(loadError, isNull);
+    expect(tester.takeException(), isNull);
+    await tester.runAsync(() async {
+      await tester.pumpWidget(artwork('${dir.path}/missing.png'));
+      expect(find.text('episode placeholder'), findsOneWidget);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('episode placeholder'), findsOneWidget);
+    expect(loadError, isNotNull);
     expect(tester.takeException(), isNull);
     await tester.runAsync(() => dir.delete(recursive: true));
   });

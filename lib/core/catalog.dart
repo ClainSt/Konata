@@ -1,4 +1,5 @@
 import 'metadata.dart';
+import 'bangumi_offline_index.dart';
 import 'bangumi_links.dart';
 import 'watched_timeline.dart';
 import 'logical_episode_store.dart';
@@ -43,6 +44,9 @@ class Catalog extends ChangeNotifier {
       databaseFactory = databaseFactoryFfi;
     }
     final folder = dataDirectory ?? await getApplicationSupportDirectory();
+    BangumiOfflineIndex.directory = Directory(
+      p.join(folder.path, 'bangumi_index'),
+    );
     await folder.create(recursive: true);
     db = await openDatabase(
       p.join(folder.path, 'ccplayer.db'),

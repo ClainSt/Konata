@@ -8,6 +8,12 @@ This project does not claim the upstream work as its own original creation.
 The vendored SMB client retains its license in packages/smb_connect/LICENSE.
 The media_kit and media_kit_video packages retain their respective LICENSE files.
 
+Release-group name data is derived from https://github.com/filebot/data under
+CC0 1.0. Its notice is retained in assets/licenses/filebot-data.txt; the generated
+lookup contains literal names only and does not execute upstream expressions.
+Bangumi Archive is downloaded or imported at the user's request. Its snapshot
+and generated database are not bundled in this source repository or app package.
+
 TMDB and GitHub marks belong to their respective owners. Character artwork
 is based on Konata Izumi from Lucky Star; character rights belong to their
 respective holders.

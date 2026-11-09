@@ -343,6 +343,9 @@ class SmbSource extends WebDav {
       }
       if (request.method != 'HEAD' && range.end > range.start) {
         final payload = await client.openRead(file, range.start, range.end);
+        // This detached socket is closed after the payload; do not advertise
+        // keep-alive and let clients race to reuse a connection being closed.
+        request.response.persistentConnection = false;
         streaming = true;
         downstream = await request.response.detachSocket();
         if (_closed) throw const SocketException('SMB ticket revoked');

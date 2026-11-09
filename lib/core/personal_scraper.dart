@@ -6,6 +6,7 @@ import 'metadata.dart';
 import 'personal_filename_parser.dart';
 import 'work_season.dart';
 import 'scan_activity.dart';
+import 'bangumi_offline_index.dart';
 
 /// TMDB/Bangumi-only port of the metadata-only NipaPlay Personal cloud
 /// scraper. Never reads video bytes, invokes Dandanplay, or changes filenames.
@@ -29,7 +30,10 @@ class ScrapedWork {
 
   bool sameWork(ScrapedWork other) {
     if (tmdbId != null && other.tmdbId != null) {
-      return tmdbId == other.tmdbId && tmdbType == other.tmdbType;
+      if (tmdbId != other.tmdbId) return false;
+      if (tmdbType != null && other.tmdbType != null) {
+        return tmdbType == other.tmdbType;
+      }
     }
     return bangumiId != null && bangumiId == other.bangumiId;
   }
@@ -47,9 +51,16 @@ class ScrapeReport {
 class PersonalMetadataScraper {
   PersonalMetadataScraper({
     http.Client? client,
+    BangumiOfflineIndex? offlineIndex,
     this._bangumiBase = 'https://api.bgm.tv',
   }) : _client = client ?? MetadataHttp(),
+       _offlineIndex =
+           offlineIndex ??
+           (BangumiOfflineIndex.directory == null
+               ? null
+               : BangumiOfflineIndex(BangumiOfflineIndex.directory!)),
        _ownsClient = client == null;
+  final BangumiOfflineIndex? _offlineIndex;
   final http.Client _client;
   final bool _ownsClient;
   final String _bangumiBase;
@@ -87,12 +98,8 @@ class PersonalMetadataScraper {
     if (_ownsClient) _client.close();
   }
 
-  static String normalize(String title) => title
-      .toLowerCase()
-      .replaceAll(RegExp(r'\{tmdb-\d+\}', caseSensitive: false), ' ')
-      .replaceAll(RegExp(r'\((?:19|20)\d{2}\)'), ' ')
-      .replaceAll(RegExp(r'[\s\-_—–:：.()（）\[\]【】{}!?！？・·,，、]'), '')
-      .trim();
+  static String normalize(String title) =>
+      PersonalFilenameParser.normalizeIdentity(title);
   static bool exactTitle(String a, String b) {
     final x = normalize(a), y = normalize(b);
     return x.isNotEmpty && x == y;
@@ -187,22 +194,87 @@ class PersonalMetadataScraper {
     return decoded is Map<String, dynamic> ? decoded : null;
   });
 
-  Future<Map<String, dynamic>?> _tmdbById(int id, String type) async {
-    // TMDB ID is authoritative; retry movie when a folder was provisionally
-    // classified as TV (or vice versa).
-    for (final kind in [
-      type == 'movie' ? 'movie' : 'tv',
-      type == 'movie' ? 'tv' : 'movie',
-    ]) {
-      final item = await _tmdb('/$kind/$id', {
-        'language': 'zh-CN',
-        'append_to_response': 'alternative_titles,translations',
-      });
+  Future<Map<String, dynamic>?> _tmdbById(
+    int id,
+    String? type,
+    Map<String, Object?> work,
+    List<String> hints,
+  ) async {
+    final candidates = <Map<String, dynamic>>[];
+    Set<String>? linkedAliases;
+    final typed = type == 'movie' || type == 'tv';
+    // TV and movies use independent numeric ID namespaces. An untyped marker
+    // cannot be resolved by whichever endpoint returns first.
+    for (final kind in typed ? [type!] : ['tv', 'movie']) {
+      Map<String, dynamic>? item;
+      try {
+        item = await _tmdb('/$kind/$id', {
+          'language': 'zh-CN',
+          'append_to_response': 'alternative_titles,translations',
+        });
+      } on ScanCancelled {
+        rethrow;
+      } catch (_) {
+        if (typed) rethrow;
+        // A failed endpoint is not proof that this namespace has no candidate.
+        throw _ReviewRequired();
+      }
       if (item == null) continue;
       if (item['id'] is! num || (item['id'] as num).toInt() != id) continue;
-      return {...item, '_cc_kind': kind};
+      if (typed) return {...item, '_cc_kind': kind};
+      final year = WorkSeason.year(work);
+      final requested = WorkSeason.explicit(work);
+      if (kind == 'movie') {
+        if (requested != null ||
+            !yearCompatible(year, item['release_date']?.toString())) {
+          continue;
+        }
+      } else {
+        final seasons = (item['seasons'] as List? ?? [])
+            .whereType<Map>()
+            .toList();
+        final number = WorkSeason.resolve(work, seasons);
+        if (!WorkSeason.multiple(work)) {
+          if (number != null) {
+            final selected = seasons.where((s) => s['season_number'] == number);
+            if (selected.length != 1 ||
+                !yearCompatible(
+                  year,
+                  selected.single['air_date']?.toString(),
+                )) {
+              continue;
+            }
+          } else if (requested != null ||
+              year != null &&
+                  seasons.any((s) => (s['season_number'] as num? ?? 0) > 0) ||
+              !yearCompatible(year, item['first_air_date']?.toString())) {
+            continue;
+          }
+        }
+      }
+      if (hints.isNotEmpty &&
+          !officialTitles(
+            item,
+          ).any((name) => hints.any((hint) => exactTitle(hint, name)))) {
+        // A translated directory title can be a formal Bangumi alias even if
+        // TMDB only supplies its Japanese/English name. Require a unique formal
+        // Bangumi identity and an exact shared official alias, not fuzzy text.
+        linkedAliases ??= officialTitles(
+          await matchBangumi(
+                PersonalFilenameParser.withoutTmdbMarkers(WorkSeason.directoryTitle(work)),
+                year,
+                tmdbId: id,
+                hints: hints,
+              ) ?? const {},
+        );
+        if (!officialTitles(item).any((name) => linkedAliases!.any((alias) => exactTitle(alias, name)))) {
+          continue;
+        }
+      }
+      candidates.add({...item, '_cc_kind': kind});
     }
-    return null;
+    if (!typed && candidates.length != 1) throw _ReviewRequired();
+    return candidates.isEmpty ? null : candidates.single;
   }
 
   static Set<String> officialTitles(Map item) {
@@ -379,6 +451,13 @@ class PersonalMetadataScraper {
     int? tmdbId,
     List<String> hints = const [],
   }) async {
+    final local = await _offlineBangumi(
+      title,
+      year,
+      hints: hints,
+      tmdbId: tmdbId,
+    );
+    if (local != null) return local;
     for (final query in hints.isEmpty ? queries(title) : hints) {
       final body = await _bangumi('search/subjects', query: query, year: year);
       final rows = (body?['data'] as List? ?? []).whereType<Map>().toList();
@@ -433,6 +512,92 @@ class PersonalMetadataScraper {
     return null;
   }
 
+  Future<Map<String, dynamic>?> _offlineBangumi(
+    String title,
+    int? year, {
+    List<String> hints = const [],
+    int? tmdbId,
+  }) async {
+    final index = _offlineIndex;
+    if (index == null) return null;
+    final generation = BangumiOfflineIndex.generation;
+    final matches = <int, Map<String, dynamic>>{};
+    try {
+      for (final query in hints.isEmpty ? queries(title) : hints) {
+        final cached = await _memo(
+          'offline:$generation:$query',
+          () async => {'rows': await index.lookup(query)},
+        );
+        final rows = (cached?['rows'] as List? ?? [])
+            .cast<Map<String, dynamic>>();
+        if (rows.length > 32) return null;
+        for (final row in rows) {
+          if (!yearCompatible(year, row['date']?.toString()) ||
+              !officialTitles(row).any((name) => exactTitle(query, name))) {
+            continue;
+          }
+          final requested = WorkSeason.explicit({'title': title});
+          final actual = WorkSeason.explicit({
+            'title': row['name_cn'] ?? row['name'],
+          });
+          if (requested != null &&
+              (requested > 1 && requested != actual ||
+                  actual != null && requested != actual)) {
+            continue;
+          }
+          if (tmdbId != null) {
+            for (final field
+                in (row['infobox'] as List? ?? []).whereType<Map>()) {
+              if (!'${field['key']}'.toLowerCase().contains('tmdb')) continue;
+              final id = int.tryParse(
+                RegExp(r'\d+').firstMatch('${field['value']}')?.group(0) ?? '',
+              );
+              if (id != null && id != tmdbId) return null;
+            }
+          }
+          matches[row['id'] as int] = row;
+        }
+      }
+    } on ScanCancelled {
+      rethrow;
+    } catch (_) {
+      return null;
+    } // A missing/corrupt index must not disable online scraping.
+    return generation == BangumiOfflineIndex.generation && matches.length == 1
+        ? matches.values.single
+        : null;
+  }
+
+  Future<ScrapedWork?> _offlineWork(Map<String, dynamic> row, int? year) async {
+    Map<String, dynamic>? detail;
+    try {
+      // Identity is already resolved locally. One ID lookup supplies artwork;
+      // offline/unreachable servers do not prevent accepting the local identity.
+      detail = await _bangumi('subjects/${row['id']}');
+    } on ScanCancelled {
+      rethrow;
+    } catch (_) {
+      /* Artwork can be fetched on a later online visit. */
+    }
+    if (detail != null &&
+        (detail['id'] != row['id'] ||
+            !yearCompatible(year, detail['date']?.toString()))) {
+      return null;
+    }
+    return ScrapedWork(
+      title: '${row['name_cn'] ?? ''}'.trim().isNotEmpty
+          ? '${row['name_cn']}'
+          : '${row['name']}',
+      provider: 'Bangumi',
+      bangumiId: row['id'] as int,
+      year: int.tryParse('${row['date']}'.split('-').first),
+      aliases: officialTitles(row),
+      poster: _poster(detail?['images'] as Map?),
+      bangumiPoster: _poster(detail?['images'] as Map?),
+      overview: detail?['summary']?.toString(),
+    );
+  }
+
   static String? _poster(Map<dynamic, dynamic>? images) {
     for (final key in const ['large', 'common', 'medium', 'small', 'grid']) {
       final value = images?[key]?.toString().trim();
@@ -456,56 +621,154 @@ class PersonalMetadataScraper {
   }) async {
     work = _sourceEvidence(work);
     final folder = await scrape(work);
+    if (folder == null &&
+        PersonalFilenameParser.tmdbIds(WorkSeason.directoryTitle(work)).isNotEmpty) {
+      // An unresolved explicit directory ID remains authoritative evidence to
+      // review. A filename match cannot silently replace or discard that ID.
+      return {for (final asset in assets) asset['id'].toString(): null};
+    }
     final groups = <String, Future<ScrapedWork?>>{};
     final result = <String, ScrapedWork?>{};
+    String directory(Map<String, Object?> asset) {
+      final path = (asset['relative_path'] ?? asset['name'] ?? '')
+          .toString()
+          .replaceAll('\\', '/');
+      final slash = path.lastIndexOf('/');
+      return slash < 0 ? '' : path.substring(0, slash);
+    }
+
+    final siblings = <String, List<String>>{};
+    for (final asset in assets.where((a) => a['category'] != 'extra')) {
+      (siblings[directory(asset)] ??= []).add('${asset['name']}');
+    }
+    final sequences = {
+      for (final entry in siblings.entries)
+        entry.key: PersonalFilenameParser.sequentialEpisodePrefixes(
+          entry.value,
+        ),
+    };
     for (final asset in assets) {
       checkCancelled?.call();
       final name = asset['name']?.toString() ?? '';
-      final file = filenameWork(
+      final files = filenameCandidates(
         name,
         supplementary: asset['category'] == 'extra',
+        sequentialPrefixes: sequences[directory(asset)] ?? const {},
       );
-      if (file == null) {
+      if (files.isEmpty) {
         result[asset['id'].toString()] = folder ?? unnamedFallback;
         continue;
       }
-      // A directory year narrows alias searches without imposing its provider
-      // ID on the file; another identifiable work still triggers review.
-      file['year'] ??= WorkSeason.year(work);
-      final title = file['title'].toString();
-      final year = file['year'] as int?;
-      final season = WorkSeason.explicit(file);
-      final folderSeason = WorkSeason.explicit(work);
-      final knownAlias =
-          folder != null &&
-          file['conflicting_ids'] != true &&
-          (file['tmdb_id'] == null ||
-              file['tmdb_id'] == folder.tmdbId &&
-                  file['tmdb_type'] == folder.tmdbType) &&
-          (year == null || folder.year == null || year == folder.year) &&
-          (season == null ||
-              season == folderSeason ||
-              season == 1 && folderSeason == null) &&
-          folder.aliases.any((alias) => exactTitle(title, alias));
-      final key =
-          '$title|$year|$season|${file['tmdb_id']}|${file['tmdb_type']}|${file['conflicting_ids']}';
-      final candidate = knownAlias
-          ? folder
-          : await groups.putIfAbsent(key, () => scrape(file));
-      result[asset['id'].toString()] =
-          folder != null &&
-              candidate != null &&
-              (!folder.sameWork(candidate) ||
-                  WorkSeason.year(work) != null &&
-                      year != null &&
-                      WorkSeason.year(work) != year ||
-                  folderSeason != null &&
-                      season != null &&
-                      folderSeason != season)
+      if (files.length > 8) {
+        result[asset['id'].toString()] = null;
+        continue;
+      }
+      final matches = <ScrapedWork>[];
+      var ambiguous = false;
+      for (final file in files) {
+        // A directory year narrows alias searches without imposing its provider
+        // ID on the file; another identifiable work still triggers review.
+        file['year'] ??= WorkSeason.year(work);
+        final title = file['title'].toString();
+        final year = file['year'] as int?;
+        final season = WorkSeason.explicit(file);
+        final folderSeason = WorkSeason.explicit(work);
+        final knownAlias =
+            folder != null &&
+            file['conflicting_ids'] != true &&
+            (file['tmdb_id'] == null ||
+                file['tmdb_id'] == folder.tmdbId &&
+                    file['tmdb_type'] == folder.tmdbType) &&
+            (year == null || folder.year == null || year == folder.year) &&
+            (season == null ||
+                season == folderSeason ||
+                season == 1 && folderSeason == null) &&
+            folder.aliases.any((alias) => exactTitle(title, alias));
+        final key =
+            '$title|$year|$season|${file['tmdb_id']}|${file['tmdb_type']}|${file['conflicting_ids']}';
+        ScrapedWork? candidate;
+        try {
+          candidate = knownAlias
+              ? folder
+              : await groups.putIfAbsent(
+                  key,
+                  () => scrape(file, requireUnambiguous: true),
+                );
+        } on _ReviewRequired {
+          ambiguous = true;
+          continue;
+        }
+        if (folder != null &&
+            candidate != null &&
+            (!folder.sameWork(candidate) ||
+                WorkSeason.year(work) != null &&
+                    year != null &&
+                    WorkSeason.year(work) != year ||
+                folderSeason != null &&
+                    season != null &&
+                    folderSeason != season)) {
+          ambiguous = true;
+        }
+        if (candidate != null) matches.add(candidate);
+      }
+      if (matches.isNotEmpty &&
+          matches.any(
+            (m) =>
+                !m.sameWork(matches.first) ||
+                m.year != matches.first.year ||
+                WorkSeason.explicit({'title': m.title}) !=
+                    WorkSeason.explicit({'title': matches.first.title}),
+          )) {
+        ambiguous = true;
+      }
+      result[asset['id'].toString()] = ambiguous || matches.isEmpty
           ? null
-          : candidate;
+          : matches.first;
     }
     return result;
+  }
+
+  static List<Map<String, Object?>> filenameCandidates(
+    String name, {
+    bool supplementary = false,
+    Set<String> sequentialPrefixes = const {},
+  }) {
+    final primary = filenameWork(name, supplementary: supplementary);
+    if (primary == null) return const [];
+    final candidates = <Map<String, Object?>>[primary];
+    final season = WorkSeason.explicit({
+      'title': PersonalFilenameParser.baseNameWithoutExtension(name),
+    });
+    for (final variant in [
+      name,
+      ?PersonalFilenameParser.withoutKnownReleaseGroups(name),
+    ]) {
+      if (variant != name) {
+        final parsed = filenameWork(variant, supplementary: supplementary);
+        if (parsed != null) {
+          candidates.add({...primary, 'title': parsed['title']});
+        }
+      }
+      for (final title in PersonalFilenameParser.bracketTitleCandidates(
+        variant,
+      )) {
+        candidates.add({
+          ...primary,
+          'title': season == null ? title : '$title S$season',
+        });
+      }
+      final episode = PersonalFilenameParser.bareEpisode(variant);
+      if (!supplementary &&
+          episode != null &&
+          sequentialPrefixes.contains(episode.title.toLowerCase())) {
+        candidates.add({...primary, 'title': episode.title});
+      }
+    }
+    final distinct = <String, Map<String, Object?>>{};
+    for (final candidate in candidates) {
+      distinct.putIfAbsent(jsonEncode(candidate), () => candidate);
+    }
+    return distinct.values.toList();
   }
 
   static Map<String, Object?>? filenameWork(
@@ -549,10 +812,15 @@ class PersonalMetadataScraper {
   Future<ScrapedWork?> scrape(
     Map<String, Object?> work, {
     List<String> filenames = const [],
+    bool requireUnambiguous = false,
   }) async {
     work = _sourceEvidence(work);
     try {
       if (work['conflicting_ids'] == true ||
+          PersonalFilenameParser.tmdbTypes(
+                WorkSeason.directoryTitle(work),
+              ).length >
+              1 ||
           PersonalFilenameParser.tmdbIds(
                 WorkSeason.directoryTitle(work),
               ).length >
@@ -572,6 +840,7 @@ class PersonalMetadataScraper {
       }
       return resolved.first;
     } on _ReviewRequired {
+      if (requireUnambiguous) rethrow;
       return null;
     }
   }
@@ -613,15 +882,32 @@ class PersonalMetadataScraper {
     if (title.isEmpty && id == null) return null;
     final year = WorkSeason.year(work);
     final hints = queries(title);
+    if (id == null) {
+      final local = await _offlineBangumi(title, year, hints: hints);
+      if (local != null) {
+        if (!indexedDirectory &&
+            work['bangumi_id'] != null &&
+            work['bangumi_id'] != local['id']) {
+          throw _ReviewRequired();
+        }
+        final resolved = await _offlineWork(local, year);
+        if (resolved != null) return resolved;
+      }
+    }
     Map<String, dynamic>? tmdb;
     if (id != null && id > 0) {
       try {
         tmdb = await _tmdbById(
           id,
-          work['tmdb_type']?.toString() ??
-              PersonalFilenameParser.tmdbType(rawTitle) ??
-              'tv',
+          PersonalFilenameParser.tmdbType(rawTitle) ??
+              (indexedDirectory && work['manual_lock'] != 1
+                  ? null
+                  : work['tmdb_type']?.toString()),
+          work,
+          hints,
         );
+      } on _ReviewRequired {
+        rethrow;
       } on ScanCancelled {
         rethrow;
       } catch (_) {
@@ -692,7 +978,16 @@ class PersonalMetadataScraper {
       bangumi = await matchBangumi(
         title,
         year,
-        hints: tmdb != null ? queries(tmdbTitle) : hints,
+        hints: tmdb != null
+            ? <String>{
+                ...hints,
+                ...queries(tmdbTitle),
+                if (tmdb['original_name'] is String)
+                  ...queries(tmdb['original_name']),
+                if (tmdb['original_title'] is String)
+                  ...queries(tmdb['original_title']),
+              }.take(4).toList()
+            : hints,
         tmdbId: tmdb?['id'] is num ? (tmdb!['id'] as num).toInt() : id,
       );
     } on _ReviewRequired {

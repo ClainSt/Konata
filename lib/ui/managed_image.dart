@@ -56,6 +56,7 @@ class ManagedImage extends StatelessWidget {
     this.fit,
     this.alignment = Alignment.center,
     this.errorBuilder,
+    this.frameBuilder,
     this.owner,
     this.decodeWidth = 1024,
     this.artwork = ManagedArtwork.poster,
@@ -68,6 +69,7 @@ class ManagedImage extends StatelessWidget {
   final BoxFit? fit;
   final AlignmentGeometry alignment;
   final ImageErrorWidgetBuilder? errorBuilder;
+  final ImageFrameBuilder? frameBuilder;
   @override
   Widget build(BuildContext context) {
     if (artwork == ManagedArtwork.poster) return _image(url, decodeWidth);
@@ -102,6 +104,7 @@ class ManagedImage extends StatelessWidget {
     fit: fit,
     alignment: alignment,
     gaplessPlayback: true,
+    frameBuilder: frameBuilder,
     errorBuilder:
         errorBuilder ?? (_, _, _) => const Icon(Icons.broken_image_outlined),
   );

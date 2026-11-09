@@ -1574,4 +1574,68 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get selectSourceFiles => 'Select all from this source';
+
+  @override
+  String get offlineBangumi => 'Bangumi offline database';
+
+  @override
+  String get offlineBangumiHint =>
+      'Identify animation titles locally; fetch missing details and images online.';
+
+  @override
+  String get offlineNotInstalled => 'No offline database installed';
+
+  @override
+  String get offlineInstalled => 'Installed snapshot';
+
+  @override
+  String get offlineCheck => 'Check for updates';
+
+  @override
+  String get offlineDownload => 'Download / update';
+
+  @override
+  String get offlineImport => 'Import official ZIP';
+
+  @override
+  String get offlineUpToDate => 'This snapshot is up to date.';
+
+  @override
+  String get offlineAvailable => 'Available snapshot and download size';
+
+  @override
+  String get offlineImporting => 'Preparing animation index…';
+
+  @override
+  String get offlineIndexing => 'Building animation index…';
+
+  @override
+  String get offlineDownloading => 'Downloading official snapshot…';
+
+  @override
+  String get offlineReady => 'Offline database ready.';
+
+  @override
+  String get offlineFailed =>
+      'Update failed. The previous database is kept. Retry or import the official ZIP.';
+
+  @override
+  String get offlineUpdateHelp =>
+      'Updates are checked only when requested. Downloads can be cancelled and resumed. Your existing index remains usable during updates; validated data replaces it when ready. Updating the index does not automatically rescrape your library. Removing the index and partial download leaves your library and history intact.';
+
+  @override
+  String get offlineSnapshotHelp =>
+      'Use a ZIP from bangumi/Archive releases. You can transfer the same ZIP to another device and import it without downloading again.';
+
+  @override
+  String get offlineOfficialSite => 'Official snapshots';
+
+  @override
+  String get offlineRemove => 'Remove index and partial download';
+
+  @override
+  String get offlineCount => 'Animation entries';
+
+  @override
+  String get offlineIndexSize => 'Index size';
 }

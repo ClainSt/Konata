@@ -8,6 +8,8 @@ import 'package:ccplayer/core/metadata.dart';
 import 'package:ccplayer/core/personal_scraper.dart';
 import 'package:ccplayer/core/personal_scrape_coordinator.dart';
 import 'package:ccplayer/core/scan_activity.dart';
+import 'package:ccplayer/core/personal_filename_parser.dart';
+import 'package:ccplayer/core/release_groups.dart';
 
 http.Response json(Object data) => http.Response(
   jsonEncode(data),
@@ -17,6 +19,35 @@ http.Response json(Object data) => http.Response(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('same confirmed Bangumi identity survives a missing TMDB type', () {
+    const fallback = ScrapedWork(
+      title: '书虫公主',
+      provider: 'Bangumi',
+      tmdbId: 156510,
+      bangumiId: 366695,
+    );
+    const complete = ScrapedWork(
+      title: '书虫公主',
+      provider: 'TMDB + Bangumi',
+      tmdbId: 156510,
+      tmdbType: 'tv',
+      bangumiId: 366695,
+    );
+    expect(fallback.sameWork(complete), true);
+    expect(complete.sameWork(fallback), true);
+    expect(
+      complete.sameWork(
+        const ScrapedWork(
+          title: 'Other',
+          provider: 'TMDB',
+          tmdbId: 99,
+          tmdbType: 'tv',
+          bangumiId: 366695,
+        ),
+      ),
+      false,
+    );
+  });
   late String oldToken, oldKey;
   setUp(() {
     oldToken = Metadata.token;
@@ -61,6 +92,45 @@ void main() {
     },
   };
   test(
+    'Bangumi linking retains the original official title before translated TMDB title',
+    () async {
+      Metadata.token = 'synthetic';
+      final mode = Metadata.authMode;
+      Metadata.authMode = 'token';
+      addTearDown(() => Metadata.authMode = mode);
+      final scraper = PersonalMetadataScraper(
+        client: MockClient((request) async {
+          if (request.url.path == '/3/tv/76063') {
+            return json({
+              'id': 76063,
+              'name': '柑橘味香气',
+              'original_name': 'citrus',
+              'first_air_date': '2018-01-06',
+            });
+          }
+          const subject = {
+            'id': 198098,
+            'name': 'citrus',
+            'name_cn': 'citrus～柑橘味香气～',
+            'date': '2018-01-06',
+          };
+          if (request.method == 'POST') {
+            return json({
+              'data': [subject],
+            });
+          }
+          if (request.url.path == '/v0/subjects/198098') return json(subject);
+          return http.Response('{}', 404);
+        }),
+      );
+      final result = await scraper.scrape({
+        'title': 'citrus～柑橘味香气～ (2018) {tmdb-76063}',
+      });
+      expect(result?.tmdbId, 76063);
+      expect(result?.bangumiId, 198098);
+    },
+  );
+  test(
     'TMDB ID in folder or filename plus year selects unique season and rejects conflicting years',
     () async {
       Metadata.token = 'synthetic';
@@ -94,32 +164,32 @@ void main() {
       });
       final scraper = PersonalMetadataScraper(client: client);
       final folder = await scraper.scrape({
-        'title': 'Any name (2020) [tmdbid=42]',
+        'title': 'Series (2020) [tmdbid=42]',
       });
       expect(folder?.title, 'Series 第2季');
       expect(folder?.poster, endsWith('/s2.jpg'));
       expect(
-        (await scraper.scrape({'title': 'Any name S2 {tmdb-42}'}))?.year,
+        (await scraper.scrape({'title': 'Series S2 {tmdb-42}'}))?.year,
         2020,
       );
       final filename = PersonalMetadataScraper.filenameWork(
-        'Any name (2020) {tmdb-42} - 01.mkv',
+        'Series (2020) {tmdb-42} - 01.mkv',
       )!;
       expect((await scraper.scrape(filename))?.title, 'Series 第2季');
       expect(
-        await scraper.scrape({'title': 'Any name (2022) {tmdb-42}'}),
+        await scraper.scrape({'title': 'Series (2022) {tmdb-42}'}),
         isNull,
       );
       expect(
-        await scraper.scrape({'title': 'Any name S2 (2018) {tmdb-42}'}),
+        await scraper.scrape({'title': 'Series S2 (2018) {tmdb-42}'}),
         isNull,
       );
       expect(
-        await scraper.scrape({'title': 'Any name {tmdb-42} [tmdb=43]'}),
+        await scraper.scrape({'title': 'Series {tmdb-42} [tmdb=43]'}),
         isNull,
       );
       expect(
-        (await scraper.scrape({'title': 'Any name (2018) {tmdb-42}'}))?.tmdbId,
+        (await scraper.scrape({'title': 'Series (2018) {tmdb-42}'}))?.tmdbId,
         42,
       );
     },
@@ -205,6 +275,135 @@ void main() {
           filenames: ['Hyouka - 01.mkv'],
         ),
         isNull,
+      );
+    },
+  );
+
+  test(
+    'bracket candidates require one official identity, never a guessed group position',
+    () async {
+      final scraper = fake();
+      final matches = await scraper.classify(
+        {'title': 'Mixed'},
+        [
+          {'id': 'one', 'name': '[Some Group][Hyouka][01][1080p][JPSC].mkv'},
+          {'id': 'two', 'name': '[Hyouka][Shingeki no Kyojin][01][1080p].mkv'},
+        ],
+      );
+      expect(matches['one']?.bangumiId, 2);
+      expect(matches['two'], isNull);
+    },
+  );
+
+  test(
+    'bare episode suffix needs sibling sequence and cannot override a full title',
+    () async {
+      final scraper = fake();
+      final files = [
+        for (final n in ['01', '02', '03', '10', '11', '12'])
+          {'id': n, 'name': '[Group] Hyouka $n [1080p].mkv'},
+      ];
+      final matches = await scraper.classify({'title': 'Mixed'}, files);
+      expect(matches.values.every((m) => m?.bangumiId == 2), true);
+      expect(
+        (await scraper.classify(
+          {'title': 'Mixed'},
+          [
+            {'id': 'alone', 'name': 'Hyouka 10.mkv'},
+          ],
+        ))['alone'],
+        isNull,
+      );
+      expect(
+        PersonalMetadataScraper.filenameWork('Animation 12 - 01.mkv')?['title'],
+        'Animation 12',
+      );
+      subjects[3] = {'id': 3, 'name': 'Hyouka 10'};
+      addTearDown(() => subjects.remove(3));
+      final collision = await fake().classify({'title': 'Mixed'}, files);
+      expect(collision['10'], isNull);
+      expect(collision['11']?.bangumiId, 2);
+    },
+  );
+
+  test('bare episode evidence cannot cross physical directories', () async {
+    final matches = await fake().classify(
+      {'title': 'Mixed'},
+      [
+        for (final n in [10, 11, 12])
+          {
+            'id': '$n',
+            'name': 'Hyouka $n.mkv',
+            'relative_path': 'Folder$n/Hyouka $n.mkv',
+          },
+      ],
+    );
+    expect(matches.values.every((m) => m == null), true);
+  });
+
+  test('bracket candidates preserve numeric titles and explicit seasons', () {
+    final numeric = PersonalMetadataScraper.filenameCandidates(
+      '[Group][86][01][1080p].mkv',
+    );
+    expect(numeric.any((c) => c['title'] == '86'), true);
+    final seasonal = PersonalMetadataScraper.filenameCandidates(
+      '[Group][Hyouka][S02E01][1080p].mkv',
+    );
+    expect(seasonal.any((c) => c['title'] == 'Hyouka S2'), true);
+    expect(seasonal.any((c) => c['title'] == 'S02E01 S2'), false);
+  });
+
+  test(
+    'known publisher suffix adds a candidate without erasing a full title',
+    () async {
+      final original = 'Hyouka - VCB-Studio';
+      final candidates = PersonalMetadataScraper.filenameCandidates(
+        '$original.mkv',
+      );
+      expect(candidates.any((c) => c['title'] == original), true);
+      expect(candidates.any((c) => c['title'] == 'Hyouka'), true);
+      final files = [
+        {'id': 'one', 'name': '$original.mkv'},
+      ];
+      expect(
+        (await fake().classify({'title': 'Mixed'}, files))['one']?.bangumiId,
+        2,
+      );
+      subjects[4] = {'id': 4, 'name': original};
+      addTearDown(() => subjects.remove(4));
+      expect((await fake().classify({'title': 'Mixed'}, files))['one'], isNull);
+    },
+  );
+
+  test(
+    'publisher dictionary only removes entire bounded tags, not title words',
+    () {
+      expect(ReleaseGroups.contains('VCB-Studio'), true);
+      expect(ReleaseGroups.contains('iNTERNAL'), true);
+      expect(ReleaseGroups.contains('INTERNAL'), false);
+      expect(
+        PersonalFilenameParser.withoutKnownReleaseGroups(
+          'VCB-Studio Story.mkv',
+        ),
+        isNull,
+      );
+      expect(
+        PersonalFilenameParser.withoutKnownReleaseGroups(
+          'Title-UnknownGroup.mkv',
+        ),
+        isNull,
+      );
+      expect(
+        PersonalFilenameParser.withoutKnownReleaseGroups(
+          '[VCB-Studio] Hyouka.mkv',
+        ),
+        'Hyouka.mkv',
+      );
+      expect(
+        PersonalFilenameParser.withoutKnownReleaseGroups(
+          'Hyouka-VCB-Studio.mkv',
+        ),
+        'Hyouka.mkv',
       );
     },
   );

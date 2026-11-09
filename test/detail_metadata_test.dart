@@ -26,6 +26,11 @@ void main() {
             ],
           },
           '/v0/subjects/302189' => {'id': 302189, 'date': '2021-04-10'},
+          '/v0/subjects/331887' => {
+            'id': 331887,
+            'name_cn': '$title 第2部分',
+            'date': '2021-10-02',
+          },
           '/v0/subjects/302189/characters' => [
             {'id': 1, 'name': '蕾娜', 'relation': '主角', 'actors': []},
           ],

@@ -6,16 +6,56 @@ import 'package:path/path.dart' as p;
 class PersonalFilenameParser {
   PersonalFilenameParser._();
 
+  static final _tmdbMarkers = [
+    RegExp(
+      r'\{\s*tmdb(?:tv|movie|id)?\s*[-=:]\s*(\d+)\s*\}',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'\[\s*tmdb(?:tv|movie|id)?\s*[-=:]\s*(\d+)\s*\]',
+      caseSensitive: false,
+    ),
+    RegExp(r'\{\s*\[\s*tmdbid\s*=\s*(\d+)[^\]]*\]\s*\}', caseSensitive: false),
+  ];
+  static Set<int> tmdbIds(String title) => {
+    for (final pattern in _tmdbMarkers)
+      for (final match in pattern.allMatches(title))
+        if ((int.tryParse(match.group(1)!) ?? 0) > 0)
+          int.parse(match.group(1)!),
+  };
+  static int? tmdbId(String title) {
+    final ids = tmdbIds(title);
+    return ids.length == 1 ? ids.single : null;
+  }
+
+  static String? tmdbType(String title) {
+    if (RegExp(
+      r'tmdbmovie\s*[-=:]|type\s*=\s*(movie|film)',
+      caseSensitive: false,
+    ).hasMatch(title)) {
+      return 'movie';
+    }
+    return tmdbId(title) != null ? 'tv' : null;
+  }
+
+  static String withoutTmdbMarkers(String title) {
+    var result = title;
+    for (final pattern in _tmdbMarkers.reversed) {
+      result = result.replaceAll(pattern, ' ');
+    }
+    return result;
+  }
+
   static String baseNameWithoutExtension(String pathOrName) {
     final trimmed = pathOrName.trim();
     if (trimmed.isEmpty) return '';
-    final base = p.basename(trimmed);
+    final base = p.posix.basename(trimmed.replaceAll('\\', '/'));
     return p.basenameWithoutExtension(base).trim();
   }
 
   /// 生成在线元数据搜索的标题候选；保留数字番名和括号中的作品名。
   static String extractAnimeTitleKeyword(String pathOrName) {
-    var name = baseNameWithoutExtension(pathOrName);
+    var name = withoutTmdbMarkers(baseNameWithoutExtension(pathOrName));
     if (name.isEmpty) return '';
 
     // 常见分隔符归一化
@@ -26,6 +66,16 @@ class PersonalFilenameParser {
 
     // 去掉末尾的编码/分辨率等标签（可能存在多个）
     name = _stripTrailingTags(name);
+
+    // A season/episode marker separates the series title from an optional
+    // episode subtitle and release metadata. Keep everything before it.
+    final episodeMarker = RegExp(
+      r'\bS\d{1,2}E\d{1,3}\b|\bEP?\s*\d{1,3}\b|第\s*\d{1,3}\s*[话話集]',
+      caseSensitive: false,
+    ).firstMatch(name);
+    if (episodeMarker != null) {
+      name = name.substring(0, episodeMarker.start).trim();
+    }
 
     // 去掉常见季/集标识（仅影响搜索关键词，不做全局数字清理）
     name = name.replaceAll(
@@ -47,7 +97,15 @@ class PersonalFilenameParser {
     }
 
     // 形如 " - 01" / "_01" 的结尾集数
-    name = name.replaceAll(RegExp(r'(?:\s*[-_]\s*)\d{1,3}$'), ' ');
+    // Remove at most one suffix. Repeating this would turn "Animation 12 -
+    // 01" into "Animation" and erase part of the real title.
+    name = name.replaceFirst(
+      RegExp(
+        r'(?:\s*[-_#]\s*\d{1,3}|\s+0\d{1,2})(?:v\d+)?(?:\s*[- ]*(?:END|FINAL|FIN))?$',
+        caseSensitive: false,
+      ),
+      ' ',
+    );
 
     // 清理残留括号/多余空白
     name = name.replaceAll(RegExp(r'[\[\]【】()（）{}]'), ' ');

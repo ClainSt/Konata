@@ -37,7 +37,9 @@ abstract final class WorkSeason {
 
   static String directoryTitle(Map<String, Object?> work) {
     final id = work['id']?.toString() ?? '';
-    if (!id.startsWith('work:')) return work['title']?.toString() ?? '';
+    if (!id.startsWith('work:') || id.contains(':classified:')) {
+      return work['title']?.toString() ?? '';
+    }
     try {
       return Uri.decodeComponent(
         id.substring(id.lastIndexOf(':') + 1),

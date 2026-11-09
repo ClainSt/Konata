@@ -1470,6 +1470,25 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get nameOrBangumiId => '名称或 Bangumi ID';
+
+  @override
+  String get unclassified => '待归类';
+
+  @override
+  String get assignToWork => '归入作品';
+
+  @override
+  String get workName => '作品名称';
+
+  @override
+  String get createClassification => '以此名称创建作品';
+
+  @override
+  String get classificationHint =>
+      '仅调整媒体库归属，不移动或重命名原始文件。选取同一媒体源的文件后，可批量归入已有作品或新建作品。';
+
+  @override
+  String get selectSourceFiles => '选择此媒体源全部文件';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -2938,6 +2957,25 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get nameOrBangumiId => '名称或 Bangumi ID';
+
+  @override
+  String get unclassified => '待归类';
+
+  @override
+  String get assignToWork => '归入作品';
+
+  @override
+  String get workName => '作品名称';
+
+  @override
+  String get createClassification => '以此名称创建作品';
+
+  @override
+  String get classificationHint =>
+      '仅调整媒体库归属，不移动或重命名原始文件。选取同一媒体源的文件后，可批量归入已有作品或新建作品。';
+
+  @override
+  String get selectSourceFiles => '选择此媒体源全部文件';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4406,4 +4444,23 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get nameOrBangumiId => '名稱或 Bangumi ID';
+
+  @override
+  String get unclassified => '待歸類';
+
+  @override
+  String get assignToWork => '歸入作品';
+
+  @override
+  String get workName => '作品名稱';
+
+  @override
+  String get createClassification => '以此名稱建立作品';
+
+  @override
+  String get classificationHint =>
+      '僅調整媒體庫歸屬，不移動或重新命名原始檔案。選取同一媒體源的檔案後，可批次歸入已有作品或新建作品。';
+
+  @override
+  String get selectSourceFiles => '選取此媒體源全部檔案';
 }

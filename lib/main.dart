@@ -14,6 +14,7 @@ import 'core/metadata_http.dart';
 import 'core/debug_log.dart';
 import 'ui/managed_image.dart';
 import 'package:flutter/material.dart';
+import 'ui/unclassified_page.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -418,6 +419,17 @@ class _LibraryPageState extends State<LibraryPage> {
               ),
             ] else
               const Spacer(),
+            if (!showSources && cat.unclassifiedAssets.isNotEmpty)
+              IconButton(
+                tooltip: context.l10n.unclassified,
+                icon: const Icon(Icons.rule_folder_outlined),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const UnclassifiedPage(),
+                  ),
+                ),
+              ),
             if (cat.hiddenWorkEntries.isNotEmpty)
               IconButton(
                 key: const ValueKey('manage-hidden-works-button'),

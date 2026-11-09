@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 
 import 'request_budget.dart';
+import 'transient_tls.dart';
 
 /// Shared lifetime for resources used by one visible optional feature.
 /// Obtain through OptionalFeatures.openScope; creating a scope starts no IO.
@@ -16,6 +17,7 @@ class OptionalFeatureScope {
   final _resources = HashMap<Object, VoidCallback>.identity();
   final _cancelled = Completer<void>();
   bool _disposed = false;
+  final _idleClients = <(HttpClient Function()?, String, HttpClient)>[];
   bool get disposed => _disposed;
   Future<void> get cancelled => _cancelled.future;
   int count<T>() => _resources.keys.whereType<T>().length;
@@ -42,6 +44,15 @@ class OptionalFeatureScope {
   /// Releases early and unregisters; later scope shutdown cannot release twice.
   void release(Object resource) => _resources.remove(resource)?.call();
 
+  /// A page batch reuses completed connections, then explicitly drops idle IO.
+  void closeIdleClients() {
+    final idle = _idleClients.toList();
+    _idleClients.clear();
+    for (final entry in idle) {
+      release(entry.$3);
+    }
+  }
+
   Timer timer(Duration duration, VoidCallback callback) {
     late final Timer result;
     result = acquire(
@@ -57,6 +68,7 @@ class OptionalFeatureScope {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _idleClients.clear();
     _cancelled.complete();
     final releaseAll = _resources.values.toList();
     _resources.clear();
@@ -92,25 +104,56 @@ class OptionalFeatureScope {
     Duration timeout = const Duration(seconds: 12),
   }) => RequestBudget.run(
     () async {
-      final client = acquire(
-        () => clientFactory?.call() ?? HttpClient(),
-        (client) => client.close(force: true),
+      var idle = _idleClients.lastIndexWhere(
+        (entry) => entry.$1 == clientFactory && entry.$2 == uri.origin,
       );
-      client.connectionTimeout = const Duration(seconds: 8);
-      final deadline = timer(timeout, () => release(client));
-      var finished = false;
-      requestCancelled?.then((_) {
-        if (!finished) release(client);
-      });
-      try {
-        final request = await client.getUrl(uri);
-        request.followRedirects = false;
-        request.headers.set(
-          HttpHeaders.userAgentHeader,
-          'Konata/1 (optional details)',
+      if (idle < 0) {
+        idle = _idleClients.lastIndexWhere(
+          (entry) => entry.$1 == clientFactory,
         );
-        headers.forEach(request.headers.set);
-        final response = await request.close();
+      }
+      final client = idle >= 0
+          ? _idleClients.removeAt(idle).$3
+          : acquire(
+              () => clientFactory?.call() ?? HttpClient(),
+              (client) => client.close(force: true),
+            );
+      client.connectionTimeout = const Duration(seconds: 8);
+      var stopped = false;
+      var expired = false;
+      var reusable = false;
+      final interruption = Completer<Uint8List>();
+      var finished = false;
+      void stop(Object error) {
+        if (finished || stopped) return;
+        stopped = true;
+        release(client);
+        interruption.completeError(error);
+      }
+
+      final deadline = timer(timeout, () {
+        expired = true;
+        stop(TimeoutException('Optional request deadline'));
+      });
+      cancelled.then((_) => stop(StateError('Feature stopped')));
+      requestCancelled?.then((_) => stop(StateError('Request stopped')));
+      Future<Uint8List> read() async {
+        final response = await retryInterruptedTls(() async {
+          checkActive();
+          if (stopped) throw StateError('Request stopped');
+          final request = await client.getUrl(uri);
+          if (stopped || _disposed) {
+            request.abort();
+            throw StateError('Request stopped');
+          }
+          request.followRedirects = false;
+          request.headers.set(
+            HttpHeaders.userAgentHeader,
+            'Konata/1 (optional details)',
+          );
+          headers.forEach(request.headers.set);
+          return request.close();
+        });
         if (response.statusCode >= 500) {
           throw const HttpException('Optional details unavailable');
         }
@@ -122,17 +165,34 @@ class OptionalFeatureScope {
         final bytes = BytesBuilder(copy: false);
         await for (final chunk in response) {
           checkActive();
+          if (stopped) throw StateError('Request stopped');
           if (bytes.length + chunk.length > limit) {
             throw const FormatException('Response limit');
           }
           bytes.add(chunk);
         }
         checkActive();
+        if (stopped) throw StateError('Request stopped');
         return bytes.takeBytes();
+      }
+
+      try {
+        // Closing HttpClient may not settle an in-flight native handshake.
+        // Return at our deadline; reject late headers/body before caching.
+        final bytes = await Future.any([read(), interruption.future]);
+        reusable = true;
+        return bytes;
+      } catch (_) {
+        if (expired) throw TimeoutException('Optional request deadline');
+        rethrow;
       } finally {
         finished = true;
         release(deadline);
-        release(client);
+        if (reusable && !_disposed && _resources.containsKey(client)) {
+          _idleClients.add((clientFactory, uri.origin, client));
+        } else {
+          release(client);
+        }
       }
     },
     cancelled: requestCancelled == null

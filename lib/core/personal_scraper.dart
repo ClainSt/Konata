@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'metadata.dart';
 import 'personal_filename_parser.dart';
 import 'work_season.dart';
+import 'scan_activity.dart';
 
 /// TMDB/Bangumi-only port of the metadata-only NipaPlay Personal cloud
 /// scraper. Never reads video bytes, invokes Dandanplay, or changes filenames.
@@ -19,11 +20,24 @@ class ScrapedWork {
     this.bangumiPoster,
     this.overview,
     this.year,
+    this.aliases = const {},
   });
   final String title, provider;
   final int? tmdbId, bangumiId, year;
   final String? tmdbType, poster, bangumiPoster, overview;
+  final Set<String> aliases;
+
+  bool sameWork(ScrapedWork other) {
+    if (tmdbId != null && other.tmdbId != null) {
+      return tmdbId == other.tmdbId && tmdbType == other.tmdbType;
+    }
+    return bangumiId != null && bangumiId == other.bangumiId;
+  }
 }
+
+class _ReviewRequired implements Exception {}
+
+class _SearchIncomplete implements Exception {}
 
 class ScrapeReport {
   const ScrapeReport(this.matched, this.skipped, this.review, this.errors);
@@ -39,37 +53,53 @@ class PersonalMetadataScraper {
   final http.Client _client;
   final bool _ownsClient;
   final String _bangumiBase;
+  void Function()? checkCancelled;
+  // One scrape batch only, bounded and discarded on close. Failed requests
+  // are never memoized, so a later visit can recover from a network outage.
+  final _responses = <String, Map<String, dynamic>>{};
+  final _pendingResponses = <String, Future<Map<String, dynamic>?>>{};
+  Future<Map<String, dynamic>?> _memo(
+    String key,
+    Future<Map<String, dynamic>?> Function() fetch,
+  ) async {
+    checkCancelled?.call();
+    if (_responses.containsKey(key)) return _responses[key];
+    return _pendingResponses.putIfAbsent(key, () async {
+      try {
+        final value = await fetch();
+        checkCancelled?.call();
+        if (value != null &&
+            utf8.encode(jsonEncode(value)).length <= 64 * 1024) {
+          if (_responses.length >= 128) {
+            _responses.remove(_responses.keys.first);
+          }
+          _responses[key] = value;
+        }
+        return value;
+      } finally {
+        _pendingResponses.remove(key);
+      }
+    });
+  }
+
   void close() {
+    _responses.clear();
     if (_ownsClient) _client.close();
   }
 
   static String normalize(String title) => title
       .toLowerCase()
       .replaceAll(RegExp(r'\{tmdb-\d+\}', caseSensitive: false), ' ')
-      .replaceAll(RegExp(r'\[[^\]]*\]'), ' ')
-      .replaceAll(RegExp(r'\b(?:19|20)\d{2}\b'), ' ')
+      .replaceAll(RegExp(r'\((?:19|20)\d{2}\)'), ' ')
       .replaceAll(RegExp(r'[\s\-_—–:：.()（）\[\]【】{}!?！？・·,，、]'), '')
       .trim();
   static bool exactTitle(String a, String b) {
     final x = normalize(a), y = normalize(b);
-    return x.length >= 3 && x == y;
+    return x.isNotEmpty && x == y;
   }
 
   static bool subjectTitleMatches(String query, String candidate, int? year) {
-    if (exactTitle(query, candidate)) return true;
-    // Personal permits subtitle containment. Require a release-year guard
-    // and keep the unique-subject check below before accepting that fallback.
-    if (year == null) return false;
-    final x = normalize(query), y = normalize(candidate);
-    if (x.length < 3 || y.length < 3) return false;
-    final wantedSeason = WorkSeason.explicit({'title': query});
-    final candidateSeason = WorkSeason.explicit({'title': candidate});
-    if (wantedSeason != null &&
-        candidateSeason != null &&
-        wantedSeason != candidateSeason) {
-      return false;
-    }
-    return x.contains(y) || y.contains(x);
+    return exactTitle(query, candidate);
   }
 
   static List<String> queries(String title) {
@@ -117,7 +147,7 @@ class PersonalMetadataScraper {
         PersonalFilenameParser.extractAnimeTitleKeyword(file),
         PersonalFilenameParser.extractAnimeSearchKeyword(file),
       ]) {
-        if (keyword.length < 3) continue;
+        if (keyword.isEmpty) continue;
         result.addAll(queries(keyword));
         if (result.length >= 12) break;
       }
@@ -137,7 +167,7 @@ class PersonalMetadataScraper {
   Future<Map<String, dynamic>?> _tmdb(
     String path,
     Map<String, String> params,
-  ) async {
+  ) => _memo('tmdb:$path:${jsonEncode(params)}', () async {
     final credentials = Metadata.credentials;
     if (!credentials.isConfigured) return null;
     http.Response response;
@@ -155,7 +185,7 @@ class PersonalMetadataScraper {
     }
     final decoded = jsonDecode(utf8.decode(response.bodyBytes));
     return decoded is Map<String, dynamic> ? decoded : null;
-  }
+  });
 
   Future<Map<String, dynamic>?> _tmdbById(int id, String type) async {
     // TMDB ID is authoritative; retry movie when a folder was provisionally
@@ -164,12 +194,73 @@ class PersonalMetadataScraper {
       type == 'movie' ? 'movie' : 'tv',
       type == 'movie' ? 'tv' : 'movie',
     ]) {
-      final item = await _tmdb('/$kind/$id', {'language': 'zh-CN'});
+      final item = await _tmdb('/$kind/$id', {
+        'language': 'zh-CN',
+        'append_to_response': 'alternative_titles,translations',
+      });
       if (item == null) continue;
       if (item['id'] is! num || (item['id'] as num).toInt() != id) continue;
       return {...item, '_cc_kind': kind};
     }
     return null;
+  }
+
+  static Set<String> officialTitles(Map item) {
+    final result = <String>{};
+    void add(Object? value) {
+      if (value is String && value.trim().isNotEmpty) result.add(value.trim());
+    }
+
+    for (final key in [
+      'name',
+      'title',
+      'original_name',
+      'original_title',
+      'name_cn',
+    ]) {
+      add(item[key]);
+    }
+    final alternative = item['alternative_titles'];
+    if (alternative is Map) {
+      for (final row
+          in (alternative['results'] ?? alternative['titles'] ?? []) as List) {
+        if (row is Map) add(row['title']);
+      }
+    }
+    final translations = item['translations'];
+    if (translations is Map) {
+      for (final row
+          in (translations['translations'] as List? ?? []).whereType<Map>()) {
+        final data = row['data'];
+        if (data is Map) {
+          add(data['name']);
+          add(data['title']);
+        }
+      }
+    }
+    for (final row in (item['infobox'] as List? ?? []).whereType<Map>()) {
+      if (![
+        '别名',
+        '中文名',
+        'alias',
+        'aliases',
+      ].contains(row['key']?.toString().toLowerCase())) {
+        continue;
+      }
+      final value = row['value'];
+      if (value is List) {
+        for (final alias in value) {
+          if (alias is Map) {
+            add(alias['v']);
+          } else {
+            add(alias);
+          }
+        }
+      } else {
+        add(value);
+      }
+    }
+    return result;
   }
 
   Future<Map<String, dynamic>?> _tmdbByTitle(
@@ -178,34 +269,53 @@ class PersonalMetadataScraper {
     List<String> hints,
   ) async {
     if (!Metadata.credentials.isConfigured) return null;
-    final candidates = <Map<String, dynamic>>[];
     for (final query in hints) {
+      final distinct = <String, Map<String, dynamic>>{};
       const types = ['tv', 'movie'];
-      final results = await Future.wait(
+      final searches = await Future.wait(
         types.map(
           (type) =>
               _tmdb('/search/$type', {'language': 'zh-CN', 'query': query}),
         ),
       );
-      for (var index = 0; index < types.length; index++) {
-        final type = types[index], data = results[index];
-        for (final item in (data?['results'] as List? ?? []).whereType<Map>()) {
-          final name = (item['name'] ?? item['title'] ?? '').toString();
-          final original =
-              (item['original_name'] ?? item['original_title'] ?? '')
-                  .toString();
+      for (var searchIndex = 0; searchIndex < types.length; searchIndex++) {
+        final type = types[searchIndex], data = searches[searchIndex];
+        final rows = (data?['results'] as List? ?? [])
+            .whereType<Map>()
+            .toList();
+        // Do not declare uniqueness from a truncated candidate set.
+        if ((data?['total_pages'] as num? ?? 1) > 1 || rows.length > 8) {
+          throw _SearchIncomplete();
+        }
+        for (final item in rows) {
+          if (item['id'] is! num) continue;
           final date = (item['first_air_date'] ?? item['release_date'])
               ?.toString();
-          if (!(exactTitle(query, name) || exactTitle(query, original))) {
+          if (type == 'movie' && !yearCompatible(year, date)) continue;
+          final direct = officialTitles(
+            item,
+          ).any((name) => exactTitle(query, name));
+          final needsDetails =
+              !direct ||
+              type == 'tv' &&
+                  (WorkSeason.explicit({'title': title}) != null ||
+                      !yearCompatible(year, date));
+          Map<String, dynamic> full = Map<String, dynamic>.from(item);
+          if (needsDetails) {
+            final details = await _tmdb('/$type/${item['id']}', {
+              'language': 'zh-CN',
+              'append_to_response': 'alternative_titles,translations',
+            });
+            if (details == null || details['id'] != item['id']) {
+              throw _ReviewRequired();
+            }
+            full.addAll(details);
+          }
+          if (!officialTitles(full).any((name) => exactTitle(query, name))) {
             continue;
           }
-          Map<String, dynamic> full = Map<String, dynamic>.from(item);
           if (!yearCompatible(year, date)) {
-            if (type != 'tv') continue;
-            final show = await _tmdb('/tv/${item['id']}', {
-              'language': 'zh-CN',
-            });
-            final seasons = (show?['seasons'] as List? ?? [])
+            final seasons = (full['seasons'] as List? ?? [])
                 .whereType<Map>()
                 .toList();
             final number = WorkSeason.resolve({
@@ -220,19 +330,48 @@ class PersonalMetadataScraper {
                 )) {
               continue;
             }
-            full.addAll(show!);
           }
-          candidates.add({...full, '_cc_kind': type});
+          distinct['$type:${item['id']}'] = {...full, '_cc_kind': type};
         }
       }
-      if (candidates.isNotEmpty) break;
+      if (distinct.length > 1) throw _ReviewRequired();
+      if (distinct.isNotEmpty) return distinct.values.single;
     }
-    // Never auto-assign an ambiguous title; user can search manually.
-    final distinct = {
-      for (final item in candidates) "${item['_cc_kind']}:${item['id']}": item,
-    };
-    return distinct.length == 1 ? distinct.values.first : null;
+    return null;
   }
+
+  Future<Map<String, dynamic>?> _bangumi(
+    String path, {
+    String? query,
+    int? year,
+  }) => _memo('bangumi:$path:$query:$year', () async {
+    final uri = Uri.parse('$_bangumiBase/v0/$path');
+    final headers = {
+      'User-Agent': MetadataHttp.userAgent,
+      'Accept': 'application/json',
+    };
+    final response = query == null
+        ? await _client.get(uri, headers: headers)
+        : await _client.post(
+            uri.replace(queryParameters: {'limit': '10'}),
+            headers: {...headers, 'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'keyword': query,
+              'sort': 'match',
+              'filter': {
+                'type': [2],
+                if (year != null)
+                  'air_date': ['>=$year-01-01', '<${year + 1}-01-01'],
+              },
+            }),
+          );
+    if (response.statusCode == 404) return null;
+    if (response.statusCode != 200) {
+      throw StateError('Bangumi HTTP ${response.statusCode}');
+    }
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    return decoded is Map<String, dynamic> ? decoded : null;
+  });
 
   Future<Map<String, dynamic>?> matchBangumi(
     String title,
@@ -241,87 +380,55 @@ class PersonalMetadataScraper {
     List<String> hints = const [],
   }) async {
     for (final query in hints.isEmpty ? queries(title) : hints) {
-      http.Response result;
-      try {
-        result = await _client.post(
-          Uri.parse('$_bangumiBase/v0/search/subjects'),
-          headers: {
-            'User-Agent': 'Konata/0.1 (personal media library)',
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-          body: jsonEncode({
-            'keyword': query,
-            'sort': 'match',
-            'filter': {
-              'type': [2],
-            },
-          }),
-        );
-      } catch (_) {
-        return null;
+      final body = await _bangumi('search/subjects', query: query, year: year);
+      final rows = (body?['data'] as List? ?? []).whereType<Map>().toList();
+      if ((body?['total'] as num? ?? rows.length) > rows.length ||
+          rows.length > 8) {
+        throw _ReviewRequired();
       }
-      if (result.statusCode != 200) continue;
-      final body = jsonDecode(utf8.decode(result.bodyBytes));
-      final all = body is Map ? body['data'] : null;
-      if (all is! List) continue;
-      final matches = all.whereType<Map>().where((c) {
-        return (subjectTitleMatches(
-                  query,
-                  c['name_cn']?.toString() ?? '',
-                  year,
-                ) ||
-                subjectTitleMatches(
-                  query,
-                  c['name']?.toString() ?? '',
-                  year,
-                )) &&
-            yearCompatible(year, c['date']?.toString());
-      }).toList();
-      final exact = matches.where(
-        (c) =>
-            exactTitle(query, c['name_cn']?.toString() ?? '') ||
-            exactTitle(query, c['name']?.toString() ?? ''),
-      );
-      final ids = {
-        for (final c in exact.isNotEmpty ? exact : matches)
-          int.tryParse(c['id'].toString()),
-      };
-      ids.remove(null);
-      if (ids.length != 1) continue;
-      final id = ids.first!;
-      http.Response info;
-      try {
-        info = await _client.get(
-          Uri.parse('$_bangumiBase/v0/subjects/$id'),
-          headers: {
-            'User-Agent': 'Konata/0.1 (personal media library)',
-            'Accept': 'application/json',
-          },
-        );
-      } catch (_) {
-        continue;
-      }
-      if (info.statusCode != 200) continue;
-      final decoded = jsonDecode(utf8.decode(info.bodyBytes));
-      if (decoded is! Map<String, dynamic>) continue;
-      if (!yearCompatible(year, decoded['date']?.toString())) continue;
-      if (tmdbId != null) {
-        // Reject an explicitly conflicting TMDB identifier in Bangumi infobox.
-        final entries = decoded['infobox'];
-        if (entries is List) {
-          for (final row in entries.whereType<Map>()) {
-            final key = row['key']?.toString().toLowerCase() ?? '';
-            if (!key.contains('tmdb')) continue;
-            final value = row['value']?.toString() ?? '';
+      final matches = <int, Map<String, dynamic>>{};
+      for (final row in rows) {
+        final id = (row['id'] as num?)?.toInt();
+        if (id == null || !yearCompatible(year, row['date']?.toString())) {
+          continue;
+        }
+        final detail = await _bangumi('subjects/$id');
+        if (detail == null || detail['id'] != id) throw _ReviewRequired();
+        final full = {...row, ...detail};
+        if (!yearCompatible(year, full['date']?.toString())) continue;
+        if (!officialTitles(full).any((name) => exactTitle(query, name))) {
+          continue;
+        }
+        final requestedSeason = WorkSeason.explicit({'title': title});
+        final actualSeason = WorkSeason.explicit({
+          'title': full['name_cn'] ?? full['name'],
+        });
+        if (requestedSeason != null &&
+            requestedSeason > 1 &&
+            actualSeason != requestedSeason) {
+          continue;
+        }
+        if (requestedSeason != null &&
+            actualSeason != null &&
+            requestedSeason != actualSeason) {
+          continue;
+        }
+        if (tmdbId != null) {
+          for (final entry
+              in (full['infobox'] as List? ?? []).whereType<Map>()) {
+            if (!entry['key'].toString().toLowerCase().contains('tmdb')) {
+              continue;
+            }
             final found = int.tryParse(
-              RegExp(r'\d+').firstMatch(value)?.group(0) ?? '',
+              RegExp(r'\d+').firstMatch('${entry['value']}')?.group(0) ?? '',
             );
-            if (found != null && found != tmdbId) return null;
+            if (found != null && found != tmdbId) throw _ReviewRequired();
           }
         }
+        matches[id] = Map<String, dynamic>.from(full);
       }
-      return decoded;
+      if (matches.length > 1) throw _ReviewRequired();
+      if (matches.isNotEmpty) return matches.values.single;
     }
     return null;
   }
@@ -339,32 +446,203 @@ class PersonalMetadataScraper {
     return null;
   }
 
+  /// Each distinct filename identity is resolved once, never once per episode.
+  /// A directory match may fill an episode-only name; it cannot override a
+  /// conflicting named file. The caller keeps unresolved files for review.
+  Future<Map<String, ScrapedWork?>> classify(
+    Map<String, Object?> work,
+    List<Map<String, Object?>> assets, {
+    ScrapedWork? unnamedFallback,
+  }) async {
+    work = _sourceEvidence(work);
+    final folder = await scrape(work);
+    final groups = <String, Future<ScrapedWork?>>{};
+    final result = <String, ScrapedWork?>{};
+    for (final asset in assets) {
+      checkCancelled?.call();
+      final name = asset['name']?.toString() ?? '';
+      final file = filenameWork(
+        name,
+        supplementary: asset['category'] == 'extra',
+      );
+      if (file == null) {
+        result[asset['id'].toString()] = folder ?? unnamedFallback;
+        continue;
+      }
+      // A directory year narrows alias searches without imposing its provider
+      // ID on the file; another identifiable work still triggers review.
+      file['year'] ??= WorkSeason.year(work);
+      final title = file['title'].toString();
+      final year = file['year'] as int?;
+      final season = WorkSeason.explicit(file);
+      final folderSeason = WorkSeason.explicit(work);
+      final knownAlias =
+          folder != null &&
+          file['conflicting_ids'] != true &&
+          (file['tmdb_id'] == null ||
+              file['tmdb_id'] == folder.tmdbId &&
+                  file['tmdb_type'] == folder.tmdbType) &&
+          (year == null || folder.year == null || year == folder.year) &&
+          (season == null ||
+              season == folderSeason ||
+              season == 1 && folderSeason == null) &&
+          folder.aliases.any((alias) => exactTitle(title, alias));
+      final key =
+          '$title|$year|$season|${file['tmdb_id']}|${file['tmdb_type']}|${file['conflicting_ids']}';
+      final candidate = knownAlias
+          ? folder
+          : await groups.putIfAbsent(key, () => scrape(file));
+      result[asset['id'].toString()] =
+          folder != null &&
+              candidate != null &&
+              (!folder.sameWork(candidate) ||
+                  WorkSeason.year(work) != null &&
+                      year != null &&
+                      WorkSeason.year(work) != year ||
+                  folderSeason != null &&
+                      season != null &&
+                      folderSeason != season)
+          ? null
+          : candidate;
+    }
+    return result;
+  }
+
+  static Map<String, Object?>? filenameWork(
+    String name, {
+    bool supplementary = false,
+  }) {
+    var title = PersonalFilenameParser.extractAnimeSearchKeyword(name);
+    if (supplementary) {
+      title = title
+          .replaceFirst(
+            RegExp(
+              r'(?:^|[\s_-])(?:NCOP|NCED|OP|ED|PV|CM|SP|SPECIALS?|BONUS|MENU)(?:\d{1,3}|v\d+)?(?:\s.*)?$',
+              caseSensitive: false,
+            ),
+            '',
+          )
+          .trim();
+    }
+    // A bare episode number supplies no title evidence. Numeric titles such
+    // as "86 - 01" survive because the parser has already removed the episode.
+    final base = PersonalFilenameParser.baseNameWithoutExtension(name);
+    if (RegExp(
+      r'^(?:\[)?(?:S\d+E|EP?|第)?\s*\d{1,3}(?:[话話集])?(?:\])?$',
+      caseSensitive: false,
+    ).hasMatch(base)) {
+      return null;
+    }
+    final tmdbId = PersonalFilenameParser.tmdbId(base);
+    if (title.isEmpty && tmdbId == null) return null;
+    final season = WorkSeason.explicit({'title': base});
+    return {
+      'title': season != null ? '$title S$season' : title,
+      'year': WorkSeason.year({'title': base}),
+      'tmdb_id': tmdbId,
+      'tmdb_type': PersonalFilenameParser.tmdbType(base),
+      if (PersonalFilenameParser.tmdbIds(base).length > 1)
+        'conflicting_ids': true,
+    };
+  }
+
   Future<ScrapedWork?> scrape(
     Map<String, Object?> work, {
     List<String> filenames = const [],
   }) async {
-    final title = WorkSeason.directoryTitle(
-      work,
+    work = _sourceEvidence(work);
+    try {
+      if (work['conflicting_ids'] == true ||
+          PersonalFilenameParser.tmdbIds(
+                WorkSeason.directoryTitle(work),
+              ).length >
+              1) {
+        return null;
+      }
+      if (filenames.isEmpty) return await _resolve(work);
+      final results = await classify(work, [
+        for (var i = 0; i < filenames.length; i++)
+          {'id': '$i', 'name': filenames[i]},
+      ]);
+      if (results.values.any((value) => value == null)) return null;
+      final resolved = results.values.whereType<ScrapedWork>().toList();
+      if (resolved.isEmpty ||
+          resolved.any((value) => !resolved.first.sameWork(value))) {
+        return null;
+      }
+      return resolved.first;
+    } on _ReviewRequired {
+      return null;
+    }
+  }
+
+  static Map<String, Object?> _sourceEvidence(Map<String, Object?> work) {
+    final id = work['id']?.toString() ?? '';
+    if (!id.startsWith('work:') ||
+        id.contains(':classified:') ||
+        work['manual_lock'] == 1) {
+      return work;
+    }
+    // Display metadata from a previous automatic match is not filename evidence.
+    return {
+      ...work,
+      'title': WorkSeason.directoryTitle(work),
+      'year': null,
+      'tmdb_id': null,
+      'tmdb_type': null,
+    };
+  }
+
+  Future<ScrapedWork?> _resolve(Map<String, Object?> work) async {
+    final rawTitle = WorkSeason.directoryTitle(work);
+    if (rawTitle == '@unclassified') return null;
+    final directoryId = PersonalFilenameParser.tmdbId(rawTitle);
+    final indexedDirectory =
+        work['id']?.toString().startsWith('work:') == true &&
+        work['id']?.toString().contains(':classified:') != true;
+    // Previously automatic metadata is not an explicit user ID. Recheck its
+    // directory/filename evidence when asked to rescrape an unlocked work.
+    final id =
+        directoryId ??
+        (indexedDirectory && work['manual_lock'] != 1
+            ? null
+            : (work['tmdb_id'] as num?)?.toInt());
+    final title = PersonalFilenameParser.withoutTmdbMarkers(
+      rawTitle,
     ).replaceAll(RegExp(r'\{[^}]*\}|\((?:19|20)\d{2}\)'), '').trim();
-    if (title.isEmpty) return null;
+    if (title.isEmpty && id == null) return null;
     final year = WorkSeason.year(work);
-    final hints = titleHints(title, filenames);
-    final id = work['tmdb_id'] is num ? (work['tmdb_id'] as num).toInt() : null;
+    final hints = queries(title);
     Map<String, dynamic>? tmdb;
     if (id != null && id > 0) {
       try {
-        tmdb = await _tmdbById(id, work['tmdb_type']?.toString() ?? 'tv');
+        tmdb = await _tmdbById(
+          id,
+          work['tmdb_type']?.toString() ??
+              PersonalFilenameParser.tmdbType(rawTitle) ??
+              'tv',
+        );
+      } on ScanCancelled {
+        rethrow;
       } catch (_) {
         /* Bangumi may be reachable even when TMDB is blocked. */
       }
     } else {
       try {
         tmdb = await _tmdbByTitle(title, year, hints);
+      } on _ReviewRequired {
+        rethrow;
+      } on ScanCancelled {
+        rethrow;
       } catch (_) {
         /* Fall back to public Bangumi lookup. */
       }
     }
     var tmdbTitle = (tmdb?['name'] ?? tmdb?['title'] ?? '').toString();
+    if (tmdb?['_cc_kind'] == 'movie' &&
+        !yearCompatible(year, tmdb?['release_date']?.toString())) {
+      return null;
+    }
     Map? season;
     if (tmdb?['_cc_kind'] == 'tv') {
       final seasons = (tmdb?['seasons'] as List? ?? [])
@@ -373,7 +651,13 @@ class PersonalMetadataScraper {
       final number = WorkSeason.resolve(work, seasons);
       if (number == null &&
           year != null &&
-          seasons.length > 1 &&
+          seasons.isEmpty &&
+          !yearCompatible(year, tmdb?['first_air_date']?.toString())) {
+        return null;
+      }
+      if (number == null &&
+          year != null &&
+          seasons.any((s) => (s['season_number'] as num? ?? 0) > 0) &&
           !WorkSeason.multiple(work)) {
         return null;
       }
@@ -403,12 +687,23 @@ class PersonalMetadataScraper {
         }
       }
     }
-    final bangumi = await matchBangumi(
-      title,
-      year,
-      hints: hints,
-      tmdbId: tmdb?['id'] is num ? (tmdb!['id'] as num).toInt() : id,
-    );
+    Map<String, dynamic>? bangumi;
+    try {
+      bangumi = await matchBangumi(
+        title,
+        year,
+        hints: tmdb != null ? queries(tmdbTitle) : hints,
+        tmdbId: tmdb?['id'] is num ? (tmdb!['id'] as num).toInt() : id,
+      );
+    } on _ReviewRequired {
+      // An ambiguous auxiliary provider must not discard an independently
+      // verified TMDB identity. Keep it unlinked instead of guessing a subject.
+      if (tmdb == null) rethrow;
+    } on ScanCancelled {
+      rethrow;
+    } catch (_) {
+      if (tmdb == null) rethrow;
+    }
     final bangumiTitle =
         (bangumi?['name_cn']?.toString().trim().isNotEmpty == true
                 ? bangumi!['name_cn']
@@ -425,7 +720,10 @@ class PersonalMetadataScraper {
         : null;
     final bangumiPoster = _poster(bangumi?['images'] as Map?);
     final date =
-        (tmdb?['first_air_date'] ?? tmdb?['release_date'] ?? bangumi?['date'])
+        (season?['air_date'] ??
+                tmdb?['first_air_date'] ??
+                tmdb?['release_date'] ??
+                bangumi?['date'])
             ?.toString();
     return ScrapedWork(
       title: tmdbTitle.isNotEmpty
@@ -433,6 +731,10 @@ class PersonalMetadataScraper {
           : bangumiTitle.isNotEmpty
           ? bangumiTitle
           : title,
+      aliases: {
+        ...officialTitles(tmdb ?? {}),
+        ...officialTitles(bangumi ?? {}),
+      },
       provider: tmdb != null
           ? (bangumi != null ? 'TMDB + Bangumi' : 'TMDB')
           : 'Bangumi',

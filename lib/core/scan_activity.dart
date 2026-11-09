@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'dart:async';
 
 enum ScanPhase { scanning, scraping, complete, cancelled, failed }
 
@@ -23,6 +24,12 @@ class ScanActivity {
   int matched = 0, needsReview = 0, metadataErrors = 0;
   DateTime? finishedAt;
   bool cancelRequested = false;
+  final _cancelled = Completer<void>();
+  Future<void> get cancelled => _cancelled.future;
+  void cancel() {
+    cancelRequested = true;
+    if (!_cancelled.isCompleted) _cancelled.complete();
+  }
 
   void checkCancelled() {
     if (cancelRequested) throw const ScanCancelled();
@@ -51,7 +58,7 @@ class ScanActivityStore extends ChangeNotifier {
   void requestCancel(String sourceId) {
     final run = _runs[sourceId];
     if (run == null || run.finishedAt != null || run.cancelRequested) return;
-    run.cancelRequested = true;
+    run.cancel();
     notifyListeners();
   }
 

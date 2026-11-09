@@ -90,13 +90,16 @@ void main() {
           ),
         ),
       );
-      Future<void> settleIo() async {
-        for (var attempt = 0; attempt < 40; attempt++) {
+      Future<void> settleIo({bool Function()? completed}) async {
+        for (var attempt = 0; attempt < 200; attempt++) {
           await tester.pump(const Duration(milliseconds: 50));
           await tester.runAsync(
             () => Future<void>.delayed(const Duration(milliseconds: 25)),
           );
-          if (find.byType(CircularProgressIndicator).evaluate().isEmpty) break;
+          if (find.byType(CircularProgressIndicator).evaluate().isEmpty &&
+              (completed?.call() ?? true)) {
+            break;
+          }
         }
         await tester.pumpAndSettle();
       }
@@ -118,7 +121,12 @@ void main() {
           find.descendant(of: tile, matching: find.byType(Checkbox)),
         ),
       );
-      await settleIo();
+      // Selection writes SQLite without showing a loading spinner. Await its
+      // observable result rather than assuming it finishes within 25 ms.
+      await settleIo(
+        completed: () =>
+            Catalog.instance.rootsFor('browser-language').length == 1,
+      );
       expect(find.text('Scan selected (1)'), findsOneWidget);
       expect(
         Catalog.instance.rootsFor('browser-language').single['relative_path'],
@@ -189,7 +197,10 @@ void main() {
           ),
         ),
       );
-      await settleIo();
+      await settleIo(
+        completed: () =>
+            Catalog.instance.rootsFor('browser-language').length == 1,
+      );
       expect(
         Catalog.instance.rootsFor('browser-language').single['relative_path'],
         '日本語 series',

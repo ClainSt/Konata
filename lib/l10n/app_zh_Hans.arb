@@ -528,5 +528,11 @@
   "cacheDirectoryUnavailable": "暂时无法打开缓存目录。",
   "detailBackdrop": "详情页背景图",
   "cacheSettingFailed": "设置保存失败，请重试。",
-  "nameOrBangumiId": "名称或 Bangumi ID"
+  "nameOrBangumiId": "名称或 Bangumi ID",
+  "unclassified": "待归类",
+  "assignToWork": "归入作品",
+  "workName": "作品名称",
+  "createClassification": "以此名称创建作品",
+  "classificationHint": "仅调整媒体库归属，不移动或重命名原始文件。选取同一媒体源的文件后，可批量归入已有作品或新建作品。",
+  "selectSourceFiles": "选择此媒体源全部文件"
 }

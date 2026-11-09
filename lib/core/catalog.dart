@@ -18,6 +18,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'cloud_media_asset_presentation.dart';
 import 'cloud_media_file_classifier.dart';
 import 'personal_scraper.dart';
+import 'personal_filename_parser.dart';
 import 'work_season.dart';
 import 'phantom_directory_repair.dart';
 import 'sources.dart' show SmbSource;
@@ -522,39 +523,20 @@ class Catalog extends ChangeNotifier {
     '.ts',
     '.webm',
     '.mov',
+    '.wmv',
   };
   static const subtitleExtensions = {'.ass', '.ssa', '.srt', '.vtt'};
   static bool isVideo(String name) =>
       videoExtensions.contains(p.extension(name).toLowerCase());
   static bool isSubtitle(String name) =>
       subtitleExtensions.contains(p.extension(name).toLowerCase());
-  static int? tmdbId(String title) {
-    for (final pattern in [
-      r'\{\s*tmdb(?:tv|movie|id)?\s*[-=:]\s*(\d+)\s*\}',
-      r'\[\s*tmdb\s*[-=:]\s*(\d+)\s*\]',
-      r'\{\s*\[\s*tmdbid\s*=\s*(\d+)[^\]]*\]\s*\}',
-    ]) {
-      final id = int.tryParse(
-        RegExp(pattern, caseSensitive: false).firstMatch(title)?.group(1) ?? '',
-      );
-      if (id != null && id > 0) return id;
-    }
-    return null;
-  }
-
-  static String? tmdbType(String title) {
-    if (RegExp(
-      r'tmdbmovie\s*[-=:]|type\s*=\s*(movie|film)',
-      caseSensitive: false,
-    ).hasMatch(title)) {
-      return 'movie';
-    }
-    if (tmdbId(title) != null) return 'tv';
-    return null;
-  }
+  static int? tmdbId(String title) => PersonalFilenameParser.tmdbId(title);
+  static String? tmdbType(String title) =>
+      PersonalFilenameParser.tmdbType(title);
 
   static int? year(String title) => WorkSeason.year({'title': title});
   static String cleanTitle(String folder) {
+    if (folder == '@unclassified') return '待归类';
     var title = folder.replaceAll(
       RegExp(
         r'\{\s*tmdb(?:tv|movie|id)?\s*[-=:]\s*\d+\s*\}|\{\s*\[\s*tmdbid[^}]*\}|\[\s*tmdb\s*[-=:]\s*\d+\s*\]',
@@ -650,13 +632,37 @@ class Catalog extends ChangeNotifier {
   static int? episode(String name) =>
       CloudMediaFileClassifier.episodeNumberFromName(name);
 
+  Future<void> indexVideos(
+    String sourceId,
+    List<({String relative, int? size, String folder, bool review})> videos, {
+    void Function()? checkCancelled,
+  }) async {
+    if (videos.isEmpty) return;
+    await db.transaction((tx) async {
+      for (final video in videos) {
+        checkCancelled?.call();
+        await indexVideo(
+          sourceId,
+          video.relative,
+          video.size,
+          workFolder: video.folder,
+          needsReview: video.review,
+          executor: tx,
+        );
+      }
+      checkCancelled?.call();
+    });
+  }
+
   Future<void> indexVideo(
     String sourceId,
     String relative,
     int? size, {
     String? workFolder,
     bool needsReview = true,
+    DatabaseExecutor? executor,
   }) async {
+    final targetDb = executor ?? db;
     final normalized = relative.replaceAll('\\', '/');
     final name = p.posix.basename(normalized);
     final segments = p.posix.split(normalized);
@@ -671,14 +677,14 @@ class Catalog extends ChangeNotifier {
     }
     final workId = 'work:$sourceId:${Uri.encodeComponent(folder)}';
     final assetId = 'asset:$sourceId:${Uri.encodeComponent(normalized)}';
-    final existing = await db.query(
+    final existing = await targetDb.query(
       'assets',
       columns: ['work_id'],
       where: 'id=?',
       whereArgs: [assetId],
       limit: 1,
     );
-    final manual = await db.query(
+    final manual = await targetDb.query(
       'asset_overrides',
       where: 'asset_id=?',
       whereArgs: [assetId],
@@ -692,20 +698,22 @@ class Catalog extends ChangeNotifier {
         existing.first['work_id'] != workId) {
       final oldId = existing.first['work_id']?.toString();
       if (oldId != null) {
-        final oldWork = await db.query(
+        final oldWork = await targetDb.query(
           'works',
           columns: ['manual_lock'],
           where: 'id=?',
           whereArgs: [oldId],
           limit: 1,
         );
-        if (oldWork.isNotEmpty && oldWork.first['manual_lock'] == 1) {
+        if (oldWork.isNotEmpty &&
+            (oldWork.first['manual_lock'] == 1 ||
+                oldId.contains(':classified:'))) {
           targetWorkId = oldId;
         }
       }
     }
     if (targetWorkId == workId) {
-      await db.insert('works', {
+      await targetDb.insert('works', {
         'id': workId,
         'title': cleanTitle(displayFolder),
         'year': year(displayFolder),
@@ -716,13 +724,13 @@ class Catalog extends ChangeNotifier {
     }
     // Temporary removal is reversed by a real subsequent scan. Persistent
     // hidden titles remain suppressed even while their assets are indexed.
-    await db.update(
+    await targetDb.update(
       'works',
       {'hidden': 0},
       where: 'id=? AND hidden=1 AND keep_hidden=0',
       whereArgs: [targetWorkId],
     );
-    await db.insert('assets', {
+    await targetDb.insert('assets', {
       'id': assetId,
       'source_id': sourceId,
       'work_id': targetWorkId,
@@ -937,7 +945,9 @@ class Catalog extends ChangeNotifier {
   Future<void> pruneOrphanedWorks() async {
     await db.rawDelete(
       'DELETE FROM works WHERE manual_lock=0 '
-      'AND id NOT IN (SELECT DISTINCT work_id FROM assets)',
+      'AND id NOT IN (SELECT DISTINCT work_id FROM assets) '
+      'AND id NOT IN (SELECT work_id FROM asset_override_history) '
+      'AND id NOT IN (SELECT work_id FROM asset_overrides)',
     );
     await reload();
   }
@@ -1113,21 +1123,34 @@ class Catalog extends ChangeNotifier {
     );
     if (records.isEmpty || records.single['manual_lock'] == 1) return false;
     final old = records.single;
+    final sameIdentity =
+        (scraped.tmdbId != null &&
+            scraped.tmdbId == old['tmdb_id'] &&
+            scraped.tmdbType == old['tmdb_type']) ||
+        (scraped.bangumiId != null && scraped.bangumiId == old['bangumi_id']);
     final poster = scraped.poster?.trim();
     final overview = scraped.overview?.trim();
     final update = <String, Object?>{
       'title': scraped.title.trim().isNotEmpty ? scraped.title : old['title'],
-      'year': scraped.year ?? old['year'],
-      'poster': poster != null && poster.isNotEmpty ? poster : old['poster'],
-      'poster_fallback': scraped.bangumiPoster ?? old['poster_fallback'],
+      'year': scraped.year ?? (sameIdentity ? old['year'] : null),
+      'poster': poster != null && poster.isNotEmpty
+          ? poster
+          : (sameIdentity ? old['poster'] : null),
+      'poster_fallback':
+          scraped.bangumiPoster ??
+          (sameIdentity ? old['poster_fallback'] : null),
       'overview': overview != null && overview.isNotEmpty
           ? overview
-          : old['overview'],
-      'tmdb_id': scraped.tmdbId ?? old['tmdb_id'],
-      'tmdb_type': scraped.tmdbType ?? old['tmdb_type'],
+          : (sameIdentity ? old['overview'] : null),
+      'tmdb_id': scraped.tmdbId ?? (sameIdentity ? old['tmdb_id'] : null),
+      'tmdb_type': scraped.tmdbType ?? (sameIdentity ? old['tmdb_type'] : null),
       'bangumi_id': old['bangumi_link_info'] != null
           ? old['bangumi_id']
-          : scraped.bangumiId ?? old['bangumi_id'],
+          : scraped.bangumiId ?? (sameIdentity ? old['bangumi_id'] : null),
+      if (!sameIdentity &&
+          old['bangumi_link_info'] == null &&
+          old.containsKey('bangumi_ids'))
+        'bangumi_ids': null,
       'needs_review': 0,
     };
     await db.update(
@@ -1138,6 +1161,244 @@ class Catalog extends ChangeNotifier {
     );
     if (reloadAfter) await reload();
     return true;
+  }
+
+  /// Virtual grouping only: a transaction changes library relations, never
+  /// paths, file IDs, manual mappings or playback records. Existing tables are
+  /// sufficient, so backups and old-version rollback retain these relations.
+  Future<bool> applyClassification(
+    String workId,
+    Map<String, ScrapedWork?> decisions,
+  ) async {
+    final rows = await db.query('works', where: 'id=?', whereArgs: [workId]);
+    if (rows.isEmpty || rows.single['manual_lock'] == 1) return false;
+    final items = await db.query(
+      'assets',
+      where: 'work_id=?',
+      whereArgs: [workId],
+    );
+    final manual = (await db.rawQuery(
+      'SELECT o.asset_id FROM asset_overrides o JOIN assets a ON a.id=o.asset_id WHERE a.work_id=?',
+      [workId],
+    )).map((row) => row['asset_id']).toSet();
+    final editable = items.where((row) => !manual.contains(row['id'])).toList();
+    final found = editable
+        .map((row) => decisions[row['id']])
+        .whereType<ScrapedWork>()
+        .toList();
+    if (manual.isEmpty &&
+        found.length == editable.length &&
+        found.isNotEmpty &&
+        found.every(
+          (value) =>
+              value.sameWork(found.first) &&
+              value.year == found.first.year &&
+              value.title == found.first.title,
+        )) {
+      return applyScrapedWork(workId, found.first, reloadAfter: false);
+    }
+    var complete = true;
+    await db.transaction((tx) async {
+      final origin = workId.split(':classified:').first;
+      Future<void> leavePending(Map<String, Object?> asset) async {
+        complete = false;
+        if (origin == workId) return;
+        await tx.insert('works', {
+          'id': origin,
+          'title': '待归类',
+          'needs_review': 1,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+        await tx.update(
+          'works',
+          {'needs_review': 1, 'hidden': 0},
+          where: 'id=?',
+          whereArgs: [origin],
+        );
+        await tx.update(
+          'assets',
+          {'work_id': origin},
+          where: 'id=?',
+          whereArgs: [asset['id']],
+        );
+      }
+
+      for (final asset in editable) {
+        final match = decisions[asset['id']];
+        if (match == null) {
+          await leavePending(asset);
+          continue;
+        }
+        final identity = match.tmdbId != null
+            ? 'tmdb-${match.tmdbType}-${match.tmdbId}-${WorkSeason.explicit({'title': match.title}) ?? 0}-${match.year ?? 0}'
+            : 'bangumi-${match.bangumiId}';
+        final target = '$origin:classified:${Uri.encodeComponent(identity)}';
+        final existing = await tx.query(
+          'works',
+          where: 'id=?',
+          whereArgs: [target],
+        );
+        if (existing.isNotEmpty && existing.single['manual_lock'] == 1) {
+          final old = existing.single;
+          final compatible = match.tmdbId != null
+              ? old['tmdb_id'] == match.tmdbId &&
+                    old['tmdb_type'] == match.tmdbType
+              : old['bangumi_id'] == match.bangumiId;
+          if (!compatible) {
+            await leavePending(asset);
+            continue;
+          }
+        }
+        await tx.insert('works', {
+          'id': target,
+          'title': match.title,
+          'year': match.year,
+          'tmdb_id': match.tmdbId,
+          'tmdb_type': match.tmdbType,
+          'bangumi_id': match.bangumiId,
+          'poster': match.poster,
+          'poster_fallback': match.bangumiPoster,
+          'overview': match.overview,
+          'needs_review': 0,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+        await tx.update(
+          'assets',
+          {'work_id': target},
+          where: 'id=?',
+          whereArgs: [asset['id']],
+        );
+      }
+      await tx.update(
+        'works',
+        {'needs_review': origin == workId ? 1 : 0},
+        where: 'id=?',
+        whereArgs: [workId],
+      );
+      final remaining = await tx.query(
+        'assets',
+        columns: ['id'],
+        where: 'work_id=?',
+        whereArgs: [workId],
+        limit: 1,
+      );
+      if (remaining.isEmpty) {
+        await tx.update(
+          'works',
+          {'hidden': 1},
+          where: 'id=?',
+          whereArgs: [workId],
+        );
+      }
+    });
+    return complete;
+  }
+
+  List<Map<String, Object?>> get unclassifiedAssets {
+    final pending = works
+        .where((work) => work['needs_review'] == 1 && work['manual_lock'] != 1)
+        .map((work) => work['id'])
+        .toSet();
+    return assets
+        .where(
+          (asset) =>
+              pending.contains(asset['work_id']) &&
+              asset['manual_mapping'] != true,
+        )
+        .toList();
+  }
+
+  /// Explicit batch correction. The history table supports the same per-file
+  /// undo as the existing relation editor; rescans respect the manual binding.
+  Future<void> classifyManually(
+    Set<String> assetIds, {
+    String? targetWorkId,
+    String? title,
+  }) async {
+    if (scanning) throw StateError('Scan in progress');
+    if (assetIds.isEmpty) return;
+    await db.transaction((tx) async {
+      final selected = <Map<String, Object?>>[];
+      for (final id in assetIds) {
+        final rows = await tx.query('assets', where: 'id=?', whereArgs: [id]);
+        if (rows.isEmpty) throw StateError('File changed');
+        selected.add(rows.single);
+      }
+      final source = selected.first['source_id'];
+      if (selected.any((row) => row['source_id'] != source)) {
+        throw StateError('Choose files from one source');
+      }
+      String target;
+      if (targetWorkId != null) {
+        if (!targetWorkId.startsWith('work:$source:')) {
+          throw StateError('Source mismatch');
+        }
+        if ((await tx.query(
+          'works',
+          where: 'id=?',
+          whereArgs: [targetWorkId],
+        )).isEmpty) {
+          throw StateError('Title removed');
+        }
+        target = targetWorkId;
+      } else {
+        if (title == null || title.trim().isEmpty) {
+          throw ArgumentError('Title required');
+        }
+        target =
+            'work:$source:classified:manual-${DateTime.now().microsecondsSinceEpoch}';
+        await tx.insert('works', {
+          'id': target,
+          'title': title.trim(),
+          'manual_lock': 1,
+          'needs_review': 0,
+        });
+      }
+      for (final row in selected) {
+        final previous = await tx.query(
+          'asset_overrides',
+          where: 'asset_id=?',
+          whereArgs: [row['id']],
+        );
+        final values = {
+          for (final key in ['category', 'episode', 'season', 'extra_type'])
+            key: row[key],
+        };
+        await tx.insert('asset_override_history', {
+          'asset_id': row['id'],
+          'work_id': row['work_id'],
+          ...values,
+          'was_locked': previous.isEmpty ? 0 : 1,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        await tx.insert('asset_overrides', {
+          'asset_id': row['id'],
+          'work_id': target,
+          ...values,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        await tx.update(
+          'assets',
+          {'work_id': target},
+          where: 'id=?',
+          whereArgs: [row['id']],
+        );
+      }
+      for (final previousWork
+          in selected.map((row) => row['work_id']).toSet()) {
+        if ((await tx.query(
+          'assets',
+          columns: ['id'],
+          where: 'work_id=?',
+          whereArgs: [previousWork],
+          limit: 1,
+        )).isEmpty) {
+          await tx.update(
+            'works',
+            {'hidden': 1},
+            where: 'id=? AND manual_lock=0',
+            whereArgs: [previousWork],
+          );
+        }
+      }
+    });
+    await reload();
   }
 
   /// Save a reversible manual relation. Asset IDs and progress stay stable.
@@ -1316,6 +1577,12 @@ class Catalog extends ChangeNotifier {
     if (rows.isEmpty) return false;
     final row = rows.single;
     await db.transaction((tx) async {
+      await tx.update(
+        'works',
+        {'hidden': 0},
+        where: 'id=? AND keep_hidden=0',
+        whereArgs: [row['work_id']],
+      );
       await tx.update(
         'assets',
         {

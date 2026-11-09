@@ -32,6 +32,8 @@ class OptionalPeopleSession {
   int _imageBytes = 0;
   int _responseBytes = 0;
   bool _hadFailures = false;
+  final _unhealthyHosts = <String, DateTime>{};
+  bool _loadingCards = false;
   String? _owner;
   static const maxImageBytes = 4 * 1024 * 1024;
   bool get disposed => _scope.disposed;
@@ -78,6 +80,18 @@ class OptionalPeopleSession {
                 base: base,
               ).replace(query: source.hasQuery ? source.query : null),
           }.toList();
+    // Preserve configured priority among healthy routes. Failed routes remain
+    // available as a last resort rather than turning the whole batch offline.
+    final now = DateTime.now();
+    final healthy = candidates
+        .where((uri) => !(_unhealthyHosts[uri.host]?.isAfter(now) ?? false))
+        .toList();
+    final unhealthy = candidates
+        .where((uri) => _unhealthyHosts[uri.host]?.isAfter(now) ?? false)
+        .toList();
+    candidates
+      ..clear()
+      ..addAll([...healthy, ...unhealthy]);
     var aborted = false;
     cancelled?.then((_) => aborted = true);
     final watch = Stopwatch()..start();
@@ -101,15 +115,27 @@ class OptionalPeopleSession {
         throw TimeoutException('Optional request deadline');
       }
       try {
-        return await _scope.readBytes(
+        final bytes = await _scope.readBytes(
           uri,
           limit,
           headers: headers,
           requestCancelled: cancelled,
           clientFactory: clientFactory,
-          timeout: remaining,
+          timeout: candidates.length - i > 1
+              ? Duration(microseconds: remaining.inMicroseconds * 2 ~/ 3)
+              : remaining,
         );
+        _unhealthyHosts.remove(uri.host);
+        return bytes;
+      } on TimeoutException {
+        _unhealthyHosts[uri.host] = DateTime.now().add(
+          const Duration(seconds: 45),
+        );
+        if (i == candidates.length - 1) rethrow;
       } on IOException {
+        _unhealthyHosts[uri.host] = DateTime.now().add(
+          const Duration(seconds: 45),
+        );
         if (i == candidates.length - 1) rethrow;
       }
     }
@@ -152,7 +178,7 @@ class OptionalPeopleSession {
     _check();
     final key = ArtworkCache.digest(
       jsonEncode([
-        feature == OptionalFeature.characters ? 'people-v4' : 'people-v3',
+        feature == OptionalFeature.characters ? 'people-v5' : 'people-v3',
         feature.name,
         BangumiLinks.ids(work),
         work['tmdb_id'],
@@ -164,6 +190,7 @@ class OptionalPeopleSession {
         credits,
       ]),
     );
+    Map? snapshot;
     if (_owner != null) {
       Object? stored;
       try {
@@ -172,6 +199,21 @@ class OptionalPeopleSession {
         _check();
       }
       _check();
+      if (feature == OptionalFeature.characters &&
+          stored is Map &&
+          stored['expiresAt'] is int &&
+          stored['expiresAt'] > DateTime.now().millisecondsSinceEpoch &&
+          stored['cards'] is List &&
+          stored['rows'] is List) {
+        final cards = (stored['cards'] as List)
+            .whereType<Map>()
+            .map((row) => Map<String, dynamic>.from(row))
+            .toList();
+        await _retainCards(cards);
+        onCardsReady?.call(cards);
+        if (stored['complete'] == true) return cards;
+        snapshot = stored;
+      }
       if (stored is List) {
         final cards = stored
             .whereType<Map>()
@@ -183,14 +225,23 @@ class OptionalPeopleSession {
     }
     _responseBytes = 0;
     _hadFailures = false;
+    _loadingCards = true;
     final timer = _scope.timer(const Duration(seconds: 30), dispose);
     try {
       final result = feature == OptionalFeature.characters
-          ? await _characters(work, locale, characters)
+          ? await _characters(
+              work,
+              locale,
+              characters,
+              key: key,
+              snapshot: snapshot,
+            )
           : await _credits(work, locale, credits);
       _check();
       await _retainCards(result);
-      if (_owner != null && !_hadFailures) {
+      if (feature != OptionalFeature.characters &&
+          _owner != null &&
+          !_hadFailures) {
         try {
           await (await ImageStore.cache).writeData(
             _owner!,
@@ -209,6 +260,8 @@ class OptionalPeopleSession {
       }
       return result;
     } finally {
+      _loadingCards = false;
+      _scope.closeIdleClients();
       _scope.release(timer);
     }
   }
@@ -230,6 +283,14 @@ class OptionalPeopleSession {
 
   /// Each image widget cancels its own request on scroll-out or picture change.
   Future<Uint8List> image(String url, Future<void> cancelled) async {
+    try {
+      return await _image(url, cancelled);
+    } finally {
+      if (!_loadingCards) _scope.closeIdleClients();
+    }
+  }
+
+  Future<Uint8List> _image(String url, Future<void> cancelled) async {
     _check();
     final uri = Uri.tryParse(url);
     if (uri == null ||
@@ -295,18 +356,23 @@ class OptionalPeopleSession {
   Future<List<Map<String, dynamic>>> _characters(
     Map<String, Object?> work,
     String locale,
-    List<Map> cached,
-  ) async {
+    List<Map> cached, {
+    required String key,
+    Map? snapshot,
+  }) async {
     final ids = BangumiLinks.ids(work).take(8).toList();
-    final groups = await Future.wait(
-      ids.map(
-        (id) => _json(
-          Uri.https('api.bgm.tv', '/v0/subjects/$id/characters'),
-          limit: 2 * 1024 * 1024,
-        ),
-      ),
-    );
+    final groups = snapshot?['rowsComplete'] == true
+        ? <Object?>[snapshot!['rows']]
+        : await Future.wait(
+            ids.map(
+              (id) => _json(
+                Uri.https('api.bgm.tv', '/v0/subjects/$id/characters'),
+                limit: 2 * 1024 * 1024,
+              ),
+            ),
+          );
     final usable = groups.whereType<List>().toList();
+    final rowsComplete = usable.length == groups.length;
     if (usable.length != groups.length) _hadFailures = true;
     if (usable.isEmpty && ids.isNotEmpty && cached.isEmpty) {
       throw StateError('Characters unavailable');
@@ -394,20 +460,32 @@ class OptionalPeopleSession {
             : (a['_index'] as int).compareTo(b['_index'] as int);
       });
     final selected = sorted.take(48).toList();
-    var language = originalLanguage(work);
+    var language = originalLanguage(work) ?? snapshot?['language'] as String?;
+    var languageChecked =
+        language != null || snapshot?['languageChecked'] == true;
     final chinese = locale.startsWith('zh');
-    final details = <String, Map>{};
-    String name(String kind, Map row) {
-      if (!chinese) return _text(row['name'] ?? row['name_cn']);
-      final detail = details['$kind/${row['id']}'] ?? {};
-      var cn = _text(row['name_cn'] ?? detail['name_cn']);
-      for (final item in (detail['infobox'] as List? ?? []).whereType<Map>()) {
-        if (cn.isEmpty &&
+    final names = <String, String>{
+      if (snapshot?['names'] is Map)
+        for (final entry in (snapshot!['names'] as Map).entries)
+          if (entry.key is String && entry.value is String)
+            entry.key as String: entry.value as String,
+    };
+    String chineseName(Map row) {
+      var value = _text(row['name_cn']);
+      for (final item in (row['infobox'] as List? ?? []).whereType<Map>()) {
+        if (value.isEmpty &&
             ['简体中文名', '中文名'].contains(item['key']) &&
             item['value'] is String) {
-          cn = item['value'];
+          value = _text(item['value']);
         }
       }
+      return value;
+    }
+
+    String name(String kind, Map row) {
+      if (!chinese) return _text(row['name'] ?? row['name_cn']);
+      var cn = chineseName(row);
+      if (cn.isEmpty) cn = names['$kind/${row['id']}'] ?? '';
       return cn.isEmpty ? _text(row['name']) : cn;
     }
 
@@ -426,17 +504,71 @@ class OptionalPeopleSession {
       };
     }).toList();
 
+    // Keep only presentation fields, not biographies or arbitrary API payloads.
+    Map<String, Object?> compact(Map row, {bool withActors = false}) => {
+      for (final field in [
+        'id',
+        'name',
+        'name_cn',
+        'image',
+        'images',
+        'relation',
+        'order',
+        'language',
+        'language_code',
+        'locale',
+        'country',
+      ])
+        if (row[field] != null) field: row[field],
+      if (row['short_summary'] != null || row['summary'] != null)
+        'short_summary': row['short_summary'] ?? row['summary'],
+      if (withActors) 'actors': actors(row).map((a) => compact(a)).toList(),
+    };
+    final savedRows = selected
+        .map((r) => compact(r, withActors: true))
+        .toList();
+    final rowsFit = utf8.encode(jsonEncode(savedRows)).length <= 512 * 1024;
+    Future<void> persist({bool complete = false}) async {
+      if (_owner == null) return;
+      _check();
+      try {
+        await (await ImageStore.cache).writeData(_owner!, key, {
+          'expiresAt':
+              snapshot?['expiresAt'] ??
+              DateTime.now()
+                  .add(const Duration(days: 7))
+                  .millisecondsSinceEpoch,
+          'cards': cards(),
+          'rows': rowsFit ? savedRows : [],
+          'rowsComplete': rowsComplete && rowsFit,
+          'names': names,
+          'language': language,
+          'languageChecked': languageChecked,
+          'complete': complete,
+        }, checkActive: _check);
+      } catch (_) {
+        _check();
+        DebugLog.write(
+          'OptionalPeople',
+          'partial card cache write failed',
+          level: 'WARN',
+        );
+      }
+    }
+
     // Let visible images start as soon as the character list is available.
     // Name/original-language enrichment must not gate the entire row.
     _check();
     onCardsReady?.call(cards());
-    if (language == null && ids.isNotEmpty) {
+    await persist();
+    if (!languageChecked && ids.isNotEmpty) {
       final subject = await _json(
         Uri.https('api.bgm.tv', '/v0/subjects/${ids.first}'),
         timeout: const Duration(seconds: 3),
       );
       if (subject is Map) {
         language = originalLanguage({'origin_tags': subject['tags']});
+        languageChecked = true;
       } else {
         _hadFailures = true;
       }
@@ -451,6 +583,7 @@ class OptionalPeopleSession {
         if (chinese &&
             entry.$2['id'] is int &&
             _text(entry.$2['name_cn']).isEmpty &&
+            !names.containsKey('${entry.$1}/${entry.$2['id']}') &&
             lookups.length < 120) {
           lookups.add('${entry.$1}/${entry.$2['id']}');
         }
@@ -473,7 +606,9 @@ class OptionalPeopleSession {
             timeout: const Duration(seconds: 3),
           );
           if (detail is Map) {
-            details[key] = detail;
+            // A successful response without a Chinese name is also complete;
+            // do not refetch that person on every visit.
+            names[key] = chineseName(detail);
           } else {
             _hadFailures = true;
           }
@@ -481,7 +616,9 @@ class OptionalPeopleSession {
       );
       _check();
       onCardsReady?.call(cards());
+      await persist();
     }
+    await persist(complete: !_hadFailures);
     return cards();
   }
 

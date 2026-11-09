@@ -152,7 +152,7 @@ class OptionalPeopleSession {
     _check();
     final key = ArtworkCache.digest(
       jsonEncode([
-        'people-v3',
+        feature == OptionalFeature.characters ? 'people-v4' : 'people-v3',
         feature.name,
         BangumiLinks.ids(work),
         work['tmdb_id'],
@@ -701,11 +701,23 @@ class OptionalPeopleSession {
       row['image'] ?? images['medium'] ?? images['small'] ?? images['grid'],
       2048,
     );
-    if (url.startsWith('//lain.bgm.tv/')) url = 'https:$url';
-    if (url.startsWith('http://lain.bgm.tv/')) {
-      url = 'https:${url.substring(5)}';
+    if (url.startsWith('//')) url = 'https:$url';
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.userInfo.isNotEmpty || uri.hasFragment) return '';
+    // API mirrors also rewrite image hosts. Keep a canonical cache identity;
+    // _readBytes still routes through the user's configured artwork endpoint.
+    if (uri.scheme == 'http' &&
+        uri.port == 80 &&
+        ['lain.bgm.tv', 'lain.bangumi.lat'].contains(uri.host)) {
+      url = uri.replace(scheme: 'https', port: 443).toString();
     }
-    return url.startsWith('https://lain.bgm.tv/') ? url : '';
+    final resource = MetadataServers.imageResource(url);
+    if (resource?.$1 != 3) return '';
+    return MetadataServers.endpoint(
+      3,
+      resource!.$2,
+      base: MetadataServers.official[3],
+    ).replace(query: uri.hasQuery ? uri.query : null).toString();
   }
 
   static String _tmdbImage(Object? value) {

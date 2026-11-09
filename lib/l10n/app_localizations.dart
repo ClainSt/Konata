@@ -837,6 +837,12 @@ abstract class AppLocalizations {
   /// **'Set API and image URLs separately. Bangumi uses a community mirror by default. HTTP is unencrypted.'**
   String get serverNotice;
 
+  /// No description provided for @videoOutputRecovered.
+  ///
+  /// In en, this message translates to:
+  /// **'Video output recovered.'**
+  String get videoOutputRecovered;
+
   /// Konata interface: autoFallback
   ///
   /// In en, this message translates to:
@@ -1536,7 +1542,7 @@ abstract class AppLocalizations {
   /// Library/source controls: searchTitles
   ///
   /// In en, this message translates to:
-  /// **'Search titles'**
+  /// **'Search works'**
   String get searchTitles;
 
   /// Library/source controls: closeSearch
@@ -2385,84 +2391,6 @@ abstract class AppLocalizations {
   /// **'Save'**
   String get mpvSave;
 
-  /// No description provided for @mpvEngineTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Enhanced Windows MPV engine (optional)'**
-  String get mpvEngineTitle;
-
-  /// No description provided for @mpvEngineDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Optional download with extra audio codec support, including TrueHD.'**
-  String get mpvEngineDescription;
-
-  /// No description provided for @mpvEngineDownload.
-  ///
-  /// In en, this message translates to:
-  /// **'Download verified engine'**
-  String get mpvEngineDownload;
-
-  /// No description provided for @mpvEngineImport.
-  ///
-  /// In en, this message translates to:
-  /// **'Import release archive (.7z)'**
-  String get mpvEngineImport;
-
-  /// No description provided for @mpvEngineEnable.
-  ///
-  /// In en, this message translates to:
-  /// **'Use enhanced MPV on Windows'**
-  String get mpvEngineEnable;
-
-  /// No description provided for @mpvEngineMissing.
-  ///
-  /// In en, this message translates to:
-  /// **'Not installed or checksum invalid'**
-  String get mpvEngineMissing;
-
-  /// No description provided for @mpvEngineReady.
-  ///
-  /// In en, this message translates to:
-  /// **'Installed and checksum verified'**
-  String get mpvEngineReady;
-
-  /// No description provided for @mpvEngineRestart.
-  ///
-  /// In en, this message translates to:
-  /// **'Engine selection takes effect after restarting Konata.'**
-  String get mpvEngineRestart;
-
-  /// No description provided for @mpvEngineDownloadConfirm.
-  ///
-  /// In en, this message translates to:
-  /// **'Download the optional MPV engine?'**
-  String get mpvEngineDownloadConfirm;
-
-  /// No description provided for @mpvEngineDownloadWarning.
-  ///
-  /// In en, this message translates to:
-  /// **'Downloads ~30 MB and installs a verified ~122 MB DLL in application data. The default engine remains unchanged. Review third-party licenses and only use binaries you trust.'**
-  String get mpvEngineDownloadWarning;
-
-  /// No description provided for @mpvEngineProgress.
-  ///
-  /// In en, this message translates to:
-  /// **'Downloading enhancement'**
-  String get mpvEngineProgress;
-
-  /// No description provided for @mpvEngineCurrent.
-  ///
-  /// In en, this message translates to:
-  /// **'Enhanced engine active in this session'**
-  String get mpvEngineCurrent;
-
-  /// No description provided for @mpvEngineDefault.
-  ///
-  /// In en, this message translates to:
-  /// **'Default engine active in this session'**
-  String get mpvEngineDefault;
-
   /// No description provided for @backupPreviewCounts.
   ///
   /// In en, this message translates to:
@@ -2697,59 +2625,275 @@ abstract class AppLocalizations {
   /// **'Audio output'**
   String get statAudioOutput;
 
-  /// No description provided for @decodePrecisionFallback.
+  /// No description provided for @restoreLibraryBackup.
   ///
   /// In en, this message translates to:
-  /// **'Switching to software decoding to preserve video bit depth'**
-  String get decodePrecisionFallback;
+  /// **'Restore from backup'**
+  String get restoreLibraryBackup;
 
-  /// No description provided for @decodeUnsupportedFallback.
+  /// No description provided for @restoreLibraryBackupDescription.
   ///
   /// In en, this message translates to:
-  /// **'Hardware does not support this video format; switching to software decoding'**
-  String get decodeUnsupportedFallback;
+  /// **'Preview and restore your library, history, custom covers and basic settings from a ZIP backup.'**
+  String get restoreLibraryBackupDescription;
 
-  /// No description provided for @videoDecoding.
+  /// No description provided for @restoreLibraryBackupWarning.
   ///
   /// In en, this message translates to:
-  /// **'Video decoding'**
-  String get videoDecoding;
+  /// **'This replaces your current library and playback history; it does not merge them. A backup of current data is saved first. Failed changes are rolled back.\n\nMedia files are not included. Re-enter source passwords. On another device, select and authorize local folders again in Edit source. Restore does not scan or connect to sources.'**
+  String get restoreLibraryBackupWarning;
 
-  /// No description provided for @decodeAutomatic.
+  /// No description provided for @restoringLibraryBackup.
   ///
   /// In en, this message translates to:
-  /// **'Automatic'**
-  String get decodeAutomatic;
+  /// **'Restoring, please wait…'**
+  String get restoringLibraryBackup;
 
-  /// No description provided for @decodeHardware.
+  /// No description provided for @restoreLibraryBackupDone.
   ///
   /// In en, this message translates to:
-  /// **'Hardware preferred'**
-  String get decodeHardware;
+  /// **'Restore complete. Edit sources to reconnect folders or re-enter passwords if needed.'**
+  String get restoreLibraryBackupDone;
 
-  /// No description provided for @decodeSoftware.
+  /// No description provided for @restoreLibraryBackupFailed.
   ///
   /// In en, this message translates to:
-  /// **'Software'**
-  String get decodeSoftware;
+  /// **'Restore did not complete. Check the backup and available storage, then try again.'**
+  String get restoreLibraryBackupFailed;
 
-  /// No description provided for @decodeCustom.
+  /// No description provided for @restoreLibraryBackupBusy.
   ///
   /// In en, this message translates to:
-  /// **'Follow MPV configuration'**
-  String get decodeCustom;
+  /// **'Wait for scanning to finish before restoring a backup.'**
+  String get restoreLibraryBackupBusy;
 
-  /// No description provided for @decodeDescription.
+  /// No description provided for @previousLibraryBackup.
   ///
   /// In en, this message translates to:
-  /// **'Applies to the next playback. Automatic keeps platform defaults. Hardware modes allow software fallback; emulators use software.'**
-  String get decodeDescription;
+  /// **'Backups before restore'**
+  String get previousLibraryBackup;
 
-  /// No description provided for @decodePriority.
+  /// No description provided for @previousLibraryBackupDescription.
   ///
   /// In en, this message translates to:
-  /// **'Automatic and hardware/software modes override hwdec in mpv.conf. Follow MPV configuration keeps its hwdec and scaling options; the player still manages video output. If MPV configuration is off, platform defaults apply.'**
-  String get decodePriority;
+  /// **'Preview and restore either of the last two automatic backups.'**
+  String get previousLibraryBackupDescription;
+
+  /// No description provided for @noPreviousLibraryBackup.
+  ///
+  /// In en, this message translates to:
+  /// **'No automatic backup has been created yet.'**
+  String get noPreviousLibraryBackup;
+
+  /// No description provided for @restoreCurrentLibrary.
+  ///
+  /// In en, this message translates to:
+  /// **'Current library (works / files / sources)'**
+  String get restoreCurrentLibrary;
+
+  /// No description provided for @extensions.
+  ///
+  /// In en, this message translates to:
+  /// **'Extensions'**
+  String get extensions;
+
+  /// No description provided for @extensionsDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable optional features here. Their settings appear under Scraping services when enabled. Turning a feature off stops its requests and releases its temporary resources.'**
+  String get extensionsDescription;
+
+  /// No description provided for @characterDetails.
+  ///
+  /// In en, this message translates to:
+  /// **'Characters and voice actors'**
+  String get characterDetails;
+
+  /// No description provided for @characterDetailsDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Show Bangumi character and voice actor details on title pages.'**
+  String get characterDetailsDescription;
+
+  /// No description provided for @voiceActorPhotos.
+  ///
+  /// In en, this message translates to:
+  /// **'Use voice actor photos'**
+  String get voiceActorPhotos;
+
+  /// No description provided for @creditsDetails.
+  ///
+  /// In en, this message translates to:
+  /// **'Cast and crew'**
+  String get creditsDetails;
+
+  /// No description provided for @creditsDetailsDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Show TMDB cast and crew on live-action title pages.'**
+  String get creditsDetailsDescription;
+
+  /// No description provided for @creditsServiceSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Uses the shared TMDB credentials. Open API settings.'**
+  String get creditsServiceSettings;
+
+  /// No description provided for @optionalFeatureFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load or save this feature. Please retry.'**
+  String get optionalFeatureFailed;
+
+  /// No description provided for @optionalNoResults.
+  ///
+  /// In en, this message translates to:
+  /// **'No details available.'**
+  String get optionalNoResults;
+
+  /// No description provided for @animationCategory.
+  ///
+  /// In en, this message translates to:
+  /// **'Animation'**
+  String get animationCategory;
+
+  /// No description provided for @liveActionCategory.
+  ///
+  /// In en, this message translates to:
+  /// **'Live action'**
+  String get liveActionCategory;
+
+  /// No description provided for @featureOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get featureOff;
+
+  /// No description provided for @voiceActors.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice actors'**
+  String get voiceActors;
+
+  /// No description provided for @sage.
+  ///
+  /// In en, this message translates to:
+  /// **'Sage'**
+  String get sage;
+
+  /// No description provided for @allWorks.
+  ///
+  /// In en, this message translates to:
+  /// **'All titles'**
+  String get allWorks;
+
+  /// No description provided for @compactWorkCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count}'**
+  String compactWorkCount(int count);
+
+  /// No description provided for @bangumiPeopleData.
+  ///
+  /// In en, this message translates to:
+  /// **'Bangumi characters / voice actors'**
+  String get bangumiPeopleData;
+
+  /// No description provided for @tmdbPeopleData.
+  ///
+  /// In en, this message translates to:
+  /// **'TMDB people'**
+  String get tmdbPeopleData;
+
+  /// No description provided for @peopleBar.
+  ///
+  /// In en, this message translates to:
+  /// **'Character row'**
+  String get peopleBar;
+
+  /// No description provided for @peopleFallbackTmdb.
+  ///
+  /// In en, this message translates to:
+  /// **'When Bangumi is off, use TMDB people.'**
+  String get peopleFallbackTmdb;
+
+  /// No description provided for @peopleFallbackHidden.
+  ///
+  /// In en, this message translates to:
+  /// **'When Bangumi is off, hide the character row.'**
+  String get peopleFallbackHidden;
+
+  /// No description provided for @historySelectAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Select all'**
+  String get historySelectAll;
+
+  /// No description provided for @historyDeselectAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Deselect all'**
+  String get historyDeselectAll;
+
+  /// No description provided for @historySelectionCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} selected'**
+  String historySelectionCount(int count);
+
+  /// No description provided for @deleteHistorySelectionQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete {count} selected records?'**
+  String deleteHistorySelectionQuestion(int count);
+
+  /// No description provided for @imageCache.
+  ///
+  /// In en, this message translates to:
+  /// **'Image cache'**
+  String get imageCache;
+
+  /// No description provided for @measuringCache.
+  ///
+  /// In en, this message translates to:
+  /// **'Measuring…'**
+  String get measuringCache;
+
+  /// No description provided for @cacheSizeUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to measure'**
+  String get cacheSizeUnavailable;
+
+  /// No description provided for @openCacheDirectory.
+  ///
+  /// In en, this message translates to:
+  /// **'Open cache folder'**
+  String get openCacheDirectory;
+
+  /// No description provided for @cacheDirectoryUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Cannot open the cache folder.'**
+  String get cacheDirectoryUnavailable;
+
+  /// No description provided for @detailBackdrop.
+  ///
+  /// In en, this message translates to:
+  /// **'Detail page background'**
+  String get detailBackdrop;
+
+  /// No description provided for @cacheSettingFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save this setting.'**
+  String get cacheSettingFailed;
+
+  /// No description provided for @nameOrBangumiId.
+  ///
+  /// In en, this message translates to:
+  /// **'Name or Bangumi ID'**
+  String get nameOrBangumiId;
 }
 
 class _AppLocalizationsDelegate

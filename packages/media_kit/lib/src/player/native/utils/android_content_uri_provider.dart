@@ -46,20 +46,33 @@ abstract class AndroidContentUriProvider {
 
   /// Closes the file descriptor of the content:// URI.
   static Future<void> closeFileDescriptor(String uri) async {
-    final lookup = _loaded[uri];
+    final key = _keyForUri(uri);
+    final lookup = _loaded.remove(key);
     if (lookup != null) {
-      _loaded.remove(uri);
       await compute(_closeFileDescriptor, lookup);
     }
   }
 
   /// Closes the file descriptor of the content:// URI.
   static void closeFileDescriptorSync(String uri) {
-    final lookup = _loaded[uri];
+    final key = _keyForUri(uri);
+    final lookup = _loaded.remove(key);
     if (lookup != null) {
-      _loaded.remove(uri);
       _closeFileDescriptor(lookup);
     }
+  }
+
+  // Media normalizes content:// to fd:// before attaching its finalizer.
+  // Resolve that normalized key back to the cached provider URI on release.
+  static String? _keyForUri(String uri) {
+    if (_loaded.containsKey(uri)) return uri;
+    final parsed = Uri.tryParse(uri);
+    if (parsed?.scheme != 'fd') return null;
+    final descriptor = int.tryParse(parsed!.authority);
+    for (final entry in _loaded.entries) {
+      if (entry.value == descriptor) return entry.key;
+    }
+    return null;
   }
 
   /// The native implementation for [openFileDescriptor] & [openFileDescriptorSync].
@@ -70,8 +83,11 @@ abstract class AndroidContentUriProvider {
       'MediaKitAndroidHelperOpenFileDescriptor',
     );
     final name = uri.toNativeUtf8();
-    final fileDescriptor = fn.call(name.cast());
-    return fileDescriptor;
+    try {
+      return fn.call(name.cast());
+    } finally {
+      calloc.free(name);
+    }
   }
 
   /// The native implementation for [closeFileDescriptor] & [closeFileDescriptorSync].

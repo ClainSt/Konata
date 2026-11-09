@@ -40,6 +40,7 @@ class TimelineFrames {
               'aid': 'no',
               'sid': 'no',
               'vf': 'scale=320:-2',
+              'hr-seek': 'yes',
             }.entries) {
               if (_closed) return;
               await native.setProperty(option.key, option.value);
@@ -49,20 +50,36 @@ class TimelineFrames {
           }
           if (_closed || generation != _generation) return;
           final decoder = _decoder!;
-          await decoder.seek(position);
           final native = decoder.platform as NativePlayer;
-          for (var i = 0; i < 30; i++) {
+          // open() queues loading; it does not wait for a decoded video frame.
+          // Seeking before time-pos is available can be ignored by mpv.
+          var ready = false;
+          for (var i = 0; i < 100; i++) {
+            if (_closed || generation != _generation) return;
+            final time = double.tryParse(await native.getProperty('time-pos'));
+            if (time != null && time.isFinite) {
+              ready = true;
+              break;
+            }
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+          }
+          if (!ready || _closed || generation != _generation) return;
+          await decoder.seek(position);
+          var reached = false;
+          for (var i = 0; i < 100; i++) {
             if (_closed || generation != _generation) return;
             final seeking = await native.getProperty('seeking');
             final time = double.tryParse(await native.getProperty('time-pos'));
             if (seeking == 'no' &&
                 time != null &&
-                (time - position.inMilliseconds / 1000).abs() < 1) {
+                (time - position.inMilliseconds / 1000).abs() < 0.25) {
+              reached = true;
               break;
             }
             await Future<void>.delayed(const Duration(milliseconds: 50));
           }
-          if (_closed || generation != _generation) return;
+          // A timeout must not label the previous frame as the requested one.
+          if (!reached || _closed || generation != _generation) return;
           final image = await decoder.screenshot();
           if (_closed || generation != _generation) return;
           result = image;

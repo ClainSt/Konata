@@ -144,10 +144,13 @@ abstract class SmbConnect {
       print("Close SmbConnect $host/${trees.map((e) => e.share)}");
     }
     _trees.clear();
-    for (var tree in trees) {
-      await tree.close();
+    try {
+      for (var tree in trees) {
+        await tree.close();
+      }
+    } finally {
+      await transport.close();
     }
-    await transport.close();
   }
 
   Future<SmbFile> file(String path);

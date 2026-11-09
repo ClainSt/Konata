@@ -101,7 +101,26 @@ bool FlutterWindow::OnCreate() {
           }
           return;
         }
+        if (call.method_name() == "detachD3D11") {
+          renderers->erase(host);
+          result->Success();
+          return;
+        }
+#ifndef NDEBUG
+        if (call.method_name() == "simulateD3D11Failure") {
+          if (renderers->count(host)) renderers->at(host)->SimulateFailure();
+          result->Success();
+          return;
+        }
+#endif
         if (call.method_name() == "pointerAtControls") {
+          if (renderers->count(host)) {
+            const auto failure = renderers->at(host)->Failure();
+            if (!failure.empty()) {
+              result->Error("render_failed", failure);
+              return;
+            }
+          }
           POINT point{};
           RECT bounds{};
           GetCursorPos(&point);

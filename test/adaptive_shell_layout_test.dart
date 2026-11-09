@@ -33,11 +33,26 @@ void main() {
       expect(find.text('外观'), findsOneWidget);
       expect(find.text('刮削服务'), findsOneWidget);
       expect(find.text('关于'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('settings-category-1')));
+      await tester.pumpAndSettle();
+      expect(find.text('TMDB API 设置'), findsOneWidget);
+      // Resize an already open category; it must not stay locked to phone mode.
+      await tester.binding.setSurfaceSize(const Size(1200, 800));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('settings-category-0')), findsOneWidget);
+      expect(
+        tester.getRect(find.byKey(const ValueKey('settings-category-0'))).right,
+        lessThan(tester.getRect(find.text('TMDB API 设置')).left),
+      );
+      await tester.binding.setSurfaceSize(const Size(420, 700));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('settings-category-0')), findsNothing);
+      expect(find.text('TMDB API 设置'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
   for (final width in [390.0, 1100.0]) {
-    testWidgets('search opens inline without moving toolbar at $width', (
+    testWidgets('search stays inline without moving toolbar at $width', (
       tester,
     ) async {
       await tester.binding.setSurfaceSize(Size(width, 800));
@@ -58,19 +73,17 @@ void main() {
       await tester.pumpAndSettle();
       final toolbar = find.byKey(const ValueKey('library-toolbar-row'));
       final before = tester.getRect(toolbar);
-      await tester.tap(find.byKey(const ValueKey('library-search-toggle')));
+      expect(find.byType(TextField), findsOneWidget);
+      await tester.enterText(find.byType(TextField), '不存在');
+      await tester.pumpAndSettle();
+      expect(tester.getRect(toolbar), before);
+      await tester.tap(find.byTooltip('关闭搜索'));
       await tester.pumpAndSettle();
       expect(tester.getRect(toolbar), before);
       expect(
-        tester.getRect(find.byType(TextField)).height,
-        tester
-            .getRect(find.byKey(const ValueKey('library-search-toggle')))
-            .height,
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        isEmpty,
       );
-      await tester.tap(find.byKey(const ValueKey('library-search-toggle')));
-      await tester.pumpAndSettle();
-      expect(tester.getRect(toolbar), before);
-      expect(find.byType(TextField), findsNothing);
       expect(tester.takeException(), isNull);
     });
   }

@@ -7,46 +7,53 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   test(
-    'mode persists, keeps defaults and only custom opts into rendering config',
+    'legacy decoder choices migrate to automatic without altering MPV files',
     () async {
-      SharedPreferences.setMockInitialValues({});
-      final dir = await Directory.systemTemp.createTemp('ccplayer-decode-');
-      try {
-        final store = MpvConfigStore(rootOverride: dir);
-        await store.initialize();
-        expect(store.decodeMode, VideoDecodeMode.automatic);
-        expect(store.videoConfiguration.hwdec, isNull);
-        expect(store.videoConfiguration.enableHardwareAcceleration, isTrue);
-        expect(
-          store.playerConfiguration.mpvRespectRenderingConfiguration,
-          isFalse,
+      for (final legacy in [
+        'automatic',
+        'hardwarePreferred',
+        'software',
+        'custom',
+      ]) {
+        SharedPreferences.setMockInitialValues({'video_decode_mode': legacy});
+        final dir = await Directory.systemTemp.createTemp(
+          'ccplayer-auto-decode-',
         );
-        await store.setDecodeMode(VideoDecodeMode.software);
-        expect(store.videoConfiguration.hwdec, 'no');
-        final reopened = MpvConfigStore(rootOverride: dir);
-        await reopened.initialize();
-        expect(reopened.decodeMode, VideoDecodeMode.software);
-        await reopened.setDecodeMode(VideoDecodeMode.custom);
-        expect(
-          reopened.playerConfiguration.mpvRespectRenderingConfiguration,
-          isFalse,
-        );
-        await reopened.setConfigEnabled(true);
-        expect(
-          reopened.playerConfiguration.mpvRespectRenderingConfiguration,
-          isTrue,
-        );
-        await reopened.setDecodeMode(VideoDecodeMode.hardwarePreferred);
-        expect(
-          reopened.videoConfiguration.hwdec,
-          Platform.isAndroid ? 'auto-safe' : 'auto',
-        );
-        expect(
-          reopened.playerConfiguration.mpvRespectRenderingConfiguration,
-          isFalse,
-        );
-      } finally {
-        await dir.delete(recursive: true);
+        try {
+          final store = MpvConfigStore(rootOverride: dir);
+          await store.initialize();
+          expect(store.videoConfiguration.hwdec, isNull);
+          expect(store.videoConfiguration.enableHardwareAcceleration, isTrue);
+          expect(
+            (await SharedPreferences.getInstance()).containsKey(
+              'video_decode_mode',
+            ),
+            isFalse,
+          );
+          expect(
+            store.playerConfiguration.mpvRespectRenderingConfiguration,
+            isFalse,
+          );
+          await store.saveConfig('mpv.conf', 'hwdec=no\nscale=lanczos\n');
+          await store.setConfigEnabled(true);
+          final snapshot = await store.snapshot(dir.path);
+          final text = await File('${snapshot.path}/mpv.conf').readAsString();
+          expect(
+            text,
+            contains('hwdec=${Platform.isAndroid ? 'auto-safe' : 'auto'}\n'),
+          );
+          expect(text, endsWith('hwdec=no\nscale=lanczos\n'));
+          expect(
+            await store.readConfig('mpv.conf'),
+            'hwdec=no\nscale=lanczos\n',
+          );
+          expect(
+            store.configurationFor(snapshot).mpvRespectRenderingConfiguration,
+            isTrue,
+          );
+        } finally {
+          await dir.delete(recursive: true);
+        }
       }
     },
   );

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum ThemeAccent {
+  sage('灰绿', Color(0xff35695c)),
   red('红色', Color(0xffdc3545)),
   pink('粉色', Color(0xfff3a6c8)),
   lightBlue('浅蓝色', Color(0xff8ad4f5));
@@ -18,7 +19,7 @@ class AppTheme extends ChangeNotifier {
   static final instance = AppTheme();
   ThemeMode _mode = ThemeMode.system;
   ThemeMode get mode => _mode;
-  ThemeAccent _accent = ThemeAccent.pink;
+  ThemeAccent _accent = ThemeAccent.sage;
   ThemeAccent get accent => _accent;
 
   Future<void> load() async {
@@ -27,7 +28,7 @@ class AppTheme extends ChangeNotifier {
     );
     _accent = ThemeAccent.values.firstWhere(
       (value) => value.name == accentName,
-      orElse: () => ThemeAccent.pink,
+      orElse: () => ThemeAccent.sage,
     );
     final saved = (await SharedPreferences.getInstance()).getString(
       'theme_mode',

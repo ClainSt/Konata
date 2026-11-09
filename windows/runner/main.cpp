@@ -1,12 +1,30 @@
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
+#include <filesystem>
 
 #include "flutter_window.h"
 #include "utils.h"
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
+  // Process-local temporary files (Dart, SQLite, libmpv) stay with the portable
+  // executable. Never change the user's system environment or use the cwd.
+  wchar_t executable[32768];
+  const DWORD length = ::GetModuleFileNameW(nullptr, executable, 32768);
+  if (length == 0 || length >= 32768) return EXIT_FAILURE;
+  const auto root = std::filesystem::path(executable).parent_path();
+  const auto temporary = root / L"cache" / L"tmp";
+  std::error_code error;
+  std::filesystem::create_directories(temporary, error);
+  if (error || !::SetEnvironmentVariableW(L"TEMP", temporary.c_str()) ||
+      !::SetEnvironmentVariableW(L"TMP", temporary.c_str())) {
+    ::MessageBoxW(nullptr,
+        L"Konata 无法写入程序目录。请将整个文件夹移到可写位置后重试。\n"
+        L"Move the entire Konata folder to a writable location and try again.",
+        L"Konata", MB_OK | MB_ICONERROR);
+    return EXIT_FAILURE;
+  }
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {

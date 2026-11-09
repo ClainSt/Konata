@@ -1,4 +1,5 @@
 import 'package:ccplayer/main.dart';
+import 'package:ccplayer/ui/app_header.dart';
 import 'package:ccplayer/core/catalog.dart';
 import 'package:ccplayer/ui/settings_page.dart';
 import 'package:ccplayer/ui/metadata_server_settings.dart';
@@ -9,7 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets(
-    'phone uses safe area, three columns and settings routes without stacking dialogs',
+    'phone uses safe area, two columns and settings routes without stacking dialogs',
     (tester) async {
       tester.binding.platformDispatcher.localesTestValue = const [
         Locale('zh', 'CN'),
@@ -38,16 +39,16 @@ void main() {
       expect(
         (grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount)
             .crossAxisCount,
-        3,
+        2,
       );
-      expect(tester.getRect(find.text('4 部作品')).top, greaterThanOrEqualTo(32));
+      expect(tester.getRect(find.text('4 部')).top, greaterThanOrEqualTo(32));
       for (final size in [const Size(1219, 813), const Size(2200, 1000)]) {
         await tester.binding.setSurfaceSize(size);
         await tester.pumpAndSettle();
         final wideGrid = tester.widget<GridView>(find.byType(GridView));
         final delegate =
             wideGrid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
-        expect(delegate.crossAxisCount, size.width < 2000 ? 7 : 13);
+        expect(delegate.crossAxisCount, size.width < 2000 ? 5 : 9);
       }
       await tester.binding.setSurfaceSize(const Size(390, 844));
       await tester.pumpAndSettle();
@@ -57,8 +58,8 @@ void main() {
       expect(find.text('主题模式'), findsNothing);
       expect(find.byType(Dialog), findsNothing);
       expect(
-        tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
-        2,
+        tester.widget<AppHeader>(find.byType(AppHeader)).settingsSelected,
+        isTrue,
       );
       await tester.tap(find.byKey(const ValueKey('nav-settings')));
       await tester.pumpAndSettle();
@@ -87,16 +88,16 @@ void main() {
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(
-        tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
-        2,
+        tester.widget<AppHeader>(find.byType(AppHeader)).settingsSelected,
+        isTrue,
       );
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('nav-library')));
       await tester.pumpAndSettle();
       expect(
-        tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
-        0,
+        tester.widget<AppHeader>(find.byType(AppHeader)).settingsSelected,
+        isFalse,
       );
       expect(find.byType(GridView), findsOneWidget);
       expect(tester.takeException(), isNull);

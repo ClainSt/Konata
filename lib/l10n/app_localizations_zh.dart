@@ -391,6 +391,9 @@ class AppLocalizationsZh extends AppLocalizations {
       '分别配置 API 与图片服务。Bangumi 默认使用非官方社区镜像；HTTP 地址会明文传输数据。';
 
   @override
+  String get videoOutputRecovered => '画面输出已恢复。';
+
+  @override
   String get autoFallback => '自动故障回退';
 
   @override
@@ -764,7 +767,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get noMatchingTitles => '暂无匹配作品';
 
   @override
-  String get searchTitles => '搜索动画';
+  String get searchTitles => '搜索作品';
 
   @override
   String get closeSearch => '关闭搜索';
@@ -992,7 +995,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String episodeLabel(int number) {
-    return '第 $number 集';
+    return '第$number集';
   }
 
   @override
@@ -1007,7 +1010,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String resumeEpisode(String episode) {
-    return '继续 $episode';
+    return '继续播放$episode';
   }
 
   @override
@@ -1207,46 +1210,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get mpvSave => '保存';
 
   @override
-  String get mpvEngineTitle => 'Windows MPV 增强引擎（可选）';
-
-  @override
-  String get mpvEngineDescription => '可按需安装，支持 TrueHD 等额外音频格式。';
-
-  @override
-  String get mpvEngineDownload => '下载并验证增强引擎';
-
-  @override
-  String get mpvEngineImport => '从本地导入发布压缩包（.7z）';
-
-  @override
-  String get mpvEngineEnable => 'Windows 使用 MPV 增强引擎';
-
-  @override
-  String get mpvEngineMissing => '未安装或校验不通过';
-
-  @override
-  String get mpvEngineReady => '已安装，哈希校验通过';
-
-  @override
-  String get mpvEngineRestart => '切换引擎后需完全重启 Konata 才能生效。';
-
-  @override
-  String get mpvEngineDownloadConfirm => '确认下载可选 MPV 增强引擎？';
-
-  @override
-  String get mpvEngineDownloadWarning =>
-      '下载包约 30 MB，验证后提取约 122 MB DLL 到应用数据目录；不修改原版 DLL。请审查第三方许可并仅使用可信二进制文件。';
-
-  @override
-  String get mpvEngineProgress => '增强引擎下载中';
-
-  @override
-  String get mpvEngineCurrent => '本次运行使用增强引擎';
-
-  @override
-  String get mpvEngineDefault => '本次运行使用默认引擎';
-
-  @override
   String get backupPreviewCounts => '作品 / 文件 / 来源 / 记录 / 封面';
 
   @override
@@ -1365,32 +1328,148 @@ class AppLocalizationsZh extends AppLocalizations {
   String get statAudioOutput => '音频输出方式';
 
   @override
-  String get decodePrecisionFallback => '正在切换软件解码，以保留视频位深';
+  String get restoreLibraryBackup => '从备份恢复';
 
   @override
-  String get decodeUnsupportedFallback => '硬件不支持该视频格式，正在切换软件解码';
+  String get restoreLibraryBackupDescription =>
+      '选择 ZIP 备份，预览后恢复媒体库、记录、手动封面和基础设置。';
 
   @override
-  String get videoDecoding => '视频解码';
+  String get restoreLibraryBackupWarning =>
+      '这会替换当前媒体库和播放记录，不会合并。恢复前会自动备份当前数据；失败时回退。\n\n视频文件和本机扩展设置不在备份中。来源密码需要重新填写；跨设备的本地目录需要在“编辑来源”中重新选择并授权。恢复不会自动扫描或连接来源。';
 
   @override
-  String get decodeAutomatic => '自动';
+  String get restoringLibraryBackup => '正在恢复，请稍候…';
 
   @override
-  String get decodeHardware => '硬件优先';
+  String get restoreLibraryBackupDone => '恢复完成。需要时请编辑来源，重新选择目录或填写密码。';
 
   @override
-  String get decodeSoftware => '软件解码';
+  String get restoreLibraryBackupFailed => '恢复未完成，请检查备份和可用空间后重试。';
 
   @override
-  String get decodeCustom => '跟随 MPV 配置';
+  String get restoreLibraryBackupBusy => '请等待扫描结束后再恢复备份。';
 
   @override
-  String get decodeDescription => '下次播放生效。自动保持平台默认；硬件模式允许软解回退，模拟器使用软解。';
+  String get previousLibraryBackup => '恢复前的备份';
 
   @override
-  String get decodePriority =>
-      '自动及硬件／软件模式会覆盖 mpv.conf 的 hwdec。跟随 MPV 配置会保留其 hwdec 和缩放选项，视频输出仍由播放器管理；关闭 MPV 配置时使用平台默认。';
+  String get previousLibraryBackupDescription => '保留最近两次恢复前的备份，可预览后恢复。';
+
+  @override
+  String get noPreviousLibraryBackup => '还没有自动生成的恢复前备份。';
+
+  @override
+  String get restoreCurrentLibrary => '当前媒体库（作品 / 文件 / 来源）';
+
+  @override
+  String get extensions => '扩展';
+
+  @override
+  String get extensionsDescription =>
+      '在此开启可选功能，开启后可在“刮削服务”调整相关设置。关闭后停止相关请求并释放临时资源。';
+
+  @override
+  String get characterDetails => '角色与声优';
+
+  @override
+  String get characterDetailsDescription => '在作品详情页显示 Bangumi 角色与声优资料。';
+
+  @override
+  String get voiceActorPhotos => '显示声优照片';
+
+  @override
+  String get creditsDetails => '真人演员与制作人员';
+
+  @override
+  String get creditsDetailsDescription => '在真人影视详情页显示 TMDB 演员与制作人员。';
+
+  @override
+  String get creditsServiceSettings => '使用共用的 TMDB 凭据，点击打开 API 设置。';
+
+  @override
+  String get optionalFeatureFailed => '暂时无法加载或保存，请重试。';
+
+  @override
+  String get optionalNoResults => '暂无相关资料。';
+
+  @override
+  String get animationCategory => '动画';
+
+  @override
+  String get liveActionCategory => '真人影视';
+
+  @override
+  String get featureOff => '关闭';
+
+  @override
+  String get voiceActors => '声优';
+
+  @override
+  String get sage => '灰绿';
+
+  @override
+  String get allWorks => '全部作品';
+
+  @override
+  String compactWorkCount(int count) {
+    return '$count 部';
+  }
+
+  @override
+  String get bangumiPeopleData => 'Bangumi角色/声优资料';
+
+  @override
+  String get tmdbPeopleData => 'TMDB真人资料';
+
+  @override
+  String get peopleBar => '角色栏';
+
+  @override
+  String get peopleFallbackTmdb => '关闭 Bangumi 资料时，统一使用 TMDB 资料。';
+
+  @override
+  String get peopleFallbackHidden => '关闭 Bangumi 资料时，不显示角色栏。';
+
+  @override
+  String get historySelectAll => '全选';
+
+  @override
+  String get historyDeselectAll => '取消全选';
+
+  @override
+  String historySelectionCount(int count) {
+    return '已选 $count 项';
+  }
+
+  @override
+  String deleteHistorySelectionQuestion(int count) {
+    return '删除选中的 $count 条播放记录？';
+  }
+
+  @override
+  String get imageCache => '图片缓存';
+
+  @override
+  String get measuringCache => '正在计算…';
+
+  @override
+  String get cacheSizeUnavailable => '暂时无法读取';
+
+  @override
+  String get openCacheDirectory => '打开缓存目录';
+
+  @override
+  String get cacheDirectoryUnavailable => '暂时无法打开缓存目录。';
+
+  @override
+  String get detailBackdrop => '详情页背景图';
+
+  @override
+  String get cacheSettingFailed => '设置保存失败，请重试。';
+
+  @override
+  String get nameOrBangumiId => '名称或 Bangumi ID';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -1780,6 +1859,9 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
       '分别配置 API 与图片服务。Bangumi 默认使用非官方社区镜像；HTTP 地址会明文传输数据。';
 
   @override
+  String get videoOutputRecovered => '画面输出已恢复。';
+
+  @override
   String get autoFallback => '自动故障回退';
 
   @override
@@ -2153,7 +2235,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get noMatchingTitles => '暂无匹配作品';
 
   @override
-  String get searchTitles => '搜索动画';
+  String get searchTitles => '搜索作品';
 
   @override
   String get closeSearch => '关闭搜索';
@@ -2381,7 +2463,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String episodeLabel(int number) {
-    return '第 $number 集';
+    return '第$number集';
   }
 
   @override
@@ -2396,7 +2478,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String resumeEpisode(String episode) {
-    return '继续 $episode';
+    return '继续播放$episode';
   }
 
   @override
@@ -2596,46 +2678,6 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get mpvSave => '保存';
 
   @override
-  String get mpvEngineTitle => 'Windows MPV 增强引擎（可选）';
-
-  @override
-  String get mpvEngineDescription => '可按需安装，支持 TrueHD 等额外音频格式。';
-
-  @override
-  String get mpvEngineDownload => '下载并验证增强引擎';
-
-  @override
-  String get mpvEngineImport => '从本地导入发布压缩包（.7z）';
-
-  @override
-  String get mpvEngineEnable => 'Windows 使用 MPV 增强引擎';
-
-  @override
-  String get mpvEngineMissing => '未安装或校验不通过';
-
-  @override
-  String get mpvEngineReady => '已安装，哈希校验通过';
-
-  @override
-  String get mpvEngineRestart => '切换引擎后需完全重启 Konata 才能生效。';
-
-  @override
-  String get mpvEngineDownloadConfirm => '确认下载可选 MPV 增强引擎？';
-
-  @override
-  String get mpvEngineDownloadWarning =>
-      '下载包约 30 MB，验证后提取约 122 MB DLL 到应用数据目录；不修改原版 DLL。请审查第三方许可并仅使用可信二进制文件。';
-
-  @override
-  String get mpvEngineProgress => '增强引擎下载中';
-
-  @override
-  String get mpvEngineCurrent => '本次运行使用增强引擎';
-
-  @override
-  String get mpvEngineDefault => '本次运行使用默认引擎';
-
-  @override
   String get backupPreviewCounts => '作品 / 文件 / 来源 / 记录 / 封面';
 
   @override
@@ -2754,32 +2796,148 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get statAudioOutput => '音频输出方式';
 
   @override
-  String get decodePrecisionFallback => '正在切换软件解码，以保留视频位深';
+  String get restoreLibraryBackup => '从备份恢复';
 
   @override
-  String get decodeUnsupportedFallback => '硬件不支持该视频格式，正在切换软件解码';
+  String get restoreLibraryBackupDescription =>
+      '选择 ZIP 备份，预览后恢复媒体库、记录、手动封面和基础设置。';
 
   @override
-  String get videoDecoding => '视频解码';
+  String get restoreLibraryBackupWarning =>
+      '这会替换当前媒体库和播放记录，不会合并。恢复前会自动备份当前数据；失败时回退。\n\n视频文件和本机扩展设置不在备份中。来源密码需要重新填写；跨设备的本地目录需要在“编辑来源”中重新选择并授权。恢复不会自动扫描或连接来源。';
 
   @override
-  String get decodeAutomatic => '自动';
+  String get restoringLibraryBackup => '正在恢复，请稍候…';
 
   @override
-  String get decodeHardware => '硬件优先';
+  String get restoreLibraryBackupDone => '恢复完成。需要时请编辑来源，重新选择目录或填写密码。';
 
   @override
-  String get decodeSoftware => '软件解码';
+  String get restoreLibraryBackupFailed => '恢复未完成，请检查备份和可用空间后重试。';
 
   @override
-  String get decodeCustom => '跟随 MPV 配置';
+  String get restoreLibraryBackupBusy => '请等待扫描结束后再恢复备份。';
 
   @override
-  String get decodeDescription => '下次播放生效。自动保持平台默认；硬件模式允许软解回退，模拟器使用软解。';
+  String get previousLibraryBackup => '恢复前的备份';
 
   @override
-  String get decodePriority =>
-      '自动及硬件／软件模式会覆盖 mpv.conf 的 hwdec。跟随 MPV 配置会保留其 hwdec 和缩放选项，视频输出仍由播放器管理；关闭 MPV 配置时使用平台默认。';
+  String get previousLibraryBackupDescription => '保留最近两次恢复前的备份，可预览后恢复。';
+
+  @override
+  String get noPreviousLibraryBackup => '还没有自动生成的恢复前备份。';
+
+  @override
+  String get restoreCurrentLibrary => '当前媒体库（作品 / 文件 / 来源）';
+
+  @override
+  String get extensions => '扩展';
+
+  @override
+  String get extensionsDescription =>
+      '在此开启可选功能，开启后可在“刮削服务”调整相关设置。关闭后停止相关请求并释放临时资源。';
+
+  @override
+  String get characterDetails => '角色与声优';
+
+  @override
+  String get characterDetailsDescription => '在作品详情页显示 Bangumi 角色与声优资料。';
+
+  @override
+  String get voiceActorPhotos => '显示声优照片';
+
+  @override
+  String get creditsDetails => '真人演员与制作人员';
+
+  @override
+  String get creditsDetailsDescription => '在真人影视详情页显示 TMDB 演员与制作人员。';
+
+  @override
+  String get creditsServiceSettings => '使用共用的 TMDB 凭据，点击打开 API 设置。';
+
+  @override
+  String get optionalFeatureFailed => '暂时无法加载或保存，请重试。';
+
+  @override
+  String get optionalNoResults => '暂无相关资料。';
+
+  @override
+  String get animationCategory => '动画';
+
+  @override
+  String get liveActionCategory => '真人影视';
+
+  @override
+  String get featureOff => '关闭';
+
+  @override
+  String get voiceActors => '声优';
+
+  @override
+  String get sage => '灰绿';
+
+  @override
+  String get allWorks => '全部作品';
+
+  @override
+  String compactWorkCount(int count) {
+    return '$count 部';
+  }
+
+  @override
+  String get bangumiPeopleData => 'Bangumi角色/声优资料';
+
+  @override
+  String get tmdbPeopleData => 'TMDB真人资料';
+
+  @override
+  String get peopleBar => '角色栏';
+
+  @override
+  String get peopleFallbackTmdb => '关闭 Bangumi 资料时，统一使用 TMDB 资料。';
+
+  @override
+  String get peopleFallbackHidden => '关闭 Bangumi 资料时，不显示角色栏。';
+
+  @override
+  String get historySelectAll => '全选';
+
+  @override
+  String get historyDeselectAll => '取消全选';
+
+  @override
+  String historySelectionCount(int count) {
+    return '已选 $count 项';
+  }
+
+  @override
+  String deleteHistorySelectionQuestion(int count) {
+    return '删除选中的 $count 条播放记录？';
+  }
+
+  @override
+  String get imageCache => '图片缓存';
+
+  @override
+  String get measuringCache => '正在计算…';
+
+  @override
+  String get cacheSizeUnavailable => '暂时无法读取';
+
+  @override
+  String get openCacheDirectory => '打开缓存目录';
+
+  @override
+  String get cacheDirectoryUnavailable => '暂时无法打开缓存目录。';
+
+  @override
+  String get detailBackdrop => '详情页背景图';
+
+  @override
+  String get cacheSettingFailed => '设置保存失败，请重试。';
+
+  @override
+  String get nameOrBangumiId => '名称或 Bangumi ID';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -3169,6 +3327,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
       '分別設定 API 與圖片服務。Bangumi 預設使用非官方社群鏡像；HTTP 位址會以明文傳輸資料。';
 
   @override
+  String get videoOutputRecovered => '畫面輸出已恢復。';
+
+  @override
   String get autoFallback => '自動故障回退';
 
   @override
@@ -3542,7 +3703,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get noMatchingTitles => '暫無符合的作品';
 
   @override
-  String get searchTitles => '搜尋動畫';
+  String get searchTitles => '搜尋作品';
 
   @override
   String get closeSearch => '關閉搜尋';
@@ -3770,7 +3931,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String episodeLabel(int number) {
-    return '第 $number 集';
+    return '第$number集';
   }
 
   @override
@@ -3785,7 +3946,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String resumeEpisode(String episode) {
-    return '繼續 $episode';
+    return '繼續播放$episode';
   }
 
   @override
@@ -3985,46 +4146,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get mpvSave => '儲存';
 
   @override
-  String get mpvEngineTitle => 'Windows MPV 增強引擎（選用）';
-
-  @override
-  String get mpvEngineDescription => '可按需安裝，支援 TrueHD 等額外音訊格式。';
-
-  @override
-  String get mpvEngineDownload => '下載並驗證增強引擎';
-
-  @override
-  String get mpvEngineImport => '從本機匯入發行壓縮檔（.7z）';
-
-  @override
-  String get mpvEngineEnable => 'Windows 使用 MPV 增強引擎';
-
-  @override
-  String get mpvEngineMissing => '尚未安裝或驗證失敗';
-
-  @override
-  String get mpvEngineReady => '已安裝，雜湊驗證通過';
-
-  @override
-  String get mpvEngineRestart => '切換引擎後須完全重啟 Konata 才能生效。';
-
-  @override
-  String get mpvEngineDownloadConfirm => '確定下載選用 MPV 增強引擎？';
-
-  @override
-  String get mpvEngineDownloadWarning =>
-      '下載包約 30 MB，驗證後解壓約 122 MB DLL 至應用程式資料夾；不修改原版 DLL。請確認第三方授權並僅使用可信的二進位檔案。';
-
-  @override
-  String get mpvEngineProgress => '增強引擎下載中';
-
-  @override
-  String get mpvEngineCurrent => '本次執行使用增強引擎';
-
-  @override
-  String get mpvEngineDefault => '本次執行使用預設引擎';
-
-  @override
   String get backupPreviewCounts => '作品 / 檔案 / 來源 / 紀錄 / 封面';
 
   @override
@@ -4143,30 +4264,146 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get statAudioOutput => '音訊輸出方式';
 
   @override
-  String get decodePrecisionFallback => '正在切換軟體解碼，以保留影片位元深度';
+  String get restoreLibraryBackup => '從備份還原';
 
   @override
-  String get decodeUnsupportedFallback => '硬體不支援此影片格式，正在切換軟體解碼';
+  String get restoreLibraryBackupDescription =>
+      '選擇 ZIP 備份，預覽後還原媒體庫、紀錄、手動封面和基本設定。';
 
   @override
-  String get videoDecoding => '視訊解碼';
+  String get restoreLibraryBackupWarning =>
+      '這會取代目前的媒體庫和播放紀錄，不會合併。還原前會自動備份目前資料；失敗時回復。\n\n影片檔案和本機擴充設定不在備份中。來源密碼需要重新填寫；跨裝置的本機目錄需要在「編輯來源」中重新選擇並授權。還原不會自動掃描或連線來源。';
 
   @override
-  String get decodeAutomatic => '自動';
+  String get restoringLibraryBackup => '正在還原，請稍候…';
 
   @override
-  String get decodeHardware => '硬體優先';
+  String get restoreLibraryBackupDone => '還原完成。需要時請編輯來源，重新選擇目錄或填寫密碼。';
 
   @override
-  String get decodeSoftware => '軟體解碼';
+  String get restoreLibraryBackupFailed => '還原未完成，請檢查備份和可用空間後重試。';
 
   @override
-  String get decodeCustom => '依照 MPV 設定';
+  String get restoreLibraryBackupBusy => '請等待掃描結束後再還原備份。';
 
   @override
-  String get decodeDescription => '下次播放生效。自動保留平台預設；硬體模式允許軟解回退，模擬器使用軟解。';
+  String get previousLibraryBackup => '還原前的備份';
 
   @override
-  String get decodePriority =>
-      '自動及硬體／軟體模式會覆蓋 mpv.conf 的 hwdec。依照 MPV 設定會保留其 hwdec 和縮放選項，視訊輸出仍由播放器管理；關閉 MPV 設定時使用平台預設。';
+  String get previousLibraryBackupDescription => '保留最近兩次還原前的備份，可預覽後還原。';
+
+  @override
+  String get noPreviousLibraryBackup => '還沒有自動產生的還原前備份。';
+
+  @override
+  String get restoreCurrentLibrary => '目前媒體庫（作品 / 檔案 / 來源）';
+
+  @override
+  String get extensions => '擴充功能';
+
+  @override
+  String get extensionsDescription =>
+      '在此開啟可選功能，開啟後可在「刮削服務」調整相關設定。關閉後停止相關請求並釋放暫存資源。';
+
+  @override
+  String get characterDetails => '角色與聲優';
+
+  @override
+  String get characterDetailsDescription => '在作品詳情頁顯示 Bangumi 角色與聲優資料。';
+
+  @override
+  String get voiceActorPhotos => '顯示聲優照片';
+
+  @override
+  String get creditsDetails => '真人演員與製作人員';
+
+  @override
+  String get creditsDetailsDescription => '在真人影視詳情頁顯示 TMDB 演員與製作人員。';
+
+  @override
+  String get creditsServiceSettings => '使用共用的 TMDB 憑證，點擊開啟 API 設定。';
+
+  @override
+  String get optionalFeatureFailed => '暫時無法載入或儲存，請重試。';
+
+  @override
+  String get optionalNoResults => '暫無相關資料。';
+
+  @override
+  String get animationCategory => '動畫';
+
+  @override
+  String get liveActionCategory => '真人影視';
+
+  @override
+  String get featureOff => '關閉';
+
+  @override
+  String get voiceActors => '聲優';
+
+  @override
+  String get sage => '灰綠';
+
+  @override
+  String get allWorks => '全部作品';
+
+  @override
+  String compactWorkCount(int count) {
+    return '$count 部';
+  }
+
+  @override
+  String get bangumiPeopleData => 'Bangumi角色/聲優資料';
+
+  @override
+  String get tmdbPeopleData => 'TMDB真人資料';
+
+  @override
+  String get peopleBar => '角色欄';
+
+  @override
+  String get peopleFallbackTmdb => '關閉 Bangumi 資料時，統一使用 TMDB 資料。';
+
+  @override
+  String get peopleFallbackHidden => '關閉 Bangumi 資料時，不顯示角色欄。';
+
+  @override
+  String get historySelectAll => '全選';
+
+  @override
+  String get historyDeselectAll => '取消全選';
+
+  @override
+  String historySelectionCount(int count) {
+    return '已選 $count 項';
+  }
+
+  @override
+  String deleteHistorySelectionQuestion(int count) {
+    return '刪除選取的 $count 筆播放紀錄？';
+  }
+
+  @override
+  String get imageCache => '圖片快取';
+
+  @override
+  String get measuringCache => '正在計算…';
+
+  @override
+  String get cacheSizeUnavailable => '暫時無法讀取';
+
+  @override
+  String get openCacheDirectory => '開啟快取目錄';
+
+  @override
+  String get cacheDirectoryUnavailable => '暫時無法開啟快取目錄。';
+
+  @override
+  String get detailBackdrop => '詳情頁背景圖';
+
+  @override
+  String get cacheSettingFailed => '設定儲存失敗，請重試。';
+
+  @override
+  String get nameOrBangumiId => '名稱或 Bangumi ID';
 }

@@ -20,15 +20,26 @@ class LibraryBackupExporter {
   final SharedPreferences preferences;
 
   static const tables = [
-    'sources', 'works', 'assets', 'progress', 'work_details',
-    'asset_overrides', 'asset_override_history', 'phantom_asset_archive',
+    'sources',
+    'works',
+    'assets',
+    'progress',
+    'work_details',
+    'asset_overrides',
+    'asset_override_history',
+    'phantom_asset_archive',
     'logical_episode_confirmations',
     'watch_events',
-    'watch_identity_epochs', 'watch_event_origins',
+    'watch_identity_epochs',
+    'watch_event_origins',
     'bangumi_episode_mappings',
   ];
   static const preferenceKeys = [
-    'theme_mode', 'theme_accent', 'ui_language', 'watched_completion_percent',
+    'theme_mode',
+    'theme_accent',
+    'ui_language',
+    'watched_completion_percent',
+    'detail_backdrop_enabled',
   ];
   static final customArtworkName = RegExp(
     r'^(?:original|crop)_[a-f0-9]{64}\.png$',
@@ -72,7 +83,11 @@ class LibraryBackupExporter {
           throw const FormatException('Custom artwork exceeds backup limits');
         }
         final digest = (await sha256.bind(entity.openRead()).first).toString();
-        if (digest != filename.substring(filename.indexOf('_') + 1, filename.length - 4)) {
+        if (digest !=
+            filename.substring(
+              filename.indexOf('_') + 1,
+              filename.length - 4,
+            )) {
           throw const FormatException('Custom artwork checksum mismatch');
         }
         images.add(entity);
@@ -81,19 +96,23 @@ class LibraryBackupExporter {
     }
     images.sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
 
-    final manifest = utf8.encode(jsonEncode({
-      'format': 'ccplayer-library',
-      'format_version': 1,
-      'db_schema_version': await database.getVersion(),
-      'created_at': DateTime.now().toUtc().toIso8601String(),
-      'tables': snapshot,
-      'preferences': {
-        for (final key in preferenceKeys)
-          if (preferences.get(key) is String || preferences.get(key) is int)
-            key: preferences.get(key),
-      },
-      'artwork': checksums,
-    }));
+    final manifest = utf8.encode(
+      jsonEncode({
+        'format': 'ccplayer-library',
+        'format_version': 1,
+        'db_schema_version': await database.getVersion(),
+        'created_at': DateTime.now().toUtc().toIso8601String(),
+        'tables': snapshot,
+        'preferences': {
+          for (final key in preferenceKeys)
+            if (preferences.get(key) is String ||
+                preferences.get(key) is int ||
+                preferences.get(key) is bool)
+              key: preferences.get(key),
+        },
+        'artwork': checksums,
+      }),
+    );
     if (manifest.length > 64 * 1024 * 1024) {
       throw const FormatException('Library metadata exceeds backup limits');
     }
@@ -113,7 +132,9 @@ class LibraryBackupExporter {
       return destination;
     } catch (_) {
       if (open) {
-        try { await zip.close(); } catch (_) {}
+        try {
+          await zip.close();
+        } catch (_) {}
       }
       if (await destination.exists()) await destination.delete();
       rethrow;
@@ -124,17 +145,30 @@ class LibraryBackupExporter {
     final uri = Uri.tryParse(raw);
     if (uri == null || !uri.hasAuthority) return raw;
     const sensitive = {
-      'token', 'access_token', 'api_key', 'key',
-      'password', 'secret', 'signature', 'authorization', 'auth',
+      'token',
+      'access_token',
+      'api_key',
+      'key',
+      'password',
+      'secret',
+      'signature',
+      'authorization',
+      'auth',
     };
     final safeQuery = {
-      for (final entry in uri.queryParameters.entries)
+      for (final entry in uri.queryParametersAll.entries)
         if (!sensitive.contains(entry.key.toLowerCase()))
           entry.key: entry.value,
     };
-    return uri.replace(
-      userInfo: '',
-      queryParameters: uri.hasQuery && safeQuery.isNotEmpty ? safeQuery : null,
+    // Uri.replace with null queryParameters keeps the original query. Build a
+    // fresh URI so an all-sensitive query is actually removed.
+    return Uri(
+      scheme: uri.scheme,
+      host: uri.host,
+      port: uri.hasPort ? uri.port : null,
+      path: uri.path,
+      queryParameters: safeQuery.isEmpty ? null : safeQuery,
+      fragment: uri.hasFragment ? uri.fragment : null,
     ).toString();
   }
 }

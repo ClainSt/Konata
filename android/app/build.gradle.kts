@@ -6,6 +6,7 @@ plugins {
 
 val publicKeystore = File(System.getProperty("user.home"), ".ccplayer/ccplayer-release.p12")
 val publicKeyPassword = providers.environmentVariable("CCPLAYER_SIGNING_PASSWORD")
+val isolatedReleaseValidation = providers.environmentVariable("KONATA_RELEASE_VALIDATION").orNull == "1"
 
 android {
     namespace = "com.anime.konata"
@@ -42,7 +43,12 @@ android {
         }
         getByName("profile") { applicationIdSuffix = ".profile" }
         release {
-            signingConfig = signingConfigs.getByName("publicRelease")
+            if (isolatedReleaseValidation) {
+                applicationIdSuffix = ".acceptance"
+                signingConfig = signingConfigs.getByName("debug")
+            } else {
+                signingConfig = signingConfigs.getByName("publicRelease")
+            }
         }
     }
 }
@@ -50,7 +56,7 @@ android {
 // Missing credentials must fail even when AGP would otherwise produce an unsigned APK.
 tasks.matching { it.name == "preReleaseBuild" }.configureEach {
     doFirst {
-        check(publicKeystore.isFile && !publicKeyPassword.orNull.isNullOrBlank()) {
+        check(isolatedReleaseValidation || (publicKeystore.isFile && !publicKeyPassword.orNull.isNullOrBlank())) {
             "Public release signing requires ~/.ccplayer/ccplayer-release.p12 and CCPLAYER_SIGNING_PASSWORD."
         }
     }

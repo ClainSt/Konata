@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
@@ -37,7 +38,179 @@ class FakeSmb extends Fake implements SmbConnect {
   }
 }
 
+class ClosedPeerSmb extends FakeSmb {
+  @override
+  Future<void> close() async {
+    closed = true;
+    throw StateError('peer already closed');
+  }
+}
+
+class InterruptedReadSmb extends FakeSmb {
+  @override
+  Future<SmbFile> file(String path) async =>
+      SmbFile(path, path, 'share', 0, 0, 0, 0, 131072, true);
+  @override
+  Future<Stream<Uint8List>> openRead(
+    SmbFile file, [
+    int? start,
+    int? end,
+  ]) async => _chunks();
+  Stream<Uint8List> _chunks() async* {
+    yield Uint8List(65536);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    throw const SocketException('SMB peer disconnected during body');
+  }
+}
+
+class PendingReadSmb extends InterruptedReadSmb {
+  final chunks = StreamController<Uint8List>();
+  int closeCount = 0;
+  @override
+  Future<Stream<Uint8List>> openRead(
+    SmbFile file, [
+    int? start,
+    int? end,
+  ]) async {
+    chunks.onListen = () => chunks.add(Uint8List(65536));
+    return chunks.stream;
+  }
+
+  @override
+  Future<void> close() async {
+    closeCount++;
+    closed = true;
+    chunks.addError(const SocketException('cancelled'));
+    await chunks.close();
+  }
+}
+
 void main() {
+  test(
+    'SMB ticket close interrupts its body and closes the client once',
+    () async {
+      final client = PendingReadSmb();
+      final source = SmbSource({
+        'location': 'smb://nas/share',
+      }, connector: () async => client);
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final served = server.first.then((request) {
+        request.response.bufferOutput = false;
+        return source.serve(request, 'clip.mkv');
+      });
+      final http = HttpClient();
+      try {
+        final response = await (await http.getUrl(
+          Uri.parse('http://127.0.0.1:${server.port}/clip'),
+        )).close();
+        final first = Completer<void>();
+        final body = response.map((chunk) {
+          if (!first.isCompleted) first.complete();
+          return chunk;
+        }).drain<void>();
+        final interrupted = expectLater(body, throwsA(isA<HttpException>()));
+        await first.future;
+        source.close();
+        source.close();
+        await interrupted.timeout(const Duration(seconds: 3));
+        await served.timeout(const Duration(seconds: 3));
+        expect(client.closeCount, 1);
+      } finally {
+        http.close(force: true);
+        await server.close(force: true);
+      }
+    },
+  );
+
+  test(
+    'SMB ticket revoked during connect releases the eventual client',
+    () async {
+      final connecting = Completer<SmbConnect>();
+      final entered = Completer<void>();
+      final client = FakeSmb();
+      final source = SmbSource(
+        {'location': 'smb://nas/share'},
+        connector: () {
+          entered.complete();
+          return connecting.future;
+        },
+      );
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final served = server.first.then(
+        (request) => source.serve(request, 'clip.mkv'),
+      );
+      final http = HttpClient();
+      try {
+        final response = (await http.getUrl(
+          Uri.parse('http://127.0.0.1:${server.port}/clip'),
+        )).close();
+        await entered.future;
+        source.close();
+        connecting.complete(client);
+        final result = await response.timeout(const Duration(seconds: 3));
+        expect(result.statusCode, HttpStatus.badGateway);
+        await result.drain<void>();
+        await served;
+        expect(client.closed, isTrue);
+        expect(client.requested, isNull);
+      } finally {
+        http.close(force: true);
+        await server.close(force: true);
+      }
+    },
+  );
+  test(
+    'SMB mid-body failure aborts the response and still releases the client',
+    () async {
+      final client = InterruptedReadSmb();
+      final source = SmbSource({
+        'location': 'smb://nas/share',
+      }, connector: () async => client);
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final served = server.first.then((request) {
+        request.response.bufferOutput = false;
+        return source.serve(request, 'clip.mkv');
+      });
+      final http = HttpClient();
+      try {
+        final response = await (await http.getUrl(
+          Uri.parse('http://127.0.0.1:${server.port}/clip'),
+        )).close();
+        await expectLater(
+          response.drain<void>(),
+          throwsA(isA<HttpException>()),
+        );
+        await served;
+        expect(client.closed, isTrue);
+      } finally {
+        http.close(force: true);
+        await server.close(force: true);
+      }
+    },
+  );
+  test('SMB response cleanup tolerates an already closed peer', () async {
+    final client = ClosedPeerSmb();
+    final source = SmbSource({
+      'location': 'smb://nas/share',
+    }, connector: () async => client);
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final served = server.first.then(
+      (request) => source.serve(request, 'clip.mkv'),
+    );
+    final http = HttpClient();
+    try {
+      final response = await (await http.getUrl(
+        Uri.parse('http://127.0.0.1:${server.port}/clip'),
+      )).close();
+      expect(response.statusCode, 200);
+      await response.drain<void>();
+      await served;
+      expect(client.closed, isTrue);
+    } finally {
+      http.close(force: true);
+      await server.close(force: true);
+    }
+  });
   test(
     'SMB validates share URLs and rejects embedded credentials and traversal',
     () {

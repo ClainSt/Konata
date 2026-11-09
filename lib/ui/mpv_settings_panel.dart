@@ -7,15 +7,12 @@ import 'package:android_file_picker/android_file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../core/mpv_config_store.dart';
-import '../core/mpv_engine_store.dart';
 import '../l10n/strings.dart';
 import 'settings_panel.dart';
-import 'settings_choice_card.dart';
 
 class MpvSettingsPanel extends StatefulWidget {
-  const MpvSettingsPanel({super.key, this.store, this.engineStore});
+  const MpvSettingsPanel({super.key, this.store});
   final MpvConfigStore? store;
-  final MpvEngineStore? engineStore;
 
   @override
   State<MpvSettingsPanel> createState() => _MpvSettingsPanelState();
@@ -23,11 +20,6 @@ class MpvSettingsPanel extends StatefulWidget {
 
 class _MpvSettingsPanelState extends State<MpvSettingsPanel> {
   late final MpvConfigStore store;
-  late final MpvEngineStore engine;
-  bool engineInstalled = false;
-  bool engineChecked = false;
-  int? downloadReceived;
-  int? downloadTotal;
   bool busy = false;
   bool loaded = false;
 
@@ -35,20 +27,12 @@ class _MpvSettingsPanelState extends State<MpvSettingsPanel> {
   void initState() {
     super.initState();
     store = widget.store ?? MpvConfigStore.instance;
-    engine = widget.engineStore ?? MpvEngineStore.instance;
     _refresh();
   }
 
   Future<void> _refresh() async {
     try {
       await store.initialize();
-      if (Platform.isWindows) {
-        await engine.initialize();
-        if (!engineChecked) {
-          engineInstalled = await engine.isInstalledAndValid();
-          engineChecked = true;
-        }
-      }
       if (mounted) {
         setState(() {
           loaded = true;
@@ -86,26 +70,6 @@ class _MpvSettingsPanelState extends State<MpvSettingsPanel> {
       if (mounted) setState(() => busy = false);
     }
   }
-
-  Future<bool> _confirm(String title, String description) async =>
-      (await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(title),
-          content: Text(description),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text(MaterialLocalizations.of(ctx).cancelButtonLabel),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Text(MaterialLocalizations.of(ctx).okButtonLabel),
-            ),
-          ],
-        ),
-      )) ??
-      false;
 
   Future<void> _edit(String name) async {
     try {
@@ -184,126 +148,6 @@ class _MpvSettingsPanelState extends State<MpvSettingsPanel> {
     });
   }
 
-  Future<void> _downloadEngine() async {
-    if (!await _confirm(
-      context.l10n.mpvEngineDownloadConfirm,
-      context.l10n.mpvEngineDownloadWarning,
-    )) {
-      return;
-    }
-    await _run(() async {
-      await engine.downloadAndInstall(
-        onProgress: (received, total) {
-          if (mounted) {
-            setState(() {
-              downloadReceived = received;
-              downloadTotal = total;
-            });
-          }
-        },
-      );
-      engineChecked = false;
-    });
-    if (mounted) {
-      setState(() {
-        downloadReceived = null;
-        downloadTotal = null;
-      });
-    }
-  }
-
-  Future<void> _importEngine() async {
-    try {
-      final selected = await FilePicker.pickFile(
-        type: FileType.custom,
-        allowedExtensions: const ['7z'],
-      );
-      if (selected == null) return;
-      if (selected.path == null) {
-        throw const FormatException('Cannot access selected archive');
-      }
-      await _run(() async {
-        await engine.installFromArchive(File(selected.path!));
-        engineChecked = false;
-      });
-    } catch (error) {
-      _error(error);
-    }
-  }
-
-  Widget _engineSection() => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      SettingsPanel(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ListTile(
-              key: const ValueKey('mpv-engine-heading'),
-              title: Text(context.l10n.mpvEngineTitle),
-              subtitle: Text(context.l10n.mpvEngineDescription),
-              leading: const Icon(Icons.extension_outlined),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                engineInstalled
-                    ? context.l10n.mpvEngineReady
-                    : context.l10n.mpvEngineMissing,
-              ),
-            ),
-            SwitchListTile(
-              key: const ValueKey('mpv-engine-enabled'),
-              title: Text(context.l10n.mpvEngineEnable),
-              subtitle: Text(context.l10n.mpvEngineRestart),
-              value: engine.enabled,
-              onChanged: busy || !engineInstalled
-                  ? null
-                  : (enabled) => _run(() => engine.setEnabled(enabled)),
-            ),
-            ListTile(
-              key: const ValueKey('mpv-engine-download'),
-              leading: const Icon(Icons.download_outlined),
-              title: Text(context.l10n.mpvEngineDownload),
-              onTap: busy ? null : _downloadEngine,
-            ),
-            ListTile(
-              key: const ValueKey('mpv-engine-import'),
-              leading: const Icon(Icons.file_open_outlined),
-              title: Text(context.l10n.mpvEngineImport),
-              onTap: busy ? null : _importEngine,
-            ),
-            if (busy && downloadReceived != null)
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(context.l10n.mpvEngineProgress),
-                    const SizedBox(height: 6),
-                    LinearProgressIndicator(
-                      value: downloadTotal != null && downloadTotal! > 0
-                          ? (downloadReceived! / downloadTotal!).clamp(0.0, 1.0)
-                          : null,
-                    ),
-                  ],
-                ),
-              ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: Text(
-                engine.activeThisSession
-                    ? context.l10n.mpvEngineCurrent
-                    : context.l10n.mpvEngineDefault,
-              ),
-            ),
-          ],
-        ),
-      ),
-      const SizedBox(height: 16),
-    ],
-  );
-
   Future<void> _openDirectory() => _run(() async {
     final folder = await FilePicker.getDirectoryPath(
       dialogTitle: context.l10n.mpvOpenDirectory,
@@ -362,25 +206,6 @@ class _MpvSettingsPanelState extends State<MpvSettingsPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (Platform.isWindows) _engineSection(),
-        SettingsChoiceCard<VideoDecodeMode>(
-          title: context.l10n.videoDecoding,
-          description:
-              '${context.l10n.decodeDescription}\n${context.l10n.decodePriority}',
-          icon: Icons.memory_outlined,
-          value: store.decodeMode,
-          options: VideoDecodeMode.values,
-          label: (mode) => switch (mode) {
-            VideoDecodeMode.automatic => context.l10n.decodeAutomatic,
-            VideoDecodeMode.hardwarePreferred => context.l10n.decodeHardware,
-            VideoDecodeMode.software => context.l10n.decodeSoftware,
-            VideoDecodeMode.custom => context.l10n.decodeCustom,
-          },
-          selectorKey: ValueKey('decode-mode-${store.decodeMode.name}'),
-          enabled: !busy,
-          onChanged: (mode) => _run(() => store.setDecodeMode(mode)),
-        ),
-        const SizedBox(height: 12),
         SettingsPanel(
           child: SwitchListTile(
             key: const ValueKey('mpv-config-enabled'),

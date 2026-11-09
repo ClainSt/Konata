@@ -36,7 +36,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Add source'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('WebDAV'));
+      await tester.tap(find.byKey(const ValueKey('source-type-selector')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('WebDAV').last);
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).at(1), 'not-a-url');
       await tester.tap(find.widgetWithText(FilledButton, 'Add'));
@@ -105,7 +107,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('1 of 1 items'), findsOneWidget);
       final tile = find.ancestor(
-        of: find.text('日本語 series'),
+        of: find.descendant(
+          of: find.byKey(const ValueKey('source-folder-browser')),
+          matching: find.text('日本語 series'),
+        ),
         matching: find.byType(ListTile),
       );
       await tester.runAsync(
@@ -136,6 +141,59 @@ void main() {
       );
       await settleIo();
       expect(find.byKey(const ValueKey('breadcrumb-日本語 series')), findsNothing);
+      await tester.runAsync(
+        () => Catalog.instance.addScanRoot(
+          'browser-language',
+          'Animation/Another series',
+        ),
+      );
+      await settleIo();
+      final panel = find.byKey(const ValueKey('selected-folder-panel'));
+      expect(
+        find.descendant(of: panel, matching: find.text('Another series')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: panel,
+          matching: find.text('Animation/Another series'),
+        ),
+        findsNothing,
+      );
+      expect(find.byTooltip('Animation/Another series'), findsOneWidget);
+      for (final size in [
+        const Size(1200, 800),
+        const Size(900, 650),
+        const Size(390, 780),
+        const Size(640, 480),
+      ]) {
+        await tester.binding.setSurfaceSize(size);
+        await tester.pumpAndSettle();
+        final browserRect = tester.getRect(
+          find.byKey(const ValueKey('source-folder-browser')),
+        );
+        final panelRect = tester.getRect(panel);
+        if (size.width >= 840) {
+          expect(panelRect.left, greaterThan(browserRect.right));
+          expect(panelRect.top, browserRect.top);
+        } else {
+          expect(panelRect.top, greaterThanOrEqualTo(browserRect.bottom));
+        }
+        expect(Catalog.instance.rootsFor('browser-language'), hasLength(2));
+        expect(tester.takeException(), isNull);
+      }
+      await tester.runAsync(
+        () => tester.tap(
+          find.byKey(
+            const ValueKey('remove-selected-Animation/Another series'),
+          ),
+        ),
+      );
+      await settleIo();
+      expect(
+        Catalog.instance.rootsFor('browser-language').single['relative_path'],
+        '日本語 series',
+      );
       expect(tester.takeException(), isNull);
     },
   );

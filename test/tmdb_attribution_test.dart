@@ -28,6 +28,20 @@ void main() {
             home: const Scaffold(body: SettingsPage()),
           ),
         );
+        if (platform == TargetPlatform.android) {
+          await tester.scrollUntilVisible(
+            find.byKey(const ValueKey('settings-category-2')),
+            160,
+            scrollable: find
+                .descendant(
+                  of: find.byType(ListView).first,
+                  matching: find.byType(Scrollable),
+                )
+                .first,
+          );
+        }
+        await tester.ensureVisible(find.text('关于').first);
+        await tester.pumpAndSettle();
         await tester.tap(find.text('关于').first);
         await tester.pumpAndSettle();
         await tester.scrollUntilVisible(

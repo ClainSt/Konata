@@ -13,10 +13,19 @@ import 'request_budget.dart';
 /// Shared transport: bounded retries, no credential-bearing redirects, disk JSON
 /// fallback. Diagnostics use [raw] to test exactly the entered server.
 class MetadataHttp extends http.BaseClient {
-  MetadataHttp({http.Client? inner, this.raw = false, this.trustCustom = false})
-    : _inner = inner ?? http.Client();
+  MetadataHttp({
+    http.Client? inner,
+    this.raw = false,
+    this.trustCustom = false,
+    this.fresh = false,
+    this.headerTimeout = const Duration(seconds: 15),
+  }) : _inner = inner ?? http.Client();
   final http.Client _inner;
   final bool raw, trustCustom;
+
+  /// Credential checks must not reuse disk results or remembered host failures.
+  final bool fresh;
+  final Duration headerTimeout;
   static const userAgent =
       'ClainSt/Konata/1.0.0 (https://github.com/ClainSt/Konata)';
   static final Map<String, DateTime> _unhealthy = {};
@@ -89,7 +98,7 @@ class MetadataHttp extends http.BaseClient {
         )
         .toString();
     File? cache;
-    if (!raw && cacheDirectory != null) {
+    if (!raw && !fresh && cacheDirectory != null) {
       cache = File(p.join(cacheDirectory!.path, '$key.json'));
     }
     final candidates = <Uri>[target];
@@ -112,6 +121,7 @@ class MetadataHttp extends http.BaseClient {
     Object? failure;
     for (final uri in candidates) {
       if (!raw &&
+          !fresh &&
           candidates.length > 1 &&
           _unhealthy[uri.host]?.isAfter(DateTime.now()) == true) {
         continue;
@@ -127,14 +137,18 @@ class MetadataHttp extends http.BaseClient {
         throw StateError('自定义 TMDB 服务未获凭证发送授权（仅支持 HTTPS）');
       }
       final watch = Stopwatch()..start();
+      final abort = Completer<void>();
       try {
-        final copy = http.Request(request.method, uri)
-          ..headers.addAll(headers)
-          ..bodyBytes = bytes;
+        final copy =
+            http.AbortableRequest(
+                request.method,
+                uri,
+                abortTrigger: abort.future,
+              )
+              ..headers.addAll(headers)
+              ..bodyBytes = bytes;
         copy.followRedirects = !hasAuth;
-        final streamed = await _inner
-            .send(copy)
-            .timeout(const Duration(seconds: 15));
+        final streamed = await _inner.send(copy).timeout(headerTimeout);
         final body = BytesBuilder();
         await for (final chunk in streamed.stream.timeout(
           const Duration(seconds: 20),
@@ -173,12 +187,20 @@ class MetadataHttp extends http.BaseClient {
             e is! http.ClientException) {
           rethrow;
         }
-        _unhealthy[uri.host] = DateTime.now().add(const Duration(seconds: 45));
+        if (!fresh) {
+          _unhealthy[uri.host] = DateTime.now().add(
+            const Duration(seconds: 45),
+          );
+        }
         DebugLog.write(
           'Network',
           'host=${uri.host} error=${e.runtimeType} elapsed=${watch.elapsedMilliseconds}ms; fallback=${!raw && candidates.length > 1}',
           level: 'WARN',
         );
+      } finally {
+        // Future.timeout alone leaves the underlying socket request alive.
+        // Abort also covers body failures before giving the budget slot back.
+        abort.complete();
       }
     }
     if (cache != null && await cache.exists()) {

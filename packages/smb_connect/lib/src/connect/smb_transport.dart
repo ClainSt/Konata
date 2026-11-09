@@ -72,6 +72,21 @@ class SmbTransport {
   Uint8List _preauthIntegrityHash = Uint8List(64);
 
   final Map<int, CompleteResponse> responses = {};
+  bool _reading = false;
+  Object? _readerFailure;
+  StackTrace? _readerFailureStack;
+
+  void onReaderFailure(Object error, StackTrace stack) {
+    _readerFailure ??= error;
+    _readerFailureStack ??= stack;
+    final pending = responses.values.toList();
+    responses.clear();
+    for (final item in pending) {
+      if (!item.completer.isCompleted) {
+        item.completer.completeError(error, stack);
+      }
+    }
+  }
 
   SmbTransport(
     this.config,
@@ -86,8 +101,9 @@ class SmbTransport {
       print("Smb transport close called");
     }
     await _inp.close();
-    // await _out.close();
-    await _socket.close();
+    // Reads may still have a flush bound to the output sink when a ticket is
+    // revoked. No further protocol traffic is needed after tree teardown.
+    _socket.destroy();
   }
 
   SmbNegotiationResponse? getNegotiatedResponse() => _negotiated;
@@ -144,30 +160,43 @@ class SmbTransport {
   }
 
   void onListenReader() async {
-    if (responses.isNotEmpty) {
-      var key = await _peekKey();
-      while (key != null) {
-        var completer = responses.remove(key);
-        if (completer != null) {
-          await _doRecv(completer.response);
-          completer.response.setReceived();
-          // bool isAsync = completer.response is ServerMessageBlock2 &&
-          //     (completer.response as ServerMessageBlock2).async;
-          if (completer.response.isReceived()) {
-            // print("Success complete response $key");
-            completer.completer.complete(completer.response);
+    if (_reading) return;
+    _reading = true;
+    try {
+      if (responses.isNotEmpty) {
+        var key = await _peekKey();
+        while (key != null) {
+          var completer = responses.remove(key);
+          if (completer != null) {
+            try {
+              await _doRecv(completer.response);
+            } catch (error, stack) {
+              completer.completer.completeError(error, stack);
+              rethrow;
+            }
+            completer.response.setReceived();
+            // bool isAsync = completer.response is ServerMessageBlock2 &&
+            //     (completer.response as ServerMessageBlock2).async;
+            if (completer.response.isReceived()) {
+              // print("Success complete response $key");
+              completer.completer.complete(completer.response);
+            } else {
+              responses[key] = completer;
+              // print("Recvd async");
+            }
           } else {
-            responses[key] = completer;
-            // print("Recvd async");
+            print("Error complete response $key");
           }
-        } else {
-          print("Error complete response $key");
-        }
-        key = null;
-        if (responses.isNotEmpty && _inp.available() > 0) {
-          key = await _peekKey();
+          key = null;
+          if (responses.isNotEmpty && _inp.available() > 0) {
+            key = await _peekKey();
+          }
         }
       }
+    } catch (error, stack) {
+      onReaderFailure(error, stack);
+    } finally {
+      _reading = false;
     }
   }
 
@@ -192,10 +221,13 @@ class SmbTransport {
           print("Smb socket diconnected from done");
         }
         onDisconnect?.call(this);
+      }, onError: (Object error, StackTrace stack) {
+        onReaderFailure(error, stack);
+        onDisconnect?.call(this);
       });
 
       _inp = SocketReader2(socket, onListenReader,
-          debugPrint: config.debugPrintLowLevel);
+          debugPrint: config.debugPrintLowLevel, onFailure: onReaderFailure);
       _out = SocketWriter(socket, debugPrint: config.debugPrintLowLevel);
     }
 
@@ -712,9 +744,23 @@ class SmbTransport {
     int key,
     CommonServerMessageBlockResponse response,
   ) async {
+    if (_readerFailure != null) {
+      Error.throwWithStackTrace(_readerFailure!, _readerFailureStack!);
+    }
+    _inp.checkReadable();
     Completer<CommonServerMessageBlockResponse> completer = Completer();
     responses[key] = (response: response, completer: completer);
-    return completer.future.timeout(waitResponseTimeout);
+    final result = completer.future.timeout(waitResponseTimeout);
+    // A fast peer may answer during the preceding socket flush, before this
+    // waiter is registered. Consume that buffered response now.
+    if (_inp.available() > 0) onListenReader();
+    try {
+      return await result;
+    } finally {
+      if (identical(responses[key]?.completer, completer)) {
+        responses.remove(key);
+      }
+    }
   }
 
   @protected

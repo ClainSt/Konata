@@ -59,6 +59,22 @@ void main() {
     expect(PlaybackProbe.losesPrecision('yuv420p10le', 'mediacodec'), isFalse);
     expect(
       PlaybackProbe.needsPrecisionFallback(
+        sourceCodec: 'av1',
+        sourceProfile: 'Main',
+        decodedFormat: 'nv12',
+      ),
+      isTrue,
+    );
+    expect(
+      PlaybackProbe.needsPrecisionFallback(
+        sourceCodec: 'av1',
+        sourceFormat: 'yuv420p',
+        decodedFormat: 'nv12',
+      ),
+      isFalse,
+    );
+    expect(
+      PlaybackProbe.needsPrecisionFallback(
         sourceProfile: 'Main 10',
         decodedFormat: 'nv12',
       ),
@@ -86,6 +102,20 @@ void main() {
       ),
       isFalse,
     );
+  });
+  test('unavailable demux format does not discard codec and profile', () async {
+    final values = {
+      'track-list/count': '1',
+      'track-list/0/type': 'video',
+      'track-list/0/selected': 'yes',
+      'track-list/0/codec': 'av1',
+      'track-list/0/codec-profile': 'Main',
+    };
+    final source = await PlaybackProbe((name) async {
+      if (!values.containsKey(name)) throw StateError('unavailable');
+      return values[name]!;
+    }).sourceVideoParameters();
+    expect(source, {'codec': 'av1', 'codec-profile': 'Main'});
   });
   testWidgets(
     'statistics refresh without loading flicker and stop when closed',

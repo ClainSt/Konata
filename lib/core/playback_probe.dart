@@ -117,9 +117,13 @@ class PlaybackProbe {
         if (await read('track-list/$i/type') == 'video' &&
             await read('track-list/$i/selected') == 'yes') {
           final result = <String, String>{};
-          for (final key in ['format-name', 'codec-profile']) {
-            final value = await read('track-list/$i/$key');
-            if (value.isNotEmpty) result[key] = value;
+          for (final key in ['codec', 'format-name', 'codec-profile']) {
+            try {
+              final value = await read('track-list/$i/$key');
+              if (value.isNotEmpty) result[key] = value;
+            } catch (_) {
+              // An unavailable field must not hide the remaining source data.
+            }
           }
           return result;
         }
@@ -143,6 +147,7 @@ class PlaybackProbe {
       message.contains('_mediacodec: Unsupported or unknown profile');
 
   static bool needsPrecisionFallback({
+    String? sourceCodec,
     String? sourceFormat,
     String? sourceProfile,
     String? decodedFormat,
@@ -152,13 +157,16 @@ class PlaybackProbe {
     }
     // A high-bit-depth profile is a conservative policy signal, not proof of
     // encoded bit depth when the demuxer omits the pixel format.
+    // AV1 Main includes both 8 and 10 bit. With unknown source precision, an
+    // 8-bit copy cannot establish fidelity; prefer software until it is known.
     return componentDepth(decodedFormat) == 8 &&
-        const {
-          'main 10',
-          'high 10',
-          'high 10 intra',
-          'rext',
-        }.contains(sourceProfile?.toLowerCase());
+        (sourceCodec?.toLowerCase() == 'av1' ||
+            const {
+              'main 10',
+              'high 10',
+              'high 10 intra',
+              'rext',
+            }.contains(sourceProfile?.toLowerCase()));
   }
 
   Future<Map<String, String>> statistics() async {

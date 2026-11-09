@@ -180,11 +180,15 @@ class PersonalMetadataScraper {
     if (!Metadata.credentials.isConfigured) return null;
     final candidates = <Map<String, dynamic>>[];
     for (final query in hints) {
-      for (final type in ['tv', 'movie']) {
-        final data = await _tmdb('/search/$type', {
-          'language': 'zh-CN',
-          'query': query,
-        });
+      const types = ['tv', 'movie'];
+      final results = await Future.wait(
+        types.map(
+          (type) =>
+              _tmdb('/search/$type', {'language': 'zh-CN', 'query': query}),
+        ),
+      );
+      for (var index = 0; index < types.length; index++) {
+        final type = types[index], data = results[index];
         for (final item in (data?['results'] as List? ?? []).whereType<Map>()) {
           final name = (item['name'] ?? item['title'] ?? '').toString();
           final original =

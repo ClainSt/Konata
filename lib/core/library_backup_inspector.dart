@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:path/path.dart' as p;
 
 import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
@@ -12,7 +13,15 @@ class LibraryBackupInspector {
   static const maxArtworkBytes = 32 * 1024 * 1024;
   static const maxTotalArtworkBytes = 512 * 1024 * 1024;
 
-  static Future<LibraryBackupPreview> inspect(File zipFile) async {
+  static Future<LibraryBackupPreview> inspect(File zipFile) async =>
+      (await read(zipFile)).preview;
+
+  /// Extraction is only into a caller-owned staging directory. Never the live
+  /// artwork directory: later validation can still reject this archive.
+  static Future<LibraryBackupData> read(
+    File zipFile, {
+    Directory? staging,
+  }) async {
     final stream = InputFileStream(zipFile.path);
     try {
       final archive = ZipDecoder().decodeStream(stream);
@@ -205,6 +214,11 @@ class LibraryBackupInspector {
             item.key.split('_').last.replaceFirst('.png', '') != item.value) {
           throw const FormatException('Artwork checksum mismatch');
         }
+        if (staging != null) {
+          await File(
+            p.join(staging.path, item.key),
+          ).writeAsBytes(content, flush: true);
+        }
       }
       final savedPrefs = decoded['preferences'];
       if (savedPrefs is! Map<String, dynamic> ||
@@ -213,7 +227,21 @@ class LibraryBackupInspector {
           )) {
         throw const FormatException('Invalid backup preferences');
       }
-      return LibraryBackupPreview(
+      const choices = {
+        'theme_mode': ['system', 'light', 'dark'],
+        'theme_accent': ['red', 'pink', 'lightBlue'],
+        'ui_language': ['system', 'zhHans', 'zhHant', 'en'],
+      };
+      for (final entry in savedPrefs.entries) {
+        if (entry.key == 'detail_backdrop_enabled'
+            ? entry.value is! bool
+            : entry.key == 'watched_completion_percent'
+            ? entry.value is! int || entry.value < 1 || entry.value > 100
+            : !(choices[entry.key]?.contains(entry.value) ?? false)) {
+          throw const FormatException('Invalid preference value');
+        }
+      }
+      final preview = LibraryBackupPreview(
         createdAt: DateTime.parse(decoded['created_at'] as String),
         works: (tables['works'] as List).length,
         assets: (tables['assets'] as List).length,
@@ -221,10 +249,17 @@ class LibraryBackupInspector {
         history: (tables['progress'] as List).length,
         artwork: artwork.length,
       );
+      return LibraryBackupData(decoded, preview);
     } finally {
       stream.closeSync();
     }
   }
+}
+
+class LibraryBackupData {
+  const LibraryBackupData(this.manifest, this.preview);
+  final Map<String, dynamic> manifest;
+  final LibraryBackupPreview preview;
 }
 
 class LibraryBackupPreview {

@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:ccplayer/core/mpv_config_store.dart';
-import 'package:ccplayer/core/mpv_engine_store.dart';
 import 'package:ccplayer/ui/mpv_settings_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,13 +10,11 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory temp;
   late MpvConfigStore store;
-  late MpvEngineStore engine;
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     temp = await Directory.systemTemp.createTemp('ccplayer-mpv-ui-');
     store = MpvConfigStore(rootOverride: temp);
-    engine = MpvEngineStore(rootOverride: temp);
   });
   tearDown(() async => temp.delete(recursive: true));
 
@@ -28,9 +25,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: SingleChildScrollView(
-            child: MpvSettingsPanel(store: store, engineStore: engine),
-          ),
+          body: SingleChildScrollView(child: MpvSettingsPanel(store: store)),
         ),
       ),
     );
@@ -41,27 +36,12 @@ void main() {
   }
 
   testWidgets(
-    'decoding selector persists software mode without disabling GPU rendering',
+    'playback settings use automatic decoding without a mode selector',
     (tester) async {
       await showSettings(tester);
-      final selector = find.byKey(const ValueKey('decode-mode-automatic'));
-      await tester.ensureVisible(selector);
-      await tester.tap(selector);
-      await tester.pumpAndSettle();
-      // The decoder menu stays anchored and compact on a wide settings page.
-      final option = find.widgetWithText(
-        PopupMenuItem<VideoDecodeMode>,
-        '软件解码',
-      );
-      expect(tester.getSize(option).width, lessThan(400));
-      expect(tester.getSize(option).height, greaterThanOrEqualTo(48));
-      await tester.tap(find.text('软件解码').last);
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 120)),
-      );
-      await tester.pumpAndSettle();
-      expect(store.decodeMode, VideoDecodeMode.software);
-      expect(store.videoConfiguration.hwdec, 'no');
+      expect(find.byKey(const ValueKey('decode-mode-automatic')), findsNothing);
+      expect(find.text('软件解码'), findsNothing);
+      expect(store.videoConfiguration.hwdec, isNull);
       expect(store.videoConfiguration.enableHardwareAcceleration, isTrue);
       expect(tester.takeException(), isNull);
     },
@@ -83,9 +63,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(store.enabled, isTrue);
     expect(find.byKey(const ValueKey('mpv-scripts-enabled')), findsNothing);
-    final engineSwitch = find.byKey(const ValueKey('mpv-engine-enabled'));
-    await tester.ensureVisible(engineSwitch);
-    expect(tester.widget<SwitchListTile>(engineSwitch).onChanged, isNull);
+    expect(find.byKey(const ValueKey('mpv-engine-heading')), findsNothing);
+    expect(find.byKey(const ValueKey('mpv-engine-enabled')), findsNothing);
   });
 
   testWidgets('portrait Android keeps edit/import actions beneath file title', (
@@ -98,9 +77,7 @@ void main() {
       MaterialApp(
         theme: ThemeData(platform: TargetPlatform.android),
         home: Scaffold(
-          body: SingleChildScrollView(
-            child: MpvSettingsPanel(store: store, engineStore: engine),
-          ),
+          body: SingleChildScrollView(child: MpvSettingsPanel(store: store)),
         ),
       ),
     );

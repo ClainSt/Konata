@@ -1,10 +1,8 @@
 import '../l10n/strings.dart';
-import 'uniform_action_bar.dart';
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as p;
 import '../core/catalog.dart';
 import '../core/sources.dart';
+import '../core/local_media.dart';
 import '../core/selected_scan_workflow.dart';
 import '../core/scan_activity.dart';
 import 'scan_progress_dialog.dart';
@@ -79,20 +77,16 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
       List<BrowserEntry> list;
       if (local) {
         final root = widget.source['location'].toString();
-        final dir = Directory(
-          target.isEmpty ? root : p.joinAll([root, ...target.split('/')]),
-        );
-        final children = await dir.list(followLinks: false).toList();
+        final children = await LocalMedia.list(root, target);
         list = children.map((entity) {
           final relative = target.isEmpty
-              ? p.basename(entity.path)
-              : '$target/${p.basename(entity.path)}';
-          final isFolder = entity is Directory;
+              ? entity.name
+              : '$target/${entity.name}';
           return BrowserEntry(
-            p.basename(entity.path),
+            entity.name,
             relative,
-            isFolder,
-            null,
+            entity.directory,
+            entity.size,
           );
         }).toList();
       } else {
@@ -194,6 +188,10 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
                 widget.source['label']?.toString() ?? '',
               ),
             ),
+            bottom: const PreferredSize(
+              preferredSize: Size.fromHeight(1),
+              child: Divider(height: 1),
+            ),
             actions: [
               AnimatedBuilder(
                 animation: ScanActivityStore.instance,
@@ -221,283 +219,381 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
               ),
             ],
           ),
-          body: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 5,
-                ),
-                child: Row(
+          body: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: MediaQuery.sizeOf(context).width >= 840 ? 20 : 0,
+            ),
+            child: LayoutBuilder(
+              builder: (context, bounds) {
+                final wide = bounds.maxWidth >= 840 && bounds.maxHeight >= 420;
+                final browser = Column(
+                  key: const ValueKey('source-folder-browser'),
                   children: [
-                    Checkbox(
-                      value: selected.any((r) => r['relative_path'] == current),
-                      onChanged: loading ? null : (_) => _toggle(current),
-                    ),
-                    const Icon(Icons.folder_open, size: 19),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        key: const ValueKey('folder-breadcrumbs'),
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            for (
-                              var index = 0;
-                              index < breadcrumbs.length;
-                              index++
-                            ) ...[
-                              if (index > 0)
-                                const Icon(Icons.chevron_right, size: 17),
-                              TextButton(
-                                key: ValueKey(
-                                  'breadcrumb-${breadcrumbs[index].path}',
-                                ),
-                                onPressed: loading
-                                    ? null
-                                    : () => _load(breadcrumbs[index].path),
-                                child: Text(
-                                  breadcrumbs[index].label,
-                                  maxLines: 1,
-                                  softWrap: false,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 5,
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      context.l10n.itemCount(entries.length),
-                      style: Theme.of(context).textTheme.labelSmall,
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 8, 18, 6),
-                child: TextField(
-                  key: const ValueKey('folder-search-field'),
-                  controller: _searchController,
-                  onChanged: (value) => setState(() => searchTerm = value),
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.search),
-                    hintText: context.l10n.folderSearch,
-                    border: const OutlineInputBorder(),
-                    isDense: true,
-                    suffixIcon: searchTerm.isEmpty
-                        ? null
-                        : IconButton(
-                            key: const ValueKey('clear-folder-search'),
-                            tooltip: context.l10n.clearSearch,
-                            icon: const Icon(Icons.close),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() => searchTerm = '');
-                            },
-                          ),
-                  ),
-                ),
-              ),
-              if (searchTerm.trim().isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 3,
-                  ),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      context.l10n.folderMatches(
-                        shownEntries.length,
-                        entries.length,
-                      ),
-                      style: Theme.of(context).textTheme.labelSmall,
-                    ),
-                  ),
-                ),
-              if (loading) const LinearProgressIndicator(),
-              if (error != null)
-                Expanded(
-                  child: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
+                      child: Row(
                         children: [
-                          const Icon(Icons.cloud_off_outlined, size: 42),
-                          const SizedBox(height: 12),
-                          Text(
-                            sourceAccessMessage(context.l10n, error!),
-                            textAlign: TextAlign.center,
+                          Checkbox(
+                            value: selected.any(
+                              (r) => r['relative_path'] == current,
+                            ),
+                            onChanged: loading ? null : (_) => _toggle(current),
                           ),
-                          const SizedBox(height: 12),
-                          FilledButton.icon(
-                            onPressed: () => _load(),
-                            icon: const Icon(Icons.refresh),
-                            label: Text(context.l10n.retry),
+                          const Icon(Icons.folder_open, size: 19),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: SingleChildScrollView(
+                              key: const ValueKey('folder-breadcrumbs'),
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: [
+                                  for (
+                                    var index = 0;
+                                    index < breadcrumbs.length;
+                                    index++
+                                  ) ...[
+                                    if (index > 0)
+                                      const Icon(Icons.chevron_right, size: 17),
+                                    TextButton(
+                                      key: ValueKey(
+                                        'breadcrumb-${breadcrumbs[index].path}',
+                                      ),
+                                      onPressed: loading
+                                          ? null
+                                          : () =>
+                                                _load(breadcrumbs[index].path),
+                                      child: Text(
+                                        breadcrumbs[index].label,
+                                        maxLines: 1,
+                                        softWrap: false,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            context.l10n.itemCount(entries.length),
+                            style: Theme.of(context).textTheme.labelSmall,
                           ),
                         ],
                       ),
                     ),
-                  ),
-                ),
-              if (error == null)
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: shownEntries.length + (current.isEmpty ? 0 : 1),
-                    itemBuilder: (context, index) {
-                      if (current.isNotEmpty && index == 0) {
-                        return ListTile(
-                          leading: const Icon(
-                            Icons.drive_folder_upload_outlined,
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 8, 18, 6),
+                      child: TextField(
+                        key: const ValueKey('folder-search-field'),
+                        controller: _searchController,
+                        onChanged: (value) =>
+                            setState(() => searchTerm = value),
+                        decoration: InputDecoration(
+                          prefixIcon: const Icon(Icons.search),
+                          hintText: context.l10n.folderSearch,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(28),
+                            borderSide: BorderSide.none,
                           ),
-                          title: Text(context.l10n.parentFolder),
-                          onTap: _up,
-                        );
-                      }
-                      final item =
-                          shownEntries[index - (current.isEmpty ? 0 : 1)];
-                      return ListTile(
-                        leading: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (item.directory)
-                              Checkbox(
-                                value: selected.any(
-                                  (r) => r['relative_path'] == item.relative,
-                                ),
-                                onChanged: loading
-                                    ? null
-                                    : (_) => _toggle(item.relative),
-                              ),
-                            Icon(
-                              item.directory
-                                  ? Icons.folder_rounded
-                                  : Catalog.isVideo(item.name)
-                                  ? Icons.movie_outlined
-                                  : Catalog.isSubtitle(item.name)
-                                  ? Icons.subtitles_outlined
-                                  : Icons.insert_drive_file_outlined,
-                              color: item.directory
-                                  ? Theme.of(context).colorScheme.primary
-                                  : null,
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(28),
+                            borderSide: BorderSide.none,
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(28),
+                            borderSide: BorderSide(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.outlineVariant,
                             ),
-                          ],
+                          ),
+                          isDense: true,
+                          suffixIcon: searchTerm.isEmpty
+                              ? null
+                              : IconButton(
+                                  key: const ValueKey('clear-folder-search'),
+                                  tooltip: context.l10n.clearSearch,
+                                  icon: const Icon(Icons.close),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    setState(() => searchTerm = '');
+                                  },
+                                ),
                         ),
-                        title: Text(
-                          item.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: item.directory
-                            ? null
-                            : Text(
-                                item.size == null
-                                    ? context.l10n.fileLabel
-                                    : '${(item.size! / 1048576).toStringAsFixed(1)} MB',
-                              ),
-                        onTap: item.directory
-                            ? () => _load(item.relative)
-                            : null,
-                      );
-                    },
-                  ),
-                ),
-              const Divider(height: 1),
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 5,
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        context.l10n.selectedScanFolders(selected.length),
-                        style: Theme.of(context).textTheme.titleSmall,
                       ),
                     ),
-                    IconButton(
-                      tooltip: context.l10n.help,
-                      icon: const Icon(Icons.help_outline),
-                      onPressed: () => showDialog<void>(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: Text(context.l10n.chooseScanHelpTitle),
-                          content: Text(context.l10n.chooseScanHelp),
-                          actions: [
-                            UniformActionBar(
+                    if (searchTerm.trim().isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 3,
+                        ),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            context.l10n.folderMatches(
+                              shownEntries.length,
+                              entries.length,
+                            ),
+                            style: Theme.of(context).textTheme.labelSmall,
+                          ),
+                        ),
+                      ),
+                    if (loading) const LinearProgressIndicator(),
+                    if (error != null)
+                      Expanded(
+                        child: Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(ctx),
-                                  child: Text(context.l10n.gotIt),
+                                const Icon(Icons.cloud_off_outlined, size: 42),
+                                const SizedBox(height: 12),
+                                Text(
+                                  sourceAccessMessage(context.l10n, error!),
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 12),
+                                FilledButton.icon(
+                                  onPressed: () => _load(),
+                                  icon: const Icon(Icons.refresh),
+                                  label: Text(context.l10n.retry),
                                 ),
                               ],
                             ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 112),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Wrap(
-                    spacing: 6,
-                    runSpacing: 0,
-                    children: [
-                      for (final root in selected)
-                        InputChip(
-                          label: Text(
-                            root['relative_path'].toString().isEmpty
-                                ? '/'
-                                : root['relative_path'].toString(),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          onDeleted: () => catalog.removeScanRoot(
-                            sourceId,
-                            root['relative_path'].toString(),
                           ),
                         ),
-                    ],
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 6, 12, 14),
-                child: Wrap(
-                  spacing: 10,
-                  runSpacing: 8,
-                  alignment: WrapAlignment.center,
-                  children: [
-                    FilledButton.icon(
-                      icon: scanning
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.travel_explore),
-                      label: Text(
-                        context.l10n.scanSelectedFolders(selected.length),
                       ),
-                      onPressed:
-                          scanning || catalog.scanning || selected.isEmpty
-                          ? null
-                          : _scan,
-                    ),
+                    if (error == null)
+                      Expanded(
+                        child: ListView.builder(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          itemCount:
+                              shownEntries.length + (current.isEmpty ? 0 : 1),
+                          itemBuilder: (context, index) {
+                            if (current.isNotEmpty && index == 0) {
+                              return ListTile(
+                                leading: const Icon(
+                                  Icons.drive_folder_upload_outlined,
+                                ),
+                                title: Text(context.l10n.parentFolder),
+                                onTap: _up,
+                              );
+                            }
+                            final item =
+                                shownEntries[index - (current.isEmpty ? 0 : 1)];
+                            return ListTile(
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 6,
+                              ),
+                              selected: selected.any(
+                                (r) => r['relative_path'] == item.relative,
+                              ),
+                              selectedColor: Theme.of(
+                                context,
+                              ).colorScheme.onSurface,
+                              selectedTileColor: Theme.of(
+                                context,
+                              ).colorScheme.onSurface.withValues(alpha: .045),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              leading: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (item.directory)
+                                    Checkbox(
+                                      value: selected.any(
+                                        (r) =>
+                                            r['relative_path'] == item.relative,
+                                      ),
+                                      onChanged: loading
+                                          ? null
+                                          : (_) => _toggle(item.relative),
+                                    ),
+                                  Icon(
+                                    item.directory
+                                        ? Icons.folder_rounded
+                                        : Catalog.isVideo(item.name)
+                                        ? Icons.movie_outlined
+                                        : Catalog.isSubtitle(item.name)
+                                        ? Icons.subtitles_outlined
+                                        : Icons.insert_drive_file_outlined,
+                                    color: item.directory
+                                        ? Theme.of(context).colorScheme.primary
+                                        : null,
+                                  ),
+                                ],
+                              ),
+                              title: Tooltip(
+                                message: item.name,
+                                child: Text(
+                                  item.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              subtitle: item.directory
+                                  ? null
+                                  : Text(
+                                      item.size == null
+                                          ? context.l10n.fileLabel
+                                          : '${(item.size! / 1048576).toStringAsFixed(1)} MB',
+                                    ),
+                              onTap: item.directory
+                                  ? () => _load(item.relative)
+                                  : null,
+                            );
+                          },
+                        ),
+                      ),
                   ],
-                ),
-              ),
-            ],
+                );
+                final selection = _selectedFolders(
+                  catalog,
+                  selected,
+                  wide: wide,
+                );
+                return wide
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(child: browser),
+                          const SizedBox(width: 16),
+                          SizedBox(
+                            width: (bounds.maxWidth * .32).clamp(300.0, 400.0),
+                            child: selection,
+                          ),
+                        ],
+                      )
+                    : Column(
+                        children: [
+                          Expanded(child: browser),
+                          selection,
+                        ],
+                      );
+              },
+            ),
           ),
         );
       },
+    );
+  }
+
+  Widget _selectedFolders(
+    Catalog catalog,
+    List<Map<String, Object?>> selected, {
+    required bool wide,
+  }) {
+    final paths = selected
+        .map((root) => root['relative_path'].toString())
+        .toList();
+    final list = ListView.builder(
+      key: const ValueKey('selected-folder-list'),
+      shrinkWrap: !wide,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      itemCount: paths.length,
+      itemBuilder: (context, index) {
+        final path = paths[index];
+        final name =
+            path
+                .split(RegExp(r'[/\\]'))
+                .where((part) => part.isNotEmpty)
+                .lastOrNull ??
+            '/';
+        return Tooltip(
+          message: path.isEmpty ? '/' : path,
+          child: ListTile(
+            dense: true,
+            contentPadding: const EdgeInsets.only(left: 10),
+            leading: const Icon(Icons.folder_outlined, size: 20),
+            title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+            trailing: IconButton(
+              key: ValueKey('remove-selected-$path'),
+              tooltip: context.l10n.remove,
+              icon: const Icon(Icons.close, size: 18),
+              onPressed: () => catalog.removeScanRoot(sourceId, path),
+            ),
+          ),
+        );
+      },
+    );
+    return DecoratedBox(
+      key: const ValueKey('selected-folder-panel'),
+      decoration: BoxDecoration(
+        color: wide ? Theme.of(context).colorScheme.surfaceContainerLow : null,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        mainAxisSize: wide ? MainAxisSize.max : MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 8, 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    context.l10n.selectedScanFolders(selected.length),
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                IconButton(
+                  tooltip: context.l10n.help,
+                  icon: const Icon(Icons.help_outline, size: 20),
+                  onPressed: () => showDialog<void>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: Text(context.l10n.chooseScanHelpTitle),
+                      content: Text(context.l10n.chooseScanHelp),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: Text(context.l10n.gotIt),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (wide)
+            Expanded(child: list)
+          else
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 112),
+              child: list,
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+            child: FilledButton.icon(
+              icon: scanning
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.travel_explore),
+              label: Text(
+                context.l10n.scanSelectedFolders(selected.length),
+                textAlign: TextAlign.center,
+              ),
+              onPressed: scanning || catalog.scanning || selected.isEmpty
+                  ? null
+                  : _scan,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

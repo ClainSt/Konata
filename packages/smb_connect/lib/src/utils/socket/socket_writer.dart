@@ -11,7 +11,7 @@ class SocketWriter {
 
   int lastWrite = 0;
 
-  void write(Uint8List buffer, int offset, int length) async {
+  void write(Uint8List buffer, int offset, int length) {
     var buf = Uint8List.view(buffer.buffer, offset, length);
     _socket.add(buf);
     lastWrite += buf.length;

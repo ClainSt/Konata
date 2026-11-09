@@ -11,6 +11,10 @@ class D3D11Video {
   D3D11Video(HWND window, int64_t player, const std::string& library);
   ~D3D11Video();
   void Resize();
+  std::string Failure();
+#ifndef NDEBUG
+  void SimulateFailure();
+#endif
   flutter::EncodableMap Capture();
  private:
   struct Impl;

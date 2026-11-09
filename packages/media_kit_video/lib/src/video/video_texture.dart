@@ -68,6 +68,10 @@ class Video extends StatefulWidget {
   /// The [VideoController] reference to control this [Video] output.
   final VideoController controller;
 
+  /// Konata: a viewport-sized native output, retaining existing controls,
+  /// wakelock and lifecycle. The native renderer owns aspect fit and subtitles.
+  final WidgetBuilder? surfaceBuilder;
+
   /// Width of this viewport.
   final double? width;
 
@@ -120,6 +124,7 @@ class Video extends StatefulWidget {
   const Video({
     super.key,
     required this.controller,
+    this.surfaceBuilder,
     this.width,
     this.height,
     this.fit = BoxFit.contain,
@@ -386,67 +391,70 @@ class VideoState extends State<Video> with WidgetsBindingObserver {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                ClipRect(
-                  child: FittedBox(
-                    fit: videoViewParameters.fit,
-                    alignment: videoViewParameters.alignment,
-                    child: ValueListenableBuilder<PlatformVideoController?>(
-                      valueListenable: widget.controller.notifier,
-                      builder: (context, notifier, _) => notifier == null
-                          ? const SizedBox.shrink()
-                          : ValueListenableBuilder<int?>(
-                              valueListenable: notifier.id,
-                              builder: (context, id, _) {
-                                return ValueListenableBuilder<Rect?>(
-                                  valueListenable: notifier.rect,
-                                  builder: (context, rect, _) {
-                                    if (id != null &&
-                                        rect != null &&
-                                        _visible) {
-                                      return SizedBox(
-                                        // Apply aspect ratio if provided.
-                                        width:
-                                            videoViewParameters.aspectRatio ==
-                                                    null
-                                                ? rect.width
-                                                : rect.height *
-                                                    videoViewParameters
-                                                        .aspectRatio!,
-                                        height: rect.height,
-                                        child: Stack(
-                                          children: [
-                                            const SizedBox(),
-                                            Positioned.fill(
-                                              child: Texture(
-                                                textureId: id,
-                                                filterQuality:
-                                                    videoViewParameters
-                                                        .filterQuality,
-                                              ),
-                                            ),
-                                            // Keep the |Texture| hidden before the first frame renders. In native implementation, if no default frame size is passed (through VideoController), a starting 1 pixel sized texture/surface is created to initialize the render context & check for H/W support.
-                                            // This is then resized based on the video dimensions & accordingly texture ID, texture, EGLDisplay, EGLSurface etc. (depending upon platform) are also changed. Just don't show that 1 pixel texture to the UI.
-                                            // NOTE: Unmounting |Texture| causes the |MarkTextureFrameAvailable| to not do anything on GNU/Linux.
-                                            if (rect.width <= 1.0 &&
-                                                rect.height <= 1.0)
+                if (widget.surfaceBuilder != null)
+                  widget.surfaceBuilder!(context)
+                else
+                  ClipRect(
+                    child: FittedBox(
+                      fit: videoViewParameters.fit,
+                      alignment: videoViewParameters.alignment,
+                      child: ValueListenableBuilder<PlatformVideoController?>(
+                        valueListenable: widget.controller.notifier,
+                        builder: (context, notifier, _) => notifier == null
+                            ? const SizedBox.shrink()
+                            : ValueListenableBuilder<int?>(
+                                valueListenable: notifier.id,
+                                builder: (context, id, _) {
+                                  return ValueListenableBuilder<Rect?>(
+                                    valueListenable: notifier.rect,
+                                    builder: (context, rect, _) {
+                                      if (id != null &&
+                                          rect != null &&
+                                          _visible) {
+                                        return SizedBox(
+                                          // Apply aspect ratio if provided.
+                                          width:
+                                              videoViewParameters.aspectRatio ==
+                                                      null
+                                                  ? rect.width
+                                                  : rect.height *
+                                                      videoViewParameters
+                                                          .aspectRatio!,
+                                          height: rect.height,
+                                          child: Stack(
+                                            children: [
+                                              const SizedBox(),
                                               Positioned.fill(
-                                                child: Container(
-                                                  color:
-                                                      videoViewParameters.fill,
+                                                child: Texture(
+                                                  textureId: id,
+                                                  filterQuality:
+                                                      videoViewParameters
+                                                          .filterQuality,
                                                 ),
                                               ),
-                                          ],
-                                        ),
-                                      );
-                                    }
-                                    return const SizedBox.shrink();
-                                  },
-                                );
-                              },
-                            ),
+                                              // Keep the |Texture| hidden before the first frame renders. In native implementation, if no default frame size is passed (through VideoController), a starting 1 pixel sized texture/surface is created to initialize the render context & check for H/W support.
+                                              // This is then resized based on the video dimensions & accordingly texture ID, texture, EGLDisplay, EGLSurface etc. (depending upon platform) are also changed. Just don't show that 1 pixel texture to the UI.
+                                              // NOTE: Unmounting |Texture| causes the |MarkTextureFrameAvailable| to not do anything on GNU/Linux.
+                                              if (rect.width <= 1.0 &&
+                                                  rect.height <= 1.0)
+                                                Positioned.fill(
+                                                  child: Container(
+                                                    color: videoViewParameters
+                                                        .fill,
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        );
+                                      }
+                                      return const SizedBox.shrink();
+                                    },
+                                  );
+                                },
+                              ),
+                      ),
                     ),
                   ),
-                ),
                 if (videoViewParameters.subtitleViewConfiguration.visible &&
                     !(widget.controller.player.platform?.configuration.libass ??
                         false))

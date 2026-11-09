@@ -92,11 +92,11 @@ void main() {
       final second = await reopened.snapshot(source.path);
       expect(
         await File(p.join(first.path, 'mpv.conf')).readAsString(),
-        'volume=50',
+        endsWith('volume=50'),
       );
       expect(
         await File(p.join(second.path, 'mpv.conf')).readAsString(),
-        'volume=75',
+        endsWith('volume=75'),
       );
       expect(
         await File(p.join(second.path, 'input.conf')).readAsString(),

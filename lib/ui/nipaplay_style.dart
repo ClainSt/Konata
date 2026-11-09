@@ -1,39 +1,70 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../core/app_theme.dart';
+import 'konata_motion.dart';
 
-/// Shared NipaPlay Personal visual baseline for every CCPlayer screen.
+/// The approved Konata archive palette, shared by pages and dialogs.
 class NipaPlayStyle {
   static Color get accent => AppTheme.instance.accent.color;
   static Color get onAccent => AppTheme.instance.accent.foreground;
 
   static ThemeData theme(Brightness brightness) {
     final dark = brightness == Brightness.dark;
-    final foreground = dark ? Colors.white : Colors.black87;
+    final foreground = dark ? const Color(0xffe4e9e5) : const Color(0xff202923);
+    final surface = dark ? const Color(0xff171d1b) : const Color(0xfff6f7f2);
+    final primary = dark && AppTheme.instance.accent == ThemeAccent.sage
+        ? const Color(0xff9bc5b5)
+        : accent;
     final base = ThemeData(
       useMaterial3: true,
       brightness: brightness,
       fontFamily: Platform.isWindows ? 'Microsoft YaHei' : null,
       colorScheme: ColorScheme(
         brightness: brightness,
-        primary: accent,
-        onPrimary: onAccent,
+        primary: primary,
+        onPrimary: primary == accent ? onAccent : const Color(0xff17392b),
         secondary: accent,
         onSecondary: onAccent,
-        surface: dark ? const Color(0xff1f1f1f) : Colors.white,
+        surface: surface,
+        surfaceContainerLow: dark
+            ? const Color(0xff202724)
+            : const Color(0xffedf0eb),
+        surfaceContainerHighest: dark
+            ? const Color(0xff303a34)
+            : const Color(0xffe2e8e1),
+        onSurfaceVariant: dark
+            ? const Color(0xffa6b1aa)
+            : const Color(0xff66736a),
+        outlineVariant: dark
+            ? const Color(0xff46524b)
+            : const Color(0xffced7cf),
         onSurface: foreground,
         error: Colors.red,
         onError: Colors.white,
       ),
-      scaffoldBackgroundColor: dark ? const Color(0xff1f1f1f) : Colors.white,
+      scaffoldBackgroundColor: surface,
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.windows: KonataPageTransitions(),
+          TargetPlatform.linux: KonataPageTransitions(),
+          TargetPlatform.macOS: KonataPageTransitions(),
+          TargetPlatform.android: KonataPageTransitions(),
+        },
+      ),
       appBarTheme: AppBarTheme(
-        backgroundColor: dark ? const Color(0xff1f1f1f) : Colors.white,
+        backgroundColor: surface,
         foregroundColor: foreground,
         scrolledUnderElevation: 0,
         elevation: 0,
+        titleTextStyle: TextStyle(
+          color: foreground,
+          fontSize: 22,
+          fontWeight: FontWeight.w600,
+          fontFamily: Platform.isWindows ? 'Microsoft YaHei' : null,
+        ),
       ),
       cardTheme: CardThemeData(
-        color: dark ? const Color(0xff292929) : const Color(0xfff9f9f9),
+        color: dark ? const Color(0xff202724) : const Color(0xfff1f3ee),
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(8),
@@ -57,7 +88,7 @@ class NipaPlayStyle {
         ),
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: dark ? const Color(0xff252525) : Colors.white,
+        backgroundColor: surface,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         titleTextStyle: TextStyle(
@@ -82,12 +113,12 @@ class NipaPlayStyle {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
       ),
       popupMenuTheme: PopupMenuThemeData(
-        color: dark ? const Color(0xff292929) : Colors.white,
+        color: surface,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: dark ? const Color(0xff252525) : Colors.white,
+        backgroundColor: surface,
         surfaceTintColor: Colors.transparent,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
@@ -105,7 +136,11 @@ class NipaPlayStyle {
           foregroundColor: onAccent,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           minimumSize: const Size(48, 48),
-          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          textStyle: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            fontFamily: Platform.isWindows ? 'Microsoft YaHei' : null,
+          ),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         ),
       ),
@@ -113,7 +148,11 @@ class NipaPlayStyle {
         style: TextButton.styleFrom(
           foregroundColor: foreground.withValues(alpha: .75),
           minimumSize: const Size(48, 48),
-          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          textStyle: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            fontFamily: Platform.isWindows ? 'Microsoft YaHei' : null,
+          ),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         ),
@@ -122,7 +161,11 @@ class NipaPlayStyle {
         style: OutlinedButton.styleFrom(
           foregroundColor: foreground,
           minimumSize: const Size(48, 48),
-          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          textStyle: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            fontFamily: Platform.isWindows ? 'Microsoft YaHei' : null,
+          ),
           side: BorderSide(color: foreground.withValues(alpha: .18)),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -134,7 +177,11 @@ class NipaPlayStyle {
           backgroundColor: accent,
           elevation: 0,
           minimumSize: const Size(48, 48),
-          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          textStyle: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            fontFamily: Platform.isWindows ? 'Microsoft YaHei' : null,
+          ),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         ),

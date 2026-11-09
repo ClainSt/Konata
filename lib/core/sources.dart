@@ -7,6 +7,8 @@ import 'package:xml/xml.dart';
 import 'package:smb_connect/smb_connect.dart';
 import 'catalog.dart';
 import 'webdav_stream.dart';
+import 'local_media.dart';
+import 'debug_log.dart';
 
 enum SourceAccessProblem implements Exception {
   authentication,
@@ -192,6 +194,19 @@ class SmbSource extends WebDav {
     validateLocation(source['location'].toString());
   }
   final Future<SmbConnect> Function()? connector;
+  final _activeReads = <Future<void> Function()>{};
+  bool _closed = false;
+
+  void close() {
+    _closed = true;
+    for (final disconnect in _activeReads.toList()) {
+      unawaited(
+        disconnect().catchError((Object error, StackTrace stack) {
+          DebugLog.exception('SMB', 'cancel_close_failed', error, stack);
+        }),
+      );
+    }
+  }
 
   static Uri validateLocation(String location) {
     if (location
@@ -268,13 +283,34 @@ class SmbSource extends WebDav {
 
   Future<void> serve(HttpRequest request, String relative) async {
     SmbConnect? client;
+    Socket? downstream;
+    StreamSubscription<List<int>>? downstreamInput;
+    Future<dynamic>? disconnecting;
+    Future<void> disconnect() async {
+      if (client != null) await (disconnecting ??= client.close());
+    }
+
+    Future<void> cancel() async {
+      downstream?.destroy();
+      await disconnect();
+    }
+
+    _activeReads.add(cancel);
+    var streaming = false;
+    Socket? abortedResponse;
     try {
+      if (_closed) {
+        request.response.statusCode = HttpStatus.gone;
+        return;
+      }
       if (request.method != 'GET' && request.method != 'HEAD') {
         request.response.statusCode = HttpStatus.methodNotAllowed;
         return;
       }
       final path = _path(fileUri(relative));
       client = await connect();
+      // Revocation may arrive while the connection handshake is pending.
+      if (_closed) throw const SocketException('SMB ticket revoked');
       final file = await client.file(path);
       if (!file.isExists || file.isDirectory()) {
         request.response.statusCode = HttpStatus.notFound;
@@ -306,17 +342,73 @@ class SmbSource extends WebDav {
         );
       }
       if (request.method != 'HEAD' && range.end > range.start) {
-        await request.response.addStream(
-          await client.openRead(file, range.start, range.end),
+        final payload = await client.openRead(file, range.start, range.end);
+        streaming = true;
+        downstream = await request.response.detachSocket();
+        if (_closed) throw const SocketException('SMB ticket revoked');
+        void disconnected() {
+          unawaited(
+            cancel().catchError((Object error, StackTrace stack) {
+              DebugLog.exception(
+                'SMB',
+                'disconnect_close_failed',
+                error,
+                stack,
+              );
+            }),
+          );
+        }
+
+        downstreamInput = downstream.listen(
+          (_) {},
+          onDone: disconnected,
+          onError: (Object _) => disconnected(),
         );
+        await downstream.addStream(payload);
+        await downstream.flush();
+        await downstream.close();
       }
-    } catch (_) {
-      request.response.statusCode = HttpStatus.badGateway;
+    } catch (error) {
+      DebugLog.event('SMB', 'read_failed', {
+        'type': error.runtimeType.toString(),
+        'message': error.toString(),
+        'streaming': streaming,
+      }, level: 'DEBUG');
+      if (!streaming) {
+        request.response.statusCode = HttpStatus.badGateway;
+        request.response.contentLength = 0;
+      } else {
+        // Once streaming begins, an interrupted body cannot be replaced with
+        // a new status/header block. Abort the downstream connection instead.
+        try {
+          abortedResponse =
+              downstream ??
+              await request.response.detachSocket(writeHeaders: false);
+          abortedResponse.destroy();
+        } catch (_) {
+          // The downstream may already have disconnected.
+        }
+      }
     } finally {
       try {
-        await request.response.close();
+        if (downstream != null) {
+          await downstreamInput?.cancel();
+          downstream.destroy();
+        } else if (abortedResponse == null) {
+          await request.response.close();
+        }
+      } catch (error, stack) {
+        DebugLog.exception('SMB', 'response_close_failed', error, stack);
       } finally {
-        await client?.close();
+        try {
+          await disconnect();
+        } catch (error, stack) {
+          // A cancelled read may already have lost its peer. Transport.close
+          // still releases the socket; cleanup must not escape the HTTP task.
+          DebugLog.exception('SMB', 'close_failed', error, stack);
+        } finally {
+          _activeReads.remove(cancel);
+        }
       }
     }
   }
@@ -356,20 +448,25 @@ class Scanner {
     cat.updateStatus('扫描中：${source['label']}', true);
     try {
       if (source['kind'] == 'local') {
-        final folder = Directory(source['location'].toString());
-        if (!await folder.exists()) throw StateError('目录不存在');
-        await for (final entity in folder.list(
-          recursive: true,
-          followLinks: false,
-        )) {
-          if (entity is! File || !Catalog.isVideo(entity.path)) continue;
-          final relative = p
-              .relative(entity.path, from: folder.path)
-              .replaceAll('\\', '/');
-          if (!relative.contains('/')) continue;
-          await cat.indexVideo(id, relative, (await entity.stat()).size);
-          count++;
-          if (count % 100 == 0) cat.updateStatus('扫描到 $count 个视频', true);
+        final pending = <String>[''];
+        while (pending.isNotEmpty) {
+          final directory = pending.removeLast();
+          final entries = await LocalMedia.list(
+            source['location'].toString(),
+            directory,
+          );
+          for (final entry in entries) {
+            final relative = directory.isEmpty
+                ? entry.name
+                : '$directory/${entry.name}';
+            if (entry.directory) {
+              pending.add(relative);
+            } else if (Catalog.isVideo(entry.name) && relative.contains('/')) {
+              await cat.indexVideo(id, relative, entry.size);
+              count++;
+              if (count % 100 == 0) cat.updateStatus('扫描到 $count 个视频', true);
+            }
+          }
         }
       } else {
         final dav = WebDav(source);
@@ -421,6 +518,7 @@ class StreamBroker {
   bool _listening = false;
   final Map<String, ({Map<String, Object?> source, String path})> _tickets = {};
   final _relays = <String, WebDavStream>{};
+  final _smbRelays = <String, SmbSource>{};
   Future<Uri> issue(
     Map<String, Object?> source,
     String path, {
@@ -440,7 +538,9 @@ class StreamBroker {
       source: await Catalog.instance.withCredentials(source),
       path: path,
     );
-    if (source['kind'] != 'smb') {
+    if (source['kind'] == 'smb') {
+      _smbRelays[ticket] = SmbSource(_tickets[ticket]!.source);
+    } else {
       final dav = WebDav(_tickets[ticket]!.source);
       _relays[ticket] = WebDavStream(
         target: dav.fileUri(path),
@@ -459,6 +559,7 @@ class StreamBroker {
     if (ticket == null) return;
     _tickets.remove(ticket);
     _relays.remove(ticket)?.close();
+    _smbRelays.remove(ticket)?.close();
   }
 
   Future<void> _handle(HttpRequest req) async {
@@ -472,7 +573,7 @@ class StreamBroker {
       return;
     }
     if (info.source['kind'] == 'smb') {
-      await SmbSource(info.source).serve(req, info.path);
+      await _smbRelays[ticket]!.serve(req, info.path);
       return;
     }
     await _relays[ticket]!.serve(req);
@@ -484,34 +585,24 @@ class StreamBroker {
   ) async {
     source = await Catalog.instance.withCredentials(source);
     if (source['kind'] == 'local') {
-      final file = File(
-        p.join(
-          source['location'].toString(),
-          relative.replaceAll('/', Platform.pathSeparator),
-        ),
+      final parent = p.posix.dirname(relative);
+      final folder = parent == '.' ? '' : parent;
+      final stem = p.posix.basenameWithoutExtension(relative).toLowerCase();
+      final entries = await LocalMedia.list(
+        source['location'].toString(),
+        folder,
       );
-      final folder = file.parent;
-      if (!await folder.exists()) return [];
-      final stem = p.basenameWithoutExtension(file.path).toLowerCase();
-      final entries = await folder
-          .list()
-          .where((f) => f is File)
-          .cast<File>()
-          .toList();
       return entries
           .where(
             (f) =>
-                Catalog.isSubtitle(f.path) &&
-                p
-                    .basenameWithoutExtension(f.path)
+                !f.directory &&
+                Catalog.isSubtitle(f.name) &&
+                p.posix
+                    .basenameWithoutExtension(f.name)
                     .toLowerCase()
                     .startsWith(stem),
           )
-          .map(
-            (f) => p
-                .relative(f.path, from: source['location'].toString())
-                .replaceAll('\\', '/'),
-          )
+          .map((f) => folder.isEmpty ? f.name : '$folder/${f.name}')
           .toList();
     }
     final dav = WebDav(source);

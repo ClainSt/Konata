@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:convert';
 import 'package:ccplayer/ui/managed_image.dart';
+import 'package:ccplayer/ui/nipaplay_style.dart';
 import 'package:ccplayer/core/catalog.dart';
 import 'package:ccplayer/core/playback_history.dart';
 import 'package:ccplayer/ui/playback_history_page.dart';
@@ -86,6 +87,18 @@ void main() {
     },
   );
 
+  test('batch removal keeps unselected resume data and all media', () async {
+    final db = await fixture();
+    addTearDown(db.close);
+    await db.insert('progress', {'asset_id': 'keep', 'position_ms': 9000});
+    await PlaybackHistory(db).removeMany(['a', 'b', 'a']);
+    expect((await db.query('progress')).single['asset_id'], 'keep');
+    expect((await db.query('progress')).single['position_ms'], 9000);
+    expect(await db.query('assets'), hasLength(2));
+    expect(await db.query('works'), hasLength(1));
+    expect(await db.query('sources'), hasLength(1));
+  });
+
   testWidgets(
     'history uses shared episode title and still while playing original file',
     (tester) async {
@@ -135,6 +148,7 @@ void main() {
       Map<String, Object?>? played;
       await tester.pumpWidget(
         MaterialApp(
+          theme: NipaPlayStyle.theme(Brightness.light),
           home: PlaybackHistoryPage(
             history: PlaybackHistory(db),
             onPlay: (row) async => played = row,
@@ -145,27 +159,29 @@ void main() {
         () => Future<void>.delayed(const Duration(milliseconds: 100)),
       );
       await tester.pumpAndSettle();
-      expect(find.text('SP 2 · 特别篇标题'), findsOneWidget);
+      expect(find.byTooltip('SP 2 · 特别篇标题'), findsOneWidget);
+      expect(find.text('SP 2'), findsOneWidget);
       expect(find.text('b.mkv'), findsNothing);
       expect(find.textContaining('测试媒体源'), findsNothing);
-      final recordTile = find.ancestor(
-        of: find.text('SP 2 · 特别篇标题'),
-        matching: find.byType(ListTile),
+      expect(find.byType(PopupMenuButton<String>), findsNothing);
+      final bar = tester.widget<LinearProgressIndicator>(
+        find.byKey(const ValueKey('history-progress-b')),
+      );
+      expect(bar.value, closeTo(12345 / 120000, .000001));
+      expect(bar.backgroundColor, isNot(bar.color));
+      expect(
+        tester.getSize(find.byKey(const ValueKey('history-card-b'))).width,
+        closeTo(390 - 48, 1),
       );
       expect(
-        tester.getSize(find.byType(ManagedImage)).height,
-        tester.getSize(recordTile).height,
+        tester.getSize(find.byType(ManagedImage)).aspectRatio,
+        closeTo(16 / 9, .01),
       );
       expect(
         tester.widget<ManagedImage>(find.byType(ManagedImage)).url,
         'https://example.invalid/episode-two.jpg',
       );
-      await tester.tap(
-        find.ancestor(
-          of: find.text('SP 2 · 特别篇标题'),
-          matching: find.byType(ListTile),
-        ),
-      );
+      await tester.tap(find.byKey(const ValueKey('history-play-b')));
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 100)),
       );
@@ -178,7 +194,7 @@ void main() {
 
   for (final wide in [true, false]) {
     testWidgets(
-      'history stays in settings content with no app route push, wide=$wide',
+      'records settings no longer duplicate history navigation, wide=$wide',
       (tester) async {
         final db = (await tester.runAsync(fixture))!;
         Catalog.instance.db = db;
@@ -202,33 +218,83 @@ void main() {
         );
         await tester.tap(find.byKey(const ValueKey('settings-category-3')));
         await tester.pumpAndSettle();
-        final before = observer.pushes;
-        await tester.tap(find.text('播放记录'));
-        await tester.pump();
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 100)),
-        );
-        await tester.pumpAndSettle();
-        expect(observer.pushes, before);
-        expect(find.byType(PlaybackHistoryPage), findsOneWidget);
-        expect(find.text('测试作品'), findsNWidgets(2));
-        if (wide) {
-          final menu = find.byKey(const ValueKey('settings-category-3'));
-          expect(menu, findsOneWidget);
-          expect(
-            tester.getRect(find.byType(PlaybackHistoryPage)).left,
-            greaterThanOrEqualTo(tester.getRect(menu).right),
-          );
-        }
-        await tester.tap(find.byKey(const ValueKey('history-back')));
-        await tester.pumpAndSettle();
+        expect(find.text('播放记录'), findsNothing);
         expect(find.byType(PlaybackHistoryPage), findsNothing);
-        expect(find.text('播放记录'), findsOneWidget);
-        expect(observer.pushes, before);
+        expect(
+          find.byKey(const ValueKey('library-backup-inspect')),
+          findsOneWidget,
+        );
         expect(tester.takeException(), isNull);
       },
     );
   }
+
+  testWidgets('history rows fill the available width after every resize', (
+    tester,
+  ) async {
+    final db = (await tester.runAsync(() async {
+      final db = await fixture();
+      for (var i = 0; i < 18; i++) {
+        await db.insert('assets', {
+          'id': 'extra-$i',
+          'work_id': 'w',
+          'source_id': 's',
+          'name': '$i.mkv',
+        });
+        await db.insert('progress', {
+          'asset_id': 'extra-$i',
+          'position_ms': 15000,
+          'duration_ms': 1421000,
+        });
+      }
+      return db;
+    }))!;
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(db.close);
+      await tester.binding.setSurfaceSize(null);
+    });
+    await tester.pumpWidget(
+      MaterialApp(home: PlaybackHistoryPage(history: PlaybackHistory(db))),
+    );
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    for (final width in [
+      320.0,
+      390.0,
+      600.0,
+      768.0,
+      1024.0,
+      1440.0,
+      3840.0,
+      420.0,
+    ]) {
+      await tester.binding.setSurfaceSize(Size(width, 900));
+      await tester.pumpAndSettle();
+      final cards = find.byWidgetPredicate(
+        (w) =>
+            w is InkWell &&
+            w.key is ValueKey<String> &&
+            (w.key! as ValueKey<String>).value.startsWith('history-card-'),
+      );
+      final rects = tester
+          .elementList(cards)
+          .map((e) => tester.getRect(find.byWidget(e.widget)))
+          .toList();
+      final top = rects.map((r) => r.top).reduce((a, b) => a < b ? a : b);
+      final right = rects
+          .where((r) => (r.top - top).abs() < 1)
+          .map((r) => r.right)
+          .reduce((a, b) => a > b ? a : b);
+      expect(
+        right,
+        closeTo(width - 24, 1),
+        reason: 'No unused right-hand strip at $width',
+      );
+      expect(tester.takeException(), isNull);
+    }
+  });
 
   test(
     'history orders by recent play, preserves manual state during saves, removes only records',
@@ -337,17 +403,34 @@ void main() {
       await tester.tap(find.text('测试作品').first);
       await settleDb();
       expect(played, 'b');
-      await tester.tap(find.byTooltip('管理播放记录').first);
+      await tester.tap(find.byKey(const ValueKey('history-manage')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('history-card-b')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(PopupMenuButton<String>));
       await tester.pumpAndSettle();
       await tester.tap(find.text('标记为已看'));
       await settleDb();
-      expect(find.textContaining('已看 ·'), findsOneWidget);
-      await tester.tap(find.byTooltip('清空播放记录'));
+      expect(find.byTooltip(RegExp('^已看 ·')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('history-select-all')));
+      await tester.pumpAndSettle();
+      expect(find.text('已选 2 项'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('history-delete-selected')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('取消'));
       await settleDb();
       expect(find.text('测试作品'), findsNWidgets(2));
-      await tester.tap(find.byTooltip('清空播放记录'));
+      // Cancel keeps both records; deselect one to verify selective deletion.
+      await tester.tap(find.byKey(const ValueKey('history-select-a')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('history-delete-selected')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('确认删除'));
+      await settleDb();
+      expect(find.text('测试作品'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('history-select-all')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('history-delete-selected')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('确认删除'));
       await settleDb();

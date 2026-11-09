@@ -1,10 +1,11 @@
 import '../l10n/strings.dart';
 import 'uniform_action_bar.dart';
-import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../core/catalog.dart';
 import '../core/sources.dart';
+import '../core/local_media.dart';
+import 'package:android_file_picker/android_file_picker.dart';
 import 'source_access_message.dart';
 
 /// NipaPlay-style source editor. No explicit anonymous or password mode switch.
@@ -97,9 +98,7 @@ class SourceEditor {
           itemCount = files.length;
           message = _SourceMessage.connected;
         } else {
-          await Directory(
-            location.text.trim(),
-          ).list(followLinks: false).take(1).drain<void>();
+          await LocalMedia.list(location.text.trim());
           message = _SourceMessage.localAccessible;
         }
       } catch (e) {
@@ -208,6 +207,11 @@ class SourceEditor {
                         onPressed: () async {
                           final selected = await FilePicker.getDirectoryPath(
                             dialogTitle: dialogContext.l10n.chooseMediaFolder,
+                            androidOptions: const FilePickerAndroidOptions(
+                              safOptions: AndroidSAFOptions(
+                                grant: AndroidSAFGrant.lifetime,
+                              ),
+                            ),
                           );
                           if (selected != null && dialogContext.mounted) {
                             update(() => location.text = selected);

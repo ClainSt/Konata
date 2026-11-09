@@ -10,8 +10,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
-enum VideoDecodeMode { automatic, hardwarePreferred, software, custom }
-
 /// App-owned native MPV profile. Never writes the system-wide mpv directory.
 class MpvConfigStore {
   MpvConfigStore({Directory? rootOverride}) : _override = rootOverride;
@@ -26,17 +24,8 @@ class MpvConfigStore {
   String? get externalFolder => _folder;
   static const _names = ['mpv.conf', 'input.conf'];
   static const _channel = MethodChannel('ccplayer/mpv_profile');
-  VideoDecodeMode _decodeMode = VideoDecodeMode.automatic;
-  VideoDecodeMode get decodeMode => _decodeMode;
   VideoControllerConfiguration get videoConfiguration =>
-      VideoControllerConfiguration(
-        hwdec: switch (_decodeMode) {
-          VideoDecodeMode.software => 'no',
-          VideoDecodeMode.hardwarePreferred =>
-            Platform.isAndroid ? 'auto-safe' : 'auto',
-          _ => null,
-        },
-      );
+      const VideoControllerConfiguration();
 
   bool get enabled => _enabled;
 
@@ -53,8 +42,7 @@ class MpvConfigStore {
         logLevel: MPVLogLevel.warn,
         libass: Platform.isWindows || Platform.isAndroid,
         mpvConfigurationDirectory: profile?.path,
-        mpvRespectRenderingConfiguration:
-            profile != null && _decodeMode == VideoDecodeMode.custom,
+        mpvRespectRenderingConfiguration: profile != null,
       );
 
   Future<void> initialize() async {
@@ -62,10 +50,10 @@ class MpvConfigStore {
     final prefs = await SharedPreferences.getInstance();
     _enabled = prefs.getBool('mpv_config_enabled') ?? false;
     _folder = prefs.getString('mpv_external_folder');
-    _decodeMode = VideoDecodeMode.values.firstWhere(
-      (mode) => mode.name == prefs.getString('video_decode_mode'),
-      orElse: () => VideoDecodeMode.automatic,
-    );
+    // Decoding is automatic now; obsolete choices must not silently pin it.
+    if (prefs.containsKey('video_decode_mode')) {
+      await prefs.remove('video_decode_mode');
+    }
     final dir = await directory;
     await dir.create(recursive: true);
     for (final name in _names) {
@@ -83,7 +71,7 @@ class MpvConfigStore {
   }
 
   Future<Map<String, Uint8List>> _readFolder(String folder) async {
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid && folder.startsWith('content://')) {
       final files = await _channel.invokeMapMethod<String, Uint8List>('read', {
         'folder': folder,
         'limit': maxConfigBytes,
@@ -167,9 +155,14 @@ class MpvConfigStore {
     final dir = await profiles.createTemp('play-');
     try {
       for (final name in _names) {
-        await File(
-          p.join(dir.path, name),
-        ).writeAsBytes(files[name] ?? const []);
+        final bytes = name == 'mpv.conf'
+            ? utf8.encode(
+                '# Konata default; explicit options below take precedence.\n'
+                'hwdec=${Platform.isAndroid ? 'auto-safe' : 'auto'}\n'
+                '${utf8.decode(files[name] ?? const [])}',
+              )
+            : files[name] ?? const <int>[];
+        await File(p.join(dir.path, name)).writeAsBytes(bytes);
       }
       return dir;
     } catch (_) {
@@ -187,17 +180,6 @@ class MpvConfigStore {
       throw const FileSystemException('Failed to save MPV setting');
     }
     _enabled = value;
-  }
-
-  Future<void> setDecodeMode(VideoDecodeMode mode) async {
-    await initialize();
-    if (!await (await SharedPreferences.getInstance()).setString(
-      'video_decode_mode',
-      mode.name,
-    )) {
-      throw const FileSystemException('Failed to save decoding mode');
-    }
-    _decodeMode = mode;
   }
 
   static void validateConfigName(String name) {

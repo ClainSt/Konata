@@ -1,9 +1,12 @@
 # Run in the key holder's own interactive PowerShell session.
 param(
-    [ValidateRange(2002, 2147483647)] [int] $BuildNumber = 2002,
+    [ValidateRange(0, 2147481647)] [int] $BuildNumber = 0,
     [string] $BuildName = '1.0.0'
 )
 $ErrorActionPreference = 'Stop'
+if ($env:KONATA_RELEASE_VALIDATION -eq '1') {
+    throw '请退出独立验收构建环境，再执行正式签名。'
+}
 $Host.UI.RawUI.WindowTitle = 'Konata Android 正式签名'
 $project = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $project
@@ -26,8 +29,13 @@ $statusDir = Join-Path $project 'build'
 $null = New-Item -ItemType Directory -Force -Path $statusDir
 $statusFile = Join-Path $statusDir 'android-signing-status.txt'
 $previous = Get-Content -LiteralPath (Join-Path $project 'release/latest-build.json') -Raw | ConvertFrom-Json
-if ($BuildNumber -le $previous.androidVersionCode) {
-    throw "新版构建号必须大于现有版本 $($previous.androidVersionCode)。"
+if ($BuildNumber -eq 0) {
+    $BuildNumber = [Math]::Max(2002, [int]$previous.androidVersionCode - 2000 + 1)
+}
+# Flutter's split ARM64 APK adds its ABI offset to the Flutter build number.
+$expectedVersionCode = $BuildNumber + 2000
+if ($expectedVersionCode -le $previous.androidVersionCode) {
+    throw "新版 APK 版本号 $expectedVersionCode 必须大于现有版本 $($previous.androidVersionCode)。"
 }
 function Set-BuildStage([string]$stage) {
     Set-Content -LiteralPath $statusFile -Encoding utf8 -Value "$(Get-Date -Format o) $stage"
@@ -56,6 +64,10 @@ try {
     $signature = & (Join-Path $buildTools.FullName 'apksigner.bat') verify --print-certs $apk
     if ($LASTEXITCODE -or !($signature -match "^Signer #1 certificate SHA-256 digest: $fingerprint$")) {
         throw 'APK 证书与自持密钥不匹配。'
+    }
+    $badging = & (Join-Path $buildTools.FullName 'aapt.exe') dump badging $apk
+    if ($LASTEXITCODE -or !($badging -match "^package: name='com.anime.konata' versionCode='$expectedVersionCode'")) {
+        throw 'APK 实际包名或版本号与预期不符。'
     }
     Write-Host "签名成功。证书 SHA-256 $fingerprint"
     Write-Host $apk

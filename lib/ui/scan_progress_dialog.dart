@@ -115,17 +115,20 @@ class ScanProgressDialog {
               await matcher(ctx, work);
             }
 
-            void openDetails(String workId) {
-              final navigator = Navigator.of(context);
-              Navigator.pop(dialogCtx);
+            Future<void> openDetails(String workId) async {
+              Tooltip.dismissAllToolTips();
               if (onOpenWork != null) {
+                Navigator.pop(dialogCtx);
                 onOpenWork(workId);
-              } else {
-                navigator.push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => WorkPage(workId: workId),
-                  ),
-                );
+                return;
+              }
+              await Navigator.of(dialogCtx).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => WorkPage(workId: workId),
+                ),
+              );
+              if (dialogCtx.mounted) {
+                setDialogState(() {});
               }
             }
 

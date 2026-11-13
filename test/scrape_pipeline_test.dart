@@ -434,8 +434,8 @@ void main() {
       final s2 = catalog.works.singleWhere((w) => w['bangumi_id'] == 129820);
       expect(s1['tmdb_id'], 61923);
       expect(s2['tmdb_id'], 61923);
-      expect(s1['title'], '新妹魔王的契约者 第1季');
-      expect(s2['title'], '新妹魔王的契约者 BURST 第2季');
+      expect(s1['title'], '新妹魔王的契约者');
+      expect(s2['title'], '新妹魔王的契约者 BURST');
       expect(s1['poster'], 'https://image.tmdb.org/t/p/w500/shinmai-s1.jpg');
       expect(s2['poster'], 'https://image.tmdb.org/t/p/w500/shinmai-s2.jpg');
       expect(

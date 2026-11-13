@@ -269,6 +269,7 @@ class LibraryPage extends StatefulWidget {
 
 class _LibraryPageState extends State<LibraryPage> {
   bool searchOpen = false;
+  bool pendingReviewOnly = false;
   Set<String> sourceKinds = {...librarySourceKinds};
   final searchController = TextEditingController();
   bool get showSources => libraryDestination.value;
@@ -292,31 +293,36 @@ class _LibraryPageState extends State<LibraryPage> {
     animation: Catalog.instance,
     builder: (ctx, _) {
       final cat = Catalog.instance;
+      final displayWorks = [
+        for (final work in cat.works)
+          if (cat.standaloneParts[work['id']] case final parts?)
+            for (final part in parts)
+              {
+                ...work,
+                ...part,
+                'scoped_poster': part['poster'],
+                'scoped_poster_empty': false,
+                'poster_fallback': null,
+              }
+          else
+            work,
+      ];
+      final pendingReviewCount = displayWorks
+          .where((w) => w['needs_review'] == 1)
+          .length;
       final matches = filterLibraryWorks(
-        works: [
-          for (final work in cat.works)
-            if (cat.standaloneParts[work['id']] case final parts?)
-              for (final part in parts)
-                {
-                  ...work,
-                  ...part,
-                  'scoped_poster': part['poster'],
-                  'scoped_poster_empty': false,
-                  'poster_fallback': null,
-                }
-            else
-              work,
-        ],
+        works: displayWorks,
         assets: cat.assets,
         sources: cat.sources,
         kinds: sourceKinds,
         query: filter,
+        pendingReviewOnly: pendingReviewOnly,
       );
       return Scaffold(
         body: Column(
           children: [
             if (cat.scanning) const LinearProgressIndicator(),
-            _libraryToolbar(cat, matches.length),
+            _libraryToolbar(cat, matches.length, pendingReviewCount),
             const Divider(height: 1),
             Expanded(
               child: AnimatedSwitcher(
@@ -384,125 +390,132 @@ class _LibraryPageState extends State<LibraryPage> {
       );
     },
   );
-  Widget _libraryToolbar(Catalog cat, int count) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-    child: LayoutBuilder(
-      builder: (context, bounds) {
-        final compact = bounds.maxWidth < 500;
-        final search = TextField(
-          key: const ValueKey('library-search'),
-          controller: searchController,
-          decoration: InputDecoration(
-            hintText: context.l10n.searchTitles,
-            prefixIcon: const Icon(Icons.search, size: 19),
-            suffixIcon: filter.isEmpty
+  Widget _libraryToolbar(Catalog cat, int count, int pendingReviewCount) =>
+      Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+        child: LayoutBuilder(
+          builder: (context, bounds) {
+            final compact = bounds.maxWidth < 500;
+            final search = TextField(
+              key: const ValueKey('library-search'),
+              controller: searchController,
+              decoration: InputDecoration(
+                hintText: context.l10n.searchTitles,
+                prefixIcon: const Icon(Icons.search, size: 19),
+                suffixIcon: filter.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: context.l10n.closeSearch,
+                        icon: const Icon(Icons.close, size: 18),
+                        onPressed: () => setState(() {
+                          searchController.clear();
+                          filter = '';
+                        }),
+                      ),
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(28),
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(28),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              onChanged: (value) => setState(() => filter = value),
+            );
+            final hiddenWorksButton = cat.hiddenWorkEntries.isEmpty
                 ? null
                 : IconButton(
-                    tooltip: context.l10n.closeSearch,
-                    icon: const Icon(Icons.close, size: 18),
-                    onPressed: () => setState(() {
-                      searchController.clear();
-                      filter = '';
-                    }),
+                    key: const ValueKey('manage-hidden-works-button'),
+                    tooltip: context.l10n.manageHidden,
+                    icon: const Icon(Icons.visibility_off_outlined),
+                    onPressed: _manageHiddenWorks,
+                  );
+            return Row(
+              key: const ValueKey('library-toolbar-row'),
+              children: [
+                if (!showSources && !(compact && searchOpen))
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: LibrarySourceFilter(
+                        kinds: sourceKinds,
+                        count: count,
+                        onChanged: (value) =>
+                            setState(() => sourceKinds = value),
+                        pendingReviewOnly: pendingReviewOnly,
+                        pendingReviewCount: pendingReviewCount,
+                        onPendingReviewChanged: (value) =>
+                            setState(() => pendingReviewOnly = value),
+                      ),
+                    ),
                   ),
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 10,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(28),
-              borderSide: BorderSide.none,
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(28),
-              borderSide: BorderSide.none,
-            ),
-          ),
-          onChanged: (value) => setState(() => filter = value),
-        );
-        final hiddenWorksButton = cat.hiddenWorkEntries.isEmpty
-            ? null
-            : IconButton(
-                key: const ValueKey('manage-hidden-works-button'),
-                tooltip: context.l10n.manageHidden,
-                icon: const Icon(Icons.visibility_off_outlined),
-                onPressed: _manageHiddenWorks,
-              );
-        return Row(
-          key: const ValueKey('library-toolbar-row'),
-          children: [
-            if (!showSources && !(compact && searchOpen))
-              Expanded(
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: LibrarySourceFilter(
-                    kinds: sourceKinds,
-                    count: count,
-                    onChanged: (value) => setState(() => sourceKinds = value),
+                if (showSources)
+                  Text(
+                    context.l10n.sourceCount(cat.sources.length),
+                    style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
-                ),
-              ),
-            if (showSources)
-              Text(
-                context.l10n.sourceCount(cat.sources.length),
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-            if (!showSources) ...[
-              const SizedBox(width: 8),
-              SizedBox(
-                width: (bounds.maxWidth * .4).clamp(80.0, 300.0),
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 300),
-                    child: search,
+                if (!showSources) ...[
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: (bounds.maxWidth * .4).clamp(80.0, 300.0),
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 300),
+                        child: search,
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              if (hiddenWorksButton != null) hiddenWorksButton,
-            ],
-            if (showSources)
-              Expanded(
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: Wrap(
-                    alignment: WrapAlignment.end,
-                    spacing: 8,
-                    runSpacing: 8,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      if (hiddenWorksButton != null) hiddenWorksButton,
-                      if (cat.taskStore != null)
-                        OutlinedButton.icon(
-                          onPressed: () => Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => ScrapeTasksPage(
-                                runner: ScrapeTaskRunner.forCatalog(cat),
+                  if (hiddenWorksButton != null) hiddenWorksButton,
+                ],
+                if (showSources)
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 8,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          if (hiddenWorksButton != null) hiddenWorksButton,
+                          if (cat.taskStore != null)
+                            OutlinedButton.icon(
+                              onPressed: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => ScrapeTasksPage(
+                                    runner: ScrapeTaskRunner.forCatalog(cat),
+                                  ),
+                                ),
+                              ),
+                              icon: const Icon(Icons.rule_folder_outlined),
+                              label: Text(
+                                Localizations.localeOf(context).languageCode ==
+                                        'zh'
+                                    ? '刮削任务'
+                                    : 'Scraping tasks',
                               ),
                             ),
+                          FilledButton.icon(
+                            onPressed: _add,
+                            icon: const Icon(Icons.add, size: 20),
+                            label: Text(context.l10n.addSource),
                           ),
-                          icon: const Icon(Icons.rule_folder_outlined),
-                          label: Text(
-                            Localizations.localeOf(context).languageCode == 'zh'
-                                ? '刮削任务'
-                                : 'Scraping tasks',
-                          ),
-                        ),
-                      FilledButton.icon(
-                        onPressed: _add,
-                        icon: const Icon(Icons.add, size: 20),
-                        label: Text(context.l10n.addSource),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
-                ),
-              ),
-          ],
-        );
-      },
-    ),
-  );
+              ],
+            );
+          },
+        ),
+      );
   double get _posterTitleHeight =>
       MediaQuery.textScalerOf(context).scale(16) * 1.5 + 2;
 
@@ -1099,71 +1112,95 @@ class _WorkPageState extends State<WorkPage> {
           searchAndBind: () => _match(work),
         ),
         onEditCover: () => WorkEditDialogs.cover(context, work),
+        onEditBackdrop: (fallback) =>
+            WorkEditDialogs.backdrop(context, work, fallbackBackdrop: fallback),
+        onHide: () => _hideWork(work),
         onDelete: () => _deleteWork(work),
         onBack: () => Navigator.maybePop(context),
       );
     },
   );
 
-  Future<void> _deleteWork(Map<String, Object?> work) async {
+  Future<void> _hideWork(Map<String, Object?> work) async {
     if (Catalog.instance.scanning) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(context.l10n.scanBeforeRemove)));
       return;
     }
+    final title = work['title']?.toString() ?? '';
     var keepHidden = false;
-    final decision = await showDialog<bool>(
+    final confirmedKeepHidden = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, update) => AlertDialog(
-          title: Text(context.l10n.removeWorkTitle),
-          content: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(work['title']?.toString() ?? ''),
-                const SizedBox(height: 12),
-                Text(context.l10n.removeWorkBody),
-                const SizedBox(height: 10),
-                CheckboxListTile(
-                  key: const ValueKey('keep-work-hidden-checkbox'),
-                  value: keepHidden,
-                  contentPadding: EdgeInsets.zero,
-                  controlAffinity: ListTileControlAffinity.leading,
-                  title: Text(context.l10n.keepHidden),
-                  subtitle: Text(context.l10n.rescanRestoresHint),
-                  onChanged: (value) =>
-                      update(() => keepHidden = value ?? false),
+        builder: (dialogContext, update) {
+          final theme = Theme.of(dialogContext);
+          return AlertDialog(
+            title: Text(dialogContext.hideWorkAction),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (title.isNotEmpty) ...[
+                      Text(
+                        title,
+                        style: theme.textTheme.titleSmall,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    Text(
+                      dialogContext.hideWorkDescription,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    CheckboxListTile(
+                      key: const ValueKey('keep-work-hidden-checkbox'),
+                      value: keepHidden,
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: Text(dialogContext.l10n.keepHidden),
+                      subtitle: Text(dialogContext.l10n.rescanRestoresHint),
+                      onChanged: (value) =>
+                          update(() => keepHidden = value ?? false),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
-          ),
-          actions: [
-            UniformActionBar(
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: Text(context.l10n.cancel),
-                ),
-                FilledButton(
-                  key: const ValueKey('confirm-remove-work'),
-                  onPressed: () => Navigator.pop(dialogContext, keepHidden),
-                  child: Text(context.l10n.removeFromLibrary),
-                ),
-              ],
-            ),
-          ],
-        ),
+            actions: [
+              UniformActionBar(
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: Text(dialogContext.l10n.cancel),
+                  ),
+                  FilledButton.tonal(
+                    key: const ValueKey('confirm-hide-work'),
+                    onPressed: () => Navigator.pop(dialogContext, keepHidden),
+                    child: Text(dialogContext.hideWorkAction),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
       ),
     );
-    if (decision == null || !mounted) return;
+    if (confirmedKeepHidden == null || !mounted) return;
     try {
-      await Catalog.instance.hideWork(widget.workId, keepHidden: decision);
-      if (mounted) Navigator.pop(context);
-    } catch (error) {
+      await Catalog.instance.hideWork(
+        widget.workId,
+        keepHidden: confirmedKeepHidden,
+      );
+      if (mounted) await Navigator.maybePop(context);
+    } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -1172,171 +1209,252 @@ class _WorkPageState extends State<WorkPage> {
     }
   }
 
-  Future<void> _match(Map<String, Object?> work) async {
-    final query = TextEditingController(
-      text: Catalog.cleanTitle(work['title'].toString()),
-    );
-    String provider = 'tmdb';
-    bool loading = false;
-    String? failure;
-    List<Candidate> results = [];
-    final route = DialogRoute<void>(
+  Future<void> _deleteWork(Map<String, Object?> work) async {
+    if (Catalog.instance.scanning) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(context.l10n.scanBeforeRemove)));
+      return;
+    }
+    final title = work['title']?.toString() ?? '';
+    final confirmedDelete = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, update) => AlertDialog(
-          title: Text(ctx.l10n.manualMatch),
-          content: SizedBox(
-            width: 540,
-            height: 490,
-            child: ListView(
-              padding: const EdgeInsets.only(right: 12, top: 8),
-              children: [
-                SegmentedButton<String>(
-                  key: const ValueKey('manual-match-provider'),
-                  showSelectedIcon: false,
-                  segments: const [
-                    ButtonSegment(value: 'tmdb', label: Text('TMDB')),
-                    ButtonSegment(value: 'bangumi', label: Text('Bangumi')),
+      builder: (confirmContext) {
+        final theme = Theme.of(confirmContext);
+        return AlertDialog(
+          title: Text(confirmContext.deleteWorkConfirmTitle),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (title.isNotEmpty) ...[
+                    Text(
+                      title,
+                      style: theme.textTheme.titleSmall,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 10),
                   ],
-                  selected: {provider},
-                  onSelectionChanged: loading
-                      ? null
-                      : (v) => update(() {
-                          provider = v.first;
-                          results = [];
-                        }),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        key: const ValueKey('manual-match-query'),
-                        controller: query,
-                        decoration: InputDecoration(
-                          labelText: provider == 'tmdb'
-                              ? ctx.l10n.nameOrId
-                              : ctx.l10n.nameOrBangumiId,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    IconButton.filled(
-                      key: const ValueKey('manual-match-search'),
-                      tooltip: ctx.l10n.search,
-                      icon: const Icon(Icons.search),
-                      onPressed: loading
-                          ? null
-                          : () async {
-                              update(() {
-                                loading = true;
-                                failure = null;
-                              });
-                              try {
-                                final items = await Metadata.search(
-                                  query.text,
-                                  provider,
-                                );
-                                if (!ctx.mounted) return;
-                                update(() {
-                                  results = items;
-                                  loading = false;
-                                });
-                              } catch (e) {
-                                DebugLog.write(
-                                  'Match',
-                                  'search failed ${e.runtimeType}',
-                                  level: 'WARN',
-                                );
-                                if (!ctx.mounted) return;
-                                update(() {
-                                  loading = false;
-                                  failure = 'search';
-                                });
-                              }
-                            },
-                    ),
-                  ],
-                ),
-                if (loading) const LinearProgressIndicator(),
-                if (failure != null)
-                  Text(
-                    failure == 'search'
-                        ? ctx.l10n.searchFailed
-                        : ctx.l10n.bindFailed,
-                    style: const TextStyle(color: Colors.orangeAccent),
-                  ),
-                ...[
-                  for (final result in results)
-                    ListTile(
-                      leading: result.poster == null
-                          ? const Icon(Icons.movie)
-                          : ManagedImage(
-                              result.poster!,
-                              width: 45,
-                              height: 65,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, _, _) =>
-                                  const Icon(Icons.movie),
-                            ),
-                      title: Text(result.title),
-                      subtitle: Text(
-                        '${result.year?.toString() ?? '?'} · ${result.provider} #${result.id}',
-                      ),
-                      trailing: const Icon(Icons.link),
-                      onTap: loading
-                          ? null
-                          : () async {
-                              update(() {
-                                loading = true;
-                                failure = null;
-                              });
-                              try {
-                                await Catalog.instance.bind(
-                                  widget.workId,
-                                  provider: result.provider,
-                                  providerId: result.id,
-                                  title: result.title,
-                                  year: result.year,
-                                  poster: result.poster,
-                                  overview: result.overview,
-                                  type: result.mediaType,
-                                );
-                                if (ctx.mounted) Navigator.pop(ctx);
-                              } catch (e) {
-                                DebugLog.write(
-                                  'Match',
-                                  'bind failed ${e.runtimeType}',
-                                  level: 'WARN',
-                                );
-                                if (ctx.mounted) {
-                                  update(() {
-                                    loading = false;
-                                    failure = 'bind';
-                                  });
-                                }
-                              }
-                            },
-                    ),
+                  Text(confirmContext.deleteWorkConfirmBody),
                 ],
-              ],
+              ),
             ),
           ),
           actions: [
             UniformActionBar(
               children: [
                 TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: Text(ctx.l10n.closeWindow),
+                  onPressed: () => Navigator.pop(confirmContext, false),
+                  child: Text(confirmContext.l10n.cancel),
+                ),
+                FilledButton(
+                  key: const ValueKey('confirm-delete-work'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: theme.colorScheme.error,
+                    foregroundColor: theme.colorScheme.onError,
+                  ),
+                  onPressed: () => Navigator.pop(confirmContext, true),
+                  child: Text(confirmContext.confirmDeleteAction),
                 ),
               ],
             ),
           ],
-        ),
-      ),
+        );
+      },
     );
-    await Navigator.of(context, rootNavigator: true).push<void>(route);
-    await route.completed;
-    query.dispose();
+    if (confirmedDelete != true || !mounted) return;
+    try {
+      await Catalog.instance.deleteWork(widget.workId);
+      if (mounted) await Navigator.maybePop(context);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(context.l10n.removeWorkFailed)));
+      }
+    }
   }
+
+  Future<void> _match(Map<String, Object?> work) =>
+      showManualMatchDialog(context, work);
+}
+
+/// Shared TMDB/Bangumi manual search and bind dialog used by both WorkPage
+/// and the in-place review workflow inside ScanProgressDialog.
+Future<bool> showManualMatchDialog(
+  BuildContext context,
+  Map<String, Object?> work,
+) async {
+  final workId = work['id']?.toString() ?? '';
+  final rawTitle = work['title']?.toString() ?? '';
+  final query = TextEditingController(text: Catalog.cleanTitle(rawTitle));
+  String provider = 'tmdb';
+  bool loading = false;
+  String? failure;
+  List<Candidate> results = [];
+  final route = DialogRoute<bool>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, update) => AlertDialog(
+        title: Text(ctx.l10n.manualMatch),
+        content: SizedBox(
+          width: 540,
+          height: 490,
+          child: ListView(
+            padding: const EdgeInsets.only(right: 12, top: 8),
+            children: [
+              SegmentedButton<String>(
+                key: const ValueKey('manual-match-provider'),
+                showSelectedIcon: false,
+                segments: const [
+                  ButtonSegment(value: 'tmdb', label: Text('TMDB')),
+                  ButtonSegment(value: 'bangumi', label: Text('Bangumi')),
+                ],
+                selected: {provider},
+                onSelectionChanged: loading
+                    ? null
+                    : (v) => update(() {
+                        provider = v.first;
+                        results = [];
+                      }),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      key: const ValueKey('manual-match-query'),
+                      controller: query,
+                      decoration: InputDecoration(
+                        labelText: provider == 'tmdb'
+                            ? ctx.l10n.nameOrId
+                            : ctx.l10n.nameOrBangumiId,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  IconButton.filled(
+                    key: const ValueKey('manual-match-search'),
+                    tooltip: ctx.l10n.search,
+                    icon: const Icon(Icons.search),
+                    onPressed: loading
+                        ? null
+                        : () async {
+                            update(() {
+                              loading = true;
+                              failure = null;
+                            });
+                            try {
+                              final items = await Metadata.search(
+                                query.text,
+                                provider,
+                              );
+                              if (!ctx.mounted) return;
+                              update(() {
+                                results = items;
+                                loading = false;
+                              });
+                            } catch (e) {
+                              DebugLog.write(
+                                'Match',
+                                'search failed ${e.runtimeType}',
+                                level: 'WARN',
+                              );
+                              if (!ctx.mounted) return;
+                              update(() {
+                                loading = false;
+                                failure = 'search';
+                              });
+                            }
+                          },
+                  ),
+                ],
+              ),
+              if (loading) const LinearProgressIndicator(),
+              if (failure != null)
+                Text(
+                  failure == 'search'
+                      ? ctx.l10n.searchFailed
+                      : ctx.l10n.bindFailed,
+                  style: const TextStyle(color: Colors.orangeAccent),
+                ),
+              ...[
+                for (final result in results)
+                  ListTile(
+                    leading: result.poster == null
+                        ? const Icon(Icons.movie)
+                        : ManagedImage(
+                            result.poster!,
+                            width: 45,
+                            height: 65,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) =>
+                                const Icon(Icons.movie),
+                          ),
+                    title: Text(result.title),
+                    subtitle: Text(
+                      '${result.year?.toString() ?? '?'} · ${result.provider} #${result.id}',
+                    ),
+                    trailing: const Icon(Icons.link),
+                    onTap: loading
+                        ? null
+                        : () async {
+                            update(() {
+                              loading = true;
+                              failure = null;
+                            });
+                            try {
+                              await Catalog.instance.bind(
+                                workId,
+                                provider: result.provider,
+                                providerId: result.id,
+                                title: result.title,
+                                year: result.year,
+                                poster: result.poster,
+                                overview: result.overview,
+                                type: result.mediaType,
+                              );
+                              if (ctx.mounted) Navigator.pop(ctx, true);
+                            } catch (e) {
+                              DebugLog.write(
+                                'Match',
+                                'bind failed ${e.runtimeType}',
+                                level: 'WARN',
+                              );
+                              if (ctx.mounted) {
+                                update(() {
+                                  loading = false;
+                                  failure = 'bind';
+                                });
+                              }
+                            }
+                          },
+                  ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          UniformActionBar(
+            children: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text(ctx.l10n.closeWindow),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+  final bound = await Navigator.of(context, rootNavigator: true).push<bool>(
+    route,
+  );
+  await route.completed;
+  query.dispose();
+  return bound == true;
 }

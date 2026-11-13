@@ -234,20 +234,23 @@ class ScanRecognition {
     if (!newJobsOnly && catalog.automaticRecognition) {
       await tasks.db.transaction((tx) async {
         if (lease != null) await tasks.checkIn(tx, lease);
-        final rows = await tx.rawQuery('''SELECT b.*, a.name, a.relative_path, a.category
+        final rows = await tx.rawQuery('''SELECT b.*, a.name, a.relative_path, a.category,
+          c.state AS content_state
           FROM scan_bindings b JOIN assets a ON a.id=b.asset_id
+          JOIN library_content c ON c.asset_id=a.id
           JOIN library_work_protection p ON p.work_id=b.work_id
           JOIN works w ON w.id=b.work_id
           WHERE b.provider='tmdb' AND b.layer='episode'
             AND b.state='confirmed' AND b.reason='verified_specials'
+            AND c.state='current'
             AND p.identity_locked=0 AND p.legacy_lock=0 AND w.hidden=0
             AND EXISTS (SELECT 1 FROM library_locations l
               WHERE l.entity_id=b.work_id AND l.kind='work' AND l.source_id=?)''', [source]);
         for (final row in rows) {
           final value = adopted(row);
-          if (value?['by'] != 'verified_specials' || value?['season'] != 0 ||
-              CloudMediaAssetPresentation.specialType(row) == null ||
-              CloudMediaAssetPresentation.isSpecialMappingCandidate(row)) {
+          if (value?['by'] != 'verified_specials' ||
+              value?['season'] != 0 ||
+              _specialCandidate(row)) {
             continue;
           }
           await tx.rawUpdate('''UPDATE scan_bindings SET revision=revision+1,

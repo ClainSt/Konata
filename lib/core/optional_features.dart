@@ -17,10 +17,13 @@ class OptionalFeatures extends ChangeNotifier {
   OptionalFeatures({this.legacyRoot});
   static final instance = OptionalFeatures();
   static const preferenceKey = 'optional_features_v1';
+  static const allCharacterRoles = ['main', 'supporting', 'guest', 'other'];
+  static const defaultCharacterRoles = {'main', 'supporting'};
   final Directory? legacyRoot;
   Future<void>? _loading;
   SharedPreferences? _preferences;
   final _enabled = <OptionalFeature>{};
+  final _characterRoles = <String>{...defaultCharacterRoles};
   final _scopes = <OptionalFeatureScope, OptionalFeature>{};
   bool _disposed = false;
   bool _voicePhotos = false;
@@ -31,6 +34,7 @@ class OptionalFeatures extends ChangeNotifier {
   bool get saving => _saving;
   bool get peopleVisible => _peopleVisible;
   int get bangumiPresentation => _bangumiPresentation;
+  Set<String> get characterRoles => Set.unmodifiable(_characterRoles);
   bool enabled(OptionalFeature feature) => _enabled.contains(feature);
   bool available(OptionalFeature feature) =>
       enabled(feature) &&
@@ -67,6 +71,9 @@ class OptionalFeatures extends ChangeNotifier {
 
   Future<void> initialize() => _loading ??= _load().catchError((Object error) {
     _enabled.clear();
+    _characterRoles
+      ..clear()
+      ..addAll(defaultCharacterRoles);
     _voicePhotos = false;
     throw error;
   });
@@ -86,6 +93,18 @@ class OptionalFeatures extends ChangeNotifier {
         _bangumiPresentation = mode is int && mode >= 0 && mode <= 2
             ? mode
             : (_voicePhotos ? 2 : 1);
+        final rawRoles = data['characterRoles'];
+        if (rawRoles is List) {
+          _characterRoles
+            ..clear()
+            ..addAll(
+              rawRoles.whereType<String>().where(allCharacterRoles.contains),
+            );
+        } else {
+          _characterRoles
+            ..clear()
+            ..addAll(defaultCharacterRoles);
+        }
       } catch (_) {
         // Fail closed; preserve unreadable preferences for recovery.
       }
@@ -152,18 +171,28 @@ class OptionalFeatures extends ChangeNotifier {
     bool photos, {
     bool? peopleVisible,
     int? presentation,
-  }) => jsonEncode({
-    for (final feature in OptionalFeature.values)
-      feature.name: enabled.contains(feature),
-    'voicePhotos': photos,
-    'peopleVisible': peopleVisible ?? _peopleVisible,
-    'bangumiPresentation': presentation ?? _bangumiPresentation,
-  });
+    Set<String>? roles,
+  }) {
+    final activeRoles = roles ?? _characterRoles;
+    return jsonEncode({
+      for (final feature in OptionalFeature.values)
+        feature.name: enabled.contains(feature),
+      'voicePhotos': photos,
+      'peopleVisible': peopleVisible ?? _peopleVisible,
+      'bangumiPresentation': presentation ?? _bangumiPresentation,
+      'characterRoles': [
+        for (final role in allCharacterRoles)
+          if (activeRoles.contains(role)) role,
+      ],
+    });
+  }
 
   Future<void> setEnabled(OptionalFeature feature, bool enabled) =>
       _save(feature: feature, enabled: enabled);
   Future<void> setVoicePhotos(bool value) => _save(photos: value);
   Future<void> setPeopleVisible(bool value) => _save(peopleVisible: value);
+  Future<void> setCharacterRoles(Set<String> roles) =>
+      _save(roles: roles.where(allCharacterRoles.contains).toSet());
   Future<void> setBangumiPresentation(int value) {
     if (value < 0 || value > 2) throw ArgumentError.value(value);
     return _save(presentation: value, photos: value == 0 ? null : value == 2);
@@ -187,8 +216,9 @@ class OptionalFeatures extends ChangeNotifier {
     bool? photos,
     bool? peopleVisible,
     int? presentation,
+    Set<String>? roles,
   }) async {
-    await initialize();
+    if (_preferences == null) await initialize();
     if (_saving) return;
     _saving = true;
     notifyListeners();
@@ -202,6 +232,7 @@ class OptionalFeatures extends ChangeNotifier {
       final nextPresentation =
           presentation ??
           (photos == null ? _bangumiPresentation : (photos ? 2 : 1));
+      final nextRoles = roles == null ? {..._characterRoles} : {...roles};
       if (!await _preferences!.setString(
         preferenceKey,
         _encode(
@@ -209,6 +240,7 @@ class OptionalFeatures extends ChangeNotifier {
           nextPhotos,
           peopleVisible: nextVisible,
           presentation: nextPresentation,
+          roles: nextRoles,
         ),
       )) {
         throw StateError('Could not save optional feature settings');
@@ -219,6 +251,9 @@ class OptionalFeatures extends ChangeNotifier {
       _voicePhotos = nextPhotos;
       _peopleVisible = nextVisible;
       _bangumiPresentation = nextPresentation;
+      _characterRoles
+        ..clear()
+        ..addAll(nextRoles);
       for (final entry in _scopes.entries.toList()) {
         if (!available(entry.value)) entry.key.dispose();
       }

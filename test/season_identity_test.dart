@@ -129,7 +129,7 @@ void main() {
           expect(result!.title, '$base 第${i + 1}季');
           expect(
             result.poster,
-            'https://images.tmdb.org/t/p/w500/s${i + 1}.jpg',
+            'https://image.tmdb.org/t/p/w500/s${i + 1}.jpg',
           );
           expect(result.year, years[i]);
           await catalog.applyScrapedWork(

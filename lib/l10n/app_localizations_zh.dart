@@ -1549,6 +1549,54 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get dolbyVisionProfile5Unsupported =>
       '当前播放器不支持 Dolby Vision Profile 5。此视频没有可兼容播放的 HDR10 底层，请使用 HDR10/SDR 版本或支持此格式的播放器。';
+
+  @override
+  String get characterRoleFilter => '展示角色类型';
+
+  @override
+  String get allCharacterRoles => '全部角色';
+
+  @override
+  String get mainCharacter => '主角';
+
+  @override
+  String get supportingCharacter => '配角';
+
+  @override
+  String get guestCharacter => '客串';
+
+  @override
+  String get otherCharacter => '其他';
+
+  @override
+  String get editBackdrop => '编辑背景图';
+
+  @override
+  String get cropBackdrop => '裁剪背景图 · 16:9';
+
+  @override
+  String get recropBackdrop => '重新裁剪当前背景图';
+
+  @override
+  String get automaticBackdrop => '恢复自动';
+
+  @override
+  String get backdropFailed => '背景图更新失败，请重试。';
+
+  @override
+  String get pendingReviewItems => '待复核／失败项';
+
+  @override
+  String get pendingReviewOnly => '待复核';
+
+  @override
+  String get reviewCandidatePoster => '已生成候选封面 · 待确认';
+
+  @override
+  String get reviewUnmatched => '未找到高置信匹配';
+
+  @override
+  String get noPendingReviewItems => '所有作品均已高置信匹配完成。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -3096,6 +3144,54 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   @override
   String get dolbyVisionProfile5Unsupported =>
       '当前播放器不支持 Dolby Vision Profile 5。此视频没有可兼容播放的 HDR10 底层，请使用 HDR10/SDR 版本或支持此格式的播放器。';
+
+  @override
+  String get characterRoleFilter => '展示角色类型';
+
+  @override
+  String get allCharacterRoles => '全部角色';
+
+  @override
+  String get mainCharacter => '主角';
+
+  @override
+  String get supportingCharacter => '配角';
+
+  @override
+  String get guestCharacter => '客串';
+
+  @override
+  String get otherCharacter => '其他';
+
+  @override
+  String get editBackdrop => '编辑背景图';
+
+  @override
+  String get cropBackdrop => '裁剪背景图 · 16:9';
+
+  @override
+  String get recropBackdrop => '重新裁剪当前背景图';
+
+  @override
+  String get automaticBackdrop => '恢复自动';
+
+  @override
+  String get backdropFailed => '背景图更新失败，请重试。';
+
+  @override
+  String get pendingReviewItems => '待复核／失败项';
+
+  @override
+  String get pendingReviewOnly => '待复核';
+
+  @override
+  String get reviewCandidatePoster => '已生成候选封面 · 待确认';
+
+  @override
+  String get reviewUnmatched => '未找到高置信匹配';
+
+  @override
+  String get noPendingReviewItems => '所有作品均已高置信匹配完成。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4643,4 +4739,52 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   @override
   String get dolbyVisionProfile5Unsupported =>
       '目前播放器不支援 Dolby Vision Profile 5。此影片沒有可相容播放的 HDR10 基礎層，請使用 HDR10/SDR 版本或支援此格式的播放器。';
+
+  @override
+  String get characterRoleFilter => '展示角色類型';
+
+  @override
+  String get allCharacterRoles => '全部角色';
+
+  @override
+  String get mainCharacter => '主角';
+
+  @override
+  String get supportingCharacter => '配角';
+
+  @override
+  String get guestCharacter => '客串';
+
+  @override
+  String get otherCharacter => '其他';
+
+  @override
+  String get editBackdrop => '編輯背景圖';
+
+  @override
+  String get cropBackdrop => '裁剪背景圖 · 16:9';
+
+  @override
+  String get recropBackdrop => '重新裁剪目前背景圖';
+
+  @override
+  String get automaticBackdrop => '恢復自動';
+
+  @override
+  String get backdropFailed => '背景圖更新失敗，請重試。';
+
+  @override
+  String get pendingReviewItems => '待複核／失敗項';
+
+  @override
+  String get pendingReviewOnly => '待複核';
+
+  @override
+  String get reviewCandidatePoster => '已產生候選封面 · 待確認';
+
+  @override
+  String get reviewUnmatched => '未找到高信心配對';
+
+  @override
+  String get noPendingReviewItems => '所有作品均已高信心配對完成。';
 }

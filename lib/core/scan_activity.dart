@@ -46,12 +46,29 @@ class ScanActivityStore extends ChangeNotifier {
   ScanActivityStore._();
   static final instance = ScanActivityStore._();
   final Map<String, ScanActivity> _runs = {};
+  final Stopwatch _clock = Stopwatch()..start();
+  int _lastNotifyMicros = -1000000;
+  static const int _minIntervalMicros = 80000;
+
   ScanActivity? forSource(String sourceId) => _runs[sourceId];
+
+  void _notifyNow() {
+    _lastNotifyMicros = _clock.elapsedMicroseconds;
+    notifyListeners();
+  }
+
+  void _notifyThrottled({bool force = false}) {
+    final now = _clock.elapsedMicroseconds;
+    if (force || now - _lastNotifyMicros >= _minIntervalMicros) {
+      _lastNotifyMicros = now;
+      notifyListeners();
+    }
+  }
 
   ScanActivity begin(String sourceId, List<String> roots) {
     final run = ScanActivity(sourceId, List.unmodifiable(roots));
     _runs[sourceId] = run;
-    notifyListeners();
+    _notifyNow();
     return run;
   }
 
@@ -59,7 +76,7 @@ class ScanActivityStore extends ChangeNotifier {
     final run = _runs[sourceId];
     if (run == null || run.finishedAt != null || run.cancelRequested) return;
     run.cancel();
-    notifyListeners();
+    _notifyNow();
   }
 
   void cancelled(String sourceId) {
@@ -68,7 +85,7 @@ class ScanActivityStore extends ChangeNotifier {
     run.phase = ScanPhase.cancelled;
     run.currentFolder = null;
     run.finishedAt = DateTime.now();
-    notifyListeners();
+    _notifyNow();
   }
 
   void beginFolder(String sourceId, String path) {
@@ -76,7 +93,7 @@ class ScanActivityStore extends ChangeNotifier {
     if (run == null) return;
     run.currentFolder = path;
     run.folderVideos.putIfAbsent(path, () => 0);
-    notifyListeners();
+    _notifyThrottled(force: run.completedFolders.length < 2);
   }
 
   void restoreFolders(String sourceId, Map<String, int> folders) {
@@ -85,7 +102,7 @@ class ScanActivityStore extends ChangeNotifier {
     run.completedFolders.addAll(folders.keys);
     run.folderVideos.addAll(folders);
     run.videoCount = folders.values.fold(0, (total, count) => total + count);
-    notifyListeners();
+    _notifyNow();
   }
 
   void video(String sourceId, String folder) {
@@ -93,8 +110,7 @@ class ScanActivityStore extends ChangeNotifier {
     if (run == null) return;
     run.folderVideos.update(folder, (n) => n + 1, ifAbsent: () => 1);
     run.videoCount++;
-    // Avoid rebuilding the entire browser for every video in a large folder.
-    if (run.videoCount % 10 == 0) notifyListeners();
+    if (run.videoCount % 10 == 0) _notifyThrottled();
   }
 
   void endFolder(String sourceId, String path) {
@@ -102,8 +118,8 @@ class ScanActivityStore extends ChangeNotifier {
     if (run == null) return;
     run.folderVideos.putIfAbsent(path, () => 0);
     run.completedFolders.add(path);
-    run.currentFolder = null;
-    notifyListeners();
+    if (run.currentFolder == path) run.currentFolder = null;
+    _notifyThrottled(force: run.completedFolders.length <= 2);
   }
 
   void beginScraping(String sourceId, int total) {
@@ -112,7 +128,7 @@ class ScanActivityStore extends ChangeNotifier {
     run.phase = ScanPhase.scraping;
     run.currentFolder = null;
     run.metadataTotal = total;
-    notifyListeners();
+    _notifyNow();
   }
 
   void metadataDone(
@@ -127,7 +143,11 @@ class ScanActivityStore extends ChangeNotifier {
     if (matched) run.matched++;
     if (review) run.needsReview++;
     if (error) run.metadataErrors++;
-    notifyListeners();
+    _notifyThrottled(
+      force:
+          run.metadataProcessed <= 2 ||
+          run.metadataProcessed >= run.metadataTotal,
+    );
   }
 
   void complete(String sourceId) {
@@ -135,7 +155,7 @@ class ScanActivityStore extends ChangeNotifier {
     if (run == null) return;
     run.phase = ScanPhase.complete;
     run.finishedAt = DateTime.now();
-    notifyListeners();
+    _notifyNow();
   }
 
   void fail(String sourceId, String message) {
@@ -144,6 +164,6 @@ class ScanActivityStore extends ChangeNotifier {
     run.phase = ScanPhase.failed;
     run.error = message;
     run.finishedAt = DateTime.now();
-    notifyListeners();
+    _notifyNow();
   }
 }

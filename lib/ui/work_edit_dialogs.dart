@@ -273,6 +273,37 @@ abstract final class WorkEditDialogs {
     );
   }
 
+  static Widget _artworkChoiceCard({
+    required BuildContext context,
+    required String imageUrl,
+    required String label,
+    required double aspectRatio,
+    required VoidCallback onTap,
+  }) => InkWell(
+    borderRadius: BorderRadius.circular(10),
+    onTap: onTap,
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: AspectRatio(
+            aspectRatio: aspectRatio,
+            child: ManagedImage(imageUrl, fit: BoxFit.cover),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+      ],
+    ),
+  );
+
   static Future<void> cover(
     BuildContext context,
     Map<String, Object?> work,
@@ -281,94 +312,125 @@ abstract final class WorkEditDialogs {
     try {
       final optionsFuture = service.fetch(work);
       if (!context.mounted) return;
-      final choices = <String, String>{};
+      final baseChoices = <String, String>{};
       try {
         final edit = jsonDecode(work['cover_edit_json']?.toString() ?? '{}');
         if (edit is Map && edit['original'] is String) {
-          choices['重新裁剪当前封面'] = edit['original'];
+          baseChoices['重新裁剪当前封面'] = edit['original'] as String;
         }
       } catch (_) {}
+      var resolvedChoices = <String, String>{...baseChoices};
       final chosen = await showDialog<String>(
         context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(ctx.l10n.editCover),
-          content: SizedBox(
-            width: 540,
-            child: FutureBuilder<CoverOptions>(
-              future: optionsFuture,
-              builder: (context, snapshot) {
-                final options = snapshot.data;
-                if (options != null) {
-                  if (options.tmdb != null) choices['TMDB'] = options.tmdb!;
-                  for (final e in options.bangumiCovers.entries) {
-                    choices['Bangumi ${e.key}'] = e.value;
-                  }
-                  if (options.bangumiCovers.isEmpty &&
-                      options.bangumi != null) {
-                    choices['Bangumi'] = options.bangumi!;
-                  }
-                }
-                return SingleChildScrollView(
-                  child: Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      if (snapshot.connectionState != ConnectionState.done)
-                        const Padding(
-                          padding: EdgeInsets.all(20),
-                          child: CircularProgressIndicator(),
-                        ),
-                      for (final choice in choices.entries)
-                        InkWell(
-                          onTap: () => Navigator.pop(ctx, choice.key),
-                          child: SizedBox(
-                            width: 140,
-                            child: Column(
+        builder: (ctx) => FutureBuilder<CoverOptions>(
+          future: optionsFuture,
+          builder: (context, snapshot) {
+            final choices = <String, String>{...baseChoices};
+            final options = snapshot.data;
+            if (options != null) {
+              if (options.tmdb != null) choices['TMDB'] = options.tmdb!;
+              for (final e in options.bangumiCovers.entries) {
+                choices[options.bangumiCovers.length == 1
+                        ? 'Bangumi'
+                        : 'Bangumi ${e.key}'] =
+                    e.value;
+              }
+              if (options.bangumiCovers.isEmpty && options.bangumi != null) {
+                choices['Bangumi'] = options.bangumi!;
+              }
+            }
+            resolvedChoices = choices;
+            final loading = snapshot.connectionState != ConnectionState.done;
+            final count = choices.length;
+            final targetWidth = count <= 1
+                ? 240.0
+                : count == 2
+                ? 360.0
+                : 510.0;
+            return AlertDialog(
+              title: Text(ctx.l10n.editCover),
+              content: SizedBox(
+                width: loading && count == 0 ? 320.0 : targetWidth,
+                child: loading && count == 0
+                    ? const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 36),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    : SingleChildScrollView(
+                        child: LayoutBuilder(
+                          builder: (context, bounds) {
+                            final entries = choices.entries.toList();
+                            if (entries.isEmpty) {
+                              return const SizedBox.shrink();
+                            }
+                            final cols = entries.length == 1
+                                ? 1
+                                : entries.length == 2
+                                ? 2
+                                : (bounds.maxWidth < 380 ? 2 : 3);
+                            const gap = 14.0;
+                            final cardW = entries.length == 1
+                                ? bounds.maxWidth.clamp(120.0, 190.0)
+                                : (bounds.maxWidth - (cols - 1) * gap) / cols;
+                            return Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                AspectRatio(
-                                  aspectRatio: 2 / 3,
-                                  child: ManagedImage(
-                                    choice.value,
-                                    fit: BoxFit.cover,
+                                if (loading)
+                                  const Padding(
+                                    padding: EdgeInsets.only(bottom: 10),
+                                    child: LinearProgressIndicator(),
                                   ),
-                                ),
-                                Text(
-                                  choice.key == '重新裁剪当前封面'
-                                      ? context.l10n.recropCover
-                                      : choice.key.startsWith('Bangumi')
-                                      ? 'Bangumi'
-                                      : 'TMDB',
-                                  style: Theme.of(context).textTheme.bodyMedium,
+                                Wrap(
+                                  alignment: entries.length == 1
+                                      ? WrapAlignment.center
+                                      : WrapAlignment.start,
+                                  spacing: gap,
+                                  runSpacing: gap,
+                                  children: [
+                                    for (final choice in entries)
+                                      SizedBox(
+                                        width: cardW,
+                                        child: _artworkChoiceCard(
+                                          context: context,
+                                          imageUrl: choice.value,
+                                          aspectRatio: 2 / 3,
+                                          label: choice.key == '重新裁剪当前封面'
+                                              ? context.l10n.recropCover
+                                              : choice.key.startsWith('Bangumi')
+                                              ? choice.key
+                                              : 'TMDB',
+                                          onTap: () =>
+                                              Navigator.pop(ctx, choice.key),
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ],
-                            ),
-                          ),
+                            );
+                          },
                         ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-          actions: [
-            UniformActionBar(
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, 'reset'),
-                  child: Text(ctx.l10n.automaticCover),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, 'local'),
-                  child: Text(ctx.l10n.importImage),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: Text(ctx.l10n.cancel),
+                      ),
+              ),
+              actions: [
+                UniformActionBar(
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, 'reset'),
+                      child: Text(ctx.l10n.automaticCover),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, 'local'),
+                      child: Text(ctx.l10n.importImage),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: Text(ctx.l10n.cancel),
+                    ),
+                  ],
                 ),
               ],
-            ),
-          ],
+            );
+          },
         ),
       );
       if (chosen == null) return;
@@ -376,9 +438,12 @@ abstract final class WorkEditDialogs {
         await Catalog.instance.setManualCover(work['id'].toString());
         return;
       }
-      String? original = choices[chosen];
+      String? original = resolvedChoices[chosen];
       String source = chosen.startsWith('TMDB') ? 'tmdb' : 'bangumi';
       int? subjectId = int.tryParse(chosen.replaceFirst('Bangumi ', ''));
+      if (subjectId == null && source == 'bangumi') {
+        subjectId = (work['bangumi_id'] as num?)?.toInt();
+      }
       if (chosen == 'local') {
         final picked = await FilePicker.pickFiles(type: FileType.image);
         if (picked.isEmpty) return;
@@ -424,6 +489,188 @@ abstract final class WorkEditDialogs {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(context.l10n.coverFailed)));
+      }
+    } finally {
+      service.close();
+    }
+  }
+
+  static Future<void> backdrop(
+    BuildContext context,
+    Map<String, Object?> work, {
+    String? fallbackBackdrop,
+  }) async {
+    final service = CoverOptionService();
+    try {
+      final optionsFuture = service.fetchBackdrops(
+        work,
+        fallbackBackdrop: fallbackBackdrop,
+      );
+      if (!context.mounted) return;
+      final previousState = Catalog.backdropEditState(work);
+      final recropOriginal = previousState?['original'] as String?;
+      var resolvedOptions = <String, BackdropOption>{};
+      final chosen = await showDialog<String>(
+        context: context,
+        builder: (ctx) => FutureBuilder<List<BackdropOption>>(
+          future: optionsFuture,
+          builder: (context, snapshot) {
+            final map = <String, BackdropOption>{
+              if (recropOriginal != null && recropOriginal.isNotEmpty)
+                'recrop': BackdropOption(
+                  key: 'recrop',
+                  label: context.l10n.recropBackdrop,
+                  url:
+                      (previousState?['resource'] as String?) ?? recropOriginal,
+                  source: (previousState?['source'] as String?) ?? 'local',
+                  subjectId: previousState?['subjectId'] as int?,
+                ),
+              for (final item in snapshot.data ?? const <BackdropOption>[])
+                item.key: item,
+            };
+            resolvedOptions = map;
+            final loading = snapshot.connectionState != ConnectionState.done;
+            final entries = map.entries.toList();
+            final targetWidth = entries.length <= 1 ? 340.0 : 520.0;
+            return AlertDialog(
+              title: Text(ctx.l10n.editBackdrop),
+              content: SizedBox(
+                width: loading && entries.isEmpty ? 340.0 : targetWidth,
+                child: loading && entries.isEmpty
+                    ? const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 36),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    : SingleChildScrollView(
+                        child: LayoutBuilder(
+                          builder: (context, bounds) {
+                            if (entries.isEmpty) {
+                              return const SizedBox.shrink();
+                            }
+                            final cols =
+                                entries.length == 1 || bounds.maxWidth < 360
+                                ? 1
+                                : 2;
+                            const gap = 14.0;
+                            final cardW =
+                                (bounds.maxWidth - (cols - 1) * gap) / cols;
+                            return Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (loading)
+                                  const Padding(
+                                    padding: EdgeInsets.only(bottom: 10),
+                                    child: LinearProgressIndicator(),
+                                  ),
+                                Wrap(
+                                  spacing: gap,
+                                  runSpacing: gap,
+                                  children: [
+                                    for (final entry in entries)
+                                      SizedBox(
+                                        width: cardW,
+                                        child: _artworkChoiceCard(
+                                          context: context,
+                                          imageUrl: entry.value.url,
+                                          aspectRatio: 16 / 9,
+                                          label: entry.value.label,
+                                          onTap: () =>
+                                              Navigator.pop(ctx, entry.key),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+              ),
+              actions: [
+                UniformActionBar(
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, 'reset'),
+                      child: Text(ctx.l10n.automaticBackdrop),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, 'local'),
+                      child: Text(ctx.l10n.importImage),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: Text(ctx.l10n.cancel),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+      );
+      if (chosen == null) return;
+      if (chosen == 'reset') {
+        await Catalog.instance.setManualBackdrop(work['id'].toString());
+        return;
+      }
+      String? original;
+      String source = 'local';
+      int? subjectId;
+      if (chosen == 'local') {
+        final picked = await FilePicker.pickFiles(type: FileType.image);
+        if (picked.isEmpty) return;
+        original = picked.single.path;
+        source = 'local';
+        if (original != null &&
+            await File(original).length() > 32 * 1024 * 1024) {
+          throw const FormatException('图片超过 32 MB');
+        }
+      } else if (chosen == 'recrop' && recropOriginal != null) {
+        original = recropOriginal;
+        source = (previousState?['source'] as String?) ?? 'local';
+        subjectId = previousState?['subjectId'] as int?;
+      } else if (resolvedOptions[chosen] case final selected?) {
+        original = selected.url;
+        source = selected.source;
+        subjectId = selected.subjectId;
+      }
+      if (original == null) return;
+      DebugLog.write('BackdropCrop', 'source=$source crop begin');
+      final bytes = await ImageStore.load(original);
+      await ImageStore.validate(bytes);
+      if (!context.mounted) return;
+      final result = await Navigator.push<Map<String, Object>>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PosterCropPage(
+            bytes: bytes,
+            aspectRatio: 16 / 9,
+            maxExportWidth: 1920,
+            isBackdrop: true,
+          ),
+        ),
+      );
+      if (result == null) return;
+      final originalId = await ImageStore.save(bytes, 'original');
+      final output = await ImageStore.save(
+        result['bytes'] as Uint8List,
+        'crop',
+      );
+      await Catalog.instance.saveCroppedBackdrop(
+        work['id'].toString(),
+        source,
+        originalId,
+        output,
+        result['crop']!,
+        subjectId: subjectId,
+      );
+      DebugLog.write('BackdropCrop', 'source=$source crop complete');
+    } catch (e) {
+      DebugLog.write('BackdropCrop', 'failed ${e.runtimeType}', level: 'ERROR');
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(context.l10n.backdropFailed)));
       }
     } finally {
       service.close();

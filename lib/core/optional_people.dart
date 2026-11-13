@@ -151,9 +151,22 @@ class OptionalPeopleSession {
     _check();
     _owner = work['id']?.toString();
     _check();
+    final activeRoles = [
+      for (final role in OptionalFeatures.allCharacterRoles)
+        if (settings.characterRoles.contains(role)) role,
+    ];
+    final hasCustomCharacters =
+        (work['character_order'] as String? ?? '').trim().isNotEmpty &&
+            work['character_order'] != '[]' ||
+        characters.any((row) => row['manual'] == true);
+    if (feature == OptionalFeature.characters &&
+        activeRoles.isEmpty &&
+        !hasCustomCharacters) {
+      return const [];
+    }
     final key = ArtworkCache.digest(
       jsonEncode([
-        feature == OptionalFeature.characters ? 'people-v5' : 'people-v3',
+        feature == OptionalFeature.characters ? 'people-v6' : 'people-v4',
         feature.name,
         BangumiLinks.ids(work),
         work['tmdb_id'],
@@ -163,6 +176,7 @@ class OptionalPeopleSession {
         work['character_order'],
         characters,
         credits,
+        activeRoles,
       ]),
     );
     Map? snapshot;
@@ -386,6 +400,12 @@ class OptionalPeopleSession {
       '客串' || '3' => 2,
       _ => 3,
     };
+    String roleKey(Map row) => switch (rank(row)) {
+      0 => 'main',
+      1 => 'supporting',
+      2 => 'guest',
+      _ => 'other',
+    };
     List<Map<String, dynamic>> actors(Map row) =>
         (row['actors'] as List? ?? row['actorDetails'] as List? ?? [])
             .whereType<Map>()
@@ -461,7 +481,14 @@ class OptionalPeopleSession {
             ? ao.compareTo(bo)
             : (a['_index'] as int).compareTo(b['_index'] as int);
       });
-    final selected = sorted.take(48).toList();
+    final allowedRoles = settings.characterRoles;
+    final filtered = sorted.where((row) {
+      if (row['manual'] == true || order.contains(row['id'])) return true;
+      final rel = '${row['relation'] ?? ''}'.trim();
+      if (rel.isEmpty) return allowedRoles.isNotEmpty;
+      return allowedRoles.contains(roleKey(row));
+    }).toList();
+    final selected = filtered.take(48).toList();
     var language = originalLanguage(work) ?? snapshot?['language'] as String?;
     var languageChecked =
         language != null || snapshot?['languageChecked'] == true;
@@ -752,14 +779,20 @@ class OptionalPeopleSession {
       }
       if (fresh == null) _hadFailures = true;
     }
-    return creditsCards(fresh is Map ? fresh : const {}, cached, locale);
+    return creditsCards(
+      fresh is Map ? fresh : const {},
+      cached,
+      locale,
+      allowedRoles: settings.characterRoles,
+    );
   }
 
   static List<Map<String, dynamic>> creditsCards(
     Map fresh,
     Map<String, List<Map>> cached,
-    String locale,
-  ) {
+    String locale, {
+    Set<String>? allowedRoles,
+  }) {
     final zh = locale.startsWith('zh'),
         hant = RegExp('Hant|TW|HK').hasMatch(locale);
     const jobs = {
@@ -851,7 +884,23 @@ class OptionalPeopleSession {
         if (aHasImage != bHasImage) return aHasImage ? -1 : 1;
         return (a['order'] as int).compareTo(b['order'] as int);
       });
-      for (final row in sorted.take(24)) {
+      final effectiveSorted =
+          kind == 'cast' &&
+              allowedRoles != null &&
+              !allowedRoles.containsAll(OptionalFeatures.allCharacterRoles)
+          ? sorted.where((row) {
+              final order = row['order'] as int;
+              final bucket = order < 4
+                  ? 'main'
+                  : order < 14
+                  ? 'supporting'
+                  : order < 24
+                  ? 'guest'
+                  : 'other';
+              return allowedRoles.contains(bucket);
+            }).toList()
+          : sorted;
+      for (final row in effectiveSorted.take(24)) {
         cards.add({
           'title': row['title'],
           'subtitle': _text((row['roles'] as List<String>).join(' / ')),

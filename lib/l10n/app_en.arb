@@ -1494,5 +1494,21 @@
   "offlineRemove": "Remove index and partial download",
   "offlineCount": "Animation entries",
   "offlineIndexSize": "Index size",
-  "dolbyVisionProfile5Unsupported": "Dolby Vision Profile 5 is not supported by the current player. This video has no compatible HDR10 base layer. Use an HDR10/SDR version or a player that supports this profile."
+  "dolbyVisionProfile5Unsupported": "Dolby Vision Profile 5 is not supported by the current player. This video has no compatible HDR10 base layer. Use an HDR10/SDR version or a player that supports this profile.",
+  "characterRoleFilter": "Character types",
+  "allCharacterRoles": "All roles",
+  "mainCharacter": "Main",
+  "supportingCharacter": "Supporting",
+  "guestCharacter": "Guest",
+  "otherCharacter": "Other",
+  "editBackdrop": "Edit backdrop",
+  "cropBackdrop": "Crop backdrop · 16:9",
+  "recropBackdrop": "Recrop current backdrop",
+  "automaticBackdrop": "Restore auto",
+  "backdropFailed": "Couldn't update backdrop. Try again.",
+  "pendingReviewItems": "Needs review / failed",
+  "pendingReviewOnly": "Needs review",
+  "reviewCandidatePoster": "Candidate matched · confirm",
+  "reviewUnmatched": "Unmatched · manual link",
+  "noPendingReviewItems": "All works matched with high confidence."
 }

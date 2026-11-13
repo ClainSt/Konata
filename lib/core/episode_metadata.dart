@@ -58,17 +58,24 @@ abstract final class EpisodeMetadata {
       if (specials is Map && specials[path] is Map) {
         return Map<String, dynamic>.from(specials[path] as Map);
       }
-      // A CM01 number is not the same as TMDB special episode 1.
-      if (!CloudMediaAssetPresentation.isSpecialMappingCandidate(asset)) {
-        return {};
-      }
-      final explicit = CloudMediaAssetPresentation.explicitSpecialNumber(asset);
-      if (explicit == null) return {};
-      final entries = details['specials'];
-      if (entries is Map && entries[explicit.toString()] is Map) {
-        return Map<String, dynamic>.from(entries[explicit.toString()] as Map);
-      }
       return {};
+    }
+    if (asset['category'] == 'main') {
+      if (asset['manual_mapping'] == true &&
+          asset['season'] == 0 &&
+          n != null) {
+        final rows = details['specials'];
+        if (rows is Map && rows[n.toString()] is Map) {
+          return Map<String, dynamic>.from(rows[n.toString()] as Map);
+        }
+      }
+      if (asset['manual_mapping'] != true) {
+        final mainSpecials = details['mainSpecialAssets'];
+        final path = asset['relative_path']?.toString();
+        if (mainSpecials is Map && mainSpecials[path] is Map) {
+          return Map<String, dynamic>.from(mainSpecials[path] as Map);
+        }
+      }
     }
     if (work['tmdb_type'] == 'movie' && asset['category'] == 'main') {
       return {
@@ -113,6 +120,24 @@ abstract final class EpisodeMetadata {
     final entries = seasons is Map ? seasons[season.toString()] : null;
     if (entries is Map && entries[local.toString()] is Map) {
       return Map<String, dynamic>.from(entries[local.toString()] as Map);
+    }
+    // Split-cour compatibility: files in Season 2+ often keep cumulative broadcast
+    // numbering (e.g. 13..24 instead of 1..12). Convert using prior regular seasons.
+    if (season > 1 &&
+        asset['manual_mapping'] != true &&
+        entries is Map &&
+        counts is Map) {
+      var offset = 0;
+      for (var s = 1; s < season; s++) {
+        final c = (counts[s.toString()] as num?)?.toInt() ?? 0;
+        if (c > 0) offset += c;
+      }
+      if (offset > 0 && local > offset) {
+        final relative = (local - offset).toString();
+        if (entries[relative] is Map) {
+          return Map<String, dynamic>.from(entries[relative] as Map);
+        }
+      }
     }
     if (season != 1) return {};
     final old = details['episodes'];

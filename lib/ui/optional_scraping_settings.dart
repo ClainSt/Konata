@@ -28,6 +28,148 @@ class _OptionalScrapingSettingsState extends State<OptionalScrapingSettings> {
     }
   }
 
+  Widget _roleFilterTile(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final roles = settings.characterRoles;
+    final all = roles.containsAll(OptionalFeatures.allCharacterRoles);
+    final labels = <String, String>{
+      'main': context.l10n.mainCharacter,
+      'supporting': context.l10n.supportingCharacter,
+      'guest': context.l10n.guestCharacter,
+      'other': context.l10n.otherCharacter,
+    };
+    final zh = Localizations.localeOf(context).languageCode == 'zh';
+    final summary = all
+        ? context.l10n.allCharacterRoles
+        : roles.isEmpty
+        ? context.l10n.featureOff
+        : [
+            for (final role in OptionalFeatures.allCharacterRoles)
+              if (roles.contains(role)) labels[role]!,
+          ].join(zh ? '、' : ', ');
+
+    Widget option(
+      String key,
+      String label,
+      bool checked,
+      VoidCallback toggle, {
+      bool mixed = false,
+    }) => MenuItemButton(
+      key: ValueKey(key),
+      closeOnActivate: false,
+      onPressed: settings.saving ? null : toggle,
+      style: ButtonStyle(
+        minimumSize: const WidgetStatePropertyAll(Size(208, 44)),
+        padding: const WidgetStatePropertyAll(
+          EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        ),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+        backgroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.hovered)
+              ? colors.onSurface.withValues(alpha: .06)
+              : Colors.transparent,
+        ),
+        textStyle: WidgetStatePropertyAll(
+          Theme.of(context).textTheme.bodyMedium,
+        ),
+      ),
+      trailingIcon: Icon(
+        mixed ? Icons.remove : Icons.check,
+        size: 17,
+        color: checked || mixed ? colors.onSurface : Colors.transparent,
+      ),
+      child: Semantics(checked: checked, child: Text(label)),
+    );
+
+    return SettingsPanel(
+      child: ListTile(
+        key: const ValueKey('scraping-character-roles-tile'),
+        title: Text(context.l10n.characterRoleFilter),
+        trailing: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 220),
+          child: MenuAnchor(
+            alignmentOffset: const Offset(0, 8),
+            style: MenuStyle(
+              backgroundColor: WidgetStatePropertyAll(colors.surface),
+              surfaceTintColor: const WidgetStatePropertyAll(
+                Colors.transparent,
+              ),
+              elevation: const WidgetStatePropertyAll(2),
+              shadowColor: WidgetStatePropertyAll(
+                Colors.black.withValues(alpha: .08),
+              ),
+              padding: const WidgetStatePropertyAll(EdgeInsets.all(6)),
+              side: WidgetStatePropertyAll(
+                BorderSide(color: colors.outlineVariant.withValues(alpha: .6)),
+              ),
+              shape: WidgetStatePropertyAll(
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+            ),
+            menuChildren: [
+              option(
+                'character-role-all',
+                context.l10n.allCharacterRoles,
+                all,
+                () => _save(
+                  () => settings.setCharacterRoles(
+                    all ? const {} : {...OptionalFeatures.allCharacterRoles},
+                  ),
+                ),
+                mixed: !all && roles.isNotEmpty,
+              ),
+              const Divider(height: 1),
+              for (final role in OptionalFeatures.allCharacterRoles)
+                option(
+                  'character-role-$role',
+                  labels[role]!,
+                  roles.contains(role),
+                  () => _save(
+                    () => settings.setCharacterRoles(
+                      roles.contains(role)
+                          ? ({...roles}..remove(role))
+                          : {...roles, role},
+                    ),
+                  ),
+                ),
+            ],
+            builder: (context, controller, child) => TextButton(
+              key: const ValueKey('scraping-character-roles-filter'),
+              onPressed: settings.saving
+                  ? null
+                  : () => controller.isOpen
+                        ? controller.close()
+                        : controller.open(),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      summary,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: colors.onSurface,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  const Icon(Icons.expand_more, size: 18),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => FutureBuilder<void>(
     future: ready,
@@ -54,6 +196,12 @@ class _OptionalScrapingSettingsState extends State<OptionalScrapingSettings> {
                             _save(() => settings.setPeopleVisible(value)),
                 ),
               ),
+            ],
+            if (settings.peopleVisible &&
+                (settings.enabled(OptionalFeature.characters) ||
+                    settings.enabled(OptionalFeature.credits))) ...[
+              const SizedBox(height: 12),
+              _roleFilterTile(context),
             ],
             if (settings.peopleVisible &&
                 settings.enabled(OptionalFeature.characters)) ...[

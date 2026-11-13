@@ -90,6 +90,10 @@ class _PeopleSectionState extends State<_PeopleSection> {
     widget.data.legacyCharacters,
     widget.data.legacyCredits,
     Localizations.localeOf(context).toLanguageTag(),
+    [
+      for (final role in OptionalFeatures.allCharacterRoles)
+        if (widget.settings.characterRoles.contains(role)) role,
+    ],
   ]);
   @override
   void didChangeDependencies() {
@@ -196,7 +200,9 @@ class _PeopleFrames {
   _PeopleFrames(OptionalPeopleSession session) {
     scope = session.settings.openScope(session.feature);
     scope.acquire(() => entries, (values) {
-      for (final value in values.values) { unawaited(value.provider.evict()); }
+      for (final value in values.values) {
+        unawaited(value.provider.evict());
+      }
       values.clear();
       bytes = 0;
     });
@@ -208,6 +214,7 @@ class _PeopleFrames {
     if (previous != null && !previous.scope.disposed) return previous;
     return features[session.feature] = _PeopleFrames(session);
   }
+
   late final OptionalFeatureScope scope;
   final entries = <(String, int), ({ImageProvider provider, int size})>{};
   int bytes = 0;
@@ -218,20 +225,29 @@ class _PeopleFrames {
     if (hit != null) entries[key] = hit;
     return hit?.provider;
   }
+
   void evictOtherWidths(String url, int width) {
-    for (final key in entries.keys.where((key) => key.$1 == url && key.$2 != width).toList()) {
+    for (final key
+        in entries.keys
+            .where((key) => key.$1 == url && key.$2 != width)
+            .toList()) {
       final old = entries.remove(key)!;
       bytes -= old.size;
       unawaited(old.provider.evict());
     }
   }
+
   void put(String url, int width, ImageProvider provider, int size) {
     scope.checkActive();
     const limit = 4 * 1024 * 1024;
     if (size > limit) return;
     final old = entries.remove((url, width));
-    if (old != null) { bytes -= old.size; unawaited(old.provider.evict()); }
-    while (entries.isNotEmpty && (entries.length >= 16 || bytes + size > limit)) {
+    if (old != null) {
+      bytes -= old.size;
+      unawaited(old.provider.evict());
+    }
+    while (entries.isNotEmpty &&
+        (entries.length >= 16 || bytes + size > limit)) {
       final removed = entries.remove(entries.keys.first)!;
       bytes -= removed.size;
       unawaited(removed.provider.evict());
@@ -285,6 +301,7 @@ class _PeopleImageState extends State<_PeopleImage> {
           }
         });
       }
+
       final hit = frames.get(url, width);
       if (hit != null) {
         _provider = hit;

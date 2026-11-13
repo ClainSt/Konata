@@ -1081,7 +1081,10 @@ class _WorkPageState extends State<WorkPage> {
       final cat = Catalog.instance;
       final found = cat.works.where((w) => w['id'] == widget.workId).toList();
       if (found.isEmpty) {
-        return Scaffold(body: Center(child: Text(context.l10n.titleNotFound)));
+        return Scaffold(
+          appBar: AppBar(),
+          body: Center(child: Text(context.l10n.titleNotFound)),
+        );
       }
       final work = found.first;
       final partId = widget.partAssetId;
@@ -1089,7 +1092,10 @@ class _WorkPageState extends State<WorkPage> {
           ?.where((row) => row['asset_id'] == partId)
           .singleOrNull;
       if (partId != null && part == null) {
-        return Scaffold(body: Center(child: Text(context.l10n.titleNotFound)));
+        return Scaffold(
+          appBar: AppBar(),
+          body: Center(child: Text(context.l10n.titleNotFound)),
+        );
       }
       return NipaPlayDetailPage(
         work: work,

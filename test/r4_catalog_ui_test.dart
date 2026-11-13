@@ -693,7 +693,10 @@ void main() {
         await tester.binding.setSurfaceSize(const Size(1440, 900));
         addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        // First verify default row tap opens the real manual match dialog without closing ScanProgressDialog.
+        // First verify production path (no custom onOpenWork):
+        // 1) default row tap opens manual match dialog without closing ScanProgressDialog;
+        // 2) tapping "查看详情" pushes WorkPage on top of ScanProgressDialog, and tapping
+        //    WorkPage's back button returns directly to ScanProgressDialog's review tab.
         await tester.pumpWidget(
           _testApp(
             Scaffold(
@@ -703,7 +706,6 @@ void main() {
                     onPressed: () => ScanProgressDialog.show(
                       ctx,
                       sourceId: src,
-                      onOpenWork: (id) => openedWorkId = id,
                     ),
                     child: const Text('打开默认进度'),
                   ),
@@ -727,7 +729,22 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byKey(const ValueKey('scan-progress-tab-review')), findsOneWidget);
 
-        // Close default dialog and run complete bind + confirm + detail open cycle.
+        // Tap "查看详情" on CandidateWork: opens WorkPage on top of ScanProgressDialog.
+        await tester.tap(
+          find.byKey(ValueKey('pending-review-detail-$workCand')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('detail-back-button')), findsOneWidget);
+
+        // Tap back on WorkPage: returns directly to ScanProgressDialog's review tab!
+        await tester.tap(find.byKey(const ValueKey('detail-back-button')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('detail-back-button')), findsNothing);
+        expect(find.byKey(const ValueKey('scan-progress-tab-review')), findsOneWidget);
+        expect(find.text('待确认候选动画'), findsOneWidget);
+        expect(find.text('未匹配动画'), findsOneWidget);
+
+        // Close default dialog and run complete bind + confirm + custom onOpenWork cycle.
         await tester.tap(find.text('关闭'));
         await tester.pumpAndSettle();
 

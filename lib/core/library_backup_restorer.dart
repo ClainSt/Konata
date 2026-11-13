@@ -11,6 +11,12 @@ import 'library_backup_exporter.dart';
 import 'library_backup_inspector.dart';
 import 'artwork_cache.dart';
 import 'debug_log.dart';
+import 'library_foundation.dart';
+import 'scrape_tasks.dart';
+import 'incremental_scan.dart';
+import 'anime_mapping_store.dart';
+import 'library_merge.dart';
+import 'library_merge_undo.dart';
 
 /// A private, validated copy keeps the confirmation preview and restore identical
 /// even if the original file is replaced while the dialog is open.
@@ -184,7 +190,91 @@ class LibraryBackupRestorer {
 
   /// Caller holds the modal UI and rejects active playback/scans. This service
   /// never downloads media, contacts sources, or modifies credentials.
-  Future<File> restore(PreparedLibraryBackup backup) async {
+  Future<LibraryMerge> previewMerge(
+    PreparedLibraryBackup backup,
+    Map<String, String> associations,
+  ) async {
+    final schema = await database.getVersion();
+    final manifest = backup.data.manifest;
+    if (schema < 26 ||
+        (manifest['db_schema_version'] as int) > schema ||
+        (manifest['db_schema_version'] as int) < 19) {
+      throw const FormatException('Unsupported merge schema');
+    }
+    return database.transaction(
+      (tx) => LibraryMerge.preview(
+        tx,
+        LibraryBackupExporter.tablesForSchema(schema),
+        manifest['tables'] as Map<String, dynamic>,
+        associations,
+      ),
+    );
+  }
+
+  Future<LibraryMergeUndo?> previewMergeUndo() async {
+    final schema = await database.getVersion();
+    if (schema < 27) return null;
+    final tables = LibraryBackupExporter.tablesForSchema(schema);
+    return database.transaction((tx) => LibraryMergeUndo.preview(tx, tables));
+  }
+
+  Future<void> undoMerge(LibraryMergeUndo preview) async {
+    if (_running) throw StateError('Restore already running');
+    _running = true;
+    try {
+      final schema = await database.getVersion();
+      if (schema < 27) throw StateError('Merge undo is not enabled');
+      final tables = LibraryBackupExporter.tablesForSchema(schema);
+      await _saveRecoveryPoint(
+        preferences ?? await SharedPreferences.getInstance(),
+      );
+      await database.transaction(
+        (tx) => LibraryMergeUndo.apply(tx, tables, preview),
+      );
+      try {
+        await _resetTaskCache();
+      } catch (error, stack) {
+        DebugLog.exception(
+          'Backup',
+          'undo_task_cache_reset_failed',
+          error,
+          stack,
+        );
+      }
+      await _reconcileArtwork();
+    } finally {
+      _running = false;
+    }
+  }
+
+  Future<void> _resetTaskCache() => ScrapeTasks.resetAfterRestore(
+    database,
+    Directory(p.join(p.dirname(database.path), 'scrape-task-cache')),
+  );
+
+  Future<File> _saveRecoveryPoint(SharedPreferences preferences) async {
+    final previous = await recoveryBackups();
+    final rollback = File(
+      p.join(
+        recoveryDirectory.path,
+        'before-restore-${DateTime.now().microsecondsSinceEpoch}.zip',
+      ),
+    );
+    await LibraryBackupExporter(
+      database: database,
+      artworkDirectory: artworkDirectory,
+      preferences: preferences,
+    ).export(rollback);
+    for (final file in previous.skip(1)) {
+      await file.delete();
+    }
+    return rollback;
+  }
+
+  Future<File> restore(
+    PreparedLibraryBackup backup, {
+    LibraryMerge? merge,
+  }) async {
     if (_running) throw StateError('Restore already running');
     _running = true;
     try {
@@ -192,6 +282,13 @@ class LibraryBackupRestorer {
       final preferences =
           this.preferences ?? await SharedPreferences.getInstance();
       final manifest = backup.data.manifest;
+      final targetSchema = await database.getVersion();
+      if ((manifest['db_schema_version'] as int) > targetSchema) {
+        throw const FormatException(
+          'Backup requires a newer compatible application',
+        );
+      }
+      final restoreTables = LibraryBackupExporter.tablesForSchema(targetSchema);
       final tables = manifest['tables'] as Map<String, dynamic>;
       await _validateRows(tables);
       final artwork = manifest['artwork'] as Map<String, dynamic>;
@@ -210,21 +307,7 @@ class LibraryBackupRestorer {
       }
       // Keep the most recent earlier recovery point plus this new one. Only
       // files created by this service in its private directory are rotated.
-      final previous = await recoveryBackups();
-      for (final file in previous.skip(1)) {
-        await file.delete();
-      }
-      final rollback = File(
-        p.join(
-          recoveryDirectory.path,
-          'before-restore-${DateTime.now().microsecondsSinceEpoch}.zip',
-        ),
-      );
-      await LibraryBackupExporter(
-        database: database,
-        artworkDirectory: artworkDirectory,
-        preferences: preferences,
-      ).export(rollback);
+      final rollback = await _saveRecoveryPoint(preferences);
       await database.transaction((tx) async {
         // A settled restore may still await disposable-cache cleanup. The new
         // restore will reconcile that same cache against its committed library.
@@ -237,7 +320,14 @@ class LibraryBackupRestorer {
             for (final key in LibraryBackupExporter.preferenceKeys)
               key: preferences.get(key),
           }),
-          'new_preferences': jsonEncode(manifest['preferences']),
+          'new_preferences': jsonEncode(
+            merge == null
+                ? manifest['preferences']
+                : {
+                    for (final key in LibraryBackupExporter.preferenceKeys)
+                      key: preferences.get(key),
+                  },
+          ),
           'added_artwork': jsonEncode(added),
         });
       });
@@ -252,14 +342,53 @@ class LibraryBackupRestorer {
           ).writeAsBytes(bytes, flush: true);
         }
         await database.transaction((tx) async {
-          for (final table in LibraryBackupExporter.tables.reversed) {
+          if (merge != null) {
+            final reviewed = await LibraryMerge.preview(
+              tx,
+              restoreTables,
+              tables,
+              merge.associations,
+            );
+            if (reviewed.fingerprint != merge.fingerprint)
+              throw StateError('Merge preview changed');
+            await tx.rawUpdate(
+              'UPDATE scrape_runtime SET session=?,cache_revision=cache_revision+1',
+              [LibraryFoundation.newId('merge:')],
+            );
+            if (targetSchema >= 27) {
+              await LibraryMergeUndo.record(
+                tx,
+                restoreTables,
+                () => reviewed.apply(tx),
+              );
+            } else {
+              await reviewed.apply(tx);
+            }
+            await tx.update('library_restore_state', {
+              'committed': 2,
+            }, where: 'id=1');
+            return;
+          }
+          final mappingGuard = targetSchema >= 21
+              ? await AnimeMappingStore.restoreGuard(tx)
+              : null;
+          if (targetSchema >= 20) {
+            await tx.rawUpdate(
+              'UPDATE scrape_runtime SET session=?,cache_revision=cache_revision+1',
+              [LibraryFoundation.newId('restore:')],
+            );
+          }
+          if (targetSchema >= 21) await AnimeMappingStore.clearIn(tx);
+          if (targetSchema >= 22) await IncrementalScan.clearCheckpoints(tx);
+          if (targetSchema >= 27) await LibraryMergeUndo.clear(tx);
+          for (final table in restoreTables.reversed) {
             await tx.delete(table);
           }
           await tx.delete('scan_roots');
           await tx.delete('library_restored_sources');
           // Never reuse an imported device identity or an old sequence counter.
           await tx.delete('watch_event_local');
-          for (final table in LibraryBackupExporter.tables) {
+          for (final table in restoreTables) {
             // Identity triggers run while assets/overrides are inserted. Replace
             // their derived epochs only after all identity-changing inserts.
             if (table == 'watch_identity_epochs') await tx.delete(table);
@@ -280,6 +409,18 @@ class LibraryBackupRestorer {
               await tx.insert(table, row);
             }
           }
+          if (targetSchema >= 19 &&
+              (manifest['db_schema_version'] as int) < 19) {
+            await LibraryFoundation.seed(tx);
+          }
+          if (targetSchema >= 21) {
+            await tx.insert('mapping_review', {
+              'id': 1,
+              'day': 0,
+              'count': 0,
+            }, conflictAlgorithm: ConflictAlgorithm.ignore);
+            await AnimeMappingStore.preserveRestoreGuard(tx, mappingGuard!);
+          }
           await _preferences(manifest['preferences'] as Map<String, dynamic>);
           // Preferences are settled before this transaction commits. Persist
           // the cache-only phase atomically with the new library, not later.
@@ -292,6 +433,16 @@ class LibraryBackupRestorer {
         rethrow;
       }
       // Cache cleanup is retryable after commit and cannot roll back user data.
+      if (targetSchema >= 20) {
+        try {
+          await _resetTaskCache();
+        } on FileSystemException catch (error, stack) {
+          // The library and preferences are committed. Preserve the cleanup
+          // journal and recovery point without reporting a failed restore.
+          DebugLog.exception('Backup', 'task_cache_cleanup_failed', error, stack);
+          return rollback;
+        }
+      }
       try {
         if (await _reconcileArtwork()) {
           await database.delete('library_restore_state');
@@ -304,7 +455,9 @@ class LibraryBackupRestorer {
   }
 
   Future<void> _validateRows(Map<String, dynamic> tables) async {
-    for (final table in LibraryBackupExporter.tables) {
+    for (final table in LibraryBackupExporter.tablesForSchema(
+      await database.getVersion(),
+    )) {
       final columns = {
         for (final col in await database.rawQuery('PRAGMA table_info($table)'))
           col['name'] as String: col,

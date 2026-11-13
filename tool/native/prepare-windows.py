@@ -3,6 +3,7 @@ import tarfile
 import argparse
 import hashlib
 import shutil
+import subprocess
 
 parser = argparse.ArgumentParser(description='Prepare the pinned Windows cross-build in Linux.')
 parser.add_argument('--root', type=Path, default=Path('/opt/konata-build'))
@@ -30,6 +31,14 @@ for name, archive, destination in [('mpv', 'mpv-v0.42.0.tar.gz', target), ('ffmp
                     continue
                 member.name = components[1]
                 tf.extract(member, destination, filter='data')
+for name in ['dovi-hlg-fallback.patch', 'windows-dovi-base-metadata.patch',
+             'windows-d3d11-strict-float.patch', 'windows-d3d11-low10-upload.patch',
+             'windows-p010-repack.patch']:
+    patch = Path(__file__).with_name(name).resolve()
+    if subprocess.run(['patch', '-d', str(target), '-p1', '--forward', '--dry-run', '-i', str(patch)], capture_output=True).returncode == 0:
+        subprocess.run(['patch', '-d', str(target), '-p1', '-i', str(patch)], check=True)
+    else:
+        subprocess.run(['patch', '-d', str(target), '-p1', '--reverse', '--dry-run', '-i', str(patch)], check=True)
 script = (target / 'ci/build-mingw64-full.sh').read_text()
 script = script.replace('. ./ci/build-common.sh', '''. ./ci/build-common.sh
 # The image follows FFmpeg master; use options supported by pinned FFmpeg 9.0.2.
@@ -69,6 +78,9 @@ for start, end in [('group "Building libsixel"', 'group "Building libarchive"'),
 replace_once('-D{shaderc,sixel,spirv-cross,subrandr,uchardet,vapoursynth,vulkan}=enabled', '-D{shaderc,spirv-cross,uchardet,vulkan}=enabled\n    -D{sixel,subrandr,vapoursynth}=disabled')
 replace_once('-D{win32-smtc,zimg}=enabled', '-Dwin32-smtc=disabled -Dzimg=enabled')
 script = script.replace('$(nproc)', '${KONATA_JOBS:-2}')
+# Keep the GCC runtime static, as in the shipped native library.
+script = script.replace('-L$FFBUILD_PREFIX/lib -liconv"',
+                        '-L$FFBUILD_PREFIX/lib -liconv -static-libgcc"')
 script = script.replace('ninja install', 'ninja -j"${KONATA_JOBS:-2}" install')
 script = script.replace('ninja cppwinrt', 'ninja -j"${KONATA_JOBS:-2}" cppwinrt')
 script = script.replace('meson compile -C build', 'meson compile -C build -j "${KONATA_JOBS:-2}"')

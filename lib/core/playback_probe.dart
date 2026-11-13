@@ -117,7 +117,12 @@ class PlaybackProbe {
         if (await read('track-list/$i/type') == 'video' &&
             await read('track-list/$i/selected') == 'yes') {
           final result = <String, String>{};
-          for (final key in ['codec', 'format-name', 'codec-profile']) {
+          for (final key in [
+            'codec',
+            'format-name',
+            'codec-profile',
+            'dolby-vision-profile',
+          ]) {
             try {
               final value = await read('track-list/$i/$key');
               if (value.isNotEmpty) result[key] = value;

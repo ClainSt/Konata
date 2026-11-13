@@ -2,6 +2,7 @@
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
 #include <filesystem>
+#include <string>
 
 #include "flutter_window.h"
 #include "utils.h"
@@ -25,6 +26,19 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
         L"Konata", MB_OK | MB_ICONERROR);
     return EXIT_FAILURE;
   }
+#ifndef NDEBUG
+  // media_kit keeps debug references across Dart hot restarts using a PID file.
+  // A new OS process may reuse that PID, but cannot reuse its native pointers.
+  // Clear only this process's marker before Dart starts; hot restarts remain intact.
+  const auto references = temporary /
+      (L"com.alexmercerind.media_kit.NativeReferenceHolder." +
+       std::to_wstring(::GetCurrentProcessId()));
+  std::filesystem::remove(references, error);
+  if (error) {
+    ::OutputDebugStringW(L"Konata: cannot clear stale media_kit debug references.\n");
+    return EXIT_FAILURE;
+  }
+#endif
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {

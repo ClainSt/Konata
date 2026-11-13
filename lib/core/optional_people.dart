@@ -32,7 +32,6 @@ class OptionalPeopleSession {
   int _imageBytes = 0;
   int _responseBytes = 0;
   bool _hadFailures = false;
-  final _unhealthyHosts = <String, DateTime>{};
   bool _loadingCards = false;
   String? _owner;
   static const maxImageBytes = 4 * 1024 * 1024;
@@ -66,39 +65,19 @@ class OptionalPeopleSession {
     final resource = image?.$2 ?? source.path;
     final candidates = index == null
         ? [source]
-        : <Uri>{
-            for (final base in [
-              MetadataServers.values[index],
-              if (MetadataServers.fallback) ...[
-                MetadataServers.defaults[index],
-                MetadataServers.official[index],
-              ],
-            ])
-              MetadataServers.endpoint(
-                index,
-                resource,
-                base: base,
-              ).replace(query: source.hasQuery ? source.query : null),
-          }.toList();
-    // Preserve configured priority among healthy routes. Failed routes remain
-    // available as a last resort rather than turning the whole batch offline.
-    final now = DateTime.now();
-    final healthy = candidates
-        .where((uri) => !(_unhealthyHosts[uri.host]?.isAfter(now) ?? false))
-        .toList();
-    final unhealthy = candidates
-        .where((uri) => _unhealthyHosts[uri.host]?.isAfter(now) ?? false)
-        .toList();
-    candidates
-      ..clear()
-      ..addAll([...healthy, ...unhealthy]);
+        : MetadataServers.routes(
+            index,
+            resource,
+            query: source.hasQuery ? source.query : null,
+          );
+    final ordered = MetadataServers.tryOrder(candidates);
     var aborted = false;
     cancelled?.then((_) => aborted = true);
     final watch = Stopwatch()..start();
-    for (var i = 0; i < candidates.length; i++) {
+    for (var i = 0; i < ordered.length; i++) {
       _check();
       if (aborted) throw StateError('Image stopped');
-      final uri = candidates[i];
+      final uri = ordered[i];
       final hasAuth =
           headers.keys.any((k) => k.toLowerCase() == 'authorization') ||
           uri.queryParameters.containsKey('api_key');
@@ -121,22 +100,18 @@ class OptionalPeopleSession {
           headers: headers,
           requestCancelled: cancelled,
           clientFactory: clientFactory,
-          timeout: candidates.length - i > 1
-              ? Duration(microseconds: remaining.inMicroseconds * 2 ~/ 3)
-              : remaining,
+          timeout: MetadataServers.attemptTimeout(
+            remaining,
+            hasBackup: i + 1 < ordered.length && uri == candidates.first,
+          ),
         );
-        _unhealthyHosts.remove(uri.host);
+        if (index != null) MetadataServers.reachedRoute(uri);
         return bytes;
-      } on TimeoutException {
-        _unhealthyHosts[uri.host] = DateTime.now().add(
-          const Duration(seconds: 45),
-        );
-        if (i == candidates.length - 1) rethrow;
-      } on IOException {
-        _unhealthyHosts[uri.host] = DateTime.now().add(
-          const Duration(seconds: 45),
-        );
-        if (i == candidates.length - 1) rethrow;
+      } catch (error) {
+        if (error is! TimeoutException && error is! IOException) rethrow;
+        _check();
+        if (candidates.length > 1 && !aborted) MetadataServers.failedRoute(uri);
+        if (i + 1 == ordered.length) rethrow;
       }
     }
     throw const HttpException('Optional details unavailable');
@@ -282,16 +257,29 @@ class OptionalPeopleSession {
   }
 
   /// Each image widget cancels its own request on scroll-out or picture change.
-  Future<Uint8List> image(String url, Future<void> cancelled) async {
+  Future<Uint8List> image(
+    String url,
+    Future<void> cancelled, {
+    int? displayWidth,
+  }) async {
     try {
-      return await _image(url, cancelled);
+      return await _image(url, cancelled, displayWidth);
     } finally {
       if (!_loadingCards) _scope.closeIdleClients();
     }
   }
 
-  Future<Uint8List> _image(String url, Future<void> cancelled) async {
+  Future<Uint8List> _image(
+    String url,
+    Future<void> cancelled,
+    int? displayWidth,
+  ) async {
     _check();
+    if (displayWidth != null &&
+        feature != OptionalFeature.characters &&
+        displayWidth > 185) {
+      url = url.replaceFirst('/t/p/w185/', '/t/p/h632/');
+    }
     final uri = Uri.tryParse(url);
     if (uri == null ||
         uri.scheme != 'https' ||
@@ -304,9 +292,10 @@ class OptionalPeopleSession {
             : uri.host == 'image.tmdb.org')) {
       throw const FormatException('Invalid artwork URL');
     }
-    final existing = _images.remove(url);
+    final key = '$displayWidth:$url';
+    final existing = _images.remove(key);
     if (existing != null) {
-      _images[url] = existing;
+      _images[key] = existing;
       return existing;
     }
     var aborted = false;
@@ -318,22 +307,35 @@ class OptionalPeopleSession {
 
     Uint8List? cached;
     try {
-      cached = await ImageStore.readCached(url, checkActive: check);
+      cached = await ImageStore.readCached(
+        url,
+        checkActive: check,
+        displayWidth: displayWidth,
+      );
     } catch (_) {
       check();
     }
     check();
-    final bytes =
+    final raw =
         cached ?? await _readBytes(uri, 2 * 1024 * 1024, cancelled: cancelled);
     _check();
     if (aborted) throw StateError('Image stopped');
-    if (cached == null) await ImageStore.validate(bytes);
+    if (cached == null) await ImageStore.validate(raw);
+    final bytes = cached != null || displayWidth == null
+        ? raw
+        : await ImageStore.fitForDisplay(raw, displayWidth);
     _check();
     if (aborted) throw StateError('Image stopped');
     try {
-      if (_owner != null) await ImageStore.retain(_owner!, [url]);
-      if (cached == null) {
-        await ImageStore.storeCached(url, bytes, checkActive: check);
+      if (_owner != null)
+        await ImageStore.retain(_owner!, [url], displayWidth: displayWidth);
+      if (cached == null && bytes.length <= raw.length) {
+        await ImageStore.storeCached(
+          url,
+          bytes,
+          checkActive: check,
+          displayWidth: displayWidth,
+        );
       }
     } catch (_) {
       check();
@@ -344,11 +346,11 @@ class OptionalPeopleSession {
       );
     }
     check();
-    _imageBytes -= _images.remove(url)?.length ?? 0;
+    _imageBytes -= _images.remove(key)?.length ?? 0;
     while (_imageBytes + bytes.length > maxImageBytes && _images.isNotEmpty) {
       _imageBytes -= _images.remove(_images.keys.first)!.length;
     }
-    _images[url] = bytes;
+    _images[key] = bytes;
     _imageBytes += bytes.length;
     return bytes;
   }
@@ -500,7 +502,6 @@ class OptionalPeopleSession {
         'subtitle': _text(names),
         'image': _bangumiImage(row),
         'alternateImage': actor == null ? '' : _bangumiImage(actor),
-        'alternateSubtitle': _text(names),
       };
     }).toList();
 
@@ -771,6 +772,22 @@ class OptionalPeopleSession {
       'Original Music Composer': ['音乐', '音樂'],
       'Director of Photography': ['摄影', '攝影'],
     };
+    const crewGroups = [
+      ['Director'],
+      ['Producer', 'Executive Producer'],
+      ['Screenplay', 'Writer'],
+      ['Creator'],
+      ['Original Music Composer'],
+      ['Director of Photography'],
+    ];
+    final crewRank = <String, int>{
+      for (final (index, group) in crewGroups.indexed)
+        for (final job in group) ...{
+          job: index,
+          for (final label in jobs[job]!) label: index,
+        },
+    };
+    int rank(String role) => crewRank[role] ?? crewGroups.length;
     final cards = <Map<String, dynamic>>[];
     for (final kind in ['cast', 'crew']) {
       final useCache = fresh[kind] is! List;
@@ -802,21 +819,42 @@ class OptionalPeopleSession {
           if (roles.isEmpty) continue;
         }
         final key = '${person['id'] ?? name}';
-        if (rows.containsKey(key)) {
-          (rows[key]!['roles'] as Set<String>).addAll(roles);
+        final image = _tmdbImage(person[useCache ? 'image' : 'profile_path']);
+        if (rows[key] case final existing?) {
+          (existing['roles'] as Set<String>).addAll(roles);
+          if (existing['image'] == '') existing['image'] = image;
           continue;
         }
-        if (rows.length >= 24) continue;
         rows[key] = {
           'title': name,
           'roles': roles,
-          'image': _tmdbImage(person[useCache ? 'image' : 'profile_path']),
+          'image': image,
+          'order': rows.length,
         };
       }
-      for (final row in rows.values) {
+      final sorted = rows.values.toList();
+      for (final row in sorted) {
+        final roles = (row['roles'] as Set<String>).toList();
+        if (kind == 'crew') {
+          roles.sort((a, b) => rank(a).compareTo(rank(b)));
+        }
+        row['roles'] = roles;
+      }
+      sorted.sort((a, b) {
+        if (kind == 'crew') {
+          final byRole = rank(
+            (a['roles'] as List<String>).firstOrNull ?? '',
+          ).compareTo(rank((b['roles'] as List<String>).firstOrNull ?? ''));
+          if (byRole != 0) return byRole;
+        }
+        final aHasImage = a['image'] != '', bHasImage = b['image'] != '';
+        if (aHasImage != bHasImage) return aHasImage ? -1 : 1;
+        return (a['order'] as int).compareTo(b['order'] as int);
+      });
+      for (final row in sorted.take(24)) {
         cards.add({
           'title': row['title'],
-          'subtitle': _text((row['roles'] as Set<String>).join(' / ')),
+          'subtitle': _text((row['roles'] as List<String>).join(' / ')),
           'image': row['image'],
           'section': kind == 'cast'
               ? (zh ? (hant ? '演員' : '演员') : 'Cast')

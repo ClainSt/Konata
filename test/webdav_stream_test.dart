@@ -229,6 +229,7 @@ void main() {
           await Future<void>.delayed(const Duration(milliseconds: 10));
         }
         expect(f.relay.activeRequests, 0);
+        expect(f.relay.interruptedRead, isFalse);
       } finally {
         release.complete();
         await f.close();
@@ -510,19 +511,31 @@ void main() {
   test(
     'upstream truncation remains a failed transfer, not a successful short video',
     () async {
+      var truncate = true;
       final f = await Fixture.start((r) async {
         r.response.statusCode = 206;
         r.response.headers.set('content-range', 'bytes 0-99/100');
         r.response.contentLength = 100;
-        r.response.add(List.filled(10, 1));
-        await r.response.flush();
-        (await r.response.detachSocket()).destroy();
+        r.response.add(List.filled(truncate ? 10 : 100, 1));
+        if (truncate) {
+          await r.response.flush();
+          (await r.response.detachSocket()).destroy();
+        } else {
+          await r.response.close();
+        }
       });
       try {
         await expectLater(() async {
           final r = await f.request(range: 'bytes=0-99');
           await body(r);
         }, throwsA(isA<Exception>()));
+        expect(f.relay.interruptedRead, isTrue);
+        truncate = false;
+        expect(
+          await body(await f.request(range: 'bytes=0-99')),
+          hasLength(100),
+        );
+        expect(f.relay.interruptedRead, isFalse);
       } finally {
         await f.close();
       }

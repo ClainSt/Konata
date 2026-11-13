@@ -6,6 +6,14 @@ import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
 import 'library_backup_exporter.dart';
 import 'watch_event_store.dart';
+import 'library_foundation.dart';
+import 'scrape_tasks.dart';
+import 'scan_recognition.dart';
+import 'scoped_artwork.dart';
+import 'chapter_relations.dart';
+import 'library_merge.dart';
+import 'incremental_scan.dart';
+import 'anime_mapping_store.dart';
 
 /// Read-only inspection. Never extracts files or changes a running library.
 class LibraryBackupInspector {
@@ -65,25 +73,42 @@ class LibraryBackupInspector {
       if (decoded is! Map<String, dynamic> ||
           decoded['format'] != 'ccplayer-library' ||
           decoded['format_version'] != 1 ||
-          ![15, 16, 17, 18].contains(decoded['db_schema_version'])) {
+          ![
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+          ].contains(decoded['db_schema_version'])) {
         throw const FormatException('Unsupported backup format/schema');
       }
       final tables = decoded['tables'];
-      final expectedTables = LibraryBackupExporter.tables
-          .where(
-            (name) =>
-                (decoded['db_schema_version'] != 15 ||
-                    name != 'logical_episode_confirmations') &&
-                ((decoded['db_schema_version'] as int) >= 17 ||
-                    name != 'watch_events') &&
-                (decoded['db_schema_version'] == 18 ||
-                    ![
-                      'watch_identity_epochs',
-                      'bangumi_episode_mappings',
-                      'watch_event_origins',
-                    ].contains(name)),
-          )
-          .toList();
+      final expectedTables =
+          LibraryBackupExporter.tablesForSchema(
+                decoded['db_schema_version'] as int,
+              )
+              .where(
+                (name) =>
+                    (decoded['db_schema_version'] != 15 ||
+                        name != 'logical_episode_confirmations') &&
+                    ((decoded['db_schema_version'] as int) >= 17 ||
+                        name != 'watch_events') &&
+                    ((decoded['db_schema_version'] as int) >= 18 ||
+                        ![
+                          'watch_identity_epochs',
+                          'bangumi_episode_mappings',
+                          'watch_event_origins',
+                        ].contains(name)),
+              )
+              .toList();
       if (tables is! Map<String, dynamic> ||
           tables.length != expectedTables.length ||
           !tables.keys.toSet().containsAll(expectedTables)) {
@@ -129,7 +154,7 @@ class LibraryBackupInspector {
               .toList(),
         );
       }
-      if (decoded['db_schema_version'] == 18) {
+      if ((decoded['db_schema_version'] as int) >= 18) {
         final events = {
           for (final r in tables['watch_events'] as List) r['event_id'],
         };
@@ -192,6 +217,28 @@ class LibraryBackupInspector {
             !workIds.contains(item['work_id'])) {
           throw const FormatException('Orphaned media entry');
         }
+      }
+      if ((decoded['db_schema_version'] as int) >= 19) {
+        LibraryFoundation.validateSnapshot(tables);
+      }
+      if ((decoded['db_schema_version'] as int) >= 20) {
+        ScrapeTasks.validateSnapshot(tables);
+      }
+      if ((decoded['db_schema_version'] as int) >= 21) {
+        AnimeMappingStore.validateSnapshot(tables);
+      }
+      if ((decoded['db_schema_version'] as int) >= 22) {
+        ScanRecognition.validateSnapshot(tables);
+        IncrementalScan.validateSnapshot(tables);
+      }
+      if ((decoded['db_schema_version'] as int) >= 24) {
+        ScopedArtwork.validateSnapshot(tables);
+      }
+      if ((decoded['db_schema_version'] as int) >= 25) {
+        ChapterRelations.validateSnapshot(tables);
+      }
+      if ((decoded['db_schema_version'] as int) >= 26) {
+        LibraryMerge.validateSnapshot(tables);
       }
       for (final record in tables['progress'] as List) {
         if (!assetIds.contains(record['asset_id'])) {

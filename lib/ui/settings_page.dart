@@ -10,6 +10,8 @@ import '../core/image_store.dart';
 import '../core/artwork_settings.dart';
 import '../core/library_backup_exporter.dart';
 import '../core/library_backup_restorer.dart';
+import '../core/library_merge.dart';
+import 'library_merge_dialog.dart';
 import '../core/app_language.dart';
 import '../core/watch_settings.dart';
 import 'dart:async';
@@ -494,6 +496,51 @@ class _SettingsPageState extends State<SettingsPage> {
                     ExtensionsPanel(settings: widget.featureSettings),
                   if (selected == _SettingsCategory.records) ...[
                     const WatchedThresholdSettings(),
+                    if (Catalog.instance.libraryMergeEnabled)
+                      SettingsPanel(
+                        child: Column(
+                          children: [
+                            ListTile(
+                              leading: const Icon(Icons.merge),
+                              title: Text(
+                                Localizations.localeOf(context).languageCode ==
+                                        'zh'
+                                    ? '合并备份到当前库'
+                                    : 'Merge backup into current library',
+                              ),
+                              onTap: _inspectingBackup || _exporting
+                                  ? null
+                                  : () => _restoreLibraryBackup(null, true),
+                            ),
+                            ListTile(
+                              leading: const Icon(Icons.undo),
+                              title: Text(
+                                Localizations.localeOf(context).languageCode ==
+                                        'zh'
+                                    ? '撤回最近一次合并'
+                                    : 'Undo the latest merge',
+                              ),
+                              onTap: _inspectingBackup || _exporting
+                                  ? null
+                                  : _undoLibraryMerge,
+                            ),
+                            ListTile(
+                              leading: const Icon(Icons.compare_arrows),
+                              title: Text(
+                                Localizations.localeOf(context).languageCode ==
+                                        'zh'
+                                    ? '核对续播位置冲突'
+                                    : 'Review resume position conflicts',
+                              ),
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => const MergePositionsPage(),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     const SizedBox(height: 16),
                     SettingsPanel(
                       child: ListTile(
@@ -679,6 +726,93 @@ class _SettingsPageState extends State<SettingsPage> {
     ),
   );
 
+  Future<void> _undoLibraryMerge() async {
+    if (_inspectingBackup) return;
+    final catalog = Catalog.instance;
+    final zh = Localizations.localeOf(context).languageCode == 'zh';
+    String tr(String cn, String en) => zh ? cn : en;
+    void notify(String message) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
+      }
+    }
+
+    setState(() => _inspectingBackup = true);
+    try {
+      if (catalog.scanning) throw StateError('Scan running');
+      final restorer = await _restorer();
+      final preview = await restorer.previewMergeUndo();
+      if (!mounted) return;
+      if (preview == null || preview.affected == 0) {
+        notify(
+          preview == null
+              ? tr('没有可撤回的合并。', 'No merge is available to undo.')
+              : tr(
+                  '合并记录已被修改或引用，当前全部保留。',
+                  'Later changes or references require retaining every merged record.',
+                ),
+        );
+        return;
+      }
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+          scrollable: true,
+          title: Text(tr('撤回最近一次合并', 'Undo the latest merge')),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                MaterialLocalizations.of(
+                  dialog,
+                ).formatMediumDate(DateTime.parse(preview.createdAt).toLocal()),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                tr(
+                  '将撤回 ${preview.affected} 条合并记录，保留 ${preview.retained} 条已修改或有关联的记录。提交前会再次核对，并保存当前库的恢复点。',
+                  'Withdraw ${preview.affected} merged records and retain ${preview.retained} changed or related records. The library will be rechecked and backed up before applying.',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialog),
+              child: Text(MaterialLocalizations.of(dialog).cancelButtonLabel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialog, true),
+              child: Text(tr('撤回合并', 'Undo merge')),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      if (catalog.scanning) throw StateError('Scan running');
+      catalog.scanning = true;
+      try {
+        await restorer.undoMerge(preview);
+        await catalog.reload();
+      } finally {
+        catalog.scanning = false;
+      }
+      notify(tr('已撤回所预览的合并记录。', 'The reviewed merged records were withdrawn.'));
+    } catch (_) {
+      notify(
+        tr(
+          '暂时无法撤回，请重新预览合并状态。',
+          'Could not undo the merge. Review the current state again.',
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _inspectingBackup = false);
+    }
+  }
+
   Future<LibraryBackupRestorer> _restorer() async => LibraryBackupRestorer(
     database: Catalog.instance.db,
     artworkDirectory: await ImageStore.directory(),
@@ -727,7 +861,10 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _restoreLibraryBackup([File? input]) async {
+  Future<void> _restoreLibraryBackup([
+    File? input,
+    bool mergeMode = false,
+  ]) async {
     if (_inspectingBackup) return;
     setState(() => _inspectingBackup = true);
     PreparedLibraryBackup? prepared;
@@ -745,50 +882,58 @@ class _SettingsPageState extends State<SettingsPage> {
         }
         input = File(path);
       }
-      prepared = await (await _restorer()).prepare(input);
+      final restorer = await _restorer();
+      prepared = await restorer.prepare(input);
       final preview = prepared.preview;
       if (!mounted) return;
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: Text(context.l10n.restoreLibraryBackup),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(context.l10n.restoreCurrentLibrary),
-                Text(
-                  '${Catalog.instance.works.length + Catalog.instance.hiddenWorkEntries.length} / '
-                  '${Catalog.instance.assets.length} / ${Catalog.instance.sources.length}',
+      LibraryMerge? merge;
+      if (mergeMode) {
+        merge = await reviewLibraryMerge(context, prepared, restorer);
+      }
+      if (!mounted) return;
+      final confirmed = mergeMode
+          ? merge != null
+          : await showDialog<bool>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                title: Text(context.l10n.restoreLibraryBackup),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(context.l10n.restoreCurrentLibrary),
+                      Text(
+                        '${Catalog.instance.works.length + Catalog.instance.hiddenWorkEntries.length} / '
+                        '${Catalog.instance.assets.length} / ${Catalog.instance.sources.length}',
+                      ),
+                      const SizedBox(height: 12),
+                      Text(preview.createdAt.toLocal().toString()),
+                      const SizedBox(height: 12),
+                      Text(context.l10n.backupPreviewCounts),
+                      Text(
+                        '${preview.works} / ${preview.assets} / ${preview.sources} / ${preview.history} / ${preview.artwork}',
+                      ),
+                      const SizedBox(height: 12),
+                      Text(context.l10n.restoreLibraryBackupWarning),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 12),
-                Text(preview.createdAt.toLocal().toString()),
-                const SizedBox(height: 12),
-                Text(context.l10n.backupPreviewCounts),
-                Text(
-                  '${preview.works} / ${preview.assets} / ${preview.sources} / ${preview.history} / ${preview.artwork}',
-                ),
-                const SizedBox(height: 12),
-                Text(context.l10n.restoreLibraryBackupWarning),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: Text(
-                MaterialLocalizations.of(dialogContext).cancelButtonLabel,
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: Text(
+                      MaterialLocalizations.of(dialogContext).cancelButtonLabel,
+                    ),
+                  ),
+                  FilledButton(
+                    key: const ValueKey('library-backup-confirm'),
+                    onPressed: () => Navigator.pop(dialogContext, true),
+                    child: Text(context.l10n.restoreLibraryBackup),
+                  ),
+                ],
               ),
-            ),
-            FilledButton(
-              key: const ValueKey('library-backup-confirm'),
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: Text(context.l10n.restoreLibraryBackup),
-            ),
-          ],
-        ),
-      );
+            );
       if (confirmed != true || !mounted) return;
       if (Catalog.instance.scanning) throw StateError('Scan running');
       Catalog.instance.scanning = true;
@@ -811,7 +956,7 @@ class _SettingsPageState extends State<SettingsPage> {
       );
       unawaited(navigator.push(progress));
       try {
-        await (await _restorer()).restore(prepared);
+        await restorer.restore(prepared, merge: merge);
         await Catalog.instance.reload();
         await AppTheme.instance.load();
         await ArtworkSettings.instance.load();

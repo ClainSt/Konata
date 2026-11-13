@@ -1,0 +1,45 @@
+--- a/video/out/gpu/video.c
++++ b/video/out/gpu/video.c
+@@ -26,7 +26,11 @@
+ #include <libavutil/common.h>
+ #include <libavutil/lfg.h>
+ 
++#include "config.h"
+ #include "video.h"
++#if HAVE_D3D11
++#include "video/out/d3d11/ra_d3d11.h"
++#endif
+ 
+ #include "misc/bstr.h"
+ #include "options/m_config.h"
+@@ -4275,8 +4279,19 @@
+ {
+     struct ra_imgfmt_desc desc;
+     if (ra_get_imgfmt_desc(p->ra, mp_format, &desc) &&
+-        is_imgfmt_desc_supported(p, &desc))
++        is_imgfmt_desc_supported(p, &desc)) {
++#if HAVE_D3D11
++        // Filtering low-aligned 10-bit values in R16_UNORM loses precision
++        // before shader normalization. Let mpv's existing format negotiation
++        // use a high-aligned representation without changing color levels.
++        // Hardware P010 and other backends retain their existing path.
++        if (ra_is_d3d11(p->ra) && desc.component_type == RA_CTYPE_UNORM &&
++            desc.component_bits == 16 && desc.component_pad == -6 &&
++            desc.num_planes == 3 && desc.chroma_w == 2 && desc.chroma_h == 2)
++            return false;
++#endif
+         return true;
++    }
+     if (ra_hwdec_get(&p->hwdec_ctx, mp_format))
+         return true;
+     return false;
+--- a/video/mp_image.c
++++ b/video/mp_image.c
+@@ -568,6 +568,7 @@
+     dst->params.primaries_orig = src->params.primaries_orig;
+     dst->params.transfer_orig = src->params.transfer_orig;
+     dst->params.sys_orig = src->params.sys_orig;
++    dst->params.hdr_orig = src->params.hdr_orig;
+     dst->params.no_dovi = src->params.no_dovi;
+     dst->params.no_enhancement_layer = src->params.no_enhancement_layer;
+ 

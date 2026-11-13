@@ -230,6 +230,115 @@ class BangumiOfflineIndex {
     }
   }
 
+  static String? _indexedFile;
+  static int _indexedGen = -1;
+
+  static String _indexExpression() {
+    var expression = 'name';
+    for (final mark in PersonalFilenameParser.identityPunctuation) {
+      expression = "replace($expression, '${mark.replaceAll("'", "''")}', '')";
+    }
+    return expression;
+  }
+
+  static Set<String> _expandedKeys(Iterable<String> titles) {
+    const romanToAscii = {
+      'ⅰ': 'i',
+      'ⅱ': 'ii',
+      'ⅲ': 'iii',
+      'ⅳ': 'iv',
+      'ⅴ': 'v',
+      'ⅵ': 'vi',
+      'ⅶ': 'vii',
+      'ⅷ': 'viii',
+      'ⅸ': 'ix',
+      'ⅹ': 'x',
+    };
+    final keys = <String>{};
+    for (final title in titles) {
+      final key = PersonalFilenameParser.normalizeIdentity(title);
+      if (key.isEmpty) continue;
+      keys.add(key);
+      var converted = key;
+      for (final entry in romanToAscii.entries) {
+        converted = converted.replaceAll(entry.key, entry.value);
+      }
+      if (converted != key) keys.add(converted);
+    }
+    return keys;
+  }
+
+  Future<void> _ensureExpressionIndex(File file, String expression) async {
+    final stamp = '${file.path}:${await file.length()}';
+    if (_indexedFile == stamp && _indexedGen == generation) return;
+    final db = await databaseFactory.openDatabase(
+      file.path,
+      options: OpenDatabaseOptions(singleInstance: false),
+    );
+    try {
+      final indexes = await db.rawQuery(
+        "SELECT 1 FROM sqlite_master WHERE type='index' AND name='names_punctuation_v2'",
+      );
+      if (indexes.isEmpty) {
+        await db.transaction((transaction) async {
+          await transaction.execute(
+            'CREATE INDEX IF NOT EXISTS names_punctuation_v2 ON names($expression)',
+          );
+          final pages =
+              (await transaction.rawQuery(
+                    'PRAGMA page_count',
+                  )).single.values.single
+                  as int;
+          final pageSize =
+              (await transaction.rawQuery(
+                    'PRAGMA page_size',
+                  )).single.values.single
+                  as int;
+          if (pages * pageSize > maxIndexBytes) {
+            throw const FormatException('Index exceeds storage limit');
+          }
+        });
+      }
+      _indexedFile = '${file.path}:${await file.length()}';
+      _indexedGen = generation;
+    } finally {
+      await db.close();
+    }
+  }
+
+  /// Batch-lookup multiple title/filename hints in a single read-only SQLite
+  /// connection, avoiding per-hint open/close overhead while keeping file
+  /// replacement serialized on Windows.
+  Future<List<Map<String, dynamic>>> lookupMany(
+    Iterable<String> titles, {
+    int limit = 48,
+  }) => _locked(() async {
+    final keys = _expandedKeys(titles).take(32).toList();
+    if (keys.isEmpty) return [];
+    final file = await _readable();
+    if (file == null) return [];
+    final expression = _indexExpression();
+    await _ensureExpressionIndex(file, expression);
+    final db = await databaseFactory.openDatabase(
+      file.path,
+      options: OpenDatabaseOptions(readOnly: true, singleInstance: false),
+    );
+    try {
+      final placeholders = List.filled(keys.length, '?').join(',');
+      final rows = await db.rawQuery(
+        'SELECT DISTINCT s.id, s.payload FROM names n JOIN subjects s ON s.id=n.subject_id WHERE $expression IN ($placeholders) LIMIT ?',
+        [...keys, limit],
+      );
+      return rows
+          .map(
+            (r) => jsonDecode(r['payload'] as String) as Map<String, dynamic>,
+          )
+          .toList();
+    } finally {
+      await db.close();
+    }
+  });
+
   /// All exact identities are retained. More than 32 means callers must defer
   /// to online confirmation; a truncated lookup never establishes uniqueness.
   Future<List<Map<String, dynamic>>> lookup(String title) => _locked(() async {
@@ -237,13 +346,15 @@ class BangumiOfflineIndex {
     if (key.isEmpty) return [];
     final file = await _readable();
     if (file == null) return [];
+    final expression = _indexExpression();
+    await _ensureExpressionIndex(file, expression);
     final db = await databaseFactory.openDatabase(
       file.path,
       options: OpenDatabaseOptions(readOnly: true, singleInstance: false),
     );
     try {
       final rows = await db.rawQuery(
-        'SELECT s.payload FROM names n JOIN subjects s ON s.id=n.subject_id WHERE n.name=? LIMIT 33',
+        'SELECT DISTINCT s.id, s.payload FROM names n JOIN subjects s ON s.id=n.subject_id WHERE $expression=? LIMIT 33',
         [key],
       );
       return rows

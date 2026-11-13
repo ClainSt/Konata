@@ -60,4 +60,31 @@ void main() {
       throwsA(anything),
     );
   });
+
+  test(
+    'display keeps the aspect ratio when only a large image is available',
+    () async {
+      final original = await png(1200, 1800);
+      final resized = await ImageStore.fitForDisplay(original, 160);
+      expect(await ImageStore.dimensions(resized), (width: 160, height: 240));
+      expect(resized.length, lessThan(original.length));
+      expect(await ImageStore.fitForDisplay(resized, 320), same(resized));
+    },
+  );
+
+  test('TMDB display sizes cap cards while allowing full background width', () {
+    const url = 'https://image.tmdb.org/t/p/original/fixture.jpg';
+    expect(
+      ImageStore.tmdbDisplayUrl(url, 510, backdrop: false),
+      contains('/w300/'),
+    );
+    expect(
+      ImageStore.tmdbDisplayUrl(url, 270, backdrop: false, poster: true),
+      contains('/w342/'),
+    );
+    expect(
+      ImageStore.tmdbDisplayUrl(url, 1510, backdrop: true),
+      contains('/original/'),
+    );
+  });
 }

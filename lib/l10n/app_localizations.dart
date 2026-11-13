@@ -786,13 +786,13 @@ abstract class AppLocalizations {
   /// Konata interface: apiAddress
   ///
   /// In en, this message translates to:
-  /// **'API URL'**
+  /// **'Backup API URL'**
   String get apiAddress;
 
   /// Konata interface: imageAddress
   ///
   /// In en, this message translates to:
-  /// **'Image URL'**
+  /// **'Backup image URL'**
   String get imageAddress;
 
   /// Konata interface: testApi
@@ -834,7 +834,7 @@ abstract class AppLocalizations {
   /// Konata interface: serverNotice
   ///
   /// In en, this message translates to:
-  /// **'Set API and image URLs separately. Bangumi uses a community mirror by default. HTTP is unencrypted.'**
+  /// **'Requests try official servers first. The addresses below are backups for the API and images. Bangumi’s default backup is a community mirror. HTTP is unencrypted.'**
   String get serverNotice;
 
   /// No description provided for @videoOutputRecovered.
@@ -852,13 +852,13 @@ abstract class AppLocalizations {
   /// Konata interface: fallbackDescription
   ///
   /// In en, this message translates to:
-  /// **'Use a backup server if requests fail. Tests use the entered URL.'**
+  /// **'Switch to the backup on a timeout or connection failure. Connection tests check the entered backup directly.'**
   String get fallbackDescription;
 
   /// Konata interface: allowCustomCredentials
   ///
   /// In en, this message translates to:
-  /// **'Send credentials to custom TMDB HTTPS servers'**
+  /// **'Send credentials to a custom TMDB HTTPS backup'**
   String get allowCustomCredentials;
 
   /// Konata interface: notTested
@@ -2349,6 +2349,12 @@ abstract class AppLocalizations {
   /// **'Restore empty default'**
   String get mpvReset;
 
+  /// No description provided for @hdrTargetIncompatible.
+  ///
+  /// In en, this message translates to:
+  /// **'The HDR target in your MPV configuration is incompatible with the current video output. Change the target settings or disable the custom configuration, then reopen the video.'**
+  String get hdrTargetIncompatible;
+
   /// No description provided for @mpvFolderReadError.
   ///
   /// In en, this message translates to:
@@ -2895,41 +2901,23 @@ abstract class AppLocalizations {
   /// **'Name or Bangumi ID'**
   String get nameOrBangumiId;
 
-  /// No description provided for @unclassified.
+  /// No description provided for @lockOrientation.
   ///
   /// In en, this message translates to:
-  /// **'Unclassified'**
-  String get unclassified;
+  /// **'Lock current orientation'**
+  String get lockOrientation;
 
-  /// No description provided for @assignToWork.
+  /// No description provided for @unlockOrientation.
   ///
   /// In en, this message translates to:
-  /// **'Assign to title'**
-  String get assignToWork;
+  /// **'Follow device orientation'**
+  String get unlockOrientation;
 
-  /// No description provided for @workName.
+  /// No description provided for @orientationUnavailable.
   ///
   /// In en, this message translates to:
-  /// **'Title name'**
-  String get workName;
-
-  /// No description provided for @createClassification.
-  ///
-  /// In en, this message translates to:
-  /// **'Create title with this name'**
-  String get createClassification;
-
-  /// No description provided for @classificationHint.
-  ///
-  /// In en, this message translates to:
-  /// **'Only library assignments change; original files stay in place. Select files from one source, then assign them to an existing or new title.'**
-  String get classificationHint;
-
-  /// No description provided for @selectSourceFiles.
-  ///
-  /// In en, this message translates to:
-  /// **'Select all from this source'**
-  String get selectSourceFiles;
+  /// **'Could not change orientation. Please try again.'**
+  String get orientationUnavailable;
 
   /// No description provided for @offlineBangumi.
   ///
@@ -3050,6 +3038,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Index size'**
   String get offlineIndexSize;
+
+  /// No description provided for @dolbyVisionProfile5Unsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Dolby Vision Profile 5 is not supported by the current player. This video has no compatible HDR10 base layer. Use an HDR10/SDR version or a player that supports this profile.'**
+  String get dolbyVisionProfile5Unsupported;
 }
 
 class _AppLocalizationsDelegate

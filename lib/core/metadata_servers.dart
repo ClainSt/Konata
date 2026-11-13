@@ -16,6 +16,8 @@ class MetadataServers {
   static List<String> values = List.of(defaults);
   static bool fallback = true;
   static bool trustCustomTmdb = false;
+  static const primaryAttemptLimit = Duration(seconds: 3);
+  static final _routeCooldown = <String, DateTime>{};
   static final _imageHistory = <int, Set<String>>{1: {}, 3: {}};
   static String normalize(String raw, int index) {
     final u = Uri.tryParse(raw.trim());
@@ -47,7 +49,7 @@ class MetadataServers {
   }
 
   static Uri endpoint(int index, String resource, {String? base}) {
-    final root = normalize(base ?? values[index], index);
+    final root = normalize(base ?? official[index], index);
     var path = resource.replaceFirst(RegExp(r'^/+'), '');
     if (index == 2) path = path.replaceFirst(RegExp(r'^v0/'), '');
     if (index == 0) path = path.replaceFirst(RegExp(r'^3/'), '');
@@ -56,6 +58,32 @@ class MetadataServers {
 
   static String tmdbImage(String path, [String size = 'w500']) =>
       endpoint(1, '$size$path').toString();
+
+  static List<Uri> routes(int index, String resource, {String? query}) => {
+    endpoint(index, resource).replace(query: query),
+    if (fallback)
+      endpoint(index, resource, base: values[index]).replace(query: query),
+  }.toList();
+
+  static Duration attemptTimeout(Duration budget, {required bool hasBackup}) =>
+      hasBackup && budget > primaryAttemptLimit ? primaryAttemptLimit : budget;
+
+  static List<Uri> tryOrder(List<Uri> routes) {
+    if (routes.length < 2) return routes;
+    final now = DateTime.now();
+    bool cooling(Uri uri) => _routeCooldown[uri.origin]?.isAfter(now) ?? false;
+    return [...routes.where((uri) => !cooling(uri)), ...routes.where(cooling)];
+  }
+
+  static void failedRoute(Uri uri) {
+    final now = DateTime.now();
+    _routeCooldown.removeWhere((_, until) => !until.isAfter(now));
+    if (_routeCooldown.length < 16) {
+      _routeCooldown[uri.origin] = now.add(const Duration(seconds: 45));
+    }
+  }
+
+  static void reachedRoute(Uri uri) => _routeCooldown.remove(uri.origin);
 
   static (int, String)? imageResource(String raw) {
     final uri = Uri.tryParse(raw);
@@ -88,8 +116,21 @@ class MetadataServers {
     ).replace(query: u.hasQuery ? u.query : null).toString();
   }
 
+  static List<Uri> imageRoutes(String raw) {
+    final uri = Uri.parse(raw);
+    final resource = imageResource(raw);
+    return resource == null
+        ? [uri]
+        : routes(
+            resource.$1,
+            resource.$2,
+            query: uri.hasQuery ? uri.query : null,
+          );
+  }
+
   static Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
+    _routeCooldown.clear();
     for (var i = 0; i < 4; i++) {
       try {
         values[i] = normalize(
@@ -136,5 +177,6 @@ class MetadataServers {
     values = normalized;
     fallback = autoFallback;
     trustCustomTmdb = trust;
+    _routeCooldown.clear();
   }
 }

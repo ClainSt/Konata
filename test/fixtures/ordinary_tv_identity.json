@@ -1,0 +1,1848 @@
+[
+  {
+    "key": "review-011",
+    "files": [
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/放学后桌游俱乐部",
+        "name": "[ReinForce] Houkago Saikoro Club 01 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/放学后桌游俱乐部",
+        "name": "[ReinForce] Houkago Saikoro Club 02 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/放学后桌游俱乐部",
+        "name": "[ReinForce] Houkago Saikoro Club 03 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/放学后桌游俱乐部",
+        "name": "[ReinForce] Houkago Saikoro Club 04 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/放学后桌游俱乐部",
+        "name": "[ReinForce] Houkago Saikoro Club 05 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/放学后桌游俱乐部",
+        "name": "[ReinForce] Houkago Saikoro Club 06 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/放学后桌游俱乐部",
+        "name": "[ReinForce] Houkago Saikoro Club 07 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/放学后桌游俱乐部",
+        "name": "[ReinForce] Houkago Saikoro Club 08 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/放学后桌游俱乐部",
+        "name": "[ReinForce] Houkago Saikoro Club 09 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/放学后桌游俱乐部",
+        "name": "[ReinForce] Houkago Saikoro Club 10 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/放学后桌游俱乐部",
+        "name": "[ReinForce] Houkago Saikoro Club 11 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/放学后桌游俱乐部",
+        "name": "[ReinForce] Houkago Saikoro Club 12 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/放学后桌游俱乐部/Extra",
+        "name": "[ReinForce] Houkago Saikoro Club ED (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/放学后桌游俱乐部/Extra",
+        "name": "[ReinForce] Houkago Saikoro Club OP (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/放学后桌游俱乐部/Extra",
+        "name": "[ReinForce] Houkago Saikoro Club OPv2 (BDRip 1920x1080 x264 FLAC).mkv"
+      }
+    ],
+    "tmdb": {
+      "id": 91026,
+      "name": "放学后桌游俱乐部",
+      "original_name": "放課後さいころ倶楽部",
+      "first_air_date": "2019-10-03",
+      "seasons": [
+        {
+          "air_date": "2019-10-03",
+          "episode_count": 12,
+          "id": 127534,
+          "name": "第 1 季",
+          "overview": "",
+          "poster_path": "/oMWNcNgnDkjJDJxb9WOGyf5BKGi.jpg",
+          "season_number": 1,
+          "vote_average": 0.0
+        }
+      ],
+      "alternative_titles": {
+        "results": [
+          {
+            "iso_3166_1": "CH",
+            "title": "After School Dice Club",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "US",
+            "title": "Afterschool Dice Club",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "US",
+            "title": "Houkago Saikoro Club",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "VN",
+            "title": "Câu Lạc Bộ Xúc Xắc Sau Giờ Học",
+            "type": ""
+          }
+        ]
+      },
+      "translations": {
+        "translations": [
+          {
+            "iso_3166_1": "MX",
+            "iso_639_1": "es",
+            "name": "Español",
+            "english_name": "Spanish",
+            "data": {
+              "name": "Houkago Saikoro Club"
+            }
+          },
+          {
+            "iso_3166_1": "ES",
+            "iso_639_1": "es",
+            "name": "Español",
+            "english_name": "Spanish",
+            "data": {
+              "name": "Houkago Saikoro Club"
+            }
+          },
+          {
+            "iso_3166_1": "FR",
+            "iso_639_1": "fr",
+            "name": "Français",
+            "english_name": "French",
+            "data": {
+              "name": "After School Dice Club"
+            }
+          },
+          {
+            "iso_3166_1": "CN",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "放学后桌游俱乐部"
+            }
+          },
+          {
+            "iso_3166_1": "BR",
+            "iso_639_1": "pt",
+            "name": "Português",
+            "english_name": "Portuguese",
+            "data": {
+              "name": "Houkago Saikoro Club"
+            }
+          },
+          {
+            "iso_3166_1": "US",
+            "iso_639_1": "en",
+            "name": "English",
+            "english_name": "English",
+            "data": {
+              "name": "After School Dice Club"
+            }
+          },
+          {
+            "iso_3166_1": "KR",
+            "iso_639_1": "ko",
+            "name": "한국어/조선말",
+            "english_name": "Korean",
+            "data": {
+              "name": "방과 후 주사위 클럽"
+            }
+          },
+          {
+            "iso_3166_1": "RU",
+            "iso_639_1": "ru",
+            "name": "Pусский",
+            "english_name": "Russian",
+            "data": {
+              "name": "Клуб настольных игр"
+            }
+          },
+          {
+            "iso_3166_1": "JP",
+            "iso_639_1": "ja",
+            "name": "日本語",
+            "english_name": "Japanese",
+            "data": {
+              "name": ""
+            }
+          },
+          {
+            "iso_3166_1": "SA",
+            "iso_639_1": "ar",
+            "name": "العربية",
+            "english_name": "Arabic",
+            "data": {
+              "name": "نادي النرد بعد المدرسة"
+            }
+          },
+          {
+            "iso_3166_1": "DE",
+            "iso_639_1": "de",
+            "name": "Deutsch",
+            "english_name": "German",
+            "data": {
+              "name": "After School Dice Club"
+            }
+          },
+          {
+            "iso_3166_1": "TW",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "放學後桌遊俱樂部"
+            }
+          },
+          {
+            "iso_3166_1": "PL",
+            "iso_639_1": "pl",
+            "name": "Polski",
+            "english_name": "Polish",
+            "data": {
+              "name": "Houkago Saikoro Club"
+            }
+          },
+          {
+            "iso_3166_1": "IT",
+            "iso_639_1": "it",
+            "name": "Italiano",
+            "english_name": "Italian",
+            "data": {
+              "name": "After School Dice Club"
+            }
+          },
+          {
+            "iso_3166_1": "UA",
+            "iso_639_1": "uk",
+            "name": "Український",
+            "english_name": "Ukrainian",
+            "data": {
+              "name": "Клуб настільних ігор"
+            }
+          },
+          {
+            "iso_3166_1": "NL",
+            "iso_639_1": "nl",
+            "name": "Nederlands",
+            "english_name": "Dutch",
+            "data": {
+              "name": ""
+            }
+          },
+          {
+            "iso_3166_1": "HK",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "放學後桌遊俱樂部"
+            }
+          },
+          {
+            "iso_3166_1": "TH",
+            "iso_639_1": "th",
+            "name": "ภาษาไทย",
+            "english_name": "Thai",
+            "data": {
+              "name": "ชั่วโมงหรรษา เวลาบอร์ดเกม"
+            }
+          },
+          {
+            "iso_3166_1": "VN",
+            "iso_639_1": "vi",
+            "name": "Tiếng Việt",
+            "english_name": "Vietnamese",
+            "data": {
+              "name": "Câu Lạc Bộ Xúc Xắc Sau Giờ Học"
+            }
+          }
+        ]
+      }
+    },
+    "season": {
+      "id": 127534,
+      "season_number": 1,
+      "episodes": [
+        {
+          "air_date": "2019-10-03",
+          "episode_number": 1,
+          "id": 1848494,
+          "name": "知らない世界",
+          "season_number": 1
+        },
+        {
+          "air_date": "2019-10-10",
+          "episode_number": 2,
+          "id": 1944467,
+          "name": "これはゴキブリです！",
+          "season_number": 1
+        },
+        {
+          "air_date": "2019-10-17",
+          "episode_number": 3,
+          "id": 1944468,
+          "name": "ひとりとちゃうから",
+          "season_number": 1
+        },
+        {
+          "air_date": "2019-10-24",
+          "episode_number": 4,
+          "id": 1944469,
+          "name": "ミドリの夢",
+          "season_number": 1
+        },
+        {
+          "air_date": "2019-10-31",
+          "episode_number": 5,
+          "id": 1944470,
+          "name": "キミに伝えるメッセージ",
+          "season_number": 1
+        },
+        {
+          "air_date": "2019-11-07",
+          "episode_number": 6,
+          "id": 1944471,
+          "name": "ひよっこデザイナー誕生！",
+          "season_number": 1
+        },
+        {
+          "air_date": "2019-11-14",
+          "episode_number": 7,
+          "id": 1944472,
+          "name": "こころ、ひらいて",
+          "season_number": 1
+        },
+        {
+          "air_date": "2019-11-21",
+          "episode_number": 8,
+          "id": 1944473,
+          "name": "４人めの友だち",
+          "season_number": 1
+        },
+        {
+          "air_date": "2019-11-28",
+          "episode_number": 9,
+          "id": 1944474,
+          "name": "ダルマサンガコロンダ",
+          "season_number": 1
+        },
+        {
+          "air_date": "2019-12-05",
+          "episode_number": 10,
+          "id": 1944475,
+          "name": "ハッピーホーリーナイト",
+          "season_number": 1
+        },
+        {
+          "air_date": "2019-12-12",
+          "episode_number": 11,
+          "id": 1944476,
+          "name": "みんなのゲーム",
+          "season_number": 1
+        },
+        {
+          "air_date": "2019-12-19",
+          "episode_number": 12,
+          "id": 1944477,
+          "name": "私たちの大好きな場所",
+          "season_number": 1
+        }
+      ]
+    },
+    "bangumi": {
+      "id": 259790,
+      "type": 2,
+      "name": "放課後さいころ倶楽部",
+      "name_cn": "放学后桌游俱乐部",
+      "date": "2019-10-02",
+      "infobox": [
+        {
+          "key": "别名",
+          "value": [
+            {
+              "v": "放学后骰子俱乐部"
+            },
+            {
+              "v": "Houkago Saikoro Club"
+            },
+            {
+              "v": "After School Dice Club"
+            }
+          ]
+        }
+      ]
+    },
+    "episodes": {
+      "total": 12,
+      "limit": 100,
+      "offset": 0,
+      "data": [
+        {
+          "airdate": "2019-10-02",
+          "name": "知らない世界",
+          "name_cn": "未知的世界",
+          "ep": 1,
+          "sort": 1,
+          "id": 906553,
+          "type": 0
+        },
+        {
+          "airdate": "2019-10-09",
+          "name": "これはゴキブリです！",
+          "name_cn": "正所谓蟑螂",
+          "ep": 2,
+          "sort": 2,
+          "id": 906554,
+          "type": 0
+        },
+        {
+          "airdate": "2019-10-16",
+          "name": "ひとりとちゃうから",
+          "name_cn": "我不孤单",
+          "ep": 3,
+          "sort": 3,
+          "id": 906555,
+          "type": 0
+        },
+        {
+          "airdate": "2019-10-23",
+          "name": "ミドリの夢",
+          "name_cn": "小翠的梦想",
+          "ep": 4,
+          "sort": 4,
+          "id": 906556,
+          "type": 0
+        },
+        {
+          "airdate": "2019-10-30",
+          "name": "キミに伝えるメッセージ",
+          "name_cn": "传达给你的信息",
+          "ep": 5,
+          "sort": 5,
+          "id": 906557,
+          "type": 0
+        },
+        {
+          "airdate": "2019-11-06",
+          "name": "ひよっこデザイナー誕生！",
+          "name_cn": "新人设计师诞生！",
+          "ep": 6,
+          "sort": 6,
+          "id": 906558,
+          "type": 0
+        },
+        {
+          "airdate": "2019-11-13",
+          "name": "こころ、ひらいて",
+          "name_cn": "敞开心扉",
+          "ep": 7,
+          "sort": 7,
+          "id": 906559,
+          "type": 0
+        },
+        {
+          "airdate": "2019-11-20",
+          "name": "4人めの友だち",
+          "name_cn": "第四位朋友",
+          "ep": 8,
+          "sort": 8,
+          "id": 906560,
+          "type": 0
+        },
+        {
+          "airdate": "2019-11-27",
+          "name": "ダルマサンガコロンダ",
+          "name_cn": "123木头人",
+          "ep": 9,
+          "sort": 9,
+          "id": 906561,
+          "type": 0
+        },
+        {
+          "airdate": "2019-12-04",
+          "name": "ハッピーホーリーナイト",
+          "name_cn": "平安夜快乐",
+          "ep": 10,
+          "sort": 10,
+          "id": 906562,
+          "type": 0
+        },
+        {
+          "airdate": "2019-12-11",
+          "name": "みんなのゲーム",
+          "name_cn": "大家的游戏",
+          "ep": 11,
+          "sort": 11,
+          "id": 906563,
+          "type": 0
+        },
+        {
+          "airdate": "2019-12-18",
+          "name": "私たちの大好きな場所",
+          "name_cn": "我们最喜欢的地方",
+          "ep": 12,
+          "sort": 12,
+          "id": 906564,
+          "type": 0
+        }
+      ]
+    }
+  },
+  {
+    "key": "review-013",
+    "files": [
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [01][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [02][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [03][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [04][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [05][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [06][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [07][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [08][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [09][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [10][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [11][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [12][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [13][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [CM01][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [CM02][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [CM03][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [CM04][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [IV01][Ma10p_1080p][x265_aac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [Menu01][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [Menu02][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [Menu03][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [Menu04][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [Menu05][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [Menu06][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [NCED][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [PV01][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [PV02][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [SP01][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [True End PV][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [Web Preview 02][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [Web Preview 03][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [Web Preview 04][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [Web Preview 05][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [Web Preview 06][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [Web Preview 07][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [Web Preview 08][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [Web Preview 09][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [Web Preview 10][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [Web Preview 11][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [Web Preview 12][Ma10p_1080p][x265_flac].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/16bit的感动 ANOTHER LAYER (2023)/SPs",
+        "name": "[SweetSub&VCB-Studio] 16bit Sensation Another Layer [Web Preview 13][Ma10p_1080p][x265_flac].mkv"
+      }
+    ],
+    "tmdb": {
+      "id": 217512,
+      "name": "16bit的感动 ANOTHER LAYER",
+      "original_name": "16bitセンセーション ANOTHER LAYER",
+      "first_air_date": "2023-10-05",
+      "seasons": [
+        {
+          "air_date": "2023-10-05",
+          "episode_count": 13,
+          "id": 322519,
+          "name": "第 1 季",
+          "overview": "「秋里乐叶」是热爱着美少女和美少女游戏的插画家，她梦想着成为超人气插画家而在美少女游戏制作公司奋斗着，但现实却不顺遂。因为在社交游戏全盛时期的现代，公司转变了方针。乐叶只能担任插画家助手，过着每天绘制路人角色背影的日子。\n\n在某一天，因为意外的原因从游戏店的店长手上拿到了过去的知名美少女游戏。怀念着美少女游戏的黄金时代，打开了《同级生》的外盒后，乐叶突然被耀眼的光芒包围，回过神来她已经穿越时空回到了过去。\n\n乐叶回到的过去是1992年！这时代正是美少女游戏的黎明期！来到了名为Alcohol Soft的公司工作的乐叶，心怀美少女、绘制美少女，她能创造出美少女吗！？献上对美少女游戏绝对的热爱，这名少女的故事…「那么，就开始吧！」",
+          "poster_path": "/fsH6SFfVuMGy6r02D6so8QWJckL.jpg",
+          "season_number": 1,
+          "vote_average": 5.7
+        }
+      ],
+      "alternative_titles": {
+        "results": [
+          {
+            "iso_3166_1": "CN",
+            "title": "16bit的感动",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "CN",
+            "title": "16位元的輝煌 Another Layer",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "CN",
+            "title": "16位元的輝煌",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "CN",
+            "title": "16bit的感动 ANOTHER LAYER",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "CN",
+            "title": "16 位的辉煌",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "CN",
+            "title": "16位的辉煌 Another Layer",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "JP",
+            "title": "16bit Sensation: Watashi to Minna ga Tsukutta Bishōjo Game",
+            "type": "Manga title, romaji"
+          },
+          {
+            "iso_3166_1": "JP",
+            "title": "16bit Sensation: Watashi to Minna ga Tsukutta Bishoujo Game",
+            "type": "Manga title, romaji"
+          },
+          {
+            "iso_3166_1": "KR",
+            "title": "16비트 센세이션 어나더 레이어",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "US",
+            "title": "16bit Sensation: The Bishōjo Game Made by All of You and I",
+            "type": "Manga title"
+          },
+          {
+            "iso_3166_1": "US",
+            "title": "16bit Sensation Another Layer",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "US",
+            "title": "16-Bit Sensation",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "US",
+            "title": "16 Bit Sensation",
+            "type": ""
+          }
+        ]
+      },
+      "translations": {
+        "translations": [
+          {
+            "iso_3166_1": "US",
+            "iso_639_1": "en",
+            "name": "English",
+            "english_name": "English",
+            "data": {
+              "name": "16bit Sensation: Another Layer"
+            }
+          },
+          {
+            "iso_3166_1": "JP",
+            "iso_639_1": "ja",
+            "name": "日本語",
+            "english_name": "Japanese",
+            "data": {
+              "name": ""
+            }
+          },
+          {
+            "iso_3166_1": "DE",
+            "iso_639_1": "de",
+            "name": "Deutsch",
+            "english_name": "German",
+            "data": {
+              "name": "16bit Sensation: Another Layer"
+            }
+          },
+          {
+            "iso_3166_1": "CN",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "16bit的感动 ANOTHER LAYER"
+            }
+          },
+          {
+            "iso_3166_1": "BR",
+            "iso_639_1": "pt",
+            "name": "Português",
+            "english_name": "Portuguese",
+            "data": {
+              "name": "16bit Sensation: Another Layer"
+            }
+          },
+          {
+            "iso_3166_1": "TW",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "16bit 的感動 ANOTHER LAYER"
+            }
+          },
+          {
+            "iso_3166_1": "IL",
+            "iso_639_1": "he",
+            "name": "עִבְרִית",
+            "english_name": "Hebrew",
+            "data": {
+              "name": "סנסציית 16 ביט: שכבה נוספת"
+            }
+          },
+          {
+            "iso_3166_1": "FR",
+            "iso_639_1": "fr",
+            "name": "Français",
+            "english_name": "French",
+            "data": {
+              "name": "16bit Sensation: Another Layer"
+            }
+          },
+          {
+            "iso_3166_1": "MX",
+            "iso_639_1": "es",
+            "name": "Español",
+            "english_name": "Spanish",
+            "data": {
+              "name": "16bit Sensation: Another Layer"
+            }
+          },
+          {
+            "iso_3166_1": "RU",
+            "iso_639_1": "ru",
+            "name": "Pусский",
+            "english_name": "Russian",
+            "data": {
+              "name": "16-битная чувственность: Новый слой"
+            }
+          },
+          {
+            "iso_3166_1": "CZ",
+            "iso_639_1": "cs",
+            "name": "Český",
+            "english_name": "Czech",
+            "data": {
+              "name": "16bit Sensation: Another Layer"
+            }
+          },
+          {
+            "iso_3166_1": "NO",
+            "iso_639_1": "no",
+            "name": "Norsk",
+            "english_name": "Norwegian",
+            "data": {
+              "name": "16bit Sensation: Another Layer"
+            }
+          },
+          {
+            "iso_3166_1": "FI",
+            "iso_639_1": "fi",
+            "name": "suomi",
+            "english_name": "Finnish",
+            "data": {
+              "name": "16bit Sensation: Another Layer"
+            }
+          },
+          {
+            "iso_3166_1": "SE",
+            "iso_639_1": "sv",
+            "name": "svenska",
+            "english_name": "Swedish",
+            "data": {
+              "name": "16bit Sensation: Another Layer"
+            }
+          },
+          {
+            "iso_3166_1": "DK",
+            "iso_639_1": "da",
+            "name": "Dansk",
+            "english_name": "Danish",
+            "data": {
+              "name": "16bit Sensation: Another Layer"
+            }
+          },
+          {
+            "iso_3166_1": "ES",
+            "iso_639_1": "es",
+            "name": "Español",
+            "english_name": "Spanish",
+            "data": {
+              "name": "16bit Sensation: Another Layer"
+            }
+          },
+          {
+            "iso_3166_1": "PT",
+            "iso_639_1": "pt",
+            "name": "Português",
+            "english_name": "Portuguese",
+            "data": {
+              "name": "16bit Sensation: Another Layer"
+            }
+          },
+          {
+            "iso_3166_1": "IT",
+            "iso_639_1": "it",
+            "name": "Italiano",
+            "english_name": "Italian",
+            "data": {
+              "name": "16bit Sensation: Another Layer"
+            }
+          },
+          {
+            "iso_3166_1": "KR",
+            "iso_639_1": "ko",
+            "name": "한국어/조선말",
+            "english_name": "Korean",
+            "data": {
+              "name": "16bit 센세이션: ANOTHER LAYER"
+            }
+          },
+          {
+            "iso_3166_1": "UA",
+            "iso_639_1": "uk",
+            "name": "Український",
+            "english_name": "Ukrainian",
+            "data": {
+              "name": "16-ти бітне Сприйняття: Інший Рівень"
+            }
+          },
+          {
+            "iso_3166_1": "NL",
+            "iso_639_1": "nl",
+            "name": "Nederlands",
+            "english_name": "Dutch",
+            "data": {
+              "name": ""
+            }
+          },
+          {
+            "iso_3166_1": "NN",
+            "iso_639_1": "nn",
+            "name": "",
+            "english_name": "Norwegian Nynorsk",
+            "data": {
+              "name": "16bit Sensation: Another Layer"
+            }
+          },
+          {
+            "iso_3166_1": "PL",
+            "iso_639_1": "pl",
+            "name": "Polski",
+            "english_name": "Polish",
+            "data": {
+              "name": "16bit Sensation: Another Layer"
+            }
+          },
+          {
+            "iso_3166_1": "HK",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "16bit 的感動 ANOTHER LAYER"
+            }
+          },
+          {
+            "iso_3166_1": "HU",
+            "iso_639_1": "hu",
+            "name": "Magyar",
+            "english_name": "Hungarian",
+            "data": {
+              "name": "16bit Sensation: Another Layer"
+            }
+          },
+          {
+            "iso_3166_1": "TH",
+            "iso_639_1": "th",
+            "name": "ภาษาไทย",
+            "english_name": "Thai",
+            "data": {
+              "name": "16bit Sensation: ANOTHER LAYER"
+            }
+          },
+          {
+            "iso_3166_1": "PH",
+            "iso_639_1": "tl",
+            "name": "",
+            "english_name": "Tagalog",
+            "data": {
+              "name": ""
+            }
+          },
+          {
+            "iso_3166_1": "SG",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": ""
+            }
+          },
+          {
+            "iso_3166_1": "CA",
+            "iso_639_1": "fr",
+            "name": "Français",
+            "english_name": "French",
+            "data": {
+              "name": ""
+            }
+          },
+          {
+            "iso_3166_1": "BE",
+            "iso_639_1": "nl",
+            "name": "Nederlands",
+            "english_name": "Dutch",
+            "data": {
+              "name": ""
+            }
+          },
+          {
+            "iso_3166_1": "AL",
+            "iso_639_1": "sq",
+            "name": "shqip",
+            "english_name": "Albanian",
+            "data": {
+              "name": ""
+            }
+          },
+          {
+            "iso_3166_1": "AM",
+            "iso_639_1": "hy",
+            "name": "",
+            "english_name": "Armenian",
+            "data": {
+              "name": ""
+            }
+          },
+          {
+            "iso_3166_1": "VN",
+            "iso_639_1": "vi",
+            "name": "Tiếng Việt",
+            "english_name": "Vietnamese",
+            "data": {
+              "name": "16bit Sensation: Another Layer"
+            }
+          }
+        ]
+      }
+    },
+    "season": {
+      "id": 322519,
+      "season_number": 1,
+      "episodes": [
+        {
+          "air_date": "2023-10-05",
+          "episode_number": 1,
+          "id": 4135013,
+          "name": "タイムリープしちゃったぁ～！？",
+          "season_number": 1
+        },
+        {
+          "air_date": "2023-10-12",
+          "episode_number": 2,
+          "id": 4789295,
+          "name": "いっしょに美少女ゲーム作ろ！",
+          "season_number": 1
+        },
+        {
+          "air_date": "2023-10-19",
+          "episode_number": 3,
+          "id": 4789297,
+          "name": "もう一度みんなに会いたくて！",
+          "season_number": 1
+        },
+        {
+          "air_date": "2023-10-26",
+          "episode_number": 4,
+          "id": 4789298,
+          "name": "いいんだよ！",
+          "season_number": 1
+        },
+        {
+          "air_date": "2023-11-02",
+          "episode_number": 5,
+          "id": 4789299,
+          "name": "2度あったことは3度ある！",
+          "season_number": 1
+        },
+        {
+          "air_date": "2023-11-09",
+          "episode_number": 6,
+          "id": 4789306,
+          "name": "コノハを信じて！",
+          "season_number": 1
+        },
+        {
+          "air_date": "2023-11-16",
+          "episode_number": 7,
+          "id": 4789307,
+          "name": "雨降って地固まる",
+          "season_number": 1
+        },
+        {
+          "air_date": "2023-11-23",
+          "episode_number": 8,
+          "id": 4789308,
+          "name": "エコー",
+          "season_number": 1
+        },
+        {
+          "air_date": "2023-11-30",
+          "episode_number": 9,
+          "id": 4789309,
+          "name": "またね！",
+          "season_number": 1
+        },
+        {
+          "air_date": "2023-12-07",
+          "episode_number": 10,
+          "id": 4789310,
+          "name": "精一杯やってみる！",
+          "season_number": 1
+        },
+        {
+          "air_date": "2023-12-14",
+          "episode_number": 11,
+          "id": 4789311,
+          "name": "オリジナル・キュー",
+          "season_number": 1
+        },
+        {
+          "air_date": "2023-12-21",
+          "episode_number": 12,
+          "id": 4789312,
+          "name": "ゆ、ゆゆゆゆゆ…！",
+          "season_number": 1
+        },
+        {
+          "air_date": "2023-12-28",
+          "episode_number": 13,
+          "id": 4789313,
+          "name": "わたしの大切なもの",
+          "season_number": 1
+        }
+      ]
+    },
+    "bangumi": {
+      "id": 413741,
+      "type": 2,
+      "name": "16bitセンセーション ANOTHER LAYER",
+      "name_cn": "16bit的感动 ANOTHER LAYER",
+      "date": "2023-10-04",
+      "infobox": [
+        {
+          "key": "别名",
+          "value": [
+            {
+              "v": "16位元的輝煌 Another Layer"
+            },
+            {
+              "v": "16bit Sensation: Another Layer"
+            },
+            {
+              "v": "16位的辉煌 Another Layer"
+            }
+          ]
+        }
+      ]
+    },
+    "episodes": {
+      "total": 13,
+      "limit": 100,
+      "offset": 0,
+      "data": [
+        {
+          "airdate": "2023-10-04",
+          "name": "タイムリープしちゃったぁ～！？",
+          "name_cn": "我穿越时空了～！？",
+          "ep": 1,
+          "sort": 1,
+          "id": 1248408,
+          "type": 0
+        },
+        {
+          "airdate": "2023-10-11",
+          "name": "いっしょに美少女ゲーム作ろ！",
+          "name_cn": "一起来做美少女游戏吧！",
+          "ep": 2,
+          "sort": 2,
+          "id": 1248409,
+          "type": 0
+        },
+        {
+          "airdate": "2023-10-18",
+          "name": "もう一度みんなに会いたくて！",
+          "name_cn": "想要再一次见到大家！",
+          "ep": 3,
+          "sort": 3,
+          "id": 1248410,
+          "type": 0
+        },
+        {
+          "airdate": "2023-10-25",
+          "name": "いいんだよ！",
+          "name_cn": "有什么关系呢！",
+          "ep": 4,
+          "sort": 4,
+          "id": 1248411,
+          "type": 0
+        },
+        {
+          "airdate": "2023-11-01",
+          "name": "2度あったことは3度ある！",
+          "name_cn": "有第2次就会有第3次！",
+          "ep": 5,
+          "sort": 5,
+          "id": 1248412,
+          "type": 0
+        },
+        {
+          "airdate": "2023-11-08",
+          "name": "コノハを信じて！",
+          "name_cn": "请相信乐叶！",
+          "ep": 6,
+          "sort": 6,
+          "id": 1248413,
+          "type": 0
+        },
+        {
+          "airdate": "2023-11-15",
+          "name": "雨降って地固まる",
+          "name_cn": "雨过天晴",
+          "ep": 7,
+          "sort": 7,
+          "id": 1248414,
+          "type": 0
+        },
+        {
+          "airdate": "2023-11-22",
+          "name": "エコー",
+          "name_cn": "Echo",
+          "ep": 8,
+          "sort": 8,
+          "id": 1248415,
+          "type": 0
+        },
+        {
+          "airdate": "2023-11-29",
+          "name": "またね！",
+          "name_cn": "再见！",
+          "ep": 9,
+          "sort": 9,
+          "id": 1248416,
+          "type": 0
+        },
+        {
+          "airdate": "2023-12-06",
+          "name": "精一杯やってみる！",
+          "name_cn": "我会全力以赴的！",
+          "ep": 10,
+          "sort": 10,
+          "id": 1248417,
+          "type": 0
+        },
+        {
+          "airdate": "2023-12-13",
+          "name": "オリジナル・キュー",
+          "name_cn": "Original Cuu",
+          "ep": 11,
+          "sort": 11,
+          "id": 1248418,
+          "type": 0
+        },
+        {
+          "airdate": "2023-12-20",
+          "name": "ゆ、ゆゆゆゆゆ…！",
+          "name_cn": "幽、幽幽幽幽幽...！",
+          "ep": 12,
+          "sort": 12,
+          "id": 1248419,
+          "type": 0
+        },
+        {
+          "airdate": "2023-12-27",
+          "name": "わたしの大切なもの",
+          "name_cn": "我所珍视的东西",
+          "ep": 13,
+          "sort": 13,
+          "id": 1255181,
+          "type": 0
+        }
+      ]
+    }
+  },
+  {
+    "key": "review-015",
+    "files": [
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/暗夜第六感 2041 (2021)",
+        "name": "[AI-Raws] NIGHT HEAD 2041 #00 (BD HEVC 1920x1080 FLAC)[AFC9B2CA].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/暗夜第六感 2041 (2021)",
+        "name": "[AI-Raws] NIGHT HEAD 2041 #01 (BD HEVC 1920x1080 yuv444p10le FLAC)[CF761A87].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/暗夜第六感 2041 (2021)",
+        "name": "[AI-Raws] NIGHT HEAD 2041 #02 (BD HEVC 1920x1080 yuv444p10le FLAC)[123908B3].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/暗夜第六感 2041 (2021)",
+        "name": "[AI-Raws] NIGHT HEAD 2041 #03 (BD HEVC 1920x1080 yuv444p10le FLAC)[D72D3B56].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/暗夜第六感 2041 (2021)",
+        "name": "[AI-Raws] NIGHT HEAD 2041 #04 (BD HEVC 1920x1080 yuv444p10le FLAC)[D977BAA7].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/暗夜第六感 2041 (2021)",
+        "name": "[AI-Raws] NIGHT HEAD 2041 #05 (BD HEVC 1920x1080 yuv444p10le FLAC)[AC16F9A6].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/暗夜第六感 2041 (2021)",
+        "name": "[AI-Raws] NIGHT HEAD 2041 #06 (BD HEVC 1920x1080 yuv444p10le FLAC)[F7BC2898].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/暗夜第六感 2041 (2021)",
+        "name": "[AI-Raws] NIGHT HEAD 2041 #07 (BD HEVC 1920x1080 yuv444p10le FLAC)[28CA5E5E].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/暗夜第六感 2041 (2021)",
+        "name": "[AI-Raws] NIGHT HEAD 2041 #08 (BD HEVC 1920x1080 yuv444p10le FLAC)[F7E3EAA0].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/暗夜第六感 2041 (2021)",
+        "name": "[AI-Raws] NIGHT HEAD 2041 #09 (BD HEVC 1920x1080 yuv444p10le FLAC)[B3CEE708].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/暗夜第六感 2041 (2021)",
+        "name": "[AI-Raws] NIGHT HEAD 2041 #10 (BD HEVC 1920x1080 yuv444p10le FLAC)[5682B8B4].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/暗夜第六感 2041 (2021)",
+        "name": "[AI-Raws] NIGHT HEAD 2041 #11 (BD HEVC 1920x1080 yuv444p10le FLAC)[CEAAAFCA].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/暗夜第六感 2041 (2021)",
+        "name": "[AI-Raws] NIGHT HEAD 2041 #12 (BD HEVC 1920x1080 yuv444p10le FLAC)[99F84CFB].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/暗夜第六感 2041 (2021)",
+        "name": "[AI-Raws] NIGHT HEAD 2041 PV集 (BD HEVC 1920x1080 yuv444p10le FLAC)[6109DC84].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/暗夜第六感 2041 (2021)",
+        "name": "[AI-Raws] NIGHT HEAD 2041 ノンクレジットED (BD HEVC 1920x1080 yuv444p10le FLAC)[CFE1B871].mkv"
+      },
+      {
+        "root": "动画-单作品",
+        "path": "/动画-单作品/暗夜第六感 2041 (2021)",
+        "name": "[AI-Raws] NIGHT HEAD 2041 ノンクレジットOP (BD HEVC 1920x1080 yuv444p10le FLAC)[DCF8F6E3].mkv"
+      }
+    ],
+    "tmdb": {
+      "id": 112616,
+      "name": "暗夜第六感 2041",
+      "original_name": "NIGHT HEAD 2041",
+      "first_air_date": "2021-07-15",
+      "seasons": [
+        {
+          "air_date": "2021-07-08",
+          "episode_count": 5,
+          "id": 203034,
+          "name": "特别篇",
+          "overview": "",
+          "poster_path": null,
+          "season_number": 0,
+          "vote_average": 0.0
+        },
+        {
+          "air_date": "2021-07-15",
+          "episode_count": 12,
+          "id": 167704,
+          "name": "第 1 季",
+          "overview": "",
+          "poster_path": "/6BLOjxjRBB71Ptc5oITB2pNrqAz.jpg",
+          "season_number": 1,
+          "vote_average": 7.4
+        }
+      ],
+      "alternative_titles": {
+        "results": [
+          {
+            "iso_3166_1": "JP",
+            "title": "ナイトヘッド2041",
+            "type": "Katakana"
+          },
+          {
+            "iso_3166_1": "KR",
+            "title": "나이트 헤드 2041",
+            "type": ""
+          }
+        ]
+      },
+      "translations": {
+        "translations": [
+          {
+            "iso_3166_1": "ES",
+            "iso_639_1": "es",
+            "name": "Español",
+            "english_name": "Spanish",
+            "data": {
+              "name": "Night Head 2041"
+            }
+          },
+          {
+            "iso_3166_1": "RU",
+            "iso_639_1": "ru",
+            "name": "Pусский",
+            "english_name": "Russian",
+            "data": {
+              "name": "Сумеречный разум 2041"
+            }
+          },
+          {
+            "iso_3166_1": "FR",
+            "iso_639_1": "fr",
+            "name": "Français",
+            "english_name": "French",
+            "data": {
+              "name": "Night Head 2041"
+            }
+          },
+          {
+            "iso_3166_1": "CN",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "暗夜第六感 2041"
+            }
+          },
+          {
+            "iso_3166_1": "US",
+            "iso_639_1": "en",
+            "name": "English",
+            "english_name": "English",
+            "data": {
+              "name": "Night Head 2041"
+            }
+          },
+          {
+            "iso_3166_1": "IT",
+            "iso_639_1": "it",
+            "name": "Italiano",
+            "english_name": "Italian",
+            "data": {
+              "name": "NIGHT HEAD 2041"
+            }
+          },
+          {
+            "iso_3166_1": "JP",
+            "iso_639_1": "ja",
+            "name": "日本語",
+            "english_name": "Japanese",
+            "data": {
+              "name": "NIGHT HEAD 2041"
+            }
+          },
+          {
+            "iso_3166_1": "DE",
+            "iso_639_1": "de",
+            "name": "Deutsch",
+            "english_name": "German",
+            "data": {
+              "name": "Night Head 2041"
+            }
+          },
+          {
+            "iso_3166_1": "BR",
+            "iso_639_1": "pt",
+            "name": "Português",
+            "english_name": "Portuguese",
+            "data": {
+              "name": "Night Head 2041"
+            }
+          },
+          {
+            "iso_3166_1": "KR",
+            "iso_639_1": "ko",
+            "name": "한국어/조선말",
+            "english_name": "Korean",
+            "data": {
+              "name": "나이트 헤드 2041"
+            }
+          },
+          {
+            "iso_3166_1": "TW",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "暗夜第六感 2041"
+            }
+          },
+          {
+            "iso_3166_1": "VN",
+            "iso_639_1": "vi",
+            "name": "Tiếng Việt",
+            "english_name": "Vietnamese",
+            "data": {
+              "name": "Night Head 2041"
+            }
+          },
+          {
+            "iso_3166_1": "UA",
+            "iso_639_1": "uk",
+            "name": "Український",
+            "english_name": "Ukrainian",
+            "data": {
+              "name": "Сутінковий розум 2041"
+            }
+          },
+          {
+            "iso_3166_1": "PL",
+            "iso_639_1": "pl",
+            "name": "Polski",
+            "english_name": "Polish",
+            "data": {
+              "name": "Night Head 2041"
+            }
+          },
+          {
+            "iso_3166_1": "HK",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "闇夜第六感 2041"
+            }
+          }
+        ]
+      }
+    },
+    "season": {
+      "id": 167704,
+      "season_number": 1,
+      "episodes": [
+        {
+          "air_date": "2021-07-15",
+          "episode_number": 1,
+          "id": 2494550,
+          "name": "結界 -Onset-",
+          "season_number": 1
+        },
+        {
+          "air_date": "2021-07-22",
+          "episode_number": 2,
+          "id": 3076473,
+          "name": "偽物 -Deception-",
+          "season_number": 1
+        },
+        {
+          "air_date": "2021-07-29",
+          "episode_number": 3,
+          "id": 3076474,
+          "name": "錯綜、契機 -Awakening-",
+          "season_number": 1
+        },
+        {
+          "air_date": "2021-08-05",
+          "episode_number": 4,
+          "id": 3084466,
+          "name": "触発 -Resonance-",
+          "season_number": 1
+        },
+        {
+          "air_date": "2021-08-12",
+          "episode_number": 5,
+          "id": 3084467,
+          "name": "双海翔子 -Shoko-",
+          "season_number": 1
+        },
+        {
+          "air_date": "2021-08-19",
+          "episode_number": 6,
+          "id": 3084468,
+          "name": "思想、対峙 -Showdown-",
+          "season_number": 1
+        },
+        {
+          "air_date": "2021-08-26",
+          "episode_number": 7,
+          "id": 3084469,
+          "name": "世界の狭間 -Between the Worlds-",
+          "season_number": 1
+        },
+        {
+          "air_date": "2021-09-02",
+          "episode_number": 8,
+          "id": 3084470,
+          "name": "破滅への啓示 -March to Decimation-",
+          "season_number": 1
+        },
+        {
+          "air_date": "2021-09-09",
+          "episode_number": 9,
+          "id": 3084471,
+          "name": "逆理 -Paradox-",
+          "season_number": 1
+        },
+        {
+          "air_date": "2021-09-16",
+          "episode_number": 10,
+          "id": 3084472,
+          "name": "守護と救済 -Our Destiny-",
+          "season_number": 1
+        },
+        {
+          "air_date": "2021-09-23",
+          "episode_number": 11,
+          "id": 3084473,
+          "name": "時空融合 -Unity-",
+          "season_number": 1
+        },
+        {
+          "air_date": "2021-09-30",
+          "episode_number": 12,
+          "id": 3084474,
+          "name": "継承、廻転 -Start Over-",
+          "season_number": 1
+        }
+      ]
+    },
+    "bangumi": {
+      "id": 318602,
+      "type": 2,
+      "name": "NIGHT HEAD 2041",
+      "name_cn": "暗夜第六感 2041",
+      "date": "2021-07-14",
+      "infobox": []
+    },
+    "episodes": {
+      "total": 12,
+      "limit": 100,
+      "offset": 0,
+      "data": [
+        {
+          "airdate": "2021-07-14",
+          "name": "結界 -Onset-",
+          "name_cn": "结界 -Onset-",
+          "ep": 1,
+          "sort": 1,
+          "id": 1040407,
+          "type": 0
+        },
+        {
+          "airdate": "2021-07-21",
+          "name": "偽物 -Deception",
+          "name_cn": "伪物 -Deception",
+          "ep": 2,
+          "sort": 2,
+          "id": 1040408,
+          "type": 0
+        },
+        {
+          "airdate": "2021-07-28",
+          "name": "錯綜、契機 -Awakening-",
+          "name_cn": "错综、契机 -Awakening-",
+          "ep": 3,
+          "sort": 3,
+          "id": 1040409,
+          "type": 0
+        },
+        {
+          "airdate": "2021-08-04",
+          "name": "触発 -Resonance-",
+          "name_cn": "触发 -Resonance-",
+          "ep": 4,
+          "sort": 4,
+          "id": 1040410,
+          "type": 0
+        },
+        {
+          "airdate": "2021-08-11",
+          "name": "双海翔子 -Shoko-",
+          "name_cn": "双海翔子 -Shoko-",
+          "ep": 5,
+          "sort": 5,
+          "id": 1040411,
+          "type": 0
+        },
+        {
+          "airdate": "2021-08-18",
+          "name": "思想、対峙 -Showdown-",
+          "name_cn": "思想、対峙 -Showdown-",
+          "ep": 6,
+          "sort": 6,
+          "id": 1040412,
+          "type": 0
+        },
+        {
+          "airdate": "2021-08-25",
+          "name": "世界の狭間 -Between the Worlds-",
+          "name_cn": "世界的狭间 -Between the Worlds-",
+          "ep": 7,
+          "sort": 7,
+          "id": 1040413,
+          "type": 0
+        },
+        {
+          "airdate": "2021-09-01",
+          "name": "破滅への啓示 -March to Decimation-",
+          "name_cn": "破灭的启示 -March to Decimation-",
+          "ep": 8,
+          "sort": 8,
+          "id": 1040414,
+          "type": 0
+        },
+        {
+          "airdate": "2021-09-08",
+          "name": "逆理 -Paradox-",
+          "name_cn": "逆理 -Paradox-",
+          "ep": 9,
+          "sort": 9,
+          "id": 1040415,
+          "type": 0
+        },
+        {
+          "airdate": "2021-09-15",
+          "name": "守護と救済 -Our Destiny-",
+          "name_cn": "守护与救济 -Our Destiny-",
+          "ep": 10,
+          "sort": 10,
+          "id": 1040416,
+          "type": 0
+        },
+        {
+          "airdate": "2021-09-22",
+          "name": "時空融合 -Unity-",
+          "name_cn": "时空融合 -Unity-",
+          "ep": 11,
+          "sort": 11,
+          "id": 1040417,
+          "type": 0
+        },
+        {
+          "airdate": "2021-09-29",
+          "name": "継承、廻転 -Start Over-",
+          "name_cn": "继承、回转 -Start Over-",
+          "ep": 12,
+          "sort": 12,
+          "id": 1040418,
+          "type": 0
+        }
+      ]
+    }
+  }
+]

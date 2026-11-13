@@ -1,0 +1,32 @@
+--- a/video/mp_image.h
++++ b/video/mp_image.h
+@@ -54,6 +54,8 @@
+     enum pl_color_primaries primaries_orig;
+     enum pl_color_transfer transfer_orig;
+     enum pl_color_system sys_orig;
++    // HLG base-layer metadata before Dolby Vision mapping.
++    struct pl_hdr_metadata hdr_orig;
+ 
+     enum mp_csp_light light;
+     enum pl_chroma_location chroma_location;
+--- a/video/mp_image.c
++++ b/video/mp_image.c
+@@ -933,6 +933,10 @@
+     params->color.primaries = params->primaries_orig;
+     params->color.transfer = params->transfer_orig;
+     params->repr.sys = params->sys_orig;
++    if (params->transfer_orig == PL_COLOR_TRC_HLG) {
++        params->light = MP_CSP_LIGHT_SCENE_HLG;
++        params->color.hdr = params->hdr_orig;
++    }
+     if (!pl_color_transfer_is_hdr(params->transfer_orig))
+         params->color.hdr = (struct pl_hdr_metadata){0};
+     if (params->transfer_orig != PL_COLOR_TRC_PQ)
+@@ -1205,6 +1209,7 @@
+     dst->params.primaries_orig = dst->params.color.primaries;
+     dst->params.transfer_orig = dst->params.color.transfer;
+     dst->params.sys_orig = dst->params.repr.sys;
++    dst->params.hdr_orig = dst->params.color.hdr;
+     AVBufferRef *dovi = NULL;
+     sd = av_frame_get_side_data(src, AV_FRAME_DATA_DOVI_METADATA);
+     if (sd) {

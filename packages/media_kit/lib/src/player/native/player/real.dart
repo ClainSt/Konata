@@ -34,6 +34,7 @@ import 'package:media_kit/src/player/native/utils/android_asset_loader.dart';
 import 'package:media_kit/src/player/native/utils/android_helper.dart';
 import 'package:media_kit/src/player/native/utils/isolates.dart';
 import 'package:media_kit/src/player/native/utils/native_reference_holder.dart';
+import 'package:media_kit/src/player/native/utils/screenshot_arguments.dart';
 import 'package:media_kit/src/player/native/utils/temp_file.dart';
 import 'package:media_kit/src/player/platform_player.dart';
 
@@ -1483,6 +1484,12 @@ class NativePlayer extends PlatformPlayer {
         bufferingController.add(true);
       }
     }
+    if (event.ref.event_id == generated.mpv_event_id.MPV_EVENT_END_FILE) {
+      final end = event.ref.data.cast<generated.mpv_event_end_file>().ref;
+      if (end.reason == generated.mpv_end_file_reason.MPV_END_FILE_REASON_ERROR) {
+        onFileError?.call(end.error);
+      }
+    }
     // NOTE: Now, --keep-open=yes is used. Thus, eof-reached property is used instead of this.
     // if (event.ref.event_id == generated.mpv_event_id.MPV_EVENT_END_FILE) {
     //   // Check for mpv_end_file_reason.MPV_END_FILE_REASON_EOF before modifying state.completed.
@@ -2723,6 +2730,9 @@ class NativePlayer extends PlatformPlayer {
   /// The methods which must execute synchronously before playback of a source can end.
   final List<Future<void> Function()> onUnloadHooks = [];
 
+  /// Terminal file failure, distinct from recoverable decoder/stream logs.
+  void Function(int error)? onFileError;
+
   /// Synchronization & mutual exclusion between methods of this class.
   static final Lock lock = Lock();
 
@@ -2771,10 +2781,7 @@ Uint8List? _screenshot(_ScreenshotData data) {
   final pointers = args.map<Pointer<Utf8>>((e) {
     return e.toNativeUtf8();
   }).toList();
-  final Pointer<Pointer<Utf8>> arr = calloc.allocate(args.join().length);
-  for (int i = 0; i < args.length; i++) {
-    arr[i] = pointers[i];
-  }
+  final arr = allocateScreenshotArguments(pointers);
   mpv.mpv_command_ret(
     ctx,
     arr.cast(),

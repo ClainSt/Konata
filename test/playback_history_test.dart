@@ -6,6 +6,7 @@ import 'package:ccplayer/core/catalog.dart';
 import 'package:ccplayer/core/playback_history.dart';
 import 'package:ccplayer/ui/playback_history_page.dart';
 import 'package:ccplayer/ui/settings_page.dart';
+import 'package:ccplayer/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -54,6 +55,27 @@ void main() {
     }
     return db;
   }
+
+  testWidgets('history falls back to the library scoped poster', (tester) async {
+    final db = (await tester.runAsync(fixture))!;
+    final catalog = Catalog.instance;
+    final previousWorks = catalog.works;
+    const poster = 'https://image.tmdb.org/t/p/w500/example.jpg';
+    catalog.db = db;
+    catalog.works = [
+      {'id': 'w', 'title': '测试作品', 'scoped_poster': poster},
+    ];
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      catalog.works = previousWorks;
+      await tester.runAsync(db.close);
+    });
+    await tester.pumpWidget(const MaterialApp(home: PlaybackHistoryPage()));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.pumpAndSettle();
+    expect(tester.widgetList<ManagedImage>(find.byType(ManagedImage)).map((image) => image.url),
+        [poster, poster]);
+  });
 
   test(
     'resume skips a saved final frame but preserves the history row',
@@ -370,6 +392,61 @@ void main() {
       }
     },
   );
+
+  testWidgets('history selection actions keep overflow menu on the same row', (
+    tester,
+  ) async {
+    final db = (await tester.runAsync(fixture))!;
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(db.close);
+      await tester.binding.setSurfaceSize(null);
+    });
+    for (final locale in [const Locale('zh'), const Locale('en')]) {
+      for (final (width, scale) in [
+        (320.0, 1.0),
+        (390.0, 2.0),
+        (600.0, 1.0),
+        (1024.0, 2.0),
+      ]) {
+        await tester.binding.setSurfaceSize(Size(width, 900));
+        await tester.pumpWidget(
+          MaterialApp(
+            key: UniqueKey(),
+            locale: locale,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!,
+            ),
+            home: PlaybackHistoryPage(history: PlaybackHistory(db)),
+          ),
+        );
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 100)),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('history-manage')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('history-card-b')));
+        await tester.pumpAndSettle();
+        final select = tester.getRect(
+          find.byKey(const ValueKey('history-select-all')),
+        );
+        final delete = tester.getRect(
+          find.byKey(const ValueKey('history-delete-selected')),
+        );
+        final more = tester.getRect(find.byType(PopupMenuButton<String>));
+        expect((select.center.dy - more.center.dy).abs(), lessThan(1));
+        expect((delete.center.dy - more.center.dy).abs(), lessThan(1));
+        expect(more.right, lessThanOrEqualTo(width - 24));
+        expect(tester.takeException(), isNull);
+      }
+    }
+  });
 
   testWidgets(
     'history opens resume callback and confirms deletion at phone width',

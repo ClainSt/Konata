@@ -3,6 +3,7 @@ import 'catalog.dart';
 import 'logical_episode_store.dart';
 import 'watch_event_store.dart';
 import 'logical_episode_identity.dart';
+import 'metadata_servers.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Local history operations use existing tables and never touch media files.
@@ -49,10 +50,46 @@ class PlaybackHistory {
             columns: ['asset_id'],
           )).map((r) => r['asset_id']).toSet()
         : <Object?>{};
+    final artwork = <Object?, Map<String, Object?>>{};
+    if (tables.containsAll(['scan_bindings', 'library_content', 'scan_missing_assets'])) {
+      final scoped = tables.contains('scoped_artwork');
+      for (final row in await db.rawQuery('''
+        SELECT e.asset_id, json_extract(e.adopted,'\$.still') AS still,
+          ${scoped ? 's.state AS artwork_state, s.selected' : 'NULL AS artwork_state, NULL AS selected'}
+        FROM progress p JOIN scan_bindings e ON e.asset_id=p.asset_id
+        JOIN library_content c ON c.asset_id=e.asset_id AND c.state='current'
+        JOIN scan_bindings r ON r.work_id=e.work_id AND r.provider='tmdb'
+          AND r.layer='range' AND r.state='confirmed'
+          AND e.parent=json_array(r.id,r.revision)
+        JOIN scan_bindings w ON w.work_id=e.work_id AND w.provider='tmdb'
+          AND w.layer='work' AND w.state='confirmed'
+          AND r.parent=json_array(w.id,w.revision)
+        ${scoped ? """
+          LEFT JOIN scoped_artwork s ON s.work_id=e.work_id AND s.kind='still'
+            AND s.scope=json_array('episode',json_extract(w.adopted,'\$.id'),
+              json_extract(e.adopted,'\$.season'),json_extract(e.adopted,'\$.episode'))
+          """ : ''}
+        WHERE e.provider='tmdb' AND e.layer='episode' AND e.state='confirmed'
+          AND NOT EXISTS (SELECT 1 FROM scan_missing_assets m WHERE m.asset_id=e.asset_id)
+      ''')) {
+        if (row['artwork_state'] == 'empty') {
+          artwork[row['asset_id']] = {'_blank_still': true};
+        } else if (row['artwork_state'] == 'manual' && row['selected'] is String) {
+          final selection = jsonDecode(row['selected'] as String) as Map;
+          if (selection['url'] is String) {
+            artwork[row['asset_id']] = {'_recognized_still': selection['url']};
+          }
+        } else if (row['still'] case final String still
+            when MetadataServers.imageResource(still)?.$1 == 1) {
+          artwork[row['asset_id']] = {'_recognized_still': still};
+        }
+      }
+    }
     final entries = rows
         .map(
           (row) => <String, Object?>{
             ...row,
+            ...?artwork[row['id']],
             '_work': works[row['work_id']] ?? <String, Object?>{},
             '_details': cached[row['work_id']] ?? <String, dynamic>{},
             if (locked.contains(row['id'])) 'manual_mapping': true,

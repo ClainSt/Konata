@@ -1,0 +1,416 @@
+{
+  "tmdb": {
+    "adult": false,
+    "backdrop_path": "/7OIVNg6fqU03lNgVowpTgvnhg7o.jpg",
+    "belongs_to_collection": {
+      "id": 1816780,
+      "name": "Detective Opera Milky Holmes Collection",
+      "poster_path": null,
+      "backdrop_path": null
+    },
+    "budget": 0,
+    "genres": [
+      {
+        "id": 35,
+        "name": "コメディ"
+      },
+      {
+        "id": 16,
+        "name": "アニメーション"
+      },
+      {
+        "id": 9648,
+        "name": "謎"
+      }
+    ],
+    "homepage": "https://milky-holmes.com/anime/",
+    "id": 372762,
+    "imdb_id": "tt5526038",
+    "origin_country": [
+      "JP"
+    ],
+    "original_language": "ja",
+    "original_title": "劇場版 探偵オペラ ミルキィホームズ〜逆襲のミルキィホームズ〜",
+    "overview": "研修旅行でグンマメトロポリスに来ていたミルキィホームズの4人、猿たちに囲まれ温泉につかり、のんびりしているところに警報が鳴り響く！怪盗帝国の4人が宝を狙ってやってきたのだ。\r ミルキィホームズVS怪盗帝国、双方トイズをフルに使っての激しいバトルが繰り広げられる！\r さらにGenius4の面々も駆けつけ、三つ巴の激闘に発展！だが、その大激闘の最中に、上空から激しい雷が!!\r 被雷したミルキィホームズの4人はまたしてもトイズを失ってしまう・・・。  トイズを失ったまま、偵都ヨコハマに戻ったミルキィホームズたちはある事件に遭遇する。それは安っぽい宝石ばかり狙う怪盗の出現。怪盗の真の狙いはホームズがヨコハマに残した「敗者復活の宝石」だとわかり・・・。謎の「敗者復活の宝石」をめぐり、ミルキィホームズ、G4、怪盗帝国が終結！偵都ヨコハマ史上、最強の怪盗に立ち向かう！",
+    "popularity": 0.6302,
+    "poster_path": "/jqjXF8qmDSqD8YEZMhVESqVBZq5.jpg",
+    "production_companies": [
+      {
+        "id": 11884,
+        "logo_path": "/tHzHPSKdmLT5zCdqFbcmHzZvRIc.png",
+        "name": "J.C.STAFF",
+        "origin_country": "JP"
+      }
+    ],
+    "production_countries": [
+      {
+        "iso_3166_1": "JP",
+        "name": "Japan"
+      }
+    ],
+    "release_date": "2016-02-27",
+    "revenue": 0,
+    "runtime": 69,
+    "softcore": false,
+    "spoken_languages": [
+      {
+        "english_name": "Japanese",
+        "iso_639_1": "ja",
+        "name": "日本語"
+      }
+    ],
+    "status": "Released",
+    "tagline": "何度、転んでも立ち上がる！七転八倒！それがミルキィホームズです！",
+    "title": "劇場版 探偵オペラ ミルキィホームズ〜逆襲のミルキィホームズ〜",
+    "video": false,
+    "vote_average": 6.7,
+    "vote_count": 6,
+    "alternative_titles": {
+      "titles": [
+        {
+          "iso_3166_1": "JP",
+          "title": "Tantei Opera Milky Holmes Movie: Gyakushuu no Milky Holmes",
+          "type": ""
+        },
+        {
+          "iso_3166_1": "JP",
+          "title": "Tantei Opera Milky Holmes the Movie: Milky Holmes' Counterattack",
+          "type": ""
+        },
+        {
+          "iso_3166_1": "JP",
+          "title": "探偵オペラ ミルキィホームズ 「～逆襲のミルキィホームズ～」",
+          "type": ""
+        }
+      ]
+    },
+    "translations": {
+      "translations": [
+        {
+          "iso_3166_1": "US",
+          "iso_639_1": "en",
+          "name": "English",
+          "english_name": "English",
+          "data": {
+            "homepage": "http://mh-movie.com/",
+            "overview": "The four members of Milky Holmes are going on a study tour. While soaking in the hot springs among snow monkeys, alarms interrupt the relaxing environment! It was the work of the Thief Empire. A fierce battle between Milky Holmes and the Thief Empire begins, with both sides using their Toys (special powers). Furthermore, with the arrival of the Genius 4, a three-way fight occurs! In the midst of battle, a violent lightning strikes from the sky. Struck by the lightning, the four Milky Holmes girls lose their abilities.",
+            "runtime": 69,
+            "tagline": "",
+            "title": "Detective Opera Milky Holmes the Movie: Milky Holmes' Counterattack"
+          }
+        },
+        {
+          "iso_3166_1": "BR",
+          "iso_639_1": "pt",
+          "name": "Português",
+          "english_name": "Portuguese",
+          "data": {
+            "homepage": "",
+            "overview": "Os quatro membros de Milky Holmes estão fazendo uma viagem de estudo. Ao mergulhar nas fontes termais entre macacos da neve, os alarmes interrompem o ambiente relaxante! Foi o trabalho do Império dos Ladrões. Uma batalha feroz entre Milky Holmes e o Império do Ladrão começa, com os dois lados usando seus Brinquedos (poderes especiais). Além disso, com a chegada do Genius 4, ocorre uma luta tripla! No meio da batalha, um violento raio atinge o céu. Atingidas pelo raio, as quatro meninas de Milky Holmes perdem suas habilidades.",
+            "runtime": 0,
+            "tagline": "",
+            "title": "Tantei Opera Milky Holmes Movie: Gyakushuu no Milky Holmes"
+          }
+        },
+        {
+          "iso_3166_1": "JP",
+          "iso_639_1": "ja",
+          "name": "日本語",
+          "english_name": "Japanese",
+          "data": {
+            "homepage": "https://milky-holmes.com/anime/",
+            "overview": "研修旅行でグンマメトロポリスに来ていたミルキィホームズの4人、猿たちに囲まれ温泉につかり、のんびりしているところに警報が鳴り響く！怪盗帝国の4人が宝を狙ってやってきたのだ。\r ミルキィホームズVS怪盗帝国、双方トイズをフルに使っての激しいバトルが繰り広げられる！\r さらにGenius4の面々も駆けつけ、三つ巴の激闘に発展！だが、その大激闘の最中に、上空から激しい雷が!!\r 被雷したミルキィホームズの4人はまたしてもトイズを失ってしまう・・・。  トイズを失ったまま、偵都ヨコハマに戻ったミルキィホームズたちはある事件に遭遇する。それは安っぽい宝石ばかり狙う怪盗の出現。怪盗の真の狙いはホームズがヨコハマに残した「敗者復活の宝石」だとわかり・・・。謎の「敗者復活の宝石」をめぐり、ミルキィホームズ、G4、怪盗帝国が終結！偵都ヨコハマ史上、最強の怪盗に立ち向かう！",
+            "runtime": 0,
+            "tagline": "何度、転んでも立ち上がる！七転八倒！それがミルキィホームズです！",
+            "title": "劇場版 探偵オペラ ミルキィホームズ〜逆襲のミルキィホームズ〜"
+          }
+        },
+        {
+          "iso_3166_1": "CN",
+          "iso_639_1": "zh",
+          "name": "普通话",
+          "english_name": "Mandarin",
+          "data": {
+            "homepage": "",
+            "overview": "来研修旅行的福尔摩斯四人泡着被猿们包围的温泉休息之时，突然警报鸣声响起！怪盗帝国的四人盯上了宝物。福尔摩斯V.S.怪盗帝国，双方全力使出TOYS展开激烈的战斗！此外Genius4也迎面而来，发展成三面的激斗！但是，就在这场大激斗之中，上空来了激雷！！被雷打到的福尔摩斯的四人又再次失去了TOYS….",
+            "runtime": 0,
+            "tagline": "故事设定在以活跃着怪盗和侦探的近未来架空世界为舞台。",
+            "title": "侦探歌剧：少女福尔摩斯 ～逆袭的福尔摩斯～"
+          }
+        },
+        {
+          "iso_3166_1": "KR",
+          "iso_639_1": "ko",
+          "name": "한국어/조선말",
+          "english_name": "Korean",
+          "data": {
+            "homepage": "",
+            "overview": "",
+            "runtime": 0,
+            "tagline": "",
+            "title": "극장판 탐정 오페라 밀키 홈즈 ~역습의 밀키 홈즈~"
+          }
+        },
+        {
+          "iso_3166_1": "HK",
+          "iso_639_1": "zh",
+          "name": "普通话",
+          "english_name": "Mandarin",
+          "data": {
+            "homepage": "",
+            "overview": "來研修旅行的福爾摩斯四人泡著被猿們包圍的温泉休息之時，突然警報鳴聲響起！怪盜帝國的四人盯上了寶物。福爾摩斯 V.S. 怪盜帝國，雙方全力使出 TOYS 展開激烈的戰鬥！此外 Genius4 也迎面而來，發展成三面的激鬥！但是，就在這場大激鬥之中，上空來了激雷！！被雷打到的福爾摩斯的四人又再次失去了 TOYS….",
+            "runtime": 0,
+            "tagline": "",
+            "title": "偵探歌劇：少女福爾摩斯 ～逆襲的福爾摩斯～"
+          }
+        }
+      ]
+    }
+  },
+  "bangumi": {
+    "date": "2016-02-27",
+    "platform": "剧场版",
+    "images": {
+      "small": "https://lain.bgm.tv/r/200/pic/cover/l/1d/cc/144465_NUnfe.jpg",
+      "grid": "https://lain.bgm.tv/r/100/pic/cover/l/1d/cc/144465_NUnfe.jpg",
+      "large": "https://lain.bgm.tv/pic/cover/l/1d/cc/144465_NUnfe.jpg",
+      "medium": "https://lain.bgm.tv/r/800/pic/cover/l/1d/cc/144465_NUnfe.jpg",
+      "common": "https://lain.bgm.tv/r/400/pic/cover/l/1d/cc/144465_NUnfe.jpg"
+    },
+    "summary": "Milky Holmes的4个人展开了研修旅行。就在她们被猴子包围着泡温泉、享受着悠闲时光时，警报突然响起！怪盗帝国的4人前来盗取宝物了。Milky Holmes vs 怪盗帝国，双方展开Toys全开的激烈战斗！Genius4众人也赶来了，事态发展成三方僵持的激斗！但就在这大激斗的途中，空中响起了巨大的雷声！！遭到雷击的Milky Holmes的4人再次失去了Toys……",
+    "name": "探偵オペラ ミルキィホームズ ～逆襲のミルキィホームズ～",
+    "name_cn": "侦探歌剧 少女福尔摩斯 ～逆袭的少女福尔摩斯～",
+    "tags": [
+      {
+        "name": "剧场版",
+        "count": 138,
+        "total_count": 740223
+      },
+      {
+        "name": "J.C.STAFF",
+        "count": 93,
+        "total_count": 139462
+      },
+      {
+        "name": "2016",
+        "count": 66,
+        "total_count": 72614
+      },
+      {
+        "name": "搞笑",
+        "count": 66,
+        "total_count": 659425
+      },
+      {
+        "name": "百合",
+        "count": 52,
+        "total_count": 415179
+      },
+      {
+        "name": "游戏改",
+        "count": 43,
+        "total_count": 166942
+      },
+      {
+        "name": "侦探歌剧",
+        "count": 43,
+        "total_count": 629
+      },
+      {
+        "name": "萝莉",
+        "count": 30,
+        "total_count": 47306
+      },
+      {
+        "name": "萌",
+        "count": 24,
+        "total_count": 72503
+      },
+      {
+        "name": "原创",
+        "count": 19,
+        "total_count": 638025
+      },
+      {
+        "name": "桜井弘明",
+        "count": 13,
+        "total_count": 538
+      },
+      {
+        "name": "少女福尔摩斯",
+        "count": 11,
+        "total_count": 26
+      },
+      {
+        "name": "森脇真琴",
+        "count": 10,
+        "total_count": 251
+      },
+      {
+        "name": "三森すずこ",
+        "count": 7,
+        "total_count": 602
+      },
+      {
+        "name": "MilkyHolmes",
+        "count": 7,
+        "total_count": 8
+      },
+      {
+        "name": "2016年2月",
+        "count": 5,
+        "total_count": 304
+      },
+      {
+        "name": "森胁真琴",
+        "count": 4,
+        "total_count": 106
+      },
+      {
+        "name": "樱井弘明",
+        "count": 4,
+        "total_count": 887
+      },
+      {
+        "name": "日本",
+        "count": 4,
+        "total_count": 317392
+      },
+      {
+        "name": "Bushiroad",
+        "count": 3,
+        "total_count": 897
+      },
+      {
+        "name": "轻百合",
+        "count": 3,
+        "total_count": 39404
+      },
+      {
+        "name": "2016年",
+        "count": 3,
+        "total_count": 4662
+      },
+      {
+        "name": "动画电影",
+        "count": 2,
+        "total_count": 44829
+      },
+      {
+        "name": "电波",
+        "count": 2,
+        "total_count": 12996
+      },
+      {
+        "name": "热血",
+        "count": 2,
+        "total_count": 219235
+      },
+      {
+        "name": "奇幻",
+        "count": 2,
+        "total_count": 494437
+      },
+      {
+        "name": "2016年1月",
+        "count": 2,
+        "total_count": 20437
+      },
+      {
+        "name": "侦探",
+        "count": 2,
+        "total_count": 626
+      },
+      {
+        "name": "百合？",
+        "count": 1,
+        "total_count": 203
+      },
+      {
+        "name": "萌系",
+        "count": 1,
+        "total_count": 10363
+      }
+    ],
+    "infobox": [
+      {
+        "key": "中文名",
+        "value": "侦探歌剧 少女福尔摩斯 ～逆袭的少女福尔摩斯～"
+      },
+      {
+        "key": "上映年度",
+        "value": "2016年2月27日"
+      },
+      {
+        "key": "官方网站",
+        "value": "http://milky-holmes.com/anime/movie/"
+      },
+      {
+        "key": "话数",
+        "value": "1"
+      },
+      {
+        "key": "导演",
+        "value": "桜井弘明"
+      }
+    ],
+    "rating": {
+      "rank": 1974,
+      "total": 319,
+      "count": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 3,
+        "5": 15,
+        "6": 52,
+        "7": 122,
+        "8": 94,
+        "9": 23,
+        "10": 7
+      },
+      "score": 7.2
+    },
+    "total_episodes": 1,
+    "collection": {
+      "on_hold": 20,
+      "dropped": 28,
+      "wish": 206,
+      "collect": 547,
+      "doing": 17
+    },
+    "id": 144465,
+    "eps": 1,
+    "meta_tags": [
+      "剧场版",
+      "原创"
+    ],
+    "volumes": 0,
+    "series": false,
+    "locked": false,
+    "nsfw": false,
+    "type": 2
+  },
+  "episodes": {
+    "data": [
+      {
+        "airdate": "2016-02-27",
+        "name": "",
+        "name_cn": "",
+        "duration": "69:40",
+        "desc": "",
+        "ep": 1,
+        "sort": 1,
+        "id": 808588,
+        "subject_id": 144465,
+        "comment": 5,
+        "type": 0,
+        "disc": 0,
+        "duration_seconds": 0
+      }
+    ],
+    "total": 1,
+    "limit": 100,
+    "offset": 0
+  }
+}

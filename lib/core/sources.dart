@@ -6,6 +6,10 @@ import 'package:path/path.dart' as p;
 import 'package:xml/xml.dart';
 import 'package:smb_connect/smb_connect.dart';
 import 'catalog.dart';
+import 'cloud_media_asset_presentation.dart';
+import 'cloud_media_file_classifier.dart';
+import 'personal_filename_parser.dart';
+import 'library_foundation.dart';
 import 'webdav_stream.dart';
 import 'local_media.dart';
 import 'debug_log.dart';
@@ -59,9 +63,11 @@ class DavEntry {
 }
 
 class WebDav {
-  factory WebDav(Map<String, Object?> source) =>
-      source['kind'] == 'smb' ? SmbSource(source) : WebDav._(source);
-  WebDav._(Map<String, Object?> source)
+  factory WebDav(Map<String, Object?> source, {bool reuseListings = false}) =>
+      source['kind'] == 'smb'
+      ? SmbSource(source)
+      : WebDav._(source, reuseListings: reuseListings);
+  WebDav._(Map<String, Object?> source, {this.reuseListings = false})
     : root = Uri.parse(
         source['location'].toString().endsWith('/')
             ? source['location'].toString()
@@ -71,6 +77,15 @@ class WebDav {
       password = source['password']?.toString() ?? '';
   final Uri root;
   final String username, password;
+  final bool reuseListings;
+  HttpClient? _listingClient;
+  final _listingAuthRetries = <Uri>{};
+
+  void close() {
+    _listingClient?.close(force: true);
+    _listingClient = null;
+    _listingAuthRetries.clear();
+  }
   String get auth =>
       'Basic ${base64Encode(utf8.encode('$username:$password'))}';
   Uri fileUri(String relative) =>
@@ -84,27 +99,34 @@ class WebDav {
           );
   }
 
-  Future<List<DavEntry>> list(Uri uri) async {
+  HttpClient _openListingClient(Set<Uri> retries) {
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 15);
-    var retriedAuthentication = false;
     client.authenticate = (url, scheme, realm) async {
-      if (retriedAuthentication ||
-          username.isEmpty ||
+      if (username.isEmpty ||
           url.host != root.host ||
           url.port != root.port ||
-          url.scheme != root.scheme) {
+          url.scheme != root.scheme ||
+          (!reuseListings && retries.isNotEmpty) ||
+          !retries.add(url)) {
         return false;
       }
       final credentials = scheme.toLowerCase() == 'digest'
           ? HttpClientDigestCredentials(username, password)
           : HttpClientBasicCredentials(username, password);
       client.addCredentials(url, realm ?? '', credentials);
-      retriedAuthentication = true;
       return true;
     };
+    return client;
+  }
+
+  Future<List<DavEntry>> list(Uri uri, {bool requireComplete = false}) async {
+    final client = reuseListings
+        ? _listingClient ??= _openListingClient(_listingAuthRetries)
+        : _openListingClient(<Uri>{});
+    HttpClientRequest? opened;
     try {
-      final request = await client.openUrl('PROPFIND', uri);
+      final request = opened = await client.openUrl('PROPFIND', uri);
       request.headers.set('Depth', '1');
       request.headers.contentType = ContentType(
         'application',
@@ -119,6 +141,7 @@ class WebDav {
         const Duration(seconds: 18),
       );
       if (response.statusCode != 207) {
+        request.abort();
         throw switch (response.statusCode) {
           401 => SourceAccessProblem.authentication,
           403 => SourceAccessProblem.permission,
@@ -139,6 +162,7 @@ class WebDav {
           .where((s) => s.isNotEmpty)
           .toList();
       final seen = <String>{};
+      var sawDirectory = false;
       for (final item in doc.descendants.whereType<XmlElement>().where(
         (e) => e.name.local == 'response',
       )) {
@@ -157,7 +181,11 @@ class WebDav {
         final segments = target.pathSegments
             .where((x) => x.isNotEmpty)
             .toList();
-        if (segments.length != parentSegments.length + 1) continue;
+        final self = segments.length == parentSegments.length;
+        if ((!requireComplete || !self) &&
+            segments.length != parentSegments.length + 1) {
+          continue;
+        }
         var directChild = true;
         for (var i = 0; i < parentSegments.length; i++) {
           if (segments[i] != parentSegments[i]) {
@@ -166,11 +194,41 @@ class WebDav {
           }
         }
         if (!directChild) continue;
-        final key = segments.join('/');
-        if (!seen.add(key)) continue;
+        if (requireComplete) {
+          final responseStatus = item.childElements
+              .where((e) => e.name.local == 'status')
+              .firstOrNull;
+          final properties = item.childElements.where(
+            (e) => e.name.local == 'propstat',
+          );
+          final typed = properties.any((property) {
+            final status = property.childElements
+                .where((e) => e.name.local == 'status')
+                .firstOrNull;
+            return RegExp(
+                  r'\s2\d\d(?:\s|$)',
+                ).hasMatch(status?.innerText ?? '') &&
+                property.descendants.whereType<XmlElement>().any(
+                  (e) => e.name.local == 'resourcetype',
+                );
+          });
+          if (responseStatus != null &&
+                  !RegExp(
+                    r'\s2\d\d(?:\s|$)',
+                  ).hasMatch(responseStatus.innerText) ||
+              !typed) {
+            throw const FormatException('Incomplete WebDAV directory response');
+          }
+        }
         final dir = item.descendants.whereType<XmlElement>().any(
           (e) => e.name.local == 'collection',
         );
+        if (self) {
+          sawDirectory = dir;
+          continue;
+        }
+        final key = segments.join('/');
+        if (!seen.add(key)) continue;
         final length = item.descendants
             .whereType<XmlElement>()
             .where((e) => e.name.local == 'getcontentlength')
@@ -180,9 +238,21 @@ class WebDav {
           DavEntry(target, segments.last, dir, int.tryParse(length ?? '')),
         );
       }
+      if (requireComplete && !sawDirectory) {
+        throw const FormatException(
+          'WebDAV listing did not verify its directory',
+        );
+      }
       return entries;
+    } on TimeoutException {
+      opened?.abort();
+      rethrow;
     } finally {
-      client.close(force: true);
+      if (reuseListings) {
+        _listingAuthRetries.remove(uri);
+      } else {
+        client.close(force: true);
+      }
     }
   }
 }
@@ -197,6 +267,7 @@ class SmbSource extends WebDav {
   final _activeReads = <Future<void> Function()>{};
   bool _closed = false;
 
+  @override
   void close() {
     _closed = true;
     for (final disconnect in _activeReads.toList()) {
@@ -256,7 +327,7 @@ class SmbSource extends WebDav {
   }
 
   @override
-  Future<List<DavEntry>> list(Uri uri) async {
+  Future<List<DavEntry>> list(Uri uri, {bool requireComplete = false}) async {
     final path = _path(uri);
     final client = await connect();
     try {
@@ -445,8 +516,11 @@ class SmbByteRange {
 class Scanner {
   static Future<int> scan(Map<String, Object?> source) async {
     final cat = Catalog.instance;
-    source = await cat.withCredentials(source);
     final id = source['id'].toString();
+    final locationRevision = cat.foundationEnabled
+        ? await LibraryFoundation.sourceRevision(cat.db, id)
+        : null;
+    source = await cat.withCredentials(source);
     var count = 0;
     cat.updateStatus('扫描中：${source['label']}', true);
     try {
@@ -465,7 +539,12 @@ class Scanner {
             if (entry.directory) {
               pending.add(relative);
             } else if (Catalog.isVideo(entry.name) && relative.contains('/')) {
-              await cat.indexVideo(id, relative, entry.size);
+              await cat.indexVideo(
+                id,
+                relative,
+                entry.size,
+                expectedLocationRevision: locationRevision,
+              );
               count++;
               if (count % 100 == 0) cat.updateStatus('扫描到 $count 个视频', true);
             }
@@ -494,7 +573,12 @@ class Scanner {
               }
               pending.add((uri: entry.uri, relative: relative));
             } else if (Catalog.isVideo(entry.name) && relative.contains('/')) {
-              await cat.indexVideo(id, relative, entry.size);
+              await cat.indexVideo(
+                id,
+                relative,
+                entry.size,
+                expectedLocationRevision: locationRevision,
+              );
               count++;
             }
           }
@@ -517,22 +601,35 @@ class Scanner {
 class StreamBroker {
   StreamBroker._();
   static final instance = StreamBroker._();
-  HttpServer? _server;
-  bool _listening = false;
+  Future<HttpServer>? _server;
   final Map<String, ({Map<String, Object?> source, String path})> _tickets = {};
   final _relays = <String, WebDavStream>{};
   final _smbRelays = <String, SmbSource>{};
+
+  Future<HttpServer> _startServer() async {
+    HttpServer? server;
+    try {
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen(_handle);
+      return server;
+    } catch (_) {
+      // A failed listener must not leave a bound server behind. Keep the shared
+      // initialization pending until cleanup finishes, then allow a retry.
+      try {
+        await server?.close(force: true);
+      } catch (_) {}
+      _server = null;
+      rethrow;
+    }
+  }
+
   Future<Uri> issue(
     Map<String, Object?> source,
     String path, {
     String purpose = 'playback',
     String? diagnosticSession,
   }) async {
-    _server ??= await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    if (!_listening) {
-      _listening = true;
-      _server!.listen(_handle);
-    }
+    final server = await (_server ??= _startServer());
     final random = Random.secure();
     final ticket = base64UrlEncode(
       List<int>.generate(32, (_) => random.nextInt(256)),
@@ -554,7 +651,7 @@ class StreamBroker {
         diagnosticSession: diagnosticSession,
       );
     }
-    return Uri.parse('http://127.0.0.1:${_server!.port}/file/$ticket');
+    return Uri.parse('http://127.0.0.1:${server.port}/file/$ticket');
   }
 
   void revoke(Uri uri) {
@@ -564,6 +661,9 @@ class StreamBroker {
     _relays.remove(ticket)?.close();
     _smbRelays.remove(ticket)?.close();
   }
+
+  bool interruptedWebDavRead(Uri uri) =>
+      _relays[uri.pathSegments.lastOrNull]?.interruptedRead ?? false;
 
   Future<void> _handle(HttpRequest req) async {
     final ticket = req.uri.pathSegments.isEmpty
@@ -585,50 +685,120 @@ class StreamBroker {
   Future<List<String>> subtitles(
     Map<String, Object?> source,
     String relative,
+  ) async => [
+    for (final match in await subtitleMatches(source, relative)) match.path,
+  ];
+
+  Future<List<({String path, bool automatic})>> subtitleMatches(
+    Map<String, Object?> source,
+    String relative,
   ) async {
     source = await Catalog.instance.withCredentials(source);
+    final parent = p.posix.dirname(relative);
+    final folder = parent == '.' ? '' : parent;
+    final List<String> names;
     if (source['kind'] == 'local') {
-      final parent = p.posix.dirname(relative);
-      final folder = parent == '.' ? '' : parent;
-      final stem = p.posix.basenameWithoutExtension(relative).toLowerCase();
       final entries = await LocalMedia.list(
         source['location'].toString(),
         folder,
       );
-      return entries
-          .where(
-            (f) =>
-                !f.directory &&
-                Catalog.isSubtitle(f.name) &&
-                p.posix
-                    .basenameWithoutExtension(f.name)
-                    .toLowerCase()
-                    .startsWith(stem),
-          )
-          .map((f) => folder.isEmpty ? f.name : '$folder/${f.name}')
-          .toList();
+      names = [
+        for (final entry in entries)
+          if (!entry.directory) entry.name,
+      ];
+    } else {
+      final dav = WebDav(source);
+      try {
+        final entries = await dav.list(dav.directoryUri(folder));
+        names = [
+          for (final entry in entries)
+            if (!entry.isDirectory) entry.name,
+        ];
+      } finally {
+        if (dav is SmbSource) dav.close();
+      }
     }
-    final dav = WebDav(source);
-    final idx = relative.lastIndexOf('/');
-    final dirname = idx < 0 ? '' : relative.substring(0, idx);
-    final stem = p.posix.basenameWithoutExtension(relative).toLowerCase();
-    final url = dirname.isEmpty
-        ? dav.root
-        : dav.root.resolve(
-            '${dirname.split('/').map(Uri.encodeComponent).join('/')}/',
-          );
-    final entries = await dav.list(url);
-    return entries
-        .where(
-          (e) =>
-              !e.isDirectory &&
-              Catalog.isSubtitle(e.name) &&
-              p.posix
-                  .basenameWithoutExtension(e.name)
-                  .toLowerCase()
-                  .startsWith(stem),
-        )
-        .map((e) => dirname.isEmpty ? e.name : '$dirname/${e.name}')
-        .toList();
+    return _matchSubtitles(folder, p.posix.basename(relative), names);
   }
+
+  static final _subtitleLanguageSuffix = RegExp(
+    r'(?:[ ._-]+|\[)(?:chs|cht|sc|tc|gb|big5|zh(?:[-_](?:cn|tw|hk|hans|hant))?|'
+    r'chi|zho|chinese|ja|jp|jpn|en|eng|english|japanese|简中|繁中|简体|繁體|中文|日语|日語|简日|繁日)\]?$',
+    caseSensitive: false,
+  );
+
+  static List<({String path, bool automatic})> _matchSubtitles(
+    String folder,
+    String video,
+    List<String> names,
+  ) {
+    String stem(String name) => p.posix.basenameWithoutExtension(name);
+    final videoStem = stem(video).toLowerCase();
+    final exact = <String>[];
+    final renamed = <String>[];
+    final episode = _subtitleEpisode(folder, videoStem);
+    for (final name in names.where(Catalog.isSubtitle).toSet()) {
+      final subtitleStem = stem(name).toLowerCase();
+      final base = subtitleStem.replaceFirst(_subtitleLanguageSuffix, '');
+      if (subtitleStem == videoStem || base == videoStem) {
+        exact.add(name);
+      } else if (episode != null &&
+          _sameSubtitleEpisode(episode, _subtitleEpisode(folder, base))) {
+        renamed.add(name);
+      }
+    }
+    // A same-episode fallback cannot distinguish two cuts or works sharing
+    // a directory. Keep those choices visible without choosing one silently.
+    var uniqueRename = exact.isEmpty && renamed.length == 1;
+    if (uniqueRename) {
+      final renamedEpisode = _subtitleEpisode(folder, stem(renamed.single));
+      uniqueRename = !names.any(
+        (name) =>
+            name != video &&
+            Catalog.isVideo(name) &&
+            _sameSubtitleEpisode(
+              renamedEpisode,
+              _subtitleEpisode(folder, stem(name)),
+            ),
+      );
+    }
+    String path(String name) => folder.isEmpty ? name : '$folder/$name';
+    return [
+      for (final name in exact) (path: path(name), automatic: true),
+      for (final name in renamed) (path: path(name), automatic: uniqueRename),
+    ];
+  }
+
+  static ({int? season, int number})? _subtitleEpisode(
+    String folder,
+    String stem,
+  ) {
+    final name = stem.replaceFirst(_subtitleLanguageSuffix, '');
+    if (CloudMediaFileClassifier.isClearlySupplementary(folder, name)) {
+      return null;
+    }
+    final number =
+        CloudMediaFileClassifier.episodeNumberFromNameInDirectory(
+          folder,
+          name,
+        ) ??
+        PersonalFilenameParser.bareEpisode('$name.mkv')?.episode;
+    if (number == null) return null;
+    return (
+      season: CloudMediaAssetPresentation.explicitSeasonNumber({
+        'name': name,
+        'relative_path': folder,
+      }),
+      number: number,
+    );
+  }
+
+  static bool _sameSubtitleEpisode(
+    ({int? season, int number})? a,
+    ({int? season, int number})? b,
+  ) =>
+      a != null &&
+      b != null &&
+      a.number == b.number &&
+      (a.season == null || b.season == null || a.season == b.season);
 }

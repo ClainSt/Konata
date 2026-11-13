@@ -1,0 +1,1126 @@
+{
+ "split": {
+  "folder": "高达创形者 再起",
+  "series": 76821,
+  "providers": {
+   "bangumi": {
+    "candidates": [
+     {
+      "id": 286123,
+      "type": "anime",
+      "title": "高达创形者 再起",
+      "year": 2019,
+      "exact": true,
+      "title_matches": true,
+      "directory_title_matches": true,
+      "aliases": [
+       "ガンダムビルドダイバーズRe:RISE",
+       "高达创形者 再起",
+       "高达创形者 Re:RISE",
+       "高達創戰潛行者 Re:RISE",
+       "鋼彈創鬥者潛網大戰 Re:RISE",
+       "Gundam Build Divers Re:Rise"
+      ]
+     }
+    ],
+    "adopted": null
+   },
+   "tmdb": {
+    "candidates": [
+     {
+      "id": 299094,
+      "type": "tv",
+      "title": "Gundam Build Divers Re: Rise",
+      "year": 2019,
+      "exact": true,
+      "title_matches": true,
+      "directory_title_matches": false,
+      "aliases": [
+       "Gundam Build Divers Re: Rise"
+      ],
+      "seasons": [
+       {
+        "season": 1,
+        "count": 1,
+        "year": 2019
+       },
+       {
+        "season": 2,
+        "count": 0,
+        "year": null
+       }
+      ]
+     },
+     {
+      "id": 76821,
+      "type": "tv",
+      "title": "高达创形者",
+      "year": 2018,
+      "exact": true,
+      "title_matches": true,
+      "directory_title_matches": false,
+      "aliases": [
+       "高达创形者",
+       "ガンダムビルドダイバーズ",
+       "高达创战潜行者",
+       "高達創戰潛行者Re:RISE",
+       "ガンダムビルドダイバーズRe:RISE",
+       "건담 빌드 다이버즈 Re RISE",
+       "건담 빌드 다이버스",
+       "Gundam Build Fighters Re:RISE",
+       "Gundam Build Divers",
+       "건담 빌드 다이버즈",
+       "Gundam Build Divers Re:Rise",
+       "鋼彈創鬥者 潛網大戰"
+      ],
+      "seasons": [
+       {
+        "season": 0,
+        "count": 2,
+        "year": 2018
+       },
+       {
+        "season": 1,
+        "count": 25,
+        "year": 2018
+       },
+       {
+        "season": 2,
+        "count": 26,
+        "year": 2019
+       }
+      ]
+     }
+    ],
+    "adopted": null
+   }
+  },
+  "chapters": {
+   "zh-CN": {
+    "season_number": 2,
+    "episodes": [
+     {
+      "season_number": 2,
+      "id": 1949950,
+      "episode_number": 1,
+      "name": "彷徨的核心高达",
+      "air_date": "2019-10-10"
+     },
+     {
+      "season_number": 2,
+      "id": 1950127,
+      "episode_number": 2,
+      "name": "未知的任务",
+      "air_date": "2019-10-10"
+     },
+     {
+      "season_number": 2,
+      "id": 1954783,
+      "episode_number": 3,
+      "name": "应该守护的地方",
+      "air_date": "2019-10-17"
+     },
+     {
+      "season_number": 2,
+      "id": 1954784,
+      "episode_number": 4,
+      "name": "负伤之翼",
+      "air_date": "2019-10-24"
+     },
+     {
+      "season_number": 2,
+      "id": 1972274,
+      "episode_number": 5,
+      "name": "此刻 展翅高飞吧",
+      "air_date": "2019-10-31"
+     },
+     {
+      "season_number": 2,
+      "id": 1972275,
+      "episode_number": 6,
+      "name": "岌岌可危的英雄",
+      "air_date": "2019-11-07"
+     },
+     {
+      "season_number": 2,
+      "id": 1972276,
+      "episode_number": 7,
+      "name": "伤痕累累的桂冠",
+      "air_date": "2019-11-14"
+     },
+     {
+      "season_number": 2,
+      "id": 1991145,
+      "episode_number": 8,
+      "name": "使命与幻影",
+      "air_date": "2019-11-21"
+     },
+     {
+      "season_number": 2,
+      "id": 1991146,
+      "episode_number": 9,
+      "name": "从隔绝的深渊",
+      "air_date": "2019-11-28"
+     },
+     {
+      "season_number": 2,
+      "id": 1991147,
+      "episode_number": 10,
+      "name": "在那里的气息",
+      "air_date": "2019-12-05"
+     },
+     {
+      "season_number": 2,
+      "id": 2013411,
+      "episode_number": 11,
+      "name": "最后任务",
+      "air_date": "2019-12-12"
+     },
+     {
+      "season_number": 2,
+      "id": 2022558,
+      "episode_number": 12,
+      "name": "震动的世界",
+      "air_date": "2019-12-19"
+     },
+     {
+      "season_number": 2,
+      "id": 2028956,
+      "episode_number": 13,
+      "name": "在这宇宙的某处",
+      "air_date": "2019-12-26"
+     },
+     {
+      "season_number": 2,
+      "id": 2218174,
+      "episode_number": 14,
+      "name": "相逢，然后...",
+      "air_date": "2020-04-09"
+     },
+     {
+      "season_number": 2,
+      "id": 2218175,
+      "episode_number": 15,
+      "name": "任务，再次出动",
+      "air_date": "2020-04-16"
+     },
+     {
+      "season_number": 2,
+      "id": 2218176,
+      "episode_number": 16,
+      "name": "前往天空中的大地",
+      "air_date": "2020-04-23"
+     },
+     {
+      "season_number": 2,
+      "id": 2247999,
+      "episode_number": 17,
+      "name": "圣兽库亚多伦",
+      "air_date": "2020-04-30"
+     },
+     {
+      "season_number": 2,
+      "id": 2260315,
+      "episode_number": 18,
+      "name": "完美的狙击手",
+      "air_date": "2020-05-07"
+     },
+     {
+      "season_number": 2,
+      "id": 2344506,
+      "episode_number": 19,
+      "name": "如果你不在",
+      "air_date": "2020-07-09"
+     },
+     {
+      "season_number": 2,
+      "id": 2353368,
+      "episode_number": 20,
+      "name": "所托之愿",
+      "air_date": "2020-07-16"
+     },
+     {
+      "season_number": 2,
+      "id": 2353369,
+      "episode_number": 21,
+      "name": "为了再次飞翔",
+      "air_date": "2020-07-23"
+     },
+     {
+      "season_number": 2,
+      "id": 2371321,
+      "episode_number": 22,
+      "name": "神怪高达的最后期限",
+      "air_date": "2020-07-30"
+     },
+     {
+      "season_number": 2,
+      "id": 2371322,
+      "episode_number": 23,
+      "name": "抉择时刻",
+      "air_date": "2020-08-06"
+     },
+     {
+      "season_number": 2,
+      "id": 2371323,
+      "episode_number": 24,
+      "name": "创形者队",
+      "air_date": "2020-08-13"
+     },
+     {
+      "season_number": 2,
+      "id": 2396926,
+      "episode_number": 25,
+      "name": "通向我理想中的未来",
+      "air_date": "2020-08-20"
+     },
+     {
+      "season_number": 2,
+      "id": 2396927,
+      "episode_number": 26,
+      "name": "Re:Rise",
+      "air_date": "2020-08-27"
+     }
+    ]
+   },
+   "ja-JP": {
+    "season_number": 2,
+    "episodes": [
+     {
+      "season_number": 2,
+      "id": 1949950,
+      "episode_number": 1,
+      "name": "彷徨のコアガンダム",
+      "air_date": "2019-10-10"
+     },
+     {
+      "season_number": 2,
+      "id": 1950127,
+      "episode_number": 2,
+      "name": "知られざるミッション",
+      "air_date": "2019-10-10"
+     },
+     {
+      "season_number": 2,
+      "id": 1954783,
+      "episode_number": 3,
+      "name": "守るべき場所",
+      "air_date": "2019-10-17"
+     },
+     {
+      "season_number": 2,
+      "id": 1954784,
+      "episode_number": 4,
+      "name": "傷ついた翼",
+      "air_date": "2019-10-24"
+     },
+     {
+      "season_number": 2,
+      "id": 1972274,
+      "episode_number": 5,
+      "name": "いま、翼ひろげて",
+      "air_date": "2019-10-31"
+     },
+     {
+      "season_number": 2,
+      "id": 1972275,
+      "episode_number": 6,
+      "name": "崖っぷちのヒーロー",
+      "air_date": "2019-11-07"
+     },
+     {
+      "season_number": 2,
+      "id": 1972276,
+      "episode_number": 7,
+      "name": "傷だらけの栄冠",
+      "air_date": "2019-11-14"
+     },
+     {
+      "season_number": 2,
+      "id": 1991145,
+      "episode_number": 8,
+      "name": "使命と幻影",
+      "air_date": "2019-11-21"
+     },
+     {
+      "season_number": 2,
+      "id": 1991146,
+      "episode_number": 9,
+      "name": "隔絶の淵から",
+      "air_date": "2019-11-28"
+     },
+     {
+      "season_number": 2,
+      "id": 1991147,
+      "episode_number": 10,
+      "name": "そこにある息吹",
+      "air_date": "2019-12-05"
+     },
+     {
+      "season_number": 2,
+      "id": 2013411,
+      "episode_number": 11,
+      "name": "ラストミッション",
+      "air_date": "2019-12-12"
+     },
+     {
+      "season_number": 2,
+      "id": 2022558,
+      "episode_number": 12,
+      "name": "震える世界",
+      "air_date": "2019-12-19"
+     },
+     {
+      "season_number": 2,
+      "id": 2028956,
+      "episode_number": 13,
+      "name": "この宇宙(そら)のどこかで",
+      "air_date": "2019-12-26"
+     },
+     {
+      "season_number": 2,
+      "id": 2218174,
+      "episode_number": 14,
+      "name": "めぐりあい、そして",
+      "air_date": "2020-04-09"
+     },
+     {
+      "season_number": 2,
+      "id": 2218175,
+      "episode_number": 15,
+      "name": "使命、再び",
+      "air_date": "2020-04-16"
+     },
+     {
+      "season_number": 2,
+      "id": 2218176,
+      "episode_number": 16,
+      "name": "天空の大地へ",
+      "air_date": "2020-04-23"
+     },
+     {
+      "season_number": 2,
+      "id": 2247999,
+      "episode_number": 17,
+      "name": "聖獣クアドルン",
+      "air_date": "2020-04-30"
+     },
+     {
+      "season_number": 2,
+      "id": 2260315,
+      "episode_number": 18,
+      "name": "完璧な狙撃者",
+      "air_date": "2020-05-07"
+     },
+     {
+      "season_number": 2,
+      "id": 2344506,
+      "episode_number": 19,
+      "name": "君がいなければ",
+      "air_date": "2020-07-09"
+     },
+     {
+      "season_number": 2,
+      "id": 2353368,
+      "episode_number": 20,
+      "name": "託された願い",
+      "air_date": "2020-07-16"
+     },
+     {
+      "season_number": 2,
+      "id": 2353369,
+      "episode_number": 21,
+      "name": "もういちど飛ぶために",
+      "air_date": "2020-07-23"
+     },
+     {
+      "season_number": 2,
+      "id": 2371321,
+      "episode_number": 22,
+      "name": "刻限のゼルトザーム",
+      "air_date": "2020-07-30"
+     },
+     {
+      "season_number": 2,
+      "id": 2371322,
+      "episode_number": 23,
+      "name": "選択のとき",
+      "air_date": "2020-08-06"
+     },
+     {
+      "season_number": 2,
+      "id": 2371323,
+      "episode_number": 24,
+      "name": "ビルドダイバーズ",
+      "air_date": "2020-08-13"
+     },
+     {
+      "season_number": 2,
+      "id": 2396926,
+      "episode_number": 25,
+      "name": "僕が描く未来へ",
+      "air_date": "2020-08-20"
+     },
+     {
+      "season_number": 2,
+      "id": 2396927,
+      "episode_number": 26,
+      "name": "Re:RISE",
+      "air_date": "2020-08-27"
+     }
+    ]
+   }
+  },
+  "subjects": {
+   "286123": {
+    "id": 286123,
+    "name": "ガンダムビルドダイバーズRe:RISE",
+    "name_cn": "高达创形者 再起",
+    "type": 2,
+    "platform": "WEB"
+   },
+   "297261": {
+    "id": 297261,
+    "name": "ガンダムビルドダイバーズRe:RISE 2nd Season",
+    "name_cn": "高达创形者 再起 2nd Season",
+    "type": 2,
+    "platform": "WEB"
+   }
+  },
+  "episodes": {
+   "286123": {
+    "total": 13,
+    "data": [
+     {
+      "id": 908194,
+      "sort": 1,
+      "ep": 1,
+      "name": "彷徨のコアガンダム",
+      "name_cn": "彷徨的核心高达",
+      "airdate": "2019-10-10",
+      "type": 0
+     },
+     {
+      "id": 908195,
+      "sort": 2,
+      "ep": 2,
+      "name": "知られざるミッション",
+      "name_cn": "未知的任务",
+      "airdate": "2019-10-10",
+      "type": 0
+     },
+     {
+      "id": 908196,
+      "sort": 3,
+      "ep": 3,
+      "name": "守るべき場所",
+      "name_cn": "应该守护的地方",
+      "airdate": "2019-10-17",
+      "type": 0
+     },
+     {
+      "id": 908197,
+      "sort": 4,
+      "ep": 4,
+      "name": "傷ついた翼",
+      "name_cn": "负伤之翼",
+      "airdate": "2019-10-24",
+      "type": 0
+     },
+     {
+      "id": 908198,
+      "sort": 5,
+      "ep": 5,
+      "name": "いま、翼ひろげて",
+      "name_cn": "此刻 展翅高飞吧",
+      "airdate": "2019-10-31",
+      "type": 0
+     },
+     {
+      "id": 908199,
+      "sort": 6,
+      "ep": 6,
+      "name": "崖っぷちのヒーロー",
+      "name_cn": "岌岌可危的英雄",
+      "airdate": "2019-11-07",
+      "type": 0
+     },
+     {
+      "id": 908200,
+      "sort": 7,
+      "ep": 7,
+      "name": "傷だらけの栄冠",
+      "name_cn": "伤痕累累的桂冠",
+      "airdate": "2019-11-14",
+      "type": 0
+     },
+     {
+      "id": 908201,
+      "sort": 8,
+      "ep": 8,
+      "name": "使命と幻影",
+      "name_cn": "使命与幻影",
+      "airdate": "2019-11-21",
+      "type": 0
+     },
+     {
+      "id": 908202,
+      "sort": 9,
+      "ep": 9,
+      "name": "隔絶の淵から",
+      "name_cn": "从隔绝的深渊",
+      "airdate": "2019-11-28",
+      "type": 0
+     },
+     {
+      "id": 908203,
+      "sort": 10,
+      "ep": 10,
+      "name": "そこにある息吹",
+      "name_cn": "在那里的气息",
+      "airdate": "2019-12-05",
+      "type": 0
+     },
+     {
+      "id": 908204,
+      "sort": 11,
+      "ep": 11,
+      "name": "ラストミッション",
+      "name_cn": "最后任务",
+      "airdate": "2019-12-12",
+      "type": 0
+     },
+     {
+      "id": 908205,
+      "sort": 12,
+      "ep": 12,
+      "name": "震える世界",
+      "name_cn": "震动的世界",
+      "airdate": "2019-12-19",
+      "type": 0
+     },
+     {
+      "id": 922086,
+      "sort": 13,
+      "ep": 13,
+      "name": "この宇宙(そら)のどこかで",
+      "name_cn": "在这宇宙的某处",
+      "airdate": "2019-12-26",
+      "type": 0
+     }
+    ]
+   },
+   "297261": {
+    "total": 13,
+    "data": [
+     {
+      "id": 943025,
+      "sort": 14,
+      "ep": 1,
+      "name": "めぐりあい、そして",
+      "name_cn": "相逢，然后…",
+      "airdate": "2020-04-09",
+      "type": 0
+     },
+     {
+      "id": 943026,
+      "sort": 15,
+      "ep": 2,
+      "name": "使命(ミッション)、再び",
+      "name_cn": "任务，再次出动",
+      "airdate": "2020-04-16",
+      "type": 0
+     },
+     {
+      "id": 943027,
+      "sort": 16,
+      "ep": 3,
+      "name": "天空の大地へ",
+      "name_cn": "前往天空中的大地",
+      "airdate": "2020-04-23",
+      "type": 0
+     },
+     {
+      "id": 943028,
+      "sort": 17,
+      "ep": 4,
+      "name": "聖獣クアドルン",
+      "name_cn": "圣兽库亚多伦",
+      "airdate": "2020-04-30",
+      "type": 0
+     },
+     {
+      "id": 943029,
+      "sort": 18,
+      "ep": 5,
+      "name": "完璧な狙撃者",
+      "name_cn": "完美的狙击手",
+      "airdate": "2020-05-07",
+      "type": 0
+     },
+     {
+      "id": 943030,
+      "sort": 19,
+      "ep": 6,
+      "name": "君がいなければ",
+      "name_cn": "如果你不在",
+      "airdate": "2020-07-09",
+      "type": 0
+     },
+     {
+      "id": 943031,
+      "sort": 20,
+      "ep": 7,
+      "name": "託された願い",
+      "name_cn": "所托之愿",
+      "airdate": "2020-07-16",
+      "type": 0
+     },
+     {
+      "id": 943032,
+      "sort": 21,
+      "ep": 8,
+      "name": "もういちど飛ぶために",
+      "name_cn": "为了再次飞翔",
+      "airdate": "2020-07-23",
+      "type": 0
+     },
+     {
+      "id": 943033,
+      "sort": 22,
+      "ep": 9,
+      "name": "刻限のゼルトザーム",
+      "name_cn": "神怪高达的最后限期",
+      "airdate": "2020-07-30",
+      "type": 0
+     },
+     {
+      "id": 943034,
+      "sort": 23,
+      "ep": 10,
+      "name": "選択のとき",
+      "name_cn": "抉择时刻",
+      "airdate": "2020-08-06",
+      "type": 0
+     },
+     {
+      "id": 943035,
+      "sort": 24,
+      "ep": 11,
+      "name": "ビルドダイバーズ",
+      "name_cn": "创形者队",
+      "airdate": "2020-08-13",
+      "type": 0
+     },
+     {
+      "id": 943036,
+      "sort": 25,
+      "ep": 12,
+      "name": "僕が描く未来へ",
+      "name_cn": "通往我理想中的未来",
+      "airdate": "2020-08-20",
+      "type": 0
+     },
+     {
+      "id": 943037,
+      "sort": 26,
+      "ep": 13,
+      "name": "Re:RISE",
+      "name_cn": "",
+      "airdate": "2020-08-27",
+      "type": 0
+     }
+    ]
+   }
+  },
+  "relation": {
+   "id": 297261,
+   "type": 2,
+   "relation": "续集"
+  }
+ },
+ "combined": {
+  "folder": "全金属狂潮 校园篇",
+  "series": 39379,
+  "providers": {
+   "bangumi": {
+    "candidates": [
+     {
+      "id": 338,
+      "type": "anime",
+      "title": "全金属狂潮 校园篇",
+      "year": 2003,
+      "exact": true,
+      "title_matches": true,
+      "directory_title_matches": true,
+      "aliases": [
+       "フルメタル・パニック? ふもっふ",
+       "全金属狂潮 校园篇",
+       "Full Metal Panic? Fumoffu"
+      ]
+     }
+    ],
+    "adopted": {
+     "id": 338,
+     "type": "anime",
+     "title": "全金属狂潮 校园篇",
+     "year": 2003,
+     "exact": true,
+     "title_matches": true,
+     "directory_title_matches": true,
+     "aliases": [
+      "フルメタル・パニック? ふもっふ",
+      "全金属狂潮 校园篇",
+      "Full Metal Panic? Fumoffu"
+     ],
+     "by": "verified_bangumi"
+    }
+   },
+   "tmdb": {
+    "candidates": [
+     {
+      "id": 39379,
+      "type": "tv",
+      "title": "全金属狂潮！",
+      "year": 2002,
+      "exact": true,
+      "title_matches": true,
+      "directory_title_matches": false,
+      "aliases": [
+       "全金属狂潮！",
+       "フルメタル・パニック！",
+       "全金属狂潮",
+       "Full Metal Panic",
+       "驚爆危機",
+       "Furumetaru Panikku!",
+       "フルメタル・パニック！ Invisible Victory",
+       "フルメタル・パニック！ The Second Raid",
+       "フルメタル・パニック？ ふもっふ",
+       "Full Metal Panic! The Second Raid",
+       "풀 메탈 패닉!",
+       "풀 메탈 패닉! 4: 인비저블 빅토리"
+      ],
+      "seasons": [
+       {
+        "season": 0,
+        "count": 6,
+        "year": 2003
+       },
+       {
+        "season": 1,
+        "count": 24,
+        "year": 2002
+       },
+       {
+        "season": 2,
+        "count": 11,
+        "year": 2003
+       },
+       {
+        "season": 3,
+        "count": 13,
+        "year": 2005
+       },
+       {
+        "season": 4,
+        "count": 12,
+        "year": 2018
+       }
+      ]
+     }
+    ],
+    "adopted": null
+   }
+  },
+  "chapters": {
+   "ja-JP": {
+    "season_number": 2,
+    "episodes": [
+     {
+      "season_number": 2,
+      "id": 1001024,
+      "episode_number": 1,
+      "name": "南から来た男／空回りのランチタイム",
+      "air_date": "2003-08-26"
+     },
+     {
+      "season_number": 2,
+      "id": 1001028,
+      "episode_number": 2,
+      "name": "鋼鉄のサマーイリュージョン",
+      "air_date": "2003-09-02"
+     },
+     {
+      "season_number": 2,
+      "id": 1001029,
+      "episode_number": 3,
+      "name": "芸術のハンバーガーヒル／一途なステイク・アウト",
+      "air_date": "2003-09-09"
+     },
+     {
+      "season_number": 2,
+      "id": 1001030,
+      "episode_number": 4,
+      "name": "押し売りのフェティッシュ／暗闇のペイシェント",
+      "air_date": "2003-09-16"
+     },
+     {
+      "season_number": 2,
+      "id": 1001031,
+      "episode_number": 5,
+      "name": "純で不純なグラップラー／善意のトレスパス",
+      "air_date": "2003-10-07"
+     },
+     {
+      "season_number": 2,
+      "id": 1001032,
+      "episode_number": 6,
+      "name": "やりすぎのウォークライ",
+      "air_date": "2003-10-14"
+     },
+     {
+      "season_number": 2,
+      "id": 1001033,
+      "episode_number": 7,
+      "name": "女神の来日(受難編)",
+      "air_date": "2003-10-21"
+     },
+     {
+      "season_number": 2,
+      "id": 1001034,
+      "episode_number": 8,
+      "name": "女神の来日(温泉編)",
+      "air_date": "2003-10-28"
+     },
+     {
+      "season_number": 2,
+      "id": 1001035,
+      "episode_number": 9,
+      "name": "仁義なきファンシー",
+      "air_date": "2003-11-04"
+     },
+     {
+      "season_number": 2,
+      "id": 1001036,
+      "episode_number": 10,
+      "name": "ままならないブルーバード",
+      "air_date": "2003-11-11"
+     },
+     {
+      "season_number": 2,
+      "id": 1001037,
+      "episode_number": 11,
+      "name": "五時間目のホット・スポット",
+      "air_date": "2003-11-18"
+     }
+    ]
+   },
+   "zh-CN": {
+    "season_number": 2,
+    "episodes": [
+     {
+      "season_number": 2,
+      "id": 1001024,
+      "episode_number": 1,
+      "name": "从南方来的男人/白忙一场的午餐时间",
+      "air_date": "2003-08-26"
+     },
+     {
+      "season_number": 2,
+      "id": 1001028,
+      "episode_number": 2,
+      "name": "钢铁的夏日幻影",
+      "air_date": "2003-09-02"
+     },
+     {
+      "season_number": 2,
+      "id": 1001029,
+      "episode_number": 3,
+      "name": "艺术的汉堡高地/单方面的监视",
+      "air_date": "2003-09-09"
+     },
+     {
+      "season_number": 2,
+      "id": 1001030,
+      "episode_number": 4,
+      "name": "强迫推销的恋物狂/黑暗世界的病人",
+      "air_date": "2003-09-16"
+     },
+     {
+      "season_number": 2,
+      "id": 1001031,
+      "episode_number": 5,
+      "name": "单纯又不纯洁的格斗家/善意的罪过",
+      "air_date": "2003-10-07"
+     },
+     {
+      "season_number": 2,
+      "id": 1001032,
+      "episode_number": 6,
+      "name": "过火的战嚎",
+      "air_date": "2003-10-14"
+     },
+     {
+      "season_number": 2,
+      "id": 1001033,
+      "episode_number": 7,
+      "name": "女神访日（受难编）",
+      "air_date": "2003-10-21"
+     },
+     {
+      "season_number": 2,
+      "id": 1001034,
+      "episode_number": 8,
+      "name": "女神访日（温泉篇)",
+      "air_date": "2003-10-28"
+     },
+     {
+      "season_number": 2,
+      "id": 1001035,
+      "episode_number": 9,
+      "name": "不仁不义的幻想",
+      "air_date": "2003-11-04"
+     },
+     {
+      "season_number": 2,
+      "id": 1001036,
+      "episode_number": 10,
+      "name": "不如意的青鸟",
+      "air_date": "2003-11-11"
+     },
+     {
+      "season_number": 2,
+      "id": 1001037,
+      "episode_number": 11,
+      "name": "第五堂课的危险区域",
+      "air_date": "2003-11-18"
+     }
+    ]
+   }
+  },
+  "subjects": {
+   "338": {
+    "id": 338,
+    "name": "フルメタル・パニック? ふもっふ",
+    "name_cn": "全金属狂潮 校园篇",
+    "type": 2,
+    "platform": "TV"
+   }
+  },
+  "episodes": {
+   "338": {
+    "total": 12,
+    "data": [
+     {
+      "id": 8717,
+      "sort": 1,
+      "ep": 1,
+      "name": "南から来た男 / 妥協無用のホステージ",
+      "name_cn": "南方来的男人 / 无须妥协的人质危机",
+      "airdate": "2003-08-25",
+      "type": 0
+     },
+     {
+      "id": 8719,
+      "sort": 2,
+      "ep": 2,
+      "name": "すれ違いのホスティリティ / 空回りのランチタイム",
+      "name_cn": "擦身而过的敌意 / 白忙一场的午餐时间",
+      "airdate": "2003-08-25",
+      "type": 0
+     },
+     {
+      "id": 8721,
+      "sort": 3,
+      "ep": 3,
+      "name": "鋼鉄のサマー・イリュージョン",
+      "name_cn": "钢铁的夏日幻影",
+      "airdate": "2003-09-01",
+      "type": 0
+     },
+     {
+      "id": 8723,
+      "sort": 4,
+      "ep": 4,
+      "name": "芸術のハンバーガー・ヒル / 一途なステイク・アウト",
+      "name_cn": "艺术的汉堡高地 / 单方面的监视",
+      "airdate": "2003-09-08",
+      "type": 0
+     },
+     {
+      "id": 8724,
+      "sort": 5,
+      "ep": 5,
+      "name": "純で不純なグラップラー /  善意のトレスパス",
+      "name_cn": "单纯又不纯洁的格斗家 / 善意的罪过",
+      "airdate": "2003-10-06",
+      "type": 0
+     },
+     {
+      "id": 8726,
+      "sort": 6,
+      "ep": 6,
+      "name": "押し売りのフェティッシュ /  暗闇のペイシェント",
+      "name_cn": "强迫推销的恋物狂 / 黑暗世界的病人",
+      "airdate": "2003-09-15",
+      "type": 0
+     },
+     {
+      "id": 8728,
+      "sort": 7,
+      "ep": 7,
+      "name": "やりすぎのウォークライ",
+      "name_cn": "过火的战嚎",
+      "airdate": "2003-10-13",
+      "type": 0
+     },
+     {
+      "id": 8729,
+      "sort": 8,
+      "ep": 8,
+      "name": "女神の来日(受難編)",
+      "name_cn": "女神访日（受难编）",
+      "airdate": "2003-10-20",
+      "type": 0
+     },
+     {
+      "id": 8730,
+      "sort": 9,
+      "ep": 9,
+      "name": "女神の来日(温泉編)",
+      "name_cn": "女神访日（温泉编）",
+      "airdate": "2003-10-27",
+      "type": 0
+     },
+     {
+      "id": 8731,
+      "sort": 10,
+      "ep": 10,
+      "name": "仁義なきファンシー",
+      "name_cn": "不仁不义的幻想",
+      "airdate": "2003-11-03",
+      "type": 0
+     },
+     {
+      "id": 8732,
+      "sort": 11,
+      "ep": 11,
+      "name": "ままならないブルーバード",
+      "name_cn": "不如意的青鸟",
+      "airdate": "2003-11-10",
+      "type": 0
+     },
+     {
+      "id": 8733,
+      "sort": 12,
+      "ep": 12,
+      "name": "五時間目のホット・スポット",
+      "name_cn": "第五堂课的危险区域",
+      "airdate": "2003-11-17",
+      "type": 0
+     }
+    ]
+   }
+  }
+ }
+}

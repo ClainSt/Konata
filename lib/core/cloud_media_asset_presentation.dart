@@ -2,6 +2,26 @@ import 'cloud_media_file_classifier.dart';
 
 /// Filename tokens are used only for matching and short extra labels.
 class CloudMediaAssetPresentation {
+  /// Explicit film labels on unnumbered main files in a television inventory.
+  static bool isIndependentMovie(Map<String, Object?> asset) {
+    if (asset['category'] != 'main' || asset['episode'] != null ||
+        asset['manual_mapping'] == true) return false;
+    final name = asset['name']?.toString() ?? '';
+    if (_filmLabel.hasMatch(name)) return true;
+    final path = asset['relative_path']?.toString() ?? '';
+    final segments = path.replaceAll('\\', '/').split('/');
+    return segments.take(segments.length - 1).any(_tvAndFilmFolder.hasMatch);
+  }
+
+  static final _filmLabel = RegExp(
+    r'(?<![a-z0-9])(?:the[ ._-]+)?movie(?![a-z0-9])|劇場版|剧场版',
+    caseSensitive: false,
+  );
+  static final _tvAndFilmFolder = RegExp(
+    r'\b(?:tv\s*[+&＆]\s*movie|movie\s*[+&＆]\s*tv)\b',
+    caseSensitive: false,
+  );
+
   /// Display-only cleanup: keep content labels and numbering intact.
   static String cleanedExtraFilename(Map<String, Object?> asset) {
     final original = asset['name']?.toString().trim();
@@ -37,7 +57,7 @@ class CloudMediaAssetPresentation {
       },
     );
     name = name
-        .replaceAll(RegExp(r'[_.]+'), ' ')
+        .replaceAll(RegExp(r'_|(?<!\d)\.|\.(?!\d)'), ' ')
         .replaceAll(technical, ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim()
@@ -105,6 +125,8 @@ class CloudMediaAssetPresentation {
 
   static String? extraTitle(Map<String, Object?> asset) {
     final original = asset['name']?.toString() ?? '';
+    final fractional = RegExp(r'\[(\d{1,3}\.\d{1,2})(?=\]|\()').firstMatch(original);
+    if (fractional != null) return 'SP${fractional[1]}';
     final content = _groupedSpecialContent(original);
     final name = content ?? original;
     if (CloudMediaFileClassifier.isPreview(name)) return null;
@@ -175,6 +197,7 @@ class CloudMediaAssetPresentation {
 
   static String extraType(Map<String, Object?> asset) {
     final original = asset['name']?.toString() ?? '';
+    if (RegExp(r'\[\d{1,3}\.\d{1,2}(?=\]|\()').hasMatch(original)) return 'SP';
     final content = _groupedSpecialContent(original);
     final name = content ?? original;
     if (CloudMediaFileClassifier.isPreview(name)) {
@@ -355,6 +378,13 @@ class CloudMediaAssetPresentation {
   static bool isSpecialMappingCandidate(Map<String, Object?> asset) {
     if (category(asset) != 'extra' || specialType(asset) == null) return false;
     final name = asset['name']?.toString().toLowerCase() ?? '';
+    // A later promotional token overrides an earlier OVA/OAD label.
+    // Match complete tokens so titles such as "Acme" remain eligible.
+    if (RegExp(
+      r'(^|[^a-z0-9])(?:tvcm|bdcm|pvcm|cm|pv)(?:[\s._-]*\d+)?(?=[^a-z0-9]|$)',
+    ).hasMatch(name)) {
+      return false;
+    }
     return !RegExp(
       r'menu|trailer|preview|teaser|opening|ending|ncop|nced',
     ).hasMatch(name);
@@ -404,7 +434,7 @@ class CloudMediaAssetPresentation {
           .where(
             (entry) =>
                 _specialFamily(
-                  _specialTypeFromTitle(entry['name']?.toString() ?? ''),
+                  specialTypeFromTitle(entry['name']?.toString() ?? ''),
                 ) ==
                 family,
           )
@@ -432,7 +462,7 @@ class CloudMediaAssetPresentation {
           final sameSubtype = typeSpecials
               .where(
                 (entry) => explicitTypes.contains(
-                  _specialTypeFromTitle(entry['name']?.toString() ?? ''),
+                  specialTypeFromTitle(entry['name']?.toString() ?? ''),
                 ),
               )
               .toList();
@@ -501,7 +531,7 @@ class CloudMediaAssetPresentation {
     return null;
   }
 
-  static String? _specialTypeFromTitle(String value) {
+  static String? specialTypeFromTitle(String value) {
     final match = RegExp(
       r'(^|[^a-z])(OVA|OAD|SP)(?=[^a-z]|$)',
       caseSensitive: false,

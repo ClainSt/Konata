@@ -372,10 +372,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get progressSaveFailed => 'Couldn\'t save progress. Retrying.';
 
   @override
-  String get apiAddress => 'API URL';
+  String get apiAddress => 'Backup API URL';
 
   @override
-  String get imageAddress => 'Image URL';
+  String get imageAddress => 'Backup image URL';
 
   @override
   String get testApi => 'Test API';
@@ -397,7 +397,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get serverNotice =>
-      'Set API and image URLs separately. Bangumi uses a community mirror by default. HTTP is unencrypted.';
+      'Requests try official servers first. The addresses below are backups for the API and images. Bangumi’s default backup is a community mirror. HTTP is unencrypted.';
 
   @override
   String get videoOutputRecovered => 'Video output recovered.';
@@ -407,11 +407,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get fallbackDescription =>
-      'Use a backup server if requests fail. Tests use the entered URL.';
+      'Switch to the backup on a timeout or connection failure. Connection tests check the entered backup directly.';
 
   @override
   String get allowCustomCredentials =>
-      'Send credentials to custom TMDB HTTPS servers';
+      'Send credentials to a custom TMDB HTTPS backup';
 
   @override
   String get notTested => 'Not tested';
@@ -1258,6 +1258,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get mpvReset => 'Restore empty default';
 
   @override
+  String get hdrTargetIncompatible =>
+      'The HDR target in your MPV configuration is incompatible with the current video output. Change the target settings or disable the custom configuration, then reopen the video.';
+
+  @override
   String get mpvFolderReadError =>
       'Cannot read the configuration folder. Check the files or choose the folder again in player settings.';
 
@@ -1557,23 +1561,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get nameOrBangumiId => 'Name or Bangumi ID';
 
   @override
-  String get unclassified => 'Unclassified';
+  String get lockOrientation => 'Lock current orientation';
 
   @override
-  String get assignToWork => 'Assign to title';
+  String get unlockOrientation => 'Follow device orientation';
 
   @override
-  String get workName => 'Title name';
-
-  @override
-  String get createClassification => 'Create title with this name';
-
-  @override
-  String get classificationHint =>
-      'Only library assignments change; original files stay in place. Select files from one source, then assign them to an existing or new title.';
-
-  @override
-  String get selectSourceFiles => 'Select all from this source';
+  String get orientationUnavailable =>
+      'Could not change orientation. Please try again.';
 
   @override
   String get offlineBangumi => 'Bangumi offline database';
@@ -1638,4 +1633,8 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get offlineIndexSize => 'Index size';
+
+  @override
+  String get dolbyVisionProfile5Unsupported =>
+      'Dolby Vision Profile 5 is not supported by the current player. This video has no compatible HDR10 base layer. Use an HDR10/SDR version or a player that supports this profile.';
 }

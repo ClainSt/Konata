@@ -55,6 +55,7 @@ android/.kotlin/
 
 # Keep project notes and verification/design artifacts local.
 *.[mM][dD]
+!/AGENTS.md
 !/README.md
 !/docs/OPTIONAL_FEATURES.md
 !/docs/MPV_ENGINE_RETIREMENT.md

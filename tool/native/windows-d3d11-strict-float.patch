@@ -1,0 +1,26 @@
+--- a/video/out/d3d11/ra_d3d11.c
++++ b/video/out/d3d11/ra_d3d11.c
+@@ -1381,8 +1381,13 @@
+ 
+     int64_t cross_ns = mp_time_ns();
+ 
++    // Keep HDR color arithmetic reproducible across draws. Non-IEEE pixel
++    // shader optimizations can amplify sampling differences after PQ mapping.
++    UINT flags = D3DCOMPILE_OPTIMIZATION_LEVEL3;
++    if (type == GLSL_SHADER_FRAGMENT)
++        flags |= D3DCOMPILE_IEEE_STRICTNESS;
+     hr = p->D3DCompile(hlsl, strlen(hlsl), NULL, NULL, NULL, "main",
+-        get_shader_target(ra, type), D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, out,
++        get_shader_target(ra, type), flags, 0, out,
+         &errors);
+     if (FAILED(hr)) {
+         MP_ERR(ra, "D3DCompile failed: %s\n%.*s", mp_HRESULT_to_str(hr),
+@@ -1512,7 +1517,7 @@
+ }
+ 
+ static const char cache_magic[4] MP_NONSTRING = "RD11";
+-static const uint32_t cache_version = 4;
++static const uint32_t cache_version = 5;
+ 
+ struct cache_header {
+     char magic[sizeof(cache_magic)];

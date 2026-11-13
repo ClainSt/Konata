@@ -471,11 +471,11 @@
   "@progressSaveFailed": {
     "description": "Playback setting: progressSaveFailed"
   },
-  "apiAddress": "API URL",
+  "apiAddress": "Backup API URL",
   "@apiAddress": {
     "description": "Konata interface: apiAddress"
   },
-  "imageAddress": "Image URL",
+  "imageAddress": "Backup image URL",
   "@imageAddress": {
     "description": "Konata interface: imageAddress"
   },
@@ -503,7 +503,7 @@
   "@closeMetadata": {
     "description": "Konata interface: closeMetadata"
   },
-  "serverNotice": "Set API and image URLs separately. Bangumi uses a community mirror by default. HTTP is unencrypted.",
+  "serverNotice": "Requests try official servers first. The addresses below are backups for the API and images. Bangumi’s default backup is a community mirror. HTTP is unencrypted.",
   "@serverNotice": {
     "description": "Konata interface: serverNotice"
   },
@@ -512,11 +512,11 @@
   "@autoFallback": {
     "description": "Konata interface: autoFallback"
   },
-  "fallbackDescription": "Use a backup server if requests fail. Tests use the entered URL.",
+  "fallbackDescription": "Switch to the backup on a timeout or connection failure. Connection tests check the entered backup directly.",
   "@fallbackDescription": {
     "description": "Konata interface: fallbackDescription"
   },
-  "allowCustomCredentials": "Send credentials to custom TMDB HTTPS servers",
+  "allowCustomCredentials": "Send credentials to a custom TMDB HTTPS backup",
   "@allowCustomCredentials": {
     "description": "Konata interface: allowCustomCredentials"
   },
@@ -1357,6 +1357,7 @@
   "mpvEdit": "Edit",
   "mpvImport": "Import file",
   "mpvReset": "Restore empty default",
+  "hdrTargetIncompatible": "The HDR target in your MPV configuration is incompatible with the current video output. Change the target settings or disable the custom configuration, then reopen the video.",
   "mpvFolderReadError": "Cannot read the configuration folder. Check the files or choose the folder again in player settings.",
   "mpvUseInternal": "Use in-app configuration",
   "fullscreen": "Enter fullscreen",
@@ -1442,7 +1443,8 @@
   "tmdbPeopleData": "TMDB people",
   "peopleBar": "Character row",
   "peopleFallbackTmdb": "When Bangumi is off, use TMDB people.",
-  "peopleFallbackHidden": "When Bangumi is off, hide the character row.",
+  "peopleFallbackHidden": "When Bangumi is off, hide the character row."
+,
   "historySelectAll": "Select all",
   "historyDeselectAll": "Deselect all",
   "historySelectionCount": "{count} selected",
@@ -1469,12 +1471,9 @@
   "detailBackdrop": "Detail page background",
   "cacheSettingFailed": "Could not save this setting.",
   "nameOrBangumiId": "Name or Bangumi ID",
-  "unclassified": "Unclassified",
-  "assignToWork": "Assign to title",
-  "workName": "Title name",
-  "createClassification": "Create title with this name",
-  "classificationHint": "Only library assignments change; original files stay in place. Select files from one source, then assign them to an existing or new title.",
-  "selectSourceFiles": "Select all from this source",
+  "lockOrientation": "Lock current orientation",
+  "unlockOrientation": "Follow device orientation",
+  "orientationUnavailable": "Could not change orientation. Please try again.",
   "offlineBangumi": "Bangumi offline database",
   "offlineBangumiHint": "Identify animation titles locally; fetch missing details and images online.",
   "offlineNotInstalled": "No offline database installed",
@@ -1494,5 +1493,6 @@
   "offlineOfficialSite": "Official snapshots",
   "offlineRemove": "Remove index and partial download",
   "offlineCount": "Animation entries",
-  "offlineIndexSize": "Index size"
+  "offlineIndexSize": "Index size",
+  "dolbyVisionProfile5Unsupported": "Dolby Vision Profile 5 is not supported by the current player. This video has no compatible HDR10 base layer. Use an HDR10/SDR version or a player that supports this profile."
 }

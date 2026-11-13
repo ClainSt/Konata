@@ -37,6 +37,8 @@ import '../core/sources.dart';
 import '../core/local_media.dart';
 import 'nipaplay_style.dart';
 import 'android_native_video.dart';
+import 'windows_hdr_output.dart';
+import 'player_orientation_button.dart';
 
 class WatchPage extends StatefulWidget {
   const WatchPage({
@@ -44,20 +46,31 @@ class WatchPage extends StatefulWidget {
     required this.asset,
     this.configurationStore,
     this.createPlayer,
+    this.chapterStartMs,
+    this.chapterFloorMs,
+    this.chapterEndMs,
+    this.returnOnCompletion = false,
   });
   final Map<String, Object?> asset;
   final MpvConfigStore? configurationStore;
   final Player Function(PlayerConfiguration configuration)? createPlayer;
+  final int? chapterStartMs, chapterFloorMs, chapterEndMs;
+  final bool returnOnCompletion;
   @override
   State<WatchPage> createState() => _WatchPageState();
 }
 
 class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
+  bool _chapterEnded = false;
+  bool _chapterReturnPending = false;
   late final Player player;
   bool _playerCreated = false;
+  bool _leavingPlayback = false;
   AndroidAudioFocus? _audioFocus;
   bool _audioPauseObserved = false;
   bool _androidFullscreen = false;
+  bool _orientationLocked = false;
+  bool _orientationBusy = false;
   static const _androidWindow = MethodChannel('ccplayer/playback_window');
   Directory? _profile;
   final _subtitleMedia = <Media>[];
@@ -78,6 +91,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
         defaultValue: true,
       );
   AndroidNativeVideo? _androidVideo;
+  WindowsHdrOutput? _windowsHdr;
   static const _surfaces = MethodChannel('ccplayer/native_video');
   final _viewportKey = GlobalKey();
   late final FocusNode _nativePlaybackFocus = FocusNode();
@@ -144,6 +158,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
       // Recreate only the failed output. Keep the loaded media, audio/subtitle
       // selection and timeline in the same mpv core.
       await native.setProperty('vid', 'no');
+      await _windowsHdr?.close();
       await _surfaces.invokeMethod<void>('detachD3D11', [_surface]);
       if (!mounted) return;
       if ((await native.getProperty('hwdec')).startsWith('auto')) {
@@ -154,6 +169,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
         native.ctx.address,
         NativeLibrary.path,
       ]);
+      await _initializeWindowsHdr(native);
       // Freeing a failed render context makes mpv set vid=no. Restore the last
       // active selection observed before that automatic disable.
       await native.setProperty('vid', _lastNativeVideoTrack);
@@ -180,6 +196,15 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
     } finally {
       _surfaceRecovery = null;
     }
+  }
+
+  Future<void> _initializeWindowsHdr(NativePlayer native) async {
+    final output = WindowsHdrOutput(native, _surface!, (failure) {
+      _log('hdr_output_failed', {'reason': failure.toString()}, level: 'ERROR');
+      if (mounted) setState(() => error = failure.toString());
+    });
+    _windowsHdr = output;
+    await output.initialize();
   }
 
   // Give libass the fullscreen letterbox while keeping the picture at its
@@ -314,7 +339,9 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
   bool _precisionGuardRunning = false, _softwareFallbackRequested = false;
   bool loading = true;
   String? error;
+  bool _dolbyVisionCheckRunning = false;
   List<SubtitleTrack> addedSubtitles = [];
+  final _automaticSubtitles = <SubtitleTrack>[];
   bool _userAudio = false, _userSubtitle = false;
   String? _lastAudio, _lastSubtitle;
   Future<void> _trackTail = Future.value();
@@ -327,6 +354,11 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
   TimelineFrames? _frames;
   Future<String>? _previewUri;
   bool _webDav = false;
+  bool _openingMedia = false;
+  bool _mediaRequested = false;
+  Duration? _retryPosition;
+  Uri? _playbackTicket;
+  Future<void>? _subtitleDiscovery;
   final _streamTickets = <Uri>[];
 
   Future<String> _issueStream(
@@ -355,12 +387,15 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && Platform.isAndroid) _setAndroidFullscreen(true);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (mounted && Platform.isAndroid) {
+        await _androidWindow.invokeMethod<void>('begin');
+        if (mounted) _setAndroidFullscreen(true);
+      }
       if (mounted && (AppHeader.desktop || Platform.isAndroid)) {
         playingHeader.value = PlayingHeader(
           widget.asset['name'].toString(),
-          () => Navigator.maybePop(context),
+          _requestPlaybackExit,
           videoOverlay: !_nativeWindow,
         );
       }
@@ -403,6 +438,8 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
   void _startPlayer(MpvConfigStore store, PlayerConfiguration config) {
     player = widget.createPlayer?.call(config) ?? Player(configuration: config);
     _playerCreated = true;
+    final native = player.platform;
+    if (native is NativePlayer) native.onFileError = _mediaFailed;
     if (Platform.isAndroid) {
       _audioFocus = AndroidAudioFocus(player.stream.playing, player.pause);
     }
@@ -445,13 +482,53 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
           visible: _visible,
         );
       }
+      final boundary = widget.chapterEndMs;
+      if (_opened &&
+          !_seeking &&
+          player.state.playing &&
+          boundary != null &&
+          v.inMilliseconds >= boundary) {
+        unawaited(_finishChapter());
+      }
     });
     _stateSubscriptions.addAll([
+      player.stream.completed.listen((completed) {
+        final ticket = _playbackTicket;
+        // libmpv can report a truncated HTTP body as EOF. Require both a
+        // verified upstream read failure and a position well before the end.
+        if (completed &&
+            _opened &&
+            ticket != null &&
+            player.state.duration - current > const Duration(seconds: 1) &&
+            StreamBroker.instance.interruptedWebDavRead(ticket)) {
+          _mediaFailed(0);
+        } else if (completed &&
+            _opened &&
+            widget.returnOnCompletion &&
+            widget.chapterEndMs == null &&
+            current >= player.state.duration - const Duration(seconds: 1) &&
+            player.state.duration > Duration.zero) {
+          unawaited(_finishChapter());
+        }
+      }),
       player.stream.error.listen(
         (message) => _log('player_error', {'message': message}, level: 'ERROR'),
       ),
       player.stream.log.listen((entry) {
         if (!['warn', 'error', 'fatal'].contains(entry.level)) return;
+        // The Android output guard has already refused mismatched HDR pixels.
+        // Surface this specific terminal error; ordinary fallback warnings may
+        // still be followed by successful playback and must remain nonfatal.
+        if (mounted &&
+            error != 'hdr-target' &&
+            entry.text.trim() ==
+                'Explicit HDR target is incompatible with this output') {
+          setState(() {
+            error = 'hdr-target';
+            loading = false;
+          });
+          unawaited(player.pause());
+        }
         if (PlaybackProbe.unsupportedMediaCodecProfile(
           entry.prefix,
           entry.text,
@@ -490,6 +567,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
             if (mounted) setState(() {});
           }),
       player.stream.tracks.listen((_) {
+        unawaited(_checkDolbyVisionSupport());
         unawaited(_preserveDecodePrecision());
         if (_opened) _preferTracks();
       }),
@@ -562,6 +640,22 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
       }, level: 'WARN');
     } finally {
       _precisionGuardRunning = false;
+    }
+  }
+
+  Future<void> _checkDolbyVisionSupport() async {
+    if (!mounted || _dolbyVisionCheckRunning || error == 'dv-profile-5') return;
+    _dolbyVisionCheckRunning = true;
+    try {
+      final source = await PlaybackProbe(_property).sourceVideoParameters();
+      if (!mounted || source['dolby-vision-profile'] != '5') return;
+      setState(() {
+        error = 'dv-profile-5';
+        loading = false;
+      });
+      await player.pause();
+    } finally {
+      _dolbyVisionCheckRunning = false;
     }
   }
 
@@ -696,7 +790,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
         if (host == null || host == 0) {
           throw StateError('Missing video surface');
         }
-        if (!mounted) {
+        if (!mounted || _leavingPlayback) {
           await _surfaces.invokeMethod<void>('destroy', [host]);
           return;
         }
@@ -715,6 +809,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
             native.ctx.address,
             NativeLibrary.path,
           ]);
+          await _initializeWindowsHdr(native);
         } else {
           await native.setProperty('wid', host.toString());
           if (await native.getProperty('wid') != host.toString()) {
@@ -743,25 +838,6 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
           }
         }
       }
-      final asset = widget.asset;
-      final source = Catalog.instance.sourceOf(asset['source_id'].toString());
-      final relative = asset['relative_path'].toString();
-      _webDav = source['kind'] == 'webdav';
-      final uri = await _mediaUri(source, relative);
-      if (!mounted) return;
-      final resume = await Catalog.instance.resumePosition(
-        asset['id'].toString(),
-      );
-      if (!mounted) return;
-      _log('open_requested', {
-        'sourceKind': source['kind'],
-        'resumeMs': resume,
-      });
-      final opening = player.open(
-        Media(uri, start: resume > 0 ? Duration(milliseconds: resume) : null),
-      );
-      final remoteSubs = _webDav ? _webDavSubtitles(source, relative) : null;
-      await opening;
       if (mounted && _audioFocus != null) {
         final native = player.platform as NativePlayer;
         await native.observeProperty('pause', (value) async {
@@ -769,6 +845,82 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
         }, waitForInitialization: false);
         _audioPauseObserved = true;
       }
+      final native = player.platform;
+      if (mounted &&
+          native is NativePlayer &&
+          native.configuration.mpvConfigurationDirectory == null) {
+        await native.setProperty('sub-auto', 'no');
+      }
+      if (mounted) await _openMedia();
+    } catch (e) {
+      _log('open_failed', {'type': e.runtimeType.toString()}, level: 'ERROR');
+      if (mounted) {
+        setState(() {
+          error = e.runtimeType.toString();
+          loading = false;
+        });
+      }
+    }
+  }
+
+  void _mediaFailed(int code) {
+    if (!mounted || !_mediaRequested || error != null) return;
+    _mediaRequested = false;
+    _log('media_failed', {'code': code}, level: 'ERROR');
+    if (_opened && current > Duration.zero) {
+      _retryPosition = current;
+      unawaited(_save());
+    }
+    _opened = false;
+    _tracker.reset();
+    _audioFocus?.updatePlaying(false);
+    if (_nativeWindow) _layoutSurface(false);
+    setState(() {
+      error = 'media-open';
+      loading = false;
+    });
+  }
+
+  Future<void> _openMedia() async {
+    if (!mounted || _openingMedia) return;
+    _openingMedia = true;
+    if (error == 'media-open') setState(() => error = null);
+    try {
+      await _trackTail;
+      if (!mounted) return;
+      final previous = _playbackTicket;
+      if (previous != null) {
+        _streamTickets.remove(previous);
+        StreamBroker.instance.revoke(previous);
+        _playbackTicket = null;
+      }
+      final asset = widget.asset;
+      final source = Catalog.instance.sourceOf(asset['source_id'].toString());
+      final relative = asset['relative_path'].toString();
+      _webDav = source['kind'] == 'webdav';
+      final uri = await _mediaUri(source, relative);
+      if (!mounted) return;
+      if (source['kind'] != 'local') _playbackTicket = Uri.parse(uri);
+      final resume =
+          _retryPosition ??
+          Duration(
+            milliseconds:
+                widget.chapterStartMs ??
+                await Catalog.instance.resumePosition(asset['id'].toString()),
+          );
+      if (!mounted) return;
+      _retryPosition = resume;
+      _lastAudio = _lastSubtitle = null;
+      _mediaRequested = true;
+      _log('open_requested', {
+        'sourceKind': source['kind'],
+        'resumeMs': resume.inMilliseconds,
+      });
+      await player.open(
+        Media(uri, start: resume > Duration.zero ? resume : null),
+      );
+      await _checkDolbyVisionSupport();
+      if (!mounted || error != null) return;
       _log('open_returned', {}, level: 'DEBUG');
       _chapterData = PlaybackProbe(
         _property,
@@ -778,44 +930,59 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
       // Show the opened player before optional external subtitle discovery on
       // every source, including local document providers and SMB shares.
       _showPlayback();
-      if (!mounted) return;
-      final subtitleFiles =
-          await (remoteSubs ??
-              StreamBroker.instance.subtitles(source, relative));
+      if (_subtitleDiscovery == null) {
+        _subtitleDiscovery = _loadSubtitles(source, relative);
+      } else {
+        unawaited(_preferTracks());
+      }
+    } catch (e) {
+      _log('open_failed', {'type': e.runtimeType.toString()}, level: 'ERROR');
+      _mediaRequested = true;
+      _mediaFailed(0);
+    } finally {
+      _openingMedia = false;
+      if (mounted && error == 'media-open') setState(() {});
+    }
+  }
+
+  Future<void> _loadSubtitles(
+    Map<String, Object?> source,
+    String relative,
+  ) async {
+    try {
+      final matches = await StreamBroker.instance.subtitleMatches(
+        source,
+        relative,
+      );
       final tracks = <SubtitleTrack>[];
-      for (final subtitle in subtitleFiles) {
+      final automatic = <SubtitleTrack>[];
+      for (final match in matches) {
         if (!mounted) return;
+        final subtitle = match.path;
         var target = source['kind'] == 'local'
             ? await LocalMedia.uri(source['location'].toString(), subtitle)
             : await _issueStream(source, subtitle, purpose: 'subtitle');
+        if (!mounted) return;
         if (target.startsWith('content://')) {
           // Keep the existing media_kit descriptor alive for the subtitle session.
           final media = Media(target);
           _subtitleMedia.add(media);
           target = media.uri;
         }
-        tracks.add(SubtitleTrack.uri(target, title: p.basename(subtitle)));
+        final track = SubtitleTrack.uri(target, title: p.basename(subtitle));
+        tracks.add(track);
+        if (match.automatic) automatic.add(track);
       }
       if (!mounted) return;
       addedSubtitles = [...addedSubtitles, ...tracks];
-      await _preferTracks();
-      if (mounted && !_opened) _showPlayback();
+      _automaticSubtitles.addAll(automatic);
+      if (_opened) await _preferTracks();
     } catch (e) {
-      if (_opened) {
-        DebugLog.write(
-          'Playback',
-          'subtitle setup failed ${e.runtimeType}',
-          level: 'WARN',
-        );
-        return;
-      }
-      _log('open_failed', {'type': e.runtimeType.toString()}, level: 'ERROR');
-      if (mounted) {
-        setState(() {
-          error = e.runtimeType.toString();
-          loading = false;
-        });
-      }
+      DebugLog.write(
+        'Playback',
+        'subtitle setup failed ${e.runtimeType}',
+        level: 'WARN',
+      );
     }
   }
 
@@ -830,25 +997,10 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
     return _issueStream(source, path, purpose: purpose);
   }
 
-  Future<List<String>> _webDavSubtitles(
-    Map<String, Object?> source,
-    String path,
-  ) async {
-    try {
-      return await StreamBroker.instance.subtitles(source, path);
-    } catch (e) {
-      DebugLog.write(
-        'Playback',
-        'subtitle listing failed ${e.runtimeType}',
-        level: 'WARN',
-      );
-      return [];
-    }
-  }
-
   void _showPlayback() {
-    if (_nativeWindow) _watchNativePointer();
+    if (_nativeWindow && _pointerTimer == null) _watchNativePointer();
     _opened = true;
+    _audioFocus?.updatePlaying(player.state.playing);
     _tracker.reset();
     setState(() => loading = false);
   }
@@ -889,7 +1041,60 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
     return _saveTail;
   }
 
+  Future<void> _finishChapter() async {
+    if (_chapterEnded) return;
+    _chapterEnded = true;
+    await player.pause();
+    await _save();
+    if (!mounted) return;
+    _chapterReturnPending = true;
+    _returnFromChapter();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if ((widget.chapterEndMs != null || widget.returnOnCompletion) &&
+        ModalRoute.isCurrentOf(context) == true &&
+        _chapterReturnPending) {
+      // The navigator can still be updating its routes during this rebuild.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _returnFromChapter());
+    }
+  }
+
+  void _returnFromChapter() {
+    if (!mounted ||
+        !_chapterReturnPending ||
+        ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
+    _chapterReturnPending = false;
+    Navigator.of(context).pop(true);
+  }
+
+  void _requestPlaybackExit() {
+    if (!mounted || _leavingPlayback || ModalRoute.isCurrentOf(context) != true) return;
+    _leavingPlayback = true;
+    _log('exit_requested', {'positionMs': current.inMilliseconds});
+    final surface = _surface;
+    if (surface != null) {
+      unawaited(_surfaces.invokeMethod<void>('hide', [surface]).catchError(
+        (Object error, StackTrace stack) =>
+            DebugLog.exception('Playback', 'surface_hide_failed', error, stack),
+      ));
+    }
+    Navigator.of(context).pop();
+  }
+
   Future<void> _seek(Duration value) async {
+    if (widget.chapterEndMs case final end?) {
+      value = Duration(
+        milliseconds: value.inMilliseconds.clamp(
+          widget.chapterFloorMs ?? 0,
+          end - 1,
+        ),
+      );
+    }
     _log('seek_requested', {'positionMs': value.inMilliseconds});
     _firstPosition = null;
     _seeking = true;
@@ -927,6 +1132,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
       try {
         try {
           await _androidVideo?.close();
+          await _windowsHdr?.close();
           if (_d3d11RenderApi && _surface != null) {
             await _surfaces.invokeMethod<void>('destroy', [_surface]);
             _surface = null;
@@ -968,9 +1174,10 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
   // Explicit test/diagnostic request; no per-frame readback during playback.
   Future<Map<Object?, Object?>> capturePresentedBuffer({
     bool pixels = false,
+    bool packed10 = false,
   }) async {
     final result = _nativeAndroid
-        ? await _androidVideo!.capture(pixels: pixels)
+        ? await _androidVideo!.capture(pixels: pixels, packed10: packed10)
         : await _surfaces.invokeMapMethod<Object?, Object?>('captureD3D11', [
                 _surface,
               ]) ??
@@ -985,6 +1192,10 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    final native = _playerCreated ? player.platform : null;
+    if (native is NativePlayer) {
+      native.onFileError = null;
+    }
     _log('session_end', {
       'positionMs': current.inMilliseconds,
       'bufferCount': _bufferCount,
@@ -1014,9 +1225,9 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
     if (_nativeWindow) _nativePlaybackFocus.dispose();
     _osdTimer?.cancel();
     _osd.dispose();
-    if (_androidFullscreen) {
+    if (Platform.isAndroid) {
       playerFullscreen.value = false;
-      unawaited(_androidWindow.invokeMethod<void>('fullscreen', false));
+      unawaited(_androidWindow.invokeMethod<void>('end'));
     } else if (playerFullscreen.value) {
       playerFullscreen.value = false;
       unawaited(_setWindowFullscreen(false));
@@ -1034,15 +1245,39 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
   Future<void> _setWindowFullscreen(bool enabled) {
     // The plugin owning our hidden Windows title bar also owns its resize border.
     if (Platform.isWindows) return windowManager.setFullScreen(enabled);
+    if (Platform.isAndroid) return _setAndroidFullscreen(enabled);
     return enabled
         ? defaultEnterNativeFullscreen()
         : defaultExitNativeFullscreen();
   }
 
-  void _setAndroidFullscreen(bool enabled) {
+  Future<void> _setAndroidFullscreen(bool enabled) {
     setState(() => _androidFullscreen = enabled);
     playerFullscreen.value = enabled;
-    unawaited(_androidWindow.invokeMethod<void>('fullscreen', enabled));
+    return _androidWindow.invokeMethod<void>('fullscreen', enabled);
+  }
+
+  Future<void> _toggleOrientation() async {
+    if (_orientationBusy) return;
+    setState(() => _orientationBusy = true);
+    try {
+      final locked = await _androidWindow.invokeMethod<bool>(
+        'orientationLocked',
+        !_orientationLocked,
+      );
+      if (mounted && locked != null) {
+        setState(() => _orientationLocked = locked);
+      }
+    } on PlatformException catch (failure) {
+      _log('orientation_lock_failed', {'code': failure.code}, level: 'WARN');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.orientationUnavailable)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _orientationBusy = false);
+    }
   }
 
   Future<void> _toggleNativeFullscreen() async {
@@ -1060,6 +1295,9 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
   }
 
   KeyEventResult _forwardMpvKey(FocusNode _, KeyEvent event) {
+    if (error == 'dv-profile-5' || error == 'media-open') {
+      return KeyEventResult.ignored;
+    }
     if (_nativeWindow &&
         event is KeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.escape &&
@@ -1131,155 +1369,198 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-        body: error != null
-            ? Center(
-                child: Text(
-                  _profileError
-                      ? context.l10n.mpvFolderReadError
-                      : context.l10n.playbackFailed,
-                ),
-              )
-            : loading && !(_nativeAndroid && _playerCreated)
-            ? const Center(child: CircularProgressIndicator())
-            : _nativeWindow
-            ? _nativeControls()
-            : SizedBox.expand(
-                child: ColoredBox(
-                  color: Colors.black,
-                  child: MaterialDesktopVideoControlsTheme(
-                    normal: _desktopControls(fullscreen: false),
-                    fullscreen: _desktopControls(fullscreen: true),
-                    child: MaterialVideoControlsTheme(
-                      normal: _touchControls(),
-                      fullscreen: _touchControls(),
-                      child: Video(
-                        controller: controller,
-                        surfaceBuilder: _androidVideo?.buildSurface,
-                        onEnterFullscreen: () async {
-                          playerFullscreen.value = true;
-                          await _setWindowFullscreen(true);
-                          if (mounted &&
-                              Platform.isWindows &&
-                              player.platform!.configuration.libass) {
-                            _fullscreenTexture = true;
-                            _scheduleSubtitleCanvas();
-                          }
-                        },
-                        onExitFullscreen: () async {
-                          try {
-                            if (_fullscreenTexture) {
-                              _fullscreenTexture = false;
-                              _textureResize?.cancel();
-                              await controller.setSize();
+        body: _withMediaError(
+          error != null && error != 'media-open'
+              ? Center(
+                  child: Text(
+                    _profileError
+                        ? context.l10n.mpvFolderReadError
+                        : error == 'hdr-target'
+                        ? context.l10n.hdrTargetIncompatible
+                        : error == 'dv-profile-5'
+                        ? context.l10n.dolbyVisionProfile5Unsupported
+                        : context.l10n.playbackFailed,
+                  ),
+                )
+              : loading && !(_nativeAndroid && _playerCreated)
+              ? const Center(child: CircularProgressIndicator())
+              : _nativeWindow
+              ? _nativeControls()
+              : SizedBox.expand(
+                  child: ColoredBox(
+                    color: Colors.black,
+                    child: MaterialDesktopVideoControlsTheme(
+                      normal: _desktopControls(fullscreen: false),
+                      fullscreen: _desktopControls(fullscreen: true),
+                      child: MaterialVideoControlsTheme(
+                        normal: _touchControls(),
+                        fullscreen: _touchControls(),
+                        child: Video(
+                          controller: controller,
+                          surfaceBuilder: _androidVideo?.buildSurface,
+                          onEnterFullscreen: () async {
+                            playerFullscreen.value = true;
+                            await _setWindowFullscreen(true);
+                            if (mounted &&
+                                Platform.isWindows &&
+                                player.platform!.configuration.libass) {
+                              _fullscreenTexture = true;
+                              _scheduleSubtitleCanvas();
                             }
-                            await _setWindowFullscreen(false);
-                          } finally {
-                            playerFullscreen.value = false;
-                          }
-                        },
-                        controls: (state) => Stack(
-                          children: [
-                            Positioned.fill(
-                              child: PlayerScrollVolume(
-                                enabled: Platform.isWindows,
-                                volume: () => player.state.volume,
-                                onChanged: (value) async {
-                                  await player.setVolume(value);
-                                  _osd.value = '${value.round()}%';
-                                  _osdTimer?.cancel();
-                                  _osdTimer = Timer(
-                                    const Duration(seconds: 1),
-                                    () {
-                                      if (mounted) _osd.value = null;
-                                    },
-                                  );
-                                },
-                                // Fullscreen controls live on a separate route,
-                                // outside the playback page's keyboard focus.
-                                child: Focus(
-                                  canRequestFocus: false,
-                                  onKeyEvent: _forwardMpvKey,
-                                  child: AdaptiveVideoControls(state),
+                          },
+                          onExitFullscreen: () async {
+                            try {
+                              if (_fullscreenTexture) {
+                                _fullscreenTexture = false;
+                                _textureResize?.cancel();
+                                await controller.setSize();
+                              }
+                              await _setWindowFullscreen(false);
+                            } finally {
+                              playerFullscreen.value = false;
+                            }
+                          },
+                          controls: (state) => Stack(
+                            children: [
+                              Positioned.fill(
+                                child: PlayerScrollVolume(
+                                  enabled: Platform.isWindows,
+                                  volume: () => player.state.volume,
+                                  onChanged: (value) async {
+                                    await player.setVolume(value);
+                                    _osd.value = '${value.round()}%';
+                                    _osdTimer?.cancel();
+                                    _osdTimer = Timer(
+                                      const Duration(seconds: 1),
+                                      () {
+                                        if (mounted) _osd.value = null;
+                                      },
+                                    );
+                                  },
+                                  // Fullscreen controls live on a separate route,
+                                  // outside the playback page's keyboard focus.
+                                  child: Focus(
+                                    canRequestFocus: false,
+                                    onKeyEvent: _forwardMpvKey,
+                                    child: AdaptiveVideoControls(state),
+                                  ),
                                 ),
                               ),
-                            ),
-                            ValueListenableBuilder<String?>(
-                              valueListenable: _osd,
-                              builder: (_, text, _) => text == null
-                                  ? const SizedBox.shrink()
-                                  : Positioned(
-                                      top: 16,
-                                      left: 16,
-                                      right: 16,
-                                      child: IgnorePointer(
-                                        child: Text(
-                                          text,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 22,
-                                            shadows: [
-                                              Shadow(
-                                                color: Colors.black,
-                                                blurRadius: 4,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                            ),
-                            ValueListenableBuilder<bool>(
-                              valueListenable: _statsVisible,
-                              builder: (context, visible, _) => visible
-                                  ? Positioned(
-                                      top: 64,
-                                      left: 12,
-                                      bottom: 88,
-                                      width:
-                                          MediaQuery.sizeOf(context).width < 520
-                                          ? MediaQuery.sizeOf(context).width -
-                                                24
-                                          : 480,
-                                      child: Theme(
-                                        data: Theme.of(context),
-                                        child: Material(
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .surface
-                                              .withValues(alpha: .94),
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                          child: PlaybackInspector(
-                                            probe: PlaybackProbe(
-                                              _property,
-                                              textureResolution: () {
-                                                final rect =
-                                                    controller.rect.value;
-                                                return rect == null
-                                                    ? null
-                                                    : '${rect.width.round()} × ${rect.height.round()}';
-                                              },
+                              ValueListenableBuilder<String?>(
+                                valueListenable: _osd,
+                                builder: (_, text, _) => text == null
+                                    ? const SizedBox.shrink()
+                                    : Positioned(
+                                        top: 16,
+                                        left: 16,
+                                        right: 16,
+                                        child: IgnorePointer(
+                                          child: Text(
+                                            text,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 22,
+                                              shadows: [
+                                                Shadow(
+                                                  color: Colors.black,
+                                                  blurRadius: 4,
+                                                ),
+                                              ],
                                             ),
-                                            onClose: () =>
-                                                _statsVisible.value = false,
-                                            position: () =>
-                                                player.state.position,
-                                            onSeek: _seek,
                                           ),
                                         ),
                                       ),
-                                    )
-                                  : const SizedBox.shrink(),
-                            ),
-                          ],
+                              ),
+                              ValueListenableBuilder<bool>(
+                                valueListenable: _statsVisible,
+                                builder: (context, visible, _) => visible
+                                    ? Positioned(
+                                        top: 64,
+                                        left: 12,
+                                        bottom: 88,
+                                        width:
+                                            MediaQuery.sizeOf(context).width <
+                                                520
+                                            ? MediaQuery.sizeOf(context).width -
+                                                  24
+                                            : 480,
+                                        child: Theme(
+                                          data: Theme.of(context),
+                                          child: Material(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .surface
+                                                .withValues(alpha: .94),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            child: PlaybackInspector(
+                                              probe: PlaybackProbe(
+                                                _property,
+                                                textureResolution: () {
+                                                  final rect =
+                                                      controller.rect.value;
+                                                  return rect == null
+                                                      ? null
+                                                      : '${rect.width.round()} × ${rect.height.round()}';
+                                                },
+                                              ),
+                                              onClose: () =>
+                                                  _statsVisible.value = false,
+                                              position: () =>
+                                                  player.state.position,
+                                              onSeek: _seek,
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                    : const SizedBox.shrink(),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
+        ),
       ),
+    );
+  }
+
+  Widget _withMediaError(Widget playback) {
+    final failed = error == 'media-open';
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        IgnorePointer(ignoring: failed, child: playback),
+        if (failed)
+          ColoredBox(
+            color: Theme.of(context).colorScheme.surface,
+            child: SafeArea(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        context.l10n.playbackFailed,
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton(
+                        onPressed: _openingMedia ? null : _openMedia,
+                        child: Text(context.l10n.retry),
+                      ),
+                      BackButton(onPressed: _requestPlaybackExit),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -1311,7 +1592,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
           );
           final subtitle = TrackPreferences.subtitle([
             ...player.state.tracks.subtitle,
-            ...addedSubtitles,
+            ..._automaticSubtitles,
           ]);
           if (!_userAudio && audio != null && _lastAudio != audio.id) {
             _lastAudio = audio.id;
@@ -1350,7 +1631,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
 
   void _layoutSurface(bool visible) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _surface == null) return;
+      if (!mounted || _leavingPlayback || _surface == null) return;
       final box = _viewportKey.currentContext?.findRenderObject() as RenderBox?;
       if (!visible || box == null || !box.hasSize || box.size.isEmpty) {
         _lastLayout = null;
@@ -1388,7 +1669,8 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
                 animation: route?.animation ?? kAlwaysCompleteAnimation,
                 builder: (context, _) {
                   _layoutSurface(
-                    route?.isCurrent == true &&
+                    error == null &&
+                        route?.isCurrent == true &&
                         route?.animation?.status == AnimationStatus.completed,
                   );
                   return GestureDetector(
@@ -1530,12 +1812,34 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
       const MaterialDesktopPlayOrPauseButton()
     else
       const MaterialPlayOrPauseButton(),
-    Expanded(child: _tools()),
-    _volumeControl(),
-    if (desktop)
-      const MaterialDesktopPositionIndicator()
-    else
-      const MaterialPositionIndicator(),
+    if (!desktop && Platform.isAndroid)
+      PlayerOrientationButton(
+        locked: _orientationLocked,
+        busy: _orientationBusy,
+        onPressed: _toggleOrientation,
+      ),
+    if (!desktop && Platform.isAndroid)
+      Expanded(
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _tools(scrollable: false),
+              _volumeControl(),
+              const MaterialPositionIndicator(),
+            ],
+          ),
+        ),
+      )
+    else ...[
+      Expanded(child: _tools()),
+      _volumeControl(),
+      if (desktop)
+        const MaterialDesktopPositionIndicator()
+      else
+        const MaterialPositionIndicator(),
+    ],
     if (desktop)
       const MaterialDesktopFullscreenButton()
     else if (Platform.isAndroid)
@@ -1561,7 +1865,7 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
           if (isFullscreen(overlayContext)) {
             await exitFullscreen(overlayContext);
           }
-          if (mounted) await Navigator.maybePop(context);
+          _requestPlaybackExit();
         },
       ),
     ),
@@ -1612,10 +1916,9 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
     initialVolume: player.state.volume,
     onChanged: player.setVolume,
   );
-  Widget _tools() => Builder(
-    builder: (toolContext) => SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: IconTheme(
+  Widget _tools({bool scrollable = true}) => Builder(
+    builder: (toolContext) {
+      final actions = IconTheme(
         data: const IconThemeData(color: Colors.white),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -1664,8 +1967,14 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
             ),
           ],
         ),
-      ),
-    ),
+      );
+      return scrollable
+          ? SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: actions,
+            )
+          : actions;
+    },
   );
 
   Widget _timeline(
@@ -1804,64 +2113,70 @@ class _WatchPageState extends State<WatchPage> with WidgetsBindingObserver {
         ? await _subtitleInfo()
         : <String, Map<String, String>>{};
     if (!sheetContext.mounted) return;
+    Widget picker() => TrackPicker(
+      subtitles: subtitles,
+      selectedId: subtitles
+          ? player.state.track.subtitle.id
+          : player.state.track.audio.id,
+      choices: SubtitleChoices.merge(
+        player.state.tracks.subtitle,
+        addedSubtitles,
+        info,
+      ),
+      audioTracks: player.state.tracks.audio
+          .where((t) => t.id != 'auto')
+          .toList(),
+      onImport: subtitles
+          ? () async {
+              final files = await FilePicker.pickFiles(
+                type: FileType.custom,
+                allowedExtensions: [
+                  'ass',
+                  'ssa',
+                  'srt',
+                  'vtt',
+                  'sub',
+                  'idx',
+                  'sup',
+                ],
+              );
+              if (!mounted || files.isEmpty || files.single.path == null) {
+                return false;
+              }
+              final path = files.single.path!;
+              final track = SubtitleTrack.uri(
+                File(path).uri.toString(),
+                title: p.basename(path),
+              );
+              _userSubtitle = true;
+              await _trackTail;
+              await player.setSubtitleTrack(track);
+              addedSubtitles = [
+                ...addedSubtitles.where((s) => s.id != track.id),
+                track,
+              ];
+              return true;
+            }
+          : null,
+      onSubtitle: (track) async {
+        _userSubtitle = true;
+        await _trackTail;
+        await player.setSubtitleTrack(track);
+      },
+      onAudio: (track) async {
+        _userAudio = true;
+        await _trackTail;
+        await player.setAudioTrack(track);
+      },
+    );
     await showPlayerDialog(
       sheetContext,
-      TrackPicker(
-        subtitles: subtitles,
-        selectedId: subtitles
-            ? player.state.track.subtitle.id
-            : player.state.track.audio.id,
-        choices: SubtitleChoices.merge(
-          player.state.tracks.subtitle,
-          addedSubtitles,
-          info,
-        ),
-        audioTracks: player.state.tracks.audio
-            .where((t) => t.id != 'auto')
-            .toList(),
-        onImport: subtitles
-            ? () async {
-                final files = await FilePicker.pickFiles(
-                  type: FileType.custom,
-                  allowedExtensions: [
-                    'ass',
-                    'ssa',
-                    'srt',
-                    'vtt',
-                    'sub',
-                    'idx',
-                    'sup',
-                  ],
-                );
-                if (!mounted || files.isEmpty || files.single.path == null) {
-                  return false;
-                }
-                final path = files.single.path!;
-                final track = SubtitleTrack.uri(
-                  File(path).uri.toString(),
-                  title: p.basename(path),
-                );
-                _userSubtitle = true;
-                await _trackTail;
-                await player.setSubtitleTrack(track);
-                addedSubtitles = [
-                  ...addedSubtitles.where((s) => s.id != track.id),
-                  track,
-                ];
-                return true;
-              }
-            : null,
-        onSubtitle: (track) async {
-          _userSubtitle = true;
-          await _trackTail;
-          await player.setSubtitleTrack(track);
-        },
-        onAudio: (track) async {
-          _userAudio = true;
-          await _trackTail;
-          await player.setAudioTrack(track);
-        },
-      ),
+      subtitles
+          ? FutureBuilder<void>(
+              future: _subtitleDiscovery,
+              builder: (_, _) => picker(),
+            )
+          : picker(),
     );
   }
 }

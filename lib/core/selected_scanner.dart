@@ -1,6 +1,7 @@
 import 'debug_log.dart';
 import 'auto_classifier.dart';
 import 'catalog.dart';
+import 'library_foundation.dart';
 import 'scan_activity.dart';
 import 'sources.dart';
 import 'local_media.dart';
@@ -45,12 +46,18 @@ class SelectedScanner {
       (await scanDetailed(source)).videoCount;
 
   static Future<SelectedScanResult> scanDetailed(
-    Map<String, Object?> source,
-  ) async {
+    Map<String, Object?> source, {
+    List<Map<String, Object?>>? savedRoots,
+    void Function()? checkActive,
+    Future<void> Function()? beforeFolder,
+  }) async {
     final catalog = Catalog.instance;
     if (catalog.scanning) throw StateError('其他扫描仍在进行');
     final id = source['id'].toString();
-    final roots = nonOverlappingRoots(catalog.rootsFor(id));
+    final locationRevision = catalog.foundationEnabled
+        ? await LibraryFoundation.sourceRevision(catalog.db, id)
+        : null;
+    final roots = nonOverlappingRoots(savedRoots ?? catalog.rootsFor(id));
     if (roots.isEmpty) throw StateError('请先在“浏览目录”中勾选刮削文件夹');
     final activity = ScanActivityStore.instance;
     final run = activity.begin(
@@ -64,6 +71,7 @@ class SelectedScanner {
     );
     var count = 0, reviewCount = 0;
     final scannedPaths = <String>{};
+    WebDav? listingSession;
     try {
       final localName = LocalMedia.label(source['location'].toString());
       if (source['kind'] == 'local') {
@@ -71,6 +79,7 @@ class SelectedScanner {
         for (final selected in roots) {
           run.checkCancelled();
           final root = selected['relative_path'].toString();
+          await beforeFolder?.call();
           final first = await LocalMedia.list(base, root);
           final direct = first.any(
             (entry) => !entry.directory && Catalog.isVideo(entry.name),
@@ -83,6 +92,7 @@ class SelectedScanner {
                 })
               >[(relative: root, cached: first)];
           while (pending.isNotEmpty) {
+            await beforeFolder?.call();
             run.checkCancelled();
             final current = pending.removeLast();
             activity.beginFolder(id, current.relative);
@@ -96,7 +106,7 @@ class SelectedScanner {
               final relative = current.relative.isEmpty
                   ? name
                   : '${current.relative}/$name';
-              if (_excluded(relative, root)) continue;
+              if (excluded(relative, root)) continue;
               if (entity.directory) {
                 pending.add((relative: relative, cached: null));
               } else if (Catalog.isVideo(entity.name)) {
@@ -118,7 +128,11 @@ class SelectedScanner {
             await catalog.indexVideos(
               id,
               videos,
-              checkCancelled: run.checkCancelled,
+              checkCancelled: () {
+                run.checkCancelled();
+                checkActive?.call();
+              },
+              expectedLocationRevision: locationRevision,
             );
             for (final video in videos) {
               scannedPaths.add(video.relative);
@@ -134,12 +148,16 @@ class SelectedScanner {
           }
         }
       } else {
-        final dav = WebDav(await catalog.withCredentials(source));
+        final dav = listingSession = WebDav(
+          await catalog.withCredentials(source),
+          reuseListings: true,
+        );
         final visited = <String>{};
         for (final selected in roots) {
           run.checkCancelled();
           final root = selected['relative_path'].toString();
           final rootUri = dav.directoryUri(root);
+          await beforeFolder?.call();
           final first = await dav.list(rootUri);
           final direct = first.any(
             (entry) => !entry.isDirectory && Catalog.isVideo(entry.name),
@@ -149,6 +167,7 @@ class SelectedScanner {
                 (uri: rootUri, relative: root, cached: first),
               ];
           while (pending.isNotEmpty) {
+            await beforeFolder?.call();
             run.checkCancelled();
             final current = pending.removeLast();
             if (!visited.add(current.uri.toString())) continue;
@@ -161,7 +180,7 @@ class SelectedScanner {
               final relative = current.relative.isEmpty
                   ? entry.name
                   : '${current.relative}/${entry.name}';
-              if (_excluded(relative, root)) continue;
+              if (excluded(relative, root)) continue;
               if (entry.isDirectory) {
                 pending.add((uri: entry.uri, relative: relative, cached: null));
               } else if (Catalog.isVideo(entry.name)) {
@@ -183,7 +202,11 @@ class SelectedScanner {
             await catalog.indexVideos(
               id,
               videos,
-              checkCancelled: run.checkCancelled,
+              checkCancelled: () {
+                run.checkCancelled();
+                checkActive?.call();
+              },
+              expectedLocationRevision: locationRevision,
             );
             for (final video in videos) {
               scannedPaths.add(video.relative);
@@ -227,10 +250,12 @@ class SelectedScanner {
       activity.fail(id, '扫描失败：$e');
       catalog.updateStatus('扫描失败：$e');
       rethrow;
+    } finally {
+      listingSession?.close();
     }
   }
 
-  static bool _excluded(String relative, String selectedRoot) {
+  static bool excluded(String relative, String selectedRoot) {
     final rest = selectedRoot.isEmpty
         ? relative
         : relative

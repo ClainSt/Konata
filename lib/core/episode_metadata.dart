@@ -3,6 +3,43 @@ import 'work_season.dart';
 
 /// Shared episode metadata lookup for details and playback history.
 abstract final class EpisodeMetadata {
+  static bool isOva(String type) => type == 'OVA' || type == 'OAD';
+
+  static String? specialType(Object? name) => name is String
+      ? CloudMediaAssetPresentation.specialTypeFromTitle(name)
+      : null;
+
+  static String specialTitle(String name) {
+    final match = RegExp(
+      r'^(?:[『「“"].+?[』」”"]\s*)?(?:OVA|OAD)(?![a-z])\s*\d*\s*[:：.\-–—]?\s*',
+      caseSensitive: false,
+    ).firstMatch(name);
+    if (match == null) {
+      return name
+          .replaceFirst(
+            RegExp(
+              r'\s*[(（\[](?:OVA|OAD)\s*\d*[)）\]]\s*$',
+              caseSensitive: false,
+            ),
+            '',
+          )
+          .trim();
+    }
+    var title = name.substring(match.end).trim();
+    for (final (open, close) in [
+      ('「', '」'),
+      ('『', '』'),
+      ('“', '”'),
+      ('"', '"'),
+    ]) {
+      if (title.length > 2 && title.startsWith(open) && title.endsWith(close)) {
+        title = title.substring(1, title.length - 1).trim();
+        break;
+      }
+    }
+    return title;
+  }
+
   static Map<String, dynamic> lookup(
     Map<String, Object?> work,
     Map<String, dynamic> details,
@@ -54,6 +91,7 @@ abstract final class EpisodeMetadata {
     var local = n;
     final hasExplicit =
         explicitSeason != null || asset['manual_mapping'] == true;
+    if (!hasExplicit && details['seasonMappingAmbiguous'] == true) return {};
     if (!hasExplicit && season == 1 && counts is Map) {
       final keys =
           counts.keys

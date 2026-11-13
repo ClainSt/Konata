@@ -2,6 +2,16 @@ import 'cloud_media_asset_presentation.dart';
 
 /// Preserve directory identity after provider titles replace the display name.
 abstract final class WorkSeason {
+  // A broadcast part is a search clue, never an implicit TMDB season number.
+  static final _part = RegExp(r'第\s*(\d{1,2})\s*部分|\bPart\s*(\d{1,2})\b', caseSensitive: false);
+  static int? part(String title) {
+    final matches = _part.allMatches(title).toList();
+    if (matches.length != 1) return null;
+    return int.tryParse(matches.single[1] ?? matches.single[2]!);
+  }
+  static String withoutPart(String title) =>
+      title.replaceAll(_part, ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+
   static bool showSeasonInTitle(
     Map<String, Object?> work,
     Iterable<Map> seasons,
@@ -57,18 +67,26 @@ abstract final class WorkSeason {
         'work_title': work['title'],
       });
 
-  static int? year(Map<String, Object?> work) =>
-      int.tryParse(
-        RegExp(r'(?<![\dx])((?:19|20)\d{2})(?![\dx])')
-                .firstMatch(
-                  directoryTitle(
-                    work,
-                  ).replaceAll(RegExp(r'\{[^}]*\}|\[[^\]]*\]'), ''),
-                )
-                ?.group(1) ??
-            '',
-      ) ??
-      (work['year'] as num?)?.toInt();
+  static Set<int> bracketYears(Map<String, Object?> work) => {
+    for (final match in RegExp(r'\(\s*((?:19|20)\d{2})\s*\)|（\s*((?:19|20)\d{2})\s*）').allMatches(directoryTitle(work)))
+      int.parse(match[1] ?? match[2]!),
+  };
+  static bool conflictingYears(Map<String, Object?> work) =>
+      work['conflicting_years'] == true || bracketYears(work).length > 1;
+  static int? year(Map<String, Object?> work) {
+    // Filename parsing already separated title digits from year evidence.
+    // Keep that decision (including unknown), or a subsequently inherited year.
+    if (work['filename_year_parsed'] == true) {
+      return conflictingYears(work) ? null : (work['year'] as num?)?.toInt();
+    }
+    final bracketed = bracketYears(work);
+    if (bracketed.isNotEmpty) return bracketed.length == 1 ? bracketed.single : null;
+    return int.tryParse(
+      RegExp(r'(?<![\dx])((?:19|20)\d{2})(?![\dx])').firstMatch(
+        directoryTitle(work).replaceAll(RegExp(r'\{[^}]*\}|\[[^\]]*\]'), ''),
+      )?.group(1) ?? '',
+    ) ?? (work['year'] as num?)?.toInt();
+  }
   static int? resolve(Map<String, Object?> work, List<Map> seasons) {
     if (multiple(work)) return null;
     final requested = explicit(work);
@@ -85,5 +103,20 @@ abstract final class WorkSeason {
     return matches.length == 1
         ? (matches.single['season_number'] as num).toInt()
         : null;
+  }
+
+  static bool ambiguousYear(Map<String, Object?> work, List<Map> seasons) {
+    final wanted = year(work);
+    return wanted != null &&
+        explicit(work) == null &&
+        !multiple(work) &&
+        seasons
+                .where(
+                  (s) =>
+                      (s['season_number'] as num? ?? 0) > 0 &&
+                      '${s['air_date'] ?? ''}'.startsWith('$wanted-'),
+                )
+                .length >
+            1;
   }
 }

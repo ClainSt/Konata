@@ -31,6 +31,7 @@ class TrackPicker extends StatefulWidget {
 class _TrackPickerState extends State<TrackPicker> {
   bool busy = false;
   Future<void> _select(Future<void> Function() action) async {
+    if (busy) return;
     setState(() => busy = true);
     try {
       await action();
@@ -72,6 +73,7 @@ class _TrackPickerState extends State<TrackPicker> {
     caseSensitive: false,
   ).hasMatch('${track.language ?? ''} ${track.title ?? ''}');
   Future<void> importSubtitle() async {
+    if (busy) return;
     setState(() => busy = true);
     try {
       final loaded = await widget.onImport!();
@@ -134,7 +136,9 @@ class _TrackPickerState extends State<TrackPicker> {
             for (var i = 0; i < subtitles.length; i++)
               ListTile(
                 key: ValueKey('subtitle-track-${subtitles[i].track.id}'),
-                title: Text(context.l10n.trackNumber(i + 1)),
+                title: subtitles[i].filename == null
+                    ? Text(context.l10n.trackNumber(i + 1))
+                    : line(subtitles[i].filename!),
                 subtitle: line(
                   [
                     languageLabel(subtitles[i].track),

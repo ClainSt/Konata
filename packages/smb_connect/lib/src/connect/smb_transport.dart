@@ -60,9 +60,11 @@ class SmbTransport {
   final Uint8List _sbuf = Uint8List(1024);
   final _mid = AtomicInteger(0);
 
-  late Socket _socket;
-  late SocketReader2 _inp;
+  Socket? _socket;
+  SocketReader2? _reader;
+  SocketReader2 get _inp => _reader!;
   late SocketWriter _out;
+  Future<void>? _closing;
 
   late final bool _signingEnforced;
   // ignore: prefer_final_fields
@@ -96,19 +98,25 @@ class SmbTransport {
         false, //_signingEnforced = forceSigning || config.isSigningEnforced();
   ]);
 
-  Future close() async {
+  Future<void> close() => _closing ??= _close();
+
+  Future<void> _close() async {
     if (config.debugPrint) {
       print("Smb transport close called");
     }
-    await _inp.close();
-    // Reads may still have a flush bound to the output sink when a ticket is
-    // revoked. No further protocol traffic is needed after tree teardown.
-    _socket.destroy();
+    try {
+      await _reader?.close();
+    } finally {
+      // Also handles failure before the reader was installed. Destruction must
+      // still happen if cancelling the reader subscription fails.
+      _socket?.destroy();
+    }
   }
 
   SmbNegotiationResponse? getNegotiatedResponse() => _negotiated;
 
   Future<bool> ensureConnected() async {
+    if (_closing != null) return false;
     if (_negotiated != null) {
       return true;
     }
@@ -155,7 +163,7 @@ class SmbTransport {
     if (config.debugPrint) {
       print("SmbTransport was disconnect call");
     }
-    await _socket.close();
+    await _socket?.close();
     return true;
   }
 
@@ -214,6 +222,11 @@ class SmbTransport {
       }
       var socket = await Socket.connect(host, SmbConstants.DEFAULT_PORT,
           timeout: Duration(milliseconds: config.soTimeout));
+      // close() may have completed while the TCP connection was still pending.
+      if (_closing != null) {
+        socket.destroy();
+        throw const SocketException('SMB transport closed during connection');
+      }
       _socket = socket;
       // ignore: unawaited_futures
       socket.done.then((e) {
@@ -226,7 +239,7 @@ class SmbTransport {
         onDisconnect?.call(this);
       });
 
-      _inp = SocketReader2(socket, onListenReader,
+      _reader = SocketReader2(socket, onListenReader,
           debugPrint: config.debugPrintLowLevel, onFailure: onReaderFailure);
       _out = SocketWriter(socket, debugPrint: config.debugPrintLowLevel);
     }
@@ -670,7 +683,8 @@ class SmbTransport {
       response.reset();
       _negotiated?.setupRequest(request);
 
-      for (var i = 0; i < 5; i++) {
+      final attempts = params?.contains(RequestParam.NO_RETRY) == true ? 1 : 5;
+      for (var i = 0; i < attempts; i++) {
         await doSend(request, params);
 
         if (params?.contains(RequestParam.RETAIN_PAYLOAD) == true) {

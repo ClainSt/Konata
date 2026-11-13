@@ -3,7 +3,7 @@
 abstract final class CloudMediaFileClassifier {
   static final _supplementaryDirectory = RegExp(
     r'^(?:sp|sps|special|specials|extra|extras|bonus|nc|ncop|nced|pv|cm|'
-    r'menu|menus|creditless|textless|interviews?|events?|making|'
+    r'menu|menus|samples?|(?:eizou[\s._-]+)?tokuten|creditless|textless|interviews?|events?|making|'
     r'trailers?|previews?|promos?|promotion|tv[\s._-]*spots?|tvcm|bdcm|'
     r'effects?|fan[\s._-]*disc|fandisc|.*pvd.*|reviews?|'
     r'logo|logos|voices?|ost|soundtrack|gallery|artwork|特典|映像特典|'
@@ -23,11 +23,40 @@ abstract final class CloudMediaFileClassifier {
     caseSensitive: false,
   );
 
+  static final delimitedEpisode = RegExp(
+    r'[\s_]+[-–—][\s_]+(\d{1,3})(?:v\d+)?[\s_]+[-–—][\s_]+(?=\S)',
+    caseSensitive: false,
+  );
+
+  static final _supplementaryTag = RegExp(
+    r'[\[【]\s*(?:メニュ[ー一][ ._-]*\d*|drama[ ._-]*cd)\s*[\]】]',
+    caseSensitive: false,
+  );
+
+  static final _releaseSample = RegExp(
+    r'\b(?:\d{3,4}p|bdrip|bluray|webrip|web[._-]?dl)\b.*[._-]sample\.[^.]+$',
+    caseSensitive: false,
+  );
+
+  static final _discAppendix = RegExp(
+    r'(?<=\d)[ ._-]+appendix(?=\s*(?:[\[(（【]|\.[^.]+$))|'
+    r'[ ._]+[-–—][ ._]+(?:hyakka|百科)[ ._-]*0?[1-9]\d?'
+    r'(?=\s*(?:[\[(（【]|\.[^.]+$))',
+    caseSensitive: false,
+  );
+
+  static final numberedSupplementLabel = RegExp(
+    r'(?<=\d)\s+(?:after[ ._-]+phase|post[ ._-]+credits(?:[ ._-]+scene)?)'
+    r'(?=\s*(?:\[|\(|\.[a-z0-9]+$))',
+    caseSensitive: false,
+  );
+
   static final _supplementaryName = RegExp(
     r'(^|[^a-z])(?:'
     r'ncoped|ncop|nced|menu|menus|pv|pvcm|cm|mv|ova(?:v\d+)?|oad|sp|'
     r'logo|rl|info|websp|extras?\d*|'
     r'interview|making|'
+    r"supporters?(?:['’]s?)?[\s._-]+gathering(?:[\s._-]*(?:19|20)\d{2})?|"
     r'digest|trailer|teaser|preview|promo|promotion|commentary|recitation|'
     r'picture[\s._-]*collection|eyecatch|artwork|gallery|spot|tv[\s._-]*cm|'
     r'bd[\s._-]*cm|bd[\s._-]*menu\d*|'
@@ -82,6 +111,9 @@ abstract final class CloudMediaFileClassifier {
       isSupplementaryDirectory(directory) ||
       isPreview(name) ||
       isNoCredit(name) ||
+      _supplementaryTag.hasMatch(name) ||
+      _releaseSample.hasMatch(name) ||
+      _discAppendix.hasMatch(name) ||
       _supplementaryName.hasMatch(name) ||
       _isFractionalEpisode(name);
 
@@ -222,6 +254,7 @@ abstract final class CloudMediaFileClassifier {
       return true;
     }
     if (_episodeFromBrackets(searchable) != null) return true;
+    if (delimitedEpisode.hasMatch(searchable)) return true;
     if (RegExp(
       r'(?:^|[\s\]】)])\s*\d{1,4}'
       r'(?:[-–—]\d{1,4}|\s*[&~]\s*\d{1,4})'
@@ -260,7 +293,10 @@ abstract final class CloudMediaFileClassifier {
     if (RegExp(r'^\s*\d+\s*[/／]\s*\d+\s*$').hasMatch(normalizedStem)) {
       return null;
     }
-    final searchable = _withoutSeasonAndPartMarkers(normalized);
+    final searchable = _withoutSeasonAndPartMarkers(normalized).replaceAll(
+      RegExp(r'(?<![a-z0-9])\d{1,2}\.\d{1,2}\s*ch\b', caseSensitive: false),
+      ' ',
+    );
 
     var match = RegExp(
       r'(?<![a-z0-9])s\d{1,2}[ ._+-]*e(?:p)?[ ._-]*(\d{1,4})',
@@ -313,6 +349,9 @@ abstract final class CloudMediaFileClassifier {
 
     final bracketed = _episodeFromBrackets(searchable);
     if (bracketed != null) return bracketed;
+
+    final delimited = _number(delimitedEpisode.firstMatch(searchable)?.group(1));
+    if (delimited != null) return delimited;
 
     match = RegExp(
       r'(?:^|[\s\]】)])\s*(\d{1,4})'
@@ -399,7 +438,7 @@ abstract final class CloudMediaFileClassifier {
     return nameYears.isNotEmpty && directoryYears.isNotEmpty;
   }
 
-  static int? _episodeFromBrackets(String name) {
+  static int? _episodeFromBrackets(String name, {bool completeOnly = true}) {
     for (final bracket in RegExp(r'[\[【]([^\]】]+)[\]】]').allMatches(name)) {
       final content = bracket.group(1)!.trim();
       if (content.isEmpty ||
@@ -413,12 +452,15 @@ abstract final class CloudMediaFileClassifier {
       final match = RegExp(
         r'^(?:(?:movie|tv|episode|ep|part|act|final[ ._-]*act|chapter|'
         r'record|vol(?:ume)?|disc)[ ._-]*)?(\d{1,4})(?:v\d+)?'
-        r'(?:[ ._-]*(?:end|fin|final))?(?![a-z0-9])',
+        r'(?:[ ._-]*(?:end|fin|final))?' +
+        (completeOnly
+            ? r'(?=\s*(?:$|[-–—&~]\s*\d|\([^)]*\)\s*$)|\s+(?:Ma\d+p|\d{3,4}p|BDRip|WEB|HEVC|AVC|x26[45])(?=$|[^a-z0-9]))'
+            : r'(?![a-z0-9])'),
         caseSensitive: false,
       ).firstMatch(content);
       var group = 1;
       var entryMatch = match;
-      if (entryMatch == null &&
+      if (!completeOnly && entryMatch == null &&
           RegExp(r'[\u3400-\u9fff]').hasMatch(content) &&
           content.length <= 40) {
         entryMatch = RegExp(r'(\d{1,4})\s*$').firstMatch(content);
@@ -427,7 +469,8 @@ abstract final class CloudMediaFileClassifier {
       final number = _number(entryMatch?.group(group));
       if (number != null && !_technicalNumber(number)) return number;
     }
-    return null;
+    // Prefer complete episode evidence anywhere before legacy annotated tokens.
+    return completeOnly ? _episodeFromBrackets(name, completeOnly: false) : null;
   }
 
   static int? _looseEpisodeNumber(String name) {

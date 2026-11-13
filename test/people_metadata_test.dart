@@ -1,9 +1,79 @@
 import 'package:ccplayer/core/detail_metadata.dart';
+import 'package:ccplayer/core/optional_people.dart';
 import 'package:ccplayer/ui/people_cards.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'credits prioritize directors and producers, then photos within each role',
+    () {
+      final cards = OptionalPeopleSession.creditsCards(
+        {
+          'crew': [
+            {
+              'id': 1,
+              'name': 'Camera',
+              'job': 'Director of Photography',
+              'profile_path': '/camera.jpg',
+            },
+            {'id': 2, 'name': 'Director no photo', 'job': 'Director'},
+            {'id': 3, 'name': 'Producer no photo', 'job': 'Producer'},
+            {
+              'id': 4,
+              'name': 'Director with photo',
+              'job': 'Director',
+              'profile_path': '/director.jpg',
+            },
+            {
+              'id': 5,
+              'name': 'Producer with photo',
+              'job': 'Executive Producer',
+              'profile_path': '/producer.jpg',
+            },
+            {'id': 6, 'name': 'Writer no photo', 'job': 'Writer'},
+            {
+              'id': 7,
+              'name': 'Writer with photo',
+              'job': 'Screenplay',
+              'profile_path': '/writer.jpg',
+            },
+          ],
+        },
+        {},
+        'zh-Hant',
+      );
+      expect(cards.map((card) => card['title']), [
+        'Director with photo',
+        'Director no photo',
+        'Producer with photo',
+        'Producer no photo',
+        'Writer with photo',
+        'Writer no photo',
+        'Camera',
+      ]);
+      final cached = OptionalPeopleSession.creditsCards({}, {
+        'crew': [
+          {
+            'name': '攝影甲',
+            'roles': ['攝影'],
+            'image': '/camera.jpg',
+          },
+          {
+            'name': '製片甲',
+            'roles': ['製片人'],
+            'image': '/producer.jpg',
+          },
+          {
+            'name': '導演甲',
+            'roles': ['導演'],
+          },
+        ],
+      }, 'zh-Hant');
+      expect(cached.map((card) => card['title']), ['導演甲', '製片甲', '攝影甲']);
+    },
+  );
   for (final type in ['movie', 'tv']) {
     test(
       '$type core metadata does not request or interpret optional credits',
@@ -137,4 +207,36 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('voice-actor mode places the actor above the character', (
+    tester,
+  ) async {
+    Future<void> render(bool voice) => tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PeopleCards(
+            showVoiceActors: voice,
+            cards: const [
+              {'title': '角色名称', 'subtitle': '声优名称'},
+              {'title': '未列声优的角色', 'subtitle': ''},
+            ],
+            imageBuilder: (_) => const SizedBox(width: 80, height: 80),
+          ),
+        ),
+      ),
+    );
+    await render(false);
+    final character = find.text('角色名称');
+    final actor = find.text('声优名称');
+    expect(
+      tester.getTopLeft(character).dy,
+      lessThan(tester.getTopLeft(actor).dy),
+    );
+    await render(true);
+    expect(
+      tester.getTopLeft(actor).dy,
+      lessThan(tester.getTopLeft(character).dy),
+    );
+    expect(find.text('未列声优的角色'), findsOneWidget);
+  });
 }

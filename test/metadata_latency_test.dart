@@ -38,7 +38,11 @@ class _PictureSession extends OptionalPeopleSession {
     },
   ];
   @override
-  Future<Uint8List> image(String url, Future<void> cancelled) async => bytes;
+  Future<Uint8List> image(
+    String url,
+    Future<void> cancelled, {
+    int? displayWidth,
+  }) async => bytes;
 }
 
 void main() {
@@ -238,10 +242,7 @@ void main() {
           ),
           picture,
         );
-        expect(
-          urls.last.toString(),
-          'https://pictures.example/art/r/400/pic.jpg?r=123',
-        );
+        expect(urls.last.toString(), 'https://lain.bgm.tv/r/400/pic.jpg?r=123');
         session.dispose();
         await ImageStore.close();
         session = OptionalPeopleSession(
@@ -378,9 +379,7 @@ void main() {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       final urls = <Uri>[];
       server.listen((r) async {
-        if (r.uri.path.startsWith('/mirror/')) {
-          r.response.statusCode = 503;
-        } else if (r.uri.path.endsWith('/characters')) {
+        if (r.uri.path.endsWith('/characters')) {
           r.response.write('[]');
         } else {
           r.response.add(
@@ -400,14 +399,18 @@ void main() {
         final session = OptionalPeopleSession(
           settings,
           OptionalFeature.characters,
-          clientFactory: () => LocalPeopleClient(server.port, urls),
+          clientFactory: () => LocalPeopleClient(
+            server.port,
+            urls,
+            fail: (uri) => ['api.bgm.tv', 'lain.bgm.tv'].contains(uri.host),
+          ),
         );
         await session.load({'bangumi_id': 42, 'original_language': 'ja'}, 'en');
         expect(
           urls[0].toString(),
-          'https://metadata.example/mirror/v0/subjects/42/characters',
+          'https://api.bgm.tv/v0/subjects/42/characters',
         );
-        expect(urls[1].host, Uri.parse(MetadataServers.defaults[2]).host);
+        expect(urls[1].host, 'metadata.example');
         await session.image(
           'https://lain.bgm.tv/pic.jpg',
           Completer<void>().future,
@@ -421,7 +424,11 @@ void main() {
         final credits = OptionalPeopleSession(
           settings,
           OptionalFeature.credits,
-          clientFactory: () => LocalPeopleClient(server.port, urls),
+          clientFactory: () => LocalPeopleClient(
+            server.port,
+            urls,
+            fail: (uri) => uri.host == 'api.themoviedb.org',
+          ),
         );
         final before = urls.length;
         await expectLater(
@@ -429,8 +436,8 @@ void main() {
           throwsStateError,
         );
         expect(
-          urls.length,
-          before,
+          urls.skip(before).map((uri) => uri.host),
+          everyElement('api.themoviedb.org'),
           reason: 'Untrusted custom host must receive no token',
         );
         credits.dispose();

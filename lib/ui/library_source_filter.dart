@@ -10,13 +10,17 @@ List<Map<String, Object?>> filterLibraryWorks({
   required List<Map<String, Object?>> sources,
   required Set<String> kinds,
   required String query,
+  bool pendingReviewOnly = false,
 }) {
   final all = kinds.containsAll(librarySourceKinds);
   final search = query.trim().toLowerCase();
+  bool matchesWork(Map<String, Object?> w) {
+    if (pendingReviewOnly && w['needs_review'] != 1) return false;
+    return w['title'].toString().toLowerCase().contains(search);
+  }
+
   if (all) {
-    return works
-        .where((w) => w['title'].toString().toLowerCase().contains(search))
-        .toList();
+    return works.where(matchesWork).toList();
   }
   final sourceIds = sources
       .where((s) => kinds.contains(s['kind']))
@@ -27,11 +31,7 @@ List<Map<String, Object?>> filterLibraryWorks({
       .map((a) => a['work_id'])
       .toSet();
   return works
-      .where(
-        (w) =>
-            workIds.contains(w['id']) &&
-            w['title'].toString().toLowerCase().contains(search),
-      )
+      .where((w) => workIds.contains(w['id']) && matchesWork(w))
       .toList();
 }
 
@@ -41,10 +41,16 @@ class LibrarySourceFilter extends StatelessWidget {
     required this.kinds,
     required this.count,
     required this.onChanged,
+    this.pendingReviewOnly = false,
+    this.pendingReviewCount = 0,
+    this.onPendingReviewChanged,
   });
   final Set<String> kinds;
   final int count;
   final ValueChanged<Set<String>> onChanged;
+  final bool pendingReviewOnly;
+  final int pendingReviewCount;
+  final ValueChanged<bool>? onPendingReviewChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -55,11 +61,14 @@ class LibrarySourceFilter extends StatelessWidget {
       'smb': 'SMB',
     };
     final all = kinds.containsAll(librarySourceKinds);
-    final title = all
+    final baseTitle = all
         ? context.l10n.allWorks
         : kinds.length == 1
         ? labels[kinds.single]!
         : context.l10n.sources;
+    final title = pendingReviewOnly
+        ? '$baseTitle · ${context.l10n.pendingReviewOnly}'
+        : baseTitle;
     Widget option(
       String key,
       String label,
@@ -137,6 +146,16 @@ class LibrarySourceFilter extends StatelessWidget {
                         : {...kinds, kind},
                   ),
                 ),
+              if (onPendingReviewChanged != null &&
+                  (pendingReviewCount > 0 || pendingReviewOnly)) ...[
+                const Divider(height: 1),
+                option(
+                  'source-filter-pending-review',
+                  '${context.l10n.pendingReviewOnly} ($pendingReviewCount)',
+                  pendingReviewOnly,
+                  () => onPendingReviewChanged!(!pendingReviewOnly),
+                ),
+              ],
             ],
             builder: (context, controller, child) => TextButton(
               key: const ValueKey('library-source-filter'),

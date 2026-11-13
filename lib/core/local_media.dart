@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
+import 'catalog.dart';
 
 /// Local filesystem paths and user-granted Android document trees.
 /// Documents are streamed through media_kit's existing content URI support.
@@ -23,6 +24,7 @@ abstract final class LocalMedia {
   static Future<List<({String name, bool directory, int? size})>> list(
     String root, [
     String relative = '',
+    bool statNonVideos = true,
   ]) async {
     validateRelative(relative);
     if (isDocumentTree(root)) {
@@ -48,10 +50,14 @@ abstract final class LocalMedia {
     final entries = <({String name, bool directory, int? size})>[];
     await for (final item in directory.list(followLinks: false)) {
       if (item is! File && item is! Directory) continue;
+      final name = p.basename(item.path);
+      final isFile = item is File;
       entries.add((
-        name: p.basename(item.path),
+        name: name,
         directory: item is Directory,
-        size: item is File ? (await item.stat()).size : null,
+        size: isFile && (statNonVideos || Catalog.isVideo(name))
+            ? (await item.stat()).size
+            : null,
       ));
     }
     return entries;

@@ -36,11 +36,11 @@ class PersonalFilenameParser {
 
   static final _tmdbMarkers = [
     RegExp(
-      r'\{\s*tmdb(?:tv|movie|id)?\s*[-=:]\s*(\d+)\s*\}',
+      r'\{\s*tmdb(?:tv|movie|id)?\s*[-=:_]\s*(\d+)\s*\}',
       caseSensitive: false,
     ),
     RegExp(
-      r'\[\s*tmdb(?:tv|movie|id)?\s*[-=:]\s*(\d+)\s*\]',
+      r'\[\s*tmdb(?:tv|movie|id)?\s*[-=:_]\s*(\d+)\s*\]',
       caseSensitive: false,
     ),
     RegExp(r'\{\s*\[\s*tmdbid\s*=\s*(\d+)[^\]]*\]\s*\}', caseSensitive: false),
@@ -149,7 +149,7 @@ class PersonalFilenameParser {
       final technical = block.toLowerCase().split(RegExp(r'[\s_+,-]+'));
       if (technical.every(
         (part) => RegExp(
-          r'^(?:\d{3,4}[pi]|\d{3,5}x\d{3,5}|[248]k|(?:ma|hi)?\d{1,2}p|(?:x|h)26[45]|hevc|avc|av1|(?:aac|flac|opus|ac3|eac3|dts|truehd|ass|ssa|srt)(?:x\d+)?|yuv(?:420|422|444)p?\d*|\d{1,2}\.\d|10bit|8bit|bdrip|bluray|web-?dl|webrip|jpsc|jptc|chs|cht|gb|big5|mp4|mkv|[0-9a-f]{8})$',
+          r'^(?:\d{3,4}[pi]|\d{3,5}x\d{3,5}|[248]k|(?:ma|hi)?\d{1,2}p|(?:x|h)\.?26[45]|hevc|avc|av1|(?:aac|flac|opus|ac3|eac3|dts|truehd|ass|ssa|srt)(?:x\d+)?|yuv(?:420|422|444)p?\d*|\d{1,2}\.\d|10bit|8bit|bdrip|bluray|web-?dl|webrip|jpsc|jptc|chs|cht|gb|big5|mp4|mkv|[0-9a-f]{8})$',
         ).hasMatch(part),
       )) {
         continue;
@@ -211,12 +211,49 @@ class PersonalFilenameParser {
     return _extractAnimeTitleKeyword(pathOrName);
   }
 
+  static final _crc32Bracket = RegExp(
+    r'[\[(【（]\s*[0-9a-f]{8}\s*[\])】）]',
+    caseSensitive: false,
+  );
+
+  static final _technicalPart = RegExp(
+    r'^(?:\d{3,4}[pi]|\d{3,5}x\d{3,5}|[248]k|(?:ma|hi)?\d{1,2}p|'
+    r'(?:x|h)\.?26[45]|hevc|avc|av1|vp9|mpeg[24]|'
+    r'(?:aac|flac|opus|ac3|eac3|dts(?:-?hd)?|truehd|lpcm|mp3|ass|ssa|srt|sup|pgs)(?:x\d+)?|'
+    r'\d\.\d(?:ch)?|\dch|yuv(?:420|422|444)p?\d*|10bit|8bit|hdr10\+?|hdr|dv|sdr|'
+    r'bd(?:rip|remux)?|blu-?ray|uhd(?:rip)?|web-?dl|webrip|dvd(?:rip)?|tvrip|hdtv|remux|'
+    r'jpsc|jptc|jpchs|jpcht|chs|cht|sc|tc|gb|big5|jap|jpn|eng|dual[-_]?audio|multi[-_]?subs?|'
+    r'mp4|mkv|avi|m2ts|[0-9a-f]{8})$',
+    caseSensitive: false,
+  );
+
+  static String _stripTechnicalBrackets(String input) => input.replaceAllMapped(
+    RegExp(r'\[([^\]]+)\]|【([^】]+)】|\(([^)]+)\)|（([^）]+)）'),
+    (m) {
+      final raw = (m[1] ?? m[2] ?? m[3] ?? m[4] ?? '').trim();
+      if (raw.isEmpty) return ' ';
+      final parts = raw
+          .split(RegExp(r'[\s_+.,/|+&-]+'))
+          .where((s) => s.isNotEmpty)
+          .toList();
+      if (parts.isNotEmpty && parts.every(_technicalPart.hasMatch)) {
+        return ' ';
+      }
+      return m[0]!;
+    },
+  );
+
   static String _extractAnimeTitleKeyword(String pathOrName) {
     var name = withoutTmdbMarkers(baseNameWithoutExtension(pathOrName));
     if (name.isEmpty) return '';
 
-    // 常见分隔符归一化
-    name = name.replaceAll(RegExp(r'[._]+'), ' ').trim();
+    // 阶段一（Anitomy 式消去）：先剥离 8 位 CRC32 校验码与纯技术参数括号块，
+    // 防止压制标签干扰右侧集数定界，同时保留标题内括号与数字番名。
+    name = name.replaceAll(_crc32Bracket, ' ');
+    name = _stripTechnicalBrackets(name);
+
+    // 常见分隔符归一化（保留 12.5 这类半集小数点）
+    name = name.replaceAll(RegExp(r'_|(?<!\d)\.|\.(?!5\b)'), ' ').trim();
 
     // 去掉开头的字幕组/压制组标识（可能存在多个）
     name = _stripLeadingGroupTags(name);
@@ -224,51 +261,69 @@ class PersonalFilenameParser {
     // 去掉末尾的编码/分辨率等标签（可能存在多个）
     name = _stripTrailingTags(name);
 
-    // A season/episode marker separates the series title from an optional
-    // episode subtitle and release metadata. Keep everything before it.
+    // 阶段二：从右侧集数定界符切分，左侧数字番名（86、Mob Psycho 100、Steins;Gate 0）自然保留
     final episodeMarker = RegExp(
-      r'[／/]?\s*\b(?:S\d{1,2}E\d{1,3}|EP?\s*\d{1,3})\b|第\s*\d{1,3}\s*[话話集]',
+      r'[／/]?\s*\b(?:S\d{1,2}E\d{1,3}(?:\.5)?(?:v\d+)?|EP?\s*\d{1,3}(?:\.5)?(?:v\d+)?)\b|'
+      r'第\s*\d{1,3}(?:\.5)?\s*[话話集]',
       caseSensitive: false,
     ).firstMatch(name);
     if (episodeMarker != null) {
       name = name.substring(0, episodeMarker.start).trim();
     }
-    final delimitedEpisode = CloudMediaFileClassifier.delimitedEpisode.firstMatch(name);
+    final delimitedEpisode = CloudMediaFileClassifier.delimitedEpisode
+        .firstMatch(name);
     if (delimitedEpisode != null) {
       name = name.substring(0, delimitedEpisode.start).trim();
     }
 
     // 去掉常见季/集标识（仅影响搜索关键词，不做全局数字清理）
     name = name.replaceAll(
-      RegExp(r'\bS\d{1,2}E\d{1,3}\b', caseSensitive: false),
+      RegExp(r'\bS\d{1,2}E\d{1,3}(?:\.5)?(?:v\d+)?\b', caseSensitive: false),
       ' ',
     );
     name = name.replaceAll(
-      RegExp(r'\bS\d{1,2}(?:\s*[+&~～]\s*S\d{1,2})+\b|\bS\d{1,2}\b',
-          caseSensitive: false),
+      RegExp(
+        r'\bS\d{1,2}(?:\s*[+&~～]\s*S\d{1,2})+\b|\bS\d{1,2}\b',
+        caseSensitive: false,
+      ),
       ' ',
     );
-    name = name.replaceAll(RegExp(r'\b(?:EP|Ep|ep)\s*\d{1,3}\b'), ' ');
-    name = name.replaceAll(RegExp(r'\bE\d{1,3}\b', caseSensitive: false), ' ');
+    name = name.replaceAll(
+      RegExp(r'\b(?:EP|Ep|ep)\s*\d{1,3}(?:\.5)?(?:v\d+)?\b'),
+      ' ',
+    );
+    name = name.replaceAll(
+      RegExp(r'\bE\d{1,3}(?:\.5)?(?:v\d+)?\b', caseSensitive: false),
+      ' ',
+    );
 
     // 中文/日文“第X话/集/期”
-    name = name.replaceAll(RegExp(r'第\s*\d{1,3}\s*[话話集期]'), ' ');
-    name = name.replaceAll(RegExp(r'\d{1,3}\s*[话話集期]\b'), ' ');
+    name = name.replaceAll(RegExp(r'第\s*\d{1,3}(?:\.5)?\s*[话話集期]'), ' ');
+    name = name.replaceAll(RegExp(r'\d{1,3}(?:\.5)?\s*[话話集期]\b'), ' ');
 
-    // 形如 [01] / 【01】 的独立集数标识（避免误删番名中的数字）
-    final numericTitle = RegExp(r'^[\[【]\s*\d{1,3}\s*[\]】]$').hasMatch(name);
+    // 形如 [01] / [01v2] / [12.5] / [01-02] 的独立集数方括号块（避免误删番名中的数字）
+    final numericTitle = RegExp(
+      r'^[\[【]\s*\d{1,3}(?:\.5)?(?:v\d+)?\s*[\]】]$',
+      caseSensitive: false,
+    ).hasMatch(name);
     if (!numericTitle) {
-      name = name.replaceAll(RegExp(r'[\[【]\s*\d{1,3}\s*[\]】]'), ' ');
+      name = name.replaceAll(
+        RegExp(
+          r'[\[【]\s*\d{1,3}(?:\.5)?(?:v\d+)?(?:\s*[-–—~&+]\s*\d{1,3}(?:v\d+)?)?\s*[\]】]',
+          caseSensitive: false,
+        ),
+        ' ',
+      );
     }
 
-    // 形如 " - 01" / "_01" 的结尾集数
+    // 形如 " - 01" / " - 02v2" / " - 12.5" / " - 01-02" 的结尾集数
     // Remove at most one suffix. Repeating this would turn "Animation 12 -
     // 01" into "Animation" and erase part of the real title.
     name = name.replaceFirst(
       RegExp(
-        r'(?:(?:\s+[-_]\s*\d{1,3}|\s+0\d{1,2}|\s*#\s*\d{1,3})(?:v\d+)?'
+        r'(?:(?:\s+[-_]\s*\d{1,3}(?:\.5)?|\s+0\d{1,2}(?:\.5)?|\s*#\s*\d{1,3}(?:\.5)?)(?:v\d+)?'
         r'(?:(?:[-–—]|\s*[&+~]\s*)\d{1,3}(?:v\d+)?)+|'
-        r'(?:\s*[-_#]\s*\d{1,3}|\s+0\d{1,2})(?:v\d+)?)'
+        r'(?:\s*[-_#]\s*\d{1,3}(?:\.5)?|\s+0\d{1,2}(?:\.5)?)(?:v\d+)?)'
         r'(?:\s*[- ]*(?:END|FINAL|FIN))?$',
         caseSensitive: false,
       ),

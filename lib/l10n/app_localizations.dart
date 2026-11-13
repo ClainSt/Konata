@@ -3044,6 +3044,102 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Dolby Vision Profile 5 is not supported by the current player. This video has no compatible HDR10 base layer. Use an HDR10/SDR version or a player that supports this profile.'**
   String get dolbyVisionProfile5Unsupported;
+
+  /// No description provided for @characterRoleFilter.
+  ///
+  /// In en, this message translates to:
+  /// **'Character types'**
+  String get characterRoleFilter;
+
+  /// No description provided for @allCharacterRoles.
+  ///
+  /// In en, this message translates to:
+  /// **'All roles'**
+  String get allCharacterRoles;
+
+  /// No description provided for @mainCharacter.
+  ///
+  /// In en, this message translates to:
+  /// **'Main'**
+  String get mainCharacter;
+
+  /// No description provided for @supportingCharacter.
+  ///
+  /// In en, this message translates to:
+  /// **'Supporting'**
+  String get supportingCharacter;
+
+  /// No description provided for @guestCharacter.
+  ///
+  /// In en, this message translates to:
+  /// **'Guest'**
+  String get guestCharacter;
+
+  /// No description provided for @otherCharacter.
+  ///
+  /// In en, this message translates to:
+  /// **'Other'**
+  String get otherCharacter;
+
+  /// No description provided for @editBackdrop.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit backdrop'**
+  String get editBackdrop;
+
+  /// No description provided for @cropBackdrop.
+  ///
+  /// In en, this message translates to:
+  /// **'Crop backdrop · 16:9'**
+  String get cropBackdrop;
+
+  /// No description provided for @recropBackdrop.
+  ///
+  /// In en, this message translates to:
+  /// **'Recrop current backdrop'**
+  String get recropBackdrop;
+
+  /// No description provided for @automaticBackdrop.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore auto'**
+  String get automaticBackdrop;
+
+  /// No description provided for @backdropFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t update backdrop. Try again.'**
+  String get backdropFailed;
+
+  /// No description provided for @pendingReviewItems.
+  ///
+  /// In en, this message translates to:
+  /// **'Needs review / failed'**
+  String get pendingReviewItems;
+
+  /// No description provided for @pendingReviewOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Needs review'**
+  String get pendingReviewOnly;
+
+  /// No description provided for @reviewCandidatePoster.
+  ///
+  /// In en, this message translates to:
+  /// **'Candidate matched · confirm'**
+  String get reviewCandidatePoster;
+
+  /// No description provided for @reviewUnmatched.
+  ///
+  /// In en, this message translates to:
+  /// **'Unmatched · manual link'**
+  String get reviewUnmatched;
+
+  /// No description provided for @noPendingReviewItems.
+  ///
+  /// In en, this message translates to:
+  /// **'All works matched with high confidence.'**
+  String get noPendingReviewItems;
 }
 
 class _AppLocalizationsDelegate

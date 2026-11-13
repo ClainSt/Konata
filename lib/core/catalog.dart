@@ -417,7 +417,6 @@ class Catalog extends ChangeNotifier {
     for (final work in works) {
       ImageStore.restoreOwner(work['id'].toString());
     }
-    hiddenWorkEntries = allWorks.where((row) => row['hidden'] == 1).toList();
     final hasOverrides = (await db.rawQuery(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='asset_overrides'",
     )).isNotEmpty;
@@ -434,6 +433,30 @@ class Catalog extends ChangeNotifier {
             if (lockedAssets.contains(a['id'])) 'manual_mapping': true,
           },
         )
+        .toList();
+    final activeAssetWorkIds = assets
+        .map((a) => a['work_id']?.toString())
+        .whereType<String>()
+        .toSet();
+    final splitParentIds = <String>{};
+    for (final row in allWorks) {
+      final id = row['id']?.toString();
+      if (id == null) continue;
+      final marker = id.lastIndexOf(':classified:');
+      if (marker > 0) {
+        splitParentIds.add(id.substring(0, marker));
+      }
+    }
+    // Exclude 0-asset shell containers (including split parents) unless
+    // explicitly pinned hidden without classified child works.
+    hiddenWorkEntries = allWorks
+        .where((row) {
+          if (row['hidden'] != 1) return false;
+          final id = row['id']?.toString();
+          if (id == null) return false;
+          if (activeAssetWorkIds.contains(id)) return true;
+          return row['keep_hidden'] == 1 && !splitParentIds.contains(id);
+        })
         .toList();
     scanRoots = await db.query('scan_roots', orderBy: 'relative_path');
     final parts = <String, List<Map<String, Object?>>>{};
@@ -460,26 +483,41 @@ class Catalog extends ChangeNotifier {
         final part = jsonDecode(row['part'] as String) as Map;
         final chapter = jsonDecode(row['chapter'] as String) as Map;
         final range = jsonDecode(row['tmdb_range'] as String) as Map;
-        final tmdbChapter = (range['chapters'] as List? ?? []).whereType<Map>()
-            .where((value) => value['id'] == chapter['chapter_id']).singleOrNull;
+        final tmdbChapter = (range['chapters'] as List? ?? [])
+            .whereType<Map>()
+            .where((value) => value['id'] == chapter['chapter_id'])
+            .singleOrNull;
         if (part['title'] is! String || part['id'] is! int) continue;
         parts.putIfAbsent(row['work_id'] as String, () => []).add({
-          'asset_id': row['asset_id'], 'title': part['title'],
-          'poster': part['poster'], 'summary': part['summary'],
-          'bangumi_subject': part['id'], 'tmdb_episode': chapter['episode'],
+          'asset_id': row['asset_id'],
+          'title': part['title'],
+          'poster': part['poster'],
+          'summary': part['summary'],
+          'bangumi_subject': part['id'],
+          'tmdb_episode': chapter['episode'],
           'chapter_id': chapter['chapter_id'],
-          'year': part['year'] ?? DateTime.tryParse('${tmdbChapter?['date']}')?.year,
+          'year':
+              part['year'] ??
+              DateTime.tryParse('${tmdbChapter?['date']}')?.year,
         });
       }
     }
     final mainCounts = <Object?, int>{};
     for (final asset in assets.where((a) => a['category'] == 'main')) {
-      mainCounts.update(asset['work_id'], (count) => count + 1, ifAbsent: () => 1);
+      mainCounts.update(
+        asset['work_id'],
+        (count) => count + 1,
+        ifAbsent: () => 1,
+      );
     }
-    parts.removeWhere((work, rows) => rows.length < 2 ||
-        rows.length != mainCounts[work] ||
-        rows.map((row) => row['asset_id']).toSet().length != rows.length ||
-        rows.map((row) => row['bangumi_subject']).toSet().length != rows.length);
+    parts.removeWhere(
+      (work, rows) =>
+          rows.length < 2 ||
+          rows.length != mainCounts[work] ||
+          rows.map((row) => row['asset_id']).toSet().length != rows.length ||
+          rows.map((row) => row['bangumi_subject']).toSet().length !=
+              rows.length,
+    );
     standaloneParts = parts;
     notifyListeners();
   }
@@ -658,27 +696,57 @@ class Catalog extends ChangeNotifier {
     await reload();
   }
 
-  /// Hide a title from the poster wall without deleting source files,
-  /// indexed assets, manual relations, metadata, or playback progress.
-  /// If keepHidden=false, the next successful reindex makes it visible again.
-  Future<void> hideWork(String workId, {required bool keepHidden}) async {
-    final updated = await db.update(
-      'works',
-      {'hidden': 1, 'keep_hidden': keepHidden ? 1 : 0},
-      where: 'id=?',
-      whereArgs: [workId],
-    );
-    if (updated == 0) throw StateError('作品已不存在');
+  static Set<String> _extractArtworkRefs(Map<String, Object?> row) {
+    final refs = <String>{};
+    void collect(Object? value) {
+      if (value is String) {
+        final trimmed = value.trim();
+        if (trimmed.startsWith('artwork:') && trimmed.length > 8) {
+          refs.add(trimmed.substring(8));
+        }
+      } else if (value is Map) {
+        for (final entry in value.values) {
+          collect(entry);
+        }
+      } else if (value is List) {
+        for (final item in value) {
+          collect(item);
+        }
+      }
+    }
+
+    for (final key in const [
+      'manual_cover_url',
+      'poster',
+      'poster_fallback',
+    ]) {
+      collect(row[key]);
+    }
+    final rawEdit = row['cover_edit_json']?.toString();
+    if (rawEdit != null && rawEdit.trim().isNotEmpty) {
+      try {
+        collect(jsonDecode(rawEdit));
+      } catch (_) {}
+    }
+    return refs;
+  }
+
+  Future<void> _cleanupWorkImageCache(String workId) async {
     try {
       // Legacy libraries may have shared posters/stills from before ownership
       // was recorded. Backfill references only on explicit removal, in bounded
       // batches, so deleting one title cannot discard another title's artwork.
       if (ImageStore.root != null) {
+        final hasDetails = (await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='work_details'",
+        )).isNotEmpty;
         for (var offset = 0; ; offset += 100) {
           final remaining = await db.rawQuery(
-            'SELECT w.*, d.payload AS artwork_payload FROM works w '
-            'LEFT JOIN work_details d ON w.id=d.work_id WHERE w.hidden=0 '
-            'ORDER BY w.id LIMIT 100 OFFSET ?',
+            hasDetails
+                ? 'SELECT w.*, d.payload AS artwork_payload FROM works w '
+                      'LEFT JOIN work_details d ON w.id=d.work_id WHERE w.hidden=0 '
+                      'ORDER BY w.id LIMIT 100 OFFSET ?'
+                : 'SELECT * FROM works WHERE hidden=0 ORDER BY id LIMIT 100 OFFSET ?',
             [offset],
           );
           for (final row in remaining) {
@@ -703,6 +771,163 @@ class Catalog extends ChangeNotifier {
         stack,
       );
     }
+  }
+
+  /// Hide a title from the poster wall without deleting source files,
+  /// indexed assets, manual relations, metadata, or playback progress.
+  /// If keepHidden=false, the next successful reindex makes it visible again.
+  Future<void> hideWork(String workId, {required bool keepHidden}) async {
+    final updated = await db.update(
+      'works',
+      {'hidden': 1, 'keep_hidden': keepHidden ? 1 : 0},
+      where: 'id=?',
+      whereArgs: [workId],
+    );
+    if (updated == 0) throw StateError('作品已不存在');
+    await _cleanupWorkImageCache(workId);
+    await reload();
+  }
+
+  /// Confirm the current match or local title for a pending-review work so it
+  /// leaves the review queue without modifying source files or bindings.
+  Future<void> confirmWorkReview(String workId) async {
+    final updated = await db.update(
+      'works',
+      {'needs_review': 0},
+      where: 'id=?',
+      whereArgs: [workId],
+    );
+    if (updated == 0) throw StateError('作品已不存在');
+    await reload();
+  }
+
+  /// Permanently remove a work and its library-owned SQLite records and
+  /// exclusive cached cover files. Never modifies or deletes source media files.
+  Future<void> deleteWork(String workId) async {
+    var exclusiveArtwork = <String>{};
+    await db.transaction((txn) async {
+      final rows = await txn.query(
+        'works',
+        where: 'id=?',
+        whereArgs: [workId],
+        limit: 1,
+      );
+      if (rows.isEmpty) throw StateError('作品已不存在');
+      final candidateArtwork = _extractArtworkRefs(rows.single);
+      final tables = (await txn.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table'",
+      )).map((r) => r['name']?.toString()).whereType<String>().toSet();
+
+      if (tables.contains('assets')) {
+        if (tables.contains('progress')) {
+          await txn.rawDelete(
+            'DELETE FROM progress WHERE asset_id IN (SELECT id FROM assets WHERE work_id=?)',
+            [workId],
+          );
+        }
+        if (tables.contains('asset_overrides')) {
+          await txn.rawDelete(
+            'DELETE FROM asset_overrides WHERE work_id=? OR asset_id IN (SELECT id FROM assets WHERE work_id=?)',
+            [workId, workId],
+          );
+        }
+        if (tables.contains('asset_override_history')) {
+          await txn.rawDelete(
+            'DELETE FROM asset_override_history WHERE work_id=? OR asset_id IN (SELECT id FROM assets WHERE work_id=?)',
+            [workId, workId],
+          );
+        }
+        if (tables.contains('logical_episode_confirmations')) {
+          await txn.rawDelete(
+            'DELETE FROM logical_episode_confirmations WHERE asset_id IN (SELECT id FROM assets WHERE work_id=?)',
+            [workId],
+          );
+        }
+        if (tables.contains('bangumi_episode_mappings')) {
+          await txn.rawDelete(
+            'DELETE FROM bangumi_episode_mappings WHERE asset_id IN (SELECT id FROM assets WHERE work_id=?)',
+            [workId],
+          );
+        }
+        if (tables.contains('phantom_asset_archive')) {
+          await txn.rawDelete(
+            'DELETE FROM phantom_asset_archive WHERE obsolete_asset_id IN (SELECT id FROM assets WHERE work_id=?) OR canonical_asset_id IN (SELECT id FROM assets WHERE work_id=?)',
+            [workId, workId],
+          );
+        }
+        await txn.delete('assets', where: 'work_id=?', whereArgs: [workId]);
+      } else {
+        if (tables.contains('asset_overrides')) {
+          await txn.delete(
+            'asset_overrides',
+            where: 'work_id=?',
+            whereArgs: [workId],
+          );
+        }
+        if (tables.contains('asset_override_history')) {
+          await txn.delete(
+            'asset_override_history',
+            where: 'work_id=?',
+            whereArgs: [workId],
+          );
+        }
+      }
+
+      for (final table in const [
+        'work_details',
+        'scoped_artwork',
+        'scan_bindings',
+        'scan_dirty_works',
+        'scan_file_groups',
+        'media_chapters',
+      ]) {
+        if (tables.contains(table)) {
+          await txn.delete(table, where: 'work_id=?', whereArgs: [workId]);
+        }
+      }
+
+      await txn.delete('works', where: 'id=?', whereArgs: [workId]);
+
+      if (candidateArtwork.isNotEmpty) {
+        final remainingArtwork = <String>{};
+        for (var offset = 0; ; offset += 200) {
+          final others = await txn.query(
+            'works',
+            orderBy: 'id',
+            limit: 200,
+            offset: offset,
+          );
+          for (final other in others) {
+            remainingArtwork.addAll(_extractArtworkRefs(other));
+          }
+          if (others.length < 200) break;
+        }
+        exclusiveArtwork = candidateArtwork.difference(remainingArtwork);
+      }
+    });
+
+    final root = ImageStore.root;
+    if (root != null && exclusiveArtwork.isNotEmpty) {
+      final rootPath = p.normalize(root.absolute.path);
+      for (final rel in exclusiveArtwork) {
+        try {
+          final targetPath = p.normalize(p.join(rootPath, rel));
+          if (!p.isWithin(rootPath, targetPath)) continue;
+          final file = File(targetPath);
+          if (await file.exists()) {
+            await file.delete();
+          }
+        } catch (error, stack) {
+          DebugLog.exception(
+            'Image',
+            'delete_work_cover_cleanup_failed',
+            error,
+            stack,
+          );
+        }
+      }
+    }
+    await _cleanupWorkImageCache(workId);
     await reload();
   }
 
@@ -718,8 +943,14 @@ class Catalog extends ChangeNotifier {
     await reload();
   }
 
-  Future<List<Map<String, Object?>>> hiddenWorks() async =>
-      db.query('works', where: 'hidden=1', orderBy: 'title COLLATE NOCASE');
+  Future<List<Map<String, Object?>>> hiddenWorks() async => db.rawQuery(
+    'SELECT * FROM works w WHERE w.hidden=1 '
+    'AND (EXISTS (SELECT 1 FROM assets a WHERE a.work_id=w.id) '
+    'OR (w.keep_hidden=1 AND NOT EXISTS ('
+    "SELECT 1 FROM works c WHERE substr(c.id, 1, length(w.id || ':classified:')) = w.id || ':classified:'"
+    '))) '
+    'ORDER BY w.title COLLATE NOCASE',
+  );
 
   Future<void> removeSource(String sourceId) async {
     await _secrets.delete(key: 'webdav:$sourceId');
@@ -870,6 +1101,14 @@ class Catalog extends ChangeNotifier {
     int? expectedLocationRevision,
   }) async {
     if (videos.isEmpty) return;
+    if (!foundationEnabled && videos.length > 1) {
+      await _indexVideosFastBatch(
+        sourceId,
+        videos,
+        checkCancelled: checkCancelled,
+      );
+      return;
+    }
     await db.transaction((tx) async {
       if (foundationEnabled && expectedLocationRevision != null) {
         await LibraryFoundation.checkSource(
@@ -890,6 +1129,217 @@ class Catalog extends ChangeNotifier {
         );
       }
       checkCancelled?.call();
+    });
+  }
+
+  Future<void> _indexVideosFastBatch(
+    String sourceId,
+    List<({String relative, int? size, String folder, bool review})> videos, {
+    void Function()? checkCancelled,
+  }) async {
+    final prepared =
+        <
+          ({
+            String normalized,
+            String name,
+            String folder,
+            String displayFolder,
+            String workId,
+            String assetId,
+            int? size,
+            bool review,
+          })
+        >[];
+    for (final video in videos) {
+      final normalized = video.relative.replaceAll('\\', '/');
+      final name = p.posix.basename(normalized);
+      final segments = p.posix.split(normalized);
+      if (segments.isEmpty || !isVideo(name)) continue;
+      final folder = normalizeRoot(video.folder);
+      if (folder.isEmpty) continue;
+      if (RegExp(r'^(CDs?|Scans?)$', caseSensitive: false).hasMatch(folder)) {
+        continue;
+      }
+      prepared.add((
+        normalized: normalized,
+        name: name,
+        folder: folder,
+        displayFolder: p.posix.basename(folder),
+        workId: 'work:$sourceId:${Uri.encodeComponent(folder)}',
+        assetId: 'asset:$sourceId:${Uri.encodeComponent(normalized)}',
+        size: video.size,
+        review: video.review,
+      ));
+    }
+    if (prepared.isEmpty) return;
+
+    Future<List<Map<String, Object?>>> queryIn(
+      DatabaseExecutor tx,
+      String table,
+      String column,
+      Iterable<String> keys, {
+      List<String>? columns,
+    }) async {
+      final list = keys.toList(growable: false);
+      if (list.isEmpty) return const [];
+      final out = <Map<String, Object?>>[];
+      for (var i = 0; i < list.length; i += 400) {
+        final end = i + 400 < list.length ? i + 400 : list.length;
+        final slice = list.sublist(i, end);
+        final placeholders = List.filled(slice.length, '?').join(',');
+        out.addAll(
+          await tx.query(
+            table,
+            columns: columns,
+            where: '$column IN ($placeholders)',
+            whereArgs: slice,
+          ),
+        );
+      }
+      return out;
+    }
+
+    await db.transaction((tx) async {
+      checkCancelled?.call();
+      final assetIds = {for (final item in prepared) item.assetId};
+      final existingById = {
+        for (final row in await queryIn(tx, 'assets', 'id', assetIds))
+          row['id'].toString(): row,
+      };
+      final manualById = {
+        for (final row in await queryIn(
+          tx,
+          'asset_overrides',
+          'asset_id',
+          assetIds,
+        ))
+          row['asset_id'].toString(): row,
+      };
+      final oldWorkIdsToCheck = <String>{};
+      for (final item in prepared) {
+        if (manualById.containsKey(item.assetId)) continue;
+        final oldWorkId = existingById[item.assetId]?['work_id']?.toString();
+        if (oldWorkId != null &&
+            oldWorkId != item.workId &&
+            !oldWorkId.contains(':classified:')) {
+          oldWorkIdsToCheck.add(oldWorkId);
+        }
+      }
+      final lockedOldWorkIds = {
+        for (final row in await queryIn(
+          tx,
+          'works',
+          'id',
+          oldWorkIdsToCheck,
+          columns: ['id', 'manual_lock'],
+        ))
+          if (row['manual_lock'] == 1) row['id'].toString(),
+      };
+
+      final batch = tx.batch();
+      final insertedWorks = <String>{};
+      final unhiddenWorks = <String>{};
+
+      for (final item in prepared) {
+        checkCancelled?.call();
+        final existing = existingById[item.assetId];
+        final manual = manualById[item.assetId];
+        var targetWorkId = manual != null
+            ? manual['work_id'].toString()
+            : item.workId;
+        if (manual == null && existing != null) {
+          final oldId = existing['work_id']?.toString();
+          if (oldId != null &&
+              oldId != item.workId &&
+              (oldId.contains(':classified:') ||
+                  lockedOldWorkIds.contains(oldId))) {
+            targetWorkId = oldId;
+          }
+        }
+        if (targetWorkId == item.workId && insertedWorks.add(item.workId)) {
+          batch.insert('works', {
+            'id': item.workId,
+            'title': cleanTitle(item.displayFolder),
+            'year': year(item.displayFolder),
+            if (!recognitionEnabled) 'tmdb_id': tmdbId(item.displayFolder),
+            if (!recognitionEnabled) 'tmdb_type': tmdbType(item.displayFolder),
+            'needs_review': recognitionEnabled || item.review ? 1 : 0,
+          }, conflictAlgorithm: ConflictAlgorithm.ignore);
+        }
+        if (unhiddenWorks.add(targetWorkId)) {
+          batch.update(
+            'works',
+            {'hidden': 0},
+            where: 'id=? AND hidden=1 AND keep_hidden=0',
+            whereArgs: [targetWorkId],
+          );
+        }
+        final extra = isExtra(item.normalized);
+        final keepClassified =
+            manual == null &&
+            existing != null &&
+            targetWorkId.contains(':classified:');
+        final values = <String, Object?>{
+          'id': item.assetId,
+          'source_id': sourceId,
+          'work_id': targetWorkId,
+          'relative_path': item.normalized,
+          'name': item.name,
+          'episode': manual != null
+              ? manual['episode']
+              : keepClassified
+              ? existing['episode']
+              : CloudMediaFileClassifier.episodeNumberFromNameInDirectory(
+                  p.posix.dirname(item.normalized),
+                  item.name,
+                ),
+          'season': manual != null
+              ? manual['season']
+              : keepClassified
+              ? existing['season']
+              : detectedSeason(item.normalized),
+          'category': manual != null
+              ? manual['category']
+              : keepClassified
+              ? existing['category']
+              : (extra ? 'extra' : 'main'),
+          'extra_type': manual != null
+              ? manual['extra_type']
+              : keepClassified
+              ? existing['extra_type']
+              : (extra
+                    ? CloudMediaAssetPresentation.extraType({
+                        'name': item.name,
+                        'relative_path': item.normalized,
+                      })
+                    : null),
+          'size': item.size,
+        };
+        if (existing == null) {
+          batch.insert('assets', values);
+          if (recognitionEnabled) {
+            batch.insert('scan_dirty_works', {
+              'work_id': targetWorkId,
+            }, conflictAlgorithm: ConflictAlgorithm.ignore);
+          }
+        } else {
+          final changes = <String, Object?>{
+            for (final entry in values.entries)
+              if (entry.key != 'id' && existing[entry.key] != entry.value)
+                entry.key: entry.value,
+          };
+          if (changes.isNotEmpty) {
+            batch.update(
+              'assets',
+              changes,
+              where: 'id=?',
+              whereArgs: [item.assetId],
+            );
+          }
+        }
+      }
+      checkCancelled?.call();
+      await batch.commit(noResult: true);
     });
   }
 
@@ -1551,6 +2001,21 @@ class Catalog extends ChangeNotifier {
     await reload();
   }
 
+  static Map<String, dynamic> _decodeCoverEdit(Object? raw) {
+    if (raw == null) return <String, dynamic>{};
+    try {
+      final decoded = jsonDecode(raw.toString());
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {}
+    return <String, dynamic>{};
+  }
+
+  static Map<String, dynamic>? backdropEditState(Map<String, Object?> work) {
+    final edit = _decodeCoverEdit(work['cover_edit_json']);
+    final backdrop = edit['backdrop'];
+    return backdrop is Map ? Map<String, dynamic>.from(backdrop) : null;
+  }
+
   Future<void> saveCroppedCover(
     String workId,
     String source,
@@ -1559,10 +2024,19 @@ class Catalog extends ChangeNotifier {
     Object crop, {
     int? subjectId,
   }) async {
+    final rows = await db.query(
+      'works',
+      columns: ['cover_edit_json'],
+      where: 'id=?',
+      whereArgs: [workId],
+      limit: 1,
+    );
+    final prev = _decodeCoverEdit(rows.firstOrNull?['cover_edit_json']);
     await _saveCoverFields(workId, {
       'manual_cover_source': source,
       'manual_cover_url': output,
       'cover_edit_json': jsonEncode({
+        if (prev['backdrop'] is Map) 'backdrop': prev['backdrop'],
         'source': source,
         'subjectId': subjectId,
         'original': original,
@@ -1573,6 +2047,83 @@ class Catalog extends ChangeNotifier {
     });
     DebugLog.write('CoverCrop', 'cover state saved');
     await reload();
+  }
+
+  Future<void> setManualBackdrop(String workId) async {
+    final rows = await db.query(
+      'works',
+      columns: ['cover_edit_json'],
+      where: 'id=?',
+      whereArgs: [workId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final prev = _decodeCoverEdit(rows.single['cover_edit_json']);
+    prev.remove('backdrop');
+    await db.update(
+      'works',
+      {'cover_edit_json': prev.isEmpty ? null : jsonEncode(prev)},
+      where: 'id=?',
+      whereArgs: [workId],
+    );
+    await reload();
+  }
+
+  Future<void> saveCroppedBackdrop(
+    String workId,
+    String source,
+    String original,
+    String output,
+    Object crop, {
+    int? subjectId,
+  }) async {
+    final rows = await db.query(
+      'works',
+      columns: ['cover_edit_json'],
+      where: 'id=?',
+      whereArgs: [workId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final prev = _decodeCoverEdit(rows.single['cover_edit_json']);
+    prev['backdrop'] = {
+      'source': source,
+      'subjectId': subjectId,
+      'original': original,
+      'resource': output,
+      'crop': crop,
+      'manual': true,
+    };
+    await db.update(
+      'works',
+      {'cover_edit_json': jsonEncode(prev)},
+      where: 'id=?',
+      whereArgs: [workId],
+    );
+    DebugLog.write('BackdropCrop', 'backdrop state saved');
+    await reload();
+  }
+
+  static String? preferredBackdrop(
+    Map<String, Object?> work, [
+    String? providerBackdrop,
+  ]) {
+    if (work['scoped_backdrop_empty'] == true) return null;
+    final scoped = work['scoped_backdrop']?.toString().trim();
+    if (scoped != null && scoped.isNotEmpty) return scoped;
+    final state = backdropEditState(work);
+    final manual = state?['resource']?.toString().trim();
+    if (manual != null && manual.isNotEmpty) {
+      if (!manual.startsWith('artwork:') ||
+          ImageStore.root == null ||
+          File(
+            p.join(ImageStore.root!.path, manual.substring(8)),
+          ).existsSync()) {
+        return manual;
+      }
+    }
+    final fallback = providerBackdrop?.trim();
+    return fallback != null && fallback.isNotEmpty ? fallback : null;
   }
 
   static String? preferredPoster(Map<String, Object?> work) {
@@ -1789,6 +2340,129 @@ class Catalog extends ChangeNotifier {
       }
     });
     return complete;
+  }
+
+  /// Commits virtual sub-works split from a multi-work directory without
+  /// touching source files, asset IDs, manual overrides, or playback progress.
+  Future<bool> applyMultiWorkSplit(
+    String workId,
+    List<
+      ({
+        String identity,
+        String title,
+        int? year,
+        int? tmdbId,
+        String? tmdbType,
+        int? bangumiId,
+        List<int> bangumiIds,
+        String? poster,
+        String? bangumiPoster,
+        String? overview,
+        bool needsReview,
+        List<
+          ({
+            String assetId,
+            String category,
+            int season,
+            int? episode,
+            String? extraType,
+          })
+        >
+        assets,
+      })
+    >
+    groups,
+  ) async {
+    if (groups.length < 2) return false;
+    final rows = await db.query('works', where: 'id=?', whereArgs: [workId]);
+    if (rows.isEmpty || rows.single['manual_lock'] == 1) return false;
+    final hasBangumiIdsCol = rows.single.containsKey('bangumi_ids');
+    final manual = (await db.rawQuery(
+      'SELECT o.asset_id FROM asset_overrides o '
+      'JOIN assets a ON a.id=o.asset_id WHERE a.work_id=?',
+      [workId],
+    )).map((row) => row['asset_id'].toString()).toSet();
+
+    await db.transaction((tx) async {
+      final origin = workId.split(':classified:').first;
+      for (final group in groups) {
+        final target =
+            '$origin:classified:${Uri.encodeComponent(group.identity)}';
+        final existing = await tx.query(
+          'works',
+          where: 'id=?',
+          whereArgs: [target],
+          limit: 1,
+        );
+        final workValues = <String, Object?>{
+          'title': group.title,
+          'year': group.year,
+          'tmdb_id': group.tmdbId,
+          'tmdb_type': group.tmdbType,
+          'bangumi_id': group.bangumiId,
+          if (hasBangumiIdsCol)
+            'bangumi_ids': group.bangumiIds.length >= 2
+                ? jsonEncode(group.bangumiIds)
+                : null,
+          'poster': group.poster,
+          'poster_fallback': group.bangumiPoster,
+          'overview': group.overview,
+          'needs_review': group.needsReview ? 1 : 0,
+          'hidden': 0,
+        };
+        if (existing.isEmpty) {
+          final inserted = {'id': target, ...workValues};
+          await tx.insert('works', inserted);
+          if (foundationEnabled) {
+            await LibraryFoundation.seedWork(tx, inserted);
+          }
+        } else if (existing.single['manual_lock'] != 1) {
+          if (foundationEnabled) {
+            await LibraryFoundation.applyAutomatic(tx, target, workValues);
+          } else {
+            await tx.update(
+              'works',
+              workValues,
+              where: 'id=? AND manual_lock=0',
+              whereArgs: [target],
+            );
+          }
+        }
+
+        for (final item in group.assets) {
+          if (manual.contains(item.assetId)) continue;
+          await tx.update(
+            'assets',
+            {
+              'work_id': target,
+              'category': item.category,
+              'season': item.season,
+              'episode': item.episode,
+              'extra_type': item.extraType,
+            },
+            where: 'id=?',
+            whereArgs: [item.assetId],
+          );
+        }
+      }
+
+      final remaining = await tx.query(
+        'assets',
+        columns: ['id'],
+        where: 'work_id=?',
+        whereArgs: [workId],
+        limit: 1,
+      );
+      if (remaining.isEmpty) {
+        await tx.update(
+          'works',
+          {'hidden': 1, 'needs_review': 0},
+          where: 'id=?',
+          whereArgs: [workId],
+        );
+      }
+    });
+    return true;
   }
 
   /// Save a reversible manual relation. Asset IDs and progress stay stable.

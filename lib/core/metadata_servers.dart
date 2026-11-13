@@ -16,7 +16,7 @@ class MetadataServers {
   static List<String> values = List.of(defaults);
   static bool fallback = true;
   static bool trustCustomTmdb = false;
-  static const primaryAttemptLimit = Duration(seconds: 3);
+  static const primaryAttemptLimit = Duration(seconds: 8);
   static final _routeCooldown = <String, DateTime>{};
   static final _imageHistory = <int, Set<String>>{1: {}, 3: {}};
   static String normalize(String raw, int index) {

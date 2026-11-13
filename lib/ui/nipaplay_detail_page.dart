@@ -34,6 +34,8 @@ class NipaPlayDetailPage extends StatefulWidget {
     required this.onEditCover,
     required this.onDelete,
     required this.onBack,
+    this.onHide,
+    this.onEditBackdrop,
     this.onEditPartMetadata,
     this.standalonePart,
   });
@@ -41,6 +43,8 @@ class NipaPlayDetailPage extends StatefulWidget {
   final Map<String, Object?>? standalonePart;
   final List<Map<String, Object?>> assets;
   final VoidCallback onEditMetadata, onEditCover, onDelete, onBack;
+  final VoidCallback? onHide;
+  final Future<void> Function(String? currentBackdrop)? onEditBackdrop;
   final Future<void> Function(String binding)? onEditPartMetadata;
   @override
   State<NipaPlayDetailPage> createState() => _NipaPlayDetailPageState();
@@ -126,7 +130,10 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
         details = recognized;
         if (widget.standalonePart case final part?) {
           details['recognized_title'] = part['title'];
-          details['overview'] = AppLanguage.bangumiSynopsis(part['summary'], _overviewLanguage ?? 'zh-CN');
+          details['overview'] = AppLanguage.bangumiSynopsis(
+            part['summary'],
+            _overviewLanguage ?? 'zh-CN',
+          );
           details.remove('recognized_synopses');
           final files = details['recognized_file_details'] as Map;
           final file = files[part['asset_id']] as Map?;
@@ -218,11 +225,14 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
   }
 
   Future<void> _refreshBangumiParts(int seq) async {
-    final parts = (details['recognized_synopses'] as List?)?.whereType<Map>().toList();
+    final parts = (details['recognized_synopses'] as List?)
+        ?.whereType<Map>()
+        .toList();
     if (parts == null || parts.isEmpty) return;
     final service = DetailMetadataService();
     try {
-      if (parts.length == 1 && parts.single['bangumi_subject'] is int &&
+      if (parts.length == 1 &&
+          parts.single['bangumi_subject'] is int &&
           details['recognized_split_dates'] is List) {
         final resolved = await service.bangumiSplitParts(
           parts.single['bangumi_subject'] as int,
@@ -230,22 +240,31 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
           _overviewLanguage ?? 'zh-CN',
         );
         if (mounted && seq == generation && resolved.length == 2) {
-          setState(() => details['recognized_synopses'] = [
-            {...parts.single, ...resolved.first}, resolved.last,
-          ]);
+          setState(
+            () => details['recognized_synopses'] = [
+              {...parts.single, ...resolved.first},
+              resolved.last,
+            ],
+          );
         }
         return;
       }
       if (parts.length < 2) return;
-      final resolved = await Future.wait(parts.map((part) async {
-        final id = part['bangumi_subject'];
-        if (id is! int || (part['label'] != null && part['poster'] != null)) return part;
-        try {
-          return {...part, ...await service.bangumiPart(id, _overviewLanguage ?? 'zh-CN')};
-        } catch (_) {
-          return part;
-        }
-      }));
+      final resolved = await Future.wait(
+        parts.map((part) async {
+          final id = part['bangumi_subject'];
+          if (id is! int || (part['label'] != null && part['poster'] != null))
+            return part;
+          try {
+            return {
+              ...part,
+              ...await service.bangumiPart(id, _overviewLanguage ?? 'zh-CN'),
+            };
+          } catch (_) {
+            return part;
+          }
+        }),
+      );
       if (mounted && seq == generation) {
         setState(() => details['recognized_synopses'] = resolved);
       }
@@ -257,12 +276,15 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
   }
 
   Future<void> _refreshStandaloneTitle(int seq) async {
-    final asset = widget.assets.where((asset) => asset['category'] == 'main').singleOrNull;
+    final asset = widget.assets
+        .where((asset) => asset['category'] == 'main')
+        .singleOrNull;
     if (asset == null) return;
     final assetId = asset['id'];
     final file = (details['recognized_file_details'] as Map)[assetId] as Map?;
     final series = details['recognized_tmdb_id'];
-    final episode = file?['special_number'], chapter = file?['localized_special_chapter'];
+    final episode = file?['special_number'],
+        chapter = file?['localized_special_chapter'];
     if (series is! int || episode is! int || chapter is! int) return;
     final language = _overviewLanguage ?? 'zh-CN';
     final key = (series, episode, chapter, language);
@@ -271,7 +293,12 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
       _specialTitle = () async {
         final service = DetailMetadataService();
         try {
-          return await service.localizedSpecialTitle(series, episode, chapter, language);
+          return await service.localizedSpecialTitle(
+            series,
+            episode,
+            chapter,
+            language,
+          );
         } catch (_) {
           return null;
         } finally {
@@ -281,7 +308,8 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     }
     final title = await _specialTitle;
     if (!mounted || seq != generation || title == null) return;
-    final current = (details['recognized_file_details'] as Map)[assetId] as Map?;
+    final current =
+        (details['recognized_file_details'] as Map)[assetId] as Map?;
     if (current != null) setState(() => current['name'] = title);
   }
 
@@ -415,13 +443,19 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     }
   }
 
-  bool get hasTelevisionInventory => !isMovie && widget.standalonePart == null &&
-      widget.assets.any((file) => file['category'] == 'main' &&
-          ((file['episode'] as num?) ?? 0) > 0) &&
-      (details['recognized_tmdb_type'] == 'tv' || widget.work['tmdb_type'] == 'tv');
+  bool get hasTelevisionInventory =>
+      !isMovie &&
+      widget.standalonePart == null &&
+      widget.assets.any(
+        (file) =>
+            file['category'] == 'main' && ((file['episode'] as num?) ?? 0) > 0,
+      ) &&
+      (details['recognized_tmdb_type'] == 'tv' ||
+          widget.work['tmdb_type'] == 'tv');
 
   bool _independentMovie(Map<String, Object?> file) =>
-      hasTelevisionInventory && CloudMediaAssetPresentation.isIndependentMovie(file);
+      hasTelevisionInventory &&
+      CloudMediaAssetPresentation.isIndependentMovie(file);
 
   String get filmsLabel =>
       Localizations.localeOf(context).languageCode == 'zh' ? '电影' : 'Films';
@@ -649,7 +683,8 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     double radius = 8,
     Gradient? gradient,
   }) => KonataPoster(
-    tag: 'work-poster-${widget.standalonePart?['asset_id'] ?? widget.work['id']}',
+    tag:
+        'work-poster-${widget.standalonePart?['asset_id'] ?? widget.work['id']}',
     alignment: alignment,
     radius: radius,
     gradient: gradient,
@@ -675,17 +710,25 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     final synopses = (details['recognized_synopses'] as List?) ?? const [];
     final selectedSynopsis = synopsisIndex ?? (synopses.length > 1 ? 0 : -1);
     final part = selectedSynopsis < 0 || selectedSynopsis >= synopses.length
-        ? null : synopses[selectedSynopsis];
-    final poster = widget.standalonePart?['poster']?.toString() ?? part?['poster']?.toString() ?? (
-        scoped &&
-            (details['poster_explicit'] == true || details['poster'] != null)
-        ? details['poster']?.toString()
-        : Catalog.preferredPoster(widget.work) ?? details['poster']?.toString());
-    final backdrop = details['backdrop']?.toString().isNotEmpty == true
+        ? null
+        : synopses[selectedSynopsis];
+    final poster =
+        widget.standalonePart?['poster']?.toString() ??
+        part?['poster']?.toString() ??
+        (scoped &&
+                (details['poster_explicit'] == true ||
+                    details['poster'] != null)
+            ? details['poster']?.toString()
+            : Catalog.preferredPoster(widget.work) ??
+                  details['poster']?.toString());
+    final providerBackdrop = details['backdrop']?.toString().isNotEmpty == true
         ? details['backdrop']?.toString()
         : scoped
         ? null
         : poster;
+    final backdrop = scoped
+        ? providerBackdrop
+        : Catalog.preferredBackdrop(widget.work, providerBackdrop);
     final rawOverview = widget.work['overview']?.toString().trim();
     final overviewMode = details['recognized_overview_mode'];
     final overview = part != null
@@ -710,9 +753,10 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     ];
     final selected = switch (section) {
       'movies' when movies.isNotEmpty => movies,
-      'extra' => extraFiles
-          .where((a) => extraFilter == '全部' || extraType(a) == extraFilter)
-          .toList(),
+      'extra' =>
+        extraFiles
+            .where((a) => extraFilter == '全部' || extraType(a) == extraFilter)
+            .toList(),
       _ => episodes,
     };
     return Scaffold(
@@ -731,11 +775,11 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                 unawaited(_scopedImage(ScopedImage.backdrop, seq));
             });
           }
-          final showBackdrop =
+          final backdropSpaceAvailable =
               ArtworkSettings.instance.backdrop &&
               wide &&
-              size.maxHeight >= 500 &&
-              backdrop != null;
+              size.maxHeight >= 500;
+          final showBackdrop = backdropSpaceAvailable && backdrop != null;
           final portraitCover =
               !wide && size.maxHeight > size.maxWidth && poster != null;
           final inset = desktop
@@ -1150,139 +1194,185 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                               ),
                             ),
                             const Spacer(),
-                            if (widget.standalonePart == null) PopupMenuButton<String>(
-                              key: const ValueKey('detail-more-button'),
-                              tooltip: context.l10n.moreActions,
-                              style: IconButton.styleFrom(
-                                backgroundColor: portraitCover
-                                    ? Colors.transparent
-                                    : surface.withValues(alpha: .7),
-                              ),
-                              icon: Icon(
-                                Icons.more_horiz,
-                                color: portraitCover ? Colors.white : text,
-                                shadows: portraitCover
-                                    ? const [
-                                        Shadow(
-                                          color: Colors.black87,
-                                          blurRadius: 4,
-                                          offset: Offset(0, 1),
-                                        ),
-                                      ]
-                                    : null,
-                              ),
-                              onSelected: (value) {
-                                if (value == 'metadata') {
-                                  unawaited(_editMetadata());
-                                }
-                                if (value == 'manual') {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute<void>(
-                                      builder: (_) => ManualEpisodePage(
-                                        work: widget.work,
-                                        assets: widget.assets,
-                                      ),
-                                    ),
-                                  );
-                                }
-                                if (value == 'cover') {
-                                  if (scoped &&
-                                      (details['recognized_work'] as int? ??
-                                              0) >
-                                          0) {
-                                    unawaited(
-                                      _editScopedDetails('scoped-cover'),
-                                    );
-                                  } else {
-                                    widget.onEditCover();
+                            if (widget.standalonePart == null)
+                              PopupMenuButton<String>(
+                                key: const ValueKey('detail-more-button'),
+                                tooltip: context.l10n.moreActions,
+                                style: IconButton.styleFrom(
+                                  backgroundColor: portraitCover
+                                      ? Colors.transparent
+                                      : surface.withValues(alpha: .7),
+                                ),
+                                icon: Icon(
+                                  Icons.more_horiz,
+                                  color: portraitCover ? Colors.white : text,
+                                  shadows: portraitCover
+                                      ? const [
+                                          Shadow(
+                                            color: Colors.black87,
+                                            blurRadius: 4,
+                                            offset: Offset(0, 1),
+                                          ),
+                                        ]
+                                      : null,
+                                ),
+                                onSelected: (value) {
+                                  if (value == 'metadata') {
+                                    unawaited(_editMetadata());
                                   }
-                                }
-                                if (value == 'chapter-relations') {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute<void>(
-                                      builder: (_) => ChapterRelationsPage(
-                                        work: widget.work['id'] as String,
+                                  if (value == 'manual') {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => ManualEpisodePage(
+                                          work: widget.work,
+                                          assets: widget.assets,
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                  if (value == 'cover') {
+                                    if (scoped &&
+                                        (details['recognized_work'] as int? ??
+                                                0) >
+                                            0) {
+                                      unawaited(
+                                        _editScopedDetails('scoped-cover'),
+                                      );
+                                    } else {
+                                      widget.onEditCover();
+                                    }
+                                  }
+                                  if (value == 'backdrop') {
+                                    if (scoped &&
+                                        (details['recognized_work'] as int? ??
+                                                0) >
+                                            0) {
+                                      unawaited(
+                                        _editScopedDetails('scoped-backdrop'),
+                                      );
+                                    } else if (widget.onEditBackdrop != null) {
+                                      unawaited(
+                                        widget.onEditBackdrop!(
+                                          providerBackdrop,
+                                        ),
+                                      );
+                                    }
+                                  }
+                                  if (value == 'chapter-relations') {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => ChapterRelationsPage(
+                                          work: widget.work['id'] as String,
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                  if ([
+                                    'scoped-cover',
+                                    'scoped-backdrop',
+                                    'restore-fields',
+                                  ].contains(value)) {
+                                    unawaited(_editScopedDetails(value));
+                                  }
+                                  if (value == 'hide') widget.onHide?.call();
+                                  if (value == 'delete') widget.onDelete();
+                                },
+                                itemBuilder: (_) => [
+                                  PopupMenuItem(
+                                    value: 'metadata',
+                                    child: ListTile(
+                                      leading: Icon(Icons.edit_note),
+                                      title: Text(context.l10n.editMetadata),
+                                    ),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'manual',
+                                    child: ListTile(
+                                      leading: const Icon(Icons.rule),
+                                      title: Text(context.l10n.manualEdit),
+                                    ),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'cover',
+                                    child: ListTile(
+                                      leading: const Icon(
+                                        Icons.crop_portrait_outlined,
+                                      ),
+                                      title: Text(context.l10n.editCover),
+                                    ),
+                                  ),
+                                  if (backdropSpaceAvailable &&
+                                      (scoped || widget.onEditBackdrop != null))
+                                    PopupMenuItem(
+                                      value: 'backdrop',
+                                      child: ListTile(
+                                        leading: const Icon(
+                                          Icons.crop_landscape_outlined,
+                                        ),
+                                        title: Text(context.l10n.editBackdrop),
                                       ),
                                     ),
-                                  );
-                                }
-                                if ([
-                                  'scoped-cover',
-                                  'scoped-backdrop',
-                                  'restore-fields',
-                                ].contains(value)) {
-                                  unawaited(_editScopedDetails(value));
-                                }
-                                if (value == 'delete') widget.onDelete();
-                              },
-                              itemBuilder: (_) => [
-                                PopupMenuItem(
-                                  value: 'metadata',
-                                  child: ListTile(
-                                    leading: Icon(Icons.edit_note),
-                                    title: Text(context.l10n.editMetadata),
-                                  ),
-                                ),
-                                PopupMenuItem(
-                                  value: 'manual',
-                                  child: ListTile(
-                                    leading: const Icon(Icons.rule),
-                                    title: Text(context.l10n.manualEdit),
-                                  ),
-                                ),
-                                PopupMenuItem(
-                                  value: 'cover',
-                                  child: ListTile(
-                                    leading: Icon(Icons.image_outlined),
-                                    title: Text(context.l10n.editCover),
-                                  ),
-                                ),
-                                if (scoped) ...[
-                                  PopupMenuItem(
-                                    value: 'scoped-backdrop',
-                                    child: Text(
-                                      Localizations.localeOf(
-                                                context,
-                                              ).languageCode ==
-                                              'zh'
-                                          ? '选择范围背景'
-                                          : 'Choose scoped backdrop',
+                                  if (scoped) ...[
+                                    PopupMenuItem(
+                                      value: 'restore-fields',
+                                      child: Text(
+                                        Localizations.localeOf(
+                                                  context,
+                                                ).languageCode ==
+                                                'zh'
+                                            ? '恢复自动资料'
+                                            : 'Restore automatic fields',
+                                      ),
                                     ),
-                                  ),
+                                  ],
+                                  if (Catalog.instance.chapterRelationsEnabled)
+                                    PopupMenuItem(
+                                      value: 'chapter-relations',
+                                      child: Text(
+                                        Localizations.localeOf(
+                                                  context,
+                                                ).languageCode ==
+                                                'zh'
+                                            ? '章节与版本'
+                                            : 'Chapters and editions',
+                                      ),
+                                    ),
+                                  PopupMenuDivider(),
+                                  if (widget.onHide != null)
+                                    PopupMenuItem(
+                                      value: 'hide',
+                                      child: ListTile(
+                                        leading: const Icon(
+                                          Icons.visibility_off_outlined,
+                                        ),
+                                        title: Text(context.hideWorkAction),
+                                      ),
+                                    ),
                                   PopupMenuItem(
-                                    value: 'restore-fields',
-                                    child: Text(
-                                      Localizations.localeOf(
+                                    value: 'delete',
+                                    child: ListTile(
+                                      leading: Icon(
+                                        Icons.delete_outline,
+                                        color: widget.onHide != null
+                                            ? Theme.of(
                                                 context,
-                                              ).languageCode ==
-                                              'zh'
-                                          ? '恢复自动资料'
-                                          : 'Restore automatic fields',
+                                              ).colorScheme.error
+                                            : null,
+                                      ),
+                                      title: Text(
+                                        context.l10n.removeTitleAction,
+                                        style: widget.onHide != null
+                                            ? TextStyle(
+                                                color: Theme.of(
+                                                  context,
+                                                ).colorScheme.error,
+                                              )
+                                            : null,
+                                      ),
                                     ),
                                   ),
                                 ],
-                                if (Catalog.instance.chapterRelationsEnabled)
-                                  PopupMenuItem(
-                                    value: 'chapter-relations',
-                                    child: Text(
-                                      Localizations.localeOf(
-                                                context,
-                                              ).languageCode ==
-                                              'zh'
-                                          ? '章节与版本'
-                                          : 'Chapters and editions',
-                                    ),
-                                  ),
-                                PopupMenuDivider(),
-                                PopupMenuItem(
-                                  value: 'delete',
-                                  child: ListTile(
-                                    leading: Icon(Icons.delete_outline),
-                                    title: Text(context.l10n.removeTitleAction),
-                                  ),
-                                ),
-                              ],
-                            ),
+                              ),
                           ],
                         ),
                       ),
@@ -1308,7 +1398,8 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     bool fullWidthPlay = false,
   }) {
     final year = widget.standalonePart == null
-        ? widget.work['year']?.toString() ?? details['year']?.toString().split('-').first
+        ? widget.work['year']?.toString() ??
+              details['year']?.toString().split('-').first
         : widget.standalonePart?['year']?.toString();
     final current = resume;
     return Column(
@@ -1329,17 +1420,19 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
             spacing: 4,
             children: [
               for (var i = 0; i < count; i++)
-                if ((details['recognized_synopses'] as List)[i]['label'] is String)
-                ChoiceChip(
-                  label: Text(
-                    (details['recognized_synopses'] as List)[i]['label'] as String,
+                if ((details['recognized_synopses'] as List)[i]['label']
+                    is String)
+                  ChoiceChip(
+                    label: Text(
+                      (details['recognized_synopses'] as List)[i]['label']
+                          as String,
+                    ),
+                    selected: (synopsisIndex ?? 0) == i,
+                    onSelected: (selected) => setState(() {
+                      synopsisIndex = selected ? i : null;
+                      expandedSummary = false;
+                    }),
                   ),
-                  selected: (synopsisIndex ?? 0) == i,
-                  onSelected: (selected) => setState(() {
-                    synopsisIndex = selected ? i : null;
-                    expandedSummary = false;
-                  }),
-                ),
             ],
           ),
         Wrap(

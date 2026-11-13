@@ -65,7 +65,7 @@ class DavEntry {
 class WebDav {
   factory WebDav(Map<String, Object?> source, {bool reuseListings = false}) =>
       source['kind'] == 'smb'
-      ? SmbSource(source)
+      ? SmbSource(source, reuseListings: reuseListings)
       : WebDav._(source, reuseListings: reuseListings);
   WebDav._(Map<String, Object?> source, {this.reuseListings = false})
     : root = Uri.parse(
@@ -86,6 +86,7 @@ class WebDav {
     _listingClient = null;
     _listingAuthRetries.clear();
   }
+
   String get auth =>
       'Basic ${base64Encode(utf8.encode('$username:$password'))}';
   Uri fileUri(String relative) =>
@@ -101,7 +102,8 @@ class WebDav {
 
   HttpClient _openListingClient(Set<Uri> retries) {
     final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15);
+      ..connectionTimeout = const Duration(seconds: 15)
+      ..maxConnectionsPerHost = 8;
     client.authenticate = (url, scheme, realm) async {
       if (username.isEmpty ||
           url.host != root.host ||
@@ -135,7 +137,10 @@ class WebDav {
       );
       if (username.isNotEmpty) request.headers.set('Authorization', auth);
       request.write(
-        '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:allprop/></d:propfind>',
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<d:propfind xmlns:d="DAV:">'
+        '<d:prop><d:resourcetype/><d:getcontentlength/></d:prop>'
+        '</d:propfind>',
       );
       final response = await request.close().timeout(
         const Duration(seconds: 18),
@@ -260,16 +265,31 @@ class WebDav {
 /// Read-only SMB adapter using the same client vendored by NipaPlay Personal.
 /// It exposes the directory interface shared by browsing, scanning and subtitles.
 class SmbSource extends WebDav {
-  SmbSource(Map<String, Object?> source, {this.connector}) : super._(source) {
+  SmbSource(
+    Map<String, Object?> source, {
+    this.connector,
+    bool reuseListings = false,
+  }) : super._(source, reuseListings: reuseListings) {
     validateLocation(source['location'].toString());
   }
   final Future<SmbConnect> Function()? connector;
   final _activeReads = <Future<void> Function()>{};
+  SmbConnect? _listingSmb;
+  Future<void> _listingSerial = Future<void>.value();
   bool _closed = false;
 
   @override
   void close() {
     _closed = true;
+    final shared = _listingSmb;
+    _listingSmb = null;
+    if (shared != null) {
+      unawaited(
+        shared.close().catchError((Object error, StackTrace stack) {
+          DebugLog.exception('SMB', 'listing_close_failed', error, stack);
+        }),
+      );
+    }
     for (final disconnect in _activeReads.toList()) {
       unawaited(
         disconnect().catchError((Object error, StackTrace stack) {
@@ -329,27 +349,63 @@ class SmbSource extends WebDav {
   @override
   Future<List<DavEntry>> list(Uri uri, {bool requireComplete = false}) async {
     final path = _path(uri);
-    final client = await connect();
-    try {
-      final folder = await client.file(path);
-      if (!folder.isExists) throw SourceAccessProblem.path;
-      final files = await client.listFiles(folder);
-      return files
-          .where((f) => f.name != '.' && f.name != '..')
-          .map(
-            (file) => DavEntry(
-              uri.resolve(
-                '${Uri.encodeComponent(file.name)}${file.isDirectory() ? '/' : ''}',
-              ),
-              file.name,
-              file.isDirectory(),
-              file.size,
-            ),
-          )
-          .toList();
-    } finally {
-      await client.close();
+    if (!reuseListings) {
+      final client = await connect();
+      try {
+        return await _listWithClient(client, uri, path);
+      } finally {
+        await client.close();
+      }
     }
+    final previous = _listingSerial;
+    final gate = Completer<void>();
+    _listingSerial = gate.future;
+    await previous;
+    try {
+      if (_closed) throw const SocketException('SMB listing session closed');
+      var client = _listingSmb ??= await connect();
+      try {
+        return await _listWithClient(client, uri, path);
+      } catch (e) {
+        if (e is SourceAccessProblem && e == SourceAccessProblem.path) rethrow;
+        // Reconnect once if the shared SMB transport dropped mid-scan.
+        final stale = _listingSmb;
+        _listingSmb = null;
+        if (stale != null) {
+          try {
+            await stale.close();
+          } catch (_) {}
+        }
+        if (_closed) rethrow;
+        client = _listingSmb = await connect();
+        return await _listWithClient(client, uri, path);
+      }
+    } finally {
+      gate.complete();
+    }
+  }
+
+  Future<List<DavEntry>> _listWithClient(
+    SmbConnect client,
+    Uri uri,
+    String path,
+  ) async {
+    final folder = await client.file(path);
+    if (!folder.isExists) throw SourceAccessProblem.path;
+    final files = await client.listFiles(folder);
+    return files
+        .where((f) => f.name != '.' && f.name != '..')
+        .map(
+          (file) => DavEntry(
+            uri.resolve(
+              '${Uri.encodeComponent(file.name)}${file.isDirectory() ? '/' : ''}',
+            ),
+            file.name,
+            file.isDirectory(),
+            file.size,
+          ),
+        )
+        .toList();
   }
 
   Future<void> serve(HttpRequest request, String relative) async {

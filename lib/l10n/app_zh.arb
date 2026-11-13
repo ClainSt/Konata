@@ -553,5 +553,21 @@
   "offlineRemove": "移除索引及下载临时文件",
   "offlineCount": "动画条目",
   "offlineIndexSize": "索引大小",
-  "dolbyVisionProfile5Unsupported": "当前播放器不支持 Dolby Vision Profile 5。此视频没有可兼容播放的 HDR10 底层，请使用 HDR10/SDR 版本或支持此格式的播放器。"
+  "dolbyVisionProfile5Unsupported": "当前播放器不支持 Dolby Vision Profile 5。此视频没有可兼容播放的 HDR10 底层，请使用 HDR10/SDR 版本或支持此格式的播放器。",
+  "characterRoleFilter": "展示角色类型",
+  "allCharacterRoles": "全部角色",
+  "mainCharacter": "主角",
+  "supportingCharacter": "配角",
+  "guestCharacter": "客串",
+  "otherCharacter": "其他",
+  "editBackdrop": "编辑背景图",
+  "cropBackdrop": "裁剪背景图 · 16:9",
+  "recropBackdrop": "重新裁剪当前背景图",
+  "automaticBackdrop": "恢复自动",
+  "backdropFailed": "背景图更新失败，请重试。",
+  "pendingReviewItems": "待复核／失败项",
+  "pendingReviewOnly": "待复核",
+  "reviewCandidatePoster": "已生成候选封面 · 待确认",
+  "reviewUnmatched": "未找到高置信匹配",
+  "noPendingReviewItems": "所有作品均已高置信匹配完成。"
 }

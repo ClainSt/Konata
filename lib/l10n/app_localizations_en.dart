@@ -1637,4 +1637,52 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get dolbyVisionProfile5Unsupported =>
       'Dolby Vision Profile 5 is not supported by the current player. This video has no compatible HDR10 base layer. Use an HDR10/SDR version or a player that supports this profile.';
+
+  @override
+  String get characterRoleFilter => 'Character types';
+
+  @override
+  String get allCharacterRoles => 'All roles';
+
+  @override
+  String get mainCharacter => 'Main';
+
+  @override
+  String get supportingCharacter => 'Supporting';
+
+  @override
+  String get guestCharacter => 'Guest';
+
+  @override
+  String get otherCharacter => 'Other';
+
+  @override
+  String get editBackdrop => 'Edit backdrop';
+
+  @override
+  String get cropBackdrop => 'Crop backdrop · 16:9';
+
+  @override
+  String get recropBackdrop => 'Recrop current backdrop';
+
+  @override
+  String get automaticBackdrop => 'Restore auto';
+
+  @override
+  String get backdropFailed => 'Couldn\'t update backdrop. Try again.';
+
+  @override
+  String get pendingReviewItems => 'Needs review / failed';
+
+  @override
+  String get pendingReviewOnly => 'Needs review';
+
+  @override
+  String get reviewCandidatePoster => 'Candidate matched · confirm';
+
+  @override
+  String get reviewUnmatched => 'Unmatched · manual link';
+
+  @override
+  String get noPendingReviewItems => 'All works matched with high confidence.';
 }

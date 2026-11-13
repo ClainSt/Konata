@@ -1,5 +1,6 @@
 import 'package:path/path.dart' as p;
 
+import 'cloud_media_asset_presentation.dart';
 import 'cloud_media_file_classifier.dart';
 import 'personal_filename_parser.dart';
 import 'work_season.dart';
@@ -48,6 +49,38 @@ class DirectoryInventory {
     required this.fileHints,
   });
 
+  DirectoryInventory.synthetic({
+    required String folder,
+    required String title,
+    int? year,
+    int? tmdbId,
+    String? tmdbType,
+    int? bangumiId,
+    int? season,
+    bool folderMovieMarker = false,
+    bool fileMovieMarker = false,
+    required List<LogicalItem> main,
+    List<String> extras = const [],
+    required WorkShape shape,
+    required List<String> titleHints,
+    List<String> fileHints = const [],
+  }) : this._(
+         folder: folder,
+         title: title,
+         year: year,
+         tmdbId: tmdbId,
+         tmdbType: tmdbType,
+         bangumiId: bangumiId,
+         season: season,
+         folderMovieMarker: folderMovieMarker,
+         fileMovieMarker: fileMovieMarker,
+         main: main,
+         extras: extras,
+         shape: shape,
+         titleHints: titleHints,
+         fileHints: fileHints,
+       );
+
   final String folder, title;
   final int? year, tmdbId, bangumiId, season;
   final String? tmdbType;
@@ -75,6 +108,27 @@ class DirectoryInventory {
   int get featureCount => main.where((item) => item.episode == null).length;
   bool get movieMarker => folderMovieMarker || fileMovieMarker;
 
+  DirectoryInventory withExplicitIds({
+    int? tmdbId,
+    String? tmdbType,
+    int? bangumiId,
+  }) => DirectoryInventory._(
+    folder: folder,
+    title: title,
+    year: year,
+    tmdbId: this.tmdbId ?? tmdbId,
+    tmdbType: this.tmdbType ?? tmdbType,
+    bangumiId: this.bangumiId ?? bangumiId,
+    season: season,
+    folderMovieMarker: folderMovieMarker,
+    fileMovieMarker: fileMovieMarker,
+    main: main,
+    extras: extras,
+    shape: shape,
+    titleHints: titleHints,
+    fileHints: fileHints,
+  );
+
   @override
   String toString() =>
       '$shape "$title" y=$year eps=$episodeCount features=$featureCount '
@@ -92,17 +146,47 @@ abstract final class DirectoryAnalyzer {
     caseSensitive: false,
   );
 
-  /// Side content that is never the work itself, even when nothing else exists.
-  static final _hardExtra = RegExp(
-    r'(?:^|[^a-z])(?:nc(?:op|ed)\w*|op|ed|pv\w*|cm\w*|menus?|trailers?|teasers?|'
-    r'previews?|samples?|drama[ ._-]*cd|making|interviews?|events?|talk|'
-    r'radio|karaoke|logo|eyecatch|gallery|advice|mv|music[ ._-]*clip|'
-    r'spots?|tv[ ._-]*cm|bd[ ._-]*cm|bd[ ._-]*menu|info|commentary|'
-    r'supporters?|digest|recap)(?:\d+|[^a-z]|$)|'
-    r'予告|預告|预告|特報|メニュ|インタビュー|メイキング|イベント|トーク|'
-    r'ラジオ|映像特典|特典|宣伝|スポット|ノンクレ|座談会|上映会',
+  /// Unambiguous side content that is never the main feature, even alone.
+  static final _unambiguousExtra = RegExp(
+    r'(?<![a-z0-9])(?:nc(?:op|ed)\w*|pv\w*|cm\w*|menus?(?:[ ._-]*ex)?\d*|'
+    r'trailers?\d*|teasers?\d*|previews?\d*|samples?\d*|drama[ ._-]*cd|'
+    r'making|commentary|eyecatch|karaoke|'
+    r'tv[ ._-]*cm|bd[ ._-]*cm|bd[ ._-]*menu\w*)(?![a-z0-9])|'
+    r'[\[(【]\s*(?<![a-z0-9])(?:op|ed)\d*(?:v\d+)?(?![a-z0-9])\s*[\])】]|'
+    r'予告|預告|预告|特報|メニュ|メイキング|映像特典|ノンクレ',
     caseSensitive: false,
   );
+
+  /// Context-dependent extra words: extra alongside main episodes or when small,
+  /// but a sole large feature (>= 150 MB) whose title touches "Event"/"Talk"/"MV"
+  /// must not be wiped into [WorkShape.empty]. OP/ED is matched separately with
+  /// strict alphanumeric boundaries via [CloudMediaFileClassifier.isOpEdExtra].
+  static final _ambiguousExtra = RegExp(
+    r'(?<![a-z0-9])(?:interviews?|events?|talk|radio|logo|gallery|advice|'
+    r'mv|music[ ._-]*clip|spots?|info|supporters?|digest|recap)(?:[ ._-]*\d+)?(?![a-z0-9])|'
+    r'インタビュー|イベント|トーク|ラジオ|特典|宣伝|スポット|座談会|上映会',
+    caseSensitive: false,
+  );
+
+  static final _specialCollectionFolderSuffix = RegExp(
+    r'^(.+?)(?:\s*[-–—_:：]\s*|\s+|[\s]*[\[(（【]\s*)'
+    r'(?:extras?|specials|sps|特典|映像特典)(?:\s*[\])）】])?\s*$',
+    caseSensitive: false,
+  );
+
+  /// Extracts the clean base title from a pure special-collection directory
+  /// such as `<Title> Extras`, `<Title> Specials`, `<Title> SPs`, `<Title> 特典`,
+  /// or `<Title> Extra`, while preserving proper work titles like `Extra Stage`.
+  static String? _extractSpecialCollectionTitle(String cleanFolderTitle) {
+    final match = _specialCollectionFolderSuffix.firstMatch(cleanFolderTitle);
+    if (match == null) return null;
+    final base = match.group(1)?.trim() ?? '';
+    return base.isEmpty ? null : base;
+  }
+
+  static const _minStandaloneFeatureBytes = 150 * 1024 * 1024;
+  static const _minEpisodeReferenceBytes = 100 * 1024 * 1024;
+  static const _maxTinyClipBytes = 120 * 1024 * 1024;
 
   static final _technical = RegExp(
     r'(?:^|[\s._\-\[(])(?:(?:19|20)\d{2}[\s._-]+(?=.*\b\d{3,4}p\b)|'
@@ -113,7 +197,7 @@ abstract final class DirectoryAnalyzer {
   );
 
   static final _bangumiMarker = RegExp(
-    r'[\[{]\s*(?:bgm|bangumi)(?:id)?\s*[-=:]\s*(\d+)\s*[\]}]',
+    r'[\[{]\s*(?:bgm|bangumi)(?:id)?\s*[-=:_]\s*(\d+)\s*[\]}]',
     caseSensitive: false,
   );
 
@@ -126,55 +210,138 @@ abstract final class DirectoryAnalyzer {
     final name = p.posix.basename(normalizedFolder);
     final supplementaryFolder =
         CloudMediaFileClassifier.isSupplementaryDirectory(name);
-    final title = cleanTitle(name);
+    final rawCleanTitle = cleanTitle(name);
+    final specialCollectionTitle = supplementaryFolder
+        ? null
+        : _extractSpecialCollectionTitle(rawCleanTitle);
+    final title = specialCollectionTitle ?? rawCleanTitle;
     final main = <String, LogicalItem>{};
-    final soft = <String>[];
+    var soft = <({String path, int? size, bool ambiguous})>[];
     final extras = <String>[];
-    final videos = files
-        .map((f) => f.path.replaceAll('\\', '/'))
-        .where(_isVideo)
-        .toList();
+    final videoEntries = [
+      for (final f in files)
+        if (_isVideo(f.path))
+          (path: f.path.replaceAll('\\', '/'), size: f.size),
+    ];
+    final sizeByPath = <String, int>{
+      for (final v in videoEntries)
+        if (v.size != null && v.size! > 0) v.path: v.size!,
+    };
 
-    for (final path in videos) {
+    for (final entry in videoEntries) {
+      final path = entry.path;
       final file = p.posix.basename(path);
       final directory = p.posix.dirname(path) == '.'
           ? ''
           : p.posix.dirname(path);
+      final cleanFile = CloudMediaFileClassifier.stripTechnicalNoise(file);
+      final plainFile = _plain(file);
       if (supplementaryFolder ||
           CloudMediaFileClassifier.isSupplementaryDirectory(directory) ||
-          _hardExtra.hasMatch(_plain(file)) ||
-          CloudMediaFileClassifier.isPreview(file) ||
-          CloudMediaFileClassifier.isNoCredit(file)) {
+          _unambiguousExtra.hasMatch(plainFile) ||
+          CloudMediaFileClassifier.isPreview(cleanFile) ||
+          CloudMediaFileClassifier.isNoCredit(cleanFile)) {
         extras.add(path);
+      } else if (_ambiguousExtra.hasMatch(plainFile) ||
+          CloudMediaFileClassifier.isOpEdExtra(cleanFile)) {
+        soft.add((path: path, size: entry.size, ambiguous: true));
       } else if (CloudMediaFileClassifier.isClearlySupplementary(
         directory,
-        file,
+        cleanFile,
       )) {
-        soft.add(path);
+        soft.add((path: path, size: entry.size, ambiguous: false));
       } else {
         _add(main, directory, file, path);
       }
     }
-    // OVA / special-edition / extra-stage folders: their "specials" are the
-    // work. Trailers and menus never get promoted.
-    if (main.isEmpty && !supplementaryFolder) {
-      for (final path in soft) {
-        final directory = p.posix.dirname(path) == '.'
+    if (specialCollectionTitle != null) {
+      // Pure special-collection directories (e.g., "<Title> Extras/Specials/SPs")
+      // map non-OP/ED soft items into main so Season 0 matching can pair them.
+      for (final item in soft) {
+        final file = p.posix.basename(item.path);
+        if (CloudMediaFileClassifier.isOpEdExtra(file)) {
+          extras.add(item.path);
+          continue;
+        }
+        final directory = p.posix.dirname(item.path) == '.'
             ? ''
-            : p.posix.dirname(path);
-        _add(main, directory, p.posix.basename(path), path, promoted: true);
+            : p.posix.dirname(item.path);
+        _add(main, directory, file, item.path, promoted: true);
       }
     } else {
-      extras.addAll(soft);
+      soft = _protectContiguousMainEpisodes(
+        main,
+        soft,
+        supplementaryFolder: supplementaryFolder,
+      );
+      // OVA / special-edition / extra-stage folders: their "specials" are the
+      // work. Trailers and menus never get promoted; ambiguous extra words only
+      // promote when backed by main-feature file size (>= 150 MB).
+      if (main.isEmpty && !supplementaryFolder) {
+        for (final item in soft) {
+          if (item.ambiguous &&
+              (item.size == null || item.size! < _minStandaloneFeatureBytes)) {
+            extras.add(item.path);
+            continue;
+          }
+          final directory = p.posix.dirname(item.path) == '.'
+              ? ''
+              : p.posix.dirname(item.path);
+          _add(
+            main,
+            directory,
+            p.posix.basename(item.path),
+            item.path,
+            promoted: true,
+          );
+        }
+      } else {
+        for (final item in soft) {
+          extras.add(item.path);
+        }
+        // Demote unnumbered tiny clips (< 20% of median episode size and < 120 MB)
+        // when mixed into a real multi-episode BDRip folder.
+        final epSizes = [
+          for (final item in main.values)
+            if (item.episode != null)
+              for (final f in item.files)
+                if (sizeByPath.containsKey(f)) sizeByPath[f]!,
+        ]..sort();
+        if (epSizes.length >= 3) {
+          final median = epSizes[epSizes.length ~/ 2];
+          if (median >= _minEpisodeReferenceBytes) {
+            final demoteKeys = <String>[];
+            for (final entry in main.entries) {
+              if (entry.value.episode != null) continue;
+              final itemSizes = [
+                for (final f in entry.value.files)
+                  if (sizeByPath.containsKey(f)) sizeByPath[f]!,
+              ];
+              if (itemSizes.isNotEmpty &&
+                  itemSizes.length == entry.value.files.length &&
+                  itemSizes.every(
+                    (s) => s < median * 0.2 && s < _maxTinyClipBytes,
+                  )) {
+                demoteKeys.add(entry.key);
+              }
+            }
+            for (final key in demoteKeys) {
+              extras.addAll(main.remove(key)!.files);
+            }
+          }
+        }
+      }
     }
 
     var items = main.values.toList();
     // A single numbered file is a numbered title (Legend 01, Movie 3, #02),
-    // not episode N of a series, unless it carries an explicit SxxExx marker.
+    // not episode N of a series, unless it carries an explicit episodic marker
+    // (SxxExx, EPxx, 第x話, or 02v2 revision).
     final numbered = items.where((i) => i.episode != null).toList();
     if (numbered.length == 1 &&
         !RegExp(
-          r'(?<![a-z0-9])s\d{1,2}[ ._-]*e\d{1,4}',
+          r'(?<![a-z0-9])(?:s\d{1,2}[ ._-]*e\d{1,4}|ep[ ._-]*\d{1,4}|\d{1,3}v\d+)\b|'
+          r'第\s*\d{1,3}\s*[话話集]',
           caseSensitive: false,
         ).hasMatch(numbered.single.files.first)) {
       final only = numbered.single;
@@ -208,10 +375,11 @@ abstract final class DirectoryAnalyzer {
     final WorkShape shape;
     if (items.isEmpty) {
       shape = WorkShape.empty;
-    } else if (episodeTitles.length >= 4 && dominant < episodic * 0.5 ||
-        featureTitles.length >= 6 &&
-            featureTitles.length > episodeTitles.length * 4 &&
-            items.where((i) => i.episode != null).length < 6) {
+    } else if (specialCollectionTitle == null &&
+        (episodeTitles.length >= 4 && dominant < episodic * 0.5 ||
+            featureTitles.length >= 6 &&
+                featureTitles.length > episodeTitles.length * 4 &&
+                items.where((i) => i.episode != null).length < 6)) {
       // Many unrelated series or films (e.g. SD Gundam Mk1..Mk5 + Gaiden).
       shape = WorkShape.anthology;
     } else if (items.any((i) => i.episode != null)) {
@@ -234,8 +402,23 @@ abstract final class DirectoryAnalyzer {
       target.add(text);
     }
 
+    final allMain = items.expand((i) => i.files).map(p.posix.basename).toList();
+    final folderMovie = _movieMarker.hasMatch(name);
+    final fileMovie =
+        shape == WorkShape.feature &&
+        allMain.any((f) => _movieMarker.hasMatch(_plain(f)));
+    final isSeries = shape == WorkShape.series && !folderMovie && !fileMovie;
+
+    int? inferredSeason = specialCollectionTitle != null
+        ? 0
+        : WorkSeason.explicit({'title': name});
     final titleHints = <String>[];
     hint(titleHints, title);
+    final folderSplit = splitSeasonSuffix(title, isSeries: isSeries);
+    inferredSeason ??= folderSplit.season;
+    if (folderSplit.baseTitle != title) {
+      hint(titleHints, folderSplit.baseTitle);
+    }
     final withoutMarker = title
         .replaceAll(
           RegExp(r'剧场版|劇場版|\bOVA\b|\bOAD\b', caseSensitive: false),
@@ -257,11 +440,22 @@ abstract final class DirectoryAnalyzer {
     }
     final ranked = counts.keys.toList()
       ..sort((a, b) => counts[b]!.compareTo(counts[a]!));
+    if (ranked.isNotEmpty) {
+      final dominantFile = ranked.first;
+      inferredSeason ??= CloudMediaAssetPresentation.explicitSeasonNumber({
+        'work_title': dominantFile,
+      });
+      final domSplit = splitSeasonSuffix(dominantFile, isSeries: isSeries);
+      inferredSeason ??= domSplit.season;
+    }
     for (final value in ranked) {
       hint(fileHints, value);
+      final split = splitSeasonSuffix(value, isSeries: isSeries);
+      if (split.baseTitle != value) {
+        hint(fileHints, split.baseTitle);
+      }
     }
 
-    final allMain = items.expand((i) => i.files).map(p.posix.basename);
     final folderYear = WorkSeason.year({'title': name});
     int? fileYear;
     if (folderYear == null && shape == WorkShape.feature) {
@@ -276,19 +470,39 @@ abstract final class DirectoryAnalyzer {
       };
       if (years.length == 1) fileYear = years.single;
     }
+    var tmdbId = PersonalFilenameParser.tmdbId(name);
+    var tmdbType = PersonalFilenameParser.tmdbType(name);
+    if (tmdbId == null && allMain.isNotEmpty) {
+      final fileTmdb = {
+        for (final f in allMain) ?PersonalFilenameParser.tmdbId(f),
+      };
+      if (fileTmdb.length == 1) {
+        tmdbId = fileTmdb.single;
+        final fileTypes = {
+          for (final f in allMain) ?PersonalFilenameParser.tmdbType(f),
+        };
+        if (fileTypes.length == 1) tmdbType = fileTypes.single;
+      }
+    }
     final bangumi = _bangumiMarker.firstMatch(name);
+    var bangumiId = bangumi == null ? null : int.tryParse(bangumi.group(1)!);
+    if (bangumiId == null && allMain.isNotEmpty) {
+      final fileBgm = {
+        for (final f in allMain)
+          ?int.tryParse(_bangumiMarker.firstMatch(f)?.group(1) ?? ''),
+      };
+      if (fileBgm.length == 1) bangumiId = fileBgm.single;
+    }
     return DirectoryInventory._(
       folder: normalizedFolder,
       title: title,
       year: folderYear ?? fileYear,
-      tmdbId: PersonalFilenameParser.tmdbId(name),
-      tmdbType: PersonalFilenameParser.tmdbType(name),
-      bangumiId: bangumi == null ? null : int.tryParse(bangumi.group(1)!),
-      season: WorkSeason.explicit({'title': name}),
-      folderMovieMarker: _movieMarker.hasMatch(name),
-      fileMovieMarker:
-          shape == WorkShape.feature &&
-          allMain.any((f) => _movieMarker.hasMatch(_plain(f))),
+      tmdbId: tmdbId,
+      tmdbType: tmdbType,
+      bangumiId: bangumiId,
+      season: inferredSeason,
+      folderMovieMarker: folderMovie,
+      fileMovieMarker: fileMovie,
       main: items,
       extras: extras,
       shape: shape,
@@ -297,9 +511,172 @@ abstract final class DirectoryAnalyzer {
     );
   }
 
+  /// Splits trailing season/sequel suffixes into `(baseTitle, season)` so
+  /// search queries include the clean base title while `WorkMatcher` receives
+  /// the season signal (e.g. `Mob Psycho 100 II` -> base `Mob Psycho 100`, S2).
+  static ({String baseTitle, int? season}) splitSeasonSuffix(
+    String raw, {
+    required bool isSeries,
+  }) {
+    final trimmed = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (trimmed.length < 3) return (baseTitle: trimmed, season: null);
+
+    // 1. Explicit Season N / Nnd Season / S2 / 第N期 / 第N季 at tail.
+    final explicitTail = RegExp(
+      r'^(.*?S?)\s*(?:[:：\-–—~～]\s*|\s+)'
+      r'(?:Season[ ._-]*(\d{1,2})|(\d{1,2})(?:st|nd|rd|th)[ ._-]+Season|'
+      r'S0*(\d{1,2})|第[ ._-]*([0-9一二三四五六七八九十两]+)[ ._-]*[季期])\s*$',
+      caseSensitive: false,
+    ).firstMatch(trimmed);
+    if (explicitTail != null) {
+      final base = explicitTail.group(1)!.trim();
+      final season = CloudMediaAssetPresentation.explicitSeasonNumber({
+        'work_title': trimmed.substring(explicitTail.group(1)!.length),
+      });
+      if (base.length >= 2 && season != null) {
+        return (baseTitle: base, season: season);
+      }
+    }
+
+    if (!isSeries) return (baseTitle: trimmed, season: null);
+
+    // 2. Trailing Roman numeral season (II / III / IV / Ⅱ / Ⅲ / Ⅳ) on series,
+    //    excluding technical/mecha model designators (Mk-II, Mark II, Type II, Part II).
+    final romanTail = RegExp(
+      r'^(.+?)\s+(II|III|IV|Ⅱ|Ⅲ|Ⅳ)$',
+      caseSensitive: false,
+    ).firstMatch(trimmed);
+    if (romanTail != null) {
+      final base = romanTail.group(1)!.trim();
+      final badPrefix = RegExp(
+        r'(?:^|\s)(?:mk|mark|type|part|vol\.?|act|stage|episode|ep|ver\.?|movie|film|chapter)[- ]*$',
+        caseSensitive: false,
+      ).hasMatch(base);
+      if (!badPrefix && base.length >= 2) {
+        final token = romanTail.group(2)!.toUpperCase();
+        final season = switch (token) {
+          'II' || 'Ⅱ' => 2,
+          'III' || 'Ⅲ' => 3,
+          'IV' || 'Ⅳ' => 4,
+          _ => null,
+        };
+        if (season != null) return (baseTitle: base, season: season);
+      }
+    }
+
+    return (baseTitle: trimmed, season: null);
+  }
+
   static bool isOva(DirectoryInventory inventory) =>
       _ovaMarker.hasMatch(inventory.folder) ||
       inventory.main.any((i) => i.files.any((f) => _ovaMarker.hasMatch(f)));
+
+  /// Preserves main-directory numbered episodes whose weak bracketed/recap notes
+  /// would otherwise demote them out of a contiguous 1..N integer sequence.
+  static List<({String path, int? size, bool ambiguous})>
+  _protectContiguousMainEpisodes(
+    Map<String, LogicalItem> main,
+    List<({String path, int? size, bool ambiguous})> soft, {
+    required bool supplementaryFolder,
+  }) {
+    if (supplementaryFolder || soft.isEmpty || main.isEmpty) return soft;
+    final mainEpisodes = <int>{
+      for (final item in main.values)
+        if (item.episode != null && item.episode! >= 1) item.episode!,
+    };
+    if (mainEpisodes.length < 2) return soft;
+
+    final candidates =
+        <
+          int,
+          ({String path, int? size, bool ambiguous, String dir, String file})
+        >{};
+    final kept = <({String path, int? size, bool ambiguous})>[];
+
+    for (final item in soft) {
+      final path = item.path;
+      final dir = p.posix.dirname(path) == '.' ? '' : p.posix.dirname(path);
+      final file = p.posix.basename(path);
+      if (CloudMediaFileClassifier.isStrongSupplementary(dir, file)) {
+        kept.add(item);
+        continue;
+      }
+      final cleanStem = PersonalFilenameParser.baseNameWithoutExtension(
+        CloudMediaFileClassifier.stripTechnicalNoise(file),
+      );
+      var ep = CloudMediaFileClassifier.episodeNumberFromNameInDirectory(
+        dir,
+        file,
+      );
+      if (ep == null) {
+        final fallback = RegExp(
+          r'(?:^|[\s\]】)])[-–—]\s*(\d{1,3})\s+'
+          r'(?:recap|summary|digest|special|総集編|総集篇|总集篇|特別編|特别篇)',
+          caseSensitive: false,
+        ).firstMatch(cleanStem);
+        ep = fallback == null ? null : int.tryParse(fallback.group(1)!);
+      }
+      if (ep == null ||
+          ep < 1 ||
+          mainEpisodes.contains(ep) ||
+          candidates.containsKey(ep) ||
+          RegExp(
+            '(?<![a-z0-9])(?:sp|special|ova|oad|ex|bonus)[ ._-]*0*$ep(?![0-9])',
+            caseSensitive: false,
+          ).hasMatch(cleanStem)) {
+        kept.add(item);
+        continue;
+      }
+      candidates[ep] = (
+        path: item.path,
+        size: item.size,
+        ambiguous: item.ambiguous,
+        dir: dir,
+        file: file,
+      );
+    }
+
+    if (candidates.isEmpty) return soft;
+
+    final union = <int>{...mainEpisodes, ...candidates.keys};
+    final minMain = mainEpisodes.reduce((a, b) => a < b ? a : b);
+    for (final entry in candidates.entries) {
+      final ep = entry.key;
+      var start = ep;
+      while (union.contains(start - 1)) {
+        start--;
+      }
+      var end = ep;
+      while (union.contains(end + 1)) {
+        end++;
+      }
+      var mainInRun = 0;
+      for (var i = start; i <= end; i++) {
+        if (mainEpisodes.contains(i)) mainInRun++;
+      }
+      final contiguousWithMainRun =
+          end - start + 1 >= 3 &&
+          mainInRun >= 2 &&
+          (start == 1 || start <= minMain);
+      if (contiguousWithMainRun) {
+        _add(
+          main,
+          entry.value.dir,
+          entry.value.file,
+          entry.value.path,
+          promoted: true,
+          episodeOverride: ep,
+        );
+      } else {
+        kept.add((
+          path: entry.value.path,
+          size: entry.value.size,
+          ambiguous: entry.value.ambiguous,
+        ));
+      }
+    }
+    return kept;
+  }
 
   static void _add(
     Map<String, LogicalItem> main,
@@ -307,11 +684,14 @@ abstract final class DirectoryAnalyzer {
     String file,
     String path, {
     bool promoted = false,
+    int? episodeOverride,
   }) {
-    final episode = CloudMediaFileClassifier.episodeNumberFromNameInDirectory(
-      directory,
-      file,
-    );
+    final episode =
+        episodeOverride ??
+        CloudMediaFileClassifier.episodeNumberFromNameInDirectory(
+          directory,
+          file,
+        );
     final season = RegExp(
       r'(?<![a-z0-9])s(\d{1,2})(?:[ ._-]*e\d{1,4}|[ ._-]+-)',
       caseSensitive: false,
@@ -323,6 +703,7 @@ abstract final class DirectoryAnalyzer {
             seriesTitle(
               PersonalFilenameParser.extractAnimeSearchKeyword(file),
               episode,
+              rawFile: file,
             ),
           );
     // Encodes of one episode collapse on (season, number); the series title
@@ -342,16 +723,31 @@ abstract final class DirectoryAnalyzer {
 
   /// Text before the episode number: "Wake Up, Girls! 10" -> "Wake Up, Girls!",
   /// "キノの旅 #03 予言の国" -> "キノの旅", "SD Gundam Mk3 - Episode 01" ->
-  /// "SD Gundam Mk3".
-  static String seriesTitle(String keyword, int? episode) {
+  /// "SD Gundam Mk3", while preserving numeric titles ("86", "Mob Psycho 100",
+  /// "Steins;Gate 0") when the right-side episode token was already stripped.
+  static String seriesTitle(String keyword, int? episode, {String? rawFile}) {
     var value = keyword;
-    final hash = value.indexOf(RegExp(r'[#＃]'));
-    if (hash > 0) value = value.substring(0, hash);
     if (episode != null) {
-      final number = RegExp(
-        '(?<![0-9A-Za-z.])0*$episode(?![0-9.])',
-      ).allMatches(value).where((m) => m.start > 0).firstOrNull;
-      if (number != null) value = value.substring(0, number.start);
+      final hash = value.indexOf(RegExp(r'[#＃]'));
+      if (hash > 0) value = value.substring(0, hash);
+      final epPattern = RegExp('(?<![0-9A-Za-z.])0*$episode(?![0-9.])');
+      final inKeyword = epPattern.allMatches(value).length;
+      final alreadyStripped =
+          rawFile != null &&
+          inKeyword > 0 &&
+          epPattern
+                  .allMatches(
+                    PersonalFilenameParser.baseNameWithoutExtension(rawFile),
+                  )
+                  .length >
+              inKeyword;
+      if (!alreadyStripped) {
+        final number = epPattern
+            .allMatches(value)
+            .where((m) => m.start > 0)
+            .firstOrNull;
+        if (number != null) value = value.substring(0, number.start);
+      }
     }
     value = value
         .replaceFirst(
@@ -397,7 +793,26 @@ abstract final class DirectoryAnalyzer {
 
   static Iterable<String> _fileTitles(String file, int? episode) sync* {
     final keyword = PersonalFilenameParser.extractAnimeSearchKeyword(file);
-    if (keyword.isNotEmpty) yield _trimTechnical(seriesTitle(keyword, episode));
+    if (keyword.isNotEmpty) {
+      if (episode == null) {
+        final movieClean = keyword
+            .replaceAll(RegExp(r'[#＃]\s*\d{1,3}\b'), ' ')
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim();
+        yield _trimTechnical(movieClean);
+        final withoutPart = movieClean
+            .replaceAll(
+              RegExp(r'\b(?:前篇|後篇|后篇|中篇|前編|後編)\b|(?:前篇|後篇|后篇|中篇|前編|後編)'),
+              ' ',
+            )
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim();
+        if (withoutPart.isNotEmpty && withoutPart != movieClean) {
+          yield _trimTechnical(withoutPart);
+        }
+      }
+      yield _trimTechnical(seriesTitle(keyword, episode, rawFile: file));
+    }
     for (final block in PersonalFilenameParser.bracketTitleCandidates(file)) {
       yield block.replaceAll('_', ' ');
     }
@@ -423,7 +838,7 @@ abstract final class DirectoryAnalyzer {
 
   static String _plain(String file) =>
       PersonalFilenameParser.baseNameWithoutExtension(
-        file,
+        CloudMediaFileClassifier.stripTechnicalNoise(file),
       ).replaceAll(RegExp(r'[._]+'), ' ');
 
   static bool _isVideo(String path) => RegExp(

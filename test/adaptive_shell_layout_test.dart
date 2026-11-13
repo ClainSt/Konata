@@ -1,10 +1,47 @@
 import 'package:ccplayer/main.dart';
+import 'package:ccplayer/core/catalog.dart';
 import 'package:ccplayer/ui/settings_page.dart';
 import 'package:ccplayer/ui/nipaplay_style.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('media sources fill each row before wrapping on resize', (tester) async {
+    final catalog = Catalog.instance;
+    final previous = catalog.sources;
+    final previousDestination = libraryDestination.value;
+    catalog.sources = [
+      for (final name in ['Source A', 'Source B', 'Source C'])
+        {'id': name, 'label': name, 'kind': 'local', 'location': 'Fixture'},
+    ];
+    libraryDestination.value = true;
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.binding.setSurfaceSize(null);
+      catalog.sources = previous;
+      libraryDestination.value = previousDestination;
+    });
+    await tester.binding.setSurfaceSize(const Size(1200, 800));
+    await tester.pumpWidget(const MaterialApp(home: LibraryPage(mobile: false)));
+    await tester.pumpAndSettle();
+    Offset position(String name) => tester.getTopLeft(find.text(name));
+    expect(position('Source B').dy, position('Source A').dy);
+    expect(position('Source B').dx, greaterThan(position('Source A').dx));
+    expect(position('Source C').dx, position('Source A').dx);
+    expect(position('Source C').dy, greaterThan(position('Source A').dy));
+
+    await tester.binding.setSurfaceSize(const Size(1500, 800));
+    await tester.pumpAndSettle();
+    expect(position('Source C').dy, position('Source A').dy);
+    expect(position('Source C').dx, greaterThan(position('Source B').dx));
+
+    await tester.binding.setSurfaceSize(const Size(390, 800));
+    await tester.pumpAndSettle();
+    expect(position('Source B').dx, position('Source A').dx);
+    expect(position('Source B').dy, greaterThan(position('Source A').dy));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'tablet landscape uses two panes and phone width uses category home',
     (tester) async {

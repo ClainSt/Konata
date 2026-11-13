@@ -16,6 +16,11 @@ LRESULT CALLBACK RenderSurfaceProc(HWND window, UINT message, WPARAM wparam,
                                    LPARAM lparam) {
   // Rendering lives here; pointer input belongs to the Flutter view underneath.
   if (message == WM_NCHITTEST) return HTTRANSPARENT;
+  if (message == WM_APP + 42) {
+    auto renderer = reinterpret_cast<D3D11Video*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (renderer) renderer->DisplayChanged(wparam != 0);
+    return 0;
+  }
   return DefWindowProcW(window, message, wparam, lparam);
 }
 }
@@ -50,11 +55,11 @@ bool FlutterWindow::OnCreate() {
   if (!RegisterClassW(&render_class) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
     return false;
   }
-  flutter::MethodChannel<flutter::EncodableValue> video_channel(
+  video_channel_ = std::make_shared<flutter::MethodChannel<flutter::EncodableValue>>(
       flutter_controller_->engine()->messenger(), "ccplayer/native_video",
       &flutter::StandardMethodCodec::GetInstance());
-  video_channel.SetMethodCallHandler(
-      [view, hosts = std::set<HWND>{},
+  video_channel_->SetMethodCallHandler(
+      [view, weak_channel = std::weak_ptr(video_channel_), hosts = std::set<HWND>{},
        renderers = std::make_shared<std::map<HWND, std::unique_ptr<D3D11Video>>>()]
       (const auto& call, auto result) mutable {
         if (call.method_name() == "create") {
@@ -87,6 +92,12 @@ bool FlutterWindow::OnCreate() {
             if (renderers->count(host)) throw std::runtime_error("Renderer already attached");
             renderers->emplace(host, std::make_unique<D3D11Video>(host,
                 (*args)[1].LongValue(), std::get<std::string>((*args)[2])));
+            auto renderer = renderers->at(host).get();
+            SetWindowLongPtrW(host, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(renderer));
+            renderer->on_display_changed = [weak_channel, host] {
+              if (auto channel = weak_channel.lock()) channel->InvokeMethod("displayChanged",
+                  std::make_unique<flutter::EncodableValue>(reinterpret_cast<int64_t>(host)));
+            };
             result->Success();
           } catch (const std::exception& error) {
             result->Error("d3d11", error.what());
@@ -94,16 +105,42 @@ bool FlutterWindow::OnCreate() {
           return;
         }
         if (call.method_name() == "captureD3D11") {
+          const auto renderer = renderers->find(host);
+          // The host survives output recovery. Requests in the detached
+          // interval are expected and must not enter STL exception handling.
+          if (renderer == renderers->end()) {
+            result->Error("output_unavailable", "Video output is being recreated");
+            return;
+          }
           try {
-            result->Success(flutter::EncodableValue(renderers->at(host)->Capture()));
+            result->Success(flutter::EncodableValue(renderer->second->Capture()));
           } catch (const std::exception& error) {
             result->Error("capture", error.what());
           }
           return;
         }
         if (call.method_name() == "detachD3D11") {
+          SetWindowLongPtrW(host, GWLP_USERDATA, 0);
           renderers->erase(host);
           result->Success();
+          return;
+        }
+        if (call.method_name() == "beginColor" || call.method_name() == "commitColor") {
+          const auto renderer = renderers->find(host);
+          if (renderer == renderers->end()) {
+            result->Error("output_unavailable", "Video output is being recreated");
+            return;
+          }
+          try {
+            if (call.method_name() == "beginColor") {
+              result->Success(flutter::EncodableValue(renderer->second->BeginColor()));
+            } else {
+              renderer->second->CommitColor(std::get<bool>((*args)[1]), std::get<int>((*args)[2]));
+              result->Success();
+            }
+          } catch (const std::exception& error) {
+            result->Error("output_color", error.what());
+          }
           return;
         }
 #ifndef NDEBUG
@@ -134,6 +171,7 @@ bool FlutterWindow::OnCreate() {
           return;
         }
         if (call.method_name() == "destroy") {
+          SetWindowLongPtrW(host, GWLP_USERDATA, 0);
           renderers->erase(host);
           hosts.erase(host);
           DestroyWindow(host);
@@ -170,6 +208,13 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  EnumChildWindows(GetHandle(), [](HWND child, LPARAM) -> BOOL {
+    wchar_t name[64]{};
+    GetClassNameW(child, name, 64);
+    if (std::wstring(name) == L"KonataRenderSurface") SetWindowLongPtrW(child, GWLP_USERDATA, 0);
+    return TRUE;
+  }, 0);
+  video_channel_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -181,6 +226,16 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if (message == WM_DISPLAYCHANGE || message == WM_SETTINGCHANGE ||
+      message == WM_WINDOWPOSCHANGED) {
+    EnumChildWindows(hwnd, [](HWND child, LPARAM force) -> BOOL {
+      wchar_t name[64]{};
+      GetClassNameW(child, name, 64);
+      if (std::wstring(name) == L"KonataRenderSurface")
+        PostMessageW(child, WM_APP + 42, force, 0);
+      return TRUE;
+    }, message != WM_WINDOWPOSCHANGED);
+  }
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =

@@ -9,12 +9,12 @@ import 'l10n/app_localizations.dart';
 import 'core/image_store.dart';
 import 'core/artwork_settings.dart';
 import 'dart:ui' as ui;
+import 'dart:io';
 import 'core/metadata_servers.dart';
 import 'core/metadata_http.dart';
 import 'core/debug_log.dart';
 import 'ui/managed_image.dart';
 import 'package:flutter/material.dart';
-import 'ui/unclassified_page.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -28,6 +28,8 @@ import 'core/local_media.dart';
 import 'package:android_file_picker/android_file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'core/metadata.dart';
+import 'core/scrape_task_runner.dart';
+import 'ui/scrape_tasks_page.dart';
 
 import 'ui/source_browser_page.dart';
 import 'ui/poster_title.dart';
@@ -39,7 +41,12 @@ import 'ui/playback_history_page.dart';
 import 'ui/library_source_filter.dart';
 import 'ui/work_edit_dialogs.dart';
 
-Future<void> main() async {
+Future<void> main() => launchKonata();
+
+Future<void> launchKonata({
+  Directory? scraperValidationDirectory,
+  bool experimentalScraping = false,
+}) async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
     // Complete portable-data migration before preferences, cache or SQLite open.
@@ -65,9 +72,11 @@ Future<void> main() async {
   if (AppHeader.desktop) {
     await windowManager.ensureInitialized();
     await windowManager.waitUntilReadyToShow(
-      const WindowOptions(
-        title: 'Konata',
-        minimumSize: Size(640, 480),
+      WindowOptions(
+        title: scraperValidationDirectory == null
+            ? 'Konata'
+            : 'Konata Scraper Test',
+        minimumSize: const Size(640, 480),
         titleBarStyle: TitleBarStyle.hidden,
         windowButtonVisibility: false,
       ),
@@ -91,7 +100,17 @@ Future<void> main() async {
     DebugLog.exception('App', 'uncaught', error, stack);
     return false;
   };
-  await Catalog.instance.initialize();
+  await Catalog.instance.initialize(
+    dataDirectory: scraperValidationDirectory,
+    enableFoundation: experimentalScraping,
+    enableTasks: experimentalScraping,
+    enableMappings: experimentalScraping,
+    enableRecognition: experimentalScraping,
+    enableAutomaticRecognition: experimentalScraping,
+    enableScopedArtwork: experimentalScraping,
+    enableChapterRelations: experimentalScraping,
+    enableLibraryMerge: experimentalScraping,
+  );
   await ArtworkSettings.instance.load();
   await AppTheme.instance.load();
   await AppLanguage.instance.load();
@@ -106,6 +125,9 @@ Future<void> main() async {
   const secure = FlutterSecureStorage();
   await Metadata.loadCredentials((key) => secure.read(key: key));
   runApp(const CCPlayer());
+  if (experimentalScraping) {
+    ScrapeTaskRunner.forCatalog(Catalog.instance).startAutomaticQueue();
+  }
 }
 
 final libraryDestination = ValueNotifier<bool>(false);
@@ -271,7 +293,20 @@ class _LibraryPageState extends State<LibraryPage> {
     builder: (ctx, _) {
       final cat = Catalog.instance;
       final matches = filterLibraryWorks(
-        works: cat.works,
+        works: [
+          for (final work in cat.works)
+            if (cat.standaloneParts[work['id']] case final parts?)
+              for (final part in parts)
+                {
+                  ...work,
+                  ...part,
+                  'scoped_poster': part['poster'],
+                  'scoped_poster_empty': false,
+                  'poster_fallback': null,
+                }
+            else
+              work,
+        ],
         assets: cat.assets,
         sources: cat.sources,
         kinds: sourceKinds,
@@ -386,6 +421,14 @@ class _LibraryPageState extends State<LibraryPage> {
           ),
           onChanged: (value) => setState(() => filter = value),
         );
+        final hiddenWorksButton = cat.hiddenWorkEntries.isEmpty
+            ? null
+            : IconButton(
+                key: const ValueKey('manage-hidden-works-button'),
+                tooltip: context.l10n.manageHidden,
+                icon: const Icon(Icons.visibility_off_outlined),
+                onPressed: _manageHiddenWorks,
+              );
         return Row(
           key: const ValueKey('library-toolbar-row'),
           children: [
@@ -417,31 +460,43 @@ class _LibraryPageState extends State<LibraryPage> {
                   ),
                 ),
               ),
-            ] else
-              const Spacer(),
-            if (!showSources && cat.unclassifiedAssets.isNotEmpty)
-              IconButton(
-                tooltip: context.l10n.unclassified,
-                icon: const Icon(Icons.rule_folder_outlined),
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => const UnclassifiedPage(),
+              if (hiddenWorksButton != null) hiddenWorksButton,
+            ],
+            if (showSources)
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (hiddenWorksButton != null) hiddenWorksButton,
+                      if (cat.taskStore != null)
+                        OutlinedButton.icon(
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => ScrapeTasksPage(
+                                runner: ScrapeTaskRunner.forCatalog(cat),
+                              ),
+                            ),
+                          ),
+                          icon: const Icon(Icons.rule_folder_outlined),
+                          label: Text(
+                            Localizations.localeOf(context).languageCode == 'zh'
+                                ? '刮削任务'
+                                : 'Scraping tasks',
+                          ),
+                        ),
+                      FilledButton.icon(
+                        onPressed: _add,
+                        icon: const Icon(Icons.add, size: 20),
+                        label: Text(context.l10n.addSource),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-            if (cat.hiddenWorkEntries.isNotEmpty)
-              IconButton(
-                key: const ValueKey('manage-hidden-works-button'),
-                tooltip: context.l10n.manageHidden,
-                icon: const Icon(Icons.visibility_off_outlined),
-                onPressed: _manageHiddenWorks,
-              ),
-            if (showSources)
-              FilledButton.icon(
-                onPressed: _add,
-                icon: const Icon(Icons.add, size: 20),
-                label: Text(context.l10n.addSource),
               ),
           ],
         );
@@ -462,18 +517,20 @@ class _LibraryPageState extends State<LibraryPage> {
         ),
         transitionsBuilder: (context, animation, secondary, child) =>
             KonataMotion.coverTransition(animation, child),
-        pageBuilder: (_, animation, secondary) =>
-            WorkPage(workId: work['id'].toString()),
+        pageBuilder: (_, animation, secondary) => WorkPage(
+          workId: work['id'].toString(),
+          partAssetId: work['asset_id'] as String?,
+        ),
       ),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         AspectRatio(
-          key: ValueKey('library-poster-${work['id']}'),
+          key: ValueKey('library-poster-${work['asset_id'] ?? work['id']}'),
           aspectRatio: 2 / 3,
           child: KonataPoster(
-            tag: 'work-poster-${work['id']}',
+            tag: 'work-poster-${work['asset_id'] ?? work['id']}',
             image: (alignment) => Catalog.preferredPoster(work) != null
                 ? ManagedImage(
                     Catalog.preferredPoster(work)!,
@@ -505,7 +562,7 @@ class _LibraryPageState extends State<LibraryPage> {
           child: Align(
             alignment: Alignment.topLeft,
             child: PosterTitle(
-              key: ValueKey('library-title-${work['id']}'),
+              key: ValueKey('library-title-${work['asset_id'] ?? work['id']}'),
               title: work['title'].toString(),
             ),
           ),
@@ -530,165 +587,159 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget _sources(Catalog cat) => ListView(
     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
     children: [
-      for (final source in cat.sources)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Align(
-            alignment: Alignment.topLeft,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.sizeOf(context).width < 600
-                    ? MediaQuery.sizeOf(context).width - 40
-                    : ((MediaQuery.sizeOf(context).width - 40) / 2).clamp(
-                        560.0,
-                        MediaQuery.sizeOf(context).width - 40,
-                      ),
-              ),
-              child: Card(
-                clipBehavior: Clip.antiAlias,
-                margin: EdgeInsets.zero,
-                child: InkWell(
-                  onTap: () => _browse(source),
-                  child: Padding(
-                    padding: const EdgeInsets.all(18),
-                    child: LayoutBuilder(
-                      builder: (context, bounds) {
-                        final info = Row(
-                          children: [
-                            Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.primary.withValues(alpha: .09),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Icon(
-                                source['kind'] == 'local'
-                                    ? Icons.folder_outlined
-                                    : Icons.cloud_outlined,
-                                size: 23,
-                                color: Theme.of(context).colorScheme.primary,
-                              ),
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    source['label'].toString(),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 5),
-                                  Text(
-                                    '${source['kind'] == 'local'
-                                        ? context.l10n.localDirectory
-                                        : source['kind'] == 'smb'
-                                        ? 'SMB'
-                                        : 'WebDAV'} · ${source['location']}',
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      height: 1.5,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurface
-                                          .withValues(alpha: .55),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        );
-                        final actions = Wrap(
-                          children: [
-                            IconButton(
-                              tooltip: context.l10n.editSource,
-                              icon: const Icon(Icons.edit_outlined),
-                              onPressed: () =>
-                                  SourceEditor.show(context, source),
-                            ),
-                            IconButton(
-                              tooltip: context.l10n.browseScanFolders,
-                              onPressed: () => _browse(source),
-                              icon: const Icon(Icons.folder_open_outlined),
-                            ),
-                            IconButton(
-                              tooltip: context.l10n.remove,
-                              onPressed: () async {
-                                final ok = await showDialog<bool>(
-                                  context: context,
-                                  builder: (ctx) => AlertDialog(
-                                    title: Text(context.l10n.removeSourceTitle),
-                                    content: Text(
-                                      context.l10n.removeSourceBody,
-                                    ),
-                                    actions: [
-                                      UniformActionBar(
-                                        children: [
-                                          TextButton(
-                                            onPressed: () =>
-                                                Navigator.pop(ctx, false),
-                                            child: Text(context.l10n.cancel),
-                                          ),
-                                          FilledButton(
-                                            onPressed: () =>
-                                                Navigator.pop(ctx, true),
-                                            child: Text(context.l10n.remove),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                );
-                                if (ok == true) {
-                                  await Catalog.instance.removeSource(
-                                    source['id'].toString(),
-                                  );
-                                }
-                              },
-                              icon: const Icon(Icons.delete_outline),
-                            ),
-                          ],
-                        );
-                        return bounds.maxWidth >= 420
-                            ? Row(
-                                children: [
-                                  Expanded(child: info),
-                                  const SizedBox(width: 20),
-                                  actions,
-                                ],
-                              )
-                            : Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  info,
-                                  const SizedBox(height: 10),
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: actions,
-                                  ),
-                                ],
-                              );
-                      },
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
+      LayoutBuilder(
+        builder: (context, bounds) {
+          const gap = 12.0;
+          // The card needs 420 px for inline actions, plus its inner padding.
+          const minCardWidth = 456.0;
+          final fit = ((bounds.maxWidth + gap) / (minCardWidth + gap)).floor();
+          final columns = fit > 0 ? fit : 1;
+          final cardWidth = (bounds.maxWidth - (columns - 1) * gap) / columns;
+          return Wrap(
+            spacing: gap,
+            runSpacing: gap,
+            children: [
+              for (final source in cat.sources)
+                SizedBox(width: cardWidth, child: _sourceCard(source)),
+            ],
+          );
+        },
+      ),
     ],
   );
+
+  Widget _sourceCard(Map<String, Object?> source) => Card(
+    clipBehavior: Clip.antiAlias,
+    margin: EdgeInsets.zero,
+    child: InkWell(
+      onTap: () => _browse(source),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: LayoutBuilder(
+          builder: (context, bounds) {
+            final info = Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.primary.withValues(alpha: .09),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    source['kind'] == 'local'
+                        ? Icons.folder_outlined
+                        : Icons.cloud_outlined,
+                    size: 23,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        source['label'].toString(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        '${source['kind'] == 'local'
+                            ? context.l10n.localDirectory
+                            : source['kind'] == 'smb'
+                            ? 'SMB'
+                            : 'WebDAV'} · ${source['location']}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          height: 1.5,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: .55),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+            final actions = Wrap(
+              children: [
+                IconButton(
+                  tooltip: context.l10n.editSource,
+                  icon: const Icon(Icons.edit_outlined),
+                  onPressed: () => SourceEditor.show(context, source),
+                ),
+                IconButton(
+                  tooltip: context.l10n.browseScanFolders,
+                  onPressed: () => _browse(source),
+                  icon: const Icon(Icons.folder_open_outlined),
+                ),
+                IconButton(
+                  tooltip: context.l10n.remove,
+                  onPressed: () async {
+                    final ok = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: Text(context.l10n.removeSourceTitle),
+                        content: Text(context.l10n.removeSourceBody),
+                        actions: [
+                          UniformActionBar(
+                            children: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx, false),
+                                child: Text(context.l10n.cancel),
+                              ),
+                              FilledButton(
+                                onPressed: () => Navigator.pop(ctx, true),
+                                child: Text(context.l10n.remove),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                    if (ok == true) {
+                      await Catalog.instance.removeSource(
+                        source['id'].toString(),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ],
+            );
+            return bounds.maxWidth >= 420
+                ? Row(
+                    children: [
+                      Expanded(child: info),
+                      const SizedBox(width: 20),
+                      actions,
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      info,
+                      const SizedBox(height: 10),
+                      Align(alignment: Alignment.centerRight, child: actions),
+                    ],
+                  );
+          },
+        ),
+      ),
+    ),
+  );
+
   Future<void> _add() async {
     var kind = 'local';
     final name = TextEditingController(),
@@ -1002,8 +1053,9 @@ class _LibraryPageState extends State<LibraryPage> {
 }
 
 class WorkPage extends StatefulWidget {
-  const WorkPage({super.key, required this.workId});
+  const WorkPage({super.key, required this.workId, this.partAssetId});
   final String workId;
+  final String? partAssetId;
   @override
   State<WorkPage> createState() => _WorkPageState();
 }
@@ -1019,12 +1071,31 @@ class _WorkPageState extends State<WorkPage> {
         return Scaffold(body: Center(child: Text(context.l10n.titleNotFound)));
       }
       final work = found.first;
+      final partId = widget.partAssetId;
+      final part = cat.standaloneParts[widget.workId]
+          ?.where((row) => row['asset_id'] == partId)
+          .singleOrNull;
+      if (partId != null && part == null) {
+        return Scaffold(body: Center(child: Text(context.l10n.titleNotFound)));
+      }
       return NipaPlayDetailPage(
         work: work,
-        assets: cat.forWork(widget.workId),
+        standalonePart: part,
+        assets: partId == null
+            ? cat.forWork(widget.workId)
+            : cat
+                  .forWork(widget.workId)
+                  .where((asset) => asset['id'] == partId)
+                  .toList(),
         onEditMetadata: () => WorkEditDialogs.metadata(
           context,
           work,
+          searchAndBind: () => _match(work),
+        ),
+        onEditPartMetadata: (binding) => WorkEditDialogs.metadata(
+          context,
+          work,
+          partBinding: binding,
           searchAndBind: () => _match(work),
         ),
         onEditCover: () => WorkEditDialogs.cover(context, work),

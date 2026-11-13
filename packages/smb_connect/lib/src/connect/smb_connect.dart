@@ -11,6 +11,7 @@ import 'package:smb_connect/src/connect/smb_session.dart';
 import 'package:smb_connect/src/connect/smb_transport.dart';
 import 'package:smb_connect/src/connect/smb_tree.dart';
 import 'package:smb_connect/src/credentials.dart';
+import 'package:smb_connect/src/exceptions.dart';
 import 'package:smb_connect/src/dialect_version.dart';
 import 'package:smb_connect/src/smb/authentication_type.dart';
 import 'package:smb_connect/src/smb/file_entry.dart';
@@ -66,24 +67,35 @@ abstract class SmbConnect {
     Function(SmbConnect)? onDisconnect,
   }) async {
     SmbTransport transport = SmbTransport(config, host);
-    if (!await transport.ensureConnected()) {
-      throw "Can't connect to $host";
-    }
-    SmbConnect connect;
-    if (!transport.isSMB2()) {
-      connect = Smb1Connect(config, transport);
-    } else {
-      connect = Smb2Connect(config, transport);
-    }
-    final session = connect.initSession();
-    await session.setup();
+    try {
+      if (!await transport.ensureConnected()) {
+        throw "Can't connect to $host";
+      }
+      SmbConnect connect;
+      if (!transport.isSMB2()) {
+        connect = Smb1Connect(config, transport);
+      } else {
+        connect = Smb2Connect(config, transport);
+      }
+      final session = connect.initSession();
+      if (!await session.setup()) {
+        throw SmbAuthException('SMB session setup failed');
+      }
 
-    if (onDisconnect != null) {
-      transport.onDisconnect = (_) {
-        onDisconnect.call(connect);
-      };
+      if (onDisconnect != null) {
+        transport.onDisconnect = (_) {
+          onDisconnect.call(connect);
+        };
+      }
+      return connect;
+    } catch (_) {
+      // Ownership transfers only after negotiation and authentication succeed.
+      // A cleanup failure must not replace the original connection/auth error.
+      try {
+        await transport.close();
+      } catch (_) {}
+      rethrow;
     }
-    return connect;
   }
 
   static Future<SmbConnect> connectAuth({

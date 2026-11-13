@@ -1,0 +1,16 @@
+--- a/video/out/gpu/video.c
++++ b/video/out/gpu/video.c
+@@ -1009,6 +1009,13 @@
+     }
+     p->color_swizzle[4] = '\0';
+ 
++    // This renderer cannot apply Dolby Vision reshaping. PQ base-layer
++    // fallback must also undo RPU luminance metadata, not mix it with HDR10.
++    if (p->image_params.repr.sys == PL_COLOR_SYSTEM_DOLBYVISION &&
++        p->image_params.transfer_orig == PL_COLOR_TRC_PQ)
++    {
++        p->image_params.color.hdr = p->image_params.hdr_orig;
++    }
+     mp_image_params_restore_dovi_mapping(&p->image_params);
+     mp_image_params_guess_csp(&p->image_params);
+ 

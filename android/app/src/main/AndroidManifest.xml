@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <application
-        android:label="Konata"
+        android:label="${konataLabel}"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <provider
@@ -23,7 +23,7 @@
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
-            <!-- Honor the playback-only landscape request on Android 16 tablets. -->
+            <!-- Honor the user's playback-only orientation lock on Android 16 tablets. -->
             <property android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY"
                 android:value="true" />
             <!-- Specifies an Android theme to apply to this Activity as soon as

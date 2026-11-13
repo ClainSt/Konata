@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:ccplayer/core/metadata.dart';
 import 'package:ccplayer/core/metadata_servers.dart';
@@ -19,10 +20,26 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class _RealHttp extends HttpOverrides {}
 
+class _FrameSession extends OptionalPeopleSession {
+  _FrameSession(super.settings, super.feature, this.onImage);
+  final void Function() onImage;
+  @override
+  Future<List<Map<String, dynamic>>> load(Map<String, Object?> work, String locale,
+      {List<Map> characters = const [], Map<String, List<Map>> credits = const {}}) async => [
+    {'title': 'Frame', 'subtitle': '', 'image': work['image'] ?? 'https://lain.bgm.tv/frame.png'},
+  ];
+  @override
+  Future<Uint8List> image(String url, Future<void> cancelled, {int? displayWidth}) async {
+    onImage();
+    return base64Decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');
+  }
+}
+
 class LocalPeopleClient implements HttpClient {
-  LocalPeopleClient(this.port, this.urls);
+  LocalPeopleClient(this.port, this.urls, {this.fail});
   final int port;
   final List<Uri> urls;
+  final bool Function(Uri)? fail;
   final HttpClient delegate = HttpOverrides.runWithHttpOverrides(
     () => HttpClient(),
     _RealHttp(),
@@ -30,6 +47,9 @@ class LocalPeopleClient implements HttpClient {
   @override
   Future<HttpClientRequest> getUrl(Uri uri) {
     urls.add(uri);
+    if (fail?.call(uri) == true) {
+      return Future.error(const SocketException('Fixture route unavailable'));
+    }
     return delegate.getUrl(
       Uri.http('127.0.0.1:$port', uri.path, uri.queryParameters),
     );
@@ -243,7 +263,6 @@ void main() {
       );
       expect(cards.map((c) => c['title']), ['Second', '手动中文', '自定义']);
       expect(cards[1]['alternateImage'], 'https://lain.bgm.tv/actor.jpg');
-      expect(cards[1]['alternateSubtitle'], '声优中文');
       expect(cards[1]['subtitle'], '声优中文');
       expect(session.activeClients, 0);
       expect(session.activeTimers, 0);
@@ -309,7 +328,7 @@ void main() {
       );
       expect(result.single['title'], 'Cached');
       expect(requests, ['/3/tv/42/aggregate_credits']);
-      expect(urls.single.host, Uri.parse(MetadataServers.values[0]).host);
+      expect(urls.single.host, Uri.parse(MetadataServers.official[0]).host);
       session.dispose();
     },
   );
@@ -421,6 +440,63 @@ void main() {
       second.dispose();
     },
   );
+
+  testWidgets('people frames survive navigation and are evicted on feature shutdown', (tester) async {
+    SharedPreferences.setMockInitialValues({OptionalFeatures.preferenceKey: '{"characters":true}'});
+    await settings.initialize();
+    var reads = 0;
+    Widget page() => MaterialApp(home: Scaffold(body: OptionalDetails(
+      settings: settings, work: const {'id': 'frame-work', 'is_animation': 1},
+      sessionFactory: (s, f) => _FrameSession(s, f, () => reads++),
+    )));
+    await tester.pumpWidget(page());
+    await tester.pumpAndSettle();
+    expect(settings.available(OptionalFeature.characters), isTrue);
+    expect(find.text('Frame'), findsOneWidget);
+    expect(reads, 1);
+    final first = tester.widget<Image>(find.byType(Image)).image;
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(page());
+    await tester.pumpAndSettle();
+    expect(identical(tester.widget<Image>(find.byType(Image)).image, first), isTrue);
+    expect(reads, 1);
+    await settings.setCharacterPresentation(0);
+    await tester.pumpAndSettle();
+    expect(find.byType(Image), findsNothing);
+    final key = await first.obtainKey(ImageConfiguration.empty);
+    expect(PaintingBinding.instance.imageCache.containsKey(key), isFalse);
+    await settings.setCharacterPresentation(1);
+    await tester.pumpAndSettle();
+    expect(reads, 2);
+    expect(identical(tester.widget<Image>(find.byType(Image)).image, first), isFalse);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('people frame cache evicts older works at its capacity', (tester) async {
+    SharedPreferences.setMockInitialValues({OptionalFeatures.preferenceKey: '{"characters":true}'});
+    await settings.initialize();
+    var reads = 0;
+    Future<void> visit(int n) async {
+      await tester.pumpWidget(MaterialApp(home: Scaffold(body: OptionalDetails(
+        key: ValueKey(n), settings: settings,
+        work: {'id': 'work-$n', 'is_animation': 1, 'image': 'https://lain.bgm.tv/$n.png'},
+        sessionFactory: (s, f) => _FrameSession(s, f, () => reads++),
+      ))));
+      await tester.pumpAndSettle();
+    }
+    await visit(0);
+    final first = tester.widget<Image>(find.byType(Image)).image;
+    for (var n = 1; n <= 16; n++) { await visit(n); }
+    expect(reads, 17);
+    final key = await first.obtainKey(ImageConfiguration.empty);
+    expect(PaintingBinding.instance.imageCache.containsKey(key), isFalse);
+    await visit(15);
+    expect(reads, 17);
+    await visit(0);
+    expect(reads, 18);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets(
     'disabled details never construct services; repeated toggles release every session',

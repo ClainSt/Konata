@@ -21,6 +21,9 @@ class WebDavStream {
   final String? diagnosticSession;
   final _streamId = DebugLog.newId('dav');
   int _requestSerial = 0;
+  int _latestBodyRequest = 0;
+  bool _interruptedRead = false;
+  bool get interruptedRead => _interruptedRead;
   final Duration headerTimeout, idleTimeout;
   final _clients = <HttpClient>{};
   HttpClient? _idleClient;
@@ -65,7 +68,8 @@ class WebDavStream {
     final clock = Stopwatch()..start();
     final range = req.headers.value(HttpHeaders.rangeHeader);
     final requested = range == null ? null : _RequestedRange.parse(range);
-    final requestId = '$_streamId-${++_requestSerial}';
+    final serial = ++_requestSerial;
+    final requestId = '$_streamId-$serial';
     void record(String event, {String level = 'INFO'}) {
       DebugLog.event('WebDAVStream', event, {
         'session': diagnosticSession,
@@ -273,25 +277,42 @@ class WebDavStream {
           cancel();
         },
       );
-      final payload = upstream.timeout(idleTimeout).map((chunk) {
-        if (chunk.isNotEmpty) {
-          final now = clock.elapsedMilliseconds;
-          if (firstByteMs < 0) {
-            firstByteMs = now;
-            waiting.cancel();
-            record('first_body');
-          }
-          if (lastDataMs >= 0 && now - lastDataMs > maxObservedGapMs) {
-            maxObservedGapMs = now - lastDataMs;
-          }
-          lastDataMs = now;
+      void markInterrupted() {
+        if (!_closed && !cancelled && serial >= _latestBodyRequest) {
+          _latestBodyRequest = serial;
+          _interruptedRead = true;
         }
-        if (expected != null && bytes + chunk.length > expected) {
-          throw const HttpException('Excess body bytes');
-        }
-        bytes += chunk.length;
-        return chunk;
-      });
+      }
+
+      final payload = upstream
+          .timeout(idleTimeout)
+          .map((chunk) {
+            if (chunk.isNotEmpty) {
+              final now = clock.elapsedMilliseconds;
+              if (firstByteMs < 0) {
+                firstByteMs = now;
+                if (serial >= _latestBodyRequest) {
+                  _latestBodyRequest = serial;
+                  _interruptedRead = false;
+                }
+                waiting.cancel();
+                record('first_body');
+              }
+              if (lastDataMs >= 0 && now - lastDataMs > maxObservedGapMs) {
+                maxObservedGapMs = now - lastDataMs;
+              }
+              lastDataMs = now;
+            }
+            if (expected != null && bytes + chunk.length > expected) {
+              throw const HttpException('Excess body bytes');
+            }
+            bytes += chunk.length;
+            return chunk;
+          })
+          .handleError((Object error, StackTrace stack) {
+            markInterrupted();
+            Error.throwWithStackTrace(error, stack);
+          });
       // Unknown full-response lengths use real HTTP chunk framing. Framing is
       // outside the media bytes; no probing bytes enter the representation.
       await socket.addStream(
@@ -306,6 +327,7 @@ class WebDavStream {
               ),
       );
       if (expected != null && bytes != expected) {
+        markInterrupted();
         throw const HttpException('Truncated body');
       }
       if (expected == null) socket.add('0\r\n\r\n'.codeUnits);

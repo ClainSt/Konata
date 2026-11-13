@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 import 'dart:math' as math;
@@ -34,11 +35,15 @@ class ImageStore {
     _removedOwners.clear();
   }
 
-  static Future<void> retain(String owner, Iterable<String> urls) async {
+  static Future<void> retain(
+    String owner,
+    Iterable<String> urls, {
+    int? displayWidth,
+  }) async {
     if (_removedOwners.contains(owner)) return;
     final keys = urls
         .where((url) => url.startsWith('http'))
-        .map(identity)
+        .map((url) => _displayKey(url, displayWidth))
         .toSet();
     if (keys.isNotEmpty) await (await cache).retain(owner, keys);
   }
@@ -74,12 +79,11 @@ class ImageStore {
   static Future<Uint8List?> readCached(
     String raw, {
     void Function()? checkActive,
+    int? displayWidth,
   }) async {
     checkActive?.call();
-    final result = await (await cache).read(
-      identity(raw),
-      minimumQuality: quality(raw),
-    );
+    final key = _displayKey(raw, displayWidth);
+    final result = await (await cache).read(key, minimumQuality: quality(raw));
     checkActive?.call();
     if (result != null) {
       try {
@@ -87,9 +91,10 @@ class ImageStore {
         return result;
       } catch (_) {
         checkActive?.call();
-        await (await cache).invalidate(identity(raw));
+        await (await cache).invalidate(key);
       }
     }
+    if (displayWidth != null) return null;
     // Import the previous URL-keyed cache on access without a second download.
     final legacy = File(
       p.join(
@@ -115,9 +120,10 @@ class ImageStore {
     String raw,
     Uint8List bytes, {
     void Function()? checkActive,
+    int? displayWidth,
   }) async {
     await (await cache).write(
-      identity(raw),
+      _displayKey(raw, displayWidth),
       bytes,
       checkActive: checkActive,
       quality: quality(raw),
@@ -143,7 +149,6 @@ class ImageStore {
     return bytes;
   }
 
-  static final Map<String, DateTime> _unhealthy = {};
   static final Map<String, Future<Uint8List>> _pending = {};
   static Future<Directory> directory() async => root ??= Directory(
     p.join((await getApplicationSupportDirectory()).path, 'artwork'),
@@ -156,6 +161,46 @@ class ImageStore {
       return 'tmdb:${resource.$2.substring(resource.$2.indexOf('/') + 1)}${uri.hasQuery ? '?${uri.query}' : ''}';
     }
     return legacyIdentity(raw);
+  }
+
+  static String _displayKey(String raw, int? width) =>
+      width == null ? identity(raw) : 'display:$width:${identity(raw)}';
+
+  static Future<Uint8List> fitForDisplay(Uint8List bytes, int width) async {
+    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    try {
+      final descriptor = await ui.ImageDescriptor.encoded(buffer);
+      try {
+        final scale = math.min(
+          width / descriptor.width,
+          (2 * width) / descriptor.height,
+        );
+        if (scale >= 1) return bytes;
+        final codec = await descriptor.instantiateCodec(
+          targetWidth: math.max(1, (descriptor.width * scale).round()),
+          targetHeight: math.max(1, (descriptor.height * scale).round()),
+        );
+        try {
+          final frame = await codec.getNextFrame();
+          try {
+            final png = await frame.image.toByteData(
+              format: ui.ImageByteFormat.png,
+            );
+            if (png == null)
+              throw const FormatException('Image encoding failed');
+            return png.buffer.asUint8List(png.offsetInBytes, png.lengthInBytes);
+          } finally {
+            frame.image.dispose();
+          }
+        } finally {
+          codec.dispose();
+        }
+      } finally {
+        descriptor.dispose();
+      }
+    } finally {
+      buffer.dispose();
+    }
   }
 
   static int quality(String raw) {
@@ -173,6 +218,7 @@ class ImageStore {
     String raw,
     int physicalWidth, {
     required bool backdrop,
+    bool poster = false,
   }) {
     final resource = MetadataServers.imageResource(raw);
     if (resource?.$1 != 1 || !resource!.$2.contains('/')) return raw;
@@ -182,7 +228,17 @@ class ImageStore {
               : physicalWidth <= 1280
               ? 'w1280'
               : 'original')
-        : (physicalWidth <= 300 ? 'w300' : 'original');
+        : poster
+        ? (physicalWidth <= 185
+              ? 'w185'
+              : physicalWidth <= 342
+              ? 'w342'
+              : 'w500')
+        : (physicalWidth <= 92
+              ? 'w92'
+              : physicalWidth <= 185
+              ? 'w185'
+              : 'w300');
     final path = resource.$2.substring(resource.$2.indexOf('/') + 1);
     return MetadataServers.endpoint(1, '$size/$path')
         .replace(query: Uri.parse(raw).hasQuery ? Uri.parse(raw).query : null)
@@ -198,21 +254,41 @@ class ImageStore {
     return raw;
   }
 
-  static Future<Uint8List> load(String raw, {String? owner}) async {
-    checkOwner(owner);
+  static Future<Uint8List> load(
+    String raw, {
+    String? owner,
+    void Function()? checkActive,
+    int? displayWidth,
+  }) async {
+    void check() {
+      checkOwner(owner);
+      checkActive?.call();
+    }
+
+    check();
     if (owner != null) {
       try {
-        await retain(owner, [raw]);
+        await retain(owner, [raw], displayWidth: displayWidth);
       } catch (_) {
         DebugLog.write('Image', 'cache ownership unavailable', level: 'WARN');
       }
     }
-    final bytes = await _load(raw, owner: owner);
-    checkOwner(owner);
+    final bytes = await _load(
+      raw,
+      check: check,
+      trim: owner == null,
+      displayWidth: displayWidth,
+    );
+    check();
     return bytes;
   }
 
-  static Future<Uint8List> _load(String raw, {String? owner}) async {
+  static Future<Uint8List> _load(
+    String raw, {
+    required void Function() check,
+    required bool trim,
+    int? displayWidth,
+  }) async {
     if (raw.startsWith('artwork:')) {
       if (!RegExp(
         r'^artwork:(original|crop)_[a-f0-9]{64}\.png$',
@@ -229,64 +305,85 @@ class ImageStore {
     }
     Uint8List? cached;
     try {
-      cached = await readCached(raw, checkActive: () => checkOwner(owner));
+      cached = await readCached(
+        raw,
+        checkActive: check,
+        displayWidth: displayWidth,
+      );
+      if (cached == null && displayWidth != null) {
+        cached = await readCached(raw, checkActive: check);
+        if (cached != null) {
+          final fitted = await fitForDisplay(cached, displayWidth);
+          if (fitted.length <= cached.length) {
+            await storeCached(
+              raw,
+              fitted,
+              checkActive: check,
+              displayWidth: displayWidth,
+            );
+          }
+          return fitted;
+        }
+      }
     } catch (_) {
       DebugLog.write('Image', 'cache read failed', level: 'WARN');
     }
-    checkOwner(owner);
+    check();
     if (cached != null) return cached;
-    final targets = [MetadataServers.mapImage(raw)];
-    if (MetadataServers.fallback) {
-      final u = Uri.parse(raw);
-      final resource = MetadataServers.imageResource(raw);
-      if (resource != null) {
-        targets.add(
-          MetadataServers.endpoint(
-            resource.$1,
-            resource.$2,
-            base: MetadataServers.official[resource.$1],
-          ).replace(query: u.hasQuery ? u.query : null).toString(),
-        );
-      }
-    }
-    final hasHealthyRoute = targets.any(
-      (target) =>
-          !(_unhealthy[Uri.parse(target).host]?.isAfter(DateTime.now()) ??
-              false),
-    );
-    for (final target in targets.toSet()) {
-      checkOwner(owner);
-      final host = Uri.parse(target).host;
-      if (hasHealthyRoute &&
-          _unhealthy[host]?.isAfter(DateTime.now()) == true) {
-        continue;
-      }
+    final targets = MetadataServers.imageRoutes(raw);
+    final ordered = MetadataServers.tryOrder(targets);
+    for (var i = 0; i < ordered.length; i++) {
+      check();
+      final uri = ordered[i];
+      final target = uri.toString();
+      final headerTimeout = MetadataServers.attemptTimeout(
+        const Duration(seconds: 15),
+        hasBackup: i + 1 < ordered.length && uri == targets.first,
+      );
       try {
         // Share only transport bytes. Each consumer retains its own lifetime
         // checks and cache write, so removing one work cannot cancel another.
         final bytes = await _pending.putIfAbsent(
           target,
-          () => download(target).whenComplete(() {
-            _pending.remove(target);
-          }),
+          () =>
+              RequestBudget.run(
+                () => _download(target, headerTimeout: headerTimeout),
+              ).whenComplete(() {
+                _pending.remove(target);
+              }),
         );
-        checkOwner(owner);
-        _unhealthy.remove(host);
+        check();
+        if (targets.length > 1) MetadataServers.reachedRoute(uri);
+        final fitted = displayWidth == null
+            ? bytes
+            : await fitForDisplay(bytes, displayWidth);
+        check();
         try {
-          await storeCached(raw, bytes, checkActive: () => checkOwner(owner));
-          if (owner == null) await (await cache).trimUnowned();
+          if (fitted.length <= bytes.length) {
+            await storeCached(
+              raw,
+              fitted,
+              checkActive: check,
+              displayWidth: displayWidth,
+            );
+          }
+          if (trim) await (await cache).trimUnowned();
         } catch (_) {
           DebugLog.write('Image', 'cache write failed', level: 'WARN');
         }
-        return bytes;
+        return fitted;
       } catch (e) {
-        checkOwner(owner);
-        if (e is IOException) {
-          _unhealthy[host] = DateTime.now().add(const Duration(seconds: 45));
+        check();
+        if (targets.length > 1 &&
+            (e is IOException ||
+                e is TimeoutException ||
+                e is http.ClientException ||
+                e is FormatException)) {
+          MetadataServers.failedRoute(uri);
         }
         DebugLog.write(
           'Image',
-          'download failed host=${Uri.parse(target).host} type=${e.runtimeType}',
+          'download failed host=${uri.host} type=${e.runtimeType}',
           level: 'WARN',
         );
       }
@@ -299,13 +396,17 @@ class ImageStore {
       ? RequestBudget.run(() => _download(url))
       : _download(url, client: client);
 
-  static Future<Uint8List> _download(String url, {http.Client? client}) async {
+  static Future<Uint8List> _download(
+    String url, {
+    http.Client? client,
+    Duration headerTimeout = const Duration(seconds: 15),
+  }) async {
     final owned = client == null;
     final c = client ?? http.Client();
     try {
       final response = await retryInterruptedTls(
         () => c.send(http.Request('GET', Uri.parse(url))),
-      ).timeout(const Duration(seconds: 15));
+      ).timeout(headerTimeout);
       if (response.statusCode != 200) {
         throw HttpException('HTTP ${response.statusCode}');
       }
@@ -355,6 +456,20 @@ class ImageStore {
         } finally {
           codec.dispose();
         }
+      } finally {
+        descriptor.dispose();
+      }
+    } finally {
+      buffer.dispose();
+    }
+  }
+
+  static Future<({int width, int height})> dimensions(Uint8List bytes) async {
+    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    try {
+      final descriptor = await ui.ImageDescriptor.encoded(buffer);
+      try {
+        return (width: descriptor.width, height: descriptor.height);
       } finally {
         descriptor.dispose();
       }

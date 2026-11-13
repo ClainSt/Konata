@@ -363,10 +363,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get progressSaveFailed => '播放记录保存失败，将继续重试';
 
   @override
-  String get apiAddress => 'API 地址';
+  String get apiAddress => '备用 API 地址';
 
   @override
-  String get imageAddress => '图片服务器地址';
+  String get imageAddress => '备用图片服务器地址';
 
   @override
   String get testApi => 'API 连接测试';
@@ -388,7 +388,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get serverNotice =>
-      '分别配置 API 与图片服务。Bangumi 默认使用非官方社区镜像；HTTP 地址会明文传输数据。';
+      '刮削优先连接官方服务。下方分别设置 API 和图片的备用地址。Bangumi 的默认备用地址为社区镜像。HTTP 地址会明文传输数据。';
 
   @override
   String get videoOutputRecovered => '画面输出已恢复。';
@@ -397,10 +397,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get autoFallback => '自动故障回退';
 
   @override
-  String get fallbackDescription => '仅正式请求使用备用服务；连接测试始终使用当前输入地址';
+  String get fallbackDescription => '官方请求超时或连接失败时切换备用地址。连接测试直接检查填写的备用地址。';
 
   @override
-  String get allowCustomCredentials => '允许向自定义 HTTPS TMDB 服务发送凭证';
+  String get allowCustomCredentials => '允许向自定义 HTTPS TMDB 备用服务发送凭证';
 
   @override
   String get notTested => '未测试';
@@ -1189,6 +1189,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get mpvReset => '恢复空白默认配置';
 
   @override
+  String get hdrTargetIncompatible =>
+      'MPV 配置中的 HDR 输出目标与当前视频输出不兼容。请修改目标设置或关闭自定义配置，然后重新打开视频。';
+
+  @override
   String get mpvFolderReadError => '无法读取配置目录。请检查配置文件，或在播放器设置中重新选择目录。';
 
   @override
@@ -1472,23 +1476,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get nameOrBangumiId => '名称或 Bangumi ID';
 
   @override
-  String get unclassified => '待归类';
+  String get lockOrientation => '固定当前方向';
 
   @override
-  String get assignToWork => '归入作品';
+  String get unlockOrientation => '跟随设备方向';
 
   @override
-  String get workName => '作品名称';
-
-  @override
-  String get createClassification => '以此名称创建作品';
-
-  @override
-  String get classificationHint =>
-      '仅调整媒体库归属，不移动或重命名原始文件。选取同一媒体源的文件后，可批量归入已有作品或新建作品。';
-
-  @override
-  String get selectSourceFiles => '选择此媒体源全部文件';
+  String get orientationUnavailable => '暂时无法切换方向，请重试。';
 
   @override
   String get offlineBangumi => 'Bangumi 离线数据库';
@@ -1551,6 +1545,10 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get offlineIndexSize => '索引大小';
+
+  @override
+  String get dolbyVisionProfile5Unsupported =>
+      '当前播放器不支持 Dolby Vision Profile 5。此视频没有可兼容播放的 HDR10 底层，请使用 HDR10/SDR 版本或支持此格式的播放器。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -1912,10 +1910,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get progressSaveFailed => '播放记录保存失败，将继续重试';
 
   @override
-  String get apiAddress => 'API 地址';
+  String get apiAddress => '备用 API 地址';
 
   @override
-  String get imageAddress => '图片服务器地址';
+  String get imageAddress => '备用图片服务器地址';
 
   @override
   String get testApi => 'API 连接测试';
@@ -1937,7 +1935,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get serverNotice =>
-      '分别配置 API 与图片服务。Bangumi 默认使用非官方社区镜像；HTTP 地址会明文传输数据。';
+      '刮削优先连接官方服务。下方分别设置 API 和图片的备用地址。Bangumi 的默认备用地址为社区镜像。HTTP 地址会明文传输数据。';
 
   @override
   String get videoOutputRecovered => '画面输出已恢复。';
@@ -1946,10 +1944,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get autoFallback => '自动故障回退';
 
   @override
-  String get fallbackDescription => '仅正式请求使用备用服务；连接测试始终使用当前输入地址';
+  String get fallbackDescription => '官方请求超时或连接失败时切换备用地址。连接测试直接检查填写的备用地址。';
 
   @override
-  String get allowCustomCredentials => '允许向自定义 HTTPS TMDB 服务发送凭证';
+  String get allowCustomCredentials => '允许向自定义 HTTPS TMDB 备用服务发送凭证';
 
   @override
   String get notTested => '未测试';
@@ -2738,6 +2736,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get mpvReset => '恢复空白默认配置';
 
   @override
+  String get hdrTargetIncompatible =>
+      'MPV 配置中的 HDR 输出目标与当前视频输出不兼容。请修改目标设置或关闭自定义配置，然后重新打开视频。';
+
+  @override
   String get mpvFolderReadError => '无法读取配置目录。请检查配置文件，或在播放器设置中重新选择目录。';
 
   @override
@@ -3021,23 +3023,13 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get nameOrBangumiId => '名称或 Bangumi ID';
 
   @override
-  String get unclassified => '待归类';
+  String get lockOrientation => '固定当前方向';
 
   @override
-  String get assignToWork => '归入作品';
+  String get unlockOrientation => '跟随设备方向';
 
   @override
-  String get workName => '作品名称';
-
-  @override
-  String get createClassification => '以此名称创建作品';
-
-  @override
-  String get classificationHint =>
-      '仅调整媒体库归属，不移动或重命名原始文件。选取同一媒体源的文件后，可批量归入已有作品或新建作品。';
-
-  @override
-  String get selectSourceFiles => '选择此媒体源全部文件';
+  String get orientationUnavailable => '暂时无法切换方向，请重试。';
 
   @override
   String get offlineBangumi => 'Bangumi 离线数据库';
@@ -3100,6 +3092,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get offlineIndexSize => '索引大小';
+
+  @override
+  String get dolbyVisionProfile5Unsupported =>
+      '当前播放器不支持 Dolby Vision Profile 5。此视频没有可兼容播放的 HDR10 底层，请使用 HDR10/SDR 版本或支持此格式的播放器。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -3461,10 +3457,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get progressSaveFailed => '播放記錄儲存失敗，將繼續重試';
 
   @override
-  String get apiAddress => 'API 位址';
+  String get apiAddress => '備用 API 位址';
 
   @override
-  String get imageAddress => '圖片伺服器位址';
+  String get imageAddress => '備用圖片伺服器位址';
 
   @override
   String get testApi => 'API 連線測試';
@@ -3486,7 +3482,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get serverNotice =>
-      '分別設定 API 與圖片服務。Bangumi 預設使用非官方社群鏡像；HTTP 位址會以明文傳輸資料。';
+      '刮削優先連線官方服務。下方分別設定 API 和圖片的備用位址。Bangumi 的預設備用位址為社群鏡像。HTTP 位址會以明文傳輸資料。';
 
   @override
   String get videoOutputRecovered => '畫面輸出已恢復。';
@@ -3495,10 +3491,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get autoFallback => '自動故障回退';
 
   @override
-  String get fallbackDescription => '僅正式請求使用備用服務；連線測試一律使用目前輸入的位址';
+  String get fallbackDescription => '官方請求逾時或連線失敗時切換備用位址。連線測試直接檢查填寫的備用位址。';
 
   @override
-  String get allowCustomCredentials => '允許向自訂 HTTPS TMDB 服務傳送憑證';
+  String get allowCustomCredentials => '允許向自訂 HTTPS TMDB 備用服務傳送憑證';
 
   @override
   String get notTested => '未測試';
@@ -4287,6 +4283,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get mpvReset => '還原空白預設設定';
 
   @override
+  String get hdrTargetIncompatible =>
+      'MPV 設定中的 HDR 輸出目標與目前視訊輸出不相容。請修改目標設定或關閉自訂設定，然後重新開啟影片。';
+
+  @override
   String get mpvFolderReadError => '無法讀取設定目錄。請檢查設定檔，或在播放器設定中重新選擇目錄。';
 
   @override
@@ -4570,23 +4570,13 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get nameOrBangumiId => '名稱或 Bangumi ID';
 
   @override
-  String get unclassified => '待歸類';
+  String get lockOrientation => '固定目前方向';
 
   @override
-  String get assignToWork => '歸入作品';
+  String get unlockOrientation => '跟隨裝置方向';
 
   @override
-  String get workName => '作品名稱';
-
-  @override
-  String get createClassification => '以此名稱建立作品';
-
-  @override
-  String get classificationHint =>
-      '僅調整媒體庫歸屬，不移動或重新命名原始檔案。選取同一媒體源的檔案後，可批次歸入已有作品或新建作品。';
-
-  @override
-  String get selectSourceFiles => '選取此媒體源全部檔案';
+  String get orientationUnavailable => '暫時無法切換方向，請重試。';
 
   @override
   String get offlineBangumi => 'Bangumi 離線資料庫';
@@ -4649,4 +4639,8 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get offlineIndexSize => '索引大小';
+
+  @override
+  String get dolbyVisionProfile5Unsupported =>
+      '目前播放器不支援 Dolby Vision Profile 5。此影片沒有可相容播放的 HDR10 基礎層，請使用 HDR10/SDR 版本或支援此格式的播放器。';
 }

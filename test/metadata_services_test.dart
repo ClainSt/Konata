@@ -13,6 +13,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ccplayer/core/metadata_servers.dart';
 import 'package:ccplayer/core/metadata_http.dart';
 import 'package:ccplayer/core/metadata.dart';
+import 'package:ccplayer/core/app_language.dart';
+import 'package:ccplayer/core/detail_metadata.dart';
 import 'package:ccplayer/core/tmdb_auth.dart';
 import 'package:ccplayer/core/connection_diagnostic.dart';
 import 'package:ccplayer/core/bangumi_links.dart';
@@ -71,6 +73,55 @@ Future<void> captureCrop(WidgetTester tester, String name) async {
 }
 
 void main() {
+  test(
+    'overview prefers Bangumi in the selected language and falls back to TMDB',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final language = AppLanguage.instance;
+      final previous = language.choice;
+      final requested = <String>[];
+      final client = MockClient(
+        (request) async => http.Response(
+          jsonEncode(
+            request.url.path.contains('/subjects/')
+                ? {'summary': '少年在战区寻找伙伴。'}
+                : {'data': []},
+          ),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        ),
+      );
+      final service = DetailMetadataService(
+        client: client,
+        tmdbRequest: (path, params) async {
+          final locale = params['language']!;
+          requested.add(locale);
+          return {
+            'id': 42,
+            'overview': locale == 'zh-TW' ? '繁體簡介' : 'English synopsis',
+          };
+        },
+      );
+      const work = <String, Object?>{
+        'tmdb_id': 42,
+        'tmdb_type': 'movie',
+        'bangumi_id': 21,
+      };
+      try {
+        await language.setChoice(AppLanguageChoice.zhHans);
+        expect((await service.fetch(work))['overview'], '少年在战区寻找伙伴。');
+        await language.setChoice(AppLanguageChoice.zhHant);
+        expect((await service.fetch(work))['overview'], '繁體簡介');
+        await language.setChoice(AppLanguageChoice.en);
+        expect((await service.fetch(work))['overview'], 'English synopsis');
+        expect(requested, ['zh-CN', 'zh-TW', 'en-US']);
+      } finally {
+        await language.setChoice(previous);
+        client.close();
+      }
+    },
+  );
+
   test('a metadata header deadline aborts the underlying request', () async {
     final stalled = _StalledMetadataClient();
     final client = MetadataHttp(
@@ -185,11 +236,11 @@ void main() {
   test('image mapping preserves query and never maps unrelated hosts', () {
     expect(
       MetadataServers.mapImage('https://lain.bgm.tv/pic/cover/l/abc.jpg?x=2'),
-      'https://lain.bangumi.lat/pic/cover/l/abc.jpg?x=2',
+      'https://lain.bgm.tv/pic/cover/l/abc.jpg?x=2',
     );
     expect(
       MetadataServers.mapImage('https://lain.bangumi.lat/pic/a.jpg'),
-      'https://lain.bangumi.lat/pic/a.jpg',
+      'https://lain.bgm.tv/pic/a.jpg',
     );
     expect(
       MetadataServers.mapImage('https://example.org/a.jpg'),
@@ -206,12 +257,20 @@ void main() {
       final addresses = List.of(MetadataServers.defaults);
       addresses[1] = 'https://first.example/art/';
       await MetadataServers.save(addresses, false, false);
-      final first = MetadataServers.tmdbImage('/poster.jpg');
+      final first = MetadataServers.endpoint(
+        1,
+        'w500/poster.jpg',
+        base: addresses[1],
+      ).toString();
       addresses[1] = 'https://second.example/images/';
-      await MetadataServers.save(addresses, false, false);
+      await MetadataServers.save(addresses, true, false);
       await MetadataServers.load();
       expect(
         MetadataServers.mapImage(first),
+        'https://image.tmdb.org/t/p/w500/poster.jpg',
+      );
+      expect(
+        MetadataServers.imageRoutes(first).last.toString(),
         'https://second.example/images/w500/poster.jpg',
       );
       expect(
@@ -225,7 +284,7 @@ void main() {
     },
   );
   test(
-    'transport rewrites current address, does not forward auth on redirects',
+    'transport prefers official and does not forward auth on redirects',
     () async {
       final calls = <Uri>[];
       final client = MetadataHttp(
@@ -240,17 +299,17 @@ void main() {
         Uri.parse('https://api.themoviedb.org/3/tv/100565'),
         headers: {'Authorization': 'Bearer test-secret'},
       );
-      expect(calls.single.host, 'api.tmdb.org');
+      expect(calls.single.host, 'api.themoviedb.org');
       client.close();
     },
   );
   test('untrusted custom TMDB never receives credentials', () async {
     MetadataServers.values[0] = 'https://untrusted.example/3';
-    var sent = false;
+    final hosts = <String>[];
     final client = MetadataHttp(
       inner: MockClient((r) async {
-        sent = true;
-        return http.Response('{}', 200);
+        hosts.add(r.url.host);
+        throw TimeoutException('Official endpoint timeout');
       }),
     );
     await expectLater(
@@ -258,12 +317,48 @@ void main() {
         Uri.parse('https://api.themoviedb.org/3/tv/1'),
         headers: {'Authorization': 'Bearer secret'},
       ),
-      throwsStateError,
+      throwsA(isA<TimeoutException>()),
     );
-    expect(sent, false);
+    expect(hosts, ['api.themoviedb.org']);
     client.close();
   });
-  for (final status in [401, 403, 429]) {
+  for (final failure in ['timeout', 'invalid payload', 'HTTP 503']) {
+    test(
+      'official $failure uses configured fallback and shares cooldown',
+      () async {
+        final calls = <String>[];
+        final client = MetadataHttp(
+          inner: MockClient((r) async {
+            calls.add(r.url.host);
+            if (r.url.host == 'api.themoviedb.org') {
+              if (failure == 'timeout') {
+                throw TimeoutException('Official timeout');
+              }
+              if (failure == 'HTTP 503') return http.Response('{}', 503);
+              return http.Response('<html>not metadata</html>', 200);
+            }
+            expect(r.headers['authorization'], 'Bearer test-secret');
+            expect(r.followRedirects, isFalse);
+            return http.Response('{"id":100565}', 200);
+          }),
+        );
+        try {
+          final uri = Uri.https('api.themoviedb.org', '/3/tv/100565');
+          for (var i = 0; i < 2; i++) {
+            final response = await client.get(
+              uri,
+              headers: {'Authorization': 'Bearer test-secret'},
+            );
+            expect(jsonDecode(response.body)['id'], 100565);
+          }
+          expect(calls, ['api.themoviedb.org', 'api.tmdb.org', 'api.tmdb.org']);
+        } finally {
+          client.close();
+        }
+      },
+    );
+  }
+  for (final status in [401, 403, 404, 429]) {
     test('HTTP $status never retries or returns cached success', () async {
       var count = 0;
       final client = MetadataHttp(

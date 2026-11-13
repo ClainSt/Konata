@@ -8,11 +8,12 @@ import 'cloud_media_asset_presentation.dart';
 import 'anime_detail_metadata.dart';
 import 'work_season.dart';
 import 'personal_scraper.dart';
+import 'app_language.dart';
 
 /// Standalone adaptation of NipaPlay Personal's basic Bangumi and TMDB
 /// episode-artwork pipeline. No dependency on NipaPlay's providers or players.
 class DetailMetadataService {
-  static const schemaVersion = 12;
+  static const schemaVersion = 14;
   DetailMetadataService({
     http.Client? client,
     this.tmdbRequest,
@@ -34,6 +35,119 @@ class DetailMetadataService {
     if (_ownsClient) _client.close();
   }
 
+  Future<Map<String, String>> bangumiPart(int id, String language) async {
+    final body = await _getBangumi('/v0/subjects/$id');
+    if (body is! Map || body['id'] != id) return {};
+    final localized = body['name_cn']?.toString().trim();
+    final original = body['name']?.toString().trim();
+    final name = language.startsWith('zh') && localized?.isNotEmpty == true
+        ? localized
+        : original;
+    final images = body['images'];
+    final poster = images is Map ? images['large'] ?? images['common'] : null;
+    return {
+      if (name?.isNotEmpty == true) 'label': name!,
+      if (poster is String && MetadataServers.imageResource(poster)?.$1 == 3)
+        'poster': poster,
+      if (AppLanguage.bangumiSynopsis(body['summary'], language)
+          case final String summary)
+        'summary': summary,
+    };
+  }
+
+  /// A sequel may occupy the remainder of a single TMDB season. Require
+  /// complete regular-episode lists before using its independent artwork.
+  Future<List<Map<String, String>>> bangumiSplitParts(
+    int first,
+    List<String> tmdbDates,
+    String language,
+  ) async {
+    Future<dynamic> episodes(int id) =>
+        _getBangumi('/v0/episodes?subject_id=$id&type=0&limit=100');
+    final responses = await Future.wait([
+      episodes(first),
+      _getBangumi('/v0/subjects/$first/subjects'),
+    ]);
+    final relations = responses[1];
+    if (relations is! List) return [];
+    final sequel = relations
+        .whereType<Map>()
+        .where(
+          (row) =>
+              row['relation'] == '续集' &&
+              row['type'] == 2 &&
+              row['id'] is int &&
+              (row['id'] as int) > 0 &&
+              row['id'] != first,
+        )
+        .singleOrNull;
+    if (sequel == null) return [];
+    final second = sequel['id'] as int;
+    List<DateTime>? dates(dynamic value, int subject) {
+      if (value is! Map || value['data'] is! List) return null;
+      final rows = value['data'] as List;
+      if (rows.length < 3 || rows.length != value['total']) return null;
+      final result = <DateTime>[];
+      for (final row in rows) {
+        if (row is! Map ||
+            row['type'] != 0 ||
+            row['subject_id'] != null && row['subject_id'] != subject)
+          return null;
+        final date = DateTime.tryParse('${row['airdate']}');
+        if (date == null || result.isNotEmpty && !date.isAfter(result.last))
+          return null;
+        result.add(date);
+      }
+      return result;
+    }
+
+    final head = dates(responses[0], first);
+    if (head == null || head.length + 3 > tmdbDates.length) return [];
+    bool agrees(DateTime date, String other) {
+      final parsed = DateTime.tryParse(other);
+      return parsed != null &&
+          parsed.difference(date).abs() <= const Duration(days: 1);
+    }
+
+    if (!head.indexed.every((e) => agrees(e.$2, tmdbDates[e.$1]))) return [];
+    final tail = dates(await episodes(second), second);
+    if (tail == null ||
+        head.length + tail.length != tmdbDates.length ||
+        tail.first.difference(head.last) < const Duration(days: 45) ||
+        !tail.indexed.every((e) => agrees(e.$2, tmdbDates[head.length + e.$1])))
+      return [];
+    final parts = await Future.wait([
+      bangumiPart(first, language),
+      bangumiPart(second, language),
+    ]);
+    return parts.every((part) => part['label'] != null) ? parts : [];
+  }
+
+  Future<String?> localizedSpecialTitle(
+    int series,
+    int episode,
+    int chapter,
+    String language,
+  ) async {
+    final season = await _tmdb('/tv/$series/season/0', {'language': language});
+    final row = (season?['episodes'] as List? ?? [])
+        .whereType<Map>()
+        .where(
+          (row) =>
+              row['id'] == chapter &&
+              row['season_number'] == 0 &&
+              row['episode_number'] == episode,
+        )
+        .singleOrNull;
+    final name = row?['name']?.toString().trim();
+    return name == null ||
+            name.isEmpty ||
+            language.startsWith('zh') &&
+                !RegExp(r'[\u3400-\u9fff]').hasMatch(name)
+        ? null
+        : name;
+  }
+
   static String? image(String? path, {String size = 'w780'}) {
     if (path == null || path.isEmpty) return null;
     if (path.startsWith('https://')) return path;
@@ -45,8 +159,10 @@ class DetailMetadataService {
     Map<String, Object?> work, {
     List<Map<String, Object?>> assets = const [],
   }) async {
+    final language = AppLanguage.instance.metadataLanguage;
     final result = <String, dynamic>{
       'schemaVersion': schemaVersion,
+      'overview_language': language,
       'seasonEpisodes': <String, dynamic>{},
       'seasonEpisodeCounts': <String, dynamic>{},
       'specialAssets': <String, dynamic>{},
@@ -60,7 +176,7 @@ class DetailMetadataService {
         (tmdbRequest != null || Metadata.credentials.isConfigured)) {
       final type = work['tmdb_type'] == 'movie' ? 'movie' : 'tv';
       try {
-        final overview = await _tmdb('/$type/$tmdbId', {'language': 'zh-CN'});
+        final overview = await _tmdb('/$type/$tmdbId', {'language': language});
         if (overview != null) {
           final genres = (overview['genres'] as List? ?? []).whereType<Map>();
           final animation =
@@ -138,37 +254,22 @@ class DetailMetadataService {
         if (type == 'movie') {
           // Personal uses landscape work artwork for a movie's main feature.
           // Movies have no TV season/episode still endpoint.
-          var artwork = image(
-            overview?['backdrop_path']?.toString(),
-            size: 'w780',
-          );
-          if (artwork == null) {
-            final images = await _tmdb('/movie/$tmdbId/images', {
-              'include_image_language': 'zh,ja,en,null',
-            });
-            final backdrops = (images?['backdrops'] as List? ?? [])
-                .whereType<Map>()
-                .where((entry) => image(entry['file_path']?.toString()) != null)
-                .toList();
-            backdrops.sort((a, b) {
-              final score = (num.tryParse('${b['vote_average']}') ?? 0)
-                  .compareTo(num.tryParse('${a['vote_average']}') ?? 0);
-              if (score != 0) return score;
-              return (num.tryParse('${b['width']}') ?? 0).compareTo(
-                num.tryParse('${a['width']}') ?? 0,
-              );
-            });
-            if (backdrops.isNotEmpty) {
-              artwork = image(
-                backdrops.first['file_path']?.toString(),
-                size: 'w780',
-              );
-            }
-          }
+          final artwork = await _movieStill(tmdbId, overview);
           result['movieStill'] = artwork;
           result['backdrop'] ??= artwork;
         }
         if (type == 'tv') {
+          final seasonList = (overview?['seasons'] as List? ?? [])
+              .whereType<Map>()
+              .toList();
+          final mainSeasons = assets
+              .where((a) => a['category'] == 'main' && a['season'] is int)
+              .map((a) => a['season'] as int)
+              .toSet();
+          result['seasonMappingAmbiguous'] =
+              (mainSeasons.length == 1 && mainSeasons.single != 1)
+              ? false
+              : WorkSeason.ambiguousYear(work, seasonList);
           // Unlike the initial prototype, episode artwork is keyed by
           // TMDB season AND episode number, not only season 1.
           final counts = <String, int>{};
@@ -219,7 +320,7 @@ class DetailMetadataService {
           for (final number in (requested.toList()..sort())) {
             try {
               final payload = await _tmdb('/tv/$tmdbId/season/$number', {
-                'language': 'zh-CN',
+                'language': language,
               });
               final items = <String, dynamic>{};
               for (final episode in (payload?['episodes'] as List? ?? [])) {
@@ -229,6 +330,7 @@ class DetailMetadataService {
                 final n = raw.toInt();
                 items[n.toString()] = {
                   'name': episode['name'],
+                  if (number == 0) 'special_number': n,
                   'overview': episode['overview'],
                   'still': image(
                     episode['still_path']?.toString(),
@@ -259,6 +361,7 @@ class DetailMetadataService {
               for (final entry in matched.entries)
                 entry.key: {
                   'name': entry.value['name'],
+                  'special_number': entry.value['episode_number'],
                   'overview': entry.value['overview'],
                   'still': image(
                     entry.value['still_path']?.toString(),
@@ -273,6 +376,7 @@ class DetailMetadataService {
       }
     }
     var bangumiOffset = 0;
+    String? bangumiOverview;
     for (final bangumiId in BangumiLinks.ids(work)) {
       try {
         final subject = await _getBangumi('/v0/subjects/$bangumiId');
@@ -294,10 +398,10 @@ class DetailMetadataService {
           result['bangumiType'] = subject['type'];
           result['episodeCount'] ??=
               subject['total_episodes'] ?? subject['eps'];
-          if ((result['overview']?.toString().trim().isNotEmpty ?? false) ==
-              false) {
-            result['overview'] = subject['summary'];
-          }
+          bangumiOverview ??= AppLanguage.bangumiSynopsis(
+            subject['summary'],
+            language,
+          );
           result['poster'] ??= (subject['images'] is Map)
               ? (subject['images'] as Map)['large']?.toString()
               : null;
@@ -309,13 +413,20 @@ class DetailMetadataService {
         (result['errors'] as List<String>).add('Bangumi 资料暂时不可用');
       }
       try {
+        if (result['seasonMappingAmbiguous'] == true) continue;
         final episodes = await _getBangumi(
           '/v0/episodes?subject_id=$bangumiId&type=0&limit=100',
         );
         final rows = episodes is Map
             ? (episodes['data'] as List? ?? [])
             : <dynamic>[];
-        final fallbackSeason = WorkSeason.explicit(work) ?? 1;
+        final mainSeasons = assets
+            .where((a) => a['category'] == 'main' && a['season'] is int)
+            .map((a) => a['season'] as int)
+            .toSet();
+        final fallbackSeason =
+            WorkSeason.explicit(work) ??
+            (mainSeasons.length == 1 ? mainSeasons.single : 1);
         final bySeason = Map<String, dynamic>.from(
           result['seasonEpisodes'] as Map? ?? {},
         );
@@ -353,6 +464,7 @@ class DetailMetadataService {
         /* Optional fallback episode names. */
       }
     }
+    if (bangumiOverview != null) result['overview'] = bangumiOverview;
     // Same stable tag precedence as NipaPlay Personal:
     // format -> studio -> adaptation -> up to 8 remaining tags.
     result['tags'] = AnimeDetailMetadata.tags({
@@ -365,6 +477,61 @@ class DetailMetadataService {
       }),
     });
     return result;
+  }
+
+  Future<String?> localizedTmdbOverview(
+    int id,
+    String type,
+    int? season,
+    String language,
+  ) async {
+    final path = '/$type/$id';
+    if (type == 'tv' && season != null && season > 0) {
+      final scoped = await _tmdb('$path/season/$season', {
+        'language': language,
+      });
+      final overview = scoped?['overview']?.toString().trim();
+      if (scoped?['season_number'] == season && overview?.isNotEmpty == true) {
+        return overview;
+      }
+      if (season != 1) return null;
+    }
+    final work = await _tmdb(path, {'language': language});
+    if (work == null || work['id'] != id) return null;
+    return work['overview']?.toString().trim();
+  }
+
+  Future<String?> fetchMovieStill(int movieId) async {
+    final overview = await _tmdb('/movie/$movieId', {
+      'language': AppLanguage.instance.metadataLanguage,
+    });
+    if (overview == null || overview['id'] != movieId) return null;
+    return _movieStill(movieId, overview);
+  }
+
+  Future<String?> _movieStill(
+    int movieId,
+    Map<String, dynamic>? overview,
+  ) async {
+    final primary = image(overview?['backdrop_path']?.toString(), size: 'w780');
+    if (primary != null) return primary;
+    final images = await _tmdb('/movie/$movieId/images', {
+      'include_image_language': 'zh,ja,en,null',
+    });
+    final backdrops = (images?['backdrops'] as List? ?? [])
+        .whereType<Map>()
+        .where((entry) => image(entry['file_path']?.toString()) != null)
+        .toList();
+    backdrops.sort((a, b) {
+      final score = (num.tryParse('${b['vote_average']}') ?? 0).compareTo(
+        num.tryParse('${a['vote_average']}') ?? 0,
+      );
+      if (score != 0) return score;
+      return (num.tryParse('${b['width']}') ?? 0).compareTo(
+        num.tryParse('${a['width']}') ?? 0,
+      );
+    });
+    return image(backdrops.firstOrNull?['file_path']?.toString(), size: 'w780');
   }
 
   Future<Map<String, dynamic>?> _tmdb(

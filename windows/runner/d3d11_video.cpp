@@ -1,6 +1,6 @@
 #include "d3d11_video.h"
 #include <d3d11.h>
-#include <dxgi1_2.h>
+#include <dxgi1_6.h>
 #include <wrl/client.h>
 #include <mpv/client.h>
 #include <mpv/render_d3d11.h>
@@ -13,6 +13,7 @@
 #include <stdexcept>
 #include <thread>
 #include <cstring>
+#include <cmath>
 
 using Microsoft::WRL::ComPtr;
 using flutter::EncodableMap;
@@ -70,6 +71,17 @@ struct D3D11Video::Impl {
   std::mutex mutex;
   std::shared_ptr<std::promise<EncodableMap>> capture;
   std::string failure;
+  // Only presentation is suspended during a color transaction. Rendering and
+  // mpv update callbacks keep running so the core never waits on Dart.
+  bool presentation_blocked = true;
+  bool hdr_output = false;
+  int color_epoch = 0;
+  int commit_epoch = 0;
+  bool commit_hdr = false;
+  std::shared_ptr<std::promise<void>> color_commit;
+  HMONITOR display_monitor = nullptr;
+  bool display_hdr = false;
+  int display_peak = 0;
   mpv_render_context* render = nullptr;
 
   Impl(HWND host, int64_t handle, const std::string& path)
@@ -93,6 +105,34 @@ struct D3D11Video::Impl {
     SetEvent(wake);
     if (thread.joinable()) thread.join();
     CloseHandle(wake);
+  }
+
+  EncodableMap DisplayInfo() {
+    const HMONITOR monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+    bool hdr = false;
+    int peak = 0;
+    ComPtr<IDXGIFactory1> factory;
+    if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) {
+      for (UINT a = 0; ; ++a) {
+        ComPtr<IDXGIAdapter1> adapter;
+        if (factory->EnumAdapters1(a, &adapter) != S_OK) break;
+        for (UINT n = 0; ; ++n) {
+          ComPtr<IDXGIOutput> output;
+          if (adapter->EnumOutputs(n, &output) != S_OK) break;
+          ComPtr<IDXGIOutput6> output6;
+          DXGI_OUTPUT_DESC1 info{};
+          if (SUCCEEDED(output.As(&output6)) && SUCCEEDED(output6->GetDesc1(&info)) &&
+              info.Monitor == monitor) {
+            hdr = info.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
+            if (std::isfinite(info.MaxLuminance) && info.MaxLuminance >= 100 && info.MaxLuminance <= 10000)
+              peak = static_cast<int>(info.MaxLuminance);
+          }
+        }
+      }
+    }
+    return {{EncodableValue("monitor"), EncodableValue(reinterpret_cast<int64_t>(monitor))},
+            {EncodableValue("hdrActive"), EncodableValue(hdr)},
+            {EncodableValue("peak"), EncodableValue(peak)}};
   }
 
   EncodableMap Readback(ID3D11Device* device, ID3D11DeviceContext* context,
@@ -122,6 +162,7 @@ struct D3D11Video::Impl {
     }
     context->Unmap(staging.Get(), 0);
     return {{EncodableValue("generation"), EncodableValue(generation)},
+            {EncodableValue("outputColorSpace"), EncodableValue(hdr_output ? "bt.2020/pq" : "sdr")},
             {EncodableValue("pixels"), EncodableValue(std::move(bytes))},
             {EncodableValue("format"), EncodableValue("R10G10B10A2_UNORM")},
             {EncodableValue("width"), EncodableValue(static_cast<int>(desc.Width))},
@@ -179,8 +220,30 @@ struct D3D11Video::Impl {
         const bool changed = resize.exchange(false);
         const uint64_t flags = api.mpv_render_context_update(render);
         std::shared_ptr<std::promise<EncodableMap>> request;
-        { std::lock_guard<std::mutex> lock(mutex); request = std::move(capture); }
-        if (!changed && !request && !(flags & MPV_RENDER_UPDATE_FRAME)) continue;
+        std::shared_ptr<std::promise<void>> commit;
+        int frame_epoch;
+        {
+          std::lock_guard<std::mutex> lock(mutex);
+          request = std::move(capture);
+          commit = std::move(color_commit);
+          frame_epoch = color_epoch;
+          if (commit) {
+            ComPtr<IDXGISwapChain3> colors;
+            UINT support = 0;
+            const auto space = commit_hdr ? DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020
+                                          : DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
+            if (commit_epoch != color_epoch || FAILED(swapchain.As(&colors)) ||
+                FAILED(colors->CheckColorSpaceSupport(space, &support)) ||
+                !(support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT) ||
+                FAILED(colors->SetColorSpace1(space))) {
+              commit->set_exception(std::make_exception_ptr(std::runtime_error("Output color space unavailable or display changed")));
+              commit.reset();
+            } else {
+              hdr_output = commit_hdr;
+            }
+          }
+        }
+        if (!changed && !request && !commit && !(flags & MPV_RENDER_UPDATE_FRAME)) continue;
         if (changed) {
           RECT rect{};
           GetClientRect(window, &rect);
@@ -198,8 +261,18 @@ struct D3D11Video::Impl {
           throw std::runtime_error("D3D11 rendering failed");
         EncodableMap observation;
         if (request) observation = Readback(device.Get(), context.Get(), buffer.Get());
-        Check(swapchain->Present(1, 0), "D3D11 presentation failed");
-        api.mpv_render_context_report_swap(render);
+        {
+          std::lock_guard<std::mutex> lock(mutex);
+          if (frame_epoch == color_epoch && commit) presentation_blocked = false;
+          if (!presentation_blocked && frame_epoch == color_epoch) {
+            Check(swapchain->Present(1, 0), "D3D11 presentation failed");
+            api.mpv_render_context_report_swap(render);
+          }
+          if (commit) {
+            if (frame_epoch == color_epoch) commit->set_value();
+            else commit->set_exception(std::make_exception_ptr(std::runtime_error("Display changed during color transaction")));
+          }
+        }
         if (request) request->set_value(std::move(observation));
       }
     } catch (...) {
@@ -220,6 +293,49 @@ struct D3D11Video::Impl {
 D3D11Video::D3D11Video(HWND window, int64_t player, const std::string& library)
     : impl_(std::make_unique<Impl>(window, player, library)) {}
 D3D11Video::~D3D11Video() = default;
+EncodableMap D3D11Video::BeginColor() {
+  std::lock_guard<std::mutex> lock(impl_->mutex);
+  impl_->presentation_blocked = true;
+  auto info = impl_->DisplayInfo();
+  impl_->display_monitor = reinterpret_cast<HMONITOR>(info.at(EncodableValue("monitor")).LongValue());
+  impl_->display_hdr = std::get<bool>(info.at(EncodableValue("hdrActive")));
+  impl_->display_peak = std::get<int>(info.at(EncodableValue("peak")));
+  info[EncodableValue("epoch")] = EncodableValue(++impl_->color_epoch);
+  return info;
+}
+void D3D11Video::CommitColor(bool hdr, int epoch) {
+  auto request = std::make_shared<std::promise<void>>();
+  auto result = request->get_future();
+  {
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    if (!impl_->failure.empty()) throw std::runtime_error(impl_->failure);
+    if (impl_->color_commit) throw std::runtime_error("Output transition already pending");
+    impl_->commit_hdr = hdr;
+    impl_->commit_epoch = epoch;
+    impl_->color_commit = request;
+  }
+  SetEvent(impl_->wake);
+  if (result.wait_for(std::chrono::seconds(5)) != std::future_status::ready)
+    throw std::runtime_error("Output transition timed out");
+  result.get();
+}
+void D3D11Video::DisplayChanged(bool force) {
+  if (!force && MonitorFromWindow(impl_->window, MONITOR_DEFAULTTONEAREST) == impl_->display_monitor) return;
+  const auto info = impl_->DisplayInfo();
+  const auto monitor = reinterpret_cast<HMONITOR>(info.at(EncodableValue("monitor")).LongValue());
+  const bool hdr = std::get<bool>(info.at(EncodableValue("hdrActive")));
+  const int peak = std::get<int>(info.at(EncodableValue("peak")));
+  {
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    if (monitor == impl_->display_monitor && hdr == impl_->display_hdr && peak == impl_->display_peak) return;
+    impl_->display_monitor = monitor;
+    impl_->display_hdr = hdr;
+    impl_->display_peak = peak;
+    impl_->presentation_blocked = true;
+    ++impl_->color_epoch;
+  }
+  if (on_display_changed) on_display_changed();
+}
 void D3D11Video::Resize() { impl_->resize = true; SetEvent(impl_->wake); }
 std::string D3D11Video::Failure() {
   std::lock_guard<std::mutex> lock(impl_->mutex);

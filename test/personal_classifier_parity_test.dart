@@ -1,8 +1,57 @@
 // Adapted from NipaPlay Personal cloud_media_scanner_test.dart (pure rules).
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ccplayer/core/cloud_media_file_classifier.dart';
+import 'package:ccplayer/core/personal_filename_parser.dart';
+import 'package:ccplayer/core/auto_classifier.dart';
 
 void main() {
+  test('search keywords omit combined season labels and release separators', () {
+    expect(PersonalFilenameParser.extractAnimeSearchKeyword('Series Name S1+S2.mkv'),
+        'Series Name');
+    expect(PersonalFilenameParser.extractAnimeSearchKeyword(
+        '[Group] Series Name／Ep.01 「Episode title」 (BDRip).mkv'), 'Series Name');
+  });
+  test('repeated numbering under different release titles splits the inventory', () {
+    const folder = 'Mixed releases';
+    const paths = [
+      '$folder/[Group] Saga Name - 01 (BDRip 1080p).mkv',
+      '$folder/[Group] Saga Name - 02 (BDRip 1080p).mkv',
+      '$folder/[Group] Saga Name Side Stories II - 01 Character (BDRip 720p).mkv',
+      '$folder/[Group] Saga Name Side Stories II - 02 Other (BDRip 720p).mkv',
+    ];
+    final assigned = AutoClassifier.releaseFolders(folder, paths);
+    expect(assigned[paths[0]], folder);
+    expect(assigned[paths[1]], folder);
+    expect(assigned[paths[2]], '$folder/Saga Name Side Stories II');
+    expect(assigned[paths[3]], assigned[paths[2]]);
+    expect(AutoClassifier.releaseFolders(folder, paths.take(3).toList()), isEmpty);
+  });
+
+  test('r7 separators preserve the release title and episode before the subtitle', () {
+    const file =
+        '[a-s]_slayers_evolution-r_-_01_-_newcomer!_a_brand_new_journey__rs2_[1080p_bd-rip][500DAD4E].mkv';
+    expect(CloudMediaFileClassifier.episodeNumberFromName(file), 1);
+    expect(PersonalFilenameParser.extractAnimeSearchKeyword(file), 'slayers evolution-r');
+    const movie = 'New Initial D the Movie Legend 01 - Awakening.mkv';
+    expect(PersonalFilenameParser.extractAnimeSearchKeyword(movie), contains('Awakening'));
+  });
+
+  test('r7 explicit samples, disc menus and drama CDs are supplemental', () {
+    const cases = [
+      ('Collection/Movie/Sample', 'A feature title.mkv'),
+      ('Collection/Film', 'Saint.Seiya.Legend.2014.1080p.BluRay.Sample.mkv'),
+      ('Collection/Film/Tokuten', '[QTS] Information.mkv'),
+      ('Collection/Film/Eizou Tokuten', '[QTS] EP27 Parallel Version.mkv'),
+      ('Collection/Series', '[CXRAW][Series][メニュ一01][BDrip].mkv'),
+      ('Collection/Series', '[Raws][Series][DramaCD][Blind Target].mkv'),
+    ];
+    for (final (folder, name) in cases) {
+      expect(CloudMediaFileClassifier.classifyAsset(folder, name, 'video'), 'extra');
+    }
+    expect(CloudMediaFileClassifier.classifyAsset('A Sample of Life',
+        'A Sample of Life (BDRip 1080p).mkv', 'video', videoCount: 1), 'episode');
+  });
+
   test('Moozzi2 3D Kanojo continuous episode 13 is a main episode', () {
     const name =
         '[Moozzi2] 3D Kanojo Real Girl - 13 (BD 1920x1080 x.264 Flac).mkv';
@@ -91,6 +140,10 @@ void main() {
       'Show [11.5][Ma10p_1080p].mkv',
       '[Henshin]_Show_no-credit_opening_(x264).mkv',
       '[AI-Raws] Show キャスト特番 (BD 1080p).mkv',
+      '[AI-Raws] Movie Supporter\'s Gathering 2010 (BD 720p FLAC).mkv',
+      'Movie Supporters’ Gathering2010 (BD 720p).mkv',
+      '[Release]_Show_-_03 Appendix.avi',
+      '[Release] Show - Hyakka 01 (BD 1080p).mkv',
       '[Candy Boy] EX01 (DVD 720p).mkv',
     ]) {
       expect(
@@ -99,6 +152,10 @@ void main() {
         reason: name,
       );
     }
+    expect(
+      CloudMediaFileClassifier.isClearlySupplementary('', 'The Appendix (BD 1080p).mkv'),
+      isFalse,
+    );
     expect(
       CloudMediaFileClassifier.classifyAsset('Show/Bonus', 'Logo.mkv', 'video'),
       'extra',

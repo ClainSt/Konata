@@ -1,0 +1,266 @@
+{
+  "episodes": {
+    "data": [
+      {
+        "airdate": "2014-04-06",
+        "name": "アン・ソーサラー（魔力無者）",
+        "name_cn": "Un・Sorcerer（无魔力者）",
+        "ep": 1,
+        "sort": 1,
+        "id": 367509,
+        "type": 0
+      },
+      {
+        "airdate": "2014-04-13",
+        "name": "アンダー・ゴゥレム（古代巨兵）",
+        "name_cn": "Under・Golem（古代巨兵）",
+        "ep": 2,
+        "sort": 2,
+        "id": 367510,
+        "type": 0
+      },
+      {
+        "airdate": "2014-04-20",
+        "name": "ノット・バッド（停戦交渉）",
+        "name_cn": "Not・Bad（停战交涉）",
+        "ep": 3,
+        "sort": 3,
+        "id": 367511,
+        "type": 0
+      },
+      {
+        "airdate": "2014-04-27",
+        "name": "クロース・コンバット（近接戦闘）",
+        "name_cn": "Cross・Combat（近身战斗）",
+        "ep": 4,
+        "sort": 4,
+        "id": 367512,
+        "type": 0
+      },
+      {
+        "airdate": "2014-05-04",
+        "name": "カウンター・アタック（逆撃强襲）",
+        "name_cn": "Counter・Attack（逆击强袭）",
+        "ep": 5,
+        "sort": 5,
+        "id": 367513,
+        "type": 0
+      },
+      {
+        "airdate": "2014-05-11",
+        "name": "ワール・ウィンド（疾風怒濤）",
+        "name_cn": "Waal・Wind（疾风怒涛）",
+        "ep": 6,
+        "sort": 6,
+        "id": 367514,
+        "type": 0
+      },
+      {
+        "airdate": "2014-05-18",
+        "name": "ナイト・ビフォア（出撃前夜）",
+        "name_cn": "Ngiht・Before（出击前夜）",
+        "ep": 7,
+        "sort": 7,
+        "id": 367515,
+        "type": 0
+      },
+      {
+        "airdate": "2014-05-25",
+        "name": "ウェイスト・ランド（死地凶変）",
+        "name_cn": "Waste・Land（死地凶変）",
+        "ep": 8,
+        "sort": 8,
+        "id": 367516,
+        "type": 0
+      },
+      {
+        "airdate": "2014-06-01",
+        "name": "ショウ・ダウン（竜虎宣戦）",
+        "name_cn": "Show・Down（龙虎宣战）",
+        "ep": 9,
+        "sort": 9,
+        "id": 367517,
+        "type": 0
+      },
+      {
+        "airdate": "2014-06-08",
+        "name": "ライトニング・スピード（神速無双）",
+        "name_cn": "Lighting・Speed（神速无双）",
+        "ep": 10,
+        "sort": 10,
+        "id": 367518,
+        "type": 0
+      },
+      {
+        "airdate": "2014-06-15",
+        "name": "ラスト・スタンド（要害堅固）",
+        "name_cn": "Last・Stand（要害坚固）",
+        "ep": 11,
+        "sort": 11,
+        "id": 367519,
+        "type": 0
+      },
+      {
+        "airdate": "2014-06-22",
+        "name": "エンドレス・フェイト（永劫回帰）",
+        "name_cn": "Endless・Fate（永劫回归）",
+        "ep": 12,
+        "sort": 12,
+        "id": 367520,
+        "type": 0
+      }
+    ],
+    "total": 12,
+    "limit": 100,
+    "offset": 0
+  },
+  "bangumi": {
+    "id": 95618,
+    "type": 2,
+    "name": "ブレイク ブレイド",
+    "name_cn": "破刃之剑",
+    "date": "2014-04-06",
+    "infobox": [
+      {
+        "key": "别名",
+        "value": [
+          {
+            "v": "BROKEN BLADE"
+          }
+        ]
+      }
+    ]
+  },
+  "tmdb": {
+    "id": 44163,
+    "name": "破刃之剑",
+    "original_name": "ブレイク ブレイド",
+    "first_air_date": "2014-04-06",
+    "seasons": [
+      {
+        "air_date": "2010-05-29",
+        "episode_count": 10,
+        "id": 53277,
+        "name": "特别篇",
+        "overview": "",
+        "poster_path": null,
+        "season_number": 0,
+        "vote_average": 0.0
+      },
+      {
+        "air_date": "2014-04-06",
+        "episode_count": 12,
+        "id": 53278,
+        "name": "破刃之剑",
+        "overview": "电视动画《破刃之剑》主要讲述已无法从地底采取化石燃料的世界，克鲁森大陆。人们为使万物移动所“选择”的动力能源，是寄宿在人们手中的“力量”。从地底中所采取的“石英”，无论力量的强弱谁都可以对其下达命令，人们将这种力量称之为“魔力”。这样的世界中“没有魔力”的稀有者莱卡特，在某一天，受到了昔日的朋友同时也是现任国王的荷之尔召见，向王都前去的莱卡特将在那里得知令人惊讶的事实。过去一同学习，并建立起坚毅的友情的莱卡特、杰斯、赫兹尔、西宫4人，将被战乱的漩涡毫不留情的吞没。",
+        "poster_path": "/6YctuGMeeAlceng1bKqNzlwwlEv.jpg",
+        "season_number": 1,
+        "vote_average": 9.7
+      }
+    ],
+    "alternative_titles": {
+      "results": [
+        {
+          "iso_3166_1": "JP",
+          "title": "ブレイクブレイド",
+          "type": ""
+        },
+        {
+          "iso_3166_1": "US",
+          "title": "Break Blade",
+          "type": ""
+        }
+      ]
+    }
+  },
+  "season": {
+    "id": 53278,
+    "season_number": 1,
+    "episodes": [
+      {
+        "air_date": "2014-04-06",
+        "episode_number": 1,
+        "id": 891804,
+        "name": "アン・ソーサラー（魔力無者）",
+        "season_number": 1
+      },
+      {
+        "air_date": "2014-04-13",
+        "episode_number": 2,
+        "id": 891805,
+        "name": "アンダー・ゴゥレム（古代巨兵）",
+        "season_number": 1
+      },
+      {
+        "air_date": "2014-04-20",
+        "episode_number": 3,
+        "id": 891806,
+        "name": "ノット・バッド（停戦交渉）",
+        "season_number": 1
+      },
+      {
+        "air_date": "2014-04-27",
+        "episode_number": 4,
+        "id": 891807,
+        "name": "クロース・コンバット（近接戦闘）",
+        "season_number": 1
+      },
+      {
+        "air_date": "2014-05-04",
+        "episode_number": 5,
+        "id": 891808,
+        "name": "カウンター・アタック（逆撃強襲）",
+        "season_number": 1
+      },
+      {
+        "air_date": "2014-05-11",
+        "episode_number": 6,
+        "id": 891809,
+        "name": "ワール・ウィンド（疾風怒濤）　",
+        "season_number": 1
+      },
+      {
+        "air_date": "2014-05-18",
+        "episode_number": 7,
+        "id": 1026757,
+        "name": "ナイト・ビフォア（出撃前夜）",
+        "season_number": 1
+      },
+      {
+        "air_date": "2014-05-25",
+        "episode_number": 8,
+        "id": 1026758,
+        "name": "ウェイスト・ランド（死地凶変）",
+        "season_number": 1
+      },
+      {
+        "air_date": "2014-06-01",
+        "episode_number": 9,
+        "id": 1026759,
+        "name": "ショウ・ダウン（竜虎宣戦）",
+        "season_number": 1
+      },
+      {
+        "air_date": "2014-06-08",
+        "episode_number": 10,
+        "id": 1026760,
+        "name": "ライトニング・スピード（神速無双）",
+        "season_number": 1
+      },
+      {
+        "air_date": "2014-06-15",
+        "episode_number": 11,
+        "id": 1026761,
+        "name": "ラスト・スタンド（要害堅固）",
+        "season_number": 1
+      },
+      {
+        "air_date": "2014-06-22",
+        "episode_number": 12,
+        "id": 1026762,
+        "name": "エンドレス・フェイト（永劫回帰）",
+        "season_number": 1
+      }
+    ]
+  }
+}

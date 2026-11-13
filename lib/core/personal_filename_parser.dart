@@ -1,4 +1,5 @@
 import 'package:path/path.dart' as p;
+import 'cloud_media_file_classifier.dart';
 import 'release_groups.dart';
 
 /// 从常见番组发布文件名中提取更适合搜索的关键词。
@@ -7,12 +8,31 @@ import 'release_groups.dart';
 class PersonalFilenameParser {
   PersonalFilenameParser._();
 
-  static String normalizeIdentity(String title) => title
-      .toLowerCase()
-      .replaceAll(RegExp(r'\{tmdb-\d+\}', caseSensitive: false), ' ')
-      .replaceAll(RegExp(r'\((?:19|20)\d{2}\)'), ' ')
-      .replaceAll(RegExp(r'[\s\-_—–:：.()（）\[\]【】{}!?！？・·,，、]'), '')
-      .trim();
+  static const identityPunctuation = [
+    "'",
+    '’',
+    '‘',
+    '‐',
+    '‑',
+    '‒',
+    '﹘',
+    '﹣',
+    '－',
+  ];
+  static String unifyIdentityPunctuation(String value) {
+    for (final mark in identityPunctuation) {
+      value = value.replaceAll(mark, '');
+    }
+    return value;
+  }
+
+  static String normalizeIdentity(String title) =>
+      unifyIdentityPunctuation(title)
+          .toLowerCase()
+          .replaceAll(RegExp(r'\{tmdb-\d+\}', caseSensitive: false), ' ')
+          .replaceAll(RegExp(r'\((?:19|20)\d{2}\)'), ' ')
+          .replaceAll(RegExp(r'[\s\-_—–:：.()（）\[\]【】{}!?！？・·,，、]'), '')
+          .trim();
 
   static final _tmdbMarkers = [
     RegExp(
@@ -129,7 +149,7 @@ class PersonalFilenameParser {
       final technical = block.toLowerCase().split(RegExp(r'[\s_+,-]+'));
       if (technical.every(
         (part) => RegExp(
-          r'^(?:\d{3,4}[pi]|[248]k|(?:ma|hi)?\d{1,2}p|(?:x|h)26[45]|hevc|avc|av1|aac|flac|opus|ac3|dts|10bit|8bit|bdrip|bluray|web-?dl|webrip|jpsc|jptc|chs|cht|gb|big5|mp4|mkv|[0-9a-f]{8})$',
+          r'^(?:\d{3,4}[pi]|\d{3,5}x\d{3,5}|[248]k|(?:ma|hi)?\d{1,2}p|(?:x|h)26[45]|hevc|avc|av1|(?:aac|flac|opus|ac3|eac3|dts|truehd|ass|ssa|srt)(?:x\d+)?|yuv(?:420|422|444)p?\d*|\d{1,2}\.\d|10bit|8bit|bdrip|bluray|web-?dl|webrip|jpsc|jptc|chs|cht|gb|big5|mp4|mkv|[0-9a-f]{8})$',
         ).hasMatch(part),
       )) {
         continue;
@@ -172,6 +192,26 @@ class PersonalFilenameParser {
 
   /// 生成在线元数据搜索的标题候选；保留数字番名和括号中的作品名。
   static String extractAnimeTitleKeyword(String pathOrName) {
+    final cleaned = pathOrName.replaceAllMapped(
+      RegExp(r'\[([^\]]+)\]|【([^】]+)】'),
+      (tag) {
+        return ReleaseGroups.contains((tag[1] ?? tag[2]!).trim())
+            ? ' '
+            : tag[0]!;
+      },
+    );
+    if (cleaned != pathOrName) {
+      final candidate = _extractAnimeTitleKeyword(cleaned);
+      // A known group can also be a real title (e.g. WAR). Keep that case
+      // available for the caller's confirmed-directory alias check.
+      if (candidate.isNotEmpty && !RegExp(r'^\d+$').hasMatch(candidate)) {
+        return candidate;
+      }
+    }
+    return _extractAnimeTitleKeyword(pathOrName);
+  }
+
+  static String _extractAnimeTitleKeyword(String pathOrName) {
     var name = withoutTmdbMarkers(baseNameWithoutExtension(pathOrName));
     if (name.isEmpty) return '';
 
@@ -187,11 +227,15 @@ class PersonalFilenameParser {
     // A season/episode marker separates the series title from an optional
     // episode subtitle and release metadata. Keep everything before it.
     final episodeMarker = RegExp(
-      r'\bS\d{1,2}E\d{1,3}\b|\bEP?\s*\d{1,3}\b|第\s*\d{1,3}\s*[话話集]',
+      r'[／/]?\s*\b(?:S\d{1,2}E\d{1,3}|EP?\s*\d{1,3})\b|第\s*\d{1,3}\s*[话話集]',
       caseSensitive: false,
     ).firstMatch(name);
     if (episodeMarker != null) {
       name = name.substring(0, episodeMarker.start).trim();
+    }
+    final delimitedEpisode = CloudMediaFileClassifier.delimitedEpisode.firstMatch(name);
+    if (delimitedEpisode != null) {
+      name = name.substring(0, delimitedEpisode.start).trim();
     }
 
     // 去掉常见季/集标识（仅影响搜索关键词，不做全局数字清理）
@@ -199,7 +243,11 @@ class PersonalFilenameParser {
       RegExp(r'\bS\d{1,2}E\d{1,3}\b', caseSensitive: false),
       ' ',
     );
-    name = name.replaceAll(RegExp(r'\bS\d{1,2}\b', caseSensitive: false), ' ');
+    name = name.replaceAll(
+      RegExp(r'\bS\d{1,2}(?:\s*[+&~～]\s*S\d{1,2})+\b|\bS\d{1,2}\b',
+          caseSensitive: false),
+      ' ',
+    );
     name = name.replaceAll(RegExp(r'\b(?:EP|Ep|ep)\s*\d{1,3}\b'), ' ');
     name = name.replaceAll(RegExp(r'\bE\d{1,3}\b', caseSensitive: false), ' ');
 
@@ -218,7 +266,10 @@ class PersonalFilenameParser {
     // 01" into "Animation" and erase part of the real title.
     name = name.replaceFirst(
       RegExp(
-        r'(?:\s*[-_#]\s*\d{1,3}|\s+0\d{1,2})(?:v\d+)?(?:\s*[- ]*(?:END|FINAL|FIN))?$',
+        r'(?:(?:\s+[-_]\s*\d{1,3}|\s+0\d{1,2}|\s*#\s*\d{1,3})(?:v\d+)?'
+        r'(?:(?:[-–—]|\s*[&+~]\s*)\d{1,3}(?:v\d+)?)+|'
+        r'(?:\s*[-_#]\s*\d{1,3}|\s+0\d{1,2})(?:v\d+)?)'
+        r'(?:\s*[- ]*(?:END|FINAL|FIN))?$',
         caseSensitive: false,
       ),
       ' ',

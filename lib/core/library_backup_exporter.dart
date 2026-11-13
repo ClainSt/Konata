@@ -1,5 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
+import 'library_foundation.dart';
+import 'scrape_tasks.dart';
+import 'anime_mapping_store.dart';
+import 'incremental_scan.dart';
+import 'scan_recognition.dart';
+import 'chapter_relations.dart';
 
 import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
@@ -41,6 +47,18 @@ class LibraryBackupExporter {
     'watched_completion_percent',
     'detail_backdrop_enabled',
   ];
+  static List<String> tablesForSchema(int schema) => [
+    ...tables,
+    if (schema >= 19) ...LibraryFoundation.tables,
+    if (schema >= 20) ...ScrapeTasks.portableTables,
+    if (schema >= 21) ...AnimeMappingStore.portableTables,
+    if (schema >= 22) ...IncrementalScan.portableTables,
+    if (schema >= 22) ...ScanRecognition.portableTables,
+    if (schema >= 23) ...ScanRecognition.fileGroupTables,
+    if (schema >= 24) 'scoped_artwork',
+    if (schema >= 25) ...ChapterRelations.portableTables,
+    if (schema >= 26) 'library_merge_conflicts',
+  ];
   static final customArtworkName = RegExp(
     r'^(?:original|crop)_[a-f0-9]{64}\.png$',
   );
@@ -50,9 +68,10 @@ class LibraryBackupExporter {
     if (await destination.exists()) {
       throw StateError('The destination file already exists');
     }
+    final schema = await database.getVersion();
     final snapshot = await database.transaction((tx) async {
       final data = <String, List<Map<String, Object?>>>{};
-      for (final table in tables) {
+      for (final table in tablesForSchema(schema)) {
         data[table] = [
           for (final row in await tx.query(table))
             if (table == 'sources')

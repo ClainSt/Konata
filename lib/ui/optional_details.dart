@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../core/optional_features.dart';
 import '../core/optional_people.dart';
+import '../core/optional_feature_scope.dart';
 import '../l10n/strings.dart';
 import 'people_cards.dart';
 
@@ -176,7 +177,7 @@ class _PeopleSectionState extends State<_PeopleSection> {
           else
             PeopleCards(
               cards: _cards!,
-              alternateImages: characters && widget.settings.voicePhotos,
+              showVoiceActors: characters && widget.settings.voicePhotos,
               imageBuilder: (url) => _PeopleImage(
                 key: ValueKey('${identityHashCode(_session)}:$url'),
                 session: _session!,
@@ -186,6 +187,57 @@ class _PeopleSectionState extends State<_PeopleSection> {
         ],
       ),
     );
+  }
+}
+
+// Only presentation frames survive navigation, never the page's IO session.
+// Bound both encoded bytes and decoded frame count; feature shutdown owns eviction.
+class _PeopleFrames {
+  _PeopleFrames(OptionalPeopleSession session) {
+    scope = session.settings.openScope(session.feature);
+    scope.acquire(() => entries, (values) {
+      for (final value in values.values) { unawaited(value.provider.evict()); }
+      values.clear();
+      bytes = 0;
+    });
+  }
+  static final pools = Expando<Map<OptionalFeature, _PeopleFrames>>();
+  static _PeopleFrames forSession(OptionalPeopleSession session) {
+    final features = pools[session.settings] ??= {};
+    final previous = features[session.feature];
+    if (previous != null && !previous.scope.disposed) return previous;
+    return features[session.feature] = _PeopleFrames(session);
+  }
+  late final OptionalFeatureScope scope;
+  final entries = <(String, int), ({ImageProvider provider, int size})>{};
+  int bytes = 0;
+  ImageProvider? get(String url, int width) {
+    scope.checkActive();
+    final key = (url, width);
+    final hit = entries.remove(key);
+    if (hit != null) entries[key] = hit;
+    return hit?.provider;
+  }
+  void evictOtherWidths(String url, int width) {
+    for (final key in entries.keys.where((key) => key.$1 == url && key.$2 != width).toList()) {
+      final old = entries.remove(key)!;
+      bytes -= old.size;
+      unawaited(old.provider.evict());
+    }
+  }
+  void put(String url, int width, ImageProvider provider, int size) {
+    scope.checkActive();
+    const limit = 4 * 1024 * 1024;
+    if (size > limit) return;
+    final old = entries.remove((url, width));
+    if (old != null) { bytes -= old.size; unawaited(old.provider.evict()); }
+    while (entries.isNotEmpty && (entries.length >= 16 || bytes + size > limit)) {
+      final removed = entries.remove(entries.keys.first)!;
+      bytes -= removed.size;
+      unawaited(removed.provider.evict());
+    }
+    entries[(url, width)] = (provider: provider, size: size);
+    bytes += size;
   }
 }
 
@@ -223,21 +275,38 @@ class _PeopleImageState extends State<_PeopleImage> {
   Future<void> _load() async {
     final generation = ++_generation;
     try {
+      final frames = _PeopleFrames.forSession(widget.session);
+      final url = widget.url!;
+      final width = _decodeWidth;
+      void evictAfterReplacement() {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && generation == _generation && !frames.scope.disposed) {
+            frames.evictOtherWidths(url, width);
+          }
+        });
+      }
+      final hit = frames.get(url, width);
+      if (hit != null) {
+        _provider = hit;
+        evictAfterReplacement();
+        return;
+      }
       final Uint8List bytes = await widget.session.image(
         widget.url!,
         _cancelled.future,
+        displayWidth: ((_decodeWidth + 79) ~/ 80) * 80,
       );
       if (!mounted || widget.session.disposed || generation != _generation) {
         return;
       }
-      final previous = _provider;
       final next = ResizeImage.resizeIfNeeded(
         _decodeWidth,
         null,
         MemoryImage(bytes),
       );
+      frames.put(widget.url!, _decodeWidth, next, bytes.length);
       setState(() => _provider = next);
-      if (previous != null && previous != next) unawaited(previous.evict());
+      evictAfterReplacement();
     } catch (_) {
       /* Artwork failure leaves a lightweight placeholder. */
     }
@@ -246,8 +315,7 @@ class _PeopleImageState extends State<_PeopleImage> {
   @override
   void dispose() {
     _cancelled.complete();
-    // Evict this exact resized image, not the application's shared artwork cache.
-    _provider?.evict();
+    // The bounded feature scope keeps recent frames until eviction or shutdown.
     _provider = null;
     super.dispose();
   }

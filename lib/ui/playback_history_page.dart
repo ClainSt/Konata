@@ -212,45 +212,75 @@ class _PlaybackHistoryPageState extends State<PlaybackHistoryPage> {
             if (managing)
               Padding(
                 padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
-                child: Wrap(
-                  spacing: 8,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    Text(
-                      context.l10n.historySelectionCount(
-                        visibleSelected.length,
-                      ),
-                    ),
-                    TextButton(
-                      key: const ValueKey('history-select-all'),
-                      onPressed: busy
-                          ? null
-                          : () => setState(() {
-                              if (visibleSelected.length == entries.length) {
-                                selected.clear();
-                              } else {
-                                selected.addAll(
-                                  entries.map((row) => row['id'].toString()),
-                                );
-                              }
-                            }),
-                      child: Text(
-                        visibleSelected.length == entries.length
-                            ? context.l10n.historyDeselectAll
-                            : context.l10n.historySelectAll,
-                      ),
-                    ),
-                    TextButton.icon(
-                      key: const ValueKey('history-delete-selected'),
-                      onPressed: busy || visibleSelected.isEmpty
-                          ? null
-                          : _deleteSelected,
-                      icon: const Icon(Icons.delete_outline),
-                      label: Text(context.l10n.deleteRecord),
-                    ),
-                    if (visibleSelected.length == 1)
-                      _menu(visibleSelected.single),
-                  ],
+                child: LayoutBuilder(
+                  builder: (context, bounds) {
+                    final compact =
+                        bounds.maxWidth <
+                        520 * MediaQuery.textScalerOf(context).scale(1);
+                    final allSelected =
+                        visibleSelected.length == entries.length;
+                    final selectLabel = allSelected
+                        ? context.l10n.historyDeselectAll
+                        : context.l10n.historySelectAll;
+                    void selectAll() => setState(() {
+                      if (allSelected) {
+                        selected.clear();
+                      } else {
+                        selected.addAll(
+                          entries.map((row) => row['id'].toString()),
+                        );
+                      }
+                    });
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            context.l10n.historySelectionCount(
+                              visibleSelected.length,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        if (compact)
+                          IconButton(
+                            key: const ValueKey('history-select-all'),
+                            tooltip: selectLabel,
+                            onPressed: busy ? null : selectAll,
+                            icon: Icon(
+                              allSelected ? Icons.deselect : Icons.select_all,
+                            ),
+                          )
+                        else
+                          TextButton(
+                            key: const ValueKey('history-select-all'),
+                            onPressed: busy ? null : selectAll,
+                            child: Text(selectLabel),
+                          ),
+                        if (compact)
+                          IconButton(
+                            key: const ValueKey('history-delete-selected'),
+                            tooltip: context.l10n.deleteRecord,
+                            onPressed: busy || visibleSelected.isEmpty
+                                ? null
+                                : _deleteSelected,
+                            icon: const Icon(Icons.delete_outline),
+                          )
+                        else
+                          TextButton.icon(
+                            key: const ValueKey('history-delete-selected'),
+                            onPressed: busy || visibleSelected.isEmpty
+                                ? null
+                                : _deleteSelected,
+                            icon: const Icon(Icons.delete_outline),
+                            label: Text(context.l10n.deleteRecord),
+                          ),
+                        if (visibleSelected.length == 1)
+                          _menu(visibleSelected.single),
+                      ],
+                    );
+                  },
                 ),
               ),
             Expanded(
@@ -312,7 +342,15 @@ class _PlaybackHistoryPageState extends State<PlaybackHistoryPage> {
     )?.toLocal();
     final completed =
         row['_logical_completed'] as bool? ?? row['completed'] == 1;
-    final still = info['still']?.toString();
+    // The library view already resolves artwork for the active provider scope.
+    // The raw history work row cannot represent that scoped poster.
+    final artworkWork = widget.history == null
+        ? Catalog.instance.works.where((entry) => entry['id'] == work['id']).firstOrNull ?? work
+        : work;
+    final still = row['_blank_still'] == true
+        ? null
+        : (row['_recognized_still'] ?? info['still'])?.toString() ??
+              Catalog.preferredPoster(artworkWork);
     final title =
         row['work_title']?.toString() ??
         row['name']?.toString() ??

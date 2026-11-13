@@ -125,6 +125,11 @@ class _MetadataServerSettingsState extends State<MetadataServerSettings> {
           i.isEven ? context.l10n.apiAddress : context.l10n.imageAddress,
           style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
         ),
+        const SizedBox(height: 4),
+        SelectableText(
+          '${context.l10n.officialServers} · ${MetadataServers.official[i]}',
+          style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+        ),
         const SizedBox(height: 10),
         TextField(
           key: ValueKey('metadata-address-$i'),
@@ -263,12 +268,6 @@ class _MetadataServerSettingsState extends State<MetadataServerSettings> {
                     ? null
                     : () => preset(provider, MetadataServers.defaults),
                 child: Text(context.l10n.resetDefaults),
-              ),
-              TextButton(
-                onPressed: disabled
-                    ? null
-                    : () => preset(provider, MetadataServers.official),
-                child: Text(context.l10n.officialServers),
               ),
             ],
           ),

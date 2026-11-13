@@ -21,6 +21,7 @@ import java.io.IOException
 
 class MainActivity : FlutterActivity() {
     private var previousOrientation: Int? = null
+    private var playbackFullscreen = false
     private var previousBarsBehavior = 0
     private var visibleBars = 0
     private var audioFocusChannel: MethodChannel? = null
@@ -64,6 +65,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        endPlaybackWindow()
         abandonPlaybackAudioFocus()
         audioFocusChannel?.setMethodCallHandler(null)
         audioFocusChannel = null
@@ -75,28 +77,32 @@ class MainActivity : FlutterActivity() {
         val controller = WindowCompat.getInsetsController(window, decor)
         val bars = WindowInsetsCompat.Type.systemBars()
         if (enabled) {
-            if (previousOrientation == null) {
-                previousOrientation = requestedOrientation
+            if (!playbackFullscreen) {
+                playbackFullscreen = true
                 previousBarsBehavior = controller.systemBarsBehavior
                 val insets = androidx.core.view.ViewCompat.getRootWindowInsets(decor)
                 visibleBars = listOf(WindowInsetsCompat.Type.statusBars(), WindowInsetsCompat.Type.navigationBars())
                     .filter { insets?.isVisible(it) != false }.fold(0, Int::or)
-                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             }
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             controller.hide(bars)
         } else {
-            val orientation = previousOrientation ?: return
-            previousOrientation = null
-            requestedOrientation = orientation
+            if (!playbackFullscreen) return
+            playbackFullscreen = false
             controller.systemBarsBehavior = previousBarsBehavior
             controller.show(visibleBars)
         }
     }
 
+    private fun endPlaybackWindow() {
+        setPlaybackFullscreen(false)
+        previousOrientation?.let { requestedOrientation = it }
+        previousOrientation = null
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus && previousOrientation != null) setPlaybackFullscreen(true)
+        if (hasFocus && playbackFullscreen) setPlaybackFullscreen(true)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -161,11 +167,32 @@ class MainActivity : FlutterActivity() {
         flutterEngine.platformViewsController.registry.registerViewFactory(
             "ccplayer/android_surface", AndroidVideoSurfaceFactory(messenger))
         MethodChannel(messenger, "ccplayer/playback_window").setMethodCallHandler { call, result ->
-            if (call.method == "fullscreen" && call.arguments is Boolean) {
-                setPlaybackFullscreen(call.arguments as Boolean)
-                result.success(null)
-            } else {
-                result.notImplemented()
+            when (call.method) {
+                "begin" -> {
+                    if (previousOrientation == null) {
+                        previousOrientation = requestedOrientation
+                        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                    }
+                    result.success(null)
+                }
+                "orientationLocked" -> {
+                    val locked = call.arguments as? Boolean
+                    if (locked == null || previousOrientation == null) {
+                        result.error("playback_inactive", "Playback window is unavailable", null)
+                    } else {
+                        // LOCKED preserves the exact current orientation, including
+                        // reverse portrait/landscape; no device-name heuristics.
+                        requestedOrientation = if (locked) ActivityInfo.SCREEN_ORIENTATION_LOCKED
+                            else ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                        result.success(locked)
+                    }
+                }
+                "fullscreen" -> {
+                    setPlaybackFullscreen(call.arguments == true)
+                    result.success(null)
+                }
+                "end" -> { endPlaybackWindow(); result.success(null) }
+                else -> result.notImplemented()
             }
         }
         MethodChannel(messenger, "ccplayer/mpv_profile", StandardMethodCodec.INSTANCE,

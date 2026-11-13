@@ -12,10 +12,16 @@ import 'package:flutter/material.dart';
 import 'konata_motion.dart';
 import '../core/catalog.dart';
 import '../core/detail_metadata.dart';
+import '../core/scan_recognition.dart';
+import '../core/scoped_artwork.dart';
+import '../core/scrape_task_runner.dart';
+import 'scoped_artwork_dialog.dart';
+import 'chapter_relations_page.dart';
 import '../core/episode_grouping.dart';
 import '../core/cloud_media_asset_presentation.dart';
 import 'nipaplay_style.dart';
 import 'horizontal_rail.dart';
+import '../core/app_language.dart';
 import 'watch_page.dart';
 
 /// CCPlayer adaptation of the NipaPlay Personal detail screen.
@@ -28,10 +34,14 @@ class NipaPlayDetailPage extends StatefulWidget {
     required this.onEditCover,
     required this.onDelete,
     required this.onBack,
+    this.onEditPartMetadata,
+    this.standalonePart,
   });
   final Map<String, Object?> work;
+  final Map<String, Object?>? standalonePart;
   final List<Map<String, Object?>> assets;
   final VoidCallback onEditMetadata, onEditCover, onDelete, onBack;
+  final Future<void> Function(String binding)? onEditPartMetadata;
   @override
   State<NipaPlayDetailPage> createState() => _NipaPlayDetailPageState();
 }
@@ -43,12 +53,27 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
   String section = 'main';
   String extraFilter = '全部';
   int generation = 0;
+  int? backdropGeneration;
+  int? synopsisIndex;
+  String? _overviewLanguage;
+  final _localizedOverviews = <(int, String, int?, String), String?>{};
+  (int, int, int, String)? _specialTitleKey;
+  Future<String?>? _specialTitle;
   final rail = ScrollController();
 
   @override
   void initState() {
     super.initState();
     ArtworkSettings.instance.addListener(_artworkChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    Localizations.localeOf(context);
+    final language = AppLanguage.instance.metadataLanguage;
+    if (_overviewLanguage == language) return;
+    _overviewLanguage = language;
     refresh();
   }
 
@@ -57,6 +82,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     super.didUpdateWidget(old);
     if (Catalog.detailIdentity(old.work) !=
             Catalog.detailIdentity(widget.work) ||
+        (Catalog.instance.recognitionEnabled && old.work != widget.work) ||
         old.work['id'] != widget.work['id'] ||
         old.assets
                 .map(
@@ -90,6 +116,39 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
   Future<void> refresh({bool force = false}) async {
     final seq = ++generation;
     final cat = Catalog.instance;
+    final recognized = await ScanRecognition.details(cat, widget.work);
+    if (!mounted || seq != generation) return;
+    if (recognized != null) {
+      final records = await cat.progressForWork(widget.work['id'].toString());
+      if (!mounted || seq != generation) return;
+      setState(() {
+        progress = records;
+        details = recognized;
+        if (widget.standalonePart case final part?) {
+          details['recognized_title'] = part['title'];
+          details['overview'] = AppLanguage.bangumiSynopsis(part['summary'], _overviewLanguage ?? 'zh-CN');
+          details.remove('recognized_synopses');
+          final files = details['recognized_file_details'] as Map;
+          final file = files[part['asset_id']] as Map?;
+          if (file != null && (_overviewLanguage ?? 'zh-CN').startsWith('zh')) {
+            file['name'] = part['title'];
+          }
+        }
+      });
+      if (recognized['recognized_movie_tmdb'] case final int movieId
+          when recognized['movieStill'] == null) {
+        unawaited(_loadMovieStill(movieId, seq));
+      }
+      unawaited(_refreshStandaloneTitle(seq));
+      if (widget.standalonePart == null && cat.scopedArtworkEnabled) {
+        await _scopedImage(ScopedImage.poster, seq);
+      }
+      if (mounted && seq == generation) {
+        await _refreshLocalizedOverviews(seq);
+        await _refreshBangumiParts(seq);
+      }
+      return;
+    }
     final cached = await cat.readWorkDetails(widget.work);
     final records = await cat.progressForWork(widget.work['id'].toString());
     if (!mounted || seq != generation) return;
@@ -97,6 +156,8 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
       progress = records;
       if (cached != null) {
         details = Map<String, dynamic>.from(cached);
+        if (cached['overview_language'] != _overviewLanguage)
+          details.remove('overview');
         if ((cached['schemaVersion'] as int? ?? 0) < 6 &&
             widget.work['tmdb_type'] == 'movie') {
           details['tags'] = (details['tags'] as List? ?? [])
@@ -111,7 +172,8 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
         fetched != null &&
         DateTime.now().difference(fetched) < const Duration(days: 3) &&
         (cached['schemaVersion'] as int? ?? 0) >=
-            DetailMetadataService.schemaVersion) {
+            DetailMetadataService.schemaVersion &&
+        cached['overview_language'] == _overviewLanguage) {
       return;
     }
     if (widget.work['tmdb_id'] == null && widget.work['bangumi_id'] == null) {
@@ -141,17 +203,266 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     }
   }
 
-  List<EpisodeGroup> get episodeGroups => EpisodeGrouping.main(widget.assets);
+  Future<void> _loadMovieStill(int movieId, int seq) async {
+    final service = DetailMetadataService();
+    try {
+      final still = await service.fetchMovieStill(movieId);
+      if (mounted && seq == generation && still != null) {
+        setState(() => details['movieStill'] = still);
+      }
+    } catch (_) {
+      // The work remains playable when artwork is unavailable.
+    } finally {
+      service.close();
+    }
+  }
+
+  Future<void> _refreshBangumiParts(int seq) async {
+    final parts = (details['recognized_synopses'] as List?)?.whereType<Map>().toList();
+    if (parts == null || parts.isEmpty) return;
+    final service = DetailMetadataService();
+    try {
+      if (parts.length == 1 && parts.single['bangumi_subject'] is int &&
+          details['recognized_split_dates'] is List) {
+        final resolved = await service.bangumiSplitParts(
+          parts.single['bangumi_subject'] as int,
+          (details['recognized_split_dates'] as List).cast<String>(),
+          _overviewLanguage ?? 'zh-CN',
+        );
+        if (mounted && seq == generation && resolved.length == 2) {
+          setState(() => details['recognized_synopses'] = [
+            {...parts.single, ...resolved.first}, resolved.last,
+          ]);
+        }
+        return;
+      }
+      if (parts.length < 2) return;
+      final resolved = await Future.wait(parts.map((part) async {
+        final id = part['bangumi_subject'];
+        if (id is! int || (part['label'] != null && part['poster'] != null)) return part;
+        try {
+          return {...part, ...await service.bangumiPart(id, _overviewLanguage ?? 'zh-CN')};
+        } catch (_) {
+          return part;
+        }
+      }));
+      if (mounted && seq == generation) {
+        setState(() => details['recognized_synopses'] = resolved);
+      }
+    } catch (_) {
+      // Keep the confirmed subject if the sequel cannot be verified.
+    } finally {
+      service.close();
+    }
+  }
+
+  Future<void> _refreshStandaloneTitle(int seq) async {
+    final asset = widget.assets.where((asset) => asset['category'] == 'main').singleOrNull;
+    if (asset == null) return;
+    final assetId = asset['id'];
+    final file = (details['recognized_file_details'] as Map)[assetId] as Map?;
+    final series = details['recognized_tmdb_id'];
+    final episode = file?['special_number'], chapter = file?['localized_special_chapter'];
+    if (series is! int || episode is! int || chapter is! int) return;
+    final language = _overviewLanguage ?? 'zh-CN';
+    final key = (series, episode, chapter, language);
+    if (_specialTitleKey != key) {
+      _specialTitleKey = key;
+      _specialTitle = () async {
+        final service = DetailMetadataService();
+        try {
+          return await service.localizedSpecialTitle(series, episode, chapter, language);
+        } catch (_) {
+          return null;
+        } finally {
+          service.close();
+        }
+      }();
+    }
+    final title = await _specialTitle;
+    if (!mounted || seq != generation || title == null) return;
+    final current = (details['recognized_file_details'] as Map)[assetId] as Map?;
+    if (current != null) setState(() => current['name'] = title);
+  }
+
+  Future<void> _refreshLocalizedOverviews(int seq) async {
+    final language = _overviewLanguage;
+    final parts = (details['recognized_synopses'] as List?)
+        ?.whereType<Map>()
+        .toList();
+    if (language == null ||
+        parts == null ||
+        !parts.any((part) => part['overview_target'] is Map))
+      return;
+    final service = DetailMetadataService();
+    try {
+      final resolved = <Map>[];
+      for (final part in parts) {
+        if (!mounted || seq != generation) return;
+        final target = part['overview_target'];
+        if (target is! Map) {
+          resolved.add(part);
+          continue;
+        }
+        final key = (
+          target['id'] as int,
+          target['type'] as String,
+          target['season'] as int?,
+          language,
+        );
+        try {
+          if (!_localizedOverviews.containsKey(key)) {
+            _localizedOverviews[key] = await service.localizedTmdbOverview(
+              key.$1,
+              key.$2,
+              key.$3,
+              language,
+            );
+          }
+        } catch (_) {
+          // A missing translation or network failure does not affect bindings.
+        }
+        resolved.add({...part, 'summary': _localizedOverviews[key]});
+      }
+      if (mounted && seq == generation)
+        setState(() {
+          details['recognized_synopses'] = resolved;
+          if (details['recognized_overview_mode'] == 'auto') {
+            details['overview'] = resolved.firstOrNull?['summary'];
+          }
+        });
+    } finally {
+      service.close();
+    }
+  }
+
+  Future<void> _scopedImage(ScopedImage kind, int seq) async {
+    final catalog = Catalog.instance;
+    final runner = ScrapeTaskRunner.forCatalog(catalog);
+    final work = widget.work['id'] as String;
+    final field = kind == ScopedImage.poster ? 'poster' : 'backdrop';
+    try {
+      final choice = await runner.artwork.review(work, kind);
+      if (!mounted || seq != generation || choice == null) return;
+      final current = (choice['selected'] as Map?)?['url'];
+      setState(() {
+        details[field] = current;
+        details['${field}_explicit'] =
+            choice['state'] == 'empty' || choice['state'] == 'manual';
+      });
+      if (kind == ScopedImage.poster && widget.work['manual_cover_url'] != null)
+        return;
+      final job = await runner.artwork.enqueue(work, kind);
+      if (job == null || !mounted || seq != generation) return;
+      await runner.run(job);
+      final url = await runner.artwork.displayed(work, kind);
+      if (mounted && seq == generation) setState(() => details[field] = url);
+    } catch (_) {
+      // Existing metadata and user artwork remain available.
+    }
+  }
+
+  Future<void> _editScopedDetails(String action) async {
+    final work = widget.work['id'] as String;
+    try {
+      final updated = action == 'restore-fields'
+          ? await restoreScopedField(context, work)
+          : await editScopedArtwork(context, work, switch (action) {
+              'scoped-cover' => ScopedImage.poster,
+              _ => ScopedImage.backdrop,
+            });
+      if (mounted && updated) await refresh();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              Localizations.localeOf(context).languageCode == 'zh'
+                  ? '资料或图片暂时无法更新，已保留当前选择'
+                  : 'Could not update. The current selection is retained.',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _editMetadata() async {
+    final parts = (details['recognized_synopses'] as List?) ?? const [];
+    final index = synopsisIndex;
+    final binding = index != null && index < parts.length
+        ? parts[index]['binding']
+        : null;
+    if (binding is! String || widget.onEditPartMetadata == null) {
+      widget.onEditMetadata();
+      return;
+    }
+    try {
+      await widget.onEditPartMetadata!(binding);
+      if (mounted) await refresh();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              Localizations.localeOf(context).languageCode == 'zh'
+                  ? '此部分的绑定或资料已变化，请重新打开。'
+                  : 'The part changed. Reopen the editor.',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  bool get hasTelevisionInventory => !isMovie && widget.standalonePart == null &&
+      widget.assets.any((file) => file['category'] == 'main' &&
+          ((file['episode'] as num?) ?? 0) > 0) &&
+      (details['recognized_tmdb_type'] == 'tv' || widget.work['tmdb_type'] == 'tv');
+
+  bool _independentMovie(Map<String, Object?> file) =>
+      hasTelevisionInventory && CloudMediaAssetPresentation.isIndependentMovie(file);
+
+  String get filmsLabel =>
+      Localizations.localeOf(context).languageCode == 'zh' ? '电影' : 'Films';
+
+  List<EpisodeGroup> get episodeGroups => EpisodeGrouping.main(
+    widget.assets.where((file) => !_independentMovie(file)).toList(),
+  );
   List<Map<String, Object?>> get episodes =>
       episodeGroups.map((g) => g.preferred(progress)).toList();
-  List<Map<String, Object?>> get extras => _sorted(
-    'extra',
-  ).where((a) => extraFilter == '全部' || extraType(a) == extraFilter).toList();
-  List<Map<String, Object?>> get allExtras => _sorted('extra');
-  String extraType(Map<String, Object?> asset) =>
-      asset['extra_type']?.toString().isNotEmpty == true
-      ? asset['extra_type'].toString()
-      : CloudMediaAssetPresentation.extraType(asset);
+  List<Map<String, Object?>> get allExtras {
+    final files = widget.assets.where((a) => a['category'] == 'extra').toList();
+    files.sort((a, b) {
+      final first = EpisodeMetadata.isOva(extraType(a));
+      final second = EpisodeMetadata.isOva(extraType(b));
+      if (first != second) return first ? -1 : 1;
+      final an = _extraNumber(a), bn = _extraNumber(b);
+      if (an != bn) {
+        if (an == null) return 1;
+        if (bn == null) return -1;
+        return an.compareTo(bn);
+      }
+      return '${a['name']}'.compareTo('${b['name']}');
+    });
+    return files;
+  }
+
+  int? _extraNumber(Map<String, Object?> asset) =>
+      episodeInfo(asset)['special_number'] as int? ?? asset['episode'] as int?;
+
+  String extraType(Map<String, Object?> asset) {
+    final type = EpisodeMetadata.specialType(episodeInfo(asset)['name']);
+    if (type != null) return type;
+    final stored = asset['extra_type']?.toString();
+    return stored?.isNotEmpty == true
+        ? stored!
+        : CloudMediaAssetPresentation.extraType(asset);
+  }
+
+  bool get isMovie =>
+      details['recognized_movie'] == true ||
+      widget.work['tmdb_type'] == 'movie';
   List<Map<String, Object?>> variantsFor(Map<String, Object?> asset) {
     final id = asset['id']?.toString();
     for (final group in episodeGroups) {
@@ -162,23 +473,29 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     return [asset];
   }
 
-  List<Map<String, Object?>> _sorted(String category) {
-    final all = widget.assets.where((a) => a['category'] == category).toList();
-    all.sort((a, b) {
-      final an = a['episode'] as int?, bn = b['episode'] as int?;
-      if (an != null && bn != null) return an.compareTo(bn);
-      if (an != null) return -1;
-      if (bn != null) return 1;
-      return a['name'].toString().compareTo(b['name'].toString());
-    });
-    return all;
+  Map<String, dynamic> episodeInfo(Map<String, Object?> asset) {
+    if (_independentMovie(asset)) return {};
+    final scoped = details['recognized_file_details'];
+    final info = scoped is Map
+        ? Map<String, dynamic>.from(scoped[asset['id']] as Map? ?? {})
+        : EpisodeMetadata.lookup(widget.work, details, asset);
+    if (isMovie && asset['category'] == 'main') {
+      if (info['blank_still'] != true &&
+          info['still']?.toString().trim().isNotEmpty != true) {
+        info['still'] = details['movieStill'];
+      }
+      info['name'] ??= details['recognized_title'] ?? widget.work['title'];
+    }
+    return info;
   }
 
-  Map<String, dynamic> episodeInfo(Map<String, Object?> asset) =>
-      EpisodeMetadata.lookup(widget.work, details, asset);
-
   String episodeLabel(Map<String, Object?> asset) {
+    if (_independentMovie(asset)) return filmsLabel;
     final n = asset['episode'];
+    if (asset['category'] == 'extra') {
+      final type = extraType(asset);
+      if (EpisodeMetadata.isOva(type)) return type;
+    }
     return asset['category'] == 'extra'
         ? (extraType(asset) == '其他'
                   ? context.l10n.otherExtra
@@ -191,7 +508,14 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
 
   String episodeTitle(Map<String, Object?> asset) {
     final metadataTitle = episodeInfo(asset)['name']?.toString().trim();
-    if (metadataTitle?.isNotEmpty == true) return metadataTitle!;
+    if (metadataTitle?.isNotEmpty == true) {
+      if (asset['category'] != 'extra' ||
+          !EpisodeMetadata.isOva(extraType(asset))) {
+        return metadataTitle!;
+      }
+      final title = EpisodeMetadata.specialTitle(metadataTitle!);
+      if (title.isNotEmpty) return title;
+    }
     if (asset['category'] == 'extra') {
       final label = extraCoverLabel(asset);
       final names = {
@@ -222,10 +546,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
       final number = RegExp(r'\d+[A-Za-z]?$').firstMatch(label)?.group(0);
       return '${names[type] ?? type}${number == null ? '' : ' $number'}';
     }
-    final title = episodeInfo(asset)['name']?.toString().trim();
-    return title?.isNotEmpty == true
-        ? title!
-        : asset['episode'] == null
+    return asset['episode'] == null
         ? asset['name'].toString()
         : episodeLabel(asset);
   }
@@ -328,7 +649,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     double radius = 8,
     Gradient? gradient,
   }) => KonataPoster(
-    tag: 'work-poster-${widget.work['id']}',
+    tag: 'work-poster-${widget.standalonePart?['asset_id'] ?? widget.work['id']}',
     alignment: alignment,
     radius: radius,
     gradient: gradient,
@@ -343,27 +664,73 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     final secondary = text.withValues(alpha: .7),
         muted = text.withValues(alpha: .55);
     final surface = theme.scaffoldBackgroundColor;
-    final title = widget.work['title']?.toString() ?? context.l10n.unnamedWork;
+    final title =
+        details['recognized_title']?.toString() ??
+        widget.work['title']?.toString() ??
+        context.l10n.unnamedWork;
     final posterFallback = widget.work['poster_fallback']?.toString();
-    final poster =
-        Catalog.preferredPoster(widget.work) ?? details['poster']?.toString();
+    final scoped =
+        Catalog.instance.scopedArtworkEnabled &&
+        details['recognized_work'] != null;
+    final synopses = (details['recognized_synopses'] as List?) ?? const [];
+    final selectedSynopsis = synopsisIndex ?? (synopses.length > 1 ? 0 : -1);
+    final part = selectedSynopsis < 0 || selectedSynopsis >= synopses.length
+        ? null : synopses[selectedSynopsis];
+    final poster = widget.standalonePart?['poster']?.toString() ?? part?['poster']?.toString() ?? (
+        scoped &&
+            (details['poster_explicit'] == true || details['poster'] != null)
+        ? details['poster']?.toString()
+        : Catalog.preferredPoster(widget.work) ?? details['poster']?.toString());
     final backdrop = details['backdrop']?.toString().isNotEmpty == true
         ? details['backdrop']?.toString()
+        : scoped
+        ? null
         : poster;
     final rawOverview = widget.work['overview']?.toString().trim();
-    final overview = rawOverview?.isNotEmpty == true
-        ? rawOverview!
+    final overviewMode = details['recognized_overview_mode'];
+    final overview = part != null
+        ? (part['summary'] as String? ?? '')
+        : overviewMode == 'manual' || overviewMode == 'empty'
+        ? rawOverview ?? ''
+        : scoped
+        ? details['overview']?.toString() ?? ''
+        : widget.work['manual_lock'] == 1 || details['overview'] == null
+        ? rawOverview ?? ''
         : details['overview']?.toString() ?? '';
     final tags = (details['tags'] as List? ?? [])
         .map((e) => e.toString())
         .toList();
-    final selected = section == 'main' ? episodes : extras;
-    final typeNames = allExtras.map(extraType).toSet().toList()..sort();
+    final extraFiles = allExtras;
+    final movies = widget.assets.where(_independentMovie).toList();
+    final kinds = extraFiles.map(extraType).toSet();
+    final typeNames = [
+      for (final type in ['OVA', 'OAD'])
+        if (kinds.remove(type)) type,
+      ...(kinds.toList()..sort()),
+    ];
+    final selected = switch (section) {
+      'movies' when movies.isNotEmpty => movies,
+      'extra' => extraFiles
+          .where((a) => extraFilter == '全部' || extraType(a) == extraFilter)
+          .toList(),
+      _ => episodes,
+    };
     return Scaffold(
       backgroundColor: surface,
       body: LayoutBuilder(
         builder: (ctx, size) {
           final wide = size.maxWidth >= 650, desktop = size.maxWidth >= 1100;
+          if (scoped &&
+              wide &&
+              size.maxHeight >= 500 &&
+              ArtworkSettings.instance.backdrop &&
+              backdropGeneration != generation) {
+            final seq = backdropGeneration = generation;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && seq == generation)
+                unawaited(_scopedImage(ScopedImage.backdrop, seq));
+            });
+          }
           final showBackdrop =
               ArtworkSettings.instance.backdrop &&
               wide &&
@@ -390,7 +757,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                     backdrop,
                     artwork: ManagedArtwork.backdrop,
                     alignment: Alignment.topCenter,
-                    fallbackUrl: posterFallback,
+                    fallbackUrl: scoped ? null : posterFallback,
                   ),
                 ),
                 Positioned.fill(
@@ -535,6 +902,8 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                                             .toList(),
                                     work: {
                                       ...widget.work,
+                                      ...?(details['recognized_people']
+                                          as Map<String, Object?>?),
                                       'original_language':
                                           details['original_language'],
                                       'origin_country':
@@ -572,11 +941,20 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                                               episodes.length,
                                               muted,
                                             ),
+                                            if (movies.isNotEmpty) ...[
+                                              const SizedBox(width: 22),
+                                              sectionTab(
+                                                'movies',
+                                                filmsLabel,
+                                                movies.length,
+                                                muted,
+                                              ),
+                                            ],
                                             const SizedBox(width: 22),
                                             sectionTab(
                                               'extra',
                                               context.l10n.extraFiles,
-                                              allExtras.length,
+                                              extraFiles.length,
                                               muted,
                                             ),
                                           ],
@@ -772,7 +1150,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                               ),
                             ),
                             const Spacer(),
-                            PopupMenuButton<String>(
+                            if (widget.standalonePart == null) PopupMenuButton<String>(
                               key: const ValueKey('detail-more-button'),
                               tooltip: context.l10n.moreActions,
                               style: IconButton.styleFrom(
@@ -795,7 +1173,7 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                               ),
                               onSelected: (value) {
                                 if (value == 'metadata') {
-                                  widget.onEditMetadata();
+                                  unawaited(_editMetadata());
                                 }
                                 if (value == 'manual') {
                                   Navigator.of(context).push(
@@ -807,7 +1185,34 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                                     ),
                                   );
                                 }
-                                if (value == 'cover') widget.onEditCover();
+                                if (value == 'cover') {
+                                  if (scoped &&
+                                      (details['recognized_work'] as int? ??
+                                              0) >
+                                          0) {
+                                    unawaited(
+                                      _editScopedDetails('scoped-cover'),
+                                    );
+                                  } else {
+                                    widget.onEditCover();
+                                  }
+                                }
+                                if (value == 'chapter-relations') {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => ChapterRelationsPage(
+                                        work: widget.work['id'] as String,
+                                      ),
+                                    ),
+                                  );
+                                }
+                                if ([
+                                  'scoped-cover',
+                                  'scoped-backdrop',
+                                  'restore-fields',
+                                ].contains(value)) {
+                                  unawaited(_editScopedDetails(value));
+                                }
                                 if (value == 'delete') widget.onDelete();
                               },
                               itemBuilder: (_) => [
@@ -832,6 +1237,42 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                                     title: Text(context.l10n.editCover),
                                   ),
                                 ),
+                                if (scoped) ...[
+                                  PopupMenuItem(
+                                    value: 'scoped-backdrop',
+                                    child: Text(
+                                      Localizations.localeOf(
+                                                context,
+                                              ).languageCode ==
+                                              'zh'
+                                          ? '选择范围背景'
+                                          : 'Choose scoped backdrop',
+                                    ),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'restore-fields',
+                                    child: Text(
+                                      Localizations.localeOf(
+                                                context,
+                                              ).languageCode ==
+                                              'zh'
+                                          ? '恢复自动资料'
+                                          : 'Restore automatic fields',
+                                    ),
+                                  ),
+                                ],
+                                if (Catalog.instance.chapterRelationsEnabled)
+                                  PopupMenuItem(
+                                    value: 'chapter-relations',
+                                    child: Text(
+                                      Localizations.localeOf(
+                                                context,
+                                              ).languageCode ==
+                                              'zh'
+                                          ? '章节与版本'
+                                          : 'Chapters and editions',
+                                    ),
+                                  ),
                                 PopupMenuDivider(),
                                 PopupMenuItem(
                                   value: 'delete',
@@ -866,9 +1307,9 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     bool desktop, {
     bool fullWidthPlay = false,
   }) {
-    final year =
-        widget.work['year']?.toString() ??
-        details['year']?.toString().split('-').first;
+    final year = widget.standalonePart == null
+        ? widget.work['year']?.toString() ?? details['year']?.toString().split('-').first
+        : widget.standalonePart?['year']?.toString();
     final current = resume;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -882,6 +1323,25 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
           ),
         ),
         const SizedBox(height: 12),
+        if ((details['recognized_synopses'] as List?)?.length case final count?
+            when count > 1)
+          Wrap(
+            spacing: 4,
+            children: [
+              for (var i = 0; i < count; i++)
+                if ((details['recognized_synopses'] as List)[i]['label'] is String)
+                ChoiceChip(
+                  label: Text(
+                    (details['recognized_synopses'] as List)[i]['label'] as String,
+                  ),
+                  selected: (synopsisIndex ?? 0) == i,
+                  onSelected: (selected) => setState(() {
+                    synopsisIndex = selected ? i : null;
+                    expandedSummary = false;
+                  }),
+                ),
+            ],
+          ),
         Wrap(
           spacing: 18,
           runSpacing: 6,
@@ -944,24 +1404,84 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
           ),
         ],
         const SizedBox(height: 16),
-        Text(
-          overview.isNotEmpty ? overview : context.l10n.noSynopsis,
-          maxLines: expandedSummary ? null : 5,
-          overflow: expandedSummary
-              ? TextOverflow.visible
-              : TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 14, color: secondary, height: 1.8),
-        ),
-        if (overview.length > 180)
-          TextButton(
-            onPressed: () => setState(() => expandedSummary = !expandedSummary),
-            child: Text(
-              expandedSummary
-                  ? context.l10n.collapseSynopsis
-                  : context.l10n.expandSynopsis,
-            ),
-          ),
+        _synopsis(overview, secondary),
       ],
+    );
+  }
+
+  Widget _synopsis(String overview, Color color) {
+    const collapsedLines = 5;
+    final style = TextStyle(fontSize: 14, color: color, height: 1.8);
+    if (overview.isEmpty) return Text(context.l10n.noSynopsis, style: style);
+
+    return LayoutBuilder(
+      builder: (context, bounds) {
+        final defaults = DefaultTextStyle.of(context);
+        final span = TextSpan(
+          text: overview,
+          style: defaults.style
+              .merge(style)
+              .copyWith(
+                fontWeight: MediaQuery.boldTextOf(context)
+                    ? FontWeight.bold
+                    : null,
+                height: MediaQuery.maybeLineHeightScaleFactorOverrideOf(
+                  context,
+                ),
+                letterSpacing: MediaQuery.maybeLetterSpacingOverrideOf(context),
+                wordSpacing: MediaQuery.maybeWordSpacingOverrideOf(context),
+              ),
+        );
+        final direction = Directionality.of(context);
+        final scaler = MediaQuery.textScalerOf(context);
+        final locale = Localizations.maybeLocaleOf(context);
+        final align = defaults.textAlign ?? TextAlign.start;
+        final heightBehavior =
+            defaults.textHeightBehavior ??
+            DefaultTextHeightBehavior.maybeOf(context);
+        final painter = TextPainter(
+          text: span,
+          textDirection: direction,
+          textScaler: scaler,
+          locale: locale,
+          textAlign: align,
+          textWidthBasis: defaults.textWidthBasis,
+          textHeightBehavior: heightBehavior,
+          maxLines: collapsedLines,
+          ellipsis: '…',
+        )..layout(maxWidth: bounds.maxWidth);
+        final canExpand = painter.didExceedMaxLines;
+        painter.dispose();
+        final showFullText = canExpand && expandedSummary;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            RichText(
+              text: span,
+              textDirection: direction,
+              textScaler: scaler,
+              locale: locale,
+              textAlign: align,
+              textWidthBasis: defaults.textWidthBasis,
+              textHeightBehavior: heightBehavior,
+              maxLines: showFullText ? null : collapsedLines,
+              overflow: showFullText
+                  ? TextOverflow.visible
+                  : TextOverflow.ellipsis,
+            ),
+            if (canExpand)
+              TextButton(
+                onPressed: () =>
+                    setState(() => expandedSummary = !expandedSummary),
+                child: Text(
+                  showFullText
+                      ? context.l10n.collapseSynopsis
+                      : context.l10n.expandSynopsis,
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 
@@ -999,8 +1519,17 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
 
   Widget episodeTile(Map<String, Object?> asset, Color secondary) {
     // TV uses episode stills; a movie main feature uses landscape work artwork.
-    final still = episodeInfo(asset)['still']?.toString();
-    final placeholder = episodeCover(asset);
+    final info = episodeInfo(asset);
+    final still = info['still']?.toString();
+    final showLabel =
+        !(isMovie && asset['category'] == 'main' && episodes.length == 1);
+    final ova =
+        asset['category'] == 'extra' && EpisodeMetadata.isOva(extraType(asset));
+    final placeholder = episodeCover(
+      asset,
+      blank: info['blank_still'] == true || _independentMovie(asset),
+      showLabel: showLabel && !ova,
+    );
     final ratio = fraction(asset);
     final status = ratio == 0
         ? context.l10n.unwatchedStatus
@@ -1034,13 +1563,20 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
                               fit: StackFit.expand,
                               children: [
                                 child,
-                                Positioned(
-                                  top: 7,
-                                  left: 7,
-                                  child: badge(episodeLabel(asset)),
-                                ),
+                                if (showLabel && !ova)
+                                  Positioned(
+                                    top: 7,
+                                    left: 7,
+                                    child: badge(episodeLabel(asset)),
+                                  ),
                               ],
                             ),
+                    ),
+                  if (ova)
+                    Positioned(
+                      top: 7,
+                      left: 7,
+                      child: badge(episodeLabel(asset)),
                     ),
                   Positioned(
                     top: 7,
@@ -1110,14 +1646,23 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
     return '$type ${(number ?? asset['episode']?.toString() ?? '${index + 1}').padLeft(2, '0')}';
   }
 
-  Widget episodeCover(Map<String, Object?> asset) {
-    final art = [
-      details['backdrop'],
-      Catalog.preferredPoster(widget.work),
-      widget.work['poster'],
-      details['poster'],
-      widget.work['poster_fallback'],
-    ].whereType<String>().where((url) => url.trim().isNotEmpty).firstOrNull;
+  Widget episodeCover(
+    Map<String, Object?> asset, {
+    bool blank = false,
+    required bool showLabel,
+  }) {
+    final art = blank
+        ? null
+        : [
+                details['backdrop'],
+                Catalog.preferredPoster(widget.work),
+                widget.work['poster'],
+                details['poster'],
+                widget.work['poster_fallback'],
+              ]
+              .whereType<String>()
+              .where((url) => url.trim().isNotEmpty)
+              .firstOrNull;
     final surface = Theme.of(context).colorScheme.surfaceContainerLow;
     return Stack(
       key: ValueKey('detail-episode-placeholder:${asset['relative_path']}'),
@@ -1163,26 +1708,27 @@ class _NipaPlayDetailPageState extends State<NipaPlayDetailPage> {
               ),
             ),
           ),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 22),
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                asset['category'] == 'extra'
-                    ? extraCoverLabel(asset)
-                    : episodeLabel(asset),
-                style: TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 1.2,
-                  color: Theme.of(context).colorScheme.onSurface,
+        if (showLabel)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 22),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  asset['category'] == 'extra'
+                      ? extraCoverLabel(asset)
+                      : episodeLabel(asset),
+                  style: TextStyle(
+                    fontSize: 30,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.2,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
                 ),
               ),
             ),
           ),
-        ),
       ],
     );
   }

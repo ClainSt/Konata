@@ -62,7 +62,17 @@ void main() {
       MetadataHttp.cacheDirectory = null;
       final selected = const String.fromEnvironment(
         'CANDIDATE_IDS',
-      ).split(',').map(int.parse).toSet();
+      ).split(',').where((s) => s.isNotEmpty).map(int.parse).toSet();
+      const remaining = String.fromEnvironment('CANDIDATE_REMAINING');
+      final remainingFolders = <String>{};
+      if (remaining.isNotEmpty) {
+        for (final name in ['unmatched', 'conflicts', 'network-errors']) {
+          final rows =
+              jsonDecode(await File('$remaining/$name.json').readAsString())
+                  as List;
+          remainingFolders.addAll(rows.map((r) => r['folder'] as String));
+        }
+      }
       final groups = <String, List<Map<String, Object?>>>{};
       for (final row
           in (jsonDecode(await File(input).readAsString()) as List)
@@ -79,7 +89,9 @@ void main() {
           localRootName: '',
         );
         if (decision == null ||
-            !selected.contains(Catalog.tmdbId(decision.folder))) {
+            !(remaining.isEmpty
+                ? selected.contains(Catalog.tmdbId(decision.folder))
+                : remainingFolders.contains(decision.folder))) {
           continue;
         }
         (groups[decision.folder] ??= []).add({
@@ -91,80 +103,124 @@ void main() {
       }
       final report = File(output);
       await report.parent.create(recursive: true);
-      final sink = report.openWrite();
+      final finished = <String>{};
+      if (remaining.isNotEmpty && await report.exists()) {
+        for (final line in await report.readAsLines()) {
+          if (line.trim().isNotEmpty) {
+            finished.add((jsonDecode(line) as Map)['folder'] as String);
+          }
+        }
+      }
+      final sink = report.openWrite(
+        mode: remaining.isEmpty ? FileMode.write : FileMode.append,
+      );
+      Future<void> writing = Future.value();
+      Future<void> recordRow(Map<String, Object?> row) {
+        return writing = writing.then((_) async {
+          sink.writeln(jsonEncode(row));
+          await sink.flush();
+        });
+      }
+
       try {
         const compare = bool.fromEnvironment('CANDIDATE_AB');
         for (var round = 0; round < (compare ? 2 : 1); round++) {
-          for (final entry in groups.entries) {
-            for (final enabled
-                in (compare
-                    ? (round == 0 ? [false, true] : [true, false])
-                    : [true])) {
-              const offlinePath = String.fromEnvironment('BANGUMI_INDEX');
-              final observed = _ObservedClient();
-              final transport = MetadataHttp(inner: observed, fresh: compare);
-              final scraper = PersonalMetadataScraper(
-                client: transport,
-                offlineIndex: !enabled || offlinePath.isEmpty
-                    ? null
-                    : BangumiOfflineIndex(Directory(offlinePath)),
-              );
-              final watch = Stopwatch()..start();
-              Map<String, Object?> metrics() => {
-                'round': round + 1,
-                'offline': enabled && offlinePath.isNotEmpty,
-                'requests': observed.requests,
-                'searches': observed.searches,
-                'transportFailures': observed.failures,
-                'httpStatuses': observed.statuses,
-              };
-              try {
-                final rawTitle = entry.key.split('/').last;
-                final results = await scraper.classify({
-                  'title': const bool.fromEnvironment('CANDIDATE_NO_ID')
-                      ? PersonalFilenameParser.withoutTmdbMarkers(rawTitle)
-                      : rawTitle,
-                }, entry.value);
-                final counts = <String, int>{};
-                final samples = <String, String>{};
-                for (final file in entry.value) {
-                  final match = results[file['id']];
-                  final key = match == null
-                      ? 'pending'
-                      : '${match.tmdbType}:${match.tmdbId}|bgm:${match.bangumiId}|${match.title}';
-                  counts.update(key, (v) => v + 1, ifAbsent: () => 1);
-                  samples.putIfAbsent(key, () => '${file['name']}');
+          final queue = groups.entries
+              .where((e) => !finished.contains(e.key))
+              .iterator;
+          Future<void> worker() async {
+            while (queue.moveNext()) {
+              final entry = queue.current;
+              for (final enabled
+                  in (compare
+                      ? (round == 0 ? [false, true] : [true, false])
+                      : [true])) {
+                const offlinePath = String.fromEnvironment('BANGUMI_INDEX');
+                final observed = _ObservedClient();
+                final transport = MetadataHttp(inner: observed, fresh: compare);
+                final scraper = PersonalMetadataScraper(
+                  client: transport,
+                  offlineIndex: !enabled || offlinePath.isEmpty
+                      ? null
+                      : BangumiOfflineIndex(Directory(offlinePath)),
+                );
+                final watch = Stopwatch()..start();
+                Map<String, Object?> metrics() => {
+                  'round': round + 1,
+                  'offline': enabled && offlinePath.isNotEmpty,
+                  'requests': observed.requests,
+                  'searches': observed.searches,
+                  'transportFailures': observed.failures,
+                  'httpStatuses': observed.statuses,
+                };
+                try {
+                  final rawTitle = entry.key.split('/').last;
+                  final reasons = <String, String>{};
+                  final results = await scraper.classify(
+                    {
+                      'title': const bool.fromEnvironment('CANDIDATE_NO_ID')
+                          ? PersonalFilenameParser.withoutTmdbMarkers(rawTitle)
+                          : rawTitle,
+                    },
+                    entry.value,
+                    reasons: reasons,
+                  );
+                  final counts = <String, int>{};
+                  final samples = <String, String>{};
+                  for (final file in entry.value) {
+                    final match = results[file['id']];
+                    final key = match == null
+                        ? 'pending'
+                        : '${match.tmdbType}:${match.tmdbId}|bgm:${match.bangumiId}|${match.title}';
+                    counts.update(key, (v) => v + 1, ifAbsent: () => 1);
+                    samples.putIfAbsent(key, () => '${file['name']}');
+                  }
+                  final record = {
+                    ...metrics(),
+                    'folder': entry.key,
+                    'files': entry.value.length,
+                    'ms': watch.elapsedMilliseconds,
+                    'decisions': counts,
+                    'samples': samples,
+                    'reasonCounts': {
+                      for (final reason in reasons.values.toSet())
+                        reason: reasons.values.where((r) => r == reason).length,
+                    },
+                  };
+                  await recordRow(record);
+                  // ignore: avoid_print
+                  print('CANDIDATE_VERIFICATION ${jsonEncode(record)}');
+                } catch (error) {
+                  final record = {
+                    ...metrics(),
+                    'folder': entry.key,
+                    'files': entry.value.length,
+                    'ms': watch.elapsedMilliseconds,
+                    'error': error.runtimeType.toString(),
+                    'reasonCounts': {
+                      observed.failures > 0 ||
+                                  observed.statuses.keys.any(
+                                    (s) => int.parse(s) >= 400 && s != '404',
+                                  )
+                              ? 'network_incomplete'
+                              : 'processing_error':
+                          entry.value.length,
+                    },
+                  };
+                  await recordRow(record);
+                  // ignore: avoid_print
+                  print('CANDIDATE_ERROR ${jsonEncode(record)}');
+                } finally {
+                  scraper.close();
+                  transport.close();
                 }
-                final record = {
-                  ...metrics(),
-                  'folder': entry.key,
-                  'files': entry.value.length,
-                  'ms': watch.elapsedMilliseconds,
-                  'decisions': counts,
-                  'samples': samples,
-                };
-                sink.writeln(jsonEncode(record));
-                await sink.flush();
-                // ignore: avoid_print
-                print('CANDIDATE_VERIFICATION ${jsonEncode(record)}');
-              } catch (error) {
-                final record = {
-                  ...metrics(),
-                  'folder': entry.key,
-                  'files': entry.value.length,
-                  'ms': watch.elapsedMilliseconds,
-                  'error': error.runtimeType.toString(),
-                };
-                sink.writeln(jsonEncode(record));
-                await sink.flush();
-                // ignore: avoid_print
-                print('CANDIDATE_ERROR ${jsonEncode(record)}');
-              } finally {
-                scraper.close();
-                transport.close();
               }
             }
           }
+
+          await Future.wait(
+            List.generate(remaining.isEmpty ? 1 : 4, (_) => worker()),
+          );
         }
       } finally {
         await sink.close();
@@ -172,7 +228,7 @@ void main() {
         Metadata.apiKey = '';
       }
     },
-    timeout: const Timeout(Duration(hours: 2)),
+    timeout: const Timeout(Duration(hours: 12)),
     skip:
         const String.fromEnvironment('CLOUD_INVENTORY').isEmpty ||
         const String.fromEnvironment('CANDIDATE_OUTPUT').isEmpty,

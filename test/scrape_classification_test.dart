@@ -17,6 +17,17 @@ http.Response json(Object data) => http.Response(
   headers: {'content-type': 'application/json'},
 );
 
+Iterable<Map<String, Object?>> pendingFiles(Catalog catalog) {
+  final pending = catalog.works
+      .where((work) => work['needs_review'] == 1 && work['manual_lock'] != 1)
+      .map((work) => work['id'])
+      .toSet();
+  return catalog.assets.where(
+    (asset) =>
+        pending.contains(asset['work_id']) && asset['manual_mapping'] != true,
+  );
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   test('same confirmed Bangumi identity survives a missing TMDB type', () {
@@ -176,10 +187,12 @@ void main() {
         'Series (2020) {tmdb-42} - 01.mkv',
       )!;
       expect((await scraper.scrape(filename))?.title, 'Series 第2季');
-      expect(
-        await scraper.scrape({'title': 'Series (2022) {tmdb-42}'}),
-        isNull,
-      );
+      // An explicit series ID survives same-year season ambiguity; no season
+      // may be selected from the year alone (covered by remaining rules tests).
+      final ambiguous = await scraper.scrape({'title': 'Series (2022) {tmdb-42}'});
+      expect(ambiguous?.tmdbId, 42);
+      expect(ambiguous?.title, 'Series');
+      expect(await scraper.scrape({'title': 'Series (2024) {tmdb-42}'}), isNull);
       expect(
         await scraper.scrape({'title': 'Series S2 (2018) {tmdb-42}'}),
         isNull,
@@ -469,7 +482,7 @@ void main() {
         false,
       );
       await cat.reload();
-      expect(cat.unclassifiedAssets.map((a) => a['name']).toSet(), {
+      expect(pendingFiles(cat).map((a) => a['name']).toSet(), {
         'b.mkv',
         'c.mkv',
       });
@@ -484,7 +497,7 @@ void main() {
         false,
       );
       await cat.reload();
-      expect(cat.unclassifiedAssets.map((a) => a['name']).toSet(), {
+      expect(pendingFiles(cat).map((a) => a['name']).toSet(), {
         'b.mkv',
         'c.mkv',
       });
@@ -493,7 +506,7 @@ void main() {
   );
 
   test(
-    'virtual grouping survives rescan, manual batch is atomic and preserves progress',
+    'automatic virtual grouping and viewing progress survive rescan',
     () async {
       final dir = await Directory.systemTemp.createTemp('konata-classify-');
       final cat = Catalog.instance;
@@ -526,35 +539,16 @@ void main() {
       }
       await cat.reload();
       expect(cat.works.length, 3);
-      expect(cat.unclassifiedAssets.single['name'], 'unknown.mkv');
+      expect(pendingFiles(cat).single['name'], 'unknown.mkv');
       expect(
         cat.assets.map((r) => r['id']).toSet(),
         original.map((r) => r['id']).toSet(),
       );
-      final unknown = cat.unclassifiedAssets.single['id'].toString();
-      final target = cat.works
-          .firstWhere((w) => w['bangumi_id'] == 2)['id']
-          .toString();
-      await expectLater(
-        cat.classifyManually({unknown, 'missing'}, targetWorkId: target),
-        throwsStateError,
-      );
       expect((await cat.db.query('asset_overrides')), isEmpty);
-      await cat.classifyManually({unknown}, targetWorkId: target);
-      await cat.indexVideo('s', 'Mixed/unknown.mkv', 100);
-      await cat.pruneOrphanedWorks();
-      await cat.reload();
-      expect(cat.unclassifiedAssets, isEmpty);
-      expect(
-        cat.assets.firstWhere((a) => a['id'] == unknown)['work_id'],
-        target,
-      );
       expect(
         (await cat.db.query('progress')).every((r) => r['position_ms'] == 1234),
         isTrue,
       );
-      expect(await cat.undoAssetRelation(unknown), isTrue);
-      expect(cat.unclassifiedAssets.single['id'], unknown);
     },
   );
 

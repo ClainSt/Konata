@@ -77,3 +77,37 @@ and prevents pending reads from waiting for the ordinary polling deadline.
 and future reads/response waiters, and checks buffered EOF/truncation. Existing
 real-loopback EOF, stream cancellation, range and retained-byte tests remain in
 the focused regression. No NAS/device playback was repeated for this patch.
+
+## Failed connection setup owns its transport (2026-11-10)
+
+`SmbConnect.connect` retains transport ownership until both negotiation and
+session setup succeed. A thrown setup error or a false session result closes
+the transport before returning failure; cleanup errors do not replace the
+original failure. A false session result now raises `SmbAuthException` instead
+of returning an unauthenticated connection.
+
+Transport close is safe before socket/reader initialization, shares completion
+across repeated calls, and destroys the socket even if reader cancellation
+throws. A socket that arrives after close is destroyed before installing a
+listener, and a closed transport cannot report its old negotiation as usable.
+This does not change dialect selection, authentication tokens or request retries.
+
+`test/smb_connect_cleanup_test.dart` covers TCP refusal, malformed negotiation,
+partial listener setup, thrown/false authentication results, cleanup failure,
+late TCP completion, repeated close and fresh attempts after failure. Real
+loopback sockets verify peer EOF before test teardown; synthetic authentication
+contexts test ownership, not NTLM interoperability with an actual NAS.
+
+## Respect NO_RETRY after response timeout (2026-11-10)
+
+`SmbTransport.sendrecv` uses one attempt when `RequestParam.NO_RETRY` is present;
+otherwise it retains the existing five-attempt limit. The initial send, response
+timeout, retained payload handling, error types and mutex release are unchanged.
+No late-response parsing or other retry policy is modified.
+
+`test/refactor_baseline_lifecycle_test.dart` replaces the previously recorded
+five-send defect expectation with the authorized single-send behavior. It also
+covers default/empty flags, combined flags, success after a timeout, first-response
+success, non-timeout failures, repeated calls and queued callers. Before the fix,
+the new expectations reproduce the extra sends; after the fix, the focused SMB
+regression passes. Historical baseline reports retain their original results.

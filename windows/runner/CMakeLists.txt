@@ -21,8 +21,18 @@ add_executable(${BINARY_NAME} WIN32
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})
 
+# The runner handles native failures with C++ exceptions/futures. Flutter's
+# no-STL-exceptions default aliases std::exception to stdext::exception, which
+# cannot catch exceptions thrown by the MSVC runtime (e.g. map::at). Keep this
+# correction local to the runner; plugin build settings remain unchanged.
+get_target_property(runner_definitions ${BINARY_NAME} COMPILE_DEFINITIONS)
+list(REMOVE_ITEM runner_definitions "_HAS_EXCEPTIONS=0")
+set_property(TARGET ${BINARY_NAME} PROPERTY COMPILE_DEFINITIONS "${runner_definitions}")
+
 # Normal Release entry with separate path_provider/preferences storage for QA.
-if("$ENV{KONATA_RELEASE_VALIDATION}" STREQUAL "1")
+if("$ENV{KONATA_SCRAPER_PACKAGE}" STREQUAL "1")
+  target_compile_definitions(${BINARY_NAME} PRIVATE "KONATA_SCRAPER_PACKAGE")
+elseif("$ENV{KONATA_RELEASE_VALIDATION}" STREQUAL "1")
   target_compile_definitions(${BINARY_NAME} PRIVATE "KONATA_RELEASE_VALIDATION")
 endif()
 

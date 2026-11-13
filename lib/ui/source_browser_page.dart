@@ -6,6 +6,8 @@ import '../core/local_media.dart';
 import '../core/selected_scan_workflow.dart';
 import '../core/scan_activity.dart';
 import 'scan_progress_dialog.dart';
+import 'scrape_tasks_page.dart';
+import '../core/scrape_task_runner.dart';
 import 'source_access_message.dart';
 
 class BrowserEntry {
@@ -193,30 +195,46 @@ class _SourceBrowserPageState extends State<SourceBrowserPage> {
               child: Divider(height: 1),
             ),
             actions: [
-              AnimatedBuilder(
-                animation: ScanActivityStore.instance,
-                builder: (ctx, _) {
-                  final activity = ScanActivityStore.instance.forSource(
-                    sourceId,
-                  );
-                  final active =
-                      activity?.phase == ScanPhase.scanning ||
-                      activity?.phase == ScanPhase.scraping;
-                  return IconButton(
-                    key: const ValueKey('scan-progress-button'),
-                    tooltip: context.l10n.scanProgress,
-                    icon: active
-                        ? const SizedBox(
-                            width: 23,
-                            height: 23,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.fact_check_outlined),
-                    onPressed: () =>
-                        ScanProgressDialog.show(context, sourceId: sourceId),
-                  );
-                },
-              ),
+              if (catalog.taskStore != null)
+                IconButton(
+                  icon: const Icon(Icons.task_alt),
+                  tooltip: Localizations.localeOf(context).languageCode == 'zh'
+                      ? '刮削任务'
+                      : 'Scraping tasks',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ScrapeTasksPage(
+                        runner: ScrapeTaskRunner.forCatalog(catalog),
+                        sourceId: sourceId,
+                      ),
+                    ),
+                  ),
+                ),
+              if (catalog.taskStore == null)
+                AnimatedBuilder(
+                  animation: ScanActivityStore.instance,
+                  builder: (ctx, _) {
+                    final activity = ScanActivityStore.instance.forSource(
+                      sourceId,
+                    );
+                    final active =
+                        activity?.phase == ScanPhase.scanning ||
+                        activity?.phase == ScanPhase.scraping;
+                    return IconButton(
+                      key: const ValueKey('scan-progress-button'),
+                      tooltip: context.l10n.scanProgress,
+                      icon: active
+                          ? const SizedBox(
+                              width: 23,
+                              height: 23,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.fact_check_outlined),
+                      onPressed: () =>
+                          ScanProgressDialog.show(context, sourceId: sourceId),
+                    );
+                  },
+                ),
             ],
           ),
           body: Padding(

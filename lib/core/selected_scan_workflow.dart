@@ -2,7 +2,9 @@ import 'catalog.dart';
 import 'personal_scrape_coordinator.dart';
 import 'personal_scraper.dart';
 import 'scan_activity.dart';
+import 'scrape_pipeline.dart';
 import 'selected_scanner.dart';
+import 'scrape_task_runner.dart';
 
 /// Runs read-only file indexing followed by TMDB/Bangumi metadata scraping.
 /// The user's temporary folder selections are cleared only after indexing
@@ -13,24 +15,48 @@ class SelectedScanWorkflow {
 
   static Future<void> run(
     Map<String, Object?> source, {
+    ScrapePipeline? pipeline,
     PersonalMetadataScraper? scraper,
   }) async {
     if (_running) throw StateError('其他扫描仍在进行');
     _running = true;
     final sourceId = source['id'].toString();
     final catalog = Catalog.instance;
+    if (catalog.taskStore != null) {
+      try {
+        final runner = ScrapeTaskRunner.forCatalog(catalog);
+        await runner.run(await runner.enqueueScan(sourceId));
+      } finally {
+        _running = false;
+      }
+      return;
+    }
     final store = ScanActivityStore.instance;
     try {
       final result = await SelectedScanner.scanDetailed(source);
       final run = store.forSource(sourceId)!;
       try {
         run.checkCancelled();
-        await PersonalScrapeCoordinator(scraper: scraper).scrapeSource(
-          sourceId,
-          workIds: result.workIds,
-          onlyPending: true,
-          run: run,
-        );
+        if (scraper != null) {
+          await PersonalScrapeCoordinator(scraper: scraper).scrapeSource(
+            sourceId,
+            workIds: result.workIds,
+            onlyPending: true,
+            run: run,
+          );
+        } else {
+          final activePipeline = pipeline ?? ScrapePipeline(catalog: catalog);
+          try {
+            await activePipeline.scrapeSource(
+              sourceId,
+              workIds: result.workIds,
+              onlyPending: true,
+              run: run,
+            );
+          } finally {
+            if (pipeline == null) activePipeline.close();
+          }
+        }
         run.checkCancelled();
         await catalog.clearScanRoots(sourceId);
         store.complete(sourceId);

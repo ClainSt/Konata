@@ -6,7 +6,9 @@ plugins {
 
 val publicKeystore = File(System.getProperty("user.home"), ".ccplayer/ccplayer-release.p12")
 val publicKeyPassword = providers.environmentVariable("CCPLAYER_SIGNING_PASSWORD")
-val isolatedReleaseValidation = providers.environmentVariable("KONATA_RELEASE_VALIDATION").orNull == "1"
+val scraperPackage = providers.environmentVariable("KONATA_SCRAPER_PACKAGE").orNull == "1"
+val isolatedReleaseValidation = scraperPackage ||
+    providers.environmentVariable("KONATA_RELEASE_VALIDATION").orNull == "1"
 
 android {
     namespace = "com.anime.konata"
@@ -20,6 +22,7 @@ android {
 
     defaultConfig {
         applicationId = "com.anime.konata"
+        manifestPlaceholders["konataLabel"] = if (scraperPackage) "Konata Scraper Test" else "Konata"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -44,7 +47,7 @@ android {
         getByName("profile") { applicationIdSuffix = ".profile" }
         release {
             if (isolatedReleaseValidation) {
-                applicationIdSuffix = ".acceptance"
+                applicationIdSuffix = if (scraperPackage) ".scrapervalidation" else ".acceptance"
                 signingConfig = signingConfigs.getByName("debug")
             } else {
                 signingConfig = signingConfigs.getByName("publicRelease")

@@ -15,15 +15,22 @@ class AndroidNativeVideo extends PlatformVideoController {
 
   final ready = Completer<void>();
   Future<void> _pending = Future.value();
+  Future<PlatformVideoController>? _initialization;
+  Future<void>? _closing;
   MethodChannel? _channel;
   int _wid = 0;
+  int _hdrPeak = 0;
   bool _closed = false;
+  bool _notifiersDisposed = false;
   NativePlayer get _native => player.platform as NativePlayer;
 
   Future<void> _set(String key, String value) =>
       _native.setProperty(key, value, waitForInitialization: false);
 
-  Future<PlatformVideoController> initialize() async {
+  Future<PlatformVideoController> initialize() =>
+      _initialization ??= _initialize();
+
+  Future<PlatformVideoController> _initialize() async {
     await player.handle;
     if (_closed) return this;
     for (final entry in {
@@ -46,7 +53,6 @@ class AndroidNativeVideo extends PlatformVideoController {
     // covers callers that dispose the player directly.
     player.platform!.release.add(() async {
       await close();
-      super.dispose();
     });
     return this;
   }
@@ -57,9 +63,10 @@ class AndroidNativeVideo extends PlatformVideoController {
       final next = (state?['wid'] as int?) ?? 0;
       final width = (state?['width'] as int?) ?? 0;
       final height = (state?['height'] as int?) ?? 0;
+      final hdrPeak = (state?['hdrPeak'] as int?) ?? 0;
       if (next != 0 && (width <= 0 || height <= 0)) return;
       final previous = _wid;
-      if (next != 0 && next == previous) {
+      if (next != 0 && next == previous && hdrPeak == _hdrPeak) {
         // surfaceChanged also reports size changes on the existing surface.
         // Recreating the VO here unnecessarily restarts the video decoder.
         await _set('android-surface-size', '${width}x$height');
@@ -74,6 +81,10 @@ class AndroidNativeVideo extends PlatformVideoController {
         await _channel?.invokeMethod<void>('release', previous);
       }
       if (next == 0) return;
+      // Native MPV pairs the actual PQ framebuffer space with rendering before
+      // the first frame. Capability changes rebuild only this output surface.
+      await _set('android-hdr-peak', '$hdrPeak');
+      _hdrPeak = hdrPeak;
       await _set('android-surface-size', '${width}x$height');
       await _set('wid', '$next');
       await _set('vo', 'gpu');
@@ -115,25 +126,52 @@ class AndroidNativeVideo extends PlatformVideoController {
     },
   );
 
-  Future<Map<Object?, Object?>> capture({bool pixels = false}) async =>
+  Future<Map<Object?, Object?>> capture({
+    bool pixels = false,
+    bool packed10 = false,
+  }) async =>
       await _channel?.invokeMapMethod<Object?, Object?>(
         pixels ? 'captureFrame' : 'capturePrecision',
+        {
+          'pq': await _native.getProperty('video-target-params/gamma') == 'pq',
+          'packed10': packed10,
+        },
       ) ??
       {};
 
-  Future<void> close() async {
-    if (_closed) return;
+  Future<void> close() => _closing ??= _close();
+
+  Future<void> _close() async {
     _closed = true;
-    await _pending;
-    // NativePlayer.dispose stops playback before invoking release callbacks.
-    // Its public property API rejects calls once disposed is set.
-    if (!_native.disposed) {
-      await _set('vo', 'null');
-      await _set('wid', '0');
+    try {
+      await _initialization;
+    } catch (_) {
+      // Initialization reports its error to the owner; still clean up output.
     }
-    await _channel?.invokeMethod<void>('releaseAll');
-    _wid = 0;
-    _channel?.setMethodCallHandler(null);
+    try {
+      try {
+        await _pending;
+        // NativePlayer.dispose stops playback before invoking release callbacks.
+        // Its public property API rejects calls once disposed is set.
+        if (!_native.disposed) {
+          await _set('vo', 'null');
+          await _set('wid', '0');
+        }
+      } catch (_) {
+        // Only retry before native references can have been released. A failed
+        // releaseAll may have partially completed and is not safe to replay.
+        _closing = null;
+        rethrow;
+      }
+      await _channel?.invokeMethod<void>('releaseAll');
+      _wid = 0;
+    } finally {
+      _channel?.setMethodCallHandler(null);
+      if (!_notifiersDisposed) {
+        _notifiersDisposed = true;
+        super.dispose();
+      }
+    }
   }
 
   @override

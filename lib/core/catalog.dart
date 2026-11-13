@@ -9,6 +9,15 @@ import 'bangumi_episode_mapping.dart';
 import 'debug_log.dart';
 import 'image_store.dart';
 import 'library_backup_restorer.dart';
+import 'library_foundation.dart';
+import 'scrape_tasks.dart';
+import 'anime_mapping_store.dart';
+import 'incremental_scan.dart';
+import 'scan_recognition.dart';
+import 'scoped_artwork.dart';
+import 'chapter_relations.dart';
+import 'library_merge.dart';
+import 'library_merge_undo.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
@@ -28,6 +37,17 @@ class Catalog extends ChangeNotifier {
   Catalog._();
   static final instance = Catalog._();
   late Database db;
+  bool _foundationEnabled = false;
+  bool get foundationEnabled => _foundationEnabled;
+  ScrapeTasks? taskStore;
+  AnimeMappingStore? mappingStore;
+  bool _recognitionEnabled = false;
+  bool get recognitionEnabled => _recognitionEnabled;
+  bool scopedArtworkEnabled = false;
+  bool chapterRelationsEnabled = false;
+  bool libraryMergeEnabled = false;
+  bool _automaticRecognition = false;
+  bool get automaticRecognition => _automaticRecognition;
   LogicalEpisodeStore get logicalEpisodes => LogicalEpisodeStore(db);
   static const _secrets = FlutterSecureStorage();
   List<Map<String, Object?>> sources = [],
@@ -38,19 +58,92 @@ class Catalog extends ChangeNotifier {
   bool scanning = false;
   String status = '就绪';
 
-  Future<void> initialize({Directory? dataDirectory}) async {
+  Future<void> initialize({
+    Directory? dataDirectory,
+    bool enableFoundation = false,
+    bool enableTasks = false,
+    bool enableMappings = false,
+    bool enableRecognition = false,
+    bool enableScopedArtwork = false,
+    bool enableChapterRelations = false,
+    bool enableLibraryMerge = false,
+    bool enableAutomaticRecognition = false,
+  }) async {
+    if (enableLibraryMerge && !enableChapterRelations) {
+      throw ArgumentError('Library merge requires isolated chapter relations');
+    }
+    if (enableChapterRelations && !enableScopedArtwork) {
+      throw ArgumentError('Chapter relations require isolated scoped details');
+    }
+    if ((enableAutomaticRecognition || enableScopedArtwork) &&
+        !enableRecognition) {
+      throw ArgumentError(
+        'Automatic recognition requires isolated recognition',
+      );
+    }
+    if (enableRecognition && !enableMappings) {
+      throw ArgumentError('Recognition requires isolated mappings');
+    }
+    if (enableMappings &&
+        (!enableTasks || !enableFoundation || dataDirectory == null)) {
+      throw ArgumentError(
+        'Mapping indexes require isolated tasks and foundation',
+      );
+    }
+    mappingStore = null;
+    if (enableTasks && (!enableFoundation || dataDirectory == null)) {
+      throw ArgumentError(
+        'Persistent tasks require an isolated foundation database',
+      );
+    }
+    taskStore?.dispose();
+    taskStore = null;
+    if (enableFoundation && dataDirectory == null) {
+      throw ArgumentError(
+        'Phase 1 requires an explicit isolated data directory',
+      );
+    }
+    _foundationEnabled = enableFoundation;
+    _recognitionEnabled = enableRecognition;
+    scopedArtworkEnabled = enableScopedArtwork;
+    chapterRelationsEnabled = enableChapterRelations;
+    libraryMergeEnabled = enableLibraryMerge;
+    _automaticRecognition = enableAutomaticRecognition;
     if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
       sqfliteFfiInit();
       databaseFactory = databaseFactoryFfi;
     }
     final folder = dataDirectory ?? await getApplicationSupportDirectory();
+    if (enableScopedArtwork) {
+      await ImageStore.close();
+      ImageStore.root = Directory(p.join(folder.path, 'artwork'));
+    }
     BangumiOfflineIndex.directory = Directory(
       p.join(folder.path, 'bangumi_index'),
     );
     await folder.create(recursive: true);
     db = await openDatabase(
       p.join(folder.path, 'ccplayer.db'),
-      version: 18,
+      version: enableLibraryMerge
+          ? 27
+          : enableChapterRelations
+          ? 25
+          : enableScopedArtwork
+          ? 24
+          : enableRecognition
+          ? 23
+          : enableMappings
+          ? 21
+          : enableTasks
+          ? 20
+          : enableFoundation
+          ? 19
+          : 18,
+      onDowngrade: (db, oldVersion, newVersion) async {
+        throw StateError(
+          'Database schema $oldVersion requires a compatible application; refusing downgrade to $newVersion',
+        );
+      },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 17) await WatchEventStore.createSchema(db);
         if (oldVersion < 16) await LogicalEpisodeStore.createSchema(db);
@@ -173,6 +266,30 @@ class Catalog extends ChangeNotifier {
           await WatchEventOrigin.createSchema(db);
           await BangumiEpisodeMapping.createSchema(db);
         }
+        if (oldVersion < 19 && enableFoundation) {
+          await LibraryFoundation.createSchema(db);
+        }
+        if (oldVersion < 20 && enableTasks) await ScrapeTasks.createSchema(db);
+        if (oldVersion < 21 && enableMappings) {
+          await AnimeMappingStore.createSchema(db);
+        }
+        if (oldVersion < 22 && enableRecognition) {
+          await IncrementalScan.createSchema(db);
+          await ScanRecognition.createSchema(db);
+        }
+        if (oldVersion < 23 && enableRecognition) {
+          await ScanRecognition.createFileGroupSchema(db);
+        }
+        if (oldVersion < 24 && enableScopedArtwork) {
+          await ScopedArtwork.createSchema(db);
+        }
+        if (oldVersion < 25 && enableChapterRelations) {
+          await ChapterRelations.createSchema(db);
+        }
+        if (oldVersion < 26 && enableLibraryMerge)
+          await LibraryMerge.createSchema(db);
+        if (oldVersion < 27 && enableLibraryMerge)
+          await LibraryMergeUndo.createSchema(db);
       },
       onCreate: (db, version) async {
         await WatchEventStore.createSchema(db);
@@ -210,6 +327,20 @@ class Catalog extends ChangeNotifier {
         );
         await WatchEventOrigin.createSchema(db);
         await BangumiEpisodeMapping.createSchema(db);
+        if (enableFoundation) await LibraryFoundation.createSchema(db);
+        if (enableTasks) await ScrapeTasks.createSchema(db);
+        if (enableMappings) await AnimeMappingStore.createSchema(db);
+        if (enableRecognition) {
+          await IncrementalScan.createSchema(db);
+          await ScanRecognition.createSchema(db);
+          await ScanRecognition.createFileGroupSchema(db);
+        }
+        if (enableScopedArtwork) await ScopedArtwork.createSchema(db);
+        if (enableChapterRelations) await ChapterRelations.createSchema(db);
+        if (enableLibraryMerge) {
+          await LibraryMerge.createSchema(db);
+          await LibraryMergeUndo.createSchema(db);
+        }
       },
     );
     final restorer = LibraryBackupRestorer(
@@ -218,6 +349,17 @@ class Catalog extends ChangeNotifier {
     );
     await restorer.recover();
     await restorer.clearAbandonedStaging();
+    if (enableTasks) {
+      taskStore = ScrapeTasks(
+        db,
+        Directory(p.join(folder.path, 'scrape-task-cache')),
+      );
+      await taskStore!.recover();
+      if (enableMappings) {
+        mappingStore = AnimeMappingStore(taskStore!);
+        await mappingStore!.recover();
+      }
+    }
     // Migrate passwords previously kept in the early development SQLite schema.
     final previous = await db.query('sources', columns: ['id', 'password']);
     for (final entry in previous) {
@@ -233,14 +375,45 @@ class Catalog extends ChangeNotifier {
       }
     }
     // Scan checkboxes are a temporary UI selection, never persistent library configuration.
-    await db.delete('scan_roots');
+    if (!recognitionEnabled) await db.delete('scan_roots');
     await reload();
   }
+
+  Map<String, List<Map<String, Object?>>> standaloneParts = {};
 
   Future<void> reload() async {
     sources = await db.query('sources', orderBy: 'label');
     final allWorks = await db.query('works', orderBy: 'title COLLATE NOCASE');
-    works = allWorks.where((row) => row['hidden'] != 1).toList();
+    final visible = allWorks.where((row) => row['hidden'] != 1);
+    if (scopedArtworkEnabled) {
+      final artwork = await db.query(
+        'scoped_artwork',
+        columns: ['work_id', 'scope', 'state', 'selected'],
+        where: "kind='poster'",
+      );
+      final byWork = <Object?, Map<Object?, Map<String, Object?>>>{};
+      for (final row in artwork) {
+        (byWork[row['work_id']] ??= {})[row['scope']] = row;
+      }
+      final withArtwork = <Map<String, Object?>>[];
+      for (final row in visible) {
+        final selections = byWork[row['id']];
+        final scope = selections == null
+            ? null
+            : await ScopedArtwork.scopeIn(db, row['id'] as String);
+        final selection = selections?[scope?.key];
+        final selected = selection?['selected'];
+        withArtwork.add({
+          ...row,
+          if (selection?['state'] == 'empty') 'scoped_poster_empty': true,
+          if (selected is String)
+            'scoped_poster': (jsonDecode(selected) as Map)['url'],
+        });
+      }
+      works = withArtwork;
+    } else {
+      works = visible.toList();
+    }
     for (final work in works) {
       ImageStore.restoreOwner(work['id'].toString());
     }
@@ -263,6 +436,51 @@ class Catalog extends ChangeNotifier {
         )
         .toList();
     scanRoots = await db.query('scan_roots', orderBy: 'relative_path');
+    final parts = <String, List<Map<String, Object?>>>{};
+    if (recognitionEnabled) {
+      final rows = await db.rawQuery('''
+        SELECT a.id AS asset_id,a.work_id,r.adopted AS part,e.adopted AS chapter,
+          t.adopted AS tmdb_range
+        FROM scan_file_group_members m JOIN assets a ON a.id=m.asset_id
+        JOIN library_content c ON c.asset_id=a.id AND c.state='current'
+        JOIN scan_bindings r ON r.work_id=a.work_id AND r.scope=m.scope
+          AND r.provider='bangumi' AND r.layer='range' AND r.state='confirmed'
+          AND r.reason='verified_standalone_special'
+        JOIN scan_bindings e ON e.asset_id=a.id AND e.work_id=a.work_id
+          AND e.provider='tmdb' AND e.layer='episode' AND e.state='confirmed'
+          AND e.reason='verified_standalone_special'
+        JOIN scan_bindings t ON t.work_id=a.work_id AND t.scope=m.scope
+          AND t.provider='tmdb' AND t.layer='range' AND t.state='confirmed'
+          AND t.reason='verified_standalone_special'
+        WHERE a.category='main'
+          AND NOT EXISTS (SELECT 1 FROM scan_missing_assets x WHERE x.asset_id=a.id)
+        ORDER BY a.episode,a.relative_path
+      ''');
+      for (final row in rows) {
+        final part = jsonDecode(row['part'] as String) as Map;
+        final chapter = jsonDecode(row['chapter'] as String) as Map;
+        final range = jsonDecode(row['tmdb_range'] as String) as Map;
+        final tmdbChapter = (range['chapters'] as List? ?? []).whereType<Map>()
+            .where((value) => value['id'] == chapter['chapter_id']).singleOrNull;
+        if (part['title'] is! String || part['id'] is! int) continue;
+        parts.putIfAbsent(row['work_id'] as String, () => []).add({
+          'asset_id': row['asset_id'], 'title': part['title'],
+          'poster': part['poster'], 'summary': part['summary'],
+          'bangumi_subject': part['id'], 'tmdb_episode': chapter['episode'],
+          'chapter_id': chapter['chapter_id'],
+          'year': part['year'] ?? DateTime.tryParse('${tmdbChapter?['date']}')?.year,
+        });
+      }
+    }
+    final mainCounts = <Object?, int>{};
+    for (final asset in assets.where((a) => a['category'] == 'main')) {
+      mainCounts.update(asset['work_id'], (count) => count + 1, ifAbsent: () => 1);
+    }
+    parts.removeWhere((work, rows) => rows.length < 2 ||
+        rows.length != mainCounts[work] ||
+        rows.map((row) => row['asset_id']).toSet().length != rows.length ||
+        rows.map((row) => row['bangumi_subject']).toSet().length != rows.length);
+    standaloneParts = parts;
     notifyListeners();
   }
 
@@ -334,7 +552,7 @@ class Catalog extends ChangeNotifier {
       where: 'id=?',
       whereArgs: [sourceId],
     );
-    if (password != null) {
+    if (password != null || libraryMergeEnabled) {
       await db.delete(
         'library_restored_sources',
         where: 'source_id=?',
@@ -343,6 +561,15 @@ class Catalog extends ChangeNotifier {
     }
     await reload();
   }
+
+  Future<bool> sourceNeedsAssociation(String sourceId) async =>
+      libraryMergeEnabled &&
+      (await db.query(
+        'library_restored_sources',
+        where: 'source_id=?',
+        whereArgs: [sourceId],
+        limit: 1,
+      )).isNotEmpty;
 
   Future<Map<String, Object?>> withCredentials(
     Map<String, Object?> source,
@@ -640,9 +867,17 @@ class Catalog extends ChangeNotifier {
     String sourceId,
     List<({String relative, int? size, String folder, bool review})> videos, {
     void Function()? checkCancelled,
+    int? expectedLocationRevision,
   }) async {
     if (videos.isEmpty) return;
     await db.transaction((tx) async {
+      if (foundationEnabled && expectedLocationRevision != null) {
+        await LibraryFoundation.checkSource(
+          tx,
+          sourceId,
+          expectedLocationRevision,
+        );
+      }
       for (final video in videos) {
         checkCancelled?.call();
         await indexVideo(
@@ -665,9 +900,33 @@ class Catalog extends ChangeNotifier {
     String? workFolder,
     bool needsReview = true,
     DatabaseExecutor? executor,
+    int? expectedLocationRevision,
   }) async {
-    final targetDb = executor ?? db;
-    final normalized = relative.replaceAll('\\', '/');
+    if (executor == null) {
+      await db.transaction(
+        (tx) => indexVideo(
+          sourceId,
+          relative,
+          size,
+          workFolder: workFolder,
+          needsReview: needsReview,
+          executor: tx,
+          expectedLocationRevision: expectedLocationRevision,
+        ),
+      );
+      return;
+    }
+    final targetDb = executor;
+    if (foundationEnabled && expectedLocationRevision != null) {
+      await LibraryFoundation.checkSource(
+        targetDb,
+        sourceId,
+        expectedLocationRevision,
+      );
+    }
+    final normalized = foundationEnabled
+        ? LibraryFoundation.path(relative)
+        : relative.replaceAll('\\', '/');
     final name = p.posix.basename(normalized);
     final segments = p.posix.split(normalized);
     if (segments.isEmpty || !isVideo(name)) return;
@@ -679,11 +938,30 @@ class Catalog extends ChangeNotifier {
     if (RegExp(r'^(CDs?|Scans?)$', caseSensitive: false).hasMatch(folder)) {
       return;
     }
-    final workId = 'work:$sourceId:${Uri.encodeComponent(folder)}';
-    final assetId = 'asset:$sourceId:${Uri.encodeComponent(normalized)}';
+    final workId = foundationEnabled
+        ? await LibraryFoundation.locate(targetDb, 'work', sourceId, folder) ??
+              LibraryFoundation.newId('work:$sourceId:id-')
+        : 'work:$sourceId:${Uri.encodeComponent(folder)}';
+    final atPath = foundationEnabled
+        ? await targetDb.query(
+            'assets',
+            where: 'source_id=? AND relative_path=?',
+            whereArgs: [sourceId, normalized],
+          )
+        : <Map<String, Object?>>[];
+    final assetId = foundationEnabled
+        ? await LibraryFoundation.locate(
+                targetDb,
+                'asset',
+                sourceId,
+                normalized,
+              ) ??
+              (atPath.isEmpty
+                  ? LibraryFoundation.newId('asset:$sourceId:id-')
+                  : atPath.single['id'] as String)
+        : 'asset:$sourceId:${Uri.encodeComponent(normalized)}';
     final existing = await targetDb.query(
       'assets',
-      columns: ['work_id'],
       where: 'id=?',
       whereArgs: [assetId],
       limit: 1,
@@ -697,6 +975,10 @@ class Catalog extends ChangeNotifier {
     var targetWorkId = manual.isNotEmpty
         ? manual.first['work_id'].toString()
         : workId;
+    // A known location owns the identity even after a reviewed move/rename.
+    if (foundationEnabled && manual.isEmpty && existing.isNotEmpty) {
+      targetWorkId = existing.single['work_id'] as String;
+    }
     if (manual.isEmpty &&
         existing.isNotEmpty &&
         existing.first['work_id'] != workId) {
@@ -716,15 +998,32 @@ class Catalog extends ChangeNotifier {
         }
       }
     }
-    if (targetWorkId == workId) {
+    if (targetWorkId == workId && (!foundationEnabled || existing.isEmpty)) {
       await targetDb.insert('works', {
         'id': workId,
         'title': cleanTitle(displayFolder),
         'year': year(displayFolder),
-        'tmdb_id': tmdbId(displayFolder),
-        'tmdb_type': tmdbType(displayFolder),
-        'needs_review': needsReview ? 1 : 0,
+        if (!recognitionEnabled) 'tmdb_id': tmdbId(displayFolder),
+        if (!recognitionEnabled) 'tmdb_type': tmdbType(displayFolder),
+        'needs_review': recognitionEnabled || needsReview ? 1 : 0,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      if (foundationEnabled) {
+        await LibraryFoundation.attach(
+          targetDb,
+          'work',
+          workId,
+          sourceId,
+          folder,
+        );
+        await LibraryFoundation.seedWork(
+          targetDb,
+          (await targetDb.query(
+            'works',
+            where: 'id=?',
+            whereArgs: [workId],
+          )).single,
+        );
+      }
     }
     // Temporary removal is reversed by a real subsequent scan. Persistent
     // hidden titles remain suppressed even while their assets are indexed.
@@ -734,7 +1033,7 @@ class Catalog extends ChangeNotifier {
       where: 'id=? AND hidden=1 AND keep_hidden=0',
       whereArgs: [targetWorkId],
     );
-    await targetDb.insert('assets', {
+    final values = <String, Object?>{
       'id': assetId,
       'source_id': sourceId,
       'work_id': targetWorkId,
@@ -763,7 +1062,60 @@ class Catalog extends ChangeNotifier {
             })
           : null,
       'size': size,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    };
+    if (foundationEnabled && existing.isNotEmpty) {
+      final suspect = await LibraryFoundation.observeSize(
+        targetDb,
+        existing.single,
+        size,
+      );
+      // Location/filename observations never silently rewrite an established
+      // binding, and uncertain content never inherits old playback seconds.
+      for (final key in [
+        'work_id',
+        'episode',
+        'season',
+        'category',
+        'extra_type',
+      ]) {
+        values[key] = existing.single[key];
+      }
+      if (suspect || size == null) values['size'] = existing.single['size'];
+    }
+    if (existing.isEmpty) {
+      await targetDb.insert('assets', values);
+      if (recognitionEnabled) {
+        await targetDb.insert('scan_dirty_works', {
+          'work_id': targetWorkId,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      }
+    } else {
+      final changes = <String, Object?>{
+        for (final entry in values.entries)
+          if (entry.key != 'id' && existing.single[entry.key] != entry.value)
+            entry.key: entry.value,
+      };
+      if (changes.isNotEmpty) {
+        await targetDb.update(
+          'assets',
+          changes,
+          where: 'id=?',
+          whereArgs: [assetId],
+        );
+      }
+    }
+    if (foundationEnabled) {
+      await LibraryFoundation.attach(
+        targetDb,
+        'asset',
+        assetId,
+        sourceId,
+        normalized,
+      );
+      await targetDb.insert('library_content', {
+        'asset_id': assetId,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
   }
 
   static String detailIdentity(Map<String, Object?> work) =>
@@ -909,13 +1261,30 @@ class Catalog extends ChangeNotifier {
             'bangumi_id': bangumiId,
         };
         if (changes.isNotEmpty) {
-          await tx.update(
-            'works',
-            changes,
-            where: 'id=?',
-            whereArgs: [work['id']],
-          );
-          identity = detailIdentity({...current, ...changes});
+          if (foundationEnabled) {
+            if (!await LibraryFoundation.applyAutomatic(
+              tx,
+              work['id'] as String,
+              changes,
+            )) {
+              return;
+            }
+            identity = detailIdentity(
+              (await tx.query(
+                'works',
+                where: 'id=?',
+                whereArgs: [work['id']],
+              )).single,
+            );
+          } else {
+            await tx.update(
+              'works',
+              changes,
+              where: 'id=?',
+              whereArgs: [work['id']],
+            );
+            identity = detailIdentity({...current, ...changes});
+          }
           repaired = true;
         }
       }
@@ -966,6 +1335,46 @@ class Catalog extends ChangeNotifier {
     String? overview,
     String type = 'tv',
   }) async {
+    if (foundationEnabled) {
+      await db.transaction((tx) async {
+        final current = (await tx.query(
+          'works',
+          where: 'id=?',
+          whereArgs: [workId],
+        )).single;
+        final changed = provider == 'tmdb'
+            ? current['tmdb_id'] != providerId || current['tmdb_type'] != type
+            : current['bangumi_id'] != providerId;
+        await LibraryFoundation.bindWork(tx, workId, {
+          'title': title,
+          'year': year,
+          'poster': poster,
+          'overview': overview,
+          'needs_review': 0,
+          if (provider == 'tmdb') ...{
+            'tmdb_id': providerId,
+            'tmdb_type': type,
+            if (changed) ...{
+              'bangumi_id': null,
+              'bangumi_ids': null,
+              'bangumi_link_info': null,
+            },
+          },
+          if (provider == 'bangumi') ...{
+            'bangumi_id': providerId,
+            'bangumi_ids': jsonEncode([providerId]),
+            'bangumi_link_info': jsonEncode({
+              'source': 'manual',
+              'confirmed': true,
+              'locked': true,
+            }),
+            if (changed) ...{'tmdb_id': null, 'tmdb_type': null},
+          },
+        });
+      });
+      await reload();
+      return;
+    }
     final old = works.firstWhere((w) => w['id'] == workId);
     await db.update(
       'works',
@@ -1004,6 +1413,49 @@ class Catalog extends ChangeNotifier {
     required String overview,
   }) async {
     if (title.trim().isEmpty) throw ArgumentError('作品标题不能为空');
+    if (foundationEnabled) {
+      await db.transaction((tx) async {
+        final old = (await tx.query(
+          'works',
+          where: 'id=?',
+          whereArgs: [workId],
+        )).single;
+        await LibraryFoundation.seedWork(tx, old);
+        final protection = (await tx.query(
+          'library_work_protection',
+          where: 'work_id=?',
+          whereArgs: [workId],
+        )).single;
+        for (final entry in {
+          'title': title.trim(),
+          'year': year,
+          'overview': overview.trim(),
+        }.entries) {
+          final previous = entry.key == 'overview'
+              ? (old[entry.key] ?? '')
+              : old[entry.key];
+          if (previous == entry.value) continue;
+          final scope = LibraryFoundation.scope(old);
+          final field = (await tx.query(
+            'library_fields',
+            where: 'work_id=? AND scope=? AND field=?',
+            whereArgs: [workId, scope, entry.key],
+          )).single;
+          await LibraryFoundation(db).writeField(
+            workId,
+            entry.key,
+            expectedScope: scope,
+            expectedBindingRevision: protection['revision'] as int,
+            expectedRevision: field['revision'] as int,
+            mode: entry.value == null || entry.value == '' ? 'empty' : 'manual',
+            value: entry.value,
+            executor: tx,
+          );
+        }
+      });
+      await reload();
+      return;
+    }
     await db.update(
       'works',
       {
@@ -1021,6 +1473,44 @@ class Catalog extends ChangeNotifier {
 
   /// Select a cover independently of the metadata lock. Automatic scraping
   /// may refresh the provider posters but never replaces this manual choice.
+  Future<void> _saveCoverFields(
+    String workId,
+    Map<String, Object?> values,
+  ) async {
+    await db.transaction((tx) async {
+      if (foundationEnabled) {
+        final work = (await tx.query(
+          'works',
+          where: 'id=?',
+          whereArgs: [workId],
+        )).single;
+        await LibraryFoundation.seedWork(tx, work);
+        final scope = LibraryFoundation.scope(work);
+        final field = (await tx.query(
+          'library_fields',
+          where: 'work_id=? AND scope=? AND field=?',
+          whereArgs: [workId, scope, 'manual_cover_url'],
+        )).single;
+        final protection = (await tx.query(
+          'library_work_protection',
+          where: 'work_id=?',
+          whereArgs: [workId],
+        )).single;
+        await LibraryFoundation(db).writeField(
+          workId,
+          'manual_cover_url',
+          expectedScope: scope,
+          expectedBindingRevision: protection['revision'] as int,
+          expectedRevision: field['revision'] as int,
+          mode: values['manual_cover_url'] == null ? 'empty' : 'manual',
+          value: values['manual_cover_url'],
+          executor: tx,
+        );
+      }
+      await tx.update('works', values, where: 'id=?', whereArgs: [workId]);
+    });
+  }
+
   Future<void> setManualCover(
     String workId, {
     String? source,
@@ -1035,15 +1525,10 @@ class Catalog extends ChangeNotifier {
     if (source != null && (url == null || url.trim().isEmpty)) {
       throw ArgumentError('没有可用的封面图片');
     }
-    await db.update(
-      'works',
-      {
-        'manual_cover_source': source,
-        'manual_cover_url': source == null ? null : url?.trim(),
-      },
-      where: 'id=?',
-      whereArgs: [workId],
-    );
+    await _saveCoverFields(workId, {
+      'manual_cover_source': source,
+      'manual_cover_url': source == null ? null : url?.trim(),
+    });
     await reload();
   }
 
@@ -1074,29 +1559,30 @@ class Catalog extends ChangeNotifier {
     Object crop, {
     int? subjectId,
   }) async {
-    await db.update(
-      'works',
-      {
-        'manual_cover_source': source,
-        'manual_cover_url': output,
-        'cover_edit_json': jsonEncode({
-          'source': source,
-          'subjectId': subjectId,
-          'original': original,
-          'resource': output,
-          'crop': crop,
-          'manual': true,
-        }),
-      },
-      where: 'id=?',
-      whereArgs: [workId],
-    );
+    await _saveCoverFields(workId, {
+      'manual_cover_source': source,
+      'manual_cover_url': output,
+      'cover_edit_json': jsonEncode({
+        'source': source,
+        'subjectId': subjectId,
+        'original': original,
+        'resource': output,
+        'crop': crop,
+        'manual': true,
+      }),
+    });
     DebugLog.write('CoverCrop', 'cover state saved');
     await reload();
   }
 
   static String? preferredPoster(Map<String, Object?> work) {
-    for (final field in ['manual_cover_url', 'poster', 'poster_fallback']) {
+    if (work['scoped_poster_empty'] == true) return null;
+    for (final field in [
+      'scoped_poster',
+      'manual_cover_url',
+      'poster',
+      'poster_fallback',
+    ]) {
       final value = work[field]?.toString().trim();
       if (field == 'manual_cover_url' &&
           value != null &&
@@ -1157,12 +1643,19 @@ class Catalog extends ChangeNotifier {
         'bangumi_ids': null,
       'needs_review': 0,
     };
-    await db.update(
-      'works',
-      update,
-      where: 'id=? AND manual_lock=0',
-      whereArgs: [workId],
-    );
+    if (foundationEnabled) {
+      final applied = await db.transaction(
+        (tx) => LibraryFoundation.applyAutomatic(tx, workId, update),
+      );
+      if (!applied) return false;
+    } else {
+      await db.update(
+        'works',
+        update,
+        where: 'id=? AND manual_lock=0',
+        whereArgs: [workId],
+      );
+    }
     if (reloadAfter) await reload();
     return true;
   }
@@ -1174,6 +1667,8 @@ class Catalog extends ChangeNotifier {
     String workId,
     Map<String, ScrapedWork?> decisions,
   ) async {
+    // Phase 1 preserves known identities. Reviewed regrouping belongs to phase 4.
+    if (foundationEnabled) return false;
     final rows = await db.query('works', where: 'id=?', whereArgs: [workId]);
     if (rows.isEmpty || rows.single['manual_lock'] == 1) return false;
     final items = await db.query(
@@ -1294,115 +1789,6 @@ class Catalog extends ChangeNotifier {
       }
     });
     return complete;
-  }
-
-  List<Map<String, Object?>> get unclassifiedAssets {
-    final pending = works
-        .where((work) => work['needs_review'] == 1 && work['manual_lock'] != 1)
-        .map((work) => work['id'])
-        .toSet();
-    return assets
-        .where(
-          (asset) =>
-              pending.contains(asset['work_id']) &&
-              asset['manual_mapping'] != true,
-        )
-        .toList();
-  }
-
-  /// Explicit batch correction. The history table supports the same per-file
-  /// undo as the existing relation editor; rescans respect the manual binding.
-  Future<void> classifyManually(
-    Set<String> assetIds, {
-    String? targetWorkId,
-    String? title,
-  }) async {
-    if (scanning) throw StateError('Scan in progress');
-    if (assetIds.isEmpty) return;
-    await db.transaction((tx) async {
-      final selected = <Map<String, Object?>>[];
-      for (final id in assetIds) {
-        final rows = await tx.query('assets', where: 'id=?', whereArgs: [id]);
-        if (rows.isEmpty) throw StateError('File changed');
-        selected.add(rows.single);
-      }
-      final source = selected.first['source_id'];
-      if (selected.any((row) => row['source_id'] != source)) {
-        throw StateError('Choose files from one source');
-      }
-      String target;
-      if (targetWorkId != null) {
-        if (!targetWorkId.startsWith('work:$source:')) {
-          throw StateError('Source mismatch');
-        }
-        if ((await tx.query(
-          'works',
-          where: 'id=?',
-          whereArgs: [targetWorkId],
-        )).isEmpty) {
-          throw StateError('Title removed');
-        }
-        target = targetWorkId;
-      } else {
-        if (title == null || title.trim().isEmpty) {
-          throw ArgumentError('Title required');
-        }
-        target =
-            'work:$source:classified:manual-${DateTime.now().microsecondsSinceEpoch}';
-        await tx.insert('works', {
-          'id': target,
-          'title': title.trim(),
-          'manual_lock': 1,
-          'needs_review': 0,
-        });
-      }
-      for (final row in selected) {
-        final previous = await tx.query(
-          'asset_overrides',
-          where: 'asset_id=?',
-          whereArgs: [row['id']],
-        );
-        final values = {
-          for (final key in ['category', 'episode', 'season', 'extra_type'])
-            key: row[key],
-        };
-        await tx.insert('asset_override_history', {
-          'asset_id': row['id'],
-          'work_id': row['work_id'],
-          ...values,
-          'was_locked': previous.isEmpty ? 0 : 1,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-        await tx.insert('asset_overrides', {
-          'asset_id': row['id'],
-          'work_id': target,
-          ...values,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-        await tx.update(
-          'assets',
-          {'work_id': target},
-          where: 'id=?',
-          whereArgs: [row['id']],
-        );
-      }
-      for (final previousWork
-          in selected.map((row) => row['work_id']).toSet()) {
-        if ((await tx.query(
-          'assets',
-          columns: ['id'],
-          where: 'work_id=?',
-          whereArgs: [previousWork],
-          limit: 1,
-        )).isEmpty) {
-          await tx.update(
-            'works',
-            {'hidden': 1},
-            where: 'id=? AND manual_lock=0',
-            whereArgs: [previousWork],
-          );
-        }
-      }
-    });
-    await reload();
   }
 
   /// Save a reversible manual relation. Asset IDs and progress stay stable.
@@ -1639,6 +2025,37 @@ class Catalog extends ChangeNotifier {
   }) async {
     RangeError.checkValueInInterval(completionPercent, 1, 100);
     await db.transaction((txn) async {
+      if (foundationEnabled &&
+          await LibraryFoundation.suspected(txn, assetId)) {
+        final row = (await txn.query(
+          'library_content',
+          where: 'asset_id=?',
+          whereArgs: [assetId],
+        )).single;
+        if (row['state'] == 'blocked') {
+          throw StateError(
+            'Content history requires review; progress cannot be merged',
+          );
+        }
+        final prior = row['pending_progress'] == null
+            ? null
+            : jsonDecode(row['pending_progress'] as String) as Map;
+        final timeline = WatchedTimeline.decode(prior?['watched_ranges'])
+          ..addAll(watchedRanges);
+        await txn.update(
+          'library_content',
+          {
+            'pending_progress': jsonEncode({
+              'position_ms': position,
+              'duration_ms': duration,
+              'watched_ranges': timeline.encode(),
+            }),
+          },
+          where: 'asset_id=?',
+          whereArgs: [assetId],
+        );
+        return;
+      }
       final previous = await txn.query(
         'progress',
         where: 'asset_id=?',
@@ -1700,6 +2117,9 @@ class Catalog extends ChangeNotifier {
   }
 
   Future<int> resumePosition(String assetId) async {
+    if (foundationEnabled && await LibraryFoundation.suspected(db, assetId)) {
+      return 0;
+    }
     final rows = await db.query(
       'progress',
       where: 'asset_id=?',

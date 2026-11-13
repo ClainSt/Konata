@@ -5,11 +5,13 @@ class SubtitleChoice {
     this.track, {
     required this.external,
     this.format = '',
+    this.filename,
     Set<String>? aliases,
   }) : aliases = aliases ?? {track.id};
   final SubtitleTrack track;
   final bool external;
   final String format;
+  final String? filename;
   final Set<String> aliases;
 }
 
@@ -67,6 +69,7 @@ abstract final class SubtitleChoices {
           track.codec,
           matches.isNotEmpty ? matches.first.title : source,
         ),
+        filename: matches.firstOrNull?.title,
         aliases: {track.id, ...matches.map((s) => s.id)},
       );
       final duplicate = result
@@ -85,6 +88,7 @@ abstract final class SubtitleChoices {
           track,
           external: true,
           format: format(track.codec, track.title ?? track.id),
+          filename: track.title,
         ),
       );
     }

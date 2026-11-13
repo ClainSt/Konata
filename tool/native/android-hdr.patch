@@ -1,0 +1,217 @@
+--- a/options/options.h
++++ b/options/options.h
+@@ -86,6 +86,7 @@
+     int video_sync;
+ 
+     struct m_geometry android_surface_size;
++    int android_hdr_peak; // 0: SDR, otherwise verified display PQ peak in nits
+ 
+     struct m_geometry d3d11_composition_size;
+ 
+--- a/options/options.c
++++ b/options/options.c
+@@ -250,6 +250,7 @@
+ #endif
+ #if HAVE_EGL_ANDROID
+     {"android-surface-size", OPT_SIZE_BOX(android_surface_size)},
++    {"android-hdr-peak", OPT_INT(android_hdr_peak), M_RANGE(0, 10000)},
+ #endif
+ #if HAVE_D3D11
+     {"d3d11-composition-size", OPT_SIZE_BOX(d3d11_composition_size)},
+--- a/video/out/opengl/context.c
++++ b/video/out/opengl/context.c
+@@ -230,6 +230,8 @@
+     *out_fbo = (struct ra_fbo) {
+          .tex = p->wrapped_fb,
+          .flip = !p->gl->flipped, // OpenGL FBs are normally flipped
++         .color_space = p->params.preferred_csp ?
++             p->params.preferred_csp(sw->ctx) : (struct pl_color_space){0},
+     };
+     return true;
+ }
+--- a/video/out/opengl/context_android.c
++++ b/video/out/opengl/context_android.c
+@@ -22,29 +22,122 @@
+ #include "egl_helpers.h"
+ #include "common/common.h"
+ #include "context.h"
++#include "utils.h"
++#include "options/m_config.h"
++#include "video/out/gpu/video.h"
+ 
+ struct priv {
+     struct GL gl;
+     EGLDisplay egl_display;
+     EGLContext egl_context;
+     EGLSurface egl_surface;
++    EGLConfig egl_config;
++    bool pq;
++    bool pq_failed;
++    int peak;
++    struct m_config_cache *video_opts;
+ };
+ 
+-static void android_swap_buffers(struct ra_ctx *ctx)
+-{
+-    struct priv *p = ctx->priv;
+-    eglSwapBuffers(p->egl_display, p->egl_surface);
+-}
+-
+-static void android_uninit(struct ra_ctx *ctx)
+-{
+-    struct priv *p = ctx->priv;
+-    ra_gl_ctx_uninit(ctx);
+-
++static struct pl_color_space android_color_space(struct ra_ctx *ctx)
++{
++    struct priv *p = ctx->priv;
++    // Leave the established SDR defaults untouched.
++    if (!p->pq)
++        return (struct pl_color_space){0};
++    return (struct pl_color_space) {
++        .primaries = PL_COLOR_PRIM_BT_2020,
++        .transfer = PL_COLOR_TRC_PQ,
++        .hdr.max_luma = p->peak,
++    };
++}
++
++// Called on the VO thread before configuring/rendering the new source frame.
++// A native window can own only one EGL window surface at a time.
++static bool android_create_surface(struct ra_ctx *ctx, bool pq)
++{
++    struct priv *p = ctx->priv;
+     if (p->egl_surface) {
+         eglMakeCurrent(p->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE,
+                        EGL_NO_CONTEXT);
+         eglDestroySurface(p->egl_display, p->egl_surface);
++        p->egl_surface = EGL_NO_SURFACE;
++    }
++    EGLint attributes[] = { EGL_GL_COLORSPACE_KHR,
++                            EGL_GL_COLORSPACE_BT2020_PQ_EXT, EGL_NONE };
++    p->egl_surface = eglCreateWindowSurface(p->egl_display, p->egl_config,
++        (EGLNativeWindowType)vo_android_native_window(ctx->vo), pq ? attributes : NULL);
++    if (p->egl_surface == EGL_NO_SURFACE)
++        return false;
++    if (pq) {
++        EGLint actual = 0;
++        if (!eglQuerySurface(p->egl_display, p->egl_surface,
++                             EGL_GL_COLORSPACE_KHR, &actual) ||
++            actual != EGL_GL_COLORSPACE_BT2020_PQ_EXT)
++            return false;
++    }
++    if (!eglMakeCurrent(p->egl_display, p->egl_surface, p->egl_surface,
++                        p->egl_context))
++        return false;
++    p->pq = pq;
++    MP_INFO(ctx, "Konata output: %s (EGL), peak=%d\n",
++            pq ? "bt.2020/pq" : "sdr", pq ? p->peak : 0);
++    return true;
++}
++
++static bool android_update_color(struct ra_ctx *ctx)
++{
++    struct priv *p = ctx->priv;
++    m_config_cache_update(p->video_opts);
++    struct gl_video_opts *opts = p->video_opts->opts;
++    struct mp_image_params *source = ctx->vo->params;
++    struct mp_image_params fallback = source ? *source : (struct mp_image_params){0};
++    mp_image_params_restore_dovi_mapping(&fallback);
++    const bool source_pq = source && fallback.color.transfer == PL_COLOR_TRC_PQ;
++    const bool compatible =
++        (opts->target_trc == PL_COLOR_TRC_UNKNOWN || opts->target_trc == PL_COLOR_TRC_PQ) &&
++        (opts->target_prim == PL_COLOR_PRIM_UNKNOWN || opts->target_prim == PL_COLOR_PRIM_BT_2020);
++    const char *extensions = eglQueryString(p->egl_display, EGL_EXTENSIONS);
++    bool pq = source_pq && compatible && ctx->vo->opts->android_hdr_peak > 0 &&
++              !p->pq_failed && extensions &&
++              gl_check_extension(extensions, "EGL_EXT_gl_colorspace_bt2020_pq");
++    const EGLint channels[] = {EGL_RED_SIZE, EGL_GREEN_SIZE, EGL_BLUE_SIZE};
++    for (int i = 0; pq && i < 3; i++) {
++        EGLint depth = 0;
++        pq = eglGetConfigAttrib(p->egl_display, p->egl_config, channels[i], &depth) && depth >= 10;
++    }
++    p->peak = ctx->vo->opts->android_hdr_peak;
++    if (pq != p->pq && !android_create_surface(ctx, pq)) {
++        // Do not keep retrying an unsupported driver combination each frame.
++        p->pq_failed = true;
++        MP_WARN(ctx, "HDR EGL surface unavailable; returning to SDR\n");
++        if (!android_create_surface(ctx, false))
++            return false;
++    }
++    // Never silently label explicitly requested HDR pixels as SDR. Automatic
++    // targets use the actual framebuffer space and safely tone-map on failure.
++    if (!p->pq && (opts->target_trc == PL_COLOR_TRC_PQ ||
++                   opts->target_trc == PL_COLOR_TRC_HLG)) {
++        MP_ERR(ctx, "Explicit HDR target is incompatible with this output\n");
++        return false;
++    }
++    return true;
++}
++
++static void android_swap_buffers(struct ra_ctx *ctx)
++{
++    struct priv *p = ctx->priv;
++    eglSwapBuffers(p->egl_display, p->egl_surface);
++}
++
++static void android_uninit(struct ra_ctx *ctx)
++{
++    struct priv *p = ctx->priv;
++    ra_gl_ctx_uninit(ctx);
++
++    if (p->egl_surface) {
++        eglMakeCurrent(p->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE,
++                       EGL_NO_CONTEXT);
++        eglDestroySurface(p->egl_display, p->egl_surface);
+     }
+     if (p->egl_context)
+         eglDestroyContext(p->egl_display, p->egl_context);
+@@ -74,24 +165,16 @@
+     eglGetConfigAttrib(p->egl_display, config, EGL_NATIVE_VISUAL_ID, &format);
+     ANativeWindow_setBuffersGeometry(native_window, 0, 0, format);
+ 
+-    p->egl_surface = eglCreateWindowSurface(p->egl_display, config,
+-                                    (EGLNativeWindowType)native_window, NULL);
+-
+-    if (p->egl_surface == EGL_NO_SURFACE) {
+-        MP_FATAL(ctx, "Could not create EGL surface!\n");
+-        goto fail;
+-    }
+-
+-    if (!eglMakeCurrent(p->egl_display, p->egl_surface, p->egl_surface,
+-                        p->egl_context)) {
+-        MP_FATAL(ctx, "Failed to set context!\n");
+-        goto fail;
+-    }
++    p->egl_config = config;
++    p->video_opts = m_config_cache_alloc(ctx, ctx->global, &gl_video_conf);
++    if (!android_create_surface(ctx, false))
++        goto fail;
+ 
+     mpegl_load_functions(&p->gl, ctx->log);
+ 
+     struct ra_ctx_params params = {
+         .swap_buffers = android_swap_buffers,
++        .preferred_csp = android_color_space,
+     };
+ 
+     if (!ra_gl_ctx_init(ctx, &p->gl, params))
+@@ -106,6 +189,8 @@
+ static bool android_reconfig(struct ra_ctx *ctx)
+ {
+     int w, h;
++    if (!android_update_color(ctx))
++        return false;
+     if (!vo_android_surface_size(ctx->vo, &w, &h))
+         return false;
+ 
+--- a/video/out/gpu/video.c
++++ b/video/out/gpu/video.c
+@@ -1442,7 +1442,7 @@
+         img.multiplier *= 1.0 / (tex_max - 1);
+     }
+ 
+-    GLSLF("color.%s = %f * vec4(texture(texture%d, texcoord%d)).%s;\n",
++    GLSLF("color.%s = %.9e * vec4(texture(texture%d, texcoord%d)).%s;\n",
+           dst, img.multiplier, id, id, src);
+ 
+     *offset += count;

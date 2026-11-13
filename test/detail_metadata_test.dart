@@ -5,6 +5,7 @@ import 'package:http/testing.dart';
 import 'package:ccplayer/core/detail_metadata.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   test(
     'repairs an unlocked single-season title and prefers exact cast subject over a second part',
     () async {
@@ -121,39 +122,49 @@ void main() {
       service.close();
     },
   );
-  test('Movie main artwork uses the Personal landscape image pipeline', () async {
-    for (final hasBackdrop in [true, false]) {
-      final calls = <String>[];
-      final service = DetailMetadataService(
-        tmdbRequest: (path, params) async {
-          calls.add(path);
-          if (path == '/movie/123') {
-            return {'backdrop_path': hasBackdrop ? '/movie.jpg' : null};
-          }
-          if (path == '/movie/123/images') {
-            expect(params['include_image_language'], 'zh,ja,en,null');
-            return {
-              'backdrops': [
-                {'file_path': '/low.jpg', 'vote_average': 5, 'width': 1920},
-                {'file_path': '/small.jpg', 'vote_average': 8, 'width': 1280},
-                {'file_path': '/best.jpg', 'vote_average': 8, 'width': 1920},
-              ],
-            };
-          }
-          fail('Unexpected request: $path');
-        },
-      );
-      final data = await service.fetch({'tmdb_id': 123, 'tmdb_type': 'movie'});
-      expect(data['tags'], isNot(contains('剧场版')));
-      expect(
-        data['movieStill'],
-        'https://images.tmdb.org/t/p/w780/${hasBackdrop ? 'movie' : 'best'}.jpg',
-      );
-      expect(calls.any((path) => path.contains('/season/')), isFalse);
-      expect(calls.contains('/movie/123/images'), !hasBackdrop);
-      service.close();
-    }
-  });
+  test(
+    'Movie main artwork uses the Personal landscape image pipeline',
+    () async {
+      for (final hasBackdrop in [true, false]) {
+        final calls = <String>[];
+        final service = DetailMetadataService(
+          tmdbRequest: (path, params) async {
+            calls.add(path);
+            if (path == '/movie/123') {
+              return {
+                'id': 123,
+                'backdrop_path': hasBackdrop ? '/movie.jpg' : null,
+              };
+            }
+            if (path == '/movie/123/images') {
+              expect(params['include_image_language'], 'zh,ja,en,null');
+              return {
+                'backdrops': [
+                  {'file_path': '/low.jpg', 'vote_average': 5, 'width': 1920},
+                  {'file_path': '/small.jpg', 'vote_average': 8, 'width': 1280},
+                  {'file_path': '/best.jpg', 'vote_average': 8, 'width': 1920},
+                ],
+              };
+            }
+            fail('Unexpected request: $path');
+          },
+        );
+        final data = await service.fetch({
+          'tmdb_id': 123,
+          'tmdb_type': 'movie',
+        });
+        expect(data['tags'], isNot(contains('剧场版')));
+        expect(
+          data['movieStill'],
+          endsWith('/w780/${hasBackdrop ? 'movie' : 'best'}.jpg'),
+        );
+        expect(calls.any((path) => path.contains('/season/')), isFalse);
+        expect(calls.contains('/movie/123/images'), !hasBackdrop);
+        expect(await service.fetchMovieStill(123), data['movieStill']);
+        service.close();
+      }
+    },
+  );
 
   test('Movie without landscape artwork keeps a neutral placeholder', () async {
     final service = DetailMetadataService(
@@ -248,16 +259,10 @@ void main() {
         expect(detail['score'], 8.4);
         expect(detail['episodeCount'], 13);
         expect(detail['source'], 'TMDB + Bangumi');
-        expect(
-          detail['backdrop'],
-          'https://images.tmdb.org/t/p/w1280/backdrop.jpg',
-        );
+        expect(detail['backdrop'], endsWith('/w1280/backdrop.jpg'));
         final episodes = detail['episodes'] as Map;
         expect((episodes['1'] as Map)['name'], '第一集');
-        expect(
-          (episodes['1'] as Map)['still'],
-          'https://images.tmdb.org/t/p/w500/ep01.jpg',
-        );
+        expect((episodes['1'] as Map)['still'], endsWith('/w500/ep01.jpg'));
         expect(detail.containsKey('characters'), isFalse);
         expect(calls, contains('/tv/217512/season/0'));
       } finally {

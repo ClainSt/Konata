@@ -159,6 +159,7 @@ class MpvConfigStore {
             ? utf8.encode(
                 '# Konata default; explicit options below take precedence.\n'
                 'hwdec=${Platform.isAndroid ? 'auto-safe' : 'auto'}\n'
+                'sub-auto=no\n'
                 '${utf8.decode(files[name] ?? const [])}',
               )
             : files[name] ?? const <int>[];

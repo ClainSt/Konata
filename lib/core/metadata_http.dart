@@ -20,6 +20,7 @@ class MetadataHttp extends http.BaseClient {
     this.trustCustom = false,
     this.fresh = false,
     this.headerTimeout = const Duration(seconds: 15),
+    this.responseLimit = 32 * 1024 * 1024,
   }) : _inner = inner ?? http.Client();
   final http.Client _inner;
   final bool raw, trustCustom;
@@ -27,9 +28,9 @@ class MetadataHttp extends http.BaseClient {
   /// Credential checks must not reuse disk results or remembered host failures.
   final bool fresh;
   final Duration headerTimeout;
+  final int responseLimit;
   static const userAgent =
       'ClainSt/Konata/1.0.0 (https://github.com/ClainSt/Konata)';
-  static final Map<String, DateTime> _unhealthy = {};
   static Directory? cacheDirectory;
   static int _writes = 0;
   static Future<void> initialize() async {
@@ -77,20 +78,27 @@ class MetadataHttp extends http.BaseClient {
   Future<http.StreamedResponse> send(http.BaseRequest request) =>
       RequestBudget.run(() => _send(request));
 
-  Future<http.StreamedResponse> _send(http.BaseRequest request) async {
+  /// Count the endpoint deadline after the shared queue grants a slot.
+  Future<http.Response> sendWithDeadline(
+    http.BaseRequest request,
+    Duration deadline, {
+    required Future<void> cancelled,
+    void Function()? onStart,
+  }) => RequestBudget.run(
+    () => _send(request, deadline: deadline, cancelled: cancelled, onStart: onStart)
+        .then(http.Response.fromStream),
+    cancelled: cancelled,
+  );
+
+  Future<http.StreamedResponse> _send(
+    http.BaseRequest request, {
+    Duration? deadline,
+    Future<void>? cancelled,
+    void Function()? onStart,
+  }) async {
     final bytes = await request.finalize().toBytes();
     final source = request.url;
     final index = provider(source);
-    var target = source;
-    if (!raw && index != null) {
-      target = MetadataServers.endpoint(
-        index,
-        source.path.replaceFirst(
-          index == 0 ? RegExp(r'^/3/?') : RegExp(r'^/v0/?'),
-          '',
-        ),
-      ).replace(query: source.hasQuery ? source.query : null);
-    }
     final key = sha256
         .convert(
           utf8.encode(
@@ -102,44 +110,29 @@ class MetadataHttp extends http.BaseClient {
     if (!raw && !fresh && cacheDirectory != null) {
       cache = File(p.join(cacheDirectory!.path, '$key.json'));
     }
-    final candidates = <Uri>[target];
-    if (!raw && MetadataServers.fallback && index != null) {
-      for (final base in [
-        MetadataServers.defaults[index],
-        MetadataServers.official[index],
-      ]) {
-        final alt = MetadataServers.endpoint(
-          index,
-          source.path.replaceFirst(
-            index == 0 ? RegExp(r'^/3/?') : RegExp(r'^/v0/?'),
-            '',
-          ),
-          base: base,
-        ).replace(query: source.hasQuery ? source.query : null);
-        if (!candidates.contains(alt)) candidates.add(alt);
-      }
-    }
+    final candidates = raw || index == null
+        ? [source]
+        : MetadataServers.routes(
+            index,
+            source.path,
+            query: source.hasQuery ? source.query : null,
+          );
     Object? failure;
-    final hasHealthyRoute = candidates.any(
-      (uri) => !(_unhealthy[uri.host]?.isAfter(DateTime.now()) ?? false),
-    );
-    for (final uri in candidates) {
-      if (!raw &&
-          !fresh &&
-          candidates.length > 1 &&
-          hasHealthyRoute &&
-          _unhealthy[uri.host]?.isAfter(DateTime.now()) == true) {
-        continue;
-      }
+    final ordered = fresh ? candidates : MetadataServers.tryOrder(candidates);
+    for (var i = 0; i < ordered.length; i++) {
+      final uri = ordered[i];
       final headers = {...request.headers, 'User-Agent': userAgent};
       final hasAuth =
           headers.keys.any((k) => k.toLowerCase() == 'authorization') ||
           uri.queryParameters.containsKey('api_key');
       if (hasAuth &&
           (!uri.isScheme('https') ||
-              !['api.themoviedb.org', 'api.tmdb.org'].contains(uri.host) &&
+              !['api.themoviedb.org', 'api.tmdb.org', 'api.bgm.tv'].contains(uri.host) &&
                   !(raw ? trustCustom : MetadataServers.trustCustomTmdb))) {
-        throw StateError('自定义 TMDB 服务未获凭证发送授权（仅支持 HTTPS）');
+        final untrusted = StateError('自定义 TMDB 服务未获凭证发送授权（仅支持 HTTPS）');
+        if (raw) throw untrusted;
+        failure ??= untrusted;
+        continue;
       }
       final watch = Stopwatch()..start();
       final abort = Completer<void>();
@@ -153,29 +146,51 @@ class MetadataHttp extends http.BaseClient {
                 )
                 ..headers.addAll(headers)
                 ..bodyBytes = bytes;
-          copy.followRedirects = !hasAuth;
+          copy.followRedirects = request.followRedirects && !hasAuth;
+          onStart?.call();
           return _inner.send(copy);
         }
 
-        final streamed =
-            await ((request.method == 'GET' ||
-                            index == 2 &&
-                                request.method == 'POST' &&
-                                source.path == '/v0/search/subjects') &&
-                        !raw
-                    ? retryInterruptedTls(open)
-                    : open())
-                .timeout(headerTimeout);
-        final body = BytesBuilder();
-        await for (final chunk in streamed.stream.timeout(
-          const Duration(seconds: 20),
-        )) {
-          body.add(chunk);
-          if (body.length > 32 * 1024 * 1024) {
-            throw const HttpException('响应超过 32 MB');
+        Future<({http.StreamedResponse response, Uint8List bytes})>
+        receive() async {
+          final streamed =
+              await ((request.method == 'GET' ||
+                              index == 2 &&
+                                  request.method == 'POST' &&
+                                  source.path == '/v0/search/subjects') &&
+                          !raw
+                      ? retryInterruptedTls(open)
+                      : open())
+                  .timeout(headerTimeout);
+          final body = BytesBuilder();
+          await for (final chunk in streamed.stream.timeout(
+            const Duration(seconds: 20),
+          )) {
+            body.add(chunk);
+            if (body.length > responseLimit) {
+              throw HttpException('响应超过 $responseLimit 字节');
+            }
           }
+          return (response: streamed, bytes: body.takeBytes());
         }
-        final responseBytes = body.takeBytes();
+
+        final preferBackupOnTimeout =
+            i + 1 < ordered.length && uri == candidates.first;
+        final attemptLimit = deadline ?? (preferBackupOnTimeout
+            ? MetadataServers.attemptTimeout(headerTimeout, hasBackup: true)
+            : null);
+        final receiving = attemptLimit == null
+            ? receive()
+            : receive().timeout(attemptLimit);
+        final result = cancelled == null
+            ? await receiving
+            : await Future.any([
+                receiving,
+                cancelled.then<({http.StreamedResponse response, Uint8List bytes})>(
+                  (_) => throw http.RequestAbortedException(uri),
+                ),
+              ]);
+        final streamed = result.response, responseBytes = result.bytes;
         DebugLog.write(
           index == 0 ? 'TMDB' : 'Bangumi',
           '${request.method} host=${uri.host} resource=${index != null ? source.path : "diagnostic"} status=${streamed.statusCode} elapsed=${watch.elapsedMilliseconds}ms',
@@ -183,11 +198,20 @@ class MetadataHttp extends http.BaseClient {
         if (streamed.statusCode >= 500) {
           throw HttpException('HTTP ${streamed.statusCode}');
         }
-        _unhealthy.remove(uri.host);
+        if (!raw && index != null && streamed.statusCode == 200) {
+          final payload = jsonDecode(utf8.decode(responseBytes));
+          if (payload is! Map && payload is! List ||
+              payload is Map &&
+                  (payload['success'] == false ||
+                      payload.containsKey('error'))) {
+            throw const FormatException('Invalid metadata response');
+          }
+        }
+        if (!raw && index != null) MetadataServers.reachedRoute(uri);
         // Authentication/rate limiting are returned without retrying or cached success.
         if (streamed.statusCode == 200 && cache != null) {
           try {
-            jsonDecode(utf8.decode(responseBytes));
+            if (index == null) jsonDecode(utf8.decode(responseBytes));
             await cache.writeAsBytes(responseBytes);
             if (++_writes % 32 == 0) await _trimCache();
           } catch (_) {}
@@ -199,16 +223,16 @@ class MetadataHttp extends http.BaseClient {
           request: request,
         );
       } catch (e) {
+        if (e is http.RequestAbortedException) rethrow;
         failure = e;
         if (e is! TimeoutException &&
             e is! IOException &&
-            e is! http.ClientException) {
+            e is! http.ClientException &&
+            e is! FormatException) {
           rethrow;
         }
-        if (!fresh) {
-          _unhealthy[uri.host] = DateTime.now().add(
-            const Duration(seconds: 45),
-          );
+        if (!fresh && candidates.length > 1) {
+          MetadataServers.failedRoute(uri);
         }
         DebugLog.write(
           'Network',

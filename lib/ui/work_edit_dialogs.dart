@@ -11,6 +11,7 @@ import 'managed_image.dart';
 import 'poster_crop_page.dart';
 import 'package:flutter/material.dart';
 import '../core/catalog.dart';
+import '../core/scan_recognition.dart';
 import '../core/cover_options.dart';
 
 /// Explicit work metadata and poster editors, separate from file association.
@@ -19,12 +20,19 @@ abstract final class WorkEditDialogs {
     BuildContext context,
     Map<String, Object?> work, {
     required Future<void> Function() searchAndBind,
+    String? partBinding,
   }) async {
+    final catalog = Catalog.instance;
+    final part = partBinding == null
+        ? null
+        : await ScanRecognition.partOverviewPreview(catalog, partBinding);
+    if (!context.mounted) return;
+    if (partBinding != null && part == null) throw StateError('Part changed');
+    final initialOverview =
+        (part == null ? work['overview'] : part['value'])?.toString() ?? '';
     final title = TextEditingController(text: work['title']?.toString() ?? '');
     final year = TextEditingController(text: work['year']?.toString() ?? '');
-    final overview = TextEditingController(
-      text: work['overview']?.toString() ?? '',
-    );
+    final overview = TextEditingController(text: initialOverview);
     final links = TextEditingController(
       text: BangumiLinks.ids(work).join(', '),
     );
@@ -75,7 +83,12 @@ abstract final class WorkEditDialogs {
                           maxLines: 6,
                           minLines: 3,
                           decoration: InputDecoration(
-                            labelText: ctx.l10n.synopsis,
+                            labelText: part == null
+                                ? ctx.l10n.synopsis
+                                : (Localizations.localeOf(ctx).languageCode ==
+                                          'zh'
+                                      ? '此部分简介'
+                                      : 'Part overview'),
                           ),
                         ),
                         const SizedBox(height: 10),
@@ -168,6 +181,14 @@ abstract final class WorkEditDialogs {
       if (result == 'search') {
         if (context.mounted) await searchAndBind();
       } else if (result == 'save') {
+        if (part != null && overview.text.trim() != initialOverview.trim()) {
+          await ScanRecognition.savePartOverview(
+            catalog,
+            part,
+            overview.text.trim().isEmpty ? 'empty' : 'manual',
+            overview.text,
+          );
+        }
         await Catalog.instance.setBangumiLinks(
           work['id'].toString(),
           links.text.trim().isEmpty
@@ -182,7 +203,9 @@ abstract final class WorkEditDialogs {
           work['id'].toString(),
           title: title.text,
           year: year.text.trim().isEmpty ? null : int.parse(year.text.trim()),
-          overview: overview.text,
+          overview: part == null
+              ? overview.text
+              : work['overview']?.toString() ?? '',
         );
       }
     } finally {

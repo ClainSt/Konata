@@ -2,6 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ccplayer/core/auto_classifier.dart';
 
 void main() {
+  test('arbitrary collection depth reaches unmarked work and keeps extras', () {
+    for (final prefix in ['未添加TMDB ID/弹丸论破系列', '大目录/收藏/动画/未添加TMDB ID/弹丸论破系列']) {
+      for (final suffix in ['[LoliHouse] Danganronpa 3 - Mirai Hen - 01.mkv', 'SPs/Bonus/PV01.mkv', 'Season 01/01.mkv']) {
+        expect(AutoClassifier.decide(selectedRoot: '', relativePath: '$prefix/弹丸论破3/$suffix',
+          rootHasDirectVideo: false, localRootName: '')?.folder, '$prefix/弹丸论破3');
+      }
+    }
+  });
   AutoWork? classify(
     String root,
     String file, {

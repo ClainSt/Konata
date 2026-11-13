@@ -1,0 +1,654 @@
+{
+  "folder": "信长的忍者 姊川·石山篇",
+  "candidates": {
+    "bangumi": {
+      "id": 235421,
+      "type": "anime",
+      "title": "信长的忍者 姊川·石山篇",
+      "year": 2018,
+      "exact": true,
+      "title_matches": true,
+      "directory_title_matches": true,
+      "aliases": [
+        "信長の忍び〜姉川・石山篇〜",
+        "信长的忍者 姊川·石山篇",
+        "忍者少女千鸟～姐川·石山篇～",
+        "信长的忍者 第三季"
+      ]
+    },
+    "tmdb": {
+      "id": 68146,
+      "type": "tv",
+      "title": "信长的忍者",
+      "year": 2016,
+      "exact": true,
+      "title_matches": true,
+      "directory_title_matches": false,
+      "aliases": [
+        "信长的忍者",
+        "信長の忍び",
+        "Ninja Girl & Samurai Master The Anegawa/Ishiyama Arc",
+        "Nobunaga no Shinobi 3rd Season",
+        "Nobunaga no Shinobi Anegawa Ishiyama-hen",
+        "Ninja Girl & Samurai Master 3rd Season",
+        "Ninja Girl & Samurai Master",
+        "Nobunaga no Shinobi",
+        "信長の忍び〜姉川・石山篇〜",
+        "Nữ Ninja và Samurai",
+        "Nobunaga No Shinobi",
+        "노부나가의 시노비"
+      ],
+      "seasons": [
+        {
+          "season": 0,
+          "count": 1,
+          "year": 2016
+        },
+        {
+          "season": 1,
+          "count": 26,
+          "year": 2016
+        },
+        {
+          "season": 2,
+          "count": 26,
+          "year": 2017
+        },
+        {
+          "season": 3,
+          "count": 26,
+          "year": 2018
+        }
+      ]
+    }
+  },
+  "bangumi": {
+    "data": [
+      {
+        "id": 787567,
+        "sort": 53,
+        "name": "沈黙の小谷城",
+        "name_cn": "沉默的小谷城",
+        "airdate": "2018-04-07",
+        "type": 0
+      },
+      {
+        "id": 787568,
+        "sort": 54,
+        "name": "磯野、発進！",
+        "name_cn": "矶野、出发！",
+        "airdate": "2018-04-14",
+        "type": 0
+      },
+      {
+        "id": 787569,
+        "sort": 55,
+        "name": "千鳥乱舞",
+        "name_cn": "千鸟乱舞",
+        "airdate": "2018-04-21",
+        "type": 0
+      },
+      {
+        "id": 787570,
+        "sort": 56,
+        "name": "キケンな二人",
+        "name_cn": "危险的二人",
+        "airdate": "2018-04-28",
+        "type": 0
+      },
+      {
+        "id": 787571,
+        "sort": 57,
+        "name": "武士の本分",
+        "name_cn": "武士的本分",
+        "airdate": "2018-05-05",
+        "type": 0
+      },
+      {
+        "id": 787572,
+        "sort": 58,
+        "name": "特攻野郎遠藤さん",
+        "name_cn": "特攻小子 远藤",
+        "airdate": "2018-05-12",
+        "type": 0
+      },
+      {
+        "id": 787573,
+        "sort": 59,
+        "name": "拙者の屍を越えてゆけ",
+        "name_cn": "跨过在下的尸体前进吧",
+        "airdate": "2018-05-19",
+        "type": 0
+      },
+      {
+        "id": 787574,
+        "sort": 60,
+        "name": "それぞれの姉川",
+        "name_cn": "各自的姊川",
+        "airdate": "2018-05-26",
+        "type": 0
+      },
+      {
+        "id": 787575,
+        "sort": 61,
+        "name": "本当の覚悟",
+        "name_cn": "真正的觉悟",
+        "airdate": "2018-06-02",
+        "type": 0
+      },
+      {
+        "id": 787576,
+        "sort": 62,
+        "name": "ちょっと森家まで",
+        "name_cn": "顺道去一下森家",
+        "airdate": "2018-06-09",
+        "type": 0
+      },
+      {
+        "id": 787577,
+        "sort": 63,
+        "name": "さわらぬ仏にたたり無し",
+        "name_cn": "多一事不如少一事",
+        "airdate": "2018-06-16",
+        "type": 0
+      },
+      {
+        "id": 787579,
+        "sort": 64,
+        "name": "光の射す方へ",
+        "name_cn": "去向阳光照射处",
+        "airdate": "2018-06-23",
+        "type": 0
+      },
+      {
+        "id": 787580,
+        "sort": 65,
+        "name": "龍興は忘れた頃にやってくる",
+        "name_cn": "龙兴会在你遗忘他的时候杀过来",
+        "airdate": "2018-06-30",
+        "type": 0
+      },
+      {
+        "id": 787581,
+        "sort": 66,
+        "name": "きっかけは野田・福島",
+        "name_cn": "契机是野田·福岛",
+        "airdate": "2018-07-07",
+        "type": 0
+      },
+      {
+        "id": 787582,
+        "sort": 67,
+        "name": "矢より鉄砲持って来い",
+        "name_cn": "别拿弓箭 把铁炮拿来",
+        "airdate": "2018-07-14",
+        "type": 0
+      },
+      {
+        "id": 787583,
+        "sort": 68,
+        "name": "信者の行進",
+        "name_cn": "信者的行进",
+        "airdate": "2018-07-21",
+        "type": 0
+      },
+      {
+        "id": 787584,
+        "sort": 69,
+        "name": "逆襲の将",
+        "name_cn": "逆袭的将领",
+        "airdate": "2018-07-28",
+        "type": 0
+      },
+      {
+        "id": 787585,
+        "sort": 70,
+        "name": "絶対死守領域",
+        "name_cn": "绝对死守领域",
+        "airdate": "2018-08-04",
+        "type": 0
+      },
+      {
+        "id": 787586,
+        "sort": 71,
+        "name": "覚悟完了",
+        "name_cn": "已做好觉悟",
+        "airdate": "2018-08-11",
+        "type": 0
+      },
+      {
+        "id": 787578,
+        "sort": 72,
+        "name": "受け継ぐ者たち",
+        "name_cn": "继承者们",
+        "airdate": "2018-08-18",
+        "type": 0
+      },
+      {
+        "id": 815311,
+        "sort": 73,
+        "name": "天魔の御加護",
+        "name_cn": "天魔的加护",
+        "airdate": "2018-08-25",
+        "type": 0
+      },
+      {
+        "id": 815312,
+        "sort": 74,
+        "name": "聖域無き戦国乱世",
+        "name_cn": "战国乱世无圣域",
+        "airdate": "2018-09-01",
+        "type": 0
+      },
+      {
+        "id": 815313,
+        "sort": 75,
+        "name": "悪夢の志賀の陣",
+        "name_cn": "噩梦的志贺之阵",
+        "airdate": "2018-09-08",
+        "type": 0
+      },
+      {
+        "id": 815314,
+        "sort": 76,
+        "name": "比叡山の屈辱",
+        "name_cn": "比叡山的耻辱",
+        "airdate": "2018-09-15",
+        "type": 0
+      },
+      {
+        "id": 815315,
+        "sort": 77,
+        "name": "連鎖の終わり",
+        "name_cn": "连锁的完结",
+        "airdate": "2018-09-22",
+        "type": 0
+      },
+      {
+        "id": 815316,
+        "sort": 78,
+        "name": "鉢巻きと再出発",
+        "name_cn": "卷土重来再出发",
+        "airdate": "2018-09-29",
+        "type": 0
+      }
+    ],
+    "total": 26,
+    "limit": 100,
+    "offset": 0
+  },
+  "zh-CN": {
+    "season_number": 3,
+    "episodes": [
+      {
+        "season_number": 3,
+        "id": 1463551,
+        "name": "沉默的小谷城",
+        "episode_number": 1,
+        "air_date": "2018-04-06"
+      },
+      {
+        "season_number": 3,
+        "id": 1472116,
+        "name": "矶野、出发！",
+        "episode_number": 2,
+        "air_date": "2018-04-13"
+      },
+      {
+        "season_number": 3,
+        "id": 1479011,
+        "name": "千鸟乱舞",
+        "episode_number": 3,
+        "air_date": "2018-04-20"
+      },
+      {
+        "season_number": 3,
+        "id": 1479012,
+        "name": "危险的二人",
+        "episode_number": 4,
+        "air_date": "2018-04-27"
+      },
+      {
+        "season_number": 3,
+        "id": 1479013,
+        "name": "武士的本分",
+        "episode_number": 5,
+        "air_date": "2018-05-04"
+      },
+      {
+        "season_number": 3,
+        "id": 1479016,
+        "name": "特攻小子 远藤",
+        "episode_number": 6,
+        "air_date": "2018-05-11"
+      },
+      {
+        "season_number": 3,
+        "id": 2316749,
+        "name": "跨过在下的尸体前进吧",
+        "episode_number": 7,
+        "air_date": "2018-05-18"
+      },
+      {
+        "season_number": 3,
+        "id": 2316750,
+        "name": "各自的姊川",
+        "episode_number": 8,
+        "air_date": "2018-05-25"
+      },
+      {
+        "season_number": 3,
+        "id": 2316751,
+        "name": "真正的觉悟",
+        "episode_number": 9,
+        "air_date": "2018-06-01"
+      },
+      {
+        "season_number": 3,
+        "id": 2316752,
+        "name": "顺道去一下森家",
+        "episode_number": 10,
+        "air_date": "2018-06-08"
+      },
+      {
+        "season_number": 3,
+        "id": 2316753,
+        "name": "多一事不如少一事",
+        "episode_number": 11,
+        "air_date": "2018-06-15"
+      },
+      {
+        "season_number": 3,
+        "id": 2316754,
+        "name": "去向阳光照射处",
+        "episode_number": 12,
+        "air_date": "2018-06-22"
+      },
+      {
+        "season_number": 3,
+        "id": 2316755,
+        "name": "龙兴会在你遗忘他的时候杀过来",
+        "episode_number": 13,
+        "air_date": "2018-06-29"
+      },
+      {
+        "season_number": 3,
+        "id": 2316756,
+        "name": "契机是野田·福岛",
+        "episode_number": 14,
+        "air_date": "2018-07-06"
+      },
+      {
+        "season_number": 3,
+        "id": 2316757,
+        "name": "别拿弓箭 把铁炮拿来",
+        "episode_number": 15,
+        "air_date": "2018-07-13"
+      },
+      {
+        "season_number": 3,
+        "id": 2316758,
+        "name": "信者的行进",
+        "episode_number": 16,
+        "air_date": "2018-07-20"
+      },
+      {
+        "season_number": 3,
+        "id": 2316759,
+        "name": "逆袭的将领",
+        "episode_number": 17,
+        "air_date": "2018-07-27"
+      },
+      {
+        "season_number": 3,
+        "id": 2316760,
+        "name": "绝对死守领域",
+        "episode_number": 18,
+        "air_date": "2018-08-03"
+      },
+      {
+        "season_number": 3,
+        "id": 2316761,
+        "name": "已做好觉悟",
+        "episode_number": 19,
+        "air_date": "2018-08-10"
+      },
+      {
+        "season_number": 3,
+        "id": 2316762,
+        "name": "继承者们",
+        "episode_number": 20,
+        "air_date": "2018-08-17"
+      },
+      {
+        "season_number": 3,
+        "id": 2316763,
+        "name": "天魔的加护",
+        "episode_number": 21,
+        "air_date": "2018-08-24"
+      },
+      {
+        "season_number": 3,
+        "id": 2316764,
+        "name": "战国乱世无圣域",
+        "episode_number": 22,
+        "air_date": "2018-08-31"
+      },
+      {
+        "season_number": 3,
+        "id": 2316765,
+        "name": "噩梦的志贺之阵",
+        "episode_number": 23,
+        "air_date": "2018-09-07"
+      },
+      {
+        "season_number": 3,
+        "id": 2316766,
+        "name": "比叡山的耻辱",
+        "episode_number": 24,
+        "air_date": "2018-09-14"
+      },
+      {
+        "season_number": 3,
+        "id": 2316767,
+        "name": "连锁的完结",
+        "episode_number": 25,
+        "air_date": "2018-09-21"
+      },
+      {
+        "season_number": 3,
+        "id": 2316768,
+        "name": "卷土重来再出发",
+        "episode_number": 26,
+        "air_date": "2018-09-28"
+      }
+    ]
+  },
+  "ja-JP": {
+    "season_number": 3,
+    "episodes": [
+      {
+        "season_number": 3,
+        "id": 1463551,
+        "name": "沈黙の小谷城",
+        "episode_number": 1,
+        "air_date": "2018-04-06"
+      },
+      {
+        "season_number": 3,
+        "id": 1472116,
+        "name": "磯野、発進！",
+        "episode_number": 2,
+        "air_date": "2018-04-13"
+      },
+      {
+        "season_number": 3,
+        "id": 1479011,
+        "name": "千鳥乱舞",
+        "episode_number": 3,
+        "air_date": "2018-04-20"
+      },
+      {
+        "season_number": 3,
+        "id": 1479012,
+        "name": "キケンな二人",
+        "episode_number": 4,
+        "air_date": "2018-04-27"
+      },
+      {
+        "season_number": 3,
+        "id": 1479013,
+        "name": "武士の本分",
+        "episode_number": 5,
+        "air_date": "2018-05-04"
+      },
+      {
+        "season_number": 3,
+        "id": 1479016,
+        "name": "特攻野郎遠藤さん",
+        "episode_number": 6,
+        "air_date": "2018-05-11"
+      },
+      {
+        "season_number": 3,
+        "id": 2316749,
+        "name": "拙者の屍を越えてゆけ",
+        "episode_number": 7,
+        "air_date": "2018-05-18"
+      },
+      {
+        "season_number": 3,
+        "id": 2316750,
+        "name": "それぞれの姉川",
+        "episode_number": 8,
+        "air_date": "2018-05-25"
+      },
+      {
+        "season_number": 3,
+        "id": 2316751,
+        "name": "本当の覚悟",
+        "episode_number": 9,
+        "air_date": "2018-06-01"
+      },
+      {
+        "season_number": 3,
+        "id": 2316752,
+        "name": "ちょっと森家まで",
+        "episode_number": 10,
+        "air_date": "2018-06-08"
+      },
+      {
+        "season_number": 3,
+        "id": 2316753,
+        "name": "さわらぬ仏にたたり無し",
+        "episode_number": 11,
+        "air_date": "2018-06-15"
+      },
+      {
+        "season_number": 3,
+        "id": 2316754,
+        "name": "光の射す方へ",
+        "episode_number": 12,
+        "air_date": "2018-06-22"
+      },
+      {
+        "season_number": 3,
+        "id": 2316755,
+        "name": "龍興は忘れた頃にやってくる",
+        "episode_number": 13,
+        "air_date": "2018-06-29"
+      },
+      {
+        "season_number": 3,
+        "id": 2316756,
+        "name": "きっかけは野田・福島",
+        "episode_number": 14,
+        "air_date": "2018-07-06"
+      },
+      {
+        "season_number": 3,
+        "id": 2316757,
+        "name": "矢より鉄砲持って来い",
+        "episode_number": 15,
+        "air_date": "2018-07-13"
+      },
+      {
+        "season_number": 3,
+        "id": 2316758,
+        "name": "信者の行進",
+        "episode_number": 16,
+        "air_date": "2018-07-20"
+      },
+      {
+        "season_number": 3,
+        "id": 2316759,
+        "name": "信者の行進",
+        "episode_number": 17,
+        "air_date": "2018-07-27"
+      },
+      {
+        "season_number": 3,
+        "id": 2316760,
+        "name": "絶対死守領域",
+        "episode_number": 18,
+        "air_date": "2018-08-03"
+      },
+      {
+        "season_number": 3,
+        "id": 2316761,
+        "name": "覚悟完了",
+        "episode_number": 19,
+        "air_date": "2018-08-10"
+      },
+      {
+        "season_number": 3,
+        "id": 2316762,
+        "name": "受け継ぐ者たち",
+        "episode_number": 20,
+        "air_date": "2018-08-17"
+      },
+      {
+        "season_number": 3,
+        "id": 2316763,
+        "name": "天魔の御加護",
+        "episode_number": 21,
+        "air_date": "2018-08-24"
+      },
+      {
+        "season_number": 3,
+        "id": 2316764,
+        "name": "聖域無き戦国乱世",
+        "episode_number": 22,
+        "air_date": "2018-08-31"
+      },
+      {
+        "season_number": 3,
+        "id": 2316765,
+        "name": "悪夢の志賀の陣",
+        "episode_number": 23,
+        "air_date": "2018-09-07"
+      },
+      {
+        "season_number": 3,
+        "id": 2316766,
+        "name": "比叡山の屈辱",
+        "episode_number": 24,
+        "air_date": "2018-09-14"
+      },
+      {
+        "season_number": 3,
+        "id": 2316767,
+        "name": "連鎖の終わり",
+        "episode_number": 25,
+        "air_date": "2018-09-21"
+      },
+      {
+        "season_number": 3,
+        "id": 2316768,
+        "name": "鉢巻きと再出発",
+        "episode_number": 26,
+        "air_date": "2018-09-28"
+      }
+    ]
+  }
+}

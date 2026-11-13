@@ -6,11 +6,19 @@ class PeopleCards extends StatelessWidget {
     super.key,
     required this.cards,
     this.imageBuilder,
-    this.alternateImages = false,
+    this.showVoiceActors = false,
   });
   final List<Map<String, dynamic>> cards;
   final Widget Function(String? url)? imageBuilder;
-  final bool alternateImages;
+  final bool showVoiceActors;
+
+  ({String title, String subtitle}) _labels(Map<String, dynamic> card) {
+    final title = card['title'] as String;
+    final subtitle = card['subtitle'] as String;
+    return showVoiceActors && subtitle.trim().isNotEmpty
+        ? (title: subtitle, subtitle: title)
+        : (title: title, subtitle: subtitle);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +43,7 @@ class PeopleCards extends StatelessWidget {
             PeopleCards(
               cards: section.value,
               imageBuilder: imageBuilder,
-              alternateImages: alternateImages,
+              showVoiceActors: showVoiceActors,
             ),
           ],
         ],
@@ -52,21 +60,19 @@ class PeopleCards extends StatelessWidget {
         itemCount: cards.length,
         itemBuilder: (context, index) {
           final card = cards[index];
-          final subtitle = alternateImages
-              ? card['alternateSubtitle'] ?? card['subtitle']
-              : card['subtitle'];
+          final labels = _labels(card);
           return SizedBox(
             width: 104,
             child: Column(
               children: [
                 imageBuilder!(
-                  card[alternateImages ? 'alternateImage' : 'image'] as String?,
+                  card[showVoiceActors ? 'alternateImage' : 'image'] as String?,
                 ),
                 const SizedBox(height: 8),
                 Tooltip(
-                  message: card['title'] as String,
+                  message: labels.title,
                   child: Text(
-                    card['title'] as String,
+                    labels.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
@@ -76,9 +82,9 @@ class PeopleCards extends StatelessWidget {
                   ),
                 ),
                 Tooltip(
-                  message: subtitle as String,
+                  message: labels.subtitle,
                   child: Text(
-                    subtitle,
+                    labels.subtitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
@@ -96,13 +102,11 @@ class PeopleCards extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final card in cards)
+        for (final labels in cards.map(_labels))
           ListTile(
             dense: true,
-            title: Text(card['title'] as String),
-            subtitle: (card['subtitle'] as String).isEmpty
-                ? null
-                : Text(card['subtitle'] as String),
+            title: Text(labels.title),
+            subtitle: labels.subtitle.isEmpty ? null : Text(labels.subtitle),
           ),
       ],
     );

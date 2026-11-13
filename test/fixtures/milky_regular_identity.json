@@ -1,0 +1,5508 @@
+[
+  {
+    "key": "milky-01",
+    "tmdb": {
+      "adult": false,
+      "backdrop_path": "/t7MjkWAaM7OBwamGY7lsc5bmI63.jpg",
+      "created_by": [],
+      "episode_run_time": [
+        25
+      ],
+      "first_air_date": "2010-10-07",
+      "genres": [
+        {
+          "id": 16,
+          "name": "アニメーション"
+        },
+        {
+          "id": 9648,
+          "name": "謎"
+        }
+      ],
+      "homepage": "http://milky-holmes.com/anime/",
+      "id": 51492,
+      "in_production": false,
+      "languages": [
+        "ja"
+      ],
+      "last_air_date": "2015-03-28",
+      "last_episode_to_air": {
+        "id": 1497849,
+        "name": "The detective of the Opera",
+        "overview": "長い捜査の末、ようやく真相へと辿り着いた歌怪盗事件。仕事を終えて、いつものようにダラダラと過ごしていたミルキィホームズの元に、コンサートのチケットが届く。それは・・・。【第12話劇中歌：いい日 TD、アーティスト:ミルキィホームズ&フェザーズ&明智小衣(CV.南條愛乃)&天城茉莉音(CV.新田恵海)】",
+        "vote_average": 0.0,
+        "vote_count": 0,
+        "air_date": "2015-03-28",
+        "episode_number": 12,
+        "episode_type": "finale",
+        "production_code": "",
+        "runtime": 25,
+        "season_number": 4,
+        "show_id": 51492,
+        "still_path": "/sVCzt6G2KbqyQ1ZZvkNlJw5IjeR.jpg"
+      },
+      "name": "探偵オペラ ミルキィホームズ",
+      "next_episode_to_air": null,
+      "networks": [
+        {
+          "id": 614,
+          "logo_path": "/hSdroyVthq3CynxTIIY7lnS8w1.png",
+          "name": "TOKYO MX",
+          "origin_country": "JP"
+        }
+      ],
+      "number_of_episodes": 48,
+      "number_of_seasons": 4,
+      "origin_country": [
+        "JP"
+      ],
+      "original_language": "ja",
+      "original_name": "探偵オペラ ミルキィホームズ",
+      "overview": "シャロ、ネロ、エリー、コーデリアの４人は、\n\nトイズと抜群のチームワークで数多くの事件を解決してきた\n\n「ホームズ探偵学院」の人気者。\n\n彼女たち「ミルキィホームズ」は学生だけでなく偵都ヨコハマの市民たちからも憧れの的だった。\n\nだが、ある嵐の夜、宿敵「怪盗帝国」とのバトルの最中に「ミルキィホームズ」の4人はそれぞれのトイズを失い、\n\nその運命は激変してしまう・・・。",
+      "popularity": 9.6882,
+      "poster_path": "/z9pfLiBGliEwJbSVAbjuTqJWaN.jpg",
+      "production_companies": [
+        {
+          "id": 58268,
+          "logo_path": "/4k796tdBrk2SNYe4nQL4Da81tZo.png",
+          "name": "Artland",
+          "origin_country": "JP"
+        },
+        {
+          "id": 35911,
+          "logo_path": "/9MwEIpHdSECESz9ILnA9CfLJ2m6.png",
+          "name": "Nomad",
+          "origin_country": "JP"
+        },
+        {
+          "id": 42196,
+          "logo_path": "/nQNmHvcmaT0zk1Rf0TYtLYO5MpI.png",
+          "name": "Bushiroad",
+          "origin_country": "JP"
+        },
+        {
+          "id": 9148,
+          "logo_path": "/rtW3NadfF4kR5mTW00ahiFxw6k7.png",
+          "name": "Pony Canyon",
+          "origin_country": "JP"
+        },
+        {
+          "id": 6683,
+          "logo_path": "/reCkuk3GEomdx5gQpsm15Zl1sgX.png",
+          "name": "Lantis",
+          "origin_country": "JP"
+        },
+        {
+          "id": 60197,
+          "logo_path": "/D5B8l99tlFJGoMpYJk1kqxYdey.png",
+          "name": "Good Smile Company",
+          "origin_country": "JP"
+        },
+        {
+          "id": 29672,
+          "logo_path": "/e3iSDZHis5wWo18z8cvB5udRctO.png",
+          "name": "Dwango",
+          "origin_country": "JP"
+        },
+        {
+          "id": 4719,
+          "logo_path": "/b3smsDQQ2UEwqToJbVTlT4kgXBk.png",
+          "name": "Sotsu",
+          "origin_country": "JP"
+        },
+        {
+          "id": 7122,
+          "logo_path": "/ymxxE2kupVDLM6zCZ2Z3QAXOdJ0.png",
+          "name": "Emotion",
+          "origin_country": "JP"
+        },
+        {
+          "id": 528,
+          "logo_path": "/fO3Aof3lXQclYpBByYC8aneTXwA.png",
+          "name": "Bandai Visual",
+          "origin_country": "JP"
+        },
+        {
+          "id": 204799,
+          "logo_path": "/auxX8eAtiL9lHwTfSr6lGdSAGLm.png",
+          "name": "Bushiroad Music",
+          "origin_country": "JP"
+        },
+        {
+          "id": 157002,
+          "logo_path": "/hSdroyVthq3CynxTIIY7lnS8w1.png",
+          "name": "Tokyo MX",
+          "origin_country": "JP"
+        },
+        {
+          "id": 11884,
+          "logo_path": "/tHzHPSKdmLT5zCdqFbcmHzZvRIc.png",
+          "name": "J.C.STAFF",
+          "origin_country": "JP"
+        }
+      ],
+      "production_countries": [
+        {
+          "iso_3166_1": "JP",
+          "name": "Japan"
+        }
+      ],
+      "seasons": [
+        {
+          "air_date": "2011-08-25",
+          "episode_count": 6,
+          "id": 55764,
+          "name": "特別編",
+          "overview": "",
+          "poster_path": "/mGk8OGieaOERSsk2zv10AXZfqxV.jpg",
+          "season_number": 0,
+          "vote_average": 0.0
+        },
+        {
+          "air_date": "2010-10-07",
+          "episode_count": 12,
+          "id": 55765,
+          "name": "第1期",
+          "overview": "",
+          "poster_path": "/ml8OoR4jVjUYxAGmA8Mu2UhHuKI.jpg",
+          "season_number": 1,
+          "vote_average": 7.0
+        },
+        {
+          "air_date": "2012-01-05",
+          "episode_count": 12,
+          "id": 55767,
+          "name": "第2幕",
+          "overview": "せっかくトイズが戻ってきたのもつかの間、\n\nまたまたトイズを失ってしまったミルキィホームズの4人。\n\n好敵手の復活を強く望むアルセーヌ（＝アンリエット）は、ミルキィホームズがトイズを取り戻すようにと、\n\n陰になり日向になり４人をサポートするが、トイズが復活する気配は全くない。\n\nそれどころか、４人は貧乏生活にすっかり慣れ、ダメダメ街道まっしぐら。\n\n遂にはトイズだけでなく、学院生活に一番大事なものもすっかり忘れてしまい･･･。",
+          "poster_path": "/dz51qTUUCGz2DdZSKRXfBiPpgo1.jpg",
+          "season_number": 2,
+          "vote_average": 0.0
+        },
+        {
+          "air_date": "2013-07-13",
+          "episode_count": 12,
+          "id": 55766,
+          "name": "ふたりはミルキィホームズ",
+          "overview": "偵都ヨコハマに世の中を揺るがす『怪盗帝国』とそれを正す少女探偵団『ミルキィホームズ』が現れてから２年。\n\nヨコハマの街にはつかの間の平穏が訪れていた。その街に住む常盤カズミと明神川アリスは幼馴染同士の１２歳。\n\n違う探偵学院に通いつつも帰り道で落ち合うなど、毎日仲良く探偵になるための勉学に励んでいた。\n\nそんなある日、街で逃げ去る怪盗を見かけた２人。追いかけた先で彼女たちが見たものは……？",
+          "poster_path": "/2dkG7VQml3xhwu3RuCgZql5R9Ds.jpg",
+          "season_number": 3,
+          "vote_average": 0.0
+        },
+        {
+          "air_date": "2014-12-31",
+          "episode_count": 12,
+          "id": 104483,
+          "name": "探偵歌劇 ミルキィホームズ TD",
+          "overview": "",
+          "poster_path": "/sfg1WWQTzG35W4l1WQ5X15x2kOj.jpg",
+          "season_number": 4,
+          "vote_average": 0.0
+        }
+      ],
+      "softcore": false,
+      "spoken_languages": [
+        {
+          "english_name": "Japanese",
+          "iso_639_1": "ja",
+          "name": "日本語"
+        }
+      ],
+      "status": "Ended",
+      "tagline": "",
+      "type": "Scripted",
+      "vote_average": 7.2,
+      "vote_count": 8,
+      "alternative_titles": {
+        "results": [
+          {
+            "iso_3166_1": "BR",
+            "title": "Tantei Opera Milky Holmes",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "HK",
+            "title": "偵探歌劇 少女福爾摩斯",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "JP",
+            "title": "探偵オペラ ミルキィホームズ 第2幕",
+            "type": "second series title"
+          },
+          {
+            "iso_3166_1": "JP",
+            "title": "Tantei Opera Milky Holmes",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "JP",
+            "title": "探偵歌劇 ミルキィホームズ TD",
+            "type": "fourth series title"
+          },
+          {
+            "iso_3166_1": "JP",
+            "title": "ふたりはミルキィホームズ",
+            "type": "third series title"
+          },
+          {
+            "iso_3166_1": "KR",
+            "title": "Tantei Kageki Milky Holmes TD",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "TW",
+            "title": "偵探歌劇 少女福爾摩斯",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "US",
+            "title": "Futari wa Milky Holmes",
+            "type": "third season title"
+          },
+          {
+            "iso_3166_1": "US",
+            "title": "Tantei Opera Milky Holmes: Act 2",
+            "type": "second series title"
+          }
+        ]
+      },
+      "translations": {
+        "translations": [
+          {
+            "iso_3166_1": "US",
+            "iso_639_1": "en",
+            "name": "English",
+            "english_name": "English",
+            "data": {
+              "name": "Detective Opera Milky Holmes",
+              "overview": "Set in a futuristic world, there exist \"Toys\" which grant people superhuman abilities. This is responsible for a wave of crimes and necessitates employing Toy-using detectives to help solve them. Opera Kobayashi runs a detective agency, Milky Holmes, staffed by four aspiring young girl detectives who attend the Holmes Detective Academy, and each girl possesses their own unique Toy.",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "FR",
+            "iso_639_1": "fr",
+            "name": "Français",
+            "english_name": "French",
+            "data": {
+              "name": "Tantei Opera Milky Holmes",
+              "overview": "Dans un futur lointain, les jouets (Toys) sont décris comme des pouvoirs surhumain. À cause de cela, le nombre de crime dû aux personnes en utilisant a considérablement augmenté.\n\nSheryl, Nero, Elly, et Cordelia sont les élèves les plus connues et les plus fortes de la Holmes Detective Academy. On ne compte plus le nombre de voleurs et criminels qu'elles ont arrêtées. Forte de leur notoriété, elles se font appelées les Milky Holmes.\n\nUn soir, en voulant attraper un de leur plus grand rival, elles perdent leurs \"jouets\".\n\nComment vont-elles surpasser cet handicap et resteront-elles les plus grande détective ?",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "JP",
+            "iso_639_1": "ja",
+            "name": "日本語",
+            "english_name": "Japanese",
+            "data": {
+              "name": "",
+              "overview": "シャロ、ネロ、エリー、コーデリアの４人は、\n\nトイズと抜群のチームワークで数多くの事件を解決してきた\n\n「ホームズ探偵学院」の人気者。\n\n彼女たち「ミルキィホームズ」は学生だけでなく偵都ヨコハマの市民たちからも憧れの的だった。\n\nだが、ある嵐の夜、宿敵「怪盗帝国」とのバトルの最中に「ミルキィホームズ」の4人はそれぞれのトイズを失い、\n\nその運命は激変してしまう・・・。",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "BR",
+            "iso_639_1": "pt",
+            "name": "Português",
+            "english_name": "Portuguese",
+            "data": {
+              "name": "Tantei Opera Milky Holmes",
+              "overview": "\"Brinquedos\" são poderes concedidos àqueles escolhidos para manejá-los, cada um com qualidades únicas para seus usuários. Alguns desses indivíduos nascem puros, usando seus poderes para se tornarem detetives. Outros florescem cheios de veneno e optam por se tornar ladrões fantasmas. Essas duas facções opostas causaram a formação de várias academias de detetives em todo o mundo - treinando detetives para lutar e capturar os ladrões fantasmas. Sherlock Shellingford, Nero Yuzurizaki, Hercule Burton e Cordelia Glauca formam \"Milky Holmes\", um grupo reconhecido como o creme da colheita na Academia de Detetives Holmes, com sede em Yokohama. No entanto, em uma briga contra o ladrão fantasma Arsene, seus brinquedos desaparecem subitamente, considerando-os impróprios para continuar como detetives.",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "ES",
+            "iso_639_1": "es",
+            "name": "Español",
+            "english_name": "Spanish",
+            "data": {
+              "name": "Tantei Opera Milky Holmes",
+              "overview": "En el futuro, la gente utiliza \"Toys\" que les concede habilidades sobrehumanas como el ESP y la telequinesis. Esto ha conducido a un auge en los delitos menores y la necesidad de Toys que utilizan los detectives para localizar a los delincuentes y llevarlos ante la justicia. Opera Koyabashi funciona como la agencia de detectives, Milky Holmes, que contará con cuatro muchachas alegres y enérgicas.",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "CN",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "侦探歌剧 少女福尔摩斯",
+              "overview": "故事以侦都横滨为舞台，讲述的是在二十一世纪这个“大侦探时代”中，四名立志要成为名侦探的少女组成了“福尔摩斯\"小队与怪盗对决的故事。",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "PL",
+            "iso_639_1": "pl",
+            "name": "Polski",
+            "english_name": "Polish",
+            "data": {
+              "name": "Tantei Opera Milky Holmes",
+              "overview": "Sheryl, Nero, Elly i Cordelia są najpopularniejszymi studentami Akademii Detektywistycznej Holmes ze względu na wiele spraw, które rozwiązały za pomocą zabawek i pracy zespołowej. Studenci i mieszkańcy Miasta Detektywów Yokohama obserwują członków „Milky Holmes”. Ale w ciemną i burzliwą noc podczas bitwy z rywalami – Imperium Złodziei Dżentelmenów – tracą swoje zabawki, a ich los ulega dramatycznej zmianie…",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "KR",
+            "iso_639_1": "ko",
+            "name": "한국어/조선말",
+            "english_name": "Korean",
+            "data": {
+              "name": "탐정 오페라 밀키 홈즈",
+              "overview": "",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "IT",
+            "iso_639_1": "it",
+            "name": "Italiano",
+            "english_name": "Italian",
+            "data": {
+              "name": "Detective Opera Milky Holmes",
+              "overview": "Ci troviamo in un futuro non definito in cui alcuni esseri umani sviluppano speciali poteri che vengono chiamati Toys. Opera Kobayashi gestisce un ufficio investigativo chiamato Milky Holmes, specializzato nelle indagini di casi che vedono persone dotate di Toys usare le proprie abilità per compiere crimini. Ad aiutarlo ci sono quattro ragazze detective, Sherlock, Nero, Hercule e Cordelia, dotate anch'esse di propri Toys. Le quattro investigatrici si ritrovano però improvvisamente a perdere i propri poteri per cause misteriose e dovranno dunque trovare il modo di riottenerli.",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "DE",
+            "iso_639_1": "de",
+            "name": "Deutsch",
+            "english_name": "German",
+            "data": {
+              "name": "Detective Opera Milky Holmes",
+              "overview": "In der Zukunft nutzen die Menschen »Toys«. Diese »Toys« ermöglichen ihnen übermenschliche Fähigkeiten wie Telekinese oder ESP. Dies führt zu zahlreichen kleinen Verbrechen. Somit sind »Toys«-Detektive nötig, die auf der Spur der Täter sind und diese vor Gericht bringen.\n\nSheryl, Nero, Elly, und Cordelia sind die beliebtesten Schüler der Holmes Detektiv Akademie, weil sie viele Fälle mit ihren »Toys« und ihrer Teamarbeit erfolgreich gelöst haben. Die Schüler und die Bewohner der Detektiv-Stadt Yokohama bewundern die Mitglieder der »Milky Holmes«. Aber in einer dunklen, stürmischen Nacht, während eines Kampfes mit ihren Rivalen »Die ehrenwerten Diebe«, verlieren sie ihre »Toys« und ihr Schicksal erfährt eine dramatische Wende!",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "TH",
+            "iso_639_1": "th",
+            "name": "ภาษาไทย",
+            "english_name": "Thai",
+            "data": {
+              "name": "Detective Opera Milky Holmes",
+              "overview": "ในโลกที่นักสืบได้รัความนิยม ผู้ที่ถูกเลือกจะมี ทอยส์ (Toys) ที่ทำให้ใช้พลังพิเศษได้ ช่วยในการสืบคดีและต่อสู้กับพวกอาชญากร เรื่องราวของกลุ่มนักสืบรุ่นจิ๋ว มิลกี้โฮล์ม ที่มีความสามารถในการจับผู้ร้ายที่ยอดเยี่ยมกว่าเด็กรุ่นเดียวกัน เป็นที่ชื่นชมของเพื่อนร่วมโรงเรียน แต่หลังทอยส์ถูกพวกจอมโจรขโมยไป พวกเธอกลับตกต่ำถึงขีดสุดและต้องหาทางชิงกลับมา",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "RU",
+            "iso_639_1": "ru",
+            "name": "Pусский",
+            "english_name": "Russian",
+            "data": {
+              "name": "Детективное агентство Милки Холмс",
+              "overview": "В мире сериала обладатели магических Даров делятся на два клана и ведут бесконечную увлекательную игру в детективов и благородных преступников. Одаренные дети учатся на детективов в академии им. Холмса, замаскированные преступники часто учатся и работают там же (а где еще-то?). В «Милки Холмс» — самую успешную команду молодых сыщиков – входят четыре главных героини: телекинетик Шерри, повелительница машин Неро, силачка Эри и Корди, умеющая в сотни раз обострять собственные чувства. Но в очередной схватке с королевой преступного мира леди Арсен девушки теряют сверхспособности, в результате из звезд своего курса постепенно превращаясь в двоечниц и посмешище всей академии...",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "HK",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "偵探歌劇 少女福爾摩斯",
+              "overview": "講述了活躍著怪盜與偵探的近未來架空世界裏的「偵探之都橫濱」，目標成為真正的偵探的四位少女偵探組合 Milky Holmes 的故事。",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "TW",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "偵探歌劇 少女福爾摩斯",
+              "overview": "講述了活躍着怪盜與偵探的近未來架空世界裏的「偵探之都橫濱」，目標成為真正的偵探的四位少女偵探組合Milky Holmes的故事。",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "MX",
+            "iso_639_1": "es",
+            "name": "Español",
+            "english_name": "Spanish",
+            "data": {
+              "name": "",
+              "overview": "",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "VN",
+            "iso_639_1": "vi",
+            "name": "Tiếng Việt",
+            "english_name": "Vietnamese",
+            "data": {
+              "name": "Detective Opera Milky Holmes",
+              "overview": "Trong thế giới tương lai, tồn tại những \"Toys\" ban cho con người siêu năng lực — kéo theo làn sóng tội phạm và nhu cầu về các thám tử sử dụng Toys để phá án. Opera Kobayashi điều hành văn phòng thám tử Milky Holmes với bốn cô thám tử trẻ đầy triển vọng theo học tại Học viện Thám tử Holmes, mỗi người sở hữu một Toy độc đáo.",
+              "homepage": "",
+              "tagline": ""
+            }
+          }
+        ]
+      }
+    },
+    "season": {
+      "id": 55765,
+      "_id": "52598119760ee34661a997f4",
+      "air_date": "2010-10-07",
+      "episodes": [
+        {
+          "air_date": "2010-10-07",
+          "episode_number": 1,
+          "episode_type": "standard",
+          "id": 919619,
+          "name": "屋根裏の入居者",
+          "overview": "　シャロ、ネロ、エリー、コーデリアの４人は、トイズと抜群のチームワークで数多くの事件を解決してきた『ホームズ探偵学院』の人気者。\n\n　学生だけでなく偵都ヨコハマの市民たちからも「ミルキィホームズ」と呼ばれ、憧れの的だった。だが、ある嵐の夜、宿敵「怪盗帝国」とのバトルの最中に「ミルキィホームズ」の４人はトイズを失ってしまい、事態は激変する。\n\n優秀な探偵だった「ミルキィホームズ」は何をやってもダメなダメダメ探偵になってしまったのだ！どうしてもトイズが蘇らない「ミルキィホームズ」４人に対し、その事態を憂慮した学院の生徒会長アンリエットは、最後通牒を突きつけた！それは何と･･･？！",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 1,
+          "show_id": 51492,
+          "still_path": "/aGMhdrPizjF6efEPtHfhvHuANZk.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2010-10-14",
+          "episode_number": 2,
+          "episode_type": "standard",
+          "id": 919614,
+          "name": "ポケットにパンを",
+          "overview": "　トイズを失ったミルキィホームズたちを待っていたのは、屋根裏部屋での同居生活。食事も貧しくなり、4人の気持ちは徐々にささくれだってゆく。\n\n　その様子を見て喜ぶ、怪盗帝国のトゥエンティ、ストーンリバー、ラット。彼らはミルキィホームズを監視するためにそれぞれ二十里、石流、根津に姿と名前を変え、ホームズ探偵学院に潜入しているのだ。\n\n　だが、ミルキィホームズ分裂の危機を一匹の子猫「かまぼこ」が救う。少しづつまとまりを取り戻してゆく4人。ところが、ある日朝食用のパンが盗まれるという事件が発生！石流はミルキィホームズたちが犯人だと決めつけ糾弾する！ピンチに陥ったミルキィホームズたちだが･･･。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 1,
+          "show_id": 51492,
+          "still_path": "/ubvNm0KYRN0fY6faDMttQaCYOvC.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2010-10-21",
+          "episode_number": 3,
+          "episode_type": "standard",
+          "id": 919622,
+          "name": "棺桶の恐怖",
+          "overview": "　怪盗アルセーヌから犯行予告が届いた。超ヨコハマ美術館にある「ハマのビーナス」を盗むというのだ。呼応して現地へ出動する明智・銭形･長谷川・遠山の4人。ヨコハマ警察の対怪盗用特別チーム「Ｇ４」のメンバーだ。\n\n　一方、ミルキィホームズ4人も超ヨコハマ美術館へ駆けつけ、Ｇ４の4人と対面することに。ミルキィホームズに強いライバル心を持つ明智は、一計を案じ、自分の言う通りにすれば失ったトイズが復活するとミルキィホームズたちに告げる。\n\n　明智の言葉を信じた4人は美術館の中であるゲームをすることに。だが、その途中恥ずかしいポーズに耐えられなくなったエリーは逃げ出してしまう！そんな中、遂に怪盗帝国が登場し・・・。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 1,
+          "show_id": 51492,
+          "still_path": "/n8mQoWBg8urtK4zwqEmVcYvEP62.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2010-10-28",
+          "episode_number": 4,
+          "episode_type": "standard",
+          "id": 919616,
+          "name": "バリツの秘密",
+          "overview": "　ホームズ探偵学院の裏側に広がるヨコハマ大樹海で、アイリーンという小学生が行方不明者になった。\n\n　ミルキィホームズとG4がその捜索に乗り出すが、シャロと明智が二次遭難してしまう。一端捜索は中止になるが、何とかシャロを助けようと、その夜学院に無断で夜のヨコハマに出ようとするコーデリアたち3人。だが、怪盗帝国の罠にはまって身動きがとれなくなってしまう。一方、シャロと明智はとある洞窟の中でアイリーンと出会う。\n\n　アイリーンがヨコハマ大樹海に足を踏み入れた理由を聞き、何とかアイリーンを助けようと誓うシャロ。翌日3人でヨコハマ大樹海からの脱出を試みるが･･･。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 1,
+          "show_id": 51492,
+          "still_path": "/xEl5ps5A93SWo1SJRfutEWLd88d.jpg",
+          "vote_average": 7.0,
+          "vote_count": 1,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2010-11-04",
+          "episode_number": 5,
+          "episode_type": "standard",
+          "id": 919620,
+          "name": "かまぼこ失踪事件",
+          "overview": "　スズメを追って道路に飛び出したかまぼこ。自動車に轢かれそうな危機をメアリー＆ケイトと名乗る2人組みの女怪盗がトイズを使って間一髪で助け出す。そのかっこよさに、ミルキィホームズの4人はこの2人を怪盗ではなく探偵だと勘違いしてしまう。\n\n　一方、メアリー＆ケイトは何故か急にかまぼこの誘拐を計画し、そのためミルキィホームズたちの屋根裏部屋へ向かう。すっかり探偵だと信じ込んだミルキィたちの天然ぶりに翻弄される2人だが、何とかかまぼこの誘拐に成功。だが、かまぼこが誘拐されたと気づかないシャロたちは、行方不明のかまぼこを探すが…。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 1,
+          "show_id": 51492,
+          "still_path": "/cjss44Cww891u700rfJfZfJMKUZ.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c29b2d2b20900b9c4c2e0",
+              "adult": false,
+              "gender": 2,
+              "id": 2524805,
+              "known_for_department": "Visual Effects",
+              "name": "木下裕孝",
+              "original_name": "木下裕孝",
+              "popularity": 0.5136,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c29f210561100e377622a",
+              "adult": false,
+              "gender": 2,
+              "id": 1887079,
+              "known_for_department": "Visual Effects",
+              "name": "三室健太",
+              "original_name": "三室健太",
+              "popularity": 0.9544,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c2a1107faa200c3474d75",
+              "adult": false,
+              "gender": 1,
+              "id": 1564407,
+              "known_for_department": "Visual Effects",
+              "name": "大森理恵",
+              "original_name": "大森理恵",
+              "popularity": 0.4182,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c2a21b2e0740190ffd22a",
+              "adult": false,
+              "gender": 2,
+              "id": 3745435,
+              "known_for_department": "Visual Effects",
+              "name": "小林典昭",
+              "original_name": "小林典昭",
+              "popularity": 0.3139,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c2a28105611008ad9a8ec",
+              "adult": false,
+              "gender": 2,
+              "id": 1848263,
+              "known_for_department": "Visual Effects",
+              "name": "飯村真一",
+              "original_name": "飯村真一",
+              "popularity": 0.6976,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c29a9e38bd8007778820c",
+              "adult": false,
+              "gender": 1,
+              "id": 1970563,
+              "known_for_department": "Visual Effects",
+              "name": "神山裕子",
+              "original_name": "神山裕子",
+              "popularity": 0.4161,
+              "profile_path": null
+            },
+            {
+              "job": "Storyboard Artist",
+              "department": "Art",
+              "credit_id": "637c274bd2b20900b9c4c1d3",
+              "adult": false,
+              "gender": 1,
+              "id": 1793493,
+              "known_for_department": "Directing",
+              "name": "島崎奈々子",
+              "original_name": "島崎奈々子",
+              "popularity": 6.0939,
+              "profile_path": null
+            },
+            {
+              "job": "Supervising Animation Director",
+              "department": "Visual Effects",
+              "credit_id": "637c2775156cc7007fea0ff2",
+              "adult": false,
+              "gender": 2,
+              "id": 1523631,
+              "known_for_department": "Visual Effects",
+              "name": "沼田誠也",
+              "original_name": "沼田誠也",
+              "popularity": 0.3975,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c2a02bb2602007a82897c",
+              "adult": false,
+              "gender": 1,
+              "id": 3115987,
+              "known_for_department": "Visual Effects",
+              "name": "林佳奈子",
+              "original_name": "林佳奈子",
+              "popularity": 0.3636,
+              "profile_path": null
+            },
+            {
+              "job": "Director",
+              "department": "Directing",
+              "credit_id": "637c275107faa200b1d5bf56",
+              "adult": false,
+              "gender": 1,
+              "id": 1793493,
+              "known_for_department": "Directing",
+              "name": "島崎奈々子",
+              "original_name": "島崎奈々子",
+              "popularity": 6.0939,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c2a319a358d007fa900d2",
+              "adult": false,
+              "gender": 0,
+              "id": 3052228,
+              "known_for_department": "Visual Effects",
+              "name": "栗原基彦",
+              "original_name": "栗原基彦",
+              "popularity": 0.4325,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c29e171083a00e30de2ce",
+              "adult": false,
+              "gender": 1,
+              "id": 2797962,
+              "known_for_department": "Visual Effects",
+              "name": "国吉杏美",
+              "original_name": "国吉杏美",
+              "popularity": 0.3967,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c2a62bcf8c900b9307e23",
+              "adult": false,
+              "gender": 2,
+              "id": 2073482,
+              "known_for_department": "Visual Effects",
+              "name": "平野勇一",
+              "original_name": "平野勇一",
+              "popularity": 0.3666,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c2a18e38bd800bceb6ae2",
+              "adult": false,
+              "gender": 2,
+              "id": 2964918,
+              "known_for_department": "Visual Effects",
+              "name": "原友樹",
+              "original_name": "原友樹",
+              "popularity": 0.122,
+              "profile_path": null
+            },
+            {
+              "job": "Writer",
+              "department": "Writing",
+              "credit_id": "637c2740d2b20900846841ed",
+              "adult": false,
+              "gender": 1,
+              "id": 2012085,
+              "known_for_department": "Writing",
+              "name": "江夏由結",
+              "original_name": "江夏由結",
+              "popularity": 0.3681,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c29cc1056110079874f41",
+              "adult": false,
+              "gender": 1,
+              "id": 3109816,
+              "known_for_department": "Visual Effects",
+              "name": "田中小百合",
+              "original_name": "田中小百合",
+              "popularity": 0.1384,
+              "profile_path": null
+            },
+            {
+              "job": "Animation Director",
+              "department": "Visual Effects",
+              "credit_id": "637c291ee38bd800b11da4f1",
+              "adult": false,
+              "gender": 2,
+              "id": 1523631,
+              "known_for_department": "Visual Effects",
+              "name": "沼田誠也",
+              "original_name": "沼田誠也",
+              "popularity": 0.3975,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c29c571083a0098b0de06",
+              "adult": false,
+              "gender": 1,
+              "id": 2887618,
+              "known_for_department": "Visual Effects",
+              "name": "金田弘子",
+              "original_name": "金田弘子",
+              "popularity": 0.2741,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c2a08bcf8c900f3be0f46",
+              "adult": false,
+              "gender": 2,
+              "id": 2805699,
+              "known_for_department": "Visual Effects",
+              "name": "香田知樹",
+              "original_name": "香田知樹",
+              "popularity": 0.505,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c2a399a358d00b1935a1a",
+              "adult": false,
+              "gender": 1,
+              "id": 3105728,
+              "known_for_department": "Visual Effects",
+              "name": "和田佳純",
+              "original_name": "和田佳純",
+              "popularity": 0.5407,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c29fa156cc7007fea10c3",
+              "adult": false,
+              "gender": 2,
+              "id": 3745462,
+              "known_for_department": "Visual Effects",
+              "name": "キム・ピルガン",
+              "original_name": "김필강",
+              "popularity": 0.0859,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c2a5ab2e074018fda7ba5",
+              "adult": false,
+              "gender": 1,
+              "id": 2832925,
+              "known_for_department": "Visual Effects",
+              "name": "福永智子",
+              "original_name": "福永智子",
+              "popularity": 0.445,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c296243999b00cab5475c",
+              "adult": false,
+              "gender": 1,
+              "id": 3025816,
+              "known_for_department": "Visual Effects",
+              "name": "大庭幸子",
+              "original_name": "大庭幸子",
+              "popularity": 0.4228,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c2a52176a9400aa480751",
+              "adult": false,
+              "gender": 2,
+              "id": 2052072,
+              "known_for_department": "Visual Effects",
+              "name": "松本勝次",
+              "original_name": "松本勝次",
+              "popularity": 0.718,
+              "profile_path": null
+            },
+            {
+              "job": "Animation Director",
+              "department": "Visual Effects",
+              "credit_id": "637c290f1056110079874eef",
+              "adult": false,
+              "gender": 2,
+              "id": 2999692,
+              "known_for_department": "Visual Effects",
+              "name": "兵渡勝",
+              "original_name": "兵渡勝",
+              "popularity": 0.2934,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c292a105611007d6d0a5d",
+              "adult": false,
+              "gender": 2,
+              "id": 3130705,
+              "known_for_department": "Visual Effects",
+              "name": "夘野一郎",
+              "original_name": "夘野一郎",
+              "popularity": 0.6768,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c29bd07faa200c3474d56",
+              "adult": false,
+              "gender": 2,
+              "id": 2125794,
+              "known_for_department": "Visual Effects",
+              "name": "大原大",
+              "original_name": "大原大",
+              "popularity": 0.2257,
+              "profile_path": null
+            },
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637c2a6dbcf8c900f3be0f73",
+              "adult": false,
+              "gender": 1,
+              "id": 1780664,
+              "known_for_department": "Visual Effects",
+              "name": "市原圭子",
+              "original_name": "市原圭子",
+              "popularity": 0.0938,
+              "profile_path": null
+            }
+          ],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2010-11-11",
+          "episode_number": 6,
+          "episode_type": "standard",
+          "id": 919615,
+          "name": "王女の身代わり",
+          "overview": "　ヨゴバマファミリア教会で、マーロ国の王女・クラリスとリパ国のペロ・グーリ王子の結婚式が催されることになった。警護についたＧ４の面々だが、クラリスの容姿がシャロそっくりなことにびっくりする。一方シャロたちは、雨が続いていたため屋根裏部屋が湿度100%状態で、除湿機が欲しくてしかたない。\n\n　そんな時シャロはクラリスから、せめて結婚前に憧れだった「普通の生活」をおくりたいとシャロに身代わりを頼み込まれる。除湿機に心惹かれたシャロはこの依頼を引き受けるが、ペロ・グーリ王子には変わった性癖があった。それは･･･。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 1,
+          "show_id": 51492,
+          "still_path": "/n4of95qLFyL9Qfh96CNagYcYAnP.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2010-11-18",
+          "episode_number": 7,
+          "episode_type": "standard",
+          "id": 919612,
+          "name": "太陽のたわわむれ",
+          "overview": "　怪盗殺しの岬・・・。そこに眠るという、大富豪パスカヴィルが収集した膨大な美術品を盗むことを計画するアルセーヌたち。一方同じ情報を元にＧ４及びミルキィホームズのメンバーたちもその地に集っていた。\n\n　ビーチに降り注ぐ太陽に、任務を忘れ呉越同舟で楽しむ一同だったが、激しく降り始めた雨を合図に、お宝が眠るという洞窟の探検に旅立つ。だが、次々と襲い来るトラップにかかってしまい、一同はどんどん分断されていく。そんな中、ある部屋にたどりついたシャロだったが・・・。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 1,
+          "show_id": 51492,
+          "still_path": "/vwkgO6YSIclgaTZnQzyxKCeiGny.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2010-11-25",
+          "episode_number": 8,
+          "episode_type": "standard",
+          "id": 919621,
+          "name": "ボヨヨンの女",
+          "overview": "　小衣の策略にはまって、風邪をひいてしまったミルキィホームズの4人。アンリエットの懸命な看病により回復するが、逆にアンリエットが風邪をひいてしまう。感謝の気持ちで一杯のシャロたちは、アンリエットの部屋で一生懸命看病をする。\n\n　一方、お見舞いと称して探偵学院を訪れる小衣たちＧ４の面々。ミルキィホームズたちがまだ風邪をひいていると思っていたのだ。だが、学院にやってきた小衣たちはシャロの「アルセーヌゥゥ」という声を聞きつけ、アンリエットの部屋へ向かう。そこで、Ｇ４が見たものは･･･。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 1,
+          "show_id": 51492,
+          "still_path": "/2O6WkMmohaxqTQtPKgp2aNylhmR.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2010-12-02",
+          "episode_number": 9,
+          "episode_type": "standard",
+          "id": 919613,
+          "name": "MHの悲劇",
+          "overview": "　いつもの屋根裏部屋でミルキィホームズの4人は豪華な食事を楽しんでいた。シャロを先輩と慕うソニアが差し入れてくれたのだ。食事のあとはウィジャボードで楽しんでいたが、夜も遅くなり、何故か紛れ込んでいた根津が、ソニアを部屋まで送り届ける。だがその帰り道、根津は何者かの襲撃を受け倒されてしまう！\n\n　床に残されていたダイイングメッセージにより犯人に疑われてしまうミルキィホームズ。窮地に陥ったシャロたち4人は、ウィジャボードでそれぞれのご先祖様を呼び出し、助けてもらおうと画策するが……。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 1,
+          "show_id": 51492,
+          "still_path": "/iBFUkCrvcHjeXioc7HPQixtil1Y.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2010-12-09",
+          "episode_number": 10,
+          "episode_type": "standard",
+          "id": 919618,
+          "name": "ミルキィホームズには向かない職業",
+          "overview": "　『トイズは大いなる試練によって蘇る』というメッセージを得たミルキィホームズ。4人は試練＝試験だと思い、次の試験でトイズが戻ってくるものと思い込んでしまう。不合格なら退学なのに、試験勉強もせずに遊び歩くミルキィホームズを不思議に思うスリーカードたち。だが、アンリエットもミルキィホームズにトイズが戻るものと確信していた。\n\n　しかし、試験の結果はいつも通りのダメダメぶりで不合格。ミルキィに迫る退学の危機。まさにその時、ヨコハマ美術館に怪盗アルセーヌが現れた！試験結果を挽回するチャンスだと意気込むシャロたちが出動するが･･。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 1,
+          "show_id": 51492,
+          "still_path": "/hZofkjsV4qVpr0SapDyrrmbtMcb.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2010-12-16",
+          "episode_number": 11,
+          "episode_type": "standard",
+          "id": 919611,
+          "name": "恐怖のグランドヨコハマ峡谷",
+          "overview": "ミルキィホームズは、遂にホームズ探偵学院を退学になってしまった。一方、シャロ達が学院を去ったのに合わせ、活動を活発化させる怪盗帝国。\n\n中華料理店で働き始めたシャロは、Ｇ４のメンバーに他の3人の近況を教えてもらい、4人は久しぶりに一緒になる。だが喜びもつかの間、傍らの街頭ビジョンには見覚えのある姿が・・・。何とアンリエットがグランドヨコハマ峡谷の吊り橋から吊るされているではないか！正義があるなら、彼女を救いに来いと挑発するアルセーヌ。だが、トイズが戻っていないミルキィホームズの4人は･･･。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 1,
+          "show_id": 51492,
+          "still_path": "/gXUn83OKriygSCPtJewXGU7SP6g.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [
+            {
+              "job": "Key Animation",
+              "department": "Visual Effects",
+              "credit_id": "637828d4196757009032743f",
+              "adult": false,
+              "gender": 2,
+              "id": 3784133,
+              "known_for_department": "Visual Effects",
+              "name": "田中秀樹",
+              "original_name": "田中秀樹",
+              "popularity": 0.3698,
+              "profile_path": null
+            }
+          ],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2010-12-23",
+          "episode_number": 12,
+          "episode_type": "finale",
+          "id": 919617,
+          "name": "ミルキィホームズの帰還",
+          "overview": "怪盗帝国ＶＳミルキィホームズのファイナルバトルが始まった。\n\n遂にその力を解き放ったアルセーヌは、圧倒的なパワーでミルキィホームズたちを攻め立てるが･･･。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 1,
+          "show_id": 51492,
+          "still_path": "/d2ZgLm1FPykHDscNCYweKpddFua.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        }
+      ],
+      "name": "第1期",
+      "networks": [
+        {
+          "id": 614,
+          "logo_path": "/hSdroyVthq3CynxTIIY7lnS8w1.png",
+          "name": "TOKYO MX",
+          "origin_country": "JP"
+        }
+      ],
+      "overview": "",
+      "poster_path": "/ml8OoR4jVjUYxAGmA8Mu2UhHuKI.jpg",
+      "season_number": 1,
+      "vote_average": 7.0
+    },
+    "episodes": {
+      "data": [
+        {
+          "airdate": "2010-10-07",
+          "name": "屋根裏の入居者",
+          "name_cn": "屋顶的潜入者",
+          "duration": "00:23:41",
+          "desc": "",
+          "ep": 1,
+          "sort": 1,
+          "id": 51683,
+          "subject_id": 8560,
+          "comment": 18,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2010-10-14",
+          "name": "ポケットにパンを",
+          "name_cn": "口袋里的面包",
+          "duration": "00:23:41",
+          "desc": "",
+          "ep": 2,
+          "sort": 2,
+          "id": 51684,
+          "subject_id": 8560,
+          "comment": 17,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2010-10-21",
+          "name": "棺桶の恐怖",
+          "name_cn": "棺材的恐怖",
+          "duration": "00:23:41",
+          "desc": "",
+          "ep": 3,
+          "sort": 3,
+          "id": 51685,
+          "subject_id": 8560,
+          "comment": 19,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2010-10-28",
+          "name": "バリツの秘密",
+          "name_cn": "巴顿术的秘密",
+          "duration": "00:23:41",
+          "desc": "",
+          "ep": 4,
+          "sort": 4,
+          "id": 51686,
+          "subject_id": 8560,
+          "comment": 27,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2010-11-04",
+          "name": "かまぼこ失踪事件",
+          "name_cn": "鱼糕失踪事件",
+          "duration": "00:23:41",
+          "desc": "",
+          "ep": 5,
+          "sort": 5,
+          "id": 51687,
+          "subject_id": 8560,
+          "comment": 9,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2010-11-11",
+          "name": "王女の身代わり",
+          "name_cn": "公主的替身",
+          "duration": "00:23:41",
+          "desc": "",
+          "ep": 6,
+          "sort": 6,
+          "id": 51688,
+          "subject_id": 8560,
+          "comment": 39,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2010-11-18",
+          "name": "太陽のたわわむれ",
+          "name_cn": "太阳的玩笑",
+          "duration": "00:23:41",
+          "desc": "",
+          "ep": 7,
+          "sort": 7,
+          "id": 51689,
+          "subject_id": 8560,
+          "comment": 12,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2010-11-25",
+          "name": "ボヨヨンの女",
+          "name_cn": "摇啊摇的女人",
+          "duration": "00:23:41",
+          "desc": "",
+          "ep": 8,
+          "sort": 8,
+          "id": 51690,
+          "subject_id": 8560,
+          "comment": 17,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2010-12-02",
+          "name": "ＭＨの悲劇",
+          "name_cn": "MH的悲剧",
+          "duration": "00:23:41",
+          "desc": "",
+          "ep": 9,
+          "sort": 9,
+          "id": 51691,
+          "subject_id": 8560,
+          "comment": 15,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2010-12-09",
+          "name": "ミルキィホームズには向かない職業",
+          "name_cn": "Milky Holmes不适合的职业",
+          "duration": "00:23:41",
+          "desc": "",
+          "ep": 10,
+          "sort": 10,
+          "id": 51692,
+          "subject_id": 8560,
+          "comment": 12,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2010-12-16",
+          "name": "恐怖のグランドヨコハマ峡谷",
+          "name_cn": "恐怖的横滨大峡谷",
+          "duration": "00:23:41",
+          "desc": "",
+          "ep": 11,
+          "sort": 11,
+          "id": 51693,
+          "subject_id": 8560,
+          "comment": 14,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2010-12-23",
+          "name": "ミルキィホームズの帰還",
+          "name_cn": "Milky Holmes的归来",
+          "duration": "00:23:11",
+          "desc": "",
+          "ep": 12,
+          "sort": 12,
+          "id": 51694,
+          "subject_id": 8560,
+          "comment": 17,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1391
+        }
+      ],
+      "total": 12,
+      "limit": 100,
+      "offset": 0
+    },
+    "files": [
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 (2010) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes - 01 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 (2010) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes - 02 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 (2010) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes - 03 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 (2010) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes - 04 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 (2010) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes - 05 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 (2010) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes - 06 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 (2010) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes - 07 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 (2010) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes - 08 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 (2010) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes - 09 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 (2010) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes - 10 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 (2010) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes - 11 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 (2010) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes - 12 (BD 1920x1080 x264 FLAC).mkv"
+      }
+    ],
+    "bangumi": {
+      "date": "2010-10-07",
+      "platform": "TV",
+      "images": {
+        "small": "https://lain.bgm.tv/r/200/pic/cover/l/bc/05/8560_zxx9X.jpg",
+        "grid": "https://lain.bgm.tv/r/100/pic/cover/l/bc/05/8560_zxx9X.jpg",
+        "large": "https://lain.bgm.tv/pic/cover/l/bc/05/8560_zxx9X.jpg",
+        "medium": "https://lain.bgm.tv/r/800/pic/cover/l/bc/05/8560_zxx9X.jpg",
+        "common": "https://lain.bgm.tv/r/400/pic/cover/l/bc/05/8560_zxx9X.jpg"
+      },
+      "summary": "時は二十一世紀。\r\n世界は空前の大探偵時代をむかえていた。\r\n\r\nTVアニメの第1シリーズ。シャロ、ネロ、エリー、コーデリアの4人は、トイズと抜群のチームワークで数多くの事件を解決してきた「ホームズ探偵学院」の人気者。彼女たち「ミルキィホームズ」は学生だけでなく偵都ヨコハマの市民たちからも憧れの的だった。だが、ある嵐の夜、宿敵「怪盗帝国」とのバトルの最中に「ミルキィホームズ」の4人はそれぞれのトイズを失い、その運命は激変してしまう…。",
+      "name": "探偵オペラ ミルキィホームズ",
+      "name_cn": "侦探歌剧 少女福尔摩斯",
+      "tags": [
+        {
+          "name": "J.C.STAFF",
+          "count": 409,
+          "total_count": 139553
+        },
+        {
+          "name": "搞笑",
+          "count": 371,
+          "total_count": 659866
+        },
+        {
+          "name": "TV",
+          "count": 248,
+          "total_count": 1453267
+        },
+        {
+          "name": "百合",
+          "count": 214,
+          "total_count": 415335
+        },
+        {
+          "name": "2010年10月",
+          "count": 193,
+          "total_count": 13267
+        },
+        {
+          "name": "萝莉",
+          "count": 188,
+          "total_count": 47345
+        },
+        {
+          "name": "2010",
+          "count": 164,
+          "total_count": 44595
+        },
+        {
+          "name": "loli侦探团",
+          "count": 141,
+          "total_count": 141
+        },
+        {
+          "name": "萌",
+          "count": 130,
+          "total_count": 72558
+        },
+        {
+          "name": "游戏改",
+          "count": 100,
+          "total_count": 167486
+        },
+        {
+          "name": "原创",
+          "count": 92,
+          "total_count": 638425
+        },
+        {
+          "name": "电波",
+          "count": 87,
+          "total_count": 12998
+        },
+        {
+          "name": "侦探歌剧",
+          "count": 82,
+          "total_count": 629
+        },
+        {
+          "name": "LOLI",
+          "count": 39,
+          "total_count": 3025
+        },
+        {
+          "name": "虐待萝莉",
+          "count": 29,
+          "total_count": 29
+        },
+        {
+          "name": "日本",
+          "count": 25,
+          "total_count": 318578
+        },
+        {
+          "name": "森脇真琴",
+          "count": 25,
+          "total_count": 251
+        },
+        {
+          "name": "侦探战队",
+          "count": 17,
+          "total_count": 17
+        },
+        {
+          "name": "日常",
+          "count": 12,
+          "total_count": 417562
+        },
+        {
+          "name": "变态",
+          "count": 12,
+          "total_count": 1106
+        },
+        {
+          "name": "泽城美雪",
+          "count": 11,
+          "total_count": 4508
+        },
+        {
+          "name": "十月番",
+          "count": 11,
+          "total_count": 1124
+        },
+        {
+          "name": "森胁真琴",
+          "count": 10,
+          "total_count": 106
+        },
+        {
+          "name": "下野紘",
+          "count": 9,
+          "total_count": 2744
+        },
+        {
+          "name": "三森すずこ",
+          "count": 9,
+          "total_count": 602
+        },
+        {
+          "name": "2010年",
+          "count": 8,
+          "total_count": 2423
+        },
+        {
+          "name": "轻百合",
+          "count": 7,
+          "total_count": 39372
+        },
+        {
+          "name": "奇幻",
+          "count": 7,
+          "total_count": 495280
+        },
+        {
+          "name": "TVA",
+          "count": 7,
+          "total_count": 16421
+        },
+        {
+          "name": "南条爱乃",
+          "count": 5,
+          "total_count": 281
+        }
+      ],
+      "infobox": [
+        {
+          "key": "中文名",
+          "value": "侦探歌剧 少女福尔摩斯"
+        },
+        {
+          "key": "别名",
+          "value": [
+            {
+              "v": "Tantei Opera Milky Holmes"
+            }
+          ]
+        },
+        {
+          "key": "话数",
+          "value": "12"
+        },
+        {
+          "key": "放送开始",
+          "value": "2010年10月7日"
+        },
+        {
+          "key": "放送星期",
+          "value": "星期四"
+        },
+        {
+          "key": "官方网站",
+          "value": "http://milky-holmes.com/anime.html"
+        },
+        {
+          "key": "播放电视台",
+          "value": "TOKYO MX"
+        },
+        {
+          "key": "播放结束",
+          "value": "2010年12月23日"
+        },
+        {
+          "key": "导演",
+          "value": "森脇真琴"
+        },
+        {
+          "key": "音乐",
+          "value": "原田勝通(Angel Note)"
+        },
+        {
+          "key": "Copyright",
+          "value": "©bushiroad/Project MILKY HOLMES"
+        },
+        {
+          "key": "原作",
+          "value": "ブシロード、クロノギアクリエイティヴ"
+        },
+        {
+          "key": "人物设定",
+          "value": "沼田誠也"
+        },
+        {
+          "key": "统括制作人",
+          "value": "中村伸行"
+        },
+        {
+          "key": "执行制片人",
+          "value": "木谷高明[制作总指挥]、福場一義、井上俊次、安藝貴範、伴龍一郎、青木建彦、森本浩二"
+        },
+        {
+          "key": "制片人",
+          "value": "大島靖、斎藤滋、小田ツヨシ、二瓶茂人、福良啓、松倉友二"
+        },
+        {
+          "key": "原作协力",
+          "value": "奥村越後屋、小玉励"
+        },
+        {
+          "key": "剪辑",
+          "value": "後藤正浩(REAL-T)"
+        },
+        {
+          "key": "製作",
+          "value": "ミルキィホームズ製作委員会（ブシロード、ポニーキャニオン、ランティス、Good Smile Company、ドワンゴ、創通、エモーション）"
+        }
+      ],
+      "rating": {
+        "rank": 2423,
+        "total": 1536,
+        "count": {
+          "1": 5,
+          "2": 3,
+          "3": 19,
+          "4": 38,
+          "5": 93,
+          "6": 269,
+          "7": 541,
+          "8": 424,
+          "9": 91,
+          "10": 53
+        },
+        "score": 7
+      },
+      "total_episodes": 12,
+      "collection": {
+        "on_hold": 202,
+        "dropped": 158,
+        "wish": 992,
+        "collect": 2272,
+        "doing": 164
+      },
+      "id": 8560,
+      "eps": 12,
+      "meta_tags": [
+        "百合",
+        "TV",
+        "日本",
+        "原创"
+      ],
+      "volumes": 0,
+      "series": false,
+      "locked": false,
+      "nsfw": false,
+      "type": 2
+    }
+  },
+  {
+    "key": "milky-02",
+    "tmdb": {
+      "adult": false,
+      "backdrop_path": "/t7MjkWAaM7OBwamGY7lsc5bmI63.jpg",
+      "created_by": [],
+      "episode_run_time": [
+        25
+      ],
+      "first_air_date": "2010-10-07",
+      "genres": [
+        {
+          "id": 16,
+          "name": "アニメーション"
+        },
+        {
+          "id": 9648,
+          "name": "謎"
+        }
+      ],
+      "homepage": "http://milky-holmes.com/anime/",
+      "id": 51492,
+      "in_production": false,
+      "languages": [
+        "ja"
+      ],
+      "last_air_date": "2015-03-28",
+      "last_episode_to_air": {
+        "id": 1497849,
+        "name": "The detective of the Opera",
+        "overview": "長い捜査の末、ようやく真相へと辿り着いた歌怪盗事件。仕事を終えて、いつものようにダラダラと過ごしていたミルキィホームズの元に、コンサートのチケットが届く。それは・・・。【第12話劇中歌：いい日 TD、アーティスト:ミルキィホームズ&フェザーズ&明智小衣(CV.南條愛乃)&天城茉莉音(CV.新田恵海)】",
+        "vote_average": 0.0,
+        "vote_count": 0,
+        "air_date": "2015-03-28",
+        "episode_number": 12,
+        "episode_type": "finale",
+        "production_code": "",
+        "runtime": 25,
+        "season_number": 4,
+        "show_id": 51492,
+        "still_path": "/sVCzt6G2KbqyQ1ZZvkNlJw5IjeR.jpg"
+      },
+      "name": "探偵オペラ ミルキィホームズ",
+      "next_episode_to_air": null,
+      "networks": [
+        {
+          "id": 614,
+          "logo_path": "/hSdroyVthq3CynxTIIY7lnS8w1.png",
+          "name": "TOKYO MX",
+          "origin_country": "JP"
+        }
+      ],
+      "number_of_episodes": 48,
+      "number_of_seasons": 4,
+      "origin_country": [
+        "JP"
+      ],
+      "original_language": "ja",
+      "original_name": "探偵オペラ ミルキィホームズ",
+      "overview": "シャロ、ネロ、エリー、コーデリアの４人は、\n\nトイズと抜群のチームワークで数多くの事件を解決してきた\n\n「ホームズ探偵学院」の人気者。\n\n彼女たち「ミルキィホームズ」は学生だけでなく偵都ヨコハマの市民たちからも憧れの的だった。\n\nだが、ある嵐の夜、宿敵「怪盗帝国」とのバトルの最中に「ミルキィホームズ」の4人はそれぞれのトイズを失い、\n\nその運命は激変してしまう・・・。",
+      "popularity": 9.6882,
+      "poster_path": "/z9pfLiBGliEwJbSVAbjuTqJWaN.jpg",
+      "production_companies": [
+        {
+          "id": 58268,
+          "logo_path": "/4k796tdBrk2SNYe4nQL4Da81tZo.png",
+          "name": "Artland",
+          "origin_country": "JP"
+        },
+        {
+          "id": 35911,
+          "logo_path": "/9MwEIpHdSECESz9ILnA9CfLJ2m6.png",
+          "name": "Nomad",
+          "origin_country": "JP"
+        },
+        {
+          "id": 42196,
+          "logo_path": "/nQNmHvcmaT0zk1Rf0TYtLYO5MpI.png",
+          "name": "Bushiroad",
+          "origin_country": "JP"
+        },
+        {
+          "id": 9148,
+          "logo_path": "/rtW3NadfF4kR5mTW00ahiFxw6k7.png",
+          "name": "Pony Canyon",
+          "origin_country": "JP"
+        },
+        {
+          "id": 6683,
+          "logo_path": "/reCkuk3GEomdx5gQpsm15Zl1sgX.png",
+          "name": "Lantis",
+          "origin_country": "JP"
+        },
+        {
+          "id": 60197,
+          "logo_path": "/D5B8l99tlFJGoMpYJk1kqxYdey.png",
+          "name": "Good Smile Company",
+          "origin_country": "JP"
+        },
+        {
+          "id": 29672,
+          "logo_path": "/e3iSDZHis5wWo18z8cvB5udRctO.png",
+          "name": "Dwango",
+          "origin_country": "JP"
+        },
+        {
+          "id": 4719,
+          "logo_path": "/b3smsDQQ2UEwqToJbVTlT4kgXBk.png",
+          "name": "Sotsu",
+          "origin_country": "JP"
+        },
+        {
+          "id": 7122,
+          "logo_path": "/ymxxE2kupVDLM6zCZ2Z3QAXOdJ0.png",
+          "name": "Emotion",
+          "origin_country": "JP"
+        },
+        {
+          "id": 528,
+          "logo_path": "/fO3Aof3lXQclYpBByYC8aneTXwA.png",
+          "name": "Bandai Visual",
+          "origin_country": "JP"
+        },
+        {
+          "id": 204799,
+          "logo_path": "/auxX8eAtiL9lHwTfSr6lGdSAGLm.png",
+          "name": "Bushiroad Music",
+          "origin_country": "JP"
+        },
+        {
+          "id": 157002,
+          "logo_path": "/hSdroyVthq3CynxTIIY7lnS8w1.png",
+          "name": "Tokyo MX",
+          "origin_country": "JP"
+        },
+        {
+          "id": 11884,
+          "logo_path": "/tHzHPSKdmLT5zCdqFbcmHzZvRIc.png",
+          "name": "J.C.STAFF",
+          "origin_country": "JP"
+        }
+      ],
+      "production_countries": [
+        {
+          "iso_3166_1": "JP",
+          "name": "Japan"
+        }
+      ],
+      "seasons": [
+        {
+          "air_date": "2011-08-25",
+          "episode_count": 6,
+          "id": 55764,
+          "name": "特別編",
+          "overview": "",
+          "poster_path": "/mGk8OGieaOERSsk2zv10AXZfqxV.jpg",
+          "season_number": 0,
+          "vote_average": 0.0
+        },
+        {
+          "air_date": "2010-10-07",
+          "episode_count": 12,
+          "id": 55765,
+          "name": "第1期",
+          "overview": "",
+          "poster_path": "/ml8OoR4jVjUYxAGmA8Mu2UhHuKI.jpg",
+          "season_number": 1,
+          "vote_average": 7.0
+        },
+        {
+          "air_date": "2012-01-05",
+          "episode_count": 12,
+          "id": 55767,
+          "name": "第2幕",
+          "overview": "せっかくトイズが戻ってきたのもつかの間、\n\nまたまたトイズを失ってしまったミルキィホームズの4人。\n\n好敵手の復活を強く望むアルセーヌ（＝アンリエット）は、ミルキィホームズがトイズを取り戻すようにと、\n\n陰になり日向になり４人をサポートするが、トイズが復活する気配は全くない。\n\nそれどころか、４人は貧乏生活にすっかり慣れ、ダメダメ街道まっしぐら。\n\n遂にはトイズだけでなく、学院生活に一番大事なものもすっかり忘れてしまい･･･。",
+          "poster_path": "/dz51qTUUCGz2DdZSKRXfBiPpgo1.jpg",
+          "season_number": 2,
+          "vote_average": 0.0
+        },
+        {
+          "air_date": "2013-07-13",
+          "episode_count": 12,
+          "id": 55766,
+          "name": "ふたりはミルキィホームズ",
+          "overview": "偵都ヨコハマに世の中を揺るがす『怪盗帝国』とそれを正す少女探偵団『ミルキィホームズ』が現れてから２年。\n\nヨコハマの街にはつかの間の平穏が訪れていた。その街に住む常盤カズミと明神川アリスは幼馴染同士の１２歳。\n\n違う探偵学院に通いつつも帰り道で落ち合うなど、毎日仲良く探偵になるための勉学に励んでいた。\n\nそんなある日、街で逃げ去る怪盗を見かけた２人。追いかけた先で彼女たちが見たものは……？",
+          "poster_path": "/2dkG7VQml3xhwu3RuCgZql5R9Ds.jpg",
+          "season_number": 3,
+          "vote_average": 0.0
+        },
+        {
+          "air_date": "2014-12-31",
+          "episode_count": 12,
+          "id": 104483,
+          "name": "探偵歌劇 ミルキィホームズ TD",
+          "overview": "",
+          "poster_path": "/sfg1WWQTzG35W4l1WQ5X15x2kOj.jpg",
+          "season_number": 4,
+          "vote_average": 0.0
+        }
+      ],
+      "softcore": false,
+      "spoken_languages": [
+        {
+          "english_name": "Japanese",
+          "iso_639_1": "ja",
+          "name": "日本語"
+        }
+      ],
+      "status": "Ended",
+      "tagline": "",
+      "type": "Scripted",
+      "vote_average": 7.2,
+      "vote_count": 8,
+      "alternative_titles": {
+        "results": [
+          {
+            "iso_3166_1": "BR",
+            "title": "Tantei Opera Milky Holmes",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "HK",
+            "title": "偵探歌劇 少女福爾摩斯",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "JP",
+            "title": "探偵オペラ ミルキィホームズ 第2幕",
+            "type": "second series title"
+          },
+          {
+            "iso_3166_1": "JP",
+            "title": "Tantei Opera Milky Holmes",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "JP",
+            "title": "探偵歌劇 ミルキィホームズ TD",
+            "type": "fourth series title"
+          },
+          {
+            "iso_3166_1": "JP",
+            "title": "ふたりはミルキィホームズ",
+            "type": "third series title"
+          },
+          {
+            "iso_3166_1": "KR",
+            "title": "Tantei Kageki Milky Holmes TD",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "TW",
+            "title": "偵探歌劇 少女福爾摩斯",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "US",
+            "title": "Futari wa Milky Holmes",
+            "type": "third season title"
+          },
+          {
+            "iso_3166_1": "US",
+            "title": "Tantei Opera Milky Holmes: Act 2",
+            "type": "second series title"
+          }
+        ]
+      },
+      "translations": {
+        "translations": [
+          {
+            "iso_3166_1": "US",
+            "iso_639_1": "en",
+            "name": "English",
+            "english_name": "English",
+            "data": {
+              "name": "Detective Opera Milky Holmes",
+              "overview": "Set in a futuristic world, there exist \"Toys\" which grant people superhuman abilities. This is responsible for a wave of crimes and necessitates employing Toy-using detectives to help solve them. Opera Kobayashi runs a detective agency, Milky Holmes, staffed by four aspiring young girl detectives who attend the Holmes Detective Academy, and each girl possesses their own unique Toy.",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "FR",
+            "iso_639_1": "fr",
+            "name": "Français",
+            "english_name": "French",
+            "data": {
+              "name": "Tantei Opera Milky Holmes",
+              "overview": "Dans un futur lointain, les jouets (Toys) sont décris comme des pouvoirs surhumain. À cause de cela, le nombre de crime dû aux personnes en utilisant a considérablement augmenté.\n\nSheryl, Nero, Elly, et Cordelia sont les élèves les plus connues et les plus fortes de la Holmes Detective Academy. On ne compte plus le nombre de voleurs et criminels qu'elles ont arrêtées. Forte de leur notoriété, elles se font appelées les Milky Holmes.\n\nUn soir, en voulant attraper un de leur plus grand rival, elles perdent leurs \"jouets\".\n\nComment vont-elles surpasser cet handicap et resteront-elles les plus grande détective ?",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "JP",
+            "iso_639_1": "ja",
+            "name": "日本語",
+            "english_name": "Japanese",
+            "data": {
+              "name": "",
+              "overview": "シャロ、ネロ、エリー、コーデリアの４人は、\n\nトイズと抜群のチームワークで数多くの事件を解決してきた\n\n「ホームズ探偵学院」の人気者。\n\n彼女たち「ミルキィホームズ」は学生だけでなく偵都ヨコハマの市民たちからも憧れの的だった。\n\nだが、ある嵐の夜、宿敵「怪盗帝国」とのバトルの最中に「ミルキィホームズ」の4人はそれぞれのトイズを失い、\n\nその運命は激変してしまう・・・。",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "BR",
+            "iso_639_1": "pt",
+            "name": "Português",
+            "english_name": "Portuguese",
+            "data": {
+              "name": "Tantei Opera Milky Holmes",
+              "overview": "\"Brinquedos\" são poderes concedidos àqueles escolhidos para manejá-los, cada um com qualidades únicas para seus usuários. Alguns desses indivíduos nascem puros, usando seus poderes para se tornarem detetives. Outros florescem cheios de veneno e optam por se tornar ladrões fantasmas. Essas duas facções opostas causaram a formação de várias academias de detetives em todo o mundo - treinando detetives para lutar e capturar os ladrões fantasmas. Sherlock Shellingford, Nero Yuzurizaki, Hercule Burton e Cordelia Glauca formam \"Milky Holmes\", um grupo reconhecido como o creme da colheita na Academia de Detetives Holmes, com sede em Yokohama. No entanto, em uma briga contra o ladrão fantasma Arsene, seus brinquedos desaparecem subitamente, considerando-os impróprios para continuar como detetives.",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "ES",
+            "iso_639_1": "es",
+            "name": "Español",
+            "english_name": "Spanish",
+            "data": {
+              "name": "Tantei Opera Milky Holmes",
+              "overview": "En el futuro, la gente utiliza \"Toys\" que les concede habilidades sobrehumanas como el ESP y la telequinesis. Esto ha conducido a un auge en los delitos menores y la necesidad de Toys que utilizan los detectives para localizar a los delincuentes y llevarlos ante la justicia. Opera Koyabashi funciona como la agencia de detectives, Milky Holmes, que contará con cuatro muchachas alegres y enérgicas.",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "CN",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "侦探歌剧 少女福尔摩斯",
+              "overview": "故事以侦都横滨为舞台，讲述的是在二十一世纪这个“大侦探时代”中，四名立志要成为名侦探的少女组成了“福尔摩斯\"小队与怪盗对决的故事。",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "PL",
+            "iso_639_1": "pl",
+            "name": "Polski",
+            "english_name": "Polish",
+            "data": {
+              "name": "Tantei Opera Milky Holmes",
+              "overview": "Sheryl, Nero, Elly i Cordelia są najpopularniejszymi studentami Akademii Detektywistycznej Holmes ze względu na wiele spraw, które rozwiązały za pomocą zabawek i pracy zespołowej. Studenci i mieszkańcy Miasta Detektywów Yokohama obserwują członków „Milky Holmes”. Ale w ciemną i burzliwą noc podczas bitwy z rywalami – Imperium Złodziei Dżentelmenów – tracą swoje zabawki, a ich los ulega dramatycznej zmianie…",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "KR",
+            "iso_639_1": "ko",
+            "name": "한국어/조선말",
+            "english_name": "Korean",
+            "data": {
+              "name": "탐정 오페라 밀키 홈즈",
+              "overview": "",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "IT",
+            "iso_639_1": "it",
+            "name": "Italiano",
+            "english_name": "Italian",
+            "data": {
+              "name": "Detective Opera Milky Holmes",
+              "overview": "Ci troviamo in un futuro non definito in cui alcuni esseri umani sviluppano speciali poteri che vengono chiamati Toys. Opera Kobayashi gestisce un ufficio investigativo chiamato Milky Holmes, specializzato nelle indagini di casi che vedono persone dotate di Toys usare le proprie abilità per compiere crimini. Ad aiutarlo ci sono quattro ragazze detective, Sherlock, Nero, Hercule e Cordelia, dotate anch'esse di propri Toys. Le quattro investigatrici si ritrovano però improvvisamente a perdere i propri poteri per cause misteriose e dovranno dunque trovare il modo di riottenerli.",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "DE",
+            "iso_639_1": "de",
+            "name": "Deutsch",
+            "english_name": "German",
+            "data": {
+              "name": "Detective Opera Milky Holmes",
+              "overview": "In der Zukunft nutzen die Menschen »Toys«. Diese »Toys« ermöglichen ihnen übermenschliche Fähigkeiten wie Telekinese oder ESP. Dies führt zu zahlreichen kleinen Verbrechen. Somit sind »Toys«-Detektive nötig, die auf der Spur der Täter sind und diese vor Gericht bringen.\n\nSheryl, Nero, Elly, und Cordelia sind die beliebtesten Schüler der Holmes Detektiv Akademie, weil sie viele Fälle mit ihren »Toys« und ihrer Teamarbeit erfolgreich gelöst haben. Die Schüler und die Bewohner der Detektiv-Stadt Yokohama bewundern die Mitglieder der »Milky Holmes«. Aber in einer dunklen, stürmischen Nacht, während eines Kampfes mit ihren Rivalen »Die ehrenwerten Diebe«, verlieren sie ihre »Toys« und ihr Schicksal erfährt eine dramatische Wende!",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "TH",
+            "iso_639_1": "th",
+            "name": "ภาษาไทย",
+            "english_name": "Thai",
+            "data": {
+              "name": "Detective Opera Milky Holmes",
+              "overview": "ในโลกที่นักสืบได้รัความนิยม ผู้ที่ถูกเลือกจะมี ทอยส์ (Toys) ที่ทำให้ใช้พลังพิเศษได้ ช่วยในการสืบคดีและต่อสู้กับพวกอาชญากร เรื่องราวของกลุ่มนักสืบรุ่นจิ๋ว มิลกี้โฮล์ม ที่มีความสามารถในการจับผู้ร้ายที่ยอดเยี่ยมกว่าเด็กรุ่นเดียวกัน เป็นที่ชื่นชมของเพื่อนร่วมโรงเรียน แต่หลังทอยส์ถูกพวกจอมโจรขโมยไป พวกเธอกลับตกต่ำถึงขีดสุดและต้องหาทางชิงกลับมา",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "RU",
+            "iso_639_1": "ru",
+            "name": "Pусский",
+            "english_name": "Russian",
+            "data": {
+              "name": "Детективное агентство Милки Холмс",
+              "overview": "В мире сериала обладатели магических Даров делятся на два клана и ведут бесконечную увлекательную игру в детективов и благородных преступников. Одаренные дети учатся на детективов в академии им. Холмса, замаскированные преступники часто учатся и работают там же (а где еще-то?). В «Милки Холмс» — самую успешную команду молодых сыщиков – входят четыре главных героини: телекинетик Шерри, повелительница машин Неро, силачка Эри и Корди, умеющая в сотни раз обострять собственные чувства. Но в очередной схватке с королевой преступного мира леди Арсен девушки теряют сверхспособности, в результате из звезд своего курса постепенно превращаясь в двоечниц и посмешище всей академии...",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "HK",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "偵探歌劇 少女福爾摩斯",
+              "overview": "講述了活躍著怪盜與偵探的近未來架空世界裏的「偵探之都橫濱」，目標成為真正的偵探的四位少女偵探組合 Milky Holmes 的故事。",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "TW",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "偵探歌劇 少女福爾摩斯",
+              "overview": "講述了活躍着怪盜與偵探的近未來架空世界裏的「偵探之都橫濱」，目標成為真正的偵探的四位少女偵探組合Milky Holmes的故事。",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "MX",
+            "iso_639_1": "es",
+            "name": "Español",
+            "english_name": "Spanish",
+            "data": {
+              "name": "",
+              "overview": "",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "VN",
+            "iso_639_1": "vi",
+            "name": "Tiếng Việt",
+            "english_name": "Vietnamese",
+            "data": {
+              "name": "Detective Opera Milky Holmes",
+              "overview": "Trong thế giới tương lai, tồn tại những \"Toys\" ban cho con người siêu năng lực — kéo theo làn sóng tội phạm và nhu cầu về các thám tử sử dụng Toys để phá án. Opera Kobayashi điều hành văn phòng thám tử Milky Holmes với bốn cô thám tử trẻ đầy triển vọng theo học tại Học viện Thám tử Holmes, mỗi người sở hữu một Toy độc đáo.",
+              "homepage": "",
+              "tagline": ""
+            }
+          }
+        ]
+      }
+    },
+    "bangumi": {
+      "date": "2012-01-05",
+      "platform": "TV",
+      "images": {
+        "small": "https://lain.bgm.tv/r/200/pic/cover/l/e7/cd/22287_PDdDE.jpg",
+        "grid": "https://lain.bgm.tv/r/100/pic/cover/l/e7/cd/22287_PDdDE.jpg",
+        "large": "https://lain.bgm.tv/pic/cover/l/e7/cd/22287_PDdDE.jpg",
+        "medium": "https://lain.bgm.tv/r/800/pic/cover/l/e7/cd/22287_PDdDE.jpg",
+        "common": "https://lain.bgm.tv/r/400/pic/cover/l/e7/cd/22287_PDdDE.jpg"
+      },
+      "summary": "せっかくトイズが戻ってきたのもつかの間、またまたトイズを失ってしまったミルキィホームズの4人。好敵手の復活を強く望む「怪盗帝国」のリーダー・アルセーヌは、ミルキィホームズがトイズを取り戻すようにと、陰になり日向になり4人をサポートするが4人にトイズが復活する気配は全くない。それどころか、4人は貧乏生活にすっかり慣れ、ダメダメ街道まっしぐら。遂にはトイズだけでなく、学院生活に一番大事なものもすっかり忘れてしまい･･･。",
+      "name": "探偵オペラ ミルキィホームズ 第2幕",
+      "name_cn": "侦探歌剧 少女福尔摩斯 第二幕",
+      "tags": [
+        {
+          "name": "J.C.STAFF",
+          "count": 271,
+          "total_count": 139571
+        },
+        {
+          "name": "搞笑",
+          "count": 184,
+          "total_count": 659866
+        },
+        {
+          "name": "侦探歌剧",
+          "count": 179,
+          "total_count": 629
+        },
+        {
+          "name": "TV",
+          "count": 156,
+          "total_count": 1453272
+        },
+        {
+          "name": "百合",
+          "count": 153,
+          "total_count": 415339
+        },
+        {
+          "name": "2012年1月",
+          "count": 144,
+          "total_count": 14425
+        },
+        {
+          "name": "萝莉",
+          "count": 127,
+          "total_count": 47345
+        },
+        {
+          "name": "卖萌",
+          "count": 112,
+          "total_count": 5368
+        },
+        {
+          "name": "2012",
+          "count": 101,
+          "total_count": 56892
+        },
+        {
+          "name": "吐槽",
+          "count": 85,
+          "total_count": 40357
+        },
+        {
+          "name": "欢乐",
+          "count": 77,
+          "total_count": 6559
+        },
+        {
+          "name": "弱智",
+          "count": 57,
+          "total_count": 202
+        },
+        {
+          "name": "原创",
+          "count": 50,
+          "total_count": 638455
+        },
+        {
+          "name": "游戏改",
+          "count": 43,
+          "total_count": 167502
+        },
+        {
+          "name": "neta",
+          "count": 37,
+          "total_count": 2085
+        },
+        {
+          "name": "卖萌侦探",
+          "count": 35,
+          "total_count": 35
+        },
+        {
+          "name": "ArtLand",
+          "count": 24,
+          "total_count": 3345
+        },
+        {
+          "name": "二期",
+          "count": 22,
+          "total_count": 1347
+        },
+        {
+          "name": "森脇真琴",
+          "count": 19,
+          "total_count": 251
+        },
+        {
+          "name": "日本",
+          "count": 17,
+          "total_count": 318582
+        },
+        {
+          "name": "弱智你妹",
+          "count": 14,
+          "total_count": 15
+        },
+        {
+          "name": "萌",
+          "count": 12,
+          "total_count": 72558
+        },
+        {
+          "name": "森胁真琴",
+          "count": 10,
+          "total_count": 106
+        },
+        {
+          "name": "续作",
+          "count": 8,
+          "total_count": 48668
+        },
+        {
+          "name": "三森すずこ",
+          "count": 7,
+          "total_count": 602
+        },
+        {
+          "name": "TVA",
+          "count": 6,
+          "total_count": 16421
+        },
+        {
+          "name": "日常",
+          "count": 6,
+          "total_count": 417564
+        },
+        {
+          "name": "电波",
+          "count": 5,
+          "total_count": 12998
+        },
+        {
+          "name": "下野紘",
+          "count": 4,
+          "total_count": 2744
+        },
+        {
+          "name": "轻百合",
+          "count": 4,
+          "total_count": 39372
+        }
+      ],
+      "infobox": [
+        {
+          "key": "中文名",
+          "value": "侦探歌剧 少女福尔摩斯 第二幕"
+        },
+        {
+          "key": "话数",
+          "value": "12"
+        },
+        {
+          "key": "放送开始",
+          "value": "2012年1月5日"
+        },
+        {
+          "key": "放送星期",
+          "value": "星期四"
+        },
+        {
+          "key": "官方网站",
+          "value": "http://milky-holmes.com/anime/"
+        },
+        {
+          "key": "播放电视台",
+          "value": "TOKYO MX"
+        },
+        {
+          "key": "其他电视台",
+          "value": "BS日テレ"
+        },
+        {
+          "key": "播放结束",
+          "value": "2012年3月22日"
+        },
+        {
+          "key": "导演",
+          "value": "森脇真琴"
+        },
+        {
+          "key": "Copyright",
+          "value": "©bushiroad/Project MILKY HOLMES"
+        },
+        {
+          "key": "动画制作",
+          "value": "J.C.STAFF、ARTLAND"
+        },
+        {
+          "key": "原作",
+          "value": "ブシロード、クロノギアクリエイティヴ"
+        },
+        {
+          "key": "人物设定",
+          "value": "沼田誠也"
+        },
+        {
+          "key": "统括制作人",
+          "value": "中村伸行"
+        },
+        {
+          "key": "执行制片人",
+          "value": "木谷高明(制作总指挥)、福場一義、井上俊次、安藝貴範、太田豊紀、青木建彦、森本浩二"
+        },
+        {
+          "key": "制片人",
+          "value": "大島靖、斎藤滋、小田ツヨシ、加藤資久、二瓶茂人、福良啓、松倉友二"
+        },
+        {
+          "key": "製作",
+          "value": "ミルキィホームズ製作委員会（ブシロード、ポニーキャニオン、ランティス、Good Smile Company、ドワンゴ、創通、バンダイビジュアル）"
+        }
+      ],
+      "rating": {
+        "rank": 1207,
+        "total": 1113,
+        "count": {
+          "1": 4,
+          "2": 0,
+          "3": 6,
+          "4": 15,
+          "5": 33,
+          "6": 162,
+          "7": 346,
+          "8": 392,
+          "9": 103,
+          "10": 52
+        },
+        "score": 7.4
+      },
+      "total_episodes": 12,
+      "collection": {
+        "on_hold": 101,
+        "dropped": 99,
+        "wish": 456,
+        "collect": 1704,
+        "doing": 100
+      },
+      "id": 22287,
+      "eps": 12,
+      "meta_tags": [
+        "百合",
+        "TV",
+        "日本",
+        "原创"
+      ],
+      "volumes": 0,
+      "series": false,
+      "locked": false,
+      "nsfw": false,
+      "type": 2
+    },
+    "season": {
+      "id": 55767,
+      "_id": "52598119760ee34661a9980a",
+      "air_date": "2012-01-05",
+      "episodes": [
+        {
+          "air_date": "2012-01-05",
+          "episode_number": 1,
+          "episode_type": "standard",
+          "id": 919639,
+          "name": "野菜の果て",
+          "overview": "せっかくトイズが戻ってきたのもつかの間、またまたトイズを失ってしまったミルキィホームズの4人。好敵手の復活を強く望むアルセーヌ（＝アンリエット）は、ミルキィホームズがトイズを取り戻すようにと、陰になり日向になり４人をサポートするが、トイズが復活する気配は全くない。それどころか、４人は貧乏生活にすっかり慣れ、ダメダメ街道まっしぐら。遂にはトイズだけでなく、学院生活に一番大事なものもすっかり忘れてしまい･･･。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 2,
+          "show_id": 51492,
+          "still_path": "/vfx42YvLYNfHEGSxo8UaChlPXmD.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2012-01-12",
+          "episode_number": 2,
+          "episode_type": "standard",
+          "id": 919636,
+          "name": "ナイスなすし",
+          "overview": "農地を荒らされたため収穫を得られず、空腹に耐えかねたミルキィホームズの4人はバイトをすることに。エリーのバイトは有名なチェリー画伯のモデル。ところが、出来上がった絵を見てどうしても欲しいという老人が現れる。大昔に生き別れた初恋の人にそっくりだというのだ。あっさり渡そうとするエリーを抑えて、何とか大金を得ようとするネロは・・・。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 2,
+          "show_id": 51492,
+          "still_path": "/jFXgyiDcsvSgf6YEeVCQcbLkwyd.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2012-01-19",
+          "episode_number": 3,
+          "episode_type": "standard",
+          "id": 919635,
+          "name": "ハッケイ島綺譚",
+          "overview": "泥舟に乗り遭難してしまったミルキィホームズたち。4人は漂着するが、すぐに捕まり投獄されてしまう。なんと、彼女たちがたどり着いたのはハッケイ島という監獄島だったのだ！だが“絶望の島”と呼ばれるハッケイ島には最高の宝が眠るという伝説があり、そのお宝を狙って既に怪盗帝国の面々が潜入を果たしていた。一方、他の囚人たちとともに重労働に苦しむミルキィホームズたちは、何とか島を脱出しようとするが・・・。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 2,
+          "show_id": 51492,
+          "still_path": "/5457brxK18TTVw7A8IIGK32rBm4.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2012-01-26",
+          "episode_number": 4,
+          "episode_type": "standard",
+          "id": 919637,
+          "name": "ミルキィホームズの寝相",
+          "overview": "相変わらず遅刻を繰り返すダメダメなミルキィホームズ。彼女たちのダメな様子に不機嫌が募るアンリエットは、ある日4人を強く叱責してしまう。何とか遅刻をなくそうと考えた4人は、寝相の悪さが遅刻の原因だと考え、寝相を良くしようとあれこれ試すことに。だが、やはりうまくいかず、やがてネロとコーデリアの口喧嘩になってしまう。結局、コーデリアの提案で寝る場所を変えた4人だが・・・。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 2,
+          "show_id": 51492,
+          "still_path": "/wngRBnCSfwwI5xyv54v71vnY2Tx.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2012-02-02",
+          "episode_number": 5,
+          "episode_type": "standard",
+          "id": 919634,
+          "name": "コソコソと支度",
+          "overview": "ヨコハマの街に、女性の前でロングコートをはだける変態が出没するという事件が多発する。事態を憂慮したアンリエットは、学院の生徒たちに注意を促すチラシを配ることに。そのチラシを手にしたミルキィホームズの前にコート姿の怪しい人物が現れる。その人物が変質者だと考えたミルキィホームズはその人物を逮捕しようとするが・・・。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 2,
+          "show_id": 51492,
+          "still_path": "/x4QXWG0T4zrJAiIfxoAtasEW3lj.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2012-02-09",
+          "episode_number": 6,
+          "episode_type": "standard",
+          "id": 919638,
+          "name": "エノ電急行変人事件",
+          "overview": "カマクラ駅に入線する一台のエノ電。その後車両の車内には、簀巻きにされたネロやボロボロの小衣など変わり果てたミルキィホームズとＧ４の姿があった。時は遡りその40分前。大探偵博の目玉として建てられたカマクラの大探偵像を爆破するという予告状がＧ４の元に届く。さらにそこには、止めたければエノ電特別急行に乗る自分を見つけてみろという犯人からの挑発が。激怒したＧ４の乗るエノ電の発車直前、ミルキィホームズの４人が駆け込み乗車をしてきて・・・。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 2,
+          "show_id": 51492,
+          "still_path": "/9WGm1CeBt1rYqnbNpVOpWs1F98.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2012-02-16",
+          "episode_number": 7,
+          "episode_type": "standard",
+          "id": 919641,
+          "name": "そして希望なくなった",
+          "overview": "ヨコハマ警察の留置所で食事と空調に恵まれた生活を謳歌しているミルキィホームズ。だが、あきれ返った小衣に追い出されてしまう。快適な生活を求めて彼女たちは生徒会長アンリエットの部屋へ向かうが、部屋に入った4人が目にしたのは普段とは違いふてくされた様子のアンリエット。何とか元気づけようとする4人だが、それが逆効果となりアンリエットは激怒してしまう。だが、次の瞬間顔を上げたアンリエットには満面の笑みがたたえられていた・・・。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 2,
+          "show_id": 51492,
+          "still_path": "/hTLljZQFE2I87P3ieh2nCqgpC3o.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2012-02-23",
+          "episode_number": 8,
+          "episode_type": "standard",
+          "id": 919645,
+          "name": "愛おしいよね",
+          "overview": "遂に廃校が決定したホームズ探偵学院。突然の事態に落ち込むラット、トゥエンティ、ストーンリバーの3人。一方、ミルキィホームズの4人は、他の生徒の転校先が次々と決まっていく中、どこにも行き先が決まらずにいた。精神的に追い詰められたコーデリアは現実逃避の妄想に溺れていく。強大化していくその妄想は、シャロ、ネロ、エリーを取り込むだけでなく、ミルキィホームズに怒りをぶつけようとやってきたラット、トゥエンティ、ストーンリバーをも取り込んでしまい・・・。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 2,
+          "show_id": 51492,
+          "still_path": "/58GY7tiS7fdMNn4bhyXyk1nZQGi.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2012-03-01",
+          "episode_number": 9,
+          "episode_type": "standard",
+          "id": 919640,
+          "name": "有給ある？さぁ取得すべく2",
+          "overview": "久しぶりに有給休暇を取ってくつろぐG4の次子、平乃、咲。そのことをすっかり忘れていて、G4のリーダー小衣は他の3人を逆恨みする。一方、ホームズ探偵学院を再興しようと頑張るミルキィホームズの4人だが、相変わらずのダメダメぶり。その様子を見ていた小衣は、ミルキィホームズの4人を利用して、次子、平乃、咲の休暇を邪魔しようと画策する。だが、その策は簡単にバれてしまい、3人には軽くあしらわれてしまう。ならば怪盗帝国を利用しようと考えた小衣は・・・。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 2,
+          "show_id": 51492,
+          "still_path": "/sywJ5Wj6VjkUZ4Ea339EPUYoQqH.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2012-03-08",
+          "episode_number": 10,
+          "episode_type": "standard",
+          "id": 919644,
+          "name": "Y.H.混乱してらっしゃる？",
+          "overview": "『探偵博までに立派な探偵になる』と誓ったミルキィホームズ。だが時は過ぎ、「探偵の塔」の除幕式の日を迎えてしまう。時間がないと焦る4人に配られたチラシには「探偵博マスコットガールコンテスト」募集の文字が。絶好のチャンスと意気込む4人だが、“参加資格・トイズ”とある。落ち込む4人に、ヨコハマのどこかにトイズを蘇らせる「ぱんどらのつぼ」というつぼがあるという情報が入る。さっそくヨコハマ中を探し回るミルキィホームズが最後にたどりついたのは、学院の跡地だった・・・。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 2,
+          "show_id": 51492,
+          "still_path": "/jdSLcUnca5eUpuKZuZHht2VxTBv.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2012-03-15",
+          "episode_number": 11,
+          "episode_type": "standard",
+          "id": 919643,
+          "name": "ラードの神",
+          "overview": "を名乗るものに蹂躙されていく偵都ヨコハマ。その圧倒的なパワーの前に、全ての生き物がひれ伏そうとしていた。そんな絶体絶命の危機の中、ヨコハマの街を救おうとして立ち上がったミルキィホームズは、「ラードの神」との壮絶なファイナルバトルを繰り広げる！一方、ヨコハマを去り今はロンドンに滞在するアルセーヌは、ソニアとの対決の中で、ミルキィホームズともう一度向き合うように説得されるが・・・。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 2,
+          "show_id": 51492,
+          "still_path": "/nzK8P7i5zJ0l2gTxtyaXIjMJNBO.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2012-03-22",
+          "episode_number": 12,
+          "episode_type": "finale",
+          "id": 919642,
+          "name": "アンリエットの帰還",
+          "overview": "ヨコハマへの帰還を果たしたアルセーヌは、３カードとともに怪盗帝国の活動を再開し、一回り成長したに違いないミルキィホームズたちとの邂逅を心待ちにする。一方、何とか探偵博のマスコットガールになろうと奮闘するミルキィホームズ。そんな中、マスコットガールの審査を持ち前の強運で勝ちあがっていくシャロ。いよいよ最終審査を迎えるシャロの前にもう一人の最終候補者が現れるが・・・。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 2,
+          "show_id": 51492,
+          "still_path": "/SVoHJWMOr7pMC8pIKU2EIS7UPR.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        }
+      ],
+      "name": "第2幕",
+      "networks": [
+        {
+          "id": 614,
+          "logo_path": "/hSdroyVthq3CynxTIIY7lnS8w1.png",
+          "name": "TOKYO MX",
+          "origin_country": "JP"
+        }
+      ],
+      "overview": "せっかくトイズが戻ってきたのもつかの間、\n\nまたまたトイズを失ってしまったミルキィホームズの4人。\n\n好敵手の復活を強く望むアルセーヌ（＝アンリエット）は、ミルキィホームズがトイズを取り戻すようにと、\n\n陰になり日向になり４人をサポートするが、トイズが復活する気配は全くない。\n\nそれどころか、４人は貧乏生活にすっかり慣れ、ダメダメ街道まっしぐら。\n\n遂にはトイズだけでなく、学院生活に一番大事なものもすっかり忘れてしまい･･･。",
+      "poster_path": "/dz51qTUUCGz2DdZSKRXfBiPpgo1.jpg",
+      "season_number": 2,
+      "vote_average": 0.0
+    },
+    "episodes": {
+      "data": [
+        {
+          "airdate": "2012-01-05",
+          "name": "野菜の果て",
+          "name_cn": "蔬菜的下场",
+          "duration": "00:23:41",
+          "desc": "脚本：ふでやすかずゆき（筆安一幸）\r\n絵コンテ：森脇真琴\r\n演出：池端隆史\r\n作画監督：滝本祥子\r\n总作画监督：沼田誠也",
+          "ep": 1,
+          "sort": 1,
+          "id": 136011,
+          "subject_id": 22287,
+          "comment": 25,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2012-01-12",
+          "name": "ナイスなすし",
+          "name_cn": "美味的寿司",
+          "duration": "00:23:41",
+          "desc": "脚本：ふでやすかずゆき\r\n分镜：大久保政雄\r\n演出：大久保政雄\r\n作画监督：野田康行\r\n总作画监督：沼田誠也",
+          "ep": 2,
+          "sort": 2,
+          "id": 136012,
+          "subject_id": 22287,
+          "comment": 11,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2012-01-19",
+          "name": "ハッケイ島綺譚",
+          "name_cn": "八景岛奇谈",
+          "duration": "00:23:41",
+          "desc": "脚本：江夏由結\r\n絵コンテ：桜井弘明\r\n演出：湖山禎崇\r\n作画監督：大庭小枝\r\n总作画监督：沼田誠也",
+          "ep": 3,
+          "sort": 3,
+          "id": 136013,
+          "subject_id": 22287,
+          "comment": 17,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2012-01-26",
+          "name": "ミルキィホームズの寝相",
+          "name_cn": "Milky Holmes的睡相",
+          "duration": "00:23:41",
+          "desc": "脚本：ヤスカワショウゴ\r\n分镜：佐藤まさふみ\r\n演出：佐藤まさふみ\r\n作画监督：國行由里江\r\n总作画监督：沼田誠也",
+          "ep": 4,
+          "sort": 4,
+          "id": 136014,
+          "subject_id": 22287,
+          "comment": 10,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2012-02-02",
+          "name": "コソコソと支度",
+          "name_cn": "偷偷摸摸地准备",
+          "duration": "00:23:41",
+          "desc": "脚本：ヤスカワショウゴ\r\n分镜：中野英明\r\n演出：中野英明\r\n作画监督：小関雅\r\n总作画监督：沼田誠也",
+          "ep": 5,
+          "sort": 5,
+          "id": 136015,
+          "subject_id": 22287,
+          "comment": 9,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2012-02-09",
+          "name": "エノ電急行変人事件",
+          "name_cn": "江之岛急行电车怪人案",
+          "duration": "00:23:41",
+          "desc": "脚本：山川進\r\n分镜：湖山禎崇\r\n演出：湖山禎崇\r\n作画监督：滝本祥子\r\n总作画监督：沼田誠也",
+          "ep": 6,
+          "sort": 6,
+          "id": 136016,
+          "subject_id": 22287,
+          "comment": 15,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2012-02-16",
+          "name": "そして希望はなくなった",
+          "name_cn": "于是希望全无",
+          "duration": "00:23:41",
+          "desc": "脚本：山川進\r\n分镜：大久保政雄\r\n演出：大久保政雄\r\n作画监督：野田康行\r\n总作画监督：沼田誠也",
+          "ep": 7,
+          "sort": 7,
+          "id": 136017,
+          "subject_id": 22287,
+          "comment": 26,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2012-02-23",
+          "name": "愛おしいよね",
+          "name_cn": "景仰之人",
+          "duration": "00:23:41",
+          "desc": "脚本：ふでやすかずゆき\r\n分镜：池端隆史\r\n演出：池端隆史\r\n作画监督：五十内裕輔、柴田志郎\r\n总作画监督：沼田誠也",
+          "ep": 8,
+          "sort": 8,
+          "id": 136018,
+          "subject_id": 22287,
+          "comment": 17,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2012-03-01",
+          "name": "有給ある？さぁ取得すべく2",
+          "name_cn": "有带薪休假？那就应该申请2",
+          "duration": "00:23:41",
+          "desc": "脚本：ヤスカワショウゴ\r\n分镜：佐藤まさふみ\r\n演出：佐藤まさふみ\r\n作画监督：國行由里江\r\n总作画监督：沼田誠也",
+          "ep": 9,
+          "sort": 9,
+          "id": 136019,
+          "subject_id": 22287,
+          "comment": 14,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2012-03-08",
+          "name": "Y.H.混乱してらっしゃる？",
+          "name_cn": "Y.H.混乱中？",
+          "duration": "00:23:41",
+          "desc": "脚本：江夏由結\r\n分镜：湖山禎崇\r\n演出：湖山禎崇\r\n作画监督：大庭小枝、滝本祥子\r\n总作画监督：沼田誠也",
+          "ep": 10,
+          "sort": 10,
+          "id": 136020,
+          "subject_id": 22287,
+          "comment": 23,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2012-03-15",
+          "name": "ラードの神",
+          "name_cn": "猪油之神",
+          "duration": "00:23:41",
+          "desc": "脚本：ふでやすかずゆき\r\n分镜：中野英明\r\n演出：中野英明\r\n作画监督：小関雅\r\n总作画监督：沼田誠也",
+          "ep": 11,
+          "sort": 11,
+          "id": 136021,
+          "subject_id": 22287,
+          "comment": 22,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1421
+        },
+        {
+          "airdate": "2012-03-22",
+          "name": "アンリエットの帰還",
+          "name_cn": "亨利艾特的归来",
+          "duration": "00:23:11",
+          "desc": "脚本：ふでやすかずゆき\r\n分镜：森脇真琴\r\n演出：徳本善信\r\n作画监督：野田康行、滝本祥子、大庭小枝\r\n总作画监督：沼田誠也",
+          "ep": 12,
+          "sort": 12,
+          "id": 136022,
+          "subject_id": 22287,
+          "comment": 15,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1391
+        }
+      ],
+      "total": 12,
+      "limit": 100,
+      "offset": 0
+    },
+    "files": [
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 第二幕 (2012) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes II - 01 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 第二幕 (2012) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes II - 02 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 第二幕 (2012) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes II - 03 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 第二幕 (2012) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes II - 04 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 第二幕 (2012) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes II - 05 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 第二幕 (2012) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes II - 06 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 第二幕 (2012) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes II - 07 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 第二幕 (2012) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes II - 08 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 第二幕 (2012) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes II - 09 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 第二幕 (2012) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes II - 10 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 第二幕 (2012) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes II - 11 (BD 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 第二幕 (2012) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Opera Milky Holmes II - 12 (BD 1920x1080 x264 FLAC).mkv"
+      }
+    ]
+  },
+  {
+    "key": "milky-03",
+    "tmdb": {
+      "adult": false,
+      "backdrop_path": "/t7MjkWAaM7OBwamGY7lsc5bmI63.jpg",
+      "created_by": [],
+      "episode_run_time": [
+        25
+      ],
+      "first_air_date": "2010-10-07",
+      "genres": [
+        {
+          "id": 16,
+          "name": "アニメーション"
+        },
+        {
+          "id": 9648,
+          "name": "謎"
+        }
+      ],
+      "homepage": "http://milky-holmes.com/anime/",
+      "id": 51492,
+      "in_production": false,
+      "languages": [
+        "ja"
+      ],
+      "last_air_date": "2015-03-28",
+      "last_episode_to_air": {
+        "id": 1497849,
+        "name": "The detective of the Opera",
+        "overview": "長い捜査の末、ようやく真相へと辿り着いた歌怪盗事件。仕事を終えて、いつものようにダラダラと過ごしていたミルキィホームズの元に、コンサートのチケットが届く。それは・・・。【第12話劇中歌：いい日 TD、アーティスト:ミルキィホームズ&フェザーズ&明智小衣(CV.南條愛乃)&天城茉莉音(CV.新田恵海)】",
+        "vote_average": 0.0,
+        "vote_count": 0,
+        "air_date": "2015-03-28",
+        "episode_number": 12,
+        "episode_type": "finale",
+        "production_code": "",
+        "runtime": 25,
+        "season_number": 4,
+        "show_id": 51492,
+        "still_path": "/sVCzt6G2KbqyQ1ZZvkNlJw5IjeR.jpg"
+      },
+      "name": "探偵オペラ ミルキィホームズ",
+      "next_episode_to_air": null,
+      "networks": [
+        {
+          "id": 614,
+          "logo_path": "/hSdroyVthq3CynxTIIY7lnS8w1.png",
+          "name": "TOKYO MX",
+          "origin_country": "JP"
+        }
+      ],
+      "number_of_episodes": 48,
+      "number_of_seasons": 4,
+      "origin_country": [
+        "JP"
+      ],
+      "original_language": "ja",
+      "original_name": "探偵オペラ ミルキィホームズ",
+      "overview": "シャロ、ネロ、エリー、コーデリアの４人は、\n\nトイズと抜群のチームワークで数多くの事件を解決してきた\n\n「ホームズ探偵学院」の人気者。\n\n彼女たち「ミルキィホームズ」は学生だけでなく偵都ヨコハマの市民たちからも憧れの的だった。\n\nだが、ある嵐の夜、宿敵「怪盗帝国」とのバトルの最中に「ミルキィホームズ」の4人はそれぞれのトイズを失い、\n\nその運命は激変してしまう・・・。",
+      "popularity": 9.6882,
+      "poster_path": "/z9pfLiBGliEwJbSVAbjuTqJWaN.jpg",
+      "production_companies": [
+        {
+          "id": 58268,
+          "logo_path": "/4k796tdBrk2SNYe4nQL4Da81tZo.png",
+          "name": "Artland",
+          "origin_country": "JP"
+        },
+        {
+          "id": 35911,
+          "logo_path": "/9MwEIpHdSECESz9ILnA9CfLJ2m6.png",
+          "name": "Nomad",
+          "origin_country": "JP"
+        },
+        {
+          "id": 42196,
+          "logo_path": "/nQNmHvcmaT0zk1Rf0TYtLYO5MpI.png",
+          "name": "Bushiroad",
+          "origin_country": "JP"
+        },
+        {
+          "id": 9148,
+          "logo_path": "/rtW3NadfF4kR5mTW00ahiFxw6k7.png",
+          "name": "Pony Canyon",
+          "origin_country": "JP"
+        },
+        {
+          "id": 6683,
+          "logo_path": "/reCkuk3GEomdx5gQpsm15Zl1sgX.png",
+          "name": "Lantis",
+          "origin_country": "JP"
+        },
+        {
+          "id": 60197,
+          "logo_path": "/D5B8l99tlFJGoMpYJk1kqxYdey.png",
+          "name": "Good Smile Company",
+          "origin_country": "JP"
+        },
+        {
+          "id": 29672,
+          "logo_path": "/e3iSDZHis5wWo18z8cvB5udRctO.png",
+          "name": "Dwango",
+          "origin_country": "JP"
+        },
+        {
+          "id": 4719,
+          "logo_path": "/b3smsDQQ2UEwqToJbVTlT4kgXBk.png",
+          "name": "Sotsu",
+          "origin_country": "JP"
+        },
+        {
+          "id": 7122,
+          "logo_path": "/ymxxE2kupVDLM6zCZ2Z3QAXOdJ0.png",
+          "name": "Emotion",
+          "origin_country": "JP"
+        },
+        {
+          "id": 528,
+          "logo_path": "/fO3Aof3lXQclYpBByYC8aneTXwA.png",
+          "name": "Bandai Visual",
+          "origin_country": "JP"
+        },
+        {
+          "id": 204799,
+          "logo_path": "/auxX8eAtiL9lHwTfSr6lGdSAGLm.png",
+          "name": "Bushiroad Music",
+          "origin_country": "JP"
+        },
+        {
+          "id": 157002,
+          "logo_path": "/hSdroyVthq3CynxTIIY7lnS8w1.png",
+          "name": "Tokyo MX",
+          "origin_country": "JP"
+        },
+        {
+          "id": 11884,
+          "logo_path": "/tHzHPSKdmLT5zCdqFbcmHzZvRIc.png",
+          "name": "J.C.STAFF",
+          "origin_country": "JP"
+        }
+      ],
+      "production_countries": [
+        {
+          "iso_3166_1": "JP",
+          "name": "Japan"
+        }
+      ],
+      "seasons": [
+        {
+          "air_date": "2011-08-25",
+          "episode_count": 6,
+          "id": 55764,
+          "name": "特別編",
+          "overview": "",
+          "poster_path": "/mGk8OGieaOERSsk2zv10AXZfqxV.jpg",
+          "season_number": 0,
+          "vote_average": 0.0
+        },
+        {
+          "air_date": "2010-10-07",
+          "episode_count": 12,
+          "id": 55765,
+          "name": "第1期",
+          "overview": "",
+          "poster_path": "/ml8OoR4jVjUYxAGmA8Mu2UhHuKI.jpg",
+          "season_number": 1,
+          "vote_average": 7.0
+        },
+        {
+          "air_date": "2012-01-05",
+          "episode_count": 12,
+          "id": 55767,
+          "name": "第2幕",
+          "overview": "せっかくトイズが戻ってきたのもつかの間、\n\nまたまたトイズを失ってしまったミルキィホームズの4人。\n\n好敵手の復活を強く望むアルセーヌ（＝アンリエット）は、ミルキィホームズがトイズを取り戻すようにと、\n\n陰になり日向になり４人をサポートするが、トイズが復活する気配は全くない。\n\nそれどころか、４人は貧乏生活にすっかり慣れ、ダメダメ街道まっしぐら。\n\n遂にはトイズだけでなく、学院生活に一番大事なものもすっかり忘れてしまい･･･。",
+          "poster_path": "/dz51qTUUCGz2DdZSKRXfBiPpgo1.jpg",
+          "season_number": 2,
+          "vote_average": 0.0
+        },
+        {
+          "air_date": "2013-07-13",
+          "episode_count": 12,
+          "id": 55766,
+          "name": "ふたりはミルキィホームズ",
+          "overview": "偵都ヨコハマに世の中を揺るがす『怪盗帝国』とそれを正す少女探偵団『ミルキィホームズ』が現れてから２年。\n\nヨコハマの街にはつかの間の平穏が訪れていた。その街に住む常盤カズミと明神川アリスは幼馴染同士の１２歳。\n\n違う探偵学院に通いつつも帰り道で落ち合うなど、毎日仲良く探偵になるための勉学に励んでいた。\n\nそんなある日、街で逃げ去る怪盗を見かけた２人。追いかけた先で彼女たちが見たものは……？",
+          "poster_path": "/2dkG7VQml3xhwu3RuCgZql5R9Ds.jpg",
+          "season_number": 3,
+          "vote_average": 0.0
+        },
+        {
+          "air_date": "2014-12-31",
+          "episode_count": 12,
+          "id": 104483,
+          "name": "探偵歌劇 ミルキィホームズ TD",
+          "overview": "",
+          "poster_path": "/sfg1WWQTzG35W4l1WQ5X15x2kOj.jpg",
+          "season_number": 4,
+          "vote_average": 0.0
+        }
+      ],
+      "softcore": false,
+      "spoken_languages": [
+        {
+          "english_name": "Japanese",
+          "iso_639_1": "ja",
+          "name": "日本語"
+        }
+      ],
+      "status": "Ended",
+      "tagline": "",
+      "type": "Scripted",
+      "vote_average": 7.2,
+      "vote_count": 8,
+      "alternative_titles": {
+        "results": [
+          {
+            "iso_3166_1": "BR",
+            "title": "Tantei Opera Milky Holmes",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "HK",
+            "title": "偵探歌劇 少女福爾摩斯",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "JP",
+            "title": "探偵オペラ ミルキィホームズ 第2幕",
+            "type": "second series title"
+          },
+          {
+            "iso_3166_1": "JP",
+            "title": "Tantei Opera Milky Holmes",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "JP",
+            "title": "探偵歌劇 ミルキィホームズ TD",
+            "type": "fourth series title"
+          },
+          {
+            "iso_3166_1": "JP",
+            "title": "ふたりはミルキィホームズ",
+            "type": "third series title"
+          },
+          {
+            "iso_3166_1": "KR",
+            "title": "Tantei Kageki Milky Holmes TD",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "TW",
+            "title": "偵探歌劇 少女福爾摩斯",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "US",
+            "title": "Futari wa Milky Holmes",
+            "type": "third season title"
+          },
+          {
+            "iso_3166_1": "US",
+            "title": "Tantei Opera Milky Holmes: Act 2",
+            "type": "second series title"
+          }
+        ]
+      },
+      "translations": {
+        "translations": [
+          {
+            "iso_3166_1": "US",
+            "iso_639_1": "en",
+            "name": "English",
+            "english_name": "English",
+            "data": {
+              "name": "Detective Opera Milky Holmes",
+              "overview": "Set in a futuristic world, there exist \"Toys\" which grant people superhuman abilities. This is responsible for a wave of crimes and necessitates employing Toy-using detectives to help solve them. Opera Kobayashi runs a detective agency, Milky Holmes, staffed by four aspiring young girl detectives who attend the Holmes Detective Academy, and each girl possesses their own unique Toy.",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "FR",
+            "iso_639_1": "fr",
+            "name": "Français",
+            "english_name": "French",
+            "data": {
+              "name": "Tantei Opera Milky Holmes",
+              "overview": "Dans un futur lointain, les jouets (Toys) sont décris comme des pouvoirs surhumain. À cause de cela, le nombre de crime dû aux personnes en utilisant a considérablement augmenté.\n\nSheryl, Nero, Elly, et Cordelia sont les élèves les plus connues et les plus fortes de la Holmes Detective Academy. On ne compte plus le nombre de voleurs et criminels qu'elles ont arrêtées. Forte de leur notoriété, elles se font appelées les Milky Holmes.\n\nUn soir, en voulant attraper un de leur plus grand rival, elles perdent leurs \"jouets\".\n\nComment vont-elles surpasser cet handicap et resteront-elles les plus grande détective ?",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "JP",
+            "iso_639_1": "ja",
+            "name": "日本語",
+            "english_name": "Japanese",
+            "data": {
+              "name": "",
+              "overview": "シャロ、ネロ、エリー、コーデリアの４人は、\n\nトイズと抜群のチームワークで数多くの事件を解決してきた\n\n「ホームズ探偵学院」の人気者。\n\n彼女たち「ミルキィホームズ」は学生だけでなく偵都ヨコハマの市民たちからも憧れの的だった。\n\nだが、ある嵐の夜、宿敵「怪盗帝国」とのバトルの最中に「ミルキィホームズ」の4人はそれぞれのトイズを失い、\n\nその運命は激変してしまう・・・。",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "BR",
+            "iso_639_1": "pt",
+            "name": "Português",
+            "english_name": "Portuguese",
+            "data": {
+              "name": "Tantei Opera Milky Holmes",
+              "overview": "\"Brinquedos\" são poderes concedidos àqueles escolhidos para manejá-los, cada um com qualidades únicas para seus usuários. Alguns desses indivíduos nascem puros, usando seus poderes para se tornarem detetives. Outros florescem cheios de veneno e optam por se tornar ladrões fantasmas. Essas duas facções opostas causaram a formação de várias academias de detetives em todo o mundo - treinando detetives para lutar e capturar os ladrões fantasmas. Sherlock Shellingford, Nero Yuzurizaki, Hercule Burton e Cordelia Glauca formam \"Milky Holmes\", um grupo reconhecido como o creme da colheita na Academia de Detetives Holmes, com sede em Yokohama. No entanto, em uma briga contra o ladrão fantasma Arsene, seus brinquedos desaparecem subitamente, considerando-os impróprios para continuar como detetives.",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "ES",
+            "iso_639_1": "es",
+            "name": "Español",
+            "english_name": "Spanish",
+            "data": {
+              "name": "Tantei Opera Milky Holmes",
+              "overview": "En el futuro, la gente utiliza \"Toys\" que les concede habilidades sobrehumanas como el ESP y la telequinesis. Esto ha conducido a un auge en los delitos menores y la necesidad de Toys que utilizan los detectives para localizar a los delincuentes y llevarlos ante la justicia. Opera Koyabashi funciona como la agencia de detectives, Milky Holmes, que contará con cuatro muchachas alegres y enérgicas.",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "CN",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "侦探歌剧 少女福尔摩斯",
+              "overview": "故事以侦都横滨为舞台，讲述的是在二十一世纪这个“大侦探时代”中，四名立志要成为名侦探的少女组成了“福尔摩斯\"小队与怪盗对决的故事。",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "PL",
+            "iso_639_1": "pl",
+            "name": "Polski",
+            "english_name": "Polish",
+            "data": {
+              "name": "Tantei Opera Milky Holmes",
+              "overview": "Sheryl, Nero, Elly i Cordelia są najpopularniejszymi studentami Akademii Detektywistycznej Holmes ze względu na wiele spraw, które rozwiązały za pomocą zabawek i pracy zespołowej. Studenci i mieszkańcy Miasta Detektywów Yokohama obserwują członków „Milky Holmes”. Ale w ciemną i burzliwą noc podczas bitwy z rywalami – Imperium Złodziei Dżentelmenów – tracą swoje zabawki, a ich los ulega dramatycznej zmianie…",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "KR",
+            "iso_639_1": "ko",
+            "name": "한국어/조선말",
+            "english_name": "Korean",
+            "data": {
+              "name": "탐정 오페라 밀키 홈즈",
+              "overview": "",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "IT",
+            "iso_639_1": "it",
+            "name": "Italiano",
+            "english_name": "Italian",
+            "data": {
+              "name": "Detective Opera Milky Holmes",
+              "overview": "Ci troviamo in un futuro non definito in cui alcuni esseri umani sviluppano speciali poteri che vengono chiamati Toys. Opera Kobayashi gestisce un ufficio investigativo chiamato Milky Holmes, specializzato nelle indagini di casi che vedono persone dotate di Toys usare le proprie abilità per compiere crimini. Ad aiutarlo ci sono quattro ragazze detective, Sherlock, Nero, Hercule e Cordelia, dotate anch'esse di propri Toys. Le quattro investigatrici si ritrovano però improvvisamente a perdere i propri poteri per cause misteriose e dovranno dunque trovare il modo di riottenerli.",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "DE",
+            "iso_639_1": "de",
+            "name": "Deutsch",
+            "english_name": "German",
+            "data": {
+              "name": "Detective Opera Milky Holmes",
+              "overview": "In der Zukunft nutzen die Menschen »Toys«. Diese »Toys« ermöglichen ihnen übermenschliche Fähigkeiten wie Telekinese oder ESP. Dies führt zu zahlreichen kleinen Verbrechen. Somit sind »Toys«-Detektive nötig, die auf der Spur der Täter sind und diese vor Gericht bringen.\n\nSheryl, Nero, Elly, und Cordelia sind die beliebtesten Schüler der Holmes Detektiv Akademie, weil sie viele Fälle mit ihren »Toys« und ihrer Teamarbeit erfolgreich gelöst haben. Die Schüler und die Bewohner der Detektiv-Stadt Yokohama bewundern die Mitglieder der »Milky Holmes«. Aber in einer dunklen, stürmischen Nacht, während eines Kampfes mit ihren Rivalen »Die ehrenwerten Diebe«, verlieren sie ihre »Toys« und ihr Schicksal erfährt eine dramatische Wende!",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "TH",
+            "iso_639_1": "th",
+            "name": "ภาษาไทย",
+            "english_name": "Thai",
+            "data": {
+              "name": "Detective Opera Milky Holmes",
+              "overview": "ในโลกที่นักสืบได้รัความนิยม ผู้ที่ถูกเลือกจะมี ทอยส์ (Toys) ที่ทำให้ใช้พลังพิเศษได้ ช่วยในการสืบคดีและต่อสู้กับพวกอาชญากร เรื่องราวของกลุ่มนักสืบรุ่นจิ๋ว มิลกี้โฮล์ม ที่มีความสามารถในการจับผู้ร้ายที่ยอดเยี่ยมกว่าเด็กรุ่นเดียวกัน เป็นที่ชื่นชมของเพื่อนร่วมโรงเรียน แต่หลังทอยส์ถูกพวกจอมโจรขโมยไป พวกเธอกลับตกต่ำถึงขีดสุดและต้องหาทางชิงกลับมา",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "RU",
+            "iso_639_1": "ru",
+            "name": "Pусский",
+            "english_name": "Russian",
+            "data": {
+              "name": "Детективное агентство Милки Холмс",
+              "overview": "В мире сериала обладатели магических Даров делятся на два клана и ведут бесконечную увлекательную игру в детективов и благородных преступников. Одаренные дети учатся на детективов в академии им. Холмса, замаскированные преступники часто учатся и работают там же (а где еще-то?). В «Милки Холмс» — самую успешную команду молодых сыщиков – входят четыре главных героини: телекинетик Шерри, повелительница машин Неро, силачка Эри и Корди, умеющая в сотни раз обострять собственные чувства. Но в очередной схватке с королевой преступного мира леди Арсен девушки теряют сверхспособности, в результате из звезд своего курса постепенно превращаясь в двоечниц и посмешище всей академии...",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "HK",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "偵探歌劇 少女福爾摩斯",
+              "overview": "講述了活躍著怪盜與偵探的近未來架空世界裏的「偵探之都橫濱」，目標成為真正的偵探的四位少女偵探組合 Milky Holmes 的故事。",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "TW",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "偵探歌劇 少女福爾摩斯",
+              "overview": "講述了活躍着怪盜與偵探的近未來架空世界裏的「偵探之都橫濱」，目標成為真正的偵探的四位少女偵探組合Milky Holmes的故事。",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "MX",
+            "iso_639_1": "es",
+            "name": "Español",
+            "english_name": "Spanish",
+            "data": {
+              "name": "",
+              "overview": "",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "VN",
+            "iso_639_1": "vi",
+            "name": "Tiếng Việt",
+            "english_name": "Vietnamese",
+            "data": {
+              "name": "Detective Opera Milky Holmes",
+              "overview": "Trong thế giới tương lai, tồn tại những \"Toys\" ban cho con người siêu năng lực — kéo theo làn sóng tội phạm và nhu cầu về các thám tử sử dụng Toys để phá án. Opera Kobayashi điều hành văn phòng thám tử Milky Holmes với bốn cô thám tử trẻ đầy triển vọng theo học tại Học viện Thám tử Holmes, mỗi người sở hữu một Toy độc đáo.",
+              "homepage": "",
+              "tagline": ""
+            }
+          }
+        ]
+      }
+    },
+    "bangumi": {
+      "date": "2013-07-13",
+      "platform": "TV",
+      "images": {
+        "small": "https://lain.bgm.tv/r/200/pic/cover/l/ce/14/62948_h5bSP.jpg",
+        "grid": "https://lain.bgm.tv/r/100/pic/cover/l/ce/14/62948_h5bSP.jpg",
+        "large": "https://lain.bgm.tv/pic/cover/l/ce/14/62948_h5bSP.jpg",
+        "medium": "https://lain.bgm.tv/r/800/pic/cover/l/ce/14/62948_h5bSP.jpg",
+        "common": "https://lain.bgm.tv/r/400/pic/cover/l/ce/14/62948_h5bSP.jpg"
+      },
+      "summary": "",
+      "name": "ふたりはミルキィホームズ",
+      "name_cn": "两个人是少女福尔摩斯",
+      "tags": [
+        {
+          "name": "J.C.STAFF",
+          "count": 126,
+          "total_count": 139576
+        },
+        {
+          "name": "2013年7月",
+          "count": 101,
+          "total_count": 21092
+        },
+        {
+          "name": "百合",
+          "count": 99,
+          "total_count": 415341
+        },
+        {
+          "name": "TV",
+          "count": 85,
+          "total_count": 1453275
+        },
+        {
+          "name": "2013",
+          "count": 65,
+          "total_count": 70333
+        },
+        {
+          "name": "侦探",
+          "count": 54,
+          "total_count": 626
+        },
+        {
+          "name": "侦探歌剧",
+          "count": 49,
+          "total_count": 629
+        },
+        {
+          "name": "游戏改",
+          "count": 42,
+          "total_count": 167507
+        },
+        {
+          "name": "萌",
+          "count": 39,
+          "total_count": 72558
+        },
+        {
+          "name": "搞笑",
+          "count": 32,
+          "total_count": 659865
+        },
+        {
+          "name": "笨蛋",
+          "count": 32,
+          "total_count": 2206
+        },
+        {
+          "name": "NOMAD",
+          "count": 31,
+          "total_count": 3971
+        },
+        {
+          "name": "原创",
+          "count": 25,
+          "total_count": 638462
+        },
+        {
+          "name": "萝莉",
+          "count": 16,
+          "total_count": 47345
+        },
+        {
+          "name": "锦织博",
+          "count": 13,
+          "total_count": 475
+        },
+        {
+          "name": "錦織博",
+          "count": 12,
+          "total_count": 357
+        },
+        {
+          "name": "日本",
+          "count": 7,
+          "total_count": 318582
+        },
+        {
+          "name": "泡面番",
+          "count": 4,
+          "total_count": 157859
+        },
+        {
+          "name": "ノーマッド",
+          "count": 4,
+          "total_count": 131
+        },
+        {
+          "name": "推理",
+          "count": 4,
+          "total_count": 75812
+        },
+        {
+          "name": "轻百合",
+          "count": 4,
+          "total_count": 39372
+        },
+        {
+          "name": "，可爱",
+          "count": 3,
+          "total_count": 20
+        },
+        {
+          "name": "续作",
+          "count": 3,
+          "total_count": 48668
+        },
+        {
+          "name": "selebrity",
+          "count": 3,
+          "total_count": 3
+        },
+        {
+          "name": "废渣子",
+          "count": 2,
+          "total_count": 2
+        },
+        {
+          "name": "少女福尔摩斯",
+          "count": 2,
+          "total_count": 26
+        },
+        {
+          "name": "废萌",
+          "count": 2,
+          "total_count": 7425
+        },
+        {
+          "name": "holmes",
+          "count": 2,
+          "total_count": 5
+        },
+        {
+          "name": "Bushiroad",
+          "count": 2,
+          "total_count": 897
+        },
+        {
+          "name": "日本动画",
+          "count": 2,
+          "total_count": 36222
+        }
+      ],
+      "infobox": [
+        {
+          "key": "中文名",
+          "value": "两个人是少女福尔摩斯"
+        },
+        {
+          "key": "别名",
+          "value": [
+            {
+              "v": "侦探歌剧 Milky Holmes 第三幕"
+            },
+            {
+              "v": "ミルキィホームズ フェザーズ"
+            },
+            {
+              "v": "探偵オペラ ミルキィホームズ"
+            }
+          ]
+        },
+        {
+          "key": "话数",
+          "value": "12"
+        },
+        {
+          "key": "放送开始",
+          "value": "2013年7月13日"
+        },
+        {
+          "key": "放送星期",
+          "value": "星期六"
+        },
+        {
+          "key": "官方网站",
+          "value": "http://milky-holmes-anime.com/"
+        },
+        {
+          "key": "播放结束",
+          "value": "2013年9月28日"
+        },
+        {
+          "key": "导演",
+          "value": "錦織博"
+        },
+        {
+          "key": "音乐",
+          "value": "市川淳"
+        },
+        {
+          "key": "Copyright",
+          "value": "©ふたりはミルキィホームズ製作委員会"
+        },
+        {
+          "key": "企画",
+          "value": "ブシロード・クロノギアクリエイティヴ"
+        },
+        {
+          "key": "原作",
+          "value": "ブシロード・クロノギアクリエイティヴ"
+        },
+        {
+          "key": "脚本",
+          "value": "白根秀樹、會川昇、ヤスカワショウゴ、伊神貴世"
+        },
+        {
+          "key": "分镜",
+          "value": "錦織博、花井宏和、城所聖明、佐藤雄三、migmi、菊池聡延"
+        },
+        {
+          "key": "演出",
+          "value": "錦織博、花井宏和、江副仁美、関谷真実子、村田尚樹、上野史博、則座誠、菊池聡延"
+        },
+        {
+          "key": "人物设定",
+          "value": "藤田まり子"
+        },
+        {
+          "key": "美术设计",
+          "value": "Moonflower"
+        },
+        {
+          "key": "总作画监督",
+          "value": "藤田まり子、古賀誠、高橋みか"
+        },
+        {
+          "key": "作画监督",
+          "value": "古賀誠、上田恵未、永川桃子、矢吹智美、丸山修二、松本勝次、阿部可奈子、竹内アキラ、佐々木一浩、臼井文明、池田早香、永川桃子、寺尾憲治、大田謙治、築山翔太、成松義人、菊池聡延、國行由里江"
+        },
+        {
+          "key": "作画监督助理",
+          "value": "西脇拓己、古賀誠、山本真嗣、矢吹智美、今中俊輔、松本勝次、春日ヒロミ、岩田幸大、梶浦紳一郎、津熊健徳、Lee Joohyun、小関雅"
+        },
+        {
+          "key": "原画",
+          "value": "北原章雄、代見裕美、山中正博、梅本賢一、阿部和彦、久米一成、山下直紀、正木優太、柴田篤史、馬場一樹、亀井大祐、大橋圭、藤井あやの、大下知之、舘崎大、今中俊輔、阿部慈光、河野敏弥、平松法子、山本晃宏、鈴木祥子、宇良隆太、高波佑太、加治木史、松広友仁、中西和也、寺田浩之、飯野伸夫、薮田裕希[藪田裕希]、計場裕子、栗原理、菊池聡延、正金寺直子、代見裕美、丸山翔子、桑原麻衣、松本勝次、小林史緒里、山中いづみ、渡會龍司、峯友則、吉田肇、佐々木一浩、亀井大志、飯村真一、阿部慈光、Choi Sae Gwan、조영래、岡崎伸浩、梶山亜里沙、岡本秀康、柴田和子、早船明彦、諏訪壮大、清水勝祐、Han Jung Y、岸香織、西脇拓己、松林祥世、宗廣智行、土岐由紀、古市佳祐、佐藤滋記、田之上慎、小林之浩、河西睦月、金正男、金有千、姜棟賀、大田謙治、臼田美夫、神谷美也子、久野加代子、大藪佳奈子、片岡康治、小林史緒里、김정우、han seung、浦岡華絵、山口彩、日根野優子、赤尾良太郎、垣内彩子、島崎望、加治木史、高波祐太、川筋豊、桜本晴、이주현、山本真嗣、千光士海登、大下知之、藤田麻貴、金大勲[김대훈]、青木康哲、伊藤悠太、井上可奈子、今泉熙美、大庭小枝、澤井真紀、田中美奈、長山延好、西山伸吾、宮本武史、鰐淵和彦"
+        },
+        {
+          "key": "3DCG",
+          "value": "J.C.STAFF（塩田潤、本田有紀、田中哲郎）"
+        },
+        {
+          "key": "摄影",
+          "value": "スタジオトゥインクル（國常哲史、川上大仁、岩元広司郎、武舎好広）"
+        },
+        {
+          "key": "剪辑",
+          "value": "後藤正浩；剪辑工作室：REAL-T；剪辑助理：須藤瞳"
+        },
+        {
+          "key": "特效",
+          "value": "益子典子、古市裕一"
+        },
+        {
+          "key": "音效",
+          "value": "小山恭正"
+        },
+        {
+          "key": "录音",
+          "value": "荒川通哉（プロセンスタジオ）；录音工作室：STUDIO T&T"
+        },
+        {
+          "key": "录音助理",
+          "value": "森透"
+        },
+        {
+          "key": "音响",
+          "value": "マジックカプセル"
+        },
+        {
+          "key": "主题歌演出",
+          "value": "Milky Holmes Feathers（愛美、伊藤彩沙）"
+        },
+        {
+          "key": "音乐制作",
+          "value": "響ミュージック"
+        },
+        {
+          "key": "执行制片人",
+          "value": "福場一義、難波秀行、尾山仁康、小原正司；制作总指挥：木谷高明"
+        },
+        {
+          "key": "统括制作人",
+          "value": "中村伸行"
+        },
+        {
+          "key": "制片人",
+          "value": "大島靖、二瓶茂人、徳島悠木、和泉勇一、諸澤昌男、松倉友二"
+        },
+        {
+          "key": "製作",
+          "value": "ふたりはミルキィホームズ製作委員会（ポニーキャニオン、創通、TOKYO MX、ブシロード）"
+        },
+        {
+          "key": "OP・ED 分镜",
+          "value": "宮崎なぎさ / 花井宏和"
+        },
+        {
+          "key": "协力",
+          "value": "原作協力：奥村越後屋、小玉励"
+        },
+        {
+          "key": "制作进行",
+          "value": "白川智子、髙田美里、木村健、尾曲弘之、上野貴史、盧国華、紅林隼、大澤明彦"
+        },
+        {
+          "key": "制作协力",
+          "value": "ライデンフィルム、カオスプロジェクト、フロンティアエンジン、ARTLAND"
+        },
+        {
+          "key": "音响制作担当",
+          "value": "田中理恵"
+        }
+      ],
+      "rating": {
+        "rank": 9805,
+        "total": 489,
+        "count": {
+          "1": 16,
+          "2": 19,
+          "3": 32,
+          "4": 71,
+          "5": 143,
+          "6": 140,
+          "7": 51,
+          "8": 14,
+          "9": 0,
+          "10": 3
+        },
+        "score": 5.1
+      },
+      "total_episodes": 12,
+      "collection": {
+        "on_hold": 72,
+        "dropped": 107,
+        "wish": 224,
+        "collect": 711,
+        "doing": 54
+      },
+      "id": 62948,
+      "eps": 12,
+      "meta_tags": [
+        "百合",
+        "百合",
+        "TV",
+        "TV",
+        "日本",
+        "日本",
+        "原创",
+        "原创"
+      ],
+      "volumes": 0,
+      "series": false,
+      "locked": false,
+      "nsfw": false,
+      "type": 2
+    },
+    "season": {
+      "id": 55766,
+      "_id": "52598119760ee34661a997ff",
+      "air_date": "2013-07-13",
+      "episodes": [
+        {
+          "air_date": "2013-07-13",
+          "episode_number": 1,
+          "episode_type": "standard",
+          "id": 919623,
+          "name": "いつものふたり",
+          "overview": "偵都ヨコハマに世の中を揺るがす『怪盗帝国』とそれを正す少女探偵団『ミルキィホームズ』が現れてから２年。ヨコハマの街にはつかの間の平穏が訪れていた。その街に住む常盤カズミと明神川アリスは幼馴染同士の１２歳。違う探偵学院に通いつつも帰り道で落ち合うなど、毎日仲良く探偵になるための勉学に励んでいた。そんなある日、街で逃げ去る怪盗を見かけた２人。追いかけた先で彼女たちが見たものは……？",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 3,
+          "show_id": 51492,
+          "still_path": "/jtYKpImFebBuFLbZe0CzWvPjzWv.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2013-07-20",
+          "episode_number": 2,
+          "episode_type": "standard",
+          "id": 919624,
+          "name": "ということ",
+          "overview": "怪盗を追った先に現れたのは怪盗７人組の集団『カラー・ザ・ファントム』、そしてそれを捕まえるために現れたヨコハマのヒロイン『ミルキィホームズ』だった。カズミとアリスも彼女たちを見て自分達も力になれないかとミルキィホームズの元を訪れる。ホームズ探偵学院での優雅なティーパーティーを目の前にして感動する彼女たちが与えられたアドバイスとは……",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 3,
+          "show_id": 51492,
+          "still_path": "/gkwRpblrBTAVEgpTW2ND4txhiwp.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2013-07-30",
+          "episode_number": 3,
+          "episode_type": "standard",
+          "id": 919625,
+          "name": "わたしのトイズ",
+          "overview": "捕らえられた赤怪盗。ヨコハマ警察の対怪盗特別チームGenius4が駆けつけた時その元にはカズミとアリスが決めたチーム名『フェザーズ』と書かれたカードが置かれていた。学校でも話題になるフェザーズの名前だったが、教師には「国際探偵機構のライセンスを持たないニセモノに憧れてはならない」と釘を差されてしまう。カズミは残りもカラー・ザ・ファントムも捕まえるため、強化合宿をしようと提案する。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 3,
+          "show_id": 51492,
+          "still_path": "/hMVC22f79XimBMXoSqRmN4hWf2p.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2013-08-03",
+          "episode_number": 4,
+          "episode_type": "standard",
+          "id": 919626,
+          "name": "まけないきもち",
+          "overview": "青怪盗に完全にやり込められ、女探偵リュウコ・コマツの探偵ライセンス証も奪われ、自信を失ってしまうフェザーズの２人。そんな中カズミはホームズ探偵学院を訪れ、図書館でミルキィホームズの過去に触れる。アリスもまた自らで新しい証拠を見つけようと現場に向かっていた。それぞれの解を見つけた２人は、再び怪盗に対峙する事になる。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 3,
+          "show_id": 51492,
+          "still_path": "/eXK2icbZHuE60I4V7arhdIxQOAY.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2013-08-10",
+          "episode_number": 5,
+          "episode_type": "standard",
+          "id": 919627,
+          "name": "謎のおばあさん",
+          "overview": "カズミとアリスの２人は、老婦人を今日も尾行していた。彼女は毎日のようにカフェのカウンターに座り、赤いカクテルを一口だけ飲み、何かを監視するような挙動を見せてはしばらくするとバスに乗ってどこかに去っていく……。いったい何者なのか？疑問に思った２人は老婦人が乗るバスに一緒に乗りこむことにした。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 3,
+          "show_id": 51492,
+          "still_path": "/v973FJkWLK1SdgR4ki3DEnE7EOg.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2013-08-17",
+          "episode_number": 6,
+          "episode_type": "standard",
+          "id": 919628,
+          "name": "おうちに帰ろう",
+          "overview": "米菓街を襲うはずだった黄怪盗・イエローブラックホールが動揺し紫怪盗に報告する。１０年ぶりに伝説の怪盗ビスコンテが現れたという。そんなことも知らず、カズミとアリスは、今日は「フェザーズ」のカードデザインを考案中。そんな中、アリスの兄であるシオンと父親が帰宅。夕食を共に取るカズミはその帰り道、家族についてアリスにこぼすのだった。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 3,
+          "show_id": 51492,
+          "still_path": "/iI4zNwXBtvP12sUhrHeknIlWn8U.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2013-08-24",
+          "episode_number": 7,
+          "episode_type": "standard",
+          "id": 919629,
+          "name": "終わりのはじまり",
+          "overview": "アリスの知らない所で、アリスの兄であるシオンと両親は反目していた。怪盗一家であることを世間に、そしてアリスに隠し続けてきた彼らも一枚岩ではなかった。「怪盗はどうあるべきか」。それぞれの思いがあり、それはシオンが所属する７人の怪盗チーム「カラー・ザ・ファントム」も同様であった……。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 3,
+          "show_id": 51492,
+          "still_path": "/7Tk0HcBcL2JsAIuZW0sz04UyBEi.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2013-08-31",
+          "episode_number": 8,
+          "episode_type": "standard",
+          "id": 919630,
+          "name": "姫百合せんぱい",
+          "overview": "十津川の過去が語られ、その彼女はシオンに会い、「忘却のトイズ」を放つ。カラー・ザ・ファントム内の動きも活発化する中、カズミはアリスとの能力差に苦しんでいた。そんな２人の前に紫怪盗が現れ「裏切り者のビスコンテの宝を奪う」と宣言するのだった。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 3,
+          "show_id": 51492,
+          "still_path": "/qQVxnLMJMN7M2adJcHUmUon2L9n.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2013-09-07",
+          "episode_number": 9,
+          "episode_type": "standard",
+          "id": 919631,
+          "name": "じぶんのちから",
+          "overview": "十津川の過去が語られ、その彼女はシオンに会い、「忘却のトイズ」を放つ。カラー・ザ・ファントム内の動きも活発化する中、カズミはアリスとの能力差に苦しんでいた。そんな２人の前に紫怪盗が現れ「裏切り者のビスコンテの宝を奪う」と宣言するのだった。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 3,
+          "show_id": 51492,
+          "still_path": "/nZ2vzKLIanwoFUKtpj3V6j3dnoj.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2013-09-14",
+          "episode_number": 10,
+          "episode_type": "standard",
+          "id": 919632,
+          "name": "いつでもいっしょ",
+          "overview": "怪盗チーム『カラー・ザ・ファントム』と行動を共にすることにしたカズミ。そして自らの家族が怪盗一家であることを知ってしまったアリス。それぞれの思いを胸に、彼女たちは探偵秘宝館に展示されている「小林オペラの探偵帽」の争奪・防衛に動く。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 3,
+          "show_id": 51492,
+          "still_path": "/hYFjNQJmXbOWzSjycQ2AhFHZtCY.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2013-09-21",
+          "episode_number": 11,
+          "episode_type": "standard",
+          "id": 919633,
+          "name": "みんなとふたり",
+          "overview": "カズミとアリスはお互いの気持を通い合わせ、もう一度探偵の夢に向かうこと、そして紫怪盗であるシオンの活動を止めることを決心する。そんな中、怪盗チーム『カラー・ザ・ファントム』は解散・内部分裂に直面していた。シオンはカラー・ザ・ファントムの役目は終わったと語るも、他のメンバーによって眠らされてしまい……",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 3,
+          "show_id": 51492,
+          "still_path": "/90zDejqyqq6xAEnJCcWaf058CAJ.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2013-09-28",
+          "episode_number": 12,
+          "episode_type": "finale",
+          "id": 1029629,
+          "name": "あたらしいふたり",
+          "overview": "ランドマークタワー展望台で対峙するカズミ・アリスと黒怪盗・白怪盗。黒怪盗のトイズ「ギガンティック・ファントム」に翻弄されるが、ミルキィホームズの協力によって最後の戦いに赴くこととなる。囚われのシオンを巡って、最後の戦いの火蓋が今、切って落とされる。",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 3,
+          "show_id": 51492,
+          "still_path": "/l11v5WrozCkK6Cy0YC6HWUREnbq.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        }
+      ],
+      "name": "ふたりはミルキィホームズ",
+      "networks": [
+        {
+          "id": 614,
+          "logo_path": "/hSdroyVthq3CynxTIIY7lnS8w1.png",
+          "name": "TOKYO MX",
+          "origin_country": "JP"
+        }
+      ],
+      "overview": "偵都ヨコハマに世の中を揺るがす『怪盗帝国』とそれを正す少女探偵団『ミルキィホームズ』が現れてから２年。\n\nヨコハマの街にはつかの間の平穏が訪れていた。その街に住む常盤カズミと明神川アリスは幼馴染同士の１２歳。\n\n違う探偵学院に通いつつも帰り道で落ち合うなど、毎日仲良く探偵になるための勉学に励んでいた。\n\nそんなある日、街で逃げ去る怪盗を見かけた２人。追いかけた先で彼女たちが見たものは……？",
+      "poster_path": "/2dkG7VQml3xhwu3RuCgZql5R9Ds.jpg",
+      "season_number": 3,
+      "vote_average": 0.0
+    },
+    "episodes": {
+      "data": [
+        {
+          "airdate": "2013-07-13",
+          "name": "いつものふたり",
+          "name_cn": "",
+          "duration": "",
+          "desc": "",
+          "ep": 1,
+          "sort": 1,
+          "id": 288905,
+          "subject_id": 62948,
+          "comment": 20,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 0
+        },
+        {
+          "airdate": "2013-07-20",
+          "name": "「なる」ということ",
+          "name_cn": "",
+          "duration": "",
+          "desc": "",
+          "ep": 2,
+          "sort": 2,
+          "id": 288894,
+          "subject_id": 62948,
+          "comment": 18,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 0
+        },
+        {
+          "airdate": "2013-07-27",
+          "name": "わたしのトイズ",
+          "name_cn": "",
+          "duration": "",
+          "desc": "",
+          "ep": 3,
+          "sort": 3,
+          "id": 288895,
+          "subject_id": 62948,
+          "comment": 9,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 0
+        },
+        {
+          "airdate": "2013-08-03",
+          "name": "まけないきもち",
+          "name_cn": "",
+          "duration": "",
+          "desc": "",
+          "ep": 4,
+          "sort": 4,
+          "id": 288896,
+          "subject_id": 62948,
+          "comment": 7,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 0
+        },
+        {
+          "airdate": "2013-08-10",
+          "name": "謎のおばあさん",
+          "name_cn": "",
+          "duration": "",
+          "desc": "",
+          "ep": 5,
+          "sort": 5,
+          "id": 288897,
+          "subject_id": 62948,
+          "comment": 6,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 0
+        },
+        {
+          "airdate": "2013-08-17",
+          "name": "おうちに帰ろう",
+          "name_cn": "",
+          "duration": "",
+          "desc": "",
+          "ep": 6,
+          "sort": 6,
+          "id": 288898,
+          "subject_id": 62948,
+          "comment": 9,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 0
+        },
+        {
+          "airdate": "2013-08-24",
+          "name": "終わりのはじまり",
+          "name_cn": "",
+          "duration": "",
+          "desc": "",
+          "ep": 7,
+          "sort": 7,
+          "id": 288899,
+          "subject_id": 62948,
+          "comment": 7,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 0
+        },
+        {
+          "airdate": "2013-08-31",
+          "name": "姫百合せんぱい",
+          "name_cn": "",
+          "duration": "",
+          "desc": "",
+          "ep": 8,
+          "sort": 8,
+          "id": 288900,
+          "subject_id": 62948,
+          "comment": 5,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 0
+        },
+        {
+          "airdate": "2013-09-07",
+          "name": "じぶんのちから",
+          "name_cn": "",
+          "duration": "",
+          "desc": "",
+          "ep": 9,
+          "sort": 9,
+          "id": 288901,
+          "subject_id": 62948,
+          "comment": 10,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 0
+        },
+        {
+          "airdate": "2013-09-14",
+          "name": "いつでもいっしょ",
+          "name_cn": "",
+          "duration": "",
+          "desc": "",
+          "ep": 10,
+          "sort": 10,
+          "id": 288902,
+          "subject_id": 62948,
+          "comment": 10,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 0
+        },
+        {
+          "airdate": "2013-09-21",
+          "name": "みんなとふたり",
+          "name_cn": "",
+          "duration": "",
+          "desc": "",
+          "ep": 11,
+          "sort": 11,
+          "id": 288893,
+          "subject_id": 62948,
+          "comment": 17,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 0
+        },
+        {
+          "airdate": "2013-09-28",
+          "name": "あたらしいふたり",
+          "name_cn": "",
+          "duration": "",
+          "desc": "",
+          "ep": 12,
+          "sort": 12,
+          "id": 288904,
+          "subject_id": 62948,
+          "comment": 9,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 0
+        }
+      ],
+      "total": 12,
+      "limit": 100,
+      "offset": 0
+    },
+    "files": [
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/两个人是少女福尔摩斯 (2013) {tmdb-51492}",
+        "name": "[ReinForce] Futari wa Milky Holmes - 01 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/两个人是少女福尔摩斯 (2013) {tmdb-51492}",
+        "name": "[ReinForce] Futari wa Milky Holmes - 02 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/两个人是少女福尔摩斯 (2013) {tmdb-51492}",
+        "name": "[ReinForce] Futari wa Milky Holmes - 03 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/两个人是少女福尔摩斯 (2013) {tmdb-51492}",
+        "name": "[ReinForce] Futari wa Milky Holmes - 04 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/两个人是少女福尔摩斯 (2013) {tmdb-51492}",
+        "name": "[ReinForce] Futari wa Milky Holmes - 05 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/两个人是少女福尔摩斯 (2013) {tmdb-51492}",
+        "name": "[ReinForce] Futari wa Milky Holmes - 06 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/两个人是少女福尔摩斯 (2013) {tmdb-51492}",
+        "name": "[ReinForce] Futari wa Milky Holmes - 07 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/两个人是少女福尔摩斯 (2013) {tmdb-51492}",
+        "name": "[ReinForce] Futari wa Milky Holmes - 08 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/两个人是少女福尔摩斯 (2013) {tmdb-51492}",
+        "name": "[ReinForce] Futari wa Milky Holmes - 09 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/两个人是少女福尔摩斯 (2013) {tmdb-51492}",
+        "name": "[ReinForce] Futari wa Milky Holmes - 10 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/两个人是少女福尔摩斯 (2013) {tmdb-51492}",
+        "name": "[ReinForce] Futari wa Milky Holmes - 11 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/两个人是少女福尔摩斯 (2013) {tmdb-51492}",
+        "name": "[ReinForce] Futari wa Milky Holmes - 12 (BDRip 1920x1080 x264 FLAC).mkv"
+      }
+    ]
+  },
+  {
+    "key": "milky-04",
+    "tmdb": {
+      "adult": false,
+      "backdrop_path": "/t7MjkWAaM7OBwamGY7lsc5bmI63.jpg",
+      "created_by": [],
+      "episode_run_time": [
+        25
+      ],
+      "first_air_date": "2010-10-07",
+      "genres": [
+        {
+          "id": 16,
+          "name": "アニメーション"
+        },
+        {
+          "id": 9648,
+          "name": "謎"
+        }
+      ],
+      "homepage": "http://milky-holmes.com/anime/",
+      "id": 51492,
+      "in_production": false,
+      "languages": [
+        "ja"
+      ],
+      "last_air_date": "2015-03-28",
+      "last_episode_to_air": {
+        "id": 1497849,
+        "name": "The detective of the Opera",
+        "overview": "長い捜査の末、ようやく真相へと辿り着いた歌怪盗事件。仕事を終えて、いつものようにダラダラと過ごしていたミルキィホームズの元に、コンサートのチケットが届く。それは・・・。【第12話劇中歌：いい日 TD、アーティスト:ミルキィホームズ&フェザーズ&明智小衣(CV.南條愛乃)&天城茉莉音(CV.新田恵海)】",
+        "vote_average": 0.0,
+        "vote_count": 0,
+        "air_date": "2015-03-28",
+        "episode_number": 12,
+        "episode_type": "finale",
+        "production_code": "",
+        "runtime": 25,
+        "season_number": 4,
+        "show_id": 51492,
+        "still_path": "/sVCzt6G2KbqyQ1ZZvkNlJw5IjeR.jpg"
+      },
+      "name": "探偵オペラ ミルキィホームズ",
+      "next_episode_to_air": null,
+      "networks": [
+        {
+          "id": 614,
+          "logo_path": "/hSdroyVthq3CynxTIIY7lnS8w1.png",
+          "name": "TOKYO MX",
+          "origin_country": "JP"
+        }
+      ],
+      "number_of_episodes": 48,
+      "number_of_seasons": 4,
+      "origin_country": [
+        "JP"
+      ],
+      "original_language": "ja",
+      "original_name": "探偵オペラ ミルキィホームズ",
+      "overview": "シャロ、ネロ、エリー、コーデリアの４人は、\n\nトイズと抜群のチームワークで数多くの事件を解決してきた\n\n「ホームズ探偵学院」の人気者。\n\n彼女たち「ミルキィホームズ」は学生だけでなく偵都ヨコハマの市民たちからも憧れの的だった。\n\nだが、ある嵐の夜、宿敵「怪盗帝国」とのバトルの最中に「ミルキィホームズ」の4人はそれぞれのトイズを失い、\n\nその運命は激変してしまう・・・。",
+      "popularity": 9.6882,
+      "poster_path": "/z9pfLiBGliEwJbSVAbjuTqJWaN.jpg",
+      "production_companies": [
+        {
+          "id": 58268,
+          "logo_path": "/4k796tdBrk2SNYe4nQL4Da81tZo.png",
+          "name": "Artland",
+          "origin_country": "JP"
+        },
+        {
+          "id": 35911,
+          "logo_path": "/9MwEIpHdSECESz9ILnA9CfLJ2m6.png",
+          "name": "Nomad",
+          "origin_country": "JP"
+        },
+        {
+          "id": 42196,
+          "logo_path": "/nQNmHvcmaT0zk1Rf0TYtLYO5MpI.png",
+          "name": "Bushiroad",
+          "origin_country": "JP"
+        },
+        {
+          "id": 9148,
+          "logo_path": "/rtW3NadfF4kR5mTW00ahiFxw6k7.png",
+          "name": "Pony Canyon",
+          "origin_country": "JP"
+        },
+        {
+          "id": 6683,
+          "logo_path": "/reCkuk3GEomdx5gQpsm15Zl1sgX.png",
+          "name": "Lantis",
+          "origin_country": "JP"
+        },
+        {
+          "id": 60197,
+          "logo_path": "/D5B8l99tlFJGoMpYJk1kqxYdey.png",
+          "name": "Good Smile Company",
+          "origin_country": "JP"
+        },
+        {
+          "id": 29672,
+          "logo_path": "/e3iSDZHis5wWo18z8cvB5udRctO.png",
+          "name": "Dwango",
+          "origin_country": "JP"
+        },
+        {
+          "id": 4719,
+          "logo_path": "/b3smsDQQ2UEwqToJbVTlT4kgXBk.png",
+          "name": "Sotsu",
+          "origin_country": "JP"
+        },
+        {
+          "id": 7122,
+          "logo_path": "/ymxxE2kupVDLM6zCZ2Z3QAXOdJ0.png",
+          "name": "Emotion",
+          "origin_country": "JP"
+        },
+        {
+          "id": 528,
+          "logo_path": "/fO3Aof3lXQclYpBByYC8aneTXwA.png",
+          "name": "Bandai Visual",
+          "origin_country": "JP"
+        },
+        {
+          "id": 204799,
+          "logo_path": "/auxX8eAtiL9lHwTfSr6lGdSAGLm.png",
+          "name": "Bushiroad Music",
+          "origin_country": "JP"
+        },
+        {
+          "id": 157002,
+          "logo_path": "/hSdroyVthq3CynxTIIY7lnS8w1.png",
+          "name": "Tokyo MX",
+          "origin_country": "JP"
+        },
+        {
+          "id": 11884,
+          "logo_path": "/tHzHPSKdmLT5zCdqFbcmHzZvRIc.png",
+          "name": "J.C.STAFF",
+          "origin_country": "JP"
+        }
+      ],
+      "production_countries": [
+        {
+          "iso_3166_1": "JP",
+          "name": "Japan"
+        }
+      ],
+      "seasons": [
+        {
+          "air_date": "2011-08-25",
+          "episode_count": 6,
+          "id": 55764,
+          "name": "特別編",
+          "overview": "",
+          "poster_path": "/mGk8OGieaOERSsk2zv10AXZfqxV.jpg",
+          "season_number": 0,
+          "vote_average": 0.0
+        },
+        {
+          "air_date": "2010-10-07",
+          "episode_count": 12,
+          "id": 55765,
+          "name": "第1期",
+          "overview": "",
+          "poster_path": "/ml8OoR4jVjUYxAGmA8Mu2UhHuKI.jpg",
+          "season_number": 1,
+          "vote_average": 7.0
+        },
+        {
+          "air_date": "2012-01-05",
+          "episode_count": 12,
+          "id": 55767,
+          "name": "第2幕",
+          "overview": "せっかくトイズが戻ってきたのもつかの間、\n\nまたまたトイズを失ってしまったミルキィホームズの4人。\n\n好敵手の復活を強く望むアルセーヌ（＝アンリエット）は、ミルキィホームズがトイズを取り戻すようにと、\n\n陰になり日向になり４人をサポートするが、トイズが復活する気配は全くない。\n\nそれどころか、４人は貧乏生活にすっかり慣れ、ダメダメ街道まっしぐら。\n\n遂にはトイズだけでなく、学院生活に一番大事なものもすっかり忘れてしまい･･･。",
+          "poster_path": "/dz51qTUUCGz2DdZSKRXfBiPpgo1.jpg",
+          "season_number": 2,
+          "vote_average": 0.0
+        },
+        {
+          "air_date": "2013-07-13",
+          "episode_count": 12,
+          "id": 55766,
+          "name": "ふたりはミルキィホームズ",
+          "overview": "偵都ヨコハマに世の中を揺るがす『怪盗帝国』とそれを正す少女探偵団『ミルキィホームズ』が現れてから２年。\n\nヨコハマの街にはつかの間の平穏が訪れていた。その街に住む常盤カズミと明神川アリスは幼馴染同士の１２歳。\n\n違う探偵学院に通いつつも帰り道で落ち合うなど、毎日仲良く探偵になるための勉学に励んでいた。\n\nそんなある日、街で逃げ去る怪盗を見かけた２人。追いかけた先で彼女たちが見たものは……？",
+          "poster_path": "/2dkG7VQml3xhwu3RuCgZql5R9Ds.jpg",
+          "season_number": 3,
+          "vote_average": 0.0
+        },
+        {
+          "air_date": "2014-12-31",
+          "episode_count": 12,
+          "id": 104483,
+          "name": "探偵歌劇 ミルキィホームズ TD",
+          "overview": "",
+          "poster_path": "/sfg1WWQTzG35W4l1WQ5X15x2kOj.jpg",
+          "season_number": 4,
+          "vote_average": 0.0
+        }
+      ],
+      "softcore": false,
+      "spoken_languages": [
+        {
+          "english_name": "Japanese",
+          "iso_639_1": "ja",
+          "name": "日本語"
+        }
+      ],
+      "status": "Ended",
+      "tagline": "",
+      "type": "Scripted",
+      "vote_average": 7.2,
+      "vote_count": 8,
+      "alternative_titles": {
+        "results": [
+          {
+            "iso_3166_1": "BR",
+            "title": "Tantei Opera Milky Holmes",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "HK",
+            "title": "偵探歌劇 少女福爾摩斯",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "JP",
+            "title": "探偵オペラ ミルキィホームズ 第2幕",
+            "type": "second series title"
+          },
+          {
+            "iso_3166_1": "JP",
+            "title": "Tantei Opera Milky Holmes",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "JP",
+            "title": "探偵歌劇 ミルキィホームズ TD",
+            "type": "fourth series title"
+          },
+          {
+            "iso_3166_1": "JP",
+            "title": "ふたりはミルキィホームズ",
+            "type": "third series title"
+          },
+          {
+            "iso_3166_1": "KR",
+            "title": "Tantei Kageki Milky Holmes TD",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "TW",
+            "title": "偵探歌劇 少女福爾摩斯",
+            "type": ""
+          },
+          {
+            "iso_3166_1": "US",
+            "title": "Futari wa Milky Holmes",
+            "type": "third season title"
+          },
+          {
+            "iso_3166_1": "US",
+            "title": "Tantei Opera Milky Holmes: Act 2",
+            "type": "second series title"
+          }
+        ]
+      },
+      "translations": {
+        "translations": [
+          {
+            "iso_3166_1": "US",
+            "iso_639_1": "en",
+            "name": "English",
+            "english_name": "English",
+            "data": {
+              "name": "Detective Opera Milky Holmes",
+              "overview": "Set in a futuristic world, there exist \"Toys\" which grant people superhuman abilities. This is responsible for a wave of crimes and necessitates employing Toy-using detectives to help solve them. Opera Kobayashi runs a detective agency, Milky Holmes, staffed by four aspiring young girl detectives who attend the Holmes Detective Academy, and each girl possesses their own unique Toy.",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "FR",
+            "iso_639_1": "fr",
+            "name": "Français",
+            "english_name": "French",
+            "data": {
+              "name": "Tantei Opera Milky Holmes",
+              "overview": "Dans un futur lointain, les jouets (Toys) sont décris comme des pouvoirs surhumain. À cause de cela, le nombre de crime dû aux personnes en utilisant a considérablement augmenté.\n\nSheryl, Nero, Elly, et Cordelia sont les élèves les plus connues et les plus fortes de la Holmes Detective Academy. On ne compte plus le nombre de voleurs et criminels qu'elles ont arrêtées. Forte de leur notoriété, elles se font appelées les Milky Holmes.\n\nUn soir, en voulant attraper un de leur plus grand rival, elles perdent leurs \"jouets\".\n\nComment vont-elles surpasser cet handicap et resteront-elles les plus grande détective ?",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "JP",
+            "iso_639_1": "ja",
+            "name": "日本語",
+            "english_name": "Japanese",
+            "data": {
+              "name": "",
+              "overview": "シャロ、ネロ、エリー、コーデリアの４人は、\n\nトイズと抜群のチームワークで数多くの事件を解決してきた\n\n「ホームズ探偵学院」の人気者。\n\n彼女たち「ミルキィホームズ」は学生だけでなく偵都ヨコハマの市民たちからも憧れの的だった。\n\nだが、ある嵐の夜、宿敵「怪盗帝国」とのバトルの最中に「ミルキィホームズ」の4人はそれぞれのトイズを失い、\n\nその運命は激変してしまう・・・。",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "BR",
+            "iso_639_1": "pt",
+            "name": "Português",
+            "english_name": "Portuguese",
+            "data": {
+              "name": "Tantei Opera Milky Holmes",
+              "overview": "\"Brinquedos\" são poderes concedidos àqueles escolhidos para manejá-los, cada um com qualidades únicas para seus usuários. Alguns desses indivíduos nascem puros, usando seus poderes para se tornarem detetives. Outros florescem cheios de veneno e optam por se tornar ladrões fantasmas. Essas duas facções opostas causaram a formação de várias academias de detetives em todo o mundo - treinando detetives para lutar e capturar os ladrões fantasmas. Sherlock Shellingford, Nero Yuzurizaki, Hercule Burton e Cordelia Glauca formam \"Milky Holmes\", um grupo reconhecido como o creme da colheita na Academia de Detetives Holmes, com sede em Yokohama. No entanto, em uma briga contra o ladrão fantasma Arsene, seus brinquedos desaparecem subitamente, considerando-os impróprios para continuar como detetives.",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "ES",
+            "iso_639_1": "es",
+            "name": "Español",
+            "english_name": "Spanish",
+            "data": {
+              "name": "Tantei Opera Milky Holmes",
+              "overview": "En el futuro, la gente utiliza \"Toys\" que les concede habilidades sobrehumanas como el ESP y la telequinesis. Esto ha conducido a un auge en los delitos menores y la necesidad de Toys que utilizan los detectives para localizar a los delincuentes y llevarlos ante la justicia. Opera Koyabashi funciona como la agencia de detectives, Milky Holmes, que contará con cuatro muchachas alegres y enérgicas.",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "CN",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "侦探歌剧 少女福尔摩斯",
+              "overview": "故事以侦都横滨为舞台，讲述的是在二十一世纪这个“大侦探时代”中，四名立志要成为名侦探的少女组成了“福尔摩斯\"小队与怪盗对决的故事。",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "PL",
+            "iso_639_1": "pl",
+            "name": "Polski",
+            "english_name": "Polish",
+            "data": {
+              "name": "Tantei Opera Milky Holmes",
+              "overview": "Sheryl, Nero, Elly i Cordelia są najpopularniejszymi studentami Akademii Detektywistycznej Holmes ze względu na wiele spraw, które rozwiązały za pomocą zabawek i pracy zespołowej. Studenci i mieszkańcy Miasta Detektywów Yokohama obserwują członków „Milky Holmes”. Ale w ciemną i burzliwą noc podczas bitwy z rywalami – Imperium Złodziei Dżentelmenów – tracą swoje zabawki, a ich los ulega dramatycznej zmianie…",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "KR",
+            "iso_639_1": "ko",
+            "name": "한국어/조선말",
+            "english_name": "Korean",
+            "data": {
+              "name": "탐정 오페라 밀키 홈즈",
+              "overview": "",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "IT",
+            "iso_639_1": "it",
+            "name": "Italiano",
+            "english_name": "Italian",
+            "data": {
+              "name": "Detective Opera Milky Holmes",
+              "overview": "Ci troviamo in un futuro non definito in cui alcuni esseri umani sviluppano speciali poteri che vengono chiamati Toys. Opera Kobayashi gestisce un ufficio investigativo chiamato Milky Holmes, specializzato nelle indagini di casi che vedono persone dotate di Toys usare le proprie abilità per compiere crimini. Ad aiutarlo ci sono quattro ragazze detective, Sherlock, Nero, Hercule e Cordelia, dotate anch'esse di propri Toys. Le quattro investigatrici si ritrovano però improvvisamente a perdere i propri poteri per cause misteriose e dovranno dunque trovare il modo di riottenerli.",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "DE",
+            "iso_639_1": "de",
+            "name": "Deutsch",
+            "english_name": "German",
+            "data": {
+              "name": "Detective Opera Milky Holmes",
+              "overview": "In der Zukunft nutzen die Menschen »Toys«. Diese »Toys« ermöglichen ihnen übermenschliche Fähigkeiten wie Telekinese oder ESP. Dies führt zu zahlreichen kleinen Verbrechen. Somit sind »Toys«-Detektive nötig, die auf der Spur der Täter sind und diese vor Gericht bringen.\n\nSheryl, Nero, Elly, und Cordelia sind die beliebtesten Schüler der Holmes Detektiv Akademie, weil sie viele Fälle mit ihren »Toys« und ihrer Teamarbeit erfolgreich gelöst haben. Die Schüler und die Bewohner der Detektiv-Stadt Yokohama bewundern die Mitglieder der »Milky Holmes«. Aber in einer dunklen, stürmischen Nacht, während eines Kampfes mit ihren Rivalen »Die ehrenwerten Diebe«, verlieren sie ihre »Toys« und ihr Schicksal erfährt eine dramatische Wende!",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "TH",
+            "iso_639_1": "th",
+            "name": "ภาษาไทย",
+            "english_name": "Thai",
+            "data": {
+              "name": "Detective Opera Milky Holmes",
+              "overview": "ในโลกที่นักสืบได้รัความนิยม ผู้ที่ถูกเลือกจะมี ทอยส์ (Toys) ที่ทำให้ใช้พลังพิเศษได้ ช่วยในการสืบคดีและต่อสู้กับพวกอาชญากร เรื่องราวของกลุ่มนักสืบรุ่นจิ๋ว มิลกี้โฮล์ม ที่มีความสามารถในการจับผู้ร้ายที่ยอดเยี่ยมกว่าเด็กรุ่นเดียวกัน เป็นที่ชื่นชมของเพื่อนร่วมโรงเรียน แต่หลังทอยส์ถูกพวกจอมโจรขโมยไป พวกเธอกลับตกต่ำถึงขีดสุดและต้องหาทางชิงกลับมา",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "RU",
+            "iso_639_1": "ru",
+            "name": "Pусский",
+            "english_name": "Russian",
+            "data": {
+              "name": "Детективное агентство Милки Холмс",
+              "overview": "В мире сериала обладатели магических Даров делятся на два клана и ведут бесконечную увлекательную игру в детективов и благородных преступников. Одаренные дети учатся на детективов в академии им. Холмса, замаскированные преступники часто учатся и работают там же (а где еще-то?). В «Милки Холмс» — самую успешную команду молодых сыщиков – входят четыре главных героини: телекинетик Шерри, повелительница машин Неро, силачка Эри и Корди, умеющая в сотни раз обострять собственные чувства. Но в очередной схватке с королевой преступного мира леди Арсен девушки теряют сверхспособности, в результате из звезд своего курса постепенно превращаясь в двоечниц и посмешище всей академии...",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "HK",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "偵探歌劇 少女福爾摩斯",
+              "overview": "講述了活躍著怪盜與偵探的近未來架空世界裏的「偵探之都橫濱」，目標成為真正的偵探的四位少女偵探組合 Milky Holmes 的故事。",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "TW",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "偵探歌劇 少女福爾摩斯",
+              "overview": "講述了活躍着怪盜與偵探的近未來架空世界裏的「偵探之都橫濱」，目標成為真正的偵探的四位少女偵探組合Milky Holmes的故事。",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "MX",
+            "iso_639_1": "es",
+            "name": "Español",
+            "english_name": "Spanish",
+            "data": {
+              "name": "",
+              "overview": "",
+              "homepage": "",
+              "tagline": ""
+            }
+          },
+          {
+            "iso_3166_1": "VN",
+            "iso_639_1": "vi",
+            "name": "Tiếng Việt",
+            "english_name": "Vietnamese",
+            "data": {
+              "name": "Detective Opera Milky Holmes",
+              "overview": "Trong thế giới tương lai, tồn tại những \"Toys\" ban cho con người siêu năng lực — kéo theo làn sóng tội phạm và nhu cầu về các thám tử sử dụng Toys để phá án. Opera Kobayashi điều hành văn phòng thám tử Milky Holmes với bốn cô thám tử trẻ đầy triển vọng theo học tại Học viện Thám tử Holmes, mỗi người sở hữu một Toy độc đáo.",
+              "homepage": "",
+              "tagline": ""
+            }
+          }
+        ]
+      }
+    },
+    "bangumi": {
+      "date": "2015-01-03",
+      "platform": "TV",
+      "images": {
+        "small": "https://lain.bgm.tv/r/200/pic/cover/l/fa/86/113631_1asIv.jpg",
+        "grid": "https://lain.bgm.tv/r/100/pic/cover/l/fa/86/113631_1asIv.jpg",
+        "large": "https://lain.bgm.tv/pic/cover/l/fa/86/113631_1asIv.jpg",
+        "medium": "https://lain.bgm.tv/r/800/pic/cover/l/fa/86/113631_1asIv.jpg",
+        "common": "https://lain.bgm.tv/r/400/pic/cover/l/fa/86/113631_1asIv.jpg"
+      },
+      "summary": "侦都横滨经常发生偶像的歌曲被夺走的事件。这一灾难也降临到超级偶像·天城茉莉音的头上，她的热门歌曲《奇迹之歌》也被夺走了。为此，Milky Holmes挺身而出。4人从茉莉音那里接受了夺回《奇迹之歌》的委托，为了帮助茉莉音，也为了解决事件而开始在演艺界奔走。究竟是何人为了什么而从偶像那里夺走歌曲？以及，取回被夺走的歌曲的方法又是什么？Milky Holmes的新的战斗，就此展开。",
+      "name": "探偵歌劇 ミルキィホームズ TD",
+      "name_cn": "侦探歌剧 少女福尔摩斯 TD",
+      "tags": [
+        {
+          "name": "J.C.STAFF",
+          "count": 128,
+          "total_count": 139588
+        },
+        {
+          "name": "百合",
+          "count": 95,
+          "total_count": 415344
+        },
+        {
+          "name": "2015年1月",
+          "count": 92,
+          "total_count": 18263
+        },
+        {
+          "name": "TV",
+          "count": 83,
+          "total_count": 1453287
+        },
+        {
+          "name": "搞笑",
+          "count": 73,
+          "total_count": 659873
+        },
+        {
+          "name": "2015",
+          "count": 51,
+          "total_count": 70518
+        },
+        {
+          "name": "侦探歌剧",
+          "count": 48,
+          "total_count": 629
+        },
+        {
+          "name": "原创",
+          "count": 46,
+          "total_count": 638518
+        },
+        {
+          "name": "NOMAD",
+          "count": 39,
+          "total_count": 3972
+        },
+        {
+          "name": "掉智商",
+          "count": 35,
+          "total_count": 53
+        },
+        {
+          "name": "游戏改",
+          "count": 27,
+          "total_count": 167532
+        },
+        {
+          "name": "锦织博",
+          "count": 23,
+          "total_count": 475
+        },
+        {
+          "name": "还是熟悉的智商",
+          "count": 16,
+          "total_count": 17
+        },
+        {
+          "name": "推理",
+          "count": 10,
+          "total_count": 75812
+        },
+        {
+          "name": "萌",
+          "count": 8,
+          "total_count": 72558
+        },
+        {
+          "name": "日本",
+          "count": 8,
+          "total_count": 318600
+        },
+        {
+          "name": "萝莉",
+          "count": 7,
+          "total_count": 47345
+        },
+        {
+          "name": "偶像",
+          "count": 5,
+          "total_count": 72962
+        },
+        {
+          "name": "轻百合",
+          "count": 4,
+          "total_count": 39372
+        },
+        {
+          "name": "三森铃子",
+          "count": 4,
+          "total_count": 274
+        },
+        {
+          "name": "续作",
+          "count": 4,
+          "total_count": 48668
+        },
+        {
+          "name": "侦探",
+          "count": 3,
+          "total_count": 626
+        },
+        {
+          "name": "錦織博",
+          "count": 3,
+          "total_count": 357
+        },
+        {
+          "name": "Bushiroad",
+          "count": 3,
+          "total_count": 897
+        },
+        {
+          "name": "萌豚",
+          "count": 3,
+          "total_count": 8127
+        },
+        {
+          "name": "ノーマッド",
+          "count": 3,
+          "total_count": 131
+        },
+        {
+          "name": "川澄绫子",
+          "count": 3,
+          "total_count": 1957
+        },
+        {
+          "name": "GAL改",
+          "count": 2,
+          "total_count": 79974
+        },
+        {
+          "name": "濑户麻沙美",
+          "count": 2,
+          "total_count": 363
+        },
+        {
+          "name": "neta",
+          "count": 2,
+          "total_count": 2085
+        }
+      ],
+      "infobox": [
+        {
+          "key": "中文名",
+          "value": "侦探歌剧 少女福尔摩斯 TD"
+        },
+        {
+          "key": "别名",
+          "value": [
+            {
+              "v": "Tantei Kageki Milky Holmes TD"
+            }
+          ]
+        },
+        {
+          "key": "话数",
+          "value": "12"
+        },
+        {
+          "key": "放送开始",
+          "value": "2015年1月3日"
+        },
+        {
+          "key": "放送星期",
+          "value": "星期六"
+        },
+        {
+          "key": "官方网站",
+          "value": "http://milky-holmes-anime.com/td/"
+        },
+        {
+          "key": "播放电视台",
+          "value": "TOKYO MX"
+        },
+        {
+          "key": "其他电视台",
+          "value": "テレビ神奈川 / テレビ愛知 / 北陸放送"
+        },
+        {
+          "key": "播放结束",
+          "value": "2015年3月28日"
+        },
+        {
+          "key": "导演",
+          "value": "錦織博"
+        },
+        {
+          "key": "作画监督",
+          "value": "北原章雄、池川陽子、山本真嗣、代見裕美、正金寺直子、山崎輝彦、舘崎大、菅野智之、古賀誠"
+        },
+        {
+          "key": "原作",
+          "value": "ブシロード、クロノギアクリエイティヴ"
+        },
+        {
+          "key": "脚本",
+          "value": "小室天河、横水兵一"
+        },
+        {
+          "key": "人物设定",
+          "value": "藤田まり子"
+        }
+      ],
+      "rating": {
+        "rank": 7044,
+        "total": 442,
+        "count": {
+          "1": 2,
+          "2": 5,
+          "3": 7,
+          "4": 28,
+          "5": 75,
+          "6": 161,
+          "7": 112,
+          "8": 36,
+          "9": 10,
+          "10": 6
+        },
+        "score": 6.1
+      },
+      "total_episodes": 12,
+      "collection": {
+        "on_hold": 76,
+        "dropped": 80,
+        "wish": 211,
+        "collect": 701,
+        "doing": 54
+      },
+      "id": 113631,
+      "eps": 12,
+      "meta_tags": [
+        "百合",
+        "TV",
+        "日本",
+        "原创"
+      ],
+      "volumes": 0,
+      "series": false,
+      "locked": false,
+      "nsfw": false,
+      "type": 2
+    },
+    "season": {
+      "id": 104483,
+      "_id": "5b0cf5f39251417c1a006d1f",
+      "air_date": "2014-12-31",
+      "episodes": [
+        {
+          "air_date": "2014-12-31",
+          "episode_number": 1,
+          "episode_type": "standard",
+          "id": 1497837,
+          "name": "妖精たちは森に隠れる",
+          "overview": "大アイドル時代の到来した偵都ヨコハマで、アイドルの歌が奪われるという事件が頻発。遂にはスーパーアイドル天城茉莉音の大ヒット曲「奇跡の歌」までもが盗まれてしまう！ミルキィホームズは、茉莉音からの盗まれた歌を取り戻す依頼を引き受けることに。ダメダメ探偵振りを発揮しながらも、何とか真犯人にたどりついたシャロ、ネロ、エリー、コーデリアの4人。だが、歌を取り返すためには、何故か不思議な空間でのゲームバトルに勝たなければならないことになり・・・。【第1話劇中歌：PIECE＆PEACE、アーティスト:ミルキィホームズ】",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 4,
+          "show_id": 51492,
+          "still_path": "/vEhMp6LVaSER7RuFYSRoFOl1gSs.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2014-12-31",
+          "episode_number": 2,
+          "episode_type": "standard",
+          "id": 1497838,
+          "name": "パーフェクト・フール",
+          "overview": "「奇跡の歌」を茉莉音が再び歌う為には、彼女から離れたエレメントを茉莉音の元に取り戻さなければならない。次のエレメントを取り戻すべく動きだすシャロたち。そんな折、茉莉音のもとにとある怪獣映画の吹き替えオーディションの話が舞い込む。ミルキィたちは、最終オーディションまで勝ち進んだ茉莉音を会場で応援することに。ところが、最終オーディションの相手・花崎マミュには茉莉音のエレメントが付いており、彼女に勝てば役もエレメントも勝ち取れる！勢い込むミルキィたちだが・・・。【第2話劇中歌：パーフェクトラブ! 、アーティスト:明智小衣(CV.南條愛乃)】",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 4,
+          "show_id": 51492,
+          "still_path": "/pOTCQpje5rz1TFfapYSG8QsGQBx.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2015-01-17",
+          "episode_number": 3,
+          "episode_type": "standard",
+          "id": 1497839,
+          "name": "カレーの国では遠すぎる",
+          "overview": "バラエティ番組の仕事でパワースポットを巡っているうちに、信心に目覚めた茉莉音が、ガノターラ国へありがたいお経を貰いに行くと言い出した。旅に同行する事にしたミルキィ達は、度重なるトラブルに見舞われながらも、ようやくガノターラ国へと辿り着く。そこではカレー好きの王子が市民にひどい重税を課していた。ありがたいお経を探すうちに王子に捕まってしまった茉莉音を救う為、ミルキィホームズの4人はエレメントとのカレー勝負をする事に・・・。【第3話劇中歌：エッセンシャル！、アーティスト:ミルキィホームズ】",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 4,
+          "show_id": 51492,
+          "still_path": "/sTaUP0e4sWCnML3DAjpwWn5Z6cy.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2015-01-24",
+          "episode_number": 4,
+          "episode_type": "standard",
+          "id": 1497840,
+          "name": "一発屋シテミル",
+          "overview": "茉莉音の地方イベントに付いて行ったミルキイホームズ達は、泊まるところを探すうちに森に迷い込んでしまう。そこで見つけた不気味な洋館の主・絹宮サキコは一発屋マニアだった。歌を失った為一発屋扱いされる茉莉音。しかし、そそのかされたミルキィホームズ達はサキコ主催の一発屋水泳大会に出場することに。茉莉音が捕まっているとはつゆ知らず、次々とゲームをクリアするミルキィ達。茉莉音を救い一発屋になる為に、サキコとの最後の対決に挑む・・・。【第4話劇中歌：ミルキィろけんろー、アーティスト:ミルキィホームズ】",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 4,
+          "show_id": 51492,
+          "still_path": "/5YxaVaFpdM4iFbAHPD1sHezwqHM.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2015-02-07",
+          "episode_number": 5,
+          "episode_type": "standard",
+          "id": 1497842,
+          "name": "すべてがF5になる",
+          "overview": "ハリウッド映画「スパイ・ガール４」へのゲスト出演が決まった茉莉音。サインを目当てに茉莉音に付いていったミルキィホームズの４人だったが、ロケ現場では、主演のスター子役、キャロル・ドジソン宛に脅迫状が届いていた。明智小衣に事件の解決を依頼されたミルキィホームズは、珍しくあっさりと真犯人へとたどりつく。ところが、自信満々のミルキィ達がとった解決策は、なんと真犯人を誘拐することだった・・・。【第5話劇中歌：未体験ワールド！、アーティスト:ミルキィホームズ】",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 4,
+          "show_id": 51492,
+          "still_path": "/6fge4CnPkTdzLbx14OGM3Lh3lKz.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2015-02-14",
+          "episode_number": 6,
+          "episode_type": "standard",
+          "id": 1497843,
+          "name": "黄色いキャラはいかに改装されたか？",
+          "overview": "動画投稿サイトに現れた茉莉音ソックリのニセ者・天空城ネリマが話題になっていた。事態を知った茉莉音だったが、動画に書き込まれていたコメントを見て落ち込んでしまう。見かねたミルキィホームズの４人は、動画を消してもらうべくネリマの元へ。勝負の末、彼女の再生数の秘密を見破ったミルキィ達だったが、ネリマにはエレメントが付いており、不思議な空間でのゲームバトルが始まる。ダンスフロア風の空間で行われるゲームはダンス対決ではなく・・・。【第6話劇中歌：ト・リ・コ、アーティスト:エルキュール・バートン(CV.佐々木未来)】",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 4,
+          "show_id": 51492,
+          "still_path": "/g05s5rbxSdcmwG0bUIUdayxmimv.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2015-02-21",
+          "episode_number": 7,
+          "episode_type": "standard",
+          "id": 1497844,
+          "name": "キャロルの身代金",
+          "overview": "いつものように茉莉音のドラマ出演に同行したミルキィホームズ達。そこで出会った共演の大女優・天馬博子がネロを養子にしたいと言い出した。朝から様子のおかしかったネロは、あっさりと受け入れてしまう。突然ネロと離れ離れになってしまったシャロ達3人は、かつてない程のダメダメ具合に。そんな折、マネージャーとプロデューサーの噂話を耳にする。なんでも、天馬博子は少女を犠牲にして若さと美貌を保っているというのだ。ネロが危ない！３人と茉莉音は急いで天馬博子の屋敷へ向かう・・・。【第7話劇中歌：NERORO☆おんど、アーティスト:譲崎ネロ(CV.徳井青空)】",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 4,
+          "show_id": 51492,
+          "still_path": "/gPThc8dtMebjioKyxvElcOZHJNY.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2015-02-28",
+          "episode_number": 8,
+          "episode_type": "standard",
+          "id": 1497845,
+          "name": "謎解きはそれがやっぱりお約束！の前後に",
+          "overview": "人気を取り戻しつつある茉莉音のファンレターに混じって、イギリスに居るミルキィホームズの教官・小林オペラからメッセージが届く。ロンドン郊外で起きたエレメント強奪事件に、茉莉音の歌を取り戻す手がかりがあるかもしれないというのだ。早速イギリスへと飛んだミルキィホームズ達は、エレメントを奪われた男装の麗人、オスカー・フランソワ・トワイライト伯爵と出会う。紅茶のエレメント・ノブレスを盗んだ犯人を突き止めるべく、ミルキィホームズが本格ミステリーに挑む！【第8話劇中歌：禁断サンクチュアリ、アーティスト:コーデリア・グラウカ(CV.橘田いずみ)】",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 4,
+          "show_id": 51492,
+          "still_path": "/qycOqQmaSw4XOe6UiPi8NGr1Geh.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2015-03-07",
+          "episode_number": 9,
+          "episode_type": "standard",
+          "id": 1497846,
+          "name": "カジノ・思いやる",
+          "overview": "ご先祖様のウィジャボードでエレメント探しをすることにしたミルキィホームズ達。半信半疑の茉莉音と共に、指し示されたカジノ島へとやってきた。エレメントを探していたはずが、いつの間にかギャンブルにのめり込んでいたミルキィ達は多額の借金を背負ってしまう。そこへやってきた黒のディーラー・ノワールに勝負を挑まれた茉莉音は、エレメントを賭けてギャンブル対決をすることに。勝負の行方とミルキィ達の借金はどうなってしまうのか・・・。【第9話劇中歌：ラッキー＊フルスロットル、アーティスト:シャーロック・シェリンフォード(CV.三森すずこ)】",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 4,
+          "show_id": 51492,
+          "still_path": "/1RpgX2XrD58O1BiJuPMR7MlvEVD.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2015-03-14",
+          "episode_number": 10,
+          "episode_type": "standard",
+          "id": 1497847,
+          "name": "きずなプラス1",
+          "overview": "赤の女王、スカーレット・オハダに空飛ぶ島・天空島へと連れ去られてしまった茉莉音。オハダの目的は、第六古代文明人の遺産・幸運の秘宝石を茉莉音に取り憑かせ、幸運の力で世界を支配する事だった。カジノで出会ったアン・ガーディーとネロ達の力を借りて天空島へと乗り込んだシャロ、アン、美樹、ノワールの４人は、島の中心部でオハダと対峙する。エレメントと茉莉音を救い、オハダの野望を阻止するべく、シャロと赤の女王のカードバトルが始まる！【第10話劇中歌：ハートGoes on！、アーティスト:ミルキィホームズ】",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 4,
+          "show_id": 51492,
+          "still_path": "/5w49Ml5643RJ63CF3epQMtn6NgP.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2015-03-21",
+          "episode_number": 11,
+          "episode_type": "standard",
+          "id": 1497848,
+          "name": "愛の器",
+          "overview": "BKT10000の新センターとなり、一躍脚光を浴びている美樹とは対照的に、茉莉音は未だに歌を取り戻せないでいた。スーパーアイドル天城茉莉音の復活をかけて用意された新曲を拒み、あくまで「奇跡の歌」にこだわる彼女の為に、ミルキィ達は最後のエレメント探しを始める。かつて母と共に過ごした場所を巡るうち、茉莉音は一人の人物を思い出すのだった。時を同じくして、カジノ島に現れた歌怪盗を捜査していた明智小衣もまた、1つの重要な手がかりへとたどり着いていた・・・。【第11話劇中歌：奇跡の歌、アーティスト:天城茉莉音(CV.新田恵海)&法条美樹(CV.中津真莉)】",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 4,
+          "show_id": 51492,
+          "still_path": "/dtXXGy1173lKV5Js0aI4wJfxlI1.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        },
+        {
+          "air_date": "2015-03-28",
+          "episode_number": 12,
+          "episode_type": "finale",
+          "id": 1497849,
+          "name": "The detective of the Opera",
+          "overview": "長い捜査の末、ようやく真相へと辿り着いた歌怪盗事件。仕事を終えて、いつものようにダラダラと過ごしていたミルキィホームズの元に、コンサートのチケットが届く。それは・・・。【第12話劇中歌：いい日 TD、アーティスト:ミルキィホームズ&フェザーズ&明智小衣(CV.南條愛乃)&天城茉莉音(CV.新田恵海)】",
+          "production_code": "",
+          "runtime": 25,
+          "season_number": 4,
+          "show_id": 51492,
+          "still_path": "/sVCzt6G2KbqyQ1ZZvkNlJw5IjeR.jpg",
+          "vote_average": 0.0,
+          "vote_count": 0,
+          "crew": [],
+          "guest_stars": []
+        }
+      ],
+      "name": "探偵歌劇 ミルキィホームズ TD",
+      "networks": [
+        {
+          "id": 614,
+          "logo_path": "/hSdroyVthq3CynxTIIY7lnS8w1.png",
+          "name": "TOKYO MX",
+          "origin_country": "JP"
+        }
+      ],
+      "overview": "",
+      "poster_path": "/sfg1WWQTzG35W4l1WQ5X15x2kOj.jpg",
+      "season_number": 4,
+      "vote_average": 0.0,
+      "translations": {
+        "translations": [
+          {
+            "iso_3166_1": "US",
+            "iso_639_1": "en",
+            "name": "English",
+            "english_name": "English",
+            "data": {
+              "name": "",
+              "overview": ""
+            }
+          },
+          {
+            "iso_3166_1": "FR",
+            "iso_639_1": "fr",
+            "name": "Français",
+            "english_name": "French",
+            "data": {
+              "name": "",
+              "overview": ""
+            }
+          },
+          {
+            "iso_3166_1": "JP",
+            "iso_639_1": "ja",
+            "name": "日本語",
+            "english_name": "Japanese",
+            "data": {
+              "name": "探偵歌劇 ミルキィホームズ TD",
+              "overview": ""
+            }
+          },
+          {
+            "iso_3166_1": "BR",
+            "iso_639_1": "pt",
+            "name": "Português",
+            "english_name": "Portuguese",
+            "data": {
+              "name": "",
+              "overview": ""
+            }
+          },
+          {
+            "iso_3166_1": "ES",
+            "iso_639_1": "es",
+            "name": "Español",
+            "english_name": "Spanish",
+            "data": {
+              "name": "",
+              "overview": ""
+            }
+          },
+          {
+            "iso_3166_1": "CN",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "侦探歌剧少女福尔摩斯TD",
+              "overview": "《侦探歌剧：少女福尔摩斯TD》是由锦织博执导的日本电视动画，2015年1月3日首播，共12集，每集24分钟。该作为《侦探歌剧：少女福尔摩斯》系列第四部作品，由J.C.STAFF与NOMAD联合制作，剧本由小室天和、杂破业等共同执笔，音乐由Elements Garden团队负责。\n\n故事以虚构的“大侦探时代”为背景，聚焦拥有特殊能力“Toys”的侦探组织Milky Holmes。四位少女侦探夏洛克、妮洛、艾露克露、柯蒂妮娅接受超级偶像天城茉莉音委托，调查横滨演艺界偶像歌曲被夺事件，目标是找回其被盗的《奇迹之歌》。剧情围绕侦探与怪盗的对抗展开，揭示事件背后的真相。"
+            }
+          },
+          {
+            "iso_3166_1": "PL",
+            "iso_639_1": "pl",
+            "name": "Polski",
+            "english_name": "Polish",
+            "data": {
+              "name": "",
+              "overview": ""
+            }
+          },
+          {
+            "iso_3166_1": "KR",
+            "iso_639_1": "ko",
+            "name": "한국어/조선말",
+            "english_name": "Korean",
+            "data": {
+              "name": "",
+              "overview": ""
+            }
+          },
+          {
+            "iso_3166_1": "IT",
+            "iso_639_1": "it",
+            "name": "Italiano",
+            "english_name": "Italian",
+            "data": {
+              "name": "",
+              "overview": ""
+            }
+          },
+          {
+            "iso_3166_1": "DE",
+            "iso_639_1": "de",
+            "name": "Deutsch",
+            "english_name": "German",
+            "data": {
+              "name": "",
+              "overview": ""
+            }
+          },
+          {
+            "iso_3166_1": "TH",
+            "iso_639_1": "th",
+            "name": "ภาษาไทย",
+            "english_name": "Thai",
+            "data": {
+              "name": "",
+              "overview": ""
+            }
+          },
+          {
+            "iso_3166_1": "RU",
+            "iso_639_1": "ru",
+            "name": "Pусский",
+            "english_name": "Russian",
+            "data": {
+              "name": "",
+              "overview": ""
+            }
+          },
+          {
+            "iso_3166_1": "HK",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "偵探歌劇 少女福爾摩斯 TD",
+              "overview": "《偵探歌劇：少女福爾摩斯 TD》是由錦織博執導的日本電視動畫，2015 年 1 月 3 日首播，共 12 集，每集 24 分鐘。該作為《偵探歌劇：少女福爾摩斯》系列第四部作品，由 J.C. STAFF 與 NOMAD 聯合制作，劇本由小室天和、雜破業等共同執筆，音樂由 Elements Garden 團隊負責。\n\n故事以虛構的“大偵探時代”為背景，聚焦擁有特殊能力“Toys”的偵探組織 Milky Holmes。四位少女偵探夏洛克、妮洛、艾露克露、柯蒂妮婭接受超級偶像天城茉莉音委託，調查橫濱演藝界偶像歌曲被奪事件，目標是找回其被盜的《奇跡之歌》。劇情圍繞偵探與怪盜的對抗展開，揭示事件背後的真相。"
+            }
+          },
+          {
+            "iso_3166_1": "TW",
+            "iso_639_1": "zh",
+            "name": "普通话",
+            "english_name": "Mandarin",
+            "data": {
+              "name": "偵探歌劇 少女福爾摩斯 TD",
+              "overview": ""
+            }
+          },
+          {
+            "iso_3166_1": "MX",
+            "iso_639_1": "es",
+            "name": "Español",
+            "english_name": "Spanish",
+            "data": {
+              "name": "",
+              "overview": ""
+            }
+          },
+          {
+            "iso_3166_1": "VN",
+            "iso_639_1": "vi",
+            "name": "Tiếng Việt",
+            "english_name": "Vietnamese",
+            "data": {
+              "name": "Mùa 4",
+              "overview": "Mùa cuối khép lại hành trình của Milky Holmes với những vụ án gay cấn nhất và sự trưởng thành trọn vẹn của bốn cô thám tử trẻ."
+            }
+          }
+        ]
+      }
+    },
+    "episodes": {
+      "data": [
+        {
+          "airdate": "2014-12-31",
+          "name": "妖精たちは森に隠れる",
+          "name_cn": "",
+          "duration": "24m",
+          "desc": "",
+          "ep": 1,
+          "sort": 1,
+          "id": 462951,
+          "subject_id": 113631,
+          "comment": 24,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1440
+        },
+        {
+          "airdate": "2014-12-31",
+          "name": "パーフェクト・フール",
+          "name_cn": "",
+          "duration": "24m",
+          "desc": "",
+          "ep": 2,
+          "sort": 2,
+          "id": 462952,
+          "subject_id": 113631,
+          "comment": 17,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1440
+        },
+        {
+          "airdate": "2015-01-17",
+          "name": "カレーの国では遠すぎる",
+          "name_cn": "",
+          "duration": "24m",
+          "desc": "",
+          "ep": 3,
+          "sort": 3,
+          "id": 462953,
+          "subject_id": 113631,
+          "comment": 16,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1440
+        },
+        {
+          "airdate": "2015-01-24",
+          "name": "一発屋シテミル",
+          "name_cn": "尝试昙花一现",
+          "duration": "24m",
+          "desc": "",
+          "ep": 4,
+          "sort": 4,
+          "id": 462954,
+          "subject_id": 113631,
+          "comment": 12,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1440
+        },
+        {
+          "airdate": "2015-01-31",
+          "name": "キャロルの身代金",
+          "name_cn": "",
+          "duration": "24m",
+          "desc": "",
+          "ep": 5,
+          "sort": 5,
+          "id": 462955,
+          "subject_id": 113631,
+          "comment": 13,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1440
+        },
+        {
+          "airdate": "2015-02-07",
+          "name": "すべてがF5になる",
+          "name_cn": "",
+          "duration": "24m",
+          "desc": "",
+          "ep": 6,
+          "sort": 6,
+          "id": 462956,
+          "subject_id": 113631,
+          "comment": 14,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1440
+        },
+        {
+          "airdate": "2015-02-14",
+          "name": "黄色いキャラはいかに改装されたか？",
+          "name_cn": "",
+          "duration": "24m",
+          "desc": "",
+          "ep": 7,
+          "sort": 7,
+          "id": 462957,
+          "subject_id": 113631,
+          "comment": 11,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1440
+        },
+        {
+          "airdate": "2015-02-28",
+          "name": "謎解きはそれがやっぱりお約束！の前後に",
+          "name_cn": "解谜故事果然还是要有约定俗成的桥段！...才怪啦",
+          "duration": "24m",
+          "desc": "",
+          "ep": 8,
+          "sort": 8,
+          "id": 462958,
+          "subject_id": 113631,
+          "comment": 13,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1440
+        },
+        {
+          "airdate": "2015-03-07",
+          "name": "カジノ・思いやる",
+          "name_cn": "赌场·好想去",
+          "duration": "24m",
+          "desc": "",
+          "ep": 9,
+          "sort": 9,
+          "id": 462959,
+          "subject_id": 113631,
+          "comment": 11,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1440
+        },
+        {
+          "airdate": "2015-03-14",
+          "name": "きずなプラス1",
+          "name_cn": "",
+          "duration": "24m",
+          "desc": "",
+          "ep": 10,
+          "sort": 10,
+          "id": 462960,
+          "subject_id": 113631,
+          "comment": 13,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1440
+        },
+        {
+          "airdate": "2015-03-21",
+          "name": "愛の器",
+          "name_cn": "",
+          "duration": "24m",
+          "desc": "",
+          "ep": 11,
+          "sort": 11,
+          "id": 462961,
+          "subject_id": 113631,
+          "comment": 13,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1440
+        },
+        {
+          "airdate": "2015-03-28",
+          "name": "The detective of the Opera",
+          "name_cn": "",
+          "duration": "24m",
+          "desc": "",
+          "ep": 12,
+          "sort": 12,
+          "id": 462962,
+          "subject_id": 113631,
+          "comment": 11,
+          "type": 0,
+          "disc": 0,
+          "duration_seconds": 1440
+        }
+      ],
+      "total": 12,
+      "limit": 100,
+      "offset": 0
+    },
+    "files": [
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 TD (2015) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Kageki Milky Holmes TD - 01 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 TD (2015) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Kageki Milky Holmes TD - 02 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 TD (2015) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Kageki Milky Holmes TD - 03 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 TD (2015) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Kageki Milky Holmes TD - 04 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 TD (2015) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Kageki Milky Holmes TD - 05 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 TD (2015) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Kageki Milky Holmes TD - 06 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 TD (2015) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Kageki Milky Holmes TD - 07 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 TD (2015) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Kageki Milky Holmes TD - 08 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 TD (2015) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Kageki Milky Holmes TD - 09 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 TD (2015) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Kageki Milky Holmes TD - 10 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 TD (2015) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Kageki Milky Holmes TD - 11 (BDRip 1920x1080 x264 FLAC).mkv"
+      },
+      {
+        "root": "fixture",
+        "path": "/fixture/未添加TMDB ID/少女福尔摩斯系列/侦探歌剧 少女福尔摩斯 TD (2015) {tmdb-51492}",
+        "name": "[ReinForce] Tantei Kageki Milky Holmes TD - 12 (BDRip 1920x1080 x264 FLAC).mkv"
+      }
+    ],
+    "tmdb_episode_by_sort": {
+      "5": 7,
+      "6": 5,
+      "7": 6
+    }
+  }
+]

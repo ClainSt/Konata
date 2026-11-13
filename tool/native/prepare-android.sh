@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+recipe_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 root=${KONATA_BUILD_ROOT:-/opt/konata-build}
 upstream=$root/mpv-android-255901dd586fa750000fa0075f69d6ffdd26cd9c/buildscripts
 sources=${KONATA_SOURCES:?Set KONATA_SOURCES to the verified source archive directory}
@@ -16,7 +17,18 @@ for name in mpv ffmpeg; do
         tar -xzf "$sources/$archive" -C "deps/$name" --strip-components=1
     fi
 done
+if patch -d deps/mpv -p1 --forward --dry-run < "$recipe_dir/android-hdr.patch" >/dev/null 2>&1; then
+    patch -d deps/mpv -p1 --forward < "$recipe_dir/android-hdr.patch"
+elif ! patch -d deps/mpv -p1 --reverse --dry-run < "$recipe_dir/android-hdr.patch" >/dev/null 2>&1; then
+    printf 'Android HDR patch does not match the pinned source\n' >&2
+    exit 1
+fi
 # Preseed every upstream floating checkout with a release tag.
+if patch -d deps/mpv -p1 --forward --dry-run < "$recipe_dir/dovi-hlg-fallback.patch" >/dev/null 2>&1; then
+    patch -d deps/mpv -p1 --forward < "$recipe_dir/dovi-hlg-fallback.patch"
+else
+    patch -d deps/mpv -p1 --reverse --dry-run < "$recipe_dir/dovi-hlg-fallback.patch"
+fi
 [ -d deps/dav1d ] || git clone --depth 1 --branch 1.5.4 https://github.com/videolan/dav1d.git deps/dav1d
 [ -d deps/libass ] || git clone --depth 1 --branch 0.17.5 https://github.com/libass/libass.git deps/libass
 [ -d deps/libplacebo ] || git clone --depth 1 --branch v7.387.0 https://github.com/haasn/libplacebo.git deps/libplacebo

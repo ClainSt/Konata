@@ -2,7 +2,7 @@
 // Source: https://github.com/filebot/data/blob/master/release-groups.txt
 // CC0-1.0; see assets/licenses/filebot-data.txt.
 // Snapshot SHA-256: 509f02c404081d01a20cfe1df1cc989ea9880f84853cd9e011906fb602105e1d
-// Names are hints only. Never delete a title based on this list alone.
+// Only independent release tags may be excluded; confirmed work aliases win.
 abstract final class ReleaseGroups {
   static final _names = _data.split('\n').toSet();
   static const _caseSensitive = <String>{
@@ -19,6 +19,12 @@ abstract final class ReleaseGroups {
     'iNTERNAL',
   };
   static bool contains(String value) =>
+      // Supplement verified against the group's own subtitle repository:
+      // https://github.com/Nekomoekissaten-SUB/Nekomoekissaten-Subs
+      value.trim().toLowerCase() == 'nekomoe kissaten' ||
+      // Exact compound tag reviewed in the local naming baseline (129 files).
+      // Do not infer group membership from '&' or from a partial component.
+      value.trim().toLowerCase() == 'txxz&a.i.r.nessub' ||
       _caseSensitive.contains(value.trim()) ||
       _names.contains(value.trim().toLowerCase());
   static const _data = r'''00d

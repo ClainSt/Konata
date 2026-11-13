@@ -79,6 +79,15 @@ class ScanActivityStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  void restoreFolders(String sourceId, Map<String, int> folders) {
+    final run = _runs[sourceId];
+    if (run == null) return;
+    run.completedFolders.addAll(folders.keys);
+    run.folderVideos.addAll(folders);
+    run.videoCount = folders.values.fold(0, (total, count) => total + count);
+    notifyListeners();
+  }
+
   void video(String sourceId, String folder) {
     final run = _runs[sourceId];
     if (run == null) return;

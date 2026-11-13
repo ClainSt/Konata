@@ -122,7 +122,7 @@ void main() {
         expect(cat.assets.length, 2);
         expect(
           cat.works.single['poster'],
-          'https://images.tmdb.org/t/p/w500/real.jpg',
+          'https://image.tmdb.org/t/p/w500/real.jpg',
         );
         expect(cat.scanning, isFalse);
       } finally {

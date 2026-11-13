@@ -1,0 +1,27 @@
+name: 功能建议
+description: 提出新功能或体验改进建议
+title: "[Feat]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 使用场景与痛点
+      description: 描述你希望解决的问题或使用场景
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望方案
+      description: 描述你期望的交互方式或功能表现
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 目标平台
+      options:
+        - Windows 与 Android 双端
+        - 仅 Windows
+        - 仅 Android

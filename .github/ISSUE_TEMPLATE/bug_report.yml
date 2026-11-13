@@ -1,0 +1,39 @@
+name: Bug 反馈
+description: 报告播放、刮削、UI 或平台兼容性问题
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 运行平台
+      options:
+        - Windows x64
+        - Android ARM64
+        - 其他
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 应用版本
+      placeholder: 例如 1.0.0+2006
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述与复现步骤
+      placeholder: 请描述具体现象以及如何稳定复现该问题
+    validations:
+      required: true
+  - type: textarea
+    id: media_info
+    attributes:
+      label: 媒体信息（如涉及播放或刮削）
+      placeholder: 例如视频编码（H.264 Hi10P / HEVC Main10）、字幕格式（ASS / SRT）、文件命名或来源（本地 / WebDAV / SMB）
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志或截图
+      description: 如有错误日志或界面异常截图，请粘贴在此处（注意脱敏账号密码或内网地址）

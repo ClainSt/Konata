@@ -9,12 +9,13 @@ class CdAlbumGroupingResult {
     required this.chipLabel,
     this.discLabel,
     this.directSubdirShort,
+    this.versionTag,
   });
 
   /// 用于分组归并的规范化专辑目录键（不含最末 `Disc 1 / CD1` 层）。
   final String albumKey;
 
-  /// 二级筛选胶囊展示的精简可读专辑短名。
+  /// 二级筛选胶囊展示的精简可读专辑短名（同名多版本时自动附带版本后缀）。
   final String chipLabel;
 
   /// 若位于多碟子目录（如 `disc 1` / `CD2`），记录规范化碟片名（如 `Disc 1`）。
@@ -22,6 +23,24 @@ class CdAlbumGroupingResult {
 
   /// 若展示卡片位于「全部」筛选下且存在多目录分层时的直接子目录短名。
   final String? directSubdirShort;
+
+  /// 从专辑目录名提炼出的版本/规格标签（如 `24bit/48kHz`、`初回限定盤`、`FLAC+WebP`）。
+  final String? versionTag;
+
+  /// 复制并更新消歧后的标签与版本标识。
+  CdAlbumGroupingResult copyWith({
+    String? chipLabel,
+    String? directSubdirShort,
+    String? versionTag,
+  }) {
+    return CdAlbumGroupingResult(
+      albumKey: albumKey,
+      chipLabel: chipLabel ?? this.chipLabel,
+      discLabel: discLabel,
+      directSubdirShort: directSubdirShort ?? this.directSubdirShort,
+      versionTag: versionTag ?? this.versionTag,
+    );
+  }
 }
 
 /// CD 音轨批量分组汇总。
@@ -515,7 +534,9 @@ abstract final class SupplementarySubclassifier {
         // 若上一级仅是纯季壳 `S1`，则无独立专辑包装层，合并为 `S1 · CD1`
         if (_seasonShellSeg.hasMatch(prev) && trimmedForAlbum.length == 2) {
           final seasonUpper = prev.trim().toUpperCase();
-          final cdTag = upperLast.startsWith('CD') ? 'CD$discNum' : 'Disc $discNum';
+          final cdTag = upperLast.startsWith('CD')
+              ? 'CD$discNum'
+              : 'Disc $discNum';
           final key = trimmedForAlbum.map((e) => e.toLowerCase()).join('/');
           return CdAlbumGroupingResult(
             albumKey: key,
@@ -552,15 +573,131 @@ abstract final class SupplementarySubclassifier {
       duplicateBaseNames: duplicateBaseNames,
     );
 
+    final verTag = extractCdVersionTag(rawAlbumSeg);
     return CdAlbumGroupingResult(
       albumKey: albumKey,
       chipLabel: label,
       discLabel: discLabel,
       directSubdirShort: directSubdir,
+      versionTag: verTag,
     );
   }
 
-  /// 对作品下的全部 CD 变体执行批量分组，并自动检测同名 OST/专辑进行日期消歧。
+  static final RegExp _hiResSpecRegex = RegExp(
+    r'(\d{2})bit[_/\-\s]*(\d{2,3}(?:\.\d+)?)\s*khz',
+    caseSensitive: false,
+  );
+  static final RegExp _hiResWordRegex = RegExp(
+    r'\bhi-?res\b',
+    caseSensitive: false,
+  );
+  static final RegExp _editionLabelRegex = RegExp(
+    r'[\[(（【]\s*('
+    r'(?:期間生産限定|初回生産限定|完全生産限定|初回限定|期間限定|初回|通常|アニメ|限定)[^\]\)）】]{0,14}(?:盤|盘|版)|'
+    r'(?:CD\s*\+\s*(?:BD|DVD|Blu-?ray))'
+    r')\s*[\])）】]',
+    caseSensitive: false,
+  );
+  static final RegExp _catalogExtractRegex = RegExp(
+    r'\b([A-Z]{2,5}-\d{3,6}(?:~\d+)?)\b',
+  );
+  static final RegExp _formatPackExtractRegex = RegExp(
+    r'[\[(（【]\s*((?:flac|aac|mp3|wav|ape|alac|m4a|opus)(?:\s*[+&]\s*(?:flac|aac|mp3|wav|webp|jpg|png|bk|scans?|cue|dvd|bd))+)\s*[\])）】]',
+    caseSensitive: false,
+  );
+  static final RegExp _singleFormatParenRegex = RegExp(
+    r'[\[(（【]\s*(flac|aac|mp3|wav|ape|alac|m4a|opus)\s*[\])）】]\s*$',
+    caseSensitive: false,
+  );
+
+  /// 从 CD 专辑文件夹名提炼高辨识度的版本或规格标签（如 `24bit/48kHz`、`期間生産限定盤`、`ANZX-15872`、`FLAC+WebP`）。
+  static String? extractCdVersionTag(String rawAlbumSegment) {
+    final text = rawAlbumSegment.trim();
+    if (text.isEmpty) return null;
+
+    final hiRes = _hiResSpecRegex.firstMatch(text);
+    if (hiRes != null) {
+      return '${hiRes.group(1)}bit/${hiRes.group(2)}kHz';
+    }
+    if (_hiResWordRegex.hasMatch(text)) {
+      return 'Hi-Res';
+    }
+    final edition = _editionLabelRegex.firstMatch(text);
+    if (edition != null) {
+      return edition.group(1)!.trim();
+    }
+    final cat = _catalogExtractRegex.firstMatch(text);
+    if (cat != null) {
+      return cat.group(1)!.trim();
+    }
+    final pack = _formatPackExtractRegex.firstMatch(text);
+    if (pack != null) {
+      return pack
+          .group(1)!
+          .replaceAll(RegExp(r'\s+'), '')
+          .toUpperCase()
+          .replaceAll('WEBP', 'WebP');
+    }
+    final singleFmt = _singleFormatParenRegex.firstMatch(text);
+    if (singleFmt != null) {
+      return singleFmt.group(1)!.toUpperCase();
+    }
+    return null;
+  }
+
+  /// 提取并剥离音频文件名开头的冗余轨号前缀（如 `01. 65535` -> `(1, '65535')`，保护纯数字歌名本身不被误删）。
+  static ({int? trackNumber, String cleanTitle}) stripAudioTrackNumberPrefix(
+    String rawStem,
+  ) {
+    final trimmed = rawStem.trim();
+    if (trimmed.isEmpty) return (trackNumber: null, cleanTitle: rawStem);
+
+    final bracketMatch = RegExp(r'^\[(\d{1,2})\]\s*(.+)$').firstMatch(trimmed);
+    if (bracketMatch != null) {
+      final num = int.tryParse(bracketMatch.group(1)!);
+      final rest = bracketMatch.group(2)!.trim();
+      if (num != null && num >= 1 && num <= 60 && rest.isNotEmpty) {
+        return (trackNumber: num, cleanTitle: rest);
+      }
+    }
+
+    final sepMatch = RegExp(
+      r'^(?:track\s*)?(?:\d{1,2}\s*[-_]\s*)?(\d{1,2})\s*(?:[.\-–—_、]\s*|\)\s+)(.+)$',
+      caseSensitive: false,
+    ).firstMatch(trimmed);
+    if (sepMatch != null) {
+      final num = int.tryParse(sepMatch.group(1)!);
+      final rest = sepMatch.group(2)!.trim();
+      if (num != null && num >= 1 && num <= 60 && rest.isNotEmpty) {
+        return (trackNumber: num, cleanTitle: rest);
+      }
+    }
+
+    final zeroSpaceMatch = RegExp(r'^(0\d)\s+(.+)$').firstMatch(trimmed);
+    if (zeroSpaceMatch != null) {
+      final num = int.tryParse(zeroSpaceMatch.group(1)!);
+      final rest = zeroSpaceMatch.group(2)!.trim();
+      if (num != null && num >= 1 && rest.isNotEmpty) {
+        return (trackNumber: num, cleanTitle: rest);
+      }
+    }
+
+    return (trackNumber: null, cleanTitle: trimmed);
+  }
+
+  static String _rawAlbumFolderForPath(String relativePath) {
+    final segs = _parentSegments(relativePath);
+    if (segs.isEmpty) return '';
+    var idx = segs.length - 1;
+    while (idx > 0 &&
+        (_cdVideoContainerSubdirSeg.hasMatch(segs[idx]) ||
+            _cdDiscSubdirSeg.hasMatch(segs[idx]))) {
+      idx--;
+    }
+    return segs[idx];
+  }
+
+  /// 对作品下的全部 CD 变体执行批量分组，自动对同名专辑按「日期 -> 规格/盘种/番号/封装」多级消歧。
   static CdAlbumGroupSummary groupCdVariants(List<MediaVariant> cdVariants) {
     if (cdVariants.isEmpty) {
       return const CdAlbumGroupSummary(
@@ -571,14 +708,17 @@ abstract final class SupplementarySubclassifier {
     }
 
     final firstPass = <String, CdAlbumGroupingResult>{};
-    final baseKeyByAlbum = <String, String>{};
     final baseCounts = <String, Set<String>>{};
+    final rawFolderByAlbumKey = <String, String>{};
 
     for (final v in cdVariants) {
       final g = extractCdAlbumGroup(relativePath: v.relativePath);
       firstPass[v.id] = g;
+      rawFolderByAlbumKey.putIfAbsent(
+        g.albumKey,
+        () => _rawAlbumFolderForPath(v.relativePath),
+      );
       final base = _normalizedBaseTitleForDisambig(g.chipLabel);
-      baseKeyByAlbum[g.albumKey] = base;
       baseCounts.putIfAbsent(base, () => <String>{}).add(g.albumKey);
     }
 
@@ -590,7 +730,6 @@ abstract final class SupplementarySubclassifier {
     final resolvedByVariantId = <String, CdAlbumGroupingResult>{};
     final chipMeta = <String, String>{};
     final chipCount = <String, int>{};
-    final distinctSubdirs = <String>{};
 
     for (final v in cdVariants) {
       final g = duplicates.isEmpty
@@ -602,6 +741,67 @@ abstract final class SupplementarySubclassifier {
       resolvedByVariantId[v.id] = g;
       chipMeta.putIfAbsent(g.albumKey, () => g.chipLabel);
       chipCount[g.albumKey] = (chipCount[g.albumKey] ?? 0) + 1;
+    }
+
+    // 第二阶段深度消歧：若同日发售的多个版本在附加日期后仍然重名（如普通版 vs 24bit_48kHz 版），按版本/规格后缀精准区分
+    final keysByChipLabel = <String, List<String>>{};
+    for (final entry in chipMeta.entries) {
+      keysByChipLabel.putIfAbsent(entry.value, () => <String>[]).add(entry.key);
+    }
+
+    final refinedLabelByKey = <String, String>{};
+    final refinedVersionByKey = <String, String>{};
+
+    for (final collision in keysByChipLabel.entries) {
+      final collidingKeys = collision.value;
+      if (collidingKeys.length < 2) continue;
+
+      final sampleFirst = firstPass.values.firstWhere(
+        (e) => e.albumKey == collidingKeys.first,
+      );
+      final cleanBase = _truncateMiddleOrEnd(sampleFirst.chipLabel, 22);
+
+      final extractedTags = <String, String?>{
+        for (final k in collidingKeys)
+          k: extractCdVersionTag(rawFolderByAlbumKey[k] ?? ''),
+      };
+      final hasHiResSibling = extractedTags.values.any(
+        (t) => t != null && (t.contains('bit') || t == 'Hi-Res'),
+      );
+
+      final usedLabels = <String>{};
+      var seq = 1;
+      for (final k in collidingKeys) {
+        var tag = extractedTags[k];
+        if ((tag == null || tag == 'FLAC') && hasHiResSibling) {
+          tag = '标准版';
+        }
+        tag ??= '版本 $seq';
+        var candidate = '$cleanBase · $tag';
+        while (!usedLabels.add(candidate)) {
+          seq++;
+          candidate = '$cleanBase · $tag ($seq)';
+        }
+        refinedLabelByKey[k] = candidate;
+        refinedVersionByKey[k] = tag;
+        chipMeta[k] = candidate;
+        seq++;
+      }
+    }
+
+    final distinctSubdirs = <String>{};
+    for (final v in cdVariants) {
+      var g = resolvedByVariantId[v.id]!;
+      final refinedLabel = refinedLabelByKey[g.albumKey];
+      final refinedVer = refinedVersionByKey[g.albumKey];
+      if (refinedLabel != null) {
+        g = g.copyWith(
+          chipLabel: refinedLabel,
+          directSubdirShort: refinedVer ?? g.directSubdirShort,
+          versionTag: refinedVer ?? g.versionTag,
+        );
+        resolvedByVariantId[v.id] = g;
+      }
       if (g.directSubdirShort != null && g.directSubdirShort!.isNotEmpty) {
         distinctSubdirs.add(g.directSubdirShort!.toLowerCase());
       }
@@ -814,7 +1014,9 @@ abstract final class SupplementarySubclassifier {
     List<String> allParentSegs,
     List<String> trimmedAlbumChain,
   ) {
-    final prefixLen = allParentSegs.length - _countRemovedFromEnd(allParentSegs, trimmedAlbumChain);
+    final prefixLen =
+        allParentSegs.length -
+        _countRemovedFromEnd(allParentSegs, trimmedAlbumChain);
     final keyParts = allParentSegs.sublist(0, prefixLen > 0 ? prefixLen : 1);
     return keyParts.map((s) => s.toLowerCase()).join('/');
   }
@@ -1138,7 +1340,10 @@ abstract final class SupplementarySubclassifier {
       'special' => 'Special',
       'blu-ray' || 'bluray' => 'Blu-ray',
       _ => () {
-        if (RegExp(r'^\d+(?:st|nd|rd|th)$', caseSensitive: false).hasMatch(raw)) {
+        if (RegExp(
+          r'^\d+(?:st|nd|rd|th)$',
+          caseSensitive: false,
+        ).hasMatch(raw)) {
           return lower;
         }
         if (RegExp(r'^[a-z]+$').hasMatch(lower)) {
@@ -1184,9 +1389,10 @@ abstract final class SupplementarySubclassifier {
     final cleanNum = (rawNum ?? '').replaceAll(RegExp(r'[\s._-]+'), '');
     final base = '${prefixParts.join(' ')} $formattedType';
     if (cleanNum.isEmpty) return base;
-    final numMatch = RegExp(r'^(\d+)([a-z])?$', caseSensitive: false).firstMatch(
-      cleanNum,
-    );
+    final numMatch = RegExp(
+      r'^(\d+)([a-z])?$',
+      caseSensitive: false,
+    ).firstMatch(cleanNum);
     if (numMatch != null && numMatch.group(2) != null) {
       return '$base ${numMatch.group(1)}${numMatch.group(2)!.toLowerCase()}';
     }
@@ -1195,9 +1401,9 @@ abstract final class SupplementarySubclassifier {
 
   static List<String> _extractBracketSegments(String stem) {
     final segments = <String>[];
-    for (final m in RegExp(r'\[([^\]]*)\]|【([^】]*)】|\(([^)]*)\)').allMatches(
-      stem,
-    )) {
+    for (final m in RegExp(
+      r'\[([^\]]*)\]|【([^】]*)】|\(([^)]*)\)',
+    ).allMatches(stem)) {
       final raw = (m.group(1) ?? m.group(2) ?? m.group(3) ?? '').trim();
       if (raw.isEmpty) continue;
       final parts = raw
@@ -1261,7 +1467,9 @@ abstract final class SupplementarySubclassifier {
     final normPath = (relativePath ?? '').replaceAll('\\', '/');
     if (normPath.isNotEmpty) {
       final segs = normPath.split('/');
-      final inNcDir = segs.take(segs.length > 1 ? segs.length - 1 : 0).any(
+      final inNcDir = segs
+          .take(segs.length > 1 ? segs.length - 1 : 0)
+          .any(
             (s) =>
                 _ncopDirSeg.hasMatch(s) ||
                 _ncedDirSeg.hasMatch(s) ||
@@ -1325,23 +1533,22 @@ abstract final class SupplementarySubclassifier {
     String? workTitle,
   }) {
     final path = (relativePath ?? fileName).replaceAll('\\', '/');
-    final kind = extraType ??
-        classifyExtraVideo(
-          fileName: fileName,
-          relativePath: relativePath,
-        );
+    final kind =
+        extraType ??
+        classifyExtraVideo(fileName: fileName, relativePath: relativePath);
 
     final stem = _stripExtension(fileName);
     final cleanedHint = (titleHint ?? '').trim();
 
     if (_isCdBundledExtraPath(path)) {
       final albumGroup = extractCdAlbumGroup(relativePath: path);
-      final normAlbum = albumGroup.albumKey
-          .toLowerCase()
-          .replaceAll(RegExp(r'[^a-z0-9\u3040-\u9fff]+'), '_');
-      final normStem = _cleanStemForMergeKey(stem)
-          .toLowerCase()
-          .replaceAll(RegExp(r'[^a-z0-9\u3040-\u9fff]+'), '_');
+      final normAlbum = albumGroup.albumKey.toLowerCase().replaceAll(
+        RegExp(r'[^a-z0-9\u3040-\u9fff]+'),
+        '_',
+      );
+      final normStem = _cleanStemForMergeKey(
+        stem,
+      ).toLowerCase().replaceAll(RegExp(r'[^a-z0-9\u3040-\u9fff]+'), '_');
       return '${kind.name}::cd::$normAlbum::$normStem';
     }
 
@@ -1372,10 +1579,30 @@ abstract final class SupplementarySubclassifier {
     if (tokenMatch != null) {
       var coreRaw = tokenMatch.group(1)!.toLowerCase();
       coreRaw = coreRaw
-          .replaceAll(RegExp(r'^(?:creditless|textless|non[\s._-]*(?:telop|credit)|clean)[\s._-]*opening$'), 'ncop')
-          .replaceAll(RegExp(r'^(?:creditless|textless|non[\s._-]*(?:telop|credit)|clean)[\s._-]*ending$'), 'nced')
-          .replaceAll(RegExp(r'^(?:creditless|textless|non[\s._-]*(?:telop|credit)|clean)[\s._-]*op$'), 'ncop')
-          .replaceAll(RegExp(r'^(?:creditless|textless|non[\s._-]*(?:telop|credit)|clean)[\s._-]*ed$'), 'nced')
+          .replaceAll(
+            RegExp(
+              r'^(?:creditless|textless|non[\s._-]*(?:telop|credit)|clean)[\s._-]*opening$',
+            ),
+            'ncop',
+          )
+          .replaceAll(
+            RegExp(
+              r'^(?:creditless|textless|non[\s._-]*(?:telop|credit)|clean)[\s._-]*ending$',
+            ),
+            'nced',
+          )
+          .replaceAll(
+            RegExp(
+              r'^(?:creditless|textless|non[\s._-]*(?:telop|credit)|clean)[\s._-]*op$',
+            ),
+            'ncop',
+          )
+          .replaceAll(
+            RegExp(
+              r'^(?:creditless|textless|non[\s._-]*(?:telop|credit)|clean)[\s._-]*ed$',
+            ),
+            'nced',
+          )
           .replaceAll('information', 'info')
           .replaceAll('trailers', 'trailer')
           .replaceAll('teasers', 'teaser')
@@ -1403,7 +1630,9 @@ abstract final class SupplementarySubclassifier {
       // 无编号且无语义前缀（例如泛化 `Menu`、`Making`、`PV`）或带显式卷碟信息时附加卷碟/纯净词干消歧
       final hasQualifier = normalizedCore.contains('_');
       if (numPart.isNotEmpty || hasQualifier) {
-        final volSuffix = volTag.isNotEmpty && numPart.isEmpty ? ':$volTag' : '';
+        final volSuffix = volTag.isNotEmpty && numPart.isEmpty
+            ? ':$volTag'
+            : '';
         return '${kind.name}::$normalizedCore:$numPart:$subVar$volSuffix';
       }
 
@@ -1447,12 +1676,14 @@ abstract final class SupplementarySubclassifier {
     if (existing.isEmpty) return true;
     if (existing == resolved) return false;
 
-    final compactExisting = existing
-        .toLowerCase()
-        .replaceAll(RegExp(r'\s+'), '');
-    final compactResolved = resolved
-        .toLowerCase()
-        .replaceAll(RegExp(r'\s+'), '');
+    final compactExisting = existing.toLowerCase().replaceAll(
+      RegExp(r'\s+'),
+      '',
+    );
+    final compactResolved = resolved.toLowerCase().replaceAll(
+      RegExp(r'\s+'),
+      '',
+    );
     if (compactExisting == compactResolved) return false;
 
     if (_legacyTruncatedExtraTitleRegex.hasMatch(existing)) {

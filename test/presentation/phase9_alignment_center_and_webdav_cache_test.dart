@@ -54,12 +54,73 @@ import 'package:ccplayer/presentation/widgets/playback/konata_playback_capsule.d
 import 'package:ccplayer/presentation/widgets/playback/konata_spec_badge.dart';
 
 final Uint8List _sample1x1Png = Uint8List.fromList([
-  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
-  0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-  0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00,
-  0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
-  0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
-  0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+  0x89,
+  0x50,
+  0x4E,
+  0x47,
+  0x0D,
+  0x0A,
+  0x1A,
+  0x0A,
+  0x00,
+  0x00,
+  0x00,
+  0x0D,
+  0x49,
+  0x48,
+  0x44,
+  0x52,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x08,
+  0x06,
+  0x00,
+  0x00,
+  0x00,
+  0x1F,
+  0x15,
+  0xC4,
+  0x89,
+  0x00,
+  0x00,
+  0x00,
+  0x0A,
+  0x49,
+  0x44,
+  0x41,
+  0x54,
+  0x78,
+  0x9C,
+  0x63,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x05,
+  0x00,
+  0x01,
+  0x0D,
+  0x0A,
+  0x2D,
+  0xB4,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x49,
+  0x45,
+  0x4E,
+  0x44,
+  0xAE,
+  0x42,
+  0x60,
+  0x82,
 ]);
 
 Widget _wrapPhase9App(
@@ -133,8 +194,7 @@ class _StubAudioNotifier extends AudioPlaybackNotifier {
 }
 
 class _StubVideoController extends VideoPlaybackController {
-  _StubVideoController(super.ref, super.request)
-    : super(deferBootstrap: true) {
+  _StubVideoController(super.ref, super.request) : super(deferBootstrap: true) {
     state = state.copyWith(
       isInitializing: false,
       isBuffering: false,
@@ -282,7 +342,8 @@ void main() {
         id: 'v_ex1',
         workId: 'w_aw',
         sourceId: 'dav1',
-        relativePath: '未添加TMDB ID/加速世界 TV+Movie/[VCB-Studio] Accel World [EX1][Ma10p_1080p][x265_flac].mkv',
+        relativePath:
+            '未添加TMDB ID/加速世界 TV+Movie/[VCB-Studio] Accel World [EX1][Ma10p_1080p][x265_flac].mkv',
         fileName: '[VCB-Studio] Accel World [EX1][Ma10p_1080p][x265_flac].mkv',
         fileSize: 1245540516,
         assetKind: AssetKind.video,
@@ -291,8 +352,10 @@ void main() {
         id: 'v_menu1',
         workId: 'w_aw',
         sourceId: 'dav1',
-        relativePath: '未添加TMDB ID/加速世界 TV+Movie/SPs/[VCB-Studio] Accel World [MenuEX1][Hi444pp_1080p][x264_flac].mkv',
-        fileName: '[VCB-Studio] Accel World [MenuEX1][Hi444pp_1080p][x264_flac].mkv',
+        relativePath:
+            '未添加TMDB ID/加速世界 TV+Movie/SPs/[VCB-Studio] Accel World [MenuEX1][Hi444pp_1080p][x264_flac].mkv',
+        fileName:
+            '[VCB-Studio] Accel World [MenuEX1][Hi444pp_1080p][x264_flac].mkv',
         fileSize: 39111884,
         assetKind: AssetKind.video,
       );
@@ -336,63 +399,68 @@ void main() {
       final selectAllRect = tester.getRect(selectAllBtnFinder);
       expect(searchRect.height, closeTo(36.0, 0.5));
       expect(selectAllRect.height, closeTo(36.0, 0.5));
-      expect((searchRect.center.dy - selectAllRect.center.dy).abs(), lessThan(0.5));
+      expect(
+        (searchRect.center.dy - selectAllRect.center.dy).abs(),
+        lessThan(0.5),
+      );
 
       // 每一行高度 46px，徽章/文件名/大小均与行垂直中心偏差 < 0.5px
       final badgeRect = tester.getRect(find.text('SPs/'));
       final fileNameRect = tester.getRect(find.text(v2.fileName));
       final sizeRect = tester.getRect(find.text('37.3 MB'));
       expect((badgeRect.center.dy - sizeRect.center.dy).abs(), lessThan(0.5));
-      expect((fileNameRect.center.dy - sizeRect.center.dy).abs(), lessThan(0.5));
+      expect(
+        (fileNameRect.center.dy - sizeRect.center.dy).abs(),
+        lessThan(0.5),
+      );
     });
 
-    testWidgets('LibraryPage 0 部隐藏作品时不占空间隐藏眼睛图标，HiddenWorksDialog 空态全宽居中无重复关闭键', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(1280, 800);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
+    testWidgets(
+      'LibraryPage 0 部隐藏作品时不占空间隐藏眼睛图标，HiddenWorksDialog 空态全宽居中无重复关闭键',
+      (tester) async {
+        tester.view.physicalSize = const Size(1280, 800);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
 
-      SharedPreferences.setMockInitialValues({});
-      final db = KonataDatabase(NativeDatabase.memory());
-      addTearDown(db.close);
-      final repo = DriftLibraryRepository(db);
+        SharedPreferences.setMockInitialValues({});
+        final db = KonataDatabase(NativeDatabase.memory());
+        addTearDown(db.close);
+        final repo = DriftLibraryRepository(db);
 
-      await tester.pumpWidget(
-        _wrapPhase9App(
-          const LibraryPage(),
-          scopeKey: const ValueKey('phase9_lib_scope'),
-          overrides: [libraryRepositoryProvider.overrideWithValue(repo)],
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapPhase9App(
+            const LibraryPage(),
+            scopeKey: const ValueKey('phase9_lib_scope'),
+            overrides: [libraryRepositoryProvider.overrideWithValue(repo)],
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.byIcon(Icons.visibility_off_outlined), findsNothing);
+        expect(find.byIcon(Icons.visibility_off_outlined), findsNothing);
 
-      // 直接验证 HiddenWorksDialog 空态兜底：无底部关闭按钮、宽 620px、提示文本水平正居中
-      await tester.pumpWidget(
-        _wrapPhase9App(
-          const HiddenWorksDialog(),
-          scopeKey: const ValueKey('phase9_hidden_dialog_scope'),
-          overrides: [
-            libraryRepositoryProvider.overrideWithValue(repo),
-            tmdbImageLoaderProvider.overrideWithValue(
-              (_, {targetWidth, imageSize}) async => Uint8List(0),
-            ),
-          ],
-        ),
-      );
-      await tester.pumpAndSettle();
+        // 直接验证 HiddenWorksDialog 空态兜底：无底部关闭按钮、宽 620px、提示文本水平正居中
+        await tester.pumpWidget(
+          _wrapPhase9App(
+            const HiddenWorksDialog(),
+            scopeKey: const ValueKey('phase9_hidden_dialog_scope'),
+            overrides: [
+              libraryRepositoryProvider.overrideWithValue(repo),
+              tmdbImageLoaderProvider.overrideWithValue(
+                (_, {targetWidth, imageSize}) async => Uint8List(0),
+              ),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.text('关闭'), findsNothing);
-      expect(find.text('当前没有隐藏任何作品'), findsOneWidget);
-      final emptyTextRect = tester.getRect(find.text('当前没有隐藏任何作品'));
-      expect((emptyTextRect.center.dx - 640.0).abs(), lessThan(1.0));
-    });
+        expect(find.text('关闭'), findsNothing);
+        expect(find.text('当前没有隐藏任何作品'), findsOneWidget);
+        final emptyTextRect = tester.getRect(find.text('当前没有隐藏任何作品'));
+        expect((emptyTextRect.center.dx - 640.0).abs(), lessThan(1.0));
+      },
+    );
 
-    testWidgets('设置「显示 → 标题显示」触发器与浮层同为 172px 并正中心对齐', (
-      tester,
-    ) async {
+    testWidgets('设置「显示 → 标题显示」触发器与浮层同为 172px 并正中心对齐', (tester) async {
       tester.view.physicalSize = const Size(1280, 800);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -537,8 +605,8 @@ void main() {
         ),
       );
       await tester.pump();
-      expect(find.text('全部 (30)'), findsOneWidget);
-      expect(find.text('无字幕片头 (3)'), findsOneWidget);
+      expect(find.text('全部'), findsOneWidget);
+      expect(find.text('无字幕片头'), findsOneWidget);
     });
   });
 
@@ -589,15 +657,17 @@ void main() {
           scopeKey: const ValueKey('phase9_video_capsule_scope'),
           mode: ThemeMode.dark,
           overrides: [
-            videoPlaybackProvider(vidReq).overrideWith(
-              (ref) => _StubVideoController(ref, vidReq),
-            ),
+            videoPlaybackProvider(
+              vidReq,
+            ).overrideWith((ref) => _StubVideoController(ref, vidReq)),
           ],
         ),
       );
       await tester.pump(const Duration(milliseconds: 50));
 
-      final videoCapsuleRect = tester.getRect(find.byType(KonataPlaybackCapsule));
+      final videoCapsuleRect = tester.getRect(
+        find.byType(KonataPlaybackCapsule),
+      );
       final videoPlayRect = tester.getRect(
         find.byKey(const ValueKey('konata_capsule_play_pause_button')),
       );
@@ -666,7 +736,9 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 50));
 
-      final miniCapsuleRect = tester.getRect(find.byType(KonataPlaybackCapsule));
+      final miniCapsuleRect = tester.getRect(
+        find.byType(KonataPlaybackCapsule),
+      );
       final miniPlayRect = tester.getRect(
         find.byKey(const ValueKey('konata_capsule_play_pause_button')),
       );
@@ -732,142 +804,148 @@ void main() {
   });
 
   group('Phase 4 · 播放记录双页签、翻倍大封面、专辑封面优先与同行日期', () {
-    testWidgets('视频 112x160 / 音频 120x120 切换，音频优先读取专辑 Folder.jpg，日期固定在进度条同行最右侧', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(1280, 800);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
+    testWidgets(
+      '视频 112x160 / 音频 120x120 切换，音频优先读取专辑 Folder.jpg，日期固定在进度条同行最右侧',
+      (tester) async {
+        tester.view.physicalSize = const Size(1280, 800);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
 
-      SharedPreferences.setMockInitialValues({});
-      final tempAlbumDir = await tester.runAsync(
-        () => Directory.systemTemp.createTemp('konata_p9_album_'),
-      );
-      addTearDown(() async {
-        if (tempAlbumDir != null && await tempAlbumDir.exists()) {
-          await tempAlbumDir.delete(recursive: true);
-        }
-      });
-      await tester.runAsync(() async {
-        final cdDir = Directory(p.join(tempAlbumDir!.path, 'AccelCD'))
-          ..createSync(recursive: true);
-        await File(p.join(cdDir.path, 'Folder.jpg')).writeAsBytes(_sample1x1Png);
-        await File(p.join(cdDir.path, '01.flac')).writeAsBytes([1, 2, 3, 4]);
-      });
+        SharedPreferences.setMockInitialValues({});
+        final tempAlbumDir = await tester.runAsync(
+          () => Directory.systemTemp.createTemp('konata_p9_album_'),
+        );
+        addTearDown(() async {
+          if (tempAlbumDir != null && await tempAlbumDir.exists()) {
+            await tempAlbumDir.delete(recursive: true);
+          }
+        });
+        await tester.runAsync(() async {
+          final cdDir = Directory(p.join(tempAlbumDir!.path, 'AccelCD'))
+            ..createSync(recursive: true);
+          await File(
+            p.join(cdDir.path, 'Folder.jpg'),
+          ).writeAsBytes(_sample1x1Png);
+          await File(p.join(cdDir.path, '01.flac')).writeAsBytes([1, 2, 3, 4]);
+        });
 
-      final db = KonataDatabase(NativeDatabase.memory());
-      addTearDown(db.close);
-      final repo = DriftLibraryRepository(db);
+        final db = KonataDatabase(NativeDatabase.memory());
+        addTearDown(db.close);
+        final repo = DriftLibraryRepository(db);
 
-      await repo.upsertMediaSource(
-        MediaSource(
-          id: 'src_loc',
-          kind: MediaSourceKind.local,
-          label: 'Local',
-          location: tempAlbumDir!.path,
-        ),
-      );
-      await repo.upsertWork(
-        const Work(
-          id: 'w_p4',
-          title: '加速世界',
-          posterPath: '/poster.jpg',
-          tmdbMediaType: TmdbMediaType.tv,
-          scrapeStatus: ScrapeStatus.matched,
-        ),
-      );
-      await repo.upsertMediaVariant(
-        const MediaVariant(
-          id: 'v_cd1',
-          workId: 'w_p4',
-          sourceId: 'src_loc',
-          relativePath: 'AccelCD/01.flac',
-          fileName: '01.flac',
-          fileSize: 4,
-          assetKind: AssetKind.cdAlbum,
-        ),
-      );
-      await repo.recordPlayback(
-        PlaybackRecord(
-          id: 'rec_vid',
-          workId: 'w_p4',
-          episodeId: 'ep_1',
-          variantId: 'v_vid1',
-          seasonNumber: 1,
-          episodeNumber: 1,
-          episodeTitle: '加速',
-          sourceType: MediaSourceKind.local,
-          playedAt: DateTime(2026, 11, 16, 21, 58),
-          positionSeconds: 7,
-          durationSeconds: 1422,
-        ),
-      );
-      await repo.recordPlayback(
-        PlaybackRecord(
-          id: 'cd::track_1',
-          workId: 'w_p4',
-          episodeId: 'cd::track_1',
-          variantId: 'v_cd1',
-          seasonNumber: 0,
-          episodeNumber: 1,
-          episodeTitle: 'ハルユキの災難',
-          sourceType: MediaSourceKind.local,
-          playedAt: DateTime(2026, 11, 16, 22, 12),
-          positionSeconds: 665,
-          durationSeconds: 1549,
-        ),
-      );
+        await repo.upsertMediaSource(
+          MediaSource(
+            id: 'src_loc',
+            kind: MediaSourceKind.local,
+            label: 'Local',
+            location: tempAlbumDir!.path,
+          ),
+        );
+        await repo.upsertWork(
+          const Work(
+            id: 'w_p4',
+            title: '加速世界',
+            posterPath: '/poster.jpg',
+            tmdbMediaType: TmdbMediaType.tv,
+            scrapeStatus: ScrapeStatus.matched,
+          ),
+        );
+        await repo.upsertMediaVariant(
+          const MediaVariant(
+            id: 'v_cd1',
+            workId: 'w_p4',
+            sourceId: 'src_loc',
+            relativePath: 'AccelCD/01.flac',
+            fileName: '01.flac',
+            fileSize: 4,
+            assetKind: AssetKind.cdAlbum,
+          ),
+        );
+        await repo.recordPlayback(
+          PlaybackRecord(
+            id: 'rec_vid',
+            workId: 'w_p4',
+            episodeId: 'ep_1',
+            variantId: 'v_vid1',
+            seasonNumber: 1,
+            episodeNumber: 1,
+            episodeTitle: '加速',
+            sourceType: MediaSourceKind.local,
+            playedAt: DateTime(2026, 11, 16, 21, 58),
+            positionSeconds: 7,
+            durationSeconds: 1422,
+          ),
+        );
+        await repo.recordPlayback(
+          PlaybackRecord(
+            id: 'cd::track_1',
+            workId: 'w_p4',
+            episodeId: 'cd::track_1',
+            variantId: 'v_cd1',
+            seasonNumber: 0,
+            episodeNumber: 1,
+            episodeTitle: 'ハルユキの災難',
+            sourceType: MediaSourceKind.local,
+            playedAt: DateTime(2026, 11, 16, 22, 12),
+            positionSeconds: 665,
+            durationSeconds: 1549,
+          ),
+        );
 
-      await tester.pumpWidget(
-        _wrapPhase9App(
-          const PlaybackHistoryPage(),
-          overrides: [
-            libraryRepositoryProvider.overrideWithValue(repo),
-            tmdbImageLoaderProvider.overrideWithValue(
-              (_, {targetWidth, imageSize}) async => _sample1x1Png,
-            ),
-          ],
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _wrapPhase9App(
+            const PlaybackHistoryPage(),
+            overrides: [
+              libraryRepositoryProvider.overrideWithValue(repo),
+              tmdbImageLoaderProvider.overrideWithValue(
+                (_, {targetWidth, imageSize}) async => _sample1x1Png,
+              ),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // 顶栏存在 视频 / 音频 双页签
-      expect(find.text('视频'), findsOneWidget);
-      expect(find.text('音频'), findsOneWidget);
-      expect(find.text('标记为已看'), findsOneWidget);
+        // 顶栏存在 视频 / 音频 双页签
+        expect(find.text('视频'), findsOneWidget);
+        expect(find.text('音频'), findsOneWidget);
+        expect(find.text('标记为已看'), findsOneWidget);
 
-      // 视频封面 112x160
-      expect(
-        tester
-            .widgetList<SizedBox>(find.byType(SizedBox))
-            .where((s) => s.width == 112 && s.height == 160),
-        hasLength(1),
-      );
+        // 视频封面 112x160
+        expect(
+          tester
+              .widgetList<SizedBox>(find.byType(SizedBox))
+              .where((s) => s.width == 112 && s.height == 160),
+          hasLength(1),
+        );
 
-      // 日期与进度条在同一水平行，日期位于进度条右侧
-      final progressBarRect = tester.getRect(
-        find.byType(LinearProgressIndicator),
-      );
-      final dateRect = tester.getRect(find.text('2026-11-16 21:58'));
-      expect((dateRect.center.dy - progressBarRect.center.dy).abs(), lessThan(4.0));
-      expect(dateRect.left, greaterThan(progressBarRect.right));
+        // 日期与进度条在同一水平行，日期位于进度条右侧
+        final progressBarRect = tester.getRect(
+          find.byType(LinearProgressIndicator),
+        );
+        final dateRect = tester.getRect(find.text('2026-11-16 21:58'));
+        expect(
+          (dateRect.center.dy - progressBarRect.center.dy).abs(),
+          lessThan(4.0),
+        );
+        expect(dateRect.left, greaterThan(progressBarRect.right));
 
-      // 切换至「音频」页签
-      await tester.tap(find.text('音频'));
-      await tester.pumpAndSettle();
+        // 切换至「音频」页签
+        await tester.tap(find.text('音频'));
+        await tester.pumpAndSettle();
 
-      expect(find.text('标记为已听'), findsOneWidget);
-      expect(find.text('01 · ハルユキの災難'), findsOneWidget);
-      expect(find.text('2026-11-16 22:12'), findsOneWidget);
-      // 音频封面 120x120，且成功加载 Folder.jpg (Image.memory)
-      expect(
-        tester
-            .widgetList<SizedBox>(find.byType(SizedBox))
-            .where((s) => s.width == 120 && s.height == 120),
-        hasLength(1),
-      );
-      expect(find.byType(Image), findsAtLeastNWidgets(1));
-    });
+        expect(find.text('标记为已听'), findsOneWidget);
+        expect(find.text('01 · ハルユキの災難'), findsOneWidget);
+        expect(find.text('2026-11-16 22:12'), findsOneWidget);
+        // 音频封面 120x120，且成功加载 Folder.jpg (Image.memory)
+        expect(
+          tester
+              .widgetList<SizedBox>(find.byType(SizedBox))
+              .where((s) => s.width == 120 && s.height == 120),
+          hasLength(1),
+        );
+        expect(find.byType(Image), findsAtLeastNWidgets(1));
+      },
+    );
   });
 
   group('Phase 5 · WebDAV 单连接 Keep-Alive 冷启动与内存缓存零等待回跳', () {
@@ -895,7 +973,10 @@ void main() {
         ),
       );
       expect(videoClient.options['demuxer-lavf-probesize'], equals('524288'));
-      expect(videoClient.options['demuxer-lavf-analyzeduration'], equals('1.5'));
+      expect(
+        videoClient.options['demuxer-lavf-analyzeduration'],
+        equals('1.5'),
+      );
       expect(videoClient.options['demuxer-max-bytes'], equals('180MiB'));
       expect(videoClient.options['demuxer-max-back-bytes'], equals('120MiB'));
 
@@ -919,71 +1000,79 @@ void main() {
         ),
       );
       expect(audioClient.options['demuxer-lavf-probesize'], equals('262144'));
-      expect(audioClient.options['demuxer-lavf-analyzeduration'], equals('0.8'));
+      expect(
+        audioClient.options['demuxer-lavf-analyzeduration'],
+        equals('0.8'),
+      );
       expect(audioClient.options['demuxer-max-bytes'], equals('64MiB'));
       expect(audioClient.options['demuxer-max-back-bytes'], equals('48MiB'));
     });
 
-    test('EmbeddedMpvSession 查询 seekable-ranges 命中 14:15 -> 11:00 抑制缓冲 Loading', () async {
-      final tempDir = await Directory.systemTemp.createTemp('konata_p9_sess_');
-      addTearDown(() async {
-        if (await tempDir.exists()) await tempDir.delete(recursive: true);
-      });
-      final storageRoot = StorageRootService(overrideRoot: tempDir);
-      final bridge = LocalStreamBridge(storageRoot: storageRoot);
-      addTearDown(bridge.dispose);
-      final fakeClient = _Phase9FakeMpvClient()
-        ..seekableRanges = const [MpvSeekableRange(start: 510.0, end: 920.0)];
+    test(
+      'EmbeddedMpvSession 查询 seekable-ranges 命中 14:15 -> 11:00 抑制缓冲 Loading',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'konata_p9_sess_',
+        );
+        addTearDown(() async {
+          if (await tempDir.exists()) await tempDir.delete(recursive: true);
+        });
+        final storageRoot = StorageRootService(overrideRoot: tempDir);
+        final bridge = LocalStreamBridge(storageRoot: storageRoot);
+        addTearDown(bridge.dispose);
+        final fakeClient = _Phase9FakeMpvClient()
+          ..seekableRanges = const [MpvSeekableRange(start: 510.0, end: 920.0)];
 
-      final session = EmbeddedMpvSession(
-        storageRoot: storageRoot,
-        streamBridge: bridge,
-        d3d11Bridge: _Phase9FakeD3D11VideoBridge(),
-        clientFactory: () => fakeClient,
-      );
-      addTearDown(session.dispose);
+        final session = EmbeddedMpvSession(
+          storageRoot: storageRoot,
+          streamBridge: bridge,
+          d3d11Bridge: _Phase9FakeD3D11VideoBridge(),
+          clientFactory: () => fakeClient,
+        );
+        addTearDown(session.dispose);
 
-      final bufferingEvents = <bool>[];
-      session.onBufferingChanged = bufferingEvents.add;
+        final bufferingEvents = <bool>[];
+        session.onBufferingChanged = bufferingEvents.add;
 
-      const variant = MediaVariant(
-        id: 'v_s',
-        workId: 'w_s',
-        sourceId: 's_loc',
-        relativePath: r'C:\nonexistent\01.mkv',
-        fileName: '01.mkv',
-        fileSize: 1024,
-      );
-
-      await session.initializeAndLoad(
-        request: const EmbeddedVideoLoadRequest(
+        const variant = MediaVariant(
+          id: 'v_s',
           workId: 'w_s',
-          variant: variant,
-        ),
-        qualityConfig: const PlaybackQualityConfig(),
-      );
-      bufferingEvents.clear();
+          sourceId: 's_loc',
+          relativePath: r'C:\nonexistent\01.mkv',
+          fileName: '01.mkv',
+          fileSize: 1024,
+        );
 
-      // 11:00 = 660s，落在 08:30(510s) - 15:20(920s) 内存区间内 -> 瞬切且抑制转圈
-      final hit = session.seekAbsolute(660.0);
-      expect(hit, isTrue);
-      expect(bufferingEvents, equals([false]));
+        await session.initializeAndLoad(
+          request: const EmbeddedVideoLoadRequest(
+            workId: 'w_s',
+            variant: variant,
+          ),
+          qualityConfig: const PlaybackQualityConfig(),
+        );
+        bufferingEvents.clear();
 
-      // 即便此时 core-idle 短暂报 true，依然抑制缓冲 Loading 遮罩
-      fakeClient.emitEvent(
-        const MpvPropertyChangeEvent(
-          name: 'core-idle',
-          replyUserdata: 204,
-          format: MpvFormat.flag,
-          boolValue: true,
-        ),
-      );
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(bufferingEvents.contains(true), isFalse);
+        // 11:00 = 660s，落在 08:30(510s) - 15:20(920s) 内存区间内 -> 瞬切且抑制转圈
+        final hit = session.seekAbsolute(660.0);
+        expect(hit, isTrue);
+        expect(bufferingEvents, equals([false]));
 
-      // 跳至未缓存的 20:00 = 1200s -> 返回 false（允许常规缓冲状态）
-      final miss = session.seekAbsolute(1200.0);
-      expect(miss, isFalse);
-    });
+        // 即便此时 core-idle 短暂报 true，依然抑制缓冲 Loading 遮罩
+        fakeClient.emitEvent(
+          const MpvPropertyChangeEvent(
+            name: 'core-idle',
+            replyUserdata: 204,
+            format: MpvFormat.flag,
+            boolValue: true,
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(bufferingEvents.contains(true), isFalse);
+
+        // 跳至未缓存的 20:00 = 1200s -> 返回 false（允许常规缓冲状态）
+        final miss = session.seekAbsolute(1200.0);
+        expect(miss, isFalse);
+      },
+    );
   });
 }

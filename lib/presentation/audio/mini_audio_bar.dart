@@ -531,16 +531,22 @@ class _MiniAudioQueuePopover extends StatelessWidget {
                         itemBuilder: (context, index) {
                           final qItem = queue[index];
                           final active = index == state.currentIndex;
-                          final trackPrefix = (qItem.trackNumber ?? (index + 1))
-                              .toString()
-                              .padLeft(2, '0');
+                          final isSingleCue = queue.every((e) => e.isCueTrack);
+                          final trackPrefix =
+                              (isSingleCue
+                                      ? (qItem.trackNumber ?? (index + 1))
+                                      : (index + 1))
+                                  .toString()
+                                  .padLeft(2, '0');
                           final dur = qItem.resolvedDuration;
                           final durLabel = dur > Duration.zero
                               ? PlaybackFormatters.formatMediaDuration(
                                   dur.inMilliseconds / 1000.0,
                                 )
                               : '';
-                          final subtitle = qItem.displaySubtitle;
+                          final subtitle = qItem.versionBadge.isNotEmpty
+                              ? '${qItem.versionBadge} · ${qItem.displaySubtitle}'
+                              : qItem.displaySubtitle;
 
                           return _MiniQueueTrackTile(
                             trackPrefix: trackPrefix,

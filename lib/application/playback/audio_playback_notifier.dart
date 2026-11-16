@@ -9,6 +9,8 @@ import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/playback_record.dart';
 import '../../domain/models/work.dart';
+import '../../domain/formatting/media_display_formatter.dart';
+import '../../domain/matching/supplementary_subclassifier.dart';
 import '../../domain/playback/cue_and_lrc_parser.dart';
 import '../../domain/playback/playback_formatters.dart';
 import '../../domain/repositories/file_system_gateway.dart';
@@ -109,6 +111,8 @@ class AudioQueueItem {
     this.cueEndSeconds,
     this.targetAudioRelativePath,
     this.duration = Duration.zero,
+    this.versionBadge = '',
+    this.showAlbumSubtitle = false,
   });
 
   final String id;
@@ -123,6 +127,8 @@ class AudioQueueItem {
   final double? cueEndSeconds;
   final String? targetAudioRelativePath;
   final Duration duration;
+  final String versionBadge;
+  final bool showAlbumSubtitle;
 
   bool get isCueTrack => cueStartSeconds != null;
   String get effectiveRelativePath =>
@@ -171,6 +177,8 @@ class AudioQueueItem {
       cueEndSeconds: cueEndSeconds ?? this.cueEndSeconds,
       targetAudioRelativePath: targetAudioRelativePath,
       duration: duration ?? this.duration,
+      versionBadge: versionBadge,
+      showAlbumSubtitle: showAlbumSubtitle,
     );
   }
 
@@ -519,25 +527,95 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       }
     }
 
-    // 2. 常规物理音轨集合（屏蔽 .log/.cue/.jpg/.lrc 辅助文件）
-    final audioItems = <AudioQueueItem>[];
+    // 2. 常规物理音轨集合：剥离文件名重复前置序号，并提取专辑分组与同名曲目多版本微标
+    final cdSummary = SupplementarySubclassifier.groupCdVariants(cdVariants);
+    final rawDrafts =
+        <
+          ({
+            MediaVariant variant,
+            MediaSource? source,
+            String cleanTitle,
+            int? trackNumber,
+            String albumLabel,
+            String? versionTag,
+          })
+        >[];
+
+    final distinctAlbums = <String>{};
+    final titleCounts = <String, int>{};
+
     for (final v in cdVariants) {
       if (!isPlayableAudioFile(v.fileName)) continue;
       final src = sourcesById[v.sourceId];
-      final trackTitle = p.basenameWithoutExtension(v.fileName);
+      final rawStem = p.basenameWithoutExtension(v.fileName);
+      final parsedTrack =
+          SupplementarySubclassifier.stripAudioTrackNumberPrefix(rawStem);
+      final group = cdSummary.byVariantId[v.id];
       final folderName = p.posix.basename(
         p.posix.dirname(v.relativePath.replaceAll('\\', '/')),
       );
+      final resolvedAlbum =
+          (group != null &&
+              group.chipLabel.isNotEmpty &&
+              group.chipLabel != 'CD')
+          ? group.chipLabel
+          : ((folderName.isNotEmpty && folderName != '.')
+                ? folderName
+                : work.title);
+      distinctAlbums.add(resolvedAlbum);
+      final normTitleKey = parsedTrack.cleanTitle.toLowerCase();
+      titleCounts[normTitleKey] = (titleCounts[normTitleKey] ?? 0) + 1;
+
+      rawDrafts.add((
+        variant: v,
+        source: src,
+        cleanTitle: parsedTrack.cleanTitle,
+        trackNumber: parsedTrack.trackNumber,
+        albumLabel: resolvedAlbum,
+        versionTag:
+            group?.versionTag ??
+            SupplementarySubclassifier.extractCdVersionTag(folderName),
+      ));
+    }
+
+    final multiAlbumQueue = distinctAlbums.length >= 2;
+    final audioItems = <AudioQueueItem>[];
+    for (final d in rawDrafts) {
+      final isDuplicateTitle =
+          (titleCounts[d.cleanTitle.toLowerCase()] ?? 0) >= 2;
+      var badge = '';
+      if (isDuplicateTitle) {
+        final ext = MediaDisplayFormatter.fileExtensionUpper(
+          d.variant.fileName,
+        );
+        final sizeStr = MediaDisplayFormatter.formatBytes(d.variant.fileSize);
+        if (d.versionTag != null &&
+            d.versionTag!.isNotEmpty &&
+            d.versionTag != ext) {
+          badge = sizeStr.isNotEmpty
+              ? '${d.versionTag} · $sizeStr'
+              : d.versionTag!;
+        } else if (sizeStr.isNotEmpty) {
+          badge = ext.isNotEmpty ? '$ext · $sizeStr' : sizeStr;
+        } else if (d.versionTag != null) {
+          badge = d.versionTag!;
+        }
+      } else if (d.versionTag != null &&
+          (d.versionTag!.contains('bit') || d.versionTag == 'Hi-Res')) {
+        badge = d.versionTag!;
+      }
+
       audioItems.add(
         AudioQueueItem(
-          id: v.id,
+          id: d.variant.id,
           work: work,
-          variant: v,
-          source: src,
-          title: trackTitle,
-          albumTitle: (folderName.isNotEmpty && folderName != '.')
-              ? folderName
-              : work.title,
+          variant: d.variant,
+          source: d.source,
+          title: d.cleanTitle,
+          trackNumber: d.trackNumber,
+          albumTitle: d.albumLabel,
+          versionBadge: badge,
+          showAlbumSubtitle: multiAlbumQueue,
         ),
       );
     }

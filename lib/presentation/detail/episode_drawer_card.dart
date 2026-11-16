@@ -12,6 +12,10 @@ import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/managed_image.dart';
 import '../widgets/playback/konata_spec_badge.dart';
 
+const List<Shadow> _kDrawerOverlayTextShadows = [
+  Shadow(color: Color(0xA6000000), blurRadius: 8, offset: Offset(0, 1.5)),
+];
+
 /// 详情页底部抽屉单集卡片（展示 16:9 剧照、进度条、集数标题、多版本徽章与文件名）。
 class EpisodeDrawerCard extends StatefulWidget {
   /// 创建单集卡片。
@@ -173,8 +177,9 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
     final p = context.palette;
     final ep = widget.episode;
     final playback = widget.playback;
-    final primaryVariant =
-        widget.variants.isNotEmpty ? widget.variants.first : null;
+    final primaryVariant = widget.variants.isNotEmpty
+        ? widget.variants.first
+        : null;
     final hasStill = ep.stillPath != null && ep.stillPath!.isNotEmpty;
     final thumbPath = hasStill
         ? ep.stillPath!
@@ -190,7 +195,8 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
           );
 
     final hasProgressBadge =
-        playback != null && (playback.isCompleted || playback.positionSeconds > 0);
+        playback != null &&
+        (playback.isCompleted || playback.positionSeconds > 0);
     final progressRatio = playback?.progressRatio ?? 0.0;
 
     return MouseRegion(
@@ -317,51 +323,61 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                 ),
               ),
               const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: EllipsisTextWithTooltip(
-                      text: displayTitle,
-                      maxLines: 1,
-                      style: KonataTheme.detailTextStyle(
-                        palette: p,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
+              // 悬浮在原画暗角上的无框标题与正片/特典徽章：局部采用暗底高对比色阶，确保深浅主题原画上均清晰锐利
+              Theme(
+                data: KonataTheme.darkTheme(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: EllipsisTextWithTooltip(
+                            text: displayTitle,
+                            maxLines: 1,
+                            style: KonataTheme.detailTextStyle(
+                              palette: KonataPalette.dark,
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ).copyWith(shadows: _kDrawerOverlayTextShadows),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        EpisodeCategoryBadge(isSpecial: ep.isSpecial),
+                        if (widget.variants.length >= 2) ...[
+                          const SizedBox(width: 6),
+                          _FrostedMiniBadge(
+                            label: '${widget.variants.length}版本',
+                            isWarning: true,
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (widget.showRawFileName && primaryVariant != null) ...[
+                      const SizedBox(height: 3),
+                      Tooltip(
+                        message: primaryVariant.relativePath,
+                        child: Text(
+                          MediaDisplayFormatter.formatWrappableFileName(
+                            primaryVariant.fileName,
+                          ),
+                          softWrap: true,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: KonataTheme.detailTextStyle(
+                            palette: KonataPalette.dark,
+                            color: Colors.white.withValues(alpha: 0.80),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w400,
+                            height: 1.3,
+                          ).copyWith(shadows: _kDrawerOverlayTextShadows),
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  EpisodeCategoryBadge(isSpecial: ep.isSpecial),
-                  if (widget.variants.length >= 2) ...[
-                    const SizedBox(width: 6),
-                    _FrostedMiniBadge(
-                      label: '${widget.variants.length}版本',
-                      isWarning: true,
-                    ),
+                    ],
                   ],
-                ],
-              ),
-              if (widget.showRawFileName && primaryVariant != null) ...[
-                const SizedBox(height: 3),
-                Tooltip(
-                  message: primaryVariant.relativePath,
-                  child: Text(
-                    MediaDisplayFormatter.formatWrappableFileName(
-                      primaryVariant.fileName,
-                    ),
-                    softWrap: true,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: KonataTheme.detailTextStyle(
-                      palette: p,
-                      color: Colors.white.withValues(alpha: 0.78),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w400,
-                      height: 1.3,
-                    ),
-                  ),
                 ),
-              ],
+              ),
             ],
           ),
         ),

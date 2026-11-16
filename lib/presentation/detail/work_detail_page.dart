@@ -246,14 +246,18 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                 begin: Alignment.bottomCenter,
                                 end: Alignment.topCenter,
                                 stops: isDrawerExpanded
-                                    ? const [0.0, 0.34]
+                                    ? const [0.0, 0.22, 0.44]
                                     : const [0.0, 0.18],
-                                colors: [
-                                  Colors.black.withValues(
-                                    alpha: isDrawerExpanded ? 0.68 : 0.34,
-                                  ),
-                                  Colors.transparent,
-                                ],
+                                colors: isDrawerExpanded
+                                    ? [
+                                        Colors.black.withValues(alpha: 0.78),
+                                        Colors.black.withValues(alpha: 0.42),
+                                        Colors.transparent,
+                                      ]
+                                    : [
+                                        Colors.black.withValues(alpha: 0.30),
+                                        Colors.transparent,
+                                      ],
                               ),
                             ),
                           ),
@@ -590,7 +594,7 @@ class _WorkDetailTopBar extends StatelessWidget {
     final iconColor = forceLightIcons ? Colors.white : p.textPrimary;
     final bgColor = forceLightIcons
         ? Colors.black.withValues(alpha: 0.30)
-        : Color.alphaBlend(Colors.white.withValues(alpha: 0.86), p.surface);
+        : p.surface;
     final borderColor = forceLightIcons
         ? Colors.white.withValues(alpha: 0.22)
         : p.hairline;
@@ -626,7 +630,7 @@ class _WorkDetailTopBar extends StatelessWidget {
                       customBorder: const CircleBorder(),
                       hoverColor: forceLightIcons
                           ? Colors.white.withValues(alpha: 0.14)
-                          : p.secondaryButtonHoverBg,
+                          : p.surfaceHover,
                       onTap: onBack,
                       child: Center(
                         child: Icon(

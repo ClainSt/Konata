@@ -175,7 +175,9 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                               colors: [
-                                p.accent.withValues(alpha: p.isDark ? 0.28 : 0.16),
+                                p.accent.withValues(
+                                  alpha: p.isDark ? 0.28 : 0.16,
+                                ),
                                 p.elevatedSurface.withValues(
                                   alpha: p.isDark ? 0.90 : 0.85,
                                 ),
@@ -199,7 +201,8 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                             child: _MiniTag(label: ext),
                           ),
                         if (widget.showSeriesSharedBadge &&
-                            v.assetScope == SupplementaryAssetScope.seriesShared)
+                            v.assetScope ==
+                                SupplementaryAssetScope.seriesShared)
                           const Positioned(
                             top: 6,
                             left: 6,
@@ -217,8 +220,8 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                 style: KonataTheme.detailTextStyle(
                   palette: p,
                   color: _hovered
-                      ? p.textPrimary
-                      : p.textPrimary.withValues(alpha: 0.92),
+                      ? Colors.white
+                      : Colors.white.withValues(alpha: 0.94),
                   fontSize: 12.5,
                   fontWeight: FontWeight.w600,
                 ),
@@ -230,7 +233,7 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                   maxLines: 1,
                   style: KonataTheme.detailTextStyle(
                     palette: p,
-                    color: p.textSecondary,
+                    color: Colors.white.withValues(alpha: 0.78),
                     fontSize: 11,
                     fontWeight: FontWeight.w400,
                   ),
@@ -423,7 +426,8 @@ class _ScanDrawerCardState extends ConsumerState<ScanDrawerCard> {
                             child: _MiniTag(label: ext),
                           ),
                         if (widget.showSeriesSharedBadge &&
-                            v.assetScope == SupplementaryAssetScope.seriesShared)
+                            v.assetScope ==
+                                SupplementaryAssetScope.seriesShared)
                           const Positioned(
                             top: 6,
                             left: 6,
@@ -441,8 +445,8 @@ class _ScanDrawerCardState extends ConsumerState<ScanDrawerCard> {
                 style: KonataTheme.detailTextStyle(
                   palette: p,
                   color: _hovered
-                      ? p.textPrimary
-                      : p.textPrimary.withValues(alpha: 0.92),
+                      ? Colors.white
+                      : Colors.white.withValues(alpha: 0.94),
                   fontSize: 12.5,
                   fontWeight: FontWeight.w600,
                 ),
@@ -454,7 +458,7 @@ class _ScanDrawerCardState extends ConsumerState<ScanDrawerCard> {
                   maxLines: 1,
                   style: KonataTheme.detailTextStyle(
                     palette: p,
-                    color: p.textSecondary,
+                    color: Colors.white.withValues(alpha: 0.78),
                     fontSize: 11,
                     fontWeight: FontWeight.w400,
                   ),

@@ -9,19 +9,19 @@ import 'konata_theme.dart';
 abstract final class KonataPlaybackTokens {
   /// 根据当前主题调色盘解析明暗双套毛玻璃表面色（浅色画册米白 / 深色中性炭黑）。
   static Color glassSurface(KonataPalette p) =>
-      p.isDark ? const Color(0xB8161618) : const Color(0xE0F8FAFC);
+      p.isDark ? const Color(0xB8161618) : p.surface;
 
   /// 根据当前主题解析弹出式菜单、选曲队列及浮层底色。
   static Color popoverSurface(KonataPalette p) =>
-      p.isDark ? const Color(0xF01E2026) : const Color(0xF5FFFFFF);
+      p.isDark ? const Color(0xF01E2026) : p.elevatedSurface;
 
   /// 根据当前主题解析毛玻璃细微描边。
   static Color glassBorder(KonataPalette p) =>
-      p.isDark ? const Color(0x24FFFFFF) : const Color(0x1A0F172A);
+      p.isDark ? const Color(0x24FFFFFF) : p.hairline;
 
   /// 根据当前主题解析悬停或激活态毛玻璃描边。
   static Color activeGlassBorder(KonataPalette p) =>
-      p.isDark ? const Color(0x42FFFFFF) : const Color(0x330F172A);
+      p.isDark ? const Color(0x42FFFFFF) : p.hoverBorder;
 
   /// 根据当前主题解析柔和半透明次级底衬色。
   static Color softFill(KonataPalette p) =>
@@ -29,7 +29,7 @@ abstract final class KonataPlaybackTokens {
 
   /// 根据当前主题解析胶囊内部微交互高亮/激活背景色。
   static Color activePillBg(KonataPalette p) =>
-      p.isDark ? const Color(0x38FFFFFF) : const Color(0x1A0F172A);
+      p.isDark ? const Color(0x38FFFFFF) : const Color(0x140F172A);
 
   /// 根据当前主题解析悬停柔和底色。
   static Color hoverFill(KonataPalette p) =>
@@ -37,7 +37,7 @@ abstract final class KonataPlaybackTokens {
 
   /// 根据当前主题解析柔和环境投影色。
   static Color shadowColor(KonataPalette p) =>
-      Colors.black.withValues(alpha: p.isDark ? 0.34 : 0.14);
+      Colors.black.withValues(alpha: p.isDark ? 0.34 : 0.12);
 
   /// 全屏流光音频页背景底色（随明暗切换：暗夜黑曜 / 画册暖白）。
   static Color auroraCanvas(KonataPalette p) =>
@@ -47,7 +47,7 @@ abstract final class KonataPlaybackTokens {
   static Color detailScrimBase(KonataPalette p) =>
       p.isDark ? cinemaPureBlack : const Color(0xFFF6F8FC);
 
-  /// 详情页「继续播放」主胶囊双主题毛玻璃填充色（深色黑曜石高对比 / 浅色高透白）。
+  /// 详情页「继续播放」主胶囊双主题毛玻璃填充色（浅色对齐「待复核」柔和 p.surface 磨砂）。
   static Color heroPlayButtonFill(
     KonataPalette p, {
     required bool enabled,
@@ -60,13 +60,13 @@ abstract final class KonataPlaybackTokens {
       if (hovered) return const Color(0xEB1F2430);
       return const Color(0xD414171E);
     }
-    if (!enabled) return const Color(0x8FFFFFFF);
-    if (pressed) return const Color(0xCCFFFFFF);
-    if (hovered) return const Color(0xFAFFFFFF);
-    return const Color(0xEBFFFFFF);
+    if (!enabled) return p.surface.withValues(alpha: 0.48);
+    if (pressed) return p.secondaryButtonBg;
+    if (hovered) return p.surfaceHover;
+    return p.surface;
   }
 
-  /// 详情页二级筛选胶囊背景色（严格绑定浅色/深色两套毛玻璃色阶，严禁共用灰底）。
+  /// 详情页二级筛选胶囊背景色（浅色对齐「待复核」p.surface 柔和磨砂，深色烟熏暗透）。
   static Color secondaryFilterPillBg(
     KonataPalette p, {
     required bool selected,
@@ -82,9 +82,9 @@ abstract final class KonataPlaybackTokens {
       return hovered ? const Color(0xE01E222B) : const Color(0xCC14171E);
     }
     if (selected) {
-      return p.accent;
+      return Color.alphaBlend(p.accent.withValues(alpha: 0.20), p.surfaceHover);
     }
-    return hovered ? const Color(0xFAFFFFFF) : const Color(0xDBFFFFFF);
+    return hovered ? p.surfaceHover : p.surface;
   }
 
   /// 详情页二级筛选胶囊描边色。
@@ -93,7 +93,9 @@ abstract final class KonataPlaybackTokens {
     required bool selected,
   }) {
     if (selected) {
-      return p.isDark ? p.accent.withValues(alpha: 0.55) : p.accent;
+      return p.isDark
+          ? p.accent.withValues(alpha: 0.55)
+          : p.accent.withValues(alpha: 0.48);
     }
     return glassBorder(p);
   }
@@ -108,7 +110,7 @@ abstract final class KonataPlaybackTokens {
       if (selected) return p.accentBadge.fg;
       return hovered ? p.textPrimary : p.textSecondary;
     }
-    if (selected) return Colors.white;
+    if (selected) return p.accent;
     return hovered
         ? KonataTheme.detailLightSlatePrimary
         : KonataTheme.detailLightSlateSecondary;
@@ -176,9 +178,7 @@ abstract final class KonataPlaybackTokens {
   static const double volumePopoverBridgeHeight = 8.0;
   static const double volumeKnobRestSize = 10.0;
   static const double volumeKnobDraggingSize = 13.0;
-  static const Duration volumePopoverDismissDelay = Duration(
-    milliseconds: 140,
-  );
+  static const Duration volumePopoverDismissDelay = Duration(milliseconds: 140);
 
   /// 实时音画规格胶囊徽标规范。
   static const Color videoOverlayBadgeBg = Color(0xBD0C1017);
@@ -217,9 +217,7 @@ abstract final class KonataPlaybackTokens {
   /// 右下角智能跳过 OP/ED 胶囊固定位置（与 `AGENTS.md` / 阶段 3 规范对齐）。
   static const double skipPillBottomOffset = 88.0;
   static const double skipPillRightOffset = 24.0;
-  static const Duration skipPillAutoFadeDuration = Duration(
-    milliseconds: 4000,
-  );
+  static const Duration skipPillAutoFadeDuration = Duration(milliseconds: 4000);
 
   /// 极简隐身 HUD 定时阈值。
   static const Duration cursorIdleFadeDelay = Duration(milliseconds: 2000);

@@ -160,7 +160,7 @@ class _WindowControlsState extends State<WindowControls> with WindowListener {
 
     final pillBg = widget.forceLightIcons
         ? Colors.black.withValues(alpha: 0.30)
-        : Color.alphaBlend(Colors.white.withValues(alpha: 0.86), p.surface);
+        : p.surface;
     final pillBorder = widget.forceLightIcons
         ? Colors.white.withValues(alpha: 0.22)
         : p.hairline;

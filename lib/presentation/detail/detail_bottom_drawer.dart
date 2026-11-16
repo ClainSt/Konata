@@ -245,10 +245,12 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
   @override
   Widget build(BuildContext context) {
     final episodes = widget.bundle.episodes;
-    final mainEps =
-        episodes.where((e) => e.category == EpisodeCategory.main).toList();
-    final extraEps =
-        episodes.where((e) => e.category == EpisodeCategory.extra).toList();
+    final mainEps = episodes
+        .where((e) => e.category == EpisodeCategory.main)
+        .toList();
+    final extraEps = episodes
+        .where((e) => e.category == EpisodeCategory.extra)
+        .toList();
     final cdList = widget.showCdTab
         ? widget.bundle.cdVariants
         : const <MediaVariant>[];
@@ -298,34 +300,37 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
     final scanSummary = SupplementarySubclassifier.groupScanVariants(scanList);
 
     final secondaryItems = switch (currentTab) {
-      DetailDrawerTab.extra => SupplementarySubclassifier.extraKindDisplayOrder
-          .where((k) => (extraCountByKind[k] ?? 0) > 0)
-          .map(
-            (k) => DetailSecondaryFilterItem(
-              key: k.name,
-              label: SupplementarySubclassifier.extraKindLabel(k),
-              count: extraCountByKind[k] ?? 0,
-            ),
-          )
-          .toList(growable: false),
-      DetailDrawerTab.cd => cdSummary.chips
-          .map(
-            (c) => DetailSecondaryFilterItem(
-              key: c.key,
-              label: c.label,
-              count: c.count,
-            ),
-          )
-          .toList(growable: false),
-      DetailDrawerTab.scan => scanSummary.chips
-          .map(
-            (c) => DetailSecondaryFilterItem(
-              key: c.key,
-              label: c.label,
-              count: c.count,
-            ),
-          )
-          .toList(growable: false),
+      DetailDrawerTab.extra =>
+        SupplementarySubclassifier.extraKindDisplayOrder
+            .where((k) => (extraCountByKind[k] ?? 0) > 0)
+            .map(
+              (k) => DetailSecondaryFilterItem(
+                key: k.name,
+                label: SupplementarySubclassifier.extraKindLabel(k),
+                count: extraCountByKind[k] ?? 0,
+              ),
+            )
+            .toList(growable: false),
+      DetailDrawerTab.cd =>
+        cdSummary.chips
+            .map(
+              (c) => DetailSecondaryFilterItem(
+                key: c.key,
+                label: c.label,
+                count: c.count,
+              ),
+            )
+            .toList(growable: false),
+      DetailDrawerTab.scan =>
+        scanSummary.chips
+            .map(
+              (c) => DetailSecondaryFilterItem(
+                key: c.key,
+                label: c.label,
+                count: c.count,
+              ),
+            )
+            .toList(growable: false),
       DetailDrawerTab.main => const <DetailSecondaryFilterItem>[],
     };
 
@@ -365,8 +370,9 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
               .toList(growable: false)
         : scanList;
 
-    final currentEps =
-        currentTab == DetailDrawerTab.extra ? filteredExtraEps : filteredMainEps;
+    final currentEps = currentTab == DetailDrawerTab.extra
+        ? filteredExtraEps
+        : filteredMainEps;
     final currentRawCount = switch (currentTab) {
       DetailDrawerTab.main => mainEps.length,
       DetailDrawerTab.extra => extraEps.length,
@@ -547,7 +553,7 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
                                   '该分类下暂无内容',
                                   style: KonataTheme.detailTextStyle(
                                     palette: context.palette,
-                                    color: context.palette.textSecondary,
+                                    color: Colors.white.withValues(alpha: 0.82),
                                     fontSize: 13.5,
                                     fontWeight: FontWeight.w500,
                                   ),
@@ -607,8 +613,9 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
           return CdDrawerCard(
             variant: v,
             showSeriesSharedBadge: showSharedBadge,
-            directSubdirLabel:
-                showDirectSubdir ? group?.directSubdirShort : null,
+            directSubdirLabel: showDirectSubdir
+                ? group?.directSubdirShort
+                : null,
             onTap: () => widget.onCdTap?.call(v),
             onPlayImmersive: widget.onCdPlayImmersive == null
                 ? null
@@ -632,8 +639,9 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
             workId: widget.bundle.work.id,
             workTitle: widget.bundle.work.title,
             showSeriesSharedBadge: showSharedBadge,
-            directSubdirLabel:
-                showDirectSubdir ? group?.directSubdirShort : null,
+            directSubdirLabel: showDirectSubdir
+                ? group?.directSubdirShort
+                : null,
             onTap: () => widget.onScanTap?.call(v),
           );
         },

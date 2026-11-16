@@ -20,6 +20,7 @@ import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_dropdown.dart';
 import '../widgets/design_system/konata_glass_side_sheet.dart';
+import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/playback/konata_spec_badge.dart';
 
@@ -442,7 +443,29 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
             const SizedBox(height: 6),
           ],
           const SizedBox(height: 14),
-          _SectionLabel(pPal, '时间轴微调与样式'),
+          Row(
+            children: [
+              Expanded(child: _SectionLabel(pPal, '时间轴微调与样式')),
+              if (state.subtitleDelaySeconds != 0 ||
+                  prefs.qualityConfig.subFontSize !=
+                      PlaybackQualityConfig.defaultSubFontSize ||
+                  prefs.qualityConfig.subBottomMargin !=
+                      PlaybackQualityConfig.defaultSubBottomMargin ||
+                  prefs.qualityConfig.subOverrideMode !=
+                      SubtitleAssOverrideMode.preserveAss)
+                KonataPillButton.ghost(
+                  label: '恢复默认',
+                  icon: Icons.restart_alt_rounded,
+                  compact: true,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  onPressed: () =>
+                      unawaited(controller.resetSubtitleAdjustments()),
+                ),
+            ],
+          ),
           const SizedBox(height: 8),
           _DelayStepperRow(
             pPal: pPal,
@@ -463,7 +486,13 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
             max: 96,
             divisions: 18,
             onChanged: (v) => controller.updateLiveQuality(
-              (c) => c.copyWith(subFontSize: v.round()),
+              (c) => c.copyWith(
+                subFontSize: v.round(),
+                subOverrideMode:
+                    c.subOverrideMode == SubtitleAssOverrideMode.preserveAss
+                    ? SubtitleAssOverrideMode.scaleOnly
+                    : c.subOverrideMode,
+              ),
             ),
           ),
           Text(
@@ -476,7 +505,10 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
             max: 120,
             divisions: 24,
             onChanged: (v) => controller.updateLiveQuality(
-              (c) => c.copyWith(subBottomMargin: v.round()),
+              (c) => c.copyWith(
+                subBottomMargin: v.round(),
+                subOverrideMode: SubtitleAssOverrideMode.forceStyle,
+              ),
             ),
           ),
           const SizedBox(height: 8),

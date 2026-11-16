@@ -614,6 +614,7 @@ void main() {
       expect(find.text('API 连接测试'), findsNWidgets(2));
       expect(find.text('图片服务器连接测试'), findsNWidgets(2));
       expect(find.text('直连 + 内置 DoH'), findsNothing);
+      expect(find.text('保存网络配置'), findsNothing);
       expect(find.text('如何获取TMDB API'), findsOneWidget);
       await tester.tap(find.text('如何获取TMDB API'));
       await tester.pumpAndSettle();
@@ -632,7 +633,21 @@ void main() {
       await tester.tap(find.text('外部调用'));
       await tester.pumpAndSettle();
       expect(find.byType(SettingsExternalToolsPanel), findsOneWidget);
-      expect(find.text('保存外部调用配置'), findsOneWidget);
+      expect(find.text('保存外部调用配置'), findsNothing);
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(SettingsExternalToolsPanel),
+          matching: find.byType(TextField),
+        ).first,
+        r'C:\Tools\mpv\mpv.exe',
+      );
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+      final savedPlayers = await repo.getExternalPlayers();
+      expect(
+        savedPlayers.any((p) => p.executablePath == r'C:\Tools\mpv\mpv.exe'),
+        isTrue,
+      );
 
       // 切换到「关于」，验证真实图标、版本 1.0.0、日志开关、导出日志与 GitHub Octocat / TMDB 声明
       await tester.tap(find.text('关于'));

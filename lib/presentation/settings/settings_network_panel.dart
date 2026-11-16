@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -15,7 +17,7 @@ import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/design_system/konata_toast.dart';
 import 'tmdb_api_help_dialog.dart';
 
-/// 刮削与网络设置面板（官方优先 + 备用地址自动回退 + 四通道独立连通性测试）。
+/// 刮削与网络设置面板（官方优先 + 备用地址自动回退 + 即时自动持久化 + 四通道独立连通性测试）。
 class SettingsNetworkPanel extends ConsumerStatefulWidget {
   /// 创建刮削与网络面板。
   const SettingsNetworkPanel({super.key});
@@ -27,7 +29,8 @@ class SettingsNetworkPanel extends ConsumerStatefulWidget {
 
 class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
   final TextEditingController _credentialController = TextEditingController();
-  final TextEditingController _tmdbApiBackupController = TextEditingController();
+  final TextEditingController _tmdbApiBackupController =
+      TextEditingController();
   final TextEditingController _tmdbImageBackupController =
       TextEditingController();
   final TextEditingController _bgmApiBackupController = TextEditingController();
@@ -37,6 +40,9 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
 
   ProxyMode _proxyMode = ProxyMode.system;
   bool _initializedNetwork = false;
+  bool _hasPendingSave = false;
+  Timer? _autoSaveTimer;
+  KonataActionsCoordinator? _actions;
 
   bool _testingTmdbApi = false;
   bool _testingTmdbImage = false;
@@ -50,6 +56,13 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
 
   @override
   void dispose() {
+    _autoSaveTimer?.cancel();
+    _autoSaveTimer = null;
+    final pendingActions = _actions;
+    if (_hasPendingSave && pendingActions != null) {
+      _hasPendingSave = false;
+      unawaited(pendingActions.saveNetworkConfig(_buildNetworkConfig()));
+    }
     _credentialController.dispose();
     _tmdbApiBackupController.dispose();
     _tmdbImageBackupController.dispose();
@@ -71,17 +84,30 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
     );
   }
 
-  Future<void> _saveNetwork() async {
-    await ref
-        .read(konataActionsProvider)
-        .saveNetworkConfig(_buildNetworkConfig());
-    if (mounted) {
-      showKonataToast(context, '刮削与网络配置已保存');
-    }
+  void _scheduleAutoSave() {
+    _initializedNetwork = true;
+    _hasPendingSave = true;
+    _autoSaveTimer?.cancel();
+    _autoSaveTimer = Timer(
+      KonataTheme.settingsAutoSaveDebounce,
+      () => unawaited(_flushAutoSave()),
+    );
+  }
+
+  Future<void> _flushAutoSave() async {
+    _autoSaveTimer?.cancel();
+    _autoSaveTimer = null;
+    if (!_hasPendingSave) return;
+    final coordinator =
+        _actions ?? (mounted ? ref.read(konataActionsProvider) : null);
+    if (coordinator == null) return;
+    _hasPendingSave = false;
+    await coordinator.saveNetworkConfig(_buildNetworkConfig());
   }
 
   void _restoreTmdbDefaults() {
     setState(() {
+      _initializedNetwork = true;
       _tmdbApiBackupController.text =
           TmdbNetworkConfig.defaultTmdbBackupApiBase;
       _tmdbImageBackupController.text =
@@ -89,11 +115,14 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
       _tmdbApiReport = null;
       _tmdbImageReport = null;
     });
+    _hasPendingSave = true;
+    unawaited(_flushAutoSave());
     showKonataToast(context, '已恢复 TMDB 默认备用地址');
   }
 
   void _restoreBangumiDefaults() {
     setState(() {
+      _initializedNetwork = true;
       _bgmApiBackupController.text =
           TmdbNetworkConfig.defaultBangumiBackupApiBase;
       _bgmImageBackupController.text =
@@ -101,6 +130,8 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
       _bgmApiReport = null;
       _bgmImageReport = null;
     });
+    _hasPendingSave = true;
+    unawaited(_flushAutoSave());
     showKonataToast(context, '已恢复 Bangumi 默认备用地址');
   }
 
@@ -109,6 +140,10 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
     void Function(bool busy) setBusy,
     void Function(ConnectivityReport report) setReport,
   ) async {
+    if (_hasPendingSave) {
+      await _flushAutoSave();
+    }
+    if (!mounted) return;
     setState(() => setBusy(true));
     final report = await runner(_buildNetworkConfig());
     if (!mounted) return;
@@ -137,6 +172,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
     });
 
     final actions = ref.read(konataActionsProvider);
+    _actions = actions;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -179,15 +215,6 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
         ),
         const SizedBox(height: 16),
         _buildProxyCard(p),
-        const SizedBox(height: 18),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: KonataPillButton.primary(
-            label: '保存网络配置',
-            icon: Icons.save_outlined,
-            onPressed: _saveNetwork,
-          ),
-        ),
       ],
     );
   }
@@ -231,6 +258,8 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
             obscureText: true,
             hintText: '粘贴 TMDB v3 API Key 或 eyJ 开头的 v4 Read Access Token',
             prefixIcon: Icons.key_rounded,
+            onChanged: (_) => _scheduleAutoSave(),
+            onSubmitted: (_) => unawaited(_flushAutoSave()),
           ),
         ],
       ),
@@ -275,6 +304,8 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
             testButtonLabel: _testingTmdbApi ? '测试中...' : 'API 连接测试',
             testing: _testingTmdbApi,
             report: _tmdbApiReport,
+            onChanged: (_) => _scheduleAutoSave(),
+            onSubmitted: (_) => unawaited(_flushAutoSave()),
             onTest: () => _runProbe(
               actions.testTmdbApiConnectivity,
               (b) => _testingTmdbApi = b,
@@ -291,6 +322,8 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
             testButtonLabel: _testingTmdbImage ? '测试中...' : '图片服务器连接测试',
             testing: _testingTmdbImage,
             report: _tmdbImageReport,
+            onChanged: (_) => _scheduleAutoSave(),
+            onSubmitted: (_) => unawaited(_flushAutoSave()),
             onTest: () => _runProbe(
               actions.testTmdbImageConnectivity,
               (b) => _testingTmdbImage = b,
@@ -340,6 +373,8 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
             testButtonLabel: _testingBgmApi ? '测试中...' : 'API 连接测试',
             testing: _testingBgmApi,
             report: _bgmApiReport,
+            onChanged: (_) => _scheduleAutoSave(),
+            onSubmitted: (_) => unawaited(_flushAutoSave()),
             onTest: () => _runProbe(
               actions.testBangumiApiConnectivity,
               (b) => _testingBgmApi = b,
@@ -356,6 +391,8 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
             testButtonLabel: _testingBgmImage ? '测试中...' : '图片服务器连接测试',
             testing: _testingBgmImage,
             report: _bgmImageReport,
+            onChanged: (_) => _scheduleAutoSave(),
+            onSubmitted: (_) => unawaited(_flushAutoSave()),
             onTest: () => _runProbe(
               actions.testBangumiImageConnectivity,
               (b) => _testingBgmImage = b,
@@ -397,7 +434,15 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
                 label: '不使用代理',
               ),
             ],
-            onChanged: (v) => setState(() => _proxyMode = v),
+            onChanged: (v) {
+              if (_proxyMode == v) return;
+              setState(() {
+                _initializedNetwork = true;
+                _proxyMode = v;
+              });
+              _hasPendingSave = true;
+              unawaited(_flushAutoSave());
+            },
           ),
           KonataSmoothSectionSwitcher(
             switchKey: _proxyMode == ProxyMode.custom,
@@ -410,6 +455,8 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
                       label: '代理服务器地址',
                       hintText: TmdbNetworkConfig.defaultLocalProxyHint,
                       prefixIcon: Icons.lan_outlined,
+                      onChanged: (_) => _scheduleAutoSave(),
+                      onSubmitted: (_) => unawaited(_flushAutoSave()),
                     ),
                   )
                 : const SizedBox.shrink(),
@@ -429,6 +476,8 @@ class _EndpointBackupField extends StatelessWidget {
     required this.testButtonLabel,
     required this.testing,
     required this.report,
+    required this.onChanged,
+    required this.onSubmitted,
     required this.onTest,
   });
 
@@ -439,6 +488,8 @@ class _EndpointBackupField extends StatelessWidget {
   final String testButtonLabel;
   final bool testing;
   final ConnectivityReport? report;
+  final ValueChanged<String> onChanged;
+  final ValueChanged<String> onSubmitted;
   final VoidCallback onTest;
 
   @override
@@ -465,6 +516,8 @@ class _EndpointBackupField extends StatelessWidget {
           controller: controller,
           dense: true,
           hintText: hintText,
+          onChanged: onChanged,
+          onSubmitted: onSubmitted,
         ),
         const SizedBox(height: 8),
         Row(

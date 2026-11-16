@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
+import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 
 /// 详情页二级分类筛选条上的单条筛选项数据。
 class DetailSecondaryFilterItem {
@@ -26,9 +27,7 @@ class DetailSecondaryFilterItem {
   final int count;
 }
 
-/// 作品详情页底部抽屉/完整列表共用的深色高透二级筛选条。
-///
-/// 仅使用高透磨砂细边与纯白文字层级，严禁使用实心黑底或亮蓝色高亮。
+/// 作品详情页底部抽屉/完整列表共用的高透二级筛选条。
 class DetailSecondaryFilterBar extends StatefulWidget {
   /// 创建二级筛选条。
   const DetailSecondaryFilterBar({
@@ -172,6 +171,7 @@ class _SecondaryFilterChipState extends State<_SecondaryFilterChip> {
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 160),
               curve: Curves.easeOutCubic,
+              constraints: BoxConstraints(maxWidth: widget.compact ? 250 : 290),
               padding: EdgeInsets.symmetric(
                 horizontal: widget.compact ? 11 : 13,
                 vertical: widget.compact ? 5 : 6,
@@ -184,8 +184,9 @@ class _SecondaryFilterChipState extends State<_SecondaryFilterChip> {
                   width: widget.selected ? 1.0 : 0.85,
                 ),
               ),
-              child: Text(
-                widget.label,
+              child: EllipsisTextWithTooltip(
+                text: widget.label,
+                maxLines: 1,
                 style: KonataTheme.detailTextStyle(
                   palette: p,
                   color: textColor,

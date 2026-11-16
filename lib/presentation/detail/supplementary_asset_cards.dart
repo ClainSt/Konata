@@ -15,6 +15,12 @@ import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 
 export 'scan_lightbox_dialog.dart';
 
+String _stripAssetExtension(String fileName) {
+  final trimmed = fileName.trim();
+  final dot = trimmed.lastIndexOf('.');
+  return dot > 0 ? trimmed.substring(0, dot) : trimmed;
+}
+
 /// 详情页底部抽屉：音乐 CD 音轨卡片（点击遵循全局音频偏好，右键支持底栏/全屏/外部播放切换）。
 class CdDrawerCard extends StatefulWidget {
   /// 创建 CD 音轨卡片。
@@ -131,7 +137,7 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
         (widget.displayTitleOverride != null &&
             widget.displayTitleOverride!.trim().isNotEmpty)
         ? widget.displayTitleOverride!.trim()
-        : v.fileName;
+        : _stripAssetExtension(v.fileName);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -221,9 +227,11 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                 maxLines: 2,
                 style: KonataTheme.detailTextStyle(
                   palette: p,
-                  color: _hovered
-                      ? Colors.white
-                      : Colors.white.withValues(alpha: 0.94),
+                  color: (widget.onDarkBackdrop || p.isDark)
+                      ? (_hovered
+                            ? Colors.white
+                            : Colors.white.withValues(alpha: 0.94))
+                      : p.textPrimary,
                   fontSize: 12.5,
                   fontWeight: FontWeight.w600,
                 ),
@@ -374,7 +382,7 @@ class _ScanDrawerCardState extends ConsumerState<ScanDrawerCard> {
         (widget.displayTitleOverride != null &&
             widget.displayTitleOverride!.trim().isNotEmpty)
         ? widget.displayTitleOverride!.trim()
-        : v.fileName;
+        : _stripAssetExtension(v.fileName);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -450,9 +458,11 @@ class _ScanDrawerCardState extends ConsumerState<ScanDrawerCard> {
                 maxLines: 2,
                 style: KonataTheme.detailTextStyle(
                   palette: p,
-                  color: _hovered
-                      ? Colors.white
-                      : Colors.white.withValues(alpha: 0.94),
+                  color: (widget.onDarkBackdrop || p.isDark)
+                      ? (_hovered
+                            ? Colors.white
+                            : Colors.white.withValues(alpha: 0.94))
+                      : p.textPrimary,
                   fontSize: 12.5,
                   fontWeight: FontWeight.w600,
                 ),

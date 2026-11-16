@@ -341,8 +341,10 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   String? _loadedPhysicalKey;
   int _loadGeneration = 0;
   bool _isTransitioningCueBoundary = false;
-
-  bool _advancingTrackCompletion = false;
+  int _activeCommandedGeneration = 0;
+  int _completedGeneration = -1;
+  int _currentMpvPlaylistEntryId = 0;
+  int _eofHandledMpvEntryId = -1;
 
   double? _pendingSeekRawTargetSeconds;
   DateTime? _pendingSeekGuardUntil;
@@ -391,6 +393,8 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     );
     if (generation != _loadGeneration || !mounted) return;
     if (items.isEmpty) {
+      _activeCommandedGeneration = 0;
+      _loadedPhysicalKey = null;
       state = state.copyWith(
         isActive: true,
         isPlaying: false,
@@ -670,6 +674,8 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
 
     client.setPropertyDouble('volume', state.isMuted ? 0.0 : state.volume);
     client.setPropertyString('keep-open', 'no');
+    client.setPropertyString('loop-file', 'no');
+    client.setPropertyString('loop-playlist', 'no');
     client.setPropertyFlag('mute', state.isMuted);
     client.requestLogMessages('warn');
     client.observeProperty(_propTimePos, 'time-pos', MpvFormat.double_);
@@ -692,6 +698,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       MpvFormat.string,
     );
     client.observeProperty(_propAudioBitrate, 'audio-bitrate', MpvFormat.int64);
+    client.observeProperty(_propEofReached, 'eof-reached', MpvFormat.flag);
 
     _client = client;
     _eventSub = client.events.listen(_handleMpvEvent);
@@ -755,11 +762,15 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     int index, {
     required int generation,
     AudioQueueItem? previousItemOverride,
+    double initialTrackOffsetSeconds = 0.0,
   }) async {
     if (index < 0 || index >= state.queue.length || !mounted) return;
     final previousItem = previousItemOverride ?? state.currentItem;
     final item = state.queue[index];
     _isTransitioningCueBoundary = false;
+    final clampedInitialOffset = initialTrackOffsetSeconds > 0
+        ? initialTrackOffsetSeconds
+        : 0.0;
 
     final physicalKey = item.physicalFileKey;
     final cachedRawDuration =
@@ -785,7 +796,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       isActive: true,
       currentIndex: index,
       isBuffering: !canSeekInsideLoadedCue,
-      positionSeconds: 0.0,
+      positionSeconds: clampedInitialOffset,
       durationSeconds: initialDuration,
       activeLyricIndex: -1,
       clearLrcDocument: true,
@@ -806,19 +817,27 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       final client = _client!;
 
       if (canSeekInsideLoadedCue) {
-        final start = item.cueStartSeconds ?? 0.0;
+        final start = (item.cueStartSeconds ?? 0.0) + clampedInitialOffset;
+        _activeCommandedGeneration = generation;
         _pendingSeekRawTargetSeconds = start;
         _pendingSeekGuardUntil = DateTime.now().add(_cueSeekDebounceWindow);
         client.setPropertyFlag('pause', false);
         client.command(['seek', start.toStringAsFixed(3), 'absolute', 'exact']);
         _syncAudioSpecBadges();
         if (mounted) {
-          state = state.copyWith(isBuffering: false, isPlaying: true);
+          final lyricIdx =
+              state.lrcDocument?.activeIndexAt(clampedInitialOffset) ?? -1;
+          state = state.copyWith(
+            isBuffering: false,
+            isPlaying: true,
+            positionSeconds: clampedInitialOffset,
+            activeLyricIndex: lyricIdx,
+          );
         }
         unawaited(
           _persistAudioProgress(
             item,
-            positionSeconds: 0,
+            positionSeconds: clampedInitialOffset,
             durationSeconds: initialDuration,
             force: true,
           ),
@@ -843,25 +862,29 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       );
 
       _loadedPhysicalKey = physicalKey;
+      _activeCommandedGeneration = generation;
       _rawFileDurationSeconds = cachedRawDuration;
       _rawCodec = '';
       _rawSampleRateHz = null;
       _rawAudioFormat = '';
 
-      if (item.cueStartSeconds != null && item.cueStartSeconds! > 0) {
-        client.setPropertyDouble('start', item.cueStartSeconds!);
+      final effectiveStartSeconds =
+          (item.cueStartSeconds ?? 0.0) + clampedInitialOffset;
+      if (effectiveStartSeconds > 0) {
+        client.setPropertyDouble('start', effectiveStartSeconds);
       } else {
         client.setPropertyString('start', 'none');
       }
       client.setPropertyFlag('pause', false);
       final cmdRc = client.command(['loadfile', mediaTarget, 'replace']);
       if (cmdRc < 0) {
+        _loadedPhysicalKey = null;
         throw StateError(client.errorString(cmdRc));
       }
       unawaited(
         _persistAudioProgress(
           item,
-          positionSeconds: 0,
+          positionSeconds: clampedInitialOffset,
           durationSeconds: initialDuration,
           force: true,
         ),
@@ -1117,8 +1140,12 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
                 isError: true,
               );
         }
-      case MpvStartFileEvent():
+      case MpvStartFileEvent(:final playlistEntryId):
+        if (playlistEntryId > 0) {
+          _currentMpvPlaylistEntryId = playlistEntryId;
+        }
       case MpvVideoReconfigEvent():
+        break;
       case MpvSeekEvent():
         _pendingSeekRawTargetSeconds = null;
         _pendingSeekGuardUntil = null;
@@ -1144,11 +1171,19 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
         }
       case _propCoreIdle:
         final idle = e.boolValue ?? false;
+        if (idle && (_client?.getPropertyFlag('eof-reached') ?? false)) {
+          _onNaturalTrackEofReached();
+          return;
+        }
         final suppressed =
             _suppressBufferingUntil != null &&
             DateTime.now().isBefore(_suppressBufferingUntil!);
         state = state.copyWith(
-          isBuffering: (!suppressed && state.isPlaying && idle),
+          isBuffering:
+              !suppressed &&
+              state.isPlaying &&
+              idle &&
+              _loadedPhysicalKey != null,
         );
       case _propAudioCodec:
         _rawCodec = e.stringValue ?? '';
@@ -1168,10 +1203,8 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
         );
       case _propEofReached:
         final eof = e.boolValue ?? false;
-        if (eof && !_advancingTrackCompletion && state.isActive) {
-          _advancingTrackCompletion = true;
-          _loadedPhysicalKey = null;
-          unawaited(_advanceOnTrackCompleted());
+        if (eof) {
+          _onNaturalTrackEofReached();
         }
     }
   }
@@ -1199,6 +1232,9 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     if (cueEnd != null &&
         rawPositionSeconds >= cueEnd - 0.08 &&
         !_isTransitioningCueBoundary) {
+      if (!state.isPlaying) {
+        return;
+      }
       final nextIdx = state.currentIndex + 1;
       final canNaturalCueStep =
           state.loopMode != AudioLoopMode.loopOne &&
@@ -1215,6 +1251,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
         return;
       }
       _isTransitioningCueBoundary = true;
+      _completedGeneration = _activeCommandedGeneration;
       unawaited(_advanceOnTrackCompleted());
       return;
     }
@@ -1250,6 +1287,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     );
     final nextItem = state.queue[nextIndex];
     final nextGen = ++_loadGeneration;
+    _activeCommandedGeneration = nextGen;
     _isTransitioningCueBoundary = false;
 
     final nextDuration = _resolveTrackDurationSeconds(
@@ -1288,15 +1326,44 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     unawaited(_loadAuxiliaryAssets(nextItem, generation: nextGen));
   }
 
+  /// 统一按当前活跃装填世代去重处理音轨自然完播（兼容 `end-file=eof` 与 `eof-reached=true` 双通道）。
+  void _onNaturalTrackEofReached({int playlistEntryId = 0}) {
+    if (!mounted || !state.isActive) return;
+    if (playlistEntryId > 0) {
+      if (playlistEntryId == _eofHandledMpvEntryId) return;
+      if (_currentMpvPlaylistEntryId > 0 &&
+          playlistEntryId != _currentMpvPlaylistEntryId) {
+        return;
+      }
+    }
+    if (_activeCommandedGeneration <= 0 ||
+        _activeCommandedGeneration != _loadGeneration ||
+        _completedGeneration == _activeCommandedGeneration) {
+      return;
+    }
+    _completedGeneration = _activeCommandedGeneration;
+    final handledEntry = playlistEntryId > 0
+        ? playlistEntryId
+        : _currentMpvPlaylistEntryId;
+    if (handledEntry > 0) {
+      _eofHandledMpvEntryId = handledEntry;
+    }
+    _loadedPhysicalKey = null;
+    _isTransitioningCueBoundary = false;
+    unawaited(_advanceOnTrackCompleted());
+  }
+
   void _handleEndFile(MpvEndFileEvent event) {
     if (event.reason == MpvEndFileReason.eof) {
-      _loadedPhysicalKey = null;
-      if (!_advancingTrackCompletion && state.isActive) {
-        _advancingTrackCompletion = true;
-        unawaited(_advanceOnTrackCompleted());
-      }
+      _onNaturalTrackEofReached(playlistEntryId: event.playlistEntryId);
     } else if (event.reason == MpvEndFileReason.error) {
+      if (event.playlistEntryId > 0 &&
+          _currentMpvPlaylistEntryId > 0 &&
+          event.playlistEntryId != _currentMpvPlaylistEntryId) {
+        return;
+      }
       _loadedPhysicalKey = null;
+      _isTransitioningCueBoundary = false;
       state = state.copyWith(
         isPlaying: false,
         isBuffering: false,
@@ -1306,13 +1373,16 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   }
 
   Future<void> _advanceOnTrackCompleted() async {
-    if (!mounted || state.queue.isEmpty) return;
+    if (!mounted || state.queue.isEmpty || !state.isActive) return;
     final finishedItem = state.currentItem;
+    final finishedDuration = state.durationSeconds > 0
+        ? state.durationSeconds
+        : state.positionSeconds;
     if (finishedItem != null) {
       unawaited(
         _persistAudioProgress(
           finishedItem,
-          positionSeconds: state.durationSeconds,
+          positionSeconds: finishedDuration,
           durationSeconds: state.durationSeconds,
           completed: true,
           force: true,
@@ -1335,9 +1405,17 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       final gen = ++_loadGeneration;
       await _startTrackAtIndex(0, generation: gen);
     } else {
-      await setPlaying(false);
+      _isTransitioningCueBoundary = false;
+      final c = _client;
+      if (c != null && !c.isDisposed) {
+        c.setPropertyFlag('pause', true);
+      }
       if (mounted) {
-        state = state.copyWith(isPlaying: false);
+        state = state.copyWith(
+          isPlaying: false,
+          isBuffering: false,
+          positionSeconds: finishedDuration,
+        );
       }
     }
   }
@@ -1376,12 +1454,33 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   /// 切换暂停 / 播放状态。
   Future<void> togglePlayPause() => setPlaying(!state.isPlaying);
 
-  /// 显式设置播放状态。
+  /// 显式设置播放状态（若已完播卸载或停在曲末，点击播放自动从头重载起播）。
   Future<void> setPlaying(bool playing) async {
+    if (playing &&
+        state.isActive &&
+        state.currentIndex >= 0 &&
+        state.currentIndex < state.queue.length) {
+      final atTrackEnd =
+          state.durationSeconds > 0 &&
+          state.positionSeconds >= state.durationSeconds - 0.15;
+      if (_loadedPhysicalKey == null || atTrackEnd) {
+        final resumeOffset = atTrackEnd ? 0.0 : state.positionSeconds;
+        final gen = ++_loadGeneration;
+        await _startTrackAtIndex(
+          state.currentIndex,
+          generation: gen,
+          initialTrackOffsetSeconds: resumeOffset,
+        );
+        return;
+      }
+    }
     final c = _client;
     if (c == null || c.isDisposed) return;
     c.setPropertyFlag('pause', !playing);
-    state = state.copyWith(isPlaying: playing);
+    state = state.copyWith(
+      isPlaying: playing,
+      isBuffering: playing ? state.isBuffering : false,
+    );
     final item = state.currentItem;
     if (!playing && item != null) {
       unawaited(
@@ -1412,6 +1511,24 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     final clamped = state.durationSeconds > 0
         ? trackSeconds.clamp(0.0, state.durationSeconds)
         : math.max(0.0, trackSeconds);
+
+    if (_loadedPhysicalKey == null &&
+        state.currentIndex >= 0 &&
+        state.currentIndex < state.queue.length) {
+      final gen = ++_loadGeneration;
+      await _startTrackAtIndex(
+        state.currentIndex,
+        generation: gen,
+        initialTrackOffsetSeconds: clamped,
+      );
+      return;
+    }
+
+    if (_completedGeneration == _activeCommandedGeneration &&
+        (state.durationSeconds <= 0 ||
+            clamped < state.durationSeconds - 0.15)) {
+      _completedGeneration = -1;
+    }
     final rawTarget = (item.cueStartSeconds ?? 0.0) + clamped;
     final ranges = c.readDemuxerSeekableRanges();
     final cachedHit = MpvSeekableRange.isPositionCached(rawTarget, ranges);
@@ -1584,6 +1701,8 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     final closingPos = state.positionSeconds;
     final closingDur = state.durationSeconds;
     ++_loadGeneration;
+    _activeCommandedGeneration = 0;
+    _completedGeneration = -1;
     _loadedPhysicalKey = null;
     _isTransitioningCueBoundary = false;
 

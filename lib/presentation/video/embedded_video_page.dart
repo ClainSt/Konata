@@ -418,7 +418,9 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                 _onMouseActivity();
                 controller.togglePlayPause();
               },
-              onDoubleTap: () => unawaited(controller.toggleFullscreen()),
+              onDoubleTap: state.sideSheetOpen
+                  ? null
+                  : () => unawaited(controller.toggleFullscreen()),
               child: Stack(
                 fit: StackFit.expand,
                 children: [

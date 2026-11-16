@@ -897,6 +897,8 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       hasFirstFrame: false,
       positionSeconds: resumePos.toDouble(),
       durationSeconds: 0.0,
+      subtitleDelaySeconds: 0.0,
+      audioDelaySeconds: 0.0,
       chapters: const [],
       clearSkipWindow: true,
       clearError: true,
@@ -1151,6 +1153,18 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
         .updateQualityConfig(updater);
     final nextConfig = _ref.read(playbackPreferencesProvider).qualityConfig;
     _session?.applyLiveQualityConfig(nextConfig);
+  }
+
+  /// 一键重置字幕延迟、字号、底部边距与 ASS 样式覆写模式为标准默认值。
+  Future<void> resetSubtitleAdjustments() async {
+    setSubtitleDelay(0);
+    await updateLiveQuality(
+      (c) => c.copyWith(
+        subFontSize: PlaybackQualityConfig.defaultSubFontSize,
+        subBottomMargin: PlaybackQualityConfig.defaultSubBottomMargin,
+        subOverrideMode: SubtitleAssOverrideMode.preserveAss,
+      ),
+    );
   }
 
   void toggleProbeOverlay() {

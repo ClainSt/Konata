@@ -283,6 +283,9 @@ void main() {
       );
       expect(audioClient.options['vid'], equals('no'));
       expect(audioClient.options['vo'], equals('null'));
+      expect(audioClient.options['keep-open'], equals('no'));
+      expect(audioClient.options['loop-file'], equals('no'));
+      expect(audioClient.options['loop-playlist'], equals('no'));
       expect(audioClient.options['cache-pause'], equals('no'));
       expect(audioClient.options['gapless-audio'], equals('yes'));
     });
@@ -299,6 +302,57 @@ void main() {
         logStore.buildRecentIncidentReport(),
         contains('[option:legacy-opt=1] skipped'),
       );
+    });
+
+    test('字幕热更新在 Scale / Force / Preserve 三模式下精确写入 sub-scale、浮点字号与边距', () {
+      final client = _FakeLibMpvClient();
+
+      // 1. Scale 模式：sub-scale 按 64 / 52 比例缩放，字号保持基准 52.0 (double)
+      MpvQualityProfile.applyLiveQualityUpdate(
+        client,
+        config: const PlaybackQualityConfig(
+          subFontSize: 64,
+          subBottomMargin: 28,
+          subOverrideMode: SubtitleAssOverrideMode.scaleOnly,
+        ),
+        isWindowsOverride: true,
+        isAndroidOverride: false,
+      );
+      expect(client.stringProps['sub-ass-override'], equals('scale'));
+      expect(client.doubleProps['sub-font-size'], equals(52.0));
+      expect(client.doubleProps['sub-scale'], closeTo(64.0 / 52.0, 1e-4));
+
+      // 2. Force 模式：强制覆写字号 68.0 (double)、底部边距 0 (int) 与 sub-ass-force-margins
+      MpvQualityProfile.applyLiveQualityUpdate(
+        client,
+        config: const PlaybackQualityConfig(
+          subFontSize: 68,
+          subBottomMargin: 0,
+          subOverrideMode: SubtitleAssOverrideMode.forceStyle,
+        ),
+        isWindowsOverride: true,
+        isAndroidOverride: false,
+      );
+      expect(client.stringProps['sub-ass-override'], equals('force'));
+      expect(client.doubleProps['sub-font-size'], equals(68.0));
+      expect(client.doubleProps['sub-scale'], equals(1.0));
+      expect(client.intProps['sub-margin-y'], equals(0));
+      expect(client.boolProps['sub-ass-force-margins'], isTrue);
+
+      // 3. Preserve 模式：还原 ASS 原生样式与 1.0x 缩放
+      MpvQualityProfile.applyLiveQualityUpdate(
+        client,
+        config: const PlaybackQualityConfig(
+          subFontSize: 52,
+          subBottomMargin: 28,
+          subOverrideMode: SubtitleAssOverrideMode.preserveAss,
+        ),
+        isWindowsOverride: true,
+        isAndroidOverride: false,
+      );
+      expect(client.stringProps['sub-ass-override'], equals('no'));
+      expect(client.doubleProps['sub-scale'], equals(1.0));
+      expect(client.boolProps['sub-ass-force-margins'], isFalse);
     });
 
     test('存在 native/konata-native/windows/libmpv-2.dll 时真实探针返回可用版本', () async {

@@ -186,15 +186,21 @@ class MpvSafePropertySetter {
     return _handleResult(client, 'prop:$name=$value', rc);
   }
 
-  /// 运行时写入整数属性。
+  /// 运行时写入整数属性（若底层参数实际为浮点/字符串格式则自动回退字符串写入）。
   bool setInt(LibMpvClient client, String name, int value) {
-    final rc = client.setPropertyInt64(name, value);
+    var rc = client.setPropertyInt64(name, value);
+    if (rc == MpvError.propertyFormat) {
+      rc = client.setPropertyString(name, '$value');
+    }
     return _handleResult(client, 'prop:$name=$value', rc);
   }
 
-  /// 运行时写入双精度浮点属性。
+  /// 运行时写入双精度浮点属性（若底层参数格式受限则自动回退字符串写入）。
   bool setDouble(LibMpvClient client, String name, double value) {
-    final rc = client.setPropertyDouble(name, value);
+    var rc = client.setPropertyDouble(name, value);
+    if (rc == MpvError.propertyFormat) {
+      rc = client.setPropertyString(name, '$value');
+    }
     return _handleResult(client, 'prop:$name=$value', rc);
   }
 
@@ -406,18 +412,33 @@ class MpvQualityProfile {
     }
 
     // 字幕与外挂音轨策略
+    final subParams = resolveSubtitleParameters(config);
     setter.setOption(client, 'sub-auto', 'fuzzy');
     setter.setOption(client, 'audio-file-auto', 'fuzzy');
     setter.setOption(client, 'sub-font-provider', 'auto');
-    setter.setOption(client, 'sub-ass-override', config.subOverrideMode.mpvValue);
-    setter.setOption(client, 'sub-font-size', '${config.subFontSize}');
-    setter.setOption(client, 'sub-margin-y', '${config.subBottomMargin}');
+    setter.setOption(client, 'sub-font-size', '${subParams.fontSize}');
+    setter.setOption(
+      client,
+      'sub-scale',
+      subParams.scale.toStringAsFixed(4),
+    );
+    setter.setOption(client, 'sub-margin-y', '${subParams.marginY}');
+    setter.setOption(client, 'sub-pos', '${subParams.subPos}');
+    setter.setOption(client, 'sub-use-margins', 'yes');
+    setter.setOption(
+      client,
+      'sub-ass-force-margins',
+      config.subOverrideMode == SubtitleAssOverrideMode.forceStyle
+          ? 'yes'
+          : 'no',
+    );
     if (config.subFontName.trim().isNotEmpty) {
       setter.setOption(client, 'sub-font', config.subFontName.trim());
     }
     if (config.subColorHex.trim().isNotEmpty) {
       setter.setOption(client, 'sub-color', config.subColorHex.trim());
     }
+    setter.setOption(client, 'sub-ass-override', subParams.assOverride);
 
     // 原画无 OSD 高精度 PNG 截图配置（直存作品目录）
     if (screenshotDir != null) {
@@ -441,6 +462,7 @@ class MpvQualityProfile {
 
     setter.setDouble(client, 'speed', config.defaultSpeed);
     setter.setBool(client, 'audio-pitch-correction', config.keepPitch);
+    _applySubtitleRuntimeProperties(client, config: config, setter: setter);
 
     if (isWindows && config.wasapiExclusive) {
       final ok = setter.setBool(client, 'audio-exclusive', true);
@@ -449,6 +471,74 @@ class MpvQualityProfile {
         onWasapiFallbackNotice?.call('WASAPI 独占模式初始化受限，已自动回退至共享混音输出');
       }
     }
+  }
+
+  /// 解析当前字幕配置对应的 `libmpv` 标准参数组合（区分 `no` / `scale` / `force`）。
+  static ({
+    String assOverride,
+    double fontSize,
+    double scale,
+    int marginY,
+    double subPos,
+  })
+  resolveSubtitleParameters(PlaybackQualityConfig config) {
+    final clampedSize = config.subFontSize.clamp(24, 96);
+    final clampedMargin = config.subBottomMargin.clamp(0, 120);
+    return switch (config.subOverrideMode) {
+      SubtitleAssOverrideMode.preserveAss => (
+        assOverride: 'no',
+        fontSize: clampedSize.toDouble(),
+        scale: 1.0,
+        marginY: clampedMargin,
+        subPos: 100.0,
+      ),
+      SubtitleAssOverrideMode.scaleOnly => (
+        assOverride: 'scale',
+        fontSize: PlaybackQualityConfig.defaultSubFontSize.toDouble(),
+        scale: clampedSize / PlaybackQualityConfig.defaultSubFontSize,
+        marginY: clampedMargin,
+        subPos: 100.0,
+      ),
+      SubtitleAssOverrideMode.forceStyle => (
+        assOverride: 'force',
+        fontSize: clampedSize.toDouble(),
+        scale: 1.0,
+        marginY: clampedMargin,
+        subPos: 100.0,
+      ),
+    };
+  }
+
+  static void _applySubtitleRuntimeProperties(
+    LibMpvClient client, {
+    required PlaybackQualityConfig config,
+    required MpvSafePropertySetter setter,
+  }) {
+    final subParams = resolveSubtitleParameters(config);
+    // 先写入底层字号（double）、缩放倍率（sub-scale）、垂直边距与字体色彩，
+    // 最后写入/刷新 sub-ass-override 以确保 sd_ass 立即重建 ASS 轨道样式缓存并重绘 OSD。
+    setter.setDouble(client, 'sub-font-size', subParams.fontSize);
+    setter.setDouble(client, 'sub-scale', subParams.scale);
+    setter.setInt(client, 'sub-margin-y', subParams.marginY);
+    setter.setDouble(client, 'sub-pos', subParams.subPos);
+    setter.setBool(client, 'sub-use-margins', true);
+    setter.setBool(
+      client,
+      'sub-ass-force-margins',
+      config.subOverrideMode == SubtitleAssOverrideMode.forceStyle,
+    );
+    if (config.subFontName.trim().isNotEmpty) {
+      setter.setString(client, 'sub-font', config.subFontName.trim());
+    }
+    if (config.subColorHex.trim().isNotEmpty) {
+      setter.setString(client, 'sub-color', config.subColorHex.trim());
+    }
+    final previousOverride = client.getPropertyString('sub-ass-override');
+    if (config.subOverrideMode != SubtitleAssOverrideMode.preserveAss &&
+        previousOverride == subParams.assOverride) {
+      setter.setString(client, 'sub-ass-override', 'no');
+    }
+    setter.setString(client, 'sub-ass-override', subParams.assOverride);
   }
 
   /// 在播放运行过程中热切换画质预设、去色带、着色器、硬解或字幕样式。
@@ -485,15 +575,7 @@ class MpvQualityProfile {
     );
     setter.setString(client, 'glsl-shaders', shaders);
 
-    setter.setString(client, 'sub-ass-override', config.subOverrideMode.mpvValue);
-    setter.setInt(client, 'sub-font-size', config.subFontSize);
-    setter.setInt(client, 'sub-margin-y', config.subBottomMargin);
-    if (config.subFontName.trim().isNotEmpty) {
-      setter.setString(client, 'sub-font', config.subFontName.trim());
-    }
-    if (config.subColorHex.trim().isNotEmpty) {
-      setter.setString(client, 'sub-color', config.subColorHex.trim());
-    }
+    _applySubtitleRuntimeProperties(client, config: config, setter: setter);
 
     if (config.audioDevice.trim().isNotEmpty) {
       setter.setString(client, 'audio-device', config.audioDevice);
@@ -526,7 +608,9 @@ class MpvQualityProfile {
     setter.setOption(client, 'config', 'yes');
     setter.setOption(client, 'config-dir', mpvConfigDir.path);
     setter.setOption(client, 'idle', 'yes');
-    setter.setOption(client, 'keep-open', 'yes');
+    setter.setOption(client, 'keep-open', 'no');
+    setter.setOption(client, 'loop-file', 'no');
+    setter.setOption(client, 'loop-playlist', 'no');
     setter.setOption(client, 'vid', 'no');
     setter.setOption(client, 'video', 'no');
     setter.setOption(client, 'vo', 'null');

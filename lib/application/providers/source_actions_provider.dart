@@ -273,10 +273,18 @@ class KonataActionsCoordinator {
     }
   }
 
-  /// 保存外部播放器配置。
-  Future<void> saveExternalPlayer(ExternalPlayerConfig config) async {
+  /// 保存单个外部播放器配置。
+  Future<void> saveExternalPlayer(ExternalPlayerConfig config) =>
+      saveExternalPlayers([config]);
+
+  /// 批量保存外部播放器与查看器配置并合并触发一次列表刷新。
+  Future<void> saveExternalPlayers(
+    Iterable<ExternalPlayerConfig> configs,
+  ) async {
     final repo = _ref.read(libraryRepositoryProvider);
-    await repo.upsertExternalPlayer(config);
+    for (final config in configs) {
+      await repo.upsertExternalPlayer(config);
+    }
     _ref.invalidate(externalPlayersProvider);
   }
 

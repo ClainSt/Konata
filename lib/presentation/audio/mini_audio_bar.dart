@@ -544,9 +544,7 @@ class _MiniAudioQueuePopover extends StatelessWidget {
                                   dur.inMilliseconds / 1000.0,
                                 )
                               : '';
-                          final subtitle = qItem.versionBadge.isNotEmpty
-                              ? '${qItem.versionBadge} · ${qItem.displaySubtitle}'
-                              : qItem.displaySubtitle;
+                          final subtitle = qItem.displaySubtitle;
 
                           return _MiniQueueTrackTile(
                             trackPrefix: trackPrefix,

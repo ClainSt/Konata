@@ -368,6 +368,34 @@ void main() {
           await tester.tap(find.text('高保真保留原盘特效 (推荐)').last);
           await tester.pump(const Duration(milliseconds: 350));
           await tester.pumpAndSettle();
+
+          // 拖动「字号」滑块时自动由 preserveAss 提升为 scaleOnly；拖动「底部边距」自动提升为 forceStyle
+          final sliders = find.descendant(
+            of: find.byType(VideoSideSheet),
+            matching: find.byType(Slider),
+          );
+          final fontSlider = tester.widget<Slider>(sliders.at(0));
+          fontSlider.onChanged!(64.0);
+          await tester.pumpAndSettle();
+          expect(find.text('仅允许缩放字号 (Scale)'), findsOneWidget);
+
+          final marginSlider = tester.widget<Slider>(sliders.at(1));
+          marginSlider.onChanged!(0.0);
+          await tester.pumpAndSettle();
+          expect(find.text('统一覆写字体与边距 (Force)'), findsOneWidget);
+
+          final resetBtn = find.descendant(
+            of: find.byType(VideoSideSheet),
+            matching: find.text('恢复默认'),
+          );
+          expect(resetBtn, findsOneWidget);
+          await tester.ensureVisible(resetBtn);
+          await tester.pumpAndSettle();
+          await tester.tap(resetBtn);
+          await tester.pump(const Duration(milliseconds: 350));
+          await tester.pumpAndSettle();
+          expect(find.text('高保真保留原盘特效 (推荐)'), findsOneWidget);
+          expect(resetBtn, findsNothing);
           expect(tester.takeException(), isNull);
         }
         debugDefaultTargetPlatformOverride = null;

@@ -7,12 +7,7 @@ import 'package:flutter/material.dart';
 import '../../theme/konata_palette.dart';
 import '../../theme/konata_playback_tokens.dart';
 
-/// 音视频播控胶囊共用的紧凑滚轮数字音量控件（形如 `🔊 80`，彻底去除横向滑杆与 `%`）。
-///
-/// 交互规范：
-/// - 悬停在控件或浮层上滚动鼠标滚轮，以 `1` 步长（`0..100`）精确微调音量；
-/// - 点击控件主体即刻静音 / 恢复静音前精确音量；
-/// - 鼠标悬停时自动在上方弹出无遮挡毛玻璃纵向滑条浮层，支持 0 延迟点击、框外拖拽锁定与 1:1 连续调节。
+/// 音视频播控胶囊共用的紧凑音量控件与悬浮竖向音量胶囊。
 class KonataVolumeControl extends StatefulWidget {
   /// 创建紧凑音量控件。
   const KonataVolumeControl({
@@ -23,6 +18,7 @@ class KonataVolumeControl extends StatefulWidget {
     required this.onToggleMute,
     this.onPopupActiveChanged,
     this.allowPopover = true,
+    this.externalRevealPulse = 0,
   });
 
   /// 当前音量 (`0.0 ~ 1.0`)。
@@ -37,23 +33,34 @@ class KonataVolumeControl extends StatefulWidget {
   /// 点击切换静音回调。
   final VoidCallback onToggleMute;
 
-  /// 纵向音量浮层悬停或拖拽激活态变更回调（供视频页锁定底栏不自动隐藏）。
+  /// 纵向音量浮层激活态变更回调（供视频页锁定底栏不提前淡出）。
   final ValueChanged<bool>? onPopupActiveChanged;
 
-  /// 宿主当前是否允许保持或展示纵向音量浮层（外部强制隐藏 HUD 时关闭浮层防残留）。
+  /// 宿主当前是否允许保持或展示纵向音量浮层。
   final bool allowPopover;
+
+  /// 外部（如视频画布全局鼠标滚轮或方向键）调节音量时的唤醒脉冲计数。
+  final int externalRevealPulse;
 
   @override
   State<KonataVolumeControl> createState() => _KonataVolumeControlState();
 }
 
 class _KonataVolumeControlState extends State<KonataVolumeControl> {
+  static const Duration _kAdjustIdleAutoHideDelay = Duration(
+    milliseconds: 1500,
+  );
+  static const double _kPopoverClearanceBridgeHeight = 24.0;
+
   final LayerLink _layerLink = LayerLink();
   final OverlayPortalController _overlayController = OverlayPortalController();
   Timer? _hideTimer;
+  Timer? _adjustIdleTimer;
   bool _anchorHovered = false;
   bool _popoverHovered = false;
   bool _isDragging = false;
+  bool _showVolumeNumber = false;
+  bool _wheelHoldOpen = false;
   bool _lastNotifiedPopupActive = false;
 
   @override
@@ -63,11 +70,16 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
         (_overlayController.isShowing ||
             _anchorHovered ||
             _popoverHovered ||
-            _isDragging)) {
+            _isDragging ||
+            _showVolumeNumber ||
+            _wheelHoldOpen)) {
       _hideTimer?.cancel();
+      _adjustIdleTimer?.cancel();
       _anchorHovered = false;
       _popoverHovered = false;
       _isDragging = false;
+      _showVolumeNumber = false;
+      _wheelHoldOpen = false;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || widget.allowPopover) return;
         if (_overlayController.isShowing) {
@@ -75,12 +87,27 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
         }
         _notifyPopupActiveState();
       });
+      return;
+    }
+
+    if (widget.externalRevealPulse != oldWidget.externalRevealPulse &&
+        widget.allowPopover) {
+      _hideTimer?.cancel();
+      _adjustIdleTimer?.cancel();
+      _showVolumeNumber = true;
+      _wheelHoldOpen = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !widget.allowPopover) return;
+        _showPopoverIfPossible();
+        _restartAdjustIdleTimer();
+      });
     }
   }
 
   @override
   void dispose() {
     _hideTimer?.cancel();
+    _adjustIdleTimer?.cancel();
     super.dispose();
   }
 
@@ -94,18 +121,54 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
     return Icons.volume_up_rounded;
   }
 
+  void _markVolumeAdjusting({bool holdOpen = false}) {
+    _cancelHide();
+    _adjustIdleTimer?.cancel();
+    final needRebuild = !_showVolumeNumber || (holdOpen && !_wheelHoldOpen);
+    _showVolumeNumber = true;
+    if (holdOpen) {
+      _wheelHoldOpen = true;
+    }
+    if (needRebuild && mounted) {
+      setState(() {});
+    }
+    _showPopoverIfPossible();
+    if (!_isDragging) {
+      _restartAdjustIdleTimer();
+    }
+  }
+
+  void _restartAdjustIdleTimer() {
+    _adjustIdleTimer?.cancel();
+    _adjustIdleTimer = Timer(_kAdjustIdleAutoHideDelay, () {
+      if (!mounted || _isDragging) return;
+      setState(() {
+        _showVolumeNumber = false;
+        _wheelHoldOpen = false;
+      });
+      if (!_anchorHovered && !_popoverHovered) {
+        if (_overlayController.isShowing) {
+          _overlayController.hide();
+        }
+      }
+      _notifyPopupActiveState();
+    });
+  }
+
   void _handlePointerSignal(PointerSignalEvent signal) {
     if (signal is! PointerScrollEvent) return;
     final dy = signal.scrollDelta.dy;
     if (dy == 0) return;
-    final stepPct = (dy < 0
-            ? KonataPlaybackTokens.wheelVolumeStep
-            : -KonataPlaybackTokens.wheelVolumeStep)
-        .round();
+    final stepPct =
+        (dy < 0
+                ? KonataPlaybackTokens.wheelVolumeStep
+                : -KonataPlaybackTokens.wheelVolumeStep)
+            .round();
     final currentPct =
         ((widget.isMuted ? 0.0 : widget.volume.clamp(0.0, 1.0)) * 100).round();
     final nextPct = (currentPct + stepPct).clamp(0, 100);
     widget.onVolumeChanged(nextPct / 100.0);
+    _markVolumeAdjusting(holdOpen: true);
   }
 
   void _cancelHide() {
@@ -114,10 +177,12 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
   }
 
   void _notifyPopupActiveState() {
-    final active = _overlayController.isShowing ||
+    final active =
+        _overlayController.isShowing ||
         _anchorHovered ||
         _popoverHovered ||
-        _isDragging;
+        _isDragging ||
+        _wheelHoldOpen;
     if (_lastNotifiedPopupActive == active) return;
     _lastNotifiedPopupActive = active;
     widget.onPopupActiveChanged?.call(active);
@@ -133,10 +198,22 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
   }
 
   void _scheduleHideIfIdle() {
-    if (_anchorHovered || _popoverHovered || _isDragging) return;
+    if (_anchorHovered || _popoverHovered || _isDragging || _wheelHoldOpen) {
+      return;
+    }
     _hideTimer?.cancel();
     _hideTimer = Timer(KonataPlaybackTokens.volumePopoverDismissDelay, () {
-      if (!mounted || _anchorHovered || _popoverHovered || _isDragging) return;
+      if (!mounted ||
+          _anchorHovered ||
+          _popoverHovered ||
+          _isDragging ||
+          _wheelHoldOpen) {
+        return;
+      }
+      _adjustIdleTimer?.cancel();
+      if (_showVolumeNumber) {
+        setState(() => _showVolumeNumber = false);
+      }
       if (_overlayController.isShowing) {
         _overlayController.hide();
       }
@@ -145,18 +222,29 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
   }
 
   void _setDragging(bool dragging) {
-    if (_isDragging != dragging) {
-      setState(() => _isDragging = dragging);
+    if (_isDragging != dragging || (dragging && !_showVolumeNumber)) {
+      setState(() {
+        _isDragging = dragging;
+        if (dragging) {
+          _showVolumeNumber = true;
+        }
+      });
     }
     if (dragging) {
       _cancelHide();
+      _adjustIdleTimer?.cancel();
     }
     _notifyPopupActiveState();
   }
 
   void _finishDrag() {
     _setDragging(false);
-    _scheduleHideIfIdle();
+    if (_anchorHovered || _popoverHovered) {
+      _restartAdjustIdleTimer();
+    } else {
+      _wheelHoldOpen = false;
+      _scheduleHideIfIdle();
+    }
   }
 
   void _updateFromPopoverDy(double dy) {
@@ -172,6 +260,7 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
   Widget _buildPopover(BuildContext context) {
     final p = context.palette;
     final effective = widget.isMuted ? 0.0 : widget.volume.clamp(0.0, 1.0);
+    final displayPct = (effective * 100).round().clamp(0, 100);
     final bgColor = KonataPlaybackTokens.glassSurface(p);
     final borderColor = KonataPlaybackTokens.glassBorder(p);
     final activeColor = p.progressFill;
@@ -203,174 +292,232 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
                   _notifyPopupActiveState();
                 },
                 onExit: (_) {
-                  setState(() => _popoverHovered = false);
+                  setState(() {
+                    _popoverHovered = false;
+                    _wheelHoldOpen = false;
+                  });
                   _scheduleHideIfIdle();
                 },
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    MouseRegion(
-                      cursor: _isDragging
-                          ? SystemMouseCursors.grabbing
-                          : SystemMouseCursors.click,
-                      child: RawGestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        gestures: {
-                          VerticalDragGestureRecognizer:
-                              GestureRecognizerFactoryWithHandlers<
-                                  VerticalDragGestureRecognizer>(
-                                () => VerticalDragGestureRecognizer()
-                                  ..dragStartBehavior = DragStartBehavior.down
-                                  ..gestureSettings =
-                                      const DeviceGestureSettings(
-                                        touchSlop: 1.0,
-                                      ),
-                                (instance) {
-                                  instance
-                                    ..dragStartBehavior = DragStartBehavior.down
-                                    ..gestureSettings =
-                                        const DeviceGestureSettings(
-                                          touchSlop: 1.0,
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(999),
+                        boxShadow: [
+                          BoxShadow(
+                            color: KonataPlaybackTokens.shadowColor(p),
+                            blurRadius: 18,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: bgColor,
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(color: borderColor, width: 1),
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                AnimatedSize(
+                                  duration: const Duration(milliseconds: 150),
+                                  curve: Curves.easeOutCubic,
+                                  child: _showVolumeNumber
+                                      ? Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 10,
+                                            bottom: 2,
+                                          ),
+                                          child: SizedBox(
+                                            width: KonataPlaybackTokens
+                                                .volumePopoverWidth,
+                                            child: Text(
+                                              '$displayPct',
+                                              key: const ValueKey(
+                                                'konata_volume_popover_number',
+                                              ),
+                                              textAlign: TextAlign.center,
+                                              maxLines: 1,
+                                              softWrap: false,
+                                              style: TextStyle(
+                                                color: p.textPrimary,
+                                                fontSize: 11.0,
+                                                fontWeight: FontWeight.w700,
+                                                fontFeatures:
+                                                    KonataPlaybackTokens
+                                                        .tabularNumbers,
+                                                height: 1.1,
+                                                decoration: TextDecoration.none,
+                                              ),
+                                            ),
+                                          ),
                                         )
-                                    ..onDown = (d) {
-                                      _setDragging(true);
-                                      _updateFromPopoverDy(d.localPosition.dy);
-                                    }
-                                    ..onStart = (d) {
-                                      _setDragging(true);
-                                      _updateFromPopoverDy(d.localPosition.dy);
-                                    }
-                                    ..onUpdate = (d) {
-                                      _updateFromPopoverDy(d.localPosition.dy);
-                                    }
-                                    ..onEnd = (_) {
-                                      _finishDrag();
-                                    }
-                                    ..onCancel = _finishDrag;
-                                },
-                              ),
-                          TapGestureRecognizer:
-                              GestureRecognizerFactoryWithHandlers<
-                                  TapGestureRecognizer>(
-                                () => TapGestureRecognizer()
-                                  ..gestureSettings =
-                                      const DeviceGestureSettings(
-                                        touchSlop: 1.0,
-                                      ),
-                                (instance) {
-                                  instance
-                                    ..gestureSettings =
-                                        const DeviceGestureSettings(
-                                          touchSlop: 1.0,
-                                        )
-                                    ..onTapDown = (d) {
-                                      _setDragging(true);
-                                      _updateFromPopoverDy(d.localPosition.dy);
-                                    }
-                                    ..onTapUp = (_) {
-                                      _finishDrag();
-                                    }
-                                    ..onTapCancel = _finishDrag;
-                                },
-                              ),
-                        },
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(999),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
-                            child: Container(
-                              width: KonataPlaybackTokens.volumePopoverWidth,
-                              height: KonataPlaybackTokens.volumePopoverHeight,
-                              padding: const EdgeInsets.symmetric(
-                                vertical: KonataPlaybackTokens
-                                    .volumePopoverVerticalPadding,
-                              ),
-                              decoration: BoxDecoration(
-                                color: bgColor,
-                                borderRadius: BorderRadius.circular(999),
-                                border: Border.all(
-                                  color: borderColor,
-                                  width: 1,
+                                      : const SizedBox.shrink(),
                                 ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.28),
-                                    blurRadius: 18,
-                                    offset: const Offset(0, 6),
-                                  ),
-                                ],
-                              ),
-                              child: Center(
-                                child: Stack(
-                                  alignment: Alignment.bottomCenter,
-                                  clipBehavior: Clip.none,
-                                  children: [
-                                    Container(
-                                      width: 4,
-                                      height: trackHeight,
-                                      decoration: BoxDecoration(
-                                        color: trackColor,
-                                        borderRadius: BorderRadius.circular(
-                                          999,
-                                        ),
+                                MouseRegion(
+                                  cursor: _isDragging
+                                      ? SystemMouseCursors.grabbing
+                                      : SystemMouseCursors.click,
+                                  child: RawGestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    gestures: {
+                                      VerticalDragGestureRecognizer:
+                                          GestureRecognizerFactoryWithHandlers<
+                                            VerticalDragGestureRecognizer
+                                          >(
+                                            () => VerticalDragGestureRecognizer()
+                                              ..dragStartBehavior =
+                                                  DragStartBehavior.down
+                                              ..gestureSettings =
+                                                  const DeviceGestureSettings(
+                                                    touchSlop: 1.0,
+                                                  ),
+                                            (instance) {
+                                              instance
+                                                ..dragStartBehavior =
+                                                    DragStartBehavior.down
+                                                ..gestureSettings =
+                                                    const DeviceGestureSettings(
+                                                      touchSlop: 1.0,
+                                                    )
+                                                ..onDown = (d) {
+                                                  _setDragging(true);
+                                                  _updateFromPopoverDy(
+                                                    d.localPosition.dy,
+                                                  );
+                                                }
+                                                ..onStart = (d) {
+                                                  _setDragging(true);
+                                                  _updateFromPopoverDy(
+                                                    d.localPosition.dy,
+                                                  );
+                                                }
+                                                ..onUpdate = (d) {
+                                                  _updateFromPopoverDy(
+                                                    d.localPosition.dy,
+                                                  );
+                                                }
+                                                ..onEnd = (_) {
+                                                  _finishDrag();
+                                                }
+                                                ..onCancel = _finishDrag;
+                                            },
+                                          ),
+                                      TapGestureRecognizer:
+                                          GestureRecognizerFactoryWithHandlers<
+                                            TapGestureRecognizer
+                                          >(
+                                            () => TapGestureRecognizer()
+                                              ..gestureSettings =
+                                                  const DeviceGestureSettings(
+                                                    touchSlop: 1.0,
+                                                  ),
+                                            (instance) {
+                                              instance
+                                                ..gestureSettings =
+                                                    const DeviceGestureSettings(
+                                                      touchSlop: 1.0,
+                                                    )
+                                                ..onTapDown = (d) {
+                                                  _setDragging(true);
+                                                  _updateFromPopoverDy(
+                                                    d.localPosition.dy,
+                                                  );
+                                                }
+                                                ..onTapUp = (_) {
+                                                  _finishDrag();
+                                                }
+                                                ..onTapCancel = _finishDrag;
+                                            },
+                                          ),
+                                    },
+                                    child: Container(
+                                      width: KonataPlaybackTokens
+                                          .volumePopoverWidth,
+                                      height: KonataPlaybackTokens
+                                          .volumePopoverHeight,
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: KonataPlaybackTokens
+                                            .volumePopoverVerticalPadding,
                                       ),
-                                    ),
-                                    Container(
-                                      width: 4,
-                                      height: (trackHeight * effective).clamp(
-                                        0.0,
-                                        trackHeight,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: activeColor,
-                                        borderRadius: BorderRadius.circular(
-                                          999,
-                                        ),
-                                      ),
-                                    ),
-                                    Positioned(
-                                      bottom:
-                                          (trackHeight * effective -
-                                                  knobSize / 2)
-                                              .clamp(
-                                                0.0,
-                                                (trackHeight - knobSize).clamp(
-                                                  0.0,
-                                                  trackHeight,
+                                      child: Center(
+                                        child: Stack(
+                                          alignment: Alignment.bottomCenter,
+                                          clipBehavior: Clip.none,
+                                          children: [
+                                            Container(
+                                              width: 4,
+                                              height: trackHeight,
+                                              decoration: BoxDecoration(
+                                                color: trackColor,
+                                                borderRadius:
+                                                    BorderRadius.circular(999),
+                                              ),
+                                            ),
+                                            Container(
+                                              width: 4,
+                                              height: (trackHeight * effective)
+                                                  .clamp(0.0, trackHeight),
+                                              decoration: BoxDecoration(
+                                                color: activeColor,
+                                                borderRadius:
+                                                    BorderRadius.circular(999),
+                                              ),
+                                            ),
+                                            Positioned(
+                                              bottom:
+                                                  (trackHeight * effective -
+                                                          knobSize / 2)
+                                                      .clamp(
+                                                        0.0,
+                                                        (trackHeight - knobSize)
+                                                            .clamp(
+                                                              0.0,
+                                                              trackHeight,
+                                                            ),
+                                                      ),
+                                              child: AnimatedContainer(
+                                                duration: const Duration(
+                                                  milliseconds: 100,
+                                                ),
+                                                width: knobSize,
+                                                height: knobSize,
+                                                decoration: BoxDecoration(
+                                                  color: activeColor,
+                                                  shape: BoxShape.circle,
+                                                  boxShadow: [
+                                                    BoxShadow(
+                                                      color: Colors.black
+                                                          .withValues(
+                                                            alpha: 0.28,
+                                                          ),
+                                                      blurRadius: 4,
+                                                    ),
+                                                  ],
                                                 ),
                                               ),
-                                      child: AnimatedContainer(
-                                        duration: const Duration(
-                                          milliseconds: 100,
-                                        ),
-                                        width: knobSize,
-                                        height: knobSize,
-                                        decoration: BoxDecoration(
-                                          color: activeColor,
-                                          shape: BoxShape.circle,
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black.withValues(
-                                                alpha: 0.28,
-                                              ),
-                                              blurRadius: 4,
                                             ),
                                           ],
                                         ),
                                       ),
                                     ),
-                                  ],
+                                  ),
                                 ),
-                              ),
+                              ],
                             ),
                           ),
                         ),
                       ),
                     ),
-                    // 底部按钮与滑轨之间的透明命中桥接区，避免指针上移跨越间隙时闪断收起。
                     Container(
                       width: KonataPlaybackTokens.volumePopoverWidth,
-                      height: KonataPlaybackTokens.volumePopoverBridgeHeight,
+                      height: _kPopoverClearanceBridgeHeight,
                       color: Colors.transparent,
                     ),
                   ],
@@ -387,9 +534,7 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
   Widget build(BuildContext context) {
     final p = context.palette;
     final effective = widget.isMuted ? 0.0 : widget.volume.clamp(0.0, 1.0);
-
     final primary = p.textPrimary;
-    final secondary = p.textSecondary;
 
     final pill = Listener(
       onPointerSignal: _handlePointerSignal,
@@ -400,12 +545,18 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
           _showPopoverIfPossible();
         },
         onExit: (_) {
-          setState(() => _anchorHovered = false);
+          setState(() {
+            _anchorHovered = false;
+            _wheelHoldOpen = false;
+          });
           _scheduleHideIfIdle();
         },
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: widget.onToggleMute,
+          onTap: () {
+            widget.onToggleMute();
+            _markVolumeAdjusting();
+          },
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 140),
             padding: const EdgeInsets.all(6),
@@ -418,7 +569,7 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
             child: Icon(
               _resolveVolumeIcon(effective),
               size: 17,
-              color: widget.isMuted ? secondary : primary,
+              color: primary,
             ),
           ),
         ),

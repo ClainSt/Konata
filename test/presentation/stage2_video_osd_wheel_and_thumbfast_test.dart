@@ -227,7 +227,10 @@ void main() {
 
       final overlayFinder = find.byType(VideoProbeOverlay);
       expect(
-        find.descendant(of: overlayFinder, matching: find.byType(BackdropFilter)),
+        find.descendant(
+          of: overlayFinder,
+          matching: find.byType(BackdropFilter),
+        ),
         findsNothing,
       );
       expect(
@@ -235,7 +238,10 @@ void main() {
         findsNothing,
       );
       expect(
-        find.descendant(of: overlayFinder, matching: find.byType(IgnorePointer)),
+        find.descendant(
+          of: overlayFinder,
+          matching: find.byType(IgnorePointer),
+        ),
         findsOneWidget,
       );
 
@@ -265,10 +271,7 @@ void main() {
           )
           .toList();
       expect(firstTexts.length, 2);
-      expect(
-        firstTexts.first.style?.foreground?.style,
-        PaintingStyle.stroke,
-      );
+      expect(firstTexts.first.style?.foreground?.style, PaintingStyle.stroke);
       expect(
         firstTexts.first.style?.foreground?.strokeWidth,
         closeTo(KonataPlaybackTokens.osdStrokeWidth, 0.001),
@@ -279,97 +282,101 @@ void main() {
       );
     });
 
-    test('MpvQualityProfile 与 MpvThumbnailService 落实强约束参数、分桶缓存与 Latest-Wins 单并发队列', () async {
-      final createdClients = <_FakeThumbLibMpvClient>[];
-      final service = MpvThumbnailService(
-        streamBridge: LocalStreamBridge(),
-        clientFactory: () {
-          final c = _FakeThumbLibMpvClient();
-          c.holdSeekRestart = true;
-          createdClients.add(c);
-          return c;
-        },
-      );
+    test(
+      'MpvQualityProfile 与 MpvThumbnailService 落实强约束参数、分桶缓存与 Latest-Wins 单并发队列',
+      () async {
+        final createdClients = <_FakeThumbLibMpvClient>[];
+        final service = MpvThumbnailService(
+          streamBridge: LocalStreamBridge(),
+          clientFactory: () {
+            final c = _FakeThumbLibMpvClient();
+            c.holdSeekRestart = true;
+            createdClients.add(c);
+            return c;
+          },
+        );
 
-      const variant = MediaVariant(
-        id: 'v1',
-        workId: 'w1',
-        episodeId: 'e1',
-        sourceId: 's1',
-        relativePath: 'BDMV/EP01.mkv',
-        fileName: 'EP01.mkv',
-        fileSize: 1024000,
-      );
+        const variant = MediaVariant(
+          id: 'v1',
+          workId: 'w1',
+          episodeId: 'e1',
+          sourceId: 's1',
+          relativePath: 'BDMV/EP01.mkv',
+          fileName: 'EP01.mkv',
+          fileSize: 1024000,
+        );
 
-      await service.warmUp(
-        variant: variant,
-        source: null,
-        durationSeconds: 1440,
-      );
-      expect(createdClients.length, 1);
-      final client = createdClients.first;
+        await service.warmUp(
+          variant: variant,
+          source: null,
+          durationSeconds: 1440,
+        );
+        expect(createdClients.length, 1);
+        final client = createdClients.first;
 
-      // 校验 14 项远程剥离与微缓冲参数
-      expect(client.options['aid'], 'no');
-      expect(client.options['sid'], 'no');
-      expect(client.options['embeddedfonts'], 'no');
-      expect(client.options['sub-auto'], 'no');
-      expect(client.options['hr-seek'], 'no');
-      expect(client.options['vd-lavc-fast'], 'yes');
-      expect(client.options['vd-lavc-skiploopfilter'], 'all');
-      expect(client.options['glsl-shaders'], '');
-      expect(client.options['deband'], 'no');
-      expect(client.options['scale'], 'bilinear');
-      expect(client.options['cache'], 'no');
-      expect(client.options['demuxer-readahead-secs'], '0');
-      expect(client.options['demuxer-max-bytes'], '524288');
-      expect(client.options['stream-buffer-size'], '65536');
+        // 校验 14 项远程剥离与微缓冲参数
+        expect(client.options['aid'], 'no');
+        expect(client.options['sid'], 'no');
+        expect(client.options['embeddedfonts'], 'no');
+        expect(client.options['sub-auto'], 'no');
+        expect(client.options['hr-seek'], 'no');
+        expect(client.options['vd-lavc-fast'], 'yes');
+        expect(client.options['vd-lavc-skiploopfilter'], 'all');
+        expect(client.options['glsl-shaders'], '');
+        expect(client.options['deband'], 'no');
+        expect(client.options['scale'], 'bilinear');
+        expect(client.options['cache'], 'no');
+        expect(client.options['demuxer-readahead-secs'], '0');
+        expect(client.options['demuxer-max-bytes'], '524288');
+        expect(client.options['stream-buffer-size'], '65536');
 
-      // 校验远程 WebDAV 5s 时间桶与本地 1s 时间桶量化
-      expect(
-        ThumbnailBucketCache.quantizeBucketSeconds(12.2, isRemote: false),
-        12.0,
-      );
-      expect(
-        ThumbnailBucketCache.quantizeBucketSeconds(12.2, isRemote: true),
-        10.0,
-      );
-      expect(
-        ThumbnailBucketCache.quantizeBucketSeconds(13.0, isRemote: true),
-        15.0,
-      );
+        // 校验远程 WebDAV 5s 时间桶与本地 1s 时间桶量化
+        expect(
+          ThumbnailBucketCache.quantizeBucketSeconds(12.2, isRemote: false),
+          12.0,
+        );
+        expect(
+          ThumbnailBucketCache.quantizeBucketSeconds(12.2, isRemote: true),
+          10.0,
+        );
+        expect(
+          ThumbnailBucketCache.quantizeBucketSeconds(13.0, isRemote: true),
+          15.0,
+        );
 
-      // 校验 Latest-Wins 单并发：10s 抽取尚未完成时连续划过 30s -> 45s -> 75s，
-      // 最终只执行 10s 与 75s，严禁重复调用 loadfile。
-      service.requestPreview(10.0);
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-      service.requestPreview(30.0);
-      service.requestPreview(45.0);
-      service.requestPreview(75.0);
-      expect(service.pendingUserBucket, 75.0);
+        // 校验 Latest-Wins 单并发：10s 抽取尚未完成时连续划过 30s -> 45s -> 75s，
+        // 最终只执行 10s 与 75s，严禁重复调用 loadfile。
+        service.requestPreview(10.0);
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        service.requestPreview(30.0);
+        service.requestPreview(45.0);
+        service.requestPreview(75.0);
+        expect(service.pendingUserBucket, 75.0);
 
-      client.currentSeekGate?.complete();
-      await Future<void>.delayed(const Duration(milliseconds: 15));
-      client.currentSeekGate?.complete();
-      await Future<void>.delayed(const Duration(milliseconds: 15));
+        client.currentSeekGate?.complete();
+        await Future<void>.delayed(const Duration(milliseconds: 15));
+        client.currentSeekGate?.complete();
+        await Future<void>.delayed(const Duration(milliseconds: 15));
 
-      final loadCount =
-          client.commands.where((cmd) => cmd.first == 'loadfile').length;
-      final seekTargets = client.commands
-          .where((cmd) => cmd.first == 'seek')
-          .map((cmd) => cmd[1])
-          .toList();
-      expect(loadCount, 1);
-      expect(seekTargets, ['10.000', '75.000']);
-      expect(service.resolvePreviewFrame(75.0), isNotNull);
-      // 尚未缓存的时间点返回邻近缓存帧防闪烁
-      expect(service.resolvePreviewFrame(70.0), isNotNull);
+        final loadCount = client.commands
+            .where((cmd) => cmd.first == 'loadfile')
+            .length;
+        final seekTargets = client.commands
+            .where((cmd) => cmd.first == 'seek')
+            .map((cmd) => cmd[1])
+            .toList();
+        expect(loadCount, 1);
+        expect(seekTargets, ['10.000', '75.000']);
+        expect(service.resolvePreviewFrame(75.0), isNotNull);
+        // 尚未缓存的时间点返回邻近缓存帧防闪烁
+        expect(service.resolvePreviewFrame(70.0), isNotNull);
 
-      await service.release();
-      expect(client.swReleased, isTrue);
-      expect(client.isDisposed, isTrue);
-      service.dispose();
-    });
+        await service.release();
+        expect(client.swReleased, isTrue);
+        expect(client.isDisposed, isTrue);
+        service.dispose();
+      },
+    );
 
     testWidgets('KonataPlaybackCapsule 展示 45° 菱形章节点与 16:9 缩略图悬浮预览气泡', (
       tester,
@@ -470,10 +477,7 @@ void main() {
       addTearDown(db.close);
       final repo = DriftLibraryRepository(db);
 
-      const work = Work(
-        id: 'w1',
-        title: '测试动画',
-      );
+      const work = Work(id: 'w1', title: '测试动画');
       const ep = Episode(
         id: 'e1',
         workId: 'w1',
@@ -544,7 +548,9 @@ void main() {
       await tester.pump();
 
       final pointer = TestPointer(1, PointerDeviceKind.mouse);
-      await tester.sendEventToBinding(pointer.addPointer(location: Offset.zero));
+      await tester.sendEventToBinding(
+        pointer.addPointer(location: Offset.zero),
+      );
       addTearDown(() async {
         await tester.sendEventToBinding(pointer.removePointer());
       });
@@ -559,7 +565,13 @@ void main() {
       await tester.pump();
 
       expect(fakeCtrl.state.volume, closeTo(51.0, 0.1));
-      expect(find.text('音量 51%'), findsWidgets);
+      await tester.pump();
+      expect(find.text('音量 51%'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('konata_volume_popover_number')),
+        findsOneWidget,
+      );
+      expect(find.text('51'), findsWidgets);
 
       // 打开右侧选集抽屉后，滚动侧栏不触发视频画布滚轮调音
       fakeCtrl.forceState(fakeCtrl.state.copyWith(sideSheetOpen: true));
@@ -575,18 +587,13 @@ void main() {
       fakeCtrl.forceState(fakeCtrl.state.copyWith(sideSheetOpen: false));
       await tester.pump();
 
-      // 超过 1.2s 后瞬时音量 OSD 自动淡出
-      await tester.pump(const Duration(milliseconds: 1300));
-      await tester.pumpAndSettle();
-      final opacityWidget = tester.widget<AnimatedOpacity>(
-        find
-            .ancestor(
-              of: find.text('音量 51%'),
-              matching: find.byType(AnimatedOpacity),
-            )
-            .first,
+      // 超过 1.5s 无滚轮操作后竖向音量胶囊与顶部数字自动消失
+      await tester.pump(const Duration(milliseconds: 1600));
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(
+        find.byKey(const ValueKey('konata_volume_popover_number')),
+        findsNothing,
       );
-      expect(opacityWidget.opacity, 0.0);
     });
   });
 }

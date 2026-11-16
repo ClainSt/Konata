@@ -25,6 +25,7 @@ class KonataCapsuleIconButton extends StatefulWidget {
     this.highlightColor,
     this.highlightBgColor,
     this.showHighlightBorder = true,
+    this.showHoverBackground = true,
     this.borderRadius = 999,
     this.fixedSize,
   });
@@ -39,6 +40,7 @@ class KonataCapsuleIconButton extends StatefulWidget {
   final Color? highlightColor;
   final Color? highlightBgColor;
   final bool showHighlightBorder;
+  final bool showHoverBackground;
   final double borderRadius;
   final double? fixedSize;
 
@@ -94,7 +96,7 @@ class _KonataCapsuleIconButtonState extends State<KonataCapsuleIconButton> {
                           baseColor.withValues(
                             alpha: _hovered && enabled ? 0.28 : 0.22,
                           ))
-                    : ((_hovered && enabled)
+                    : ((_hovered && enabled && widget.showHoverBackground)
                           ? baseColor.withValues(alpha: 0.12)
                           : Colors.transparent),
                 border: (widget.highlighted && widget.showHighlightBorder)
@@ -105,7 +107,11 @@ class _KonataCapsuleIconButtonState extends State<KonataCapsuleIconButton> {
                     : null,
                 borderRadius: BorderRadius.circular(widget.borderRadius),
               ),
-      child: Icon(widget.icon, size: widget.size, color: effectiveColor),
+              child: Icon(
+                widget.icon,
+                size: widget.size,
+                color: effectiveColor,
+              ),
             ),
           ),
         ),
@@ -116,7 +122,7 @@ class _KonataCapsuleIconButtonState extends State<KonataCapsuleIconButton> {
 
 /// 音视频播控胶囊左翼最右端共用的 `32×32` 纯图标循环模式切换按钮（严禁附加文字标签）。
 class KonataAudioLoopButton extends StatelessWidget {
-  /// 创建纯图标循环模式切换按钮。
+  /// 创建纯图标循环模式切换按钮（无灰色背景块、无蓝色高亮）。
   const KonataAudioLoopButton({
     super.key,
     required this.icon,
@@ -131,7 +137,7 @@ class KonataAudioLoopButton extends StatelessWidget {
   /// 悬停提示文案。
   final String tooltip;
 
-  /// 是否为循环高亮态（如列表循环 / 单曲循环高亮，顺序播放弱化）。
+  /// 保留字段以兼容调用侧签名（不再施加蓝色或灰底高亮）。
   final bool highlighted;
 
   /// 点击切换循环模式回调。
@@ -144,15 +150,14 @@ class KonataAudioLoopButton extends StatelessWidget {
       key: const ValueKey('konata_audio_loop_button'),
       icon: icon,
       tooltip: tooltip,
-      color: p.textSecondary,
+      color: p.textPrimary,
       size: 18,
       fixedSize: KonataPlaybackTokens.immersiveSwitchButtonSize,
       borderRadius: KonataPlaybackTokens.immersiveSwitchButtonRadius,
       padding: EdgeInsets.zero,
-      highlighted: highlighted,
-      highlightColor: p.progressFill,
-      highlightBgColor: KonataPlaybackTokens.activePillBg(p),
+      highlighted: false,
       showHighlightBorder: false,
+      showHoverBackground: false,
       onTap: onTap,
     );
   }
@@ -311,7 +316,7 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
     final bgColor = KonataPlaybackTokens.glassSurface(p);
     final borderColor = KonataPlaybackTokens.glassBorder(p);
     final primaryFg = p.textPrimary;
-    final secondaryFg = p.textSecondary;
+    final secondaryFg = p.isDark ? p.textSecondary : p.textPrimary;
     final accentFg = p.progressFill;
     final trackInactive = p.progressTrack;
 
@@ -336,419 +341,434 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
             minWidth: KonataPlaybackTokens.capsuleMinWidth,
           ),
           child: LayoutBuilder(
-        builder: (context, constraints) {
-          final capsuleWidth = constraints.maxWidth.isFinite
-              ? constraints.maxWidth
-              : KonataPlaybackTokens.capsuleMaxWidth;
-          final inset = KonataPlaybackTokens.capsuleProgressHorizontalInset;
-          final barSpan = (capsuleWidth - inset * 2).clamp(1.0, capsuleWidth);
+            builder: (context, constraints) {
+              final capsuleWidth = constraints.maxWidth.isFinite
+                  ? constraints.maxWidth
+                  : KonataPlaybackTokens.capsuleMaxWidth;
+              final inset = KonataPlaybackTokens.capsuleProgressHorizontalInset;
+              final barSpan = (capsuleWidth - inset * 2).clamp(
+                1.0,
+                capsuleWidth,
+              );
 
-          final activeChapterIndex = _activeChapterIndexNear(
-            previewSeconds ?? effectivePos,
-            total,
-          );
-          final previewText = showBubble
-              ? PlaybackFormatters.formatMediaDuration(
-                  previewSeconds,
-                  alwaysShowHours: total >= 3600,
-                )
-              : '';
-          final previewChapter = showBubble
-              ? _chapterTitleNear(previewSeconds, total)
-              : null;
-          final bubbleLabel =
-              previewChapter != null && previewChapter.isNotEmpty
-              ? '$previewChapter · $previewText'
-              : previewText;
-          final minThumbBubbleWidth = widget.supportsThumbnailPreview
-              ? (KonataPlaybackTokens.thumbnailPreviewDisplayWidth + 16.0)
-              : 58.0;
-          final bubbleWidthEstimate = (bubbleLabel.length * 7.4 + 24.0).clamp(
-            minThumbBubbleWidth,
-            248.0,
-          );
-          final anchorX = showBubble
-              ? (inset + previewRatio! * barSpan)
-              : inset;
-          final bubbleLeft = (anchorX - bubbleWidthEstimate / 2).clamp(
-            4.0,
-            (capsuleWidth - bubbleWidthEstimate - 4.0).clamp(
-              4.0,
-              capsuleWidth,
-            ),
-          );
-
-          final hasTitle = widget.title != null && widget.title!.isNotEmpty;
-          Widget leftContent = Row(
-            mainAxisSize: MainAxisSize.max,
-            children: [
-              if (widget.leading != null) ...[
-                widget.leading!,
-                const SizedBox(width: 10),
-              ],
-              Expanded(
-                child: hasTitle
-                    ? Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          EllipsisTextWithTooltip(
-                            text: widget.title!,
-                            style: TextStyle(
-                              color: primaryFg,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              height: 1.2,
-                            ),
-                          ),
-                          const SizedBox(height: 1.5),
-                          Text(
-                            '$currentText / $totalText',
-                            maxLines: 1,
-                            softWrap: false,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: secondaryFg,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w400,
-                              fontFeatures: KonataPlaybackTokens.tabularNumbers,
-                              height: 1.15,
-                            ),
-                          ),
-                        ],
-                      )
-                    : Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          '$currentText / $totalText',
-                          maxLines: 1,
-                          softWrap: false,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: primaryFg.withValues(alpha: 0.88),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            fontFeatures: KonataPlaybackTokens.tabularNumbers,
-                            height: 1.15,
-                          ),
-                        ),
-                      ),
-              ),
-            ],
-          );
-
-          if (widget.onTapInfo != null) {
-            leftContent = MouseRegion(
-              cursor: SystemMouseCursors.click,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: widget.onTapInfo,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 4,
-                    horizontal: 2,
-                  ),
-                  child: leftContent,
+              final activeChapterIndex = _activeChapterIndexNear(
+                previewSeconds ?? effectivePos,
+                total,
+              );
+              final previewText = showBubble
+                  ? PlaybackFormatters.formatMediaDuration(
+                      previewSeconds,
+                      alwaysShowHours: total >= 3600,
+                    )
+                  : '';
+              final previewChapter = showBubble
+                  ? _chapterTitleNear(previewSeconds, total)
+                  : null;
+              final bubbleLabel =
+                  previewChapter != null && previewChapter.isNotEmpty
+                  ? '$previewChapter · $previewText'
+                  : previewText;
+              final minThumbBubbleWidth = widget.supportsThumbnailPreview
+                  ? (KonataPlaybackTokens.thumbnailPreviewDisplayWidth + 16.0)
+                  : 58.0;
+              final bubbleWidthEstimate = (bubbleLabel.length * 7.4 + 24.0)
+                  .clamp(minThumbBubbleWidth, 248.0);
+              final anchorX = showBubble
+                  ? (inset + previewRatio! * barSpan)
+                  : inset;
+              final bubbleLeft = (anchorX - bubbleWidthEstimate / 2).clamp(
+                4.0,
+                (capsuleWidth - bubbleWidthEstimate - 4.0).clamp(
+                  4.0,
+                  capsuleWidth,
                 ),
-              ),
-            );
-          }
+              );
 
-          return Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(
-                    KonataPlaybackTokens.capsuleRadius,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: KonataPlaybackTokens.shadowColor(p),
-                      blurRadius: 28,
-                      offset: const Offset(0, 10),
-                    ),
+              final hasTitle = widget.title != null && widget.title!.isNotEmpty;
+              Widget leftContent = Row(
+                mainAxisSize: MainAxisSize.max,
+                children: [
+                  if (widget.leading != null) ...[
+                    widget.leading!,
+                    const SizedBox(width: 10),
                   ],
-                ),
-                foregroundDecoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(
-                    KonataPlaybackTokens.capsuleRadius,
+                  Expanded(
+                    child: hasTitle
+                        ? Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              EllipsisTextWithTooltip(
+                                text: widget.title!,
+                                style: TextStyle(
+                                  color: primaryFg,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.2,
+                                ),
+                              ),
+                              const SizedBox(height: 1.5),
+                              Text(
+                                '$currentText / $totalText',
+                                maxLines: 1,
+                                softWrap: false,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: secondaryFg,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w400,
+                                  fontFeatures:
+                                      KonataPlaybackTokens.tabularNumbers,
+                                  height: 1.15,
+                                ),
+                              ),
+                            ],
+                          )
+                        : Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              '$currentText / $totalText',
+                              maxLines: 1,
+                              softWrap: false,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: primaryFg.withValues(alpha: 0.88),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                fontFeatures:
+                                    KonataPlaybackTokens.tabularNumbers,
+                                height: 1.15,
+                              ),
+                            ),
+                          ),
                   ),
-                  border: Border.all(color: borderColor, width: 1),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(
-                    KonataPlaybackTokens.capsuleRadius,
-                  ),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(
-                      sigmaX: KonataPlaybackTokens.capsuleBlurSigma,
-                      sigmaY: KonataPlaybackTokens.capsuleBlurSigma,
-                    ),
-                    child: Container(
-                      height: KonataPlaybackTokens.capsuleHeight,
-                      decoration: BoxDecoration(
-                        color: bgColor,
-                        borderRadius: BorderRadius.circular(
-                          KonataPlaybackTokens.capsuleRadius,
-                        ),
+                ],
+              );
+
+              if (widget.onTapInfo != null) {
+                leftContent = MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: widget.onTapInfo,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 4,
+                        horizontal: 2,
                       ),
-                      child: Stack(
-                        children: [
-                          // 1. 响应式三区对称枢轴主控内容区（宽屏锁死播放/暂停键圆心位于胶囊 50.0% 绝对正中心；窄窗优雅降级防溢出）
-                          Padding(
-                            padding: KonataPlaybackTokens.capsulePadding,
-                            child: LayoutBuilder(
-                              builder: (context, rowConstraints) {
-                                final playPauseButton = KeyedSubtree(
-                                  key: const ValueKey(
-                                    'konata_capsule_play_pause_button',
-                                  ),
-                                  child: KonataCapsuleIconButton(
-                                    icon: widget.isPlaying
-                                        ? Icons.pause_rounded
-                                        : Icons.play_arrow_rounded,
-                                    tooltip: widget.isPlaying ? '暂停' : '播放',
-                                    color: primaryFg,
-                                    size: 24,
-                                    fixedSize: 38,
-                                    borderRadius: 999,
-                                    padding: EdgeInsets.zero,
-                                    onTap: widget.onTogglePlayPause,
-                                  ),
-                                );
-                                final prevSlot = KonataCapsuleIconButton(
-                                  icon: Icons.skip_previous_rounded,
-                                  tooltip: '上一项',
-                                  color: primaryFg,
-                                  size: 20,
-                                  fixedSize: KonataPlaybackTokens
-                                      .immersiveSwitchButtonSize,
-                                  borderRadius: KonataPlaybackTokens
-                                      .immersiveSwitchButtonRadius,
-                                  padding: EdgeInsets.zero,
-                                  onTap: widget.onPrevious,
-                                );
-                                final nextSlot = KonataCapsuleIconButton(
-                                  icon: Icons.skip_next_rounded,
-                                  tooltip: '下一项',
-                                  color: primaryFg,
-                                  size: 20,
-                                  fixedSize: KonataPlaybackTokens
-                                      .immersiveSwitchButtonSize,
-                                  borderRadius: KonataPlaybackTokens
-                                      .immersiveSwitchButtonRadius,
-                                  padding: EdgeInsets.zero,
-                                  onTap: widget.onNext,
-                                );
-                                final listButton = widget.onToggleList != null
-                                    ? KonataCapsuleIconButton(
-                                        icon: Icons.menu_rounded,
-                                        tooltip: widget.listTooltip,
-                                        color: primaryFg,
-                                        size: 18,
-                                        fixedSize: KonataPlaybackTokens
-                                            .immersiveSwitchButtonSize,
-                                        borderRadius: KonataPlaybackTokens
-                                            .immersiveSwitchButtonRadius,
-                                        padding: EdgeInsets.zero,
-                                        highlighted: widget.isListActive,
-                                        highlightColor: accentFg,
-                                        showHighlightBorder: false,
-                                        onTap: widget.onToggleList,
-                                      )
-                                    : null;
+                      child: leftContent,
+                    ),
+                  ),
+                );
+              }
 
-                                final useSymmetricCenter =
-                                    rowConstraints.maxWidth >=
-                                    KonataPlaybackTokens
-                                            .capsuleCenterSymmetricBreakpoint -
-                                        KonataPlaybackTokens
-                                            .capsulePadding
-                                            .horizontal;
-
-                                if (useSymmetricCenter) {
-                                  return Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.center,
-                                    children: [
-                                      Expanded(
-                                        child: Row(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.center,
-                                          children: [
-                                            Expanded(child: leftContent),
-                                            if (widget.leadingCenterButton !=
-                                                null) ...[
-                                              const SizedBox(width: 8),
-                                              widget.leadingCenterButton!,
-                                            ],
-                                          ],
-                                        ),
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(
+                        KonataPlaybackTokens.capsuleRadius,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: KonataPlaybackTokens.shadowColor(p),
+                          blurRadius: 28,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    foregroundDecoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(
+                        KonataPlaybackTokens.capsuleRadius,
+                      ),
+                      border: Border.all(color: borderColor, width: 1),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(
+                        KonataPlaybackTokens.capsuleRadius,
+                      ),
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(
+                          sigmaX: KonataPlaybackTokens.capsuleBlurSigma,
+                          sigmaY: KonataPlaybackTokens.capsuleBlurSigma,
+                        ),
+                        child: Container(
+                          height: KonataPlaybackTokens.capsuleHeight,
+                          decoration: BoxDecoration(
+                            color: bgColor,
+                            borderRadius: BorderRadius.circular(
+                              KonataPlaybackTokens.capsuleRadius,
+                            ),
+                          ),
+                          child: Stack(
+                            children: [
+                              // 1. 响应式三区对称枢轴主控内容区（宽屏锁死播放/暂停键圆心位于胶囊 50.0% 绝对正中心；窄窗优雅降级防溢出）
+                              Padding(
+                                padding: KonataPlaybackTokens.capsulePadding,
+                                child: LayoutBuilder(
+                                  builder: (context, rowConstraints) {
+                                    final playPauseButton = KeyedSubtree(
+                                      key: const ValueKey(
+                                        'konata_capsule_play_pause_button',
                                       ),
-                                      const SizedBox(width: 12),
-                                      Row(
-                                        mainAxisSize: MainAxisSize.min,
+                                      child: KonataCapsuleIconButton(
+                                        icon: widget.isPlaying
+                                            ? Icons.pause_rounded
+                                            : Icons.play_arrow_rounded,
+                                        tooltip: widget.isPlaying ? '暂停' : '播放',
+                                        color: primaryFg,
+                                        size: 24,
+                                        fixedSize: 38,
+                                        borderRadius: 999,
+                                        padding: EdgeInsets.zero,
+                                        onTap: widget.onTogglePlayPause,
+                                      ),
+                                    );
+                                    final prevSlot = KonataCapsuleIconButton(
+                                      icon: Icons.skip_previous_rounded,
+                                      tooltip: '上一项',
+                                      color: primaryFg,
+                                      size: 20,
+                                      fixedSize: KonataPlaybackTokens
+                                          .immersiveSwitchButtonSize,
+                                      borderRadius: KonataPlaybackTokens
+                                          .immersiveSwitchButtonRadius,
+                                      padding: EdgeInsets.zero,
+                                      onTap: widget.onPrevious,
+                                    );
+                                    final nextSlot = KonataCapsuleIconButton(
+                                      icon: Icons.skip_next_rounded,
+                                      tooltip: '下一项',
+                                      color: primaryFg,
+                                      size: 20,
+                                      fixedSize: KonataPlaybackTokens
+                                          .immersiveSwitchButtonSize,
+                                      borderRadius: KonataPlaybackTokens
+                                          .immersiveSwitchButtonRadius,
+                                      padding: EdgeInsets.zero,
+                                      onTap: widget.onNext,
+                                    );
+                                    final listButton =
+                                        widget.onToggleList != null
+                                        ? KonataCapsuleIconButton(
+                                            icon: Icons.menu_rounded,
+                                            tooltip: widget.listTooltip,
+                                            color: primaryFg,
+                                            size: 18,
+                                            fixedSize: KonataPlaybackTokens
+                                                .immersiveSwitchButtonSize,
+                                            borderRadius: KonataPlaybackTokens
+                                                .immersiveSwitchButtonRadius,
+                                            padding: EdgeInsets.zero,
+                                            highlighted: widget.isListActive,
+                                            highlightColor: accentFg,
+                                            showHighlightBorder: false,
+                                            onTap: widget.onToggleList,
+                                          )
+                                        : null;
+
+                                    final useSymmetricCenter =
+                                        rowConstraints.maxWidth >=
+                                        KonataPlaybackTokens
+                                                .capsuleCenterSymmetricBreakpoint -
+                                            KonataPlaybackTokens
+                                                .capsulePadding
+                                                .horizontal;
+
+                                    if (useSymmetricCenter) {
+                                      return Row(
                                         crossAxisAlignment:
                                             CrossAxisAlignment.center,
                                         children: [
-                                          prevSlot,
+                                          Expanded(
+                                            child: Row(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.center,
+                                              children: [
+                                                Expanded(child: leftContent),
+                                                if (widget
+                                                        .leadingCenterButton !=
+                                                    null) ...[
+                                                  const SizedBox(width: 8),
+                                                  widget.leadingCenterButton!,
+                                                ],
+                                              ],
+                                            ),
+                                          ),
                                           const SizedBox(width: 12),
-                                          playPauseButton,
-                                          const SizedBox(width: 12),
-                                          nextSlot,
-                                        ],
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Row(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.center,
-                                          children: [
-                                            if (listButton != null) ...[
-                                              listButton,
-                                              if (widget
-                                                  .trailingCenterButtons
-                                                  .isNotEmpty)
-                                                const SizedBox(width: 4),
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.center,
+                                            children: [
+                                              prevSlot,
+                                              const SizedBox(width: 12),
+                                              playPauseButton,
+                                              const SizedBox(width: 12),
+                                              nextSlot,
                                             ],
-                                            if (widget
-                                                .trailingCenterButtons
-                                                .isNotEmpty)
-                                              Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: widget
-                                                    .trailingCenterButtons,
-                                              ),
-                                            const SizedBox(width: 6),
-                                            if (widget.rightSlot != null)
-                                              Expanded(
-                                                child: Align(
-                                                  alignment:
-                                                      Alignment.centerRight,
-                                                  child: widget.rightSlot!,
-                                                ),
-                                              ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Row(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.center,
+                                              children: [
+                                                if (listButton != null) ...[
+                                                  listButton,
+                                                  if (widget
+                                                      .trailingCenterButtons
+                                                      .isNotEmpty)
+                                                    const SizedBox(width: 4),
+                                                ],
+                                                if (widget
+                                                    .trailingCenterButtons
+                                                    .isNotEmpty)
+                                                  Row(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: widget
+                                                        .trailingCenterButtons,
+                                                  ),
+                                                const SizedBox(width: 6),
+                                                if (widget.rightSlot != null)
+                                                  Expanded(
+                                                    child: Align(
+                                                      alignment:
+                                                          Alignment.centerRight,
+                                                      child: widget.rightSlot!,
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      );
+                                    }
+
+                                    return Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.center,
+                                      children: [
+                                        Expanded(child: leftContent),
+                                        const SizedBox(width: 8),
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            ?widget.leadingCenterButton,
+                                            if (widget.onPrevious != null)
+                                              prevSlot,
+                                            playPauseButton,
+                                            if (widget.onNext != null) nextSlot,
+                                            ?listButton,
+                                            ...widget.trailingCenterButtons,
                                           ],
                                         ),
-                                      ),
-                                    ],
-                                  );
-                                }
-
-                                return Row(
-                                  crossAxisAlignment: CrossAxisAlignment.center,
-                                  children: [
-                                    Expanded(child: leftContent),
-                                    const SizedBox(width: 8),
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        ?widget.leadingCenterButton,
-                                        if (widget.onPrevious != null) prevSlot,
-                                        playPauseButton,
-                                        if (widget.onNext != null) nextSlot,
-                                        ?listButton,
-                                        ...widget.trailingCenterButtons,
+                                        if (widget.rightSlot != null) ...[
+                                          const SizedBox(width: 8),
+                                          widget.rightSlot!,
+                                        ],
                                       ],
-                                    ),
-                                    if (widget.rightSlot != null) ...[
-                                      const SizedBox(width: 8),
-                                      widget.rightSlot!,
-                                    ],
-                                  ],
-                                );
-                              },
-                            ),
+                                    );
+                                  },
+                                ),
+                              ),
+                              // 2. 胶囊内部底置内缩全圆角细滑轨（无深色矩形热区背景盒）与 45° 菱形章节点
+                              Positioned(
+                                left: inset,
+                                right: inset,
+                                bottom: 0,
+                                height: KonataPlaybackTokens
+                                    .capsuleProgressHitHeight,
+                                child: _InsetBottomProgressRail(
+                                  progressRatio: progressRatio,
+                                  totalDurationSeconds: total,
+                                  chapters: widget.chapters,
+                                  activeChapterIndex: activeChapterIndex,
+                                  hovered:
+                                      _progressHovered || _dragSeconds != null,
+                                  activeColor: accentFg,
+                                  inactiveColor: trackInactive,
+                                  onHoverChanged: (hovering, ratio) {
+                                    setState(() {
+                                      _progressHovered = hovering;
+                                      _hoverRatio = hovering ? ratio : null;
+                                    });
+                                    if (hovering &&
+                                        ratio != null &&
+                                        total > 0) {
+                                      _notifyPreviewSeconds(ratio * total);
+                                    } else if (_dragSeconds == null) {
+                                      _notifyPreviewSeconds(null);
+                                    }
+                                  },
+                                  onScrubStartOrUpdate: (ratio) {
+                                    if (total <= 0) return;
+                                    final sec = ratio * total;
+                                    setState(() {
+                                      _dragSeconds = sec;
+                                      _hoverRatio = ratio;
+                                    });
+                                    _notifyPreviewSeconds(sec);
+                                  },
+                                  onScrubEnd: () {
+                                    final target = _dragSeconds;
+                                    setState(() => _dragSeconds = null);
+                                    if (!_progressHovered) {
+                                      _notifyPreviewSeconds(null);
+                                    }
+                                    if (target != null && total > 0) {
+                                      widget.onSeek(target);
+                                    }
+                                  },
+                                  onScrubCommitRatio: (ratio) {
+                                    if (total <= 0) return;
+                                    final target = ratio * total;
+                                    setState(() => _dragSeconds = null);
+                                    if (!_progressHovered) {
+                                      _notifyPreviewSeconds(null);
+                                    }
+                                    widget.onSeek(target);
+                                  },
+                                ),
+                              ),
+                            ],
                           ),
-                          // 2. 胶囊内部底置内缩全圆角细滑轨（无深色矩形热区背景盒）与 45° 菱形章节点
-                          Positioned(
-                            left: inset,
-                            right: inset,
-                            bottom: 0,
-                            height: KonataPlaybackTokens.capsuleProgressHitHeight,
-                            child: _InsetBottomProgressRail(
-                              progressRatio: progressRatio,
-                              totalDurationSeconds: total,
-                              chapters: widget.chapters,
-                              activeChapterIndex: activeChapterIndex,
-                              hovered: _progressHovered || _dragSeconds != null,
-                              activeColor: accentFg,
-                              inactiveColor: trackInactive,
-                              onHoverChanged: (hovering, ratio) {
-                                setState(() {
-                                  _progressHovered = hovering;
-                                  _hoverRatio = hovering ? ratio : null;
-                                });
-                                if (hovering && ratio != null && total > 0) {
-                                  _notifyPreviewSeconds(ratio * total);
-                                } else if (_dragSeconds == null) {
-                                  _notifyPreviewSeconds(null);
-                                }
-                              },
-                              onScrubStartOrUpdate: (ratio) {
-                                if (total <= 0) return;
-                                final sec = ratio * total;
-                                setState(() {
-                                  _dragSeconds = sec;
-                                  _hoverRatio = ratio;
-                                });
-                                _notifyPreviewSeconds(sec);
-                              },
-                              onScrubEnd: () {
-                                final target = _dragSeconds;
-                                setState(() => _dragSeconds = null);
-                                if (!_progressHovered) {
-                                  _notifyPreviewSeconds(null);
-                                }
-                                if (target != null && total > 0) {
-                                  widget.onSeek(target);
-                                }
-                              },
-                              onScrubCommitRatio: (ratio) {
-                                if (total <= 0) return;
-                                final target = ratio * total;
-                                setState(() => _dragSeconds = null);
-                                if (!_progressHovered) {
-                                  _notifyPreviewSeconds(null);
-                                }
-                                widget.onSeek(target);
-                              },
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ),
-              // 3. 进度条悬停 / 拖拽预览气泡（视频模式下上方展示 16:9 缩略图）
-              if (showBubble)
-                Positioned(
-                  left: bubbleLeft,
-                  bottom: KonataPlaybackTokens.capsuleHoverBubbleBottomOffset,
-                  child: IgnorePointer(
-                    child: _TopHoverPreviewBubble(
-                      supportsThumbnailPreview: widget.supportsThumbnailPreview,
-                      previewRevisionListenable:
-                          widget.previewRevisionListenable,
-                      previewThumbnailResolver: widget.previewThumbnailResolver,
-                      previewSeconds: previewSeconds,
-                      timeLabel: previewText,
-                      chapterTitle: previewChapter,
-                      maxWidth: bubbleWidthEstimate,
-                      bgColor: bgColor,
-                      borderColor: borderColor,
-                      primaryFg: primaryFg,
-                      secondaryFg: secondaryFg,
+                  // 3. 进度条悬停 / 拖拽预览气泡（视频模式下上方展示 16:9 缩略图）
+                  if (showBubble)
+                    Positioned(
+                      left: bubbleLeft,
+                      bottom:
+                          KonataPlaybackTokens.capsuleHoverBubbleBottomOffset,
+                      child: IgnorePointer(
+                        child: _TopHoverPreviewBubble(
+                          supportsThumbnailPreview:
+                              widget.supportsThumbnailPreview,
+                          previewRevisionListenable:
+                              widget.previewRevisionListenable,
+                          previewThumbnailResolver:
+                              widget.previewThumbnailResolver,
+                          previewSeconds: previewSeconds,
+                          timeLabel: previewText,
+                          chapterTitle: previewChapter,
+                          maxWidth: bubbleWidthEstimate,
+                          bgColor: bgColor,
+                          borderColor: borderColor,
+                          primaryFg: primaryFg,
+                          secondaryFg: secondaryFg,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-            ],
-          );
-        },
+                ],
+              );
+            },
+          ),
         ),
-      ),
       ),
     );
   }
@@ -807,11 +827,7 @@ class _TopHoverPreviewBubble extends StatelessWidget {
                 ),
               )
             : Center(
-                child: Icon(
-                  Icons.movie_outlined,
-                  size: 22,
-                  color: secondaryFg,
-                ),
+                child: Icon(Icons.movie_outlined, size: 22, color: secondaryFg),
               ),
       ),
     );
@@ -833,7 +849,10 @@ class _TopHoverPreviewBubble extends StatelessWidget {
               filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
               child: Container(
                 constraints: BoxConstraints(maxWidth: maxWidth),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: bgColor,
                   borderRadius: BorderRadius.circular(999),
@@ -859,14 +878,17 @@ class _TopHoverPreviewBubble extends StatelessWidget {
     }
 
     Widget thumbnailSlot() {
-      if (previewRevisionListenable != null && previewThumbnailResolver != null) {
+      if (previewRevisionListenable != null &&
+          previewThumbnailResolver != null) {
         return ValueListenableBuilder<int>(
           valueListenable: previewRevisionListenable!,
           builder: (_, _, _) =>
               _buildThumbnailFrame(previewThumbnailResolver!(previewSeconds)),
         );
       }
-      return _buildThumbnailFrame(previewThumbnailResolver?.call(previewSeconds));
+      return _buildThumbnailFrame(
+        previewThumbnailResolver?.call(previewSeconds),
+      );
     }
 
     return Material(
@@ -895,7 +917,8 @@ class _TopHoverPreviewBubble extends StatelessWidget {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        if (chapterTitle != null && chapterTitle!.isNotEmpty) ...[
+                        if (chapterTitle != null &&
+                            chapterTitle!.isNotEmpty) ...[
                           Flexible(
                             child: Text(
                               chapterTitle!,
@@ -1075,7 +1098,8 @@ class _ChapterDiamondMarker extends StatelessWidget {
       (trackWidth - size).clamp(0.0, trackWidth),
     );
     final bottom =
-        KonataPlaybackTokens.capsuleProgressBottomInset + (railHeight - size) / 2;
+        KonataPlaybackTokens.capsuleProgressBottomInset +
+        (railHeight - size) / 2;
     final fillColor = highlighted
         ? activeColor
         : Colors.white.withValues(alpha: hovered ? 0.96 : 0.88);

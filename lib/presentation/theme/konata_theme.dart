@@ -31,7 +31,7 @@ abstract final class KonataTheme {
   static const Color themePreviewLightCanvas = Color(0xFFF6F5F1);
   static const Color themePreviewNeutralPill = Color(0xFF8E93A4);
   static const Color detailLightSlatePrimary = Color(0xFF0F172A);
-  static const Color detailLightSlateSecondary = Color(0xFF334155);
+  static const Color detailLightSlateSecondary = Color(0xEB0F172A);
 
   /// 离线内置双可变字体栈（Inter 接管拉丁/数字/符号，Noto Sans CJK SC 接管简繁日韩同源文字）。
   static const String uiFontFamily = 'KonataInter';
@@ -295,9 +295,7 @@ abstract final class KonataTheme {
         elevation: 0,
         surfaceTintColor: Colors.transparent,
         backgroundColor: Colors.transparent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       ),
       popupMenuTheme: PopupMenuThemeData(
         elevation: 8,

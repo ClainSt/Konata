@@ -351,7 +351,7 @@ class _MiniAudioBarState extends ConsumerState<MiniAudioBar> {
                       ),
                     );
                   },
-                    child: KonataPlaybackCapsule(
+                  child: KonataPlaybackCapsule(
                     leading: _MiniCoverThumbnail(cover: state.cover, size: 38),
                     title: item.title,
                     onTapInfo: _openImmersive,
@@ -385,22 +385,21 @@ class _MiniAudioBarState extends ConsumerState<MiniAudioBar> {
                         KonataVolumeControl(
                           volume: (state.volume / 100.0).clamp(0.0, 1.0),
                           isMuted: state.isMuted,
-                          onVolumeChanged: (v) =>
-                              notifier.setVolume(v * 100.0),
+                          onVolumeChanged: (v) => notifier.setVolume(v * 100.0),
                           onToggleMute: notifier.toggleMute,
                         ),
                         KonataCapsuleIconButton(
                           icon: Icons.open_in_full_rounded,
                           tooltip: '展开全屏流光页',
                           size: 16,
-                          color: context.palette.textSecondary,
+                          color: context.palette.textPrimary,
                           onTap: _openImmersive,
                         ),
                         KonataCapsuleIconButton(
                           icon: Icons.close_rounded,
                           tooltip: '停止并关闭音乐栏',
                           size: 17,
-                          color: context.palette.textSecondary,
+                          color: context.palette.textPrimary,
                           onTap: () {
                             _closeQueueOverlay();
                             notifier.stopAndClose();
@@ -594,9 +593,7 @@ class _MiniQueueTrackTileState extends State<_MiniQueueTrackTile> {
     final active = widget.active;
     final bgColor = active
         ? p.progressFill.withValues(alpha: 0.16)
-        : (_hovered
-              ? KonataPlaybackTokens.hoverFill(p)
-              : Colors.transparent);
+        : (_hovered ? KonataPlaybackTokens.hoverFill(p) : Colors.transparent);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -738,11 +735,7 @@ class _MiniCoverThumbnail extends ConsumerWidget {
       height: size,
       color: KonataPlaybackTokens.softFill(p),
       alignment: Alignment.center,
-      child: Icon(
-        Icons.music_note_rounded,
-        size: 18,
-        color: p.textSecondary,
-      ),
+      child: Icon(Icons.music_note_rounded, size: 18, color: p.textSecondary),
     );
   }
 }

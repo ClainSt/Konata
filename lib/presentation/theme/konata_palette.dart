@@ -209,10 +209,10 @@ class KonataPalette extends ThemeExtension<KonataPalette> {
     hairline: Color(0xD9FFFFFF), // Colors.white @ 0.85
     hoverBorder: Color(0xFFFFFFFF),
     posterBorder: Color(0x24FFFFFF), // Colors.white @ 0.14
-    textPrimary: Color(0xFF181A1F),
-    textSecondary: Color(0x8F181A1F), // 柔和深炭灰次级字
-    textMuted: Color(0x66181A1F),
-    primaryButtonBg: Color(0xFF181A1F),
+    textPrimary: Color(0xFF0F172A),
+    textSecondary: Color(0xEB0F172A), // 对齐继续播放高对比深石板墨色
+    textMuted: Color(0xCC0F172A),
+    primaryButtonBg: Color(0xFF0F172A),
     primaryButtonFg: Color(0xFFFFFFFF),
     primaryButtonHoverBg: Color(0xFF282B33),
     secondaryButtonBg: Color(0x12181A1F),
@@ -220,7 +220,7 @@ class KonataPalette extends ThemeExtension<KonataPalette> {
     glassOverlay: Color(0xC2FFFFFF),
     accent: Color(0xFF2D6CDF),
     progressFill: Color(0xFF2D6CDF),
-    progressTrack: Color(0x24181A1F),
+    progressTrack: Color(0x290F172A),
     warning: Color(0xFFC5841B),
     success: Color(0xFF238636),
     danger: Color(0xFFCF222E),

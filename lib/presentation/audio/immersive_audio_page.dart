@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -50,16 +51,97 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
   bool _userPinnedPane = false;
   bool _isUserScrollingLyrics = false;
   Timer? _scrollResetTimer;
+  final GlobalKey _activeQueueItemKey = GlobalKey();
   List<GlobalKey> _lyricKeys = const [];
   String? _lastItemId;
   int _lastActiveLyricIndex = -1;
+  _ImmersiveRightPane? _lastEffectivePane;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _focusNode.requestFocus();
+      if (!mounted) return;
+      _focusNode.requestFocus();
+      _scrollToActiveQueueItem(animated: false);
     });
+  }
+
+  void _scheduleQueueCentering({required bool animated}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scrollToActiveQueueItem(animated: animated);
+    });
+  }
+
+  void _scrollToActiveQueueItem({required bool animated}) {
+    if (!_queueScrollCtrl.hasClients) return;
+    final state = ref.read(audioPlaybackProvider);
+    final idx = state.currentIndex;
+    final total = state.queue.length;
+    if (idx < 0 || idx >= total) return;
+
+    final pos = _queueScrollCtrl.position;
+    // 曲目刚好占满或占不满右侧可视区域时，无需移动
+    if (pos.maxScrollExtent <= 1.0) return;
+
+    final targetItem = state.queue[idx];
+    final hasSub =
+        targetItem.performer.trim().isNotEmpty ||
+        (targetItem.showAlbumSubtitle &&
+            targetItem.albumTitle.trim().isNotEmpty);
+    final estRowHeight = hasSub ? 56.0 : 40.0;
+    final estStride = estRowHeight + 6.0;
+    const topPad = 20.0;
+    final estCenter = topPad + idx * estStride + estRowHeight / 2.0;
+    final viewportH = pos.viewportDimension;
+
+    if (estCenter <= viewportH * 0.5 && pos.pixels <= 1.0) {
+      return;
+    }
+
+    final targetOffset = (estCenter - viewportH / 2.0).clamp(
+      0.0,
+      pos.maxScrollExtent,
+    );
+
+    if ((pos.pixels - targetOffset).abs() > 2.0) {
+      if (animated) {
+        _queueScrollCtrl.animateTo(
+          targetOffset,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOutCubic,
+        );
+      } else {
+        _queueScrollCtrl.jumpTo(targetOffset);
+      }
+    }
+
+    if (!animated) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_queueScrollCtrl.hasClients) return;
+        final ctx = _activeQueueItemKey.currentContext;
+        if (ctx == null) return;
+        final box = ctx.findRenderObject();
+        final vpBox = _queueScrollCtrl.position.context.storageContext
+            .findRenderObject();
+        if (box is RenderBox &&
+            vpBox is RenderBox &&
+            box.hasSize &&
+            vpBox.hasSize) {
+          final local = box.localToGlobal(Offset.zero, ancestor: vpBox);
+          final actualCenter = local.dy + box.size.height / 2.0;
+          final delta = actualCenter - vpBox.size.height / 2.0;
+          if (delta.abs() > 2.0) {
+            final refined = (_queueScrollCtrl.offset + delta).clamp(
+              0.0,
+              _queueScrollCtrl.position.maxScrollExtent,
+            );
+            _queueScrollCtrl.jumpTo(refined);
+          }
+        }
+      });
+    }
   }
 
   @override
@@ -167,14 +249,25 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
 
     final lrc = state.lrcDocument;
     final hasLyrics = lrc != null && lrc.lines.isNotEmpty;
-    if (_lastItemId != item.id) {
+    final itemChanged = _lastItemId != item.id;
+    if (itemChanged) {
+      final hadPrev = _lastItemId != null;
       _lastItemId = item.id;
       _isUserScrollingLyrics = false;
       _scrollResetTimer?.cancel();
+      if (hadPrev) {
+        _scheduleQueueCentering(animated: true);
+      }
     }
     final effectivePane = _userPinnedPane
         ? _pane
         : (hasLyrics ? _ImmersiveRightPane.lyrics : _ImmersiveRightPane.queue);
+    if (_lastEffectivePane != effectivePane) {
+      _lastEffectivePane = effectivePane;
+      if (effectivePane == _ImmersiveRightPane.queue) {
+        _scheduleQueueCentering(animated: false);
+      }
+    }
 
     _syncLyricKeys(lrc);
     if (state.activeLyricIndex != _lastActiveLyricIndex) {
@@ -609,9 +702,11 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                 : (index + 1);
             final trackPrefix = seqNum.toString().padLeft(2, '0');
             return _BorderlessQueueRow(
+              key: active ? _activeQueueItemKey : ValueKey('q_row_${qItem.id}'),
               item: qItem,
               trackPrefix: trackPrefix,
               active: active,
+              isPlaying: active && state.isPlaying,
               onTap: () => notifier.playQueueIndex(index),
             );
           },
@@ -623,15 +718,18 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
 
 class _BorderlessQueueRow extends StatefulWidget {
   const _BorderlessQueueRow({
+    super.key,
     required this.item,
     required this.trackPrefix,
     required this.active,
+    required this.isPlaying,
     required this.onTap,
   });
 
   final AudioQueueItem item;
   final String trackPrefix;
   final bool active;
+  final bool isPlaying;
   final VoidCallback onTap;
 
   @override
@@ -677,10 +775,12 @@ class _BorderlessQueueRowState extends State<_BorderlessQueueRow> {
               SizedBox(
                 width: 30,
                 child: active
-                    ? Icon(
-                        Icons.graphic_eq_rounded,
-                        size: 18,
-                        color: p.textPrimary,
+                    ? Align(
+                        alignment: Alignment.centerLeft,
+                        child: _AnimatedPlayingEqualizer(
+                          isPlaying: widget.isPlaying,
+                          color: p.textPrimary,
+                        ),
                       )
                     : Text(
                         widget.trackPrefix,
@@ -697,79 +797,35 @@ class _BorderlessQueueRowState extends State<_BorderlessQueueRow> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: AnimatedDefaultTextStyle(
-                            duration: const Duration(milliseconds: 200),
-                            curve: Curves.easeOutCubic,
-                            style: TextStyle(
-                              color: color,
-                              fontSize: active ? 16.0 : 14.5,
-                              fontWeight: active
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
-                              shadows: active
-                                  ? [
-                                      Shadow(
-                                        color: p.isDark
-                                            ? Colors.white.withValues(
-                                                alpha: 0.42,
-                                              )
-                                            : Colors.black.withValues(
-                                                alpha: 0.10,
-                                              ),
-                                        blurRadius: 14,
-                                      ),
-                                    ]
-                                  : null,
-                            ),
-                            child: EllipsisTextWithTooltip(
-                              text: widget.item.title,
-                              style: const TextStyle(),
-                            ),
-                          ),
-                        ),
-                        if (widget.item.versionBadge.isNotEmpty) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6.5,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: KonataPlaybackTokens.softFill(p),
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(
-                                color: p.isDark
-                                    ? KonataPlaybackTokens.glassBorder(p)
-                                    : const Color(0x260F172A),
-                                width: 0.8,
-                              ),
-                            ),
-                            child: Text(
-                              widget.item.versionBadge,
-                              maxLines: 1,
-                              softWrap: false,
-                              style: TextStyle(
-                                color: p.isDark
-                                    ? p.textSecondary
-                                    : p.textPrimary,
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w600,
-                                fontFeatures:
-                                    KonataPlaybackTokens.tabularNumbers,
-                                height: 1.1,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
+                    AnimatedDefaultTextStyle(
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeOutCubic,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: active ? 16.0 : 14.5,
+                        fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                        shadows: active
+                            ? [
+                                Shadow(
+                                  color: p.isDark
+                                      ? Colors.white.withValues(alpha: 0.42)
+                                      : Colors.black.withValues(alpha: 0.10),
+                                  blurRadius: 14,
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: EllipsisTextWithTooltip(
+                        text: widget.item.title,
+                        maxLines: 1,
+                        style: const TextStyle(),
+                      ),
                     ),
                     if (subtitleText.isNotEmpty) ...[
                       const SizedBox(height: 2.5),
                       EllipsisTextWithTooltip(
                         text: subtitleText,
+                        maxLines: 1,
                         style: TextStyle(
                           color: active
                               ? p.textSecondary
@@ -796,6 +852,116 @@ class _BorderlessQueueRowState extends State<_BorderlessQueueRow> {
               ],
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 播放中条目的四柱动态呼吸均衡器图标（播放时丝滑律动，暂停时收拢为柔和静态波形）。
+class _AnimatedPlayingEqualizer extends StatefulWidget {
+  const _AnimatedPlayingEqualizer({
+    required this.isPlaying,
+    required this.color,
+  });
+
+  final bool isPlaying;
+  final Color color;
+
+  @override
+  State<_AnimatedPlayingEqualizer> createState() =>
+      _AnimatedPlayingEqualizerState();
+}
+
+class _AnimatedPlayingEqualizerState extends State<_AnimatedPlayingEqualizer>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  bool get _isWidgetTestBinding => WidgetsBinding.instance.runtimeType
+      .toString()
+      .contains('TestWidgetsFlutterBinding');
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1150),
+    );
+    _syncTicker();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AnimatedPlayingEqualizer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isPlaying != widget.isPlaying) {
+      _syncTicker();
+    }
+  }
+
+  void _syncTicker() {
+    if (widget.isPlaying && !_isWidgetTestBinding) {
+      if (!_ctrl.isAnimating) {
+        _ctrl.repeat();
+      }
+    } else {
+      if (_ctrl.isAnimating) {
+        _ctrl.stop();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: SizedBox(
+        width: 18,
+        height: 16,
+        child: AnimatedBuilder(
+          animation: _ctrl,
+          builder: (context, _) {
+            const phases = <double>[0.0, 1.35, 2.55, 0.75];
+            const speeds = <double>[1.0, 2.0, 1.0, 2.0];
+            const pausedHeights = <double>[0.32, 0.62, 0.44, 0.28];
+            final t = _ctrl.value * 2 * math.pi;
+
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                for (var i = 0; i < 4; i++) ...[
+                  if (i > 0) const SizedBox(width: 2.2),
+                  Builder(
+                    builder: (_) {
+                      final ratio = widget.isPlaying
+                          ? (0.24 +
+                                0.76 *
+                                    (0.5 +
+                                        0.5 *
+                                            math.sin(
+                                              t * speeds[i] + phases[i],
+                                            )))
+                          : pausedHeights[i];
+                      return Container(
+                        width: 2.6,
+                        height: (15.0 * ratio).clamp(3.2, 15.0),
+                        decoration: BoxDecoration(
+                          color: widget.color,
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ],
+            );
+          },
         ),
       ),
     );

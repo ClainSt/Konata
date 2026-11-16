@@ -141,8 +141,34 @@ class _FakeAudioLibMpvClient implements LibMpvClient {
   @override
   String? getPropertyString(String name) => strings[name];
 
+  final Map<String, int> observedProperties = {};
+
+  void emitEofReached(bool value) {
+    emitEvent(
+      MpvPropertyChangeEvent(
+        name: 'eof-reached',
+        replyUserdata: 109,
+        format: MpvFormat.flag,
+        boolValue: value,
+      ),
+    );
+  }
+
+  void emitEndFileEof({int playlistEntryId = 0}) {
+    emitEvent(
+      MpvEndFileEvent(
+        reason: MpvEndFileReason.eof,
+        errorCode: 0,
+        playlistEntryId: playlistEntryId,
+      ),
+    );
+  }
+
   @override
-  int observeProperty(int replyUserdata, String name, int format) => 0;
+  int observeProperty(int replyUserdata, String name, int format) {
+    observedProperties[name] = replyUserdata;
+    return 0;
+  }
 
   @override
   List<MpvAudioDevice> readAudioDeviceList() => const [];
@@ -466,6 +492,174 @@ void main() {
           container.read(audioPlaybackProvider).cover,
           isA<ManagedPosterAudioCover>(),
         );
+      },
+    );
+
+
+    test(
+      '音频循环模式回归：连续多曲 EOF 不卡死、eof-reached 与 end-file 双通道去重、单曲/列表/顺序播放完播及重播恢复',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final tempRoot = await Directory.systemTemp.createTemp(
+          'konata_audio_loop_modes_test_',
+        );
+        addTearDown(() async {
+          if (tempRoot.existsSync()) {
+            await tempRoot.delete(recursive: true);
+          }
+        });
+
+        final albumDir = Directory(p.join(tempRoot.path, 'HiResSingle'));
+        await albumDir.create(recursive: true);
+        for (final name in ['01_Kyoukaisen.flac', '02_Karasu.flac', '03_Shounen.flac']) {
+          await File(
+            p.join(albumDir.path, name),
+          ).writeAsBytes(const [0x66, 0x4C, 0x61, 0x43]);
+        }
+
+        final fakeClient = _FakeAudioLibMpvClient();
+        final storage = StorageRootService(overrideRoot: tempRoot);
+        final db = KonataDatabase(NativeDatabase.memory());
+        addTearDown(db.close);
+        final repo = DriftLibraryRepository(db);
+        final container = ProviderContainer(
+          overrides: [
+            storageRootProvider.overrideWithValue(storage),
+            libraryRepositoryProvider.overrideWithValue(repo),
+            playbackPreferencesProvider.overrideWith(
+              (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+            ),
+            audioPlaybackProvider.overrideWith(
+              (ref) => AudioPlaybackNotifier(
+                ref,
+                clientFactory: () => fakeClient,
+              ),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final source = MediaSource(
+          id: 'src-local',
+          label: 'Local',
+          kind: MediaSourceKind.local,
+          location: tempRoot.path,
+        );
+        const work = Work(id: 'w-86', title: '86 -不存在的战区-');
+        const variants = [
+          MediaVariant(
+            id: 'v-44',
+            workId: 'w-86',
+            sourceId: 'src-local',
+            relativePath: 'HiResSingle/01_Kyoukaisen.flac',
+            fileName: '01_Kyoukaisen.flac',
+            fileSize: 1024,
+            assetKind: AssetKind.cdAlbum,
+          ),
+          MediaVariant(
+            id: 'v-45',
+            workId: 'w-86',
+            sourceId: 'src-local',
+            relativePath: 'HiResSingle/02_Karasu.flac',
+            fileName: '02_Karasu.flac',
+            fileSize: 1024,
+            assetKind: AssetKind.cdAlbum,
+          ),
+          MediaVariant(
+            id: 'v-46',
+            workId: 'w-86',
+            sourceId: 'src-local',
+            relativePath: 'HiResSingle/03_Shounen.flac',
+            fileName: '03_Shounen.flac',
+            fileSize: 1024,
+            assetKind: AssetKind.cdAlbum,
+          ),
+        ];
+
+        final notifier = container.read(audioPlaybackProvider.notifier);
+        await notifier.playCdCollection(
+          work: work,
+          cdVariants: variants,
+          initialVariant: variants[0],
+          sourcesById: {'src-local': source},
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        // 验证已订阅 eof-reached 属性
+        expect(fakeClient.observedProperties['eof-reached'], 109);
+        expect(container.read(audioPlaybackProvider).loopMode, AudioLoopMode.loopAll);
+        expect(container.read(audioPlaybackProvider).currentIndex, 0);
+
+        // 1. 列表循环 (loopAll)：第 1 首同时触发 eof-reached + end-file 仅推进 1 次至第 2 首，第 2 首再完播继续推进至第 3 首并回环至第 1 首
+        fakeClient.emitEvent(const MpvStartFileEvent(1));
+        fakeClient.emitDuration(295.0);
+        fakeClient.emitEofReached(true);
+        fakeClient.emitEndFileEof(playlistEntryId: 1);
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(container.read(audioPlaybackProvider).currentIndex, 1);
+        expect(container.read(audioPlaybackProvider).isPlaying, isTrue);
+
+        fakeClient.emitEvent(const MpvStartFileEvent(2));
+        fakeClient.emitDuration(301.0);
+        fakeClient.emitEndFileEof(playlistEntryId: 2);
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(container.read(audioPlaybackProvider).currentIndex, 2);
+        expect(container.read(audioPlaybackProvider).isPlaying, isTrue);
+
+        fakeClient.emitEvent(const MpvStartFileEvent(3));
+        fakeClient.emitDuration(260.0);
+        fakeClient.emitEndFileEof(playlistEntryId: 3);
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(container.read(audioPlaybackProvider).currentIndex, 0);
+        expect(container.read(audioPlaybackProvider).isPlaying, isTrue);
+
+        // 2. 单曲循环 (loopOne)：连续多次完播始终重播当前曲目不卡死
+        notifier.cycleLoopMode();
+        expect(container.read(audioPlaybackProvider).loopMode, AudioLoopMode.loopOne);
+        final loadsBeforeLoopOne =
+            fakeClient.commands.where((c) => c.first == 'loadfile').length;
+
+        fakeClient.emitEvent(const MpvStartFileEvent(4));
+        fakeClient.emitEndFileEof(playlistEntryId: 4);
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(container.read(audioPlaybackProvider).currentIndex, 0);
+        expect(container.read(audioPlaybackProvider).isPlaying, isTrue);
+
+        fakeClient.emitEvent(const MpvStartFileEvent(5));
+        fakeClient.emitEofReached(true);
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(container.read(audioPlaybackProvider).currentIndex, 0);
+        expect(container.read(audioPlaybackProvider).isPlaying, isTrue);
+        expect(
+          fakeClient.commands.where((c) => c.first == 'loadfile').length,
+          loadsBeforeLoopOne + 2,
+        );
+
+        // 3. 顺序播放 (sequence)：推进至末曲并在末曲完播后平滑停止 (isPlaying=false)，再次点击播放从头恢复起播
+        notifier.cycleLoopMode();
+        expect(container.read(audioPlaybackProvider).loopMode, AudioLoopMode.sequence);
+        await notifier.playQueueIndex(1);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(container.read(audioPlaybackProvider).currentIndex, 1);
+
+        fakeClient.emitEvent(const MpvStartFileEvent(6));
+        fakeClient.emitEndFileEof(playlistEntryId: 6);
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(container.read(audioPlaybackProvider).currentIndex, 2);
+        expect(container.read(audioPlaybackProvider).isPlaying, isTrue);
+
+        fakeClient.emitEvent(const MpvStartFileEvent(7));
+        fakeClient.emitDuration(260.0);
+        fakeClient.emitEndFileEof(playlistEntryId: 7);
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(container.read(audioPlaybackProvider).currentIndex, 2);
+        expect(container.read(audioPlaybackProvider).isPlaying, isFalse);
+        expect(container.read(audioPlaybackProvider).positionSeconds, 260.0);
+
+        await notifier.togglePlayPause();
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(container.read(audioPlaybackProvider).isPlaying, isTrue);
+        expect(container.read(audioPlaybackProvider).positionSeconds, 0.0);
       },
     );
 

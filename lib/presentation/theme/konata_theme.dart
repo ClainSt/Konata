@@ -57,6 +57,7 @@ abstract final class KonataTheme {
   static const Duration panelSwitchDuration = Duration(milliseconds: 180);
   static const Duration navSliderDuration = Duration(milliseconds: 260);
   static const Duration tabSwitchDuration = Duration(milliseconds: 220);
+  static const Duration settingsAutoSaveDebounce = Duration(milliseconds: 300);
 
   /// 弹窗视口安全边界留白。
   static const double dialogViewportMargin = 12.0;

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,9 +12,8 @@ import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/design_system/konata_surface_card.dart';
-import '../widgets/design_system/konata_toast.dart';
 
-/// 设置页「外部调用」一级面板：独立管理外部视频播放器、外部音频播放器及外部看图工具。
+/// 设置页「外部调用」一级面板：独立管理外部视频播放器、外部音频播放器及外部看图工具（输入或浏览后即时自动保存）。
 class SettingsExternalToolsPanel extends ConsumerStatefulWidget {
   /// 创建外部调用设置面板。
   const SettingsExternalToolsPanel({super.key});
@@ -28,15 +29,81 @@ class _SettingsExternalToolsPanelState
   final TextEditingController _potController = TextEditingController();
   final TextEditingController _audioController = TextEditingController();
   final TextEditingController _imageController = TextEditingController();
+
   bool _initialized = false;
+  bool _hasPendingSave = false;
+  Timer? _autoSaveTimer;
+  KonataActionsCoordinator? _actions;
 
   @override
   void dispose() {
+    _autoSaveTimer?.cancel();
+    _autoSaveTimer = null;
+    final pendingActions = _actions;
+    if (_hasPendingSave && pendingActions != null) {
+      _hasPendingSave = false;
+      unawaited(pendingActions.saveExternalPlayers(_buildConfigs()));
+    }
     _mpvController.dispose();
     _potController.dispose();
     _audioController.dispose();
     _imageController.dispose();
     super.dispose();
+  }
+
+  List<ExternalPlayerConfig> _buildConfigs() {
+    return [
+      ExternalPlayerConfig(
+        id: 'player_mpv',
+        name: 'MPV 播放器',
+        kind: ExternalPlayerKind.mpv,
+        executablePath: _mpvController.text.trim(),
+        argumentsTemplate: '--force-window=yes {url}',
+        isDefault: true,
+      ),
+      ExternalPlayerConfig(
+        id: 'player_potplayer',
+        name: 'PotPlayer',
+        kind: ExternalPlayerKind.potplayer,
+        executablePath: _potController.text.trim(),
+        argumentsTemplate: '{url}',
+      ),
+      ExternalPlayerConfig(
+        id: 'player_audio',
+        name: '外部音频播放器',
+        kind: ExternalPlayerKind.audioPlayer,
+        executablePath: _audioController.text.trim(),
+        argumentsTemplate: '{url}',
+      ),
+      ExternalPlayerConfig(
+        id: 'player_image_viewer',
+        name: '外部图片查看器',
+        kind: ExternalPlayerKind.imageViewer,
+        executablePath: _imageController.text.trim(),
+        argumentsTemplate: '{path}',
+      ),
+    ];
+  }
+
+  void _scheduleAutoSave() {
+    _initialized = true;
+    _hasPendingSave = true;
+    _autoSaveTimer?.cancel();
+    _autoSaveTimer = Timer(
+      KonataTheme.settingsAutoSaveDebounce,
+      () => unawaited(_flushAutoSave()),
+    );
+  }
+
+  Future<void> _flushAutoSave() async {
+    _autoSaveTimer?.cancel();
+    _autoSaveTimer = null;
+    if (!_hasPendingSave) return;
+    final coordinator =
+        _actions ?? (mounted ? ref.read(konataActionsProvider) : null);
+    if (coordinator == null) return;
+    _hasPendingSave = false;
+    await coordinator.saveExternalPlayers(_buildConfigs());
   }
 
   Future<void> _pickExecutable(
@@ -50,77 +117,38 @@ class _SettingsExternalToolsPanelState
     );
     final path = files.firstOrNull?.path;
     if (path != null && path.isNotEmpty) {
+      _initialized = true;
       target.text = path;
-    }
-  }
-
-  Future<void> _saveConfigs() async {
-    final actions = ref.read(konataActionsProvider);
-    await actions.saveExternalPlayer(
-      ExternalPlayerConfig(
-        id: 'player_mpv',
-        name: 'MPV 播放器',
-        kind: ExternalPlayerKind.mpv,
-        executablePath: _mpvController.text.trim(),
-        argumentsTemplate: '--force-window=yes {url}',
-        isDefault: true,
-      ),
-    );
-    await actions.saveExternalPlayer(
-      ExternalPlayerConfig(
-        id: 'player_potplayer',
-        name: 'PotPlayer',
-        kind: ExternalPlayerKind.potplayer,
-        executablePath: _potController.text.trim(),
-        argumentsTemplate: '{url}',
-      ),
-    );
-    await actions.saveExternalPlayer(
-      ExternalPlayerConfig(
-        id: 'player_audio',
-        name: '外部音频播放器',
-        kind: ExternalPlayerKind.audioPlayer,
-        executablePath: _audioController.text.trim(),
-        argumentsTemplate: '{url}',
-      ),
-    );
-    await actions.saveExternalPlayer(
-      ExternalPlayerConfig(
-        id: 'player_image_viewer',
-        name: '外部图片查看器',
-        kind: ExternalPlayerKind.imageViewer,
-        executablePath: _imageController.text.trim(),
-        argumentsTemplate: '{path}',
-      ),
-    );
-    if (mounted) {
-      showKonataToast(context, '外部调用配置已保存');
+      _hasPendingSave = true;
+      await _flushAutoSave();
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final players =
-        ref.watch(externalPlayersProvider).valueOrNull ?? const [];
+    final playersAsync = ref.watch(externalPlayersProvider);
+    _actions = ref.read(konataActionsProvider);
 
-    if (!_initialized && players.isNotEmpty) {
-      _initialized = true;
-      for (final player in players) {
-        switch (player.kind) {
-          case ExternalPlayerKind.mpv:
-            _mpvController.text = player.executablePath;
-          case ExternalPlayerKind.potplayer:
-            _potController.text = player.executablePath;
-          case ExternalPlayerKind.audioPlayer:
-            _audioController.text = player.executablePath;
-          case ExternalPlayerKind.imageViewer:
-            _imageController.text = player.executablePath;
-          case ExternalPlayerKind.custom:
-            break;
+    playersAsync.whenData((players) {
+      if (!_initialized) {
+        _initialized = true;
+        for (final player in players) {
+          switch (player.kind) {
+            case ExternalPlayerKind.mpv:
+              _mpvController.text = player.executablePath;
+            case ExternalPlayerKind.potplayer:
+              _potController.text = player.executablePath;
+            case ExternalPlayerKind.audioPlayer:
+              _audioController.text = player.executablePath;
+            case ExternalPlayerKind.imageViewer:
+              _imageController.text = player.executablePath;
+            case ExternalPlayerKind.custom:
+              break;
+          }
         }
       }
-    }
+    });
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -155,6 +183,8 @@ class _SettingsExternalToolsPanelState
                 label: 'MPV 可执行文件路径（外部首选）',
                 hintText: r'C:\Program Files\mpv\mpv.exe',
                 icon: Icons.play_circle_outline_rounded,
+                onChanged: (_) => _scheduleAutoSave(),
+                onSubmitted: (_) => unawaited(_flushAutoSave()),
                 onBrowse: () => _pickExecutable(
                   _mpvController,
                   dialogTitle: '选择 MPV 播放器可执行文件',
@@ -166,6 +196,8 @@ class _SettingsExternalToolsPanelState
                 label: 'PotPlayer 可执行文件路径（备选）',
                 hintText: r'C:\Program Files\DAUM\PotPlayer\PotPlayerMini64.exe',
                 icon: Icons.ondemand_video_rounded,
+                onChanged: (_) => _scheduleAutoSave(),
+                onSubmitted: (_) => unawaited(_flushAutoSave()),
                 onBrowse: () => _pickExecutable(
                   _potController,
                   dialogTitle: '选择 PotPlayer 可执行文件',
@@ -198,6 +230,8 @@ class _SettingsExternalToolsPanelState
                 label: '外部音频播放器路径（CD / 无损可选）',
                 hintText: r'C:\Program Files\foobar2000\foobar2000.exe',
                 icon: Icons.library_music_outlined,
+                onChanged: (_) => _scheduleAutoSave(),
+                onSubmitted: (_) => unawaited(_flushAutoSave()),
                 onBrowse: () => _pickExecutable(
                   _audioController,
                   dialogTitle: '选择外部音频播放器可执行文件',
@@ -209,21 +243,14 @@ class _SettingsExternalToolsPanelState
                 label: '外部图片查看器路径（Scan 扫图可选）',
                 hintText: r'C:\Program Files\Honeyview\Honeyview.exe',
                 icon: Icons.photo_library_outlined,
+                onChanged: (_) => _scheduleAutoSave(),
+                onSubmitted: (_) => unawaited(_flushAutoSave()),
                 onBrowse: () => _pickExecutable(
                   _imageController,
                   dialogTitle: '选择外部图片查看器可执行文件',
                 ),
               ),
             ],
-          ),
-        ),
-        const SizedBox(height: 18),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: KonataPillButton.primary(
-            label: '保存外部调用配置',
-            icon: Icons.save_outlined,
-            onPressed: _saveConfigs,
           ),
         ),
       ],
@@ -237,6 +264,8 @@ class _ExternalPathFieldRow extends StatelessWidget {
     required this.label,
     required this.hintText,
     required this.icon,
+    required this.onChanged,
+    required this.onSubmitted,
     required this.onBrowse,
   });
 
@@ -244,6 +273,8 @@ class _ExternalPathFieldRow extends StatelessWidget {
   final String label;
   final String hintText;
   final IconData icon;
+  final ValueChanged<String> onChanged;
+  final ValueChanged<String> onSubmitted;
   final VoidCallback onBrowse;
 
   @override
@@ -257,6 +288,8 @@ class _ExternalPathFieldRow extends StatelessWidget {
             label: label,
             hintText: hintText,
             prefixIcon: icon,
+            onChanged: onChanged,
+            onSubmitted: onSubmitted,
           ),
         ),
         const SizedBox(width: 10),

@@ -759,31 +759,58 @@ abstract final class SupplementarySubclassifier {
       final sampleFirst = firstPass.values.firstWhere(
         (e) => e.albumKey == collidingKeys.first,
       );
-      final cleanBase = _truncateMiddleOrEnd(sampleFirst.chipLabel, 22);
+      final cleanBase = sampleFirst.chipLabel;
 
       final extractedTags = <String, String?>{
         for (final k in collidingKeys)
           k: extractCdVersionTag(rawFolderByAlbumKey[k] ?? ''),
       };
-      final hasHiResSibling = extractedTags.values.any(
-        (t) => t != null && (t.contains('bit') || t == 'Hi-Res'),
+      final hasHiResOrEditionSibling = extractedTags.values.any(
+        (t) =>
+            t != null &&
+            (t.contains('bit') ||
+                t == 'Hi-Res' ||
+                t.contains('盤') ||
+                t.contains('盘') ||
+                t.contains('版')),
       );
+
+      bool isPureFormatTag(String? t) {
+        if (t == null || t.isEmpty) return true;
+        return RegExp(
+          r'^(?:FLAC|AAC|MP3|WAV|APE|ALAC|M4A|OPUS|WEBP|\+)+$',
+          caseSensitive: false,
+        ).hasMatch(t);
+      }
 
       final usedLabels = <String>{};
       var seq = 1;
       for (final k in collidingKeys) {
-        var tag = extractedTags[k];
-        if ((tag == null || tag == 'FLAC') && hasHiResSibling) {
-          tag = '标准版';
-        }
-        tag ??= '版本 $seq';
-        var candidate = '$cleanBase · $tag';
-        while (!usedLabels.add(candidate)) {
-          seq++;
-          candidate = '$cleanBase · $tag ($seq)';
+        final rawTag = extractedTags[k];
+        String candidate;
+        String effectiveVer = rawTag ?? '';
+        // 当兄弟目录带有 24bit/48kHz 或限定盘标识时，纯格式普通版直接保持干净原专辑名，不加冗余编码后缀
+        if (hasHiResOrEditionSibling &&
+            isPureFormatTag(rawTag) &&
+            !usedLabels.contains(cleanBase)) {
+          candidate = cleanBase;
+          effectiveVer = '';
+          usedLabels.add(candidate);
+        } else {
+          final tag = (rawTag != null && rawTag.isNotEmpty)
+              ? rawTag
+              : '版本 $seq';
+          effectiveVer = tag;
+          candidate = '$cleanBase · $tag';
+          while (!usedLabels.add(candidate)) {
+            seq++;
+            candidate = '$cleanBase · $tag ($seq)';
+          }
         }
         refinedLabelByKey[k] = candidate;
-        refinedVersionByKey[k] = tag;
+        if (effectiveVer.isNotEmpty) {
+          refinedVersionByKey[k] = effectiveVer;
+        }
         chipMeta[k] = candidate;
         seq++;
       }
@@ -1113,19 +1140,12 @@ abstract final class SupplementarySubclassifier {
       return 'Original Soundtrack';
     }
 
-    // 长度超过 28 字符时若存在同名消歧需要附日期，其余适度浓缩
     final baseKey = _normalizedBaseTitleForDisambig(text);
     if (duplicateBaseNames?.contains(baseKey) == true && dateToken != null) {
-      final compact = _truncateMiddleOrEnd(text, 22);
-      return '$compact ($dateToken)';
+      return '$text ($dateToken)';
     }
 
-    return _truncateMiddleOrEnd(text, 28);
-  }
-
-  static String _truncateMiddleOrEnd(String input, int maxChars) {
-    if (input.length <= maxChars) return input;
-    return '${input.substring(0, maxChars - 1).trimRight()}…';
+    return text;
   }
 
   static String? _cleanDirectSubdirName(String seg) {
@@ -1143,10 +1163,7 @@ abstract final class SupplementarySubclassifier {
       }
       return s;
     }
-    s = _cleanScanSegmentLabel(s);
-    if (s.length > 26) {
-      s = _cleanSingleAlbumLabel(seg);
-    }
+    s = _cleanSingleAlbumLabel(seg);
     return s.isEmpty ? null : s;
   }
 

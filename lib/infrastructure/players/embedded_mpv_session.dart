@@ -334,6 +334,8 @@ class EmbeddedMpvSession {
     } else {
       client.setPropertyString('start', 'none');
     }
+    client.setPropertyDouble('sub-delay', 0.0);
+    client.setPropertyDouble('audio-delay', 0.0);
     client.setPropertyFlag('pause', false);
 
     final rc = client.command(['loadfile', resolved.mediaTarget, 'replace']);
@@ -879,11 +881,26 @@ class EmbeddedMpvSession {
 
   void setMute(bool muted) => _client?.setPropertyFlag('mute', muted);
 
-  void setSubtitleDelay(double seconds) =>
-      _client?.setPropertyDouble('sub-delay', seconds);
+  void setSubtitleDelay(double seconds) {
+    final client = _client;
+    if (_disposed || client == null || client.isDisposed) return;
+    final rc = client.setPropertyDouble('sub-delay', seconds);
+    if (rc < 0) {
+      client.setPropertyString('sub-delay', seconds.toStringAsFixed(2));
+    }
+    if (client.getPropertyFlag('pause') ?? false) {
+      client.command(['seek', '0', 'relative', 'exact']);
+    }
+  }
 
-  void setAudioDelay(double seconds) =>
-      _client?.setPropertyDouble('audio-delay', seconds);
+  void setAudioDelay(double seconds) {
+    final client = _client;
+    if (_disposed || client == null || client.isDisposed) return;
+    final rc = client.setPropertyDouble('audio-delay', seconds);
+    if (rc < 0) {
+      client.setPropertyString('audio-delay', seconds.toStringAsFixed(2));
+    }
+  }
 
   void selectSubtitle(SubtitleChoice? choice) {
     final client = _client;

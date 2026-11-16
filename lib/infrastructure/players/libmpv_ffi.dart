@@ -17,6 +17,7 @@ abstract final class MpvError {
   static const int success = 0;
   static const int optionNotFound = -5;
   static const int propertyNotFound = -8;
+  static const int propertyFormat = -9;
   static const int propertyUnavailable = -10;
   static const int aoInitFailed = -14;
   static const int voInitFailed = -15;

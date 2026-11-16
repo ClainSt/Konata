@@ -14,10 +14,11 @@ def sha256(path):
 
 
 def main():
+    default_output = Path(__file__).resolve().parents[2] / 'native' / 'konata-native'
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('platform', choices=['windows', 'android'])
     parser.add_argument('--root', type=Path, default=Path('/opt/konata-build'))
-    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--output', type=Path, default=default_output)
     parser.add_argument('--android-helper-jar', type=Path)
     args = parser.parse_args()
     output = args.output.resolve()

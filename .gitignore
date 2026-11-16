@@ -18,10 +18,11 @@ migrate_working_dir/
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+# Editor & agent local configs
+.vscode/
+.claude/
+.cursor/
+/android/local.properties
 
 # Flutter/Dart/Pub related
 **/doc/api/
@@ -53,14 +54,28 @@ app.*.map.json
 android/.kotlin/
 
 
-# Keep project notes and verification/design artifacts local.
+# Native runtime binaries (only track *-manifest.json in Git)
+/native/*
+!/native/konata-native/
+/native/konata-native/*
+!/native/konata-native/*-manifest.json
+
+# Portable runtime data & local debug databases
+/userdata/
+/cache/
+/*.db
+/*.db-wal
+/*.db-shm
+/*.db-journal
+
+# Keep project notes local.
 *.[mM][dD]
 !/AGENTS.md
 !/README.md
-!/docs/OPTIONAL_FEATURES.md
-!/docs/MPV_ENGINE_RETIREMENT.md
-!/docs/LIBRARY_BACKUP.md
-!/packages/**/KONATA_PATCHES.md
-!/packages/path_provider_windows/README.md
-/design/
-/docs/verification/
+!/packages/**/KONATA_PATCH*.md
+!/tool/native/README.md
+/photos/
+
+# Local ad-hoc dataset audit scripts
+/tool/audit_*.dart
+/tool/benchmark_cloud.dart

@@ -1,0 +1,242 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:drift/native.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:ccplayer/application/scraping/scrape_compute_worker.dart';
+import 'package:ccplayer/application/scraping/scrape_orchestrator.dart';
+import 'package:ccplayer/domain/models/episode.dart';
+import 'package:ccplayer/domain/models/media_source.dart';
+import 'package:ccplayer/domain/models/media_variant.dart';
+import 'package:ccplayer/domain/models/network_config.dart';
+import 'package:ccplayer/domain/models/work.dart';
+import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
+import 'package:ccplayer/infrastructure/database/konata_database.dart';
+import 'package:ccplayer/infrastructure/network/priority_http_scheduler.dart';
+import 'package:ccplayer/infrastructure/network/tmdb_http_client.dart';
+import 'package:ccplayer/infrastructure/network/tmdb_service.dart';
+import 'package:ccplayer/infrastructure/sources/local_source_gateway.dart';
+import 'package:path/path.dart' as p;
+
+http.Response _jsonResponse(Object data, [int statusCode = 200]) {
+  return http.Response.bytes(
+    utf8.encode(jsonEncode(data)),
+    statusCode,
+    headers: const {'content-type': 'application/json; charset=utf-8'},
+  );
+}
+
+void main() {
+  group('ScrapeOrchestrator 端到端四段漏斗测试', () {
+    late Directory tempRoot;
+    late KonataDatabase db;
+    late DriftLibraryRepository repo;
+
+    setUp(() async {
+      tempRoot = await Directory.systemTemp.createTemp('konata_e2e_');
+      db = KonataDatabase(NativeDatabase.memory());
+      repo = DriftLibraryRepository(db);
+    });
+
+    tearDown(() async {
+      await db.close();
+      if (await tempRoot.exists()) {
+        await tempRoot.delete(recursive: true);
+      }
+    });
+
+    Future<void> touchFile(String relPath, [String content = '']) async {
+      final file = File(p.joinAll([tempRoot.path, ...relPath.split('/')]));
+      await file.parent.create(recursive: true);
+      await file.writeAsString(content);
+    }
+
+    test('多压制组同集归并 + 外挂字幕 + NCOP特典 + CD/CUE保留 + 歧义Top5 + 人工锁定与目录写回', () async {
+      // 1. 构造真实 BDRip 目录树：
+      //    作品 A：葬送的芙莉莲 (双压制组 01 话 + 外挂 .ass + NCOP + CD/.cue)
+      //    作品 B：Ambiguous Anime (故意返回两个极其接近的候选，触发 needsReview)
+      await touchFile(
+        'Frieren (2023)/[VCB-Studio] Frieren S01E01 [Ma10p_1080p][x265_flac].mkv',
+      );
+      await touchFile(
+        'Frieren (2023)/[VCB-Studio] Frieren S01E01 [Ma10p_1080p][x265_flac].sc.ass',
+      );
+      await touchFile(
+        'Frieren (2023)/[ANK-Raws] Frieren S01E01 [1080p].mkv',
+      );
+      await touchFile('Frieren (2023)/Extras/[VCB-Studio] Frieren [NCOP].mkv');
+      await touchFile('Frieren (2023)/CD/OST.cue', 'TITLE "Frieren OST"');
+      await touchFile('Ambiguous Show/Ambiguous Show - 01.mkv');
+
+      const source = MediaSource(
+        id: 'local-src-1',
+        kind: MediaSourceKind.local,
+        label: '本地测试盘',
+        location: '',
+      );
+      final actualSource = MediaSource(
+        id: source.id,
+        kind: source.kind,
+        label: source.label,
+        location: tempRoot.path,
+      );
+      await repo.upsertMediaSource(actualSource);
+
+      final mockClient = MockClient((request) async {
+        final path = request.url.path;
+        final query = request.url.queryParameters['query'] ?? '';
+        if (path.endsWith('/search/tv')) {
+          if (query.toLowerCase().contains('frieren')) {
+            return _jsonResponse({
+              'results': [
+                {
+                  'id': 209867,
+                  'name': '葬送的芙莉莲',
+                  'original_name': '葬送のフリーレン',
+                  'first_air_date': '2023-09-29',
+                },
+              ],
+            });
+          }
+          return _jsonResponse({
+            'results': [
+              {'id': 5001, 'name': 'Ambiguous Show Alpha', 'first_air_date': '2020-01-01'},
+              {'id': 5002, 'name': 'Ambiguous Show Beta', 'first_air_date': '2021-01-01'},
+            ],
+          });
+        }
+        if (path.endsWith('/search/movie')) {
+          return _jsonResponse({'results': []});
+        }
+        if (path.endsWith('/tv/209867')) {
+          return _jsonResponse({
+            'id': 209867,
+            'name': '葬送的芙莉莲',
+            'original_name': '葬送のフリーレン',
+            'first_air_date': '2023-09-29',
+            'alternative_titles': {
+              'results': [
+                {'title': 'Frieren'},
+              ],
+            },
+            'seasons': [
+              {
+                'season_number': 1,
+                'name': 'Season 1',
+                'episode_count': 1,
+                'air_date': '2023-09-29',
+              },
+            ],
+          });
+        }
+        if (path.endsWith('/tv/209867/season/1')) {
+          return _jsonResponse({
+            'episodes': [
+              {'episode_number': 1, 'name': '冒险的终点'},
+            ],
+          });
+        }
+        if (path.endsWith('/tv/5001')) {
+          return _jsonResponse({'id': 5001, 'name': 'Ambiguous Show Alpha'});
+        }
+        if (path.endsWith('/tv/5002')) {
+          return _jsonResponse({'id': 5002, 'name': 'Ambiguous Show Beta'});
+        }
+        if (path.endsWith('/tv/5001/season/1')) {
+          return _jsonResponse({
+            'episodes': [
+              {'episode_number': 1, 'name': '手动确认第一话'},
+            ],
+          });
+        }
+        return http.Response('{}', 404);
+      });
+
+      final orchestrator = ScrapeOrchestrator(
+        repository: repo,
+        tmdbService: TmdbService(
+          httpClient: TmdbHttpClient(
+            config: const TmdbNetworkConfig(credential: 'v3_test'),
+            scheduler: PriorityHttpScheduler(),
+            httpClient: mockClient,
+          ),
+        ),
+        gatewayBuilder: (s) async => LocalSourceGateway(rootPath: s.location),
+        computeWorker: const ScrapeComputeWorker(useIsolate: false),
+      );
+
+      final summary = await orchestrator.scanAndScrapeSource(actualSource);
+      expect(summary.totalWorks, 2);
+      expect(summary.matchedWorks, 1);
+
+      final works = await repo.getAllWorks();
+      final frieren = works.firstWhere((w) => w.tmdbId == 209867);
+      expect(frieren.scrapeStatus, ScrapeStatus.matched);
+
+      // 验证多压制组同一集归并到唯一 S01E01，外加 NCOP 特典
+      final episodes = await repo.getEpisodesByWork(frieren.id);
+      final mainEp1 = episodes
+          .where((e) => e.category == EpisodeCategory.main)
+          .toList();
+      final extras = episodes
+          .where((e) => e.category == EpisodeCategory.extra)
+          .toList();
+      expect(mainEp1, hasLength(1));
+      expect(mainEp1.single.title, '冒险的终点');
+      expect(extras, hasLength(1));
+      expect(extras.single.extraType, ExtraKind.ncop);
+
+      // 验证 2 个不同压制组视频共用同一个 episodeId，外挂字幕挂载正确，CD/CUE 被保留为 cdAlbum
+      final variants = await repo.getVariantsByWork(frieren.id);
+      final ep1Variants = variants
+          .where((v) => v.episodeId == mainEp1.single.id)
+          .toList();
+      expect(ep1Variants, hasLength(2));
+      final vcbVariant = ep1Variants.firstWhere(
+        (v) => v.releaseGroup == 'VCB-Studio',
+      );
+      expect(
+        vcbVariant.externalSubtitles,
+        contains(
+          'Frieren (2023)/[VCB-Studio] Frieren S01E01 [Ma10p_1080p][x265_flac].sc.ass',
+        ),
+      );
+      final cdVariants = variants
+          .where((v) => v.assetKind == AssetKind.cdAlbum)
+          .toList();
+      expect(cdVariants, hasLength(1));
+
+      // 验证歧义作品保存候选且可人工 rebindWorkToTmdb + 目录写回 + 二次扫描锁定保护
+      final ambiguous = works.firstWhere((w) => w.tmdbId != 209867);
+      expect(
+        ambiguous.scrapeStatus,
+        anyOf(ScrapeStatus.needsReview, ScrapeStatus.unmatched),
+      );
+      final savedCandidates = await repo.getScrapeCandidates(ambiguous.id);
+      expect(savedCandidates, isNotEmpty);
+
+      final rebound = await orchestrator.rebindWorkToTmdb(
+        ambiguous.id,
+        5001,
+        TmdbMediaType.tv,
+        writeIdToFolderName: true,
+      );
+      expect(rebound.isManualLocked, isTrue);
+      expect(rebound.tmdbId, 5001);
+      expect(await repo.getScrapeCandidates(ambiguous.id), isEmpty);
+      expect(
+        await Directory(p.join(tempRoot.path, 'Ambiguous Show [tmdbid=5001]'))
+            .exists(),
+        isTrue,
+      );
+
+      // 二次扫描时 isManualLocked 必须保护人工纠错结果不被覆盖
+      await orchestrator.scanAndScrapeSource(actualSource);
+      final lockedWork = await repo.findWorkById(ambiguous.id);
+      expect(lockedWork?.tmdbId, 5001);
+      expect(lockedWork?.isManualLocked, isTrue);
+    });
+  });
+}

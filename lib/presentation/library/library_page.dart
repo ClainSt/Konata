@@ -39,8 +39,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     final totalCountAsync = ref.watch(worksCountProvider);
     final reviewCount =
         ref.watch(needsReviewItemsProvider).valueOrNull?.length ?? 0;
-    final hiddenCount =
-        ref.watch(hiddenWorksProvider).valueOrNull?.length ?? 0;
+    final hiddenCount = ref.watch(hiddenWorksProvider).valueOrNull?.length ?? 0;
     final imageLoader = ref.watch(tmdbImageLoaderProvider);
     final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
     final totalCount = totalCountAsync.valueOrNull ?? 0;
@@ -77,10 +76,11 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                 count: hiddenCount,
                 onTap: () => showHiddenWorksDialog(context),
               ),
-            _ReviewHeaderPill(
-              count: reviewCount,
-              onTap: () => showReviewDialog(context),
-            ),
+            if (reviewCount > 0)
+              _ReviewHeaderPill(
+                count: reviewCount,
+                onTap: () => showReviewDialog(context),
+              ),
           ],
         ),
         Expanded(
@@ -88,8 +88,10 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
             data: (items) {
               if (items.isEmpty) {
                 return _EmptyLibraryState(
-                  isSearching:
-                      ref.watch(librarySearchQueryProvider).trim().isNotEmpty,
+                  isSearching: ref
+                      .watch(librarySearchQueryProvider)
+                      .trim()
+                      .isNotEmpty,
                   onGoSources: () {
                     ref.read(selectedNavSectionProvider.notifier).state =
                         KonataNavSection.sources;
@@ -139,10 +141,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
             },
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (err, _) => Center(
-              child: Text(
-                '加载媒体库失败: $err',
-                style: TextStyle(color: p.danger),
-              ),
+              child: Text('加载媒体库失败: $err', style: TextStyle(color: p.danger)),
             ),
           ),
         ),
@@ -152,10 +151,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 }
 
 class _HiddenWorksHeaderButton extends StatefulWidget {
-  const _HiddenWorksHeaderButton({
-    required this.count,
-    required this.onTap,
-  });
+  const _HiddenWorksHeaderButton({required this.count, required this.onTap});
 
   final int count;
   final VoidCallback onTap;
@@ -204,10 +200,7 @@ class _HiddenWorksHeaderButtonState extends State<_HiddenWorksHeaderButton> {
 }
 
 class _ReviewHeaderPill extends StatefulWidget {
-  const _ReviewHeaderPill({
-    required this.count,
-    required this.onTap,
-  });
+  const _ReviewHeaderPill({required this.count, required this.onTap});
 
   final int count;
   final VoidCallback onTap;
@@ -308,10 +301,7 @@ class _EmptyLibraryState extends StatelessWidget {
             isSearching
                 ? '可尝试按日文原名、压制组或 TMDB ID 检索'
                 : '前往「媒体源」添加本地目录、WebDAV 或 SMB 共享并启动扫描',
-            style: TextStyle(
-              color: p.textSecondary,
-              fontSize: 12.5,
-            ),
+            style: TextStyle(color: p.textSecondary, fontSize: 12.5),
           ),
           if (!isSearching) ...[
             const SizedBox(height: 18),

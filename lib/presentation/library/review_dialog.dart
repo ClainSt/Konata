@@ -8,7 +8,6 @@ import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
-import '../widgets/design_system/konata_pill_button.dart';
 import 'review_work_item_card.dart';
 
 /// 以屏幕正中宽幅可拖拽毛玻璃弹窗形式打开「待复核」手动纠错队列。
@@ -26,6 +25,18 @@ class ReviewDialog extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.listen(needsReviewItemsProvider, (previous, next) {
+      final prevCount = previous?.valueOrNull?.length ?? 0;
+      final nextItems = next.valueOrNull;
+      if (prevCount > 0 && nextItems != null && nextItems.isEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (context.mounted) {
+            Navigator.of(context).maybePop();
+          }
+        });
+      }
+    });
+
     final p = context.palette;
     final reviewAsync = ref.watch(needsReviewItemsProvider);
     final viewport = MediaQuery.sizeOf(context);
@@ -63,13 +74,6 @@ class ReviewDialog extends ConsumerWidget {
               ),
             )
           : null,
-      actions: [
-        KonataPillButton.secondary(
-          label: '关闭',
-          compact: true,
-          onPressed: () => Navigator.of(context).maybePop(),
-        ),
-      ],
       child: reviewAsync.when(
         data: (items) {
           if (items.isEmpty) {
@@ -100,7 +104,7 @@ class ReviewDialog extends ConsumerWidget {
           }
           return ConstrainedBox(
             constraints: BoxConstraints(
-              maxHeight: math.max(180.0, dialogMaxHeight - 160.0),
+              maxHeight: math.max(180.0, dialogMaxHeight - 104.0),
             ),
             child: KonataDraggableScrollbar(
               builder: (_, ctrl) => ListView.separated(
@@ -109,7 +113,8 @@ class ReviewDialog extends ConsumerWidget {
                 padding: const EdgeInsets.only(right: 16, top: 2, bottom: 4),
                 itemCount: items.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 12),
-                itemBuilder: (_, index) => ReviewWorkItemCard(item: items[index]),
+                itemBuilder: (_, index) =>
+                    ReviewWorkItemCard(item: items[index]),
               ),
             ),
           );
@@ -121,10 +126,7 @@ class ReviewDialog extends ConsumerWidget {
         error: (err, _) => SizedBox(
           height: 220,
           child: Center(
-            child: Text(
-              '加载待复核列表失败: $err',
-              style: TextStyle(color: p.danger),
-            ),
+            child: Text('加载待复核列表失败: $err', style: TextStyle(color: p.danger)),
           ),
         ),
       ),

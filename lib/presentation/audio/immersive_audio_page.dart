@@ -463,25 +463,25 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
         }
         return false;
       },
-      child: ShaderMask(
-        shaderCallback: (bounds) => const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Colors.transparent,
-            Colors.white,
-            Colors.white,
-            Colors.transparent,
-          ],
-          stops: [0.0, 0.08, 0.90, 1.0],
-        ).createShader(bounds),
-        blendMode: BlendMode.dstIn,
-        child: KonataDraggableScrollbar(
-          controller: _lyricScrollCtrl,
-          padding: const EdgeInsets.only(right: 4),
-          builder: (_, ctrl) => ListView.builder(
+      child: KonataDraggableScrollbar(
+        controller: _lyricScrollCtrl,
+        trackInsets: const EdgeInsets.only(top: 28, bottom: 32, right: 4),
+        builder: (_, ctrl) => ShaderMask(
+          shaderCallback: (bounds) => const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.transparent,
+              Colors.white,
+              Colors.white,
+              Colors.transparent,
+            ],
+            stops: [0.0, 0.05, 0.94, 1.0],
+          ).createShader(bounds),
+          blendMode: BlendMode.dstIn,
+          child: ListView.builder(
             controller: ctrl,
-            padding: const EdgeInsets.fromLTRB(4, 48, 22, 64),
+            padding: const EdgeInsets.fromLTRB(4, 28, 22, 32),
             itemCount: lrc.lines.length,
             itemBuilder: (context, index) {
               final line = lrc.lines[index];
@@ -578,33 +578,36 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     AudioPlaybackState state,
     AudioPlaybackNotifier notifier,
   ) {
-    return ShaderMask(
-      shaderCallback: (bounds) => const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          Colors.transparent,
-          Colors.white,
-          Colors.white,
-          Colors.transparent,
-        ],
-        stops: [0.0, 0.08, 0.90, 1.0],
-      ).createShader(bounds),
-      blendMode: BlendMode.dstIn,
-      child: KonataDraggableScrollbar(
-        controller: _queueScrollCtrl,
-        padding: const EdgeInsets.only(right: 4),
-        builder: (_, ctrl) => ListView.separated(
+    final isSingleCueAlbum =
+        state.queue.isNotEmpty && state.queue.every((e) => e.isCueTrack);
+    return KonataDraggableScrollbar(
+      controller: _queueScrollCtrl,
+      trackInsets: const EdgeInsets.only(top: 20, bottom: 24, right: 4),
+      builder: (_, ctrl) => ShaderMask(
+        shaderCallback: (bounds) => const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.transparent,
+            Colors.white,
+            Colors.white,
+            Colors.transparent,
+          ],
+          stops: [0.0, 0.04, 0.95, 1.0],
+        ).createShader(bounds),
+        blendMode: BlendMode.dstIn,
+        child: ListView.separated(
           controller: ctrl,
-          padding: const EdgeInsets.fromLTRB(4, 36, 22, 56),
+          padding: const EdgeInsets.fromLTRB(4, 20, 22, 24),
           itemCount: state.queue.length,
           separatorBuilder: (_, _) => const SizedBox(height: 6),
           itemBuilder: (context, index) {
             final qItem = state.queue[index];
             final active = index == state.currentIndex;
-            final trackPrefix = (qItem.trackNumber ?? (index + 1))
-                .toString()
-                .padLeft(2, '0');
+            final seqNum = isSingleCueAlbum
+                ? (qItem.trackNumber ?? (index + 1))
+                : (index + 1);
+            final trackPrefix = seqNum.toString().padLeft(2, '0');
             return _BorderlessQueueRow(
               item: qItem,
               trackPrefix: trackPrefix,
@@ -644,13 +647,21 @@ class _BorderlessQueueRowState extends State<_BorderlessQueueRow> {
     final active = widget.active;
     final color = active
         ? p.textPrimary
-        : (_hovered ? p.textPrimary.withValues(alpha: 0.88) : p.textSecondary);
+        : (_hovered ? p.textPrimary.withValues(alpha: 0.92) : p.textSecondary);
     final resolvedDuration = widget.item.resolvedDuration;
     final durationText = resolvedDuration > Duration.zero
         ? PlaybackFormatters.formatMediaDuration(
             resolvedDuration.inMilliseconds / 1000.0,
           )
         : '';
+
+    final subtitleParts = <String>[
+      if (widget.item.performer.trim().isNotEmpty) widget.item.performer.trim(),
+      if (widget.item.showAlbumSubtitle &&
+          widget.item.albumTitle.trim().isNotEmpty)
+        widget.item.albumTitle.trim(),
+    ];
+    final subtitleText = subtitleParts.join(' · ');
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -660,7 +671,7 @@ class _BorderlessQueueRowState extends State<_BorderlessQueueRow> {
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
           child: Row(
             children: [
               SizedBox(
@@ -686,38 +697,84 @@ class _BorderlessQueueRowState extends State<_BorderlessQueueRow> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    AnimatedDefaultTextStyle(
-                      duration: const Duration(milliseconds: 200),
-                      curve: Curves.easeOutCubic,
-                      style: TextStyle(
-                        color: color,
-                        fontSize: active ? 16.5 : 14.5,
-                        fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-                        shadows: active
-                            ? [
-                                Shadow(
-                                  color: p.isDark
-                                      ? Colors.white.withValues(alpha: 0.42)
-                                      : Colors.black.withValues(alpha: 0.10),
-                                  blurRadius: 14,
-                                ),
-                              ]
-                            : null,
-                      ),
-                      child: EllipsisTextWithTooltip(
-                        text: widget.item.title,
-                        style: const TextStyle(),
-                      ),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: AnimatedDefaultTextStyle(
+                            duration: const Duration(milliseconds: 200),
+                            curve: Curves.easeOutCubic,
+                            style: TextStyle(
+                              color: color,
+                              fontSize: active ? 16.0 : 14.5,
+                              fontWeight: active
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                              shadows: active
+                                  ? [
+                                      Shadow(
+                                        color: p.isDark
+                                            ? Colors.white.withValues(
+                                                alpha: 0.42,
+                                              )
+                                            : Colors.black.withValues(
+                                                alpha: 0.10,
+                                              ),
+                                        blurRadius: 14,
+                                      ),
+                                    ]
+                                  : null,
+                            ),
+                            child: EllipsisTextWithTooltip(
+                              text: widget.item.title,
+                              style: const TextStyle(),
+                            ),
+                          ),
+                        ),
+                        if (widget.item.versionBadge.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6.5,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: KonataPlaybackTokens.softFill(p),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: p.isDark
+                                    ? KonataPlaybackTokens.glassBorder(p)
+                                    : const Color(0x260F172A),
+                                width: 0.8,
+                              ),
+                            ),
+                            child: Text(
+                              widget.item.versionBadge,
+                              maxLines: 1,
+                              softWrap: false,
+                              style: TextStyle(
+                                color: p.isDark
+                                    ? p.textSecondary
+                                    : p.textPrimary,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w600,
+                                fontFeatures:
+                                    KonataPlaybackTokens.tabularNumbers,
+                                height: 1.1,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                    if (widget.item.performer.isNotEmpty) ...[
-                      const SizedBox(height: 2),
+                    if (subtitleText.isNotEmpty) ...[
+                      const SizedBox(height: 2.5),
                       EllipsisTextWithTooltip(
-                        text: widget.item.performer,
+                        text: subtitleText,
                         style: TextStyle(
                           color: active
                               ? p.textSecondary
                               : (_hovered ? p.textSecondary : p.textMuted),
-                          fontSize: 12,
+                          fontSize: 11.5,
                         ),
                       ),
                     ],

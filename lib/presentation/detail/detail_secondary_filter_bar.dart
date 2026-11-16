@@ -99,7 +99,7 @@ class _DetailSecondaryFilterBarState extends State<DetailSecondaryFilterBar> {
             scrollDirection: Axis.horizontal,
             children: [
               _SecondaryFilterChip(
-                label: '全部 (${widget.totalCount})',
+                label: '全部',
                 selected: widget.selectedKey == null,
                 compact: widget.compact,
                 onTap: () => widget.onSelected(null),
@@ -107,7 +107,7 @@ class _DetailSecondaryFilterBarState extends State<DetailSecondaryFilterBar> {
               for (final item in widget.items) ...[
                 const SizedBox(width: 8),
                 _SecondaryFilterChip(
-                  label: '${item.label} (${item.count})',
+                  label: item.label,
                   selected: widget.selectedKey == item.key,
                   compact: widget.compact,
                   onTap: () => widget.onSelected(item.key),
@@ -190,8 +190,9 @@ class _SecondaryFilterChipState extends State<_SecondaryFilterChip> {
                   palette: p,
                   color: textColor,
                   fontSize: widget.compact ? 11.5 : 12,
-                  fontWeight:
-                      widget.selected ? FontWeight.w600 : FontWeight.w500,
+                  fontWeight: widget.selected
+                      ? FontWeight.w600
+                      : FontWeight.w500,
                 ),
               ),
             ),

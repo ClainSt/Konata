@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/playback/cue_and_lrc_parser.dart';
+import '../../domain/repositories/file_system_gateway.dart';
 import '../sources/byte_stream_source_gateway.dart';
 import '../sources/source_gateway_factory.dart';
 import 'libmpv_ffi.dart';
@@ -211,38 +212,55 @@ class AudioAssetExtractor {
   }
 
   /// 为当前 CD 曲目按需读取：1) 头部内嵌封面；2) 同目录封面图；3) 同名 `.lrc` 歌词。
-  static Future<({Uint8List? embeddedCover, Uint8List? folderCover, LrcDocument? lrc})>
+  ///
+  /// 支持传入 [cachedSiblings] 及 [probeEmbeddedCover] / [probeFolderCover] 开关，
+  /// 供同专辑或同母文件 `.cue` 切轨时跳过重复头部/目录图下载，零阻塞仅探测本轨 `.lrc`。
+  static Future<
+    ({
+      Uint8List? embeddedCover,
+      Uint8List? folderCover,
+      LrcDocument? lrc,
+      List<RemoteEntry>? siblings,
+    })
+  >
   loadTrackAuxiliaryAssets({
     required MediaSource source,
     required MediaVariant variant,
     required MediaSourceGatewayFactory gatewayFactory,
     String? cueTrackTitle,
+    bool probeEmbeddedCover = true,
+    bool probeFolderCover = true,
+    List<RemoteEntry>? cachedSiblings,
   }) async {
     final gateway = await gatewayFactory.create(source);
     try {
       Uint8List? embeddedCover;
       Uint8List? folderCover;
       LrcDocument? lrc;
+      List<RemoteEntry>? siblings = cachedSiblings;
 
       if (gateway is ByteRangeReadableGateway) {
         final byteGateway = gateway as ByteRangeReadableGateway;
-        final headerBytes = await readBoundedBytes(
-          byteGateway,
-          variant.relativePath,
-          maxBytes: 1536 * 1024,
-        );
-        if (headerBytes != null) {
-          embeddedCover = extractEmbeddedCoverFromHeaderBytes(headerBytes);
+        if (probeEmbeddedCover) {
+          final headerBytes = await readBoundedBytes(
+            byteGateway,
+            variant.relativePath,
+            maxBytes: 1536 * 1024,
+          );
+          if (headerBytes != null) {
+            embeddedCover = extractEmbeddedCoverFromHeaderBytes(headerBytes);
+          }
         }
 
-        // 查找同目录封面或歌词文件
+        // 查找同目录封面或歌词文件（优先复用缓存目录项，避免同专辑切歌重复列举）
         final dir = p.posix.dirname(variant.relativePath.replaceAll('\\', '/'));
         final dirRel = dir == '.' ? '' : dir;
         try {
-          final siblings = await gateway.listDirectory(dirRel);
+          siblings ??= await gateway.listDirectory(dirRel);
           String? bestCoverPath;
           String? fallbackImagePath;
-          String? matchedLrcPath;
+          String? trackTitleLrcPath;
+          String? audioStemLrcPath;
 
           final audioStem = p.basenameWithoutExtension(
             variant.fileName,
@@ -255,15 +273,16 @@ class AudioAssetExtractor {
             final ext = p.extension(nameLower);
             if (ext == '.lrc') {
               final stem = p.basenameWithoutExtension(nameLower);
-              if (stem == audioStem ||
-                  (normTrackTitle.isNotEmpty &&
-                      stem.contains(normTrackTitle))) {
-                matchedLrcPath = entry.relativePath;
+              if (normTrackTitle.isNotEmpty && stem.contains(normTrackTitle)) {
+                trackTitleLrcPath ??= entry.relativePath;
+              } else if (stem == audioStem) {
+                audioStemLrcPath ??= entry.relativePath;
               }
-            } else if (ext == '.jpg' ||
-                ext == '.jpeg' ||
-                ext == '.png' ||
-                ext == '.webp') {
+            } else if (probeFolderCover &&
+                (ext == '.jpg' ||
+                    ext == '.jpeg' ||
+                    ext == '.png' ||
+                    ext == '.webp')) {
               fallbackImagePath ??= entry.relativePath;
               if (bestCoverPath == null &&
                   (nameLower.contains('cover') ||
@@ -276,6 +295,7 @@ class AudioAssetExtractor {
             }
           }
 
+          final matchedLrcPath = trackTitleLrcPath ?? audioStemLrcPath;
           if (matchedLrcPath != null) {
             final lrcBytes = await readBoundedBytes(
               byteGateway,
@@ -290,13 +310,15 @@ class AudioAssetExtractor {
             }
           }
 
-          final chosenCover = bestCoverPath ?? fallbackImagePath;
-          if (embeddedCover == null && chosenCover != null) {
-            folderCover = await readBoundedBytes(
-              byteGateway,
-              chosenCover,
-              maxBytes: 8 * 1024 * 1024,
-            );
+          if (probeFolderCover && embeddedCover == null) {
+            final chosenCover = bestCoverPath ?? fallbackImagePath;
+            if (chosenCover != null) {
+              folderCover = await readBoundedBytes(
+                byteGateway,
+                chosenCover,
+                maxBytes: 8 * 1024 * 1024,
+              );
+            }
           }
         } catch (_) {}
       }
@@ -305,7 +327,100 @@ class AudioAssetExtractor {
         embeddedCover: embeddedCover,
         folderCover: folderCover,
         lrc: lrc,
+        siblings: siblings,
       );
+    } finally {
+      await gateway.close();
+    }
+  }
+
+  /// 按关键字优先级（`folder`/`cover`/`front`/`jacket`/`booklet`）从目录项挑选封面相对路径。
+  static String? _pickFolderCoverPath(List<RemoteEntry> siblings) {
+    String? bestCoverPath;
+    String? fallbackImagePath;
+    for (final entry in siblings) {
+      if (entry.isDirectory) continue;
+      final nameLower = entry.name.toLowerCase();
+      final ext = p.extension(nameLower);
+      if (ext != '.jpg' && ext != '.jpeg' && ext != '.png' && ext != '.webp') {
+        continue;
+      }
+      fallbackImagePath ??= entry.relativePath;
+      if (bestCoverPath == null &&
+          (nameLower.contains('folder') ||
+              nameLower.contains('cover') ||
+              nameLower.contains('front') ||
+              nameLower.contains('jacket') ||
+              nameLower.contains('booklet'))) {
+        bestCoverPath = entry.relativePath;
+      }
+    }
+    return bestCoverPath ?? fallbackImagePath;
+  }
+
+  /// 优先读取音频所属专辑目录封面（Folder/Cover/Front/Booklet/图片），其次读取内嵌封面；无专属图时返回 `null`。
+  static Future<Uint8List?> resolveAlbumCoverBytes({
+    required MediaSource source,
+    required MediaVariant variant,
+    required MediaSourceGatewayFactory gatewayFactory,
+  }) async {
+    final gateway = await gatewayFactory.create(source);
+    try {
+      if (gateway is! ByteRangeReadableGateway) return null;
+      final byteGateway = gateway as ByteRangeReadableGateway;
+
+      final normRel = variant.relativePath.replaceAll('\\', '/');
+      final dir = p.posix.dirname(normRel);
+      final dirRel = dir == '.' ? '' : dir;
+      List<RemoteEntry> siblings = const [];
+      try {
+        siblings = await gateway.listDirectory(dirRel);
+      } catch (_) {}
+
+      final chosenFolderCover = _pickFolderCoverPath(siblings);
+      if (chosenFolderCover != null) {
+        final bytes = await readBoundedBytes(
+          byteGateway,
+          chosenFolderCover,
+          maxBytes: 8 * 1024 * 1024,
+        );
+        if (bytes != null && bytes.isNotEmpty) {
+          return bytes;
+        }
+      }
+
+      String? fallbackAudioPath;
+      for (final entry in siblings) {
+        if (entry.isDirectory) continue;
+        final ext = p.extension(entry.name.toLowerCase());
+        if (ext == '.flac' ||
+            ext == '.mp3' ||
+            ext == '.m4a' ||
+            ext == '.alac' ||
+            ext == '.wav') {
+          fallbackAudioPath = entry.relativePath;
+          break;
+        }
+      }
+
+      final probeAudioPath =
+          p.extension(normRel).toLowerCase() == '.cue' && fallbackAudioPath != null
+          ? fallbackAudioPath
+          : normRel;
+      final headerBytes = await readBoundedBytes(
+        byteGateway,
+        probeAudioPath,
+        maxBytes: 1536 * 1024,
+      );
+      if (headerBytes != null) {
+        final embedded = extractEmbeddedCoverFromHeaderBytes(headerBytes);
+        if (embedded != null && embedded.isNotEmpty) {
+          return embedded;
+        }
+      }
+      return null;
+    } catch (_) {
+      return null;
     } finally {
       await gateway.close();
     }

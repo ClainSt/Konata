@@ -1,9 +1,12 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../theme/konata_palette.dart';
+import '../../theme/konata_playback_tokens.dart';
 import 'konata_draggable_scrollbar.dart';
 
 /// 统一下拉菜单选项数据模型。
@@ -434,6 +437,289 @@ class _KonataSearchableSelectState<T> extends State<KonataSearchableSelect<T>> {
   }
 }
 
+/// 全站统一悬浮毛玻璃多选下拉组件（点击条目即时切换勾选，点击外部或按 Esc 键收起）。
+class KonataMultiSelectDropdown<T> extends StatefulWidget {
+  /// 创建统一圆角毛玻璃多选下拉组件。
+  const KonataMultiSelectDropdown({
+    super.key,
+    required this.options,
+    required this.selectedValues,
+    required this.onToggle,
+    required this.displayText,
+    this.hintText = '请选择...',
+    this.enabled = true,
+    this.dense = false,
+    this.menuWidth,
+    this.maxMenuHeight = 280,
+    this.leadingIcon,
+    this.centerAligned = false,
+  });
+
+  /// 当前已勾选值集合。
+  final Set<T> selectedValues;
+
+  /// 选项列表。
+  final List<KonataDropdownOption<T>> options;
+
+  /// 点击某一项的切换回调。
+  final ValueChanged<T>? onToggle;
+
+  /// 触发器当前展示文案（如 `"文字标题"` / `"文字标题 · 标题徽标"` / `"不显示"`）。
+  final String displayText;
+
+  /// 展示文案为空时的占位提示。
+  final String hintText;
+
+  /// 是否可用。
+  final bool enabled;
+
+  /// 紧凑模式。
+  final bool dense;
+
+  /// 自定义菜单宽度。
+  final double? menuWidth;
+
+  /// 菜单最大高度。
+  final double maxMenuHeight;
+
+  /// 可选前缀图标。
+  final IconData? leadingIcon;
+
+  /// 是否使用胶囊居中对齐样式（触发器与浮层水平正中心对齐，内部勾选项对称居中排布）。
+  final bool centerAligned;
+
+  @override
+  State<KonataMultiSelectDropdown<T>> createState() =>
+      _KonataMultiSelectDropdownState<T>();
+}
+
+class _KonataMultiSelectDropdownState<T>
+    extends State<KonataMultiSelectDropdown<T>> {
+  final LayerLink _link = LayerLink();
+  late final ValueNotifier<Set<T>> _selectedNotifier;
+  OverlayEntry? _entry;
+  bool _hovered = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedNotifier = ValueNotifier<Set<T>>(Set<T>.from(widget.selectedValues));
+  }
+
+  @override
+  void didUpdateWidget(covariant KonataMultiSelectDropdown<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!setEquals(oldWidget.selectedValues, widget.selectedValues)) {
+      final snapshot = Set<T>.from(widget.selectedValues);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _selectedNotifier.value = snapshot;
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _closeMenu(notify: false);
+    _selectedNotifier.dispose();
+    super.dispose();
+  }
+
+  void _closeMenu({bool notify = true}) {
+    _entry?.remove();
+    _entry = null;
+    if (notify && mounted) {
+      setState(() {});
+    }
+  }
+
+  void _toggleMenu() {
+    if (!widget.enabled || widget.options.isEmpty) return;
+    if (_entry != null) {
+      _closeMenu();
+      return;
+    }
+    final renderBox = context.findRenderObject() as RenderBox?;
+    if (renderBox == null || !renderBox.hasSize) return;
+    final triggerSize = renderBox.size;
+    final triggerOffset = renderBox.localToGlobal(Offset.zero);
+    final screenSize = MediaQuery.sizeOf(context);
+    final overlay = Overlay.of(context, rootOverlay: true);
+
+    final effectiveWidth = widget.menuWidth != null
+        ? math.min(widget.menuWidth!, screenSize.width - 24)
+        : math.max(
+            triggerSize.width,
+            math.min(200.0, screenSize.width - 24),
+          );
+    final spaceBelow =
+        screenSize.height - (triggerOffset.dy + triggerSize.height) - 16;
+    final spaceAbove = triggerOffset.dy - 16;
+    final openUpward = spaceBelow < 180 && spaceAbove > spaceBelow;
+    final availableHeight = math.max(
+      140.0,
+      math.min(widget.maxMenuHeight, openUpward ? spaceAbove : spaceBelow),
+    );
+    final double horizontalShift;
+    if (widget.centerAligned) {
+      final centeredLeft =
+          triggerOffset.dx + (triggerSize.width - effectiveWidth) / 2;
+      final clampedLeft = centeredLeft.clamp(
+        12.0,
+        math.max(12.0, screenSize.width - 12 - effectiveWidth),
+      );
+      horizontalShift = clampedLeft - centeredLeft;
+    } else {
+      final overflowRight =
+          triggerOffset.dx + effectiveWidth > screenSize.width - 12;
+      horizontalShift = overflowRight
+          ? (screenSize.width - 12 - effectiveWidth - triggerOffset.dx)
+          : 0.0;
+    }
+
+    _entry = OverlayEntry(
+      builder: (_) => _FrostedDropdownOverlay<T>(
+        link: _link,
+        width: effectiveWidth,
+        maxHeight: availableHeight,
+        openUpward: openUpward,
+        horizontalShift: horizontalShift,
+        triggerHeight: triggerSize.height,
+        options: widget.options,
+        selectedValue: null,
+        multiSelect: true,
+        selectedValuesListenable: _selectedNotifier,
+        searchable: false,
+        searchHint: '',
+        emptyText: '暂无选项',
+        centerAligned: widget.centerAligned,
+        onDismiss: _closeMenu,
+        onSelect: (val) => widget.onToggle?.call(val),
+      ),
+    );
+    overlay.insert(_entry!);
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final isOpen = _entry != null;
+    final height = widget.centerAligned ? 36.0 : (widget.dense ? 32.0 : 38.0);
+    final label = widget.displayText.trim().isNotEmpty
+        ? widget.displayText
+        : widget.hintText;
+    final borderRadius = widget.centerAligned
+        ? BorderRadius.circular(999)
+        : BorderRadius.circular(widget.dense ? 9 : 11);
+
+    return CompositedTransformTarget(
+      link: _link,
+      child: MouseRegion(
+        cursor: widget.enabled
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.enabled ? _toggleMenu : null,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 140),
+            height: height,
+            padding: EdgeInsets.symmetric(
+              horizontal: widget.dense ? 10 : 12,
+            ),
+            decoration: BoxDecoration(
+              color: !widget.enabled
+                  ? p.softFill.withValues(alpha: 0.55)
+                  : (isOpen || _hovered ? p.surfaceHover : p.softFill),
+              borderRadius: borderRadius,
+              border: Border.all(
+                color: isOpen
+                    ? p.accent.withValues(alpha: 0.65)
+                    : (_hovered ? p.hoverBorder : p.hairline),
+                width: isOpen && widget.centerAligned ? 1.5 : 1,
+              ),
+            ),
+            child: widget.centerAligned
+                ? Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Text(
+                          label,
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: widget.enabled ? p.textPrimary : p.textMuted,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        right: 0,
+                        child: AnimatedRotation(
+                          turns: isOpen ? 0.5 : 0.0,
+                          duration: const Duration(milliseconds: 180),
+                          curve: Curves.easeOutCubic,
+                          child: Icon(
+                            Icons.keyboard_arrow_down_rounded,
+                            size: 17,
+                            color: widget.enabled
+                                ? p.textSecondary
+                                : p.textMuted,
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      if (widget.leadingIcon != null) ...[
+                        Icon(
+                          widget.leadingIcon,
+                          size: widget.dense ? 14 : 16,
+                          color: p.textSecondary,
+                        ),
+                        const SizedBox(width: 6),
+                      ],
+                      Expanded(
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: widget.enabled ? p.textPrimary : p.textMuted,
+                            fontSize: widget.dense ? 12 : 12.5,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      AnimatedRotation(
+                        turns: isOpen ? 0.5 : 0.0,
+                        duration: const Duration(milliseconds: 180),
+                        curve: Curves.easeOutCubic,
+                        child: Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          size: widget.dense ? 17 : 18,
+                          color: widget.enabled ? p.textSecondary : p.textMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _FrostedDropdownOverlay<T> extends StatefulWidget {
   const _FrostedDropdownOverlay({
     required this.link,
@@ -444,9 +730,12 @@ class _FrostedDropdownOverlay<T> extends StatefulWidget {
     required this.triggerHeight,
     required this.options,
     required this.selectedValue,
+    this.multiSelect = false,
+    this.selectedValuesListenable,
     required this.searchable,
     required this.searchHint,
     required this.emptyText,
+    this.centerAligned = false,
     required this.onDismiss,
     required this.onSelect,
   });
@@ -459,9 +748,12 @@ class _FrostedDropdownOverlay<T> extends StatefulWidget {
   final double triggerHeight;
   final List<KonataDropdownOption<T>> options;
   final T? selectedValue;
+  final bool multiSelect;
+  final ValueListenable<Set<T>>? selectedValuesListenable;
   final bool searchable;
   final String searchHint;
   final String emptyText;
+  final bool centerAligned;
   final VoidCallback onDismiss;
   final ValueChanged<T> onSelect;
 
@@ -522,27 +814,91 @@ class _FrostedDropdownOverlayState<T> extends State<_FrostedDropdownOverlay<T>>
               .toList(growable: false);
 
     // 高不透明防文字穿透毛玻璃背景，确保列表与底层文字永不互相叠加干扰
-    final panelBg = p.isDark
-        ? const Color(0xFF171B24).withValues(alpha: 0.94)
-        : const Color(0xFFF8FAFC).withValues(alpha: 0.96);
-    final panelBorder = p.isDark
-        ? Colors.white.withValues(alpha: 0.16)
-        : Colors.black.withValues(alpha: 0.10);
+    final panelBg = KonataPlaybackTokens.popoverSurface(p);
+    final panelBorder = KonataPlaybackTokens.glassBorder(p);
 
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onTap: widget.onDismiss,
+    Widget buildOptionsList(Set<T>? selectedSet) {
+      return MouseRegion(
+        onExit: (_) {
+          if (_hoveredIndex != null) {
+            setState(() => _hoveredIndex = null);
+          }
+        },
+          child: KonataDraggableScrollbar(
+          controller: _scrollCtrl,
+          builder: (_, ctrl) => ListView.builder(
+            controller: ctrl,
+            shrinkWrap: true,
+            padding: widget.centerAligned
+                ? const EdgeInsets.symmetric(horizontal: 6, vertical: 4)
+                : const EdgeInsets.fromLTRB(6, 4, 14, 4),
+            itemCount: filtered.length,
+            itemBuilder: (_, index) {
+              final item = filtered[index];
+              final selected = selectedSet != null
+                  ? selectedSet.contains(item.value)
+                  : item.value == widget.selectedValue;
+              return _DropdownOptionTile(
+                label: item.label,
+                subtitle: item.subtitle,
+                selected: selected,
+                multiSelect: widget.multiSelect,
+                centerAligned: widget.centerAligned,
+                hovered: !selected && _hoveredIndex == index,
+                onHoverEnter: () {
+                  final next =
+                      selected && !widget.multiSelect ? null : index;
+                  if (_hoveredIndex != next) {
+                    setState(() => _hoveredIndex = next);
+                  }
+                },
+                onHoverExit: () {
+                  if (_hoveredIndex == index) {
+                    setState(() => _hoveredIndex = null);
+                  }
+                },
+                onTap: () => widget.onSelect(item.value),
+              );
+            },
           ),
         ),
+      );
+    }
+
+    final listContent =
+        widget.multiSelect && widget.selectedValuesListenable != null
+        ? ValueListenableBuilder<Set<T>>(
+            valueListenable: widget.selectedValuesListenable!,
+            builder: (_, selectedSet, _) => buildOptionsList(selectedSet),
+          )
+        : buildOptionsList(null);
+
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): widget.onDismiss,
+      },
+      child: Focus(
+        autofocus: !widget.searchable,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: widget.onDismiss,
+              ),
+            ),
         CompositedTransformFollower(
           link: widget.link,
-          targetAnchor:
-              widget.openUpward ? Alignment.topLeft : Alignment.bottomLeft,
-          followerAnchor:
-              widget.openUpward ? Alignment.bottomLeft : Alignment.topLeft,
+          targetAnchor: widget.centerAligned
+              ? (widget.openUpward
+                    ? Alignment.topCenter
+                    : Alignment.bottomCenter)
+              : (widget.openUpward ? Alignment.topLeft : Alignment.bottomLeft),
+          followerAnchor: widget.centerAligned
+              ? (widget.openUpward
+                    ? Alignment.bottomCenter
+                    : Alignment.topCenter)
+              : (widget.openUpward ? Alignment.bottomLeft : Alignment.topLeft),
           offset: Offset(widget.horizontalShift, widget.openUpward ? -6 : 6),
           child: Material(
             color: Colors.transparent,
@@ -681,53 +1037,7 @@ class _FrostedDropdownOverlayState<T> extends State<_FrostedDropdownOverlay<T>>
                               ),
                             )
                           else
-                            Flexible(
-                              child: MouseRegion(
-                                onExit: (_) {
-                                  if (_hoveredIndex != null) {
-                                    setState(() => _hoveredIndex = null);
-                                  }
-                                },
-                                child: KonataDraggableScrollbar(
-                                  controller: _scrollCtrl,
-                                  builder: (_, ctrl) => ListView.builder(
-                                    controller: ctrl,
-                                    shrinkWrap: true,
-                                    padding: const EdgeInsets.fromLTRB(
-                                      6,
-                                      4,
-                                      14,
-                                      4,
-                                    ),
-                                    itemCount: filtered.length,
-                                    itemBuilder: (_, index) {
-                                      final item = filtered[index];
-                                      final selected =
-                                          item.value == widget.selectedValue;
-                                      return _DropdownOptionTile(
-                                        label: item.label,
-                                        subtitle: item.subtitle,
-                                        selected: selected,
-                                        hovered:
-                                            !selected && _hoveredIndex == index,
-                                        onHoverEnter: () {
-                                          final next = selected ? null : index;
-                                          if (_hoveredIndex != next) {
-                                            setState(() => _hoveredIndex = next);
-                                          }
-                                        },
-                                        onHoverExit: () {
-                                          if (_hoveredIndex == index) {
-                                            setState(() => _hoveredIndex = null);
-                                          }
-                                        },
-                                        onTap: () => widget.onSelect(item.value),
-                                      );
-                                    },
-                                  ),
-                                ),
-                              ),
-                            ),
+                            Flexible(child: listContent),
                         ],
                       ),
                     ),
@@ -738,6 +1048,8 @@ class _FrostedDropdownOverlayState<T> extends State<_FrostedDropdownOverlay<T>>
           ),
         ),
       ],
+        ),
+      ),
     );
   }
 }
@@ -747,6 +1059,8 @@ class _DropdownOptionTile extends StatelessWidget {
     required this.label,
     required this.subtitle,
     required this.selected,
+    this.multiSelect = false,
+    this.centerAligned = false,
     required this.hovered,
     required this.onHoverEnter,
     required this.onHoverExit,
@@ -756,6 +1070,8 @@ class _DropdownOptionTile extends StatelessWidget {
   final String label;
   final String? subtitle;
   final bool selected;
+  final bool multiSelect;
+  final bool centerAligned;
   final bool hovered;
   final VoidCallback onHoverEnter;
   final VoidCallback onHoverExit;
@@ -789,45 +1105,85 @@ class _DropdownOptionTile extends StatelessWidget {
             color: bgColor,
             borderRadius: BorderRadius.circular(9),
           ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
+          child: centerAligned
+              ? Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: selected ? p.accent : p.textPrimary,
-                        fontSize: 12.5,
-                        fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                    if (multiSelect) ...[
+                      Icon(
+                        selected
+                            ? Icons.check_box_rounded
+                            : Icons.check_box_outline_blank_rounded,
+                        size: 16,
+                        color: selected ? p.accent : p.textMuted,
                       ),
-                    ),
-                    if (subtitle != null && subtitle!.trim().isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 1.5),
-                        child: Text(
-                          subtitle!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: p.textMuted,
-                            fontSize: 11,
-                          ),
+                      const SizedBox(width: 8),
+                    ],
+                    Flexible(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: selected ? p.accent : p.textPrimary,
+                          fontSize: 12.5,
+                          fontWeight:
+                              selected ? FontWeight.w600 : FontWeight.w500,
                         ),
                       ),
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    if (multiSelect) ...[
+                      Icon(
+                        selected
+                            ? Icons.check_box_rounded
+                            : Icons.check_box_outline_blank_rounded,
+                        size: 16,
+                        color: selected ? p.accent : p.textMuted,
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: selected ? p.accent : p.textPrimary,
+                              fontSize: 12.5,
+                              fontWeight:
+                                  selected ? FontWeight.w600 : FontWeight.w500,
+                            ),
+                          ),
+                          if (subtitle != null && subtitle!.trim().isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 1.5),
+                              child: Text(
+                                subtitle!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: p.textMuted,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    if (!multiSelect && selected) ...[
+                      const SizedBox(width: 8),
+                      Icon(Icons.check_rounded, size: 15, color: p.accent),
+                    ],
                   ],
                 ),
-              ),
-              if (selected) ...[
-                const SizedBox(width: 8),
-                Icon(Icons.check_rounded, size: 15, color: p.accent),
-              ],
-            ],
-          ),
         ),
       ),
     );

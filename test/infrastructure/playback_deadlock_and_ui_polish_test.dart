@@ -399,7 +399,7 @@ void main() {
         '你的名字。',
       );
 
-      const singleOva = Episode(
+      const singleNumberedTvEp = Episode(
         id: 'e_ova',
         workId: 'w3',
         seasonNumber: 1,
@@ -408,7 +408,41 @@ void main() {
       );
       expect(
         EpisodeTitleFormatter.formatCardTitle(
-          episode: singleOva,
+          episode: singleNumberedTvEp,
+          workTitle: '86 -不存在的战区-',
+          workMediaType: TmdbMediaType.tv,
+          mainEpisodeCount: 1,
+        ),
+        '第 01 话',
+      );
+
+      const singleNamedTvEp = Episode(
+        id: 'e_tv1_named',
+        workId: 'w3_86',
+        seasonNumber: 1,
+        episodeNumber: 1,
+        title: 'Undertaker',
+      );
+      expect(
+        EpisodeTitleFormatter.formatCardTitle(
+          episode: singleNamedTvEp,
+          workTitle: '86 -不存在的战区-',
+          workMediaType: TmdbMediaType.tv,
+          mainEpisodeCount: 1,
+        ),
+        '01 · Undertaker',
+      );
+
+      const singleUnnumberedOva = Episode(
+        id: 'e_ova_unnumbered',
+        workId: 'w3_ova',
+        seasonNumber: 1,
+        episodeNumber: null,
+        title: '紫罗兰永恒花园 OVA',
+      );
+      expect(
+        EpisodeTitleFormatter.formatCardTitle(
+          episode: singleUnnumberedOva,
           workTitle: '紫罗兰永恒花园 OVA',
           workMediaType: TmdbMediaType.tv,
           mainEpisodeCount: 1,

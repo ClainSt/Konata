@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/konata_palette.dart';
+import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
 
 /// 作品详情页「待复核」温和快捷横幅（展示中文原因并提供手动匹配与忽略按钮）。
@@ -33,7 +34,9 @@ class WorkReviewBanner extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: KonataTheme.reviewBannerDarkBg.withValues(alpha: 0.80),
+        color: p.isDark
+            ? KonataTheme.reviewBannerDarkBg.withValues(alpha: 0.80)
+            : KonataPlaybackTokens.glassSurface(p),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: p.warning.withValues(alpha: 0.55),
@@ -52,20 +55,20 @@ class WorkReviewBanner extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   '待人工复核确认',
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: Colors.white,
+                    color: p.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   detailText,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
-                    color: KonataTheme.reviewBannerSubtleFg,
+                    color: p.textSecondary,
                   ),
                 ),
               ],
@@ -75,7 +78,7 @@ class WorkReviewBanner extends StatelessWidget {
           TextButton(
             onPressed: onDismiss,
             style: TextButton.styleFrom(
-              foregroundColor: KonataTheme.reviewBannerSubtleFg,
+              foregroundColor: p.textSecondary,
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             ),
             child: const Text('忽略提示', style: TextStyle(fontSize: 12)),

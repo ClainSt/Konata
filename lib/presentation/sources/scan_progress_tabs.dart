@@ -9,13 +9,13 @@ import '../widgets/design_system/konata_draggable_scrollbar.dart';
 /// 扫描进度弹窗内复用的数据统计胶囊。
 class ScanProgressStatChip extends StatelessWidget {
   /// 创建统计胶囊。
-  const ScanProgressStatChip({super.key, required this.label, this.color});
+  const ScanProgressStatChip({super.key, required this.label, this.badge});
 
   /// 胶囊文本。
   final String label;
 
-  /// 可选文字高亮颜色。
-  final Color? color;
+  /// 可选语义徽章高对比度配色令牌。
+  final KonataBadgeColors? badge;
 
   @override
   Widget build(BuildContext context) {
@@ -23,13 +23,17 @@ class ScanProgressStatChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: p.softFill,
+        color: badge?.bg ?? p.softFill,
         borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: badge?.border ?? p.hairline,
+          width: 1,
+        ),
       ),
       child: Text(
         label,
         style: TextStyle(
-          color: color ?? p.textSecondary,
+          color: badge?.fg ?? p.textSecondary,
           fontSize: 11.5,
           fontWeight: FontWeight.w600,
           fontFeatures: const [FontFeature.tabularFigures()],

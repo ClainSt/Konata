@@ -1,9 +1,119 @@
 import 'package:flutter/material.dart';
 
+import 'konata_palette.dart';
+import 'konata_theme.dart';
+
 /// Konata 音视频播放器、流光音频页与极简 OSD 全局统一视觉与时序常量。
 ///
 /// 严禁在播放页面或播控控件内部散落硬编码像素、模糊 sigma、时长或裸色值。
 abstract final class KonataPlaybackTokens {
+  /// 根据当前主题调色盘解析明暗双套毛玻璃表面色（浅色画册米白 / 深色中性炭黑）。
+  static Color glassSurface(KonataPalette p) =>
+      p.isDark ? const Color(0xB8161618) : const Color(0xE0F8FAFC);
+
+  /// 根据当前主题解析弹出式菜单、选曲队列及浮层底色。
+  static Color popoverSurface(KonataPalette p) =>
+      p.isDark ? const Color(0xF01E2026) : const Color(0xF5FFFFFF);
+
+  /// 根据当前主题解析毛玻璃细微描边。
+  static Color glassBorder(KonataPalette p) =>
+      p.isDark ? const Color(0x24FFFFFF) : const Color(0x1A0F172A);
+
+  /// 根据当前主题解析悬停或激活态毛玻璃描边。
+  static Color activeGlassBorder(KonataPalette p) =>
+      p.isDark ? const Color(0x42FFFFFF) : const Color(0x330F172A);
+
+  /// 根据当前主题解析柔和半透明次级底衬色。
+  static Color softFill(KonataPalette p) =>
+      p.isDark ? const Color(0x24FFFFFF) : const Color(0x120F172A);
+
+  /// 根据当前主题解析胶囊内部微交互高亮/激活背景色。
+  static Color activePillBg(KonataPalette p) =>
+      p.isDark ? const Color(0x38FFFFFF) : const Color(0x1A0F172A);
+
+  /// 根据当前主题解析悬停柔和底色。
+  static Color hoverFill(KonataPalette p) =>
+      p.isDark ? const Color(0x14FFFFFF) : const Color(0x0D0F172A);
+
+  /// 根据当前主题解析柔和环境投影色。
+  static Color shadowColor(KonataPalette p) =>
+      Colors.black.withValues(alpha: p.isDark ? 0.34 : 0.14);
+
+  /// 全屏流光音频页背景底色（随明暗切换：暗夜黑曜 / 画册暖白）。
+  static Color auroraCanvas(KonataPalette p) =>
+      p.isDark ? auroraCanvasDark : const Color(0xFFF6F5F1);
+
+  /// 详情页与音频页定向渐隐遮罩基色。
+  static Color detailScrimBase(KonataPalette p) =>
+      p.isDark ? cinemaPureBlack : const Color(0xFFF6F8FC);
+
+  /// 详情页「继续播放」主胶囊双主题毛玻璃填充色（深色黑曜石高对比 / 浅色高透白）。
+  static Color heroPlayButtonFill(
+    KonataPalette p, {
+    required bool enabled,
+    required bool hovered,
+    required bool pressed,
+  }) {
+    if (p.isDark) {
+      if (!enabled) return const Color(0x8014171E);
+      if (pressed) return const Color(0xBA14171E);
+      if (hovered) return const Color(0xEB1F2430);
+      return const Color(0xD414171E);
+    }
+    if (!enabled) return const Color(0x8FFFFFFF);
+    if (pressed) return const Color(0xCCFFFFFF);
+    if (hovered) return const Color(0xFAFFFFFF);
+    return const Color(0xEBFFFFFF);
+  }
+
+  /// 详情页二级筛选胶囊背景色（严格绑定浅色/深色两套毛玻璃色阶，严禁共用灰底）。
+  static Color secondaryFilterPillBg(
+    KonataPalette p, {
+    required bool selected,
+    required bool hovered,
+  }) {
+    if (p.isDark) {
+      if (selected) {
+        return Color.alphaBlend(
+          p.accent.withValues(alpha: 0.28),
+          const Color(0xE014171E),
+        );
+      }
+      return hovered ? const Color(0xE01E222B) : const Color(0xCC14171E);
+    }
+    if (selected) {
+      return p.accent;
+    }
+    return hovered ? const Color(0xFAFFFFFF) : const Color(0xDBFFFFFF);
+  }
+
+  /// 详情页二级筛选胶囊描边色。
+  static Color secondaryFilterPillBorder(
+    KonataPalette p, {
+    required bool selected,
+  }) {
+    if (selected) {
+      return p.isDark ? p.accent.withValues(alpha: 0.55) : p.accent;
+    }
+    return glassBorder(p);
+  }
+
+  /// 详情页二级筛选胶囊文本色。
+  static Color secondaryFilterPillText(
+    KonataPalette p, {
+    required bool selected,
+    required bool hovered,
+  }) {
+    if (p.isDark) {
+      if (selected) return p.accentBadge.fg;
+      return hovered ? p.textPrimary : p.textSecondary;
+    }
+    if (selected) return Colors.white;
+    return hovered
+        ? KonataTheme.detailLightSlatePrimary
+        : KonataTheme.detailLightSlateSecondary;
+  }
+
   /// 内置视频页最底层防 DWM 透底纯黑画布（全屏/非全屏切换绝不触碰窗体材质）。
   static const Color cinemaPureBlack = Color(0xFF000000);
 
@@ -13,11 +123,11 @@ abstract final class KonataPlaybackTokens {
   static const Color auroraDefaultGlowB = Color(0xFF6E3C6B);
   static const Color auroraDefaultGlowC = Color(0xFF285B6E);
 
-  /// 深色浮层底色（确保视频亮画面之上胶囊控件依然可读）。
-  static const Color osdSurfaceDark = Color(0x9C10131A);
+  /// 中性烟熏炭黑毛玻璃胶囊浮层统一底色（零蓝色偏色，四侧连续闭合 1px 微光描边）。
+  static const Color osdSurfaceDark = Color(0xB3161618);
 
-  /// 浮层描边高光。
-  static const Color osdBorderLight = Color(0x30FFFFFF);
+  /// 浮层连续 1px 微光玻璃描边。
+  static const Color osdBorderLight = Color(0x24FFFFFF);
 
   /// 浮层主前景色。
   static const Color osdTextPrimary = Color(0xFFF5F7FA);
@@ -31,30 +141,49 @@ abstract final class KonataPlaybackTokens {
   /// 浮层主色调（亮白激活态）。
   static const Color osdAccent = Color(0xFFFFFFFF);
 
+  /// 播控胶囊与音频进度的全站统一蓝色填充与轻柔微透明白底轨。
+  static const Color capsuleProgressFill = Color(0xFF6BA6FF);
+  static const Color capsuleProgressTrack = Color(0x22FFFFFF);
+
   /// 音视频共享单层底部居中悬浮毛玻璃播控胶囊约束与几何规范。
-  static const double capsuleHeight = 58.0;
-  static const double capsuleMaxWidth = 760.0;
+  static const double capsuleHeight = 62.0;
+  static const double capsuleMaxWidth = 900.0;
   static const double capsuleMinWidth = 340.0;
-  static const double capsuleRadius = 22.0;
-  static const double capsuleBlurSigma = 36.0;
+  static const double capsuleCenterSymmetricBreakpoint = 560.0;
+  static const double capsuleRadius = 20.0;
+  static const double capsuleBlurSigma = 28.0;
   static const double capsuleBottomOffset = 20.0;
-  static const EdgeInsets capsulePadding = EdgeInsets.fromLTRB(16, 4, 14, 0);
+  static const EdgeInsets capsulePadding = EdgeInsets.fromLTRB(16, 4, 16, 12);
 
-  /// 贴顶内沿超薄进度线几何参数（悬停平滑加粗至 6px 并显示预览气泡）。
-  static const double capsuleProgressRestHeight = 2.5;
-  static const double capsuleProgressHoverHeight = 6.0;
-  static const double capsuleProgressHitHeight = 14.0;
-  static const double capsuleProgressHorizontalInset = 16.0;
-  static const double capsuleHoverBubbleBottomOffset = 64.0;
+  /// 胶囊内部底置内缩全圆角细滑轨几何参数（无背景盒，常态 4.5px，悬停/拖拽 9.0px，命中高度 18px 防抖）。
+  static const double capsuleProgressRestHeight = 4.5;
+  static const double capsuleProgressHoverHeight = 9.0;
+  static const double capsuleProgressHitHeight = 18.0;
+  static const double capsuleProgressHorizontalInset = 18.0;
+  static const double capsuleProgressBottomInset = 6.0;
+  static const double capsuleHoverBubbleBottomOffset = 68.0;
 
-  /// 紧凑滚轮数字音量与悬停纵向浮层几何规范。
+  /// 全屏音乐页独立「曲目列表 / 同步歌词」紧凑圆角方块按钮规范。
+  static const double immersiveSwitchButtonSize = 32.0;
+  static const double immersiveSwitchButtonRadius = 8.0;
+  static const Color immersiveSwitchActiveBg = Color(0x24FFFFFF);
+  static const Color immersiveSwitchInactiveFg = Color(0x99FFFFFF);
+
+  /// 紧凑滚轮静音与悬停纵向浮层几何规范（无数字标签，悬停纵向滑杆支持 1% 连续微调）。
   static const double volumePopoverWidth = 36.0;
   static const double volumePopoverHeight = 118.0;
+  static const double volumePopoverVerticalPadding = 12.0;
+  static const double volumePopoverBridgeHeight = 8.0;
+  static const double volumeKnobRestSize = 10.0;
+  static const double volumeKnobDraggingSize = 13.0;
   static const Duration volumePopoverDismissDelay = Duration(
     milliseconds: 140,
   );
 
   /// 实时音画规格胶囊徽标规范。
+  static const Color videoOverlayBadgeBg = Color(0xBD0C1017);
+  static const Color videoOverlayBadgeBorder = Color(0x40FFFFFF);
+  static const Color videoOverlayBadgeFg = Color(0xFFF8FAFC);
   static const double specBadgeRadius = 999.0;
   static const EdgeInsets specBadgePadding = EdgeInsets.symmetric(
     horizontal: 9,
@@ -70,9 +199,20 @@ abstract final class KonataPlaybackTokens {
   static const double miniBarBottomInset = 18.0;
   static const double miniBarHorizontalInset = 20.0;
   static const double miniBarClearanceHeight = 88.0;
+  static const double miniQueuePopoverMaxWidth = 440.0;
+  static const double miniQueuePopoverMaxHeight = 320.0;
+  static const double miniQueuePopoverMinHeight = 160.0;
+  static const double miniQueuePopoverOffsetY = -10.0;
+  static const double miniQueuePopoverRadius = 18.0;
+  static const double miniBarHideBadgeBreakpoint = 720.0;
+  static const Duration audioCueSeekDebounceWindow = Duration(
+    milliseconds: 900,
+  );
 
-  /// 内置视频右滑毛玻璃侧栏避让尺寸。
+  /// 内置视频右滑毛玻璃侧栏避让尺寸（底部保证停留在播控胶囊上方 14px 呼吸间距处）。
   static const double videoSideSheetWidth = 420.0;
+  static const double videoSideSheetBottomInset =
+      capsuleBottomOffset + capsuleHeight + 14.0;
 
   /// 右下角智能跳过 OP/ED 胶囊固定位置（与 `AGENTS.md` / 阶段 3 规范对齐）。
   static const double skipPillBottomOffset = 88.0;
@@ -85,9 +225,36 @@ abstract final class KonataPlaybackTokens {
   static const Duration cursorIdleFadeDelay = Duration(milliseconds: 2000);
   static const Duration hudFadeDuration = Duration(milliseconds: 200);
   static const Duration pauseBadgeDisplayDuration = Duration(milliseconds: 800);
+  static const Duration wheelVolumeOsdDuration = Duration(milliseconds: 1200);
   static const Duration autoNextEpisodeToastDuration = Duration(
     milliseconds: 3000,
   );
+
+  /// 全局鼠标滚轮与键盘音量调节步进（0 ~ 100，精确 1% 整数步进）。
+  static const double wheelVolumeStep = 1.0;
+
+  /// 原生 `mpv` 纯文字描边 OSD（技术探针 & 瞬时音量提示）样式常量。
+  static const Color osdStrokeColor = Color(0xFF000000);
+  static const double osdStrokeWidth = 2.4;
+  static const Color osdProbeLabelColor = Color(0xFFD6DCE6);
+  static const Color osdProbeValueColor = Color(0xFFFFFFFF);
+  static const double wheelVolumeOsdTopOffset = 76.0;
+
+  /// 进度条高对比度 45° 菱形章节点尺寸与描边常量。
+  static const double chapterDiamondRestSize = 7.0;
+  static const double chapterDiamondHoverSize = 10.5;
+  static const double chapterDiamondStrokeWidth = 1.25;
+
+  /// `thumbfast` 级后台缩略图会话解码尺寸、预热延迟与时间桶配置（严格 4 像素对齐 192x108）。
+  static const int thumbnailDecodeWidth = 192;
+  static const int thumbnailDecodeHeight = 108;
+  static const double thumbnailPreviewDisplayWidth = 176.0;
+  static const double thumbnailPreviewDisplayHeight = 99.0;
+  static const double thumbnailPreviewRadius = 10.0;
+  static const Duration thumbnailWarmupDelay = Duration(milliseconds: 800);
+  static const double thumbnailLocalBucketSeconds = 1.0;
+  static const double thumbnailRemoteBucketSeconds = 5.0;
+  static const int thumbnailCacheCapacity = 48;
 
   /// 全屏沉浸音频页几何、流光采样与阶梯景深模糊歌词参数。
   static const double albumCoverSize = 336.0;

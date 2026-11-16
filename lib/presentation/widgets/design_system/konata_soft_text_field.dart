@@ -19,6 +19,8 @@ class KonataSoftTextField extends StatefulWidget {
     this.onSubmitted,
     this.dense = false,
     this.maxLines = 1,
+    this.height,
+    this.borderRadius,
   });
 
   /// 文本控制器。
@@ -56,6 +58,12 @@ class KonataSoftTextField extends StatefulWidget {
 
   /// 最大展示行数（默认为单行 `1`）。
   final int maxLines;
+
+  /// 可选固定高度（用于与同排操作按钮严格等高对齐）。
+  final double? height;
+
+  /// 可选圆角覆盖（默认 `BorderRadius.circular(10)`）。
+  final BorderRadiusGeometry? borderRadius;
 
   @override
   State<KonataSoftTextField> createState() => _KonataSoftTextFieldState();
@@ -104,19 +112,22 @@ class _KonataSoftTextFieldState extends State<KonataSoftTextField> {
     final field = AnimatedContainer(
       duration: const Duration(milliseconds: 160),
       curve: Curves.easeOutCubic,
+      height: widget.height,
+      alignment: widget.height != null ? Alignment.center : null,
       padding: EdgeInsets.symmetric(
         horizontal: 12,
-        vertical: widget.dense ? 7 : 10,
+        vertical: widget.height != null ? 0 : (widget.dense ? 7 : 10),
       ),
       decoration: BoxDecoration(
         color: p.softFill,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: widget.borderRadius ?? BorderRadius.circular(10),
         border: Border.all(
           color: _focused ? p.hoverBorder : Colors.transparent,
           width: 1,
         ),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           if (widget.prefixIcon != null) ...[
             Icon(widget.prefixIcon, size: 16, color: p.textSecondary),

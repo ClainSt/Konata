@@ -267,7 +267,10 @@ void main() {
       final capsuleTopLeft = tester.getTopLeft(find.byType(KonataPlaybackCapsule));
       final hoverTarget = Offset(
         capsuleTopLeft.dx + capsuleSize.width * 0.5,
-        capsuleTopLeft.dy + 2.0,
+        capsuleTopLeft.dy +
+            capsuleSize.height -
+            KonataPlaybackTokens.capsuleProgressBottomInset -
+            KonataPlaybackTokens.capsuleProgressRestHeight * 0.5,
       );
       final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
       addTearDown(mouse.removePointer);

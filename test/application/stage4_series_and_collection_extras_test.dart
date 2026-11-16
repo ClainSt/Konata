@@ -636,10 +636,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // 验证第 1 季界面及 SeriesSwitcherDropdown 存在
+      // 验证第 1 季界面及 SeriesSwitcherDropdown 存在（显示准确季名）
       expect(find.text('间谍过家家 第一季'), findsOneWidget);
       expect(find.byType(SeriesSwitcherDropdown), findsOneWidget);
-      expect(find.text('第 1 季'), findsOneWidget);
+      expect(find.text('第 1 季 · 间谍过家家'), findsOneWidget);
 
       // 展开系列下拉浮层，切换至剧场版
       await tester.tap(find.byType(SeriesSwitcherDropdown));

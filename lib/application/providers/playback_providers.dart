@@ -212,26 +212,53 @@ class PlaybackCoordinator {
 
   /// 直接将一条既有播放历史记录标记为「已看完」。
   Future<void> markRecordCompleted(PlaybackRecord record) async {
+    await markRecordsCompleted([record]);
+  }
+
+  /// 批量将多条播放历史记录标记为「已看完」。
+  Future<void> markRecordsCompleted(List<PlaybackRecord> records) async {
+    if (records.isEmpty) return;
     final repo = _ref.read(libraryRepositoryProvider);
-    final dur = record.durationSeconds > 0
-        ? record.durationSeconds
-        : (record.positionSeconds > 0 ? record.positionSeconds : 1);
-    await repo.recordPlayback(
-      record.copyWith(
-        positionSeconds: dur,
-        durationSeconds: dur,
-        isCompleted: true,
-        playedAt: DateTime.now(),
-      ),
-    );
-    _invalidateWorkAndHistory(record.workId);
+    final affectedWorkIds = <String>{};
+    final now = DateTime.now();
+    for (final record in records) {
+      final dur = record.durationSeconds > 0
+          ? record.durationSeconds
+          : (record.positionSeconds > 0 ? record.positionSeconds : 1);
+      await repo.recordPlayback(
+        record.copyWith(
+          positionSeconds: dur,
+          durationSeconds: dur,
+          isCompleted: true,
+          playedAt: now,
+        ),
+      );
+      affectedWorkIds.add(record.workId);
+    }
+    for (final workId in affectedWorkIds) {
+      _ref.invalidate(workDetailBundleProvider(workId));
+    }
+    _ref.invalidate(playbackHistoryProvider);
   }
 
   /// 删除单条播放记录。
   Future<void> deleteHistoryRecord(PlaybackRecord record) async {
+    await deleteHistoryRecords([record]);
+  }
+
+  /// 批量删除多条播放记录。
+  Future<void> deleteHistoryRecords(List<PlaybackRecord> records) async {
+    if (records.isEmpty) return;
     final repo = _ref.read(libraryRepositoryProvider);
-    await repo.deletePlaybackRecord(record.id);
-    _invalidateWorkAndHistory(record.workId);
+    final affectedWorkIds = <String>{};
+    for (final record in records) {
+      await repo.deletePlaybackRecord(record.id);
+      affectedWorkIds.add(record.workId);
+    }
+    for (final workId in affectedWorkIds) {
+      _ref.invalidate(workDetailBundleProvider(workId));
+    }
+    _ref.invalidate(playbackHistoryProvider);
   }
 
   /// 清空全部播放历史记录。

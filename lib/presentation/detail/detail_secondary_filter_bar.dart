@@ -3,6 +3,8 @@ import 'dart:ui';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../theme/konata_palette.dart';
+import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
 
 /// 详情页二级分类筛选条上的单条筛选项数据。
@@ -141,13 +143,21 @@ class _SecondaryFilterChipState extends State<_SecondaryFilterChip> {
 
   @override
   Widget build(BuildContext context) {
-    final bgAlpha = widget.selected
-        ? 0.24
-        : (_hovered ? 0.16 : 0.08);
-    final borderAlpha = widget.selected
-        ? 0.48
-        : (_hovered ? 0.30 : 0.16);
-    final textAlpha = widget.selected ? 0.98 : (_hovered ? 0.90 : 0.76);
+    final p = context.palette;
+    final bgColor = KonataPlaybackTokens.secondaryFilterPillBg(
+      p,
+      selected: widget.selected,
+      hovered: _hovered,
+    );
+    final borderColor = KonataPlaybackTokens.secondaryFilterPillBorder(
+      p,
+      selected: widget.selected,
+    );
+    final textColor = KonataPlaybackTokens.secondaryFilterPillText(
+      p,
+      selected: widget.selected,
+      hovered: _hovered,
+    );
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -167,17 +177,18 @@ class _SecondaryFilterChipState extends State<_SecondaryFilterChip> {
                 vertical: widget.compact ? 5 : 6,
               ),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: bgAlpha),
+                color: bgColor,
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(
-                  color: Colors.white.withValues(alpha: borderAlpha),
+                  color: borderColor,
                   width: widget.selected ? 1.0 : 0.85,
                 ),
               ),
               child: Text(
                 widget.label,
                 style: KonataTheme.detailTextStyle(
-                  color: Colors.white.withValues(alpha: textAlpha),
+                  palette: p,
+                  color: textColor,
                   fontSize: widget.compact ? 11.5 : 12,
                   fontWeight:
                       widget.selected ? FontWeight.w600 : FontWeight.w500,

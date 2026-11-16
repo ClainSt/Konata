@@ -16,6 +16,7 @@ class BangumiSubjectCandidate {
     this.aliases = const [],
     this.platform,
     this.isSpecialFormat = false,
+    this.firstEpisodeSort,
   });
 
   /// Bangumi 条目 ID。
@@ -54,8 +55,30 @@ class BangumiSubjectCandidate {
   /// 是否属于 OVA/OAD 特殊发行格式。
   final bool isSpecialFormat;
 
+  /// Bangumi 正片最小连续话数 `sort`（如分割放送第 2 部分常从 `12` 开始，用于与第 1 集匹配消歧）。
+  final double? firstEpisodeSort;
+
   /// 首选展示标题（优先简体中文名）。
   String get displayTitle => nameCn.trim().isNotEmpty ? nameCn.trim() : name.trim();
+
+  /// 复制并补充最小正片起始话数。
+  BangumiSubjectCandidate copyWith({double? firstEpisodeSort}) {
+    return BangumiSubjectCandidate(
+      id: id,
+      name: name,
+      nameCn: nameCn,
+      year: year,
+      airDate: airDate,
+      totalEpisodes: totalEpisodes,
+      summary: summary,
+      posterUrl: posterUrl,
+      score: score,
+      aliases: aliases,
+      platform: platform,
+      isSpecialFormat: isSpecialFormat,
+      firstEpisodeSort: firstEpisodeSort ?? this.firstEpisodeSort,
+    );
+  }
 
   /// 转换为 `WorkMatcher` 所需的统一候选结构。
   legacy.MatchCandidate toMatchCandidate() {
@@ -91,6 +114,7 @@ class BangumiSubjectCandidate {
       year: year,
       airDate: airDate,
       isSpecialFormat: isSpecialFormat,
+      firstEpisodeSort: firstEpisodeSort,
       aliases: mergedAliases,
       seasons: totalEpisodes != null && totalEpisodes! > 0
           ? [

@@ -1,5 +1,28 @@
+import '../parsing/title_normalizer.dart';
+
 /// 跨层共用的纯领域展示格式化工具（字节大小、扩展名、分钟级时间及 BDRip 长文件名折行处理）。
 abstract final class MediaDisplayFormatter {
+  static final RegExp _hanziPattern = RegExp(r'[\u4E00-\u9FFF]');
+
+  /// 判断详情页主标题下方是否需要展示原始语言副标题。
+  ///
+  /// 当主标题已包含有效中文译名（含汉字且不含日文假名）时隐藏重复日文原名；
+  /// 仅在主标题无中文译名（如英文或日文原名）且与 [originalTitle] 不同时返回 `true`。
+  static bool shouldShowOriginalSubtitle({
+    required String title,
+    required String? originalTitle,
+  }) {
+    final trimmedTitle = title.trim();
+    final trimmedOrig = originalTitle?.trim() ?? '';
+    if (trimmedOrig.isEmpty || trimmedOrig == trimmedTitle) {
+      return false;
+    }
+    final hasChineseTitle =
+        _hanziPattern.hasMatch(trimmedTitle) &&
+        !TitleNormalizer.containsKana(trimmedTitle);
+    return !hasChineseTitle;
+  }
+
   /// 将字节数格式化为人类可读体积文本；当 [bytes] 为空或非正数时返回 [emptyFallback]。
   static String formatBytes(int? bytes, {String emptyFallback = ''}) {
     if (bytes == null || bytes <= 0) return emptyFallback;

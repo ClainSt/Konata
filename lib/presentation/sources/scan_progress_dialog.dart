@@ -174,13 +174,13 @@ class _ScanProgressDialogState extends ConsumerState<ScanProgressDialog> {
           ),
           const SizedBox(height: 10),
           ClipRRect(
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(999),
             child: LinearProgressIndicator(
               value: barValue,
               minHeight: 5,
-              backgroundColor: p.softFill,
+              backgroundColor: p.progressTrack,
               valueColor: AlwaysStoppedAnimation<Color>(
-                progress.phase == ScrapePhase.failed ? p.danger : p.accent,
+                progress.phase == ScrapePhase.failed ? p.danger : p.progressFill,
               ),
             ),
           ),
@@ -197,7 +197,7 @@ class _ScanProgressDialogState extends ConsumerState<ScanProgressDialog> {
               ),
               ScanProgressStatChip(
                 label: '匹配 ${progress.matchedWorks}',
-                color: p.accent,
+                badge: p.accentBadge,
               ),
               if (progress.reviewWorks > 0)
                 InkWell(
@@ -206,13 +206,12 @@ class _ScanProgressDialogState extends ConsumerState<ScanProgressDialog> {
                       setState(() => _activeTab = _ProgressTab.review),
                   child: ScanProgressStatChip(
                     label: '待复核 ${progress.reviewWorks} ↗',
-                    color: p.warning,
+                    badge: p.warningBadge,
                   ),
                 ),
               if (progress.unmatchedWorks > 0)
                 ScanProgressStatChip(
                   label: '未识别 ${progress.unmatchedWorks}',
-                  color: p.textMuted,
                 ),
             ],
           ),

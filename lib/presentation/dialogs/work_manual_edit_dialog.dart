@@ -140,7 +140,7 @@ class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
       }
       if (mounted) {
         showKonataToast(context, '已保存手动修改并持久化锁定已调整项');
-        Navigator.of(context).pop(true);
+        Navigator.of(context).pop<String?>(null);
       }
     } catch (e) {
       if (mounted) {
@@ -153,12 +153,21 @@ class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
   Future<void> _resetMetadataToAuto() async {
     setState(() => _saving = true);
     try {
-      await ref
+      final updated = await ref
           .read(workManagementProvider)
           .resetMetadataLockToAuto(widget.bundle.work.id);
       if (mounted) {
-        showKonataToast(context, '已恢复基础元数据自动抓取默认');
-        Navigator.of(context).pop(true);
+        final redirectId =
+            (updated != null && updated.id != widget.bundle.work.id)
+                ? updated.id
+                : null;
+        showKonataToast(
+          context,
+          redirectId != null
+              ? '已自动并入已有作品「${updated!.title}」'
+              : '已恢复基础元数据自动抓取默认',
+        );
+        Navigator.of(context).pop<String?>(redirectId);
       }
     } catch (e) {
       if (mounted) {
@@ -171,12 +180,21 @@ class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
   Future<void> _resetMappingsToAuto() async {
     setState(() => _saving = true);
     try {
-      await ref
+      final updated = await ref
           .read(workManagementProvider)
           .resetFileMappingsToAuto(widget.bundle.work.id);
       if (mounted) {
-        showKonataToast(context, '已解除文件映射锁定并重新自动对齐剧集');
-        Navigator.of(context).pop(true);
+        final redirectId =
+            (updated != null && updated.id != widget.bundle.work.id)
+                ? updated.id
+                : null;
+        showKonataToast(
+          context,
+          redirectId != null
+              ? '已自动并入已有作品「${updated!.title}」'
+              : '已解除文件映射锁定并重新自动对齐剧集',
+        );
+        Navigator.of(context).pop<String?>(redirectId);
       }
     } catch (e) {
       if (mounted) {
@@ -217,7 +235,12 @@ class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
       '已将 ${picked.length} 个文件拆分为独立作品「${created.title}」',
     );
     if (_rows.isEmpty && mounted) {
-      Navigator.of(context).pop(true);
+      final survived = await ref
+          .read(libraryRepositoryProvider)
+          .findWorkById(widget.bundle.work.id);
+      if (mounted) {
+        Navigator.of(context).pop<String?>(survived == null ? created.id : null);
+      }
     }
   }
 
@@ -248,7 +271,9 @@ class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
       '已将 ${pickedIds.length} 个文件移至「${outcome.targetWork.title}」',
     );
     if ((_rows.isEmpty || outcome.sourceWorkDeleted) && mounted) {
-      Navigator.of(context).pop(true);
+      Navigator.of(
+        context,
+      ).pop<String?>(outcome.sourceWorkDeleted ? outcome.targetWork.id : null);
     }
   }
 
@@ -258,7 +283,7 @@ class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
       builder: (_) => SeriesManageDialog(bundle: widget.bundle),
     );
     if (changed == true && mounted) {
-      Navigator.of(context).pop(true);
+      Navigator.of(context).pop<String?>(null);
     }
   }
 
@@ -272,12 +297,12 @@ class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
       width: 760,
       maxHeight: 640,
       title: '手动编辑作品信息与分集归属',
-      onClose: _saving ? null : () => Navigator.of(context).pop(false),
+      onClose: _saving ? null : () => Navigator.of(context).pop<String?>(null),
       actions: [
         KonataPillButton.ghost(
           label: '取消',
           compact: true,
-          onPressed: _saving ? null : () => Navigator.of(context).pop(false),
+          onPressed: _saving ? null : () => Navigator.of(context).pop<String?>(null),
         ),
         KonataPillButton.primary(
           label: _saving ? '保存中...' : '保存并锁定',

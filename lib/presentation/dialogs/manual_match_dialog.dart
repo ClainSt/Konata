@@ -10,6 +10,7 @@ import '../../domain/models/media_variant.dart';
 import '../../domain/models/tmdb_models.dart';
 import '../../domain/models/work.dart';
 import '../../domain/scraping/bangumi_models.dart';
+import '../../domain/scraping/search_query_sanitizer.dart';
 import '../theme/konata_palette.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
@@ -297,6 +298,14 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
     final candidatesAsync = ref.watch(
       workScrapeCandidatesProvider(widget.workId),
     );
+    final variants = widget.isSplitMode
+        ? widget.splitVariants
+        : (ref.watch(workDetailBundleProvider(widget.workId)).valueOrNull?.variants ??
+              const <MediaVariant>[]);
+    final quickTerms = SearchQuerySanitizer.buildQuickSourceTerms(
+      variants.map((v) => (fileName: v.fileName, relativePath: v.relativePath)),
+      excludeQuery: widget.initialQuery,
+    );
     final imageLoader = ref.watch(tmdbImageLoaderProvider);
 
     return KonataGlassDialog(
@@ -376,6 +385,16 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
                       ),
                     ],
                   ),
+                  KonataQuickFillRow(
+                    terms: quickTerms,
+                    disabled: _searching || _binding,
+                    onPick: (term) {
+                      _queryController.text = term;
+                      _queryController.selection = TextSelection.collapsed(
+                        offset: term.length,
+                      );
+                    },
+                  ),
                   const SizedBox(height: 10),
                   Row(
                     children: [
@@ -427,16 +446,19 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
                   ),
                   const SizedBox(height: 6),
                   if (!widget.isSplitMode)
-                    CheckboxListTile(
-                      value: _writeIdToFolder,
-                      onChanged: (v) =>
-                          setState(() => _writeIdToFolder = v ?? false),
-                      controlAffinity: ListTileControlAffinity.leading,
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
-                        '同时将 [tmdbid=xxx] 写入本地作品目录名（永久防错）',
-                        style: TextStyle(color: p.textSecondary, fontSize: 12.5),
+                    Material(
+                      type: MaterialType.transparency,
+                      child: CheckboxListTile(
+                        value: _writeIdToFolder,
+                        onChanged: (v) =>
+                            setState(() => _writeIdToFolder = v ?? false),
+                        controlAffinity: ListTileControlAffinity.leading,
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          '同时将 [tmdbid=xxx] 写入本地作品目录名（永久防错）',
+                          style: TextStyle(color: p.textSecondary, fontSize: 12.5),
+                        ),
                       ),
                     ),
                   if (_errorText != null)
@@ -539,18 +561,23 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
                 imageLoader: imageLoader,
                 disabled: _binding,
                 onSubmit: _submitHybrid,
+                quickTerms: quickTerms,
               ),
             )
           else
             Expanded(
-              child: _buildBangumiOnlyTab(p, imageLoader),
+              child: _buildBangumiOnlyTab(p, imageLoader, quickTerms),
             ),
         ],
       ),
     );
   }
 
-  Widget _buildBangumiOnlyTab(KonataPalette p, ManagedImageLoader imageLoader) {
+  Widget _buildBangumiOnlyTab(
+    KonataPalette p,
+    ManagedImageLoader imageLoader,
+    List<String> quickTerms,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -571,6 +598,16 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
               onPressed: _searchingBgm || _binding ? null : _searchBangumiOnly,
             ),
           ],
+        ),
+        KonataQuickFillRow(
+          terms: quickTerms,
+          disabled: _searchingBgm || _binding,
+          onPick: (term) {
+            _bgmQueryController.text = term;
+            _bgmQueryController.selection = TextSelection.collapsed(
+              offset: term.length,
+            );
+          },
         ),
         if (_errorText != null) ...[
           const SizedBox(height: 8),

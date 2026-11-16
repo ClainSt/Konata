@@ -150,6 +150,13 @@ class GroupedWorkFolder {
   /// 各物理文件在系列中的默认共享/独占作用域预设。
   final Map<String, SupplementaryAssetScope> assetScopesByPath;
 
+  /// 当目录存在正片集号（或已识别为 TV 剧集）且未显式标记为电影或覆写媒体类型时，
+  /// TMDB 候选检索仅锁定 `/search/tv`，避免同名冷门电影（如无背景图条目）污染结果。
+  bool get prefersTvSearch =>
+      !isMovieHint &&
+      explicitMediaType == null &&
+      (mainEpisodeNumbers.isNotEmpty || inventory?.shape == WorkShape.series);
+
   /// 返回清除失效显式 TMDB 约束后的拷贝（用于 404 回落搜索时消除误罚分）。
   GroupedWorkFolder withoutExplicitTmdb() {
     return GroupedWorkFolder(

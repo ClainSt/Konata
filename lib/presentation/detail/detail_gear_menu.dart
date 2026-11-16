@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../theme/konata_palette.dart';
+import '../theme/konata_playback_tokens.dart';
 
 /// 详情页底部齿轮向上弹出的高透毛玻璃作品管理菜单。
 class DetailGearMenuOverlay extends StatelessWidget {
@@ -71,14 +72,14 @@ class DetailGearMenuOverlay extends StatelessWidget {
                   width: 218,
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   decoration: BoxDecoration(
-                    color: p.elevatedSurface.withValues(alpha: 0.90),
+                    color: KonataPlaybackTokens.popoverSurface(p),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.16),
+                      color: KonataPlaybackTokens.glassBorder(p),
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.35),
+                        color: KonataPlaybackTokens.shadowColor(p),
                         blurRadius: 24,
                         offset: const Offset(0, 10),
                       ),
@@ -230,6 +231,7 @@ class DetailDrawerHeaderButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return Tooltip(
       message: tooltip,
       child: InkWell(
@@ -241,7 +243,7 @@ class DetailDrawerHeaderButton extends StatelessWidget {
           height: 30,
           decoration: BoxDecoration(
             color: active
-                ? Colors.white.withValues(alpha: 0.22)
+                ? KonataPlaybackTokens.activePillBg(p)
                 : Colors.transparent,
             shape: BoxShape.circle,
           ),
@@ -249,10 +251,10 @@ class DetailDrawerHeaderButton extends StatelessWidget {
             icon,
             size: 18,
             color: !enabled
-                ? Colors.white.withValues(alpha: 0.34)
+                ? p.textMuted
                 : active
-                ? Colors.white
-                : Colors.white.withValues(alpha: 0.88),
+                ? p.textPrimary
+                : p.textSecondary,
           ),
         ),
       ),
@@ -281,6 +283,7 @@ class DetailDrawerTabChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return InkWell(
       borderRadius: BorderRadius.circular(999),
       onTap: onTap,
@@ -290,16 +293,14 @@ class DetailDrawerTabChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 7),
         decoration: BoxDecoration(
           color: active
-              ? Colors.white.withValues(alpha: 0.22)
+              ? KonataPlaybackTokens.activePillBg(p)
               : Colors.transparent,
           borderRadius: BorderRadius.circular(999),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: active
-                ? Colors.white
-                : Colors.white.withValues(alpha: 0.72),
+            color: active ? p.textPrimary : p.textSecondary,
             fontSize: 13,
             fontWeight: active ? FontWeight.w600 : FontWeight.w500,
             letterSpacing: 0.25,

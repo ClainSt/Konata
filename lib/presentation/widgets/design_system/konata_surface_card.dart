@@ -11,6 +11,8 @@ class KonataSurfaceCard extends StatefulWidget {
     this.padding = const EdgeInsets.all(18),
     this.radius = 12,
     this.enableHover = false,
+    this.backgroundColor,
+    this.borderColor,
   });
 
   /// 子组件。
@@ -24,6 +26,12 @@ class KonataSurfaceCard extends StatefulWidget {
 
   /// 是否在鼠标悬停时平滑提亮半透明表面。
   final bool enableHover;
+
+  /// 可选自定义表面背景色（用于选中高亮态等覆盖）。
+  final Color? backgroundColor;
+
+  /// 可选自定义 1px 边框色（用于选中高亮态等覆盖）。
+  final Color? borderColor;
 
   @override
   State<KonataSurfaceCard> createState() => _KonataSurfaceCardState();
@@ -39,10 +47,14 @@ class _KonataSurfaceCardState extends State<KonataSurfaceCard> {
       duration: const Duration(milliseconds: 140),
       padding: widget.padding,
       decoration: BoxDecoration(
-        color: widget.enableHover && _hovered ? p.surfaceHover : p.surface,
+        color:
+            widget.backgroundColor ??
+            (widget.enableHover && _hovered ? p.surfaceHover : p.surface),
         borderRadius: BorderRadius.circular(widget.radius),
         border: Border.all(
-          color: widget.enableHover && _hovered ? p.hoverBorder : p.hairline,
+          color:
+              widget.borderColor ??
+              (widget.enableHover && _hovered ? p.hoverBorder : p.hairline),
           width: 1,
         ),
       ),

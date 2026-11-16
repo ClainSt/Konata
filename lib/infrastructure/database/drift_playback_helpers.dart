@@ -144,13 +144,13 @@ Future<List<PlaybackRecord>> readPlaybacksByWorkInDb(
   return [for (final row in rows) mapPlaybackRow(row)];
 }
 
-/// 查询指定作品最近一条播放记录。
+/// 查询指定作品最近一条视频播放记录（排除 `cd::` 音频记录，避免干扰正片续播推荐）。
 Future<PlaybackRecord?> readLatestPlaybackForWorkInDb(
   KonataDatabase db,
   String workId,
 ) async {
   final query = db.select(db.playbackRecords)
-    ..where((t) => t.workId.equals(workId))
+    ..where((t) => t.workId.equals(workId) & t.episodeId.like('cd::%').not())
     ..orderBy([(t) => OrderingTerm.desc(t.playedAt)])
     ..limit(1);
   final row = await query.getSingleOrNull();

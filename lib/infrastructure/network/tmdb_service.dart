@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import '../../domain/models/network_config.dart';
 import '../../domain/models/tmdb_models.dart';
 import '../../domain/models/work.dart';
+import '../../domain/scraping/search_query_sanitizer.dart';
 import '../cache/artwork_cache.dart';
 import '../cache/photos_storage.dart';
 import 'priority_http_scheduler.dart';
@@ -19,15 +20,17 @@ class TmdbService {
   final TmdbHttpClient _http;
   final ArtworkCache? _artworkCache;
 
-  /// 在指定的优先级通道检索 TMDB TV 与 Movie 候选。
+  /// 在指定的优先级通道检索 TMDB 候选（支持通过 [mediaTypeFilter] 限定仅查 `/search/tv` 或 `/search/movie`）。
   Future<List<TmdbSearchResult>> searchAnime(
     String query, {
     int? year,
     String language = 'zh-CN',
     bool includeAdult = false,
+    TmdbMediaType? mediaTypeFilter,
     RequestPriority priority = RequestPriority.interactive,
   }) async {
-    final trimmed = query.trim();
+    final sanitized = SearchQuerySanitizer.sanitize(query);
+    final trimmed = sanitized.isNotEmpty ? sanitized : query.trim();
     if (trimmed.isEmpty) return const [];
 
     final tvParams = <String, String>{
@@ -43,12 +46,27 @@ class TmdbService {
       if (year != null) 'primary_release_year': year.toString(),
     };
 
+    final merged = <TmdbSearchResult>[];
+    if (mediaTypeFilter == TmdbMediaType.tv) {
+      final tvBody = await _getJson('/search/tv', tvParams, priority: priority);
+      _parseSearchList(tvBody, TmdbMediaType.tv, merged);
+      return merged;
+    }
+    if (mediaTypeFilter == TmdbMediaType.movie) {
+      final movieBody = await _getJson(
+        '/search/movie',
+        movieParams,
+        priority: priority,
+      );
+      _parseSearchList(movieBody, TmdbMediaType.movie, merged);
+      return merged;
+    }
+
     final results = await Future.wait([
       _getJson('/search/tv', tvParams, priority: priority),
       _getJson('/search/movie', movieParams, priority: priority),
     ]);
 
-    final merged = <TmdbSearchResult>[];
     _parseSearchList(results[0], TmdbMediaType.tv, merged);
     _parseSearchList(results[1], TmdbMediaType.movie, merged);
     return merged;
@@ -117,6 +135,7 @@ class TmdbService {
         collectionName = rawName;
       }
     }
+    final detailGenres = _parseDetailGenreIds(json);
 
     return TmdbWorkDetail(
       tmdbId: (json['id'] as num).toInt(),
@@ -135,6 +154,7 @@ class TmdbService {
       candidateBackdrops: candidateBackdrops,
       collectionId: collectionId,
       collectionName: collectionName,
+      genreIds: detailGenres,
     );
   }
 
@@ -364,6 +384,25 @@ class TmdbService {
     return decoded.map((k, v) => MapEntry(k.toString(), v));
   }
 
+  List<int> _parseGenreIdList(Object? raw) {
+    if (raw is! List) return const [];
+    return [
+      for (final g in raw)
+        if (g is num) g.toInt(),
+    ];
+  }
+
+  List<int> _parseDetailGenreIds(Map<String, Object?> json) {
+    final direct = _parseGenreIdList(json['genre_ids']);
+    if (direct.isNotEmpty) return direct;
+    final rawGenres = json['genres'];
+    if (rawGenres is! List) return const [];
+    return [
+      for (final g in rawGenres)
+        if (g is Map && g['id'] is num) (g['id'] as num).toInt(),
+    ];
+  }
+
   void _parseSearchList(
     Map<String, Object?>? body,
     TmdbMediaType type,
@@ -387,6 +426,7 @@ class TmdbService {
           overview: item['overview']?.toString(),
           posterPath: item['poster_path']?.toString(),
           backdropPath: item['backdrop_path']?.toString(),
+          genreIds: _parseGenreIdList(item['genre_ids']),
         ),
       );
     }

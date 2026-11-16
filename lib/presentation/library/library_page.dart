@@ -10,7 +10,9 @@ import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_page_header.dart';
 import '../widgets/design_system/konata_pill_button.dart';
+import 'hidden_works_dialog.dart';
 import 'poster_card.dart';
+import 'review_dialog.dart';
 
 /// 高密度媒体库海报墙主页（透明穿透底 + 同行右侧「待复核」微光胶囊 + 自适应高密度海报网格）。
 class LibraryPage extends ConsumerStatefulWidget {
@@ -37,8 +39,10 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     final totalCountAsync = ref.watch(worksCountProvider);
     final reviewCount =
         ref.watch(needsReviewItemsProvider).valueOrNull?.length ?? 0;
+    final hiddenCount =
+        ref.watch(hiddenWorksProvider).valueOrNull?.length ?? 0;
     final imageLoader = ref.watch(tmdbImageLoaderProvider);
-    final bottomClearance = ref.watch(miniAudioBottomClearanceProvider);
+    final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
     final totalCount = totalCountAsync.valueOrNull ?? 0;
 
     return Column(
@@ -68,10 +72,14 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                 )
               : null,
           actions: [
+            if (hiddenCount > 0)
+              _HiddenWorksHeaderButton(
+                count: hiddenCount,
+                onTap: () => showHiddenWorksDialog(context),
+              ),
             _ReviewHeaderPill(
               count: reviewCount,
-              onTap: () =>
-                  ref.read(reviewDrawerOpenProvider.notifier).state = true,
+              onTap: () => showReviewDialog(context),
             ),
           ],
         ),
@@ -139,6 +147,58 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _HiddenWorksHeaderButton extends StatefulWidget {
+  const _HiddenWorksHeaderButton({
+    required this.count,
+    required this.onTap,
+  });
+
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  State<_HiddenWorksHeaderButton> createState() =>
+      _HiddenWorksHeaderButtonState();
+}
+
+class _HiddenWorksHeaderButtonState extends State<_HiddenWorksHeaderButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.count <= 0) {
+      return const SizedBox.shrink();
+    }
+    final p = context.palette;
+    final tooltip = '已隐藏作品 (${widget.count})';
+
+    return Tooltip(
+      message: tooltip,
+      waitDuration: const Duration(milliseconds: 350),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap,
+          child: SizedBox(
+            width: 32,
+            height: 32,
+            child: Center(
+              child: Icon(
+                Icons.visibility_off_outlined,
+                size: 18,
+                color: _hovered ? p.textPrimary : p.textSecondary,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

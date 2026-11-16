@@ -266,8 +266,11 @@ class SeriesAutoLinker {
         }
       }
 
-      // 将成员分组：若同一连通分量意外出现多个互不相同的锁定 seriesId，则只合并未锁定成员到 targetSeriesId。
-      final sortedMembers = [...members]..sort(_compareSeriesMembers);
+      // 将成员按领域层统一时间线（TV 季号 -> 首播年份 -> 剧场版/OVA 时间序）排列。
+      final sortedMembers = SeriesSeasonFormatter.sortSeriesMembers(
+        members,
+        respectLockedOrder: false,
+      );
       final groupTitle = _deriveSeriesTitle(existingGroup, sortedMembers);
       final now = DateTime.now();
       await repository.upsertSeriesGroup(
@@ -390,36 +393,6 @@ class SeriesAutoLinker {
     final raw = primary.title.trim();
     final stripped = raw.replaceFirst(_trailingSeasonSuffixPattern, '').trim();
     return stripped.isEmpty ? raw : stripped;
-  }
-
-  static int _compareSeriesMembers(Work a, Work b) {
-    int rankOf(Work w) {
-      if (w.tmdbMediaType == TmdbMediaType.tv &&
-          w.matchedSeason != null &&
-          w.matchedSeason! > 0) {
-        return 0;
-      }
-      if (w.tmdbMediaType == TmdbMediaType.movie) {
-        return 1;
-      }
-      if (w.matchedSeason == 0) {
-        return 2;
-      }
-      return 3;
-    }
-
-    final rankCmp = rankOf(a).compareTo(rankOf(b));
-    if (rankCmp != 0) return rankCmp;
-
-    if (rankOf(a) == 0) {
-      final sCmp = (a.matchedSeason ?? 999).compareTo(b.matchedSeason ?? 999);
-      if (sCmp != 0) return sCmp;
-    }
-
-    final yearCmp = (a.year ?? 9999).compareTo(b.year ?? 9999);
-    if (yearCmp != 0) return yearCmp;
-
-    return a.title.toLowerCase().compareTo(b.title.toLowerCase());
   }
 
   static String _defaultSeriesLabel(

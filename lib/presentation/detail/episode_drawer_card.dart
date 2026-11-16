@@ -10,6 +10,7 @@ import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/managed_image.dart';
+import '../widgets/playback/konata_spec_badge.dart';
 
 /// 详情页底部抽屉单集卡片（展示 16:9 剧照、进度条、集数标题、多版本徽章与文件名）。
 class EpisodeDrawerCard extends StatefulWidget {
@@ -323,12 +324,14 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                       text: displayTitle,
                       maxLines: 1,
                       style: KonataTheme.detailTextStyle(
-                        color: Colors.white,
+                        palette: p,
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
+                  const SizedBox(width: 6),
+                  EpisodeCategoryBadge(isSpecial: ep.isSpecial),
                   if (widget.variants.length >= 2) ...[
                     const SizedBox(width: 6),
                     _FrostedMiniBadge(
@@ -350,7 +353,8 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                     style: KonataTheme.detailTextStyle(
-                      color: Colors.white.withValues(alpha: 0.72),
+                      palette: p,
+                      color: KonataTheme.detailSecondaryTextColor(p),
                       fontSize: 12,
                       fontWeight: FontWeight.w400,
                       height: 1.3,
@@ -375,12 +379,9 @@ class _FrostedMiniBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final tintColor = isWarning
-        ? p.warning.withValues(alpha: 0.24)
-        : Colors.white.withValues(alpha: 0.14);
-    final borderColor = isWarning
-        ? p.warning.withValues(alpha: 0.45)
-        : Colors.white.withValues(alpha: 0.22);
+    final tintColor = isWarning ? p.warningBadge.bg : p.softFill;
+    final borderColor = isWarning ? p.warningBadge.border : p.hairline;
+    final fgColor = isWarning ? p.warningBadge.fg : p.textPrimary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
@@ -391,7 +392,7 @@ class _FrostedMiniBadge extends StatelessWidget {
       child: Text(
         label,
         style: TextStyle(
-          color: Colors.white.withValues(alpha: 0.92),
+          color: fgColor,
           fontSize: 10,
           fontWeight: FontWeight.w600,
         ),

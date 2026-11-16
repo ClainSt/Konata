@@ -86,14 +86,19 @@ class _ReviewWorkItemCardState extends ConsumerState<ReviewWorkItemCard> {
                 ),
                 if (folderSummary.isNotEmpty) ...[
                   const SizedBox(height: 3),
-                  Text(
-                    folderSummary,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: p.textMuted,
-                      fontSize: 11.2,
-                      fontFamily: 'Consolas',
+                  Tooltip(
+                    message: folderSummary,
+                    waitDuration: const Duration(milliseconds: 350),
+                    child: Text(
+                      folderSummary,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: p.textMuted,
+                        fontSize: 11.4,
+                        fontFamily: 'Consolas',
+                        height: 1.35,
+                      ),
                     ),
                   ),
                 ],
@@ -110,11 +115,11 @@ class _ReviewWorkItemCardState extends ConsumerState<ReviewWorkItemCard> {
               work.scrapeStatus == ScrapeStatus.unmatched) ...[
             const SizedBox(height: 6),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
               decoration: BoxDecoration(
-                color: p.warning.withValues(alpha: 0.14),
+                color: p.warningBadge.bg,
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: p.warning.withValues(alpha: 0.35)),
+                border: Border.all(color: p.warningBadge.border),
               ),
               child: Text(
                 (work.reviewReason != null &&
@@ -122,8 +127,9 @@ class _ReviewWorkItemCardState extends ConsumerState<ReviewWorkItemCard> {
                     ? work.reviewReason!.trim()
                     : '未搜索到匹配词条，请手动检索或指定 TMDB ID',
                 style: TextStyle(
-                  color: p.warning,
+                  color: p.warningBadge.fg,
                   fontSize: 11.2,
+                  fontWeight: FontWeight.w600,
                   height: 1.35,
                 ),
               ),
@@ -337,73 +343,170 @@ class _ReviewCandidateRow extends StatelessWidget {
     final labels = ReviewReasonLabels.formatAll(
       candidate.reasons,
     ).toSet().take(4).toList(growable: false);
+    final mediaLabel = candidate.mediaType == TmdbMediaType.movie ? '剧场版' : 'TV';
+    final yearEpLabel =
+        '${candidate.year ?? '未知年份'} · $mediaLabel'
+        '${candidate.episodeCount != null && candidate.episodeCount! > 0 ? ' · ${candidate.episodeCount}集' : ''}';
+    final scoreBadge = candidate.score >= 80
+        ? p.successBadge
+        : (candidate.score >= 55 ? p.accentBadge : p.warningBadge);
+    final original = candidate.originalTitle?.trim() ?? '';
+    final secondLine = original.isNotEmpty && original != candidate.title
+        ? original
+        : (labels.isNotEmpty ? labels.join(' · ') : 'TMDB 候选词条 #${candidate.tmdbId}');
 
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.only(top: 10),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(5),
-            child: SizedBox(
-              width: 32,
-              height: 44,
-              child: candidate.posterPath != null
-                  ? ManagedImage(
-                      candidate.posterPath!,
-                      loader: imageLoader,
-                      fit: BoxFit.cover,
-                    )
-                  : Container(color: p.softFill),
+          Container(
+            width: 56,
+            height: 80,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(7),
+              border: Border.all(color: p.posterBorder, width: 1),
             ),
+            clipBehavior: Clip.antiAlias,
+            child: candidate.posterPath != null
+                ? ManagedImage(
+                    candidate.posterPath!,
+                    loader: imageLoader,
+                    width: 56,
+                    height: 80,
+                    decodeWidth: 256,
+                    fit: BoxFit.cover,
+                  )
+                : Container(
+                    color: p.softFill,
+                    alignment: Alignment.center,
+                    child: Icon(
+                      Icons.movie_outlined,
+                      size: 20,
+                      color: p.textMuted,
+                    ),
+                  ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  candidate.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: p.textPrimary, fontSize: 12.5),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        candidate.title,
+                        maxLines: 1,
+                        softWrap: false,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: p.textPrimary,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      yearEpLabel,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: TextStyle(
+                        color: p.textSecondary,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 1.5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: p.accentBadge.bg,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: p.accentBadge.border,
+                          width: 1,
+                        ),
+                      ),
+                      child: Text(
+                        'TMDB #${candidate.tmdbId}',
+                        maxLines: 1,
+                        softWrap: false,
+                        style: TextStyle(
+                          color: p.accentBadge.fg,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w600,
+                          height: 1.15,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 1.5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: scoreBadge.bg,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: scoreBadge.border, width: 1),
+                      ),
+                      child: Text(
+                        '匹配度 ${candidate.score.toStringAsFixed(0)}',
+                        maxLines: 1,
+                        softWrap: false,
+                        style: TextStyle(
+                          color: scoreBadge.fg,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w600,
+                          height: 1.15,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                if (candidate.originalTitle != null &&
-                    candidate.originalTitle!.trim().isNotEmpty &&
-                    candidate.originalTitle!.trim() != candidate.title)
-                  Text(
-                    candidate.originalTitle!.trim(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: p.textMuted, fontSize: 10.5),
-                  ),
+                const SizedBox(height: 4),
                 Text(
-                  '${candidate.mediaType.name.toUpperCase()} · '
-                  '${candidate.year ?? '未知年份'}'
-                  '${candidate.episodeCount != null && candidate.episodeCount! > 0 ? ' · 共 ${candidate.episodeCount} 集' : ''}'
-                  ' · 匹配度 ${candidate.score.toStringAsFixed(0)}',
-                  style: TextStyle(color: p.textMuted, fontSize: 11),
+                  secondLine,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: p.textMuted,
+                    fontSize: 11.5,
+                  ),
                 ),
                 if (labels.isNotEmpty) ...[
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 5),
                   Wrap(
                     spacing: 4,
-                    runSpacing: 3,
+                    runSpacing: 4,
                     children: [
                       for (final label in labels)
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 5,
+                            horizontal: 6,
                             vertical: 1.5,
                           ),
                           decoration: BoxDecoration(
                             color: p.softFill,
                             borderRadius: BorderRadius.circular(5),
+                            border: Border.all(color: p.hairline, width: 0.8),
                           ),
                           child: Text(
                             label,
+                            maxLines: 1,
+                            softWrap: false,
                             style: TextStyle(
                               color: p.textSecondary,
-                              fontSize: 10,
+                              fontSize: 10.5,
                             ),
                           ),
                         ),
@@ -413,7 +516,7 @@ class _ReviewCandidateRow extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 12),
           KonataPillButton.primary(
             label: '采纳',
             compact: true,

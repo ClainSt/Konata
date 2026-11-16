@@ -405,6 +405,27 @@ class ScrapeOrchestrator {
       }
     }
 
+    // 当初轮 TMDB 未命中、跨源不一致被清空、或优胜条目缺少 16:9 横版背景图时，
+    // 使用已命中的 Bangumi 中/日文净化词干与年份进行二次 `/search/tv` 兜底救回。
+    final rescueBgmTarget = decision.bestBangumi ?? bgmEval.best;
+    if (rescueBgmTarget != null &&
+        (decision.best == null ||
+            (decision.best!.detail.backdropPath?.trim().isEmpty ?? true))) {
+      final rescued = await _candidateFetcher.rescueTmdbByBangumi(
+        effectiveFolder,
+        rescueBgmTarget.subject,
+        existingDetails: candidates,
+      );
+      if (rescued.length > candidates.length) {
+        candidates = rescued;
+        decision = await _computeWorker.evaluateMatch(
+          effectiveFolder,
+          candidates,
+          bangumiCandidates: bgmCandidates,
+        );
+      }
+    }
+
     // 若 Bangumi 初搜落空但 TMDB 给出强候选，使用 TMDB 中/原名反向救回 Bangumi 条目。
     if (bgmEval.tier == legacy.MatchTier.none &&
         decision.best != null &&

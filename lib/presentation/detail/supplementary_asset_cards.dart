@@ -9,6 +9,7 @@ import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../infrastructure/cache/scan_thumbnail_scheduler.dart';
 import '../theme/konata_palette.dart';
+import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 
@@ -148,14 +149,14 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: Colors.white.withValues(
-                      alpha: _hovered ? 0.36 : 0.16,
-                    ),
+                    color: _hovered
+                        ? KonataPlaybackTokens.activeGlassBorder(p)
+                        : KonataPlaybackTokens.glassBorder(p),
                     width: 1,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.28),
+                      color: KonataPlaybackTokens.shadowColor(p),
                       blurRadius: 14,
                       offset: const Offset(0, 6),
                     ),
@@ -174,8 +175,10 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                               colors: [
-                                p.accent.withValues(alpha: 0.28),
-                                Colors.black.withValues(alpha: 0.56),
+                                p.accent.withValues(alpha: p.isDark ? 0.28 : 0.16),
+                                p.elevatedSurface.withValues(
+                                  alpha: p.isDark ? 0.90 : 0.85,
+                                ),
                               ],
                             ),
                           ),
@@ -183,8 +186,8 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                             child: Icon(
                               Icons.album_rounded,
                               size: 42,
-                              color: Colors.white.withValues(
-                                alpha: _hovered ? 0.96 : 0.80,
+                              color: p.textPrimary.withValues(
+                                alpha: _hovered ? 0.92 : 0.72,
                               ),
                             ),
                           ),
@@ -212,7 +215,10 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                 text: displayTitle,
                 maxLines: 2,
                 style: KonataTheme.detailTextStyle(
-                  color: Colors.white.withValues(alpha: _hovered ? 1.0 : 0.92),
+                  palette: p,
+                  color: _hovered
+                      ? p.textPrimary
+                      : p.textPrimary.withValues(alpha: 0.92),
                   fontSize: 12.5,
                   fontWeight: FontWeight.w600,
                 ),
@@ -223,7 +229,8 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                   text: subLine,
                   maxLines: 1,
                   style: KonataTheme.detailTextStyle(
-                    color: Colors.white.withValues(alpha: 0.62),
+                    palette: p,
+                    color: p.textSecondary,
                     fontSize: 11,
                     fontWeight: FontWeight.w400,
                   ),
@@ -344,6 +351,7 @@ class _ScanDrawerCardState extends ConsumerState<ScanDrawerCard> {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final v = widget.variant;
     final thumbBytes = _thumbBytes;
     final ext = MediaDisplayFormatter.fileExtensionUpper(v.fileName);
@@ -376,14 +384,14 @@ class _ScanDrawerCardState extends ConsumerState<ScanDrawerCard> {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: Colors.white.withValues(
-                      alpha: _hovered ? 0.36 : 0.16,
-                    ),
+                    color: _hovered
+                        ? KonataPlaybackTokens.activeGlassBorder(p)
+                        : KonataPlaybackTokens.glassBorder(p),
                     width: 1,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.28),
+                      color: KonataPlaybackTokens.shadowColor(p),
                       blurRadius: 14,
                       offset: const Offset(0, 6),
                     ),
@@ -431,7 +439,10 @@ class _ScanDrawerCardState extends ConsumerState<ScanDrawerCard> {
                 text: displayTitle,
                 maxLines: 2,
                 style: KonataTheme.detailTextStyle(
-                  color: Colors.white.withValues(alpha: _hovered ? 1.0 : 0.92),
+                  palette: p,
+                  color: _hovered
+                      ? p.textPrimary
+                      : p.textPrimary.withValues(alpha: 0.92),
                   fontSize: 12.5,
                   fontWeight: FontWeight.w600,
                 ),
@@ -442,7 +453,8 @@ class _ScanDrawerCardState extends ConsumerState<ScanDrawerCard> {
                   text: subLine,
                   maxLines: 1,
                   style: KonataTheme.detailTextStyle(
-                    color: Colors.white.withValues(alpha: 0.62),
+                    palette: p,
+                    color: p.textSecondary,
                     fontSize: 11,
                     fontWeight: FontWeight.w400,
                   ),
@@ -461,11 +473,12 @@ class _ScanPlaceholder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return Center(
       child: Icon(
         Icons.collections_outlined,
         size: 34,
-        color: Colors.white.withValues(alpha: 0.72),
+        color: p.textMuted.withValues(alpha: 0.82),
       ),
     );
   }
@@ -478,16 +491,21 @@ class _MiniTag extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.62),
+        color: KonataPlaybackTokens.glassSurface(p),
+        border: Border.all(
+          color: KonataPlaybackTokens.glassBorder(p),
+          width: 0.8,
+        ),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
         label,
-        style: const TextStyle(
-          color: Colors.white,
+        style: TextStyle(
+          color: p.textPrimary,
           fontSize: 10.5,
           fontWeight: FontWeight.w600,
         ),

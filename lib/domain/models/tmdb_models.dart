@@ -24,6 +24,7 @@ class TmdbSearchResult {
     this.overview,
     this.posterPath,
     this.backdropPath,
+    this.genreIds = const [],
   });
 
   /// TMDB 条目 ID。
@@ -49,6 +50,9 @@ class TmdbSearchResult {
 
   /// 背景图相对路径。
   final String? backdropPath;
+
+  /// TMDB 类型标签 ID 列表（`16` 为动画）。
+  final List<int> genreIds;
 }
 
 /// TMDB 单季摘要信息。
@@ -187,6 +191,7 @@ class TmdbWorkDetail {
     this.candidateBackdrops = const [],
     this.collectionId,
     this.collectionName,
+    this.genreIds = const [],
   });
 
   /// TMDB 条目 ID。
@@ -236,6 +241,9 @@ class TmdbWorkDetail {
 
   /// 所属 TMDB 合集名称。
   final String? collectionName;
+
+  /// TMDB 类型标签 ID 列表（`16` 为动画）。
+  final List<int> genreIds;
 }
 
 /// 待复核候选持久化摘要实体。

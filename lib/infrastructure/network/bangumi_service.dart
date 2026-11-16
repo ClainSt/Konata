@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../../domain/models/network_config.dart';
 import '../../domain/scraping/bangumi_models.dart';
+import '../../domain/scraping/search_query_sanitizer.dart';
 import 'priority_http_scheduler.dart';
 import 'tmdb_http_client.dart';
 
@@ -36,12 +37,13 @@ class BangumiService {
     return (primary, backup);
   }
 
-  /// 按关键词搜索 Bangumi 动画条目（`type: [2]`）。
+  /// 按关键词搜索 Bangumi 动画条目（`type: [2]`；发送前自动净化连字符消除 `-word` 排除陷阱）。
   Future<List<BangumiSubjectCandidate>> searchSubjects(
     String keyword, {
     RequestPriority priority = RequestPriority.background,
   }) async {
-    final trimmed = keyword.trim();
+    final sanitized = SearchQuerySanitizer.sanitize(keyword);
+    final trimmed = sanitized.isNotEmpty ? sanitized : keyword.trim();
     if (trimmed.isEmpty) return const [];
 
     final key = 'search:${trimmed.toLowerCase()}';
@@ -79,6 +81,48 @@ class BangumiService {
 
     if (rawList is! List<Map<String, Object?>>) return const [];
     return [for (final row in rawList) _parseSubject(row)];
+  }
+
+  /// 多级渐进回退搜索 Bangumi（净化原词 -> 剥离第X部分/季后缀 -> 核心主词/副标题），按 `id` 去重合并。
+  Future<List<BangumiSubjectCandidate>> searchSubjectsProgressive(
+    String rawQuery, {
+    RequestPriority priority = RequestPriority.interactive,
+  }) async {
+    final tiers = SearchQuerySanitizer.buildBangumiFallbackQueries(rawQuery);
+    if (tiers.isEmpty) return const [];
+
+    final merged = <int, BangumiSubjectCandidate>{};
+    void collect(List<BangumiSubjectCandidate> hits) {
+      for (final item in hits) {
+        if (item.id > 0) merged.putIfAbsent(item.id, () => item);
+      }
+    }
+
+    final firstHits = await searchSubjects(tiers.first, priority: priority);
+    collect(firstHits);
+
+    if (tiers.length >= 2) {
+      final baseClean = SearchQuerySanitizer.sanitize(tiers[1]).toLowerCase();
+      final hasExactBase = merged.values.any((item) {
+        final cn = SearchQuerySanitizer.sanitize(item.nameCn).toLowerCase();
+        final orig = SearchQuerySanitizer.sanitize(item.name).toLowerCase();
+        return cn == baseClean || orig == baseClean;
+      });
+      if (merged.isEmpty || merged.length < 3 || !hasExactBase) {
+        final secondHits = await searchSubjects(tiers[1], priority: priority);
+        collect(secondHits);
+      }
+    }
+
+    if (tiers.length > 2 && merged.length < 2) {
+      for (final term in tiers.skip(2)) {
+        final extraHits = await searchSubjects(term, priority: priority);
+        collect(extraHits);
+        if (merged.length >= 8) break;
+      }
+    }
+
+    return merged.values.toList(growable: false);
   }
 
   /// 拉取单个 Bangumi 条目完整信息（含 `infobox` 别名、开播日期、封面大图与简介）。

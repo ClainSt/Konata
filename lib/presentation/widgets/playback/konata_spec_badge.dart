@@ -13,7 +13,7 @@ class KonataSpecBadge extends StatelessWidget {
     required this.label,
     this.icon,
     this.highlighted = false,
-    this.forceOnDarkOverlay = false,
+    this.darkOverlay = false,
   });
 
   /// 规格标签文本（非空时显示）。
@@ -25,8 +25,8 @@ class KonataSpecBadge extends StatelessWidget {
   /// 是否突出强调（如 HDR / 无损独占状态）。
   final bool highlighted;
 
-  /// 是否强制适配深色视频或暗夜流光背景。
-  final bool forceOnDarkOverlay;
+  /// 是否叠放于视频画面顶栏（统一高对比度半透明深色衬底 + 亮白锐利文字与细微描边）。
+  final bool darkOverlay;
 
   @override
   Widget build(BuildContext context) {
@@ -37,20 +37,18 @@ class KonataSpecBadge extends StatelessWidget {
     final Color borderColor;
     final Color textColor;
 
-    if (forceOnDarkOverlay) {
-      bgColor = highlighted
-          ? Colors.white.withValues(alpha: 0.20)
-          : KonataPlaybackTokens.osdSoftFill;
-      borderColor = highlighted
-          ? Colors.white.withValues(alpha: 0.36)
-          : KonataPlaybackTokens.osdBorderLight;
-      textColor = KonataPlaybackTokens.osdTextPrimary;
+    if (darkOverlay) {
+      bgColor = KonataPlaybackTokens.videoOverlayBadgeBg;
+      borderColor = KonataPlaybackTokens.videoOverlayBadgeBorder;
+      textColor = KonataPlaybackTokens.videoOverlayBadgeFg;
+    } else if (highlighted) {
+      bgColor = p.primaryButtonBg.withValues(alpha: 0.14);
+      borderColor = p.primaryButtonBg.withValues(alpha: 0.35);
+      textColor = p.textPrimary;
     } else {
-      bgColor = highlighted ? p.primaryButtonBg.withValues(alpha: 0.14) : p.softFill;
-      borderColor = highlighted
-          ? p.primaryButtonBg.withValues(alpha: 0.35)
-          : p.hairline;
-      textColor = highlighted ? p.textPrimary : p.textSecondary;
+      bgColor = KonataPlaybackTokens.softFill(p);
+      borderColor = KonataPlaybackTokens.glassBorder(p);
+      textColor = p.textSecondary;
     }
 
     return Container(
@@ -69,20 +67,84 @@ class KonataSpecBadge extends StatelessWidget {
             Icon(icon, size: 12, color: textColor),
             const SizedBox(width: 4),
           ],
-          Text(
-            label,
-            maxLines: 1,
-            softWrap: false,
-            style: TextStyle(
-              color: textColor,
-              fontSize: KonataPlaybackTokens.specBadgeFontSize,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.15,
-              fontFeatures: KonataPlaybackTokens.tabularNumbers,
-              height: 1.1,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: textColor,
+                fontSize: KonataPlaybackTokens.specBadgeFontSize,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.15,
+                fontFeatures: KonataPlaybackTokens.tabularNumbers,
+                height: 1.1,
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 选集列表与详情卡共用的「正片 / 特典」语义胶囊徽标。
+///
+/// - `isSpecial == false`：轻量化主题蓝弱底衬 + 主题蓝文字，显式标识 `正片`；
+/// - `isSpecial == true`：中性微弱灰底衬 + 次级文字，标识 `特典`。
+class EpisodeCategoryBadge extends StatelessWidget {
+  /// 创建选集类别胶囊徽标。
+  const EpisodeCategoryBadge({
+    super.key,
+    required this.isSpecial,
+  });
+
+  /// 是否为特典条目（`false` 时显示显式 `正片`）。
+  final bool isSpecial;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final accentBadge = p.accentBadge;
+
+    final Color bgColor;
+    final Color borderColor;
+    final Color textColor;
+    final String label;
+
+    if (!isSpecial) {
+      label = '正片';
+      bgColor = accentBadge.bg;
+      borderColor = accentBadge.border;
+      textColor = accentBadge.fg;
+    } else {
+      label = '特典';
+      bgColor = KonataPlaybackTokens.softFill(p);
+      borderColor = KonataPlaybackTokens.glassBorder(p);
+      textColor = p.textSecondary;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6.5, vertical: 2),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(
+          KonataPlaybackTokens.specBadgeRadius,
+        ),
+        border: Border.all(color: borderColor, width: 1.0),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        softWrap: false,
+        style: TextStyle(
+          color: textColor,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.15,
+          height: 1.1,
+        ),
       ),
     );
   }

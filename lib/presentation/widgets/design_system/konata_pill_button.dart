@@ -12,6 +12,9 @@ enum KonataPillVariant {
 
   /// 无底色纯文字轻量按钮。
   ghost,
+
+  /// 告警/危险操作语义胶囊按钮（二次确认清理/删除）。
+  danger,
 }
 
 /// 全站统一全圆角胶囊按钮。
@@ -25,6 +28,8 @@ class KonataPillButton extends StatefulWidget {
     this.trailing,
     this.compact = false,
     this.padding,
+    this.height,
+    this.borderColor,
   }) : variant = KonataPillVariant.primary;
 
   /// 创建次级无边框柔和融合胶囊按钮。
@@ -36,6 +41,8 @@ class KonataPillButton extends StatefulWidget {
     this.trailing,
     this.compact = false,
     this.padding,
+    this.height,
+    this.borderColor,
   }) : variant = KonataPillVariant.secondary;
 
   /// 创建无底色文字胶囊按钮。
@@ -47,7 +54,22 @@ class KonataPillButton extends StatefulWidget {
     this.trailing,
     this.compact = false,
     this.padding,
+    this.height,
+    this.borderColor,
   }) : variant = KonataPillVariant.ghost;
+
+  /// 创建告警危险语义胶囊按钮。
+  const KonataPillButton.danger({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.icon,
+    this.trailing,
+    this.compact = false,
+    this.padding,
+    this.height,
+    this.borderColor,
+  }) : variant = KonataPillVariant.danger;
 
   /// 按钮文案。
   final String label;
@@ -70,6 +92,12 @@ class KonataPillButton extends StatefulWidget {
   /// 可选自定义内边距（覆盖默认宽松/紧凑内边距）。
   final EdgeInsetsGeometry? padding;
 
+  /// 可选固定高度（用于与同排输入框严格等高居中对齐）。
+  final double? height;
+
+  /// 可选显式描边色。
+  final Color? borderColor;
+
   @override
   State<KonataPillButton> createState() => _KonataPillButtonState();
 }
@@ -84,6 +112,7 @@ class _KonataPillButtonState extends State<KonataPillButton> {
 
     final Color bgColor;
     final Color fgColor;
+    Color? borderColor;
     switch (widget.variant) {
       case KonataPillVariant.primary:
         bgColor = _hovered && enabled ? p.primaryButtonHoverBg : p.primaryButtonBg;
@@ -98,12 +127,23 @@ class _KonataPillButtonState extends State<KonataPillButton> {
             ? p.secondaryButtonBg
             : Colors.transparent;
         fgColor = _hovered && enabled ? p.textPrimary : p.textSecondary;
+      case KonataPillVariant.danger:
+        bgColor = _hovered && enabled
+            ? Color.lerp(p.dangerBadge.bg, p.danger, 0.16)!
+            : p.dangerBadge.bg;
+        fgColor = p.dangerBadge.fg;
+        borderColor = widget.borderColor ?? p.dangerBadge.border;
+    }
+    if (widget.variant != KonataPillVariant.danger && widget.borderColor != null) {
+      borderColor = widget.borderColor;
     }
 
     final padding = widget.padding ??
-        (widget.compact
-            ? const EdgeInsets.symmetric(horizontal: 13, vertical: 7)
-            : const EdgeInsets.symmetric(horizontal: 18, vertical: 10));
+        (widget.height != null
+            ? EdgeInsets.symmetric(horizontal: widget.compact ? 14 : 18)
+            : (widget.compact
+                ? const EdgeInsets.symmetric(horizontal: 13, vertical: 7)
+                : const EdgeInsets.symmetric(horizontal: 18, vertical: 10)));
 
     return MouseRegion(
       cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
@@ -117,13 +157,18 @@ class _KonataPillButtonState extends State<KonataPillButton> {
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
             curve: Curves.easeOutCubic,
+            height: widget.height,
             padding: padding,
             decoration: BoxDecoration(
               color: bgColor,
               borderRadius: BorderRadius.circular(999),
+              border: borderColor == null
+                  ? null
+                  : Border.all(color: borderColor, width: 1),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 if (widget.icon != null) ...[
@@ -139,7 +184,8 @@ class _KonataPillButtonState extends State<KonataPillButton> {
                   style: TextStyle(
                     color: fgColor,
                     fontSize: widget.compact ? 12.5 : 13.5,
-                    fontWeight: widget.variant == KonataPillVariant.primary
+                    fontWeight: (widget.variant == KonataPillVariant.primary ||
+                            widget.variant == KonataPillVariant.danger)
                         ? FontWeight.w600
                         : FontWeight.w500,
                   ),
@@ -152,6 +198,53 @@ class _KonataPillButtonState extends State<KonataPillButton> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 源文件名 / 目录提取词的一键快捷填入胶囊栏（供手动匹配与混合匹配工作台共用）。
+class KonataQuickFillRow extends StatelessWidget {
+  /// 创建一键快捷填入胶囊栏。
+  const KonataQuickFillRow({
+    super.key,
+    required this.terms,
+    required this.onPick,
+    this.disabled = false,
+  });
+
+  /// 提取出的清洗关键词列表；为空时不渲染任何内容。
+  final List<String> terms;
+
+  /// 点击任意胶囊时的回调（传入对应关键词）。
+  final ValueChanged<String> onPick;
+
+  /// 是否禁用交互。
+  final bool disabled;
+
+  @override
+  Widget build(BuildContext context) {
+    if (terms.isEmpty) return const SizedBox.shrink();
+    final p = context.palette;
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(
+            '快捷填入：',
+            style: TextStyle(color: p.textMuted, fontSize: 11.5),
+          ),
+          for (final term in terms)
+            KonataPillButton.secondary(
+              label: term,
+              compact: true,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              onPressed: disabled ? null : () => onPick(term),
+            ),
+        ],
       ),
     );
   }

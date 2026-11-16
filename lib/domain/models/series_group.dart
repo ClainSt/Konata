@@ -1,3 +1,5 @@
+import '../parsing/bdrip_folder_cleaner.dart';
+import '../parsing/season_number_parser.dart';
 import 'work.dart';
 
 /// 系列（Series）编组与条目标签预设。
@@ -54,6 +56,333 @@ class SeriesGroup {
   }
 }
 
+/// 同系列条目分类类型（用于统一时间线排序与季名/片名提炼）。
+enum SeriesMemberKind {
+  /// TV 常规分季（按 `matchedSeason` 升序排列）。
+  tvSeason,
+
+  /// 剧场版 / 电影（按上映年份时间序）。
+  movie,
+
+  /// OVA / OAD 映像（按发行时间序）。
+  ova,
+
+  /// 特别篇 / 总集篇 / 番外（按发行时间序）。
+  special,
+}
+
+/// 同系列作品统一归组排序与「第 X 季 · 准确名称」格式化领域服务。
+///
+/// 全站唯一真源：被详情页 [SeriesSwitcherDropdown]、[workDetailBundleProvider]、
+/// [SeriesAutoLinker]、播放器选集侧栏与跨季连播控制器共同复用，杜绝双轨分叉。
+abstract final class SeriesSeasonFormatter {
+  static final RegExp _genericRoleLabelPattern = RegExp(
+    r'^(?:第\s*[0-9一二三四五六七八九十两]+\s*[季期]|season\s*\d+|特别篇|特別篇|OVA|OAD|SP|剧场版|劇場版|电影|電影|总集篇|總集篇|番外|特典)$',
+    caseSensitive: false,
+  );
+
+  static final RegExp _leadingSeasonTokenPattern = RegExp(
+    r'^(?:第\s*[0-9一二三四五六七八九十两]+\s*[季期]|season[\s._-]*\d+|s\d{1,2}|\d+(?:st|nd|rd|th)\s*season)(?:[\s·:：\-_/]+|$)',
+    caseSensitive: false,
+  );
+
+  static final RegExp _trailingOrdinalSeasonPattern = RegExp(
+    r'(?:^|[\s·:：\-_/]+)(?:\d+(?:st|nd|rd|th)\s*season|part\s*\d+|cour\s*\d+)$',
+    caseSensitive: false,
+  );
+
+  static final RegExp _leadingMoviePrefixPattern = RegExp(
+    r'^(?:剧场版|劇場版|电影版|電影版|电影|電影|the\s+movie|movie)(?:[\s·:：\-_/]+|$)',
+    caseSensitive: false,
+  );
+
+  static final RegExp _trailingMovieSuffixPattern = RegExp(
+    r'(?:^|[\s·:：\-_/]+)(?:剧场版|劇場版|the\s+movie|movie)$',
+    caseSensitive: false,
+  );
+
+  static final RegExp _leadingSpecialPrefixPattern = RegExp(
+    r'^(?:特别篇|特別篇|总集篇|總集篇|番外篇|番外|special)(?:[\s·:：\-_/]+|$)',
+    caseSensitive: false,
+  );
+
+  static final RegExp _trailingSpecialSuffixPattern = RegExp(
+    r'(?:^|[\s·:：\-_/]+)(?:特别篇|特別篇|special)$',
+    caseSensitive: false,
+  );
+
+  static final RegExp _leadingOvaPrefixPattern = RegExp(
+    r'^(?:OVA|OAD)(?:[\s·:：\-_/]+|$)',
+    caseSensitive: false,
+  );
+
+  static final RegExp _trailingOvaSuffixPattern = RegExp(
+    r'(?:^|[\s·:：\-_/]+)(?:OVA|OAD)$',
+    caseSensitive: false,
+  );
+
+  /// 剥离发布组、编码与分辨率噪点，保留干净的作品/季/剧场版名称。
+  static String stripReleaseNoise(String rawTitle) {
+    final trimmed = rawTitle.trim();
+    if (trimmed.isEmpty) return '';
+    // 先保留副标题，只去掉发布组 `[VCB-Studio]`、`BDrip`、`HEVC`、`1080p` 等噪点
+    final pre = trimmed
+        .replaceAll(RegExp(r'^[\[【(][^\]】)]+[\]】)]\s*'), '')
+        .trim();
+    final cleaned = BdripFolderCleaner.parseFolderName(pre.isEmpty ? trimmed : pre)
+        .cleanTitle;
+    return cleaned
+        .replaceAll(RegExp(r'^[\s·:：\-_/]+|[\s·:：\-_/]+$'), '')
+        .replaceAll(RegExp(r'\s{2,}'), ' ')
+        .trim();
+  }
+
+  /// 判断系列成员归属类型（TV 季 / 剧场版 / OVA / 特别篇）。
+  static SeriesMemberKind classifyMember(Work member) {
+    if (member.tmdbMediaType == TmdbMediaType.movie) {
+      return SeriesMemberKind.movie;
+    }
+    final custom = member.seriesLabel?.trim().toLowerCase() ?? '';
+    if (custom.startsWith('剧场版') ||
+        custom.startsWith('劇場版') ||
+        custom.startsWith('电影') ||
+        custom.startsWith('movie')) {
+      return SeriesMemberKind.movie;
+    }
+    if (custom.startsWith('ova') || custom.startsWith('oad')) {
+      return SeriesMemberKind.ova;
+    }
+    if (custom.startsWith('特别篇') ||
+        custom.startsWith('特別篇') ||
+        custom.startsWith('番外')) {
+      return SeriesMemberKind.special;
+    }
+
+    if (member.tmdbMediaType == TmdbMediaType.tv &&
+        member.matchedSeason != null &&
+        member.matchedSeason! > 0) {
+      return SeriesMemberKind.tvSeason;
+    }
+
+    final titleCombined = '${member.title} ${member.originalTitle ?? ''}'
+        .toUpperCase();
+    if (titleCombined.contains('OAD') || titleCombined.contains('OVA')) {
+      return SeriesMemberKind.ova;
+    }
+    if (member.matchedSeason == 0) {
+      return SeriesMemberKind.special;
+    }
+    return SeriesMemberKind.tvSeason;
+  }
+
+  /// 按「TV 季号升序 -> 首播时间升序 -> 剧场版/OVA 时间序」排序同系列成员。
+  ///
+  /// 当 [respectLockedOrder] 为 `true` 且任一方显式人工锁定系列顺序（`seriesLocked`）时，
+  /// 优先尊从用户锁定的 `seriesOrder`。
+  static int compareSeriesMembers(
+    Work a,
+    Work b, {
+    bool respectLockedOrder = true,
+  }) {
+    if (respectLockedOrder && (a.seriesLocked || b.seriesLocked)) {
+      final aOrder = a.seriesOrder ?? 99999;
+      final bOrder = b.seriesOrder ?? 99999;
+      if (aOrder != bOrder) return aOrder.compareTo(bOrder);
+    }
+
+    final aKind = classifyMember(a);
+    final bKind = classifyMember(b);
+    final aPrimaryRank = aKind == SeriesMemberKind.tvSeason ? 0 : 1;
+    final bPrimaryRank = bKind == SeriesMemberKind.tvSeason ? 0 : 1;
+    if (aPrimaryRank != bPrimaryRank) {
+      return aPrimaryRank.compareTo(bPrimaryRank);
+    }
+
+    if (aPrimaryRank == 0) {
+      final aSeason =
+          a.matchedSeason ??
+          SeasonNumberParser.splitSeasonSuffix(a.title).seasonNumber ??
+          a.seriesOrder ??
+          999;
+      final bSeason =
+          b.matchedSeason ??
+          SeasonNumberParser.splitSeasonSuffix(b.title).seasonNumber ??
+          b.seriesOrder ??
+          999;
+      if (aSeason != bSeason) return aSeason.compareTo(bSeason);
+
+      final yearCmp = (a.year ?? 9999).compareTo(b.year ?? 9999);
+      if (yearCmp != 0) return yearCmp;
+    } else {
+      final yearCmp = (a.year ?? 9999).compareTo(b.year ?? 9999);
+      if (yearCmp != 0) return yearCmp;
+
+      final kindCmp = aKind.index.compareTo(bKind.index);
+      if (kindCmp != 0) return kindCmp;
+    }
+
+    final orderCmp = (a.seriesOrder ?? 99999).compareTo(b.seriesOrder ?? 99999);
+    if (orderCmp != 0) return orderCmp;
+
+    final titleCmp = stripReleaseNoise(
+      a.title,
+    ).toLowerCase().compareTo(stripReleaseNoise(b.title).toLowerCase());
+    if (titleCmp != 0) return titleCmp;
+    return a.id.compareTo(b.id);
+  }
+
+  /// 返回按时间线排序后的同系列成员列表。
+  static List<Work> sortSeriesMembers(
+    Iterable<Work> members, {
+    bool respectLockedOrder = true,
+  }) {
+    final list = List<Work>.of(members);
+    list.sort(
+      (a, b) =>
+          compareSeriesMembers(a, b, respectLockedOrder: respectLockedOrder),
+    );
+    return list;
+  }
+
+  /// 剥离与既定角色/季号前缀重复的前后缀词（杜绝 `第 2 季 · 第 2 季`、`剧场版 · 剧场版`）。
+  static String stripDuplicateRolePrefix(
+    String rawTitle, {
+    required SeriesMemberKind kind,
+    String? customPrefix,
+  }) {
+    var working = stripReleaseNoise(rawTitle);
+    if (working.isEmpty) return '';
+
+    if (kind == SeriesMemberKind.tvSeason) {
+      working = SeasonNumberParser.splitSeasonSuffix(working).title;
+      working = working
+          .replaceFirst(_leadingSeasonTokenPattern, '')
+          .replaceFirst(_trailingOrdinalSeasonPattern, '')
+          .trim();
+    } else if (kind == SeriesMemberKind.movie) {
+      working = working
+          .replaceFirst(_leadingMoviePrefixPattern, '')
+          .replaceFirst(_trailingMovieSuffixPattern, '')
+          .trim();
+    } else if (kind == SeriesMemberKind.ova) {
+      working = working
+          .replaceFirst(_leadingOvaPrefixPattern, '')
+          .replaceFirst(_trailingOvaSuffixPattern, '')
+          .trim();
+    } else if (kind == SeriesMemberKind.special) {
+      working = working
+          .replaceFirst(_leadingSpecialPrefixPattern, '')
+          .replaceFirst(_trailingSpecialSuffixPattern, '')
+          .trim();
+    }
+
+    if (customPrefix != null && customPrefix.isNotEmpty) {
+      final escaped = RegExp.escape(customPrefix);
+      working = working
+          .replaceFirst(
+            RegExp('^$escaped(?:[\\s·:：\\-_/]+|\$)', caseSensitive: false),
+            '',
+          )
+          .trim();
+    }
+
+    return working
+        .replaceAll(RegExp(r'^[\s·:：\-_/]+|[\s·:：\-_/]+$'), '')
+        .trim();
+  }
+
+  /// 解析并格式化单部系列成员的标准展示名称（如 `第 1 季 · <准确季名>`、`剧场版 · <准确片名>`、`OVA · <准确名称>`）。
+  static String formatMemberLabel(
+    Work member,
+    Iterable<Work> allMembers, {
+    SeriesGroup? seriesGroup,
+    int? fallbackOrder,
+  }) {
+    final customRaw = member.seriesLabel?.trim() ?? '';
+    final isGenericPreset =
+        customRaw.isEmpty || _genericRoleLabelPattern.hasMatch(customRaw);
+    if (!isGenericPreset) {
+      // 用户已手填具名角色标签（如 `剧场版 Code: White`），保留干净文本不画蛇添足。
+      return customRaw.replaceAll(RegExp(r'\s{2,}'), ' ').trim();
+    }
+
+    final kind = classifyMember(member);
+    final rolePrefix = _resolveRolePrefix(
+      member,
+      kind: kind,
+      customGeneric: customRaw,
+      fallbackOrder: fallbackOrder,
+    );
+
+    final fallbackGroupTitle = seriesGroup?.title.trim();
+    final accurateName = stripDuplicateRolePrefix(
+      member.title,
+      kind: kind,
+      customPrefix: rolePrefix,
+    );
+    final resolvedName = accurateName.isNotEmpty
+        ? accurateName
+        : (fallbackGroupTitle != null && fallbackGroupTitle.isNotEmpty
+              ? stripDuplicateRolePrefix(
+                  fallbackGroupTitle,
+                  kind: kind,
+                  customPrefix: rolePrefix,
+                )
+              : '');
+
+    if (rolePrefix.isEmpty) {
+      return resolvedName.isNotEmpty ? resolvedName : member.title.trim();
+    }
+    if (resolvedName.isEmpty || resolvedName == rolePrefix) {
+      return rolePrefix;
+    }
+    return '$rolePrefix · $resolvedName';
+  }
+
+  static String _resolveRolePrefix(
+    Work member, {
+    required SeriesMemberKind kind,
+    required String customGeneric,
+    int? fallbackOrder,
+  }) {
+    if (customGeneric.isNotEmpty) {
+      final parsedCustomSeason = SeasonNumberParser.splitSeasonSuffix(
+        customGeneric,
+      ).seasonNumber;
+      if (parsedCustomSeason != null && parsedCustomSeason > 0) {
+        return SeriesLabelPresets.seasonLabel(parsedCustomSeason);
+      }
+      if (kind == SeriesMemberKind.special && customGeneric == '特别篇') {
+        return '特别篇';
+      }
+      if (kind == SeriesMemberKind.movie &&
+          (customGeneric == '剧场版' || customGeneric == '电影')) {
+        return '剧场版';
+      }
+      if (kind == SeriesMemberKind.ova) {
+        return customGeneric.toUpperCase() == 'OAD' ? 'OAD' : 'OVA';
+      }
+    }
+
+    switch (kind) {
+      case SeriesMemberKind.tvSeason:
+        final season =
+            member.matchedSeason ??
+            SeasonNumberParser.splitSeasonSuffix(member.title).seasonNumber ??
+            (fallbackOrder != null && fallbackOrder > 0 ? fallbackOrder : 1);
+        return SeriesLabelPresets.seasonLabel(season > 0 ? season : 1);
+      case SeriesMemberKind.movie:
+        return '剧场版';
+      case SeriesMemberKind.ova:
+        final upper = '${member.title} ${member.originalTitle ?? ''}'
+            .toUpperCase();
+        return upper.contains('OAD') ? 'OAD' : 'OVA';
+      case SeriesMemberKind.special:
+        return '特别篇';
+    }
+  }
+}
+
 /// 系列内条目角色标签快捷预设。
 abstract final class SeriesLabelPresets {
   /// 默认快捷标签列表。
@@ -72,11 +401,6 @@ abstract final class SeriesLabelPresets {
   /// 生成标准季标签文本。
   static String seasonLabel(int seasonNumber) =>
       seasonNumber == 0 ? '特别篇' : '第 $seasonNumber 季';
-
-  static final RegExp _genericRoleLabelPattern = RegExp(
-    r'^(?:特别篇|特別篇|OVA|OAD|SP|剧场版|劇場版|电影|電影|总集篇|總集篇|番外|特典)$',
-    caseSensitive: false,
-  );
 
   /// 推断单个系列成员的基础角色/季标签（尚未叠加成员标题消歧）。
   static String resolveMemberBaseLabel(Work member, {int? fallbackOrder}) {
@@ -99,45 +423,18 @@ abstract final class SeriesLabelPresets {
     return member.title.trim();
   }
 
-  /// 生成带防撞名消歧的系列成员展示标签。
-  ///
-  /// 当成员标签属于笼统角色预设（如 `特别篇`、`OVA`、`OAD`、`剧场版`）
-  /// 或同系列存在多个同名标签时，自动拼接具体作品标题为
-  /// `<季标签> · <成员作品名>`，避免多部特别篇或同类条目混为一谈；
-  /// 若用户已为其命名专属不重名标签（如 `剧场版 Code: White`）或标准 `第 N 季`
-  /// 且无撞名，则保留简洁原标签不冗余拼接。
+  /// 生成统一格式的系列成员展示标签（委托至 [SeriesSeasonFormatter] 单一真源）。
   static String formatDisambiguatedMemberLabel(
     Work member,
     Iterable<Work> allMembers, {
+    SeriesGroup? seriesGroup,
     int? fallbackOrder,
   }) {
-    final memberList = allMembers is List<Work>
-        ? allMembers
-        : allMembers.toList(growable: false);
-    final baseLabel = resolveMemberBaseLabel(
+    return SeriesSeasonFormatter.formatMemberLabel(
       member,
+      allMembers,
+      seriesGroup: seriesGroup,
       fallbackOrder: fallbackOrder,
     );
-    final cleanTitle = member.title.trim();
-    if (baseLabel.isEmpty || cleanTitle.isEmpty || baseLabel == cleanTitle) {
-      return baseLabel.isNotEmpty ? baseLabel : cleanTitle;
-    }
-
-    var sameLabelCount = 0;
-    for (var i = 0; i < memberList.length; i++) {
-      final candidate = memberList[i];
-      final order = candidate.id == member.id ? fallbackOrder : (i + 1);
-      if (resolveMemberBaseLabel(candidate, fallbackOrder: order) ==
-          baseLabel) {
-        sameLabelCount++;
-      }
-    }
-
-    final isGenericRole = _genericRoleLabelPattern.hasMatch(baseLabel);
-    if ((isGenericRole || sameLabelCount > 1) &&
-        !baseLabel.contains(cleanTitle)) {
-      return '$baseLabel · $cleanTitle';
-    }
-    return baseLabel;
   }
 }

@@ -3,6 +3,7 @@ import '../../domain/models/tmdb_models.dart';
 import '../../domain/models/work.dart';
 import '../../domain/scraping/bangumi_models.dart';
 import '../../domain/scraping/scrape_domain_adapter.dart';
+import '../../domain/scraping/search_query_sanitizer.dart';
 import '../../domain/scraping/work_matcher.dart' as legacy;
 import '../../infrastructure/network/bangumi_service.dart';
 import '../../infrastructure/network/priority_http_scheduler.dart';
@@ -155,6 +156,42 @@ class ScrapeCandidateFetcher {
       }),
     );
 
+    // 当目录包含第 1 集且存在多条同系列候选（如分割放送第 1/2 部分）时，
+    // 拉取前 4 条候选的少量正片分集以识别其起始 sort 序号，避免续作（sort >= 12）抢夺 [01]。
+    if (!folder.isMovieHint &&
+        folder.mainEpisodeNumbers.contains(1) &&
+        rawById.length >= 2) {
+      final sortTargets = prelim.topCandidates
+          .take(4)
+          .map((e) => e.subject.id)
+          .toList(growable: false);
+      await Future.wait(
+        sortTargets.map((id) async {
+          try {
+            final eps = await bgm.getSubjectEpisodes(
+              id,
+              type: 0,
+              limit: 5,
+              priority: RequestPriority.background,
+            );
+            double? minSort;
+            for (final ep in eps) {
+              final s = ep.sort ?? ep.ep;
+              if (s == null || s <= 0) continue;
+              if (minSort == null || s < minSort) {
+                minSort = s;
+              }
+            }
+            if (minSort != null && rawById[id] != null) {
+              rawById[id] = rawById[id]!.copyWith(firstEpisodeSort: minSort);
+            }
+          } catch (_) {
+            // 部分测试桩或网络故障未提供 episodes 接口时静默跳过。
+          }
+        }),
+      );
+    }
+
     return rawById.values.toList(growable: false);
   }
 
@@ -171,6 +208,7 @@ class ScrapeCandidateFetcher {
     );
     final searchYear = ScrapeDomainAdapter.extractSearchYear(folder);
     final candidatesMap = <String, TmdbSearchResult>{};
+    final typeFilter = folder.prefersTvSearch ? TmdbMediaType.tv : null;
 
     Future<void> collectWave(
       Iterable<String> qs, {
@@ -183,6 +221,7 @@ class ScrapeCandidateFetcher {
           q,
           year: year,
           language: language,
+          mediaTypeFilter: typeFilter,
           priority: RequestPriority.background,
         );
         for (final h in hits) {
@@ -252,6 +291,79 @@ class ScrapeCandidateFetcher {
       if (detail != null) details.add(detail);
     }
     return details;
+  }
+
+  /// 当首轮 TMDB 未命中、跨源不一致被清空、或优胜条目缺少 16:9 横版背景图时，
+  /// 使用已命中的 Bangumi 中/日文净化词干与年份进行二次 TMDB 兜底救回（如 `86` -> `tmdb-100565`）。
+  Future<List<TmdbWorkDetail>> rescueTmdbByBangumi(
+    GroupedWorkFolder folder,
+    BangumiSubjectCandidate bangumi, {
+    List<TmdbWorkDetail> existingDetails = const [],
+  }) async {
+    final rawNames = <String>[
+      if (bangumi.nameCn.trim().isNotEmpty) bangumi.nameCn.trim(),
+      if (bangumi.name.trim().isNotEmpty) bangumi.name.trim(),
+    ];
+    final querySet = <String>{};
+    for (final name in rawNames) {
+      for (final q in SearchQuerySanitizer.buildBangumiFallbackQueries(name)) {
+        querySet.add(q);
+      }
+    }
+    final queries = querySet.toList(growable: false);
+    if (queries.isEmpty) return existingDetails;
+
+    final seenIds = <String>{
+      for (final d in existingDetails) '${d.mediaType.name}:${d.tmdbId}',
+    };
+    final hitMap = <String, TmdbSearchResult>{};
+    final typeFilter = folder.prefersTvSearch ? TmdbMediaType.tv : null;
+
+    Future<void> runSearch(
+      Iterable<String> qs, {
+      int? year,
+      required String lang,
+    }) async {
+      for (final q in qs) {
+        final hits = await _tmdbService.searchAnime(
+          q,
+          year: year,
+          language: lang,
+          mediaTypeFilter: typeFilter,
+          priority: RequestPriority.background,
+        );
+        for (final h in hits) {
+          final k = '${h.mediaType.name}:${h.tmdbId}';
+          if (!seenIds.contains(k)) {
+            hitMap.putIfAbsent(k, () => h);
+          }
+        }
+        if (hitMap.length >= 6) break;
+      }
+    }
+
+    await runSearch(queries.take(3), year: bangumi.year, lang: 'zh-CN');
+    if (hitMap.isEmpty && bangumi.year != null) {
+      await runSearch(queries.take(3), lang: 'zh-CN');
+    }
+    if (hitMap.isEmpty) {
+      await runSearch(queries.take(2), lang: 'ja-JP');
+    }
+    if (hitMap.isEmpty) return existingDetails;
+
+    final fetched = <TmdbWorkDetail>[...existingDetails];
+    for (final hit in hitMap.values.take(4)) {
+      final detail = await _tmdbService.getWorkDetail(
+        hit.tmdbId,
+        hit.mediaType,
+        priority: RequestPriority.background,
+      );
+      if (detail != null &&
+          seenIds.add('${detail.mediaType.name}:${detail.tmdbId}')) {
+        fetched.add(detail);
+      }
+    }
+    return fetched;
   }
 
   /// 一次拉取各引用季完整详情（含单季专属封面、季名、简介与分集列表）。

@@ -40,7 +40,6 @@ class KonataSegmentedCapsule<T> extends StatefulWidget {
     required this.onChanged,
     this.expand = false,
     this.compact = false,
-    this.forceOnDarkOverlay = false,
   });
 
   /// 可选项列表。
@@ -57,9 +56,6 @@ class KonataSegmentedCapsule<T> extends StatefulWidget {
 
   /// 是否使用紧凑尺寸（用于表格/密集行内筛选）。
   final bool compact;
-
-  /// 是否强制适配深色视频或暗夜流光浮层。
-  final bool forceOnDarkOverlay;
 
   @override
   State<KonataSegmentedCapsule<T>> createState() =>
@@ -148,22 +144,15 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final darkOverlay = widget.forceOnDarkOverlay;
 
-    final trackBg = darkOverlay ? KonataPlaybackTokens.osdSoftFill : p.softFill;
-    final trackBorder = darkOverlay
-        ? KonataPlaybackTokens.osdBorderLight
-        : p.hairline;
-    final thumbBg = darkOverlay
-        ? Colors.white.withValues(alpha: 0.22)
-        : (p.isDark
-              ? Colors.white.withValues(alpha: 0.16)
-              : Colors.white.withValues(alpha: 0.94));
-    final thumbBorder = darkOverlay
-        ? Colors.white.withValues(alpha: 0.28)
-        : (p.isDark
-              ? Colors.white.withValues(alpha: 0.14)
-              : Colors.black.withValues(alpha: 0.04));
+    final trackBg = KonataPlaybackTokens.softFill(p);
+    final trackBorder = KonataPlaybackTokens.glassBorder(p);
+    final thumbBg = p.isDark
+        ? Colors.white.withValues(alpha: 0.18)
+        : Colors.white.withValues(alpha: 0.94);
+    final thumbBorder = p.isDark
+        ? Colors.white.withValues(alpha: 0.16)
+        : Colors.black.withValues(alpha: 0.06);
 
     final selectedIndex = widget.options.indexWhere(
       (o) => o.value == widget.selected,
@@ -216,7 +205,7 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
                         child: _SlidingThumbBox(
                           bgColor: thumbBg,
                           borderColor: thumbBorder,
-                          isDark: darkOverlay || p.isDark,
+                          isDark: p.isDark,
                         ),
                       ),
                     itemsRow,
@@ -240,7 +229,7 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
                     child: _SlidingThumbBox(
                       bgColor: thumbBg,
                       borderColor: thumbBorder,
-                      isDark: darkOverlay || p.isDark,
+                      isDark: p.isDark,
                     ),
                   ),
                 itemsRow,
@@ -265,7 +254,6 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
       selected: selected,
       hovered: hovered,
       compact: widget.compact,
-      forceOnDarkOverlay: widget.forceOnDarkOverlay,
       palette: palette,
       fallbackBoxColor: showFallbackPill ? thumbBg : null,
       fallbackBorderColor: showFallbackPill ? thumbBorder : null,
@@ -325,7 +313,6 @@ class _SegmentChip<T> extends StatelessWidget {
     required this.selected,
     required this.hovered,
     required this.compact,
-    required this.forceOnDarkOverlay,
     required this.palette,
     required this.fallbackBoxColor,
     required this.fallbackBorderColor,
@@ -337,7 +324,6 @@ class _SegmentChip<T> extends StatelessWidget {
   final bool selected;
   final bool hovered;
   final bool compact;
-  final bool forceOnDarkOverlay;
   final KonataPalette palette;
   final Color? fallbackBoxColor;
   final Color? fallbackBorderColor;
@@ -347,13 +333,10 @@ class _SegmentChip<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = palette;
-    final darkOverlay = forceOnDarkOverlay;
-    final activeTextColor = darkOverlay
-        ? KonataPlaybackTokens.osdTextPrimary
-        : p.textPrimary;
-    final restTextColor = darkOverlay
-        ? KonataPlaybackTokens.osdTextSecondary
-        : (hovered ? p.textPrimary.withValues(alpha: 0.85) : p.textSecondary);
+    final activeTextColor = p.textPrimary;
+    final restTextColor = hovered
+        ? p.textPrimary.withValues(alpha: 0.85)
+        : p.textSecondary;
     final fontSize = compact ? 12.0 : 12.5;
     final padH = compact ? 11.0 : 14.0;
     final padV = compact ? 5.0 : 6.5;

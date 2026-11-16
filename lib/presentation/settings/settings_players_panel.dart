@@ -159,12 +159,20 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                   label: ver.isAvailable
                       ? '${ver.mpvVersion} · FFmpeg ${ver.ffmpegVersion}'
                       : 'libmpv 运行时未就绪（将自动回退外部播放器）',
-                  color: ver.isAvailable ? p.success : p.warning,
+                  badge: ver.isAvailable ? p.accentBadge : p.warningBadge,
                 ),
-                loading: () =>
-                    _RuntimeStatusPill(label: '正在探测内核...', color: p.textMuted),
-                error: (e, st) =>
-                    _RuntimeStatusPill(label: '内核探测失败', color: p.danger),
+                loading: () => _RuntimeStatusPill(
+                  label: '正在探测内核...',
+                  badge: KonataBadgeColors(
+                    bg: p.softFill,
+                    fg: p.textMuted,
+                    border: p.hairline,
+                  ),
+                ),
+                error: (e, st) => _RuntimeStatusPill(
+                  label: '内核探测失败',
+                  badge: p.dangerBadge,
+                ),
               ),
             ],
           ),
@@ -490,23 +498,24 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
 }
 
 class _RuntimeStatusPill extends StatelessWidget {
-  const _RuntimeStatusPill({required this.label, required this.color});
+  const _RuntimeStatusPill({required this.label, required this.badge});
 
   final String label;
-  final Color color;
+  final KonataBadgeColors badge;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
+        color: badge.bg,
         borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: badge.border, width: 1),
       ),
       child: Text(
         label,
         style: TextStyle(
-          color: color,
+          color: badge.fg,
           fontSize: 11.5,
           fontWeight: FontWeight.w600,
         ),

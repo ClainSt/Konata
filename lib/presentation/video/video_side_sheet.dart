@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,8 +7,11 @@ import 'package:path/path.dart' as p;
 
 import '../../application/playback/playback_preferences_provider.dart';
 import '../../application/playback/video_playback_controller.dart';
+import '../../application/providers/library_providers.dart';
 import '../../domain/matching/episode_title_formatter.dart';
 import '../../domain/models/episode.dart';
+import '../../domain/models/series_group.dart';
+import '../../domain/models/work.dart';
 import '../../domain/playback/track_preferences.dart';
 import '../../infrastructure/players/mpv_quality_profile.dart';
 import '../theme/konata_palette.dart';
@@ -53,15 +58,27 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
   final ScrollController _subCtrl = ScrollController();
   final ScrollController _audioCtrl = ScrollController();
   final ScrollController _videoCtrl = ScrollController();
+  final ScrollController _seasonCtrl = ScrollController();
   final GlobalKey _activeEpisodeKey = GlobalKey();
   bool _pendingEpisodeAutoScroll = false;
   String? _lastAutoScrolledEpId;
+
+  late String _browsingWorkId;
+  late String _lastPlayingWorkId;
+  final Map<String, WorkDetailBundle> _browsingBundles = {};
+  bool _loadingBrowsingBundle = false;
 
   @override
   void initState() {
     super.initState();
     _tab = widget.initialTab;
     _pendingEpisodeAutoScroll = _tab == VideoSideSheetTab.episodes;
+    final playingState = ref.read(videoPlaybackProvider(widget.request));
+    final initialWork = playingState.currentWork ?? widget.request.work;
+    final initialBundle = playingState.currentBundle ?? widget.request.bundle;
+    _lastPlayingWorkId = initialWork.id;
+    _browsingWorkId = initialWork.id;
+    _browsingBundles[initialWork.id] = initialBundle;
   }
 
   @override
@@ -118,7 +135,32 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
     _subCtrl.dispose();
     _audioCtrl.dispose();
     _videoCtrl.dispose();
+    _seasonCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _selectBrowsingSeason(
+    String targetWorkId,
+    VideoPlaybackController controller,
+  ) async {
+    if (_browsingWorkId == targetWorkId) return;
+    setState(() {
+      _browsingWorkId = targetWorkId;
+    });
+    if (_epCtrl.hasClients) {
+      _epCtrl.jumpTo(0);
+    }
+    if (_browsingBundles.containsKey(targetWorkId)) return;
+
+    setState(() => _loadingBrowsingBundle = true);
+    final loaded = await controller.loadSeriesWorkBundle(targetWorkId);
+    if (!mounted) return;
+    setState(() {
+      if (loaded != null) {
+        _browsingBundles[targetWorkId] = loaded;
+      }
+      _loadingBrowsingBundle = false;
+    });
   }
 
   Future<void> _pickExternalSubtitle(VideoPlaybackController controller) async {
@@ -143,6 +185,7 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
     return KonataGlassSideSheet(
       title: '播放控制台',
       width: KonataPlaybackTokens.videoSideSheetWidth,
+      bottomInset: KonataPlaybackTokens.videoSideSheetBottomInset,
       onClose: widget.onClose,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -219,56 +262,133 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
     VideoPlaybackState state,
     VideoPlaybackController controller,
   ) {
-    final bundle = widget.request.bundle;
-    final playable = Episode.sortMainFirst(
-      bundle.episodes.where((e) => bundle.variantsForEpisode(e.id).isNotEmpty),
-    );
-    final mainCount = controller.orderedMainEpisodes.length;
-    final activeIdx = playable.indexWhere(
-      (e) => e.id == state.currentEpisode.id,
-    );
-    if (_lastAutoScrolledEpId != state.currentEpisode.id) {
-      _lastAutoScrolledEpId = state.currentEpisode.id;
+    final playingWork = state.currentWork ?? widget.request.work;
+    final playingBundle = state.currentBundle ?? widget.request.bundle;
+    _browsingBundles[playingWork.id] = playingBundle;
+
+    if (_lastPlayingWorkId != playingWork.id) {
+      _lastPlayingWorkId = playingWork.id;
+      _browsingWorkId = playingWork.id;
       _pendingEpisodeAutoScroll = true;
     }
-    _scheduleEpisodeAutoScroll(activeIdx, playable.length);
 
-    return KonataDraggableScrollbar(
-      controller: _epCtrl,
-      padding: const EdgeInsets.only(right: 4),
-      builder: (_, ctrl) => ListView.separated(
-        controller: ctrl,
-        padding: const EdgeInsets.fromLTRB(16, 0, 20, 20),
-        itemCount: playable.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 8),
-        itemBuilder: (context, index) {
-          final ep = playable[index];
-          final active = ep.id == state.currentEpisode.id;
-          final rec = bundle.playbackByEpisodeId[ep.id];
-          final title = EpisodeTitleFormatter.formatCardTitle(
-            episode: ep,
-            workTitle: widget.request.work.title,
-            workMediaType: widget.request.work.tmdbMediaType,
-            mainEpisodeCount: mainCount,
-          );
-          final subInfo = ep.category == EpisodeCategory.extra
-              ? '特典'
-              : (rec != null && rec.isCompleted ? '已看完' : '');
+    final seriesMembers = controller.orderedSeriesMembers;
+    final browsingBundle = _browsingBundles[_browsingWorkId] ?? playingBundle;
+    final browsingWork = browsingBundle.work;
+    final isBrowsingPlayingWork = browsingWork.id == playingWork.id;
 
-          return KeyedSubtree(
-            key: active ? _activeEpisodeKey : null,
-            child: _SelectableTrackTile(
-              primaryTitle: title,
-              badgeLabel: subInfo.isNotEmpty ? subInfo : null,
-              selected: active,
-              leadingIcon: active
-                  ? Icons.play_arrow_rounded
-                  : Icons.movie_outlined,
-              onTap: active ? null : () => controller.switchToEpisode(ep),
-            ),
-          );
-        },
+    final playable = Episode.sortMainFirst(
+      browsingBundle.episodes.where(
+        (e) => browsingBundle.variantsForEpisode(e.id).isNotEmpty,
       ),
+    );
+    final browsingMainCount = browsingBundle.episodes
+        .where((e) => e.category == EpisodeCategory.main)
+        .length;
+    final activeIdx = isBrowsingPlayingWork
+        ? playable.indexWhere((e) => e.id == state.currentEpisode.id)
+        : -1;
+    final scrollKey = '${playingWork.id}::${state.currentEpisode.id}';
+    if (isBrowsingPlayingWork && _lastAutoScrolledEpId != scrollKey) {
+      _lastAutoScrolledEpId = scrollKey;
+      _pendingEpisodeAutoScroll = true;
+    }
+    if (isBrowsingPlayingWork) {
+      _scheduleEpisodeAutoScroll(activeIdx, playable.length);
+    }
+
+    Widget listBody;
+    if (_loadingBrowsingBundle && _browsingBundles[_browsingWorkId] == null) {
+      listBody = const Center(
+        child: SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2.2),
+        ),
+      );
+    } else if (playable.isEmpty) {
+      listBody = Center(
+        child: Text(
+          '当前季暂无可播放剧集',
+          style: TextStyle(color: pPal.textMuted, fontSize: 12.5),
+        ),
+      );
+    } else {
+      listBody = KonataDraggableScrollbar(
+        controller: _epCtrl,
+        padding: const EdgeInsets.only(right: 4),
+        builder: (_, ctrl) => ListView.separated(
+          controller: ctrl,
+          padding: const EdgeInsets.fromLTRB(16, 0, 20, 20),
+          itemCount: playable.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 8),
+          itemBuilder: (context, index) {
+            final ep = playable[index];
+            // 严格同时校验 workId 与 episodeId，杜绝跨季同集号高亮串位
+            final active =
+                isBrowsingPlayingWork && ep.id == state.currentEpisode.id;
+            final rec = browsingBundle.playbackByEpisodeId[ep.id];
+            final title = EpisodeTitleFormatter.formatCardTitle(
+              episode: ep,
+              workTitle: browsingWork.title,
+              workMediaType: browsingWork.tmdbMediaType,
+              mainEpisodeCount: browsingMainCount,
+            );
+            final completed = rec != null && rec.isCompleted;
+
+            return KeyedSubtree(
+              key: active ? _activeEpisodeKey : null,
+              child: _SelectableTrackTile(
+                primaryTitle: title,
+                selected: active,
+                leadingIcon: active
+                    ? Icons.play_arrow_rounded
+                    : Icons.movie_outlined,
+                customTrailingBadge: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (completed) ...[
+                      KonataSpecBadge(label: '已看完', highlighted: active),
+                      const SizedBox(width: 6),
+                    ],
+                    EpisodeCategoryBadge(isSpecial: ep.isSpecial),
+                  ],
+                ),
+                onTap: active
+                    ? null
+                    : () => unawaited(
+                        controller.switchToEpisode(
+                          ep,
+                          targetBundle: browsingBundle,
+                          isCrossSeason: !isBrowsingPlayingWork,
+                        ),
+                      ),
+              ),
+            );
+          },
+        ),
+      );
+    }
+
+    if (seriesMembers.length < 2) {
+      return listBody;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SeriesSeasonSwitcherBar(
+          scrollController: _seasonCtrl,
+          seriesGroup: playingBundle.seriesGroup,
+          seriesMembers: seriesMembers,
+          browsingWorkId: _browsingWorkId,
+          playingWorkId: playingWork.id,
+          onSelectSeason: (workId) =>
+              unawaited(_selectBrowsingSeason(workId, controller)),
+        ),
+        const SizedBox(height: 8),
+        Expanded(child: listBody),
+      ],
     );
   }
 
@@ -605,18 +725,119 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
+class _SeriesSeasonSwitcherBar extends StatelessWidget {
+  const _SeriesSeasonSwitcherBar({
+    required this.scrollController,
+    required this.seriesGroup,
+    required this.seriesMembers,
+    required this.browsingWorkId,
+    required this.playingWorkId,
+    required this.onSelectSeason,
+  });
+
+  final ScrollController scrollController;
+  final SeriesGroup? seriesGroup;
+  final List<Work> seriesMembers;
+  final String browsingWorkId;
+  final String playingWorkId;
+  final ValueChanged<String> onSelectSeason;
+
+  @override
+  Widget build(BuildContext context) {
+    final pPal = context.palette;
+    return SizedBox(
+      height: 36,
+      child: ListView.separated(
+        controller: scrollController,
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: seriesMembers.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 6),
+        itemBuilder: (context, index) {
+          final member = seriesMembers[index];
+          final isBrowsing = member.id == browsingWorkId;
+          final isPlaying = member.id == playingWorkId;
+          final label = SeriesSeasonFormatter.formatMemberLabel(
+            member,
+            seriesMembers,
+            seriesGroup: seriesGroup,
+            fallbackOrder: index + 1,
+          );
+          final bg = isBrowsing
+              ? pPal.primaryButtonBg
+              : pPal.softFill.withValues(alpha: 0.72);
+          final fg = isBrowsing ? pPal.primaryButtonFg : pPal.textPrimary;
+          final border = isBrowsing ? pPal.primaryButtonBg : pPal.hairline;
+
+          return Tooltip(
+            message: label,
+            waitDuration: const Duration(milliseconds: 400),
+            child: Material(
+              color: bg,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(999),
+                side: BorderSide(color: border),
+              ),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(999),
+                onTap: () => onSelectSeason(member.id),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 11,
+                    vertical: 6,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (isPlaying) ...[
+                        Icon(
+                          Icons.play_arrow_rounded,
+                          size: 13.5,
+                          color: isBrowsing ? fg : pPal.progressFill,
+                        ),
+                        const SizedBox(width: 3),
+                      ],
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 168),
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: fg,
+                            fontSize: 12,
+                            fontWeight: isBrowsing
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _SelectableTrackTile extends StatefulWidget {
   const _SelectableTrackTile({
     required this.primaryTitle,
     required this.selected,
     required this.onTap,
     this.badgeLabel,
+    this.customTrailingBadge,
     this.tooltipMessage,
     this.leadingIcon,
   });
 
   final String primaryTitle;
   final String? badgeLabel;
+  final Widget? customTrailingBadge;
   final String? tooltipMessage;
   final IconData? leadingIcon;
   final bool selected;
@@ -694,7 +915,10 @@ class _SelectableTrackTileState extends State<_SelectableTrackTile> {
                   ),
                 ),
               ),
-              if (widget.badgeLabel != null &&
+              if (widget.customTrailingBadge != null) ...[
+                const SizedBox(width: 8),
+                widget.customTrailingBadge!,
+              ] else if (widget.badgeLabel != null &&
                   widget.badgeLabel!.isNotEmpty) ...[
                 const SizedBox(width: 8),
                 KonataSpecBadge(

@@ -1,9 +1,11 @@
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../../application/playback/playback_preferences_provider.dart';
 import '../../application/providers/artwork_provider.dart';
@@ -13,10 +15,13 @@ import '../../application/providers/scraping_providers.dart';
 import '../../application/providers/work_management_provider.dart';
 import '../../domain/models/tmdb_models.dart';
 import '../../infrastructure/cache/scan_thumbnail_scheduler.dart';
+import '../audio/mini_audio_bar.dart';
 import '../dialogs/work_artwork_picker_dialog.dart';
 import '../shell/window_controls.dart';
 import '../theme/konata_palette.dart';
+import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
+import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_toast.dart';
 import '../widgets/managed_image.dart';
 import 'detail_action_handlers.dart';
@@ -77,12 +82,39 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
   }
 
   void _handleEscapeOrBack() {
-    if (ref.read(detailDrawerExpandedProvider)) {
+    final hasLoadedBundle =
+        ref.read(workDetailBundleProvider(_activeWorkId)).valueOrNull != null;
+    if (hasLoadedBundle && ref.read(detailDrawerExpandedProvider)) {
       _scanScheduler.cancelAll();
       ref.read(detailDrawerExpandedProvider.notifier).state = false;
       return;
     }
+    _returnToLibrary();
+  }
+
+  void _returnToLibrary() {
+    if (!mounted) return;
     Navigator.of(context).maybePop();
+  }
+
+  void _switchActiveWork(String nextWorkId, {String? toastMessage}) {
+    if (!mounted || nextWorkId.isEmpty || nextWorkId == _activeWorkId) return;
+    _scanScheduler.cancelAll();
+    setState(() => _activeWorkId = nextWorkId);
+    if (toastMessage != null && toastMessage.isNotEmpty) {
+      _showToast(toastMessage);
+    }
+  }
+
+  Future<void> _handleOpenManualMatch(WorkDetailBundle bundle) async {
+    final matched = await DetailActionHandlers.openManualMatch(context, bundle);
+    if (!mounted || matched == null) return;
+    if (matched.id != _activeWorkId) {
+      _switchActiveWork(
+        matched.id,
+        toastMessage: '已自动并入已有作品「${matched.title}」',
+      );
+    }
   }
 
   void _showToast(String message) {
@@ -102,6 +134,17 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     });
     final p = context.palette;
     final bundleAsync = ref.watch(workDetailBundleProvider(_activeWorkId));
+    final redirectMap = ref.watch(workRedirectMapProvider);
+    final isMissing = bundleAsync.hasValue && bundleAsync.value == null;
+    final redirectTarget = isMissing
+        ? resolveWorkRedirectChain(redirectMap, _activeWorkId)
+        : _activeWorkId;
+    if (isMissing && redirectTarget != _activeWorkId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _switchActiveWork(redirectTarget);
+      });
+    }
+
     final players =
         ref.watch(externalPlayersProvider).valueOrNull ?? const [];
     final imageLoader = ref.watch(tmdbImageLoaderProvider);
@@ -115,6 +158,9 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
         ? DetailDrawerTab.main
         : rawPreferredTab;
     final effectiveActiveTab = isDrawerExpanded ? preferredTab : null;
+    final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
+    final forceLightChrome = p.isDark;
+    final scrimColor = KonataPlaybackTokens.detailScrimBase(p);
 
     return Listener(
       onPointerDown: (event) {
@@ -127,18 +173,25 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
           const SingleActivator(LogicalKeyboardKey.escape):
               _handleEscapeOrBack,
         },
-        child: Scaffold(
-          backgroundColor: KonataTheme.cinemaObsidian,
-          body: bundleAsync.when(
-            data: (bundle) {
-              if (bundle == null) {
-                return const Center(
-                  child: Text(
-                    '未找到该作品记录',
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                );
-              }
+        child: Focus(
+          autofocus: true,
+          child: Scaffold(
+          backgroundColor: p.isDark
+              ? KonataTheme.cinemaObsidian
+              : KonataTheme.themePreviewLightCanvas,
+          body: Stack(
+            fit: StackFit.expand,
+            children: [
+              bundleAsync.when(
+                data: (bundle) {
+                  if (bundle == null) {
+                    if (redirectTarget != _activeWorkId) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    return _MissingWorkFallbackView(
+                      onReturnToLibrary: _returnToLibrary,
+                    );
+                  }
               final work = bundle.work;
               _maybeBackfillBangumiScore(work.id, work.bangumiScore);
               final bgPath =
@@ -165,63 +218,61 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                     BackdropFilter(
                       filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
                       child: Container(
-                        color: KonataTheme.cinemaObsidian.withValues(
-                          alpha: 0.34,
+                        color: scrimColor.withValues(
+                          alpha: p.isDark ? 0.34 : 0.45,
                         ),
                       ),
                     ),
 
-                  // 左侧极轻柔羽化保护层（48% 处彻底归零，保留原画右侧与人物通透色彩）
-                  IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                          stops: const [0.0, 0.24, 0.48],
-                          colors: [
-                            Colors.black.withValues(alpha: 0.28),
-                            Colors.black.withValues(alpha: 0.12),
-                            Colors.transparent,
-                          ],
+                  // 局部克制定向护眼遮罩：深色保留轻柔左侧与底部暗晕；浅色彻底移除四周边框式白色雾化，仅局部承托左下方文案与底栏
+                  if (p.isDark)
+                    IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                            stops: const [0.0, 0.24, 0.48],
+                            colors: [
+                              scrimColor.withValues(alpha: 0.28),
+                              scrimColor.withValues(alpha: 0.12),
+                              Colors.transparent,
+                            ],
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: RadialGradient(
+                            center: const Alignment(-0.85, 0.65),
+                            radius: 0.92,
+                            stops: const [0.0, 0.48, 1.0],
+                            colors: [
+                              scrimColor.withValues(alpha: 0.86),
+                              scrimColor.withValues(alpha: 0.50),
+                              Colors.transparent,
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  // 底部 28% 边缘柔和渐暗层，专门承托底部无框悬浮剧集卡片文字
+                  // 底部边缘柔和定向渐变，专门承托底部无框悬浮剧集卡片文字
                   IgnorePointer(
                     child: DecoratedBox(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           begin: Alignment.bottomCenter,
                           end: Alignment.topCenter,
-                          stops: const [0.0, 0.28],
+                          stops: p.isDark ? const [0.0, 0.28] : const [0.0, 0.24],
                           colors: [
-                            Colors.black.withValues(alpha: 0.52),
+                            scrimColor.withValues(
+                              alpha: p.isDark ? 0.52 : 0.78,
+                            ),
                             Colors.transparent,
                           ],
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  // 顶部 56px 极淡保护带，轻柔承托左上返回键与右上窗口控制键
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: 56,
-                    child: IgnorePointer(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.black.withValues(alpha: 0.22),
-                              Colors.transparent,
-                            ],
-                          ),
                         ),
                       ),
                     ),
@@ -246,6 +297,9 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                               child: DetailHeroInfo(
                                 bundle: bundle,
                                 imageLoader: imageLoader,
+                                showTitleText: displayPrefs.showTitleText,
+                                showTitleLogo: displayPrefs.showTitleLogo,
+                                showOverview: displayPrefs.showOverview,
                                 onPrimaryPlay: () =>
                                     DetailActionHandlers.handlePrimaryPlay(
                                       context: context,
@@ -254,10 +308,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                       players: players,
                                     ),
                                 onManualMatch: () =>
-                                    DetailActionHandlers.openManualMatch(
-                                      context,
-                                      bundle,
-                                    ),
+                                    _handleOpenManualMatch(bundle),
                                 onDismissReview: () =>
                                     DetailActionHandlers.dismissReviewPrompt(
                                       context: context,
@@ -268,8 +319,12 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                             ),
                           ),
                         ),
-                        DetailBottomDrawer(
-                          bundle: bundle,
+                        AnimatedPadding(
+                          duration: KonataTheme.capsuleSlideDuration,
+                          curve: Curves.easeOutCubic,
+                          padding: EdgeInsets.only(bottom: bottomClearance),
+                          child: DetailBottomDrawer(
+                            bundle: bundle,
                           activeTab: effectiveActiveTab,
                           preferredTab: preferredTab,
                           showRawVideoFilename:
@@ -359,23 +414,18 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                 ref: ref,
                                 episode: ep,
                               ),
-                          onOpenManualMatch: () async {
-                            final matched = await DetailActionHandlers.openManualMatch(
-                              context,
-                              bundle,
-                            );
-                            if (matched != null &&
-                                matched.id != bundle.work.id &&
-                                mounted) {
-                              setState(() => _activeWorkId = matched.id);
-                              _showToast('已自动并入已有作品「${matched.title}」');
+                          onOpenManualMatch: () =>
+                              _handleOpenManualMatch(bundle),
+                          onOpenManualEdit: () async {
+                            final nextWorkId =
+                                await DetailActionHandlers.openManualEdit(
+                                  context,
+                                  bundle,
+                                );
+                            if (nextWorkId != null) {
+                              _switchActiveWork(nextWorkId);
                             }
                           },
-                          onOpenManualEdit: () =>
-                              DetailActionHandlers.openManualEdit(
-                                context,
-                                bundle,
-                              ),
                           onOpenPosterPicker: () =>
                               DetailActionHandlers.openArtworkPicker(
                                 context,
@@ -410,8 +460,10 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                     mediaType: work.tmdbMediaType!,
                                   );
                               if (mounted && updated.id != work.id) {
-                                setState(() => _activeWorkId = updated.id);
-                                _showToast('已自动并入已有作品「${updated.title}」');
+                                _switchActiveWork(
+                                  updated.id,
+                                  toastMessage: '已自动并入已有作品「${updated.title}」',
+                                );
                               } else {
                                 _showToast('已完成元数据刷新');
                               }
@@ -436,19 +488,14 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                               bundle,
                             );
                             if (outcome != null && mounted) {
-                              _showToast(
-                                '已将「${bundle.work.title}」合并入「${outcome.targetWork.title}」',
-                              );
-                              setState(
-                                () => _activeWorkId = outcome.targetWork.id,
+                              _switchActiveWork(
+                                outcome.targetWork.id,
+                                toastMessage:
+                                    '已将「${bundle.work.title}」合并入「${outcome.targetWork.title}」',
                               );
                             }
                           },
-                          onSelectSeriesWork: (nextWorkId) {
-                            if (nextWorkId == _activeWorkId) return;
-                            _scanScheduler.cancelAll();
-                            setState(() => _activeWorkId = nextWorkId);
-                          },
+                          onSelectSeriesWork: _switchActiveWork,
                           onCdTap: (variant) =>
                               DetailActionHandlers.playCdAsset(
                                 context: context,
@@ -481,63 +528,184 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                 bundle,
                                 variant,
                               ),
+                          ),
                         ),
                       ],
                     ),
                   ),
 
-                  // 顶部：左上角 38x38 高透磨砂玻璃返回钮（无生硬 Tooltip 黑块），右上角同款通透磨砂窗口控制胶囊
-                  Positioned(
-                    top: 12,
-                    left: 16,
-                    right: 14,
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: 38,
-                          height: 38,
-                          child: ClipOval(
-                            child: BackdropFilter(
-                              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                              child: Material(
-                                color: Colors.black.withValues(alpha: 0.28),
-                                shape: CircleBorder(
-                                  side: BorderSide(
-                                    color: Colors.white.withValues(alpha: 0.22),
-                                  ),
-                                ),
-                                child: InkWell(
-                                  customBorder: const CircleBorder(),
-                                  hoverColor:
-                                      Colors.white.withValues(alpha: 0.14),
-                                  onTap: () => Navigator.of(context).maybePop(),
-                                  child: const Center(
-                                    child: Icon(
-                                      Icons.arrow_back_ios_new_rounded,
-                                      size: 16,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const Spacer(),
-                        const WindowControls(forceLightIcons: true),
-                      ],
-                    ),
-                  ),
                 ],
               );
             },
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (err, _) => Center(
-              child: Text(
-                '加载作品详情失败: $err',
-                style: TextStyle(color: p.danger),
+            error: (err, _) => _MissingWorkFallbackView(
+              title: '加载作品详情失败',
+              subtitle: '$err',
+              isError: true,
+              onReturnToLibrary: _returnToLibrary,
+            ),
+          ),
+              if (forceLightChrome)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: 56,
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            scrimColor.withValues(alpha: 0.22),
+                            Colors.transparent,
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              Positioned(
+                top: 12,
+                left: 16,
+                right: 14,
+                child: _WorkDetailTopBar(
+                  forceLightIcons: forceLightChrome,
+                  onBack: _handleEscapeOrBack,
+                ),
+              ),
+            ],
+          ),
+        ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 详情页顶部常驻防死锁导航栏（左上返回按钮 + Windows 可拖拽标题区 + 右上窗口控制胶囊）。
+class _WorkDetailTopBar extends StatelessWidget {
+  const _WorkDetailTopBar({
+    required this.forceLightIcons,
+    required this.onBack,
+  });
+
+  final bool forceLightIcons;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final iconColor = forceLightIcons ? Colors.white : p.textPrimary;
+    final bgColor = forceLightIcons
+        ? Colors.black.withValues(alpha: 0.28)
+        : p.surface;
+    final borderColor = forceLightIcons
+        ? Colors.white.withValues(alpha: 0.22)
+        : p.hairline;
+    const dragZone = SizedBox(height: 38);
+
+    return Row(
+      children: [
+        Semantics(
+          button: true,
+          label: '返回',
+          child: SizedBox(
+            key: const ValueKey('work_detail_back_button'),
+            width: 38,
+            height: 38,
+            child: ClipOval(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                child: Material(
+                  color: bgColor,
+                  shape: CircleBorder(side: BorderSide(color: borderColor)),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    hoverColor: forceLightIcons
+                        ? Colors.white.withValues(alpha: 0.14)
+                        : p.secondaryButtonHoverBg,
+                    onTap: onBack,
+                    child: Center(
+                      child: Icon(
+                        Icons.arrow_back_ios_new_rounded,
+                        size: 16,
+                        color: iconColor,
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
+          ),
+        ),
+        Expanded(
+          child: (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows)
+              ? DragToMoveArea(child: dragZone)
+              : dragZone,
+        ),
+        WindowControls(forceLightIcons: forceLightIcons),
+      ],
+    );
+  }
+}
+
+/// 当作品记录被合并、删除或失效时的安全空状态兜底视图（保持柔和克制，提供显式主操作返回按钮）。
+class _MissingWorkFallbackView extends StatelessWidget {
+  const _MissingWorkFallbackView({
+    required this.onReturnToLibrary,
+    this.title = '该作品记录已变更或移除',
+    this.subtitle = '该条目的元数据可能已合并至其他作品或被移出媒体库。',
+    this.isError = false,
+  });
+
+  final VoidCallback onReturnToLibrary;
+  final String title;
+  final String subtitle;
+  final bool isError;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 28),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                isError
+                    ? Icons.error_outline_rounded
+                    : Icons.auto_stories_outlined,
+                size: 48,
+                color: isError ? p.danger : p.textMuted,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: KonataTheme.h2Style(p),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style: KonataTheme.captionStyle(
+                  p,
+                  fontSize: 13,
+                  color: p.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 22),
+              KonataPillButton.primary(
+                label: '返回媒体库',
+                icon: Icons.arrow_back_rounded,
+                onPressed: onReturnToLibrary,
+              ),
+            ],
           ),
         ),
       ),

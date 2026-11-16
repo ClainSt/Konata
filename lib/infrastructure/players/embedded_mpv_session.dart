@@ -132,6 +132,8 @@ class EmbeddedMpvSession {
   bool _disposed = false;
   String? _cachedMpvVersion;
   String? _cachedFfmpegVersion;
+  PlaybackQualityConfig _lastQualityConfig = const PlaybackQualityConfig();
+  DateTime? _suppressBufferingUntil;
 
   bool get isDisposed => _disposed;
   bool get isInitialized => _client?.isInitialized ?? false;
@@ -149,6 +151,9 @@ class EmbeddedMpvSession {
     if (_disposed) return;
     _trackMemory = trackMemory;
     _trackPreferences = trackPreferences;
+    _lastQualityConfig = qualityConfig;
+    final isRemote =
+        request.source != null && request.source!.kind != MediaSourceKind.local;
 
     final mpvDir = await storageRoot.ensureMpvConfigDir();
     final workPhotoDir = await _resolveScreenshotDir(request.workId);
@@ -196,6 +201,7 @@ class EmbeddedMpvSession {
       config: qualityConfig,
       mpvConfigDir: mpvDir,
       screenshotDir: workPhotoDir,
+      isRemoteStream: isRemote,
       logStore: logStore,
     );
 
@@ -278,12 +284,16 @@ class EmbeddedMpvSession {
   Future<void> loadMediaVariant(
     EmbeddedVideoLoadRequest request, {
     CrossEpisodeTrackMemory? trackMemory,
+    TrackPreferences? trackPreferences,
   }) async {
     final client = _client;
     if (_disposed || client == null || client.isDisposed) return;
 
     if (trackMemory != null) {
       _trackMemory = trackMemory;
+    }
+    if (trackPreferences != null) {
+      _trackPreferences = trackPreferences;
     }
 
     final generation = ++_loadGeneration;
@@ -307,6 +317,17 @@ class EmbeddedMpvSession {
     _currentMediaTarget = resolved.mediaTarget;
     _pendingExternalSubtitles = resolved.subtitlePaths;
     _pendingExternalAudioPaths = resolved.audioTargets;
+    _suppressBufferingUntil = null;
+
+    final isRemote =
+        request.source != null && request.source!.kind != MediaSourceKind.local;
+    MpvQualityProfile.applyRuntimeStreamProfile(
+      client,
+      isRemoteStream: isRemote,
+      isAudio: false,
+      config: _lastQualityConfig,
+      logStore: logStore,
+    );
 
     if (request.startSeconds > 0) {
       client.setPropertyDouble('start', request.startSeconds.toDouble());
@@ -555,6 +576,7 @@ class EmbeddedMpvSession {
         _mountSidecarsAndResolveTracks();
       case MpvPlaybackRestartEvent():
         _hasRestartedFirstFrame = true;
+        _suppressBufferingUntil = null;
         onFirstFrameRendered?.call();
         onBufferingChanged?.call(false);
         _syncHwdecCurrent();
@@ -695,7 +717,14 @@ class EmbeddedMpvSession {
       case _propCoreIdle:
         final idle = e.boolValue ?? false;
         final isPaused = _client?.getPropertyFlag('pause') ?? false;
-        onBufferingChanged?.call(!isPaused && idle);
+        final suppressed =
+            _suppressBufferingUntil != null &&
+            DateTime.now().isBefore(_suppressBufferingUntil!);
+        if (suppressed && idle) {
+          onBufferingChanged?.call(false);
+        } else {
+          onBufferingChanged?.call(!isPaused && idle);
+        }
       case _propSpeed:
         final spd = e.doubleValue;
         if (spd != null && spd.isFinite) {
@@ -789,6 +818,7 @@ class EmbeddedMpvSession {
 
   /// 应用播放/画质/字幕/着色器/音频设备实时更新。
   void applyLiveQualityConfig(PlaybackQualityConfig config) {
+    _lastQualityConfig = config;
     final client = _client;
     if (_disposed || client == null || client.isDisposed) return;
     _usingSoftwareFallback =
@@ -806,9 +836,23 @@ class EmbeddedMpvSession {
   /// 同步播放控制与轨道操作封装。
   void setPlaying(bool playing) => _client?.setPropertyFlag('pause', !playing);
 
-  void seekAbsolute(double seconds) {
+  /// 绝对时间点 Seek（命中 `demuxer-cache-state/seekable-ranges` 内存环形缓冲时返回 `true` 并抑制缓冲遮罩）。
+  bool seekAbsolute(double seconds) {
+    final client = _client;
+    if (_disposed || client == null || client.isDisposed) return false;
     final target = seconds < 0 ? 0.0 : seconds;
-    _client?.command(['seek', target.toStringAsFixed(3), 'absolute', 'exact']);
+    final ranges = client.readDemuxerSeekableRanges();
+    final cachedHit = MpvSeekableRange.isPositionCached(target, ranges);
+    if (cachedHit) {
+      _suppressBufferingUntil = DateTime.now().add(
+        const Duration(milliseconds: 900),
+      );
+      onBufferingChanged?.call(false);
+    } else {
+      _suppressBufferingUntil = null;
+    }
+    client.command(['seek', target.toStringAsFixed(3), 'absolute', 'exact']);
+    return cachedHit;
   }
 
   void seekRelative(double deltaSeconds) {

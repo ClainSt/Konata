@@ -24,12 +24,14 @@ abstract final class KonataTheme {
   static const Color windowCloseHoverRed = Color(0xFFE81123);
   static const Color reviewBannerDarkBg = Color(0xFF141822);
   static const Color reviewBannerSubtleFg = Color(0xFFD0D7E2);
-  static const Color darkPopoverSurface = Color(0xFF171B24);
-  static const Color lightPopoverSurface = Color(0xFFF8FAFC);
+  static const Color darkPopoverSurface = Color(0xFF1E2026);
+  static const Color lightPopoverSurface = Color(0xFFFFFFFF);
   static const Color lightboxDarkSurface = Color(0xFF141820);
   static const Color themePreviewDarkCard = Color(0xFF14161D);
   static const Color themePreviewLightCanvas = Color(0xFFF6F5F1);
   static const Color themePreviewNeutralPill = Color(0xFF8E93A4);
+  static const Color detailLightSlatePrimary = Color(0xFF0F172A);
+  static const Color detailLightSlateSecondary = Color(0xFF334155);
 
   /// 离线内置双可变字体栈（Inter 接管拉丁/数字/符号，Noto Sans CJK SC 接管简繁日韩同源文字）。
   static const String uiFontFamily = 'KonataInter';
@@ -53,6 +55,11 @@ abstract final class KonataTheme {
   static const Duration standardTransition = Duration(milliseconds: 200);
   static const Duration capsuleSlideDuration = Duration(milliseconds: 220);
   static const Duration panelSwitchDuration = Duration(milliseconds: 180);
+  static const Duration navSliderDuration = Duration(milliseconds: 260);
+  static const Duration tabSwitchDuration = Duration(milliseconds: 220);
+
+  /// 弹窗视口安全边界留白。
+  static const double dialogViewportMargin = 12.0;
 
   /// 全局收敛可变字重 Token（去重粗体压迫感）。
   static const double weightH1 = 600.0;
@@ -165,23 +172,39 @@ abstract final class KonataTheme {
     ),
   ];
 
+  /// 亮色详情页彻底清空白色发光阴影，保持高对比深石板色实字锐利清晰。
+  static const List<Shadow> lightDetailTextShadows = <Shadow>[];
+
+  /// 详情页主信息与选集卡片高对比度主文字色（亮色深石板 / 深色亮白）。
+  static Color detailPrimaryTextColor(KonataPalette p) =>
+      p.isDark ? p.textPrimary : detailLightSlatePrimary;
+
+  /// 详情页元信息与原文件名高对比度次级文字色（亮色深石板次级 / 深色半透亮白）。
+  static Color detailSecondaryTextColor(KonataPalette p) =>
+      p.isDark ? p.textSecondary : detailLightSlateSecondary;
+
   /// 构建详情页背景文字统一舒适排版样式。
   static TextStyle detailTextStyle({
     required double fontSize,
     required FontWeight fontWeight,
-    Color color = Colors.white,
+    Color? color,
+    KonataPalette? palette,
     double? letterSpacing,
     double? height,
   }) {
+    final isDark = palette?.isDark ?? true;
+    final resolvedColor =
+        color ??
+        (palette != null ? detailPrimaryTextColor(palette) : Colors.white);
     final targetWeight = fontWeight.value.toDouble().clamp(400.0, 700.0);
     return textStyle(
       fontSize: fontSize,
       weight: targetWeight > 600 ? weightH1 : targetWeight,
-      color: color,
+      color: resolvedColor,
       letterSpacing: letterSpacing,
       height: height,
       tabularFigures: false,
-      shadows: detailTextShadows,
+      shadows: isDark ? detailTextShadows : lightDetailTextShadows,
     );
   }
 
@@ -194,8 +217,11 @@ abstract final class KonataTheme {
   static ThemeData _buildTheme(KonataPalette palette) {
     final brightness = palette.isDark ? Brightness.dark : Brightness.light;
     final menuBorder = palette.isDark
-        ? Colors.white.withValues(alpha: 0.12)
-        : Colors.white.withValues(alpha: 0.90);
+        ? Colors.white.withValues(alpha: 0.16)
+        : const Color(0x1A0F172A);
+    final menuSurface = palette.isDark
+        ? darkPopoverSurface.withValues(alpha: 0.94)
+        : lightPopoverSurface.withValues(alpha: 0.96);
 
     return ThemeData(
       useMaterial3: true,
@@ -216,6 +242,13 @@ abstract final class KonataTheme {
         onSurface: palette.textPrimary,
       ),
       dividerColor: palette.hairline,
+      progressIndicatorTheme: ProgressIndicatorThemeData(
+        color: palette.progressFill,
+        linearTrackColor: palette.progressTrack,
+        borderRadius: BorderRadius.circular(999),
+        stopIndicatorColor: Colors.transparent,
+        stopIndicatorRadius: 0,
+      ),
       scrollbarTheme: ScrollbarThemeData(
         interactive: true,
         radius: const Radius.circular(999),
@@ -269,7 +302,7 @@ abstract final class KonataTheme {
       popupMenuTheme: PopupMenuThemeData(
         elevation: 8,
         surfaceTintColor: Colors.transparent,
-        color: palette.elevatedSurface,
+        color: menuSurface,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
           side: BorderSide(color: menuBorder, width: 1),

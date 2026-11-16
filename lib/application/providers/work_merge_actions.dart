@@ -422,7 +422,12 @@ Future<WorkMergeOutcome> executeMergeWorkIntoExisting(
       targetTitle: targetWork.title,
     ),
   );
-  _invalidateAfterMerge(ref, {sourceWorkId, targetWorkId});
+  _invalidateAfterMerge(
+    ref,
+    {sourceWorkId, targetWorkId},
+    redirectedFrom: sourceWorkId,
+    redirectedTo: targetWorkId,
+  );
   return outcome;
 }
 
@@ -449,7 +454,12 @@ Future<WorkMergeOutcome> executeMoveVariantsToExistingWork(
     ),
     onEmptySourceDeleted: photos.deleteWorkPhotos,
   );
-  _invalidateAfterMerge(ref, {sourceWorkId, targetWorkId});
+  _invalidateAfterMerge(
+    ref,
+    {sourceWorkId, targetWorkId},
+    redirectedFrom: outcome.sourceWorkDeleted ? sourceWorkId : null,
+    redirectedTo: outcome.sourceWorkDeleted ? outcome.targetWork.id : null,
+  );
   return outcome;
 }
 
@@ -484,11 +494,26 @@ Future<Work?> tryAutoMergeSupplementaryWork(
       targetTitle: targetWork.title,
     ),
   );
-  _invalidateAfterMerge(ref, {sourceWorkId, autoTarget.id});
+  _invalidateAfterMerge(
+    ref,
+    {sourceWorkId, autoTarget.id},
+    redirectedFrom: sourceWorkId,
+    redirectedTo: outcome.targetWork.id,
+  );
   return outcome.targetWork;
 }
 
-void _invalidateAfterMerge(Ref ref, Set<String> workIds) {
+void _invalidateAfterMerge(
+  Ref ref,
+  Set<String> workIds, {
+  String? redirectedFrom,
+  String? redirectedTo,
+}) {
+  if (redirectedFrom != null &&
+      redirectedTo != null &&
+      redirectedFrom != redirectedTo) {
+    recordWorkRedirect(ref, redirectedFrom, redirectedTo);
+  }
   ref.invalidate(libraryItemsProvider);
   ref.invalidate(worksCountProvider);
   ref.invalidate(hiddenWorksProvider);

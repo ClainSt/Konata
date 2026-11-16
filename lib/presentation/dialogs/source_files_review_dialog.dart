@@ -9,6 +9,8 @@ import '../../domain/models/media_variant.dart';
 import '../../domain/models/work.dart';
 import '../../domain/parsing/bdrip_parser.dart';
 import '../theme/konata_palette.dart';
+import '../theme/konata_theme.dart';
+import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
@@ -307,16 +309,23 @@ class _SourceFilesReviewDialogState
             _buildHeaderSummary(p, firstSource, commonDir, allVariants.length),
             const SizedBox(height: 10),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Expanded(
                   child: KonataSoftTextField(
                     controller: _filterController,
+                    height: 36,
+                    dense: true,
+                    prefixIcon: Icons.search_rounded,
+                    borderRadius: BorderRadius.circular(999),
                     hintText: '过滤文件名或子目录路径...',
                     onChanged: (value) => setState(() => _query = value),
                   ),
                 ),
                 const SizedBox(width: 10),
-                KonataPillButton.ghost(
+                KonataPillButton.secondary(
+                  height: 36,
+                  borderColor: p.hairline,
                   label: allVisibleSelected ? '取消全选' : '全选视频',
                   compact: true,
                   onPressed: visibleVideos.isEmpty
@@ -326,6 +335,7 @@ class _SourceFilesReviewDialogState
                 if (_selectedIds.isNotEmpty) ...[
                   const SizedBox(width: 6),
                   KonataPillButton.ghost(
+                    height: 36,
                     label: '清空 (${_selectedIds.length})',
                     compact: true,
                     onPressed: () => setState(() => _selectedIds.clear()),
@@ -336,7 +346,7 @@ class _SourceFilesReviewDialogState
             const SizedBox(height: 10),
             Expanded(
               child: KonataSurfaceCard(
-                padding: const EdgeInsets.symmetric(vertical: 6),
+                padding: EdgeInsets.zero,
                 child: filtered.isEmpty
                     ? Center(
                         child: Text(
@@ -350,7 +360,7 @@ class _SourceFilesReviewDialogState
                         controller: _listCtrl,
                         builder: (_, ctrl) => ListView.separated(
                           controller: ctrl,
-                          padding: const EdgeInsets.fromLTRB(8, 0, 14, 0),
+                          padding: const EdgeInsets.fromLTRB(6, 4, 14, 4),
                           itemCount: filtered.length,
                           separatorBuilder: (_, _) =>
                               Divider(height: 1, color: p.hairline),
@@ -461,58 +471,69 @@ class _SourceFileRow extends StatelessWidget {
       onTap: selectable ? onToggle : null,
       borderRadius: BorderRadius.circular(8),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        height: 46,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
         decoration: BoxDecoration(
           color: selected ? p.accent.withValues(alpha: 0.14) : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            SizedBox(
-              width: 24,
-              height: 24,
-              child: Checkbox(
-                value: selected,
-                onChanged: selectable ? (_) => onToggle() : null,
-                visualDensity: VisualDensity.compact,
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
+            _SourceZeroPaddingCheckbox(
+              checked: selected,
+              enabled: selectable,
             ),
-            const SizedBox(width: 8),
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Icon(
-                icon,
-                size: 17,
-                color: selectable ? p.textSecondary : p.textMuted,
-              ),
+            const SizedBox(width: 10),
+            Icon(
+              icon,
+              size: 17,
+              color: selectable ? p.textSecondary : p.textMuted,
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   if (subHierarchy.isNotEmpty) ...[
-                    Text(
-                      '$subHierarchy/',
-                      softWrap: true,
-                      style: TextStyle(
-                        color: p.textMuted,
-                        fontSize: 11,
-                        fontFamily: 'Consolas',
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: p.accentBadge.bg,
+                        borderRadius: BorderRadius.circular(5),
+                        border: Border.all(color: p.accentBadge.border),
+                      ),
+                      child: Text(
+                        '$subHierarchy/',
+                        maxLines: 1,
+                        softWrap: false,
+                        style: TextStyle(
+                          color: p.accentBadge.fg,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          fontFamily: 'Consolas',
+                          height: 1.15,
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(width: 7),
                   ],
-                  Text(
-                    variant.fileName,
-                    softWrap: true,
-                    style: TextStyle(
-                      color: selectable ? p.textPrimary : p.textSecondary,
-                      fontSize: 12.8,
-                      fontWeight: FontWeight.w500,
-                      height: 1.32,
+                  Expanded(
+                    child: EllipsisTextWithTooltip(
+                      text: variant.fileName,
+                      tooltipMessage: subHierarchy.isNotEmpty
+                          ? '$subHierarchy/${variant.fileName}'
+                          : variant.fileName,
+                      maxLines: 1,
+                      style: TextStyle(
+                        color: selectable ? p.textPrimary : p.textSecondary,
+                        fontSize: 12.8,
+                        fontWeight: FontWeight.w500,
+                        height: 1.25,
+                      ),
                     ),
                   ),
                 ],
@@ -534,23 +555,61 @@ class _SourceFileRow extends StatelessWidget {
               ),
               const SizedBox(width: 8),
             ],
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
+            SizedBox(
+              width: 76,
               child: Text(
                 MediaDisplayFormatter.formatBytes(
                   variant.fileSize,
                   emptyFallback: '0 B',
                 ),
-                style: TextStyle(
+                textAlign: TextAlign.right,
+                maxLines: 1,
+                softWrap: false,
+                style: KonataTheme.textStyle(
                   color: p.textMuted,
-                  fontSize: 11.5,
-                  fontFamily: 'Consolas',
+                  fontSize: 11.8,
+                  weight: 500,
+                  tabularFigures: true,
                 ),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _SourceZeroPaddingCheckbox extends StatelessWidget {
+  const _SourceZeroPaddingCheckbox({
+    required this.checked,
+    required this.enabled,
+  });
+
+  final bool checked;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 140),
+      width: 18,
+      height: 18,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: checked ? p.accent : Colors.transparent,
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(
+          color: checked
+              ? p.accent
+              : (enabled ? p.textMuted : p.hairline),
+          width: 1.5,
+        ),
+      ),
+      child: checked
+          ? const Icon(Icons.check_rounded, size: 13, color: Colors.white)
+          : null,
     );
   }
 }

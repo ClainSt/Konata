@@ -297,12 +297,12 @@ class DetailActionHandlers {
     );
   }
 
-  /// 打开「手动编辑信息与文件映射」弹窗。
-  static Future<void> openManualEdit(
+  /// 打开「手动编辑信息与文件映射」弹窗（若操作导致原作品被合并或清空，返回重定向目标作品 ID）。
+  static Future<String?> openManualEdit(
     BuildContext context,
     WorkDetailBundle bundle,
   ) {
-    return showKonataGlassDialog<void>(
+    return showKonataGlassDialog<String?>(
       context: context,
       builder: (_) => WorkManualEditDialog(bundle: bundle),
     );

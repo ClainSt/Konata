@@ -23,7 +23,7 @@ abstract final class EpisodeTitleFormatter {
     return _genericEpisodePattern.hasMatch(trimmed);
   }
 
-  /// 判断当前正片条目是否属于单一正片视频（不展示 `01 ·` 集号前缀）。
+  /// 判断当前正片条目是否属于单一正片视频（仅单篇剧场版或无分集号单体视频省略 `01 ·` 集号前缀）。
   static bool isSingleMainVideo({
     required Episode episode,
     TmdbMediaType? workMediaType,
@@ -32,14 +32,11 @@ abstract final class EpisodeTitleFormatter {
     if (episode.category != EpisodeCategory.main) {
       return false;
     }
-    if (workMediaType == TmdbMediaType.movie) {
-      return true;
-    }
     final epNum = episode.episodeNumber;
-    if (epNum == null) {
-      return mainEpisodeCount == 1;
+    if (workMediaType == TmdbMediaType.movie) {
+      return epNum == null || (mainEpisodeCount == 1 && epNum <= 1);
     }
-    return mainEpisodeCount == 1 && epNum <= 1;
+    return epNum == null && mainEpisodeCount == 1;
   }
 
   /// 格式化详情页抽屉卡片中展示的剧集/特典标题。
@@ -111,6 +108,19 @@ abstract final class EpisodeTitleFormatter {
     final isValidTitle =
         rawTitle.isNotEmpty && !RegExp(r'\bnull\b').hasMatch(rawTitle);
 
+    // 音频 / CD 曲目记录：优先展示 `01 · 曲名` 或曲名。
+    if (record.isAudioRecord) {
+      final trackNum = record.episodeNumber;
+      if (trackNum != null && isValidTitle) {
+        return '${trackNum.toString().padLeft(2, '0')} · $rawTitle';
+      }
+      if (isValidTitle) return rawTitle;
+      if (trackNum != null) {
+        return 'Track ${trackNum.toString().padLeft(2, '0')}';
+      }
+      return 'CD 音轨';
+    }
+
     // 季号为 0 对应特典/SP 资产：直接展示精简特典标题，绝不前置 `01 ·` 或 `S00E01`。
     if (record.seasonNumber == 0) {
       if (isValidTitle && !isGenericEpisodePlaceholder(rawTitle)) {
@@ -122,11 +132,10 @@ abstract final class EpisodeTitleFormatter {
       return '特典';
     }
 
-    // 单一正片（剧场版或仅 1 话单集作品）：直接展示单集标题或作品主标题，不前置 `01 ·`。
+    // 单一正片（剧场版或无分集号单集作品）：直接展示单集标题或作品主标题，不前置 `01 ·`。
     final isSingleMain =
         work?.tmdbMediaType == TmdbMediaType.movie ||
-        (mainEpisodeCount == 1 &&
-            (record.episodeNumber == null || record.episodeNumber! <= 1));
+        (mainEpisodeCount == 1 && record.episodeNumber == null);
     if (isSingleMain) {
       if (isValidTitle && !isGenericEpisodePlaceholder(rawTitle)) {
         return rawTitle;

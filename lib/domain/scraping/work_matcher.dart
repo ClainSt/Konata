@@ -15,7 +15,8 @@ abstract final class WorkMatcher {
 
   static final _sequelOrSpinoffSuffix = RegExp(
     r'^(?:ii|iii|iv|2|3|4|2nd|3rd|s2|s3|season2|season3|'
-    r'第[234二三四][季期部]|新章|shinshou|two|通|续|続|续篇|続編|'
+    r'第[234二三四](?:部分|部|季|期|クール)|part[234]|cour[234]|(?:2nd|3rd|4th)cour|'
+    r'新章|shinshou|two|通|续|続|续篇|続編|後半|后半|後篇|後編|'
     r'break|burst|try|next|plus|kai|改|z|zoo|revolution|rebellion)s?$',
     caseSensitive: false,
   );
@@ -301,8 +302,22 @@ abstract final class WorkMatcher {
         .trim();
     if (cleanedTitle.isEmpty) return null;
 
-    final zhPart = RegExp(r'第([2-9])(?:部|幕|期)').firstMatch(cleanedTitle);
+    final zhPart = RegExp(
+      r'第\s*([2-9])\s*(?:部分|部|幕|期|クール)',
+    ).firstMatch(cleanedTitle);
     if (zhPart != null) return int.tryParse(zhPart.group(1)!);
+
+    final enPart = RegExp(
+      r'(?:^|[\s:：\-～~])(?:part\s*([2-9])|cour\s*([2-9])|([2-9])(?:nd|rd|th)?\s*cour)(?=[\s:：\-～~]|$)',
+      caseSensitive: false,
+    ).firstMatch(cleanedTitle);
+    if (enPart != null) {
+      return int.tryParse(enPart.group(1) ?? enPart.group(2) ?? enPart.group(3)!);
+    }
+
+    if (RegExp(r'(?:^|[\s\-–—])(?:後半|后半)$').hasMatch(cleanedTitle)) {
+      return 2;
+    }
 
     const romanMap = <String, int>{
       'Ⅱ': 2,
@@ -597,6 +612,24 @@ abstract final class WorkMatcher {
           !_namesHaveSequelNumber(invSeq, names)) {
         scored.add(-32, 'missing sequel number $invSeq');
       }
+      if (invSeq == null &&
+          (inventory.season == null || inventory.season! <= 1) &&
+          inventory.bangumiId != candidate.id) {
+        final candSeq = _explicitSequelNumber(candidate.title);
+        final localNorm = DirectoryAnalyzer.normalize(inventory.title);
+        final candNorm = DirectoryAnalyzer.normalize(candidate.title);
+        if (candSeq != null && candSeq >= 2 && localNorm != candNorm) {
+          scored.add(-24, 'unrequested sequel/part $candSeq');
+        }
+        if (inventory.episodes.contains(1) &&
+            candidate.firstEpisodeSort != null &&
+            candidate.firstEpisodeSort! > 1.5) {
+          scored.add(
+            -26,
+            'episodes start after ep 1 (sort=${candidate.firstEpisodeSort})',
+          );
+        }
+      }
       if (inventory.folderMovieMarker && !names.any(_movieWord.hasMatch)) {
         scored.add(-30, 'folder says movie');
       }
@@ -739,6 +772,9 @@ abstract final class WorkMatcher {
       }
       if (linked != null) {
         _linked(scored, linked, parentTvSpecial: parentTvSpecial);
+      }
+      if (candidate.genreIds.isNotEmpty && !candidate.genreIds.contains(16)) {
+        scored.add(-35, 'non-animation genre');
       }
       ranking.add(scored);
     }

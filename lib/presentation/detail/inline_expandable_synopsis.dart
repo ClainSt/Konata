@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 
 /// 详情页简介无感内联展开/收起组件（无独立边框、胶囊或高亮底色）。
@@ -56,16 +57,22 @@ class _InlineExpandableSynopsisState extends State<InlineExpandableSynopsis> {
       return const SizedBox.shrink();
     }
 
+    final p = context.palette;
     final bodyStyle = widget.style ??
         KonataTheme.detailTextStyle(
           fontSize: 14.5,
           fontWeight: FontWeight.w500,
           height: 1.65,
           letterSpacing: 0.35,
-          color: Colors.white.withValues(alpha: 0.92),
+          palette: p,
+          color: p.isDark
+              ? p.textPrimary.withValues(alpha: 0.92)
+              : KonataTheme.detailPrimaryTextColor(p),
         );
     final toggleStyle = bodyStyle.copyWith(
-      color: Colors.white.withValues(alpha: _hovered ? 0.95 : 0.65),
+      color: _hovered
+          ? KonataTheme.detailPrimaryTextColor(p)
+          : KonataTheme.detailSecondaryTextColor(p),
     );
 
     return LayoutBuilder(

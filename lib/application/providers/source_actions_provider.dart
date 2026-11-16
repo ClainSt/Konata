@@ -132,7 +132,7 @@ class KonataActionsCoordinator {
     }
   }
 
-  /// 前台高优先级搜索 Bangumi 动画条目（供混合绑定与纯 Bangumi 绑定弹窗使用）。
+  /// 前台高优先级渐进搜索 Bangumi 动画条目（自动净化连字符并多级回退合并去重）。
   Future<List<BangumiSubjectCandidate>> searchBangumiInteractive(
     String query,
   ) async {
@@ -141,7 +141,7 @@ class KonataActionsCoordinator {
     final client = TmdbHttpClient(config: config, scheduler: scheduler);
     final bgm = BangumiService(httpClient: client);
     try {
-      return await bgm.searchSubjects(
+      return await bgm.searchSubjectsProgressive(
         query,
         priority: RequestPriority.interactive,
       );

@@ -8,6 +8,8 @@ import '../../domain/matching/episode_title_formatter.dart';
 import '../../domain/matching/supplementary_subclassifier.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/media_variant.dart';
+import '../theme/konata_palette.dart';
+import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/managed_image.dart';
 import 'detail_full_list_dialog.dart';
@@ -544,7 +546,8 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
                                 child: Text(
                                   '该分类下暂无内容',
                                   style: KonataTheme.detailTextStyle(
-                                    color: Colors.white.withValues(alpha: 0.72),
+                                    palette: context.palette,
+                                    color: context.palette.textSecondary,
                                     fontSize: 13.5,
                                     fontWeight: FontWeight.w500,
                                   ),
@@ -711,6 +714,7 @@ class _FrostedNavCapsule extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return ClipRRect(
       borderRadius: BorderRadius.circular(999),
       child: BackdropFilter(
@@ -718,10 +722,10 @@ class _FrostedNavCapsule extends StatelessWidget {
         child: Container(
           padding: padding,
           decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.28),
+            color: KonataPlaybackTokens.glassSurface(p),
             borderRadius: BorderRadius.circular(999),
             border: Border.all(
-              color: Colors.white.withValues(alpha: 0.18),
+              color: KonataPlaybackTokens.glassBorder(p),
               width: 1,
             ),
           ),

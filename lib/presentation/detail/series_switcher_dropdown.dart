@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../domain/models/series_group.dart';
 import '../../domain/models/work.dart';
 import '../theme/konata_palette.dart';
+import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 
@@ -51,9 +52,10 @@ class _SeriesSwitcherDropdownState extends State<SeriesSwitcherDropdown> {
   }
 
   String _memberDisplayLabel(Work member, int index) {
-    return SeriesLabelPresets.formatDisambiguatedMemberLabel(
+    return SeriesSeasonFormatter.formatMemberLabel(
       member,
       widget.seriesMembers,
+      seriesGroup: widget.seriesGroup,
       fallbackOrder: index + 1,
     );
   }
@@ -64,13 +66,16 @@ class _SeriesSwitcherDropdownState extends State<SeriesSwitcherDropdown> {
       setState(() {});
       return;
     }
+    final orderedMembers = SeriesSeasonFormatter.sortSeriesMembers(
+      widget.seriesMembers,
+    );
     final overlay = Overlay.of(context, rootOverlay: true);
     _menuEntry = OverlayEntry(
       builder: (ctx) => _SeriesMenuOverlay(
         link: _link,
         seriesGroup: widget.seriesGroup,
         activeWorkId: widget.activeWork.id,
-        seriesMembers: widget.seriesMembers,
+        seriesMembers: orderedMembers,
         labelBuilder: _memberDisplayLabel,
         onDismiss: () {
           _closeMenu();
@@ -94,13 +99,17 @@ class _SeriesSwitcherDropdownState extends State<SeriesSwitcherDropdown> {
     if (widget.seriesMembers.length < 2) {
       return const SizedBox.shrink();
     }
-    final activeIdx = widget.seriesMembers.indexWhere(
+    final orderedMembers = SeriesSeasonFormatter.sortSeriesMembers(
+      widget.seriesMembers,
+    );
+    final activeIdx = orderedMembers.indexWhere(
       (m) => m.id == widget.activeWork.id,
     );
     final currentLabel = _memberDisplayLabel(
       widget.activeWork,
       activeIdx >= 0 ? activeIdx : 0,
     );
+    final p = context.palette;
     final isOpen = _menuEntry != null;
 
     return CompositedTransformTarget(
@@ -110,17 +119,21 @@ class _SeriesSwitcherDropdownState extends State<SeriesSwitcherDropdown> {
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
           child: Material(
-            color: Colors.black.withValues(alpha: isOpen ? 0.42 : 0.28),
+            color: isOpen
+                ? KonataPlaybackTokens.activePillBg(p)
+                : KonataPlaybackTokens.glassSurface(p),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(999),
               side: BorderSide(
-                color: Colors.white.withValues(alpha: isOpen ? 0.34 : 0.18),
+                color: isOpen
+                    ? KonataPlaybackTokens.activeGlassBorder(p)
+                    : KonataPlaybackTokens.glassBorder(p),
                 width: 1,
               ),
             ),
             child: InkWell(
               borderRadius: BorderRadius.circular(999),
-              hoverColor: Colors.white.withValues(alpha: 0.12),
+              hoverColor: KonataPlaybackTokens.hoverFill(p),
               onTap: _toggleMenu,
               child: Padding(
                 padding: const EdgeInsets.symmetric(
@@ -133,7 +146,7 @@ class _SeriesSwitcherDropdownState extends State<SeriesSwitcherDropdown> {
                     Icon(
                       Icons.layers_rounded,
                       size: 14.5,
-                      color: Colors.white.withValues(alpha: 0.88),
+                      color: p.textPrimary,
                     ),
                     const SizedBox(width: 6),
                     ConstrainedBox(
@@ -143,7 +156,7 @@ class _SeriesSwitcherDropdownState extends State<SeriesSwitcherDropdown> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: KonataTheme.detailTextStyle(
-                          color: Colors.white,
+                          palette: p,
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
                         ),
@@ -157,7 +170,7 @@ class _SeriesSwitcherDropdownState extends State<SeriesSwitcherDropdown> {
                       child: Icon(
                         Icons.keyboard_arrow_down_rounded,
                         size: 17,
-                        color: Colors.white.withValues(alpha: 0.9),
+                        color: p.textSecondary,
                       ),
                     ),
                   ],
@@ -225,17 +238,15 @@ class _SeriesMenuOverlayState extends State<_SeriesMenuOverlay> {
                   constraints: const BoxConstraints(maxHeight: 340),
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   decoration: BoxDecoration(
-                    color: p.isDark
-                        ? KonataTheme.darkPopoverSurface.withValues(alpha: 0.94)
-                        : KonataTheme.lightPopoverSurface.withValues(alpha: 0.96),
+                    color: KonataPlaybackTokens.popoverSurface(p),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.16),
+                      color: KonataPlaybackTokens.glassBorder(p),
                       width: 1,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.35),
+                        color: KonataPlaybackTokens.shadowColor(p),
                         blurRadius: 24,
                         offset: const Offset(0, 10),
                       ),

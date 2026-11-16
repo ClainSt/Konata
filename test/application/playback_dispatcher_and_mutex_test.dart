@@ -107,6 +107,9 @@ class _FakeAudioClient implements LibMpvClient {
   List<MpvAudioDevice> readAudioDeviceList() => const [];
 
   @override
+  List<MpvSeekableRange> readDemuxerSeekableRanges() => const [];
+
+  @override
   int observeProperty(int replyUserdata, String name, int format) => 0;
 
   @override

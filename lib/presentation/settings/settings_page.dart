@@ -9,13 +9,15 @@ import '../widgets/design_system/konata_page_header.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import 'settings_about_panel.dart';
 import 'settings_appearance_panel.dart';
+import 'settings_display_panel.dart';
 import 'settings_external_tools_panel.dart';
 import 'settings_network_panel.dart';
 import 'settings_players_panel.dart';
 
 /// 设置页左侧分类标签。
 enum SettingsCategory {
-  appearance('外观与显示', Icons.palette_outlined),
+  appearance('外观', Icons.palette_outlined),
+  display('显示', Icons.tune_rounded),
   network('刮削与网络', Icons.public_rounded),
   player('播放器', Icons.play_circle_outline_rounded),
   externalTools('外部调用', Icons.open_in_new_rounded),
@@ -56,7 +58,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomClearance = ref.watch(miniAudioBottomClearanceProvider);
+    final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -106,6 +108,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       child: switch (_selected) {
                         SettingsCategory.appearance =>
                           const SettingsAppearancePanel(),
+                        SettingsCategory.display =>
+                          const SettingsDisplayPanel(),
                         SettingsCategory.network =>
                           const SettingsNetworkPanel(),
                         SettingsCategory.player =>

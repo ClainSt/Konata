@@ -486,6 +486,57 @@ bool _matchExactOrTruncated(String? existingTitle, String resolvedTitle) {
   );
 }
 
+/// 记录因合并或文件全部拆出而被清理的 `sourceWorkId -> targetWorkId` 重定向表，
+/// 使详情页或历史跳转在遇到旧 ID 时能够无缝切入存活目标作品。
+final workRedirectMapProvider = StateProvider<Map<String, String>>(
+  (ref) => const {},
+);
+
+/// 登记旧作品被合并或迁移至目标存活作品的重定向关系。
+void recordWorkRedirect(
+  Ref ref,
+  String sourceWorkId,
+  String targetWorkId,
+) {
+  if (sourceWorkId.isEmpty ||
+      targetWorkId.isEmpty ||
+      sourceWorkId == targetWorkId) {
+    return;
+  }
+  final current = ref.read(workRedirectMapProvider);
+  if (current[sourceWorkId] == targetWorkId) return;
+  ref.read(workRedirectMapProvider.notifier).state = <String, String>{
+    ...current,
+    sourceWorkId: targetWorkId,
+  };
+}
+
+/// 当某部作品被用户明确删除时，清理指向该作品或从该作品出发的重定向记录。
+void clearWorkRedirectsForWork(Ref ref, String workId) {
+  final current = ref.read(workRedirectMapProvider);
+  if (current.isEmpty) return;
+  final next = <String, String>{};
+  for (final entry in current.entries) {
+    if (entry.key == workId || entry.value == workId) continue;
+    next[entry.key] = entry.value;
+  }
+  if (next.length != current.length) {
+    ref.read(workRedirectMapProvider.notifier).state = next;
+  }
+}
+
+/// 沿合并重定向链查找当前存活作品 ID（内置防环保护）。
+String resolveWorkRedirectChain(Map<String, String> map, String workId) {
+  var current = workId;
+  final visited = <String>{current};
+  for (var i = 0; i < 6; i++) {
+    final next = map[current];
+    if (next == null || next.isEmpty || !visited.add(next)) break;
+    current = next;
+  }
+  return current;
+}
+
 /// 查询单部作品详情页所需的完整数据包。
 final workDetailBundleProvider =
     FutureProvider.family<WorkDetailBundle?, String>((ref, workId) async {
@@ -534,26 +585,19 @@ final workDetailBundleProvider =
       if (work.seriesId != null && work.seriesId!.isNotEmpty) {
         seriesGroup = await repo.findSeriesGroupById(work.seriesId!);
         final allWorks = await repo.getAllWorks();
-        seriesMembers =
-            allWorks
-                .where((w) => w.seriesId == work.seriesId && !w.isHidden)
-                .toList()
-              ..sort((a, b) {
-                final o = (a.seriesOrder ?? 9999).compareTo(
-                  b.seriesOrder ?? 9999,
-                );
-                if (o != 0) return o;
-                return a.title.toLowerCase().compareTo(b.title.toLowerCase());
-              });
+        seriesMembers = SeriesSeasonFormatter.sortSeriesMembers(
+          allWorks.where((w) => w.seriesId == work.seriesId && !w.isHidden),
+        );
       }
 
       final disambiguationMembers = seriesMembers.isNotEmpty
           ? seriesMembers
           : <Work>[work];
       final selfIdx = disambiguationMembers.indexWhere((m) => m.id == work.id);
-      final selfLabel = SeriesLabelPresets.formatDisambiguatedMemberLabel(
+      final selfLabel = SeriesSeasonFormatter.formatMemberLabel(
         work,
         disambiguationMembers,
+        seriesGroup: seriesGroup,
         fallbackOrder: selfIdx >= 0 ? selfIdx + 1 : 1,
       );
 
@@ -588,9 +632,10 @@ final workDetailBundleProvider =
         final mEpisodes = mReconciled.episodes;
         final mVariants = mReconciled.variants;
         final mEpById = {for (final e in mEpisodes) e.id: e};
-        final mLabel = SeriesLabelPresets.formatDisambiguatedMemberLabel(
+        final mLabel = SeriesSeasonFormatter.formatMemberLabel(
           member,
           seriesMembers,
+          seriesGroup: seriesGroup,
           fallbackOrder: i + 1,
         );
 
@@ -674,5 +719,12 @@ final externalPlayersProvider = FutureProvider<List<ExternalPlayerConfig>>((
   return ref.watch(libraryRepositoryProvider).getExternalPlayers();
 });
 
-/// 待复核抽屉展开状态 Provider。
-final reviewDrawerOpenProvider = StateProvider<bool>((ref) => false);
+/// 全站 `photos/` 图片存储全局汇总与按作品明细快照 Provider。
+final photosStorageSnapshotProvider = FutureProvider<PhotosStorageSnapshot>((
+  ref,
+) async {
+  final photos = ref.watch(photosStorageProvider);
+  final repo = ref.watch(libraryRepositoryProvider);
+  final works = await repo.getAllWorks();
+  return photos.computeSnapshot(knownWorks: works);
+});

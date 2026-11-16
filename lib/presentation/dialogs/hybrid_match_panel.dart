@@ -24,6 +24,7 @@ class HybridMatchPanel extends ConsumerStatefulWidget {
     required this.imageLoader,
     required this.disabled,
     required this.onSubmit,
+    this.quickTerms = const [],
   });
 
   /// 初始搜索词。
@@ -40,6 +41,9 @@ class HybridMatchPanel extends ConsumerStatefulWidget {
 
   /// 提交混合绑定参数回调。
   final Future<void> Function(HybridMatchRequest request) onSubmit;
+
+  /// 从源文件名 / 目录解析出的一键快捷填入词列表。
+  final List<String> quickTerms;
 
   @override
   ConsumerState<HybridMatchPanel> createState() => _HybridMatchPanelState();
@@ -416,6 +420,16 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
             ),
           ],
         ),
+        KonataQuickFillRow(
+          terms: widget.quickTerms,
+          disabled: _searchingBgm || widget.disabled,
+          onPick: (term) {
+            _bgmQueryCtrl.text = term;
+            _bgmQueryCtrl.selection = TextSelection.collapsed(
+              offset: term.length,
+            );
+          },
+        ),
         if (_bgmResults.isNotEmpty) ...[
           const SizedBox(height: 8),
           ConstrainedBox(
@@ -520,6 +534,16 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
                   : _searchTmdb,
             ),
           ],
+        ),
+        KonataQuickFillRow(
+          terms: widget.quickTerms,
+          disabled: _searchingTmdb || _loadingTmdbDetail || widget.disabled,
+          onPick: (term) {
+            _tmdbQueryCtrl.text = term;
+            _tmdbQueryCtrl.selection = TextSelection.collapsed(
+              offset: term.length,
+            );
+          },
         ),
         if (_tmdbResults.isNotEmpty) ...[
           const SizedBox(height: 8),

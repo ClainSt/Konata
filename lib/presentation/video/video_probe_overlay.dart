@@ -1,14 +1,15 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../../domain/playback/playback_formatters.dart';
 import '../../domain/playback/playback_probe_stats.dart';
 import '../theme/konata_playback_tokens.dart';
+import '../widgets/playback/konata_osd_stroked_text.dart';
 
-/// 播放器左上角实时音画技术探针浮层（Tab 键或顶栏按钮开关，展示 40+ 项核心指标）。
+/// 播放器左上角原生 `mpv` 纯文字描边技术探针浮层（Tab 键或顶栏按钮开关，展示 40+ 项核心指标）。
+///
+/// 全程无背景框、无圆角边框、无模糊遮罩，并通过 [IgnorePointer] 让鼠标点击、双击与滚轮事件 100% 穿透至视频画布。
 class VideoProbeOverlay extends StatelessWidget {
-  /// 创建实时技术探针浮层。
+  /// 创建纯文字描边实时技术探针浮层。
   const VideoProbeOverlay({
     super.key,
     required this.stats,
@@ -85,149 +86,133 @@ class VideoProbeOverlay extends StatelessWidget {
       if (stats.cachePercent != null) '${stats.cachePercent}%',
     ].join(' · ');
 
+    final engineHead = [
+      stats.mpvVersion.isEmpty ? 'libmpv' : stats.mpvVersion,
+      if (stats.ffmpegVersion.isNotEmpty) stats.ffmpegVersion,
+    ].join(' · ');
+    final hwLabel =
+        'VO ${stats.voBackend.isEmpty ? '-' : stats.voBackend} · HW ${stats.hwdecCurrent.isEmpty ? 'no' : stats.hwdecCurrent}${stats.hwdecInterop.isNotEmpty ? ' (${stats.hwdecInterop})' : ''}';
+    final codecLabel =
+        '${stats.containerFormat.isEmpty ? '-' : stats.containerFormat} · ${PlaybackFormatters.formatCodecShortLabel(stats.videoCodec)} ${stats.videoProfile}${bitDepth.isNotEmpty ? ' · $bitDepth' : ''}'
+            .trim();
+
     return IgnorePointer(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 460),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(14),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 26, sigmaY: 26),
-            child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: KonataPlaybackTokens.osdSurfaceDark.withValues(alpha: 0.78),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: KonataPlaybackTokens.osdBorderLight,
-                  width: 1,
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.analytics_outlined,
-                        size: 14,
-                        color: KonataPlaybackTokens.osdAccent,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        '技术探针 · $backendLabel',
-                        style: const TextStyle(
-                          color: KonataPlaybackTokens.osdTextPrimary,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      if (adapterName.isNotEmpty) ...[
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            adapterName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: KonataPlaybackTokens.osdTextSecondary,
-                              fontSize: 11,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  _ProbeRow(
-                    '引擎与前端',
-                    '${stats.mpvVersion.isEmpty ? 'libmpv' : stats.mpvVersion} · ${stats.ffmpegVersion}',
-                  ),
-                  _ProbeRow(
-                    '渲染与硬解',
-                    'VO ${stats.voBackend.isEmpty ? '-' : stats.voBackend} · HW ${stats.hwdecCurrent.isEmpty ? 'no' : stats.hwdecCurrent}${stats.hwdecInterop.isNotEmpty ? ' (${stats.hwdecInterop})' : ''}',
-                  ),
-                  _ProbeRow(
-                    '封装与编码',
-                    '${stats.containerFormat.isEmpty ? '-' : stats.containerFormat} · ${PlaybackFormatters.formatCodecShortLabel(stats.videoCodec)} ${stats.videoProfile} ${bitDepth.isNotEmpty ? '· $bitDepth' : ''}',
-                  ),
-                  _ProbeRow(
-                    '分辨率映射',
-                    '$resSource -> $resTarget · ${PlaybackFormatters.formatBitrate(stats.videoBitrateBps)}',
-                  ),
-                  _ProbeRow(
-                    '像素格式',
-                    '${stats.videoPixelFormat.isEmpty ? '-' : stats.videoPixelFormat}${stats.videoHwPixelFormat.isNotEmpty ? ' (HW ${stats.videoHwPixelFormat})' : ''}',
-                  ),
-                  _ProbeRow('帧率 (FPS)', fpsLine.isEmpty ? '-' : fpsLine),
-                  _ProbeRow(
-                    'A-V 同步与丢帧',
-                    '${stats.avSyncMs != null ? '${stats.avSyncMs!.toStringAsFixed(2)} ms' : '-'} · $dropLine',
-                  ),
-                  _ProbeRow('色彩管线', colorLine.isEmpty ? '-' : colorLine),
-                  _ProbeRow('动态范围', hdrLine),
-                  _ProbeRow('缩放与抖动', filterLine),
-                  _ProbeRow(
-                    '着色器链',
-                    stats.activeShaderNames.isEmpty
-                        ? '无激活 GLSL 着色器'
-                        : stats.activeShaderNames.join(', '),
-                  ),
-                  _ProbeRow(
-                    '音频规格',
-                    '${audioSummary.isEmpty ? '-' : audioSummary} · ${PlaybackFormatters.formatBitrate(stats.audioBitrateBps)}',
-                  ),
-                  _ProbeRow(
-                    '音频输出',
-                    '${stats.audioOutBackend.isEmpty ? '-' : stats.audioOutBackend}${stats.audioExclusive ? ' (独占)' : ' (共享)'}',
-                  ),
-                  _ProbeRow(
-                    '缓冲与进度',
-                    '$cacheLine · 延迟 字幕 ${stats.subtitleDelaySeconds.toStringAsFixed(1)}s / 音 ${stats.audioDelaySeconds.toStringAsFixed(1)}s',
-                  ),
-                ],
-              ),
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            KonataOsdStrokedText(
+              'Player · $backendLabel${adapterName.isNotEmpty ? ' · $adapterName' : ''}',
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: KonataPlaybackTokens.osdProbeValueColor,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-          ),
+            const SizedBox(height: 3),
+            const _ProbeSectionHeader('File / System'),
+            _ProbeIndentedRow('引擎', engineHead),
+            _ProbeIndentedRow('硬解与输出', hwLabel),
+            _ProbeIndentedRow('封装与编码', codecLabel),
+            const SizedBox(height: 3),
+            const _ProbeSectionHeader('Video'),
+            _ProbeIndentedRow(
+              '分辨率',
+              '$resSource -> $resTarget · ${PlaybackFormatters.formatBitrate(stats.videoBitrateBps)}',
+            ),
+            _ProbeIndentedRow(
+              '像素格式',
+              '${stats.videoPixelFormat.isEmpty ? '-' : stats.videoPixelFormat}${stats.videoHwPixelFormat.isNotEmpty ? ' (HW ${stats.videoHwPixelFormat})' : ''}',
+            ),
+            _ProbeIndentedRow('帧率 (FPS)', fpsLine.isEmpty ? '-' : fpsLine),
+            _ProbeIndentedRow(
+              '同步与丢帧',
+              '${stats.avSyncMs != null ? '${stats.avSyncMs!.toStringAsFixed(2)} ms' : '-'} · $dropLine',
+            ),
+            _ProbeIndentedRow('色彩管线', colorLine.isEmpty ? '-' : colorLine),
+            _ProbeIndentedRow('动态范围', hdrLine),
+            _ProbeIndentedRow('缩放与抖动', filterLine),
+            _ProbeIndentedRow(
+              '着色器链',
+              stats.activeShaderNames.isEmpty
+                  ? '无激活 GLSL 着色器'
+                  : stats.activeShaderNames.join(', '),
+            ),
+            const SizedBox(height: 3),
+            const _ProbeSectionHeader('Audio'),
+            _ProbeIndentedRow(
+              '音频规格',
+              '${audioSummary.isEmpty ? '-' : audioSummary} · ${PlaybackFormatters.formatBitrate(stats.audioBitrateBps)}',
+            ),
+            _ProbeIndentedRow(
+              '音频输出',
+              '${stats.audioOutBackend.isEmpty ? '-' : stats.audioOutBackend}${stats.audioExclusive ? ' (独占)' : ' (共享)'}',
+            ),
+            const SizedBox(height: 3),
+            const _ProbeSectionHeader('Cache / Sync'),
+            _ProbeIndentedRow(
+              '缓冲与延迟',
+              '$cacheLine · 字幕 ${stats.subtitleDelaySeconds.toStringAsFixed(1)}s / 音 ${stats.audioDelaySeconds.toStringAsFixed(1)}s',
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _ProbeRow extends StatelessWidget {
-  const _ProbeRow(this.label, this.value);
+class _ProbeSectionHeader extends StatelessWidget {
+  const _ProbeSectionHeader(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return KonataOsdStrokedText(
+      '$title:',
+      fontSize: 11.5,
+      fontWeight: FontWeight.w600,
+      color: KonataPlaybackTokens.osdProbeLabelColor,
+      height: 1.28,
+    );
+  }
+}
+
+class _ProbeIndentedRow extends StatelessWidget {
+  const _ProbeIndentedRow(this.label, this.value);
 
   final String label;
   final String value;
 
   @override
   Widget build(BuildContext context) {
+    final normalized = value.trim().isEmpty ? '-' : value.trim();
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 1.5),
+      padding: const EdgeInsets.only(left: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 82,
-            child: Text(
+            width: 72,
+            child: KonataOsdStrokedText(
               label,
-              style: const TextStyle(
-                color: KonataPlaybackTokens.osdTextSecondary,
-                fontSize: 11,
-              ),
+              fontSize: 11.0,
+              fontWeight: FontWeight.w500,
+              color: KonataPlaybackTokens.osdProbeLabelColor,
+              height: 1.28,
             ),
           ),
           Expanded(
-            child: Text(
-              value.trim().isEmpty ? '-' : value.trim(),
+            child: KonataOsdStrokedText(
+              normalized,
+              fontSize: 11.0,
+              fontWeight: FontWeight.w500,
+              color: KonataPlaybackTokens.osdProbeValueColor,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: KonataPlaybackTokens.osdTextPrimary,
-                fontSize: 11,
-                fontFeatures: KonataPlaybackTokens.tabularNumbers,
-              ),
+              height: 1.28,
             ),
           ),
         ],

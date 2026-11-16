@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../../theme/konata_palette.dart';
+import 'konata_draggable_dialog.dart';
 
 /// 全站统一悬浮毛玻璃弹窗呼出入口（默认加深外部遮罩以突出前景弹窗并抑制底层穿透）。
 Future<T?> showKonataGlassDialog<T>({
@@ -69,11 +70,7 @@ class KonataGlassDialog extends StatelessWidget {
         : Colors.white.withValues(alpha: 0.95);
     final shadowColor = Colors.black.withValues(alpha: p.isDark ? 0.38 : 0.14);
 
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      surfaceTintColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+    return KonataDraggableDialog(
       child: DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
@@ -109,20 +106,26 @@ class KonataGlassDialog extends StatelessWidget {
                   Row(
                     children: [
                       Expanded(
-                        child: Text(
-                          title,
-                          style: TextStyle(
-                            color: p.textPrimary,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: -0.2,
+                        child: KonataDialogDragHandle(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Text(
+                              title,
+                              style: TextStyle(
+                                color: p.textPrimary,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
                           ),
                         ),
                       ),
                       if (headerTrailing != null) ...[
-                        headerTrailing!,
                         const SizedBox(width: 8),
+                        headerTrailing!,
                       ],
+                      const SizedBox(width: 8),
                       KonataGlassCloseButton(
                         onPressed:
                             onClose ?? () => Navigator.of(context).maybePop(),

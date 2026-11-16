@@ -32,7 +32,7 @@ import 'package:ccplayer/presentation/detail/variant_picker_dialog.dart';
 import 'package:ccplayer/presentation/detail/work_detail_page.dart';
 import 'package:ccplayer/presentation/history/playback_history_page.dart';
 import 'package:ccplayer/presentation/library/library_page.dart';
-import 'package:ccplayer/presentation/library/review_drawer.dart';
+import 'package:ccplayer/presentation/library/review_dialog.dart';
 import 'package:ccplayer/presentation/settings/settings_about_panel.dart';
 import 'package:ccplayer/presentation/settings/settings_appearance_panel.dart';
 import 'package:ccplayer/presentation/settings/settings_external_tools_panel.dart';
@@ -46,7 +46,6 @@ import 'package:ccplayer/presentation/sources/source_folder_picker_dialog.dart';
 import 'package:ccplayer/presentation/sources/sources_page.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
 import 'package:ccplayer/presentation/widgets/design_system/konata_glass_dialog.dart';
-import 'package:ccplayer/presentation/widgets/design_system/konata_glass_side_sheet.dart';
 import 'package:ccplayer/presentation/widgets/design_system/konata_surface_card.dart';
 import 'package:ccplayer/presentation/widgets/design_system/konata_toast.dart';
 
@@ -183,21 +182,22 @@ void main() {
       expect(find.text('葬送的芙莉莲'), findsAtLeastNWidgets(1));
       expect(find.text('轻音少女'), findsAtLeastNWidgets(1));
 
-      // 验证「待复核」可点击弹出悬浮毛玻璃侧栏 KonataGlassSideSheet，无硬 Divider
+      // 验证「待复核」可点击弹出居中宽幅毛玻璃弹窗 ReviewDialog / KonataGlassDialog，无硬 Divider
       await tester.tap(find.text('待复核'));
       await tester.pumpAndSettle();
-      expect(find.byType(KonataGlassSideSheet), findsOneWidget);
+      expect(find.byType(ReviewDialog), findsOneWidget);
+      expect(find.byType(KonataGlassDialog), findsOneWidget);
       expect(find.text('当前没有待复核的作品'), findsOneWidget);
       expect(
         find.descendant(
-          of: find.byType(KonataGlassSideSheet),
+          of: find.byType(KonataGlassDialog),
           matching: find.byType(Divider),
         ),
         findsNothing,
       );
       await tester.tap(
         find.descendant(
-          of: find.byType(ReviewDrawer),
+          of: find.byType(ReviewDialog),
           matching: find.byIcon(Icons.close_rounded),
         ),
       );
@@ -289,7 +289,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(
         find.descendant(
-          of: find.byType(ReviewDrawer),
+          of: find.byType(ReviewDialog),
           matching: find.byIcon(Icons.close_rounded),
         ),
       );
@@ -325,12 +325,13 @@ void main() {
       expect(find.textContaining('·  0'), findsNothing);
       expect(find.text('待复核'), findsOneWidget);
 
-      // 切换亮色模式后点击待复核，确认 KonataGlassSideSheet 正常渲染
+      // 切换亮色模式后点击待复核，确认 ReviewDialog / KonataGlassDialog 正常渲染
       await tester.tap(find.byIcon(Icons.light_mode_outlined));
       await tester.pumpAndSettle();
       await tester.tap(find.text('待复核'));
       await tester.pumpAndSettle();
-      expect(find.byType(KonataGlassSideSheet), findsOneWidget);
+      expect(find.byType(ReviewDialog), findsOneWidget);
+      expect(find.byType(KonataGlassDialog), findsOneWidget);
       expect(find.text('当前没有待复核的作品'), findsOneWidget);
     });
 
@@ -519,12 +520,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // 默认进入「外观与显示」，点击切换到「浅色模式」与「云母」材质
+      // 默认进入「外观」，点击切换到「浅色模式」与「云母」材质
       expect(find.text('主题模式'), findsOneWidget);
       expect(find.text('窗口材质'), findsOneWidget);
       await tester.tap(find.text('浅色模式'));
       await tester.pumpAndSettle();
-      final lightContext = tester.element(find.text('外观与显示').last);
+      final lightContext = tester.element(find.text('外观').last);
       expect(Theme.of(lightContext).brightness, Brightness.light);
       await tester.tap(find.text('云母'));
       await tester.pumpAndSettle();
@@ -725,20 +726,23 @@ void main() {
         of: find.byType(SettingsAppearancePanel),
         matching: find.byType(KonataSurfaceCard),
       );
-      expect(cards, findsNWidgets(5));
+      expect(cards, findsNWidgets(2));
       final firstBox = tester.getRect(cards.at(0));
       final secondBox = tester.getRect(cards.at(1));
-      final thirdBox = tester.getRect(cards.at(2));
-      final fourthBox = tester.getRect(cards.at(3));
-      final fifthBox = tester.getRect(cards.at(4));
       expect(firstBox.width, closeTo(secondBox.width, 0.5));
       expect(firstBox.right, closeTo(secondBox.right, 0.5));
-      expect(firstBox.width, closeTo(thirdBox.width, 0.5));
-      expect(firstBox.right, closeTo(thirdBox.right, 0.5));
-      expect(firstBox.width, closeTo(fourthBox.width, 0.5));
-      expect(firstBox.right, closeTo(fourthBox.right, 0.5));
-      expect(firstBox.width, closeTo(fifthBox.width, 0.5));
-      expect(firstBox.right, closeTo(fifthBox.right, 0.5));
+
+      await tester.tap(find.text('显示'));
+      await tester.pumpAndSettle();
+      final displayCards = find.descendant(
+        of: find.byType(SettingsPage),
+        matching: find.byType(KonataSurfaceCard),
+      );
+      expect(displayCards, findsNWidgets(2));
+      final dispFirst = tester.getRect(displayCards.at(0));
+      final dispSecond = tester.getRect(displayCards.at(1));
+      expect(dispFirst.width, closeTo(dispSecond.width, 0.5));
+      expect(dispFirst.right, closeTo(dispSecond.right, 0.5));
 
       await tester.tap(find.text('关于'));
       await tester.pumpAndSettle();

@@ -5,10 +5,22 @@ import 'package:shared_preferences/shared_preferences.dart';
 class DetailDisplayPreferences {
   /// 创建详情页展示偏好。
   const DetailDisplayPreferences({
+    this.showTitleText = true,
+    this.showTitleLogo = false,
+    this.showOverview = true,
     this.showRawVideoFilename = true,
     this.showCdTab = true,
     this.showScanTab = true,
   });
+
+  /// 详情页主视觉区是否展示文字标题（及副标题原名）。
+  final bool showTitleText;
+
+  /// 详情页主视觉区是否展示透明标题徽标（Logo）。
+  final bool showTitleLogo;
+
+  /// 详情页主视觉区是否展示作品简介正文与展开按钮。
+  final bool showOverview;
 
   /// 选集/特典卡片上是否显示原始视频文件名。
   final bool showRawVideoFilename;
@@ -21,11 +33,17 @@ class DetailDisplayPreferences {
 
   /// 复制并修改部分展示偏好字段。
   DetailDisplayPreferences copyWith({
+    bool? showTitleText,
+    bool? showTitleLogo,
+    bool? showOverview,
     bool? showRawVideoFilename,
     bool? showCdTab,
     bool? showScanTab,
   }) {
     return DetailDisplayPreferences(
+      showTitleText: showTitleText ?? this.showTitleText,
+      showTitleLogo: showTitleLogo ?? this.showTitleLogo,
+      showOverview: showOverview ?? this.showOverview,
       showRawVideoFilename: showRawVideoFilename ?? this.showRawVideoFilename,
       showCdTab: showCdTab ?? this.showCdTab,
       showScanTab: showScanTab ?? this.showScanTab,
@@ -35,14 +53,23 @@ class DetailDisplayPreferences {
   @override
   bool operator ==(Object other) {
     return other is DetailDisplayPreferences &&
+        other.showTitleText == showTitleText &&
+        other.showTitleLogo == showTitleLogo &&
+        other.showOverview == showOverview &&
         other.showRawVideoFilename == showRawVideoFilename &&
         other.showCdTab == showCdTab &&
         other.showScanTab == showScanTab;
   }
 
   @override
-  int get hashCode =>
-      Object.hash(showRawVideoFilename, showCdTab, showScanTab);
+  int get hashCode => Object.hash(
+    showTitleText,
+    showTitleLogo,
+    showOverview,
+    showRawVideoFilename,
+    showCdTab,
+    showScanTab,
+  );
 }
 
 /// 详情页展示偏好状态管理器。
@@ -54,6 +81,9 @@ class DetailDisplayPreferencesNotifier
     _loadFromPrefs();
   }
 
+  static const String _keyShowTitleText = 'konata.detail.show_title_text';
+  static const String _keyShowTitleLogo = 'konata.detail.show_title_logo';
+  static const String _keyShowOverview = 'konata.detail.show_overview';
   static const String _keyShowRawVideoFilename =
       'konata.detail.show_raw_video_filename';
   static const String _keyShowCdTab = 'konata.detail.show_cd_tab';
@@ -64,6 +94,9 @@ class DetailDisplayPreferencesNotifier
       final prefs = await SharedPreferences.getInstance();
       if (!mounted) return;
       state = DetailDisplayPreferences(
+        showTitleText: prefs.getBool(_keyShowTitleText) ?? true,
+        showTitleLogo: prefs.getBool(_keyShowTitleLogo) ?? false,
+        showOverview: prefs.getBool(_keyShowOverview) ?? true,
         showRawVideoFilename:
             prefs.getBool(_keyShowRawVideoFilename) ?? true,
         showCdTab: prefs.getBool(_keyShowCdTab) ?? true,
@@ -72,6 +105,24 @@ class DetailDisplayPreferencesNotifier
     } catch (_) {
       // 无 SharedPreferences 插件环境的纯单元测试保持默认配置即可。
     }
+  }
+
+  /// 切换详情页文字标题显示。
+  Future<void> setShowTitleText(bool value) async {
+    state = state.copyWith(showTitleText: value);
+    await _persistBool(_keyShowTitleText, value);
+  }
+
+  /// 切换详情页标题徽标（Logo）显示。
+  Future<void> setShowTitleLogo(bool value) async {
+    state = state.copyWith(showTitleLogo: value);
+    await _persistBool(_keyShowTitleLogo, value);
+  }
+
+  /// 切换详情页作品简介显示。
+  Future<void> setShowOverview(bool value) async {
+    state = state.copyWith(showOverview: value);
+    await _persistBool(_keyShowOverview, value);
   }
 
   /// 切换选集/特典卡片原始文件名显示。

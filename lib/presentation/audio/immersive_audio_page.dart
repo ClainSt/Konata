@@ -13,6 +13,7 @@ import '../../application/providers/artwork_provider.dart';
 import '../../domain/playback/cue_and_lrc_parser.dart';
 import '../../domain/playback/playback_formatters.dart';
 import '../shell/window_controls.dart';
+import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
@@ -169,7 +170,6 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     final hasLyrics = lrc != null && lrc.lines.isNotEmpty;
     if (_lastItemId != item.id) {
       _lastItemId = item.id;
-      _userPinnedPane = false;
       _isUserScrollingLyrics = false;
       _scrollResetTimer?.cancel();
     }
@@ -213,12 +213,14 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
             ),
     );
 
+    final p = context.palette;
+
     return Focus(
-      focusNode: _focusNode,
-      autofocus: true,
-      onKeyEvent: _handleKeyEvent,
-      child: Material(
-        color: KonataPlaybackTokens.cinemaPureBlack,
+        focusNode: _focusNode,
+        autofocus: true,
+        onKeyEvent: _handleKeyEvent,
+        child: Material(
+        color: KonataPlaybackTokens.auroraCanvas(p),
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -267,7 +269,6 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                       bottom: KonataPlaybackTokens.capsuleBottomOffset,
                     ),
                     child: KonataPlaybackCapsule(
-                      forceOnDarkOverlay: true,
                       leading: _ImmersiveMicroCover(cover: state.cover),
                       title: item.title,
                       positionSeconds: state.positionSeconds,
@@ -277,37 +278,73 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                       onSeek: notifier.seekRelativeTrackSeconds,
                       onPrevious: notifier.previous,
                       onNext: notifier.next,
-                      leadingCenterButton: KonataCapsuleIconButton(
-                        tooltip: state.loopMode.label,
-                        onTap: notifier.cycleLoopMode,
-                        size: 18,
-                        color: KonataPlaybackTokens.osdTextSecondary,
+                      leadingCenterButton: KonataAudioLoopButton(
                         icon: switch (state.loopMode) {
-                          AudioLoopMode.sequence => Icons.arrow_right_alt_rounded,
+                          AudioLoopMode.sequence => Icons.trending_flat_rounded,
                           AudioLoopMode.loopAll => Icons.repeat_rounded,
                           AudioLoopMode.loopOne => Icons.repeat_one_rounded,
                         },
+                        tooltip: '循环模式：${state.loopMode.label}',
+                        highlighted: state.loopMode != AudioLoopMode.sequence,
+                        onTap: notifier.cycleLoopMode,
                       ),
-                      onToggleList: () {
-                        setState(() {
-                          _pane = effectivePane == _ImmersiveRightPane.lyrics
-                              ? _ImmersiveRightPane.queue
-                              : _ImmersiveRightPane.lyrics;
-                          _userPinnedPane = true;
-                        });
-                      },
-                      isListActive: effectivePane == _ImmersiveRightPane.queue,
-                      listTooltip: effectivePane == _ImmersiveRightPane.lyrics
-                          ? '切换至专辑曲目列表'
-                          : '切换至同步歌词',
+                      trailingCenterButtons: [
+                        KonataCapsuleIconButton(
+                          icon: Icons.queue_music_rounded,
+                          tooltip: '专辑曲目列表',
+                          color: p.textMuted,
+                          size: 19,
+                          fixedSize:
+                              KonataPlaybackTokens.immersiveSwitchButtonSize,
+                          borderRadius:
+                              KonataPlaybackTokens.immersiveSwitchButtonRadius,
+                          padding: EdgeInsets.zero,
+                          highlighted:
+                              effectivePane == _ImmersiveRightPane.queue,
+                          highlightColor: p.textPrimary,
+                          highlightBgColor:
+                              KonataPlaybackTokens.activePillBg(p),
+                          showHighlightBorder: false,
+                          onTap: () {
+                            setState(() {
+                              _pane = _ImmersiveRightPane.queue;
+                              _userPinnedPane = true;
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 2),
+                        KonataCapsuleIconButton(
+                          icon: Icons.lyrics_rounded,
+                          tooltip: '同步歌词',
+                          color: p.textMuted,
+                          size: 18,
+                          fixedSize:
+                              KonataPlaybackTokens.immersiveSwitchButtonSize,
+                          borderRadius:
+                              KonataPlaybackTokens.immersiveSwitchButtonRadius,
+                          padding: EdgeInsets.zero,
+                          highlighted:
+                              effectivePane == _ImmersiveRightPane.lyrics,
+                          highlightColor: p.textPrimary,
+                          highlightBgColor:
+                              KonataPlaybackTokens.activePillBg(p),
+                          showHighlightBorder: false,
+                          onTap: () {
+                            setState(() {
+                              _pane = _ImmersiveRightPane.lyrics;
+                              _userPinnedPane = true;
+                            });
+                          },
+                        ),
+                      ],
                       rightSlot: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (specLabel.isNotEmpty) ...[
-                            KonataSpecBadge(
-                              label: specLabel,
-                              forceOnDarkOverlay: true,
-                            ),
+                          if (specLabel.isNotEmpty &&
+                              screenWidth >=
+                                  KonataPlaybackTokens
+                                      .miniBarHideBadgeBreakpoint) ...[
+                            Flexible(child: KonataSpecBadge(label: specLabel)),
                             const SizedBox(width: 4),
                           ],
                           KonataVolumeControl(
@@ -316,12 +353,11 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                             onVolumeChanged: (v) =>
                                 notifier.setVolume(v * 100.0),
                             onToggleMute: notifier.toggleMute,
-                            forceOnDarkOverlay: true,
                           ),
                           KonataCapsuleIconButton(
                             icon: Icons.keyboard_arrow_down_rounded,
                             tooltip: '收起为迷你底栏 (Esc)',
-                            color: KonataPlaybackTokens.osdTextSecondary,
+                            color: p.textSecondary,
                             size: 20,
                             onTap: _collapseToMiniBar,
                           ),
@@ -339,6 +375,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
   }
 
   Widget _buildTopBar(AudioQueueItem item, AudioPlaybackState state) {
+    final p = context.palette;
     final isWindows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
 
     Widget headerRow = SizedBox(
@@ -350,10 +387,10 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
             IconButton(
               tooltip: '收起为迷你底栏 (Esc)',
               onPressed: _collapseToMiniBar,
-              icon: const Icon(
+              icon: Icon(
                 Icons.keyboard_arrow_down_rounded,
                 size: 26,
-                color: KonataPlaybackTokens.osdTextPrimary,
+                color: p.textPrimary,
               ),
             ),
             const SizedBox(width: 10),
@@ -364,8 +401,8 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                 children: [
                   EllipsisTextWithTooltip(
                     text: item.work.title,
-                    style: const TextStyle(
-                      color: KonataPlaybackTokens.osdTextPrimary,
+                    style: TextStyle(
+                      color: p.textPrimary,
                       fontSize: 13.5,
                       fontWeight: FontWeight.w600,
                     ),
@@ -374,8 +411,8 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                       item.albumTitle != item.work.title)
                     EllipsisTextWithTooltip(
                       text: item.albumTitle,
-                      style: const TextStyle(
-                        color: KonataPlaybackTokens.osdTextSecondary,
+                      style: TextStyle(
+                        color: p.textSecondary,
                         fontSize: 11.5,
                       ),
                     ),
@@ -384,7 +421,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
             ),
             if (isWindows) ...[
               const SizedBox(width: 8),
-              const WindowControls(forceLightIcons: true),
+              const WindowControls(),
             ],
           ],
         ),
@@ -402,6 +439,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     AudioPlaybackState state,
     AudioPlaybackNotifier notifier,
   ) {
+    final p = context.palette;
     if (lrc == null || lrc.lines.isEmpty) {
       return Center(
         child: Column(
@@ -410,13 +448,13 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
             Icon(
               Icons.lyrics_outlined,
               size: 40,
-              color: Colors.white.withValues(alpha: 0.35),
+              color: p.textMuted,
             ),
             const SizedBox(height: 12),
-            const Text(
-              '当前曲目未附带同步 .lrc 歌词',
+            Text(
+              '当前曲目暂无同步歌词',
               style: TextStyle(
-                color: KonataPlaybackTokens.osdTextSecondary,
+                color: p.textSecondary,
                 fontSize: 14,
               ),
             ),
@@ -489,9 +527,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                         duration: const Duration(milliseconds: 220),
                         curve: Curves.easeOutCubic,
                         style: TextStyle(
-                          color: isActive
-                              ? KonataPlaybackTokens.osdTextPrimary
-                              : Colors.white.withValues(alpha: 0.62),
+                          color: isActive ? p.textPrimary : p.textSecondary,
                           fontSize: isActive
                               ? KonataPlaybackTokens.lyricActiveFontSize
                               : KonataPlaybackTokens.lyricInactiveFontSize,
@@ -502,7 +538,9 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                           shadows: isActive
                               ? [
                                   Shadow(
-                                    color: Colors.white.withValues(alpha: 0.32),
+                                    color: p.isDark
+                                        ? Colors.white.withValues(alpha: 0.32)
+                                        : Colors.black.withValues(alpha: 0.10),
                                     blurRadius: 16,
                                   ),
                                 ]
@@ -515,9 +553,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                         Text(
                           sec,
                           style: TextStyle(
-                            color: isActive
-                                ? KonataPlaybackTokens.osdTextSecondary
-                                : Colors.white.withValues(alpha: 0.44),
+                            color: isActive ? p.textSecondary : p.textMuted,
                             fontSize:
                                 KonataPlaybackTokens.lyricSecondaryFontSize,
                             height: 1.3,
@@ -613,16 +649,15 @@ class _BorderlessQueueRowState extends State<_BorderlessQueueRow> {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final active = widget.active;
     final color = active
-        ? KonataPlaybackTokens.osdTextPrimary
-        : (_hovered
-              ? Colors.white.withValues(alpha: 0.88)
-              : Colors.white.withValues(alpha: 0.56));
-    final durationText = widget.item.cueStartSeconds != null &&
-            widget.item.cueEndSeconds != null
+        ? p.textPrimary
+        : (_hovered ? p.textPrimary.withValues(alpha: 0.88) : p.textSecondary);
+    final resolvedDuration = widget.item.resolvedDuration;
+    final durationText = resolvedDuration > Duration.zero
         ? PlaybackFormatters.formatMediaDuration(
-            widget.item.cueEndSeconds! - widget.item.cueStartSeconds!,
+            resolvedDuration.inMilliseconds / 1000.0,
           )
         : '';
 
@@ -640,17 +675,15 @@ class _BorderlessQueueRowState extends State<_BorderlessQueueRow> {
               SizedBox(
                 width: 30,
                 child: active
-                    ? const Icon(
+                    ? Icon(
                         Icons.graphic_eq_rounded,
                         size: 18,
-                        color: KonataPlaybackTokens.osdTextPrimary,
+                        color: p.textPrimary,
                       )
                     : Text(
                         widget.trackPrefix,
                         style: TextStyle(
-                          color: Colors.white.withValues(
-                            alpha: _hovered ? 0.72 : 0.42,
-                          ),
+                          color: _hovered ? p.textSecondary : p.textMuted,
                           fontSize: 12.5,
                           fontWeight: FontWeight.w500,
                           fontFeatures: KonataPlaybackTokens.tabularNumbers,
@@ -672,7 +705,9 @@ class _BorderlessQueueRowState extends State<_BorderlessQueueRow> {
                         shadows: active
                             ? [
                                 Shadow(
-                                  color: Colors.white.withValues(alpha: 0.42),
+                                  color: p.isDark
+                                      ? Colors.white.withValues(alpha: 0.42)
+                                      : Colors.black.withValues(alpha: 0.10),
                                   blurRadius: 14,
                                 ),
                               ]
@@ -688,9 +723,9 @@ class _BorderlessQueueRowState extends State<_BorderlessQueueRow> {
                       EllipsisTextWithTooltip(
                         text: widget.item.performer,
                         style: TextStyle(
-                          color: Colors.white.withValues(
-                            alpha: active ? 0.74 : (_hovered ? 0.62 : 0.40),
-                          ),
+                          color: active
+                              ? p.textSecondary
+                              : (_hovered ? p.textSecondary : p.textMuted),
                           fontSize: 12,
                         ),
                       ),
@@ -703,9 +738,9 @@ class _BorderlessQueueRowState extends State<_BorderlessQueueRow> {
                 Text(
                   durationText,
                   style: TextStyle(
-                    color: Colors.white.withValues(
-                      alpha: active ? 0.78 : (_hovered ? 0.65 : 0.42),
-                    ),
+                    color: active
+                        ? p.textPrimary
+                        : (_hovered ? p.textSecondary : p.textMuted),
                     fontSize: 12,
                     fontFeatures: KonataPlaybackTokens.tabularNumbers,
                   ),
@@ -730,12 +765,16 @@ class _AmbientFlowBackdrop extends ConsumerStatefulWidget {
 }
 
 class _AmbientFlowBackdropState extends ConsumerState<_AmbientFlowBackdrop> {
+  static final Map<String, List<Color>> _paletteCache = {};
+  static const int _maxPaletteCacheEntries = 32;
+
   List<Color> _glowColors = const [
     KonataPlaybackTokens.auroraDefaultGlowA,
     KonataPlaybackTokens.auroraDefaultGlowB,
     KonataPlaybackTokens.auroraDefaultGlowC,
   ];
   String _sampledKey = '';
+  int _sampleEpoch = 0;
 
   @override
   void initState() {
@@ -753,7 +792,7 @@ class _AmbientFlowBackdropState extends ConsumerState<_AmbientFlowBackdrop> {
 
   String _coverKey(AudioCoverSource cover) {
     return switch (cover) {
-      MemoryAudioCover(:final bytes) => 'mem:${bytes.length}:${identityHashCode(bytes)}',
+      MemoryAudioCover() => 'mem:${cover.bytes.length}:${cover.contentHash}',
       ManagedPosterAudioCover(:final url, :final workId) => 'url:$workId:$url',
       EmptyAudioCover() => 'empty',
     };
@@ -763,6 +802,19 @@ class _AmbientFlowBackdropState extends ConsumerState<_AmbientFlowBackdrop> {
     final key = _coverKey(widget.cover);
     if (key == _sampledKey) return;
     _sampledKey = key;
+    final epoch = ++_sampleEpoch;
+
+    if (widget.cover is EmptyAudioCover) {
+      return;
+    }
+
+    final cachedPalette = _paletteCache[key];
+    if (cachedPalette != null) {
+      if (mounted) {
+        setState(() => _glowColors = cachedPalette);
+      }
+      return;
+    }
 
     Uint8List? bytes;
     switch (widget.cover) {
@@ -774,21 +826,19 @@ class _AmbientFlowBackdropState extends ConsumerState<_AmbientFlowBackdrop> {
           bytes = await loader(url, targetWidth: 96);
         } catch (_) {}
       case EmptyAudioCover():
-        if (mounted) {
-          setState(() {
-            _glowColors = const [
-              KonataPlaybackTokens.auroraDefaultGlowA,
-              KonataPlaybackTokens.auroraDefaultGlowB,
-              KonataPlaybackTokens.auroraDefaultGlowC,
-            ];
-          });
-        }
         return;
     }
-    if (bytes == null || bytes.isEmpty || !mounted || key != _sampledKey) return;
+    if (bytes == null || bytes.isEmpty || !mounted || epoch != _sampleEpoch) {
+      return;
+    }
 
     final palette = await _extractAuroraPalette(bytes);
-    if (!mounted || key != _sampledKey || palette == null) return;
+    if (!mounted || epoch != _sampleEpoch || palette == null) return;
+    _paletteCache.remove(key);
+    _paletteCache[key] = palette;
+    while (_paletteCache.length > _maxPaletteCacheEntries) {
+      _paletteCache.remove(_paletteCache.keys.first);
+    }
     setState(() => _glowColors = palette);
   }
 
@@ -880,10 +930,12 @@ class _AmbientFlowBackdropState extends ConsumerState<_AmbientFlowBackdrop> {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final loader = ref.watch(tmdbImageLoaderProvider);
     final c1 = _glowColors[0];
     final c2 = _glowColors[1];
     final c3 = _glowColors[2];
+    final scrimBase = KonataPlaybackTokens.detailScrimBase(p);
 
     Widget? art;
     switch (widget.cover) {
@@ -913,7 +965,7 @@ class _AmbientFlowBackdropState extends ConsumerState<_AmbientFlowBackdrop> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        const ColoredBox(color: KonataPlaybackTokens.auroraCanvasDark),
+        ColoredBox(color: KonataPlaybackTokens.auroraCanvas(p)),
         // 封面主色采样流光弥散层
         DecoratedBox(
           decoration: BoxDecoration(
@@ -965,9 +1017,9 @@ class _AmbientFlowBackdropState extends ConsumerState<_AmbientFlowBackdrop> {
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                KonataPlaybackTokens.cinemaPureBlack.withValues(alpha: 0.22),
-                KonataPlaybackTokens.cinemaPureBlack.withValues(alpha: 0.18),
-                KonataPlaybackTokens.cinemaPureBlack.withValues(alpha: 0.44),
+                scrimBase.withValues(alpha: p.isDark ? 0.22 : 0.72),
+                scrimBase.withValues(alpha: p.isDark ? 0.18 : 0.64),
+                scrimBase.withValues(alpha: p.isDark ? 0.44 : 0.80),
               ],
             ),
           ),
@@ -984,6 +1036,7 @@ class _CoverAndReflectionColumn extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final p = context.palette;
     final loader = ref.watch(tmdbImageLoaderProvider);
 
     Widget buildArtwork(double size) {
@@ -1006,10 +1059,10 @@ class _CoverAndReflectionColumn extends ConsumerWidget {
             height: size,
             decodeWidth: 800,
             fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => _emptyArt(size),
+            errorBuilder: (_, _, _) => _emptyArt(p, size),
           );
         case EmptyAudioCover():
-          return _emptyArt(size);
+          return _emptyArt(p, size);
       }
     }
 
@@ -1033,13 +1086,13 @@ class _CoverAndReflectionColumn extends ConsumerWidget {
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.50),
+                    color: KonataPlaybackTokens.shadowColor(p),
                     blurRadius: 38,
                     offset: const Offset(0, 20),
                   ),
                 ],
                 border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.18),
+                  color: KonataPlaybackTokens.glassBorder(p),
                   width: 1,
                 ),
               ),
@@ -1093,16 +1146,16 @@ class _CoverAndReflectionColumn extends ConsumerWidget {
     );
   }
 
-  Widget _emptyArt(double size) {
+  Widget _emptyArt(KonataPalette p, double size) {
     return Container(
       width: size,
       height: size,
-      color: KonataPlaybackTokens.osdSurfaceDark,
+      color: KonataPlaybackTokens.softFill(p),
       alignment: Alignment.center,
       child: Icon(
         Icons.album_rounded,
         size: size * 0.34,
-        color: Colors.white.withValues(alpha: 0.28),
+        color: p.textMuted.withValues(alpha: 0.56),
       ),
     );
   }
@@ -1115,6 +1168,7 @@ class _ImmersiveMicroCover extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final p = context.palette;
     final loader = ref.watch(tmdbImageLoaderProvider);
     const size = 38.0;
 
@@ -1138,10 +1192,10 @@ class _ImmersiveMicroCover extends ConsumerWidget {
           height: size,
           decodeWidth: 160,
           fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => _fallback(size),
+          errorBuilder: (_, _, _) => _fallback(p, size),
         );
       case EmptyAudioCover():
-        art = _fallback(size);
+        art = _fallback(p, size);
     }
 
     return ClipRRect(
@@ -1150,16 +1204,16 @@ class _ImmersiveMicroCover extends ConsumerWidget {
     );
   }
 
-  Widget _fallback(double size) {
+  Widget _fallback(KonataPalette p, double size) {
     return Container(
       width: size,
       height: size,
-      color: KonataPlaybackTokens.osdSoftFill,
+      color: KonataPlaybackTokens.softFill(p),
       alignment: Alignment.center,
-      child: const Icon(
+      child: Icon(
         Icons.music_note_rounded,
         size: 18,
-        color: KonataPlaybackTokens.osdTextSecondary,
+        color: p.textSecondary,
       ),
     );
   }

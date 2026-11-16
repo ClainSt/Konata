@@ -1,5 +1,40 @@
 import 'package:flutter/material.dart';
 
+/// 语义化彩色徽章成套光学 Token（高遮蔽暗腔底 + 高明度冰色浅字 + 1px 同色微光描边）。
+///
+/// 确保深色模式与毛玻璃浮层在叠放于任意中灰背景之上时，文字对比度恒定 `>= 4.5:1`。
+@immutable
+class KonataBadgeColors {
+  /// 创建一组语义徽章颜色。
+  const KonataBadgeColors({
+    required this.bg,
+    required this.fg,
+    required this.border,
+  });
+
+  /// 徽章胶囊填充底色。
+  final Color bg;
+
+  /// 徽章前景文本与图标色（建议配合 `FontWeight.w600`）。
+  final Color fg;
+
+  /// `1px` 边框微光描边色。
+  final Color border;
+
+  /// 线性插值两组徽章配色。
+  static KonataBadgeColors lerp(
+    KonataBadgeColors a,
+    KonataBadgeColors b,
+    double t,
+  ) {
+    return KonataBadgeColors(
+      bg: Color.lerp(a.bg, b.bg, t)!,
+      fg: Color.lerp(a.fg, b.fg, t)!,
+      border: Color.lerp(a.border, b.border, t)!,
+    );
+  }
+}
+
 /// Konata 2.0 语义化亮/暗双主题调色盘（基于 Windows 11 原生 DWM 材质透光与微光描边体系）。
 ///
 /// 全站页面必须通过 `context.palette` 读取语义颜色，严禁硬编码实心背景遮挡 DWM 毛玻璃。
@@ -26,9 +61,15 @@ class KonataPalette extends ThemeExtension<KonataPalette> {
     required this.secondaryButtonHoverBg,
     required this.glassOverlay,
     required this.accent,
+    required this.progressFill,
+    required this.progressTrack,
     required this.warning,
     required this.success,
     required this.danger,
+    required this.successBadge,
+    required this.accentBadge,
+    required this.warningBadge,
+    required this.dangerBadge,
   });
 
   /// 当前是否为深色模式。
@@ -88,6 +129,12 @@ class KonataPalette extends ThemeExtension<KonataPalette> {
   /// 低饱和度状态强调色（仅用于徽章或图标点缀）。
   final Color accent;
 
+  /// 全站统一进度条填充蓝色（与播放记录进度条同源）。
+  final Color progressFill;
+
+  /// 全站高辨识度进度条底轨填充色。
+  final Color progressTrack;
+
   /// 待复核/警示琥珀金。
   final Color warning;
 
@@ -96,6 +143,12 @@ class KonataPalette extends ThemeExtension<KonataPalette> {
 
   /// 错误/危险态红色。
   final Color danger;
+
+  /// 成套语义徽章光学令牌（Bg / Fg / Border）。
+  final KonataBadgeColors successBadge;
+  final KonataBadgeColors accentBadge;
+  final KonataBadgeColors warningBadge;
+  final KonataBadgeColors dangerBadge;
 
   /// 暗色模式调色盘（透明穿透底 + 5% 白叠色 + 9% 白微光描边）。
   static const KonataPalette dark = KonataPalette(
@@ -118,9 +171,31 @@ class KonataPalette extends ThemeExtension<KonataPalette> {
     secondaryButtonHoverBg: Color(0x24FFFFFF),
     glassOverlay: Color(0xA8161922),
     accent: Color(0xFF6BA6FF),
+    progressFill: Color(0xFF6BA6FF),
+    progressTrack: Color(0x2EFFFFFF),
     warning: Color(0xFFE5A93B),
     success: Color(0xFF3FB950),
     danger: Color(0xFFE5534B),
+    successBadge: KonataBadgeColors(
+      bg: Color(0xC7082E1E),
+      fg: Color(0xFF86EFAC),
+      border: Color(0x4D86EFAC),
+    ),
+    accentBadge: KonataBadgeColors(
+      bg: Color(0xC70C2545),
+      fg: Color(0xFF93C5FD),
+      border: Color(0x4D93C5FD),
+    ),
+    warningBadge: KonataBadgeColors(
+      bg: Color(0xC7382307),
+      fg: Color(0xFFFDE68A),
+      border: Color(0x4DFDE68A),
+    ),
+    dangerBadge: KonataBadgeColors(
+      bg: Color(0xC73B0D14),
+      fg: Color(0xFFFCA5A5),
+      border: Color(0x4DFCA5A5),
+    ),
   );
 
   /// 亮色模式调色盘（透明穿透底 + 62% 柔白叠色 + 85% 微光描边）。
@@ -144,9 +219,31 @@ class KonataPalette extends ThemeExtension<KonataPalette> {
     secondaryButtonHoverBg: Color(0x1F181A1F),
     glassOverlay: Color(0xC2FFFFFF),
     accent: Color(0xFF2D6CDF),
+    progressFill: Color(0xFF2D6CDF),
+    progressTrack: Color(0x24181A1F),
     warning: Color(0xFFC5841B),
     success: Color(0xFF238636),
     danger: Color(0xFFCF222E),
+    successBadge: KonataBadgeColors(
+      bg: Color(0x1F15803D),
+      fg: Color(0xFF166534),
+      border: Color(0x4215803D),
+    ),
+    accentBadge: KonataBadgeColors(
+      bg: Color(0x1F1D4ED8),
+      fg: Color(0xFF1E40AF),
+      border: Color(0x421D4ED8),
+    ),
+    warningBadge: KonataBadgeColors(
+      bg: Color(0x24B45309),
+      fg: Color(0xFF92400E),
+      border: Color(0x47B45309),
+    ),
+    dangerBadge: KonataBadgeColors(
+      bg: Color(0x1FB91C1C),
+      fg: Color(0xFF991B1B),
+      border: Color(0x42B91C1C),
+    ),
   );
 
   @override
@@ -170,9 +267,15 @@ class KonataPalette extends ThemeExtension<KonataPalette> {
     Color? secondaryButtonHoverBg,
     Color? glassOverlay,
     Color? accent,
+    Color? progressFill,
+    Color? progressTrack,
     Color? warning,
     Color? success,
     Color? danger,
+    KonataBadgeColors? successBadge,
+    KonataBadgeColors? accentBadge,
+    KonataBadgeColors? warningBadge,
+    KonataBadgeColors? dangerBadge,
   }) {
     return KonataPalette(
       isDark: isDark ?? this.isDark,
@@ -195,9 +298,15 @@ class KonataPalette extends ThemeExtension<KonataPalette> {
           secondaryButtonHoverBg ?? this.secondaryButtonHoverBg,
       glassOverlay: glassOverlay ?? this.glassOverlay,
       accent: accent ?? this.accent,
+      progressFill: progressFill ?? this.progressFill,
+      progressTrack: progressTrack ?? this.progressTrack,
       warning: warning ?? this.warning,
       success: success ?? this.success,
       danger: danger ?? this.danger,
+      successBadge: successBadge ?? this.successBadge,
+      accentBadge: accentBadge ?? this.accentBadge,
+      warningBadge: warningBadge ?? this.warningBadge,
+      dangerBadge: dangerBadge ?? this.dangerBadge,
     );
   }
 
@@ -236,9 +345,15 @@ class KonataPalette extends ThemeExtension<KonataPalette> {
       )!,
       glassOverlay: Color.lerp(glassOverlay, other.glassOverlay, t)!,
       accent: Color.lerp(accent, other.accent, t)!,
+      progressFill: Color.lerp(progressFill, other.progressFill, t)!,
+      progressTrack: Color.lerp(progressTrack, other.progressTrack, t)!,
       warning: Color.lerp(warning, other.warning, t)!,
       success: Color.lerp(success, other.success, t)!,
       danger: Color.lerp(danger, other.danger, t)!,
+      successBadge: KonataBadgeColors.lerp(successBadge, other.successBadge, t),
+      accentBadge: KonataBadgeColors.lerp(accentBadge, other.accentBadge, t),
+      warningBadge: KonataBadgeColors.lerp(warningBadge, other.warningBadge, t),
+      dangerBadge: KonataBadgeColors.lerp(dangerBadge, other.dangerBadge, t),
     );
   }
 }

@@ -14,6 +14,7 @@ import 'collection_asset_router.dart';
 import 'directory_analyzer.dart';
 import 'multi_work_splitter.dart';
 import 'personal_filename_parser.dart';
+import 'search_query_sanitizer.dart';
 import 'work_matcher.dart' as legacy;
 import 'work_season.dart';
 
@@ -349,7 +350,9 @@ abstract final class ScrapeDomainAdapter {
           ? inventory.title
           : (inventory.titleHints.isNotEmpty
                 ? inventory.titleHints.first
-                : folderName);
+                : (inventory.fileHints.isNotEmpty
+                      ? inventory.fileHints.first
+                      : folderName));
       final isCollectionChild =
           parentDirOfFolder != null &&
           (multiInstallmentRoots.contains(parentDirOfFolder) ||
@@ -453,12 +456,14 @@ abstract final class ScrapeDomainAdapter {
     final out = <String>[];
 
     void addSingle(String raw) {
-      final clean = raw
+      final stripped = raw
           .replaceAll(RegExp(r'\{[^}]*\}'), ' ')
           .replaceAll(RegExp(r'\(\s*(?:19|20)\d{2}\s*\)'), ' ')
           .replaceAll(RegExp(r'（\s*(?:19|20)\d{2}\s*）'), ' ')
           .replaceAll(RegExp(r'\s+'), ' ')
           .trim();
+      final sanitized = SearchQuerySanitizer.sanitize(stripped);
+      final clean = sanitized.isNotEmpty ? sanitized : stripped;
       if (clean.isEmpty) return;
       final key = clean
           .toLowerCase()
@@ -773,23 +778,25 @@ abstract final class ScrapeDomainAdapter {
         ? null
         : bgmEval.best;
 
-    // 防跨库误拼：高置信主库与存在年份冲突的中置信副库不配对。
+    // 防跨库误拼：校验年份、动画分类 (genre 16) 与基础标题一致性，杜绝不相关条目嫁接污染。
     if (effectiveBestTmdb != null && effectiveBestBgm != null) {
       final compatible = _providersCompatible(
         effectiveBestTmdb.detail,
         matchedSeason,
         effectiveBestBgm.subject,
       );
-      if (tmdbTier == legacy.MatchTier.high &&
-          bgmEval.tier == legacy.MatchTier.medium &&
-          !compatible) {
-        effectiveBestBgm = null;
-      } else if (bgmEval.tier == legacy.MatchTier.high &&
-          tmdbTier == legacy.MatchTier.medium &&
-          !compatible) {
+      final nonAnimTmdb =
+          effectiveBestTmdb.detail.genreIds.isNotEmpty &&
+          !effectiveBestTmdb.detail.genreIds.contains(16);
+      if (!compatible &&
+          (bgmEval.tier == legacy.MatchTier.high || nonAnimTmdb)) {
         effectiveBestTmdb = null;
         tmdbTier = legacy.MatchTier.none;
         matchedSeason = null;
+      } else if (tmdbTier == legacy.MatchTier.high &&
+          bgmEval.tier == legacy.MatchTier.medium &&
+          !compatible) {
+        effectiveBestBgm = null;
       }
     }
 
@@ -797,7 +804,7 @@ abstract final class ScrapeDomainAdapter {
       final bgmHigh = bgmEval.tier == legacy.MatchTier.high;
       return MatchDecision(
         level: bgmHigh ? MatchLevel.autoBind : MatchLevel.reviewRequired,
-        best: top5.first,
+        best: null,
         topCandidates: top5,
         bestBangumi: effectiveBestBgm,
         topBangumiCandidates: bgmEval.topCandidates,
@@ -1286,6 +1293,7 @@ abstract final class ScrapeDomainAdapter {
       year: detail.year,
       aliases: aliases,
       seasons: seasons,
+      genreIds: detail.genreIds,
     );
   }
 
@@ -2342,6 +2350,9 @@ abstract final class ScrapeDomainAdapter {
     int? resolvedSeason,
     BangumiSubjectCandidate bgm,
   ) {
+    if (tmdb.genreIds.isNotEmpty && !tmdb.genreIds.contains(16)) {
+      return false;
+    }
     final ty = resolvedSeason != null
         ? _parseYear(
                 tmdb.seasons
@@ -2352,12 +2363,33 @@ abstract final class ScrapeDomainAdapter {
               tmdb.year
         : tmdb.year;
     final by = bgm.year;
-    if (ty == null || by == null) return true;
-    if ((ty - by).abs() <= 2) return true;
-    if (tmdb.mediaType == TmdbMediaType.tv &&
-        tmdb.year != null &&
-        tmdb.year! <= by + 1) {
-      return true;
+    final yearsMatch =
+        ty == null ||
+        by == null ||
+        (ty - by).abs() <= 2 ||
+        (tmdb.mediaType == TmdbMediaType.tv &&
+            tmdb.year != null &&
+            tmdb.year! <= by + 1);
+    if (!yearsMatch) return false;
+
+    final tmdbNorms = <String>{
+      DirectoryAnalyzer.normalize(tmdb.title),
+      if (tmdb.originalTitle != null)
+        DirectoryAnalyzer.normalize(tmdb.originalTitle!),
+      for (final a in tmdb.aliases) DirectoryAnalyzer.normalize(a),
+    }..removeWhere((e) => e.isEmpty);
+    final bgmNorms = <String>{
+      DirectoryAnalyzer.normalize(bgm.displayTitle),
+      DirectoryAnalyzer.normalize(bgm.name),
+      for (final a in bgm.aliases) DirectoryAnalyzer.normalize(a),
+    }..removeWhere((e) => e.isEmpty);
+
+    for (final bn in bgmNorms) {
+      for (final tn in tmdbNorms) {
+        if (legacy.WorkMatcher.similarity(bn, tn) >= 0.45) {
+          return true;
+        }
+      }
     }
     return false;
   }

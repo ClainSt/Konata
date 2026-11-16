@@ -110,28 +110,9 @@ class _TopNavBarState extends State<TopNavBar> {
           ),
           child: Row(
             children: [
-              _TextNavTab(
-                label: '媒体库',
-                selected: widget.activeSection == KonataNavSection.library,
-                onTap: () => widget.onSectionChanged(KonataNavSection.library),
-              ),
-              const SizedBox(width: 28),
-              _TextNavTab(
-                label: '媒体源',
-                selected: widget.activeSection == KonataNavSection.sources,
-                onTap: () => widget.onSectionChanged(KonataNavSection.sources),
-              ),
-              const SizedBox(width: 28),
-              _TextNavTab(
-                label: '播放记录',
-                selected: widget.activeSection == KonataNavSection.history,
-                onTap: () => widget.onSectionChanged(KonataNavSection.history),
-              ),
-              const SizedBox(width: 28),
-              _TextNavTab(
-                label: '设置',
-                selected: widget.activeSection == KonataNavSection.settings,
-                onTap: () => widget.onSectionChanged(KonataNavSection.settings),
+              _TopNavTabStrip(
+                activeSection: widget.activeSection,
+                onSectionChanged: widget.onSectionChanged,
               ),
               const Spacer(),
               if (isLibrary) ...[
@@ -173,6 +154,252 @@ class _TopNavBarState extends State<TopNavBar> {
   }
 }
 
+class _TopNavTabStrip extends StatefulWidget {
+  const _TopNavTabStrip({
+    required this.activeSection,
+    required this.onSectionChanged,
+  });
+
+  final KonataNavSection activeSection;
+  final ValueChanged<KonataNavSection> onSectionChanged;
+
+  @override
+  State<_TopNavTabStrip> createState() => _TopNavTabStripState();
+}
+
+class _TopNavTabStripState extends State<_TopNavTabStrip>
+    with SingleTickerProviderStateMixin {
+  static const List<(KonataNavSection section, String label)> _entries = [
+    (KonataNavSection.library, '媒体库'),
+    (KonataNavSection.sources, '媒体源'),
+    (KonataNavSection.history, '播放记录'),
+    (KonataNavSection.settings, '设置'),
+  ];
+  static const double _indicatorRestWidth = 18.0;
+  static const double _indicatorHeight = 3.0;
+
+  final GlobalKey _tabsStackKey = GlobalKey();
+  late final List<GlobalKey> _tabKeys = List<GlobalKey>.generate(
+    _entries.length,
+    (_) => GlobalKey(),
+  );
+  late final AnimationController _sliderCtrl;
+
+  List<double?> _tabCenters = List<double?>.filled(_entries.length, null);
+  double? _fromLeft;
+  double? _fromRight;
+  double? _toLeft;
+  double? _toRight;
+  bool _movingForward = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _sliderCtrl = AnimationController(
+      vsync: this,
+      duration: KonataTheme.navSliderDuration,
+      value: 1.0,
+    );
+    _scheduleMeasure();
+  }
+
+  @override
+  void didUpdateWidget(covariant _TopNavTabStrip oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.activeSection != widget.activeSection) {
+      _transitionTo(widget.activeSection.index);
+    }
+    _scheduleMeasure();
+  }
+
+  @override
+  void dispose() {
+    _sliderCtrl.dispose();
+    super.dispose();
+  }
+
+  void _scheduleMeasure() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _measureTabs();
+    });
+  }
+
+  void _measureTabs() {
+    final stackBox =
+        _tabsStackKey.currentContext?.findRenderObject() as RenderBox?;
+    if (stackBox == null || !stackBox.hasSize) return;
+    final next = <double?>[];
+    for (var i = 0; i < _tabKeys.length; i++) {
+      final tabBox =
+          _tabKeys[i].currentContext?.findRenderObject() as RenderBox?;
+      if (tabBox == null || !tabBox.hasSize) {
+        next.add(null);
+      } else {
+        final center = tabBox
+            .localToGlobal(
+              Offset(tabBox.size.width / 2, 0),
+              ancestor: stackBox,
+            )
+            .dx;
+        next.add(center);
+      }
+    }
+    var changed = false;
+    for (var i = 0; i < next.length; i++) {
+      if (_tabCenters[i] != next[i]) {
+        changed = true;
+        break;
+      }
+    }
+    _tabCenters = next;
+
+    final activeCenter = next[widget.activeSection.index];
+    if (activeCenter == null) return;
+    final half = _indicatorRestWidth / 2;
+
+    if (_fromLeft == null || _toLeft == null) {
+      setState(() {
+        _fromLeft = activeCenter - half;
+        _fromRight = activeCenter + half;
+        _toLeft = activeCenter - half;
+        _toRight = activeCenter + half;
+        _sliderCtrl.value = 1.0;
+      });
+      return;
+    }
+
+    if (changed) {
+      setState(() {
+        _toLeft = activeCenter - half;
+        _toRight = activeCenter + half;
+      });
+    }
+  }
+
+  ({double left, double right}) _currentEdges() {
+    final fl = _fromLeft!;
+    final fr = _fromRight!;
+    final tl = _toLeft!;
+    final tr = _toRight!;
+    final t = _sliderCtrl.value;
+    final leadingT = const Interval(
+      0.0,
+      0.72,
+      curve: Curves.easeOutCubic,
+    ).transform(t);
+    final trailingT = const Interval(
+      0.20,
+      1.0,
+      curve: Curves.easeOutCubic,
+    ).transform(t);
+    if (_movingForward) {
+      return (
+        left: lerpDouble(fl, tl, trailingT)!,
+        right: lerpDouble(fr, tr, leadingT)!,
+      );
+    }
+    return (
+      left: lerpDouble(fl, tl, leadingT)!,
+      right: lerpDouble(fr, tr, trailingT)!,
+    );
+  }
+
+  void _transitionTo(int targetIndex) {
+    final targetCenter = _tabCenters[targetIndex];
+    if (targetCenter == null) {
+      _scheduleMeasure();
+      return;
+    }
+    final half = _indicatorRestWidth / 2;
+    if (_fromLeft == null || _toLeft == null) {
+      _fromLeft = targetCenter - half;
+      _fromRight = targetCenter + half;
+      _toLeft = targetCenter - half;
+      _toRight = targetCenter + half;
+      _sliderCtrl.value = 1.0;
+      return;
+    }
+
+    final current = _currentEdges();
+    final curCenter = (current.left + current.right) / 2;
+    _fromLeft = current.left;
+    _fromRight = current.right;
+    _toLeft = targetCenter - half;
+    _toRight = targetCenter + half;
+    _movingForward = targetCenter >= curCenter;
+    _sliderCtrl.forward(from: 0.0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+
+    return NotificationListener<SizeChangedLayoutNotification>(
+      onNotification: (_) {
+        _scheduleMeasure();
+        return false;
+      },
+      child: SizeChangedLayoutNotifier(
+        child: Stack(
+          key: _tabsStackKey,
+          clipBehavior: Clip.none,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var i = 0; i < _entries.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 28),
+                  KeyedSubtree(
+                    key: _tabKeys[i],
+                    child: _TextNavTab(
+                      label: _entries[i].$2,
+                      selected: widget.activeSection == _entries[i].$1,
+                      onTap: () => widget.onSectionChanged(_entries[i].$1),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            if (_fromLeft != null && _toLeft != null)
+              AnimatedBuilder(
+                animation: _sliderCtrl,
+                builder: (context, _) {
+                  final edges = _currentEdges();
+                  final width = (edges.right - edges.left).clamp(
+                    _indicatorRestWidth * 0.5,
+                    600.0,
+                  );
+                  return Positioned(
+                    left: edges.left,
+                    bottom: 0,
+                    width: width,
+                    height: _indicatorHeight,
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        key: const ValueKey('top_nav_fluid_indicator'),
+                        decoration: BoxDecoration(
+                          color: p.progressFill,
+                          borderRadius: BorderRadius.circular(999),
+                          boxShadow: [
+                            BoxShadow(
+                              color: p.progressFill.withValues(alpha: 0.42),
+                              blurRadius: 8,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _TextNavTab extends StatefulWidget {
   const _TextNavTab({
     required this.label,
@@ -189,7 +416,10 @@ class _TextNavTab extends StatefulWidget {
 }
 
 class _TextNavTabState extends State<_TextNavTab> {
+  static const double _weightReserve = 700.0;
+
   bool _hovered = false;
+  bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
@@ -198,57 +428,77 @@ class _TextNavTabState extends State<_TextNavTab> {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      onExit: (_) => setState(() {
+        _hovered = false;
+        _pressed = false;
+      }),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
         onTap: widget.onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: KonataTheme.topNavTabHorizontalPadding,
-            vertical: 6,
-          ),
-          child: TweenAnimationBuilder<double>(
-            duration: KonataTheme.standardTransition,
+        child: AnimatedScale(
+          scale: _pressed ? 0.96 : 1.0,
+          duration: const Duration(milliseconds: 100),
+          curve: Curves.easeOutCubic,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
             curve: Curves.easeOutCubic,
-            tween: Tween<double>(end: widget.selected ? 1.0 : 0.0),
-            builder: (context, t, _) {
-              final inactiveColor = _hovered
-                  ? p.textPrimary.withValues(alpha: 0.85)
-                  : p.textSecondary;
-              final textColor =
-                  Color.lerp(inactiveColor, p.textPrimary, t) ?? p.textPrimary;
-              final weight = lerpDouble(
-                KonataTheme.weightRegularLabel,
-                KonataTheme.weightActive,
-                t,
-              )!;
-              final boldReserveStyle = KonataTheme.textStyle(
-                fontSize: 14,
-                weight: KonataTheme.weightActive,
-              );
-              final activeStyle = KonataTheme.textStyle(
-                color: textColor,
-                fontSize: 14,
-                weight: weight,
-                shadows: t > 0.02
-                    ? [
-                        Shadow(
-                          color: (p.isDark ? p.accent : p.textPrimary)
-                              .withValues(alpha: (p.isDark ? 0.35 : 0.14) * t),
-                          blurRadius: 12 * t,
-                        ),
-                      ]
-                    : null,
-              );
+            padding: const EdgeInsets.fromLTRB(
+              KonataTheme.topNavTabHorizontalPadding,
+              6,
+              KonataTheme.topNavTabHorizontalPadding,
+              10,
+            ),
+            decoration: BoxDecoration(
+              color: (!widget.selected && _hovered)
+                  ? p.secondaryButtonBg
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: TweenAnimationBuilder<double>(
+              duration: KonataTheme.standardTransition,
+              curve: Curves.easeOutCubic,
+              tween: Tween<double>(end: widget.selected ? 1.0 : 0.0),
+              builder: (context, t, _) {
+                final inactiveColor = _hovered
+                    ? p.textPrimary.withValues(alpha: 0.85)
+                    : p.textSecondary;
+                final textColor =
+                    Color.lerp(inactiveColor, p.textPrimary, t) ??
+                    p.textPrimary;
+                final weight = lerpDouble(
+                  KonataTheme.weightRegularLabel,
+                  KonataTheme.weightActive,
+                  t,
+                )!;
+                final boldReserveStyle = KonataTheme.textStyle(
+                  fontSize: 14,
+                  weight: _weightReserve,
+                );
+                final activeStyle = KonataTheme.textStyle(
+                  color: textColor,
+                  fontSize: 14,
+                  weight: weight,
+                  shadows: t > 0.02
+                      ? [
+                          Shadow(
+                            color: p.progressFill.withValues(
+                              alpha: (p.isDark ? 0.35 : 0.16) * t,
+                            ),
+                            blurRadius: 12 * t,
+                          ),
+                        ]
+                      : null,
+                );
 
-              return Stack(
-                alignment: Alignment.center,
-                clipBehavior: Clip.none,
-                children: [
-                  // 隐形粗体 RichText 由字体引擎自动撑出等宽占位，杜绝多字裁切、切页抖动及 find.text 双匹配冲突
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 5),
-                    child: IgnorePointer(
+                return Stack(
+                  alignment: Alignment.center,
+                  clipBehavior: Clip.none,
+                  children: [
+                    // 隐形 w700 RichText 锁死固有宽度，杜绝可变字重插值引起相邻标签微抖
+                    IgnorePointer(
                       child: ExcludeSemantics(
                         child: Opacity(
                           opacity: 0,
@@ -268,46 +518,17 @@ class _TextNavTabState extends State<_TextNavTab> {
                         ),
                       ),
                     ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 5),
-                    child: Text(
+                    Text(
                       widget.label,
                       style: activeStyle,
                       softWrap: false,
                       maxLines: 1,
                       overflow: TextOverflow.visible,
                     ),
-                  ),
-                  if (t > 0.005)
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: Center(
-                        child: Opacity(
-                          opacity: t,
-                          child: Container(
-                            width: 6 + 12 * t,
-                            height: 2,
-                            decoration: BoxDecoration(
-                              color: p.isDark ? p.accent : p.textPrimary,
-                              borderRadius: BorderRadius.circular(999),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: (p.isDark ? p.accent : p.textPrimary)
-                                      .withValues(alpha: 0.45 * t),
-                                  blurRadius: 8,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            },
+                  ],
+                );
+              },
+            ),
           ),
         ),
       ),

@@ -856,7 +856,7 @@ void main() {
           members,
           fallbackOrder: 1,
         ),
-        equals('第 1 季'),
+        equals('第 1 季 · 葬送的芙莉莲'),
       );
 
       // 渲染 SupplementaryScopePanel 验证菜单提示清晰展示 `仅「特别篇 · 葬送的芙莉莲 OAD」独享`

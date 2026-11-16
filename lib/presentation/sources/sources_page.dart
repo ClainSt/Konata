@@ -141,7 +141,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
     final p = context.palette;
     final sourcesAsync = ref.watch(mediaSourcesProvider);
     final progress = ref.watch(scrapeControllerProvider);
-    final bottomClearance = ref.watch(miniAudioBottomClearanceProvider);
+    final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
     final showBanner = progress.phase != ScrapePhase.idle && !_bannerDismissed;
 
     ref.listen<ScrapeProgress>(scrapeControllerProvider, (prev, next) {

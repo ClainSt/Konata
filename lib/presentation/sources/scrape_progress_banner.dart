@@ -103,12 +103,12 @@ class ScrapeProgressBanner extends StatelessWidget {
           if (progress.isRunning) ...[
             const SizedBox(height: 10),
             ClipRRect(
-              borderRadius: BorderRadius.circular(3),
+              borderRadius: BorderRadius.circular(999),
               child: LinearProgressIndicator(
                 value: progress.totalWorks > 0 ? progress.fraction : null,
                 minHeight: 4,
-                backgroundColor: p.softFill,
-                valueColor: AlwaysStoppedAnimation<Color>(p.textPrimary),
+                backgroundColor: p.progressTrack,
+                valueColor: AlwaysStoppedAnimation<Color>(p.progressFill),
               ),
             ),
           ],

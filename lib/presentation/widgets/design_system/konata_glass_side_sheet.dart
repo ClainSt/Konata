@@ -14,6 +14,7 @@ class KonataGlassSideSheet extends StatefulWidget {
     required this.onClose,
     required this.child,
     this.width = 420,
+    this.bottomInset = 16.0,
   });
 
   /// 顶部主标题（纯文字 20px Bold，无左侧图标与下方硬分割线）。
@@ -27,6 +28,9 @@ class KonataGlassSideSheet extends StatefulWidget {
 
   /// 侧栏宽度（默认 420px）。
   final double width;
+
+  /// 距容器底部的安全避让间距（默认 16px，播放控制台上提以避让底部播控胶囊）。
+  final double bottomInset;
 
   @override
   State<KonataGlassSideSheet> createState() => _KonataGlassSideSheetState();
@@ -103,7 +107,7 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
         Positioned(
           top: 56,
           right: 16,
-          bottom: 16,
+          bottom: widget.bottomInset,
           width: widget.width,
           child: SlideTransition(
             position: _slideAnimation,

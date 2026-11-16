@@ -1,4 +1,7 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/playback/playback_dispatcher.dart';
@@ -21,11 +24,17 @@ import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_page_header.dart';
 import '../widgets/design_system/konata_pill_button.dart';
+import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/design_system/konata_toast.dart';
 import '../widgets/managed_image.dart';
 
-/// 播放记录时间轴页面。
+/// 播放记录分类页签（视频 / 音频）。
+enum PlaybackHistoryCategory { video, audio }
+
+enum _HistoryBatchMode { markCompleted, delete }
+
+/// 播放记录页面（桌面端响应式双列等高网格卡片 + 批量多选标记已看/清理记录）。
 class PlaybackHistoryPage extends ConsumerStatefulWidget {
   /// 创建播放记录页面。
   const PlaybackHistoryPage({super.key});
@@ -37,31 +46,119 @@ class PlaybackHistoryPage extends ConsumerStatefulWidget {
 
 class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
   final ScrollController _scrollCtrl = ScrollController();
+  final FocusNode _selectionFocusNode = FocusNode();
+  PlaybackHistoryCategory _activeTab = PlaybackHistoryCategory.video;
+  _HistoryBatchMode? _batchMode;
+  final Set<String> _selectedIds = <String>{};
+
+  static const double _twoColumnBreakpoint = 680.0;
+  static const double _videoCoverWidth = 112.0;
+  static const double _videoCoverHeight = 160.0;
+  static const double _audioCoverSize = 120.0;
+  static const double _cardPadding = 14.0;
+  static const double _colGap = 14.0;
 
   @override
   void dispose() {
     _scrollCtrl.dispose();
+    _selectionFocusNode.dispose();
     super.dispose();
   }
 
-  String _progressLabel(PlaybackRecord rec) {
-    if (rec.isCompleted) return '已看完';
+  bool _isAudioRecord(PlaybackRecord rec, WorkLibraryItem? item) {
+    if (rec.isAudioRecord) return true;
+    final variants = item?.variants;
+    if (variants != null) {
+      for (final v in variants) {
+        if (v.id == rec.variantId && v.assetKind == AssetKind.cdAlbum) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  void _switchTab(PlaybackHistoryCategory next) {
+    if (_activeTab == next) return;
+    setState(() {
+      _activeTab = next;
+      _batchMode = null;
+      _selectedIds.clear();
+    });
+  }
+
+  void _enterBatchMode(_HistoryBatchMode mode) {
+    setState(() {
+      _batchMode = mode;
+      _selectedIds.clear();
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _selectionFocusNode.requestFocus();
+    });
+  }
+
+  void _exitBatchMode() {
+    if (_batchMode == null && _selectedIds.isEmpty) return;
+    setState(() {
+      _batchMode = null;
+      _selectedIds.clear();
+    });
+  }
+
+  void _toggleSelected(String id) {
+    setState(() {
+      if (!_selectedIds.remove(id)) {
+        _selectedIds.add(id);
+      }
+    });
+  }
+
+  void _toggleSelectAll(List<PlaybackRecord> records) {
+    setState(() {
+      if (_selectedIds.length == records.length) {
+        _selectedIds.clear();
+      } else {
+        _selectedIds
+          ..clear()
+          ..addAll(records.map((r) => r.id));
+      }
+    });
+  }
+
+  String _progressLabel(PlaybackRecord rec, {required bool isAudio}) {
+    if (rec.isCompleted) return isAudio ? '已听完' : '已看完';
+    final verb = isAudio ? '收听至' : '观看至';
     if (rec.positionSeconds > 0 && rec.durationSeconds > 0) {
-      return '观看至 ${PlaybackRecord.formatClock(rec.positionSeconds)} / '
+      return '$verb ${PlaybackRecord.formatClock(rec.positionSeconds)} / '
           '${PlaybackRecord.formatClock(rec.durationSeconds)}';
     }
     if (rec.positionSeconds > 0) {
-      return '观看至 ${PlaybackRecord.formatClock(rec.positionSeconds)}';
+      return '$verb ${PlaybackRecord.formatClock(rec.positionSeconds)}';
     }
     return '刚刚打开';
   }
 
-  Future<void> _confirmClearAll(BuildContext context, WidgetRef ref) async {
+  Future<void> _confirmBatchAction(
+    BuildContext context,
+    WidgetRef ref,
+    List<PlaybackRecord> records,
+  ) async {
+    final mode = _batchMode;
+    if (mode == null) return;
+    final targets = records
+        .where((r) => _selectedIds.contains(r.id))
+        .toList(growable: false);
+    if (targets.isEmpty) return;
+
+    final isAudio = _activeTab == PlaybackHistoryCategory.audio;
+    final isDelete = mode == _HistoryBatchMode.delete;
+    final markActionLabel = isAudio ? '标记为已听' : '标记为已看';
+    final completedStateLabel = isAudio ? '已听完' : '已看完';
     final ok = await showKonataGlassDialog<bool>(
       context: context,
       builder: (ctx) => KonataGlassDialog(
-        width: 390,
-        title: '清空播放记录',
+        width: 410,
+        title: isDelete ? '清理播放记录' : markActionLabel,
         onClose: () => Navigator.of(ctx).pop(false),
         actions: [
           KonataPillButton.ghost(
@@ -69,21 +166,66 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
             compact: true,
             onPressed: () => Navigator.of(ctx).pop(false),
           ),
-          KonataPillButton.primary(
-            label: '确认清空',
-            compact: true,
-            onPressed: () => Navigator.of(ctx).pop(true),
-          ),
+          isDelete
+              ? KonataPillButton.danger(
+                  label: '确认清理',
+                  compact: true,
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                )
+              : KonataPillButton.primary(
+                  label: '确认标记',
+                  compact: true,
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                ),
         ],
-        child: const Text('确认清空全部观看历史记录？此操作不会影响本地或远程媒体文件。'),
+        child: Text(
+          isDelete
+              ? '确认清理选中的 ${targets.length} 条播放记录？此操作不会影响本地或远程媒体文件。'
+              : '确认将选中的 ${targets.length} 条播放记录标记为「$completedStateLabel」？',
+        ),
       ),
     );
-    if (ok == true) {
-      await ref.read(playbackCoordinatorProvider).clearAllHistory();
-      if (context.mounted) {
-        showKonataToast(context, '已清空全部播放记录');
+    if (ok != true) return;
+
+    final coordinator = ref.read(playbackCoordinatorProvider);
+    if (isDelete) {
+      await coordinator.deleteHistoryRecords(targets);
+    } else {
+      await coordinator.markRecordsCompleted(targets);
+    }
+    if (!mounted) return;
+    _exitBatchMode();
+    if (context.mounted) {
+      showKonataToast(
+        context,
+        isDelete
+            ? '已清理 ${targets.length} 条播放记录'
+            : '已将 ${targets.length} 条记录标记为${isAudio ? '已听' : '已看'}',
+      );
+    }
+  }
+
+  Future<void> _openWorkDetail(
+    BuildContext context,
+    PlaybackRecord rec,
+    WorkLibraryItem? item,
+  ) async {
+    var targetId = rec.workId;
+    if (item == null) {
+      final redirects = ref.read(workRedirectMapProvider);
+      targetId = resolveWorkRedirectChain(redirects, targetId);
+      final found = await ref
+          .read(libraryRepositoryProvider)
+          .findWorkById(targetId);
+      if (!context.mounted) return;
+      if (found == null) {
+        showKonataToast(context, '该作品记录已变更或被移出媒体库');
+        return;
       }
     }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => WorkDetailPage(workId: targetId)),
+    );
   }
 
   Future<void> _resumeRecord({
@@ -151,6 +293,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     required WidgetRef ref,
     required Offset globalPos,
     required PlaybackRecord rec,
+    required bool isAudio,
   }) async {
     final pos = RelativeRect.fromLTRB(
       globalPos.dx,
@@ -162,37 +305,39 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
       context: context,
       position: pos,
       items: [
-        const PopupMenuItem<String>(
-          value: 'builtin',
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.smart_display_outlined, size: 17),
-              SizedBox(width: 8),
-              Text('使用内置播放器续播'),
-            ],
-          ),
-        ),
-        const PopupMenuItem<String>(
-          value: 'external',
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.open_in_new_rounded, size: 17),
-              SizedBox(width: 8),
-              Text('使用外部播放器续播'),
-            ],
-          ),
-        ),
-        if (!rec.isCompleted)
+        if (!isAudio) ...[
           const PopupMenuItem<String>(
+            value: 'builtin',
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.smart_display_outlined, size: 17),
+                SizedBox(width: 8),
+                Text('使用内置播放器续播'),
+              ],
+            ),
+          ),
+          const PopupMenuItem<String>(
+            value: 'external',
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.open_in_new_rounded, size: 17),
+                SizedBox(width: 8),
+                Text('使用外部播放器续播'),
+              ],
+            ),
+          ),
+        ],
+        if (!rec.isCompleted)
+          PopupMenuItem<String>(
             value: 'complete',
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.check_circle_outline_rounded, size: 17),
-                SizedBox(width: 8),
-                Text('标为已看'),
+                const Icon(Icons.check_circle_outline_rounded, size: 17),
+                const SizedBox(width: 8),
+                Text(isAudio ? '标为已听' : '标为已看'),
               ],
             ),
           ),
@@ -232,243 +377,563 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     }
   }
 
+  double _measureSingleLineHeight(BuildContext context, TextStyle style) {
+    final effective = DefaultTextStyle.of(context).style.merge(style);
+    final painter = TextPainter(
+      text: TextSpan(text: 'Hg测试', style: effective),
+      maxLines: 1,
+      textDirection: Directionality.maybeOf(context) ?? TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(context),
+      locale: Localizations.maybeLocaleOf(context),
+    )..layout();
+    return painter.height;
+  }
+
+  double _measureCardHeight({
+    required BuildContext context,
+    required PlaybackRecord rec,
+    required WorkLibraryItem? item,
+    required double titleMaxWidth,
+    required double epLineHeight,
+    required double progressLineHeight,
+    required double dateLineHeight,
+    required double coverHeight,
+  }) {
+    final work = item?.work;
+    final title = work?.title ?? '未知作品';
+    final effectiveTitleStyle = DefaultTextStyle.of(context).style.merge(
+      const TextStyle(
+        fontSize: 15,
+        fontWeight: FontWeight.w600,
+        height: 1.3,
+      ),
+    );
+    final painter = TextPainter(
+      text: TextSpan(text: title, style: effectiveTitleStyle),
+      textDirection: Directionality.maybeOf(context) ?? TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(context),
+      locale: Localizations.maybeLocaleOf(context),
+    )..layout(maxWidth: math.max(40.0, titleMaxWidth));
+
+    final bottomRowH = math.max(4.5, dateLineHeight);
+    final rightHeight =
+        painter.height + 5 + epLineHeight + 12 + progressLineHeight + 8 + bottomRowH;
+    return math.max(coverHeight + _cardPadding * 2 + 2, rightHeight + _cardPadding * 2 + 4);
+  }
+
+  Widget _buildCard({
+    required BuildContext context,
+    required KonataPalette p,
+    required PlaybackRecord rec,
+    required WorkLibraryItem? item,
+    required ManagedImageLoader imageLoader,
+    required bool isAudio,
+    required bool stretchHeight,
+  }) {
+    final work = item?.work;
+    final epLabel = EpisodeTitleFormatter.formatHistorySubtitle(
+      record: rec,
+      work: work,
+      mainEpisodeCount: item?.episodeCount,
+    );
+    final progressText = _progressLabel(rec, isAudio: isAudio);
+    final inSelection = _batchMode != null;
+    final selected = inSelection && _selectedIds.contains(rec.id);
+    final isDeleteMode = _batchMode == _HistoryBatchMode.delete;
+    final selectedAccent = isDeleteMode ? p.danger : p.accent;
+    final poster =
+        work?.posterPath ?? work?.bangumiPosterPath ?? work?.posterFallback;
+    final coverWidth = isAudio ? _audioCoverSize : _videoCoverWidth;
+    final coverHeight = isAudio ? _audioCoverSize : _videoCoverHeight;
+    final coverRadius = isAudio ? 12.0 : 10.0;
+
+    final Widget coverWidget = isAudio
+        ? _AudioHistoryCover(
+            workId: rec.workId,
+            variantId: rec.variantId,
+            fallbackPoster: poster,
+            imageLoader: imageLoader,
+            size: _audioCoverSize,
+          )
+        : (poster != null && poster.isNotEmpty
+              ? ManagedImage(
+                  poster,
+                  loader: imageLoader,
+                  owner: work?.id ?? rec.workId,
+                  artwork: ManagedArtwork.poster,
+                  decodeWidth: 280,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => _posterFallback(p, isAudio: false),
+                )
+              : _posterFallback(p, isAudio: false));
+
+    final topBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Text(
+                work?.title ?? '未知作品',
+                softWrap: true,
+                style: TextStyle(
+                  color: p.textPrimary,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  height: 1.3,
+                ),
+              ),
+            ),
+            if (inSelection) ...[
+              const SizedBox(width: 8),
+              Icon(
+                selected
+                    ? Icons.check_circle_rounded
+                    : Icons.radio_button_unchecked_rounded,
+                size: 20,
+                color: selected ? selectedAccent : p.textMuted,
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 5),
+        EllipsisTextWithTooltip(
+          text: epLabel,
+          maxLines: 1,
+          style: TextStyle(color: p.textSecondary, fontSize: 12.5),
+        ),
+      ],
+    );
+
+    final bottomBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          progressText,
+          style: KonataTheme.textStyle(
+            color: rec.isCompleted ? p.success : p.progressFill,
+            fontSize: 12,
+            weight: 500,
+            tabularFigures: true,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: 4.5,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: rec.isCompleted ? 1.0 : rec.progressRatio,
+                    backgroundColor: p.progressTrack,
+                    valueColor: AlwaysStoppedAnimation(
+                      rec.isCompleted ? p.success : p.progressFill,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              MediaDisplayFormatter.formatDateTimeMinute(rec.playedAt),
+              maxLines: 1,
+              softWrap: false,
+              style: KonataTheme.textStyle(
+                color: p.textMuted,
+                fontSize: 11.5,
+                tabularFigures: true,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+
+    final Widget card = KonataSurfaceCard(
+      padding: const EdgeInsets.all(14),
+      enableHover: !selected,
+      backgroundColor: selected
+          ? selectedAccent.withValues(alpha: p.isDark ? 0.14 : 0.08)
+          : null,
+      borderColor: selected ? selectedAccent.withValues(alpha: 0.72) : null,
+      child: Row(
+        crossAxisAlignment: stretchHeight
+            ? CrossAxisAlignment.stretch
+            : CrossAxisAlignment.start,
+        children: [
+          Align(
+            alignment: isAudio ? Alignment.center : Alignment.topCenter,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(coverRadius),
+              child: SizedBox(
+                width: coverWidth,
+                height: coverHeight,
+                child: coverWidget,
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: stretchHeight
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [topBlock, bottomBlock],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      topBlock,
+                      const SizedBox(height: 14),
+                      bottomBlock,
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+
+    return GestureDetector(
+      onSecondaryTapUp: inSelection
+          ? null
+          : (details) => _showRowMenu(
+              context: context,
+              ref: ref,
+              globalPos: details.globalPosition,
+              rec: rec,
+              isAudio: isAudio,
+            ),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            if (inSelection) {
+              _toggleSelected(rec.id);
+            } else {
+              _openWorkDetail(context, rec, item);
+            }
+          },
+          child: card,
+        ),
+      ),
+    );
+  }
+
+  Widget _posterFallback(KonataPalette p, {required bool isAudio}) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: p.softFill,
+        border: Border.all(color: p.hairline, width: 1),
+      ),
+      child: Center(
+        child: Icon(
+          isAudio ? Icons.album_outlined : Icons.movie_outlined,
+          size: 28,
+          color: p.textMuted,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
     final historyAsync = ref.watch(playbackHistoryProvider);
     final itemsAsync = ref.watch(libraryItemsProvider);
     final imageLoader = ref.watch(tmdbImageLoaderProvider);
-    final bottomClearance = ref.watch(miniAudioBottomClearanceProvider);
-    final hasRecords =
-        (historyAsync.valueOrNull ?? const <PlaybackRecord>[]).isNotEmpty;
-
+    final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
     final workById = <String, WorkLibraryItem>{
       for (final item in itemsAsync.valueOrNull ?? const <WorkLibraryItem>[])
         item.work.id: item,
     };
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        KonataPageHeader(
-          title: '播放记录',
-          actions: [
-            if (hasRecords)
-              KonataPillButton.secondary(
-                label: '清空全部',
-                icon: Icons.delete_sweep_outlined,
-                compact: true,
-                onPressed: () => _confirmClearAll(context, ref),
-              ),
-          ],
-        ),
-        Expanded(
-          child: historyAsync.when(
-            data: (records) {
-              if (records.isEmpty) {
-                return Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.history_rounded,
-                        size: 48,
-                        color: p.textMuted,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        '暂无播放记录',
-                        style: KonataTheme.cardTitleStyle(p, fontSize: 16),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '在任意番剧详情页点击播放后，将在此按时间轴展示',
-                        style: KonataTheme.captionStyle(p, fontSize: 13),
-                      ),
-                    ],
-                  ),
-                );
-              }
+    final allRecords = historyAsync.valueOrNull ?? const <PlaybackRecord>[];
+    final isAudioTab = _activeTab == PlaybackHistoryCategory.audio;
+    final records = allRecords
+        .where((r) {
+          final isAudio = _isAudioRecord(r, workById[r.workId]);
+          return isAudioTab ? isAudio : !isAudio;
+        })
+        .toList(growable: false);
 
-              return KonataDraggableScrollbar(
-                controller: _scrollCtrl,
-                builder: (_, ctrl) => ListView.separated(
-                  controller: ctrl,
-                  padding: EdgeInsets.fromLTRB(
-                    KonataTheme.pageHorizontalPadding,
-                    0,
-                    KonataTheme.pageHorizontalPadding,
-                    28 + bottomClearance,
-                  ),
-                    itemCount: records.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 10),
-                    itemBuilder: (_, index) {
-                      final rec = records[index];
-                      final item = workById[rec.workId];
-                      final work = item?.work;
-                      final epLabel =
-                          EpisodeTitleFormatter.formatHistorySubtitle(
-                            record: rec,
-                            work: work,
-                            mainEpisodeCount: item?.episodeCount,
-                          );
-                      final progressText = _progressLabel(rec);
+    final hasRecords = records.isNotEmpty;
+    final inSelection = _batchMode != null;
+    final allSelected =
+        hasRecords && records.every((r) => _selectedIds.contains(r.id));
+    final selectedCount = records
+        .where((r) => _selectedIds.contains(r.id))
+        .length;
+    final markCompletedLabel = isAudioTab ? '标记为已听' : '标记为已看';
+    final activeCoverWidth = isAudioTab ? _audioCoverSize : _videoCoverWidth;
+    final activeCoverHeight = isAudioTab ? _audioCoverSize : _videoCoverHeight;
 
-                      return GestureDetector(
-                        onSecondaryTapUp: (details) => _showRowMenu(
-                          context: context,
-                          ref: ref,
-                          globalPos: details.globalPosition,
-                          rec: rec,
+    return Focus(
+      focusNode: _selectionFocusNode,
+      child: CallbackShortcuts(
+        bindings: {
+          if (inSelection)
+            const SingleActivator(LogicalKeyboardKey.escape): _exitBatchMode,
+        },
+        child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          KonataPageHeader(
+            title: '播放记录',
+            badge: KonataSegmentedCapsule<PlaybackHistoryCategory>(
+              compact: true,
+              options: const [
+                KonataSegmentOption(
+                  value: PlaybackHistoryCategory.video,
+                  label: '视频',
+                ),
+                KonataSegmentOption(
+                  value: PlaybackHistoryCategory.audio,
+                  label: '音频',
+                ),
+              ],
+              selected: _activeTab,
+              onChanged: _switchTab,
+            ),
+            actions: [
+              if (hasRecords && !inSelection) ...[
+                KonataPillButton.secondary(
+                  label: markCompletedLabel,
+                  icon: Icons.done_all_rounded,
+                  compact: true,
+                  onPressed: () =>
+                      _enterBatchMode(_HistoryBatchMode.markCompleted),
+                ),
+                const SizedBox(width: 8),
+                KonataPillButton.secondary(
+                  label: '清理记录',
+                  icon: Icons.delete_sweep_outlined,
+                  compact: true,
+                  onPressed: () => _enterBatchMode(_HistoryBatchMode.delete),
+                ),
+              ] else if (inSelection) ...[
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: Text(
+                    '已选 $selectedCount / ${records.length}',
+                    style: TextStyle(
+                      color: p.textSecondary,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                KonataPillButton.ghost(
+                  label: allSelected ? '取消全选' : '全选',
+                  compact: true,
+                  onPressed: hasRecords ? () => _toggleSelectAll(records) : null,
+                ),
+                const SizedBox(width: 6),
+                KonataPillButton.ghost(
+                  label: '取消',
+                  compact: true,
+                  onPressed: _exitBatchMode,
+                ),
+                const SizedBox(width: 6),
+                if (_batchMode == _HistoryBatchMode.delete)
+                  KonataPillButton.danger(
+                    label: '确认清理',
+                    icon: Icons.delete_outline_rounded,
+                    compact: true,
+                    onPressed: selectedCount > 0
+                        ? () => _confirmBatchAction(context, ref, records)
+                        : null,
+                  )
+                else
+                  KonataPillButton.primary(
+                    label: '确认标记',
+                    icon: Icons.check_rounded,
+                    compact: true,
+                    onPressed: selectedCount > 0
+                        ? () => _confirmBatchAction(context, ref, records)
+                        : null,
+                  ),
+              ],
+            ],
+          ),
+          Expanded(
+            child: historyAsync.when(
+              data: (loadedRecords) {
+                if (records.isEmpty) {
+                  final emptyTitle = loadedRecords.isEmpty
+                      ? '暂无播放记录'
+                      : (isAudioTab ? '暂无音频播放记录' : '暂无视频播放记录');
+                  final emptySubtitle = isAudioTab
+                      ? '播放作品 CD / 无损音轨后，将在此按时间轴展示'
+                      : '在任意番剧详情页点击播放后，将在此按时间轴展示';
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          isAudioTab
+                              ? Icons.album_outlined
+                              : Icons.history_rounded,
+                          size: 48,
+                          color: p.textMuted,
                         ),
-                        child: MouseRegion(
-                          cursor: SystemMouseCursors.click,
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) =>
-                                      WorkDetailPage(workId: rec.workId),
-                                ),
-                              );
-                            },
-                            child: KonataSurfaceCard(
-                            padding: const EdgeInsets.all(14),
-                            enableHover: true,
+                        const SizedBox(height: 12),
+                        Text(
+                          emptyTitle,
+                          style: KonataTheme.cardTitleStyle(p, fontSize: 16),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          emptySubtitle,
+                          style: KonataTheme.captionStyle(p, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                return LayoutBuilder(
+                  builder: (context, constraints) {
+                    final twoColumns =
+                        constraints.maxWidth >= _twoColumnBreakpoint;
+                    final rowCount = twoColumns
+                        ? (records.length + 1) ~/ 2
+                        : records.length;
+                    final contentWidth =
+                        constraints.maxWidth -
+                        KonataTheme.pageHorizontalPadding * 2;
+                    final cardWidth = twoColumns
+                        ? math.max(120.0, (contentWidth - _colGap) / 2)
+                        : contentWidth;
+                    final titleMaxWidth =
+                        cardWidth -
+                        _cardPadding * 2 -
+                        2 -
+                        activeCoverWidth -
+                        14 -
+                        (inSelection ? 28 : 0);
+                    final epH = twoColumns
+                        ? _measureSingleLineHeight(
+                            context,
+                            const TextStyle(fontSize: 12.5),
+                          )
+                        : 0.0;
+                    final progH = twoColumns
+                        ? _measureSingleLineHeight(
+                            context,
+                            const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          )
+                        : 0.0;
+                    final dateH = twoColumns
+                        ? _measureSingleLineHeight(
+                            context,
+                            const TextStyle(fontSize: 11.5),
+                          )
+                        : 0.0;
+
+                    return KonataDraggableScrollbar(
+                      controller: _scrollCtrl,
+                      builder: (_, ctrl) => ListView.separated(
+                        controller: ctrl,
+                        padding: EdgeInsets.fromLTRB(
+                          KonataTheme.pageHorizontalPadding,
+                          0,
+                          KonataTheme.pageHorizontalPadding,
+                          28 + bottomClearance,
+                        ),
+                        itemCount: rowCount,
+                        separatorBuilder: (_, _) => const SizedBox(height: 12),
+                        itemBuilder: (_, rowIndex) {
+                          if (!twoColumns) {
+                            final rec = records[rowIndex];
+                            return _buildCard(
+                              context: context,
+                              p: p,
+                              rec: rec,
+                              item: workById[rec.workId],
+                              imageLoader: imageLoader,
+                              isAudio: isAudioTab,
+                              stretchHeight: false,
+                            );
+                          }
+                          final leftIndex = rowIndex * 2;
+                          final rightIndex = leftIndex + 1;
+                          final leftRec = records[leftIndex];
+                          final rightRec = rightIndex < records.length
+                              ? records[rightIndex]
+                              : null;
+
+                          final leftHeight = _measureCardHeight(
+                            context: context,
+                            rec: leftRec,
+                            item: workById[leftRec.workId],
+                            titleMaxWidth: titleMaxWidth,
+                            epLineHeight: epH,
+                            progressLineHeight: progH,
+                            dateLineHeight: dateH,
+                            coverHeight: activeCoverHeight,
+                          );
+                          final rightHeight = rightRec == null
+                              ? leftHeight
+                              : _measureCardHeight(
+                                  context: context,
+                                  rec: rightRec,
+                                  item: workById[rightRec.workId],
+                                  titleMaxWidth: titleMaxWidth,
+                                  epLineHeight: epH,
+                                  progressLineHeight: progH,
+                                  dateLineHeight: dateH,
+                                  coverHeight: activeCoverHeight,
+                                );
+                          final rowHeight = math.max(leftHeight, rightHeight);
+
+                          return SizedBox(
+                            height: rowHeight,
                             child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: SizedBox(
-                                    width: 46,
-                                    height: 64,
-                                    child: work?.posterPath != null
-                                        ? ManagedImage(
-                                            work!.posterPath!,
-                                            loader: imageLoader,
-                                            owner: work.id,
-                                            fit: BoxFit.cover,
-                                          )
-                                        : Container(color: p.softFill),
-                                  ),
-                                ),
-                                const SizedBox(width: 14),
                                 Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      SizedBox(
-                                        width: double.infinity,
-                                        child: EllipsisTextWithTooltip(
-                                          text: work?.title ?? '未知作品',
-                                          maxLines: 1,
-                                          style: TextStyle(
-                                            color: p.textPrimary,
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      SizedBox(
-                                        width: double.infinity,
-                                        child: EllipsisTextWithTooltip(
-                                          text: epLabel,
-                                          maxLines: 1,
-                                          style: TextStyle(
-                                            color: p.textSecondary,
-                                            fontSize: 12.5,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Row(
-                                        children: [
-                                          Text(
-                                            progressText,
-                                            style: TextStyle(
-                                              color: rec.isCompleted
-                                                  ? p.success
-                                                  : p.accent,
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                          if (!rec.isCompleted &&
-                                              rec.progressRatio > 0) ...[
-                                            const SizedBox(width: 12),
-                                            Expanded(
-                                              child: SizedBox(
-                                                height: 3.5,
-                                                child: ClipRRect(
-                                                  borderRadius:
-                                                      BorderRadius.circular(2),
-                                                  child:
-                                                      LinearProgressIndicator(
-                                                        value:
-                                                            rec.progressRatio,
-                                                        backgroundColor:
-                                                            p.softFill,
-                                                        valueColor:
-                                                            AlwaysStoppedAnimation(
-                                                              p.accent,
-                                                            ),
-                                                      ),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ],
+                                  child: _buildCard(
+                                    context: context,
+                                    p: p,
+                                    rec: leftRec,
+                                    item: workById[leftRec.workId],
+                                    imageLoader: imageLoader,
+                                    isAudio: isAudioTab,
+                                    stretchHeight: true,
                                   ),
                                 ),
-                                const SizedBox(width: 28),
-                                Text(
-                                  MediaDisplayFormatter.formatDateTimeMinute(
-                                    rec.playedAt,
-                                  ),
-                                  style: TextStyle(
-                                    color: p.textMuted,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                if (!rec.isCompleted)
-                                  IconButton(
-                                    tooltip: '标为已看',
-                                    onPressed: () => ref
-                                        .read(playbackCoordinatorProvider)
-                                        .markRecordCompleted(rec),
-                                    icon: Icon(
-                                      Icons.check_circle_outline_rounded,
-                                      size: 18,
-                                      color: p.textSecondary,
-                                    ),
-                                    visualDensity: VisualDensity.compact,
-                                  ),
-                                IconButton(
-                                  tooltip: '删除记录',
-                                  onPressed: () => ref
-                                      .read(playbackCoordinatorProvider)
-                                      .deleteHistoryRecord(rec),
-                                  icon: Icon(
-                                    Icons.delete_outline_rounded,
-                                    size: 18,
-                                    color: p.textMuted,
-                                  ),
-                                  visualDensity: VisualDensity.compact,
+                                const SizedBox(width: _colGap),
+                                Expanded(
+                                  child: rightRec != null
+                                      ? _buildCard(
+                                          context: context,
+                                          p: p,
+                                          rec: rightRec,
+                                          item: workById[rightRec.workId],
+                                          imageLoader: imageLoader,
+                                          isAudio: isAudioTab,
+                                          stretchHeight: true,
+                                        )
+                                      : const SizedBox.shrink(),
                                 ),
                               ],
                             ),
-                          ),
-                        ),
-                        ),
-                      );
-                    },
-                  ),
+                          );
+                        },
+                      ),
+                    );
+                  },
                 );
               },
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -481,6 +946,73 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
             ),
           ),
         ],
+      ),
+    ),
+    );
+  }
+}
+
+/// 音频播放记录 `120×120` 专辑封面：优先读取专辑目录 Folder/Cover 或内嵌 CD 封面，无专属图时回退作品封面。
+class _AudioHistoryCover extends ConsumerWidget {
+  const _AudioHistoryCover({
+    required this.workId,
+    required this.variantId,
+    required this.fallbackPoster,
+    required this.imageLoader,
+    required this.size,
+  });
+
+  final String workId;
+  final String variantId;
+  final String? fallbackPoster;
+  final ManagedImageLoader imageLoader;
+  final double size;
+
+  Widget _buildFallback(KonataPalette p) {
+    if (fallbackPoster != null && fallbackPoster!.isNotEmpty) {
+      return ManagedImage(
+        fallbackPoster!,
+        loader: imageLoader,
+        owner: workId,
+        artwork: ManagedArtwork.poster,
+        decodeWidth: 260,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => _buildIconPlaceholder(p),
       );
+    }
+    return _buildIconPlaceholder(p);
+  }
+
+  Widget _buildIconPlaceholder(KonataPalette p) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: p.softFill,
+        border: Border.all(color: p.hairline, width: 1),
+      ),
+      child: Center(
+        child: Icon(Icons.album_outlined, size: 32, color: p.textMuted),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = context.palette;
+    final albumBytesAsync = ref.watch(
+      audioRecordAlbumCoverProvider((workId: workId, variantId: variantId)),
+    );
+    final bytes = albumBytesAsync.valueOrNull;
+    if (bytes != null && bytes.isNotEmpty) {
+      return Image.memory(
+        bytes,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        filterQuality: FilterQuality.medium,
+        errorBuilder: (_, _, _) => _buildFallback(p),
+      );
+    }
+    return _buildFallback(p);
   }
 }

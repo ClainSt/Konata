@@ -344,20 +344,33 @@ abstract final class DirectoryAnalyzer {
     var items = main.values.toList();
     // A single numbered file is a numbered title (Legend 01, Movie 3, #02),
     // not episode N of a series, unless it carries an explicit episodic marker
-    // (SxxExx, EPxx, 第x話, or 02v2 revision).
+    // (SxxExx, EPxx, E01, 第x話, 02v2, or bracketed/hyphen `[01]`/`- 01` without movie marker).
     final numbered = items.where((i) => i.episode != null).toList();
-    if (numbered.length == 1 &&
-        !RegExp(
-          r'(?<![a-z0-9])(?:s\d{1,2}[ ._-]*e\d{1,4}|ep[ ._-]*\d{1,4}|\d{1,3}v\d+)\b|'
-          r'第\s*\d{1,3}\s*[话話集]',
-          caseSensitive: false,
-        ).hasMatch(numbered.single.files.first)) {
-      final only = numbered.single;
-      final core = versionKey(p.posix.basename(only.files.first));
-      final feature = LogicalItem('f:$core', core, null, only.season)
-        ..files.addAll(only.files)
-        ..titles.add(core);
-      items = [for (final i in items) identical(i, only) ? feature : i];
+    if (numbered.length == 1) {
+      final solePath = numbered.single.files.first;
+      final soleBase = p.posix.basename(solePath);
+      final hasMovieHint =
+          _movieMarker.hasMatch(name) || _movieMarker.hasMatch(_plain(soleBase));
+      final hasStrictEpisodicMarker = RegExp(
+        r'(?<![a-z0-9])(?:s\d{1,2}[ ._-]*e\d{1,4}|ep[ ._-]*\d{1,4}|e\d{1,4}|\d{1,3}v\d+)\b|'
+        r'第\s*\d{1,3}\s*[话話集]',
+        caseSensitive: false,
+      ).hasMatch(soleBase);
+      final hasBracketOrHyphenEpisode =
+          !hasMovieHint &&
+          RegExp(
+            r'[\[【(]\s*0*\d{1,3}(?:\.\d+)?(?:\s*(?:end|fin|v\d+))?\s*[\]】)]|'
+            r'(?:\s[-–—]\s+|#)0*\d{1,3}(?=$|\s*(?:\[|\(|【|\.[a-z0-9]{2,5}$))',
+            caseSensitive: false,
+          ).hasMatch(soleBase);
+      if (!hasStrictEpisodicMarker && !hasBracketOrHyphenEpisode) {
+        final only = numbered.single;
+        final core = versionKey(soleBase);
+        final feature = LogicalItem('f:$core', core, null, only.season)
+          ..files.addAll(only.files)
+          ..titles.add(core);
+        items = [for (final i in items) identical(i, only) ? feature : i];
+      }
     }
 
     bool meaningful(String title) =>

@@ -5,8 +5,12 @@ import '../../domain/models/media_variant.dart';
 import '../../domain/models/series_group.dart';
 import '../../domain/models/tmdb_models.dart';
 import '../../domain/models/work.dart';
+import '../../domain/parsing/bdrip_parser.dart';
 import '../../domain/repositories/library_repository.dart';
 import '../../domain/scraping/bangumi_models.dart';
+import '../../domain/scraping/directory_analyzer.dart';
+import '../../domain/scraping/search_query_sanitizer.dart';
+import '../../domain/scraping/work_matcher.dart';
 import '../../infrastructure/network/bangumi_service.dart';
 import '../../infrastructure/network/priority_http_scheduler.dart';
 import '../../infrastructure/network/tmdb_http_client.dart';
@@ -155,6 +159,7 @@ Future<Work> executeBangumiOnlyBind(
   required String workId,
   required BangumiSubjectCandidate bangumiSubject,
   BangumiService? bangumiServiceOverride,
+  TmdbService? tmdbServiceOverride,
 }) async {
   final repo = ref.read(libraryRepositoryProvider);
   final existing = await repo.findWorkById(workId);
@@ -164,6 +169,7 @@ Future<Work> executeBangumiOnlyBind(
 
   TmdbHttpClient? ownedClient;
   late final BangumiService bgm;
+  TmdbService? tmdb = tmdbServiceOverride;
   if (bangumiServiceOverride != null) {
     bgm = bangumiServiceOverride;
   } else {
@@ -171,6 +177,7 @@ Future<Work> executeBangumiOnlyBind(
     final scheduler = ref.read(priorityHttpSchedulerProvider);
     ownedClient = TmdbHttpClient(config: config, scheduler: scheduler);
     bgm = BangumiService(httpClient: ownedClient);
+    tmdb ??= TmdbService(httpClient: ownedClient);
   }
 
   try {
@@ -198,7 +205,7 @@ Future<Work> executeBangumiOnlyBind(
       );
     } catch (_) {}
 
-    final updated = existing.copyWith(
+    var updated = existing.copyWith(
       bangumiId: subject.id,
       title: subject.displayTitle,
       originalTitle: subject.name.isNotEmpty ? subject.name : existing.originalTitle,
@@ -217,6 +224,21 @@ Future<Work> executeBangumiOnlyBind(
       scrapeStatus: ScrapeStatus.matched,
       clearReviewReason: true,
     );
+
+    // 仅绑定 Bangumi 且当前缺少背景原画时，静默向 TMDB 检索高置信度动画（genre=16）横版背景图并仅回填 backdropPath。
+    if (tmdb != null &&
+        !updated.backdropLocked &&
+        (updated.backdropPath == null || updated.backdropPath!.trim().isEmpty)) {
+      final silentBackdrop = await _lookupHighConfidenceTmdbBackdrop(
+        tmdb: tmdb,
+        subject: subject,
+        preferTv: existing.tmdbMediaType != TmdbMediaType.movie,
+      );
+      if (silentBackdrop != null) {
+        updated = updated.copyWith(backdropPath: silentBackdrop);
+      }
+    }
+
     await repo.upsertWork(updated);
     await repo.clearScrapeCandidates(workId);
 
@@ -229,11 +251,20 @@ Future<Work> executeBangumiOnlyBind(
 
     for (var i = 0; i < videoVariants.length; i++) {
       final variant = videoVariants[i];
-      final epNum = i + 1;
+      final parsed = BdripParser.parseFileName(variant.fileName);
+      final parsedEp = parsed.episode;
+      final epNum =
+          (videoVariants.length == 1 && parsedEp != null && parsedEp > 0)
+              ? parsedEp
+              : (i + 1);
+      final hasExplicitEpNum =
+          videoVariants.length > 1 || (parsedEp != null && parsedEp > 0);
       final be = bgmByEp[epNum];
       final title = (be != null && be.displayName.isNotEmpty)
           ? be.displayName
-          : (videoVariants.length == 1 ? subject.displayTitle : '第 $epNum 话');
+          : (hasExplicitEpNum
+                ? '第 ${epNum.toString().padLeft(2, '0')} 话'
+                : subject.displayTitle);
       final epId = ScrapeWorkPersister.deterministicId('$workId::bgm:1:$epNum');
       await repo.upsertEpisode(
         Episode(
@@ -263,6 +294,95 @@ Future<Work> executeBangumiOnlyBind(
   } finally {
     ownedClient?.close();
   }
+}
+
+/// 仅绑定 Bangumi 后用于静默补全 16:9 横版背景图的保守高置信度 TMDB 校验查询。
+Future<String?> _lookupHighConfidenceTmdbBackdrop({
+  required TmdbService tmdb,
+  required BangumiSubjectCandidate subject,
+  required bool preferTv,
+}) async {
+  try {
+    final bgmNames = <String>[
+      if (subject.nameCn.trim().isNotEmpty) subject.nameCn.trim(),
+      if (subject.name.trim().isNotEmpty) subject.name.trim(),
+    ];
+    final queries = <String>[];
+    final seenQ = <String>{};
+    for (final raw in bgmNames) {
+      for (final q in SearchQuerySanitizer.buildBangumiFallbackQueries(raw)) {
+        if (seenQ.add(q.toLowerCase())) queries.add(q);
+      }
+    }
+    if (queries.isEmpty) return null;
+
+    final normBgmTitles = <String>{};
+    for (final name in bgmNames) {
+      final s1 = DirectoryAnalyzer.normalize(name);
+      final s2 = DirectoryAnalyzer.normalize(
+        SearchQuerySanitizer.stripPartAndSeasonSuffix(name),
+      );
+      if (s1.isNotEmpty) normBgmTitles.add(s1);
+      if (s2.isNotEmpty) normBgmTitles.add(s2);
+    }
+
+    final hits = <TmdbSearchResult>[];
+    final seenHit = <String>{};
+    for (final q in queries.take(3)) {
+      final list = await tmdb.searchAnime(
+        q,
+        year: subject.year,
+        mediaTypeFilter: preferTv ? TmdbMediaType.tv : null,
+        priority: RequestPriority.background,
+      );
+      for (final h in list) {
+        final k = '${h.mediaType.name}:${h.tmdbId}';
+        if (seenHit.add(k)) hits.add(h);
+      }
+      if (hits.length >= 8) break;
+    }
+
+    for (final hit in hits) {
+      final bd = hit.backdropPath?.trim();
+      if (bd == null || bd.isEmpty) continue;
+      if (hit.genreIds.isNotEmpty && !hit.genreIds.contains(16)) continue;
+      if (subject.year != null &&
+          hit.year != null &&
+          (subject.year! - hit.year!).abs() > 1) {
+        continue;
+      }
+
+      final hitNorms = <String>[
+        DirectoryAnalyzer.normalize(hit.title),
+        if (hit.originalTitle != null && hit.originalTitle!.trim().isNotEmpty)
+          DirectoryAnalyzer.normalize(hit.originalTitle!),
+      ].where((e) => e.isNotEmpty).toList(growable: false);
+
+      var bestSim = 0.0;
+      for (final bn in normBgmTitles) {
+        for (final hn in hitNorms) {
+          final sim = WorkMatcher.similarity(bn, hn);
+          if (sim > bestSim) bestSim = sim;
+        }
+      }
+      if (bestSim < 0.72) continue;
+
+      if (hit.genreIds.isEmpty) {
+        final detail = await tmdb.getWorkDetail(
+          hit.tmdbId,
+          hit.mediaType,
+          priority: RequestPriority.background,
+        );
+        if (detail == null || !detail.genreIds.contains(16)) continue;
+        final dBd = detail.backdropPath?.trim();
+        if (dBd != null && dBd.isNotEmpty) return dBd;
+      }
+      return bd;
+    }
+  } catch (_) {
+    // 静默兜底失败绝不影响 Bangumi 独立绑定主流程。
+  }
+  return null;
 }
 
 /// 从原作品中拆出选中物理视频文件为独立媒体库作品，并将原拆出文件写入永久归属锁定。
@@ -371,15 +491,22 @@ Future<Work> executeSplitVariantsToIndependentWork(
     );
   }
 
-  await _cleanupSourceWorkAfterSplit(repo, sourceWork);
+  final sourceDeleted = await _cleanupSourceWorkAfterSplit(repo, sourceWork);
   await SeriesAutoLinker.reconcileAll(
     repository: repo,
     bangumiService: bangumiServiceOverride,
   );
-  return (await repo.findWorkById(newWorkId)) ?? boundWork;
+  final resolvedTarget = (await repo.findWorkById(newWorkId)) ?? boundWork;
+  if (sourceDeleted) {
+    recordWorkRedirect(ref, sourceWork.id, resolvedTarget.id);
+    ref.invalidate(workDetailBundleProvider(sourceWork.id));
+    ref.invalidate(libraryItemsProvider);
+    ref.invalidate(worksCountProvider);
+  }
+  return resolvedTarget;
 }
 
-Future<void> _cleanupSourceWorkAfterSplit(
+Future<bool> _cleanupSourceWorkAfterSplit(
   LibraryRepository repo,
   Work sourceWork,
 ) async {
@@ -391,7 +518,9 @@ Future<void> _cleanupSourceWorkAfterSplit(
   if (remaining.isEmpty ||
       (!hasRemainingVideos && sourceWork.scrapeStatus != ScrapeStatus.matched)) {
     await repo.deleteWork(sourceWork.id);
+    return true;
   }
+  return false;
 }
 
 Work _buildHybridWorkEntity({

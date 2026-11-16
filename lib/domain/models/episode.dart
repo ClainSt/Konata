@@ -73,6 +73,9 @@ class Episode {
   /// 单集剧照路径。
   final String? stillPath;
 
+  /// 是否为特典/附加映像（非正片时为 `true`，供各选集列表统一判断徽章样式）。
+  bool get isSpecial => category == EpisodeCategory.extra;
+
   /// 正片严格置顶升序、特典（NCOP / NCED / PV / MENU 等）紧随其后的统一排序比较器。
   static int compareMainFirst(Episode a, Episode b) {
     final aCat = a.category == EpisodeCategory.main ? 0 : 1;

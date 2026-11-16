@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:path/path.dart' as p;
 
@@ -222,6 +223,18 @@ class MpvQualityProfile {
   static const String windowsAudioDriver = 'wasapi';
   static const String androidAudioDriver = 'aaudio,audiotrack,opensles';
 
+  /// WebDAV / HTTP 远程流防风控单连接 Keep-Alive 复用与加速探测参数。
+  static const String remoteStreamLavfOptions =
+      'reconnect=1,reconnect_streamed=1,reconnect_delay_max=2,multiple_requests=1';
+  static const String remoteVideoProbesize = '524288';
+  static const String remoteAudioProbesize = '262144';
+  static const String remoteVideoAnalyzeDuration = '1.5';
+  static const String remoteAudioAnalyzeDuration = '0.8';
+  static const int remoteVideoDemuxerMaxBytesMiB = 180;
+  static const int remoteVideoDemuxerMaxBackBytesMiB = 120;
+  static const int remoteAudioDemuxerMaxBytesMiB = 64;
+  static const int remoteAudioDemuxerMaxBackBytesMiB = 48;
+
   /// 解析当前平台与预设对应的最优硬件解码策略。
   static String resolveHwdecValue({
     required PlaybackQualityConfig config,
@@ -288,6 +301,7 @@ class MpvQualityProfile {
     required PlaybackQualityConfig config,
     required Directory mpvConfigDir,
     Directory? screenshotDir,
+    bool isRemoteStream = false,
     bool? isWindowsOverride,
     bool? isAndroidOverride,
     DiagnosticsLogStore? logStore,
@@ -347,23 +361,34 @@ class MpvQualityProfile {
       setter.setOption(client, 'glsl-shaders', shaders);
     }
 
-    // 解复用前向 / 回溯缓冲控制（WebDAV / SMB 流畅拖放）
+    // 解复用前向 / 回溯纯内存环形缓冲控制（WebDAV / SMB 零写盘极速回跳）
     setter.setOption(client, 'cache', 'yes');
-    setter.setOption(
-      client,
-      'demuxer-max-bytes',
-      '${config.demuxerMaxBytesMiB}MiB',
-    );
-    setter.setOption(
-      client,
-      'demuxer-max-back-bytes',
-      '${config.demuxerMaxBackBytesMiB}MiB',
-    );
+    setter.setOption(client, 'cache-on-disk', 'no');
+    final maxBytesMiB = isRemoteStream
+        ? math.max(config.demuxerMaxBytesMiB, remoteVideoDemuxerMaxBytesMiB)
+        : config.demuxerMaxBytesMiB;
+    final backBytesMiB = isRemoteStream
+        ? math.max(
+            config.demuxerMaxBackBytesMiB,
+            remoteVideoDemuxerMaxBackBytesMiB,
+          )
+        : config.demuxerMaxBackBytesMiB;
+    setter.setOption(client, 'demuxer-max-bytes', '${maxBytesMiB}MiB');
+    setter.setOption(client, 'demuxer-max-back-bytes', '${backBytesMiB}MiB');
     setter.setOption(client, 'cache-secs', '${config.cacheSecs}');
     setter.setOption(client, 'cache-pause', 'no');
     setter.setOption(client, 'cache-pause-initial', 'no');
     setter.setOption(client, 'cache-pause-wait', '0.25');
     setter.setOption(client, 'demuxer-readahead-secs', '20');
+    if (isRemoteStream) {
+      setter.setOption(client, 'stream-lavf-o', remoteStreamLavfOptions);
+      setter.setOption(client, 'demuxer-lavf-probesize', remoteVideoProbesize);
+      setter.setOption(
+        client,
+        'demuxer-lavf-analyzeduration',
+        remoteVideoAnalyzeDuration,
+      );
+    }
 
     // 高保真音频后端与 libsoxr 28-bit 重采样
     setter.setOption(
@@ -491,6 +516,7 @@ class MpvQualityProfile {
     LibMpvClient client, {
     required PlaybackQualityConfig config,
     required Directory mpvConfigDir,
+    bool isRemoteStream = false,
     bool? isWindowsOverride,
     DiagnosticsLogStore? logStore,
   }) {
@@ -502,8 +528,13 @@ class MpvQualityProfile {
     setter.setOption(client, 'idle', 'yes');
     setter.setOption(client, 'keep-open', 'yes');
     setter.setOption(client, 'vid', 'no');
+    setter.setOption(client, 'video', 'no');
     setter.setOption(client, 'vo', 'null');
     setter.setOption(client, 'audio-display', 'no');
+    setter.setOption(client, 'cover-art-auto', 'no');
+    setter.setOption(client, 'sub-auto', 'no');
+    setter.setOption(client, 'audio-file-auto', 'no');
+    setter.setOption(client, 'prefetch-playlist', 'yes');
     setter.setOption(
       client,
       'audio-swresample-o',
@@ -522,14 +553,129 @@ class MpvQualityProfile {
       setter.setOption(client, 'audio-exclusive', 'yes');
     }
     setter.setOption(client, 'cache', 'yes');
+    setter.setOption(client, 'cache-on-disk', 'no');
     setter.setOption(client, 'cache-pause', 'no');
     setter.setOption(client, 'cache-pause-initial', 'no');
     setter.setOption(client, 'cache-pause-wait', '0.25');
-    setter.setOption(
-      client,
-      'demuxer-max-bytes',
-      '${config.demuxerMaxBytesMiB}MiB',
-    );
+    final audioMaxMiB = isRemoteStream
+        ? math.max(config.demuxerMaxBytesMiB, remoteAudioDemuxerMaxBytesMiB)
+        : config.demuxerMaxBytesMiB;
+    final audioBackMiB = isRemoteStream
+        ? math.max(
+            config.demuxerMaxBackBytesMiB,
+            remoteAudioDemuxerMaxBackBytesMiB,
+          )
+        : config.demuxerMaxBackBytesMiB;
+    setter.setOption(client, 'demuxer-max-bytes', '${audioMaxMiB}MiB');
+    setter.setOption(client, 'demuxer-max-back-bytes', '${audioBackMiB}MiB');
+    if (isRemoteStream) {
+      setter.setOption(client, 'stream-lavf-o', remoteStreamLavfOptions);
+      setter.setOption(client, 'demuxer-lavf-probesize', remoteAudioProbesize);
+      setter.setOption(
+        client,
+        'demuxer-lavf-analyzeduration',
+        remoteAudioAnalyzeDuration,
+      );
+    }
+  }
+
+  /// 在保活会话热切换媒体前同步更新远程/本地流探测与双向内存环形缓存属性。
+  static void applyRuntimeStreamProfile(
+    LibMpvClient client, {
+    required bool isRemoteStream,
+    required bool isAudio,
+    required PlaybackQualityConfig config,
+    DiagnosticsLogStore? logStore,
+  }) {
+    final setter = MpvSafePropertySetter(logStore: logStore);
+    setter.setString(client, 'cache', 'yes');
+    setter.setString(client, 'cache-on-disk', 'no');
+
+    if (isRemoteStream) {
+      final maxMiB = isAudio
+          ? math.max(config.demuxerMaxBytesMiB, remoteAudioDemuxerMaxBytesMiB)
+          : math.max(config.demuxerMaxBytesMiB, remoteVideoDemuxerMaxBytesMiB);
+      final backMiB = isAudio
+          ? math.max(
+              config.demuxerMaxBackBytesMiB,
+              remoteAudioDemuxerMaxBackBytesMiB,
+            )
+          : math.max(
+              config.demuxerMaxBackBytesMiB,
+              remoteVideoDemuxerMaxBackBytesMiB,
+            );
+      setter.setString(client, 'stream-lavf-o', remoteStreamLavfOptions);
+      setter.setString(
+        client,
+        'demuxer-lavf-probesize',
+        isAudio ? remoteAudioProbesize : remoteVideoProbesize,
+      );
+      setter.setString(
+        client,
+        'demuxer-lavf-analyzeduration',
+        isAudio ? remoteAudioAnalyzeDuration : remoteVideoAnalyzeDuration,
+      );
+      setter.setString(client, 'demuxer-max-bytes', '${maxMiB}MiB');
+      setter.setString(client, 'demuxer-max-back-bytes', '${backMiB}MiB');
+    } else {
+      setter.setString(
+        client,
+        'demuxer-max-bytes',
+        '${config.demuxerMaxBytesMiB}MiB',
+      );
+      setter.setString(
+        client,
+        'demuxer-max-back-bytes',
+        '${config.demuxerMaxBackBytesMiB}MiB',
+      );
+    }
+  }
+
+  /// 应用 `thumbfast` 级后台缩略图常驻会话前置选项（极致剥离远程重开销与微缓冲节流）。
+  ///
+  /// 强制屏蔽音轨、字幕、内封字体（严禁跨 WebDAV 拉取数十 MB ASS 内嵌字体）与着色器，
+  /// 使用无精准寻址的关键帧快速跳跃与 512 KiB 微缓冲，确保悬停秒出帧且不抢占主视频带宽。
+  static void applyPreInitThumbnailOptions(
+    LibMpvClient client, {
+    DiagnosticsLogStore? logStore,
+  }) {
+    final setter = MpvSafePropertySetter(logStore: logStore);
+
+    setter.setOption(client, 'config', 'no');
+    setter.setOption(client, 'terminal', 'no');
+    setter.setOption(client, 'osc', 'no');
+    setter.setOption(client, 'osd-level', '0');
+    setter.setOption(client, 'idle', 'yes');
+    setter.setOption(client, 'keep-open', 'yes');
+    setter.setOption(client, 'pause', 'yes');
+
+    setter.setOption(client, 'vo', 'libmpv');
+    setter.setOption(client, 'ao', 'null');
+    setter.setOption(client, 'hwdec', 'no');
+    setter.setOption(client, 'keepaspect', 'no');
+    setter.setOption(client, 'video-timing-offset', '0');
+
+    // 剥离音轨、字幕与内封字体重开销
+    setter.setOption(client, 'aid', 'no');
+    setter.setOption(client, 'sid', 'no');
+    setter.setOption(client, 'embeddedfonts', 'no');
+    setter.setOption(client, 'sub-auto', 'no');
+    setter.setOption(client, 'audio-file-auto', 'no');
+    setter.setOption(client, 'cover-art-auto', 'no');
+
+    // 极速关键帧解码与轻量化缩放管线
+    setter.setOption(client, 'hr-seek', 'no');
+    setter.setOption(client, 'vd-lavc-fast', 'yes');
+    setter.setOption(client, 'vd-lavc-skiploopfilter', 'all');
+    setter.setOption(client, 'glsl-shaders', '');
+    setter.setOption(client, 'deband', 'no');
+    setter.setOption(client, 'scale', 'bilinear');
+
+    // 微量化缓冲节流（避免抢占主视频 WebDAV/SMB 连接池与带宽）
+    setter.setOption(client, 'cache', 'no');
+    setter.setOption(client, 'demuxer-readahead-secs', '0');
+    setter.setOption(client, 'demuxer-max-bytes', '524288');
+    setter.setOption(client, 'stream-buffer-size', '65536');
   }
 
   /// 扫描 `<Root>/userdata/mpv/shaders/` 下可用的 `.glsl` / `.hook` 着色器脚本。

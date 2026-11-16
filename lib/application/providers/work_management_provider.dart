@@ -665,6 +665,7 @@ class WorkManagementActions {
     }
     await repo.deleteWork(workId);
     await _ref.read(photosStorageProvider).deleteWorkPhotos(workId);
+    clearWorkRedirectsForWork(_ref, workId);
     _invalidateWork(workId);
   }
 

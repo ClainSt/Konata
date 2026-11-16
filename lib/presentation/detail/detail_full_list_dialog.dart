@@ -10,7 +10,10 @@ import '../../domain/matching/supplementary_subclassifier.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/media_variant.dart';
 import '../../infrastructure/cache/scan_thumbnail_scheduler.dart';
+import '../theme/konata_palette.dart';
+import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
+import '../widgets/design_system/konata_draggable_dialog.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/managed_image.dart';
 import 'detail_bottom_drawer.dart';
@@ -224,6 +227,7 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final screenSize = MediaQuery.sizeOf(context);
     final dialogWidth = (screenSize.width * 0.84).clamp(620.0, 1180.0);
     final dialogHeight = (screenSize.height * 0.82).clamp(480.0, 820.0);
@@ -321,10 +325,7 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
         const SingleActivator(LogicalKeyboardKey.escape): () =>
             Navigator.of(context).pop(),
       },
-      child: Dialog(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      child: KonataDraggableDialog(
         child: ClipRRect(
           borderRadius: BorderRadius.circular(20),
           child: BackdropFilter(
@@ -333,10 +334,10 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
               width: dialogWidth,
               height: dialogHeight,
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.56),
+                color: KonataPlaybackTokens.popoverSurface(p),
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.16),
+                  color: KonataPlaybackTokens.glassBorder(p),
                   width: 1,
                 ),
               ),
@@ -347,14 +348,19 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
                   Row(
                     children: [
                       Expanded(
-                        child: Text(
-                          '${widget.bundle.work.title} · 完整列表',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: KonataTheme.detailTextStyle(
-                            color: Colors.white,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
+                        child: KonataDialogDragHandle(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Text(
+                              '${widget.bundle.work.title} · 完整列表',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: KonataTheme.detailTextStyle(
+                                palette: p,
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -375,16 +381,16 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
                         tooltip: '关闭 (Esc)',
                         onPressed: () => Navigator.of(context).pop(),
                         style: IconButton.styleFrom(
-                          backgroundColor: Colors.white.withValues(alpha: 0.08),
+                          backgroundColor: KonataPlaybackTokens.softFill(p),
                           side: BorderSide(
-                            color: Colors.white.withValues(alpha: 0.14),
+                            color: KonataPlaybackTokens.glassBorder(p),
                             width: 0.8,
                           ),
                         ),
-                        icon: const Icon(
+                        icon: Icon(
                           Icons.close_rounded,
                           size: 18,
-                          color: Colors.white,
+                          color: p.textPrimary,
                         ),
                       ),
                     ],
@@ -680,12 +686,13 @@ class _FrostedSearchField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.08),
+        color: KonataPlaybackTokens.softFill(p),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: Colors.white.withValues(alpha: 0.16),
+          color: KonataPlaybackTokens.glassBorder(p),
           width: 0.9,
         ),
       ),
@@ -696,7 +703,7 @@ class _FrostedSearchField extends StatelessWidget {
           Icon(
             Icons.search_rounded,
             size: 16,
-            color: Colors.white.withValues(alpha: 0.66),
+            color: p.textSecondary,
           ),
           const SizedBox(width: 7),
           Expanded(
@@ -704,11 +711,11 @@ class _FrostedSearchField extends StatelessWidget {
               controller: controller,
               onChanged: onChanged,
               style: KonataTheme.detailTextStyle(
-                color: Colors.white,
+                palette: p,
                 fontSize: 12.5,
                 fontWeight: FontWeight.w400,
               ),
-              cursorColor: Colors.white,
+              cursorColor: p.textPrimary,
               decoration: InputDecoration(
                 isDense: true,
                 border: InputBorder.none,
@@ -716,7 +723,8 @@ class _FrostedSearchField extends StatelessWidget {
                 focusedBorder: InputBorder.none,
                 hintText: '搜索文件名或分组...',
                 hintStyle: KonataTheme.detailTextStyle(
-                  color: Colors.white.withValues(alpha: 0.48),
+                  palette: p,
+                  color: p.textMuted,
                   fontSize: 12.5,
                   fontWeight: FontWeight.w400,
                 ),
@@ -733,7 +741,7 @@ class _FrostedSearchField extends StatelessWidget {
               child: Icon(
                 Icons.close_rounded,
                 size: 15,
-                color: Colors.white.withValues(alpha: 0.65),
+                color: p.textSecondary,
               ),
             ),
         ],

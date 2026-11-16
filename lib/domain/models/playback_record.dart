@@ -2,6 +2,9 @@ import 'media_source.dart';
 
 /// 强类型播放历史记录领域实体（含精确到秒进度与完播状态）。
 class PlaybackRecord {
+  /// 音频播放记录在 `episodeId` / `id` 中的统一前缀标识（用于与视频历史分栏隔离）。
+  static const String audioEpisodePrefix = 'cd::';
+
   /// 创建播放历史记录实例。
   const PlaybackRecord({
     required this.id,
@@ -63,6 +66,11 @@ class PlaybackRecord {
 
   /// 是否属于可断点续播状态（未看完且已播放超过 5 秒）。
   bool get hasResumableProgress => !isCompleted && positionSeconds > 5;
+
+  /// 是否为音频 / CD 播放历史记录。
+  bool get isAudioRecord =>
+      episodeId.startsWith(audioEpisodePrefix) ||
+      id.startsWith(audioEpisodePrefix);
 
   /// 生成用于展示的 `S01E03` 编号标签。
   String get episodeTag => formatEpisodeTag(seasonNumber, episodeNumber);

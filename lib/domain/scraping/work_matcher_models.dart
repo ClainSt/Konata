@@ -13,6 +13,8 @@ class MatchCandidate {
     this.seasons = const [],
     this.airDate,
     this.isSpecialFormat = false,
+    this.genreIds = const [],
+    this.firstEpisodeSort,
   });
 
   /// 'tmdb' or 'bangumi'.
@@ -29,6 +31,8 @@ class MatchCandidate {
   final List<SeasonInfo> seasons;
   final String? airDate;
   final bool isSpecialFormat;
+  final List<int> genreIds;
+  final double? firstEpisodeSort;
 
   String get key => '$type:$id';
 

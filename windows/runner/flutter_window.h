@@ -3,11 +3,10 @@
 
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
-#include <flutter/method_channel.h>
-#include <flutter/encodable_value.h>
 
 #include <memory>
 
+#include "d3d11_texture_bridge.h"
 #include "win32_window.h"
 
 // A window that does nothing but host a Flutter view.
@@ -30,7 +29,9 @@ class FlutterWindow : public Win32Window {
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
-  std::shared_ptr<flutter::MethodChannel<flutter::EncodableValue>> video_channel_;
+
+  // Native D3D11 shared texture bridge for libmpv video playback.
+  std::unique_ptr<D3D11TextureBridge> d3d11_bridge_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

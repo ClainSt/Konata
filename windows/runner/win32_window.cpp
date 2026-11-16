@@ -134,8 +134,9 @@ bool Win32Window::Create(const std::wstring& title,
   UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
   double scale_factor = dpi / 96.0;
 
+  // 移除 WS_SYSMENU 防止 Win32 绘制原生标题栏按钮，保留 WS_THICKFRAME 与最小化/最大化能力以支持 Windows 11 圆角与 Aero Snap。
   HWND window = CreateWindow(
-      window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
+      window_class, title.c_str(), WS_OVERLAPPEDWINDOW & ~WS_SYSMENU,
       Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
       Scale(size.width, scale_factor), Scale(size.height, scale_factor),
       nullptr, nullptr, GetModuleHandle(nullptr), this);

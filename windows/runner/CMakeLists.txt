@@ -7,8 +7,8 @@ project(runner LANGUAGES CXX)
 #
 # Any new source files that you add to the application should be added here.
 add_executable(${BINARY_NAME} WIN32
+  "d3d11_texture_bridge.cpp"
   "flutter_window.cpp"
-  "d3d11_video.cpp"
   "main.cpp"
   "utils.cpp"
   "win32_window.cpp"
@@ -20,6 +20,8 @@ add_executable(${BINARY_NAME} WIN32
 # Apply the standard set of build settings. This can be removed for applications
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})
+# 启用 UTF-8 源码/执行字符集，避免简体中文 Windows (CP936) 编译中文注释触发 C4819
+target_compile_options(${BINARY_NAME} PRIVATE /utf-8)
 
 # The runner handles native failures with C++ exceptions/futures. Flutter's
 # no-STL-exceptions default aliases std::exception to stdext::exception, which
@@ -30,9 +32,7 @@ list(REMOVE_ITEM runner_definitions "_HAS_EXCEPTIONS=0")
 set_property(TARGET ${BINARY_NAME} PROPERTY COMPILE_DEFINITIONS "${runner_definitions}")
 
 # Normal Release entry with separate path_provider/preferences storage for QA.
-if("$ENV{KONATA_SCRAPER_PACKAGE}" STREQUAL "1")
-  target_compile_definitions(${BINARY_NAME} PRIVATE "KONATA_SCRAPER_PACKAGE")
-elseif("$ENV{KONATA_RELEASE_VALIDATION}" STREQUAL "1")
+if("$ENV{KONATA_RELEASE_VALIDATION}" STREQUAL "1")
   target_compile_definitions(${BINARY_NAME} PRIVATE "KONATA_RELEASE_VALIDATION")
 endif()
 
@@ -48,16 +48,12 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 
 # Add dependency libraries and include directories. Add any application-specific
 # dependencies here.
-target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
-target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
-target_link_libraries(${BINARY_NAME} PRIVATE "d3d11.lib" "dxgi.lib")
-if(DEFINED ENV{KONATA_NATIVE_ROOT})
-  set(KONATA_NATIVE_HEADERS "$ENV{KONATA_NATIVE_ROOT}/windows/include")
-else()
-  set(KONATA_NATIVE_HEADERS "${CMAKE_SOURCE_DIR}/../.dart_tool/konata-native/windows/include")
-endif()
-target_include_directories(${BINARY_NAME} PRIVATE "${KONATA_NATIVE_HEADERS}")
-target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
+target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app flutter_wrapper_plugin)
+target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib" "d3d11.lib" "dxgi.lib")
+target_include_directories(${BINARY_NAME} PRIVATE
+  "${CMAKE_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/../native/konata-native/windows/include"
+)
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)

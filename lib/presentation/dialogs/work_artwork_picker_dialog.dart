@@ -1,0 +1,574 @@
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../application/providers/artwork_provider.dart';
+import '../../application/providers/work_management_provider.dart';
+import '../../domain/models/work.dart';
+import '../../domain/sources/artwork_crop_math.dart';
+import '../theme/konata_palette.dart';
+import '../theme/konata_theme.dart';
+import '../widgets/design_system/konata_draggable_scrollbar.dart';
+import '../widgets/design_system/konata_glass_dialog.dart';
+import '../widgets/design_system/konata_pill_button.dart';
+import '../widgets/design_system/konata_soft_text_field.dart';
+import '../widgets/design_system/konata_toast.dart';
+import '../widgets/managed_image.dart';
+import 'artwork_crop_dialog.dart';
+
+/// 图像编辑目标类型（竖版海报封面 / 横版大片背景图）。
+enum WorkArtworkKind { poster, backdrop }
+
+/// 作品封面与背景图选择弹窗（支持 TMDB 候选图集、自定义 URL 与本地图片文件）。
+class WorkArtworkPickerDialog extends ConsumerStatefulWidget {
+  /// 创建图片选择弹窗。
+  const WorkArtworkPickerDialog({
+    super.key,
+    required this.work,
+    required this.kind,
+  });
+
+  /// 目标作品。
+  final Work work;
+
+  /// 修改海报还是背景图。
+  final WorkArtworkKind kind;
+
+  @override
+  ConsumerState<WorkArtworkPickerDialog> createState() =>
+      _WorkArtworkPickerDialogState();
+}
+
+class _WorkArtworkPickerDialogState
+    extends ConsumerState<WorkArtworkPickerDialog> {
+  final ScrollController _gridCtrl = ScrollController();
+  late final TextEditingController _customPathCtrl;
+  List<WorkArtworkOption> _candidates = const [];
+  bool _loading = false;
+  bool _saving = false;
+  String? _selectedPath;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.kind == WorkArtworkKind.poster
+        ? widget.work.posterPath
+        : widget.work.backdropPath;
+    _selectedPath = initial;
+    _customPathCtrl = TextEditingController(text: initial ?? '');
+    _loadArtworkCandidates();
+  }
+
+  @override
+  void dispose() {
+    _gridCtrl.dispose();
+    _customPathCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadArtworkCandidates() async {
+    final hasRemoteArtwork =
+        widget.work.tmdbId != null ||
+        (widget.kind == WorkArtworkKind.poster &&
+            (widget.work.bangumiId != null ||
+                (widget.work.bangumiPosterPath?.trim().isNotEmpty ?? false)));
+    if (!hasRemoteArtwork) {
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      final options = await ref
+          .read(workManagementProvider)
+          .fetchWorkArtworkOptions(widget.work);
+      if (mounted) {
+        final rawList = widget.kind == WorkArtworkKind.poster
+            ? options.posters
+            : options.backdrops;
+        setState(() {
+          _candidates = rawList;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _pickLocalImage() async {
+    final isPoster = widget.kind == WorkArtworkKind.poster;
+    final files = await FilePicker.pickFiles(
+      dialogTitle: isPoster ? '选择本地封面海报图片' : '选择本地背景图片',
+      type: FileType.image,
+    );
+    final path = files.firstOrNull?.path;
+    if (path == null || path.isEmpty || !mounted) return;
+
+    final actions = ref.read(workManagementProvider);
+    final loaded = await actions.loadLocalArtworkForCrop(path);
+    try {
+      if (!mounted) return;
+      final cropRect = await showKonataGlassDialog<ArtworkNormalizedCropRect>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => ArtworkCropDialog(source: loaded, isPoster: isPoster),
+      );
+      if (cropRect == null || !mounted) return;
+
+      setState(() => _saving = true);
+      final savedPath = await actions.cropAndSaveLocalArtwork(
+        work: widget.work,
+        isPoster: isPoster,
+        source: loaded,
+        cropRect: cropRect,
+      );
+      if (mounted) {
+        _selectedPath = savedPath;
+        _customPathCtrl.text = savedPath;
+        showKonataToast(
+          context,
+          isPoster ? '已裁剪并更新作品封面海报' : '已裁剪并更新作品背景原画',
+        );
+        Navigator.of(context).pop(true);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        showKonataToast(context, '裁剪应用失败: $e');
+      }
+    } finally {
+      loaded.dispose();
+    }
+  }
+
+  Future<void> _applySelection() async {
+    final target = _customPathCtrl.text.trim().isNotEmpty
+        ? _customPathCtrl.text.trim()
+        : (_selectedPath ?? '');
+    if (target.isEmpty) {
+      showKonataToast(context, '请先选择候选图片、输入链接或挑选本地文件');
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      await ref.read(workManagementProvider).updateWorkArtwork(
+        workId: widget.work.id,
+        posterPath: widget.kind == WorkArtworkKind.poster ? target : null,
+        backdropPath: widget.kind == WorkArtworkKind.backdrop ? target : null,
+      );
+      if (mounted) {
+        showKonataToast(
+          context,
+          widget.kind == WorkArtworkKind.poster ? '已更新作品封面海报' : '已更新作品背景原画',
+        );
+        Navigator.of(context).pop(true);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        showKonataToast(context, '更新失败: $e');
+      }
+    }
+  }
+
+  Future<void> _resetToAuto() async {
+    setState(() => _saving = true);
+    try {
+      await ref.read(workManagementProvider).resetArtworkLockToAuto(
+        workId: widget.work.id,
+        resetPoster: widget.kind == WorkArtworkKind.poster,
+        resetBackdrop: widget.kind == WorkArtworkKind.backdrop,
+      );
+      if (mounted) {
+        showKonataToast(context, '已恢复自动抓取默认图像');
+        Navigator.of(context).pop(true);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        showKonataToast(context, '恢复默认失败: $e');
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final imageLoader = ref.watch(tmdbImageLoaderProvider);
+    final isPoster = widget.kind == WorkArtworkKind.poster;
+    final isLocked =
+        isPoster ? widget.work.posterLocked : widget.work.backdropLocked;
+    final canResetToAuto = widget.work.tmdbId != null && isLocked;
+
+    return KonataGlassDialog(
+      width: 680,
+      maxHeight: 620,
+      title: isPoster ? '编辑作品封面海报' : '编辑作品背景图',
+      onClose: _saving ? null : () => Navigator.of(context).pop(false),
+      actions: [
+        if (canResetToAuto)
+          KonataPillButton.ghost(
+            label: '恢复自动抓取默认',
+            compact: true,
+            onPressed: _saving ? null : _resetToAuto,
+          ),
+        KonataPillButton.ghost(
+          label: '取消',
+          compact: true,
+          onPressed: _saving ? null : () => Navigator.of(context).pop(false),
+        ),
+        KonataPillButton.primary(
+          label: _saving ? '应用中...' : '应用选中图片',
+          compact: true,
+          onPressed: _saving ? null : _applySelection,
+        ),
+      ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: KonataSoftTextField(
+                  controller: _customPathCtrl,
+                  label: '图片 URL、TMDB 路径或本地路径',
+                  hintText: 'https://... 或本地图片路径',
+                  onChanged: (v) => setState(() => _selectedPath = v.trim()),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Padding(
+                padding: const EdgeInsets.only(top: 18),
+                child: KonataPillButton.secondary(
+                  label: '本地图片...',
+                  icon: Icons.folder_open_rounded,
+                  compact: true,
+                  onPressed: _pickLocalImage,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            _buildCandidateHeaderText(isPoster),
+            style: TextStyle(
+              color: p.textSecondary,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _candidates.isEmpty
+                ? _buildSinglePreview(p, imageLoader, isPoster)
+                : KonataDraggableScrollbar(
+                    controller: _gridCtrl,
+                    builder: (_, ctrl) => GridView.builder(
+                      controller: ctrl,
+                      padding: const EdgeInsets.only(right: 14),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: isPoster ? 4 : 2,
+                        mainAxisSpacing: 12,
+                        crossAxisSpacing: 12,
+                        childAspectRatio: isPoster ? 2 / 3 : 16 / 9,
+                      ),
+                      itemCount: _candidates.length,
+                      itemBuilder: (_, index) {
+                        final item = _candidates[index];
+                        return _ArtworkGridTile(
+                          option: item,
+                          workId: widget.work.id,
+                          isPoster: isPoster,
+                          selected: _selectedPath == item.filePath,
+                          imageLoader: imageLoader,
+                          onTap: () {
+                            setState(() {
+                              _selectedPath = item.filePath;
+                              _customPathCtrl.text = item.filePath;
+                            });
+                          },
+                        );
+                      },
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _buildCandidateHeaderText(bool isPoster) {
+    if (_candidates.isEmpty) {
+      if (widget.work.tmdbId == null && widget.work.bangumiId == null) {
+        return '尚未绑定条目 ID，可直接填写图片 URL 或挑选本地图片文件';
+      }
+      return isPoster ? '暂无可用候选封面' : 'TMDB 官方候选背景图 (0)';
+    }
+    if (!isPoster) {
+      return 'TMDB 官方候选背景图 (${_candidates.length})';
+    }
+    final hasBgm = _candidates.any((e) => e.isBangumi);
+    final hasTmdb = _candidates.any((e) => !e.isBangumi);
+    if (hasBgm && hasTmdb) {
+      return 'Bangumi / TMDB 官方候选封面 (${_candidates.length})';
+    }
+    if (hasBgm) {
+      return 'Bangumi 官方候选封面 (${_candidates.length})';
+    }
+    return 'TMDB 官方候选图集 (${_candidates.length})';
+  }
+
+  Widget _buildSinglePreview(
+    KonataPalette p,
+    ManagedImageLoader imageLoader,
+    bool isPoster,
+  ) {
+    final preview = _selectedPath ?? '';
+    if (preview.isEmpty) {
+      return Center(
+        child: Text(
+          '暂无可选候选图片',
+          style: TextStyle(color: p.textMuted),
+        ),
+      );
+    }
+    return Center(
+      child: AspectRatio(
+        aspectRatio: isPoster ? 2 / 3 : 16 / 9,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              ManagedImage(
+                preview,
+                loader: imageLoader,
+                owner: widget.work.id,
+                decodeWidth: 780,
+                fit: BoxFit.cover,
+              ),
+              Positioned(
+                left: 8,
+                right: 8,
+                bottom: 8,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    _AsyncResolutionBadge(path: preview),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ArtworkGridTile extends ConsumerWidget {
+  const _ArtworkGridTile({
+    required this.option,
+    required this.workId,
+    required this.isPoster,
+    required this.selected,
+    required this.imageLoader,
+    required this.onTap,
+  });
+
+  final WorkArtworkOption option;
+  final String workId;
+  final bool isPoster;
+  final bool selected;
+  final ManagedImageLoader imageLoader;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = context.palette;
+    final staticRes = option.resolutionLabel;
+    final asyncDims = staticRes != null
+        ? null
+        : ref.watch(artworkOriginalDimensionsProvider(option.filePath)).valueOrNull;
+    final resolutionText = staticRes ??
+        (asyncDims != null && asyncDims.$1 > 0 && asyncDims.$2 > 0
+            ? '${asyncDims.$1}×${asyncDims.$2}'
+            : null);
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? p.accent : p.hairline,
+            width: selected ? 2.5 : 1,
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              ManagedImage(
+                option.filePath,
+                loader: imageLoader,
+                owner: workId,
+                decodeWidth: isPoster ? 342 : 780,
+                fit: BoxFit.cover,
+              ),
+              Positioned(
+                top: 6,
+                left: 6,
+                right: 6,
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: _buildSourceBadge(option),
+                ),
+              ),
+              if (resolutionText != null)
+                Positioned(
+                  right: 6,
+                  bottom: 6,
+                  child: _OverlayMiniBadge.resolution(resolutionText),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _compactSourceLabel(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed == 'TMDB 第0季' ||
+        RegExp(r'^TMDB\s*第\s*0\s*季$').hasMatch(trimmed)) {
+      return 'TMDB·SP';
+    }
+    final seasonMatch = RegExp(r'^TMDB\s*第\s*(\d+)\s*季$').firstMatch(trimmed);
+    if (seasonMatch != null) {
+      return 'TMDB·S${seasonMatch.group(1)}';
+    }
+    return trimmed;
+  }
+
+  Widget _buildSourceBadge(WorkArtworkOption option) {
+    final displayLabel = _compactSourceLabel(option.sourceLabel);
+    final isBangumi =
+        option.isBangumi || displayLabel.startsWith('Bangumi');
+    if (isBangumi) {
+      return _OverlayMiniBadge(
+        text: displayLabel,
+        backgroundColor: KonataTheme.bangumiPink,
+        textColor: Colors.white,
+        fontWeight: FontWeight.w700,
+        borderColor: Colors.white.withValues(alpha: 0.28),
+      );
+    }
+    if (displayLabel.startsWith('TMDB')) {
+      return _OverlayMiniBadge(
+        text: displayLabel,
+        backgroundColor: KonataTheme.tmdbNavy,
+        textColor: Colors.white,
+        textGradient: KonataTheme.tmdbBrandGradient,
+        fontWeight: FontWeight.w700,
+        borderColor: KonataTheme.tmdbCyan.withValues(alpha: 0.28),
+      );
+    }
+    return _OverlayMiniBadge(
+      text: displayLabel,
+      backgroundColor: Colors.black.withValues(alpha: 0.68),
+    );
+  }
+}
+
+class _AsyncResolutionBadge extends ConsumerWidget {
+  const _AsyncResolutionBadge({required this.path});
+
+  final String path;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dims = ref.watch(artworkOriginalDimensionsProvider(path)).valueOrNull;
+    if (dims == null || dims.$1 <= 0 || dims.$2 <= 0) {
+      return const SizedBox.shrink();
+    }
+    return _OverlayMiniBadge.resolution('${dims.$1}×${dims.$2}');
+  }
+}
+
+class _OverlayMiniBadge extends StatelessWidget {
+  const _OverlayMiniBadge({
+    required this.text,
+    required this.backgroundColor,
+    this.textColor = Colors.white,
+    this.textGradient,
+    this.borderColor,
+    this.fontWeight = FontWeight.w600,
+    this.tabularFigures = false,
+    this.shadows,
+  });
+
+  factory _OverlayMiniBadge.resolution(String text) => _OverlayMiniBadge(
+    text: text,
+    backgroundColor: Colors.white.withValues(alpha: 0.94),
+    textColor: KonataTheme.resolutionBadgeTextDark,
+    borderColor: Colors.black.withValues(alpha: 0.08),
+    fontWeight: FontWeight.w700,
+    tabularFigures: true,
+    shadows: [
+      BoxShadow(
+        color: Colors.black.withValues(alpha: 0.20),
+        blurRadius: 6,
+        offset: const Offset(0, 2),
+      ),
+    ],
+  );
+
+  final String text;
+  final Color backgroundColor;
+  final Color textColor;
+  final Gradient? textGradient;
+  final Color? borderColor;
+  final FontWeight fontWeight;
+  final bool tabularFigures;
+  final List<BoxShadow>? shadows;
+
+  @override
+  Widget build(BuildContext context) {
+    final textWidget = Text(
+      text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: textGradient != null ? Colors.white : textColor,
+        fontSize: 10,
+        fontWeight: fontWeight,
+        fontFeatures:
+            tabularFigures ? const [FontFeature.tabularFigures()] : null,
+      ),
+    );
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6.5, vertical: 2.5),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: borderColor ?? Colors.white.withValues(alpha: 0.22),
+          width: 0.8,
+        ),
+        boxShadow: shadows,
+      ),
+      child: textGradient == null
+          ? textWidget
+          : ShaderMask(
+              blendMode: BlendMode.srcIn,
+              shaderCallback: (bounds) => textGradient!.createShader(bounds),
+              child: textWidget,
+            ),
+    );
+  }
+}

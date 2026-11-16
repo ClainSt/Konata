@@ -1,0 +1,836 @@
+import '../../domain/matching/directory_grouper.dart';
+import '../../domain/matching/episode_remapper.dart';
+import '../../domain/matching/work_matcher.dart';
+import '../../domain/models/media_source.dart';
+import '../../domain/models/media_variant.dart';
+import '../../domain/models/tmdb_models.dart';
+import '../../domain/models/work.dart';
+import '../../domain/repositories/file_system_gateway.dart';
+import '../../domain/repositories/library_repository.dart';
+import '../../domain/scraping/bangumi_models.dart';
+import '../../domain/scraping/scrape_domain_adapter.dart';
+import '../../domain/scraping/work_matcher.dart' as legacy;
+import '../../infrastructure/cache/photos_storage.dart';
+import '../../infrastructure/network/bangumi_service.dart';
+import '../../infrastructure/network/priority_http_scheduler.dart';
+import '../../infrastructure/network/tmdb_service.dart';
+import '../../infrastructure/sources/directory_scanner.dart';
+import 'scrape_candidate_fetcher.dart';
+import 'scrape_compute_worker.dart';
+import 'scrape_progress.dart';
+import 'scrape_progress_tracker.dart';
+import 'scrape_work_persister.dart';
+import 'series_auto_linker.dart';
+
+/// 进度状态回调。
+typedef ScrapeProgressListener = void Function(ScrapeProgress progress);
+
+/// 媒体源网关构建函数。
+typedef GatewayBuilder = Future<MediaSourceGateway> Function(MediaSource source);
+
+/// Konata 2.0 四段漏斗后台刮削调度器。
+class ScrapeOrchestrator {
+  /// 创建刮削调度器。
+  ScrapeOrchestrator({
+    required LibraryRepository repository,
+    required TmdbService tmdbService,
+    BangumiService? bangumiService,
+    required this._gatewayBuilder,
+    this._scanner = const DirectoryScanner(),
+    this._computeWorker = const ScrapeComputeWorker(),
+    this._photosStorage,
+  }) : _repository = repository,
+       _tmdbService = tmdbService,
+       _bangumiService = bangumiService,
+       _persister = ScrapeWorkPersister(repository),
+       _candidateFetcher = ScrapeCandidateFetcher(
+         tmdbService,
+         bangumiService: bangumiService,
+       );
+
+  final LibraryRepository _repository;
+  final TmdbService _tmdbService;
+  final BangumiService? _bangumiService;
+  final PhotosStorage? _photosStorage;
+  final GatewayBuilder _gatewayBuilder;
+  final DirectoryScanner _scanner;
+  final ScrapeWorkPersister _persister;
+  final ScrapeCandidateFetcher _candidateFetcher;
+  final ScrapeComputeWorker _computeWorker;
+  final Map<int, int> _tmdbCollectionIdByTmdbId = <int, int>{};
+
+  /// 对指定媒体源执行完整的扫描 + 四段漏斗刮削流水线。
+  Future<ScrapeProgress> scanAndScrapeSource(
+    MediaSource source, {
+    List<String>? scanRootsOverride,
+    bool Function()? isCancelled,
+    ScrapeProgressListener? onProgress,
+  }) async {
+    // 独立包装回调，避免 Dart `?.call(tracker.advance(...))` 在监听器为空时短路跳过状态推进。
+    void emit(ScrapeProgress s) => onProgress?.call(s);
+
+    final effectiveRoots = scanRootsOverride ?? const <String>[];
+    final tracker = ScrapeProgressTracker(
+      sourceId: source.id,
+      sourceLabel: source.label,
+      selectedRoots: effectiveRoots,
+    );
+    emit(tracker.snapshot);
+
+    final gateway = await _gatewayBuilder(source);
+    try {
+      final scanResult = await _scanner.scan(
+        gateway,
+        scanRoots: effectiveRoots,
+        isCancelled: isCancelled,
+        onFolderVisited: tracker.recordFolderVisited,
+        onProgress: (dir, dirCount, fileCount) {
+          emit(
+            tracker.updateScanProgress(
+              currentDir: dir,
+              scannedDirectories: dirCount,
+              foundFiles: fileCount,
+              cancelRequested: isCancelled?.call() ?? false,
+            ),
+          );
+        },
+      );
+
+      if (scanResult.cancelled || (isCancelled?.call() ?? false)) {
+        final cancelled = tracker.advance(
+          phase: ScrapePhase.cancelled,
+          currentItemName: '已取消扫描',
+          scannedDirectories: scanResult.scannedDirectories,
+          folderVideoCounts: scanResult.folderVideoCounts,
+          cancelRequested: true,
+        );
+        emit(cancelled);
+        return cancelled;
+      }
+
+      emit(
+        tracker.advance(
+          phase: ScrapePhase.grouping,
+          currentItemName: '正在聚合作品目录...',
+          scannedDirectories: scanResult.scannedDirectories,
+          foundFiles: scanResult.files.length,
+          folderVideoCounts: scanResult.folderVideoCounts,
+        ),
+      );
+
+      final existingSourceVariants = await _repository.getVariantsBySource(
+        source.id,
+      );
+      final lockedByNormalizedPath = <String, MediaVariant>{};
+      for (final variant in existingSourceVariants) {
+        if (!variant.workLocked && !variant.scopeLocked) continue;
+        final norm = _normalizeSourceRelPath(variant.relativePath);
+        if (norm.isNotEmpty) {
+          lockedByNormalizedPath[norm] = variant;
+        }
+      }
+
+      final lockedActiveWorkIds = <String>{};
+      final lockedActiveVariantIds = <String>{};
+      final unlockedScanFiles = <ScannedFileInput>[];
+      for (final file in scanResult.files) {
+        final norm = _normalizeSourceRelPath(file.relativePath);
+        final lockedVariant = lockedByNormalizedPath[norm];
+        if (lockedVariant != null) {
+          lockedActiveWorkIds.add(lockedVariant.workId);
+          lockedActiveVariantIds.add(lockedVariant.id);
+        } else {
+          unlockedScanFiles.add(file);
+        }
+      }
+
+      final groupedWorksAll = await _computeWorker.groupFiles(
+        sourceId: source.id,
+        files: unlockedScanFiles,
+        nfoByFolder: scanResult.nfoByFolder,
+      );
+      final ignoredFolders = (await _repository.getIgnoredFolders(source.id))
+          .map((e) => e.trim().replaceAll('\\', '/'))
+          .where((e) => e.isNotEmpty)
+          .toSet();
+      final groupedWorks = groupedWorksAll.where((folder) {
+        final norm = folder.folderRelativePath.trim().replaceAll('\\', '/');
+        return !ignoredFolders.any((ig) => norm == ig || norm.startsWith('$ig/'));
+      }).toList(growable: false);
+
+      emit(
+        tracker.advance(
+          phase: ScrapePhase.scraping,
+          totalWorks: groupedWorks.length,
+          processedWorks: 0,
+        ),
+      );
+
+      final activeWorkIds = <String>{...lockedActiveWorkIds};
+      final activeVariantIds = <String>{...lockedActiveVariantIds};
+      for (final folder in groupedWorks) {
+        if (isCancelled?.call() ?? false) {
+          final cancelled = tracker.advance(
+            phase: ScrapePhase.cancelled,
+            currentItemName: '已取消刮削',
+            cancelRequested: true,
+          );
+          emit(cancelled);
+          return cancelled;
+        }
+        emit(tracker.advance(currentItemName: folder.cleanTitle));
+
+        final result = await _processSingleFolder(source.id, folder);
+        activeWorkIds.add(result.workId);
+        for (final v in folder.variants) {
+          activeVariantIds.add(
+            ScrapeWorkPersister.deterministicId('${v.sourceId}::${v.relativePath}'),
+          );
+        }
+        final snap = tracker.snapshot;
+        emit(
+          tracker.advance(
+            processedWorks: snap.processedWorks + 1,
+            matchedWorks:
+                snap.matchedWorks + (result.status == ScrapeStatus.matched ? 1 : 0),
+            reviewWorks:
+                snap.reviewWorks + (result.status == ScrapeStatus.needsReview ? 1 : 0),
+            unmatchedWorks:
+                snap.unmatchedWorks + (result.status == ScrapeStatus.unmatched ? 1 : 0),
+          ),
+        );
+      }
+
+      // 支持全量与局部 scanRoots 范围修剪：非空 scopedRoots 仅清理对应目录前缀下的失联条目，绝不误删未选目录作品。
+      await _repository.pruneStaleSourceEntries(
+        sourceId: source.id,
+        activeWorkIds: activeWorkIds,
+        activeVariantIds: activeVariantIds,
+        scopedRoots: effectiveRoots,
+      );
+
+      await SeriesAutoLinker.reconcileAll(
+        repository: _repository,
+        bangumiService: _bangumiService,
+        tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
+      );
+
+      final completed = tracker.advance(
+        phase: ScrapePhase.completed,
+        currentItemName: '刮削完成',
+      );
+      emit(completed);
+      return completed;
+    } catch (error) {
+      final failed = tracker.advance(
+        phase: ScrapePhase.failed,
+        errorMessage: '$error',
+      );
+      emit(failed);
+      rethrow;
+    } finally {
+      await gateway.close();
+    }
+  }
+
+  Future<({ScrapeStatus status, String workId})> _processSingleFolder(
+    String sourceId,
+    GroupedWorkFolder folder,
+  ) async {
+    final existing = await _persister.findExistingWorkForFolder(sourceId, folder);
+    final workId =
+        existing?.id ??
+        ScrapeWorkPersister.deterministicId(
+          '$sourceId::${folder.folderRelativePath}',
+        );
+    final seasons = _extractReferencedSeasons(folder);
+
+    // 阶段 1：人工锁定保护，跳过自动重刮削，仅同步新增文件与剧集关联（保留手动文件映射与 Bangumi 穿插校准）。
+    if (existing != null && existing.isManualLocked) {
+      final lockedSeasons = <int>{
+        ...seasons,
+        if (existing.matchedSeason != null && existing.matchedSeason! > 0)
+          existing.matchedSeason!,
+      };
+      TmdbWorkDetail? lockedDetail;
+      if (existing.tmdbId != null && existing.tmdbMediaType != null) {
+        try {
+          lockedDetail = await _tmdbService.getWorkDetail(
+            existing.tmdbId!,
+            existing.tmdbMediaType!,
+            priority: RequestPriority.background,
+          );
+        } catch (_) {
+          lockedDetail = null;
+        }
+      }
+      final preRemap =
+          (lockedDetail != null &&
+              lockedDetail.mediaType == TmdbMediaType.tv &&
+              lockedDetail.seasons.isNotEmpty)
+          ? EpisodeRemapper.buildPlan(
+              folder: folder,
+              tmdbSeasons: lockedDetail.seasons,
+              matchedSeason: existing.matchedSeason,
+            )
+          : null;
+      if (preRemap != null) {
+        lockedSeasons.addAll(preRemap.referencedSeasons);
+      }
+      if (lockedDetail?.collectionId != null && lockedDetail!.collectionId! > 0) {
+        _tmdbCollectionIdByTmdbId[lockedDetail.tmdbId] =
+            lockedDetail.collectionId!;
+      }
+      final episodes =
+          (existing.tmdbId != null && existing.tmdbMediaType != null)
+          ? await _candidateFetcher.fetchEpisodesForDetail(
+              existing.tmdbId!,
+              existing.tmdbMediaType!,
+              lockedSeasons,
+            )
+          : const <TmdbEpisodeDetail>[];
+      final bgmEps =
+          (existing.bangumiId != null &&
+              ((preRemap?.hasInterspersedSpecialCandidate ?? false) ||
+                  episodes.isEmpty ||
+                  episodes.any((e) => e.title.trim().isEmpty)))
+          ? await _candidateFetcher.fetchBangumiEpisodes(
+              existing.bangumiId!,
+              type: null,
+            )
+          : const <BangumiEpisodeEntry>[];
+      final finalRemap =
+          (lockedDetail != null &&
+              lockedDetail.mediaType == TmdbMediaType.tv &&
+              lockedDetail.seasons.isNotEmpty)
+          ? EpisodeRemapper.buildPlan(
+              folder: folder,
+              tmdbSeasons: lockedDetail.seasons,
+              matchedSeason: existing.matchedSeason,
+              tmdbEpisodes: episodes,
+              bangumiEpisodes: bgmEps,
+            )
+          : preRemap;
+      await _persister.syncEpisodesAndVariants(
+        work: existing,
+        folder: folder,
+        tmdbEpisodes: episodes,
+        bangumiEpisodes: bgmEps,
+        remapPlan: finalRemap,
+      );
+      return (status: existing.scrapeStatus, workId: workId);
+    }
+
+    // 阶段 2：显式文件夹 `[tmdbid=xxx]` / `.nfo` 精确直连通道（含首选 404 跨类型重试与 Bangumi 补充封面）。
+    var effectiveFolder = folder;
+    if (folder.explicitTmdbId != null) {
+      final detail = await _candidateFetcher.fetchExplicitDetail(folder);
+      if (detail != null) {
+        final bgmCandidates = await _candidateFetcher.fetchBangumiCandidates(
+          folder,
+          extraQueries: [detail.title, ...detail.aliases.take(2)],
+        );
+        final explicitDecision = await _computeWorker.evaluateMatch(
+          folder,
+          [detail],
+          bangumiCandidates: bgmCandidates,
+        );
+        final status = await _bindAndPersistDetail(
+          workId: workId,
+          existing: existing,
+          folder: folder,
+          detail: detail,
+          matchedSeason:
+              explicitDecision.matchedSeason ??
+              folder.seasonHint ??
+              ScrapeDomainAdapter.fallbackResolveSeason(
+                folder: folder,
+                detail: detail,
+              ),
+          bangumiCandidate: explicitDecision.bestBangumi,
+          seasons: seasons,
+          isManualLocked: existing?.isManualLocked ?? false,
+          isHidden: existing?.keepHidden == true
+              ? true
+              : (existing?.isHidden ?? false),
+          keepHidden: existing?.keepHidden ?? false,
+        );
+        return (status: status, workId: workId);
+      }
+      // 双侧均 404 时清除失效的 explicitTmdbId，防止进入阶段 3 后全员遭 -60 分误罚。
+      effectiveFolder = folder.withoutExplicitTmdb();
+    }
+
+    // 阶段 3：Bangumi 在线优先匹配 -> 交叉关键词救回 TMDB 搜索 -> 合集父系列兜底 -> 双向互保重评。
+    final parentCtx = await _candidateFetcher.fetchParentCollectionContext(
+      effectiveFolder,
+    );
+    var bgmCandidates = await _candidateFetcher.fetchBangumiCandidates(
+      effectiveFolder,
+      extraQueries: parentCtx.extraQueries,
+    );
+    var bgmEval = await _computeWorker.evaluateBangumiMatch(
+      effectiveFolder,
+      bgmCandidates,
+    );
+
+    var candidates = await _candidateFetcher.fetchCandidateDetails(
+      effectiveFolder,
+      bangumiCandidate: bgmEval.best,
+      extraQueries: parentCtx.extraQueries,
+    );
+    var decision = await _computeWorker.evaluateMatch(
+      effectiveFolder,
+      candidates,
+      bangumiCandidates: bgmCandidates,
+    );
+
+    // 若独立子簇（如 `Accel World EX`）未命中独立 TMDB 条目且允许回退父系列，将父 TMDB 加入重评。
+    if (effectiveFolder.allowParentTmdbCandidate &&
+        parentCtx.parentDetail != null &&
+        decision.best == null) {
+      final pDetail = parentCtx.parentDetail!;
+      final mergedDetails = <String, TmdbWorkDetail>{
+        for (final c in candidates) '${c.mediaType.name}:${c.tmdbId}': c,
+        '${pDetail.mediaType.name}:${pDetail.tmdbId}': pDetail,
+      }.values.toList(growable: false);
+      final rescored = await _computeWorker.evaluateMatch(
+        effectiveFolder,
+        mergedDetails,
+        bangumiCandidates: bgmCandidates,
+      );
+      if (rescored.level != MatchLevel.unmatched) {
+        candidates = mergedDetails;
+        decision = rescored;
+      }
+    }
+
+    // 若 Bangumi 初搜落空但 TMDB 给出强候选，使用 TMDB 中/原名反向救回 Bangumi 条目。
+    if (bgmEval.tier == legacy.MatchTier.none &&
+        decision.best != null &&
+        _bangumiService != null) {
+      final tWinner = decision.best!.detail;
+      final rescueQueries = [
+        tWinner.title,
+        if (tWinner.originalTitle != null) tWinner.originalTitle!,
+        ...tWinner.aliases.take(2),
+      ].map((s) => s.trim()).where((s) => s.isNotEmpty).toSet().toList();
+      if (rescueQueries.isNotEmpty) {
+        final extraBgm = await _candidateFetcher.fetchBangumiCandidates(
+          effectiveFolder,
+          extraQueries: rescueQueries,
+        );
+        if (extraBgm.isNotEmpty) {
+          bgmCandidates = <int, BangumiSubjectCandidate>{
+            for (final b in bgmCandidates) b.id: b,
+            for (final b in extraBgm) b.id: b,
+          }.values.toList(growable: false);
+          decision = await _computeWorker.evaluateMatch(
+            effectiveFolder,
+            candidates,
+            bangumiCandidates: bgmCandidates,
+          );
+        }
+      }
+    }
+
+    if (decision.level == MatchLevel.autoBind && decision.best != null) {
+      final status = await _bindAndPersistDetail(
+        workId: workId,
+        existing: existing,
+        folder: effectiveFolder,
+        detail: decision.best!.detail,
+        matchedSeason:
+            decision.matchedSeason ?? decision.best!.matchedSeason,
+        bangumiCandidate: decision.bestBangumi,
+        seasons: seasons,
+        isManualLocked: false,
+        isHidden: existing?.keepHidden == true
+            ? true
+            : (existing?.isHidden ?? false),
+        keepHidden: existing?.keepHidden ?? false,
+      );
+      return (status: status, workId: workId);
+    }
+
+    if (decision.best == null && decision.bestBangumi != null) {
+      final bgmStatus = decision.level == MatchLevel.autoBind
+          ? ScrapeStatus.matched
+          : ScrapeStatus.needsReview;
+      final work = ScrapeWorkPersister.buildBangumiOnlyWork(
+        id: workId,
+        folder: effectiveFolder,
+        bangumiCandidate: decision.bestBangumi!,
+        status: bgmStatus,
+        reviewReason: decision.reviewReason,
+        isManualLocked: false,
+        isHidden: existing?.keepHidden == true
+            ? true
+            : (existing?.isHidden ?? false),
+        keepHidden: existing?.keepHidden ?? false,
+      );
+      await _repository.upsertWork(work);
+      await _photosStorage?.renameWorkFolderIfNeeded(work.id, work.title);
+      await _persister.saveTopCandidates(workId, decision.topCandidates);
+      final bgmEpisodes = bgmStatus == ScrapeStatus.matched
+          ? await _candidateFetcher.fetchBangumiEpisodes(
+              decision.bestBangumi!.subject.id,
+              type: null,
+            )
+          : const <BangumiEpisodeEntry>[];
+      await _persister.syncEpisodesAndVariants(
+        work: work,
+        folder: effectiveFolder,
+        tmdbEpisodes: const [],
+        bangumiEpisodes: bgmEpisodes,
+      );
+      return (status: bgmStatus, workId: workId);
+    }
+
+    final status = decision.level == MatchLevel.reviewRequired
+        ? ScrapeStatus.needsReview
+        : ScrapeStatus.unmatched;
+    final work = Work(
+      id: workId,
+      title: effectiveFolder.cleanTitle,
+      year: effectiveFolder.year,
+      folderTmdbHint: effectiveFolder.explicitTmdbId,
+      isManualLocked: false,
+      isHidden: existing?.keepHidden == true
+          ? true
+          : (existing?.isHidden ?? false),
+      keepHidden: existing?.keepHidden ?? false,
+      scrapeStatus: status,
+      reviewReason: decision.reviewReason,
+    );
+    await _repository.upsertWork(work);
+    await _photosStorage?.renameWorkFolderIfNeeded(work.id, work.title);
+    await _persister.saveTopCandidates(workId, decision.topCandidates);
+    await _persister.syncEpisodesAndVariants(
+      work: work,
+      folder: effectiveFolder,
+      tmdbEpisodes: const [],
+    );
+    return (status: status, workId: workId);
+  }
+
+  Future<ScrapeStatus> _bindAndPersistDetail({
+    required String workId,
+    Work? existing,
+    required GroupedWorkFolder folder,
+    required TmdbWorkDetail detail,
+    int? matchedSeason,
+    ScoredBangumiCandidate? bangumiCandidate,
+    required Set<int> seasons,
+    required bool isManualLocked,
+    bool isHidden = false,
+    bool keepHidden = false,
+  }) async {
+    if (detail.collectionId != null && detail.collectionId! > 0) {
+      _tmdbCollectionIdByTmdbId[detail.tmdbId] = detail.collectionId!;
+    }
+    final preRemap =
+        (detail.mediaType == TmdbMediaType.tv && detail.seasons.isNotEmpty)
+        ? EpisodeRemapper.buildPlan(
+            folder: folder,
+            tmdbSeasons: detail.seasons,
+            matchedSeason: matchedSeason,
+          )
+        : null;
+    final seasonsToFetch = <int>{
+      ...ScrapeDomainAdapter.referencedSeasonsToFetch(
+        folder,
+        matchedSeason: matchedSeason,
+        detail: detail,
+      ),
+      if (preRemap != null) ...preRemap.referencedSeasons,
+      ...seasons,
+    };
+    final bundle = await _candidateFetcher.fetchSeasonBundle(
+      detail.tmdbId,
+      detail.mediaType,
+      seasonsToFetch,
+    );
+    final seasonDetail = matchedSeason != null
+        ? bundle.seasonDetails[matchedSeason]
+        : null;
+
+    final candidateWork = ScrapeWorkPersister.buildMatchedWork(
+      id: workId,
+      detail: detail,
+      folder: folder,
+      matchedSeason: matchedSeason,
+      seasonDetail: seasonDetail,
+      bangumiCandidate: bangumiCandidate,
+      fallbackYear: folder.year,
+      folderTmdbHint: folder.explicitTmdbId,
+      isManualLocked: isManualLocked,
+      isHidden: isHidden,
+      keepHidden: keepHidden,
+    );
+    final work = ScrapeWorkPersister.mergeWorkWithLocks(
+      existing: existing,
+      candidate: candidateWork,
+    );
+    await _repository.upsertWork(work);
+    await _photosStorage?.renameWorkFolderIfNeeded(work.id, work.title);
+    await _repository.clearScrapeCandidates(workId);
+
+    final effectiveBgmId = bangumiCandidate?.subject.id ?? existing?.bangumiId;
+    final needBgmEpisodes =
+        effectiveBgmId != null &&
+        ((preRemap?.hasInterspersedSpecialCandidate ?? false) ||
+            bundle.episodes.isEmpty ||
+            bundle.episodes.any((e) => e.title.trim().isEmpty));
+    final bangumiEpisodes = needBgmEpisodes
+        ? await _candidateFetcher.fetchBangumiEpisodes(
+            effectiveBgmId,
+            type: null,
+          )
+        : const <BangumiEpisodeEntry>[];
+
+    final remapPlan =
+        (detail.mediaType == TmdbMediaType.tv && detail.seasons.isNotEmpty)
+        ? EpisodeRemapper.buildPlan(
+            folder: folder,
+            tmdbSeasons: detail.seasons,
+            matchedSeason: matchedSeason,
+            tmdbEpisodes: bundle.episodes,
+            bangumiEpisodes: bangumiEpisodes,
+          )
+        : preRemap;
+
+    await _persister.syncEpisodesAndVariants(
+      work: work,
+      folder: folder,
+      tmdbEpisodes: bundle.episodes,
+      bangumiEpisodes: bangumiEpisodes,
+      remapPlan: remapPlan,
+      seasonName: seasonDetail?.name,
+    );
+    return ScrapeStatus.matched;
+  }
+
+  Set<int> _extractReferencedSeasons(GroupedWorkFolder folder) =>
+      ScrapeDomainAdapter.referencedSeasonsToFetch(folder);
+
+  /// 人工纠错或元数据刷新：重绑定或刷新指定 TMDB 条目（未显式重置时严格保护已锁定字段与文件映射）。
+  Future<Work> rebindWorkToTmdb(
+    String workId,
+    int tmdbId,
+    TmdbMediaType mediaType, {
+    bool writeIdToFolderName = false,
+    bool resetManualLocks = false,
+  }) async {
+    final existing = await _repository.findWorkById(workId);
+    if (existing == null) {
+      throw StateError('作品不存在: $workId');
+    }
+
+    final detail = await _tmdbService.getWorkDetail(
+      tmdbId,
+      mediaType,
+      priority: RequestPriority.interactive,
+    );
+    if (detail == null) {
+      throw StateError('无法获取 TMDB 条目详情: $tmdbId');
+    }
+
+    var variants = await _repository.getVariantsByWork(workId);
+    if (writeIdToFolderName && variants.isNotEmpty) {
+      variants = await _persister.tryAppendTmdbIdToLocalFolder(variants, tmdbId);
+    }
+
+    GroupedWorkFolder? targetFolder;
+    if (variants.isNotEmpty) {
+      final files = variants
+          .map(
+            (v) => ScannedFileInput(
+              relativePath: v.relativePath,
+              fileName: v.fileName,
+              fileSize: v.fileSize,
+              assetKind: v.assetKind,
+              externalSubtitles: v.externalSubtitles,
+              subtitleGroupHint: v.subtitleGroup,
+            ),
+          )
+          .toList();
+      final grouped = await _computeWorker.groupFiles(
+        sourceId: variants.first.sourceId,
+        files: files,
+      );
+      if (grouped.isNotEmpty) {
+        targetFolder = grouped.first;
+      }
+    }
+
+    if (targetFolder != null) {
+      final bgmRescue = _bangumiService == null
+          ? const <BangumiSubjectCandidate>[]
+          : await _candidateFetcher.fetchBangumiCandidates(
+              targetFolder,
+              extraQueries: [detail.title, ...detail.aliases.take(2)],
+            );
+      final matchDecision = await _computeWorker.evaluateMatch(
+        targetFolder,
+        [detail],
+        bangumiCandidates: bgmRescue,
+      );
+      final matchedSeason =
+          matchDecision.matchedSeason ??
+          targetFolder.seasonHint ??
+          ScrapeDomainAdapter.fallbackResolveSeason(
+            folder: targetFolder,
+            detail: detail,
+          ) ??
+          existing.matchedSeason;
+      final preRemap =
+          (detail.mediaType == TmdbMediaType.tv && detail.seasons.isNotEmpty)
+          ? EpisodeRemapper.buildPlan(
+              folder: targetFolder,
+              tmdbSeasons: detail.seasons,
+              matchedSeason: matchedSeason,
+            )
+          : null;
+      final existingEpisodes = await _repository.getEpisodesByWork(workId);
+      final seasonsToFetch = <int>{
+        ...ScrapeDomainAdapter.referencedSeasonsToFetch(
+          targetFolder,
+          matchedSeason: matchedSeason,
+          detail: detail,
+        ),
+        if (preRemap != null) ...preRemap.referencedSeasons,
+        for (final ep in existingEpisodes) ep.seasonNumber,
+      };
+      final bundle = await _candidateFetcher.fetchSeasonBundle(
+        detail.tmdbId,
+        detail.mediaType,
+        seasonsToFetch,
+      );
+      final seasonDetail = matchedSeason != null
+          ? bundle.seasonDetails[matchedSeason]
+          : null;
+
+      final built = ScrapeWorkPersister.buildMatchedWork(
+        id: existing.id,
+        detail: detail,
+        folder: targetFolder,
+        matchedSeason: matchedSeason,
+        seasonDetail: seasonDetail,
+        bangumiCandidate: matchDecision.bestBangumi,
+        fallbackYear: existing.year,
+        folderTmdbHint: tmdbId,
+        isManualLocked: true,
+        isHidden: existing.isHidden,
+        keepHidden: existing.keepHidden,
+      );
+      var updated = ScrapeWorkPersister.mergeWorkWithLocks(
+        existing: existing,
+        candidate: built,
+        resetManualLocks: resetManualLocks,
+      );
+      if (_bangumiService != null &&
+          updated.bangumiId != null &&
+          (updated.bangumiScore == null || updated.bangumiScore! <= 0)) {
+        try {
+          final bgmDetail = await _bangumiService.getSubjectDetail(
+            updated.bangumiId!,
+            priority: RequestPriority.interactive,
+          );
+          if (bgmDetail != null &&
+              bgmDetail.score != null &&
+              bgmDetail.score! > 0) {
+            updated = updated.copyWith(
+              bangumiScore: bgmDetail.score,
+              bangumiPosterPath:
+                  updated.bangumiPosterPath ?? bgmDetail.posterUrl,
+            );
+          }
+        } catch (_) {
+          // Bangumi 评分补全失败不阻断 TMDB 重绑定流程。
+        }
+      }
+      await _repository.upsertWork(updated);
+      await _photosStorage?.renameWorkFolderIfNeeded(updated.id, updated.title);
+      await _repository.clearScrapeCandidates(workId);
+
+      final effectiveBgmId = updated.bangumiId;
+      final needBgmEpisodes =
+          effectiveBgmId != null &&
+          ((preRemap?.hasInterspersedSpecialCandidate ?? false) ||
+              bundle.episodes.isEmpty ||
+              bundle.episodes.any((e) => e.title.trim().isEmpty));
+      final bgmEpisodes = needBgmEpisodes
+          ? await _candidateFetcher.fetchBangumiEpisodes(
+              effectiveBgmId,
+              type: null,
+            )
+          : const <BangumiEpisodeEntry>[];
+      final remapPlan =
+          (detail.mediaType == TmdbMediaType.tv && detail.seasons.isNotEmpty)
+          ? EpisodeRemapper.buildPlan(
+              folder: targetFolder,
+              tmdbSeasons: detail.seasons,
+              matchedSeason: matchedSeason,
+              tmdbEpisodes: bundle.episodes,
+              bangumiEpisodes: bgmEpisodes,
+            )
+          : preRemap;
+
+      await _persister.syncEpisodesAndVariants(
+        work: updated,
+        folder: targetFolder,
+        tmdbEpisodes: bundle.episodes,
+        bangumiEpisodes: bgmEpisodes,
+        remapPlan: remapPlan,
+        seasonName: seasonDetail?.name,
+        resetManualLocks: resetManualLocks,
+      );
+      if (detail.collectionId != null && detail.collectionId! > 0) {
+        _tmdbCollectionIdByTmdbId[detail.tmdbId] = detail.collectionId!;
+      }
+      await SeriesAutoLinker.reconcileAll(
+        repository: _repository,
+        bangumiService: _bangumiService,
+        tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
+      );
+      return updated;
+    }
+
+    final builtFallback = ScrapeWorkPersister.buildMatchedWork(
+      id: existing.id,
+      detail: detail,
+      fallbackYear: existing.year,
+      folderTmdbHint: tmdbId,
+      isManualLocked: true,
+      isHidden: existing.isHidden,
+      keepHidden: existing.keepHidden,
+    );
+    final updated = ScrapeWorkPersister.mergeWorkWithLocks(
+      existing: existing,
+      candidate: builtFallback,
+      resetManualLocks: resetManualLocks,
+    );
+    await _repository.upsertWork(updated);
+    await _photosStorage?.renameWorkFolderIfNeeded(updated.id, updated.title);
+    await _repository.clearScrapeCandidates(workId);
+    if (detail.collectionId != null && detail.collectionId! > 0) {
+      _tmdbCollectionIdByTmdbId[detail.tmdbId] = detail.collectionId!;
+    }
+    await SeriesAutoLinker.reconcileAll(
+      repository: _repository,
+      bangumiService: _bangumiService,
+      tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
+    );
+    return updated;
+  }
+
+  static String _normalizeSourceRelPath(String raw) {
+    return raw
+        .trim()
+        .replaceAll('\\', '/')
+        .replaceAll(RegExp(r'/+'), '/')
+        .replaceAll(RegExp(r'^/+|/+$'), '')
+        .toLowerCase();
+  }
+}

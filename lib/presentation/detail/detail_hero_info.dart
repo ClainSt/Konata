@@ -15,6 +15,10 @@ import '../widgets/managed_image.dart';
 import 'inline_expandable_synopsis.dart';
 import 'work_review_banner.dart';
 
+const List<Shadow> _kHeroBackdropTextShadows = [
+  Shadow(color: Color(0x8C000000), blurRadius: 12, offset: Offset(0, 2)),
+];
+
 /// 详情页左侧透明标题 Logo、单行元信息与唯一主播放按钮。
 class DetailHeroInfo extends StatelessWidget {
   /// 创建详情主视觉信息区。
@@ -80,11 +84,12 @@ class DetailHeroInfo extends StatelessWidget {
 
     final hasLogo = work.logoPath != null && work.logoPath!.trim().isNotEmpty;
     final renderLogo = showTitleLogo && hasLogo;
-    final renderTextTitle =
-        showTitleText || (showTitleLogo && !hasLogo);
+    final renderTextTitle = showTitleText || (showTitleLogo && !hasLogo);
     final hasTitleSection = renderLogo || renderTextTitle;
     final hasOverview =
-        showOverview && work.overview != null && work.overview!.trim().isNotEmpty;
+        showOverview &&
+        work.overview != null &&
+        work.overview!.trim().isNotEmpty;
     final hasHeaderContent =
         hasTitleSection || metaParts.isNotEmpty || hasOverview;
 
@@ -143,8 +148,8 @@ class DetailHeroInfo extends StatelessWidget {
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0.4,
                 palette: p,
-                color: KonataTheme.detailSecondaryTextColor(p),
-              ),
+                color: Colors.white.withValues(alpha: 0.90),
+              ).copyWith(shadows: _kHeroBackdropTextShadows),
             ),
           ],
           if (hasOverview) ...[
@@ -152,10 +157,13 @@ class DetailHeroInfo extends StatelessWidget {
               const SizedBox(height: 12),
             ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 496),
-              child: InlineExpandableSynopsis(
-                text: work.overview!.trim(),
-                collapsedMaxLines: 3,
-                maxExpandedHeight: 200,
+              child: Theme(
+                data: KonataTheme.darkTheme(),
+                child: InlineExpandableSynopsis(
+                  text: work.overview!.trim(),
+                  collapsedMaxLines: 3,
+                  maxExpandedHeight: 200,
+                ),
               ),
             ),
           ],
@@ -168,10 +176,7 @@ class DetailHeroInfo extends StatelessWidget {
               onManualMatch: onManualMatch!,
               onDismiss: onDismissReview!,
             ),
-          FrostedPlayButton(
-            label: buttonLabel,
-            onPressed: onPrimaryPlay,
-          ),
+          FrostedPlayButton(label: buttonLabel, onPressed: onPrimaryPlay),
         ],
       ),
     );
@@ -253,19 +258,12 @@ class _FrostedPlayButtonState extends State<FrostedPlayButton> {
                 decoration: BoxDecoration(
                   color: fillColor,
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: borderColor,
-                    width: 1,
-                  ),
+                  border: Border.all(color: borderColor, width: 1),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      Icons.play_arrow_rounded,
-                      size: 20,
-                      color: fgColor,
-                    ),
+                    Icon(Icons.play_arrow_rounded, size: 20, color: fgColor),
                     const SizedBox(width: 8),
                     Text(
                       widget.label,
@@ -289,10 +287,7 @@ class _FrostedPlayButtonState extends State<FrostedPlayButton> {
 }
 
 class _FallbackTitleBlock extends StatelessWidget {
-  const _FallbackTitleBlock({
-    required this.title,
-    required this.originalTitle,
-  });
+  const _FallbackTitleBlock({required this.title, required this.originalTitle});
 
   final String title;
   final String? originalTitle;
@@ -314,11 +309,12 @@ class _FallbackTitleBlock extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: KonataTheme.detailTextStyle(
             palette: p,
+            color: Colors.white,
             fontSize: 34,
             fontWeight: FontWeight.w700,
             letterSpacing: 0.5,
             height: 1.22,
-          ),
+          ).copyWith(shadows: _kHeroBackdropTextShadows),
         ),
         if (showOriginal) ...[
           const SizedBox(height: 6),
@@ -328,11 +324,11 @@ class _FallbackTitleBlock extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: KonataTheme.detailTextStyle(
               palette: p,
-              color: KonataTheme.detailSecondaryTextColor(p),
+              color: Colors.white.withValues(alpha: 0.84),
               fontSize: 14,
               fontWeight: FontWeight.w500,
               letterSpacing: 0.3,
-            ),
+            ).copyWith(shadows: _kHeroBackdropTextShadows),
           ),
         ],
       ],

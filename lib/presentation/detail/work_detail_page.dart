@@ -136,6 +136,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     final bundleAsync = ref.watch(workDetailBundleProvider(_activeWorkId));
     final redirectMap = ref.watch(workRedirectMapProvider);
     final isMissing = bundleAsync.hasValue && bundleAsync.value == null;
+    final hasActiveBundle = bundleAsync.valueOrNull != null;
     final redirectTarget = isMissing
         ? resolveWorkRedirectChain(redirectMap, _activeWorkId)
         : _activeWorkId;
@@ -145,8 +146,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
       });
     }
 
-    final players =
-        ref.watch(externalPlayersProvider).valueOrNull ?? const [];
+    final players = ref.watch(externalPlayersProvider).valueOrNull ?? const [];
     final imageLoader = ref.watch(tmdbImageLoaderProvider);
     final isDrawerExpanded = ref.watch(detailDrawerExpandedProvider);
     final displayPrefs = ref.watch(detailDisplayPreferencesProvider);
@@ -160,7 +160,6 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     final effectiveActiveTab = isDrawerExpanded ? preferredTab : null;
     final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
     final forceLightChrome = p.isDark;
-    final scrimColor = KonataPlaybackTokens.detailScrimBase(p);
 
     return Listener(
       onPointerDown: (event) {
@@ -170,414 +169,403 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
       },
       child: CallbackShortcuts(
         bindings: {
-          const SingleActivator(LogicalKeyboardKey.escape):
-              _handleEscapeOrBack,
+          const SingleActivator(LogicalKeyboardKey.escape): _handleEscapeOrBack,
         },
         child: Focus(
           autofocus: true,
           child: Scaffold(
-          backgroundColor: p.isDark
-              ? KonataTheme.cinemaObsidian
-              : KonataTheme.themePreviewLightCanvas,
-          body: Stack(
-            fit: StackFit.expand,
-            children: [
-              bundleAsync.when(
-                data: (bundle) {
-                  if (bundle == null) {
-                    if (redirectTarget != _activeWorkId) {
-                      return const Center(child: CircularProgressIndicator());
+            backgroundColor: hasActiveBundle || p.isDark
+                ? KonataTheme.cinemaObsidian
+                : KonataTheme.themePreviewLightCanvas,
+            body: Stack(
+              fit: StackFit.expand,
+              children: [
+                bundleAsync.when(
+                  data: (bundle) {
+                    if (bundle == null) {
+                      if (redirectTarget != _activeWorkId) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      return _MissingWorkFallbackView(
+                        onReturnToLibrary: _returnToLibrary,
+                      );
                     }
-                    return _MissingWorkFallbackView(
-                      onReturnToLibrary: _returnToLibrary,
-                    );
-                  }
-              final work = bundle.work;
-              _maybeBackfillBangumiScore(work.id, work.bangumiScore);
-              final bgPath =
-                  (work.backdropPath != null && work.backdropPath!.isNotEmpty)
-                  ? work.backdropPath!
-                  : (work.posterPath ?? '');
-              final hasBackdrop =
-                  work.backdropPath != null && work.backdropPath!.isNotEmpty;
+                    final work = bundle.work;
+                    _maybeBackfillBangumiScore(work.id, work.bangumiScore);
+                    final bgPath =
+                        (work.backdropPath != null &&
+                            work.backdropPath!.isNotEmpty)
+                        ? work.backdropPath!
+                        : (work.posterPath ?? '');
+                    final hasBackdrop =
+                        work.backdropPath != null &&
+                        work.backdropPath!.isNotEmpty;
 
-              return Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (bgPath.isNotEmpty)
-                    ManagedImage(
-                      bgPath,
-                      loader: imageLoader,
-                      owner: work.id,
-                      artwork: ManagedArtwork.backdrop,
-                      isHeroBackdrop: true,
-                      imageSize: TmdbImageSize.original,
-                      fit: BoxFit.cover,
-                    ),
-                  if (!hasBackdrop && bgPath.isNotEmpty)
-                    BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
-                      child: Container(
-                        color: scrimColor.withValues(
-                          alpha: p.isDark ? 0.34 : 0.45,
-                        ),
-                      ),
-                    ),
-
-                  // 局部克制定向护眼遮罩：深色保留轻柔左侧与底部暗晕；浅色彻底移除四周边框式白色雾化，仅局部承托左下方文案与底栏
-                  if (p.isDark)
-                    IgnorePointer(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.centerLeft,
-                            end: Alignment.centerRight,
-                            stops: const [0.0, 0.24, 0.48],
-                            colors: [
-                              scrimColor.withValues(alpha: 0.28),
-                              scrimColor.withValues(alpha: 0.12),
-                              Colors.transparent,
-                            ],
-                          ),
-                        ),
-                      ),
-                    )
-                  else
-                    IgnorePointer(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: RadialGradient(
-                            center: const Alignment(-0.85, 0.65),
-                            radius: 0.92,
-                            stops: const [0.0, 0.48, 1.0],
-                            colors: [
-                              scrimColor.withValues(alpha: 0.86),
-                              scrimColor.withValues(alpha: 0.50),
-                              Colors.transparent,
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  // 底部边缘柔和定向渐变，专门承托底部无框悬浮剧集卡片文字
-                  IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.bottomCenter,
-                          end: Alignment.topCenter,
-                          stops: p.isDark ? const [0.0, 0.28] : const [0.0, 0.24],
-                          colors: [
-                            scrimColor.withValues(
-                              alpha: p.isDark ? 0.52 : 0.78,
-                            ),
-                            Colors.transparent,
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  // 弹性垂直分栏：确保展开正片/特典抽屉时，主交互按钮与剧情简介完整向上顶起且永不遮挡
-                  Positioned.fill(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                    return Stack(
+                      fit: StackFit.expand,
                       children: [
-                        const SizedBox(height: 62),
-                        Expanded(
-                          child: Align(
-                            alignment: Alignment.bottomLeft,
-                            child: SingleChildScrollView(
-                              padding: EdgeInsets.fromLTRB(
-                                36,
-                                8,
-                                36,
-                                effectiveActiveTab == null ? 24 : 18,
-                              ),
-                              child: DetailHeroInfo(
-                                bundle: bundle,
-                                imageLoader: imageLoader,
-                                showTitleText: displayPrefs.showTitleText,
-                                showTitleLogo: displayPrefs.showTitleLogo,
-                                showOverview: displayPrefs.showOverview,
-                                onPrimaryPlay: () =>
-                                    DetailActionHandlers.handlePrimaryPlay(
-                                      context: context,
-                                      ref: ref,
-                                      bundle: bundle,
-                                      players: players,
-                                    ),
-                                onManualMatch: () =>
-                                    _handleOpenManualMatch(bundle),
-                                onDismissReview: () =>
-                                    DetailActionHandlers.dismissReviewPrompt(
-                                      context: context,
-                                      ref: ref,
-                                      workId: work.id,
-                                    ),
+                        if (bgPath.isNotEmpty)
+                          ManagedImage(
+                            bgPath,
+                            loader: imageLoader,
+                            owner: work.id,
+                            artwork: ManagedArtwork.backdrop,
+                            isHeroBackdrop: true,
+                            imageSize: TmdbImageSize.original,
+                            fit: BoxFit.cover,
+                          ),
+                        if (!hasBackdrop && bgPath.isNotEmpty)
+                          BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+                            child: Container(
+                              color: Colors.black.withValues(alpha: 0.36),
+                            ),
+                          ),
+
+                        // 零白边电影感自然暗影：深浅模式原画四周均保持 100% 纯净通透，仅在左下文字与底栏后保留柔和局部暗晕
+                        IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: RadialGradient(
+                                center: const Alignment(-0.78, 0.58),
+                                radius: 0.82,
+                                stops: const [0.0, 0.52, 1.0],
+                                colors: [
+                                  Colors.black.withValues(alpha: 0.44),
+                                  Colors.black.withValues(alpha: 0.16),
+                                  Colors.transparent,
+                                ],
                               ),
                             ),
                           ),
                         ),
-                        AnimatedPadding(
-                          duration: KonataTheme.capsuleSlideDuration,
-                          curve: Curves.easeOutCubic,
-                          padding: EdgeInsets.only(bottom: bottomClearance),
-                          child: DetailBottomDrawer(
-                            bundle: bundle,
-                          activeTab: effectiveActiveTab,
-                          preferredTab: preferredTab,
-                          showRawVideoFilename:
-                              displayPrefs.showRawVideoFilename,
-                          showCdTab: displayPrefs.showCdTab,
-                          showScanTab: displayPrefs.showScanTab,
-                          imageLoader: imageLoader,
-                          onToggleTab: (tab) {
-                            final currentExpanded = ref.read(
-                              detailDrawerExpandedProvider,
-                            );
-                            final currentTab = ref.read(detailDrawerTabProvider);
-                            if (!currentExpanded) {
-                              ref.read(detailDrawerTabProvider.notifier).state =
-                                  tab;
-                              ref
-                                      .read(
-                                        detailDrawerExpandedProvider.notifier,
-                                      )
-                                      .state =
-                                  true;
-                            } else if (currentTab == tab) {
-                              if (currentTab == DetailDrawerTab.scan) {
-                                _scanScheduler.cancelAll();
-                              }
-                              ref
-                                      .read(
-                                        detailDrawerExpandedProvider.notifier,
-                                      )
-                                      .state =
-                                  false;
-                            } else {
-                              if (currentTab == DetailDrawerTab.scan &&
-                                  tab != DetailDrawerTab.scan) {
-                                _scanScheduler.cancelAll();
-                              }
-                              ref.read(detailDrawerTabProvider.notifier).state =
-                                  tab;
-                            }
-                          },
-                          onCollapse: () {
-                            _scanScheduler.cancelAll();
-                            ref
-                                    .read(detailDrawerExpandedProvider.notifier)
-                                    .state =
-                                false;
-                          },
-                          onSecondaryFilterChanged: _scanScheduler.cancelAll,
-                          onEpisodeTap: (ep) =>
-                              DetailActionHandlers.playEpisode(
-                                context: context,
-                                ref: ref,
-                                bundle: bundle,
-                                episode: ep,
-                                players: players,
+                        IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.bottomCenter,
+                                end: Alignment.topCenter,
+                                stops: isDrawerExpanded
+                                    ? const [0.0, 0.34]
+                                    : const [0.0, 0.18],
+                                colors: [
+                                  Colors.black.withValues(
+                                    alpha: isDrawerExpanded ? 0.68 : 0.34,
+                                  ),
+                                  Colors.transparent,
+                                ],
                               ),
-                          onEpisodePlayBuiltin: (ep) =>
-                              DetailActionHandlers.playEpisode(
-                                context: context,
-                                ref: ref,
-                                bundle: bundle,
-                                episode: ep,
-                                players: players,
-                                overrideEngine:
-                                    PreferredPlaybackEngine.builtinLibmpv,
-                              ),
-                          onEpisodePlayExternal: (ep) =>
-                              DetailActionHandlers.playEpisode(
-                                context: context,
-                                ref: ref,
-                                bundle: bundle,
-                                episode: ep,
-                                players: players,
-                                overrideEngine:
-                                    PreferredPlaybackEngine.externalPlayer,
-                              ),
-                          onEpisodeMarkCompleted: (ep) =>
-                              DetailActionHandlers.markEpisodeCompleted(
-                                context: context,
-                                ref: ref,
-                                bundle: bundle,
-                                episode: ep,
-                              ),
-                          onEpisodeAdjustSlot: (ep) =>
-                              DetailActionHandlers.showAdjustEpisodeDialog(
-                                context: context,
-                                ref: ref,
-                                episode: ep,
-                              ),
-                          onOpenManualMatch: () =>
-                              _handleOpenManualMatch(bundle),
-                          onOpenManualEdit: () async {
-                            final nextWorkId =
-                                await DetailActionHandlers.openManualEdit(
-                                  context,
-                                  bundle,
-                                );
-                            if (nextWorkId != null) {
-                              _switchActiveWork(nextWorkId);
-                            }
-                          },
-                          onOpenPosterPicker: () =>
-                              DetailActionHandlers.openArtworkPicker(
-                                context,
-                                bundle,
-                                WorkArtworkKind.poster,
-                              ),
-                          onOpenBackdropPicker: () =>
-                              DetailActionHandlers.openArtworkPicker(
-                                context,
-                                bundle,
-                                WorkArtworkKind.backdrop,
-                              ),
-                          onHideWork: () => DetailActionHandlers.hideWorkAndPop(
-                            context,
-                            ref,
-                            bundle,
+                            ),
                           ),
-                          onDeleteWork: () =>
-                              DetailActionHandlers.confirmDeleteAndPop(
-                                context,
-                                ref,
-                                bundle,
+                        ),
+
+                        // 弹性垂直分栏：确保展开正片/特典抽屉时，主交互按钮与剧情简介完整向上顶起且永不遮挡
+                        Positioned.fill(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const SizedBox(height: 62),
+                              Expanded(
+                                child: Align(
+                                  alignment: Alignment.bottomLeft,
+                                  child: SingleChildScrollView(
+                                    padding: EdgeInsets.fromLTRB(
+                                      36,
+                                      8,
+                                      36,
+                                      effectiveActiveTab == null ? 24 : 18,
+                                    ),
+                                    child: DetailHeroInfo(
+                                      bundle: bundle,
+                                      imageLoader: imageLoader,
+                                      showTitleText: displayPrefs.showTitleText,
+                                      showTitleLogo: displayPrefs.showTitleLogo,
+                                      showOverview: displayPrefs.showOverview,
+                                      onPrimaryPlay: () =>
+                                          DetailActionHandlers.handlePrimaryPlay(
+                                            context: context,
+                                            ref: ref,
+                                            bundle: bundle,
+                                            players: players,
+                                          ),
+                                      onManualMatch: () =>
+                                          _handleOpenManualMatch(bundle),
+                                      onDismissReview: () =>
+                                          DetailActionHandlers.dismissReviewPrompt(
+                                            context: context,
+                                            ref: ref,
+                                            workId: work.id,
+                                          ),
+                                    ),
+                                  ),
+                                ),
                               ),
-                          onRescrape: () async {
-                            if (work.tmdbId != null &&
-                                work.tmdbMediaType != null) {
-                              final updated = await ref
-                                  .read(scrapeControllerProvider.notifier)
-                                  .rebindWork(
-                                    workId: work.id,
-                                    tmdbId: work.tmdbId!,
-                                    mediaType: work.tmdbMediaType!,
-                                  );
-                              if (mounted && updated.id != work.id) {
-                                _switchActiveWork(
-                                  updated.id,
-                                  toastMessage: '已自动并入已有作品「${updated.title}」',
-                                );
-                              } else {
-                                _showToast('已完成元数据刷新');
-                              }
-                            } else {
-                              _showToast('当前作品尚未绑定 TMDB ID，请先使用绑定元数据匹配');
-                            }
-                          },
-                          onOpenLocalDir: () =>
-                              DetailActionHandlers.openLocalDirectory(
-                                context,
-                                ref,
-                                bundle,
+                              AnimatedPadding(
+                                duration: KonataTheme.capsuleSlideDuration,
+                                curve: Curves.easeOutCubic,
+                                padding: EdgeInsets.only(
+                                  bottom: bottomClearance,
+                                ),
+                                child: DetailBottomDrawer(
+                                  bundle: bundle,
+                                  activeTab: effectiveActiveTab,
+                                  preferredTab: preferredTab,
+                                  showRawVideoFilename:
+                                      displayPrefs.showRawVideoFilename,
+                                  showCdTab: displayPrefs.showCdTab,
+                                  showScanTab: displayPrefs.showScanTab,
+                                  imageLoader: imageLoader,
+                                  onToggleTab: (tab) {
+                                    final currentExpanded = ref.read(
+                                      detailDrawerExpandedProvider,
+                                    );
+                                    final currentTab = ref.read(
+                                      detailDrawerTabProvider,
+                                    );
+                                    if (!currentExpanded) {
+                                      ref
+                                              .read(
+                                                detailDrawerTabProvider
+                                                    .notifier,
+                                              )
+                                              .state =
+                                          tab;
+                                      ref
+                                              .read(
+                                                detailDrawerExpandedProvider
+                                                    .notifier,
+                                              )
+                                              .state =
+                                          true;
+                                    } else if (currentTab == tab) {
+                                      if (currentTab == DetailDrawerTab.scan) {
+                                        _scanScheduler.cancelAll();
+                                      }
+                                      ref
+                                              .read(
+                                                detailDrawerExpandedProvider
+                                                    .notifier,
+                                              )
+                                              .state =
+                                          false;
+                                    } else {
+                                      if (currentTab == DetailDrawerTab.scan &&
+                                          tab != DetailDrawerTab.scan) {
+                                        _scanScheduler.cancelAll();
+                                      }
+                                      ref
+                                              .read(
+                                                detailDrawerTabProvider
+                                                    .notifier,
+                                              )
+                                              .state =
+                                          tab;
+                                    }
+                                  },
+                                  onCollapse: () {
+                                    _scanScheduler.cancelAll();
+                                    ref
+                                            .read(
+                                              detailDrawerExpandedProvider
+                                                  .notifier,
+                                            )
+                                            .state =
+                                        false;
+                                  },
+                                  onSecondaryFilterChanged:
+                                      _scanScheduler.cancelAll,
+                                  onEpisodeTap: (ep) =>
+                                      DetailActionHandlers.playEpisode(
+                                        context: context,
+                                        ref: ref,
+                                        bundle: bundle,
+                                        episode: ep,
+                                        players: players,
+                                      ),
+                                  onEpisodePlayBuiltin: (ep) =>
+                                      DetailActionHandlers.playEpisode(
+                                        context: context,
+                                        ref: ref,
+                                        bundle: bundle,
+                                        episode: ep,
+                                        players: players,
+                                        overrideEngine: PreferredPlaybackEngine
+                                            .builtinLibmpv,
+                                      ),
+                                  onEpisodePlayExternal: (ep) =>
+                                      DetailActionHandlers.playEpisode(
+                                        context: context,
+                                        ref: ref,
+                                        bundle: bundle,
+                                        episode: ep,
+                                        players: players,
+                                        overrideEngine: PreferredPlaybackEngine
+                                            .externalPlayer,
+                                      ),
+                                  onEpisodeMarkCompleted: (ep) =>
+                                      DetailActionHandlers.markEpisodeCompleted(
+                                        context: context,
+                                        ref: ref,
+                                        bundle: bundle,
+                                        episode: ep,
+                                      ),
+                                  onEpisodeAdjustSlot: (ep) =>
+                                      DetailActionHandlers.showAdjustEpisodeDialog(
+                                        context: context,
+                                        ref: ref,
+                                        episode: ep,
+                                      ),
+                                  onOpenManualMatch: () =>
+                                      _handleOpenManualMatch(bundle),
+                                  onOpenManualEdit: () async {
+                                    final nextWorkId =
+                                        await DetailActionHandlers.openManualEdit(
+                                          context,
+                                          bundle,
+                                        );
+                                    if (nextWorkId != null) {
+                                      _switchActiveWork(nextWorkId);
+                                    }
+                                  },
+                                  onOpenPosterPicker: () =>
+                                      DetailActionHandlers.openArtworkPicker(
+                                        context,
+                                        bundle,
+                                        WorkArtworkKind.poster,
+                                      ),
+                                  onOpenBackdropPicker: () =>
+                                      DetailActionHandlers.openArtworkPicker(
+                                        context,
+                                        bundle,
+                                        WorkArtworkKind.backdrop,
+                                      ),
+                                  onHideWork: () =>
+                                      DetailActionHandlers.hideWorkAndPop(
+                                        context,
+                                        ref,
+                                        bundle,
+                                      ),
+                                  onDeleteWork: () =>
+                                      DetailActionHandlers.confirmDeleteAndPop(
+                                        context,
+                                        ref,
+                                        bundle,
+                                      ),
+                                  onRescrape: () async {
+                                    if (work.tmdbId != null &&
+                                        work.tmdbMediaType != null) {
+                                      final updated = await ref
+                                          .read(
+                                            scrapeControllerProvider.notifier,
+                                          )
+                                          .rebindWork(
+                                            workId: work.id,
+                                            tmdbId: work.tmdbId!,
+                                            mediaType: work.tmdbMediaType!,
+                                          );
+                                      if (mounted && updated.id != work.id) {
+                                        _switchActiveWork(
+                                          updated.id,
+                                          toastMessage:
+                                              '已自动并入已有作品「${updated.title}」',
+                                        );
+                                      } else {
+                                        _showToast('已完成元数据刷新');
+                                      }
+                                    } else {
+                                      _showToast(
+                                        '当前作品尚未绑定 TMDB ID，请先使用绑定元数据匹配',
+                                      );
+                                    }
+                                  },
+                                  onOpenLocalDir: () =>
+                                      DetailActionHandlers.openLocalDirectory(
+                                        context,
+                                        ref,
+                                        bundle,
+                                      ),
+                                  onOpenSeriesManage: () =>
+                                      DetailActionHandlers.openSeriesManage(
+                                        context,
+                                        bundle,
+                                      ),
+                                  onOpenMergeWork: () async {
+                                    final outcome =
+                                        await DetailActionHandlers.openMergeWork(
+                                          context,
+                                          bundle,
+                                        );
+                                    if (outcome != null && mounted) {
+                                      _switchActiveWork(
+                                        outcome.targetWork.id,
+                                        toastMessage:
+                                            '已将「${bundle.work.title}」合并入「${outcome.targetWork.title}」',
+                                      );
+                                    }
+                                  },
+                                  onSelectSeriesWork: _switchActiveWork,
+                                  onCdTap: (variant) =>
+                                      DetailActionHandlers.playCdAsset(
+                                        context: context,
+                                        ref: ref,
+                                        bundle: bundle,
+                                        variant: variant,
+                                      ),
+                                  onCdPlayImmersive: (variant) =>
+                                      DetailActionHandlers.playCdAsset(
+                                        context: context,
+                                        ref: ref,
+                                        bundle: bundle,
+                                        variant: variant,
+                                        overrideEngine: PreferredPlaybackEngine
+                                            .builtinLibmpv,
+                                        expandImmersive: true,
+                                      ),
+                                  onCdPlayExternal: (variant) =>
+                                      DetailActionHandlers.playCdAsset(
+                                        context: context,
+                                        ref: ref,
+                                        bundle: bundle,
+                                        variant: variant,
+                                        overrideEngine: PreferredPlaybackEngine
+                                            .externalPlayer,
+                                      ),
+                                  onScanTap: (variant) =>
+                                      DetailActionHandlers.openScanViewer(
+                                        context,
+                                        bundle,
+                                        variant,
+                                      ),
+                                ),
                               ),
-                          onOpenSeriesManage: () =>
-                              DetailActionHandlers.openSeriesManage(
-                                context,
-                                bundle,
-                              ),
-                          onOpenMergeWork: () async {
-                            final outcome = await DetailActionHandlers.openMergeWork(
-                              context,
-                              bundle,
-                            );
-                            if (outcome != null && mounted) {
-                              _switchActiveWork(
-                                outcome.targetWork.id,
-                                toastMessage:
-                                    '已将「${bundle.work.title}」合并入「${outcome.targetWork.title}」',
-                              );
-                            }
-                          },
-                          onSelectSeriesWork: _switchActiveWork,
-                          onCdTap: (variant) =>
-                              DetailActionHandlers.playCdAsset(
-                                context: context,
-                                ref: ref,
-                                bundle: bundle,
-                                variant: variant,
-                              ),
-                          onCdPlayImmersive: (variant) =>
-                              DetailActionHandlers.playCdAsset(
-                                context: context,
-                                ref: ref,
-                                bundle: bundle,
-                                variant: variant,
-                                overrideEngine:
-                                    PreferredPlaybackEngine.builtinLibmpv,
-                                expandImmersive: true,
-                              ),
-                          onCdPlayExternal: (variant) =>
-                              DetailActionHandlers.playCdAsset(
-                                context: context,
-                                ref: ref,
-                                bundle: bundle,
-                                variant: variant,
-                                overrideEngine:
-                                    PreferredPlaybackEngine.externalPlayer,
-                              ),
-                          onScanTap: (variant) =>
-                              DetailActionHandlers.openScanViewer(
-                                context,
-                                bundle,
-                                variant,
-                              ),
+                            ],
                           ),
                         ),
                       ],
-                    ),
+                    );
+                  },
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
+                  error: (err, _) => _MissingWorkFallbackView(
+                    title: '加载作品详情失败',
+                    subtitle: '$err',
+                    isError: true,
+                    onReturnToLibrary: _returnToLibrary,
                   ),
-
-                ],
-              );
-            },
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (err, _) => _MissingWorkFallbackView(
-              title: '加载作品详情失败',
-              subtitle: '$err',
-              isError: true,
-              onReturnToLibrary: _returnToLibrary,
+                ),
+                Positioned(
+                  top: 12,
+                  left: 16,
+                  right: 14,
+                  child: _WorkDetailTopBar(
+                    forceLightIcons: forceLightChrome,
+                    showGlassChrome: hasActiveBundle,
+                    onBack: _handleEscapeOrBack,
+                  ),
+                ),
+              ],
             ),
           ),
-              if (forceLightChrome)
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: 56,
-                  child: IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            scrimColor.withValues(alpha: 0.22),
-                            Colors.transparent,
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              Positioned(
-                top: 12,
-                left: 16,
-                right: 14,
-                child: _WorkDetailTopBar(
-                  forceLightIcons: forceLightChrome,
-                  onBack: _handleEscapeOrBack,
-                ),
-              ),
-            ],
-          ),
-        ),
         ),
       ),
     );
@@ -588,10 +576,12 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
 class _WorkDetailTopBar extends StatelessWidget {
   const _WorkDetailTopBar({
     required this.forceLightIcons,
+    required this.showGlassChrome,
     required this.onBack,
   });
 
   final bool forceLightIcons;
+  final bool showGlassChrome;
   final VoidCallback onBack;
 
   @override
@@ -599,8 +589,8 @@ class _WorkDetailTopBar extends StatelessWidget {
     final p = context.palette;
     final iconColor = forceLightIcons ? Colors.white : p.textPrimary;
     final bgColor = forceLightIcons
-        ? Colors.black.withValues(alpha: 0.28)
-        : p.surface;
+        ? Colors.black.withValues(alpha: 0.30)
+        : Color.alphaBlend(Colors.white.withValues(alpha: 0.86), p.surface);
     final borderColor = forceLightIcons
         ? Colors.white.withValues(alpha: 0.22)
         : p.hairline;
@@ -611,27 +601,39 @@ class _WorkDetailTopBar extends StatelessWidget {
         Semantics(
           button: true,
           label: '返回',
-          child: SizedBox(
-            key: const ValueKey('work_detail_back_button'),
-            width: 38,
-            height: 38,
-            child: ClipOval(
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                child: Material(
-                  color: bgColor,
-                  shape: CircleBorder(side: BorderSide(color: borderColor)),
-                  child: InkWell(
-                    customBorder: const CircleBorder(),
-                    hoverColor: forceLightIcons
-                        ? Colors.white.withValues(alpha: 0.14)
-                        : p.secondaryButtonHoverBg,
-                    onTap: onBack,
-                    child: Center(
-                      child: Icon(
-                        Icons.arrow_back_ios_new_rounded,
-                        size: 16,
-                        color: iconColor,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: KonataPlaybackTokens.shadowColor(p),
+                  blurRadius: 12,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: SizedBox(
+              key: const ValueKey('work_detail_back_button'),
+              width: 38,
+              height: 38,
+              child: ClipOval(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                  child: Material(
+                    color: bgColor,
+                    shape: CircleBorder(side: BorderSide(color: borderColor)),
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      hoverColor: forceLightIcons
+                          ? Colors.white.withValues(alpha: 0.14)
+                          : p.secondaryButtonHoverBg,
+                      onTap: onBack,
+                      child: Center(
+                        child: Icon(
+                          Icons.arrow_back_ios_new_rounded,
+                          size: 16,
+                          color: iconColor,
+                        ),
                       ),
                     ),
                   ),
@@ -645,7 +647,10 @@ class _WorkDetailTopBar extends StatelessWidget {
               ? DragToMoveArea(child: dragZone)
               : dragZone,
         ),
-        WindowControls(forceLightIcons: forceLightIcons),
+        WindowControls(
+          forceLightIcons: forceLightIcons,
+          showGlassPill: showGlassChrome,
+        ),
       ],
     );
   }

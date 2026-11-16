@@ -13,11 +13,19 @@ import '../theme/konata_theme.dart';
 class WindowControls extends StatefulWidget {
   /// 创建窗口控制按钮组。
   ///
-  /// [forceLightIcons] 用于深色原画详情页顶栏，确保图标始终清晰可读。
-  const WindowControls({super.key, this.forceLightIcons = false});
+  /// [forceLightIcons] 用于深色原画顶栏强制亮白图标；
+  /// [showGlassPill] 用于全屏原画详情页（无论浅色或深色模式均包裹高对比度磨砂胶囊底座）。
+  const WindowControls({
+    super.key,
+    this.forceLightIcons = false,
+    this.showGlassPill = false,
+  });
 
-  /// 是否强制使用浅色图标。
+  /// 是否强制使用浅色图标与暗色胶囊底座。
   final bool forceLightIcons;
+
+  /// 是否包裹毛玻璃胶囊底座（解决浅色模式下原画顶栏裸露图标看不清的问题）。
+  final bool showGlassPill;
 
   @override
   State<WindowControls> createState() => _WindowControlsState();
@@ -93,10 +101,13 @@ class _WindowControlsState extends State<WindowControls> with WindowListener {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final iconColor = widget.forceLightIcons ? Colors.white : p.textSecondary;
+    final showPill = widget.forceLightIcons || widget.showGlassPill;
+    final iconColor = widget.forceLightIcons
+        ? Colors.white
+        : (showPill ? p.textPrimary : p.textSecondary);
     final hoverBg = widget.forceLightIcons
         ? Colors.white.withValues(alpha: 0.14)
-        : p.secondaryButtonBg;
+        : (showPill ? p.secondaryButtonHoverBg : p.secondaryButtonBg);
 
     final controlsRow = Row(
       mainAxisSize: MainAxisSize.min,
@@ -145,22 +156,41 @@ class _WindowControlsState extends State<WindowControls> with WindowListener {
       ],
     );
 
-    if (!widget.forceLightIcons) return controlsRow;
+    if (!showPill) return controlsRow;
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(999),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.28),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.22),
+    final pillBg = widget.forceLightIcons
+        ? Colors.black.withValues(alpha: 0.30)
+        : Color.alphaBlend(Colors.white.withValues(alpha: 0.86), p.surface);
+    final pillBorder = widget.forceLightIcons
+        ? Colors.white.withValues(alpha: 0.22)
+        : p.hairline;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(
+              alpha: widget.forceLightIcons ? 0.22 : 0.12,
             ),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
           ),
-          child: controlsRow,
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(999),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            decoration: BoxDecoration(
+              color: pillBg,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: pillBorder),
+            ),
+            child: controlsRow,
+          ),
         ),
       ),
     );
@@ -214,7 +244,7 @@ class _WindowControlButtonState extends State<_WindowControlButton> {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: bg,
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: BorderRadius.circular(999),
               ),
               child: Center(
                 child: Icon(

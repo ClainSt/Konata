@@ -354,7 +354,7 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                     overflow: TextOverflow.ellipsis,
                     style: KonataTheme.detailTextStyle(
                       palette: p,
-                      color: KonataTheme.detailSecondaryTextColor(p),
+                      color: Colors.white.withValues(alpha: 0.78),
                       fontSize: 12,
                       fontWeight: FontWeight.w400,
                       height: 1.3,

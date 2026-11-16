@@ -20,7 +20,7 @@ import 'artwork_crop_dialog.dart';
 /// 图像编辑目标类型（竖版海报封面 / 横版大片背景图）。
 enum WorkArtworkKind { poster, backdrop }
 
-/// 作品封面与背景图选择弹窗（支持 TMDB 候选图集、自定义 URL 与本地图片文件）。
+/// 作品封面与背景图选择弹窗（支持 TMDB/Bangumi 候选图集、自定义 URL 与本地图片裁剪）。
 class WorkArtworkPickerDialog extends ConsumerStatefulWidget {
   /// 创建图片选择弹窗。
   const WorkArtworkPickerDialog({
@@ -44,6 +44,7 @@ class _WorkArtworkPickerDialogState
     extends ConsumerState<WorkArtworkPickerDialog> {
   final ScrollController _gridCtrl = ScrollController();
   late final TextEditingController _customPathCtrl;
+  late final String _initialAppliedPath;
   List<WorkArtworkOption> _candidates = const [];
   bool _loading = false;
   bool _saving = false;
@@ -53,10 +54,13 @@ class _WorkArtworkPickerDialogState
   void initState() {
     super.initState();
     final initial = widget.kind == WorkArtworkKind.poster
-        ? widget.work.posterPath
-        : widget.work.backdropPath;
+        ? (widget.work.posterPath?.trim().isNotEmpty == true
+              ? widget.work.posterPath!.trim()
+              : (widget.work.bangumiPosterPath?.trim() ?? ''))
+        : (widget.work.backdropPath?.trim() ?? '');
+    _initialAppliedPath = initial;
     _selectedPath = initial;
-    _customPathCtrl = TextEditingController(text: initial ?? '');
+    _customPathCtrl = TextEditingController(text: initial);
     _loadArtworkCandidates();
   }
 
@@ -65,6 +69,35 @@ class _WorkArtworkPickerDialogState
     _gridCtrl.dispose();
     _customPathCtrl.dispose();
     super.dispose();
+  }
+
+  /// 兼容 TMDB 相对路径（`/abc.jpg`）、完整 HTTPS URL 与本地反斜杠路径的等价匹配。
+  bool _isSameArtworkPath(String? a, String b) {
+    final left = (a ?? '').trim();
+    final right = b.trim();
+    if (left.isEmpty || right.isEmpty) return false;
+    if (left == right) return true;
+
+    String normalizeTail(String input) {
+      final noQuery = input.split('?').first.replaceAll('\\', '/');
+      final idx = noQuery.lastIndexOf('/');
+      return idx >= 0 ? noQuery.substring(idx + 1) : noQuery;
+    }
+
+    final tailA = normalizeTail(left);
+    final tailB = normalizeTail(right);
+    // TMDB / Bangumi 哈希文件名具备全局高唯一性，忽略前缀尺寸档位精准配对
+    if (tailA.length >= 12 && tailA == tailB) {
+      return true;
+    }
+    return false;
+  }
+
+  int _findMatchedCandidateIndex(String? path, List<WorkArtworkOption> list) {
+    if (path == null || path.trim().isEmpty) return -1;
+    final exactIdx = list.indexWhere((e) => e.filePath.trim() == path.trim());
+    if (exactIdx >= 0) return exactIdx;
+    return list.indexWhere((e) => _isSameArtworkPath(path, e.filePath));
   }
 
   Future<void> _loadArtworkCandidates() async {
@@ -219,6 +252,15 @@ class _WorkArtworkPickerDialogState
         : widget.work.backdropLocked;
     final canResetToAuto = widget.work.tmdbId != null && isLocked;
 
+    final selectedIndex = _findMatchedCandidateIndex(
+      _selectedPath,
+      _candidates,
+    );
+    final currentSavedIndex = _findMatchedCandidateIndex(
+      _initialAppliedPath,
+      _candidates,
+    );
+
     return KonataGlassDialog(
       width: 680,
       maxHeight: 620,
@@ -286,7 +328,7 @@ class _WorkArtworkPickerDialogState
                     controller: _gridCtrl,
                     builder: (_, ctrl) => GridView.builder(
                       controller: ctrl,
-                      padding: const EdgeInsets.only(right: 14),
+                      padding: const EdgeInsets.fromLTRB(4, 4, 14, 6),
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: isPoster ? 4 : 2,
                         mainAxisSpacing: 12,
@@ -300,7 +342,8 @@ class _WorkArtworkPickerDialogState
                           option: item,
                           workId: widget.work.id,
                           isPoster: isPoster,
-                          selected: _selectedPath == item.filePath,
+                          selected: index == selectedIndex,
+                          isCurrentSaved: index == currentSavedIndex,
                           imageLoader: imageLoader,
                           onTap: () {
                             setState(() {
@@ -382,12 +425,13 @@ class _WorkArtworkPickerDialogState
   }
 }
 
-class _ArtworkGridTile extends ConsumerWidget {
+class _ArtworkGridTile extends ConsumerStatefulWidget {
   const _ArtworkGridTile({
     required this.option,
     required this.workId,
     required this.isPoster,
     required this.selected,
+    required this.isCurrentSaved,
     required this.imageLoader,
     required this.onTap,
   });
@@ -396,17 +440,25 @@ class _ArtworkGridTile extends ConsumerWidget {
   final String workId;
   final bool isPoster;
   final bool selected;
+  final bool isCurrentSaved;
   final ManagedImageLoader imageLoader;
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ArtworkGridTile> createState() => _ArtworkGridTileState();
+}
+
+class _ArtworkGridTileState extends ConsumerState<_ArtworkGridTile> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
     final p = context.palette;
-    final staticRes = option.resolutionLabel;
+    final staticRes = widget.option.resolutionLabel;
     final asyncDims = staticRes != null
         ? null
         : ref
-              .watch(artworkOriginalDimensionsProvider(option.filePath))
+              .watch(artworkOriginalDimensionsProvider(widget.option.filePath))
               .valueOrNull;
     final resolutionText =
         staticRes ??
@@ -414,45 +466,126 @@ class _ArtworkGridTile extends ConsumerWidget {
             ? '${asyncDims.$1}×${asyncDims.$2}'
             : null);
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: onTap,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: selected ? p.accent : p.hairline,
-            width: selected ? 2.5 : 1,
+    final selected = widget.selected;
+    final isCurrentSaved = widget.isCurrentSaved;
+    final borderColor = selected
+        ? p.accent
+        : (_hovered
+              ? p.accent.withValues(alpha: 0.55)
+              : (p.isDark
+                    ? Colors.white.withValues(alpha: 0.16)
+                    : const Color(0x260F172A)));
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          curve: Curves.easeOutCubic,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: p.accent.withValues(alpha: 0.42),
+                      blurRadius: 12,
+                      spreadRadius: 0.5,
+                    ),
+                  ]
+                : null,
           ),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              ManagedImage(
-                option.filePath,
-                loader: imageLoader,
-                owner: workId,
-                decodeWidth: isPoster ? 342 : 780,
-                fit: BoxFit.cover,
-              ),
-              Positioned(
-                top: 6,
-                left: 6,
-                right: 6,
-                child: Align(
-                  alignment: Alignment.topLeft,
-                  child: _buildSourceBadge(option),
+          // 使用 foregroundDecoration 将高亮选中边框直接绘制在海报最顶层，杜绝被图像裁剪覆盖
+          foregroundDecoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: borderColor,
+              width: selected ? 3.5 : (_hovered ? 1.8 : 1.0),
+            ),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ManagedImage(
+                  widget.option.filePath,
+                  loader: widget.imageLoader,
+                  owner: widget.workId,
+                  decodeWidth: widget.isPoster ? 342 : 780,
+                  fit: BoxFit.cover,
                 ),
-              ),
-              if (resolutionText != null)
                 Positioned(
-                  right: 6,
-                  bottom: 6,
-                  child: _OverlayMiniBadge.resolution(resolutionText),
+                  top: 6,
+                  left: 6,
+                  child: _buildSourceBadge(widget.option),
                 ),
-            ],
+                if (selected)
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: p.accent,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.85),
+                          width: 1,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.32),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.check_rounded,
+                            size: 12,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(width: 2.5),
+                          Text(
+                            isCurrentSaved ? '当前' : '已选',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                              height: 1.1,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else if (isCurrentSaved)
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: _OverlayMiniBadge(
+                      text: '当前',
+                      backgroundColor: Colors.black.withValues(alpha: 0.72),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                if (resolutionText != null)
+                  Positioned(
+                    right: 6,
+                    bottom: 6,
+                    child: _OverlayMiniBadge.resolution(resolutionText),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

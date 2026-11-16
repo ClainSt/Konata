@@ -17,6 +17,7 @@ import '../widgets/playback/konata_playback_capsule.dart';
 import '../widgets/playback/konata_spec_badge.dart';
 import '../widgets/playback/konata_volume_control.dart';
 import 'immersive_audio_page.dart';
+import 'smart_cover_framing.dart';
 
 /// 当持久迷你音频底栏处于可视状态时，供底部滚动视图预留防遮挡留白的高度 Provider。
 final miniAudioBottomClearanceProvider = Provider<double>((ref) {
@@ -686,47 +687,59 @@ class _MiniCoverThumbnail extends ConsumerWidget {
     final p = context.palette;
     final loader = ref.watch(tmdbImageLoaderProvider);
 
-    Widget content;
-    switch (cover) {
-      case MemoryAudioCover(:final bytes):
-        content = Image.memory(
-          bytes,
-          width: size,
-          height: size,
-          fit: BoxFit.cover,
-          filterQuality: FilterQuality.medium,
-          gaplessPlayback: true,
-        );
-      case ManagedPosterAudioCover(:final url, :final workId, :final revision):
-        content = ManagedImage(
-          url,
-          key: ValueKey('mini_cov_${workId}_${url}_$revision'),
-          loader: loader,
-          owner: workId,
-          width: size,
-          height: size,
-          decodeWidth: 256,
-          fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => _fallbackTile(p),
-        );
-      case EmptyAudioCover():
-        content = _fallbackTile(p);
-    }
+    return SmartCoverAlignmentBuilder(
+      cover: cover,
+      loader: loader,
+      builder: (context, coverAlignment) {
+        Widget content;
+        switch (cover) {
+          case MemoryAudioCover(:final bytes):
+            content = Image.memory(
+              bytes,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              alignment: coverAlignment,
+              filterQuality: FilterQuality.medium,
+              gaplessPlayback: true,
+            );
+          case ManagedPosterAudioCover(
+            :final url,
+            :final workId,
+            :final revision,
+          ):
+            content = ManagedImage(
+              url,
+              key: ValueKey('mini_cov_${workId}_${url}_$revision'),
+              loader: loader,
+              owner: workId,
+              width: size,
+              height: size,
+              decodeWidth: 256,
+              fit: BoxFit.cover,
+              alignment: coverAlignment,
+              errorBuilder: (_, _, _) => _fallbackTile(p),
+            );
+          case EmptyAudioCover():
+            content = _fallbackTile(p);
+        }
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(9),
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          border: Border.all(
-            color: KonataPlaybackTokens.glassBorder(p),
-            width: 1,
-          ),
+        return ClipRRect(
           borderRadius: BorderRadius.circular(9),
-        ),
-        child: content,
-      ),
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: KonataPlaybackTokens.glassBorder(p),
+                width: 1,
+              ),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: content,
+          ),
+        );
+      },
     );
   }
 

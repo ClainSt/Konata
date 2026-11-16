@@ -19,6 +19,7 @@ import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/managed_image.dart';
+import 'smart_cover_framing.dart';
 import '../widgets/playback/konata_playback_capsule.dart';
 import '../widgets/playback/konata_spec_badge.dart';
 import '../widgets/playback/konata_volume_control.dart';
@@ -1049,7 +1050,7 @@ class _CoverAndReflectionColumn extends ConsumerWidget {
     final p = context.palette;
     final loader = ref.watch(tmdbImageLoaderProvider);
 
-    Widget buildArtwork(double size) {
+    Widget buildArtwork(double size, Alignment coverAlignment) {
       switch (cover) {
         case MemoryAudioCover(:final bytes):
           return Image.memory(
@@ -1057,6 +1058,7 @@ class _CoverAndReflectionColumn extends ConsumerWidget {
             width: size,
             height: size,
             fit: BoxFit.cover,
+            alignment: coverAlignment,
             filterQuality: FilterQuality.medium,
             gaplessPlayback: true,
           );
@@ -1074,6 +1076,7 @@ class _CoverAndReflectionColumn extends ConsumerWidget {
             height: size,
             decodeWidth: 800,
             fit: BoxFit.cover,
+            alignment: coverAlignment,
             errorBuilder: (_, _, _) => _emptyArt(p, size),
           );
         case EmptyAudioCover():
@@ -1081,85 +1084,89 @@ class _CoverAndReflectionColumn extends ConsumerWidget {
       }
     }
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final coverSize = constraints.maxWidth.clamp(
-          200.0,
-          KonataPlaybackTokens.albumCoverSize,
-        );
+    return SmartCoverAlignmentBuilder(
+      cover: cover,
+      loader: loader,
+      builder: (context, coverAlignment) => LayoutBuilder(
+        builder: (context, constraints) {
+          final coverSize = constraints.maxWidth.clamp(
+            200.0,
+            KonataPlaybackTokens.albumCoverSize,
+          );
 
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Container(
-              width: coverSize,
-              height: coverSize,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(
-                  KonataPlaybackTokens.albumCoverRadius,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: KonataPlaybackTokens.shadowColor(p),
-                    blurRadius: 38,
-                    offset: const Offset(0, 20),
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: coverSize,
+                height: coverSize,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(
+                    KonataPlaybackTokens.albumCoverRadius,
                   ),
-                ],
-                border: Border.all(
-                  color: KonataPlaybackTokens.glassBorder(p),
-                  width: 1,
+                  boxShadow: [
+                    BoxShadow(
+                      color: KonataPlaybackTokens.shadowColor(p),
+                      blurRadius: 38,
+                      offset: const Offset(0, 20),
+                    ),
+                  ],
+                  border: Border.all(
+                    color: KonataPlaybackTokens.glassBorder(p),
+                    width: 1,
+                  ),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(
+                    KonataPlaybackTokens.albumCoverRadius,
+                  ),
+                  child: buildArtwork(coverSize, coverAlignment),
                 ),
               ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(
-                  KonataPlaybackTokens.albumCoverRadius,
-                ),
-                child: buildArtwork(coverSize),
-              ),
-            ),
-            // 底部紧贴垂直镜像渐隐倒影（精简纯净，不再堆砌冗余长标题）
-            SizedBox(
-              width: coverSize,
-              height: KonataPlaybackTokens.albumReflectionHeight,
-              child: ClipRect(
-                child: OverflowBox(
-                  alignment: Alignment.topCenter,
-                  maxHeight: coverSize,
-                  child: ShaderMask(
-                    shaderCallback: (bounds) =>
-                        const LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors:
-                              KonataPlaybackTokens.albumReflectionMaskColors,
-                          stops: [0.0, 0.38, 0.94],
-                        ).createShader(
-                          Rect.fromLTWH(
-                            0,
-                            0,
-                            coverSize,
-                            KonataPlaybackTokens.albumReflectionHeight,
+              // 底部紧贴垂直镜像渐隐倒影（精简纯净，不再堆砌冗余长标题）
+              SizedBox(
+                width: coverSize,
+                height: KonataPlaybackTokens.albumReflectionHeight,
+                child: ClipRect(
+                  child: OverflowBox(
+                    alignment: Alignment.topCenter,
+                    maxHeight: coverSize,
+                    child: ShaderMask(
+                      shaderCallback: (bounds) =>
+                          const LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors:
+                                KonataPlaybackTokens.albumReflectionMaskColors,
+                            stops: [0.0, 0.38, 0.94],
+                          ).createShader(
+                            Rect.fromLTWH(
+                              0,
+                              0,
+                              coverSize,
+                              KonataPlaybackTokens.albumReflectionHeight,
+                            ),
                           ),
+                      blendMode: BlendMode.dstIn,
+                      child: Transform(
+                        alignment: Alignment.center,
+                        transform: Matrix4.diagonal3Values(1.0, -1.0, 1.0),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(
+                            KonataPlaybackTokens.albumCoverRadius,
+                          ),
+                          child: buildArtwork(coverSize, coverAlignment),
                         ),
-                    blendMode: BlendMode.dstIn,
-                    child: Transform(
-                      alignment: Alignment.center,
-                      transform: Matrix4.diagonal3Values(1.0, -1.0, 1.0),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(
-                          KonataPlaybackTokens.albumCoverRadius,
-                        ),
-                        child: buildArtwork(coverSize),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ],
-        );
-      },
+            ],
+          );
+        },
+      ),
     );
   }
 
@@ -1189,36 +1196,48 @@ class _ImmersiveMicroCover extends ConsumerWidget {
     final loader = ref.watch(tmdbImageLoaderProvider);
     const size = 38.0;
 
-    Widget art;
-    switch (cover) {
-      case MemoryAudioCover(:final bytes):
-        art = Image.memory(
-          bytes,
-          width: size,
-          height: size,
-          fit: BoxFit.cover,
-          filterQuality: FilterQuality.medium,
-          gaplessPlayback: true,
-        );
-      case ManagedPosterAudioCover(:final url, :final workId, :final revision):
-        art = ManagedImage(
-          url,
-          key: ValueKey('imm_bg_${workId}_${url}_$revision'),
-          loader: loader,
-          owner: workId,
-          width: size,
-          height: size,
-          decodeWidth: 160,
-          fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => _fallback(p, size),
-        );
-      case EmptyAudioCover():
-        art = _fallback(p, size);
-    }
+    return SmartCoverAlignmentBuilder(
+      cover: cover,
+      loader: loader,
+      builder: (context, coverAlignment) {
+        Widget art;
+        switch (cover) {
+          case MemoryAudioCover(:final bytes):
+            art = Image.memory(
+              bytes,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              alignment: coverAlignment,
+              filterQuality: FilterQuality.medium,
+              gaplessPlayback: true,
+            );
+          case ManagedPosterAudioCover(
+            :final url,
+            :final workId,
+            :final revision,
+          ):
+            art = ManagedImage(
+              url,
+              key: ValueKey('imm_micro_${workId}_${url}_$revision'),
+              loader: loader,
+              owner: workId,
+              width: size,
+              height: size,
+              decodeWidth: 160,
+              fit: BoxFit.cover,
+              alignment: coverAlignment,
+              errorBuilder: (_, _, _) => _fallback(p, size),
+            );
+          case EmptyAudioCover():
+            art = _fallback(p, size);
+        }
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(9),
-      child: SizedBox(width: size, height: size, child: art),
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(9),
+          child: SizedBox(width: size, height: size, child: art),
+        );
+      },
     );
   }
 

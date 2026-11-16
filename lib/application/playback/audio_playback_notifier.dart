@@ -9,7 +9,6 @@ import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/playback_record.dart';
 import '../../domain/models/work.dart';
-import '../../domain/formatting/media_display_formatter.dart';
 import '../../domain/matching/supplementary_subclassifier.dart';
 import '../../domain/playback/cue_and_lrc_parser.dart';
 import '../../domain/playback/playback_formatters.dart';
@@ -327,6 +326,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   static const int _propSampleRate = 106;
   static const int _propAudioFormat = 107;
   static const int _propAudioBitrate = 108;
+  static const int _propEofReached = 109;
 
   final Ref _ref;
   final LibMpvClient Function()? clientFactory;
@@ -341,6 +341,8 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   String? _loadedPhysicalKey;
   int _loadGeneration = 0;
   bool _isTransitioningCueBoundary = false;
+
+  bool _advancingTrackCompletion = false;
 
   double? _pendingSeekRawTargetSeconds;
   DateTime? _pendingSeekGuardUntil;
@@ -542,7 +544,6 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
         >[];
 
     final distinctAlbums = <String>{};
-    final titleCounts = <String, int>{};
 
     for (final v in cdVariants) {
       if (!isPlayableAudioFile(v.fileName)) continue;
@@ -563,8 +564,6 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
                 ? folderName
                 : work.title);
       distinctAlbums.add(resolvedAlbum);
-      final normTitleKey = parsedTrack.cleanTitle.toLowerCase();
-      titleCounts[normTitleKey] = (titleCounts[normTitleKey] ?? 0) + 1;
 
       rawDrafts.add((
         variant: v,
@@ -578,34 +577,9 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       ));
     }
 
-    final multiAlbumQueue = distinctAlbums.length >= 2;
-    final audioItems = <AudioQueueItem>[];
-    for (final d in rawDrafts) {
-      final isDuplicateTitle =
-          (titleCounts[d.cleanTitle.toLowerCase()] ?? 0) >= 2;
-      var badge = '';
-      if (isDuplicateTitle) {
-        final ext = MediaDisplayFormatter.fileExtensionUpper(
-          d.variant.fileName,
-        );
-        final sizeStr = MediaDisplayFormatter.formatBytes(d.variant.fileSize);
-        if (d.versionTag != null &&
-            d.versionTag!.isNotEmpty &&
-            d.versionTag != ext) {
-          badge = sizeStr.isNotEmpty
-              ? '${d.versionTag} · $sizeStr'
-              : d.versionTag!;
-        } else if (sizeStr.isNotEmpty) {
-          badge = ext.isNotEmpty ? '$ext · $sizeStr' : sizeStr;
-        } else if (d.versionTag != null) {
-          badge = d.versionTag!;
-        }
-      } else if (d.versionTag != null &&
-          (d.versionTag!.contains('bit') || d.versionTag == 'Hi-Res')) {
-        badge = d.versionTag!;
-      }
-
-      audioItems.add(
+    final multiAlbumQueue = distinctAlbums.length >= 2 || rawDrafts.isNotEmpty;
+    final audioItems = <AudioQueueItem>[
+      for (final d in rawDrafts)
         AudioQueueItem(
           id: d.variant.id,
           work: work,
@@ -614,11 +588,9 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
           title: d.cleanTitle,
           trackNumber: d.trackNumber,
           albumTitle: d.albumLabel,
-          versionBadge: badge,
           showAlbumSubtitle: multiAlbumQueue,
         ),
-      );
-    }
+    ];
     return audioItems;
   }
 
@@ -689,6 +661,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       isRemoteStream: isRemoteStream,
       logStore: logStore,
     );
+    client.setOptionString('keep-open', 'no');
     final rc = client.initialize();
     if (rc < 0) {
       await client.dispose();
@@ -696,6 +669,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     }
 
     client.setPropertyDouble('volume', state.isMuted ? 0.0 : state.volume);
+    client.setPropertyString('keep-open', 'no');
     client.setPropertyFlag('mute', state.isMuted);
     client.requestLogMessages('warn');
     client.observeProperty(_propTimePos, 'time-pos', MpvFormat.double_);
@@ -1192,6 +1166,13 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
               ? PlaybackFormatters.formatBitrate(bps)
               : '',
         );
+      case _propEofReached:
+        final eof = e.boolValue ?? false;
+        if (eof && !_advancingTrackCompletion && state.isActive) {
+          _advancingTrackCompletion = true;
+          _loadedPhysicalKey = null;
+          unawaited(_advanceOnTrackCompleted());
+        }
     }
   }
 
@@ -1309,8 +1290,13 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
 
   void _handleEndFile(MpvEndFileEvent event) {
     if (event.reason == MpvEndFileReason.eof) {
-      unawaited(_advanceOnTrackCompleted());
+      _loadedPhysicalKey = null;
+      if (!_advancingTrackCompletion && state.isActive) {
+        _advancingTrackCompletion = true;
+        unawaited(_advanceOnTrackCompleted());
+      }
     } else if (event.reason == MpvEndFileReason.error) {
+      _loadedPhysicalKey = null;
       state = state.copyWith(
         isPlaying: false,
         isBuffering: false,
@@ -1334,8 +1320,11 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       );
     }
     if (state.loopMode == AudioLoopMode.loopOne) {
-      await seekRelativeTrackSeconds(0.0);
-      await setPlaying(true);
+      final currentIdx = state.currentIndex;
+      if (currentIdx >= 0 && currentIdx < state.queue.length) {
+        final gen = ++_loadGeneration;
+        await _startTrackAtIndex(currentIdx, generation: gen);
+      }
       return;
     }
     final nextIdx = state.currentIndex + 1;
@@ -1347,6 +1336,9 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       await _startTrackAtIndex(0, generation: gen);
     } else {
       await setPlaying(false);
+      if (mounted) {
+        state = state.copyWith(isPlaying: false);
+      }
     }
   }
 
@@ -1416,6 +1408,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     final c = _client;
     if (item == null || c == null || c.isDisposed) return;
     _isTransitioningCueBoundary = false;
+
     final clamped = state.durationSeconds > 0
         ? trackSeconds.clamp(0.0, state.durationSeconds)
         : math.max(0.0, trackSeconds);
@@ -1593,6 +1586,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     ++_loadGeneration;
     _loadedPhysicalKey = null;
     _isTransitioningCueBoundary = false;
+
     _pendingSeekRawTargetSeconds = null;
     _pendingSeekGuardUntil = null;
     if (closingItem != null) {

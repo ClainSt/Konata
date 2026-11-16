@@ -697,9 +697,10 @@ class _MiniCoverThumbnail extends ConsumerWidget {
           filterQuality: FilterQuality.medium,
           gaplessPlayback: true,
         );
-      case ManagedPosterAudioCover(:final url, :final workId):
+      case ManagedPosterAudioCover(:final url, :final workId, :final revision):
         content = ManagedImage(
           url,
+          key: ValueKey('mini_cov_${workId}_${url}_$revision'),
           loader: loader,
           owner: workId,
           width: size,

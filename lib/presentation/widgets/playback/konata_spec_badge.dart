@@ -4,8 +4,6 @@ import '../../theme/konata_palette.dart';
 import '../../theme/konata_playback_tokens.dart';
 
 /// 实时音画规格胶囊徽标（如 `HEVC · 10bit · 1080p`、`FLAC · 24-bit · 96 kHz`、`WASAPI 独占`）。
-///
-/// 全站音频迷你栏、流光音频页与内置视频页唯一共用实现。
 class KonataSpecBadge extends StatelessWidget {
   /// 创建实时规格徽标。
   const KonataSpecBadge({
@@ -47,7 +45,9 @@ class KonataSpecBadge extends StatelessWidget {
       textColor = p.textPrimary;
     } else {
       bgColor = KonataPlaybackTokens.softFill(p);
-      borderColor = KonataPlaybackTokens.glassBorder(p);
+      borderColor = p.isDark
+          ? KonataPlaybackTokens.glassBorder(p)
+          : const Color(0x260F172A);
       textColor = p.isDark ? p.textSecondary : p.textPrimary;
     }
 
@@ -90,9 +90,6 @@ class KonataSpecBadge extends StatelessWidget {
 }
 
 /// 选集列表与详情卡共用的「正片 / 特典」语义胶囊徽标。
-///
-/// - `isSpecial == false`：轻量化主题蓝弱底衬 + 主题蓝文字，显式标识 `正片`；
-/// - `isSpecial == true`：中性微弱灰底衬 + 次级文字，标识 `特典`。
 class EpisodeCategoryBadge extends StatelessWidget {
   /// 创建选集类别胶囊徽标。
   const EpisodeCategoryBadge({super.key, required this.isSpecial});
@@ -117,9 +114,11 @@ class EpisodeCategoryBadge extends StatelessWidget {
       textColor = accentBadge.fg;
     } else {
       label = '特典';
-      bgColor = KonataPlaybackTokens.softFill(p);
-      borderColor = KonataPlaybackTokens.glassBorder(p);
-      textColor = p.isDark ? p.textSecondary : p.textPrimary;
+      bgColor = p.isDark ? const Color(0x991C2029) : const Color(0x160F172A);
+      borderColor = p.isDark
+          ? const Color(0x42FFFFFF)
+          : const Color(0x3D0F172A);
+      textColor = p.textPrimary;
     }
 
     return Container(

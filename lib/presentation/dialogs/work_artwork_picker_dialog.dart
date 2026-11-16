@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../application/playback/audio_playback_notifier.dart';
 import '../../application/providers/artwork_provider.dart';
 import '../../application/providers/work_management_provider.dart';
 import '../../domain/models/work.dart';
@@ -124,10 +125,12 @@ class _WorkArtworkPickerDialogState
       if (mounted) {
         _selectedPath = savedPath;
         _customPathCtrl.text = savedPath;
-        showKonataToast(
-          context,
-          isPoster ? '已裁剪并更新作品封面海报' : '已裁剪并更新作品背景原画',
-        );
+        showKonataToast(context, isPoster ? '已裁剪并更新作品封面海报' : '已裁剪并更新作品背景原画');
+        PaintingBinding.instance.imageCache.clear();
+        ref
+            .read(audioPlaybackProvider.notifier)
+            .refreshWorkPosterById(widget.work.id)
+            .ignore();
         Navigator.of(context).pop(true);
       }
     } catch (e) {
@@ -150,16 +153,25 @@ class _WorkArtworkPickerDialogState
     }
     setState(() => _saving = true);
     try {
-      await ref.read(workManagementProvider).updateWorkArtwork(
-        workId: widget.work.id,
-        posterPath: widget.kind == WorkArtworkKind.poster ? target : null,
-        backdropPath: widget.kind == WorkArtworkKind.backdrop ? target : null,
-      );
+      await ref
+          .read(workManagementProvider)
+          .updateWorkArtwork(
+            workId: widget.work.id,
+            posterPath: widget.kind == WorkArtworkKind.poster ? target : null,
+            backdropPath: widget.kind == WorkArtworkKind.backdrop
+                ? target
+                : null,
+          );
       if (mounted) {
         showKonataToast(
           context,
           widget.kind == WorkArtworkKind.poster ? '已更新作品封面海报' : '已更新作品背景原画',
         );
+        PaintingBinding.instance.imageCache.clear();
+        ref
+            .read(audioPlaybackProvider.notifier)
+            .refreshWorkPosterById(widget.work.id)
+            .ignore();
         Navigator.of(context).pop(true);
       }
     } catch (e) {
@@ -173,13 +185,20 @@ class _WorkArtworkPickerDialogState
   Future<void> _resetToAuto() async {
     setState(() => _saving = true);
     try {
-      await ref.read(workManagementProvider).resetArtworkLockToAuto(
-        workId: widget.work.id,
-        resetPoster: widget.kind == WorkArtworkKind.poster,
-        resetBackdrop: widget.kind == WorkArtworkKind.backdrop,
-      );
+      await ref
+          .read(workManagementProvider)
+          .resetArtworkLockToAuto(
+            workId: widget.work.id,
+            resetPoster: widget.kind == WorkArtworkKind.poster,
+            resetBackdrop: widget.kind == WorkArtworkKind.backdrop,
+          );
       if (mounted) {
         showKonataToast(context, '已恢复自动抓取默认图像');
+        PaintingBinding.instance.imageCache.clear();
+        ref
+            .read(audioPlaybackProvider.notifier)
+            .refreshWorkPosterById(widget.work.id)
+            .ignore();
         Navigator.of(context).pop(true);
       }
     } catch (e) {
@@ -195,8 +214,9 @@ class _WorkArtworkPickerDialogState
     final p = context.palette;
     final imageLoader = ref.watch(tmdbImageLoaderProvider);
     final isPoster = widget.kind == WorkArtworkKind.poster;
-    final isLocked =
-        isPoster ? widget.work.posterLocked : widget.work.backdropLocked;
+    final isLocked = isPoster
+        ? widget.work.posterLocked
+        : widget.work.backdropLocked;
     final canResetToAuto = widget.work.tmdbId != null && isLocked;
 
     return KonataGlassDialog(
@@ -327,10 +347,7 @@ class _WorkArtworkPickerDialogState
     final preview = _selectedPath ?? '';
     if (preview.isEmpty) {
       return Center(
-        child: Text(
-          '暂无可选候选图片',
-          style: TextStyle(color: p.textMuted),
-        ),
+        child: Text('暂无可选候选图片', style: TextStyle(color: p.textMuted)),
       );
     }
     return Center(
@@ -354,9 +371,7 @@ class _WorkArtworkPickerDialogState
                 bottom: 8,
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    _AsyncResolutionBadge(path: preview),
-                  ],
+                  children: [_AsyncResolutionBadge(path: preview)],
                 ),
               ),
             ],
@@ -390,8 +405,11 @@ class _ArtworkGridTile extends ConsumerWidget {
     final staticRes = option.resolutionLabel;
     final asyncDims = staticRes != null
         ? null
-        : ref.watch(artworkOriginalDimensionsProvider(option.filePath)).valueOrNull;
-    final resolutionText = staticRes ??
+        : ref
+              .watch(artworkOriginalDimensionsProvider(option.filePath))
+              .valueOrNull;
+    final resolutionText =
+        staticRes ??
         (asyncDims != null && asyncDims.$1 > 0 && asyncDims.$2 > 0
             ? '${asyncDims.$1}×${asyncDims.$2}'
             : null);
@@ -456,8 +474,7 @@ class _ArtworkGridTile extends ConsumerWidget {
 
   Widget _buildSourceBadge(WorkArtworkOption option) {
     final displayLabel = _compactSourceLabel(option.sourceLabel);
-    final isBangumi =
-        option.isBangumi || displayLabel.startsWith('Bangumi');
+    final isBangumi = option.isBangumi || displayLabel.startsWith('Bangumi');
     if (isBangumi) {
       return _OverlayMiniBadge(
         text: displayLabel,
@@ -546,8 +563,9 @@ class _OverlayMiniBadge extends StatelessWidget {
         color: textGradient != null ? Colors.white : textColor,
         fontSize: 10,
         fontWeight: fontWeight,
-        fontFeatures:
-            tabularFigures ? const [FontFeature.tabularFigures()] : null,
+        fontFeatures: tabularFigures
+            ? const [FontFeature.tabularFigures()]
+            : null,
       ),
     );
 

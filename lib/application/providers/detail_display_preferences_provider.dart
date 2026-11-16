@@ -5,8 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 class DetailDisplayPreferences {
   /// 创建详情页展示偏好。
   const DetailDisplayPreferences({
-    this.showTitleText = true,
-    this.showTitleLogo = false,
+    this.showTitleText = false,
+    this.showTitleLogo = true,
     this.showOverview = true,
     this.showRawVideoFilename = true,
     this.showCdTab = true,
@@ -76,8 +76,7 @@ class DetailDisplayPreferences {
 class DetailDisplayPreferencesNotifier
     extends StateNotifier<DetailDisplayPreferences> {
   /// 初始化并异步加载本地持久化配置。
-  DetailDisplayPreferencesNotifier()
-    : super(const DetailDisplayPreferences()) {
+  DetailDisplayPreferencesNotifier() : super(const DetailDisplayPreferences()) {
     _loadFromPrefs();
   }
 
@@ -94,11 +93,10 @@ class DetailDisplayPreferencesNotifier
       final prefs = await SharedPreferences.getInstance();
       if (!mounted) return;
       state = DetailDisplayPreferences(
-        showTitleText: prefs.getBool(_keyShowTitleText) ?? true,
-        showTitleLogo: prefs.getBool(_keyShowTitleLogo) ?? false,
+        showTitleText: prefs.getBool(_keyShowTitleText) ?? false,
+        showTitleLogo: prefs.getBool(_keyShowTitleLogo) ?? true,
         showOverview: prefs.getBool(_keyShowOverview) ?? true,
-        showRawVideoFilename:
-            prefs.getBool(_keyShowRawVideoFilename) ?? true,
+        showRawVideoFilename: prefs.getBool(_keyShowRawVideoFilename) ?? true,
         showCdTab: prefs.getBool(_keyShowCdTab) ?? true,
         showScanTab: prefs.getBool(_keyShowScanTab) ?? true,
       );

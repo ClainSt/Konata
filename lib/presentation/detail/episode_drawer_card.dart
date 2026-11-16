@@ -16,7 +16,7 @@ const List<Shadow> _kDrawerOverlayTextShadows = [
   Shadow(color: Color(0xA6000000), blurRadius: 8, offset: Offset(0, 1.5)),
 ];
 
-/// 详情页底部抽屉单集卡片（展示 16:9 剧照、进度条、集数标题、多版本徽章与文件名）。
+/// 详情页底部抽屉与完整列表共用的单集卡片（展示 16:9 剧照、进度条、集数标题、多版本徽章与文件名）。
 class EpisodeDrawerCard extends StatefulWidget {
   /// 创建单集卡片。
   const EpisodeDrawerCard({
@@ -36,52 +36,27 @@ class EpisodeDrawerCard extends StatefulWidget {
     this.onMarkCompleted,
     this.displayTitleOverride,
     this.showRawFileName = true,
+    this.onDarkBackdrop = true,
   });
 
-  /// 逻辑剧集实体。
   final Episode episode;
-
-  /// 归属该集的物理版本列表。
   final List<MediaVariant> variants;
-
-  /// 剧照缺失时使用的作品背景图回退路径。
   final String? fallbackBackdropPath;
-
-  /// 图片加载器。
   final ManagedImageLoader imageLoader;
-
-  /// 点击播放/选播回调。
   final VoidCallback onTap;
-
-  /// 右键微调单集话数/特典分类回调。
   final VoidCallback onAdjustSlot;
-
-  /// 右键指定内置播放器播放回调。
   final VoidCallback? onPlayBuiltin;
-
-  /// 右键指定外部播放器播放回调。
   final VoidCallback? onPlayExternal;
-
-  /// 该剧集对应的最新观看记录（用于底边进度条与状态徽标）。
   final PlaybackRecord? playback;
-
-  /// 右键快捷标为已看回调（为空时右键直接打开编号微调）。
   final VoidCallback? onMarkCompleted;
-
-  /// 所属作品标题（用于单一正片视频占位回退）。
   final String? workTitle;
-
-  /// 所属作品媒体类型（用于识别 movie 单一正片免序号前缀）。
   final TmdbMediaType? workMediaType;
-
-  /// 所属作品正片总集数（仅 1 集且集号<=1 时免 `01 ·` 前缀）。
   final int? mainEpisodeCount;
-
-  /// 外部覆盖展示标题（例如 CD 附带特典映像拼接清洗后专辑短名）。
   final String? displayTitleOverride;
-
-  /// 是否展示原始视频文件名（联动设置「显示原始视频文件名」开关）。
   final bool showRawFileName;
+
+  /// 是否直接叠放于详情页底部原画暗角之上（完整列表弹窗传 `false` 以适配亮/暗双主题面板）。
+  final bool onDarkBackdrop;
 
   @override
   State<EpisodeDrawerCard> createState() => _EpisodeDrawerCardState();
@@ -199,6 +174,75 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
         (playback.isCompleted || playback.positionSeconds > 0);
     final progressRatio = playback?.progressRatio ?? 0.0;
 
+    final useDarkOverlayStyle = widget.onDarkBackdrop || p.isDark;
+    final effectiveMetaPalette = useDarkOverlayStyle ? KonataPalette.dark : p;
+    final titleColor = useDarkOverlayStyle ? Colors.white : p.textPrimary;
+    final fileNameColor = useDarkOverlayStyle
+        ? Colors.white.withValues(alpha: 0.80)
+        : p.textSecondary;
+    final metaShadows = widget.onDarkBackdrop
+        ? _kDrawerOverlayTextShadows
+        : const <Shadow>[];
+    final frameBorderColor = useDarkOverlayStyle
+        ? Colors.white.withValues(alpha: _hovered ? 0.36 : 0.16)
+        : const Color(0xFF0F172A).withValues(alpha: _hovered ? 0.28 : 0.12);
+
+    Widget metaSection = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: EllipsisTextWithTooltip(
+                text: displayTitle,
+                maxLines: 1,
+                style: KonataTheme.detailTextStyle(
+                  palette: effectiveMetaPalette,
+                  color: titleColor,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ).copyWith(shadows: metaShadows),
+              ),
+            ),
+            const SizedBox(width: 6),
+            EpisodeCategoryBadge(isSpecial: ep.isSpecial),
+            if (widget.variants.length >= 2) ...[
+              const SizedBox(width: 6),
+              _FrostedMiniBadge(
+                label: '${widget.variants.length}版本',
+                isWarning: true,
+              ),
+            ],
+          ],
+        ),
+        if (widget.showRawFileName && primaryVariant != null) ...[
+          const SizedBox(height: 3),
+          Tooltip(
+            message: primaryVariant.relativePath,
+            child: Text(
+              MediaDisplayFormatter.formatWrappableFileName(
+                primaryVariant.fileName,
+              ),
+              softWrap: true,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: KonataTheme.detailTextStyle(
+                palette: effectiveMetaPalette,
+                color: fileNameColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w400,
+                height: 1.3,
+              ).copyWith(shadows: metaShadows),
+            ),
+          ),
+        ],
+      ],
+    );
+
+    if (widget.onDarkBackdrop && !p.isDark) {
+      metaSection = Theme(data: KonataTheme.darkTheme(), child: metaSection);
+    }
+
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
@@ -216,15 +260,12 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                 curve: Curves.easeOutCubic,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: Colors.white.withValues(
-                      alpha: _hovered ? 0.36 : 0.16,
-                    ),
-                    width: 1,
-                  ),
+                  border: Border.all(color: frameBorderColor, width: 1),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.28),
+                      color: Colors.black.withValues(
+                        alpha: useDarkOverlayStyle ? 0.28 : 0.12,
+                      ),
                       blurRadius: 14,
                       offset: const Offset(0, 6),
                     ),
@@ -323,61 +364,7 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                 ),
               ),
               const SizedBox(height: 8),
-              // 悬浮在原画暗角上的无框标题与正片/特典徽章：局部采用暗底高对比色阶，确保深浅主题原画上均清晰锐利
-              Theme(
-                data: KonataTheme.darkTheme(),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: EllipsisTextWithTooltip(
-                            text: displayTitle,
-                            maxLines: 1,
-                            style: KonataTheme.detailTextStyle(
-                              palette: KonataPalette.dark,
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ).copyWith(shadows: _kDrawerOverlayTextShadows),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        EpisodeCategoryBadge(isSpecial: ep.isSpecial),
-                        if (widget.variants.length >= 2) ...[
-                          const SizedBox(width: 6),
-                          _FrostedMiniBadge(
-                            label: '${widget.variants.length}版本',
-                            isWarning: true,
-                          ),
-                        ],
-                      ],
-                    ),
-                    if (widget.showRawFileName && primaryVariant != null) ...[
-                      const SizedBox(height: 3),
-                      Tooltip(
-                        message: primaryVariant.relativePath,
-                        child: Text(
-                          MediaDisplayFormatter.formatWrappableFileName(
-                            primaryVariant.fileName,
-                          ),
-                          softWrap: true,
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: KonataTheme.detailTextStyle(
-                            palette: KonataPalette.dark,
-                            color: Colors.white.withValues(alpha: 0.80),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w400,
-                            height: 1.3,
-                          ).copyWith(shadows: _kDrawerOverlayTextShadows),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
+              metaSection,
             ],
           ),
         ),
@@ -403,7 +390,7 @@ class _FrostedMiniBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: tintColor,
         borderRadius: BorderRadius.circular(5),
-        border: Border.all(color: borderColor, width: 0.6),
+        border: Border.all(color: borderColor, width: 0.8),
       ),
       child: Text(
         label,

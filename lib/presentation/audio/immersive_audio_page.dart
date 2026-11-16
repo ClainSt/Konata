@@ -783,7 +783,8 @@ class _AmbientFlowBackdropState extends ConsumerState<_AmbientFlowBackdrop> {
   String _coverKey(AudioCoverSource cover) {
     return switch (cover) {
       MemoryAudioCover() => 'mem:${cover.bytes.length}:${cover.contentHash}',
-      ManagedPosterAudioCover(:final url, :final workId) => 'url:$workId:$url',
+      ManagedPosterAudioCover(:final url, :final workId, :final revision) =>
+        'url:$workId:$url#$revision',
       EmptyAudioCover() => 'empty',
     };
   }
@@ -955,9 +956,10 @@ class _AmbientFlowBackdropState extends ConsumerState<_AmbientFlowBackdrop> {
           height: double.infinity,
           gaplessPlayback: true,
         );
-      case ManagedPosterAudioCover(:final url, :final workId):
+      case ManagedPosterAudioCover(:final url, :final workId, :final revision):
         art = ManagedImage(
           url,
+          key: ValueKey('imm_bg_${workId}_${url}_$revision'),
           loader: loader,
           owner: workId,
           fit: BoxFit.cover,
@@ -1058,9 +1060,14 @@ class _CoverAndReflectionColumn extends ConsumerWidget {
             filterQuality: FilterQuality.medium,
             gaplessPlayback: true,
           );
-        case ManagedPosterAudioCover(:final url, :final workId):
+        case ManagedPosterAudioCover(
+          :final url,
+          :final workId,
+          :final revision,
+        ):
           return ManagedImage(
             url,
+            key: ValueKey('imm_cov_${workId}_${url}_$revision'),
             loader: loader,
             owner: workId,
             width: size,
@@ -1193,9 +1200,10 @@ class _ImmersiveMicroCover extends ConsumerWidget {
           filterQuality: FilterQuality.medium,
           gaplessPlayback: true,
         );
-      case ManagedPosterAudioCover(:final url, :final workId):
+      case ManagedPosterAudioCover(:final url, :final workId, :final revision):
         art = ManagedImage(
           url,
+          key: ValueKey('imm_bg_${workId}_${url}_$revision'),
           loader: loader,
           owner: workId,
           width: size,

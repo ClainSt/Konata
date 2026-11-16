@@ -263,47 +263,86 @@ class DetailDrawerHeaderButton extends StatelessWidget {
 }
 
 /// 底部毛玻璃胶囊栏中的正片 / 特典切换标签芯片（极简纯文字样式）。
-class DetailDrawerTabChip extends StatelessWidget {
-  /// 创建标签芯片。
+class DetailDrawerTabChip extends StatefulWidget {
+  /// 创建选集分类切换胶囊芯片。
   const DetailDrawerTabChip({
     super.key,
     required this.label,
     required this.active,
     required this.onTap,
+    this.compact = false,
   });
 
-  /// 文案（如 `正片 (12)`）。
+  /// 标签文本（如 `正片 (24)`）。
   final String label;
 
-  /// 是否处于激活展开态。
+  /// 当前是否处于激活选中态。
   final bool active;
 
   /// 点击切换回调。
   final VoidCallback onTap;
 
+  /// 是否使用紧凑内边距。
+  final bool compact;
+
+  @override
+  State<DetailDrawerTabChip> createState() => _DetailDrawerTabChipState();
+}
+
+class _DetailDrawerTabChipState extends State<DetailDrawerTabChip> {
+  bool _hovered = false;
+
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    return InkWell(
-      borderRadius: BorderRadius.circular(999),
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOutCubic,
-        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 7),
-        decoration: BoxDecoration(
-          color: active
-              ? KonataPlaybackTokens.activePillBg(p)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: active ? p.textPrimary : p.textSecondary,
-            fontSize: 13,
-            fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-            letterSpacing: 0.25,
+    final Color bgColor;
+    final Color borderColor;
+    final Color textColor;
+
+    if (widget.active) {
+      bgColor = p.isDark
+          ? KonataPlaybackTokens.activePillBg(p)
+          : p.primaryButtonBg;
+      borderColor = p.isDark ? const Color(0x42FFFFFF) : p.primaryButtonBg;
+      textColor = p.isDark ? Colors.white : p.primaryButtonFg;
+    } else if (_hovered) {
+      bgColor = p.isDark ? const Color(0x1FFFFFFF) : const Color(0x140F172A);
+      borderColor = Colors.transparent;
+      textColor = p.textPrimary;
+    } else {
+      bgColor = Colors.transparent;
+      borderColor = Colors.transparent;
+      textColor = p.isDark ? p.textSecondary : p.textPrimary;
+    }
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          curve: Curves.easeOutCubic,
+          padding: EdgeInsets.symmetric(
+            horizontal: widget.compact ? 12 : 14,
+            vertical: widget.compact ? 6 : 7,
+          ),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: borderColor, width: 1),
+          ),
+          child: Text(
+            widget.label,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 12.5,
+              fontWeight: widget.active ? FontWeight.w600 : FontWeight.w500,
+              fontFeatures: KonataPlaybackTokens.tabularNumbers,
+              height: 1.15,
+            ),
           ),
         ),
       ),

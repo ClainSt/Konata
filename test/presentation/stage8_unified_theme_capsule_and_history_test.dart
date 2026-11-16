@@ -49,12 +49,73 @@ import 'package:ccplayer/presentation/widgets/playback/konata_playback_capsule.d
 import 'package:ccplayer/presentation/widgets/playback/konata_volume_control.dart';
 
 final Uint8List _sample1x1Png = Uint8List.fromList([
-  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
-  0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-  0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00,
-  0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
-  0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
-  0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+  0x89,
+  0x50,
+  0x4E,
+  0x47,
+  0x0D,
+  0x0A,
+  0x1A,
+  0x0A,
+  0x00,
+  0x00,
+  0x00,
+  0x0D,
+  0x49,
+  0x48,
+  0x44,
+  0x52,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x08,
+  0x06,
+  0x00,
+  0x00,
+  0x00,
+  0x1F,
+  0x15,
+  0xC4,
+  0x89,
+  0x00,
+  0x00,
+  0x00,
+  0x0A,
+  0x49,
+  0x44,
+  0x41,
+  0x54,
+  0x78,
+  0x9C,
+  0x63,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x05,
+  0x00,
+  0x01,
+  0x0D,
+  0x0A,
+  0x2D,
+  0xB4,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x49,
+  0x45,
+  0x4E,
+  0x44,
+  0xAE,
+  0x42,
+  0x60,
+  0x82,
 ]);
 
 Widget _wrapStage8App(
@@ -158,9 +219,7 @@ void main() {
   driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
 
   group('Phase 1 · 全站双主题一致性与就绪标签蓝底修正', () {
-    testWidgets('播放器与浮层组件在浅色模式下响应 Light Brightness（无强制深色覆盖）', (
-      tester,
-    ) async {
+    testWidgets('播放器与浮层组件在浅色模式下响应 Light Brightness（无强制深色覆盖）', (tester) async {
       tester.view.physicalSize = const Size(1280, 800);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -211,9 +270,9 @@ void main() {
             tmdbImageLoaderProvider.overrideWithValue(
               (_, {targetWidth, imageSize}) async => _sample1x1Png,
             ),
-            videoPlaybackProvider(req).overrideWith(
-              (ref) => _FakeVideoController(ref, req),
-            ),
+            videoPlaybackProvider(
+              req,
+            ).overrideWith((ref) => _FakeVideoController(ref, req)),
             audioPlaybackProvider.overrideWith(
               (ref) => _StubAudioNotifier(
                 ref,
@@ -333,11 +392,12 @@ void main() {
       expect(find.text('显示作品简介'), findsOneWidget);
       expect(find.text('本地图片存储 (photos/)'), findsOneWidget);
 
-      // 点击「标题显示」多选触发器：勾选「标题徽标」后浮层不收起
-      await tester.tap(find.text('文字标题').first);
+      // 点击默认「标题徽标」多选触发器：勾选「文字标题」后浮层不收起
+      await tester.tap(find.text('标题徽标').first);
       await tester.pumpAndSettle();
-      expect(find.text('标题徽标'), findsNWidgets(2));
-      await tester.tap(find.text('标题徽标').last);
+      expect(find.text('标题徽标'), findsNWidgets(3));
+      expect(find.text('文字标题'), findsOneWidget);
+      await tester.tap(find.text('文字标题').last);
       await tester.pumpAndSettle();
       // 多选浮层仍保持打开状态，触发器文案更新为双选组合
       expect(find.text('文字标题 · 标题徽标'), findsOneWidget);
@@ -523,13 +583,7 @@ void main() {
       }
       await tester.pumpAndSettle();
 
-      const pureChineseLabels = [
-        '封面海报',
-        '背景原画',
-        '标题徽标',
-        '分集剧照',
-        '扫图微缩图',
-      ];
+      const pureChineseLabels = ['封面海报', '背景原画', '标题徽标', '分集剧照', '扫图微缩图'];
       final topPositions = <double>[];
       for (final label in pureChineseLabels) {
         final f = find.text(label);
@@ -546,9 +600,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('媒体库页头无边框眼睛按钮呼出居中 HiddenWorksDialog 并支持取消隐藏', (
-      tester,
-    ) async {
+    testWidgets('媒体库页头无边框眼睛按钮呼出居中 HiddenWorksDialog 并支持取消隐藏', (tester) async {
       tester.view.physicalSize = const Size(1280, 800);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -621,9 +673,7 @@ void main() {
   });
 
   group('Phase 3 · 极简音量无数字、视频播放居中对称与高可见底置进度条', () {
-    testWidgets('KonataPlaybackCapsule 视频模式隐藏标题、宽屏居中对称且窄屏零溢出', (
-      tester,
-    ) async {
+    testWidgets('KonataPlaybackCapsule 视频模式隐藏标题、宽屏居中对称且窄屏零溢出', (tester) async {
       // 1. 桌面宽屏 (1280x800)：Play/Pause 几何中心严格落在胶囊宽度 / 2
       tester.view.physicalSize = const Size(1280, 800);
       tester.view.devicePixelRatio = 1.0;
@@ -713,9 +763,7 @@ void main() {
   });
 
   group('Phase 4 · 播放记录双列等高网格与批量多选已看/清理', () {
-    testWidgets('桌面端双列同行等高对齐、长标题折行展示，并支持「标记为已看」与「清理记录」批量操作', (
-      tester,
-    ) async {
+    testWidgets('桌面端双列同行等高对齐、长标题折行展示，并支持「标记为已看」与「清理记录」批量操作', (tester) async {
       tester.view.physicalSize = const Size(1280, 800);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -810,7 +858,10 @@ void main() {
       final leftRect = tester.getRect(cards.at(0));
       final rightRect = tester.getRect(cards.at(1));
       expect((leftRect.top - rightRect.top).abs(), lessThanOrEqualTo(1.0));
-      expect((leftRect.height - rightRect.height).abs(), lessThanOrEqualTo(1.0));
+      expect(
+        (leftRect.height - rightRect.height).abs(),
+        lessThanOrEqualTo(1.0),
+      );
       expect(rightRect.left, greaterThan(leftRect.right));
 
       // 验证视频记录封面固定为 112x160 (2:3)

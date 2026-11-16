@@ -27,6 +27,7 @@ class CdDrawerCard extends StatefulWidget {
     this.onPlayExternal,
     this.directSubdirLabel,
     this.displayTitleOverride,
+    this.onDarkBackdrop = true,
   });
 
   final MediaVariant variant;
@@ -44,6 +45,7 @@ class CdDrawerCard extends StatefulWidget {
 
   /// 可选外部覆写展示标题（缺省时展示原文件名）。
   final String? displayTitleOverride;
+  final bool onDarkBackdrop;
 
   @override
   State<CdDrawerCard> createState() => _CdDrawerCardState();
@@ -233,7 +235,9 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                   maxLines: 1,
                   style: KonataTheme.detailTextStyle(
                     palette: p,
-                    color: Colors.white.withValues(alpha: 0.78),
+                    color: (widget.onDarkBackdrop || p.isDark)
+                        ? Colors.white.withValues(alpha: 0.78)
+                        : p.textSecondary,
                     fontSize: 11,
                     fontWeight: FontWeight.w400,
                   ),
@@ -260,6 +264,7 @@ class ScanDrawerCard extends ConsumerStatefulWidget {
     this.workTitle,
     this.directSubdirLabel,
     this.displayTitleOverride,
+    this.onDarkBackdrop = true,
   });
 
   final MediaVariant variant;
@@ -276,6 +281,7 @@ class ScanDrawerCard extends ConsumerStatefulWidget {
 
   /// 可选外部覆写展示标题（缺省时展示原文件名）。
   final String? displayTitleOverride;
+  final bool onDarkBackdrop;
 
   @override
   ConsumerState<ScanDrawerCard> createState() => _ScanDrawerCardState();
@@ -458,7 +464,9 @@ class _ScanDrawerCardState extends ConsumerState<ScanDrawerCard> {
                   maxLines: 1,
                   style: KonataTheme.detailTextStyle(
                     palette: p,
-                    color: Colors.white.withValues(alpha: 0.78),
+                    color: (widget.onDarkBackdrop || p.isDark)
+                        ? Colors.white.withValues(alpha: 0.78)
+                        : p.textSecondary,
                     fontSize: 11,
                     fontWeight: FontWeight.w400,
                   ),

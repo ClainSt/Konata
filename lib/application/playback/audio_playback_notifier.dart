@@ -79,9 +79,14 @@ class MemoryAudioCover extends AudioCoverSource {
 
 /// 优先级 3：作品海报或 Bangumi 封面兜底。
 class ManagedPosterAudioCover extends AudioCoverSource {
-  const ManagedPosterAudioCover({required this.url, required this.workId});
+  const ManagedPosterAudioCover({
+    required this.url,
+    required this.workId,
+    this.revision = 0,
+  });
   final String url;
   final String workId;
+  final int revision;
 }
 
 /// 无封面兜底状态。
@@ -149,12 +154,13 @@ class AudioQueueItem {
   }
 
   AudioQueueItem copyWith({
+    Work? work,
     Duration? duration,
     double? cueEndSeconds,
   }) {
     return AudioQueueItem(
       id: id,
-      work: work,
+      work: work ?? this.work,
       variant: variant,
       source: source,
       title: title,
@@ -224,12 +230,14 @@ class AudioPlaybackState {
 
   AudioQueueItem? get currentItem =>
       (currentIndex >= 0 && currentIndex < queue.length)
-          ? queue[currentIndex]
-          : null;
+      ? queue[currentIndex]
+      : null;
 
   String? get currentLyricLineText {
     final doc = lrcDocument;
-    if (doc == null || activeLyricIndex < 0 || activeLyricIndex >= doc.lines.length) {
+    if (doc == null ||
+        activeLyricIndex < 0 ||
+        activeLyricIndex >= doc.lines.length) {
       return null;
     }
     return doc.lines[activeLyricIndex].primaryText;
@@ -337,6 +345,8 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   _albumCoverCache = {};
   final Map<String, List<RemoteEntry>> _siblingsByDirCache = {};
   final Set<String> _checkedEmbeddedCoverPhysicalKeys = {};
+  final Map<String, int> _workPosterRevisions = {};
+  final Map<String, String> _lastKnownPosterByWorkId = {};
 
   String _rawCodec = '';
   int? _rawSampleRateHz;
@@ -386,7 +396,9 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       );
       if (matched >= 0) targetIndex = matched;
     } else {
-      final matched = items.indexWhere((e) => e.variant.id == initialVariant.id);
+      final matched = items.indexWhere(
+        (e) => e.variant.id == initialVariant.id,
+      );
       if (matched >= 0) targetIndex = matched;
     }
 
@@ -421,12 +433,18 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     if (isCueSheetFile(initialNameLower)) {
       cueVariant = initialVariant;
     } else {
-      final dir = p.posix.dirname(initialVariant.relativePath.replaceAll('\\', '/'));
+      final dir = p.posix.dirname(
+        initialVariant.relativePath.replaceAll('\\', '/'),
+      );
       final stem = p.basenameWithoutExtension(initialNameLower);
       for (final candidate in cdVariants) {
         if (!isCueSheetFile(candidate.fileName)) continue;
-        final cDir = p.posix.dirname(candidate.relativePath.replaceAll('\\', '/'));
-        final cStem = p.basenameWithoutExtension(candidate.fileName.toLowerCase());
+        final cDir = p.posix.dirname(
+          candidate.relativePath.replaceAll('\\', '/'),
+        );
+        final cStem = p.basenameWithoutExtension(
+          candidate.fileName.toLowerCase(),
+        );
         if (cDir == dir && (cStem == stem || stem.startsWith(cStem))) {
           cueVariant = candidate;
           break;
@@ -486,7 +504,9 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
               performer: track.performer.isNotEmpty
                   ? track.performer
                   : cueSheet.performer,
-              albumTitle: cueSheet.title.isNotEmpty ? cueSheet.title : work.title,
+              albumTitle: cueSheet.title.isNotEmpty
+                  ? cueSheet.title
+                  : work.title,
               trackNumber: track.trackNumber,
               cueStartSeconds: track.startSeconds,
               cueEndSeconds: track.endSeconds,
@@ -553,8 +573,12 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     }
     // 即使数据库未收录整轨音频条目，也按 CUE 同目录下同名相对路径构造虚拟目标引用
     if (cueTrack.fileName.trim().isNotEmpty) {
-      final dir = p.posix.dirname(cueVariant.relativePath.replaceAll('\\', '/'));
-      final rel = dir == '.' ? cueTrack.fileName.trim() : '$dir/${cueTrack.fileName.trim()}';
+      final dir = p.posix.dirname(
+        cueVariant.relativePath.replaceAll('\\', '/'),
+      );
+      final rel = dir == '.'
+          ? cueTrack.fileName.trim()
+          : '$dir/${cueTrack.fileName.trim()}';
       return MediaVariant(
         id: '${cueVariant.id}::audio_file',
         workId: cueVariant.workId,
@@ -600,7 +624,11 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     client.observeProperty(_propDuration, 'duration', MpvFormat.double_);
     client.observeProperty(_propPause, 'pause', MpvFormat.flag);
     client.observeProperty(_propCoreIdle, 'core-idle', MpvFormat.flag);
-    client.observeProperty(_propAudioCodec, 'audio-codec-name', MpvFormat.string);
+    client.observeProperty(
+      _propAudioCodec,
+      'audio-codec-name',
+      MpvFormat.string,
+    );
     client.observeProperty(
       _propSampleRate,
       'audio-params/samplerate',
@@ -611,11 +639,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       'audio-params/format',
       MpvFormat.string,
     );
-    client.observeProperty(
-      _propAudioBitrate,
-      'audio-bitrate',
-      MpvFormat.int64,
-    );
+    client.observeProperty(_propAudioBitrate, 'audio-bitrate', MpvFormat.int64);
 
     _client = client;
     _eventSub = client.events.listen(_handleMpvEvent);
@@ -739,7 +763,14 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
         if (mounted) {
           state = state.copyWith(isBuffering: false, isPlaying: true);
         }
-        unawaited(_persistAudioProgress(item, positionSeconds: 0, durationSeconds: initialDuration, force: true));
+        unawaited(
+          _persistAudioProgress(
+            item,
+            positionSeconds: 0,
+            durationSeconds: initialDuration,
+            force: true,
+          ),
+        );
         unawaited(_loadAuxiliaryAssets(item, generation: generation));
         return;
       }
@@ -775,7 +806,14 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       if (cmdRc < 0) {
         throw StateError(client.errorString(cmdRc));
       }
-      unawaited(_persistAudioProgress(item, positionSeconds: 0, durationSeconds: initialDuration, force: true));
+      unawaited(
+        _persistAudioProgress(
+          item,
+          positionSeconds: 0,
+          durationSeconds: initialDuration,
+          force: true,
+        ),
+      );
       // 音频起播命令下发完成后再异步拉取封面与 LRC 歌词，避免与首段音频流争抢连接
       unawaited(_loadAuxiliaryAssets(item, generation: generation));
     } catch (e) {
@@ -836,13 +874,13 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     final dirRelRaw = p.posix.dirname(
       item.effectiveRelativePath.replaceAll('\\', '/'),
     );
-    final dirCacheKey =
-        '${source.id}::${dirRelRaw == '.' ? '' : dirRelRaw}';
+    final dirCacheKey = '${source.id}::${dirRelRaw == '.' ? '' : dirRelRaw}';
 
     final cachedCoverEntry = _albumCoverCache[albumKey];
     final cachedSiblings = _siblingsByDirCache[dirCacheKey];
-    final alreadyCheckedEmbedded =
-        _checkedEmbeddedCoverPhysicalKeys.contains(physicalKey);
+    final alreadyCheckedEmbedded = _checkedEmbeddedCoverPhysicalKeys.contains(
+      physicalKey,
+    );
     final needFolderCoverProbe = cachedCoverEntry == null;
     final needEmbeddedProbe = !alreadyCheckedEmbedded;
 
@@ -933,10 +971,14 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     final url = (work.posterPath?.trim().isNotEmpty == true)
         ? work.posterPath!.trim()
         : (work.bangumiPosterPath?.trim().isNotEmpty == true)
-            ? work.bangumiPosterPath!.trim()
-            : (work.posterFallback?.trim() ?? '');
+        ? work.bangumiPosterPath!.trim()
+        : (work.posterFallback?.trim() ?? '');
     if (url.isEmpty) return const EmptyAudioCover();
-    return ManagedPosterAudioCover(url: url, workId: work.id);
+    return ManagedPosterAudioCover(
+      url: url,
+      workId: work.id,
+      revision: _workPosterRevisions[work.id] ?? 0,
+    );
   }
 
   void _applyRawFileDuration(double rawDur) {
@@ -1015,11 +1057,13 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       case MpvLogMessageEvent():
         final lvl = event.level.toLowerCase();
         if (lvl == 'error' || lvl == 'fatal') {
-          _ref.read(diagnosticsLogStoreProvider).record(
-            'mpv-audio',
-            '[${event.prefix}] ${event.text.trim()}',
-            isError: true,
-          );
+          _ref
+              .read(diagnosticsLogStoreProvider)
+              .record(
+                'mpv-audio',
+                '[${event.prefix}] ${event.text.trim()}',
+                isError: true,
+              );
         }
       case MpvStartFileEvent():
       case MpvVideoReconfigEvent():
@@ -1120,10 +1164,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
         ? (rawPositionSeconds - cueStart).clamp(0.0, state.durationSeconds)
         : math.max(0.0, rawPositionSeconds - cueStart);
     final lyricIdx = state.lrcDocument?.activeIndexAt(relPos) ?? -1;
-    state = state.copyWith(
-      positionSeconds: relPos,
-      activeLyricIndex: lyricIdx,
-    );
+    state = state.copyWith(positionSeconds: relPos, activeLyricIndex: lyricIdx);
     unawaited(
       _persistAudioProgress(
         item,
@@ -1380,6 +1421,87 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     state = state.copyWith(isMuted: nextMuted);
   }
 
+  /// 当媒体库作品海报被编辑、裁剪或重绑时，实时刷新 CD 回退封面缓存与当前在播封面。
+  void syncUpdatedWorks(Iterable<Work> works, {String? forcedWorkId}) {
+    if (!mounted) return;
+    final changedWorks = <String, Work>{};
+    for (final w in works) {
+      final effectivePoster = (w.posterPath?.trim().isNotEmpty == true)
+          ? w.posterPath!.trim()
+          : (w.bangumiPosterPath?.trim().isNotEmpty == true)
+          ? w.bangumiPosterPath!.trim()
+          : (w.posterFallback?.trim() ?? '');
+      final prev = _lastKnownPosterByWorkId[w.id];
+      _lastKnownPosterByWorkId[w.id] = effectivePoster;
+      if (forcedWorkId == w.id || (prev != null && prev != effectivePoster)) {
+        _workPosterRevisions[w.id] = (_workPosterRevisions[w.id] ?? 0) + 1;
+        changedWorks[w.id] = w;
+      } else if (prev == null &&
+          state.queue.any(
+            (q) => q.work.id == w.id && q.work.posterPath != w.posterPath,
+          )) {
+        _workPosterRevisions[w.id] = (_workPosterRevisions[w.id] ?? 0) + 1;
+        changedWorks[w.id] = w;
+      }
+    }
+    if (changedWorks.isEmpty) return;
+
+    for (final entry in changedWorks.entries) {
+      final wid = entry.key;
+      final newFallback = _resolvePosterFallback(entry.value);
+      final keysToRefresh = [
+        for (final kv in _albumCoverCache.entries)
+          if (kv.key.startsWith('$wid::') && !kv.value.hasDedicatedCover)
+            kv.key,
+      ];
+      for (final k in keysToRefresh) {
+        _albumCoverCache[k] = (cover: newFallback, hasDedicatedCover: false);
+      }
+    }
+
+    if (state.queue.isEmpty) return;
+    var queueUpdated = false;
+    final nextQueue = <AudioQueueItem>[
+      for (final q in state.queue)
+        if (changedWorks.containsKey(q.work.id))
+          () {
+            queueUpdated = true;
+            return q.copyWith(work: changedWorks[q.work.id]);
+          }()
+        else
+          q,
+    ];
+
+    AudioCoverSource nextCover = state.cover;
+    final current =
+        (state.currentIndex >= 0 && state.currentIndex < nextQueue.length)
+        ? nextQueue[state.currentIndex]
+        : null;
+    if (current != null && changedWorks.containsKey(current.work.id)) {
+      final cachedEntry = _albumCoverCache[current.albumCacheKey];
+      final usesFallback =
+          (cachedEntry != null && !cachedEntry.hasDedicatedCover) ||
+          state.cover is ManagedPosterAudioCover ||
+          state.cover is EmptyAudioCover;
+      if (usesFallback) {
+        nextCover = _resolvePosterFallback(current.work);
+      }
+    }
+
+    if (queueUpdated || !identical(nextCover, state.cover)) {
+      state = state.copyWith(queue: nextQueue, cover: nextCover);
+    }
+  }
+
+  /// 供封面选择器保存后主动强制刷新指定作品的 CD 回退封面。
+  Future<void> refreshWorkPosterById(String workId) async {
+    try {
+      final items = await _ref.read(libraryItemsProvider.future);
+      if (!mounted) return;
+      syncUpdatedWorks([for (final e in items) e.work], forcedWorkId: workId);
+    } catch (_) {}
+  }
+
   /// 循环切换单曲/列表/顺序播放模式。
   void cycleLoopMode() {
     state = state.copyWith(loopMode: state.loopMode.nextMode());
@@ -1492,6 +1614,15 @@ final audioPlaybackProvider =
       ref.listen<bool>(videoPlaybackActiveProvider, (_, isVideoActive) {
         if (isVideoActive) {
           unawaited(notifier.pauseForVideoSession());
+        }
+      });
+      ref.listen<AsyncValue<List<WorkLibraryItem>>>(libraryItemsProvider, (
+        _,
+        next,
+      ) {
+        final items = next.valueOrNull;
+        if (items != null) {
+          notifier.syncUpdatedWorks([for (final e in items) e.work]);
         }
       });
       return notifier;

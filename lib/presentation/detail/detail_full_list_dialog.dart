@@ -22,7 +22,7 @@ import 'detail_secondary_filter_bar.dart';
 import 'episode_drawer_card.dart';
 import 'supplementary_asset_cards.dart';
 
-/// 作品详情页高透毛玻璃「完整列表」弹窗：支持关键字检索、一级分类切换、二级筛选与可拖拽网格浏览。
+/// 作品详情页高透毛玻璃「完整列表」弹窗：支持关键字实时检索、一级分类切换、二级筛选与可拖拽网格浏览。
 class DetailFullListDialog extends ConsumerStatefulWidget {
   /// 创建完整列表弹窗。
   const DetailFullListDialog({
@@ -45,52 +45,21 @@ class DetailFullListDialog extends ConsumerStatefulWidget {
     this.onScanTap,
   });
 
-  /// 作品详情数据包。
   final WorkDetailBundle bundle;
-
-  /// 图片加载器。
   final ManagedImageLoader imageLoader;
-
-  /// 打开时的默认一级分类页签。
   final DetailDrawerTab initialTab;
-
-  /// 打开时的默认二级筛选键。
   final String? initialSecondaryFilterKey;
-
-  /// 是否显示视频原始文件名。
   final bool showRawVideoFilename;
-
-  /// 是否允许展示 CD 页签。
   final bool showCdTab;
-
-  /// 是否允许展示 Scan 页签。
   final bool showScanTab;
-
-  /// 点击剧集/特典播放回调。
   final ValueChanged<Episode> onEpisodeTap;
-
-  /// 右键指定内置播放器播放回调。
   final ValueChanged<Episode>? onEpisodePlayBuiltin;
-
-  /// 右键指定外部播放器播放回调。
   final ValueChanged<Episode>? onEpisodePlayExternal;
-
-  /// 右键微调剧集编号回调。
   final ValueChanged<Episode> onEpisodeAdjustSlot;
-
-  /// 右键标为已看回调。
   final ValueChanged<Episode>? onEpisodeMarkCompleted;
-
-  /// 点击 CD 音轨回调。
   final ValueChanged<MediaVariant>? onCdTap;
-
-  /// 右键使用内置全屏流光页播放 CD 回调。
   final ValueChanged<MediaVariant>? onCdPlayImmersive;
-
-  /// 右键使用外部播放器播放 CD 回调。
   final ValueChanged<MediaVariant>? onCdPlayExternal;
-
-  /// 点击 Scan 扫图回调。
   final ValueChanged<MediaVariant>? onScanTap;
 
   /// 以高透毛玻璃遮罩形式弹出完整资源列表弹窗。
@@ -161,6 +130,12 @@ class DetailFullListDialog extends ConsumerStatefulWidget {
 }
 
 class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
+  static final RegExp _kTechBracketNoise = RegExp(
+    r'\[[^\]]*(?:1080p|720p|2160p|4k|x264|x265|hevc|avc|av1|ma10p|hi10p|hi444pp|8bit|10bit|flac|aac|ac3|dts|bdrip|web-?dl|webrip|\d{3,4}x\d{3,4})[^\]]*\]',
+    caseSensitive: false,
+  );
+  static final RegExp _kDigitsOnly = RegExp(r'^\d+$');
+
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _gridScrollController = ScrollController();
   late final ScanThumbnailScheduler _scanScheduler;
@@ -175,14 +150,23 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
     _scanScheduler = ref.read(scanThumbnailSchedulerProvider);
     _activeTab = _resolveAvailableTab(widget.initialTab);
     _selectedSecondaryKey = widget.initialSecondaryFilterKey;
+    _searchController.addListener(_syncQueryFromController);
   }
 
   @override
   void dispose() {
+    _searchController.removeListener(_syncQueryFromController);
     _scanScheduler.cancelAll();
     _searchController.dispose();
     _gridScrollController.dispose();
     super.dispose();
+  }
+
+  void _syncQueryFromController() {
+    final next = _searchController.text;
+    if (_query == next) return;
+    setState(() => _query = next);
+    _jumpToTop();
   }
 
   DetailDrawerTab _resolveAvailableTab(DetailDrawerTab candidate) {
@@ -225,6 +209,106 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
     }
   }
 
+  /// 剥离文件名中固定的压制技术参数（如 `[Ma10p_1080p][x265_flac]`）与作品标题数字（如 `86`），防止搜集号 `2`/`5` 全量误命中。
+  String _stripFileNameNoiseForNumericSearch(String fileName) {
+    final dot = fileName.lastIndexOf('.');
+    final stem = dot > 0 ? fileName.substring(0, dot) : fileName;
+    var cleaned = stem.replaceAll(_kTechBracketNoise, ' ');
+    final workTitle = widget.bundle.work.title.trim();
+    if (workTitle.isNotEmpty) {
+      cleaned = cleaned.replaceAll(
+        RegExp(RegExp.escape(workTitle), caseSensitive: false),
+        ' ',
+      );
+    }
+    return cleaned.toLowerCase();
+  }
+
+  String _directSubdirName(String relativePath) {
+    final norm = relativePath.replaceAll('\\', '/');
+    final slash = norm.lastIndexOf('/');
+    if (slash <= 0) return '';
+    final parent = norm.substring(0, slash);
+    final prevSlash = parent.lastIndexOf('/');
+    return prevSlash >= 0 ? parent.substring(prevSlash + 1) : parent;
+  }
+
+  bool _matchesEpisodeQuery({
+    required Episode ep,
+    required String cardTitle,
+    required String extraKindLabel,
+    required List<MediaVariant> variants,
+    required List<String> tokens,
+  }) {
+    final cardTitleLower = cardTitle.toLowerCase();
+    final epTitleLower = (ep.title ?? '').toLowerCase();
+    final kindLower = extraKindLabel.toLowerCase();
+    final epNum = ep.episodeNumber;
+    final paddedEpNum = epNum != null ? epNum.toString().padLeft(2, '0') : '';
+
+    for (final tok in tokens) {
+      if (_kDigitsOnly.hasMatch(tok)) {
+        final parsedNum = int.tryParse(tok);
+        final hitEpNum =
+            (parsedNum != null &&
+                epNum != null &&
+                epNum > 0 &&
+                epNum == parsedNum) ||
+            (epNum != null && epNum > 0 && paddedEpNum.contains(tok)) ||
+            cardTitleLower.contains(tok);
+        if (hitEpNum) continue;
+        final hitCleanFile = variants.any(
+          (v) => _stripFileNameNoiseForNumericSearch(v.fileName).contains(tok),
+        );
+        if (!hitCleanFile) return false;
+      } else {
+        final hitMeta =
+            cardTitleLower.contains(tok) ||
+            epTitleLower.contains(tok) ||
+            kindLower.contains(tok);
+        if (hitMeta) continue;
+        final hitFile = variants.any(
+          (v) =>
+              v.fileName.toLowerCase().contains(tok) ||
+              _directSubdirName(v.relativePath).toLowerCase().contains(tok),
+        );
+        if (!hitFile) return false;
+      }
+    }
+    return true;
+  }
+
+  bool _matchesAssetVariantQuery({
+    required MediaVariant variant,
+    required String? chipLabel,
+    required String? subdirShort,
+    required List<String> tokens,
+  }) {
+    final chipLower = (chipLabel ?? '').toLowerCase();
+    final subLower = (subdirShort ?? _directSubdirName(variant.relativePath))
+        .toLowerCase();
+    final fileLower = variant.fileName.toLowerCase();
+
+    for (final tok in tokens) {
+      if (_kDigitsOnly.hasMatch(tok)) {
+        final hit =
+            _stripFileNameNoiseForNumericSearch(
+              variant.fileName,
+            ).contains(tok) ||
+            chipLower.contains(tok) ||
+            subLower.contains(tok);
+        if (!hit) return false;
+      } else {
+        final hit =
+            fileLower.contains(tok) ||
+            chipLower.contains(tok) ||
+            subLower.contains(tok);
+        if (!hit) return false;
+      }
+    }
+    return true;
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
@@ -238,15 +322,20 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
     final extraEps = widget.bundle.episodes
         .where((e) => e.category == EpisodeCategory.extra)
         .toList(growable: false);
-    final cdList =
-        widget.showCdTab ? widget.bundle.cdVariants : const <MediaVariant>[];
+    final cdList = widget.showCdTab
+        ? widget.bundle.cdVariants
+        : const <MediaVariant>[];
     final scanList = widget.showScanTab
         ? widget.bundle.scanVariants
         : const <MediaVariant>[];
     final showSharedBadge = widget.bundle.seriesMembers.length >= 2;
-    final normQuery = _query.trim().toLowerCase();
+    final queryTokens = _query
+        .trim()
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .where((s) => s.isNotEmpty)
+        .toList(growable: false);
 
-    // 预计算特典二级分类与展示标题
     final extraKindByEpId = <String, ExtraKind>{};
     final extraCountByKind = <ExtraKind, int>{};
     final extraDisplayTitleByEpId = <String, String>{};
@@ -280,36 +369,38 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
     final cdSummary = SupplementarySubclassifier.groupCdVariants(cdList);
     final scanSummary = SupplementarySubclassifier.groupScanVariants(scanList);
 
-    // 构造当前一级页签对应的二级筛选项
     final secondaryItems = switch (_activeTab) {
-      DetailDrawerTab.extra => SupplementarySubclassifier.extraKindDisplayOrder
-          .where((k) => (extraCountByKind[k] ?? 0) > 0)
-          .map(
-            (k) => DetailSecondaryFilterItem(
-              key: k.name,
-              label: SupplementarySubclassifier.extraKindLabel(k),
-              count: extraCountByKind[k] ?? 0,
-            ),
-          )
-          .toList(growable: false),
-      DetailDrawerTab.cd => cdSummary.chips
-          .map(
-            (c) => DetailSecondaryFilterItem(
-              key: c.key,
-              label: c.label,
-              count: c.count,
-            ),
-          )
-          .toList(growable: false),
-      DetailDrawerTab.scan => scanSummary.chips
-          .map(
-            (c) => DetailSecondaryFilterItem(
-              key: c.key,
-              label: c.label,
-              count: c.count,
-            ),
-          )
-          .toList(growable: false),
+      DetailDrawerTab.extra =>
+        SupplementarySubclassifier.extraKindDisplayOrder
+            .where((k) => (extraCountByKind[k] ?? 0) > 0)
+            .map(
+              (k) => DetailSecondaryFilterItem(
+                key: k.name,
+                label: SupplementarySubclassifier.extraKindLabel(k),
+                count: extraCountByKind[k] ?? 0,
+              ),
+            )
+            .toList(growable: false),
+      DetailDrawerTab.cd =>
+        cdSummary.chips
+            .map(
+              (c) => DetailSecondaryFilterItem(
+                key: c.key,
+                label: c.label,
+                count: c.count,
+              ),
+            )
+            .toList(growable: false),
+      DetailDrawerTab.scan =>
+        scanSummary.chips
+            .map(
+              (c) => DetailSecondaryFilterItem(
+                key: c.key,
+                label: c.label,
+                count: c.count,
+              ),
+            )
+            .toList(growable: false),
       DetailDrawerTab.main => const <DetailSecondaryFilterItem>[],
     };
 
@@ -366,11 +457,12 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
                       ),
                       const SizedBox(width: 12),
                       SizedBox(
-                        width: 240,
+                        width: 248,
                         height: 34,
                         child: _FrostedSearchField(
                           controller: _searchController,
                           onChanged: (v) {
+                            if (_query == v) return;
                             setState(() => _query = v);
                             _jumpToTop();
                           },
@@ -396,39 +488,53 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  // 一级分类胶囊条
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        DetailDrawerTabChip(
-                          label: '正片 (${mainEps.length})',
-                          active: _activeTab == DetailDrawerTab.main,
-                          onTap: () => _selectTab(DetailDrawerTab.main),
+                    child: Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(
+                        color: p.isDark
+                            ? const Color(0x18FFFFFF)
+                            : const Color(0x0D0F172A),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: p.isDark
+                              ? const Color(0x22FFFFFF)
+                              : const Color(0x1A0F172A),
                         ),
-                        const SizedBox(width: 6),
-                        DetailDrawerTabChip(
-                          label: '特典 (${extraEps.length})',
-                          active: _activeTab == DetailDrawerTab.extra,
-                          onTap: () => _selectTab(DetailDrawerTab.extra),
-                        ),
-                        if (cdList.isNotEmpty) ...[
-                          const SizedBox(width: 6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
                           DetailDrawerTabChip(
-                            label: 'CD (${cdList.length})',
-                            active: _activeTab == DetailDrawerTab.cd,
-                            onTap: () => _selectTab(DetailDrawerTab.cd),
+                            label: '正片 (${mainEps.length})',
+                            active: _activeTab == DetailDrawerTab.main,
+                            onTap: () => _selectTab(DetailDrawerTab.main),
                           ),
-                        ],
-                        if (scanList.isNotEmpty) ...[
-                          const SizedBox(width: 6),
+                          const SizedBox(width: 4),
                           DetailDrawerTabChip(
-                            label: 'Scan (${scanList.length})',
-                            active: _activeTab == DetailDrawerTab.scan,
-                            onTap: () => _selectTab(DetailDrawerTab.scan),
+                            label: '特典 (${extraEps.length})',
+                            active: _activeTab == DetailDrawerTab.extra,
+                            onTap: () => _selectTab(DetailDrawerTab.extra),
                           ),
+                          if (cdList.isNotEmpty) ...[
+                            const SizedBox(width: 4),
+                            DetailDrawerTabChip(
+                              label: 'CD (${cdList.length})',
+                              active: _activeTab == DetailDrawerTab.cd,
+                              onTap: () => _selectTab(DetailDrawerTab.cd),
+                            ),
+                          ],
+                          if (scanList.isNotEmpty) ...[
+                            const SizedBox(width: 4),
+                            DetailDrawerTabChip(
+                              label: 'Scan (${scanList.length})',
+                              active: _activeTab == DetailDrawerTab.scan,
+                              onTap: () => _selectTab(DetailDrawerTab.scan),
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
                   ),
                   if (secondaryItems.length >= 2) ...[
@@ -454,7 +560,7 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
                       cdSummary: cdSummary,
                       scanSummary: scanSummary,
                       showSharedBadge: showSharedBadge,
-                      normQuery: normQuery,
+                      queryTokens: queryTokens,
                     ),
                   ),
                 ],
@@ -476,7 +582,7 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
     required CdAlbumGroupSummary cdSummary,
     required ScanVolumeGroupSummary scanSummary,
     required bool showSharedBadge,
-    required String normQuery,
+    required List<String> queryTokens,
   }) {
     if (_activeTab == DetailDrawerTab.main ||
         _activeTab == DetailDrawerTab.extra) {
@@ -487,18 +593,32 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
             .where((e) => extraKindByEpId[e.id]?.name == _selectedSecondaryKey)
             .toList(growable: false);
       }
-      if (normQuery.isNotEmpty) {
-        list = list.where((e) {
-          final vars = widget.bundle.variantsForEpisode(e.id);
-          final title = extraDisplayTitleByEpId[e.id] ?? e.title ?? '';
-          if (title.toLowerCase().contains(normQuery)) return true;
-          if ('${e.episodeNumber}'.contains(normQuery)) return true;
-          return vars.any(
-            (v) =>
-                v.fileName.toLowerCase().contains(normQuery) ||
-                v.relativePath.toLowerCase().contains(normQuery),
-          );
-        }).toList(growable: false);
+      if (queryTokens.isNotEmpty) {
+        list = list
+            .where((e) {
+              final vars = widget.bundle.variantsForEpisode(e.id);
+              final cardTitle = _activeTab == DetailDrawerTab.extra
+                  ? (extraDisplayTitleByEpId[e.id] ?? '')
+                  : EpisodeTitleFormatter.formatCardTitle(
+                      episode: e,
+                      workTitle: widget.bundle.work.title,
+                      workMediaType: widget.bundle.work.tmdbMediaType,
+                      mainEpisodeCount: mainEps.length,
+                    );
+              final kindLabel = _activeTab == DetailDrawerTab.extra
+                  ? SupplementarySubclassifier.extraKindLabel(
+                      extraKindByEpId[e.id] ?? ExtraKind.sp,
+                    )
+                  : '正片';
+              return _matchesEpisodeQuery(
+                ep: e,
+                cardTitle: cardTitle,
+                extraKindLabel: kindLabel,
+                variants: vars,
+                tokens: queryTokens,
+              );
+            })
+            .toList(growable: false);
       }
       if (list.isEmpty) {
         return _buildEmptyMatch();
@@ -521,6 +641,7 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
             final playback = widget.bundle.playbackByEpisodeId[ep.id];
             final markHandler = widget.onEpisodeMarkCompleted;
             return EpisodeDrawerCard(
+              key: ValueKey('full_list_ep_${ep.id}'),
               episode: ep,
               variants: variants,
               fallbackBackdropPath:
@@ -534,6 +655,7 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
                   ? extraDisplayTitleByEpId[ep.id]
                   : null,
               showRawFileName: widget.showRawVideoFilename,
+              onDarkBackdrop: false,
               onTap: () => widget.onEpisodeTap(ep),
               onPlayBuiltin: widget.onEpisodePlayBuiltin == null
                   ? null
@@ -557,19 +679,24 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
       if (_selectedSecondaryKey != null) {
         list = list
             .where(
-              (v) => cdSummary.byVariantId[v.id]?.albumKey ==
+              (v) =>
+                  cdSummary.byVariantId[v.id]?.albumKey ==
                   _selectedSecondaryKey,
             )
             .toList(growable: false);
       }
-      if (normQuery.isNotEmpty) {
-        list = list.where((v) {
-          final group = cdSummary.byVariantId[v.id];
-          return v.fileName.toLowerCase().contains(normQuery) ||
-              (group?.chipLabel.toLowerCase().contains(normQuery) ?? false) ||
-              (group?.directSubdirShort?.toLowerCase().contains(normQuery) ??
-                  false);
-        }).toList(growable: false);
+      if (queryTokens.isNotEmpty) {
+        list = list
+            .where((v) {
+              final group = cdSummary.byVariantId[v.id];
+              return _matchesAssetVariantQuery(
+                variant: v,
+                chipLabel: group?.chipLabel,
+                subdirShort: group?.directSubdirShort,
+                tokens: queryTokens,
+              );
+            })
+            .toList(growable: false);
       }
       if (list.isEmpty) return _buildEmptyMatch();
 
@@ -591,10 +718,13 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
             final v = list[index];
             final group = cdSummary.byVariantId[v.id];
             return CdDrawerCard(
+              key: ValueKey('full_list_cd_${v.id}'),
               variant: v,
               showSeriesSharedBadge: showSharedBadge,
-              directSubdirLabel:
-                  showDirectSubdir ? group?.directSubdirShort : null,
+              directSubdirLabel: showDirectSubdir
+                  ? group?.directSubdirShort
+                  : null,
+              onDarkBackdrop: false,
               onTap: () => widget.onCdTap?.call(v),
               onPlayImmersive: widget.onCdPlayImmersive == null
                   ? null
@@ -618,14 +748,18 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
           )
           .toList(growable: false);
     }
-    if (normQuery.isNotEmpty) {
-      list = list.where((v) {
-        final group = scanSummary.byVariantId[v.id];
-        return v.fileName.toLowerCase().contains(normQuery) ||
-            (group?.chipLabel?.toLowerCase().contains(normQuery) ?? false) ||
-            (group?.directSubdirShort?.toLowerCase().contains(normQuery) ??
-                false);
-      }).toList(growable: false);
+    if (queryTokens.isNotEmpty) {
+      list = list
+          .where((v) {
+            final group = scanSummary.byVariantId[v.id];
+            return _matchesAssetVariantQuery(
+              variant: v,
+              chipLabel: group?.chipLabel,
+              subdirShort: group?.directSubdirShort,
+              tokens: queryTokens,
+            );
+          })
+          .toList(growable: false);
     }
     if (list.isEmpty) return _buildEmptyMatch();
 
@@ -647,13 +781,16 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
           final v = list[index];
           final group = scanSummary.byVariantId[v.id];
           return ScanDrawerCard(
+            key: ValueKey('full_list_scan_${v.id}'),
             variant: v,
             source: widget.bundle.sourcesById[v.sourceId],
             workId: widget.bundle.work.id,
             workTitle: widget.bundle.work.title,
             showSeriesSharedBadge: showSharedBadge,
-            directSubdirLabel:
-                showDirectSubdir ? group?.directSubdirShort : null,
+            directSubdirLabel: showDirectSubdir
+                ? group?.directSubdirShort
+                : null,
+            onDarkBackdrop: false,
             onTap: () => widget.onScanTap?.call(v),
           );
         },
@@ -662,11 +799,14 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
   }
 
   Widget _buildEmptyMatch() {
+    final p = context.palette;
+    final trimmed = _query.trim();
     return Center(
       child: Text(
-        '没有符合当前筛选条件的文件',
+        trimmed.isEmpty ? '没有符合当前筛选条件的文件' : '当前分类下未找到匹配 “$trimmed” 的条目',
         style: KonataTheme.detailTextStyle(
-          color: Colors.white.withValues(alpha: 0.68),
+          palette: p,
+          color: p.textSecondary,
           fontSize: 13.5,
           fontWeight: FontWeight.w500,
         ),
@@ -692,59 +832,67 @@ class _FrostedSearchField extends StatelessWidget {
         color: KonataPlaybackTokens.softFill(p),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: KonataPlaybackTokens.glassBorder(p),
+          color: p.isDark
+              ? KonataPlaybackTokens.glassBorder(p)
+              : const Color(0x260F172A),
           width: 0.9,
         ),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 10),
       alignment: Alignment.center,
-      child: Row(
-        children: [
-          Icon(
-            Icons.search_rounded,
-            size: 16,
-            color: p.textSecondary,
-          ),
-          const SizedBox(width: 7),
-          Expanded(
-            child: TextField(
-              controller: controller,
-              onChanged: onChanged,
-              style: KonataTheme.detailTextStyle(
-                palette: p,
-                fontSize: 12.5,
-                fontWeight: FontWeight.w400,
-              ),
-              cursorColor: p.textPrimary,
-              decoration: InputDecoration(
-                isDense: true,
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                hintText: '搜索文件名或分组...',
-                hintStyle: KonataTheme.detailTextStyle(
-                  palette: p,
-                  color: p.textMuted,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w400,
+      child: ValueListenableBuilder<TextEditingValue>(
+        valueListenable: controller,
+        builder: (context, value, _) {
+          return Row(
+            children: [
+              Icon(Icons.search_rounded, size: 16, color: p.textSecondary),
+              const SizedBox(width: 7),
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  onChanged: onChanged,
+                  style: KonataTheme.detailTextStyle(
+                    palette: p,
+                    color: p.textPrimary,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w400,
+                  ),
+                  cursorColor: p.textPrimary,
+                  decoration: InputDecoration(
+                    isDense: true,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    hintText: '搜索文件名或分组...',
+                    hintStyle: KonataTheme.detailTextStyle(
+                      palette: p,
+                      color: p.textMuted,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w400,
+                    ),
+                    contentPadding: EdgeInsets.zero,
+                  ),
                 ),
-                contentPadding: EdgeInsets.zero,
               ),
-            ),
-          ),
-          if (controller.text.isNotEmpty)
-            GestureDetector(
-              onTap: () {
-                controller.clear();
-                onChanged('');
-              },
-              child: Icon(
-                Icons.close_rounded,
-                size: 15,
-                color: p.textSecondary,
-              ),
-            ),
-        ],
+              if (value.text.isNotEmpty)
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    controller.clear();
+                    onChanged('');
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: Icon(
+                      Icons.close_rounded,
+                      size: 15,
+                      color: p.textSecondary,
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
       ),
     );
   }

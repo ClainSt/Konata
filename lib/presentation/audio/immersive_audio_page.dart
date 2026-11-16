@@ -104,9 +104,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
       Scrollable.ensureVisible(
         ctx,
         alignment: 0.38,
-        duration: animated
-            ? const Duration(milliseconds: 360)
-            : Duration.zero,
+        duration: animated ? const Duration(milliseconds: 360) : Duration.zero,
         curve: Curves.easeOutCubic,
       );
       return;
@@ -216,18 +214,16 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     final p = context.palette;
 
     return Focus(
-        focusNode: _focusNode,
-        autofocus: true,
-        onKeyEvent: _handleKeyEvent,
-        child: Material(
+      focusNode: _focusNode,
+      autofocus: true,
+      onKeyEvent: _handleKeyEvent,
+      child: Material(
         color: KonataPlaybackTokens.auroraCanvas(p),
         child: Stack(
           fit: StackFit.expand,
           children: [
             // 高饱和封面主色采样 + 超大半径流光动态背景（RepaintBoundary 隔离歌词帧重绘）
-            RepaintBoundary(
-              child: _AmbientFlowBackdrop(cover: state.cover),
-            ),
+            RepaintBoundary(child: _AmbientFlowBackdrop(cover: state.cover)),
             // 内容前景色调与安全边距层
             SafeArea(
               child: Column(
@@ -292,7 +288,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                         KonataCapsuleIconButton(
                           icon: Icons.queue_music_rounded,
                           tooltip: '专辑曲目列表',
-                          color: p.textMuted,
+                          color: p.textPrimary,
                           size: 19,
                           fixedSize:
                               KonataPlaybackTokens.immersiveSwitchButtonSize,
@@ -302,8 +298,9 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                           highlighted:
                               effectivePane == _ImmersiveRightPane.queue,
                           highlightColor: p.textPrimary,
-                          highlightBgColor:
-                              KonataPlaybackTokens.activePillBg(p),
+                          highlightBgColor: KonataPlaybackTokens.activePillBg(
+                            p,
+                          ),
                           showHighlightBorder: false,
                           onTap: () {
                             setState(() {
@@ -316,7 +313,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                         KonataCapsuleIconButton(
                           icon: Icons.lyrics_rounded,
                           tooltip: '同步歌词',
-                          color: p.textMuted,
+                          color: p.textPrimary,
                           size: 18,
                           fixedSize:
                               KonataPlaybackTokens.immersiveSwitchButtonSize,
@@ -326,8 +323,9 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                           highlighted:
                               effectivePane == _ImmersiveRightPane.lyrics,
                           highlightColor: p.textPrimary,
-                          highlightBgColor:
-                              KonataPlaybackTokens.activePillBg(p),
+                          highlightBgColor: KonataPlaybackTokens.activePillBg(
+                            p,
+                          ),
                           showHighlightBorder: false,
                           onTap: () {
                             setState(() {
@@ -357,7 +355,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                           KonataCapsuleIconButton(
                             icon: Icons.keyboard_arrow_down_rounded,
                             tooltip: '收起为迷你底栏 (Esc)',
-                            color: p.textSecondary,
+                            color: p.textPrimary,
                             size: 20,
                             onTap: _collapseToMiniBar,
                           ),
@@ -376,7 +374,8 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
 
   Widget _buildTopBar(AudioQueueItem item, AudioPlaybackState state) {
     final p = context.palette;
-    final isWindows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+    final isWindows =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
 
     Widget headerRow = SizedBox(
       height: 52,
@@ -411,10 +410,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                       item.albumTitle != item.work.title)
                     EllipsisTextWithTooltip(
                       text: item.albumTitle,
-                      style: TextStyle(
-                        color: p.textSecondary,
-                        fontSize: 11.5,
-                      ),
+                      style: TextStyle(color: p.textSecondary, fontSize: 11.5),
                     ),
                 ],
               ),
@@ -445,18 +441,11 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.lyrics_outlined,
-              size: 40,
-              color: p.textMuted,
-            ),
+            Icon(Icons.lyrics_outlined, size: 40, color: p.textMuted),
             const SizedBox(height: 12),
             Text(
               '当前曲目暂无同步歌词',
-              style: TextStyle(
-                color: p.textSecondary,
-                fontSize: 14,
-              ),
+              style: TextStyle(color: p.textSecondary, fontSize: 14),
             ),
           ],
         ),
@@ -612,8 +601,9 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
           itemBuilder: (context, index) {
             final qItem = state.queue[index];
             final active = index == state.currentIndex;
-            final trackPrefix =
-                (qItem.trackNumber ?? (index + 1)).toString().padLeft(2, '0');
+            final trackPrefix = (qItem.trackNumber ?? (index + 1))
+                .toString()
+                .padLeft(2, '0');
             return _BorderlessQueueRow(
               item: qItem,
               trackPrefix: trackPrefix,
@@ -850,7 +840,9 @@ class _AmbientFlowBackdropState extends ConsumerState<_AmbientFlowBackdrop> {
         targetHeight: 24,
       );
       final frame = await codec.getNextFrame();
-      final bd = await frame.image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      final bd = await frame.image.toByteData(
+        format: ui.ImageByteFormat.rawRgba,
+      );
       frame.image.dispose();
       codec.dispose();
       if (bd == null) return null;
@@ -921,10 +913,26 @@ class _AmbientFlowBackdropState extends ConsumerState<_AmbientFlowBackdrop> {
     final g = lumG * inv;
     final b = lumB * inv;
     return [
-      r + saturation, g, b, 0, 0,
-      r, g + saturation, b, 0, 0,
-      r, g, b + saturation, 0, 0,
-      0, 0, 0, 1, 0,
+      r + saturation,
+      g,
+      b,
+      0,
+      0,
+      r,
+      g + saturation,
+      b,
+      0,
+      0,
+      r,
+      g,
+      b + saturation,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
     ];
   }
 
@@ -1112,19 +1120,21 @@ class _CoverAndReflectionColumn extends ConsumerWidget {
                   alignment: Alignment.topCenter,
                   maxHeight: coverSize,
                   child: ShaderMask(
-                    shaderCallback: (bounds) => const LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: KonataPlaybackTokens.albumReflectionMaskColors,
-                      stops: [0.0, 0.38, 0.94],
-                    ).createShader(
-                      Rect.fromLTWH(
-                        0,
-                        0,
-                        coverSize,
-                        KonataPlaybackTokens.albumReflectionHeight,
-                      ),
-                    ),
+                    shaderCallback: (bounds) =>
+                        const LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors:
+                              KonataPlaybackTokens.albumReflectionMaskColors,
+                          stops: [0.0, 0.38, 0.94],
+                        ).createShader(
+                          Rect.fromLTWH(
+                            0,
+                            0,
+                            coverSize,
+                            KonataPlaybackTokens.albumReflectionHeight,
+                          ),
+                        ),
                     blendMode: BlendMode.dstIn,
                     child: Transform(
                       alignment: Alignment.center,
@@ -1210,11 +1220,7 @@ class _ImmersiveMicroCover extends ConsumerWidget {
       height: size,
       color: KonataPlaybackTokens.softFill(p),
       alignment: Alignment.center,
-      child: Icon(
-        Icons.music_note_rounded,
-        size: 18,
-        color: p.textSecondary,
-      ),
+      child: Icon(Icons.music_note_rounded, size: 18, color: p.textSecondary),
     );
   }
 }

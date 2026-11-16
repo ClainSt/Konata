@@ -48,7 +48,7 @@ class KonataSpecBadge extends StatelessWidget {
     } else {
       bgColor = KonataPlaybackTokens.softFill(p);
       borderColor = KonataPlaybackTokens.glassBorder(p);
-      textColor = p.textSecondary;
+      textColor = p.isDark ? p.textSecondary : p.textPrimary;
     }
 
     return Container(
@@ -95,10 +95,7 @@ class KonataSpecBadge extends StatelessWidget {
 /// - `isSpecial == true`：中性微弱灰底衬 + 次级文字，标识 `特典`。
 class EpisodeCategoryBadge extends StatelessWidget {
   /// 创建选集类别胶囊徽标。
-  const EpisodeCategoryBadge({
-    super.key,
-    required this.isSpecial,
-  });
+  const EpisodeCategoryBadge({super.key, required this.isSpecial});
 
   /// 是否为特典条目（`false` 时显示显式 `正片`）。
   final bool isSpecial;
@@ -122,7 +119,7 @@ class EpisodeCategoryBadge extends StatelessWidget {
       label = '特典';
       bgColor = KonataPlaybackTokens.softFill(p);
       borderColor = KonataPlaybackTokens.glassBorder(p);
-      textColor = p.textSecondary;
+      textColor = p.isDark ? p.textSecondary : p.textPrimary;
     }
 
     return Container(

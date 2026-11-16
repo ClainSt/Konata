@@ -24,13 +24,6 @@ import 'video_probe_overlay.dart';
 import 'video_side_sheet.dart';
 
 /// 内置高保真 `libmpv` 视频播放器沉浸页面。
-///
-/// 严格视觉与交互约定：
-/// - 底层铺设 [KonataPlaybackTokens.cinemaPureBlack] 纯黑防透底画布，全屏切换永不调用 `flutter_acrylic`；
-/// - 鼠标静置 `2.0s` 自动隐藏指针与胶囊 HUD，移出窗口 `0ms` 立即收起；
-/// - 按 `Space` 切换播放/暂停时仅在右上角微缩闪现 `0.8s` 状态徽标，不强制弹起遮挡画面底栏；
-/// - 全套桌面快捷键：短按 `←/→` ±5s、长按 `→` 2.0x、松手恢复、`Shift+→` +85s、`S` 无损截屏、
-///   `↑/↓` 音量、`M` 静音、`,/.` 逐帧、`PgUp/PgDn` 章节切换、`F/Enter/双击` 全屏、`Tab` 探针、`Esc` 退出。
 class EmbeddedVideoPage extends ConsumerStatefulWidget {
   /// 创建内置视频播放页。
   const EmbeddedVideoPage({super.key, required this.request});
@@ -71,9 +64,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
   IconData _cornerBadgeIcon = Icons.pause_rounded;
   Timer? _cornerBadgeTimer;
 
-  bool _volumeOsdVisible = false;
-  String _volumeOsdText = '';
-  Timer? _volumeOsdTimer;
+  int _externalVolumePulse = 0;
 
   Timer? _rightHoldTimer;
   bool _rightHoldBoostActivated = false;
@@ -97,7 +88,6 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
   void dispose() {
     _idleTimer?.cancel();
     _cornerBadgeTimer?.cancel();
-    _volumeOsdTimer?.cancel();
     _rightHoldTimer?.cancel();
     _focusNode.dispose();
     super.dispose();
@@ -172,17 +162,13 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
     );
   }
 
-  void _showWheelVolumeOsd(int volumePercent) {
-    _volumeOsdTimer?.cancel();
+  void _triggerVolumeCapsuleFeedback() {
     setState(() {
-      _volumeOsdText = '音量 $volumePercent%';
-      _volumeOsdVisible = true;
+      _instantHudHide = false;
+      _hudVisible = true;
+      _externalVolumePulse++;
     });
-    _volumeOsdTimer = Timer(KonataPlaybackTokens.wheelVolumeOsdDuration, () {
-      if (mounted) {
-        setState(() => _volumeOsdVisible = false);
-      }
-    });
+    _scheduleIdleHide();
   }
 
   void _handleVideoSurfacePointerSignal(
@@ -202,7 +188,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
     final base = state.isMuted && step > 0 ? 0.0 : state.volume;
     final nextVol = (base + step).clamp(0.0, 100.0);
     controller.setVolume(nextVol);
-    _showWheelVolumeOsd(nextVol.round());
+    _triggerVolumeCapsuleFeedback();
   }
 
   Future<void> _exitPage() async {
@@ -252,7 +238,6 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
     final state = ref.read(videoPlaybackProvider(widget.request));
     final shift = HardwareKeyboard.instance.isShiftPressed;
 
-    // 右键长按 2.0x 松开恢复
     if (key == LogicalKeyboardKey.arrowRight) {
       if (shift && event is KeyDownEvent) {
         controller.seekRelative(85.0);
@@ -326,19 +311,13 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
 
     if (key == LogicalKeyboardKey.arrowUp) {
       controller.adjustVolume(KonataPlaybackTokens.wheelVolumeStep);
-      final nextVol = (state.volume + KonataPlaybackTokens.wheelVolumeStep)
-          .clamp(0.0, 100.0)
-          .round();
-      _flashCornerStatus('音量 $nextVol%', Icons.volume_up_rounded);
+      _triggerVolumeCapsuleFeedback();
       return KeyEventResult.handled;
     }
 
     if (key == LogicalKeyboardKey.arrowDown) {
       controller.adjustVolume(-KonataPlaybackTokens.wheelVolumeStep);
-      final nextVol = (state.volume - KonataPlaybackTokens.wheelVolumeStep)
-          .clamp(0.0, 100.0)
-          .round();
-      _flashCornerStatus('音量 $nextVol%', Icons.volume_down_rounded);
+      _triggerVolumeCapsuleFeedback();
       return KeyEventResult.handled;
     }
 
@@ -410,13 +389,13 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
     final epTitle = controller.currentEpisodeTitle;
 
     return PopScope(
-        canPop: false,
-        onPopInvokedWithResult: (didPop, _) {
-          if (!didPop) {
-            unawaited(_exitPage());
-          }
-        },
-        child: Focus(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) {
+          unawaited(_exitPage());
+        }
+      },
+      child: Focus(
         focusNode: _focusNode,
         autofocus: true,
         onKeyEvent: _handleKeyEvent,
@@ -500,31 +479,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                       ),
                     ),
 
-                  // 4b. 视频画布滚轮调音瞬时纯文字描边 OSD（中上部 1.2s 自动淡出）
-                  Positioned(
-                    top: KonataPlaybackTokens.wheelVolumeOsdTopOffset,
-                    left: 0,
-                    right: 0,
-                    child: IgnorePointer(
-                      child: Center(
-                        child: AnimatedOpacity(
-                          duration: KonataPlaybackTokens.hudFadeDuration,
-                          opacity: _volumeOsdVisible ? 1.0 : 0.0,
-                          child: _volumeOsdText.isEmpty
-                              ? const SizedBox.shrink()
-                              : KonataOsdStrokedText(
-                                  _volumeOsdText,
-                                  fontSize: 16.0,
-                                  fontWeight: FontWeight.w600,
-                                  color:
-                                      KonataPlaybackTokens.osdProbeValueColor,
-                                ),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  // 5. Space 洁净暂停 / 快进 / 音量 微缩角标
+                  // 5. Space 洁净暂停 / 快进 微缩角标
                   if (_cornerBadgeVisible || state.isSpeedBoostActive)
                     Positioned(
                       top: 72,
@@ -544,7 +499,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                   // 6. 自动连播 / 跨季连播 / 硬解回退 / 截图保存 顶部描边纯文字 OSD
                   if (state.transientBanner != null)
                     Positioned(
-                      top: _volumeOsdVisible ? 108 : 76,
+                      top: 76,
                       left: 24,
                       right: 24,
                       child: IgnorePointer(
@@ -561,7 +516,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                       ),
                     ),
 
-                  // 7. 右下角智能跳过 OP/ED 胶囊（独立位置 bottom: 84, right: 24）
+                  // 7. 右下角智能跳过 OP/ED 胶囊
                   if (state.activeSkipWindow != null)
                     Positioned(
                       bottom: KonataPlaybackTokens.skipPillBottomOffset,
@@ -637,7 +592,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
             ),
           ),
         ),
-        ),
+      ),
     );
   }
 
@@ -649,8 +604,9 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       return AndroidView(
         viewType: AndroidVideoSurfaceController.viewType,
-        onPlatformViewCreated: (viewId) =>
-            controller.attachAndroidSurface(AndroidVideoSurfaceController(viewId)),
+        onPlatformViewCreated: (viewId) => controller.attachAndroidSurface(
+          AndroidVideoSurfaceController(viewId),
+        ),
       );
     }
 
@@ -673,10 +629,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
           });
         }
         return SizedBox.expand(
-          child: Texture(
-            textureId: texId,
-            filterQuality: FilterQuality.medium,
-          ),
+          child: Texture(textureId: texId, filterQuality: FilterQuality.medium),
         );
       },
     );
@@ -688,7 +641,8 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
     required String epTitle,
   }) {
     final p = context.palette;
-    final isWindows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+    final isWindows =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
     final stats = state.probeStats;
     final resBadge = PlaybackFormatters.formatResolutionBadge(
       stats.videoWidth,
@@ -727,10 +681,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
           IconButton(
             tooltip: '返回作品详情 (Esc)',
             onPressed: _exitPage,
-            icon: Icon(
-              Icons.arrow_back_rounded,
-              color: p.textPrimary,
-            ),
+            icon: Icon(Icons.arrow_back_rounded, color: p.textPrimary),
           ),
           const SizedBox(width: 6),
           Expanded(
@@ -779,9 +730,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
             icon: Icon(
               Icons.analytics_outlined,
               size: 20,
-              color: state.probeOverlayVisible
-                  ? p.progressFill
-                  : p.textSecondary,
+              color: state.probeOverlayVisible ? p.progressFill : p.textPrimary,
             ),
           ),
           IconButton(
@@ -796,11 +745,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
           IconButton(
             tooltip: '播控与画质设置',
             onPressed: () => _openSideSheet(VideoSideSheetTab.video),
-            icon: Icon(
-              Icons.tune_rounded,
-              size: 20,
-              color: p.textPrimary,
-            ),
+            icon: Icon(Icons.tune_rounded, size: 20, color: p.textPrimary),
           ),
           if (isWindows && !state.isFullscreen) ...[
             const SizedBox(width: 4),
@@ -859,14 +804,14 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
           KonataCapsuleIconButton(
             icon: Icons.subtitles_outlined,
             tooltip: '字幕轨道',
-            color: p.textSecondary,
+            color: p.textPrimary,
             size: 18,
             onTap: () => _openSideSheet(VideoSideSheetTab.subtitles),
           ),
           KonataCapsuleIconButton(
             icon: Icons.audiotrack_outlined,
             tooltip: '音轨切换',
-            color: p.textSecondary,
+            color: p.textPrimary,
             size: 18,
             onTap: () => _openSideSheet(VideoSideSheetTab.audio),
           ),
@@ -906,6 +851,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
             onVolumeChanged: (v) => controller.setVolume(v * 100.0),
             onToggleMute: controller.toggleMute,
             allowPopover: showHud,
+            externalRevealPulse: _externalVolumePulse,
             onPopupActiveChanged: _handleVolumePopupActiveChanged,
           ),
           KonataCapsuleIconButton(
@@ -1044,19 +990,12 @@ class _ErrorFallbackCard extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                Icons.error_outline_rounded,
-                size: 36,
-                color: p.danger,
-              ),
+              Icon(Icons.error_outline_rounded, size: 36, color: p.danger),
               const SizedBox(height: 12),
               Text(
                 message,
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: p.textPrimary,
-                  fontSize: 13.5,
-                ),
+                style: TextStyle(color: p.textPrimary, fontSize: 13.5),
               ),
               const SizedBox(height: 18),
               Row(

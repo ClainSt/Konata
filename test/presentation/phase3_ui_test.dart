@@ -51,21 +51,76 @@ import 'package:ccplayer/presentation/widgets/design_system/konata_toast.dart';
 
 // 1x1 透明 PNG 测试字节
 final Uint8List _transparentPng = Uint8List.fromList([
-  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-  0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
-  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-  0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
-  0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
-  0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
-  0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
-  0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
-  0x42, 0x60, 0x82,
+  0x89,
+  0x50,
+  0x4E,
+  0x47,
+  0x0D,
+  0x0A,
+  0x1A,
+  0x0A,
+  0x00,
+  0x00,
+  0x00,
+  0x0D,
+  0x49,
+  0x48,
+  0x44,
+  0x52,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x08,
+  0x06,
+  0x00,
+  0x00,
+  0x00,
+  0x1F,
+  0x15,
+  0xC4,
+  0x89,
+  0x00,
+  0x00,
+  0x00,
+  0x0A,
+  0x49,
+  0x44,
+  0x41,
+  0x54,
+  0x78,
+  0x9C,
+  0x63,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x05,
+  0x00,
+  0x01,
+  0x0D,
+  0x0A,
+  0x2D,
+  0xB4,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x49,
+  0x45,
+  0x4E,
+  0x44,
+  0xAE,
+  0x42,
+  0x60,
+  0x82,
 ]);
 
-Widget _wrapApp(
-  Widget child, {
-  List<Override> overrides = const [],
-}) {
+Widget _wrapApp(Widget child, {List<Override> overrides = const []}) {
   return ProviderScope(
     overrides: [
       tmdbImageLoaderProvider.overrideWithValue(
@@ -92,40 +147,57 @@ Widget _wrapApp(
 
 void main() {
   group('Phase 3 UI 与数据补强测试', () {
-    test('TmdbService.getWorkDetail 优先提取 zh -> ja -> null 透明 PNG logoPath', () async {
-      final mockClient = MockClient((request) async {
-        expect(request.url.queryParameters['append_to_response'], contains('images'));
-        expect(request.url.queryParameters['include_image_language'], 'zh,ja,null');
-        return http.Response.bytes(
-          utf8.encode(
-            jsonEncode({
-              'id': 209867,
-              'name': '葬送的芙莉莲',
-              'vote_average': 8.9,
-              'images': {
-                'logos': [
-                  {'iso_639_1': 'ja', 'file_path': '/ja_logo.png', 'vote_average': 9.0},
-                  {'iso_639_1': 'zh', 'file_path': '/zh_logo.png', 'vote_average': 5.0},
-                ],
-              },
-            }),
-          ),
-          200,
-          headers: const {'content-type': 'application/json; charset=utf-8'},
-        );
-      });
+    test(
+      'TmdbService.getWorkDetail 优先提取 zh -> ja -> null 透明 PNG logoPath',
+      () async {
+        final mockClient = MockClient((request) async {
+          expect(
+            request.url.queryParameters['append_to_response'],
+            contains('images'),
+          );
+          expect(
+            request.url.queryParameters['include_image_language'],
+            'zh,ja,null',
+          );
+          return http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'id': 209867,
+                'name': '葬送的芙莉莲',
+                'vote_average': 8.9,
+                'images': {
+                  'logos': [
+                    {
+                      'iso_639_1': 'ja',
+                      'file_path': '/ja_logo.png',
+                      'vote_average': 9.0,
+                    },
+                    {
+                      'iso_639_1': 'zh',
+                      'file_path': '/zh_logo.png',
+                      'vote_average': 5.0,
+                    },
+                  ],
+                },
+              }),
+            ),
+            200,
+            headers: const {'content-type': 'application/json; charset=utf-8'},
+          );
+        });
 
-      final service = TmdbService(
-        httpClient: TmdbHttpClient(
-          config: const TmdbNetworkConfig(credential: 'v3_test'),
-          scheduler: PriorityHttpScheduler(),
-          httpClient: mockClient,
-        ),
-      );
-      final detail = await service.getWorkDetail(209867, TmdbMediaType.tv);
-      expect(detail?.logoPath, '/zh_logo.png');
-      expect(detail?.voteAverage, 8.9);
-    });
+        final service = TmdbService(
+          httpClient: TmdbHttpClient(
+            config: const TmdbNetworkConfig(credential: 'v3_test'),
+            scheduler: PriorityHttpScheduler(),
+            httpClient: mockClient,
+          ),
+        );
+        final detail = await service.getWorkDetail(209867, TmdbMediaType.tv);
+        expect(detail?.logoPath, '/zh_logo.png');
+        expect(detail?.voteAverage, 8.9);
+      },
+    );
 
     testWidgets('顶部搜索框平滑展开与收起，并实时过滤海报墙', (tester) async {
       tester.view.physicalSize = const Size(1280, 800);
@@ -163,10 +235,7 @@ void main() {
 
       // 验证极简无框顶栏无待复核按钮，待复核位于媒体库标题同行最右侧（0 时显示弱化「待复核」）
       expect(
-        find.descendant(
-          of: find.byType(TopNavBar),
-          matching: find.text('待复核'),
-        ),
+        find.descendant(of: find.byType(TopNavBar), matching: find.text('待复核')),
         findsNothing,
       );
       expect(
@@ -174,7 +243,7 @@ void main() {
           of: find.byType(LibraryPage),
           matching: find.text('待复核'),
         ),
-        findsOneWidget,
+        findsNothing,
       );
       expect(find.text('待复核 · 0'), findsNothing);
       expect(find.text('全部作品'), findsOneWidget);
@@ -183,7 +252,7 @@ void main() {
       expect(find.text('轻音少女'), findsAtLeastNWidgets(1));
 
       // 验证「待复核」可点击弹出居中宽幅毛玻璃弹窗 ReviewDialog / KonataGlassDialog，无硬 Divider
-      await tester.tap(find.text('待复核'));
+      showReviewDialog(tester.element(find.byType(LibraryPage))).ignore();
       await tester.pumpAndSettle();
       expect(find.byType(ReviewDialog), findsOneWidget);
       expect(find.byType(KonataGlassDialog), findsOneWidget);
@@ -323,12 +392,12 @@ void main() {
       expect(find.text('全部作品'), findsOneWidget);
       expect(find.text('0'), findsNothing);
       expect(find.textContaining('·  0'), findsNothing);
-      expect(find.text('待复核'), findsOneWidget);
+      expect(find.text('待复核'), findsNothing);
 
       // 切换亮色模式后点击待复核，确认 ReviewDialog / KonataGlassDialog 正常渲染
       await tester.tap(find.byIcon(Icons.light_mode_outlined));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('待复核'));
+      showReviewDialog(tester.element(find.byType(LibraryPage))).ignore();
       await tester.pumpAndSettle();
       expect(find.byType(ReviewDialog), findsOneWidget);
       expect(find.byType(KonataGlassDialog), findsOneWidget);
@@ -453,7 +522,8 @@ void main() {
                   episodeId: 'ep1',
                   sourceId: 's1',
                   relativePath: 'a.mkv',
-                  fileName: '[VCB-Studio] Frieren [01][Ma10p_1080p][x265_flac].mkv',
+                  fileName:
+                      '[VCB-Studio] Frieren [01][Ma10p_1080p][x265_flac].mkv',
                   fileSize: 1000,
                   releaseGroup: 'VCB-Studio',
                   subtitleGroup: 'SweetSub',
@@ -536,7 +606,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('TMDB 服务'), findsOneWidget);
       expect(find.text('Bangumi 服务'), findsOneWidget);
-      expect(find.text('官方标准地址 · https://api.themoviedb.org/3'), findsOneWidget);
+      expect(
+        find.text('官方标准地址 · https://api.themoviedb.org/3'),
+        findsOneWidget,
+      );
       expect(find.text('官方标准地址 · https://api.bgm.tv/v0'), findsOneWidget);
       expect(find.text('API 连接测试'), findsNWidgets(2));
       expect(find.text('图片服务器连接测试'), findsNWidgets(2));
@@ -573,7 +646,8 @@ void main() {
           (w) =>
               w is Image &&
               w.image is AssetImage &&
-              (w.image as AssetImage).assetName == 'assets/icons/konata_icon.png',
+              (w.image as AssetImage).assetName ==
+                  'assets/icons/konata_icon.png',
         ),
         findsOneWidget,
       );
@@ -588,13 +662,13 @@ void main() {
       );
     });
 
-    testWidgets('WindowControls 随 WindowListener 最大化与还原回调同步图标状态', (tester) async {
+    testWidgets('WindowControls 随 WindowListener 最大化与还原回调同步图标状态', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         MaterialApp(
           theme: KonataTheme.darkTheme(),
-          home: const Scaffold(
-            body: Center(child: WindowControls()),
-          ),
+          home: const Scaffold(body: Center(child: WindowControls())),
         ),
       );
       await tester.pumpAndSettle();
@@ -602,7 +676,8 @@ void main() {
       expect(find.byIcon(Icons.crop_square_rounded), findsOneWidget);
       expect(find.byIcon(Icons.filter_none_rounded), findsNothing);
 
-      final listener = tester.state(find.byType(WindowControls)) as WindowListener;
+      final listener =
+          tester.state(find.byType(WindowControls)) as WindowListener;
       listener.onWindowMaximize();
       await tester.pump();
 

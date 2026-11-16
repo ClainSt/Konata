@@ -111,9 +111,7 @@ abstract final class KonataPlaybackTokens {
       return hovered ? p.textPrimary : p.textSecondary;
     }
     if (selected) return p.accent;
-    return hovered
-        ? KonataTheme.detailLightSlatePrimary
-        : KonataTheme.detailLightSlateSecondary;
+    return KonataTheme.detailLightSlatePrimary;
   }
 
   /// 内置视频页最底层防 DWM 透底纯黑画布（全屏/非全屏切换绝不触碰窗体材质）。

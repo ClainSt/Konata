@@ -440,6 +440,7 @@ class _MiniAudioQueuePopover extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     final queue = state.queue;
+    final displayRows = state.buildDisplayRows(includeDetailedSubtitle: true);
     return ConstrainedBox(
       constraints: BoxConstraints(maxWidth: maxWidth, maxHeight: maxHeight),
       child: Container(
@@ -526,33 +527,27 @@ class _MiniAudioQueuePopover extends StatelessWidget {
                         controller: ctrl,
                         shrinkWrap: true,
                         padding: const EdgeInsets.fromLTRB(10, 8, 16, 10),
-                        itemCount: queue.length,
+                        itemCount: displayRows.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 2),
                         itemBuilder: (context, index) {
-                          final qItem = queue[index];
-                          final active = index == state.currentIndex;
-                          final isSingleCue = queue.every((e) => e.isCueTrack);
-                          final trackPrefix =
-                              (isSingleCue
-                                      ? (qItem.trackNumber ?? (index + 1))
-                                      : (index + 1))
-                                  .toString()
-                                  .padLeft(2, '0');
-                          final dur = qItem.resolvedDuration;
-                          final durLabel = dur > Duration.zero
+                          final row = displayRows[index];
+                          final durLabel = row.duration > Duration.zero
                               ? PlaybackFormatters.formatMediaDuration(
-                                  dur.inMilliseconds / 1000.0,
+                                  row.duration.inMilliseconds / 1000.0,
                                 )
                               : '';
-                          final subtitle = qItem.displaySubtitle;
 
                           return _MiniQueueTrackTile(
-                            trackPrefix: trackPrefix,
-                            title: qItem.title,
-                            subtitle: subtitle,
+                            trackPrefix: row.trackPrefix,
+                            title: row.title,
+                            subtitle: row.subtitle,
                             durationLabel: durLabel,
-                            active: active,
-                            onTap: () => onSelectTrack(index),
+                            active: row.isActiveTrack,
+                            isExpandedParent: row.isExpandedParent,
+                            isSubTrack:
+                                row.kind ==
+                                AudioQueueDisplayRowKind.cueSubTrack,
+                            onTap: () => onSelectTrack(row.targetQueueIndex),
                           );
                         },
                       ),
@@ -575,6 +570,8 @@ class _MiniQueueTrackTile extends StatefulWidget {
     required this.subtitle,
     required this.durationLabel,
     required this.active,
+    this.isExpandedParent = false,
+    this.isSubTrack = false,
     required this.onTap,
   });
 
@@ -583,6 +580,8 @@ class _MiniQueueTrackTile extends StatefulWidget {
   final String subtitle;
   final String durationLabel;
   final bool active;
+  final bool isExpandedParent;
+  final bool isSubTrack;
   final VoidCallback onTap;
 
   @override
@@ -609,7 +608,12 @@ class _MiniQueueTrackTileState extends State<_MiniQueueTrackTile> {
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 140),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          padding: EdgeInsets.fromLTRB(
+            widget.isSubTrack ? 26 : 10,
+            widget.isSubTrack ? 6 : 8,
+            10,
+            widget.isSubTrack ? 6 : 8,
+          ),
           decoration: BoxDecoration(
             color: bgColor,
             borderRadius: BorderRadius.circular(10),
@@ -617,22 +621,29 @@ class _MiniQueueTrackTileState extends State<_MiniQueueTrackTile> {
           child: Row(
             children: [
               SizedBox(
-                width: 26,
+                width: widget.isSubTrack ? 22 : 26,
                 child: active
                     ? Icon(
                         Icons.graphic_eq_rounded,
                         size: 16,
                         color: p.progressFill,
                       )
-                    : Text(
-                        widget.trackPrefix,
-                        style: TextStyle(
-                          color: _hovered ? p.textPrimary : p.textMuted,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          fontFeatures: KonataPlaybackTokens.tabularNumbers,
-                        ),
-                      ),
+                    : (widget.trackPrefix.isEmpty
+                          ? const SizedBox.shrink()
+                          : Text(
+                              widget.trackPrefix,
+                              style: TextStyle(
+                                color: widget.isExpandedParent
+                                    ? p.textPrimary
+                                    : (_hovered ? p.textPrimary : p.textMuted),
+                                fontSize: 12,
+                                fontWeight: widget.isExpandedParent
+                                    ? FontWeight.w600
+                                    : FontWeight.w500,
+                                fontFeatures:
+                                    KonataPlaybackTokens.tabularNumbers,
+                              ),
+                            )),
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -644,8 +655,10 @@ class _MiniQueueTrackTileState extends State<_MiniQueueTrackTile> {
                       text: widget.title,
                       style: TextStyle(
                         color: p.textPrimary,
-                        fontSize: 13,
-                        fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                        fontSize: widget.isSubTrack ? 12.5 : 13,
+                        fontWeight: (active || widget.isExpandedParent)
+                            ? FontWeight.w600
+                            : FontWeight.w400,
                       ),
                     ),
                     if (widget.subtitle.isNotEmpty) ...[

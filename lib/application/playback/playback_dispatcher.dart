@@ -1,10 +1,13 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 
 import '../../domain/models/episode.dart';
 import '../../domain/models/external_player_config.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/work.dart';
+import '../../domain/playback/cue_variant_resolver.dart';
+import '../../infrastructure/players/audio_art_extractor.dart';
 import '../../domain/repositories/external_player_launcher.dart';
 import '../providers/library_providers.dart';
 import '../providers/playback_providers.dart';
@@ -197,6 +200,64 @@ class PlaybackDispatcher {
       }
     }
 
+    // 外部播放器收到独立 CUE 的 HTTP 地址无法解析相对 FILE 引用。
+    // 与内置音频共用 CUE 目标解析，将物理音轨的地址交给外部播放器。
+    var targetVariant = variant;
+    var cueStartSeconds = 0;
+    if (AudioPlaybackNotifier.isCueSheetFile(variant.fileName)) {
+      if (source == null) {
+        return const LaunchPlaybackResult(
+          launched: false,
+          message: 'CUE 所属媒体源不可用，无法定位音频文件',
+        );
+      }
+      try {
+        final sheet = await AudioAssetExtractor.loadCueSheet(
+          source: source,
+          cueRelativePath: variant.relativePath,
+          gatewayFactory: _ref.read(mediaSourceGatewayFactoryProvider),
+        );
+        if (sheet == null || sheet.tracks.isEmpty) {
+          return const LaunchPlaybackResult(
+            launched: false,
+            message: '无法解析 CUE 音轨清单',
+          );
+        }
+        final cueDir = p.posix.dirname(
+          variant.relativePath.replaceAll('\\', '/'),
+        );
+        final audioVariants = cdPlaylist.where((item) {
+          return item.sourceId == variant.sourceId &&
+              AudioPlaybackNotifier.isPlayableAudioFile(item.fileName) &&
+              p.posix.dirname(item.relativePath.replaceAll('\\', '/')) ==
+                  cueDir;
+        }).toList();
+        final track = sheet.tracks.firstWhere(
+          (item) => item.trackNumber == initialCueTrackNumber,
+          orElse: () => sheet.tracks.first,
+        );
+        final resolved = CueVariantResolver.resolve(
+          cueVariant: variant,
+          cueTrack: track,
+          audioVariantsInDir: audioVariants,
+          fallbackInitial: variant,
+        );
+        if (resolved == null) {
+          return const LaunchPlaybackResult(
+            launched: false,
+            message: 'CUE 引用的音频文件不存在或无法唯一确定',
+          );
+        }
+        targetVariant = resolved;
+        cueStartSeconds = track.startSeconds.round();
+      } catch (error) {
+        return LaunchPlaybackResult(
+          launched: false,
+          message: 'CUE 读取失败：$error',
+        );
+      }
+    }
+
     // 拉起外部音频播放器前互斥暂停内置迷你音频播放器
     await _ref.read(audioPlaybackProvider.notifier).pauseForVideoSession();
 
@@ -204,9 +265,10 @@ class PlaybackDispatcher {
         .read(playbackCoordinatorProvider)
         .playCdVariant(
           work: work,
-          variant: variant,
+          variant: targetVariant,
           source: source,
           player: explicitPlayer,
+          startSeconds: cueStartSeconds,
         );
   }
 

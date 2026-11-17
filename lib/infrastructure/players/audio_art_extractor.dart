@@ -150,10 +150,7 @@ class AudioAssetExtractor {
     return null;
   }
 
-  static Uint8List? _parseApicPayload(
-    Uint8List frame, {
-    required bool isV22,
-  }) {
+  static Uint8List? _parseApicPayload(Uint8List frame, {required bool isV22}) {
     if (frame.length < 8) return null;
     final encoding = frame[0];
     var cursor = 1;
@@ -262,9 +259,9 @@ class AudioAssetExtractor {
           String? trackTitleLrcPath;
           String? audioStemLrcPath;
 
-          final audioStem = p.basenameWithoutExtension(
-            variant.fileName,
-          ).toLowerCase();
+          final audioStem = p
+              .basenameWithoutExtension(variant.fileName)
+              .toLowerCase();
           final normTrackTitle = (cueTrackTitle ?? '').trim().toLowerCase();
 
           for (final entry in siblings) {
@@ -404,7 +401,8 @@ class AudioAssetExtractor {
       }
 
       final probeAudioPath =
-          p.extension(normRel).toLowerCase() == '.cue' && fallbackAudioPath != null
+          p.extension(normRel).toLowerCase() == '.cue' &&
+              fallbackAudioPath != null
           ? fallbackAudioPath
           : normRel;
       final headerBytes = await readBoundedBytes(
@@ -426,20 +424,27 @@ class AudioAssetExtractor {
     }
   }
 
-  /// 读取并解析 `.cue` 字节。
+  /// 读取并解析 `.cue` 字节（若已知小文件精确大小则按实际长度读取，避免冗余越界范围）。
   static Future<CueSheet?> loadCueSheet({
     required MediaSource source,
     required String cueRelativePath,
     required MediaSourceGatewayFactory gatewayFactory,
+    int? knownFileSize,
   }) async {
     final gateway = await gatewayFactory.create(source);
     try {
       if (gateway is! ByteRangeReadableGateway) return null;
       final byteGateway = gateway as ByteRangeReadableGateway;
+      final effectiveMax =
+          (knownFileSize != null &&
+              knownFileSize > 0 &&
+              knownFileSize < 1024 * 1024)
+          ? knownFileSize
+          : 1024 * 1024;
       final bytes = await readBoundedBytes(
         byteGateway,
         cueRelativePath,
-        maxBytes: 1024 * 1024,
+        maxBytes: effectiveMax,
       );
       if (bytes == null) return null;
       return CueParser.parseBytes(

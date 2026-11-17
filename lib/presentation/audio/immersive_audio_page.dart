@@ -77,23 +77,24 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
   void _scrollToActiveQueueItem({required bool animated}) {
     if (!_queueScrollCtrl.hasClients) return;
     final state = ref.read(audioPlaybackProvider);
-    final idx = state.currentIndex;
-    final total = state.queue.length;
-    if (idx < 0 || idx >= total) return;
+    final rows = state.buildDisplayRows();
+    if (rows.isEmpty) return;
+    var rowIdx = rows.indexWhere((r) => r.isActiveTrack);
+    if (rowIdx < 0) {
+      rowIdx = rows.indexWhere((r) => r.isExpandedParent);
+    }
+    if (rowIdx < 0) return;
 
     final pos = _queueScrollCtrl.position;
     // 曲目刚好占满或占不满右侧可视区域时，无需移动
     if (pos.maxScrollExtent <= 1.0) return;
 
-    final targetItem = state.queue[idx];
-    final hasSub =
-        targetItem.performer.trim().isNotEmpty ||
-        (targetItem.showAlbumSubtitle &&
-            targetItem.albumTitle.trim().isNotEmpty);
+    final targetRow = rows[rowIdx];
+    final hasSub = targetRow.subtitle.trim().isNotEmpty;
     final estRowHeight = hasSub ? 56.0 : 40.0;
     final estStride = estRowHeight + 6.0;
     const topPad = 20.0;
-    final estCenter = topPad + idx * estStride + estRowHeight / 2.0;
+    final estCenter = topPad + rowIdx * estStride + estRowHeight / 2.0;
     final viewportH = pos.viewportDimension;
 
     if (estCenter <= viewportH * 0.5 && pos.pixels <= 1.0) {
@@ -671,8 +672,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     AudioPlaybackState state,
     AudioPlaybackNotifier notifier,
   ) {
-    final isSingleCueAlbum =
-        state.queue.isNotEmpty && state.queue.every((e) => e.isCueTrack);
+    final displayRows = state.buildDisplayRows();
     return KonataDraggableScrollbar(
       controller: _queueScrollCtrl,
       trackInsets: const EdgeInsets.only(top: 20, bottom: 24, right: 4),
@@ -692,22 +692,17 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
         child: ListView.separated(
           controller: ctrl,
           padding: const EdgeInsets.fromLTRB(4, 20, 22, 24),
-          itemCount: state.queue.length,
+          itemCount: displayRows.length,
           separatorBuilder: (_, _) => const SizedBox(height: 6),
           itemBuilder: (context, index) {
-            final qItem = state.queue[index];
-            final active = index == state.currentIndex;
-            final seqNum = isSingleCueAlbum
-                ? (qItem.trackNumber ?? (index + 1))
-                : (index + 1);
-            final trackPrefix = seqNum.toString().padLeft(2, '0');
+            final row = displayRows[index];
             return _BorderlessQueueRow(
-              key: active ? _activeQueueItemKey : ValueKey('q_row_${qItem.id}'),
-              item: qItem,
-              trackPrefix: trackPrefix,
-              active: active,
-              isPlaying: active && state.isPlaying,
-              onTap: () => notifier.playQueueIndex(index),
+              key: row.isActiveTrack
+                  ? _activeQueueItemKey
+                  : ValueKey('q_row_${row.id}'),
+              row: row,
+              isPlaying: row.isActiveTrack && state.isPlaying,
+              onTap: () => notifier.playQueueIndex(row.targetQueueIndex),
             );
           },
         ),
@@ -719,16 +714,12 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
 class _BorderlessQueueRow extends StatefulWidget {
   const _BorderlessQueueRow({
     super.key,
-    required this.item,
-    required this.trackPrefix,
-    required this.active,
+    required this.row,
     required this.isPlaying,
     required this.onTap,
   });
 
-  final AudioQueueItem item;
-  final String trackPrefix;
-  final bool active;
+  final AudioQueueDisplayRow row;
   final bool isPlaying;
   final VoidCallback onTap;
 
@@ -742,24 +733,20 @@ class _BorderlessQueueRowState extends State<_BorderlessQueueRow> {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final active = widget.active;
-    final color = active
+    final row = widget.row;
+    final active = row.isActiveTrack;
+    final isSubTrack = row.kind == AudioQueueDisplayRowKind.cueSubTrack;
+    final isExpandedParent = row.isExpandedParent;
+
+    final color = (active || isExpandedParent)
         ? p.textPrimary
         : (_hovered ? p.textPrimary.withValues(alpha: 0.92) : p.textSecondary);
-    final resolvedDuration = widget.item.resolvedDuration;
-    final durationText = resolvedDuration > Duration.zero
+    final durationText = row.duration > Duration.zero
         ? PlaybackFormatters.formatMediaDuration(
-            resolvedDuration.inMilliseconds / 1000.0,
+            row.duration.inMilliseconds / 1000.0,
           )
         : '';
-
-    final subtitleParts = <String>[
-      if (widget.item.performer.trim().isNotEmpty) widget.item.performer.trim(),
-      if (widget.item.showAlbumSubtitle &&
-          widget.item.albumTitle.trim().isNotEmpty)
-        widget.item.albumTitle.trim(),
-    ];
-    final subtitleText = subtitleParts.join(' · ');
+    final subtitleText = row.subtitle.trim();
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -769,11 +756,16 @@ class _BorderlessQueueRowState extends State<_BorderlessQueueRow> {
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+          padding: EdgeInsets.fromLTRB(
+            isSubTrack ? 30 : 10,
+            isSubTrack ? 7 : 9,
+            10,
+            isSubTrack ? 7 : 9,
+          ),
           child: Row(
             children: [
               SizedBox(
-                width: 30,
+                width: isSubTrack ? 24 : 30,
                 child: active
                     ? Align(
                         alignment: Alignment.centerLeft,
@@ -782,17 +774,26 @@ class _BorderlessQueueRowState extends State<_BorderlessQueueRow> {
                           color: p.textPrimary,
                         ),
                       )
-                    : Text(
-                        widget.trackPrefix,
-                        style: TextStyle(
-                          color: _hovered ? p.textSecondary : p.textMuted,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w500,
-                          fontFeatures: KonataPlaybackTokens.tabularNumbers,
-                        ),
-                      ),
+                    : (row.trackPrefix.isEmpty
+                          ? const SizedBox.shrink()
+                          : Text(
+                              row.trackPrefix,
+                              style: TextStyle(
+                                color: isExpandedParent
+                                    ? p.textPrimary
+                                    : (_hovered
+                                          ? p.textSecondary
+                                          : p.textMuted),
+                                fontSize: 12.5,
+                                fontWeight: isExpandedParent
+                                    ? FontWeight.w600
+                                    : FontWeight.w500,
+                                fontFeatures:
+                                    KonataPlaybackTokens.tabularNumbers,
+                              ),
+                            )),
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: isSubTrack ? 6 : 8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -802,8 +803,12 @@ class _BorderlessQueueRowState extends State<_BorderlessQueueRow> {
                       curve: Curves.easeOutCubic,
                       style: TextStyle(
                         color: color,
-                        fontSize: active ? 16.0 : 14.5,
-                        fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                        fontSize: active
+                            ? (isSubTrack ? 15.0 : 16.0)
+                            : (isSubTrack ? 13.8 : 14.5),
+                        fontWeight: (active || isExpandedParent)
+                            ? FontWeight.w600
+                            : FontWeight.w400,
                         shadows: active
                             ? [
                                 Shadow(
@@ -816,7 +821,7 @@ class _BorderlessQueueRowState extends State<_BorderlessQueueRow> {
                             : null,
                       ),
                       child: EllipsisTextWithTooltip(
-                        text: widget.item.title,
+                        text: row.title,
                         maxLines: 1,
                         style: const TextStyle(),
                       ),
@@ -827,7 +832,7 @@ class _BorderlessQueueRowState extends State<_BorderlessQueueRow> {
                         text: subtitleText,
                         maxLines: 1,
                         style: TextStyle(
-                          color: active
+                          color: (active || isExpandedParent)
                               ? p.textSecondary
                               : (_hovered ? p.textSecondary : p.textMuted),
                           fontSize: 11.5,
@@ -842,7 +847,7 @@ class _BorderlessQueueRowState extends State<_BorderlessQueueRow> {
                 Text(
                   durationText,
                   style: TextStyle(
-                    color: active
+                    color: (active || isExpandedParent)
                         ? p.textPrimary
                         : (_hovered ? p.textSecondary : p.textMuted),
                     fontSize: 12,

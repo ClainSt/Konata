@@ -668,7 +668,8 @@ class WebDavSourceGateway
       uri: uri,
       extraHeaders: const {'Range': 'bytes=0-0'},
     );
-    await probeResp.stream.drain<void>();
+    // Range 探针可能遭服务端忽略并返回整部媒体；只使用响应头，不拉取正文。
+    await probeResp.stream.listen(null).cancel();
     if (probeResp.statusCode == 404) return null;
     final contentRange = probeResp.headers[HttpHeaders.contentRangeHeader];
     if (contentRange != null) {
@@ -708,19 +709,70 @@ class WebDavSourceGateway
       timeoutOverride: streamTimeout,
     );
 
-    if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
-      await streamed.stream.drain<void>().catchError((_) {});
-      throw HttpException(
-        'WebDAV 流式读取失败: HTTP ${streamed.statusCode}',
-        uri: uri,
+    // 禁止把上游 200 全文件或错误的 206 范围当作目标字节区间透传：
+    // 下游 LocalStreamBridge 会声明精确 Content-Range，错位数据会导致
+    // MKV/FLAC 解复用失败，甚至被错误地缓存。
+    final status = streamed.statusCode;
+    final rangeValue = streamed.headers[HttpHeaders.contentRangeHeader];
+    int? expectedBytes;
+    if (status == HttpStatus.partialContent) {
+      final match = rangeValue == null
+          ? null
+          : RegExp(
+              r'^bytes\s+(\d+)-(\d+)/(\d+|\*)$',
+              caseSensitive: false,
+            ).firstMatch(rangeValue.trim());
+      final actualStart = match == null ? null : int.tryParse(match.group(1)!);
+      final actualEnd = match == null ? null : int.tryParse(match.group(2)!);
+      final total = match == null || match.group(3) == '*'
+          ? null
+          : int.tryParse(match.group(3)!);
+      final expectedEnd = endInclusive == null
+          ? null
+          : (total != null && endInclusive >= total ? total - 1 : endInclusive);
+      if (actualStart != start ||
+          actualEnd == null ||
+          actualEnd < start ||
+          (expectedEnd != null && actualEnd != expectedEnd) ||
+          (total != null && actualEnd >= total)) {
+        await streamed.stream.listen(null).cancel();
+        throw HttpException('WebDAV Content-Range 与请求范围不一致', uri: uri);
+      }
+      expectedBytes = actualEnd - start + 1;
+    } else if (status == HttpStatus.ok && start == 0 && endInclusive == null) {
+      // 某些不支持 Range 的服务仅允许从零开始完整读取。
+      expectedBytes = int.tryParse(
+        streamed.headers[HttpHeaders.contentLengthHeader] ?? '',
       );
+    } else {
+      await streamed.stream.listen(null).cancel();
+      throw HttpException('WebDAV Range 读取失败: HTTP $status', uri: uri);
+    }
+
+    // 渐进式输出，不等待完整分块；同时防止上游提前 EOF 或超额发送
+    // 导致本地 HTTP 桥接声称的 Content-Length 与真实字节不一致。
+    Stream<List<int>> checkedResponse() async* {
+      var received = 0;
+      await for (final chunk in streamed.stream) {
+        received += chunk.length;
+        if (expectedBytes != null && received > expectedBytes) {
+          throw HttpException('WebDAV 响应字节超出声明范围', uri: uri);
+        }
+        yield chunk;
+      }
+      if (expectedBytes != null && received != expectedBytes) {
+        throw HttpException(
+          'WebDAV 响应提前结束，实际 $received / $expectedBytes 字节',
+          uri: uri,
+        );
+      }
     }
 
     StreamSubscription<List<int>>? upstreamSub;
     late final StreamController<List<int>> controller;
     controller = StreamController<List<int>>(
       onListen: () {
-        upstreamSub = streamed.stream.listen(
+        upstreamSub = checkedResponse().listen(
           controller.add,
           onError: (Object error, StackTrace st) {
             if (!controller.isClosed) controller.addError(error, st);

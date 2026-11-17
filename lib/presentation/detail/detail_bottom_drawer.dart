@@ -8,6 +8,7 @@ import '../../domain/matching/episode_title_formatter.dart';
 import '../../domain/matching/supplementary_subclassifier.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/media_variant.dart';
+import '../../domain/playback/cue_variant_resolver.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
@@ -253,6 +254,8 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
         .toList();
     final cdList = widget.showCdTab
         ? widget.bundle.cdVariants
+              .where((v) => !CueVariantResolver.isCueSheetFile(v.fileName))
+              .toList(growable: false)
         : const <MediaVariant>[];
     final scanList = widget.showScanTab
         ? widget.bundle.scanVariants
@@ -610,9 +613,19 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
           final group = cdSummary.byVariantId[v.id];
           final showDirectSubdir =
               activeSecondaryKey == null && cdSummary.hasMultipleSubdirs;
+          final dot = v.fileName.lastIndexOf('.');
+          final stem = dot > 0 ? v.fileName.substring(0, dot) : v.fileName;
+          final titleOverride =
+              (CueVariantResolver.isGenericDiscImageStem(stem) &&
+                  group != null &&
+                  group.chipLabel.isNotEmpty &&
+                  group.chipLabel != 'CD')
+              ? group.chipLabel
+              : null;
           return CdDrawerCard(
             variant: v,
             showSeriesSharedBadge: showSharedBadge,
+            displayTitleOverride: titleOverride,
             directSubdirLabel: showDirectSubdir
                 ? group?.directSubdirShort
                 : null,

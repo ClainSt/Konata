@@ -9,6 +9,7 @@ import '../sources/byte_stream_source_gateway.dart';
 import '../sources/subtitle_matcher.dart';
 import '../storage/storage_root_provider.dart';
 import 'http_byte_range.dart';
+import 'remote_window_reader.dart';
 
 /// 本地回环流网桥集中配置常量（避免超时阈值与路径硬编码）。
 abstract final class StreamBridgeConfig {
@@ -47,6 +48,7 @@ class _RegisteredStreamSession {
   int activeStreams = 0;
   int? cachedLength;
   Future<int?>? inflightLengthProbe;
+  RemoteWindowReader? windowReader;
 }
 
 /// 本地安全回环按需 HTTP Range 流媒体网桥（绑定 `127.0.0.1` 动态空闲端口）。
@@ -131,7 +133,8 @@ class LocalStreamBridge {
         .convert(utf8.encode('$relativePath#${sanitizedLength ?? 0}#$token'))
         .toString()
         .substring(0, 12);
-    final etag = 'W/"$etagDigest"';
+    // 会话级强 ETag：禁止将弱 ETag 用于 If-Range 的强校验。
+    final etag = '"$etagDigest"';
 
     _sessions[token] = _RegisteredStreamSession(
       token: token,
@@ -157,6 +160,7 @@ class LocalStreamBridge {
   /// 注销单个流会话并按需释放关联网关。
   Future<void> unregisterSession(String token) async {
     final session = _sessions.remove(token);
+    session?.windowReader?.clear();
     if (session != null && session.ownsGateway) {
       try {
         await session.gateway.close();
@@ -389,11 +393,15 @@ class LocalStreamBridge {
           return;
         }
 
-        final stream = await session.gateway.openByteRange(
-          session.relativePath,
-          start: parsedRange.start,
-          endInclusive: parsedRange.endInclusive,
-        );
+        final stream =
+            (session.windowReader ??= RemoteWindowReader(
+              gateway: session.gateway,
+              relativePath: session.relativePath,
+              totalLength: totalLength,
+            )).read(
+              start: parsedRange.start,
+              endInclusive: parsedRange.endInclusive,
+            );
         await _streamChunksWithAbort(stream, response);
         return;
       }
@@ -407,13 +415,13 @@ class LocalStreamBridge {
         return;
       }
 
-      final fullStream = await session.gateway.openByteRange(
-        session.relativePath,
-        start: 0,
-        endInclusive: totalLength != null && totalLength > 0
-            ? totalLength - 1
-            : null,
-      );
+      final fullStream = totalLength != null && totalLength > 0
+          ? (session.windowReader ??= RemoteWindowReader(
+              gateway: session.gateway,
+              relativePath: session.relativePath,
+              totalLength: totalLength,
+            )).read(start: 0, endInclusive: totalLength - 1)
+          : await session.gateway.openByteRange(session.relativePath, start: 0);
       await _streamChunksWithAbort(fullStream, response);
     } catch (error) {
       try {
@@ -441,20 +449,9 @@ class LocalStreamBridge {
     if (ifRangeHeader == null || ifRangeHeader.trim().isEmpty) {
       return true;
     }
-    String normalizeTag(String raw) {
-      var trimmed = raw.trim();
-      if (trimmed.startsWith('W/') || trimmed.startsWith('w/')) {
-        trimmed = trimmed.substring(2).trim();
-      }
-      if (trimmed.length >= 2 &&
-          trimmed.startsWith('"') &&
-          trimmed.endsWith('"')) {
-        trimmed = trimmed.substring(1, trimmed.length - 1);
-      }
-      return trimmed;
-    }
-
-    return normalizeTag(ifRangeHeader) == normalizeTag(sessionEtag);
+    // RFC 9110: If-Range 必须使用强验证器；不接受弱标签或日期。
+    final tag = ifRangeHeader.trim();
+    return !tag.startsWith('W/') && tag == sessionEtag;
   }
 
   /// 拆离底层回环套接字以实时监听对端 `FIN/RST` 断连信号，在下游主动取消或 Seek 中断时即时取消上游流。
@@ -465,12 +462,15 @@ class LocalStreamBridge {
     response.persistentConnection = false;
     response.headers.chunkedTransferEncoding = false;
     response.headers.set(HttpHeaders.connectionHeader, 'close');
+    // 在发送下游响应头之前启动首个远端窗口读取，
+    // 避免惰性 async* 在下游未开始消费时完全不触发上游 Range。
+    final iterator = StreamIterator<List<int>>(source);
+    var nextMove = iterator.moveNext();
     final socket = await response.detachSocket(writeHeaders: true);
     try {
       socket.setOption(SocketOption.tcpNoDelay, true);
     } catch (_) {}
 
-    final iterator = StreamIterator<List<int>>(source);
     final disconnected = Completer<bool>();
     void markDisconnected() {
       if (!disconnected.isCompleted) {
@@ -498,10 +498,7 @@ class LocalStreamBridge {
       var unflushedBytes = 0;
       var firstChunkFlushed = false;
       while (true) {
-        final hasNext = await Future.any<bool>([
-          iterator.moveNext(),
-          disconnected.future,
-        ]);
+        final hasNext = await Future.any<bool>([nextMove, disconnected.future]);
         if (!hasNext) {
           completedNormally = !disconnected.isCompleted;
           break;
@@ -511,6 +508,7 @@ class LocalStreamBridge {
         }
         final chunk = iterator.current;
         if (chunk.isEmpty) {
+          nextMove = iterator.moveNext();
           continue;
         }
         socket.add(chunk);
@@ -520,6 +518,7 @@ class LocalStreamBridge {
           unflushedBytes = 0;
           await socket.flush();
         }
+        nextMove = iterator.moveNext();
       }
     } on SocketException {
       // 播放器触发 Seek 或关闭时主动断开连接，属正常现象。

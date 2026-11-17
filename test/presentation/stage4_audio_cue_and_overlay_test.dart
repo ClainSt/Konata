@@ -30,12 +30,78 @@ import 'package:ccplayer/presentation/widgets/playback/konata_playback_capsule.d
 import 'package:ccplayer/presentation/widgets/playback/konata_volume_control.dart';
 
 final Uint8List _sampleCoverPng = Uint8List.fromList([
-  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
-  0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02,
-  0x08, 0x02, 0x00, 0x00, 0x00, 0xFD, 0xD4, 0x9A, 0x73, 0x00, 0x00, 0x00,
-  0x14, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8, 0xCF, 0xC0, 0x80,
-  0x01, 0x31, 0x20, 0x05, 0x00, 0x32, 0x10, 0x04, 0x01, 0x96, 0x6E, 0x2B,
-  0x1B, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60,
+  0x89,
+  0x50,
+  0x4E,
+  0x47,
+  0x0D,
+  0x0A,
+  0x1A,
+  0x0A,
+  0x00,
+  0x00,
+  0x00,
+  0x0D,
+  0x49,
+  0x48,
+  0x44,
+  0x52,
+  0x00,
+  0x00,
+  0x00,
+  0x02,
+  0x00,
+  0x00,
+  0x00,
+  0x02,
+  0x08,
+  0x02,
+  0x00,
+  0x00,
+  0x00,
+  0xFD,
+  0xD4,
+  0x9A,
+  0x73,
+  0x00,
+  0x00,
+  0x00,
+  0x14,
+  0x49,
+  0x44,
+  0x41,
+  0x54,
+  0x78,
+  0x9C,
+  0x63,
+  0xF8,
+  0xCF,
+  0xC0,
+  0x80,
+  0x01,
+  0x31,
+  0x20,
+  0x05,
+  0x00,
+  0x32,
+  0x10,
+  0x04,
+  0x01,
+  0x96,
+  0x6E,
+  0x2B,
+  0x1B,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x49,
+  0x45,
+  0x4E,
+  0x44,
+  0xAE,
+  0x42,
+  0x60,
   0x82,
 ]);
 
@@ -274,227 +340,225 @@ Widget _wrapStage4App(
 
 void main() {
   group('阶段 4：CUE 尾轨回填、无损过界、零闪烁封面缓存与迷你栏/全屏歌词重构验证', () {
-    test(
-      'CUE 尾轨时长回填、同母文件自然无损过界 vs 手动 seek 防抖、极速音频选项与零闪烁封面缓存',
-      () async {
-        SharedPreferences.setMockInitialValues({});
-        final tempRoot = await Directory.systemTemp.createTemp(
-          'konata_stage4_audio_test_',
-        );
-        addTearDown(() async {
-          if (tempRoot.existsSync()) {
-            await tempRoot.delete(recursive: true);
-          }
-        });
-
-        final albumWithCoverDir = Directory(p.join(tempRoot.path, 'AlbumA'));
-        await albumWithCoverDir.create(recursive: true);
-        await File(p.join(albumWithCoverDir.path, 'Album.flac')).writeAsBytes(
-          const [0x66, 0x4C, 0x61, 0x43], // fLaC header marker
-        );
-        await File(
-          p.join(albumWithCoverDir.path, 'cover.jpg'),
-        ).writeAsBytes(_sampleCoverPng);
-        await File(p.join(albumWithCoverDir.path, 'Album.cue')).writeAsString(
-          'PERFORMER "Kessoku Band"\n'
-          'TITLE "Kessoku Band OST"\n'
-          'FILE "Album.flac" WAVE\n'
-          '  TRACK 01 AUDIO\n'
-          '    TITLE "Seishun Complex"\n'
-          '    INDEX 01 00:00:00\n'
-          '  TRACK 02 AUDIO\n'
-          '    TITLE "Guitar, Loneliness and Blue Planet"\n'
-          '    INDEX 01 03:00:00\n'
-          '  TRACK 03 AUDIO\n'
-          '    TITLE "That Band"\n'
-          '    INDEX 01 06:00:00\n',
-        );
-
-        final albumNoCoverDir = Directory(p.join(tempRoot.path, 'AlbumNoArt'));
-        await albumNoCoverDir.create(recursive: true);
-        await File(
-          p.join(albumNoCoverDir.path, 'Solo.flac'),
-        ).writeAsBytes(const [0x66, 0x4C, 0x61, 0x43]);
-
-        final fakeClient = _FakeAudioLibMpvClient();
-        final storage = StorageRootService(overrideRoot: tempRoot);
-        final db = KonataDatabase(NativeDatabase.memory());
-        addTearDown(db.close);
-        final repo = DriftLibraryRepository(db);
-        final container = ProviderContainer(
-          overrides: [
-            storageRootProvider.overrideWithValue(storage),
-            libraryRepositoryProvider.overrideWithValue(repo),
-            playbackPreferencesProvider.overrideWith(
-              (_) => PlaybackPreferencesNotifier(enablePersistence: false),
-            ),
-            audioPlaybackProvider.overrideWith(
-              (ref) => AudioPlaybackNotifier(
-                ref,
-                clientFactory: () => fakeClient,
-              ),
-            ),
-          ],
-        );
-        addTearDown(container.dispose);
-
-        final recordedCovers = <AudioCoverSource>[];
-        final sub = container.listen(
-          audioPlaybackProvider.select((s) => s.cover),
-          (_, next) => recordedCovers.add(next),
-        );
-        addTearDown(sub.close);
-
-        final source = MediaSource(
-          id: 'src-local',
-          label: 'Local',
-          kind: MediaSourceKind.local,
-          location: tempRoot.path,
-        );
-        const work = Work(
-          id: 'w-bocchi',
-          title: '孤独摇滚！',
-          posterPath: 'tmdb://poster/bocchi.jpg',
-        );
-        const vCue = MediaVariant(
-          id: 'v-cue',
-          workId: 'w-bocchi',
-          sourceId: 'src-local',
-          relativePath: 'AlbumA/Album.cue',
-          fileName: 'Album.cue',
-          fileSize: 512,
-          assetKind: AssetKind.cdAlbum,
-        );
-        const vFlac = MediaVariant(
-          id: 'v-flac',
-          workId: 'w-bocchi',
-          sourceId: 'src-local',
-          relativePath: 'AlbumA/Album.flac',
-          fileName: 'Album.flac',
-          fileSize: 4096,
-          assetKind: AssetKind.cdAlbum,
-        );
-
-        final notifier = container.read(audioPlaybackProvider.notifier);
-        await notifier.playCdCollection(
-          work: work,
-          cdVariants: const [vCue, vFlac],
-          initialVariant: vCue,
-          sourcesById: {'src-local': source},
-        );
-        for (var i = 0; i < 40; i++) {
-          if (container.read(audioPlaybackProvider).cover is MemoryAudioCover) {
-            break;
-          }
-          await Future<void>.delayed(const Duration(milliseconds: 25));
+    test('CUE 尾轨时长回填、同母文件自然无损过界 vs 手动 seek 防抖、极速音频选项与零闪烁封面缓存', () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempRoot = await Directory.systemTemp.createTemp(
+        'konata_stage4_audio_test_',
+      );
+      addTearDown(() async {
+        if (tempRoot.existsSync()) {
+          await tempRoot.delete(recursive: true);
         }
+      });
 
-        // 1. 验证全部极速纯音频前置参数已精确写入 libmpv
-        expect(fakeClient.options['vid'], 'no');
-        expect(fakeClient.options['video'], 'no');
-        expect(fakeClient.options['audio-display'], 'no');
-        expect(fakeClient.options['cover-art-auto'], 'no');
-        expect(fakeClient.options['sub-auto'], 'no');
-        expect(fakeClient.options['audio-file-auto'], 'no');
-        expect(fakeClient.options['cache-pause'], 'no');
+      final albumWithCoverDir = Directory(p.join(tempRoot.path, 'AlbumA'));
+      await albumWithCoverDir.create(recursive: true);
+      await File(p.join(albumWithCoverDir.path, 'Album.flac')).writeAsBytes(
+        const [0x66, 0x4C, 0x61, 0x43], // fLaC header marker
+      );
+      await File(
+        p.join(albumWithCoverDir.path, 'cover.jpg'),
+      ).writeAsBytes(_sampleCoverPng);
+      await File(p.join(albumWithCoverDir.path, 'Album.cue')).writeAsString(
+        'PERFORMER "Kessoku Band"\n'
+        'TITLE "Kessoku Band OST"\n'
+        'FILE "Album.flac" WAVE\n'
+        '  TRACK 01 AUDIO\n'
+        '    TITLE "Seishun Complex"\n'
+        '    INDEX 01 00:00:00\n'
+        '  TRACK 02 AUDIO\n'
+        '    TITLE "Guitar, Loneliness and Blue Planet"\n'
+        '    INDEX 01 03:00:00\n'
+        '  TRACK 03 AUDIO\n'
+        '    TITLE "That Band"\n'
+        '    INDEX 01 06:00:00\n',
+      );
 
-        // 2. 验证尾轨初值为 Duration.zero；一旦母文件 duration=540s 到达，尾轨立即回填为 180s
-        expect(container.read(audioPlaybackProvider).queue.length, 3);
-        expect(
-          container.read(audioPlaybackProvider).queue[2].duration,
-          Duration.zero,
-        );
-        expect(container.read(audioPlaybackProvider).cover, isA<MemoryAudioCover>());
-        expect(
-          recordedCovers.whereType<ManagedPosterAudioCover>(),
-          isEmpty,
-        );
+      final albumNoCoverDir = Directory(p.join(tempRoot.path, 'AlbumNoArt'));
+      await albumNoCoverDir.create(recursive: true);
+      await File(
+        p.join(albumNoCoverDir.path, 'Solo.flac'),
+      ).writeAsBytes(const [0x66, 0x4C, 0x61, 0x43]);
 
-        fakeClient.emitDuration(540.0);
-        await Future<void>.delayed(Duration.zero);
-        expect(
-          container.read(audioPlaybackProvider).queue[2].duration,
-          const Duration(seconds: 180),
-        );
+      final fakeClient = _FakeAudioLibMpvClient();
+      final storage = StorageRootService(overrideRoot: tempRoot);
+      final db = KonataDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final repo = DriftLibraryRepository(db);
+      final container = ProviderContainer(
+        overrides: [
+          storageRootProvider.overrideWithValue(storage),
+          libraryRepositoryProvider.overrideWithValue(repo),
+          playbackPreferencesProvider.overrideWith(
+            (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+          ),
+          audioPlaybackProvider.overrideWith(
+            (ref) =>
+                AudioPlaybackNotifier(ref, clientFactory: () => fakeClient),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
 
-        // 3. 同母文件自然跨过第 1 轨 endOffset(180s)：原子切入第 2 轨且 0 seek / 0 loadfile，封面 0 闪烁
-        final loadCountBeforeRollover =
-            fakeClient.commands.where((c) => c.first == 'loadfile').length;
-        final seekCountBeforeRollover =
-            fakeClient.commands.where((c) => c.first == 'seek').length;
-        expect(loadCountBeforeRollover, 1);
-        expect(seekCountBeforeRollover, 0);
+      final recordedCovers = <AudioCoverSource>[];
+      final sub = container.listen(
+        audioPlaybackProvider.select((s) => s.cover),
+        (_, next) => recordedCovers.add(next),
+      );
+      addTearDown(sub.close);
 
-        recordedCovers.clear();
-        fakeClient.emitTimePos(180.05);
-        await Future<void>.delayed(const Duration(milliseconds: 30));
+      final source = MediaSource(
+        id: 'src-local',
+        label: 'Local',
+        kind: MediaSourceKind.local,
+        location: tempRoot.path,
+      );
+      const work = Work(
+        id: 'w-bocchi',
+        title: '孤独摇滚！',
+        posterPath: 'tmdb://poster/bocchi.jpg',
+      );
+      const vCue = MediaVariant(
+        id: 'v-cue',
+        workId: 'w-bocchi',
+        sourceId: 'src-local',
+        relativePath: 'AlbumA/Album.cue',
+        fileName: 'Album.cue',
+        fileSize: 512,
+        assetKind: AssetKind.cdAlbum,
+      );
+      const vFlac = MediaVariant(
+        id: 'v-flac',
+        workId: 'w-bocchi',
+        sourceId: 'src-local',
+        relativePath: 'AlbumA/Album.flac',
+        fileName: 'Album.flac',
+        fileSize: 4096,
+        assetKind: AssetKind.cdAlbum,
+      );
 
-        final afterRollover = container.read(audioPlaybackProvider);
-        expect(afterRollover.currentIndex, 1);
-        expect(afterRollover.positionSeconds, closeTo(0.05, 0.01));
-        expect(afterRollover.durationSeconds, closeTo(180.0, 0.01));
-        expect(
-          fakeClient.commands.where((c) => c.first == 'loadfile').length,
-          1,
-        );
-        expect(fakeClient.commands.where((c) => c.first == 'seek').length, 0);
-        expect(recordedCovers.whereType<ManagedPosterAudioCover>(), isEmpty);
-
-        // 4. 手动点选尾轨 Track 3：仅下发高精度 seek(360.000 absolute exact)，不重发 loadfile，显示 180s
-        await notifier.playQueueIndex(2);
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-        expect(container.read(audioPlaybackProvider).currentIndex, 2);
-        expect(container.read(audioPlaybackProvider).durationSeconds, 180.0);
-        expect(
-          fakeClient.commands.where((c) => c.first == 'loadfile').length,
-          1,
-        );
-        expect(fakeClient.commands.last, ['seek', '360.000', 'absolute', 'exact']);
-
-        // 5. 手动跳回 Track 1 后紧随旧分轨残余 time-pos=365.0：防抖吞掉旧时间戳，不误回跳 Track 2
-        await notifier.playQueueIndex(0);
-        fakeClient.emitTimePos(365.0);
-        await Future<void>.delayed(Duration.zero);
-        expect(container.read(audioPlaybackProvider).currentIndex, 0);
-
-        fakeClient.emitTimePos(1.2);
-        await Future<void>.delayed(Duration.zero);
-        expect(container.read(audioPlaybackProvider).currentIndex, 0);
-        expect(container.read(audioPlaybackProvider).positionSeconds, closeTo(1.2, 0.01));
-
-        // 6. 切入无任何专属封面的目录：先经历 EmptyAudioCover，仅异步探测确认缺失后才回退海报
-        const vNoArt = MediaVariant(
-          id: 'v-no-art',
-          workId: 'w-bocchi',
-          sourceId: 'src-local',
-          relativePath: 'AlbumNoArt/Solo.flac',
-          fileName: 'Solo.flac',
-          fileSize: 1024,
-          assetKind: AssetKind.cdAlbum,
-        );
-        recordedCovers.clear();
-        await notifier.playCdCollection(
-          work: work,
-          cdVariants: const [vNoArt],
-          initialVariant: vNoArt,
-          sourcesById: {'src-local': source},
-        );
-        // 首次启动未确认无封面之前绝不先闪海报，最终探测缺失后才回退 ManagedPosterAudioCover
-        expect(recordedCovers.first, isA<EmptyAudioCover>());
-        for (var i = 0; i < 40; i++) {
-          if (container.read(audioPlaybackProvider).cover
-              is ManagedPosterAudioCover) {
-            break;
-          }
-          await Future<void>.delayed(const Duration(milliseconds: 25));
+      final notifier = container.read(audioPlaybackProvider.notifier);
+      await notifier.playCdCollection(
+        work: work,
+        cdVariants: const [vCue, vFlac],
+        initialVariant: vCue,
+        sourcesById: {'src-local': source},
+      );
+      for (var i = 0; i < 40; i++) {
+        if (container.read(audioPlaybackProvider).cover is MemoryAudioCover) {
+          break;
         }
-        expect(
-          container.read(audioPlaybackProvider).cover,
-          isA<ManagedPosterAudioCover>(),
-        );
-      },
-    );
+        await Future<void>.delayed(const Duration(milliseconds: 25));
+      }
 
+      // 1. 验证全部极速纯音频前置参数已精确写入 libmpv
+      expect(fakeClient.options['vid'], 'no');
+      expect(fakeClient.options['video'], 'no');
+      expect(fakeClient.options['audio-display'], 'no');
+      expect(fakeClient.options['cover-art-auto'], 'no');
+      expect(fakeClient.options['sub-auto'], 'no');
+      expect(fakeClient.options['audio-file-auto'], 'no');
+      expect(fakeClient.options['cache-pause'], 'no');
+
+      // 2. 验证尾轨初值为 Duration.zero；一旦母文件 duration=540s 到达，尾轨立即回填为 180s
+      expect(container.read(audioPlaybackProvider).queue.length, 3);
+      expect(
+        container.read(audioPlaybackProvider).queue[2].duration,
+        Duration.zero,
+      );
+      expect(
+        container.read(audioPlaybackProvider).cover,
+        isA<MemoryAudioCover>(),
+      );
+      expect(recordedCovers.whereType<ManagedPosterAudioCover>(), isEmpty);
+
+      fakeClient.emitDuration(540.0);
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        container.read(audioPlaybackProvider).queue[2].duration,
+        const Duration(seconds: 180),
+      );
+
+      // 3. 同母文件自然跨过第 1 轨 endOffset(180s)：原子切入第 2 轨且 0 seek / 0 loadfile，封面 0 闪烁
+      final loadCountBeforeRollover = fakeClient.commands
+          .where((c) => c.first == 'loadfile')
+          .length;
+      final seekCountBeforeRollover = fakeClient.commands
+          .where((c) => c.first == 'seek')
+          .length;
+      expect(loadCountBeforeRollover, 1);
+      expect(seekCountBeforeRollover, 0);
+
+      recordedCovers.clear();
+      fakeClient.emitTimePos(180.05);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      final afterRollover = container.read(audioPlaybackProvider);
+      expect(afterRollover.currentIndex, 1);
+      expect(afterRollover.positionSeconds, closeTo(0.05, 0.01));
+      expect(afterRollover.durationSeconds, closeTo(180.0, 0.01));
+      expect(fakeClient.commands.where((c) => c.first == 'loadfile').length, 1);
+      expect(fakeClient.commands.where((c) => c.first == 'seek').length, 0);
+      expect(recordedCovers.whereType<ManagedPosterAudioCover>(), isEmpty);
+
+      // 4. 手动点选尾轨 Track 3：仅下发高精度 seek(360.000 absolute exact)，不重发 loadfile，显示 180s
+      await notifier.playQueueIndex(2);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(container.read(audioPlaybackProvider).currentIndex, 2);
+      expect(container.read(audioPlaybackProvider).durationSeconds, 180.0);
+      expect(fakeClient.commands.where((c) => c.first == 'loadfile').length, 1);
+      expect(fakeClient.commands.last, [
+        'seek',
+        '360.000',
+        'absolute',
+        'exact',
+      ]);
+
+      // 5. 手动跳回 Track 1 后紧随旧分轨残余 time-pos=365.0：防抖吞掉旧时间戳，不误回跳 Track 2
+      await notifier.playQueueIndex(0);
+      fakeClient.emitTimePos(365.0);
+      await Future<void>.delayed(Duration.zero);
+      expect(container.read(audioPlaybackProvider).currentIndex, 0);
+
+      fakeClient.emitTimePos(1.2);
+      await Future<void>.delayed(Duration.zero);
+      expect(container.read(audioPlaybackProvider).currentIndex, 0);
+      expect(
+        container.read(audioPlaybackProvider).positionSeconds,
+        closeTo(1.2, 0.01),
+      );
+
+      // 6. 切入无任何专属封面的目录：先经历 EmptyAudioCover，仅异步探测确认缺失后才回退海报
+      const vNoArt = MediaVariant(
+        id: 'v-no-art',
+        workId: 'w-bocchi',
+        sourceId: 'src-local',
+        relativePath: 'AlbumNoArt/Solo.flac',
+        fileName: 'Solo.flac',
+        fileSize: 1024,
+        assetKind: AssetKind.cdAlbum,
+      );
+      recordedCovers.clear();
+      await notifier.playCdCollection(
+        work: work,
+        cdVariants: const [vNoArt],
+        initialVariant: vNoArt,
+        sourcesById: {'src-local': source},
+      );
+      // 首次启动未确认无封面之前绝不先闪海报，最终探测缺失后才回退 ManagedPosterAudioCover
+      expect(recordedCovers.first, isA<EmptyAudioCover>());
+      for (var i = 0; i < 40; i++) {
+        if (container.read(audioPlaybackProvider).cover
+            is ManagedPosterAudioCover) {
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 25));
+      }
+      expect(
+        container.read(audioPlaybackProvider).cover,
+        isA<ManagedPosterAudioCover>(),
+      );
+    });
 
     test(
       '音频循环模式回归：连续多曲 EOF 不卡死、eof-reached 与 end-file 双通道去重、单曲/列表/顺序播放完播及重播恢复',
@@ -511,7 +575,11 @@ void main() {
 
         final albumDir = Directory(p.join(tempRoot.path, 'HiResSingle'));
         await albumDir.create(recursive: true);
-        for (final name in ['01_Kyoukaisen.flac', '02_Karasu.flac', '03_Shounen.flac']) {
+        for (final name in [
+          '01_Kyoukaisen.flac',
+          '02_Karasu.flac',
+          '03_Shounen.flac',
+        ]) {
           await File(
             p.join(albumDir.path, name),
           ).writeAsBytes(const [0x66, 0x4C, 0x61, 0x43]);
@@ -530,10 +598,8 @@ void main() {
               (_) => PlaybackPreferencesNotifier(enablePersistence: false),
             ),
             audioPlaybackProvider.overrideWith(
-              (ref) => AudioPlaybackNotifier(
-                ref,
-                clientFactory: () => fakeClient,
-              ),
+              (ref) =>
+                  AudioPlaybackNotifier(ref, clientFactory: () => fakeClient),
             ),
           ],
         );
@@ -587,7 +653,10 @@ void main() {
 
         // 验证已订阅 eof-reached 属性
         expect(fakeClient.observedProperties['eof-reached'], 109);
-        expect(container.read(audioPlaybackProvider).loopMode, AudioLoopMode.loopAll);
+        expect(
+          container.read(audioPlaybackProvider).loopMode,
+          AudioLoopMode.loopAll,
+        );
         expect(container.read(audioPlaybackProvider).currentIndex, 0);
 
         // 1. 列表循环 (loopAll)：第 1 首同时触发 eof-reached + end-file 仅推进 1 次至第 2 首，第 2 首再完播继续推进至第 3 首并回环至第 1 首
@@ -615,9 +684,13 @@ void main() {
 
         // 2. 单曲循环 (loopOne)：连续多次完播始终重播当前曲目不卡死
         notifier.cycleLoopMode();
-        expect(container.read(audioPlaybackProvider).loopMode, AudioLoopMode.loopOne);
-        final loadsBeforeLoopOne =
-            fakeClient.commands.where((c) => c.first == 'loadfile').length;
+        expect(
+          container.read(audioPlaybackProvider).loopMode,
+          AudioLoopMode.loopOne,
+        );
+        final loadsBeforeLoopOne = fakeClient.commands
+            .where((c) => c.first == 'loadfile')
+            .length;
 
         fakeClient.emitEvent(const MpvStartFileEvent(4));
         fakeClient.emitEndFileEof(playlistEntryId: 4);
@@ -637,7 +710,10 @@ void main() {
 
         // 3. 顺序播放 (sequence)：推进至末曲并在末曲完播后平滑停止 (isPlaying=false)，再次点击播放从头恢复起播
         notifier.cycleLoopMode();
-        expect(container.read(audioPlaybackProvider).loopMode, AudioLoopMode.sequence);
+        expect(
+          container.read(audioPlaybackProvider).loopMode,
+          AudioLoopMode.sequence,
+        );
         await notifier.playQueueIndex(1);
         await Future<void>.delayed(const Duration(milliseconds: 20));
         expect(container.read(audioPlaybackProvider).currentIndex, 1);
@@ -780,9 +856,13 @@ void main() {
         await tester.pump();
         expect(container.read(immersiveAudioExpandedProvider), isFalse);
 
-        final prevBox = tester.getRect(find.byIcon(Icons.skip_previous_rounded));
+        final prevBox = tester.getRect(
+          find.byIcon(Icons.skip_previous_rounded),
+        );
         final playBox = tester.getRect(find.byIcon(Icons.play_arrow_rounded));
-        await tester.tapAt(Offset((prevBox.right + playBox.left) / 2, playBox.center.dy));
+        await tester.tapAt(
+          Offset((prevBox.right + playBox.left) / 2, playBox.center.dy),
+        );
         await tester.pump();
         expect(container.read(immersiveAudioExpandedProvider), isFalse);
 
@@ -803,8 +883,12 @@ void main() {
         expect(menuBtn.highlighted, isTrue);
 
         // 浮层正位于 MiniAudioBar 上方
-        final capsuleTop = tester.getRect(find.byType(KonataPlaybackCapsule)).top;
-        final popoverBottom = tester.getRect(find.text('Tail Track Three')).bottom;
+        final capsuleTop = tester
+            .getRect(find.byType(KonataPlaybackCapsule))
+            .top;
+        final popoverBottom = tester
+            .getRect(find.text('Tail Track Three'))
+            .bottom;
         expect(popoverBottom, lessThan(capsuleTop));
 
         // 在浮层内点选尾轨立即切歌并保持菜单可控
@@ -840,143 +924,326 @@ void main() {
       },
     );
 
-    testWidgets(
-      'ImmersiveAudioPage 独立「曲目列表 / 同步歌词」双图标、空歌词克制提示及 800px 窄屏 0 溢出',
-      (tester) async {
-        tester.view.physicalSize = const Size(800, 620);
-        tester.view.devicePixelRatio = 1.0;
-        addTearDown(tester.view.resetPhysicalSize);
+    testWidgets('ImmersiveAudioPage 独立「曲目列表 / 同步歌词」双图标、空歌词克制提示及 800px 窄屏 0 溢出', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 620);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
 
-        const work = Work(id: 'w1', title: '孤独摇滚！');
-        const variant = MediaVariant(
-          id: 'v1',
-          workId: 'w1',
-          sourceId: 's1',
-          relativePath: 'Album/Album.flac',
-          fileName: 'Album.flac',
-          fileSize: 2048,
-          assetKind: AssetKind.cdAlbum,
-        );
-        final queue = [
-          const AudioQueueItem(
-            id: 'q1',
-            work: work,
-            variant: variant,
-            title: 'Very Long Track Name For Narrow 800px Viewport Ellipsis Verification',
-            performer: 'Kessoku Band',
-            albumTitle: 'Kessoku Band Complete',
-            trackNumber: 1,
-            cueStartSeconds: 0,
-            cueEndSeconds: 180,
-            duration: Duration(seconds: 180),
-          ),
-          const AudioQueueItem(
-            id: 'q2',
-            work: work,
-            variant: variant,
-            title: 'Tail Track With Backfilled Duration',
-            performer: 'Kessoku Band',
-            albumTitle: 'Kessoku Band Complete',
-            trackNumber: 2,
-            cueStartSeconds: 180,
-            cueEndSeconds: null,
-            duration: Duration(seconds: 180),
-          ),
-        ];
+      const work = Work(id: 'w1', title: '孤独摇滚！');
+      const variant = MediaVariant(
+        id: 'v1',
+        workId: 'w1',
+        sourceId: 's1',
+        relativePath: 'Album/Album.flac',
+        fileName: 'Album.flac',
+        fileSize: 2048,
+        assetKind: AssetKind.cdAlbum,
+      );
+      final queue = [
+        const AudioQueueItem(
+          id: 'q1',
+          work: work,
+          variant: variant,
+          title:
+              'Very Long Track Name For Narrow 800px Viewport Ellipsis Verification',
+          performer: 'Kessoku Band',
+          albumTitle: 'Kessoku Band Complete',
+          trackNumber: 1,
+          cueStartSeconds: 0,
+          cueEndSeconds: 180,
+          duration: Duration(seconds: 180),
+        ),
+        const AudioQueueItem(
+          id: 'q2',
+          work: work,
+          variant: variant,
+          title: 'Tail Track With Backfilled Duration',
+          performer: 'Kessoku Band',
+          albumTitle: 'Kessoku Band Complete',
+          trackNumber: 2,
+          cueStartSeconds: 180,
+          cueEndSeconds: null,
+          duration: Duration(seconds: 180),
+        ),
+      ];
 
-        await tester.pumpWidget(
-          _wrapStage4App(
-            const ImmersiveAudioPage(),
-            overrides: [
-              tmdbImageLoaderProvider.overrideWithValue(
-                (_, {targetWidth, imageSize}) async => _sampleCoverPng,
-              ),
-              audioPlaybackProvider.overrideWith(
-                (ref) => _StubAudioNotifier(
-                  ref,
-                  AudioPlaybackState(
-                    isActive: true,
-                    isPlaying: true,
-                    queue: queue,
-                    currentIndex: 0,
-                    positionSeconds: 30.0,
-                    durationSeconds: 180.0,
-                    volume: 100.0,
-                    audioCodecLabel: 'FLAC',
-                    sampleRateAndBitDepthLabel: '24-bit · 96 kHz',
-                    cover: MemoryAudioCover(_sampleCoverPng),
-                    lrcDocument: null,
-                  ),
+      await tester.pumpWidget(
+        _wrapStage4App(
+          const ImmersiveAudioPage(),
+          overrides: [
+            tmdbImageLoaderProvider.overrideWithValue(
+              (_, {targetWidth, imageSize}) async => _sampleCoverPng,
+            ),
+            audioPlaybackProvider.overrideWith(
+              (ref) => _StubAudioNotifier(
+                ref,
+                AudioPlaybackState(
+                  isActive: true,
+                  isPlaying: true,
+                  queue: queue,
+                  currentIndex: 0,
+                  positionSeconds: 30.0,
+                  durationSeconds: 180.0,
+                  volume: 100.0,
+                  audioCodecLabel: 'FLAC',
+                  sampleRateAndBitDepthLabel: '24-bit · 96 kHz',
+                  cover: MemoryAudioCover(_sampleCoverPng),
+                  lrcDocument: null,
                 ),
               ),
-            ],
+            ),
+          ],
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+
+      expect(tester.takeException(), isNull);
+
+      // 验证拆分出独立双图标，且旧版合并 menu_rounded 已移除
+      expect(find.byIcon(Icons.queue_music_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.lyrics_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.menu_rounded), findsNothing);
+
+      // 音量组件仅保留精简动态喇叭图标，不再展示冗余数字文本
+      expect(find.text('100'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byType(KonataVolumeControl),
+          matching: find.byIcon(Icons.volume_up_rounded),
+        ),
+        findsOneWidget,
+      );
+
+      // 无歌词默认高亮曲目列表，且尾轨展示回填时长 03:00
+      var queueBtn = tester.widget<KonataCapsuleIconButton>(
+        find.ancestor(
+          of: find.byIcon(Icons.queue_music_rounded),
+          matching: find.byType(KonataCapsuleIconButton),
+        ),
+      );
+      var lyricsBtn = tester.widget<KonataCapsuleIconButton>(
+        find.ancestor(
+          of: find.byIcon(Icons.lyrics_rounded),
+          matching: find.byType(KonataCapsuleIconButton),
+        ),
+      );
+      expect(queueBtn.highlighted, isTrue);
+      expect(lyricsBtn.highlighted, isFalse);
+      expect(find.text('Tail Track With Backfilled Duration'), findsOneWidget);
+      expect(find.text('03:00'), findsWidgets);
+
+      // 点击「同步歌词」切入清晰克制的空状态文案
+      await tester.tap(find.byIcon(Icons.lyrics_rounded));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 240));
+
+      expect(find.text('当前曲目暂无同步歌词'), findsOneWidget);
+      queueBtn = tester.widget<KonataCapsuleIconButton>(
+        find.ancestor(
+          of: find.byIcon(Icons.queue_music_rounded),
+          matching: find.byType(KonataCapsuleIconButton),
+        ),
+      );
+      lyricsBtn = tester.widget<KonataCapsuleIconButton>(
+        find.ancestor(
+          of: find.byIcon(Icons.lyrics_rounded),
+          matching: find.byType(KonataCapsuleIconButton),
+        ),
+      );
+      expect(queueBtn.highlighted, isFalse);
+      expect(lyricsBtn.highlighted, isTrue);
+
+      // 点击「曲目列表」切回曲目列表
+      await tester.tap(find.byIcon(Icons.queue_music_rounded));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 240));
+      expect(find.text('Tail Track With Backfilled Duration'), findsOneWidget);
+    });
+
+    test('多整轨 CD 队列：轮到该 CD 时在其下方动态拆开无序号单曲，切到下一张 CD 时自动收起旧单曲并拆开新单曲', () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempRoot = await Directory.systemTemp.createTemp(
+        'konata_multi_cd_dynamic_cue_',
+      );
+      addTearDown(() async {
+        for (var attempt = 0; attempt < 5; attempt++) {
+          try {
+            if (tempRoot.existsSync()) {
+              await tempRoot.delete(recursive: true);
+            }
+            break;
+          } catch (_) {
+            await Future<void>.delayed(const Duration(milliseconds: 60));
+          }
+        }
+      });
+
+      final ost1Dir = Directory(p.join(tempRoot.path, 'CDs', 'OST1'));
+      final ost2Dir = Directory(p.join(tempRoot.path, 'CDs', 'OST2'));
+      final soloDir = Directory(p.join(tempRoot.path, 'CDs', 'Solo'));
+      await ost1Dir.create(recursive: true);
+      await ost2Dir.create(recursive: true);
+      await soloDir.create(recursive: true);
+
+      await File(
+        p.join(ost1Dir.path, 'OST_Vol1.flac'),
+      ).writeAsBytes(const [0x66, 0x4C, 0x61, 0x43]);
+      await File(p.join(ost1Dir.path, 'OST_Vol1.cue')).writeAsString(
+        'TITLE "Accel World OST 1"\n'
+        'FILE "OST_Vol1.flac" WAVE\n'
+        '  TRACK 01 AUDIO\n'
+        '    TITLE "Chase the world"\n'
+        '    INDEX 01 00:00:00\n'
+        '  TRACK 02 AUDIO\n'
+        '    TITLE "Hikari"\n'
+        '    INDEX 01 03:30:00\n',
+      );
+
+      await File(
+        p.join(ost2Dir.path, 'OST_Vol2.flac'),
+      ).writeAsBytes(const [0x66, 0x4C, 0x61, 0x43]);
+      await File(p.join(ost2Dir.path, 'OST_Vol2.cue')).writeAsString(
+        'TITLE "Accel World OST 2"\n'
+        'FILE "OST_Vol2.flac" WAVE\n'
+        '  TRACK 01 AUDIO\n'
+        '    TITLE "Burst The Gravity"\n'
+        '    INDEX 01 00:00:00\n'
+        '  TRACK 02 AUDIO\n'
+        '    TITLE "Unfinished"\n'
+        '    INDEX 01 04:00:00\n',
+      );
+
+      await File(
+        p.join(soloDir.path, '01. Sympathia.flac'),
+      ).writeAsBytes(const [0x66, 0x4C, 0x61, 0x43]);
+
+      final fakeClient = _FakeAudioLibMpvClient();
+      final storage = StorageRootService(overrideRoot: tempRoot);
+      final db = KonataDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final repo = DriftLibraryRepository(db);
+      final container = ProviderContainer(
+        overrides: [
+          storageRootProvider.overrideWithValue(storage),
+          libraryRepositoryProvider.overrideWithValue(repo),
+          playbackPreferencesProvider.overrideWith(
+            (_) => PlaybackPreferencesNotifier(enablePersistence: false),
           ),
-        );
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 250));
-
-        expect(tester.takeException(), isNull);
-
-        // 验证拆分出独立双图标，且旧版合并 menu_rounded 已移除
-        expect(find.byIcon(Icons.queue_music_rounded), findsOneWidget);
-        expect(find.byIcon(Icons.lyrics_rounded), findsOneWidget);
-        expect(find.byIcon(Icons.menu_rounded), findsNothing);
-
-        // 音量组件仅保留精简动态喇叭图标，不再展示冗余数字文本
-        expect(find.text('100'), findsNothing);
-        expect(
-          find.descendant(
-            of: find.byType(KonataVolumeControl),
-            matching: find.byIcon(Icons.volume_up_rounded),
+          audioPlaybackProvider.overrideWith(
+            (ref) =>
+                AudioPlaybackNotifier(ref, clientFactory: () => fakeClient),
           ),
-          findsOneWidget,
-        );
+        ],
+      );
+      addTearDown(container.dispose);
 
-        // 无歌词默认高亮曲目列表，且尾轨展示回填时长 03:00
-        var queueBtn = tester.widget<KonataCapsuleIconButton>(
-          find.ancestor(
-            of: find.byIcon(Icons.queue_music_rounded),
-            matching: find.byType(KonataCapsuleIconButton),
-          ),
-        );
-        var lyricsBtn = tester.widget<KonataCapsuleIconButton>(
-          find.ancestor(
-            of: find.byIcon(Icons.lyrics_rounded),
-            matching: find.byType(KonataCapsuleIconButton),
-          ),
-        );
-        expect(queueBtn.highlighted, isTrue);
-        expect(lyricsBtn.highlighted, isFalse);
-        expect(find.text('Tail Track With Backfilled Duration'), findsOneWidget);
-        expect(find.text('03:00'), findsWidgets);
+      final source = MediaSource(
+        id: 'src-local',
+        label: 'Local',
+        kind: MediaSourceKind.local,
+        location: tempRoot.path,
+      );
+      const work = Work(id: 'w-aw', title: '加速世界');
+      const allVariants = [
+        MediaVariant(
+          id: 'c1',
+          workId: 'w-aw',
+          sourceId: 'src-local',
+          relativePath: 'CDs/OST1/OST_Vol1.cue',
+          fileName: 'OST_Vol1.cue',
+          fileSize: 256,
+          assetKind: AssetKind.cdAlbum,
+        ),
+        MediaVariant(
+          id: 'f1',
+          workId: 'w-aw',
+          sourceId: 'src-local',
+          relativePath: 'CDs/OST1/OST_Vol1.flac',
+          fileName: 'OST_Vol1.flac',
+          fileSize: 4096,
+          assetKind: AssetKind.cdAlbum,
+        ),
+        MediaVariant(
+          id: 'c2',
+          workId: 'w-aw',
+          sourceId: 'src-local',
+          relativePath: 'CDs/OST2/OST_Vol2.cue',
+          fileName: 'OST_Vol2.cue',
+          fileSize: 256,
+          assetKind: AssetKind.cdAlbum,
+        ),
+        MediaVariant(
+          id: 'f2',
+          workId: 'w-aw',
+          sourceId: 'src-local',
+          relativePath: 'CDs/OST2/OST_Vol2.flac',
+          fileName: 'OST_Vol2.flac',
+          fileSize: 4096,
+          assetKind: AssetKind.cdAlbum,
+        ),
+        MediaVariant(
+          id: 'f3',
+          workId: 'w-aw',
+          sourceId: 'src-local',
+          relativePath: 'CDs/Solo/01. Sympathia.flac',
+          fileName: '01. Sympathia.flac',
+          fileSize: 2048,
+          assetKind: AssetKind.cdAlbum,
+        ),
+      ];
 
-        // 点击「同步歌词」切入清晰克制的空状态文案
-        await tester.tap(find.byIcon(Icons.lyrics_rounded));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 240));
+      final notifier = container.read(audioPlaybackProvider.notifier);
+      await notifier.playCdCollection(
+        work: work,
+        cdVariants: allVariants,
+        initialVariant: allVariants[1],
+        sourcesById: {'src-local': source},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 40));
 
-        expect(find.text('当前曲目暂无同步歌词'), findsOneWidget);
-        queueBtn = tester.widget<KonataCapsuleIconButton>(
-          find.ancestor(
-            of: find.byIcon(Icons.queue_music_rounded),
-            matching: find.byType(KonataCapsuleIconButton),
-          ),
-        );
-        lyricsBtn = tester.widget<KonataCapsuleIconButton>(
-          find.ancestor(
-            of: find.byIcon(Icons.lyrics_rounded),
-            matching: find.byType(KonataCapsuleIconButton),
-          ),
-        );
-        expect(queueBtn.highlighted, isFalse);
-        expect(lyricsBtn.highlighted, isTrue);
+      var rows = container.read(audioPlaybackProvider).buildDisplayRows();
+      expect(rows.length, 5);
+      expect(rows[0].kind, AudioQueueDisplayRowKind.cueParent);
+      expect(rows[0].trackPrefix, '01');
+      expect(rows[0].title, 'OST_Vol1');
+      expect(rows[1].kind, AudioQueueDisplayRowKind.cueSubTrack);
+      expect(rows[1].trackPrefix, '');
+      expect(rows[1].title, 'Chase the world');
+      expect(rows[1].isActiveTrack, isTrue);
+      expect(rows[2].kind, AudioQueueDisplayRowKind.cueSubTrack);
+      expect(rows[2].trackPrefix, '');
+      expect(rows[2].title, 'Hikari');
+      expect(rows[3].trackPrefix, '02');
+      expect(rows[3].title, 'OST_Vol2');
+      expect(rows[4].trackPrefix, '03');
+      expect(rows[4].title, 'Sympathia');
 
-        // 点击「曲目列表」切回曲目列表
-        await tester.tap(find.byIcon(Icons.queue_music_rounded));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 240));
-        expect(find.text('Tail Track With Backfilled Duration'), findsOneWidget);
-      },
-    );
+      await notifier.playQueueIndex(rows[3].targetQueueIndex);
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+
+      rows = container.read(audioPlaybackProvider).buildDisplayRows();
+      expect(rows.length, 5);
+      expect(rows[0].kind, AudioQueueDisplayRowKind.standalone);
+      expect(rows[0].trackPrefix, '01');
+      expect(rows[0].title, 'OST_Vol1');
+      expect(rows[1].kind, AudioQueueDisplayRowKind.cueParent);
+      expect(rows[1].trackPrefix, '02');
+      expect(rows[1].title, 'OST_Vol2');
+      expect(rows[2].kind, AudioQueueDisplayRowKind.cueSubTrack);
+      expect(rows[2].trackPrefix, '');
+      expect(rows[2].title, 'Burst The Gravity');
+      expect(rows[2].isActiveTrack, isTrue);
+      expect(rows[3].kind, AudioQueueDisplayRowKind.cueSubTrack);
+      expect(rows[3].trackPrefix, '');
+      expect(rows[3].title, 'Unfinished');
+      expect(rows[4].trackPrefix, '03');
+      expect(rows[4].title, 'Sympathia');
+
+      await notifier.stopAndClose();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
   });
 }

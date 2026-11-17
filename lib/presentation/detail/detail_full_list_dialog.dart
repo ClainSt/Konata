@@ -9,6 +9,7 @@ import '../../domain/matching/episode_title_formatter.dart';
 import '../../domain/matching/supplementary_subclassifier.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/media_variant.dart';
+import '../../domain/playback/cue_variant_resolver.dart';
 import '../../infrastructure/cache/scan_thumbnail_scheduler.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
@@ -170,7 +171,11 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
   }
 
   DetailDrawerTab _resolveAvailableTab(DetailDrawerTab candidate) {
-    final cdAllowed = widget.showCdTab && widget.bundle.cdVariants.isNotEmpty;
+    final cdAllowed =
+        widget.showCdTab &&
+        widget.bundle.cdVariants.any(
+          (v) => !CueVariantResolver.isCueSheetFile(v.fileName),
+        );
     final scanAllowed =
         widget.showScanTab && widget.bundle.scanVariants.isNotEmpty;
     if (candidate == DetailDrawerTab.cd && !cdAllowed) {
@@ -324,6 +329,8 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
         .toList(growable: false);
     final cdList = widget.showCdTab
         ? widget.bundle.cdVariants
+              .where((v) => !CueVariantResolver.isCueSheetFile(v.fileName))
+              .toList(growable: false)
         : const <MediaVariant>[];
     final scanList = widget.showScanTab
         ? widget.bundle.scanVariants
@@ -717,10 +724,20 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
           itemBuilder: (_, index) {
             final v = list[index];
             final group = cdSummary.byVariantId[v.id];
+            final dot = v.fileName.lastIndexOf('.');
+            final stem = dot > 0 ? v.fileName.substring(0, dot) : v.fileName;
+            final titleOverride =
+                (CueVariantResolver.isGenericDiscImageStem(stem) &&
+                    group != null &&
+                    group.chipLabel.isNotEmpty &&
+                    group.chipLabel != 'CD')
+                ? group.chipLabel
+                : null;
             return CdDrawerCard(
               key: ValueKey('full_list_cd_${v.id}'),
               variant: v,
               showSeriesSharedBadge: showSharedBadge,
+              displayTitleOverride: titleOverride,
               directSubdirLabel: showDirectSubdir
                   ? group?.directSubdirShort
                   : null,

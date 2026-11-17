@@ -12,6 +12,7 @@ import '../../domain/models/playback_record.dart';
 import '../../domain/models/work.dart';
 import '../../domain/matching/supplementary_subclassifier.dart';
 import '../../domain/playback/cue_and_lrc_parser.dart';
+import '../../domain/playback/cue_variant_resolver.dart';
 import '../../domain/playback/playback_formatters.dart';
 import '../../domain/repositories/file_system_gateway.dart';
 import '../../infrastructure/players/audio_art_extractor.dart';
@@ -96,6 +97,43 @@ class EmptyAudioCover extends AudioCoverSource {
   const EmptyAudioCover();
 }
 
+/// 播放队列视觉展示行类型（供全屏流光页与迷你栏曲目浮层同源渲染）。
+enum AudioQueueDisplayRowKind {
+  /// 普通单曲或尚未展开的整轨 CD（左侧显示连续主序号）。
+  standalone,
+
+  /// 当前轮到播放并已拆开分轨的整轨 CD 主标题行（左侧显示连续主序号）。
+  cueParent,
+
+  /// 整轨 CD 正下方拆开显示的子单曲行（左侧缩进且不显示数字序号）。
+  cueSubTrack,
+}
+
+/// 播放队列视觉展示行投影。
+class AudioQueueDisplayRow {
+  const AudioQueueDisplayRow({
+    required this.id,
+    required this.kind,
+    required this.trackPrefix,
+    required this.title,
+    required this.subtitle,
+    required this.duration,
+    required this.targetQueueIndex,
+    required this.isActiveTrack,
+    this.isExpandedParent = false,
+  });
+
+  final String id;
+  final AudioQueueDisplayRowKind kind;
+  final String trackPrefix;
+  final String title;
+  final String subtitle;
+  final Duration duration;
+  final int targetQueueIndex;
+  final bool isActiveTrack;
+  final bool isExpandedParent;
+}
+
 /// 统一 CD / 无损音频播放队列条目（同时支持单曲物理文件与 `.cue` 虚拟分轨）。
 class AudioQueueItem {
   const AudioQueueItem({
@@ -113,6 +151,8 @@ class AudioQueueItem {
     this.duration = Duration.zero,
     this.versionBadge = '',
     this.showAlbumSubtitle = false,
+    this.pairedCueVariant,
+    this.cueDiscTitle = '',
   });
 
   final String id;
@@ -129,6 +169,12 @@ class AudioQueueItem {
   final Duration duration;
   final String versionBadge;
   final bool showAlbumSubtitle;
+
+  /// 同目录配对的 `.cue` 清单变体（用于轮到该整轨 CD 时按需展开与离开时折叠）。
+  final MediaVariant? pairedCueVariant;
+
+  /// 整轨 CD 拆开子单曲后对应的母碟主行展示名称。
+  final String cueDiscTitle;
 
   bool get isCueTrack => cueStartSeconds != null;
   String get effectiveRelativePath =>
@@ -163,6 +209,8 @@ class AudioQueueItem {
     Work? work,
     Duration? duration,
     double? cueEndSeconds,
+    MediaVariant? pairedCueVariant,
+    String? cueDiscTitle,
   }) {
     return AudioQueueItem(
       id: id,
@@ -179,6 +227,8 @@ class AudioQueueItem {
       duration: duration ?? this.duration,
       versionBadge: versionBadge,
       showAlbumSubtitle: showAlbumSubtitle,
+      pairedCueVariant: pairedCueVariant ?? this.pairedCueVariant,
+      cueDiscTitle: cueDiscTitle ?? this.cueDiscTitle,
     );
   }
 
@@ -251,6 +301,120 @@ class AudioPlaybackState {
     return doc.lines[activeLyricIndex].primaryText;
   }
 
+  /// 将底层可播放音轨队列映射为「主 CD 带序号、在播整轨 CD 下方拆开无序号单曲」的视觉行列表。
+  List<AudioQueueDisplayRow> buildDisplayRows({
+    bool includeDetailedSubtitle = false,
+  }) {
+    if (queue.isEmpty) return const [];
+    final isLegacyFlatCue = queue.every(
+      (e) => e.isCueTrack && e.cueDiscTitle.isEmpty,
+    );
+    final rows = <AudioQueueDisplayRow>[];
+    var topNumber = 0;
+
+    var i = 0;
+    while (i < queue.length) {
+      final item = queue[i];
+      if (item.isCueTrack && item.cueDiscTitle.trim().isNotEmpty) {
+        final discTitle = item.cueDiscTitle.trim();
+        final groupCueId = item.pairedCueVariant?.id;
+        final physKey = item.physicalFileKey;
+        var endIdx = i;
+        while (endIdx + 1 < queue.length) {
+          final next = queue[endIdx + 1];
+          final sameGroup = groupCueId != null
+              ? next.pairedCueVariant?.id == groupCueId
+              : (next.physicalFileKey == physKey &&
+                    next.cueDiscTitle.trim() == discTitle);
+          if (!next.isCueTrack || !sameGroup) break;
+          endIdx++;
+        }
+
+        topNumber++;
+        final prefix = topNumber.toString().padLeft(2, '0');
+        final parentActive = currentIndex >= i && currentIndex <= endIdx;
+        final tail = queue[endIdx];
+        Duration totalDiscDuration = Duration.zero;
+        if (tail.cueEndSeconds != null && tail.cueEndSeconds! > 0) {
+          totalDiscDuration = Duration(
+            milliseconds: (tail.cueEndSeconds! * 1000).round(),
+          );
+        } else if (tail.resolvedDuration > Duration.zero) {
+          final totalSec =
+              (tail.cueStartSeconds ?? 0.0) +
+              (tail.resolvedDuration.inMilliseconds / 1000.0);
+          totalDiscDuration = Duration(milliseconds: (totalSec * 1000).round());
+        }
+
+        final parentSubParts = <String>[
+          if (item.showAlbumSubtitle &&
+              item.albumTitle.trim().isNotEmpty &&
+              item.albumTitle.trim() != discTitle)
+            item.albumTitle.trim(),
+        ];
+        rows.add(
+          AudioQueueDisplayRow(
+            id: 'cue_parent_${groupCueId ?? physKey}_$i',
+            kind: AudioQueueDisplayRowKind.cueParent,
+            trackPrefix: prefix,
+            title: discTitle,
+            subtitle: parentSubParts.join(' · '),
+            duration: totalDiscDuration,
+            targetQueueIndex: i,
+            isActiveTrack: false,
+            isExpandedParent: parentActive,
+          ),
+        );
+
+        for (var k = i; k <= endIdx; k++) {
+          final sub = queue[k];
+          rows.add(
+            AudioQueueDisplayRow(
+              id: sub.id,
+              kind: AudioQueueDisplayRowKind.cueSubTrack,
+              trackPrefix: '',
+              title: sub.title,
+              subtitle: sub.performer.trim(),
+              duration: sub.resolvedDuration,
+              targetQueueIndex: k,
+              isActiveTrack: k == currentIndex,
+            ),
+          );
+        }
+
+        i = endIdx + 1;
+        continue;
+      }
+
+      topNumber++;
+      final seqNum = isLegacyFlatCue
+          ? (item.trackNumber ?? (i + 1))
+          : topNumber;
+      final subtitle = includeDetailedSubtitle
+          ? item.displaySubtitle
+          : <String>[
+              if (item.performer.trim().isNotEmpty) item.performer.trim(),
+              if (item.showAlbumSubtitle && item.albumTitle.trim().isNotEmpty)
+                item.albumTitle.trim(),
+            ].join(' · ');
+
+      rows.add(
+        AudioQueueDisplayRow(
+          id: item.id,
+          kind: AudioQueueDisplayRowKind.standalone,
+          trackPrefix: seqNum.toString().padLeft(2, '0'),
+          title: item.title,
+          subtitle: subtitle,
+          duration: item.resolvedDuration,
+          targetQueueIndex: i,
+          isActiveTrack: i == currentIndex,
+        ),
+      );
+      i++;
+    }
+    return rows;
+  }
+
   AudioPlaybackState copyWith({
     bool? isActive,
     bool? isPlaying,
@@ -303,22 +467,6 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     this.gatewayFactory = const MediaSourceGatewayFactory(),
   }) : super(const AudioPlaybackState());
 
-  static const Set<String> _audioExts = {
-    '.flac',
-    '.ape',
-    '.wav',
-    '.wv',
-    '.tak',
-    '.alac',
-    '.m4a',
-    '.aac',
-    '.mp3',
-    '.ogg',
-    '.opus',
-    '.dsf',
-    '.dff',
-  };
-
   static const int _propTimePos = 101;
   static const int _propDuration = 102;
   static const int _propPause = 103;
@@ -362,23 +510,26 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   final Map<String, int> _workPosterRevisions = {};
   final Map<String, String> _lastKnownPosterByWorkId = {};
 
+  List<MediaVariant> _sessionAllCdVariants = const [];
+  Map<String, MediaSource> _sessionSourcesById = const {};
+  final Map<String, AudioQueueItem> _unexpandedMasterByCueId = {};
+  final Map<String, List<AudioQueueItem>> _expandedTracksByCueId = {};
+  final Set<String> _nonExpandableCueIds = {};
+
   String _rawCodec = '';
   int? _rawSampleRateHz;
   String _rawAudioFormat = '';
   double _rawFileDurationSeconds = 0.0;
 
   /// 判断文件名是否为受支持的音频物理轨。
-  static bool isPlayableAudioFile(String fileName) {
-    final ext = p.extension(fileName.trim()).toLowerCase();
-    return _audioExts.contains(ext);
-  }
+  static bool isPlayableAudioFile(String fileName) =>
+      CueVariantResolver.isPlayableAudioFile(fileName);
 
   /// 判断文件名是否为 `.cue` 分轨清单。
-  static bool isCueSheetFile(String fileName) {
-    return p.extension(fileName.trim()).toLowerCase() == '.cue';
-  }
+  static bool isCueSheetFile(String fileName) =>
+      CueVariantResolver.isCueSheetFile(fileName);
 
-  /// 以指定曲目（支持单轨物理音频与 `.cue` 虚拟分轨）开启 CD 播放队列。
+  /// 以指定曲目（支持单轨物理音频与 `.cue` 按需动态拆轨）开启 CD 播放队列。
   Future<void> playCdCollection({
     required Work work,
     required List<MediaVariant> cdVariants,
@@ -387,13 +538,15 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     int? initialCueTrackNumber,
   }) async {
     final generation = ++_loadGeneration;
-    final items = await _buildQueueItems(
+    final built = await _buildQueueItems(
       work: work,
       cdVariants: cdVariants,
       initialVariant: initialVariant,
       sourcesById: sourcesById,
+      initialCueTrackNumber: initialCueTrackNumber,
     );
     if (generation != _loadGeneration || !mounted) return;
+    final items = built.items;
     if (items.isEmpty) {
       _activeCommandedGeneration = 0;
       _loadedPhysicalKey = null;
@@ -405,139 +558,100 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       return;
     }
 
-    var targetIndex = 0;
-    if (initialCueTrackNumber != null) {
-      final matched = items.indexWhere(
-        (e) => e.trackNumber == initialCueTrackNumber,
-      );
-      if (matched >= 0) targetIndex = matched;
-    } else {
-      final matched = items.indexWhere(
-        (e) => e.variant.id == initialVariant.id,
-      );
-      if (matched >= 0) targetIndex = matched;
-    }
-
     final previousItem = state.currentItem;
     final initialVol = _ref.read(playbackPreferencesProvider).defaultVolume;
     state = state.copyWith(
       isActive: true,
       queue: items,
-      currentIndex: targetIndex,
+      currentIndex: built.targetIndex,
       volume: state.isActive ? state.volume : initialVol,
       clearError: true,
     );
 
     await _startTrackAtIndex(
-      targetIndex,
+      built.targetIndex,
       generation: generation,
       previousItemOverride: previousItem,
     );
   }
 
-  Future<List<AudioQueueItem>> _buildQueueItems({
+  Future<({List<AudioQueueItem> items, int targetIndex})> _buildQueueItems({
     required Work work,
     required List<MediaVariant> cdVariants,
     required MediaVariant initialVariant,
     required Map<String, MediaSource> sourcesById,
+    int? initialCueTrackNumber,
   }) async {
-    final initialNameLower = initialVariant.fileName.toLowerCase();
-    final initialSource = sourcesById[initialVariant.sourceId];
+    _sessionAllCdVariants = List<MediaVariant>.unmodifiable(cdVariants);
+    _sessionSourcesById = Map<String, MediaSource>.unmodifiable(sourcesById);
+    _unexpandedMasterByCueId.clear();
+    _expandedTracksByCueId.clear();
+    _nonExpandableCueIds.clear();
 
-    // 1. 优先判定用户是否点击了 .cue 或同目录存在匹配的同名 .cue
-    MediaVariant? cueVariant;
-    if (isCueSheetFile(initialNameLower)) {
-      cueVariant = initialVariant;
-    } else {
-      final dir = p.posix.dirname(
-        initialVariant.relativePath.replaceAll('\\', '/'),
-      );
-      final stem = p.basenameWithoutExtension(initialNameLower);
-      for (final candidate in cdVariants) {
-        if (!isCueSheetFile(candidate.fileName)) continue;
-        final cDir = p.posix.dirname(
-          candidate.relativePath.replaceAll('\\', '/'),
-        );
-        final cStem = p.basenameWithoutExtension(
-          candidate.fileName.toLowerCase(),
-        );
-        if (cDir == dir && (cStem == stem || stem.startsWith(cStem))) {
-          cueVariant = candidate;
-          break;
-        }
-      }
-    }
+    final playableVariants = cdVariants
+        .where((v) => isPlayableAudioFile(v.fileName))
+        .toList(growable: false);
+    final cueVariants = cdVariants
+        .where((v) => isCueSheetFile(v.fileName))
+        .toList(growable: false);
 
-    if (cueVariant != null && initialSource != null) {
-      final cueSheet = await AudioAssetExtractor.loadCueSheet(
-        source: initialSource,
-        cueRelativePath: cueVariant.relativePath,
-        gatewayFactory: gatewayFactory,
-      );
-      if (cueSheet != null && cueSheet.tracks.isNotEmpty) {
-        final cueDir = p.posix.dirname(
-          cueVariant.relativePath.replaceAll('\\', '/'),
+    // 兜底：若集合中仅存在孤立 .cue 而数据库未收录同名物理音频文件，直接按 CUE 引用虚拟展开
+    if (playableVariants.isEmpty && cueVariants.isNotEmpty) {
+      final targetCue = isCueSheetFile(initialVariant.fileName)
+          ? initialVariant
+          : cueVariants.first;
+      final src = sourcesById[targetCue.sourceId];
+      if (src != null) {
+        final folderName = p.posix.basename(
+          p.posix.dirname(targetCue.relativePath.replaceAll('\\', '/')),
         );
-        final audioVariantsInDir = cdVariants.where((v) {
-          if (!isPlayableAudioFile(v.fileName)) return false;
-          final vDir = p.posix.dirname(v.relativePath.replaceAll('\\', '/'));
-          return vDir == cueDir;
-        }).toList();
-
-        final result = <AudioQueueItem>[];
-        for (final track in cueSheet.tracks) {
-          final targetAudio = _resolveCueTargetVariant(
-            cueVariant: cueVariant,
-            cueTrack: track,
-            audioVariantsInDir: audioVariantsInDir,
-            fallbackInitial: initialVariant,
-          );
-          if (targetAudio == null) continue;
-          final src = sourcesById[targetAudio.sourceId] ?? initialSource;
-          final physKey =
-              '${src.id}::${targetAudio.relativePath.replaceAll('\\', '/')}';
-          final knownRawDur = _rawDurationByPhysicalKey[physKey] ?? 0.0;
-          final trackEnd = track.endSeconds;
-          Duration initialDuration = Duration.zero;
-          if (trackEnd != null && trackEnd > track.startSeconds) {
-            initialDuration = Duration(
-              milliseconds: ((trackEnd - track.startSeconds) * 1000).round(),
+        final dummyMaster = AudioQueueItem(
+          id: targetCue.id,
+          work: work,
+          variant: targetCue,
+          source: src,
+          title: p.basenameWithoutExtension(targetCue.fileName),
+          albumTitle: (folderName.isNotEmpty && folderName != '.')
+              ? folderName
+              : work.title,
+          pairedCueVariant: targetCue,
+        );
+        final subTracks = await _resolveExpandedCueTracks(
+          dummyMaster,
+          forceSingleTrackExpand: true,
+        );
+        if (subTracks != null && subTracks.isNotEmpty) {
+          var idx = 0;
+          if (initialCueTrackNumber != null) {
+            final hit = subTracks.indexWhere(
+              (e) => e.trackNumber == initialCueTrackNumber,
             );
-          } else if (trackEnd == null && knownRawDur > track.startSeconds) {
-            initialDuration = Duration(
-              milliseconds: ((knownRawDur - track.startSeconds) * 1000).round(),
-            );
+            if (hit >= 0) idx = hit;
           }
-          result.add(
-            AudioQueueItem(
-              id: '${cueVariant.id}::track_${track.trackNumber}',
-              work: work,
-              variant: targetAudio,
-              source: src,
-              title: track.title.isNotEmpty
-                  ? track.title
-                  : 'Track ${track.trackNumber.toString().padLeft(2, '0')}',
-              performer: track.performer.isNotEmpty
-                  ? track.performer
-                  : cueSheet.performer,
-              albumTitle: cueSheet.title.isNotEmpty
-                  ? cueSheet.title
-                  : work.title,
-              trackNumber: track.trackNumber,
-              cueStartSeconds: track.startSeconds,
-              cueEndSeconds: track.endSeconds,
-              targetAudioRelativePath: targetAudio.relativePath,
-              duration: initialDuration,
-            ),
-          );
+          return (items: subTracks, targetIndex: idx);
         }
-        if (result.isNotEmpty) return result;
       }
+      return (items: const <AudioQueueItem>[], targetIndex: 0);
     }
 
-    // 2. 常规物理音轨集合：剥离文件名重复前置序号，并提取专辑分组与同名曲目多版本微标
-    final cdSummary = SupplementarySubclassifier.groupCdVariants(cdVariants);
-    final rawDrafts =
+    final cuesByDir = <String, List<MediaVariant>>{};
+    for (final c in cueVariants) {
+      final d =
+          '${c.sourceId}::${p.posix.dirname(c.relativePath.replaceAll('\\', '/'))}';
+      cuesByDir.putIfAbsent(d, () => <MediaVariant>[]).add(c);
+    }
+    final audiosByDir = <String, List<MediaVariant>>{};
+    for (final a in playableVariants) {
+      final d =
+          '${a.sourceId}::${p.posix.dirname(a.relativePath.replaceAll('\\', '/'))}';
+      audiosByDir.putIfAbsent(d, () => <MediaVariant>[]).add(a);
+    }
+
+    final cdSummary = SupplementarySubclassifier.groupCdVariants(
+      playableVariants,
+    );
+    final distinctAlbums = <String>{};
+    final drafts =
         <
           ({
             MediaVariant variant,
@@ -545,14 +659,11 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
             String cleanTitle,
             int? trackNumber,
             String albumLabel,
-            String? versionTag,
+            MediaVariant? pairedCue,
           })
         >[];
 
-    final distinctAlbums = <String>{};
-
-    for (final v in cdVariants) {
-      if (!isPlayableAudioFile(v.fileName)) continue;
+    for (final v in playableVariants) {
       final src = sourcesById[v.sourceId];
       final rawStem = p.basenameWithoutExtension(v.fileName);
       final parsedTrack =
@@ -571,81 +682,333 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
                 : work.title);
       distinctAlbums.add(resolvedAlbum);
 
-      rawDrafts.add((
+      final dirKey =
+          '${v.sourceId}::${p.posix.dirname(v.relativePath.replaceAll('\\', '/'))}';
+      final pairedCue = CueVariantResolver.matchCueVariantForAudio(
+        audioVariant: v,
+        cueVariantsInDir: cuesByDir[dirKey] ?? const [],
+        audioVariantsInDir: audiosByDir[dirKey] ?? const [],
+      );
+      final effectiveTitle =
+          (CueVariantResolver.isGenericDiscImageStem(rawStem) &&
+              resolvedAlbum.isNotEmpty)
+          ? resolvedAlbum
+          : parsedTrack.cleanTitle;
+
+      drafts.add((
         variant: v,
         source: src,
-        cleanTitle: parsedTrack.cleanTitle,
-        trackNumber: parsedTrack.trackNumber,
+        cleanTitle: effectiveTitle,
+        trackNumber: pairedCue != null ? null : parsedTrack.trackNumber,
         albumLabel: resolvedAlbum,
-        versionTag:
-            group?.versionTag ??
-            SupplementarySubclassifier.extractCdVersionTag(folderName),
+        pairedCue: pairedCue,
       ));
     }
 
-    final multiAlbumQueue = distinctAlbums.length >= 2 || rawDrafts.isNotEmpty;
-    final audioItems = <AudioQueueItem>[
-      for (final d in rawDrafts)
-        AudioQueueItem(
-          id: d.variant.id,
-          work: work,
-          variant: d.variant,
-          source: d.source,
-          title: d.cleanTitle,
-          trackNumber: d.trackNumber,
-          albumTitle: d.albumLabel,
-          showAlbumSubtitle: multiAlbumQueue,
-        ),
+    final showSub = distinctAlbums.length >= 2 || drafts.isNotEmpty;
+    final items = <AudioQueueItem>[
+      for (final d in drafts)
+        () {
+          final physKey =
+              '${d.source?.id ?? 'local'}::${d.variant.relativePath.replaceAll('\\', '/')}';
+          final knownDur = _rawDurationByPhysicalKey[physKey] ?? 0.0;
+          return AudioQueueItem(
+            id: d.variant.id,
+            work: work,
+            variant: d.variant,
+            source: d.source,
+            title: d.cleanTitle,
+            trackNumber: d.trackNumber,
+            albumTitle: d.albumLabel,
+            showAlbumSubtitle: showSub,
+            pairedCueVariant: d.pairedCue,
+            duration: knownDur > 0
+                ? Duration(milliseconds: (knownDur * 1000).round())
+                : Duration.zero,
+          );
+        }(),
     ];
-    return audioItems;
+
+    if (items.isEmpty) {
+      return (items: items, targetIndex: 0);
+    }
+
+    var masterIdx = -1;
+    if (isCueSheetFile(initialVariant.fileName)) {
+      masterIdx = items.indexWhere(
+        (e) => e.pairedCueVariant?.id == initialVariant.id,
+      );
+      if (masterIdx < 0) {
+        final initDir = p.posix.dirname(
+          initialVariant.relativePath.replaceAll('\\', '/'),
+        );
+        masterIdx = items.indexWhere(
+          (e) =>
+              e.variant.sourceId == initialVariant.sourceId &&
+              p.posix.dirname(e.variant.relativePath.replaceAll('\\', '/')) ==
+                  initDir,
+        );
+      }
+    } else {
+      masterIdx = items.indexWhere((e) => e.variant.id == initialVariant.id);
+    }
+    if (masterIdx < 0) masterIdx = 0;
+
+    final targetMaster = items[masterIdx];
+    final cueVar = targetMaster.pairedCueVariant;
+    if (cueVar != null) {
+      final forceExpand =
+          isCueSheetFile(initialVariant.fileName) ||
+          initialCueTrackNumber != null;
+      final subTracks = await _resolveExpandedCueTracks(
+        targetMaster,
+        forceSingleTrackExpand: forceExpand,
+      );
+      if (subTracks != null && subTracks.isNotEmpty) {
+        _unexpandedMasterByCueId[cueVar.id] = targetMaster;
+        items.replaceRange(masterIdx, masterIdx + 1, subTracks);
+        var subIdx = 0;
+        if (initialCueTrackNumber != null) {
+          final matched = subTracks.indexWhere(
+            (e) => e.trackNumber == initialCueTrackNumber,
+          );
+          if (matched >= 0) subIdx = matched;
+        }
+        return (items: items, targetIndex: masterIdx + subIdx);
+      }
+    }
+
+    return (items: items, targetIndex: masterIdx);
   }
 
-  MediaVariant? _resolveCueTargetVariant({
-    required MediaVariant cueVariant,
-    required CueTrack cueTrack,
-    required List<MediaVariant> audioVariantsInDir,
-    required MediaVariant fallbackInitial,
-  }) {
-    final declared = cueTrack.fileName.trim().toLowerCase();
-    if (declared.isNotEmpty) {
-      for (final candidate in audioVariantsInDir) {
-        if (candidate.fileName.toLowerCase() == declared) {
-          return candidate;
+  /// 读取并构建指定整轨条目的 CUE 子单曲列表（内置内存缓存，同会话重复切回零 IO）。
+  Future<List<AudioQueueItem>?> _resolveExpandedCueTracks(
+    AudioQueueItem masterItem, {
+    bool forceSingleTrackExpand = false,
+  }) async {
+    final cueVariant = masterItem.pairedCueVariant;
+    final source =
+        masterItem.source ?? _sessionSourcesById[masterItem.variant.sourceId];
+    if (cueVariant == null || source == null) return null;
+
+    final cached = _expandedTracksByCueId[cueVariant.id];
+    if (cached != null) {
+      return _refreshCueTrackDurations(cached);
+    }
+    if (_nonExpandableCueIds.contains(cueVariant.id)) {
+      return null;
+    }
+
+    final cueSheet = await AudioAssetExtractor.loadCueSheet(
+      source: source,
+      cueRelativePath: cueVariant.relativePath,
+      gatewayFactory: gatewayFactory,
+      knownFileSize: cueVariant.fileSize > 0 ? cueVariant.fileSize : null,
+    );
+    if (cueSheet == null || cueSheet.tracks.isEmpty) {
+      _nonExpandableCueIds.add(cueVariant.id);
+      return null;
+    }
+
+    // 单轨无分章整碟若标题与母碟相同，保持单行整轨播放不重复挂子项
+    if (!forceSingleTrackExpand && cueSheet.tracks.length == 1) {
+      final rawOnlyTitle = cueSheet.tracks.first.title.trim();
+      final strippedOnly =
+          SupplementarySubclassifier.stripAudioTrackNumberPrefix(
+            rawOnlyTitle,
+          ).cleanTitle.trim();
+      final isGenericTrack1 = RegExp(
+        r'^track\s*0*1$',
+        caseSensitive: false,
+      ).hasMatch(rawOnlyTitle);
+      if (strippedOnly.isEmpty ||
+          isGenericTrack1 ||
+          strippedOnly.toLowerCase() == masterItem.title.trim().toLowerCase()) {
+        _nonExpandableCueIds.add(cueVariant.id);
+        return null;
+      }
+    }
+
+    final cueDir = p.posix.dirname(
+      cueVariant.relativePath.replaceAll('\\', '/'),
+    );
+    final audioVariantsInDir = _sessionAllCdVariants
+        .where((v) {
+          if (v.sourceId != cueVariant.sourceId ||
+              !isPlayableAudioFile(v.fileName)) {
+            return false;
+          }
+          return p.posix.dirname(v.relativePath.replaceAll('\\', '/')) ==
+              cueDir;
+        })
+        .toList(growable: false);
+
+    final built = <AudioQueueItem>[];
+    for (final track in cueSheet.tracks) {
+      final targetAudio = CueVariantResolver.resolve(
+        cueVariant: cueVariant,
+        cueTrack: track,
+        audioVariantsInDir: audioVariantsInDir,
+        fallbackInitial: masterItem.variant,
+      );
+      if (targetAudio == null) continue;
+      final src = _sessionSourcesById[targetAudio.sourceId] ?? source;
+      final rawTrackTitle = track.title.trim();
+      final strippedTitle =
+          SupplementarySubclassifier.stripAudioTrackNumberPrefix(
+            rawTrackTitle,
+          ).cleanTitle.trim();
+      final cleanTrackTitle = strippedTitle.isNotEmpty
+          ? strippedTitle
+          : (rawTrackTitle.isNotEmpty
+                ? rawTrackTitle
+                : '曲目 ${track.trackNumber}');
+
+      built.add(
+        AudioQueueItem(
+          id: '${cueVariant.id}::track_${track.trackNumber}',
+          work: masterItem.work,
+          variant: targetAudio,
+          source: src,
+          title: cleanTrackTitle,
+          performer: track.performer.isNotEmpty
+              ? track.performer
+              : cueSheet.performer,
+          albumTitle: masterItem.albumTitle.isNotEmpty
+              ? masterItem.albumTitle
+              : (cueSheet.title.isNotEmpty
+                    ? cueSheet.title
+                    : masterItem.work.title),
+          trackNumber: track.trackNumber,
+          cueStartSeconds: track.startSeconds,
+          cueEndSeconds: track.endSeconds,
+          targetAudioRelativePath: targetAudio.relativePath,
+          showAlbumSubtitle: masterItem.showAlbumSubtitle,
+          pairedCueVariant: cueVariant,
+          cueDiscTitle: masterItem.title,
+        ),
+      );
+    }
+
+    if (built.isEmpty) {
+      _nonExpandableCueIds.add(cueVariant.id);
+      return null;
+    }
+    final refreshed = _refreshCueTrackDurations(built);
+    _expandedTracksByCueId[cueVariant.id] = refreshed;
+    return refreshed;
+  }
+
+  List<AudioQueueItem> _refreshCueTrackDurations(List<AudioQueueItem> tracks) {
+    return <AudioQueueItem>[
+      for (final t in tracks)
+        () {
+          final knownRawDur =
+              _rawDurationByPhysicalKey[t.physicalFileKey] ?? 0.0;
+          final start = t.cueStartSeconds ?? 0.0;
+          final end = t.cueEndSeconds;
+          if (end != null && end > start) {
+            return t.copyWith(
+              duration: Duration(milliseconds: ((end - start) * 1000).round()),
+            );
+          }
+          if (end == null && knownRawDur > start) {
+            return t.copyWith(
+              duration: Duration(
+                milliseconds: ((knownRawDur - start) * 1000).round(),
+              ),
+            );
+          }
+          return t;
+        }(),
+    ];
+  }
+
+  /// 切换曲目时自动收起已离开的旧整轨 CD 子单曲，并按需拆开新轮到的整轨 CD 子单曲。
+  Future<int?> _reconcileCueWindowForTarget(
+    int targetIndex, {
+    required int generation,
+    bool selectLastOnExpand = false,
+  }) async {
+    if (targetIndex < 0 || targetIndex >= state.queue.length || !mounted) {
+      return null;
+    }
+    var workingQueue = List<AudioQueueItem>.of(state.queue);
+    var adjustedIndex = targetIndex;
+    final targetCueId = workingQueue[adjustedIndex].pairedCueVariant?.id;
+
+    // 1. 折叠非当前目标的已展开整轨 CD
+    var queueMutated = false;
+    var scan = 0;
+    while (scan < workingQueue.length) {
+      final item = workingQueue[scan];
+      final cueId = item.pairedCueVariant?.id;
+      if (item.isCueTrack &&
+          cueId != null &&
+          cueId != targetCueId &&
+          _unexpandedMasterByCueId.containsKey(cueId)) {
+        var groupEnd = scan;
+        while (groupEnd + 1 < workingQueue.length &&
+            workingQueue[groupEnd + 1].isCueTrack &&
+            workingQueue[groupEnd + 1].pairedCueVariant?.id == cueId) {
+          groupEnd++;
+        }
+        var master = _unexpandedMasterByCueId[cueId]!;
+        final knownDur =
+            _rawDurationByPhysicalKey[master.physicalFileKey] ?? 0.0;
+        if (knownDur > 0 && master.duration == Duration.zero) {
+          master = master.copyWith(
+            duration: Duration(milliseconds: (knownDur * 1000).round()),
+          );
+          _unexpandedMasterByCueId[cueId] = master;
+        }
+        final removedExtra = groupEnd - scan;
+        workingQueue.replaceRange(scan, groupEnd + 1, <AudioQueueItem>[master]);
+        if (adjustedIndex > groupEnd) {
+          adjustedIndex -= removedExtra;
+        } else if (adjustedIndex >= scan) {
+          adjustedIndex = scan;
+        }
+        queueMutated = true;
+        scan++;
+        continue;
+      }
+      scan++;
+    }
+
+    if (queueMutated) {
+      state = state.copyWith(queue: workingQueue, currentIndex: adjustedIndex);
+    }
+
+    // 2. 若当前轮到的目标条目是尚未展开的整轨 CD，按需解析并在其下方拆出单曲
+    final activeCandidate = workingQueue[adjustedIndex];
+    final candidateCue = activeCandidate.pairedCueVariant;
+    if (!activeCandidate.isCueTrack &&
+        candidateCue != null &&
+        !_nonExpandableCueIds.contains(candidateCue.id)) {
+      if (!_expandedTracksByCueId.containsKey(candidateCue.id)) {
+        state = state.copyWith(currentIndex: adjustedIndex, isBuffering: true);
+      }
+      final subTracks = await _resolveExpandedCueTracks(activeCandidate);
+      if (generation != _loadGeneration || !mounted) return null;
+      if (subTracks != null && subTracks.isNotEmpty) {
+        final latestQueue = List<AudioQueueItem>.of(state.queue);
+        final livePos = latestQueue.indexWhere(
+          (e) => e.id == activeCandidate.id,
+        );
+        if (livePos >= 0) {
+          _unexpandedMasterByCueId[candidateCue.id] = activeCandidate;
+          latestQueue.replaceRange(livePos, livePos + 1, subTracks);
+          final nextIdx = selectLastOnExpand
+              ? (livePos + subTracks.length - 1)
+              : livePos;
+          state = state.copyWith(queue: latestQueue, currentIndex: nextIdx);
+          return nextIdx;
         }
       }
-      final declaredStem = p.basenameWithoutExtension(declared);
-      for (final candidate in audioVariantsInDir) {
-        if (p.basenameWithoutExtension(candidate.fileName.toLowerCase()) ==
-            declaredStem) {
-          return candidate;
-        }
-      }
     }
-    if (isPlayableAudioFile(fallbackInitial.fileName)) {
-      return fallbackInitial;
-    }
-    if (audioVariantsInDir.isNotEmpty) {
-      return audioVariantsInDir.first;
-    }
-    // 即使数据库未收录整轨音频条目，也按 CUE 同目录下同名相对路径构造虚拟目标引用
-    if (cueTrack.fileName.trim().isNotEmpty) {
-      final dir = p.posix.dirname(
-        cueVariant.relativePath.replaceAll('\\', '/'),
-      );
-      final rel = dir == '.'
-          ? cueTrack.fileName.trim()
-          : '$dir/${cueTrack.fileName.trim()}';
-      return MediaVariant(
-        id: '${cueVariant.id}::audio_file',
-        workId: cueVariant.workId,
-        sourceId: cueVariant.sourceId,
-        relativePath: rel,
-        fileName: p.basename(cueTrack.fileName.trim()),
-        fileSize: 0,
-        assetKind: cueVariant.assetKind,
-      );
-    }
-    return null;
+
+    return adjustedIndex;
   }
 
   Future<void> _ensureClientInitialized({bool isRemoteStream = false}) async {
@@ -765,9 +1128,23 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     required int generation,
     AudioQueueItem? previousItemOverride,
     double initialTrackOffsetSeconds = 0.0,
+    bool selectLastOnCueExpand = false,
   }) async {
     if (index < 0 || index >= state.queue.length || !mounted) return;
     final previousItem = previousItemOverride ?? state.currentItem;
+    final reconciledIndex = await _reconcileCueWindowForTarget(
+      index,
+      generation: generation,
+      selectLastOnExpand: selectLastOnCueExpand,
+    );
+    if (reconciledIndex == null ||
+        reconciledIndex < 0 ||
+        reconciledIndex >= state.queue.length ||
+        generation != _loadGeneration ||
+        !mounted) {
+      return;
+    }
+    index = reconciledIndex;
     final item = state.queue[index];
     _isTransitioningCueBoundary = false;
     final clampedInitialOffset = initialTrackOffsetSeconds > 0
@@ -1583,7 +1960,11 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
         ? state.currentIndex - 1
         : state.queue.length - 1;
     final gen = ++_loadGeneration;
-    await _startTrackAtIndex(target, generation: gen);
+    await _startTrackAtIndex(
+      target,
+      generation: gen,
+      selectLastOnCueExpand: true,
+    );
   }
 
   /// 切换下一首。
@@ -1723,6 +2104,11 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     _pendingSeekRawTargetSeconds = null;
     _pendingSeekGuardUntil = null;
     _pendingRemoteAuxJob = null;
+    _sessionAllCdVariants = const [];
+    _sessionSourcesById = const {};
+    _unexpandedMasterByCueId.clear();
+    _expandedTracksByCueId.clear();
+    _nonExpandableCueIds.clear();
     if (closingItem != null) {
       await _persistAudioProgress(
         closingItem,

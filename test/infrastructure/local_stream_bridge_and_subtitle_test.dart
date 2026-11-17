@@ -10,6 +10,7 @@ import 'package:ccplayer/infrastructure/sources/webdav_digest_auth.dart';
 import 'package:ccplayer/infrastructure/sources/webdav_source_gateway.dart';
 import 'package:ccplayer/infrastructure/storage/storage_root_provider.dart';
 import 'package:ccplayer/infrastructure/stream_bridge/local_stream_bridge.dart';
+import 'package:ccplayer/infrastructure/stream_bridge/remote_window_reader.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -45,6 +46,25 @@ class _InMemoryByteGateway implements ByteRangeReadableGateway {
   @override
   Future<void> close() async {
     closed = true;
+  }
+}
+
+class _RecordingByteGateway extends _InMemoryByteGateway {
+  _RecordingByteGateway(super.files);
+  final ranges = <(int, int?)>[];
+
+  @override
+  Future<Stream<List<int>>> openByteRange(
+    String relativePath, {
+    required int start,
+    int? endInclusive,
+  }) {
+    ranges.add((start, endInclusive));
+    return super.openByteRange(
+      relativePath,
+      start: start,
+      endInclusive: endInclusive,
+    );
   }
 }
 
@@ -124,6 +144,62 @@ void main() {
 
       await bridge.unregisterSession(session.token);
       expect(gateway.closed, isTrue);
+    });
+
+    test('远程分块窗口有界且完整热块缓存可复用，不再发送全文件 Range', () async {
+      const mib = 1024 * 1024;
+      final payload = Uint8List.fromList(
+        List<int>.generate(6 * mib, (i) => i % 251),
+      );
+      final gw = _RecordingByteGateway({'Anime/01.mkv': payload});
+      final reader = RemoteWindowReader(
+        gateway: gw,
+        relativePath: 'Anime/01.mkv',
+        totalLength: payload.length,
+      );
+      final first = await reader
+          .read(start: 0, endInclusive: payload.length - 1)
+          .expand((chunk) => chunk)
+          .toList();
+      expect(first, payload);
+      expect(gw.ranges, [
+        (0, mib - 1),
+        (mib, 5 * mib - 1),
+        (5 * mib, 6 * mib - 1),
+      ]);
+      expect(reader.cachedBytes, payload.length);
+
+      final before = gw.ranges.length;
+      final repeat = await reader
+          .read(start: 0, endInclusive: 1023)
+          .expand((chunk) => chunk)
+          .toList();
+      expect(repeat, payload.sublist(0, 1024));
+      final seek = await reader
+          .read(start: 2 * mib, endInclusive: 2 * mib + 255)
+          .expand((chunk) => chunk)
+          .toList();
+      expect(seek, payload.sublist(2 * mib, 2 * mib + 256));
+      expect(gw.ranges.length, before);
+    });
+
+    test('远程分块对局部 Range 严格只取所需字节，不做无关大块读取', () async {
+      final gw = _RecordingByteGateway({
+        'Anime/01.flac': Uint8List.fromList(
+          List<int>.generate(4096, (i) => i % 251),
+        ),
+      });
+      final reader = RemoteWindowReader(
+        gateway: gw,
+        relativePath: 'Anime/01.flac',
+        totalLength: 4096,
+      );
+      final bytes = await reader
+          .read(start: 100, endInclusive: 199)
+          .expand((chunk) => chunk)
+          .toList();
+      expect(bytes, gw.files['Anime/01.flac']!.sublist(100, 200));
+      expect(gw.ranges, [(100, 199)]);
     });
 
     test('远程外挂字幕 materializeRemoteSubtitles 完整拉取到系统临时目录', () async {
@@ -378,6 +454,84 @@ void main() {
         );
       },
     );
+
+    test('WebDAV 206 必须校验 Content-Range，并正确返回精确切片', () async {
+      final gateway = WebDavSourceGateway(
+        rootUri: Uri.parse('http://localhost:29798/dav/'),
+        httpClient: MockClient((request) async {
+          expect(request.headers['range'], 'bytes=10-14');
+          return http.Response.bytes(
+            [10, 11, 12, 13, 14],
+            206,
+            headers: const {'content-range': 'bytes 10-14/100'},
+          );
+        }),
+      );
+      final result = await gateway.openByteRange(
+        '音频/加速世界.flac',
+        start: 10,
+        endInclusive: 14,
+      );
+      expect(await result.expand((chunk) => chunk).toList(), [
+        10,
+        11,
+        12,
+        13,
+        14,
+      ]);
+      await gateway.close();
+    });
+
+    test('WebDAV 不得把忽略 Range 的 200 完整响应透传为非零区间', () async {
+      final gateway = WebDavSourceGateway(
+        rootUri: Uri.parse('http://localhost:29798/dav/'),
+        httpClient: MockClient((_) async => http.Response('whole file', 200)),
+      );
+      await expectLater(
+        gateway.openByteRange('test.flac', start: 128, endInclusive: 255),
+        throwsA(isA<HttpException>()),
+      );
+      await gateway.close();
+    });
+
+    test('WebDAV 206 偏移错误与提前 EOF 都必须报错', () async {
+      final wrongRange = WebDavSourceGateway(
+        rootUri: Uri.parse('http://localhost:29798/dav/'),
+        httpClient: MockClient(
+          (_) async => http.Response.bytes(
+            [1, 2, 3, 4],
+            206,
+            headers: const {'content-range': 'bytes 0-3/100'},
+          ),
+        ),
+      );
+      await expectLater(
+        wrongRange.openByteRange('test.flac', start: 20, endInclusive: 23),
+        throwsA(isA<HttpException>()),
+      );
+      await wrongRange.close();
+
+      final truncated = WebDavSourceGateway(
+        rootUri: Uri.parse('http://localhost:29798/dav/'),
+        httpClient: MockClient(
+          (_) async => http.Response.bytes(
+            [1, 2],
+            206,
+            headers: const {'content-range': 'bytes 20-23/100'},
+          ),
+        ),
+      );
+      final data = await truncated.openByteRange(
+        'test.flac',
+        start: 20,
+        endInclusive: 23,
+      );
+      await expectLater(
+        data.expand((chunk) => chunk).toList(),
+        throwsA(isA<HttpException>()),
+      );
+      await truncated.close();
+    });
   });
 }
 

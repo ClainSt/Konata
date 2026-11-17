@@ -416,7 +416,6 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                   return;
                 }
                 _onMouseActivity();
-                controller.togglePlayPause();
               },
               onDoubleTap: state.sideSheetOpen
                   ? null

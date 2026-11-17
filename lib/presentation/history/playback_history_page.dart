@@ -11,6 +11,7 @@ import '../../application/providers/library_providers.dart';
 import '../../application/providers/playback_providers.dart';
 import '../../domain/formatting/media_display_formatter.dart';
 import '../../domain/matching/episode_title_formatter.dart';
+import '../../domain/matching/supplementary_subclassifier.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/playback_record.dart';
@@ -64,6 +65,8 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
   static const double _titleFontSize = 20.5;
   static const double _titleLineHeight = 1.28;
   static const double _subtitleFontSize = 15.5;
+  static const double _audioDirFontSize = 13.5;
+  static const double _audioDirTopGap = 5.0;
   static const double _progressFontSize = 14.0;
   static const double _dateFontSize = 13.5;
   static const double _progressBarHeight = 6.5;
@@ -401,11 +404,33 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     return painter.height;
   }
 
+  String? _resolveAudioDirectoryLabel(
+    PlaybackRecord rec,
+    WorkLibraryItem? item,
+    Map<String, CdAlbumGroupSummary> cdSummaryCache,
+  ) {
+    if (item == null) {
+      return null;
+    }
+    final summary = cdSummaryCache.putIfAbsent(item.work.id, () {
+      final cdVariants = item.variants
+          .where((v) => v.assetKind == AssetKind.cdAlbum)
+          .toList(growable: false);
+      return SupplementarySubclassifier.groupCdVariants(cdVariants);
+    });
+    final label = summary.byVariantId[rec.variantId]?.chipLabel.trim();
+    if (label != null && label.isNotEmpty) {
+      return label;
+    }
+    return null;
+  }
+
   double _measureCardHeight({
     required BuildContext context,
     required WorkLibraryItem? item,
     required double titleMaxWidth,
     required double epLineHeight,
+    required double extraAudioDirHeight,
     required double progressLineHeight,
     required double dateLineHeight,
     required double coverHeight,
@@ -431,6 +456,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
         painter.height +
         _titleSubtitleGap +
         epLineHeight +
+        extraAudioDirHeight +
         16.0 +
         progressLineHeight +
         _progressBarGap +
@@ -449,6 +475,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     required ManagedImageLoader imageLoader,
     required bool isAudio,
     required bool stretchHeight,
+    String? audioDirLabel,
   }) {
     final work = item?.work;
     final epLabel = EpisodeTitleFormatter.formatHistorySubtitle(
@@ -531,6 +558,20 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
             fontWeight: FontWeight.w500,
           ),
         ),
+        if (isAudio &&
+            audioDirLabel != null &&
+            audioDirLabel.trim().isNotEmpty) ...[
+          const SizedBox(height: _audioDirTopGap),
+          EllipsisTextWithTooltip(
+            text: audioDirLabel.trim(),
+            maxLines: 1,
+            style: TextStyle(
+              color: p.textMuted,
+              fontSize: _audioDirFontSize,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ],
       ],
     );
 
@@ -879,6 +920,16 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                               ),
                             )
                           : 0.0;
+                      final audioDirLineH = twoColumns && isAudioTab
+                          ? _measureSingleLineHeight(
+                              context,
+                              const TextStyle(
+                                fontSize: _audioDirFontSize,
+                                fontWeight: FontWeight.w400,
+                              ),
+                            )
+                          : 0.0;
+                      final cdSummaryCache = <String, CdAlbumGroupSummary>{};
 
                       return KonataDraggableScrollbar(
                         controller: _scrollCtrl,
@@ -896,14 +947,23 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                           itemBuilder: (_, rowIndex) {
                             if (!twoColumns) {
                               final rec = records[rowIndex];
+                              final workItem = workById[rec.workId];
+                              final dirLabel = isAudioTab
+                                  ? _resolveAudioDirectoryLabel(
+                                      rec,
+                                      workItem,
+                                      cdSummaryCache,
+                                    )
+                                  : null;
                               return _buildCard(
                                 context: context,
                                 p: p,
                                 rec: rec,
-                                item: workById[rec.workId],
+                                item: workItem,
                                 imageLoader: imageLoader,
                                 isAudio: isAudioTab,
                                 stretchHeight: false,
+                                audioDirLabel: dirLabel,
                               );
                             }
                             final leftIndex = rowIndex * 2;
@@ -913,11 +973,34 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                                 ? records[rightIndex]
                                 : null;
 
+                            final leftItem = workById[leftRec.workId];
+                            final rightItem = rightRec != null
+                                ? workById[rightRec.workId]
+                                : null;
+                            final leftDirLabel = isAudioTab
+                                ? _resolveAudioDirectoryLabel(
+                                    leftRec,
+                                    leftItem,
+                                    cdSummaryCache,
+                                  )
+                                : null;
+                            final rightDirLabel =
+                                (isAudioTab && rightRec != null)
+                                ? _resolveAudioDirectoryLabel(
+                                    rightRec,
+                                    rightItem,
+                                    cdSummaryCache,
+                                  )
+                                : null;
+
                             final leftHeight = _measureCardHeight(
                               context: context,
-                              item: workById[leftRec.workId],
+                              item: leftItem,
                               titleMaxWidth: titleMaxWidth,
                               epLineHeight: epH,
+                              extraAudioDirHeight: leftDirLabel != null
+                                  ? (_audioDirTopGap + audioDirLineH)
+                                  : 0.0,
                               progressLineHeight: progH,
                               dateLineHeight: dateH,
                               coverHeight: activeCoverHeight,
@@ -926,9 +1009,12 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                                 ? leftHeight
                                 : _measureCardHeight(
                                     context: context,
-                                    item: workById[rightRec.workId],
+                                    item: rightItem,
                                     titleMaxWidth: titleMaxWidth,
                                     epLineHeight: epH,
+                                    extraAudioDirHeight: rightDirLabel != null
+                                        ? (_audioDirTopGap + audioDirLineH)
+                                        : 0.0,
                                     progressLineHeight: progH,
                                     dateLineHeight: dateH,
                                     coverHeight: activeCoverHeight,
@@ -945,10 +1031,11 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                                       context: context,
                                       p: p,
                                       rec: leftRec,
-                                      item: workById[leftRec.workId],
+                                      item: leftItem,
                                       imageLoader: imageLoader,
                                       isAudio: isAudioTab,
                                       stretchHeight: true,
+                                      audioDirLabel: leftDirLabel,
                                     ),
                                   ),
                                   const SizedBox(width: _colGap),
@@ -958,10 +1045,11 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                                             context: context,
                                             p: p,
                                             rec: rightRec,
-                                            item: workById[rightRec.workId],
+                                            item: rightItem,
                                             imageLoader: imageLoader,
                                             isAudio: isAudioTab,
                                             stretchHeight: true,
+                                            audioDirLabel: rightDirLabel,
                                           )
                                         : const SizedBox.shrink(),
                                   ),

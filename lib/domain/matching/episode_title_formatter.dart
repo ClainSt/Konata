@@ -108,15 +108,10 @@ abstract final class EpisodeTitleFormatter {
     final isValidTitle =
         rawTitle.isNotEmpty && !RegExp(r'\bnull\b').hasMatch(rawTitle);
 
-    // 音频 / CD 曲目记录：优先展示 `01 · 曲名` 或曲名。
+    // 音频 / CD 曲目记录：去除序号前缀与扩展名后缀，直接展示纯净曲名。
     if (record.isAudioRecord) {
-      final trackNum = record.episodeNumber;
-      if (trackNum != null && isValidTitle) {
-        return '${trackNum.toString().padLeft(2, '0')} · $rawTitle';
-      }
-      if (isValidTitle) return rawTitle;
-      if (trackNum != null) {
-        return 'Track ${trackNum.toString().padLeft(2, '0')}';
+      if (isValidTitle) {
+        return _cleanAudioHistoryTitle(rawTitle);
       }
       return 'CD 音轨';
     }
@@ -220,6 +215,27 @@ abstract final class EpisodeTitleFormatter {
       return _decodeFileNameSafely(fallbackFileName.trim());
     }
     return 'Konata';
+  }
+
+  static String _cleanAudioHistoryTitle(String raw) {
+    var text = raw.trim();
+    text = text.replaceFirst(
+      RegExp(
+        r'\.(?:flac|mp3|wav|m4a|aac|ogg|opus|ape|alac|tak|tta|dsf|dff|mka|wma)$',
+        caseSensitive: false,
+      ),
+      '',
+    );
+    final stripped = text
+        .replaceFirst(
+          RegExp(
+            r'^(?:(?:disc|cd)?\s*\d{1,2}\s*[-_.]\s*)?\d{1,3}\s*(?:[.\-_·:：、]+|\s+)\s*',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .trim();
+    return stripped.isNotEmpty ? stripped : text.trim();
   }
 
   static String _decodeFileNameSafely(String name) {

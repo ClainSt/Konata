@@ -119,7 +119,10 @@ class LocalStreamBridge {
     _tokenCounter += 1;
     final rawSeed =
         '${DateTime.now().microsecondsSinceEpoch}_${_tokenCounter}_$relativePath';
-    final token = sha1.convert(utf8.encode(rawSeed)).toString().substring(0, 16);
+    final token = sha1
+        .convert(utf8.encode(rawSeed))
+        .toString()
+        .substring(0, 16);
 
     final sanitizedLength = (knownLength != null && knownLength > 0)
         ? knownLength
@@ -188,7 +191,10 @@ class LocalStreamBridge {
     required List<String> subtitleRelativePaths,
   }) async {
     if (subtitleRelativePaths.isEmpty) return const [];
-    final dirHash = sha1.convert(utf8.encode(workId)).toString().substring(0, 12);
+    final dirHash = sha1
+        .convert(utf8.encode(workId))
+        .toString()
+        .substring(0, 12);
     final targetDir = await _storageRoot.ensureSubtitleStageDir(dirHash);
 
     final results = await Future.wait(
@@ -198,17 +204,25 @@ class LocalStreamBridge {
         if (!SubtitleMatcher.isSubtitleFile(baseName)) {
           return null;
         }
+        final subDir = Directory(p.join(targetDir.path, '${entry.key}'));
+        final destFile = File(p.join(subDir.path, baseName));
+        int? probedLen;
         try {
-          final probedLen = await gateway.probeFileLength(relPath);
+          if (await destFile.exists()) {
+            final existingLen = await destFile.length();
+            if (existingLen > 0 &&
+                existingLen <= StreamBridgeConfig.maxSubtitleMaterializeBytes) {
+              return destFile.path;
+            }
+          }
+          probedLen = await gateway.probeFileLength(relPath);
           if (probedLen != null &&
               probedLen > StreamBridgeConfig.maxSubtitleMaterializeBytes) {
             return null;
           }
         } catch (_) {}
 
-        final subDir = Directory(p.join(targetDir.path, '${entry.key}'));
         await subDir.create(recursive: true);
-        final destFile = File(p.join(subDir.path, baseName));
         final sink = destFile.openWrite();
         var writtenBytes = 0;
         var failedOrOversized = false;
@@ -315,7 +329,9 @@ class LocalStreamBridge {
       final ifRangeHeader = request.headers.value(HttpHeaders.ifRangeHeader);
       final allowPartial = _matchesIfRange(ifRangeHeader, session.etag);
 
-      if (allowPartial && rangeHeader != null && rangeHeader.trim().isNotEmpty) {
+      if (allowPartial &&
+          rangeHeader != null &&
+          rangeHeader.trim().isNotEmpty) {
         if (totalLength == null || totalLength <= 0) {
           response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
           await response.close();
@@ -379,8 +395,10 @@ class LocalStreamBridge {
       } catch (_) {}
     } finally {
       if (trackedSession != null) {
-        trackedSession.activeStreams =
-            (trackedSession.activeStreams - 1).clamp(0, 100000);
+        trackedSession.activeStreams = (trackedSession.activeStreams - 1).clamp(
+          0,
+          100000,
+        );
         trackedSession.lastAccessedAt = DateTime.now();
       }
     }
@@ -415,6 +433,9 @@ class LocalStreamBridge {
     response.persistentConnection = false;
     response.headers.chunkedTransferEncoding = false;
     final socket = await response.detachSocket(writeHeaders: true);
+    try {
+      socket.setOption(SocketOption.tcpNoDelay, true);
+    } catch (_) {}
 
     final iterator = StreamIterator<List<int>>(source);
     final disconnected = Completer<bool>();
@@ -440,6 +461,8 @@ class LocalStreamBridge {
         ),
       );
 
+      const flushThresholdBytes = 256 * 1024;
+      var unflushedBytes = 0;
       while (true) {
         final hasNext = await Future.any<bool>([
           iterator.moveNext(),
@@ -457,7 +480,11 @@ class LocalStreamBridge {
           continue;
         }
         socket.add(chunk);
-        await socket.flush();
+        unflushedBytes += chunk.length;
+        if (unflushedBytes >= flushThresholdBytes) {
+          unflushedBytes = 0;
+          await socket.flush();
+        }
       }
     } on SocketException {
       // 播放器触发 Seek 或关闭时主动断开连接，属正常现象。

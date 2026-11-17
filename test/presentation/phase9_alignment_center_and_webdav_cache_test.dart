@@ -934,7 +934,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text('标记为已听'), findsOneWidget);
-        expect(find.text('01 · ハルユキの災難'), findsOneWidget);
+        expect(find.text('ハルユキの災難'), findsOneWidget);
         expect(find.text('2026-11-16 22:12'), findsOneWidget);
         // 音频封面 120x120，且成功加载 Folder.jpg (Image.memory)
         expect(

@@ -122,6 +122,7 @@ class EmbeddedMpvSession {
   TrackPreferences _trackPreferences = const TrackPreferences();
   String _currentMediaTarget = '';
   double _lastPositionSeconds = 0.0;
+  double? _pendingInitialSeekSeconds;
   double _totalDurationSeconds = 0.0;
   int _loadGeneration = 0;
   bool _fileLoadedForCurrentGen = false;
@@ -158,7 +159,9 @@ class EmbeddedMpvSession {
     final mpvDir = await storageRoot.ensureMpvConfigDir();
     final workPhotoDir = await _resolveScreenshotDir(request.workId);
     if (Platform.isAndroid) {
-      await AndroidVideoSurfaceController.preparePortableCjkFontSymlinks(mpvDir);
+      await AndroidVideoSurfaceController.preparePortableCjkFontSymlinks(
+        mpvDir,
+      );
     }
 
     int? androidWid;
@@ -272,8 +275,16 @@ class EmbeddedMpvSession {
     client.observeProperty(_propMute, 'mute', MpvFormat.flag);
     client.observeProperty(_propAid, 'aid', MpvFormat.string);
     client.observeProperty(_propSid, 'sid', MpvFormat.string);
-    client.observeProperty(_propTrackListCount, 'track-list/count', MpvFormat.int64);
-    client.observeProperty(_propHwdecCurrent, 'hwdec-current', MpvFormat.string);
+    client.observeProperty(
+      _propTrackListCount,
+      'track-list/count',
+      MpvFormat.int64,
+    );
+    client.observeProperty(
+      _propHwdecCurrent,
+      'hwdec-current',
+      MpvFormat.string,
+    );
 
     _eventSub = client.events.listen(_handleMpvEvent);
 
@@ -300,8 +311,9 @@ class EmbeddedMpvSession {
     _fileLoadedForCurrentGen = false;
     _hasRestartedFirstFrame = false;
     _hwdecFallbackAttempted = false;
-    _lastPositionSeconds =
-        request.startSeconds > 0 ? request.startSeconds.toDouble() : 0.0;
+    _lastPositionSeconds = request.startSeconds > 0
+        ? request.startSeconds.toDouble()
+        : 0.0;
     _totalDurationSeconds = 0.0;
 
     final previousTokens = List<String>.from(_activeStreamTokens);
@@ -330,9 +342,17 @@ class EmbeddedMpvSession {
     );
 
     if (request.startSeconds > 0) {
-      client.setPropertyDouble('start', request.startSeconds.toDouble());
+      final startRc = client.setPropertyString(
+        'start',
+        '+${request.startSeconds}',
+      );
+      if (startRc < 0) {
+        client.setPropertyDouble('start', request.startSeconds.toDouble());
+      }
+      _pendingInitialSeekSeconds = request.startSeconds.toDouble();
     } else {
       client.setPropertyString('start', 'none');
+      _pendingInitialSeekSeconds = null;
     }
     client.setPropertyDouble('sub-delay', 0.0);
     client.setPropertyDouble('audio-delay', 0.0);
@@ -345,7 +365,8 @@ class EmbeddedMpvSession {
       return;
     }
 
-    if (request.source != null && request.source!.kind != MediaSourceKind.local) {
+    if (request.source != null &&
+        request.source!.kind != MediaSourceKind.local) {
       unawaited(
         _discoverAndAttachRemoteSidecars(request, generation: generation),
       );
@@ -382,8 +403,7 @@ class EmbeddedMpvSession {
         for (final entry in entries) {
           if (!entry.isDirectory) candidates.add(entry.relativePath);
         }
-        final audioSubRel =
-            parentRel.isEmpty ? 'Audio' : '$parentRel/Audio';
+        final audioSubRel = parentRel.isEmpty ? 'Audio' : '$parentRel/Audio';
         try {
           final subEntries = await gw.listDirectory(audioSubRel);
           for (final entry in subEntries) {
@@ -574,7 +594,20 @@ class EmbeddedMpvSession {
     switch (event) {
       case MpvFileLoadedEvent():
         _fileLoadedForCurrentGen = true;
+        final pendingSeek = _pendingInitialSeekSeconds;
+        _pendingInitialSeekSeconds = null;
         _client?.setPropertyString('start', 'none');
+        if (pendingSeek != null && pendingSeek > 0) {
+          final currentPos = _client?.getPropertyDouble('time-pos');
+          if (currentPos != null && (currentPos - pendingSeek).abs() > 2.5) {
+            _client?.command([
+              'seek',
+              pendingSeek.toStringAsFixed(1),
+              'absolute',
+              'exact',
+            ]);
+          }
+        }
         _mountSidecarsAndResolveTracks();
       case MpvPlaybackRestartEvent():
         _hasRestartedFirstFrame = true;
@@ -624,7 +657,9 @@ class EmbeddedMpvSession {
       final base = p.basename(sub.split('?').first).toLowerCase();
       if (mountedNames.contains(base)) continue;
       if (SubtitleAndAudioChoices.extensionOf(sub) == '.sub') {
-        final stem = '${sub.substring(0, sub.length - 4)}.idx'.replaceAll('\\', '/').toLowerCase();
+        final stem = '${sub.substring(0, sub.length - 4)}.idx'
+            .replaceAll('\\', '/')
+            .toLowerCase();
         if (idxStems.contains(stem)) continue;
       }
       client.command(['sub-add', sub, 'auto']);
@@ -685,7 +720,9 @@ class EmbeddedMpvSession {
       discoveredExternalAudioPaths: _pendingExternalAudioPaths,
     );
     final chapters = client.readChapterList(
-      totalDurationSeconds: _totalDurationSeconds > 0 ? _totalDurationSeconds : null,
+      totalDurationSeconds: _totalDurationSeconds > 0
+          ? _totalDurationSeconds
+          : null,
     );
     final devices = client.readAudioDeviceList();
     onMediaMetadataUpdated?.call(
@@ -744,7 +781,11 @@ class EmbeddedMpvSession {
   void _inspectLogForHwdecFailure(MpvLogMessageEvent event) {
     final level = event.level.toLowerCase();
     if (level != 'error' && level != 'fatal') return;
-    logStore?.record('mpv-video', '[${event.prefix}] ${event.text.trim()}', isError: true);
+    logStore?.record(
+      'mpv-video',
+      '[${event.prefix}] ${event.text.trim()}',
+      isError: true,
+    );
 
     if (!_hwdecWasEnabled || _hwdecFallbackAttempted) return;
     final msg = '${event.prefix} ${event.text}'.toLowerCase();

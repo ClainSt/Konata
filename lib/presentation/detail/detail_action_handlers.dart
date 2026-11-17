@@ -468,12 +468,28 @@ class DetailActionHandlers {
     }
   }
 
-  /// 打开 Scan 画集毛玻璃全屏缩放预览弹窗。
+  /// 优先拉起外部看图器浏览本地扫图，未配置或不可用时回退内置预览弹窗。
   static Future<void> openScanViewer(
     BuildContext context,
     WorkDetailBundle bundle,
     MediaVariant variant,
-  ) {
+  ) async {
+    try {
+      final res = await ProviderScope.containerOf(context, listen: false)
+          .read(playbackDispatcherProvider)
+          .tryOpenExternalScan(
+            work: bundle.work,
+            variant: variant,
+            source: bundle.sourcesById[variant.sourceId],
+          );
+      if (res != null) {
+        if (res.launched) return;
+        if (context.mounted && res.message.isNotEmpty) {
+          showKonataToast(context, res.message, isError: true);
+        }
+      }
+    } catch (_) {}
+    if (!context.mounted) return;
     return showKonataGlassDialog<void>(
       context: context,
       builder: (_) =>

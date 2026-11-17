@@ -966,13 +966,12 @@ void main() {
       );
       expect(videoClient.options['cache'], equals('yes'));
       expect(videoClient.options['cache-on-disk'], equals('no'));
+      expect(videoClient.options['http-proxy'], equals(''));
       expect(
         videoClient.options['stream-lavf-o'],
-        equals(
-          'reconnect=1,reconnect_streamed=1,reconnect_delay_max=2,multiple_requests=1',
-        ),
+        equals('reconnect=1,reconnect_streamed=1,reconnect_delay_max=2'),
       );
-      expect(videoClient.options['demuxer-lavf-probesize'], equals('524288'));
+      expect(videoClient.options['demuxer-lavf-probesize'], equals('2097152'));
       expect(
         videoClient.options['demuxer-lavf-analyzeduration'],
         equals('1.5'),
@@ -993,16 +992,15 @@ void main() {
       expect(audioClient.options['cache'], equals('yes'));
       expect(audioClient.options['cache-on-disk'], equals('no'));
       expect(audioClient.options['prefetch-playlist'], equals('yes'));
+      expect(audioClient.options['http-proxy'], equals(''));
       expect(
         audioClient.options['stream-lavf-o'],
-        equals(
-          'reconnect=1,reconnect_streamed=1,reconnect_delay_max=2,multiple_requests=1',
-        ),
+        equals('reconnect=1,reconnect_streamed=1,reconnect_delay_max=2'),
       );
-      expect(audioClient.options['demuxer-lavf-probesize'], equals('262144'));
+      expect(audioClient.options['demuxer-lavf-probesize'], equals('8388608'));
       expect(
         audioClient.options['demuxer-lavf-analyzeduration'],
-        equals('0.8'),
+        equals('2.0'),
       );
       expect(audioClient.options['demuxer-max-bytes'], equals('64MiB'));
       expect(audioClient.options['demuxer-max-back-bytes'], equals('48MiB'));

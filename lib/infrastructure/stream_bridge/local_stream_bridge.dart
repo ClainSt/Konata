@@ -182,6 +182,33 @@ class LocalStreamBridge {
     return expiredTokens.length;
   }
 
+  /// 纯本地零网络检查已缓存落盘的外挂字幕路径（供远程视频首帧零网络秒挂已有字幕）。
+  Future<List<String>> resolveExistingCachedSubtitles({
+    required String workId,
+    required List<String> subtitleRelativePaths,
+  }) async {
+    if (subtitleRelativePaths.isEmpty) return const [];
+    final dirHash = sha1
+        .convert(utf8.encode(workId))
+        .toString()
+        .substring(0, 12);
+    final targetDir = await _storageRoot.ensureSubtitleStageDir(dirHash);
+    final hits = <String>[];
+    for (var i = 0; i < subtitleRelativePaths.length; i++) {
+      final relPath = subtitleRelativePaths[i];
+      final baseName = p.posix.basename(relPath.replaceAll('\\', '/'));
+      if (!SubtitleMatcher.isSubtitleFile(baseName)) continue;
+      final destFile = File(p.join(targetDir.path, '$i', baseName));
+      if (await destFile.exists()) {
+        final len = await destFile.length();
+        if (len > 0 && len <= StreamBridgeConfig.maxSubtitleMaterializeBytes) {
+          hits.add(destFile.path);
+        }
+      }
+    }
+    return hits;
+  }
+
   /// 将远程源中的外挂字幕文件并发拉取并写入应用便携 `cache/tmp/konata_subs/` 目录。
   ///
   /// 严格校验扩展名与文件体积上限（<= 32 MiB），并将文件存入索引隔离目录保持原始文件名完整无前缀篡改。
@@ -388,9 +415,14 @@ class LocalStreamBridge {
             : null,
       );
       await _streamChunksWithAbort(fullStream, response);
-    } catch (_) {
+    } catch (error) {
       try {
-        response.statusCode = HttpStatus.internalServerError;
+        final msg = error.toString();
+        if (error is PathNotFoundException || msg.contains('HTTP 404')) {
+          response.statusCode = HttpStatus.notFound;
+        } else {
+          response.statusCode = HttpStatus.badGateway;
+        }
         await response.close();
       } catch (_) {}
     } finally {
@@ -432,6 +464,7 @@ class LocalStreamBridge {
   ) async {
     response.persistentConnection = false;
     response.headers.chunkedTransferEncoding = false;
+    response.headers.set(HttpHeaders.connectionHeader, 'close');
     final socket = await response.detachSocket(writeHeaders: true);
     try {
       socket.setOption(SocketOption.tcpNoDelay, true);
@@ -463,6 +496,7 @@ class LocalStreamBridge {
 
       const flushThresholdBytes = 256 * 1024;
       var unflushedBytes = 0;
+      var firstChunkFlushed = false;
       while (true) {
         final hasNext = await Future.any<bool>([
           iterator.moveNext(),
@@ -481,7 +515,8 @@ class LocalStreamBridge {
         }
         socket.add(chunk);
         unflushedBytes += chunk.length;
-        if (unflushedBytes >= flushThresholdBytes) {
+        if (!firstChunkFlushed || unflushedBytes >= flushThresholdBytes) {
+          firstChunkFlushed = true;
           unflushedBytes = 0;
           await socket.flush();
         }

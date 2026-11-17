@@ -12,6 +12,7 @@ import '../../infrastructure/sources/source_gateway_factory.dart';
 import '../../infrastructure/sources/webdav_source_gateway.dart';
 import '../../infrastructure/storage/storage_root_provider.dart';
 import '../../infrastructure/stream_bridge/local_stream_bridge.dart';
+import '../playback/playback_preferences_provider.dart';
 import 'library_providers.dart';
 
 /// 全局共享 WebDAV HTTP Keep-Alive 连接池与 Digest 质询缓存 Provider。
@@ -78,37 +79,21 @@ class PlaybackCoordinator {
     }
 
     final effectivePlayer =
-        player ?? await _pickDefaultVideoPlayer(await repo.getExternalPlayers());
-    final initialPosition = startSeconds > 0
+        player ??
+        await _pickDefaultVideoPlayer(await repo.getExternalPlayers());
+    final effectiveStart = startSeconds > 0
         ? startSeconds
+        : ((prevRecord != null &&
+                  !prevRecord.isCompleted &&
+                  prevRecord.positionSeconds > 5)
+              ? prevRecord.positionSeconds
+              : 0);
+    final initialPosition = effectiveStart > 0
+        ? effectiveStart
         : (prevRecord?.positionSeconds ?? 0);
     final initialDuration = prevRecord?.durationSeconds ?? 0;
     final initialCompleted = prevRecord?.isCompleted ?? false;
     final recordId = prevRecord?.id ?? '${work.id}::${episode.id}';
-
-    await repo.recordPlayback(
-      PlaybackRecord(
-        id: recordId,
-        workId: work.id,
-        episodeId: episode.id,
-        variantId: variant.id,
-        seasonNumber: episode.seasonNumber,
-        episodeNumber: episode.episodeNumber,
-        episodeTitle:
-            episode.title ??
-            (episode.episodeNumber != null
-                ? '第 ${episode.episodeNumber} 话'
-                : (episode.category == EpisodeCategory.extra
-                      ? (episode.extraType?.name.toUpperCase() ?? '特典')
-                      : work.title)),
-        sourceType: sourceType,
-        playedAt: DateTime.now(),
-        positionSeconds: initialPosition,
-        durationSeconds: initialDuration,
-        isCompleted: initialCompleted,
-      ),
-    );
-    _invalidateWorkAndHistory(work.id);
 
     MediaSource? resolvedSource = source;
     if (resolvedSource == null) {
@@ -122,44 +107,72 @@ class PlaybackCoordinator {
     }
 
     final launcher = _ref.read(externalPlayerLauncherProvider);
-    return launcher.launch(
+    final launchRes = await launcher.launch(
       work: work,
       episode: episode,
       variant: variant,
       player: effectivePlayer,
       source: resolvedSource,
-      startSeconds: startSeconds,
+      startSeconds: effectiveStart,
       mainEpisodeCount: mainEpisodeCount,
-      onProgressUpdate: (posSeconds, durSeconds, {required bool isFinal}) async {
-        final completed = PlaybackRecord.computeCompleted(
-          positionSeconds: posSeconds,
-          durationSeconds: durSeconds,
-        );
-        await repo.recordPlayback(
-          PlaybackRecord(
-            id: recordId,
-            workId: work.id,
-            episodeId: episode.id,
-            variantId: variant.id,
-            seasonNumber: episode.seasonNumber,
-            episodeNumber: episode.episodeNumber,
-            episodeTitle:
-                episode.title ??
-                (episode.episodeNumber != null
-                    ? '第 ${episode.episodeNumber} 话'
-                    : (episode.category == EpisodeCategory.extra
-                          ? (episode.extraType?.name.toUpperCase() ?? '特典')
-                          : work.title)),
-            sourceType: sourceType,
-            playedAt: DateTime.now(),
-            positionSeconds: posSeconds,
-            durationSeconds: durSeconds,
-            isCompleted: completed,
-          ),
-        );
-        _invalidateWorkAndHistory(work.id);
-      },
+      onProgressUpdate:
+          (posSeconds, durSeconds, {required bool isFinal}) async {
+            final completed = PlaybackRecord.computeCompleted(
+              positionSeconds: posSeconds,
+              durationSeconds: durSeconds,
+            );
+            await repo.recordPlayback(
+              PlaybackRecord(
+                id: recordId,
+                workId: work.id,
+                episodeId: episode.id,
+                variantId: variant.id,
+                seasonNumber: episode.seasonNumber,
+                episodeNumber: episode.episodeNumber,
+                episodeTitle:
+                    episode.title ??
+                    (episode.episodeNumber != null
+                        ? '第 ${episode.episodeNumber} 话'
+                        : (episode.category == EpisodeCategory.extra
+                              ? (episode.extraType?.name.toUpperCase() ?? '特典')
+                              : work.title)),
+                sourceType: sourceType,
+                playedAt: DateTime.now(),
+                positionSeconds: posSeconds,
+                durationSeconds: durSeconds,
+                isCompleted: completed,
+              ),
+            );
+            _invalidateWorkAndHistory(work.id);
+          },
     );
+
+    if (launchRes.launched) {
+      await repo.recordPlayback(
+        PlaybackRecord(
+          id: recordId,
+          workId: work.id,
+          episodeId: episode.id,
+          variantId: variant.id,
+          seasonNumber: episode.seasonNumber,
+          episodeNumber: episode.episodeNumber,
+          episodeTitle:
+              episode.title ??
+              (episode.episodeNumber != null
+                  ? '第 ${episode.episodeNumber} 话'
+                  : (episode.category == EpisodeCategory.extra
+                        ? (episode.extraType?.name.toUpperCase() ?? '特典')
+                        : work.title)),
+          sourceType: sourceType,
+          playedAt: DateTime.now(),
+          positionSeconds: initialPosition,
+          durationSeconds: initialDuration,
+          isCompleted: initialCompleted,
+        ),
+      );
+      _invalidateWorkAndHistory(work.id);
+    }
+    return launchRes;
   }
 
   /// 手动将单集或历史记录标记为「已看完」。
@@ -277,7 +290,8 @@ class PlaybackCoordinator {
   }) async {
     final repo = _ref.read(libraryRepositoryProvider);
     final effectivePlayer =
-        player ?? await _pickDefaultVideoPlayer(await repo.getExternalPlayers());
+        player ??
+        await _pickDefaultVideoPlayer(await repo.getExternalPlayers());
     MediaSource? resolvedSource = source;
     if (resolvedSource == null) {
       final allSources = await repo.getMediaSources();
@@ -312,12 +326,19 @@ class PlaybackCoordinator {
     final videoPlayers = players
         .where(
           (p) =>
-              p.kind == ExternalPlayerKind.mpv ||
-              p.kind == ExternalPlayerKind.potplayer ||
-              p.kind == ExternalPlayerKind.custom,
+              (p.kind == ExternalPlayerKind.mpv ||
+                  p.kind == ExternalPlayerKind.potplayer ||
+                  p.kind == ExternalPlayerKind.custom) &&
+              p.executablePath.trim().isNotEmpty,
         )
         .toList();
     if (videoPlayers.isEmpty) return null;
+    final preferredKind = _ref
+        .read(playbackPreferencesProvider)
+        .preferredExternalVideoKind;
+    for (final p in videoPlayers) {
+      if (p.kind == preferredKind) return p;
+    }
     for (final p in videoPlayers) {
       if (p.isDefault) return p;
     }

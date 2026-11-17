@@ -13,6 +13,7 @@ typedef _CreateFileWNative =
       Uint32 dwFlagsAndAttributes,
       IntPtr hTemplateFile,
     );
+
 /// Win32 `CreateFileW` Dart 函数签名。
 typedef Win32CreateFileWDart =
     int Function(
@@ -34,6 +35,7 @@ typedef _PeekNamedPipeNative =
       Pointer<Uint32> lpTotalBytesAvail,
       Pointer<Uint32> lpBytesLeftThisMessage,
     );
+
 /// Win32 `PeekNamedPipe` Dart 函数签名。
 typedef Win32PeekNamedPipeDart =
     int Function(
@@ -53,6 +55,7 @@ typedef _ReadFileNative =
       Pointer<Uint32> lpNumberOfBytesRead,
       Pointer<Void> lpOverlapped,
     );
+
 /// Win32 `ReadFile` Dart 函数签名。
 typedef Win32ReadFileDart =
     int Function(
@@ -71,6 +74,7 @@ typedef _WriteFileNative =
       Pointer<Uint32> lpNumberOfBytesWritten,
       Pointer<Void> lpOverlapped,
     );
+
 /// Win32 `WriteFile` Dart 函数签名。
 typedef Win32WriteFileDart =
     int Function(
@@ -82,6 +86,7 @@ typedef Win32WriteFileDart =
     );
 
 typedef _CloseHandleNative = Int32 Function(IntPtr hObject);
+
 /// Win32 `CloseHandle` Dart 函数签名。
 typedef Win32CloseHandleDart = int Function(int hObject);
 
@@ -92,6 +97,7 @@ typedef _EnumWindowsNative =
       Pointer<NativeFunction<Win32EnumWindowsProcNative>> lpEnumFunc,
       IntPtr lParam,
     );
+
 /// Win32 `EnumWindows` Dart 函数签名。
 typedef Win32EnumWindowsDart =
     int Function(
@@ -101,22 +107,26 @@ typedef Win32EnumWindowsDart =
 
 typedef _GetWindowThreadProcessIdNative =
     Uint32 Function(IntPtr hWnd, Pointer<Uint32> lpdwProcessId);
+
 /// Win32 `GetWindowThreadProcessId` Dart 函数签名。
 typedef Win32GetWindowThreadProcessIdDart =
     int Function(int hWnd, Pointer<Uint32> lpdwProcessId);
 
 typedef _GetClassNameWNative =
     Int32 Function(IntPtr hWnd, Pointer<Utf16> lpClassName, Int32 nMaxCount);
+
 /// Win32 `GetClassNameW` Dart 函数签名。
 typedef Win32GetClassNameWDart =
     int Function(int hWnd, Pointer<Utf16> lpClassName, int nMaxCount);
 
 typedef _IsWindowNative = Int32 Function(IntPtr hWnd);
+
 /// Win32 `IsWindow` Dart 函数签名。
 typedef Win32IsWindowDart = int Function(int hWnd);
 
 typedef _SendMessageWNative =
     IntPtr Function(IntPtr hWnd, Uint32 msg, IntPtr wParam, IntPtr lParam);
+
 /// Win32 `SendMessageW` Dart 函数签名。
 typedef Win32SendMessageWDart =
     int Function(int hWnd, int msg, int wParam, int lParam);
@@ -125,26 +135,28 @@ typedef Win32SendMessageWDart =
 final List<int> _collectedEnumWindows = <int>[];
 int _targetFilterPid = 0;
 
+bool _isPotPlayerMainWindowClass(String cls) {
+  return cls == 'PotPlayer64' || cls == 'PotPlayer';
+}
+
 int _win32EnumWindowsCallback(int hWnd, int lParam) {
   final bindings = Win32FfiBindings.instance;
-  if (bindings == null) return 0;
+  if (bindings == null) {
+    return 0;
+  }
+
+  final cls = bindings.getWindowClassName(hWnd);
+  if (!_isPotPlayerMainWindowClass(cls)) {
+    return 1;
+  }
 
   if (_targetFilterPid > 0) {
     final pid = bindings.getWindowProcessId(hWnd);
     if (pid == _targetFilterPid) {
-      final cls = bindings.getWindowClassName(hWnd);
-      if (cls.startsWith('PotPlayer')) {
-        _collectedEnumWindows.add(hWnd);
-        return 0;
-      }
       _collectedEnumWindows.add(hWnd);
     }
   } else {
-    final cls = bindings.getWindowClassName(hWnd);
-    if (cls == 'PotPlayer64' || cls == 'PotPlayer') {
-      _collectedEnumWindows.add(hWnd);
-      return 0;
-    }
+    _collectedEnumWindows.add(hWnd);
   }
   return 1;
 }
@@ -154,9 +166,10 @@ int _win32EnumWindowsCallback(int hWnd, int lParam) {
 /// 仅在 Windows 平台按需打开 `kernel32.dll` 与 `user32.dll`，保持其余平台零原生崩溃。
 class Win32FfiBindings {
   Win32FfiBindings._(DynamicLibrary kernel32, DynamicLibrary user32)
-    : createFileW = kernel32.lookupFunction<_CreateFileWNative, Win32CreateFileWDart>(
-        'CreateFileW',
-      ),
+    : createFileW = kernel32
+          .lookupFunction<_CreateFileWNative, Win32CreateFileWDart>(
+            'CreateFileW',
+          ),
       peekNamedPipe = kernel32
           .lookupFunction<_PeekNamedPipeNative, Win32PeekNamedPipeDart>(
             'PeekNamedPipe',
@@ -168,9 +181,13 @@ class Win32FfiBindings {
         'WriteFile',
       ),
       closeHandle = kernel32
-          .lookupFunction<_CloseHandleNative, Win32CloseHandleDart>('CloseHandle'),
+          .lookupFunction<_CloseHandleNative, Win32CloseHandleDart>(
+            'CloseHandle',
+          ),
       enumWindows = user32
-          .lookupFunction<_EnumWindowsNative, Win32EnumWindowsDart>('EnumWindows'),
+          .lookupFunction<_EnumWindowsNative, Win32EnumWindowsDart>(
+            'EnumWindows',
+          ),
       getWindowThreadProcessId = user32
           .lookupFunction<
             _GetWindowThreadProcessIdNative,
@@ -192,7 +209,9 @@ class Win32FfiBindings {
 
   /// 获取当前平台单例 Win32 FFI 绑定（非 Windows 平台返回 `null`）。
   static Win32FfiBindings? get instance {
-    if (!Platform.isWindows) return null;
+    if (!Platform.isWindows) {
+      return null;
+    }
     return _cached ??= Win32FfiBindings._(
       DynamicLibrary.open('kernel32.dll'),
       DynamicLibrary.open('user32.dll'),
@@ -239,31 +258,38 @@ class Win32FfiBindings {
     final buf = calloc<Uint16>(maxLen);
     try {
       final copied = getClassNameW(hWnd, buf.cast<Utf16>(), maxLen);
-      if (copied <= 0) return '';
+      if (copied <= 0) {
+        return '';
+      }
       return buf.cast<Utf16>().toDartString(length: copied);
     } finally {
       calloc.free(buf);
     }
   }
 
-  /// 定位指定 PID（或回退匹配 PotPlayer 主窗口类）对应的 PotPlayer 窗口句柄。
-  int findPotPlayerWindow({required int targetPid}) {
+  /// 枚举指定 PID（或回退全局）下全部真实的 `PotPlayer64` / `PotPlayer` 顶层主窗口句柄。
+  List<int> findPotPlayerWindows({required int targetPid}) {
     _collectedEnumWindows.clear();
-    _targetFilterPid = targetPid;
-    enumWindows(_enumPtr, 0);
-    if (_collectedEnumWindows.isNotEmpty) {
-      final result = _collectedEnumWindows.first;
-      _collectedEnumWindows.clear();
-      return result;
+    if (targetPid > 0) {
+      _targetFilterPid = targetPid;
+      enumWindows(_enumPtr, 0);
+      if (_collectedEnumWindows.isNotEmpty) {
+        final matched = List<int>.of(_collectedEnumWindows);
+        _collectedEnumWindows.clear();
+        return matched;
+      }
     }
 
-    // PotPlayer 开启单实例模式时，新起进程会把参数转发并立刻退出，此时回退查找已有实例主窗口。
     _targetFilterPid = 0;
     enumWindows(_enumPtr, 0);
-    final fallback = _collectedEnumWindows.isNotEmpty
-        ? _collectedEnumWindows.first
-        : 0;
+    final fallback = List<int>.of(_collectedEnumWindows);
     _collectedEnumWindows.clear();
     return fallback;
+  }
+
+  /// 定位指定 PID（或回退匹配 PotPlayer 主窗口类）对应的首个 PotPlayer 主窗口句柄。
+  int findPotPlayerWindow({required int targetPid}) {
+    final windows = findPotPlayerWindows(targetPid: targetPid);
+    return windows.isNotEmpty ? windows.first : 0;
   }
 }

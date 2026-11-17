@@ -8,10 +8,7 @@ import 'package:ffi/ffi.dart';
 import 'win32_ffi_bindings.dart';
 
 /// 后台 Isolate 向主 Isolate 回传的播放器进度快照（秒级整型）。
-typedef IsolatedPlaybackSnapshot = ({
-  int positionSeconds,
-  int durationSeconds,
-});
+typedef IsolatedPlaybackSnapshot = ({int positionSeconds, int durationSeconds});
 
 /// 后台工作 Isolate 控制句柄，用于向轮询隔离区发送停止指令并回收端口资源。
 class PlayerTrackingIsolateHandle {
@@ -63,7 +60,21 @@ Future<double?> queryMpvNumericInBackgroundIsolate(
 Future<IsolatedPlaybackSnapshot?> queryPotPlayerInBackgroundIsolate(
   int processId,
 ) {
-  return Isolate.run(() => Future<IsolatedPlaybackSnapshot?>.value(_queryPotPlayerOnce(processId)));
+  return Isolate.run(
+    () =>
+        Future<IsolatedPlaybackSnapshot?>.value(_queryPotPlayerOnce(processId)),
+  );
+}
+
+/// 在后台 Isolate 检查系统中是否仍有存活的 PotPlayer 主窗口（用于单实例转发模式存活接管）。
+Future<bool> hasAnyPotPlayerWindowInBackgroundIsolate() {
+  return Isolate.run(() {
+    final bindings = Win32FfiBindings.instance;
+    if (bindings == null) {
+      return false;
+    }
+    return bindings.findPotPlayerWindow(targetPid: 0) != 0;
+  });
 }
 
 /// 启动独立的后台工作 Isolate 轮询 MPV Win32 命名管道 `\\.\pipe\...`，
@@ -86,11 +97,14 @@ Future<PlayerTrackingIsolateHandle> startPotPlayerPollingIsolate({
   required int processId,
   required Duration pollInterval,
   required void Function(IsolatedPlaybackSnapshot snapshot) onSnapshot,
+  int startSeconds = 0,
+  void Function()? onWindowClosed,
 }) async {
   return _spawnTrackingIsolate(
     entryPoint: _potPlayerIsolateMain,
-    bootPayload: <Object>[processId, pollInterval.inMilliseconds],
+    bootPayload: <Object>[processId, pollInterval.inMilliseconds, startSeconds],
     onSnapshot: onSnapshot,
+    onWindowClosed: onWindowClosed,
   );
 }
 
@@ -98,6 +112,7 @@ Future<PlayerTrackingIsolateHandle> _spawnTrackingIsolate({
   required void Function(List<Object> args) entryPoint,
   required List<Object> bootPayload,
   required void Function(IsolatedPlaybackSnapshot snapshot) onSnapshot,
+  void Function()? onWindowClosed,
 }) async {
   final receivePort = ReceivePort();
   SendPort? controlPort;
@@ -105,6 +120,10 @@ Future<PlayerTrackingIsolateHandle> _spawnTrackingIsolate({
   final subscription = receivePort.listen((message) {
     if (message is SendPort) {
       controlPort = message;
+      return;
+    }
+    if (message == 'window_closed') {
+      onWindowClosed?.call();
       return;
     }
     if (message is List && message.length == 2) {
@@ -116,11 +135,10 @@ Future<PlayerTrackingIsolateHandle> _spawnTrackingIsolate({
     }
   });
 
-  final isolate = await Isolate.spawn<List<Object>>(
-    entryPoint,
-    <Object>[receivePort.sendPort, ...bootPayload],
-    debugName: 'konata_player_tracker',
-  );
+  final isolate = await Isolate.spawn<List<Object>>(entryPoint, <Object>[
+    receivePort.sendPort,
+    ...bootPayload,
+  ], debugName: 'konata_player_tracker');
 
   return PlayerTrackingIsolateHandle._(
     isolate: isolate,
@@ -171,11 +189,16 @@ Future<void> _potPlayerIsolateMain(List<Object> args) async {
   final replyPort = args[0] as SendPort;
   final processId = args[1] as int;
   final pollMs = (args[2] as int).clamp(200, 10000);
+  final startSeconds = args.length >= 4 ? (args[3] as int) : 0;
 
   final controlPort = ReceivePort();
   replyPort.send(controlPort.sendPort);
 
   var stopped = false;
+  var enforcedInitialSeek = startSeconds <= 5;
+  var hadWindowOnce = false;
+  var missingWindowStreak = 0;
+
   final sub = controlPort.listen((msg) {
     if (msg == 'stop') {
       stopped = true;
@@ -183,8 +206,28 @@ Future<void> _potPlayerIsolateMain(List<Object> args) async {
   });
 
   while (!stopped) {
-    final snapshot = _queryPotPlayerOnce(processId);
+    final result = _queryPotPlayerDetailed(
+      processId,
+      enforceSeekSeconds: enforcedInitialSeek ? 0 : startSeconds,
+    );
+    if (result.windowExists) {
+      hadWindowOnce = true;
+      missingWindowStreak = 0;
+    } else if (hadWindowOnce) {
+      missingWindowStreak += 1;
+      if (missingWindowStreak >= 2) {
+        replyPort.send('window_closed');
+      }
+    }
+
+    if (result.didEnforceSeek) {
+      enforcedInitialSeek = true;
+    }
+    final snapshot = result.snapshot;
     if (snapshot != null) {
+      if (snapshot.positionSeconds >= 3) {
+        enforcedInitialSeek = true;
+      }
       replyPort.send(<int>[snapshot.positionSeconds, snapshot.durationSeconds]);
     }
     await _interruptibleWait(pollMs, () => stopped);
@@ -194,37 +237,61 @@ Future<void> _potPlayerIsolateMain(List<Object> args) async {
   controlPort.close();
 }
 
-IsolatedPlaybackSnapshot? _queryPotPlayerOnce(int processId) {
+({IsolatedPlaybackSnapshot? snapshot, bool windowExists, bool didEnforceSeek})
+_queryPotPlayerDetailed(int processId, {int enforceSeekSeconds = 0}) {
   const wmUser = 0x0400;
   const potGetTotalTime = 0x5002;
   const potGetCurrentTime = 0x5004;
+  const potSetCurrentTime = 0x5005;
 
   final bindings = Win32FfiBindings.instance;
   if (bindings == null) {
-    return null;
+    return (snapshot: null, windowExists: false, didEnforceSeek: false);
   }
-  final hwnd = bindings.findPotPlayerWindow(targetPid: processId);
-  if (hwnd == 0 || bindings.isWindow(hwnd) == 0) {
-    return null;
-  }
-
-  final totalMs = bindings.sendMessageW(hwnd, wmUser, potGetTotalTime, 0);
-  if (totalMs <= 0) {
-    return null;
-  }
-  final currentMs = bindings.sendMessageW(
-    hwnd,
-    wmUser,
-    potGetCurrentTime,
-    0,
-  );
-  if (currentMs < 0) {
-    return null;
+  final windows = bindings.findPotPlayerWindows(targetPid: processId);
+  if (windows.isEmpty) {
+    return (snapshot: null, windowExists: false, didEnforceSeek: false);
   }
 
-  final durSec = (totalMs / 1000).round().clamp(1, 86400 * 10);
-  final posSec = (currentMs / 1000).round().clamp(0, durSec);
-  return (positionSeconds: posSec, durationSeconds: durSec);
+  var anyValidWindow = false;
+  for (final hwnd in windows) {
+    if (hwnd == 0 || bindings.isWindow(hwnd) == 0) {
+      continue;
+    }
+    anyValidWindow = true;
+    final totalMs = bindings.sendMessageW(hwnd, wmUser, potGetTotalTime, 0);
+    if (totalMs <= 0) {
+      continue;
+    }
+    var currentMs = bindings.sendMessageW(hwnd, wmUser, potGetCurrentTime, 0);
+    if (currentMs < 0) {
+      continue;
+    }
+
+    var didSeek = false;
+    final targetMs = enforceSeekSeconds * 1000;
+    if (enforceSeekSeconds > 5 &&
+        totalMs > targetMs + 2000 &&
+        currentMs < 2500) {
+      bindings.sendMessageW(hwnd, wmUser, potSetCurrentTime, targetMs);
+      currentMs = targetMs;
+      didSeek = true;
+    }
+
+    final durSec = (totalMs / 1000).round().clamp(1, 86400 * 10);
+    final posSec = (currentMs / 1000).round().clamp(0, durSec);
+    return (
+      snapshot: (positionSeconds: posSec, durationSeconds: durSec),
+      windowExists: true,
+      didEnforceSeek: didSeek,
+    );
+  }
+
+  return (snapshot: null, windowExists: anyValidWindow, didEnforceSeek: false);
+}
+
+IsolatedPlaybackSnapshot? _queryPotPlayerOnce(int processId) {
+  return _queryPotPlayerDetailed(processId).snapshot;
 }
 
 Future<void> _interruptibleWait(int totalMs, bool Function() isStopped) async {

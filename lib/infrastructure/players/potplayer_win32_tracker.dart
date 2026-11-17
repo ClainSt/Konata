@@ -45,17 +45,15 @@ class PotPlayerWin32Tracker {
     );
   }
 
-  /// 后台每 2 秒读取 PotPlayer 窗口播放进度；含 0 秒瞬态防抖与进程退出前最后有效快照落库。
-  ///
-  /// 真实 Win32 场景使用独立的后台 `Isolate.spawn` 运行 `EnumWindows` / `SendMessageW`，零阻塞主线程。
+  /// 后台每 800ms 读取 PotPlayer 窗口播放进度；含 0 秒瞬态防抖、单实例窗口接管与退出快照落库。
   static Future<({int positionSeconds, int durationSeconds})?> trackProcess({
     required int processId,
     required Future<int> exitCodeFuture,
     required PlaybackProgressPersistCallback onPersist,
     int startSeconds = 0,
     PotPlayerWindowProbe probe = const Win32PotPlayerWindowProbe(),
-    Duration pollInterval = const Duration(seconds: 2),
-    Duration persistInterval = const Duration(seconds: 5),
+    Duration pollInterval = const Duration(milliseconds: 800),
+    Duration persistInterval = const Duration(seconds: 4),
   }) async {
     final stabilizer = PlaybackProgressStabilizer(
       startSeconds: startSeconds,
@@ -64,18 +62,34 @@ class PotPlayerWin32Tracker {
     );
 
     if (probe is Win32PotPlayerWindowProbe) {
+      final startedAt = DateTime.now();
+      final windowClosedCompleter = Completer<void>();
       PlayerTrackingIsolateHandle? handle;
       try {
         handle = await startPotPlayerPollingIsolate(
           processId: processId,
           pollInterval: pollInterval,
+          startSeconds: startSeconds,
           onSnapshot: (snap) {
             unawaited(
               stabilizer.accept(snap.positionSeconds, snap.durationSeconds),
             );
           },
+          onWindowClosed: () {
+            if (!windowClosedCompleter.isCompleted) {
+              windowClosedCompleter.complete();
+            }
+          },
         );
         await exitCodeFuture;
+        // 若启动子进程在 4 秒内迅速退出，说明 PotPlayer 处于单实例转发模式，继续追踪已存在的真实窗口直至其关闭
+        if (DateTime.now().difference(startedAt) < const Duration(seconds: 4) &&
+            !windowClosedCompleter.isCompleted) {
+          final alive = await hasAnyPotPlayerWindowInBackgroundIsolate();
+          if (alive && !windowClosedCompleter.isCompleted) {
+            await windowClosedCompleter.future;
+          }
+        }
       } finally {
         await handle?.stop();
       }
@@ -85,10 +99,14 @@ class PotPlayerWin32Tracker {
     // 单元测试注入轻量内存替身时的同步定时轮询通道。
     var running = true;
     final timer = Timer.periodic(pollInterval, (_) {
-      if (!running) return;
+      if (!running) {
+        return;
+      }
       unawaited(() async {
         final snapshot = await probe.queryProgress(processId: processId);
-        if (snapshot == null) return;
+        if (snapshot == null) {
+          return;
+        }
         await stabilizer.accept(
           snapshot.positionSeconds,
           snapshot.durationSeconds,

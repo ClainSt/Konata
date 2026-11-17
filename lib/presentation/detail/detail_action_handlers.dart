@@ -13,6 +13,7 @@ import '../../domain/models/episode.dart';
 import '../../domain/models/external_player_config.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
+import '../../domain/models/playback_record.dart';
 import '../../domain/models/work.dart';
 import '../dialogs/delete_work_dialog.dart';
 import '../dialogs/manual_match_dialog.dart';
@@ -77,7 +78,25 @@ class DetailActionHandlers {
       showKonataToast(context, '该剧集暂无可用视频文件');
       return;
     }
-    final saved = bundle.playbackByEpisodeId[episode.id];
+    PlaybackRecord? saved = bundle.playbackByEpisodeId[episode.id];
+    if (startSeconds == null) {
+      try {
+        final freshList = await ref
+            .read(libraryRepositoryProvider)
+            .getPlaybacksByWork(bundle.work.id);
+        for (final rec in freshList) {
+          if (rec.episodeId == episode.id) {
+            if (saved == null || !rec.playedAt.isBefore(saved.playedAt)) {
+              saved = rec;
+            }
+            break;
+          }
+        }
+      } catch (_) {}
+      if (!context.mounted) {
+        return;
+      }
+    }
     final effectiveStart =
         startSeconds ??
         ((saved != null && !saved.isCompleted && saved.positionSeconds > 5)

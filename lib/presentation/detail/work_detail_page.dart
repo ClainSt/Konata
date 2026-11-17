@@ -94,6 +94,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
 
   void _returnToLibrary() {
     if (!mounted) return;
+    _scanScheduler.cancelAll();
     Navigator.of(context).maybePop();
   }
 
@@ -564,7 +565,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                   child: _WorkDetailTopBar(
                     forceLightIcons: forceLightChrome,
                     showGlassChrome: hasActiveBundle,
-                    onBack: _handleEscapeOrBack,
+                    onBack: _returnToLibrary,
                   ),
                 ),
               ],

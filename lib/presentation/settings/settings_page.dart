@@ -41,6 +41,7 @@ class SettingsPage extends ConsumerStatefulWidget {
 class _SettingsPageState extends ConsumerState<SettingsPage> {
   final ScrollController _contentCtrl = ScrollController();
   SettingsCategory _selected = SettingsCategory.appearance;
+  SettingsCategory? _hoveredCategory;
 
   @override
   void dispose() {
@@ -49,7 +50,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   void _selectCategory(SettingsCategory category) {
-    if (_selected == category) return;
+    if (_selected == category) {
+      return;
+    }
     setState(() => _selected = category);
     if (_contentCtrl.hasClients) {
       _contentCtrl.jumpTo(0);
@@ -73,21 +76,39 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   left: KonataTheme.pageHorizontalPadding,
                   bottom: 24,
                 ),
-                child: SizedBox(
-                  width: 220,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      for (final category in SettingsCategory.values) ...[
-                        _CategoryNavItem(
-                          label: category.label,
-                          icon: category.icon,
-                          selected: _selected == category,
-                          onTap: () => _selectCategory(category),
-                        ),
-                        const SizedBox(height: 4),
+                child: MouseRegion(
+                  onExit: (_) {
+                    if (_hoveredCategory != null) {
+                      setState(() => _hoveredCategory = null);
+                    }
+                  },
+                  child: SizedBox(
+                    width: 220,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (final category in SettingsCategory.values) ...[
+                          _CategoryNavItem(
+                            label: category.label,
+                            icon: category.icon,
+                            selected: _selected == category,
+                            hovered: _hoveredCategory == category,
+                            onHoverEnter: () {
+                              if (_hoveredCategory != category) {
+                                setState(() => _hoveredCategory = category);
+                              }
+                            },
+                            onHoverExit: () {
+                              if (_hoveredCategory == category) {
+                                setState(() => _hoveredCategory = null);
+                              }
+                            },
+                            onTap: () => _selectCategory(category),
+                          ),
+                          const SizedBox(height: 4),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -112,8 +133,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           const SettingsDisplayPanel(),
                         SettingsCategory.network =>
                           const SettingsNetworkPanel(),
-                        SettingsCategory.player =>
-                          const SettingsPlayersPanel(),
+                        SettingsCategory.player => const SettingsPlayersPanel(),
                         SettingsCategory.externalTools =>
                           const SettingsExternalToolsPanel(),
                         SettingsCategory.about => const SettingsAboutPanel(),
@@ -130,46 +150,48 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 }
 
-class _CategoryNavItem extends StatefulWidget {
+class _CategoryNavItem extends StatelessWidget {
   const _CategoryNavItem({
     required this.label,
     required this.icon,
     required this.selected,
+    required this.hovered,
+    required this.onHoverEnter,
+    required this.onHoverExit,
     required this.onTap,
   });
 
   final String label;
   final IconData icon;
   final bool selected;
+  final bool hovered;
+  final VoidCallback onHoverEnter;
+  final VoidCallback onHoverExit;
   final VoidCallback onTap;
-
-  @override
-  State<_CategoryNavItem> createState() => _CategoryNavItemState();
-}
-
-class _CategoryNavItemState extends State<_CategoryNavItem> {
-  bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final bgColor = widget.selected
-        ? p.softFill
-        : (_hovered ? p.softFill.withValues(alpha: 0.45) : Colors.transparent);
-    final fgColor = widget.selected
+    final hoverBase = p.isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.black.withValues(alpha: 0.055);
+    final idleBg = hoverBase.withValues(alpha: 0.0);
+    final bgColor = selected ? p.softFill : (hovered ? hoverBase : idleBg);
+    final fgColor = selected
         ? p.textPrimary
-        : (_hovered ? p.textPrimary.withValues(alpha: 0.85) : p.textSecondary);
+        : (hovered ? p.textPrimary.withValues(alpha: 0.90) : p.textSecondary);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      onEnter: (_) => onHoverEnter(),
+      onHover: (_) => onHoverEnter(),
+      onExit: (_) => onHoverExit(),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
+        onTap: onTap,
         child: AnimatedContainer(
-          duration: KonataTheme.standardTransition,
-          curve: Curves.easeOutCubic,
+          duration: const Duration(milliseconds: 70),
+          curve: Curves.easeOut,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             color: bgColor,
@@ -177,14 +199,14 @@ class _CategoryNavItemState extends State<_CategoryNavItem> {
           ),
           child: Row(
             children: [
-              Icon(widget.icon, size: 20, color: fgColor),
+              Icon(icon, size: 20, color: fgColor),
               const SizedBox(width: 12),
               Text(
-                widget.label,
+                label,
                 style: KonataTheme.textStyle(
                   color: fgColor,
                   fontSize: 14.5,
-                  weight: widget.selected
+                  weight: selected
                       ? KonataTheme.weightActive
                       : KonataTheme.weightRegularLabel,
                 ),

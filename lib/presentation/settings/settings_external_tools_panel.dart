@@ -4,12 +4,14 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../application/playback/playback_preferences_provider.dart';
 import '../../application/providers/library_providers.dart';
 import '../../application/providers/source_actions_provider.dart';
 import '../../domain/models/external_player_config.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_pill_button.dart';
+import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 
@@ -30,6 +32,7 @@ class _SettingsExternalToolsPanelState
   final TextEditingController _audioController = TextEditingController();
   final TextEditingController _imageController = TextEditingController();
 
+  ExternalPlayerKind _preferredVideoKind = ExternalPlayerKind.mpv;
   bool _initialized = false;
   bool _hasPendingSave = false;
   Timer? _autoSaveTimer;
@@ -52,22 +55,25 @@ class _SettingsExternalToolsPanelState
   }
 
   List<ExternalPlayerConfig> _buildConfigs() {
+    final preferPot = _preferredVideoKind == ExternalPlayerKind.potplayer;
+    final mpvConfig = ExternalPlayerConfig(
+      id: 'player_mpv',
+      name: 'MPV 播放器',
+      kind: ExternalPlayerKind.mpv,
+      executablePath: _mpvController.text.trim(),
+      argumentsTemplate: '--force-window=yes {url}',
+      isDefault: !preferPot,
+    );
+    final potConfig = ExternalPlayerConfig(
+      id: 'player_potplayer',
+      name: 'PotPlayer',
+      kind: ExternalPlayerKind.potplayer,
+      executablePath: _potController.text.trim(),
+      argumentsTemplate: '{url}',
+      isDefault: preferPot,
+    );
     return [
-      ExternalPlayerConfig(
-        id: 'player_mpv',
-        name: 'MPV 播放器',
-        kind: ExternalPlayerKind.mpv,
-        executablePath: _mpvController.text.trim(),
-        argumentsTemplate: '--force-window=yes {url}',
-        isDefault: true,
-      ),
-      ExternalPlayerConfig(
-        id: 'player_potplayer',
-        name: 'PotPlayer',
-        kind: ExternalPlayerKind.potplayer,
-        executablePath: _potController.text.trim(),
-        argumentsTemplate: '{url}',
-      ),
+      if (preferPot) ...[potConfig, mpvConfig] else ...[mpvConfig, potConfig],
       ExternalPlayerConfig(
         id: 'player_audio',
         name: '外部音频播放器',
@@ -85,6 +91,23 @@ class _SettingsExternalToolsPanelState
     ];
   }
 
+  void _onPreferredVideoKindChanged(ExternalPlayerKind next) {
+    if (_preferredVideoKind == next) {
+      return;
+    }
+    setState(() {
+      _initialized = true;
+      _preferredVideoKind = next;
+    });
+    unawaited(
+      ref
+          .read(playbackPreferencesProvider.notifier)
+          .setPreferredExternalVideoKind(next),
+    );
+    _hasPendingSave = true;
+    unawaited(_flushAutoSave());
+  }
+
   void _scheduleAutoSave() {
     _initialized = true;
     _hasPendingSave = true;
@@ -98,10 +121,14 @@ class _SettingsExternalToolsPanelState
   Future<void> _flushAutoSave() async {
     _autoSaveTimer?.cancel();
     _autoSaveTimer = null;
-    if (!_hasPendingSave) return;
+    if (!_hasPendingSave) {
+      return;
+    }
     final coordinator =
         _actions ?? (mounted ? ref.read(konataActionsProvider) : null);
-    if (coordinator == null) return;
+    if (coordinator == null) {
+      return;
+    }
     _hasPendingSave = false;
     await coordinator.saveExternalPlayers(_buildConfigs());
   }
@@ -128,17 +155,27 @@ class _SettingsExternalToolsPanelState
   Widget build(BuildContext context) {
     final p = context.palette;
     final playersAsync = ref.watch(externalPlayersProvider);
+    final prefKind = ref.watch(
+      playbackPreferencesProvider.select((s) => s.preferredExternalVideoKind),
+    );
     _actions = ref.read(konataActionsProvider);
 
     playersAsync.whenData((players) {
       if (!_initialized) {
         _initialized = true;
+        ExternalPlayerKind? dbDefault;
         for (final player in players) {
           switch (player.kind) {
             case ExternalPlayerKind.mpv:
               _mpvController.text = player.executablePath;
+              if (player.isDefault) {
+                dbDefault = ExternalPlayerKind.mpv;
+              }
             case ExternalPlayerKind.potplayer:
               _potController.text = player.executablePath;
+              if (player.isDefault) {
+                dbDefault = ExternalPlayerKind.potplayer;
+              }
             case ExternalPlayerKind.audioPlayer:
               _audioController.text = player.executablePath;
             case ExternalPlayerKind.imageViewer:
@@ -147,8 +184,19 @@ class _SettingsExternalToolsPanelState
               break;
           }
         }
+        _preferredVideoKind =
+            prefKind == ExternalPlayerKind.potplayer ||
+                dbDefault == ExternalPlayerKind.potplayer
+            ? ExternalPlayerKind.potplayer
+            : ExternalPlayerKind.mpv;
       }
     });
+
+    if (_initialized && !_hasPendingSave && _preferredVideoKind != prefKind) {
+      _preferredVideoKind = prefKind;
+    }
+
+    final mpvIsPreferred = _preferredVideoKind == ExternalPlayerKind.mpv;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -164,23 +212,53 @@ class _SettingsExternalToolsPanelState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '外部视频播放器与热接力',
-                style: TextStyle(
-                  color: p.textPrimary,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '可在右键菜单、多版本选播或内置播放器顶栏中一键热切换拉起并延续当前秒级进度',
-                style: TextStyle(color: p.textSecondary, fontSize: 12.5),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '外部视频播放器与热接力',
+                          style: TextStyle(
+                            color: p.textPrimary,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '可在右键菜单、多版本选播或内置播放器顶栏中一键热切换拉起并延续当前秒级进度',
+                          style: TextStyle(
+                            color: p.textSecondary,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  KonataSegmentedCapsule<ExternalPlayerKind>(
+                    options: const [
+                      KonataSegmentOption(
+                        value: ExternalPlayerKind.mpv,
+                        label: 'MPV',
+                      ),
+                      KonataSegmentOption(
+                        value: ExternalPlayerKind.potplayer,
+                        label: 'PotPlayer',
+                      ),
+                    ],
+                    selected: _preferredVideoKind,
+                    onChanged: _onPreferredVideoKindChanged,
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
               _ExternalPathFieldRow(
                 controller: _mpvController,
-                label: 'MPV 可执行文件路径（外部首选）',
+                label: mpvIsPreferred ? 'MPV 可执行文件路径（当前首选）' : 'MPV 可执行文件路径（备选）',
                 hintText: r'C:\Program Files\mpv\mpv.exe',
                 icon: Icons.play_circle_outline_rounded,
                 onChanged: (_) => _scheduleAutoSave(),
@@ -193,8 +271,11 @@ class _SettingsExternalToolsPanelState
               const SizedBox(height: 16),
               _ExternalPathFieldRow(
                 controller: _potController,
-                label: 'PotPlayer 可执行文件路径（备选）',
-                hintText: r'C:\Program Files\DAUM\PotPlayer\PotPlayerMini64.exe',
+                label: !mpvIsPreferred
+                    ? 'PotPlayer 可执行文件路径（当前首选）'
+                    : 'PotPlayer 可执行文件路径（备选）',
+                hintText:
+                    r'C:\Program Files\DAUM\PotPlayer\PotPlayerMini64.exe',
                 icon: Icons.ondemand_video_rounded,
                 onChanged: (_) => _scheduleAutoSave(),
                 onSubmitted: (_) => unawaited(_flushAutoSave()),

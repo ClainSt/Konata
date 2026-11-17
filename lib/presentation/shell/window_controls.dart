@@ -31,8 +31,10 @@ class WindowControls extends StatefulWidget {
   State<WindowControls> createState() => _WindowControlsState();
 }
 
-class _WindowControlsState extends State<WindowControls> with WindowListener {
+class _WindowControlsState extends State<WindowControls>
+    with WindowListener, WidgetsBindingObserver {
   bool _isMaximized = false;
+  Timer? _metricsSyncTimer;
 
   bool get _canControlWindow =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
@@ -40,18 +42,40 @@ class _WindowControlsState extends State<WindowControls> with WindowListener {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     if (_canControlWindow) {
       windowManager.addListener(this);
-      _syncMaximizedState();
+      unawaited(_syncMaximizedState());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          unawaited(_syncMaximizedState());
+        }
+      });
     }
   }
 
   @override
   void dispose() {
+    _metricsSyncTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     if (_canControlWindow) {
       windowManager.removeListener(this);
     }
     super.dispose();
+  }
+
+  @override
+  void didChangeMetrics() {
+    if (!_canControlWindow) {
+      return;
+    }
+    unawaited(_syncMaximizedState());
+    _metricsSyncTimer?.cancel();
+    _metricsSyncTimer = Timer(const Duration(milliseconds: 90), () {
+      if (mounted) {
+        unawaited(_syncMaximizedState());
+      }
+    });
   }
 
   Future<void> _syncMaximizedState() async {
@@ -66,7 +90,9 @@ class _WindowControlsState extends State<WindowControls> with WindowListener {
   }
 
   Future<void> _ensureNativeControlsHidden() async {
-    if (!_canControlWindow) return;
+    if (!_canControlWindow) {
+      return;
+    }
     try {
       await Window.hideWindowControls();
     } catch (_) {
@@ -95,6 +121,37 @@ class _WindowControlsState extends State<WindowControls> with WindowListener {
     unawaited(_ensureNativeControlsHidden());
     if (mounted) {
       setState(() => _isMaximized = false);
+    }
+    if (_canControlWindow) {
+      unawaited(_syncMaximizedState());
+    }
+  }
+
+  @override
+  void onWindowResize() {
+    if (_canControlWindow) {
+      unawaited(_syncMaximizedState());
+    }
+  }
+
+  @override
+  void onWindowResized() {
+    if (_canControlWindow) {
+      unawaited(_syncMaximizedState());
+    }
+  }
+
+  @override
+  void onWindowMoved() {
+    if (_canControlWindow) {
+      unawaited(_syncMaximizedState());
+    }
+  }
+
+  @override
+  void onWindowFocus() {
+    if (_canControlWindow) {
+      unawaited(_syncMaximizedState());
     }
   }
 
@@ -131,14 +188,20 @@ class _WindowControlsState extends State<WindowControls> with WindowListener {
           iconSize: _isMaximized ? 13.5 : 15,
           iconColor: iconColor,
           hoverBg: hoverBg,
+          onHoverEnter: _canControlWindow
+              ? () => unawaited(_syncMaximizedState())
+              : null,
           onPressed: () async {
-            if (!_canControlWindow) return;
+            if (!_canControlWindow) {
+              return;
+            }
             if (_isMaximized) {
               await windowManager.unmaximize();
             } else {
               await windowManager.maximize();
             }
             await _ensureNativeControlsHidden();
+            await _syncMaximizedState();
           },
         ),
         _WindowControlButton(
@@ -156,7 +219,9 @@ class _WindowControlsState extends State<WindowControls> with WindowListener {
       ],
     );
 
-    if (!showPill) return controlsRow;
+    if (!showPill) {
+      return controlsRow;
+    }
 
     final pillBg = widget.forceLightIcons
         ? Colors.black.withValues(alpha: 0.30)
@@ -204,6 +269,7 @@ class _WindowControlButton extends StatefulWidget {
     required this.iconColor,
     required this.hoverBg,
     required this.onPressed,
+    this.onHoverEnter,
     this.iconSize = 17,
     this.isClose = false,
   });
@@ -215,6 +281,7 @@ class _WindowControlButton extends StatefulWidget {
   final double iconSize;
   final bool isClose;
   final VoidCallback onPressed;
+  final VoidCallback? onHoverEnter;
 
   @override
   State<_WindowControlButton> createState() => _WindowControlButtonState();
@@ -233,7 +300,10 @@ class _WindowControlButtonState extends State<_WindowControlButton> {
       message: widget.tooltip,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
+        onEnter: (_) {
+          widget.onHoverEnter?.call();
+          setState(() => _hovered = true);
+        },
         onExit: (_) => setState(() => _hovered = false),
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,

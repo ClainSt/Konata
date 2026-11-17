@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../domain/models/external_player_config.dart';
 import '../../domain/playback/track_preferences.dart';
 import '../../infrastructure/players/mpv_quality_profile.dart';
 
@@ -28,6 +29,7 @@ class PlaybackPreferencesState {
   const PlaybackPreferencesState({
     this.defaultVideoEngine = PreferredPlaybackEngine.builtinLibmpv,
     this.defaultAudioEngine = PreferredPlaybackEngine.builtinLibmpv,
+    this.preferredExternalVideoKind = ExternalPlayerKind.mpv,
     this.qualityConfig = const PlaybackQualityConfig(),
     this.autoNextEpisode = true,
     this.promptChapterSkip = true,
@@ -40,6 +42,9 @@ class PlaybackPreferencesState {
 
   /// 默认 CD 音频播放引擎。
   final PreferredPlaybackEngine defaultAudioEngine;
+
+  /// 当使用外部视频播放器时的首选程序（MPV / PotPlayer）。
+  final ExternalPlayerKind preferredExternalVideoKind;
 
   /// 内置 `libmpv` 画质、音频与字幕配置参数。
   final PlaybackQualityConfig qualityConfig;
@@ -60,6 +65,7 @@ class PlaybackPreferencesState {
   PlaybackPreferencesState copyWith({
     PreferredPlaybackEngine? defaultVideoEngine,
     PreferredPlaybackEngine? defaultAudioEngine,
+    ExternalPlayerKind? preferredExternalVideoKind,
     PlaybackQualityConfig? qualityConfig,
     bool? autoNextEpisode,
     bool? promptChapterSkip,
@@ -69,6 +75,8 @@ class PlaybackPreferencesState {
     return PlaybackPreferencesState(
       defaultVideoEngine: defaultVideoEngine ?? this.defaultVideoEngine,
       defaultAudioEngine: defaultAudioEngine ?? this.defaultAudioEngine,
+      preferredExternalVideoKind:
+          preferredExternalVideoKind ?? this.preferredExternalVideoKind,
       qualityConfig: qualityConfig ?? this.qualityConfig,
       autoNextEpisode: autoNextEpisode ?? this.autoNextEpisode,
       promptChapterSkip: promptChapterSkip ?? this.promptChapterSkip,
@@ -82,6 +90,7 @@ class PlaybackPreferencesState {
     return other is PlaybackPreferencesState &&
         other.defaultVideoEngine == defaultVideoEngine &&
         other.defaultAudioEngine == defaultAudioEngine &&
+        other.preferredExternalVideoKind == preferredExternalVideoKind &&
         other.qualityConfig == qualityConfig &&
         other.autoNextEpisode == autoNextEpisode &&
         other.promptChapterSkip == promptChapterSkip &&
@@ -93,6 +102,7 @@ class PlaybackPreferencesState {
   int get hashCode => Object.hash(
     defaultVideoEngine,
     defaultAudioEngine,
+    preferredExternalVideoKind,
     qualityConfig,
     autoNextEpisode,
     promptChapterSkip,
@@ -142,6 +152,16 @@ class PlaybackPreferencesNotifier
     await _persist();
   }
 
+  /// 切换首选外部视频播放器（MPV / PotPlayer）。
+  Future<void> setPreferredExternalVideoKind(ExternalPlayerKind kind) async {
+    if (kind != ExternalPlayerKind.mpv &&
+        kind != ExternalPlayerKind.potplayer) {
+      return;
+    }
+    state = state.copyWith(preferredExternalVideoKind: kind);
+    await _persist();
+  }
+
   /// 原子更新内部画质/音频/字幕配置。
   Future<void> updateQualityConfig(
     PlaybackQualityConfig Function(PlaybackQualityConfig current) updater,
@@ -167,10 +187,9 @@ class PlaybackPreferencesNotifier
       updateQualityConfig((c) => c.copyWith(wasapiExclusive: value));
 
   /// 更新 `soxr` 音频重采样精度（`16 ~ 33`）。
-  Future<void> setAudioResamplerPrecision(int precision) =>
-      updateQualityConfig(
-        (c) => c.copyWith(audioResamplerPrecision: precision.clamp(16, 33)),
-      );
+  Future<void> setAudioResamplerPrecision(int precision) => updateQualityConfig(
+    (c) => c.copyWith(audioResamplerPrecision: precision.clamp(16, 33)),
+  );
 
   /// 更新默认输出音频设备。
   Future<void> setAudioDevice(String device) =>
@@ -196,9 +215,8 @@ class PlaybackPreferencesNotifier
       updateQualityConfig((c) => c.copyWith(activeShaderPaths: List.of(paths)));
 
   /// 更新默认字幕字号。
-  Future<void> setSubFontSize(int size) => updateQualityConfig(
-    (c) => c.copyWith(subFontSize: size.clamp(24, 96)),
-  );
+  Future<void> setSubFontSize(int size) =>
+      updateQualityConfig((c) => c.copyWith(subFontSize: size.clamp(24, 96)));
 
   /// 更新默认字幕底部边距。
   Future<void> setSubBottomMargin(int margin) => updateQualityConfig(
@@ -255,6 +273,7 @@ class PlaybackPreferencesNotifier
     return {
       'defaultVideoEngine': s.defaultVideoEngine.name,
       'defaultAudioEngine': s.defaultAudioEngine.name,
+      'preferredExternalVideoKind': s.preferredExternalVideoKind.name,
       'autoNextEpisode': s.autoNextEpisode,
       'promptChapterSkip': s.promptChapterSkip,
       'autoSkipChapter': s.autoSkipChapter,
@@ -300,7 +319,10 @@ class PlaybackPreferencesNotifier
 
     final rawShaders = map['activeShaderPaths'];
     final shaders = rawShaders is List
-        ? rawShaders.whereType<String>().where((s) => s.trim().isNotEmpty).toList()
+        ? rawShaders
+              .whereType<String>()
+              .where((s) => s.trim().isNotEmpty)
+              .toList()
         : const <String>[];
 
     return PlaybackPreferencesState(
@@ -313,6 +335,11 @@ class PlaybackPreferencesNotifier
         PreferredPlaybackEngine.values,
         map['defaultAudioEngine'],
         PreferredPlaybackEngine.builtinLibmpv,
+      ),
+      preferredExternalVideoKind: parseEnum(
+        const [ExternalPlayerKind.mpv, ExternalPlayerKind.potplayer],
+        map['preferredExternalVideoKind'],
+        ExternalPlayerKind.mpv,
       ),
       autoNextEpisode: map['autoNextEpisode'] is bool
           ? map['autoNextEpisode'] as bool
@@ -363,7 +390,8 @@ class PlaybackPreferencesNotifier
         wasapiExclusive: map['wasapiExclusive'] is bool
             ? map['wasapiExclusive'] as bool
             : false,
-        audioDevice: map['audioDevice'] is String &&
+        audioDevice:
+            map['audioDevice'] is String &&
                 (map['audioDevice'] as String).trim().isNotEmpty
             ? (map['audioDevice'] as String).trim()
             : PlaybackQualityConfig.defaultAudioDevice,
@@ -390,7 +418,8 @@ class PlaybackPreferencesNotifier
           map['subOverrideMode'],
           SubtitleAssOverrideMode.preserveAss,
         ),
-        subColorHex: map['subColorHex'] is String &&
+        subColorHex:
+            map['subColorHex'] is String &&
                 (map['subColorHex'] as String).trim().isNotEmpty
             ? (map['subColorHex'] as String).trim()
             : PlaybackQualityConfig.defaultSubColorHex,

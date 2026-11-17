@@ -323,6 +323,74 @@ abstract final class KonataTheme {
         side: BorderSide(color: palette.textSecondary, width: 1.5),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
       ),
+      switchTheme: SwitchThemeData(
+        splashRadius: 0,
+        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) {
+            return palette.textMuted.withValues(alpha: 0.45);
+          }
+          if (states.contains(WidgetState.selected)) {
+            return palette.primaryButtonFg;
+          }
+          if (states.contains(WidgetState.hovered) ||
+              states.contains(WidgetState.pressed)) {
+            return palette.textPrimary;
+          }
+          return palette.isDark
+              ? Colors.white.withValues(alpha: 0.75)
+              : palette.textPrimary.withValues(alpha: 0.82);
+        }),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) {
+            return palette.softFill.withValues(alpha: 0.35);
+          }
+          final hovered = states.contains(WidgetState.hovered);
+          final pressed = states.contains(WidgetState.pressed);
+          if (states.contains(WidgetState.selected)) {
+            if (pressed) {
+              return palette.primaryButtonBg.withValues(alpha: 0.76);
+            }
+            if (hovered) {
+              return palette.primaryButtonBg.withValues(alpha: 0.86);
+            }
+            return palette.primaryButtonBg;
+          }
+          if (pressed) {
+            return palette.isDark
+                ? Colors.white.withValues(alpha: 0.20)
+                : Colors.black.withValues(alpha: 0.13);
+          }
+          if (hovered) {
+            return palette.isDark
+                ? Colors.white.withValues(alpha: 0.14)
+                : Colors.black.withValues(alpha: 0.08);
+          }
+          return palette.isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.black.withValues(alpha: 0.025);
+        }),
+        trackOutlineColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return Colors.transparent;
+          }
+          if (states.contains(WidgetState.disabled)) {
+            return palette.hairline;
+          }
+          if (states.contains(WidgetState.hovered) ||
+              states.contains(WidgetState.pressed)) {
+            return palette.isDark
+                ? Colors.white.withValues(alpha: 0.64)
+                : palette.textPrimary;
+          }
+          return palette.isDark
+              ? Colors.white.withValues(alpha: 0.38)
+              : palette.textPrimary.withValues(alpha: 0.72);
+        }),
+        trackOutlineWidth: WidgetStateProperty.resolveWith((states) {
+          return states.contains(WidgetState.selected) ? 0.0 : 1.5;
+        }),
+      ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         elevation: 4,

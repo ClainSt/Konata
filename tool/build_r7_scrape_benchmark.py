@@ -11,7 +11,7 @@ import json, sqlite3, posixpath
 DB = r"D:/Codex-Projects/Konata/release/validation/milky-acceptance-20261111-r7/Konata-Milky-Test-Windows-x64/userdata/scraper-library-auto/ccplayer.db"
 OUT = r"D:/Codex-Projects/Konata/test/fixtures/r7_scrape_benchmark.json"
 
-# path suffix -> expectation. tmdb: "movie:ID" | "tv:ID" | None. season: int. bangumi: ID | None.
+# 路径后缀 -> 期望结果：tmdb 为 "movie:ID" | "tv:ID" | None，season 为 int，bangumi 为 ID | None。
 H = "handoff"; I = "inspected"
 OVERRIDES = {
     "Wake Up, Girls! 七人的偶像": dict(tmdb="movie:249766", bangumi=87700, src=I),
@@ -89,9 +89,9 @@ OVERRIDES = {
     "剧场版 黑子的篮球 终极一战": dict(tmdb="movie:428707", bangumi=147147, src=H),
     "剧场版 创圣的大天使": dict(tmdb=None, bangumi=None, src=H),
 }
-# Mixed folders whose correct identity is not a single provider entry.
+# 混合多作品目录，无法单线条目准确映射。
 UNSCORED = {"弹丸论破系列/弹丸论破3"}
-# Several folders share one TMDB marker; key overrides by the full folder name.
+# 共用同一 TMDB 标记的目录按完整目录名区分预期键。
 KEYFIX = {
     "{tmdb-271709}": "头文字D Legend1 -觉醒- (2014) {tmdb-271709}",
     "{tmdb-321487}": "头文字D Legend2 -斗走- (2015) {tmdb-321487}",

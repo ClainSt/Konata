@@ -30,14 +30,7 @@ class Smb2TreeConnectResponse extends ServerMessageBlock2Response
     return getTreeId();
   }
 
-  // @override
-  // bool isShareDfs() {
-  //   return (shareFlags &
-  //               (Smb2Constants.SMB2_SHAREFLAG_DFS |
-  //                   Smb2Constants.SMB2_SHAREFLAG_DFS_ROOT)) !=
   //           0 ||
-  //       (capabilities & Smb2Constants.SMB2_SHARE_CAP_DFS) ==
-  //           Smb2Constants.SMB2_SHARE_CAP_DFS;
   // }
 
   @override

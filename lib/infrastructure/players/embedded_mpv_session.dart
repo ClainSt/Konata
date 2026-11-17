@@ -9,6 +9,7 @@ import '../../domain/models/media_variant.dart';
 import '../../domain/playback/playback_probe_stats.dart';
 import '../../domain/playback/subtitle_and_audio_choices.dart';
 import '../../domain/playback/track_preferences.dart';
+import '../../domain/playback/video_aspect_mode.dart';
 import '../logging/diagnostics_log_store.dart';
 import '../sources/byte_stream_source_gateway.dart';
 import '../sources/local_source_gateway.dart';
@@ -131,6 +132,9 @@ class EmbeddedMpvSession {
   bool _hwdecFallbackAttempted = false;
   bool _usingSoftwareFallback = false;
   bool _disposed = false;
+  bool _videoTrackEnabled = true;
+  String? _savedVidBeforeDisable;
+  VideoAspectMode _aspectMode = VideoAspectMode.auto;
   String? _cachedMpvVersion;
   String? _cachedFfmpegVersion;
   PlaybackQualityConfig _lastQualityConfig = const PlaybackQualityConfig();
@@ -359,6 +363,8 @@ class EmbeddedMpvSession {
     }
     client.setPropertyDouble('sub-delay', 0.0);
     client.setPropertyDouble('audio-delay', 0.0);
+    client.setPropertyString('vid', _videoTrackEnabled ? 'auto' : 'no');
+    _applyAspectModeToClient(client, _aspectMode);
     client.setPropertyFlag('pause', false);
 
     final rc = client.command(['loadfile', resolved.mediaTarget, 'replace']);
@@ -943,6 +949,61 @@ class EmbeddedMpvSession {
   }
 
   void setMute(bool muted) => _client?.setPropertyFlag('mute', muted);
+
+  /// 在不重建解码会话的前提下无缝切换视频轨道开关（用于视频小窗切换后台纯音频模式）。
+  void setVideoTrackEnabled(bool enabled) {
+    if (_videoTrackEnabled == enabled) return;
+    _videoTrackEnabled = enabled;
+    final client = _client;
+    if (_disposed || client == null || client.isDisposed) return;
+    if (!enabled) {
+      final currentVid = client.getPropertyString('vid');
+      if (currentVid != null && currentVid.isNotEmpty && currentVid != 'no') {
+        _savedVidBeforeDisable = currentVid;
+      }
+      client.setPropertyString('vid', 'no');
+    } else {
+      final restore = _savedVidBeforeDisable;
+      _savedVidBeforeDisable = null;
+      client.setPropertyString(
+        'vid',
+        (restore != null && restore.isNotEmpty) ? restore : 'auto',
+      );
+    }
+  }
+
+  /// 动态应用视频画面比例模式。
+  void applyAspectMode(VideoAspectMode mode) {
+    _aspectMode = mode;
+    final client = _client;
+    if (_disposed || client == null || client.isDisposed) return;
+    _applyAspectModeToClient(client, mode);
+  }
+
+  void _applyAspectModeToClient(LibMpvClient client, VideoAspectMode mode) {
+    switch (mode) {
+      case VideoAspectMode.auto:
+        client.setPropertyFlag('keepaspect', true);
+        client.setPropertyDouble('panscan', 0.0);
+        client.setPropertyString('video-aspect-override', '-1');
+      case VideoAspectMode.cover:
+        client.setPropertyFlag('keepaspect', true);
+        client.setPropertyDouble('panscan', 1.0);
+        client.setPropertyString('video-aspect-override', '-1');
+      case VideoAspectMode.stretch:
+        client.setPropertyFlag('keepaspect', false);
+        client.setPropertyDouble('panscan', 0.0);
+        client.setPropertyString('video-aspect-override', '-1');
+      case VideoAspectMode.ratio16x9:
+        client.setPropertyFlag('keepaspect', true);
+        client.setPropertyDouble('panscan', 0.0);
+        client.setPropertyString('video-aspect-override', '16:9');
+      case VideoAspectMode.ratio4x3:
+        client.setPropertyFlag('keepaspect', true);
+        client.setPropertyDouble('panscan', 0.0);
+        client.setPropertyString('video-aspect-override', '4:3');
+    }
+  }
 
   void setSubtitleDelay(double seconds) {
     final client = _client;

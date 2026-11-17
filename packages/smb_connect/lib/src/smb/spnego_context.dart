@@ -9,9 +9,8 @@ import 'package:smb_connect/src/spnego/neg_token_targ.dart';
 import 'package:smb_connect/src/spnego/spnego_token.dart';
 import 'package:smb_connect/src/utils/extensions.dart';
 
-/// This class used to wrap a {@link SSPContext} to provide SPNEGO feature.
+/// 将底层安全支持提供程序上下文（如 NTLMSSP）包装为标准 SPNEGO 协商封装器。
 ///
-/// @author Shun
 class SpnegoContext implements SSPContext {
   static ASN1ObjectIdentifier SPNEGO_MECH_OID =
       ASN1ObjectIdentifier.fromIdentifierString("1.3.6.1.5.5.2");
@@ -28,13 +27,12 @@ class SpnegoContext implements SSPContext {
   bool _disableMic;
   bool _requireMic;
 
-  /// Instance a <code>SpnegoContext</code> object by wrapping a {@link SSPContext}
-  /// with the same mechanism this {@link SSPContext} used.
+  /// 包装已有底层 `SSPContext` 实例化对应的 SPNEGO 协商上下文对象。
   SpnegoContext.supp(SSPContext source)
       : this(source, source.getSupportedMechs());
 
-  /// Instance a <code>SpnegoContext</code> object by wrapping a {@link SSPContext}
-  /// with specified mechanism.
+  /// 包装已有底层 `SSPContext` 实例化对应的 SPNEGO 协商上下文对象。
+  /// 针对指定单边机制 OID 构造对应的 SPNEGO 上下文封装器。
   SpnegoContext(this._mechContext, this.mechs)
       : _disableMic = !Configuration.isEnforceSpnegoIntegrity &&
             Configuration.isDisableSpnegoIntegrity,
@@ -52,7 +50,7 @@ class SpnegoContext implements SSPContext {
 
   @override
   bool isSupported(ASN1ObjectIdentifier mechanism) {
-    // prevent nesting
+    // 若输入已属于 SPNEGO 上下文则直接解包，防止产生多层冗余嵌套。
     return false;
   }
 
@@ -61,7 +59,7 @@ class SpnegoContext implements SSPContext {
     return _mechContext.getSigningKey();
   }
 
-  /// Initialize the GSSContext to provide SPNEGO feature.
+  /// 驱动 SPNEGO 客户端与服务端的多轮握手初始化流程（含机制协商、乐观令牌与 MIC 核验）。
   @override
   Uint8List? initSecContext(Uint8List inputBuf, int offset, int len) {
     SpnegoToken? resp;
@@ -87,7 +85,7 @@ class SpnegoContext implements SSPContext {
       List<ASN1ObjectIdentifier> rm = tinit.getMechanisms()!;
       remoteMechs = rm;
       ASN1ObjectIdentifier prefMech = rm[0];
-      // only use token if the optimistic mechanism is supported
+      // 仅当服务端选定的机制与本端首选机制一致时，才直接采纳乐观附带的响应令牌。
       if (_mechContext.isSupported(prefMech)) {
         inputToken = tinit.mechanismToken;
       } else {
@@ -127,13 +125,13 @@ class SpnegoContext implements SSPContext {
     }
 
     if (spToken is NegTokenTarg && _mechContext.isEstablished()) {
-      // already established, but server hasn't completed yet
+      // 底层上下文已建立完成但服务端尚需一轮交互确认（等待服务端末轮返回 MIC）。
       NegTokenTarg targ = spToken;
 
       if (targ.result == NegTokenTarg.ACCEPT_INCOMPLETE &&
           targ.mechanismToken == null &&
           targ.mechanismListMIC != null) {
-        // this indicates that mechlistMIC is required by the server
+        // 空回包且返回已完成标记，指示服务端强制要求附带校验 `mechListMIC`。
         _verifyMechListMIC(targ.mechanismListMIC);
         return NegTokenTarg(NegTokenTarg.UNSPECIFIED_RESULT, null, null,
             _calculateMechListMIC());
@@ -157,7 +155,7 @@ class SpnegoContext implements SSPContext {
       NegTokenTarg targ = spToken;
       if (targ.result == NegTokenTarg.ACCEPT_COMPLETED &&
           _mechContext.isEstablished()) {
-        // server sent final token
+        // 已成功接收服务端发来的末轮完成状态与可选 MIC 签名。
         _verifyMechListMIC(targ.mechanismListMIC);
         if (!_disableMic || _requireMic) {
           mechMIC = _calculateMechListMIC();
@@ -195,8 +193,7 @@ class SpnegoContext implements SSPContext {
       return;
     }
 
-    // No MIC verification if not present and not required
-    // or if the chosen mechanism is our preferred one
+    // 未返回 MIC 且既未强求又不命中跳检白名单时，按规范豁免校验并视为认证完成。
     if ((mechanismListMIC == null || !_mechContext.supportsIntegrity()) &&
         _requireMic &&
         !_mechContext.isPreferredMech(selectedMech)) {
@@ -204,7 +201,6 @@ class SpnegoContext implements SSPContext {
           "SPNEGO integrity is required but not available");
     }
 
-    // otherwise we ignore the absence of a MIC
     if (!_mechContext.isMICAvailable() || mechanismListMIC == null) {
       return;
     }
@@ -225,7 +221,6 @@ class SpnegoContext implements SSPContext {
       }
       return seq.encode();
     } catch (e) {
-      //IOException
       throw SmbConnectException("Failed to encode mechList", e);
     }
   }
@@ -272,7 +267,6 @@ class SpnegoContext implements SSPContext {
           throw SpnegoException("Invalid token type");
       }
     } catch (e) {
-      //IOException
       throw SpnegoException("Invalid token");
     }
   }

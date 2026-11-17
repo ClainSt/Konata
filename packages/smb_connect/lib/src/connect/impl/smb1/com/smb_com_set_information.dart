@@ -21,7 +21,7 @@ class SmbComSetInformation extends ServerMessageBlock {
     dstIndex += 2;
     SMBUtil.writeUTime(_lastWriteTime, dst, dstIndex);
     dstIndex += 4;
-    // reserved
+    // 协议保留占位字节（固定置零）。
     dstIndex += 10;
     int len = dstIndex - start;
     return len;

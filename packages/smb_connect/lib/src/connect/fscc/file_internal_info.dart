@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:smb_connect/src/connect/fscc/file_information.dart';
 import 'package:smb_connect/src/connect/smb_util.dart';
 
-// TODO: all vars to final decode to factory constructor
 class FileInternalInfo implements FileInformation {
   int _indexNumber = 0;
 

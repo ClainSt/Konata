@@ -160,8 +160,6 @@ class Smb2Connect extends SmbConnect {
     if (!file.canWrite()) {
       throw "Access denied";
     }
-    // if (!file.isExists) {
-    //   return true;
     // }
     if (file.isDirectory()) {
       var childs = await listFiles(file);
@@ -346,20 +344,9 @@ class Smb2Connect extends SmbConnect {
   Future<RandomAccessFile> open(SmbFile file,
       {FileMode mode = FileMode.read}) async {
     var tree = await shareTree(file.share);
-    // SmbFileReader? reader;
-    // SmbWriter? writer;
     Smb2RandomAccessFileController controller =
         Smb2RandomAccessFileController(file, tree, mode, openFile);
-    // if (mode == FileMode.read ||
-    //     mode == FileMode.write ||
-    //     mode == FileMode.append) {
-    //   reader = Smb2FileReader(controller);
     // }
-    // if (mode == FileMode.append ||
-    //     mode == FileMode.write ||
-    //     mode == FileMode.writeOnly ||
-    //     mode == FileMode.writeOnlyAppend) {
-    //   writer = Smb2Writer(controller);
     // }
 
     return SmbRandomAccessFile(file, controller);

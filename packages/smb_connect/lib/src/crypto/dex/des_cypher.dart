@@ -28,12 +28,10 @@ class DESCypher implements StreamCipher {
 
   @override
   void reset() {
-    // TODO: implement reset
   }
 
   @override
   int returnByte(int inp) {
-    // TODO: implement returnByte
     throw UnimplementedError();
   }
 }

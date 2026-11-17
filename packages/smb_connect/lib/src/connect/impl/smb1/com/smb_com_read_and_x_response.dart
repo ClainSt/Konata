@@ -65,7 +65,7 @@ class SmbComReadAndXResponse extends AndXServerMessageBlock {
   @override
   @protected
   int readBytesWireFormat(Uint8List buffer, int bufferIndex) {
-    // handled special in SmbTransport.doRecv()
+    // 加密/签名分支已在传输层 `doRecv()` 内特殊接管处理。
     return 0;
   }
 

@@ -1,4 +1,4 @@
-// Test-only D3D11 render API probe. No changes to shipped libmpv.
+// 仅用于测试验证的 D3D11 渲染接口探针，不修改分发版 libmpv 二进制。
 #define NOMINMAX
 #include <windows.h>
 #include <d3d11.h>
@@ -119,8 +119,7 @@ int main(int argc, char** argv) {
             }
             bool ready = update.exchange(false);
             if (ready) api.mpv_render_context_update(render);
-            // Redraw the paused frame to the actual swapchain buffer, then read
-            // that exact buffer before Present. No separate screenshot target.
+            // 将暂停帧重绘至真实交换链后台缓冲，再于 Present 前回读该同一缓冲，不使用独立截图目标。
             if (ready || GetTickCount64() - start > 3000) {
                 Com<ID3D11Texture2D> buffer;
                 check(swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(buffer.put())), "GetBuffer");
@@ -173,7 +172,7 @@ int main(int argc, char** argv) {
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         if (window) DestroyWindow(window);
-        // Probe process exits on failure; no application state or cache is used.
+        // 探针进程失败后立即退出，不读取或写入任何应用状态与缓存。
         return 1;
     }
 }

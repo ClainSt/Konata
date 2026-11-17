@@ -1,4 +1,3 @@
-// typedef TimeZone = dynamic;
 
 class TimeZone {
   final String zoneName;

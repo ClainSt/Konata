@@ -5,9 +5,8 @@ import 'package:ccplayer/domain/scraping/directory_analyzer.dart';
 import 'package:ccplayer/domain/scraping/work_matcher.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Offline benchmark on the real r7 acceptance library (182 works, saved
-/// TMDB/Bangumi candidates). Measures the decision layer only: works whose
-/// correct entry was never among the saved candidates can at best stay unbound.
+/// 基于真实 r7 验收库（182 部作品，含已保存 TMDB/Bangumi 候选）的离线基准测试；
+/// 仅评测匹配决策层准确度：若正确条目从未进入候选池，打分器至多维持未绑定。
 void main() {
   final fixture =
       jsonDecode(
@@ -116,8 +115,7 @@ void main() {
         }
       }
     }
-    // ignore: avoid_print
-    print(
+    stdout.writeln(
       'r7 benchmark: ${works.length} works in ${clock.elapsedMilliseconds} ms\n'
       '${stats.entries.map((e) => '  ${e.key}: ${e.value}').join('\n')}\n'
       '${failures.join('\n')}',
@@ -125,7 +123,7 @@ void main() {
     expect(stats['tmdb']!['WRONG'] ?? 0, 0);
     expect(stats['bangumi']!['WRONG'] ?? 0, 0);
     expect(stats['season']!['WRONG'] ?? 0, 0);
-    // Regression floors (measured 2026-11-13: TMDB 145 bound, Bangumi 156).
+    // 离线基准匹配下限（TMDB 至少 145 部绑定，Bangumi 至少 156 部绑定）。
     int bound(String p) => (stats[p]!['auto'] ?? 0) + (stats[p]!['adopt'] ?? 0);
     expect(bound('tmdb'), greaterThanOrEqualTo(145));
     expect(bound('bangumi'), greaterThanOrEqualTo(156));

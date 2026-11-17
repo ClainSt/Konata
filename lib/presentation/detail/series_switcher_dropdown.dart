@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../domain/models/series_group.dart';
 import '../../domain/models/work.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
@@ -135,45 +136,52 @@ class _SeriesSwitcherDropdownState extends State<SeriesSwitcherDropdown> {
               borderRadius: BorderRadius.circular(999),
               hoverColor: KonataPlaybackTokens.hoverFill(p),
               onTap: _toggleMenu,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 13,
-                  vertical: 8.5,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.layers_rounded,
-                      size: 14.5,
-                      color: p.textPrimary,
-                    ),
-                    const SizedBox(width: 6),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 168),
-                      child: Text(
-                        currentLabel,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: KonataTheme.detailTextStyle(
-                          palette: p,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
+              child: ConstrainedBox(
+                constraints: KonataAdaptiveTokens.isAndroid
+                    ? const BoxConstraints(
+                        minHeight: KonataAdaptiveTokens.touchTarget,
+                      )
+                    : const BoxConstraints(),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 13,
+                    vertical: 8.5,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.layers_rounded,
+                        size: 14.5,
+                        color: p.textPrimary,
+                      ),
+                      const SizedBox(width: 6),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 168),
+                        child: Text(
+                          currentLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: KonataTheme.detailTextStyle(
+                            palette: p,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 4),
-                    AnimatedRotation(
-                      turns: isOpen ? 0.5 : 0.0,
-                      duration: const Duration(milliseconds: 180),
-                      curve: Curves.easeOutCubic,
-                      child: Icon(
-                        Icons.keyboard_arrow_down_rounded,
-                        size: 17,
-                        color: p.textSecondary,
+                      const SizedBox(width: 4),
+                      AnimatedRotation(
+                        turns: isOpen ? 0.5 : 0.0,
+                        duration: const Duration(milliseconds: 180),
+                        curve: Curves.easeOutCubic,
+                        child: Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          size: 17,
+                          color: p.textSecondary,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -329,6 +337,13 @@ class _SeriesMenuOverlayState extends State<_SeriesMenuOverlay> {
                                     borderRadius: BorderRadius.circular(9),
                                     onTap: () => widget.onPick(member.id),
                                     child: Container(
+                                      constraints:
+                                          KonataAdaptiveTokens.isAndroid
+                                          ? const BoxConstraints(
+                                              minHeight: KonataAdaptiveTokens
+                                                  .touchTarget,
+                                            )
+                                          : null,
                                       margin: const EdgeInsets.symmetric(
                                         vertical: 1.5,
                                       ),

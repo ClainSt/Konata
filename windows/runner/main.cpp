@@ -9,8 +9,8 @@
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
-  // Process-local temporary files (Dart, SQLite, libmpv) stay with the portable
-  // executable. Never change the user's system environment or use the cwd.
+  // 进程内临时文件（Dart、SQLite、libmpv）统一落盘于绿色便携根目录同级空间，
+  // 绝不修改用户全局环境变量或读写系统工作目录。
   wchar_t executable[32768];
   const DWORD length = ::GetModuleFileNameW(nullptr, executable, 32768);
   if (length == 0 || length >= 32768) return EXIT_FAILURE;
@@ -26,14 +26,14 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
         L"Konata", MB_OK | MB_ICONERROR);
     return EXIT_FAILURE;
   }
-  // Attach to console when present (e.g., 'flutter run') or create a
-  // new console when running with a debugger.
+  // 若由控制台进程启动则直接复用其终端；在调试器托管模式下则新建输出控制台。
+  // 便于本地调试阶段实时查看标准输出与错误日志。
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {
     CreateAndAttachConsole();
   }
 
-  // Initialize COM, so that it is available for use in the library and/or
-  // plugins.
+  // 按单线程套间模式初始化 Windows COM 运行库，供内置插件与系统对话框使用。
+  // 确保插件调用 COM 接口时具备合法套间环境。
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
   flutter::DartProject project(L"data");

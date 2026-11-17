@@ -31,7 +31,6 @@ class Smb2NegotiateRequest
     }
 
     if (Configuration.isEncryptionEnabled &&
-        // config.getMaximumVersion() != null &&
         config.maximumVersion.atLeast(DialectVersion.SMB300)) {
       capabilities |= Smb2Constants.SMB2_GLOBAL_CAP_ENCRYPTION;
     }
@@ -85,7 +84,6 @@ class Smb2NegotiateRequest
     int size = Smb2Constants.SMB2_HEADER_LENGTH +
         36 +
         ServerMessageBlock2.size8(2 * dialects.length, align: 4);
-    // if (_negotiateContexts != null) {
     for (NegotiateContextRequest ncr in negotiateContexts) {
       size += 8 + ServerMessageBlock2.size8(ncr.size());
     }
@@ -116,7 +114,7 @@ class Smb2NegotiateRequest
         length: 16);
     dstIndex += 16;
 
-    // if SMB 3.11 support negotiateContextOffset/negotiateContextCount
+    // 当协议版本达到 SMB 3.1.1 时，追加写入协商上下文偏移与数量字段。
     int negotitateContextOffsetOffset = 0;
     if (negotiateContexts.isEmpty) {
       SMBUtil.writeInt8(0, dst, dstIndex);

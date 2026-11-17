@@ -16,12 +16,12 @@ abstract class DcerpcMessage extends NdrObject implements DcerpcConstants {
     return (flags & flag) == flag;
   }
 
-  /// Remove flag
+  /// 清除指定的 PDU 头部控制标志位。
   void unsetFlag(int flag) {
     flags &= ~flag;
   }
 
-  /// Set flag
+  /// 置位指定的 PDU 头部控制标志位。
   void setFlag(int flag) {
     flags |= flag;
   }
@@ -43,14 +43,14 @@ abstract class DcerpcMessage extends NdrObject implements DcerpcConstants {
   }
 
   void decodeHeader(NdrBuffer buf) {
-    /* RPC major / minor version */
+    /* 写入 RPC 主版本（5）与次版本号（0） */
     if (buf.decNdrSmall() != 5 || buf.decNdrSmall() != 0) {
       throw NdrException("DCERPC version not supported");
     }
     ptype = buf.decNdrSmall();
     flags = buf.decNdrSmall();
     if (buf.decNdrLong() != 0x00000010) {
-      /* Little-endian / ASCII / IEEE */
+      /* NDR 数据表示标志：小端序 / ASCII / IEEE 浮点 */
       throw NdrException("Data representation not supported");
     }
     length = buf.decNdrShort();
@@ -67,7 +67,7 @@ abstract class DcerpcMessage extends NdrObject implements DcerpcConstants {
 
     dst.advance(16); /* momentarily skip header */
     if (ptype == 0) {
-      /* Request */
+      /* 发送标准 REQUEST 调用报文 */
       allocHintIndex = dst.index;
       dst.encNdrLong(0); /* momentarily skip alloc hint */
       dst.encNdrShort(0); /* context id */
@@ -97,16 +97,16 @@ abstract class DcerpcMessage extends NdrObject implements DcerpcConstants {
     }
 
     if (ptype == 2 || ptype == 3) {
-      /* Response or Fault */
+      /* 解码 RESPONSE 应答或 FAULT 错误报文 */
       allocHint = src.decNdrLong();
       src.decNdrShort(); /* context id */
       src.decNdrShort(); /* cancel count */
     }
     if (ptype == 3 || ptype == 13) {
-      /* Fault */
+      /* 解码服务端返回的 RPC FAULT 故障帧 */
       result = src.decNdrLong();
     } else {
-      /* Bindack or Response */
+      /* 验证返回为 BINDACK 或正常 RESPONSE 响应 */
       decodeOut(src);
     }
   }

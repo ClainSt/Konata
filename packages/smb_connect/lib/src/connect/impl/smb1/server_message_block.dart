@@ -230,7 +230,6 @@ abstract class ServerMessageBlock
 
   @override
   void setSessionId(int sessionId) {
-    // ignore
   }
 
   @override
@@ -377,9 +376,6 @@ abstract class ServerMessageBlock
     _expiration = exp;
   }
 
-  // @protected
-  // Configuration getConfig() {
-  //   return config;
   // }
 
   @override
@@ -397,20 +393,13 @@ abstract class ServerMessageBlock
   @override
   bool verifySignature(Uint8List buffer, int i, int size) {
     ///
-    /// Verification fails (w/ W2K3 server at least) if status is not 0. This
-    /// suggests MS doesn't compute the signature (correctly) for error responses
-    /// (perhaps for DOS reasons).
+    /// Windows Server 2003 等服务端返回非零错误码时通常不对错误响应做规范 MAC 签名
+    ///（或仅原样回显客户端请求签名，疑出于防拒绝服务开销考量）。
     ///
-    /// Looks like the failure case also is just reflecting back the signature we sent
 
     ///
-    /// Maybe this is related:
     ///
-    /// If signing is not active, the SecuritySignature field of the SMB Header for all messages sent, except
-    /// the SMB_COM_SESSION_SETUP_ANDX Response (section 2.2.4.53.2), MUST be set to
-    /// 0x0000000000000000. For the SMB_COM_SESSION_SETUP_ANDX Response, the SecuritySignature
-    /// field of the SMB Header SHOULD<226> be set to the SecuritySignature received in the
-    /// SMB_COM_SESSION_SETUP_ANDX Request (section 2.2.4.53.1).
+    /// 协议规范指出：未启用签名时非会话响应头签名字节置零，仅 `SESSION_SETUP` 回显请求签名。
     if (getErrorCode() == 0) {
       bool verify = digest?.verify(buffer, i, size, 0, this) == true;
       _verifyFailed = verify;
@@ -423,7 +412,7 @@ abstract class ServerMessageBlock
   int writeString(String str, Uint8List dst, int dstIndex, {bool? unicode}) {
     int start = dstIndex;
     if (unicode ?? _useUnicode) {
-      // Unicode requires word alignment
+      // Unicode 字符串起始偏移须按 2 字节偶地址对齐。
       if (((dstIndex - headerStart) % 2) != 0) {
         dst[dstIndex++] = 0; //'\0';
       }
@@ -456,7 +445,7 @@ abstract class ServerMessageBlock
 
   String readString4(Uint8List src, int srcIndex, int maxLen, bool unicode) {
     if (unicode) {
-      // Unicode requires word alignment
+      // Unicode 字符串起始偏移须按 2 字节偶地址对齐。
       if (((srcIndex - headerStart) % 2) != 0) {
         srcIndex++;
       }
@@ -471,7 +460,7 @@ abstract class ServerMessageBlock
   String readString5(
       Uint8List src, int srcIndex, int srcEnd, int maxLen, bool unicode) {
     if (unicode) {
-      // Unicode requires word alignment
+      // Unicode 字符串起始偏移须按 2 字节偶地址对齐。
       if (((srcIndex - headerStart) % 2) != 0) {
         srcIndex++;
       }
@@ -541,9 +530,7 @@ abstract class ServerMessageBlock
 
     if (byteCount != 0) {
       readBytesWireFormat(buffer, bufferIndex);
-      // if ( ( n = readBytesWireFormat(buffer, bufferIndex) ) != byteCount ) {
-      // Don't think we can rely on n being correct here. Must use byteCount.
-      // Last paragraph of section 3.13.3 eludes to this.
+      // 实测部分服务端返回的偏移计量并不可靠，此处强制按 `byteCount` 结算已读长度。
 
       bufferIndex += byteCount;
     }
@@ -606,23 +593,9 @@ abstract class ServerMessageBlock
         SmbConstants.FLAGS_RESPONSE;
   }
 
-  /// For this packet deconstruction technique to work for
-  /// other networking protocols the InputStream may need
-  /// to be passed to the readXxxWireFormat methods. This is
-  /// actually purer. However, in the case of smb we know the
-  /// wordCount and byteCount. And since every subclass of
-  /// ServerMessageBlock would have to perform the same read
-  /// operation on the input stream, we might as will pull that
-  /// common functionality into the superclass and read wordCount
-  /// and byteCount worth of data.
-  /// We will still use the readXxxWireFormat return values to
-  /// indicate how many bytes(note: readParameterWordsWireFormat
-  /// returns bytes read and not the number of words(but the
-  /// wordCount member DOES store the number of words)) we
-  /// actually read. Incedentally this is important to the
-  /// AndXServerMessageBlock class that needs to potentially
-  /// read in another smb's parameter words and bytes based on
-  /// information in it's andxCommand, andxOffset, ...etc.
+  /// 由于任意 `ServerMessageBlock` 均自带固定 `wordCount` 与 `byteCount`，
+  /// 在基类统一按块读取后再派生 `readParameterWordsWireFormat`/`readBytesWireFormat` 逐字段解码，
+  /// 其返回值统计实际消耗的原始字节数以辅助 `AndX` 后续偏移计算。
   @protected
   int writeParameterWordsWireFormat(Uint8List dst, int dstIndex);
 

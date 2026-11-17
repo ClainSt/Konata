@@ -4,7 +4,6 @@ import 'package:smb_connect/src/connect/common/alloc_info.dart';
 import 'package:smb_connect/src/connect/fscc/file_system_information.dart';
 import 'package:smb_connect/src/connect/smb_util.dart';
 
-// TODO: all vars to final decode to factory constructor
 class FileFsSizeInformation implements AllocInfo {
   int _alloc = 0; // Also handles SmbQueryFSSizeInfo
   int _free = 0;
@@ -21,9 +20,6 @@ class FileFsSizeInformation implements AllocInfo {
     return _alloc * _sectPerAlloc * _intsPerSect;
   }
 
-  // @override
-  // int getFree() {
-  //   return _free * _sectPerAlloc * _intsPerSect;
   // }
 
   @override

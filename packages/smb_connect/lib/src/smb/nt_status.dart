@@ -1,6 +1,5 @@
 abstract class NtStatus {
-  /// Don't bother to edit this. Everything within the interface
-  /// block is automatically generated from the ntstatus package.
+  /// NTSTATUS 状态码常量集合（与底层自动生成的错误映射表保持对齐）。
   static const int NT_STATUS_OK = 0x00000000;
   static const int NT_STATUS_PENDING = 0x00000103;
   static const int NT_STATUS_NOTIFY_ENUM_DIR = 0x0000010C;

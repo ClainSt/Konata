@@ -12,9 +12,7 @@ class MsrpcShareEnum extends SrvsvcShareEnumAll {
   }
 
   List<FileEntry> getEntries() {
-    /// The ShareInfo1 class does not implement the FileEntry
-    /// abstract class (because it is generated from IDL). Therefore
-    /// we must create an array of objects that do.
+    /// 因底层 `ShareInfo1` 模型由 IDL 生成未实现通用条目接口，此处将其包装为统一文件条目列表。
     SrvsvcShareInfoCtr1 ctr = info as SrvsvcShareInfoCtr1;
     List<MsrpcShareInfo1> entries = List.generate(
         ctr.count, (index) => MsrpcShareInfo1.info(ctr.array![index]));

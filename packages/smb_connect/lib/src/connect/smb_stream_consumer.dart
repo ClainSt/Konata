@@ -30,8 +30,6 @@ abstract class SmbStreamConsumer implements StreamConsumer<List<int>> {
 
   @override
   Future close();
-  // async {
-  //   await smbCloseFile(file, tree, fileId, fid);
   // }
 
   Future writeToFile(List<int> b);

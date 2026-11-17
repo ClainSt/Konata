@@ -250,8 +250,8 @@ void main() {
         await tester.sendEventToBinding(pointer.hover(const Offset(20, 20)));
         await tester.pump(const Duration(milliseconds: 200));
 
-        // 离开浮层并超时 2500ms 后，底栏与浮层一并淡出关闭
-        await tester.pump(const Duration(milliseconds: 2500));
+        // 离开浮层并超时 3200ms 后，底栏与浮层一并淡出关闭
+        await tester.pump(const Duration(milliseconds: 3200));
         await tester.pumpAndSettle();
         final fadedOpacity = tester.widget<AnimatedOpacity>(
           find

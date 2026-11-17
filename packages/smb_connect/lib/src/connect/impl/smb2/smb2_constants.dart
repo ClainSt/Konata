@@ -1,13 +1,7 @@
 import 'dart:typed_data';
 
 class Smb2Constants {
-  /// These are all the smbs supported by this library. This includes requests
-  /// and well as their responses for each type however the actual implementation?s
-  /// of the readXxxWireFormat and writeXxxWireFormat methods may not be in
-  /// place. For example at the time of this writing the readXxxWireFormat
-  /// for requests and the writeXxxWireFormat for responses are not implemented
-  /// and simply return 0. These would need to be completed for a server
-  /// implementation.
+  /// 客户端内部使用的完整 SMB 命令基类及收发编解码入口集合（偏重客户端收发路径）。
   static const int SMB2_NEGOTIATE = 0x00;
   static const int SMB2_SESSION_SETUP = 0x01;
   static const int SMB2_LOGOFF = 0x02;

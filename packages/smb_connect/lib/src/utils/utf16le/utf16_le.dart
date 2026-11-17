@@ -3,10 +3,7 @@ import 'dart:convert';
 import 'package:charset/charset.dart';
 
 class Utf16LeCodec extends Encoding {
-  /// Utf16 Codec
-  // const Utf16LeCodec();
-  // final Utf16Encoder _encoder = utf16.encoder as Utf16Encoder;
-  // final Utf16Decoder _decoder = utf16.decoder as Utf16Decoder;
+  /// UTF-16LE 与字节流之间转换的底层编解码器包装。
 
   @override
   Converter<List<int>, String> get decoder => Utf16LeDecoder();

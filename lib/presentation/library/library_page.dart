@@ -7,6 +7,7 @@ import '../../application/providers/scraping_providers.dart';
 import '../audio/mini_audio_bar.dart';
 import '../detail/work_detail_page.dart';
 import '../settings/settings_page.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
@@ -116,15 +117,24 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
               return LayoutBuilder(
                 builder: (context, constraints) {
                   final width = constraints.maxWidth;
-                  final columns = (width / 196).floor().clamp(2, 8);
+                  final compact =
+                      KonataAdaptiveTokens.isAndroid &&
+                      width < KonataAdaptiveTokens.tabletBreakpoint;
+                  final padH = compact
+                      ? KonataAdaptiveTokens.horizontalInset
+                      : KonataTheme.pageHorizontalPadding;
+                  final gridSpan = width - padH * 2;
+                  final columns = (gridSpan / (compact ? 148 : 196))
+                      .floor()
+                      .clamp(2, 8);
                   return KonataDraggableScrollbar(
                     controller: _gridCtrl,
                     builder: (_, ctrl) => GridView.builder(
                       controller: ctrl,
                       padding: EdgeInsets.fromLTRB(
-                        KonataTheme.pageHorizontalPadding,
+                        padH,
                         0,
-                        KonataTheme.pageHorizontalPadding,
+                        padH,
                         28 + bottomClearance,
                       ),
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -189,29 +199,45 @@ class _MissingApiHeaderPillState extends State<_MissingApiHeaderPill> {
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
         child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6.5),
-            decoration: BoxDecoration(
-              color: _hovered ? badge.bg.withValues(alpha: 0.95) : badge.bg,
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: badge.border, width: 1),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.key_off_rounded, size: 14, color: badge.fg),
-                const SizedBox(width: 5),
-                Text(
-                  '未配置 API',
-                  style: TextStyle(
-                    color: badge.fg,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
+          child: ConstrainedBox(
+            constraints: KonataAdaptiveTokens.isAndroid
+                ? const BoxConstraints(
+                    minWidth: KonataAdaptiveTokens.touchTarget,
+                    minHeight: KonataAdaptiveTokens.touchTarget,
+                  )
+                : const BoxConstraints(),
+            child: Center(
+              widthFactor: 1,
+              heightFactor: 1,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 11,
+                  vertical: 6.5,
                 ),
-              ],
+                decoration: BoxDecoration(
+                  color: _hovered ? badge.bg.withValues(alpha: 0.95) : badge.bg,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: badge.border, width: 1),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.key_off_rounded, size: 14, color: badge.fg),
+                    const SizedBox(width: 5),
+                    Text(
+                      '未配置 API',
+                      style: TextStyle(
+                        color: badge.fg,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
@@ -253,8 +279,12 @@ class _HiddenWorksHeaderButtonState extends State<_HiddenWorksHeaderButton> {
           behavior: HitTestBehavior.opaque,
           onTap: widget.onTap,
           child: SizedBox(
-            width: 32,
-            height: 32,
+            width: KonataAdaptiveTokens.isAndroid
+                ? KonataAdaptiveTokens.touchTarget
+                : 32,
+            height: KonataAdaptiveTokens.isAndroid
+                ? KonataAdaptiveTokens.touchTarget
+                : 32,
             child: Center(
               child: Icon(
                 Icons.visibility_off_outlined,
@@ -292,41 +322,54 @@ class _ReviewHeaderPillState extends State<_ReviewHeaderPill> {
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
-          decoration: BoxDecoration(
-            color: _hovered ? p.surfaceHover : p.surface,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: _hovered ? p.hoverBorder : p.hairline,
-              width: 1,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (hasPending) ...[
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: p.warning,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 6),
-              ],
-              Text(
-                hasPending ? '待复核 · ${widget.count}' : '待复核',
-                style: TextStyle(
-                  color: hasPending ? p.textPrimary : p.textMuted,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w500,
+        child: ConstrainedBox(
+          constraints: KonataAdaptiveTokens.isAndroid
+              ? const BoxConstraints(
+                  minWidth: KonataAdaptiveTokens.touchTarget,
+                  minHeight: KonataAdaptiveTokens.touchTarget,
+                )
+              : const BoxConstraints(),
+          child: Center(
+            widthFactor: 1,
+            heightFactor: 1,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+              decoration: BoxDecoration(
+                color: _hovered ? p.surfaceHover : p.surface,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: _hovered ? p.hoverBorder : p.hairline,
+                  width: 1,
                 ),
               ),
-            ],
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (hasPending) ...[
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: p.warning,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  Text(
+                    hasPending ? '待复核 · ${widget.count}' : '待复核',
+                    style: TextStyle(
+                      color: hasPending ? p.textPrimary : p.textMuted,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),

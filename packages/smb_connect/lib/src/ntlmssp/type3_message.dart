@@ -21,7 +21,7 @@ import 'package:smb_connect/src/utils/extensions.dart';
 import 'package:smb_connect/src/utils/strings.dart';
 import 'package:smb_connect/src/utils/utf16le/utf16_le.dart';
 
-/// Represents an NTLMSSP Type-3 message.
+/// NTLMSSP Type-3 认证（AUTHENTICATE）响应报文。
 class Type3Message extends NtlmPacket {
   final Uint8List? lmResponse;
   final Uint8List? ntResponse;
@@ -33,7 +33,7 @@ class Type3Message extends NtlmPacket {
   Uint8List? mic;
   bool micRequired;
 
-  /// Creates a Type-3 message with the specified parameters.
+  /// 根据显式凭据与质询应答参数构造 Type-3 认证报文。
   Type3Message(
     int flags,
     this.lmResponse,
@@ -49,7 +49,7 @@ class Type3Message extends NtlmPacket {
     super.flags = flags;
   }
 
-  /// Creates a Type-3 message in response to the given Type-2 message.
+  /// 针对给定服务端 Type-2 质询响应计算凭据哈希并构造对应 Type-3 认证报文。
   factory Type3Message.pass(
       Configuration config,
       Type2Message type2,
@@ -60,12 +60,12 @@ class Type3Message extends NtlmPacket {
       String? workstation,
       int flags,
       {bool nonAnonymous = false}) {
-    // keep old behavior of anonymous auth when no password is provided
+    // 未提供密码时保持既有匿名认证语义，响应缓冲直接留空。
     return Type3Message.type2(config, type2, targetName, null, password, domain,
         user, workstation, flags, nonAnonymous);
   }
 
-  /// Creates a Type-3 message in response to the given Type-2 message.
+  /// 针对给定服务端 Type-2 质询响应计算凭据哈希并构造对应 Type-3 认证报文。
   factory Type3Message.passHash(
       Configuration config,
       Type2Message type2,
@@ -79,7 +79,7 @@ class Type3Message extends NtlmPacket {
         domain, user, workstation, flags, true);
   }
 
-  /// Creates a Type-3 message in response to the given Type-2 message.
+  /// 针对给定服务端 Type-2 质询响应计算凭据哈希并构造对应 Type-3 认证报文。
   factory Type3Message.type2(
       Configuration config,
       Type2Message type2,
@@ -110,7 +110,7 @@ class Type3Message extends NtlmPacket {
           return Type3Message(
               flags, lmResponse, ntResponse, domain, user, workstation);
         } else {
-          // NTLM2 Session Response
+          // 若对端声明扩展会话安全性，则执行 NTLM2 会话响应派生逻辑。
 
           Uint8List clientChallenge = config.random.nextBytes(24);
           clientChallenge.fill(start: 8, end: 24, value: 0x00);
@@ -170,9 +170,7 @@ class Type3Message extends NtlmPacket {
             ? AvPairs.decode(ntlmClientChallengeInfo)
             : null;
 
-        // print("AvPairs: $avPairs");
-        // if targetInfo has an MsvAvTimestamp
-        // client should not send LmChallengeResponse
+        // 若服务端下发了 `MsvAvTimestamp` 时间戳属性，客户端必须抑制传统 LmChallengeResponse 并计算 MIC 防篡改校验。
         Uint8List? lmResponse;
         bool haveTimestamp = AvPairs.contains(avPairs, AvPair.MsvAvTimestamp);
         if (!haveTimestamp) {
@@ -184,8 +182,6 @@ class Type3Message extends NtlmPacket {
         }
 
         if (avPairs != null) {
-          // make sure to set the TARGET_INFO flag as we are sending
-          // setFlag(NtlmFlags.NTLMSSP_NEGOTIATE_TARGET_INFO, true);
           flags = NtlmPacket.setFlagStatic(
               flags, NtlmFlags.NTLMSSP_NEGOTIATE_TARGET_INFO, true);
         }
@@ -257,8 +253,6 @@ class Type3Message extends NtlmPacket {
     if (NtlmPacket.getFlagStatic(flags, NtlmFlags.NTLMSSP_NEGOTIATE_SIGN) &&
         (Configuration.isEnforceSpnegoIntegrity ||
             (haveServerTimestamp && !Configuration.isDisableSpnegoIntegrity))) {
-      // should provide MIC
-      // micRequired = true;
       mic = Uint8List(16);
       int curFlags = 0;
       AvFlags? cur = AvPairs.get(serverAvPairs, AvPair.MsvAvFlags) as AvFlags?;
@@ -275,14 +269,14 @@ class Type3Message extends NtlmPacket {
       AvPairs.replace(serverAvPairs, AvTargetName.encode(targetName));
     }
 
-    // possibly add channel bindings
+    // 若存在通道绑定上下文信息则随 TargetInfo 附加写入。
     AvPairs.replace(serverAvPairs, AvPair(0xa, Uint8List(16)));
     AvPairs.replace(serverAvPairs, AvSingleHost.cfg(config));
     var res = AvPairs.encode(serverAvPairs);
     return (res, mic);
   }
 
-  /// Sets the MIC
+  /// 将 16 字节完整消息校验码（MIC）写入 Type-3 报文头指定位置。
   void setupMIC(Uint8List type1, Uint8List type2) {
     Uint8List? sk = masterKey;
     if (sk == null) {
@@ -296,8 +290,7 @@ class Type3Message extends NtlmPacket {
     mic = mac.digest();
   }
 
-  /// Returns the default flags for a Type-3 message created in response
-  /// to the given Type-2 message in the current environment.
+  /// 基于接收到的 Type-2 协商结果回推当前客户端构造 Type-3 报文应使用的标志集合。
   static int getDefaultFlags(Configuration config, {Type2Message? type2}) {
     if (type2 == null) {
       return NtlmFlags.NTLMSSP_NEGOTIATE_NTLM |
@@ -314,7 +307,7 @@ class Type3Message extends NtlmPacket {
     return flags;
   }
 
-  /// whether a MIC should be calulated
+  /// 标识本次 Type-3 认证应答是否需要附带生成 MIC 校验字段。
   bool isMICRequired() {
     return micRequired;
   }
@@ -435,8 +428,7 @@ class Type3Message extends NtlmPacket {
     return "Type3Message[domain=$domain,user=$user,workstation=$workstation,lmResponse=${lmResponse == null ? "null" : "<${lmResponse!.toHexString()}>"},ntResponse=${ntResponse == null ? "null" : "<${ntResponse!.toHexString()}>"},sessionKey=${sessionKey == null ? "null" : "<${sessionKey!.toHexString()}>"},flags=0x${Hexdump.toHexString(flags, 8)}]";
   }
 
-  /// Constructs the LanManager response to the given Type-2 message using
-  /// the supplied password.
+  /// 使用明文密码按给定 Type-2 质询报文构造 LanManager（LM）应答字节序列。
   static Uint8List? getLMResponseFor(
       Configuration config, Type2Message? type2, String? password) {
     if (type2 == null || password == null) {
@@ -445,13 +437,7 @@ class Type3Message extends NtlmPacket {
     return NtlmUtil.getPreNTLMResponse(config, password, type2.challenge!);
   }
 
-  // static Uint8List? getLMv2ResponsePass(Type2Message type2, String domain,
-  //     String user, String? password, Uint8List clientChallenge) {
-  //   if (password == null) {
-  //     return null;
   //   }
-  //   return getLMv2ResponsePassHash(
-  //       type2, domain, user, NtlmUtil.getNTHash(password), clientChallenge);
   // }
 
   static Uint8List? getLMv2ResponsePassHash(Type2Message? type2, String? domain,
@@ -480,17 +466,11 @@ class Type3Message extends NtlmPacket {
         clientChallenge, ts, clientChallengeInfo);
   }
 
-  /// Constructs the NT response to the given Type-2 message using
-  /// the supplied password.
-  // static Uint8List? getNTResponsePass(Type2Message type2, String? password) {
-  //   if (password == null) {
-  //     return null;
+  /// 使用明文密码按给定 Type-2 质询报文构造 NT 应答字节序列。
   //   }
-  //   return getNTResponsePassHash(type2, NtlmUtil.getNTHash(password));
   // }
 
-  /// Constructs the NT response to the given Type-2 message using
-  /// the supplied password.
+  /// 使用明文密码按给定 Type-2 质询报文构造 NT 应答字节序列。
   static Uint8List? getNTResponsePassHash(
       Type2Message? type2, Uint8List? passwordHash) {
     if (type2 == null || passwordHash == null) {
@@ -514,12 +494,10 @@ class Type3Message extends NtlmPacket {
     pos += 4;
 
     Uint8List lmResponseBytes = NtlmPacket.readSecurityBuffer(material, pos);
-    // lmResponse = lmResponseBytes;
     int lmResponseOffset = NtlmPacket.readULong(material, pos + 4);
     pos += 8;
 
     Uint8List ntResponseBytes = NtlmPacket.readSecurityBuffer(material, pos);
-    // ntResponse = ntResponseBytes;
     int ntResponseOffset = NtlmPacket.readULong(material, pos + 4);
     pos += 8;
 
@@ -544,7 +522,7 @@ class Type3Message extends NtlmPacket {
         domainOffset < pos + 12 ||
         userOffset < pos + 12 ||
         workstationOffset < pos + 12) {
-      // no room for SK/Flags
+      // 报文版本不支持附加 Flags/SessionKey，仅按经典长度解码。
       flags =
           NtlmFlags.NTLMSSP_NEGOTIATE_NTLM | NtlmFlags.NTLMSSP_NEGOTIATE_OEM;
       charset = NtlmPacket.getOEMEncoding();

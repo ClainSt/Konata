@@ -16,13 +16,13 @@
 #include <unordered_map>
 #include <vector>
 
-// Bridges libmpv video frames into Flutter Desktop external textures on Windows.
+// 将 Windows 平台 `libmpv` 解码视频帧桥接至 Flutter Desktop 外部纹理系统。
 //
-// Primary path: triple-buffered offscreen ID3D11Texture2D (BGRA8888 +
-// D3D11_RESOURCE_MISC_SHARED) rendered via MPV_RENDER_API_TYPE_D3D11 and
-// exposed through kFlutterDesktopGpuSurfaceTypeDxgiSharedHandle.
-// Fallback path: MPV_RENDER_API_TYPE_SW -> FlutterDesktopPixelBuffer texture
-// when D3D11 device creation or DXGI recovery is unavailable.
+// 主路径：采用三缓冲离屏 D3D11 共享纹理句柄直通 GPU 合成层零拷贝输出。
+// 通过 `MPV_RENDER_API_TYPE_D3D11` 直接绘制至共享表面，
+// 并经 DXGI 共享句柄描述符暴露给 Flutter 光栅化器。
+// 回退路径：当 D3D11 设备初始化或 DXGI 恢复失败时，自动降级为软件像素缓冲渲染。
+// 保障软件回退通道稳定可用。
 class D3D11TextureBridge {
  public:
   static constexpr UINT kNotifyWindowMessage = WM_APP + 0x4B;
@@ -35,11 +35,11 @@ class D3D11TextureBridge {
   D3D11TextureBridge(const D3D11TextureBridge&) = delete;
   D3D11TextureBridge& operator=(const D3D11TextureBridge&) = delete;
 
-  // Drains queued texture change notifications on the Win32 platform thread.
+  // 在 Win32 平台主线程排空待处理的纹理变更通知队列。
   void ProcessPendingNotifications();
 
-  // Stops all active render sessions and unregisters textures safely before
-  // FlutterEngine teardown.
+  // 在引擎销毁前中止全部活跃渲染会话并安全注销已注册纹理。
+  // 防止 Flutter 引擎卸载后残留异步帧通知。
   void Shutdown();
 
  private:

@@ -137,27 +137,10 @@ void buffFillTo(Uint8List buff, int count, {int value = 0}) {
   }
 }
 
-// void buffArrayCopyIf({
-//   required DataBuffer? src,
-//   required int offset,
-//   required DataBuffer dst,
-//   required int length,
 // }) {
-//   if (src != null) {
-//     buffArrayCopy(src: src, offset: offset, dst: dst, length: length);
-//   } else {
-//     buffFill(dst, length);
 //   }
 // }
 
-// void buffArrayCopy(
-//     {required DataBuffer src,
-//     required int offset,
-//     required DataBuffer dst,
-//     int? length}) {
-//   int len = length ?? src.length;
-//   for (int i = 0; i < len; i++) {
-//     dst.add(src[offset + i]);
 //   }
 // }
 
@@ -187,17 +170,11 @@ void intArrayCopy(
 
 void arrayCopy(
     Uint8List src, int srcOffset, Uint8List dst, int dstOffset, int length) {
-  // int len = length ?? src.length;
   for (int i = 0; i < length; i++) {
     dst[dstOffset + i] = src[srcOffset + i];
   }
 }
 
-// DataBuffer newBuffArrayCopy(
-//     {required DataBuffer src, required int offset, required int length}) {
-//   DataBuffer res = []; //DataBuffer();
-//   buffArrayCopy(src: src, dst: res, offset: offset, length: length);
-//   return res;
 // }
 
 extension ASN1ParserExtension on ASN1Parser {
@@ -246,9 +223,9 @@ bool isEqualMessageDigest(Uint8List? digesta, Uint8List? digestb) {
   int result = 0;
   result |= lenA - lenB;
 
-  // time-constant comparison
+  // 恒定时间常量耗时比对两段签名摘要，防时序侧信道攻击。
   for (int i = 0; i < lenA; i++) {
-    // If i >= lenB, indexB is 0; otherwise, i.
+    // 越界保护：下标超出数组 B 长度时固定回落至索引 0，保持循环常数耗时。
     int indexB = i; //((i - lenB) >>> 31) * i;
     result |= digesta[i] ^ digestb[indexB];
   }

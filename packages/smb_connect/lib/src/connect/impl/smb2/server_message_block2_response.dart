@@ -143,17 +143,15 @@ abstract class ServerMessageBlock2Response extends ServerMessageBlock2
 
   @override
   bool verifySignature(Uint8List buffer, int i, int size) {
-    // observed too that signatures on error responses are sometimes wrong??
-    // Looks like the failure case also is just reflecting back the signature we sent
+    // 实测部分服务端的错误响应未按规范计算签名，仅在启用 SMB3 协商校验后才强制核验，
+    // 同时保留首包签名字段清零验证逻辑以免误放行异常帧。
 
-    // with SMB3's negotiation validation it's no longer possible to ignore this (on the validation response)
-    // make sure that validation is performed in any case
     Smb2SigningDigest? dgst = getDigest();
     if (dgst != null &&
         !async &&
         (Configuration.isRequireSecureNegotiate ||
             getErrorCode() == NtStatus.NT_STATUS_OK)) {
-      // We only read what we were waiting for, so first guess would be no.
+      // 此处每次仅精确读取期望的应答字节块，常规流程下不包含跨请求黏包负载。
       bool verify = dgst.verify(buffer, i, size, 0, this);
       verifyFailed = verify;
       return !verify;

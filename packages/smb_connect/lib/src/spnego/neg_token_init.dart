@@ -8,13 +8,8 @@ import 'package:smb_connect/src/utils/extensions/asn1/asn1_tagged_object.dart';
 import 'spnego_token.dart';
 
 ///
-/// The negTokenInit message is sent from the client to the server and is used
-/// to begin the negotiation. The client uses that message to specify the set
-/// of authentication mechanisms that are supported and an opportunistic
-/// authentication message from the mechanism that the client believes will be
-/// agreed upon with the server.
+/// SPNEGO 首轮初始化 ASN.1 报文（NegTokenInit）：携带支持机制 OID 列表及乐观初始认证令牌。
 ///
-/// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-spng/217c771b-7754-475a-a0d5-771ab4cac752
 ///
 class NegTokenInit extends SpnegoToken {
   static const int DELEGATION = 0x80;

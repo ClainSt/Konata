@@ -7,15 +7,14 @@ import 'package:smb_connect/src/smb/ntlm_password_authenticator.dart';
 import 'package:smb_connect/src/utils/strings.dart';
 
 ///
-/// Authenticator directly specifing the user's NT hash
+/// 直接基于预计算 NT 哈希凭据构造的身份认证器，无需持有明文密码。
 ///
-/// @author mbechler
 ///
 class NtlmNtHashAuthenticator extends NtlmPasswordAuthenticator {
   static const int serialVersionUID = 4;
   final Uint8List _ntHash;
 
-  /// Create username/password credentials with specified domain
+  /// 基于域、用户名及密码明文创建 NTLM 认证凭据。
   NtlmNtHashAuthenticator(
       String domain, String username, Uint8List passwordHash)
       : _ntHash = passwordHash,
@@ -27,7 +26,7 @@ class NtlmNtHashAuthenticator extends NtlmPasswordAuthenticator {
     }
   }
 
-  /// Create username/password credentials with specified domain
+  /// 基于域、用户名及密码明文创建 NTLM 认证凭据。
   NtlmNtHashAuthenticator.hex(
       String domain, String username, String passwordHashHex)
       : this(domain, username, Hexdump.decodeToBuff(passwordHashHex));

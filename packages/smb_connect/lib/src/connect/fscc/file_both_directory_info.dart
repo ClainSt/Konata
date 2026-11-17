@@ -7,14 +7,12 @@ import 'package:smb_connect/src/smb/file_entry.dart';
 import 'package:smb_connect/src/smb_constants.dart';
 import 'package:smb_connect/src/utils/strings.dart';
 
-// TODO: all vars to final decode to factory constructor
 class FileBothDirectoryInfo implements FileEntry, Decodable {
   int _nextEntryOffset = 0;
   int _fileIndex = 0;
   int _creationTime = 0;
   int _lastAccessTime = 0;
   int _lastWriteTime = 0;
-  // int _changeTime = 0;
   int _endOfFile = 0;
   int _allocationSize = 0;
   int _extFileAttributes = 0;
@@ -87,7 +85,6 @@ class FileBothDirectoryInfo implements FileEntry, Decodable {
     bufferIndex += 8;
     _lastWriteTime = SMBUtil.readTime(buffer, bufferIndex);
     bufferIndex += 8;
-    // _changeTime = SMBUtil.readTime(buffer, bufferIndex);
     bufferIndex += 8;
     _endOfFile = SMBUtil.readInt8(buffer, bufferIndex);
     bufferIndex += 8;

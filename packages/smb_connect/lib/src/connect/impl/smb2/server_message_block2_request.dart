@@ -21,9 +21,6 @@ abstract class ServerMessageBlock2Request<T extends ServerMessageBlock2Response>
     super.retainPayload = false,
   });
 
-  // @override
-  // ServerMessageBlock2Request<T> ignoreDisconnect() {
-  //   return this;
   // }
 
   @override
@@ -33,7 +30,6 @@ abstract class ServerMessageBlock2Request<T extends ServerMessageBlock2Response>
 
   @override
   void setNext(ServerMessageBlock2? next) {
-    //ServerMessageBlock2Request<T>?
     super.setNext(next);
   }
 

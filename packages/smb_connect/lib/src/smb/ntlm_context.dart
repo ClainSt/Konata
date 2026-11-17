@@ -20,8 +20,7 @@ import '../ntlmssp/type1_message.dart';
 import '../ntlmssp/type2_message.dart';
 
 ///
-/// For initiating NTLM authentication (including NTLMv2). If you want to add NTLMv2 authentication support to something
-/// this is what you want to use
+/// NTLM/NTLMv2 认证核心握手上下文驱动器。
 ///
 class NtlmContext implements SSPContext {
   static const String S2C_SIGN_CONSTANT =
@@ -43,7 +42,6 @@ class NtlmContext implements SSPContext {
   bool _isEstablished = false;
   Uint8List? _serverChallenge;
   Uint8List? _masterKey;
-  // String? _netbiosName;
 
   final bool _requireKeyExchange;
   final _signSequence = AtomicInteger(0);
@@ -133,9 +131,6 @@ class NtlmContext implements SSPContext {
     return _masterKey;
   }
 
-  // @override
-  // String? getNetbiosName() {
-  //   return _netbiosName;
   // }
 
   @override
@@ -189,7 +184,6 @@ class NtlmContext implements SSPContext {
       _state++;
       return out;
     } catch (e) {
-      //SmbException
       if (e is SmbException) {
         rethrow;
       }
@@ -285,7 +279,6 @@ class NtlmContext implements SSPContext {
       try {
         trunc = _sealClientHandle!.process(trunc);
       } catch (e) {
-        //GeneralSecurityException
         throw SmbConnectException("Failed to encrypt MIC", e);
       }
     }
@@ -327,7 +320,6 @@ class NtlmContext implements SSPContext {
       try {
         trunc = _sealServerHandle!.process(trunc);
       } catch (e) {
-        //GeneralSecurityException
         throw SmbConnectException("Failed to decrypt MIC", e);
       }
     }

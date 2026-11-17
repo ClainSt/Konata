@@ -21,7 +21,7 @@ class SmbComNegotiateResponse extends ServerMessageBlock
     implements SmbNegotiationResponse {
   int dialectIndex = 0;
 
-  /* Negotiated values */
+  /* 协议协商后确立的连接能力参数 */
   final ServerData _server = ServerData();
   int _negotiatedFlags2 = 0;
   int _maxMpxCount = 0;
@@ -30,7 +30,7 @@ class SmbComNegotiateResponse extends ServerMessageBlock
   int _txBufSize = 0;
 
   int capabilities = 0;
-  // ignore: prefer_final_fields
+  /* 沿用协议状态字段可变定义，保留静态规则豁免 */ // ignore: prefer_final_fields
   int _sessionKey = 0x00000000;
   bool _useUnicode = false;
 
@@ -90,9 +90,6 @@ class SmbComNegotiateResponse extends ServerMessageBlock
     return (capabilities & cap) == cap;
   }
 
-  // @override
-  // bool isDFSSupported() {
-  //   return !config.isDfsDisabled() && haveCapabilitiy(SmbConstants.CAP_DFS);
   // }
 
   @override
@@ -111,7 +108,6 @@ class SmbComNegotiateResponse extends ServerMessageBlock
             SmbConstants.CAP_EXTENDED_SECURITY &&
         _server.encryptionKeyLength != 8 &&
         Configuration.lanManCompatibility == 0) {
-      // log.warn("Unexpected encryption key length: " + _server.encryptionKeyLength);
       return false;
     }
 
@@ -137,21 +133,16 @@ class SmbComNegotiateResponse extends ServerMessageBlock
     capabilities &= _server.scapabilities;
     if ((_server.scapabilities & SmbConstants.CAP_EXTENDED_SECURITY) ==
         SmbConstants.CAP_EXTENDED_SECURITY) {
-      // & doesn't copy high bit
+      // 按位与运算掩去符号扩展可能引入的高位。
       capabilities |= SmbConstants.CAP_EXTENDED_SECURITY;
     }
 
     if (config.isUseUnicode) {
-      // || config.isForceUnicode()
       capabilities |= SmbConstants.CAP_UNICODE;
     }
 
     if ((capabilities & SmbConstants.CAP_UNICODE) == 0) {
-      // server doesn't want unicode
-      // if (config.isForceUnicode()) {
-      //   capabilities |= SmbConstants.CAP_UNICODE;
-      //   _useUnicode = true;
-      // } else {
+      // 服务端在协商响应中声明不接受 Unicode 编码。
       _useUnicode = false;
       _negotiatedFlags2 &= 0xFFFF ^ SmbConstants.FLAGS2_UNICODE;
       // }
@@ -244,9 +235,8 @@ class SmbComNegotiateResponse extends ServerMessageBlock
     _server.serverTime = SMBUtil.readTime(buffer, bufferIndex);
     bufferIndex += 8;
     int tzOffset = SMBUtil.readInt2(buffer, bufferIndex);
-    // tzOffset is signed!
+    // 时区偏移量字段按有符号整数解析。
     if (tzOffset > 32767) {
-      //Short.MAX_VALUE) {
       tzOffset = -1 * (65536 - tzOffset);
     }
     _server.serverTimeZone = tzOffset;
@@ -297,7 +287,7 @@ class SmbComNegotiateResponse extends ServerMessageBlock
       _server.oemDomainName = "";
 
       if (byteCount > 16) {
-        // have initial spnego token
+        // 协商载荷末尾附带服务端初始 SPNEGO 安全令牌。
         _server.encryptionKeyLength = byteCount - 16;
         _server.encryptionKey = Uint8List(_server.encryptionKeyLength);
         byteArrayCopy(

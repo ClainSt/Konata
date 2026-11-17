@@ -43,6 +43,8 @@ dependencies:
     path: packages/media_kit_libs_android_video
 
 dev_dependencies:
+  integration_test:
+    sdk: flutter
   drift_dev: ^2.24.1
   build_runner: ^2.4.15
   flutter_test:

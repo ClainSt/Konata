@@ -50,7 +50,6 @@ abstract class SmbConnect {
       password: password,
       domain: domain,
       bufferCacheSize: 0x1FFF,
-      // debugPrint: debugPrint,
     );
     SmbTransport transport = SmbTransport(config, host);
     try {
@@ -62,7 +61,6 @@ abstract class SmbConnect {
 
   static Future<SmbConnect> connect(
     Configuration config,
-    // Credentials credentials,
     String host, {
     Function(SmbConnect)? onDisconnect,
   }) async {
@@ -89,8 +87,8 @@ abstract class SmbConnect {
       }
       return connect;
     } catch (_) {
-      // Ownership transfers only after negotiation and authentication succeed.
-      // A cleanup failure must not replace the original connection/auth error.
+      // 仅当协议协商与身份认证全部成功后，所有权才移交外层会话。
+      // 清理异常绝不允许覆盖原始的连接或鉴权核心报错。
       try {
         await transport.close();
       } catch (_) {}
@@ -177,8 +175,6 @@ abstract class SmbConnect {
 
   Future<SmbFile> delete(SmbFile file);
 
-  // Future<SmbFile> copyTo(SmbFile srcFile, String dstPath,
-  //     {bool replace = false});
 
   Future<SmbFile> rename(SmbFile srcFile, String dstPath,
       {bool replace = false});

@@ -1,16 +1,15 @@
 ///
-/// Internal use only
+/// 仅供传输内部状态调度使用的包私有常量。
 ///
-/// @author mbechler
 enum RequestParam {
   NONE,
 
-  /// Wait indefinitely for a response
+  /// 标志位：无限期挂起等待服务端应答（不触发响应超时）。
   NO_TIMEOUT,
 
-  /// Do not retry request on failure
+  /// 标志位：请求失败后禁止底层自动重新投递重试。
   NO_RETRY,
 
-  /// Save the raw payload for further inspection
+  /// 标志位：保存原始响应载荷字节序列以供上层扩展核验。
   RETAIN_PAYLOAD
 }

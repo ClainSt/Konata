@@ -61,9 +61,9 @@ def main():
         for source in libraries:
             shutil.copy2(source, abi / source.name)
         shutil.copy2(ndk / 'sysroot/usr/lib/aarch64-linux-android/libc++_shared.so', abi)
-        subprocess.run([str(ndk / 'bin/llvm-strip'), '--strip-unneeded',
-                        *map(str, abi.glob('*.so'))], check=True)
-        # Only the unchanged JNI helper is reused. Never copy the old libmpv.
+        stripped = [str(so) for so in abi.glob('*.so')]
+        subprocess.run([str(ndk / 'bin/llvm-strip'), '--strip-unneeded', *stripped], check=True)
+        # 仅复用未改动的 JNI 辅助动态库，严禁拷贝旧版 libmpv。
         with zipfile.ZipFile(jar) as archive:
             (abi / 'libmediakitandroidhelper.so').write_bytes(
                 archive.read('lib/arm64-v8a/libmediakitandroidhelper.so'))

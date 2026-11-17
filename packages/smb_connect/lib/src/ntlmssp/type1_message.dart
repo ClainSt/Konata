@@ -7,7 +7,7 @@ import 'package:smb_connect/src/ntlmssp/ntlm_message.dart';
 import 'package:smb_connect/src/utils/extensions.dart';
 
 ///
-/// Represents an NTLMSSP Type-1 message.
+/// NTLMSSP Type-1 协商（NEGOTIATE）请求报文。
 ///
 class Type1Message extends NtlmPacket {
   final String? suppliedDomain;
@@ -18,14 +18,13 @@ class Type1Message extends NtlmPacket {
     this.flags = flags;
   }
 
-  /// Creates a Type-1 message with the specified parameters.
+  /// 根据指定的标志位、工作站及域名构造 Type-1 协商报文。
   Type1Message(Configuration config, int flags, this.suppliedDomain,
       this.suppliedWorkstation) {
     this.flags = flags | getDefaultFlags(config);
   }
 
-  /// Returns the default flags for a generic Type-1 message in the
-  /// current environment.
+  /// 返回当前客户端环境下构造标准 Type-1 协商报文时的默认标志组合。
   static int getDefaultFlags(Configuration config) {
     return NtlmFlags.NTLMSSP_NEGOTIATE_NTLM |
         NtlmFlags.NTLMSSP_NEGOTIATE_VERSION |

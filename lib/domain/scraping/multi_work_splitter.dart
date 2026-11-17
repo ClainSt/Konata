@@ -37,9 +37,9 @@ class SubWorkCluster {
   final List<SplitAssetAssignment> assignments;
 }
 
-/// Deterministic local clustering for collection directories containing multiple
-/// installments (e.g. `Movie & OVA`, `TV+Movie`, `Work A & Work B`, or multi-part
-/// theatrical/arc folders). Never performs network or stream I/O.
+/// 针对多作混装合集目录（如 `Movie & OVA`、`TV+Movie`、双作合集或剧场版上下篇）
+/// 执行纯粹的本地确定性聚类拆分，
+/// 全程绝不执行任何网络请求或媒体流文件读写。
 abstract final class MultiWorkSplitter {
   static final _explicitJoiner = RegExp(r'\s+[&＆＋]\s+');
   static final _multiKindFolder = RegExp(
@@ -272,7 +272,7 @@ abstract final class MultiWorkSplitter {
       folderTmdbId: folderTmdbId,
     );
 
-    // Group candidate main files by (firstNonSuppSubDir, clusterSignature).
+    // 按 `(首个非特典子目录, 聚类签名)` 对候选正片文件分组。
     final buckets = <String, List<_FileEntry>>{};
     final hasMultipleKinds = refinedMain.map((e) => e.kind).toSet().length > 1;
     final movieYears = refinedMain
@@ -310,9 +310,9 @@ abstract final class MultiWorkSplitter {
             (entry.year != null ? '${entry.year}' : '');
         key = '$topSub|ova|${entry.normStem}|$ovaArc';
       } else if (folderTmdbId != null) {
-        // Under an explicit {tmdb-N} TV folder, keep all regular TV seasons
-        // and discs unified in one main TV cluster while allowing bundled
-        // movies/OVAs/#00 to split out cleanly.
+        // 在显式声明 `{tmdb-N}` 的剧集目录内，保留全部常规 TV 季与光盘分卷于同一主聚类，
+        // 同时仅允许目录内捆绑的独立剧场版、OVA 或 `#00` 序章章节
+        // 干净拆分出去作为独立逻辑作品。
         key = 'tmdb-main|series';
       } else {
         final quoteKey = entry.episode == null && entry.quote != null
@@ -328,8 +328,8 @@ abstract final class MultiWorkSplitter {
       (buckets[key] ??= []).add(entry);
     }
 
-    // Also split a subfolder holding multiple distinct unnumbered features
-    // or a standalone two-volume Alternative OVA release (- 01 / - 02).
+    // 同时拆分子目录内同存多部不同名无编号正片，或包含两卷独立外传 OVA
+    //（如 `- 01 / - 02` 篇目）的复合结构。
     final expandedBuckets = <List<_FileEntry>>[];
     for (final group in buckets.values) {
       final unnumbered = group.where((e) => e.episode == null).toList();
@@ -357,8 +357,8 @@ abstract final class MultiWorkSplitter {
 
     if (expandedBuckets.length < 2) return const [];
 
-    // For {tmdb-N} directories, split only when at least one explicit movie or
-    // standalone OVA subcluster separates from the main TV work.
+    // 对显式 `{tmdb-N}` 目录，仅当存在至少一个明确的独立剧场版或独立 OVA 子聚类时
+    // 才执行与主 TV 剧集之间的拆分。
     bool isExplicitStandaloneCluster(List<_FileEntry> g) =>
         g.first.kind == 'movie' ||
         g.first.kind == 'ova' ||
@@ -381,14 +381,14 @@ abstract final class MultiWorkSplitter {
       if (!hasDetachedSubwork) return const [];
     }
 
-    // Pair explicit folder segments greedily (including partial collection
-    // folders where segments are fewer than total clusters due to extra OVAs).
+    // 贪心配对目录名显式拆出的名称片段（兼容因附加 OVA 导致目录片段少于实际聚类的情况）。
+    // 保障部分显式分段目录依然能对齐所属作品。
     final assignedSegment = _pairExplicitSegments(
       expandedBuckets,
       explicitSegments,
     );
 
-    // Attach extra files to the best-matching cluster.
+    // 将特典文件归属至词法相似度最高的目标正片聚类。
     final clusterExtras = <int, List<_FileEntry>>{
       for (var i = 0; i < expandedBuckets.length; i++) i: [],
     };
@@ -560,10 +560,10 @@ abstract final class MultiWorkSplitter {
     );
   }
 
-  /// Separates named spin-off/OVA sub-series and standalone special features
-  /// from a long contiguous main TV series (e.g. `Main TV - 001..112` vs
-  /// `Eizou Hakusho II - 01..04` and `Two Shots (2018)`) without splitting
-  /// regular multi-season TV entries such as `Title Season 2` or `Title II`.
+  /// 从长篇连续 TV 主系列中拆出带专属副标题的衍生 OVA 子系列与独立特别剧场版
+  /// （例如主线 `001..112` 与独立外传 `II - 01..04`、`Two Shots` 拆分），
+  /// 同时确保诸如 `Title Season 2`、`Title II` 等常规续季条目不被错误割裂。
+  /// 兼顾外传拆分精度与多季连贯性。
   static List<_FileEntry> _detachLongSeriesNamedOvaSubworks(
     List<_FileEntry> entries, {
     int? folderTmdbId,
@@ -714,8 +714,8 @@ abstract final class MultiWorkSplitter {
     final years = group.map((e) => e.year).whereType<int>().toSet();
     final clusterYear = years.length == 1 ? years.single : null;
 
-    // Re-normalize contiguous multi-episode OVA arcs starting > 1
-    // (e.g. an OVA arc 04..06 -> local episodes 1..3).
+    // 对起始集号大于 `1` 的连续多集 OVA 篇章重新归一化局部编号
+    // （例如 OVA 篇章 `04..06` 重映射为本地连续第 `1..3` 话）。
     final rawEpisodes = group.map((e) => e.episode).whereType<int>().toList();
     var epOffset = 0;
     if (!isSingleFeature &&
@@ -878,8 +878,8 @@ abstract final class MultiWorkSplitter {
       addHint(first.hashZeroSubtitle);
     }
 
-    // Isolate parent collection stem: only inject bare fallback stem when the
-    // subcluster lacks an explicit segment or independent filename title.
+    // 隔离外层合集目录词干：仅当子聚类本身既无目录分段又无独立文件名主标题时，
+    // 才注入父级合集目录词干作为兜底检索名称。
     if (!hasIndependentTitle && stemInfo.fallbackStem != null) {
       addHint(stemInfo.fallbackStem);
     } else if (titleHints.isEmpty && stemInfo.fallbackStem != null) {
@@ -1465,9 +1465,9 @@ abstract final class MultiWorkSplitter {
       return out;
     }
 
-    // Score every (group, segment) pair and resolve globally in descending
-    // specificity order so specific sequels/variants claim their cluster before
-    // shorter base titles.
+    // 对所有 `(文件名组, 目录分段)` 组合计算匹配分值，并按特异度从高到低全局贪心指派，
+    // 确保特征鲜明的续作或外传优先认领对应聚类，避免被较短的通配基础片名提前抢占。
+    // 防止跨季或衍生作品分配错位。
     final candidates = <({int gi, int si, int score})>[];
     for (var gi = 0; gi < groups.length; gi++) {
       final rep = groups[gi].first;
@@ -1556,13 +1556,13 @@ abstract final class MultiWorkSplitter {
       usedSegments.add(c.si);
     }
 
-    // Only force-assign remaining segments by order when segment and cluster
-    // counts match AND either we already have partial lexical guidance or at
-    // least one group lacks an independent multi-word title (e.g. generic
-    // subfolder/episode names). When lexical overlap is completely zero and
-    // every group carries a distinct descriptive filename title (e.g. CJK
-    // collection folder paired against unordered Romaji filenames), keep the
-    // filename titles to prevent cross-mismatching.
+    // 仅当目录片段与剩余聚类数量一致，且具备部分词汇重叠或至少一组缺乏独立多词文件名标题时，
+    // 才允许按目录排序强制兜底绑定；若词汇重叠完全为零且各组均自带清晰独立文件名主标题
+    // （例如简中合集目录名搭配乱序罗马音文件名），则保留组内文件名解析标题，
+    // 严禁按顺序强行错配。
+    // 避免中英/日罗马音目录文件排列顺序差异造成集体错绑。
+    // 保留高可信的文件名级作品识别线索。
+    // 杜绝顺序强绑导致的交叉错配问题。
     final allGroupsHaveDistinctDescriptiveTitles =
         groups.every(
           (g) =>
@@ -1810,8 +1810,8 @@ abstract final class MultiWorkSplitter {
           score += idfBonus + tok.length.clamp(2, 12);
         }
       }
-      // Slightly penalize unique distinguishing cluster tokens absent from extra
-      // so shared-prefix extras ("Title NCOP1") stay with "Title" over "Title Subtitle".
+      // 若其他聚类特有的区分词元未出现在当前特典文件上，则对其略作扣分，
+      // 使共享前缀的无副标题特典（如 `Title NCOP1`）优先留给主作 `Title`。
       for (final cTok in cTokens) {
         if (!extraTokens.contains(cTok) && (tokenDocFreq[cTok] ?? 0) == 1) {
           score -= 6;

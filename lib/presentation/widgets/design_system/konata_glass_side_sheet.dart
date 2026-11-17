@@ -1,11 +1,13 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../../theme/konata_adaptive_tokens.dart';
 import '../../theme/konata_palette.dart';
 import 'konata_glass_dialog.dart';
 
-/// 悬浮内嵌圆角毛玻璃侧栏（距顶 56px 避开窗口控制键，右/底各留 16px 外边距）。
+/// 悬浮内嵌圆角毛玻璃侧栏（桌面距顶 56px 避开窗口控制键，触屏自适应安全区与矮屏高度）。
 class KonataGlassSideSheet extends StatefulWidget {
   /// 创建悬浮毛玻璃侧栏。
   const KonataGlassSideSheet({
@@ -26,10 +28,10 @@ class KonataGlassSideSheet extends StatefulWidget {
   /// 主体内容区域。
   final Widget child;
 
-  /// 侧栏宽度（默认 420px）。
+  /// 侧栏基准宽度（默认 420px）。
   final double width;
 
-  /// 距容器底部的安全避让间距（默认 16px，播放控制台上提以避让底部播控胶囊）。
+  /// 距容器底部的安全避让间距。
   final double bottomInset;
 
   @override
@@ -53,11 +55,13 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
     _slideAnimation = Tween<Offset>(
       begin: const Offset(1.06, 0),
       end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeOutCubic,
-      reverseCurve: Curves.easeInCubic,
-    ));
+    ).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      ),
+    );
     _fadeAnimation = CurvedAnimation(
       parent: _controller,
       curve: Curves.easeOut,
@@ -83,6 +87,25 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final screen = MediaQuery.sizeOf(context);
+    final safe = MediaQuery.paddingOf(context);
+    final isAndroid = KonataAdaptiveTokens.isAndroid;
+    final isShort = screen.height < KonataAdaptiveTokens.shortViewportHeight;
+
+    final rightInset = math.max(12.0, safe.right + 12.0);
+    final effectiveWidth = math.min(
+      widget.width,
+      math.max(240.0, screen.width - safe.left - rightInset - 12.0),
+    );
+    final topInset = isAndroid
+        ? (isShort
+              ? math.max(8.0, safe.top + 8.0)
+              : math.max(KonataAdaptiveTokens.tabletTopSafeMin, safe.top + 12.0))
+        : 56.0;
+    final bottomInset = isAndroid && isShort
+        ? math.max(8.0, safe.bottom + 8.0)
+        : math.max(safe.bottom + 12.0, widget.bottomInset);
+
     final barrierColor = p.isDark
         ? Colors.black.withValues(alpha: 0.44)
         : Colors.black.withValues(alpha: 0.35);
@@ -105,10 +128,10 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
           ),
         ),
         Positioned(
-          top: 56,
-          right: 16,
-          bottom: widget.bottomInset,
-          width: widget.width,
+          top: topInset,
+          right: isAndroid ? rightInset : 16,
+          bottom: bottomInset,
+          width: effectiveWidth,
           child: SlideTransition(
             position: _slideAnimation,
             child: DecoratedBox(
@@ -116,7 +139,9 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
                 borderRadius: BorderRadius.circular(18),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: p.isDark ? 0.38 : 0.14),
+                    color: Colors.black.withValues(
+                      alpha: p.isDark ? 0.38 : 0.14,
+                    ),
                     blurRadius: 32,
                     offset: const Offset(-4, 12),
                   ),
@@ -132,30 +157,38 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(color: borderColor, width: 1),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(22, 20, 18, 12),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  widget.title,
-                                  style: TextStyle(
-                                    color: p.textPrimary,
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: -0.2,
+                    child: Material(
+                      type: MaterialType.transparency,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              isShort ? 16 : 22,
+                              isShort ? 10 : 16,
+                              isShort ? 10 : 14,
+                              isShort ? 6 : 10,
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    widget.title,
+                                    style: TextStyle(
+                                      color: p.textPrimary,
+                                      fontSize: isShort ? 17 : 20,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: -0.2,
+                                    ),
                                   ),
                                 ),
-                              ),
-                              KonataGlassCloseButton(onPressed: _handleClose),
-                            ],
+                                KonataGlassCloseButton(onPressed: _handleClose),
+                              ],
+                            ),
                           ),
-                        ),
-                        Expanded(child: widget.child),
-                      ],
+                          Expanded(child: widget.child),
+                        ],
+                      ),
                     ),
                   ),
                 ),

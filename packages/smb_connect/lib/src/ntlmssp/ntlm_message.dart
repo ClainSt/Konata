@@ -6,17 +6,17 @@ import 'package:smb_connect/src/utils/extensions.dart';
 import 'package:smb_connect/src/utils/utf16le/utf16_le.dart';
 
 ///
-/// Base NTLMSSP packet.
+/// NTLMSSP 认证三步握手报文抽象基类。
 ///
 abstract class NtlmPacket {
   ///
-  /// The NTLMSSP header: "NTLMSSP#0"
+  /// NTLMSSP 协议固定签名头标识（`NTLMSSP\0`）。
   ///
   static final Uint8List NTLMSSP_HEADER =
       Uint8List.fromList([78, 84, 76, 77, 83, 83, 80, 0]);
 
   ///
-  /// NTLM version
+  /// 随 NTLM 报文通告的客户端软件与平台版本信息字段。
   ///
   static final Uint8List NTLMSSP_VERSION =
       Uint8List.fromList([6, 1, 0, 0, 0, 0, 0, 15]);

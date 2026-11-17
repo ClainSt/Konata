@@ -275,7 +275,7 @@ abstract interface class LibMpvSoftwareFrameSource {
 }
 
 // ============================================================================
-// libmpv C struct ABI bindings (matching native/konata-native/windows/include/mpv/client.h)
+// libmpv C 结构体 ABI 绑定定义（对齐原生头文件 client.h）。
 // ============================================================================
 
 final class _MpvByteArrayNative extends Struct {
@@ -536,13 +536,13 @@ Uint8List encodeRgb0ToBmp(Uint8List rgb0, int width, int height) {
   final bmp = Uint8List(fileSize);
   final view = ByteData.sublistView(bmp);
 
-  // BITMAPFILEHEADER (14 bytes)
+  // 位图文件头 BITMAPFILEHEADER（14 字节）
   bmp[0] = 0x42; // 'B'
   bmp[1] = 0x4D; // 'M'
   view.setUint32(2, fileSize, Endian.little);
   view.setUint32(10, 54, Endian.little);
 
-  // BITMAPINFOHEADER (40 bytes)
+  // 位图信息头 BITMAPINFOHEADER（40 字节）
   view.setUint32(14, 40, Endian.little);
   view.setInt32(18, width, Endian.little);
   view.setInt32(22, height, Endian.little);

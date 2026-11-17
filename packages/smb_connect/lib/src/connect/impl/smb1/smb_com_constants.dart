@@ -7,13 +7,7 @@ class SmbComConstants {
   static const int SMB_FILE_NAMES_INFO = 0x103;
   static const int SMB_FILE_BOTH_DIRECTORY_INFO = 0x104;
 
-  /// These are all the smbs supported by this library. This includes requests
-  /// and well as their responses for each type however the actuall implementations
-  /// of the readXxxWireFormat and writeXxxWireFormat methods may not be in
-  /// place. For example at the time of this writing the readXxxWireFormat
-  /// for requests and the writeXxxWireFormat for responses are not implemented
-  /// and simply return 0. These would need to be completed for a server
-  /// implementation.
+  /// 客户端内部使用的完整 SMB 命令基类及收发编解码入口集合（偏重客户端收发路径）。
   static const int SMB_COM_CREATE_DIRECTORY = 0x00;
   static const int SMB_COM_DELETE_DIRECTORY = 0x01;
   static const int SMB_COM_CLOSE = 0x04;

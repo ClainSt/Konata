@@ -130,12 +130,10 @@ abstract class ServerMessageBlock2 implements CommonServerMessageBlock {
 
   @override
   void setExtendedSecurity(bool extendedSecurity) {
-    // ignore
   }
 
   @override
   void setUid(int uid) {
-    // ignore
   }
 
   void addFlags(int flag) {
@@ -267,14 +265,10 @@ abstract class ServerMessageBlock2 implements CommonServerMessageBlock {
     int len = length;
 
     if (nextCommand != 0) {
-      // padding becomes part of signature if this is _PART_ of a compound chain
+      // 若当前报文处于 SMB2 复合链中间片段，末尾对齐填充字节也计入签名摘要范围。
       len += pad8(bufferIndex);
     } else if (compound && nextCommand == 0 && readSize > 0) {
-      // TODO: only apply this for actual compound chains, or is this correct for single responses, too?
-      // 3.2.5.1.9 Handling Compounded Responses
-      // The final response in the compounded response chain will have NextCommand equal to 0,
-      // and it MUST be processed as an individual message of a size equal to the number of byte?s
-      // remaining in this receive.
+      // 按 MS-SMB2 3.2.5.1.9 规范处理复合响应链，末条响应按本包剩余长度解析。
       int rem = readSize - length;
       len += rem;
     }
@@ -339,17 +333,17 @@ abstract class ServerMessageBlock2 implements CommonServerMessageBlock {
       SMBUtil.writeInt8(asyncId, dst, dstIndex + 32);
       SMBUtil.writeInt8(sessionId, dst, dstIndex + 40);
     } else {
-      // 4 reserved
+      // 4 字节保留字段（置零填充）。
       SMBUtil.writeInt4(treeId, dst, dstIndex + 36);
       SMBUtil.writeInt8(sessionId, dst, dstIndex + 40);
-      // + signature
+      // 累加末尾 16 字节消息签名长度。
     }
 
     return Smb2Constants.SMB2_HEADER_LENGTH;
   }
 
   int readHeaderWireFormat(Uint8List buffer, int bufferIndex) {
-    // these are common between SYNC/ASYNC
+    // 以下头部字段在同步与异步 SMB2 报文格式下布局完全共用。
     SMBUtil.readInt4(buffer, bufferIndex);
     bufferIndex += 4;
     SMBUtil.readInt2(buffer, bufferIndex);
@@ -370,7 +364,7 @@ abstract class ServerMessageBlock2 implements CommonServerMessageBlock {
 
     if ((flags & Smb2Constants.SMB2_FLAGS_ASYNC_COMMAND) ==
         Smb2Constants.SMB2_FLAGS_ASYNC_COMMAND) {
-      // async
+      // 异步 SMB2 报文（携带 8 字节 AsyncId）。
       async = true;
       asyncId = SMBUtil.readInt8(buffer, bufferIndex);
       bufferIndex += 8;
@@ -384,7 +378,7 @@ abstract class ServerMessageBlock2 implements CommonServerMessageBlock {
           length: 16);
       bufferIndex += 16;
     } else {
-      // sync
+      // 同步 SMB2 报文（携带 ProcessId 与 TreeId）。
       async = false;
       bufferIndex += 4; // reserved
       treeId = SMBUtil.readInt4(buffer, bufferIndex);

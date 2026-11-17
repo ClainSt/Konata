@@ -1,6 +1,4 @@
-// Copyright 2013 The Flutter Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// 遵循 Flutter 官方组件 BSD 开源许可协议（详见随包 LICENSE 文件）。
 
-/// Stub version of the actual class.
+/// 用于非 FFI 平台编译占位的空桩类定义。
 class WindowsKnownFolder {}

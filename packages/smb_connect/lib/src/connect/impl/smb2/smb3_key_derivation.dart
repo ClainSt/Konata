@@ -8,9 +8,8 @@ import 'package:smb_connect/src/utils/extensions/kdf/kdf_counter_parameters.dart
 import 'package:smb_connect/src/utils/strings.dart';
 
 ///
-/// SMB3 SP800-108 Counter Mode Key Derivation
+/// 基于 NIST SP 800-108 计数器模式的 SMB3 会话密钥派生实现。
 ///
-/// @author mbechler
 ///
 class Smb3KeyDerivation {
   static final Uint8List SIGNCONTEXT_300 = toCBytes("SmbSign");
@@ -82,35 +81,29 @@ class Smb3KeyDerivation {
 
   static Uint8List derive(
       Uint8List sessionKey, Uint8List label, Uint8List context) {
-    // KDFCounterBytesGenerator gen = new KDFCounterBytesGenerator(new HMac(new SHA256Digest()));
-    // final gen = KeyDerivator("SHA-256/HMAC/PBKDF2");
     var gen = KDFCounterBytesGenerator(Mac("SHA-256/HMAC"));
 
     int r = 32;
     Uint8List suffix = Uint8List(label.length + context.length + 5);
-    // per bouncycastle
-    // <li>1: K(i) := PRF( KI, [i]_2 || Label || 0x00 || Context || [L]_2 ) with the counter at the very beginning
-    // of the fixedInputData (The default implementation has this format)</li>
-    // with the parameters
-    // <li>1. KDFCounterParameters(ki, null, "Label || 0x00 || Context || [L]_2]", 8);
+    // 参数组织格式对齐经典 BouncyCastle SP800-108 计数器前置规范：
+    // K(i) := PRF(KI, [i]_2 || Label || 0x00 || Context || [L]_2)，固定后缀依次拼装标签、空字节、上下文与大端比特长度 L。
 
-    // all fixed inputs go into the suffix:
-    // + label
+    // 拼接派生用途标签（Label）
     byteArrayCopy(
         src: label,
         srcOffset: 0,
         dst: suffix,
         dstOffset: 0,
         length: label.length);
-    // + 1 byte 0x00
-    // + context
+    // 拼接 1 字节分隔空字节 `0x00`
+    // 拼接上下文协商摘要（Context）
     byteArrayCopy(
         src: context,
         srcOffset: 0,
         dst: suffix,
         dstOffset: label.length + 1,
         length: context.length);
-    // + 4 byte (== r bits) big endian encoding of L
+    // 拼接 4 字节大端输出密钥位长 L
     suffix[suffix.length - 1] = 128;
 
     var param = KDFCounterParameters(sessionKey, null, suffix, r);

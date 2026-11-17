@@ -217,14 +217,26 @@ abstract final class KonataPlaybackTokens {
   static const double skipPillRightOffset = 24.0;
   static const Duration skipPillAutoFadeDuration = Duration(milliseconds: 4000);
 
-  /// 极简隐身 HUD 定时阈值。
-  static const Duration cursorIdleFadeDelay = Duration(milliseconds: 2000);
+  /// 极简隐身 HUD 定时阈值（播放无操作满 3 秒平滑隐藏并退订进度界面监听）。
+  static const Duration cursorIdleFadeDelay = Duration(milliseconds: 3000);
   static const Duration hudFadeDuration = Duration(milliseconds: 200);
   static const Duration pauseBadgeDisplayDuration = Duration(milliseconds: 800);
   static const Duration wheelVolumeOsdDuration = Duration(milliseconds: 1200);
   static const Duration autoNextEpisodeToastDuration = Duration(
     milliseconds: 3000,
   );
+
+  /// 全屏音频与后台纯音频静态三层模糊背景遮罩透明度（严格位于 0.4 ~ 0.6 红线区间）。
+  static const double auroraScrimDarkAlpha = 0.48;
+  static const double auroraScrimLightAlpha = 0.56;
+
+  /// 平板端双栏全屏音频左栏封面最大边长（位于 360 ~ 420dp 区间）。
+  static const double tabletAlbumCoverMaxSize = 396.0;
+
+  /// 视频迷你胶囊实时画面圆角预览框尺寸。
+  static const double miniVideoPreviewWidth = 60.0;
+  static const double miniVideoPreviewHeight = 38.0;
+  static const double miniVideoPreviewRadius = 10.0;
 
   /// 全局鼠标滚轮与键盘音量调节步进（0 ~ 100，精确 1% 整数步进）。
   static const double wheelVolumeStep = 1.0;

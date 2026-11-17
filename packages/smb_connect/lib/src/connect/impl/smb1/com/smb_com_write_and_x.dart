@@ -42,9 +42,8 @@ class SmbComWriteAndX extends AndXServerMessageBlock {
     digest = null;
 
     ///
-    /// otherwise recycled commands
-    /// like writeandx will choke if session
-    /// closes in between
+    /// 为复用命令对象预先重置关键关联字段，
+    /// 防止会话重连或中断后残留状态引发写命令阻塞异常。
     ///
   }
 
@@ -59,9 +58,8 @@ class SmbComWriteAndX extends AndXServerMessageBlock {
     digest = null;
 
     ///
-    /// otherwise recycled commands
-    /// like writeandx will choke if session
-    /// closes in between
+    /// 为复用命令对象预先重置关键关联字段，
+    /// 防止会话重连或中断后残留状态引发写命令阻塞异常。
     ///
   }
 

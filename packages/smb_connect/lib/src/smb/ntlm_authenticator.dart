@@ -2,8 +2,7 @@ import 'package:smb_connect/src/exceptions.dart';
 import 'package:smb_connect/src/smb/ntlm_password_authenticator.dart';
 
 ///
-/// This class can be extended by applications that wish to trap authentication related exceptions and automatically
-/// retry the exceptional operation with different credentials.
+/// 可由上层扩展继承的 NTLM 交互式凭据回调器基类；鉴权失败时允许返回新凭据以重试请求。
 ///
 abstract class NtlmAuthenticator {
   static NtlmAuthenticator? auth;
@@ -11,8 +10,7 @@ abstract class NtlmAuthenticator {
   String? url;
   SmbAuthException? sae;
 
-  /// Set the default NtlmAuthenticator. Once the default authenticator is set it cannot be changed. Calling
-  /// this metho again will have no effect.
+  /// 注册全局默认 `NtlmAuthenticator` 实例；首次设置后锁定生效，重复调用无效。
   static void setDefault(NtlmAuthenticator a) {
     if (auth != null) {
       return;
@@ -28,7 +26,7 @@ abstract class NtlmAuthenticator {
 
   SmbAuthException? getRequestingException() => sae;
 
-  /// credentials returned by prompt
+  /// 当派生类重写弹窗回调收集用户新凭据时由此入口返回认证结果。
   static NtlmPasswordAuthenticator? requestNtlmPasswordAuthentication(
       NtlmAuthenticator? a, String url, SmbAuthException? sae) {
     if (a == null) {
@@ -39,11 +37,7 @@ abstract class NtlmAuthenticator {
     return a.getNtlmPasswordAuthentication();
   }
 
-  /// An application extending this class must provide an implementation for this method that returns new user
-  /// credentials try try when accessing SMB resources described by the getRequestingURL and
-  /// getRequestingException methods.
-  /// If this method returns null the SmbAuthException that triggered the authenticator check will
-  /// simply be rethrown. The default implementation returns null.
+  /// 派生类实现此方法后可在触发 `SmbAuthException` 时按请求 URL 与异常上下文提示用户输入新凭据；返回空则原样抛出异常。
   NtlmPasswordAuthenticator? getNtlmPasswordAuthentication() {
     return null;
   }

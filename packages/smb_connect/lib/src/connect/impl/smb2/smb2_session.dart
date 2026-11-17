@@ -52,11 +52,8 @@ class Smb2Session extends SmbSession {
     var request1 = Smb2SessionSetupRequest(
         config, securityMode, negoResp.commonCapabilities, 0, token,
         retainPayload: true, credit: 512);
-    // request1.setRetainPayload();
-    // request1.credit = 512;
     Smb2SessionSetupResponse response1 = await transport
         .sendrecv(request1, params: {RequestParam.RETAIN_PAYLOAD});
-    // sessId = response.getSessionId();
     if (config.debugPrint) {
       print("SessionId: ${response1.sessionId}");
     }
@@ -73,9 +70,7 @@ class Smb2Session extends SmbSession {
     var request2 = Smb2SessionSetupRequest(
         config, securityMode, negoResp.commonCapabilities, 0, token,
         credit: 512, retainPayload: true);
-    // request2.credit = 512;
     request2.setSessionId(response1.sessionId);
-    // request2.setRetainPayload();
     Smb2SessionSetupResponse response2 = await transport
         .sendrecv(request2, params: {RequestParam.RETAIN_PAYLOAD});
     token = response2.blob;
@@ -85,9 +80,6 @@ class Smb2Session extends SmbSession {
     if (token == null) {
       final s = SmbException.getMessageByCode(response2.status);
       throw SmbAuthException(s);
-      // print(object)
-      // throw SmbException("Signing enabled but no session key available");
-      // return false;
     }
 
     token = createToken(ctx, token);
@@ -107,12 +99,8 @@ class Smb2Session extends SmbSession {
         if (signingKey != null) {
           Smb2SigningDigest dgst = Smb2SigningDigest(
               sessionKey!, negoResp.dialectRevision, preauthIntegrityHash);
-          // verify the server signature here, this is not done automatically as we don't set the
-          // request digest
-          // Ignore a missing signature for SMB < 3.0, as
-          // - the specification does not clearly require that (it does for SMB3+)
-          // - there seem to be server implementations (known: EMC Isilon) that do not sign the final
-          // response
+          // 在此显式核验服务端返回的响应签名（因复合/协商期可能未托管统一摘要器）。
+          // 对低于 SMB 3.0 的协议放宽末条响应缺失签名（规范允许且兼容 EMC Isilon 等存储设备）。
           if (negoResp.getSelectedDialect()?.atLeast(DialectVersion.SMB300) ==
                   true ||
               response2.isSigned()) {

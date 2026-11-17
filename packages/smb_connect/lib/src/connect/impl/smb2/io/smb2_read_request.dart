@@ -80,12 +80,12 @@ class Smb2ReadRequest extends ServerMessageBlock2Request<Smb2ReadResponse>
     SMBUtil.writeInt4(remainingBytes, dst, dstIndex);
     dstIndex += 4;
 
-    // ReadChannelInfo
+    // RDMA / 读通道附加信息标识定义。
     SMBUtil.writeInt2(0, dst, dstIndex);
     SMBUtil.writeInt2(0, dst, dstIndex + 2);
     dstIndex += 4;
 
-    // one int in buffer must be zero
+    // 缓冲区保留整型占位须置零。
     dst[dstIndex] = 0;
     dstIndex += 1;
 

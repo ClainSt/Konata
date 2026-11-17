@@ -7,10 +7,10 @@ import 'package:smb_connect/src/utils/extensions.dart';
 
 class PreauthIntegrityNegotiateContext
     implements NegotiateContextRequest, NegotiateContextResponse {
-  /// Context type
+  /// 协商上下文（Negotiate Context）类型标识码。
   static const int NEGO_CTX_PREAUTH_TYPE = 0x1;
 
-  /// SHA-512
+  /// 预认证完整性校验哈希算法标识：SHA-512。
   static const int HASH_ALGO_SHA512 = 0x1;
 
   List<int>? hashAlgos;

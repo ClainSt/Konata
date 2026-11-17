@@ -2,11 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../audio/mini_audio_bar.dart';
-import '../theme/konata_palette.dart';
-import '../theme/konata_theme.dart';
-import '../widgets/design_system/konata_draggable_scrollbar.dart';
-import '../widgets/design_system/konata_page_header.dart';
-import '../widgets/design_system/konata_segmented_capsule.dart';
+import '../shell/adaptive_capsule_layout.dart';
+import '../widgets/design_system/adaptive_settings_container.dart';
 import 'settings_about_panel.dart';
 import 'settings_appearance_panel.dart';
 import 'settings_display_panel.dart';
@@ -44,195 +41,42 @@ class SettingsPage extends ConsumerStatefulWidget {
 }
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
-  final ScrollController _contentCtrl = ScrollController();
-  SettingsCategory _selected = SettingsCategory.appearance;
-  SettingsCategory? _hoveredCategory;
-
-  @override
-  void dispose() {
-    _contentCtrl.dispose();
-    super.dispose();
-  }
-
-  void _selectCategory(SettingsCategory category) {
-    ref.read(selectedSettingsCategoryProvider.notifier).state = category;
-    if (_selected == category) {
-      return;
-    }
-    setState(() => _selected = category);
-    if (_contentCtrl.hasClients) {
-      _contentCtrl.jumpTo(0);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    ref.listen<SettingsCategory>(selectedSettingsCategoryProvider, (_, next) {
-      if (_selected != next && mounted) {
-        setState(() => _selected = next);
-        if (_contentCtrl.hasClients) {
-          _contentCtrl.jumpTo(0);
-        }
-      }
-    });
-    final syncedCategory = ref.watch(selectedSettingsCategoryProvider);
-    if (_selected != syncedCategory) {
-      _selected = syncedCategory;
-    }
-    final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const KonataPageHeader(title: '设置'),
-        Expanded(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(
-                  left: KonataTheme.pageHorizontalPadding,
-                  bottom: 24,
-                ),
-                child: MouseRegion(
-                  onExit: (_) {
-                    if (_hoveredCategory != null) {
-                      setState(() => _hoveredCategory = null);
-                    }
-                  },
-                  child: SizedBox(
-                    width: 220,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        for (final category in SettingsCategory.values) ...[
-                          _CategoryNavItem(
-                            label: category.label,
-                            icon: category.icon,
-                            selected: _selected == category,
-                            hovered: _hoveredCategory == category,
-                            onHoverEnter: () {
-                              if (_hoveredCategory != category) {
-                                setState(() => _hoveredCategory = category);
-                              }
-                            },
-                            onHoverExit: () {
-                              if (_hoveredCategory == category) {
-                                setState(() => _hoveredCategory = null);
-                              }
-                            },
-                            onTap: () => _selectCategory(category),
-                          ),
-                          const SizedBox(height: 4),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              Expanded(
-                child: KonataDraggableScrollbar(
-                  controller: _contentCtrl,
-                  builder: (_, ctrl) => SingleChildScrollView(
-                    controller: ctrl,
-                    padding: EdgeInsets.fromLTRB(
-                      40,
-                      0,
-                      KonataTheme.pageHorizontalPadding,
-                      32 + bottomClearance,
-                    ),
-                    child: KonataSmoothSectionSwitcher(
-                      switchKey: _selected,
-                      alignment: Alignment.topLeft,
-                      child: switch (_selected) {
-                        SettingsCategory.appearance =>
-                          const SettingsAppearancePanel(),
-                        SettingsCategory.display =>
-                          const SettingsDisplayPanel(),
-                        SettingsCategory.network =>
-                          const SettingsNetworkPanel(),
-                        SettingsCategory.player => const SettingsPlayersPanel(),
-                        SettingsCategory.externalTools =>
-                          const SettingsExternalToolsPanel(),
-                        SettingsCategory.about => const SettingsAboutPanel(),
-                      },
-                    ),
-                  ),
-                ),
-              ),
-            ],
+    final selected = ref.watch(selectedSettingsCategoryProvider);
+    final navigation = ref.read(capsuleNavigationHiddenProvider.notifier);
+    return AdaptiveSettingsContainer<SettingsCategory>(
+      selected: selected,
+      onSelected: (value) =>
+          ref.read(selectedSettingsCategoryProvider.notifier).state = value,
+      onDetailVisibilityChanged: (value) => navigation.state = value,
+      bottomClearance: KonataBottomClearanceScope.resolve(context, ref),
+      categories: [
+        for (final category in SettingsCategory.values)
+          AdaptiveSettingsCategory(
+            value: category,
+            icon: category.icon,
+            title: category.label,
+            summary: switch (category) {
+              SettingsCategory.appearance => '主题模式与视觉偏好',
+              SettingsCategory.display => '作品展示与图片缓存',
+              SettingsCategory.network => '元数据服务与网络连接',
+              SettingsCategory.player => '播放与音画参数',
+              SettingsCategory.externalTools => '桌面外部程序与路径',
+              SettingsCategory.about => '版本、诊断日志与项目资料',
+            },
+            desktopOnly: category == SettingsCategory.externalTools,
+            panel: (_) => switch (category) {
+              SettingsCategory.appearance => const SettingsAppearancePanel(),
+              SettingsCategory.display => const SettingsDisplayPanel(),
+              SettingsCategory.network => const SettingsNetworkPanel(),
+              SettingsCategory.player => const SettingsPlayersPanel(),
+              SettingsCategory.externalTools =>
+                const SettingsExternalToolsPanel(),
+              SettingsCategory.about => const SettingsAboutPanel(),
+            },
           ),
-        ),
       ],
-    );
-  }
-}
-
-class _CategoryNavItem extends StatelessWidget {
-  const _CategoryNavItem({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.hovered,
-    required this.onHoverEnter,
-    required this.onHoverExit,
-    required this.onTap,
-  });
-
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final bool hovered;
-  final VoidCallback onHoverEnter;
-  final VoidCallback onHoverExit;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    final hoverBase = p.isDark
-        ? Colors.white.withValues(alpha: 0.08)
-        : Colors.black.withValues(alpha: 0.055);
-    final idleBg = hoverBase.withValues(alpha: 0.0);
-    final bgColor = selected ? p.softFill : (hovered ? hoverBase : idleBg);
-    final fgColor = selected
-        ? p.textPrimary
-        : (hovered ? p.textPrimary.withValues(alpha: 0.90) : p.textSecondary);
-
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => onHoverEnter(),
-      onHover: (_) => onHoverEnter(),
-      onExit: (_) => onHoverExit(),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 70),
-          curve: Curves.easeOut,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Row(
-            children: [
-              Icon(icon, size: 20, color: fgColor),
-              const SizedBox(width: 12),
-              Text(
-                label,
-                style: KonataTheme.textStyle(
-                  color: fgColor,
-                  fontSize: 14.5,
-                  weight: selected
-                      ? KonataTheme.weightActive
-                      : KonataTheme.weightRegularLabel,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

@@ -13,24 +13,18 @@ class SmbFile {
   final int lastModified;
   final int lastAccess;
   final int attributes;
-  // final int attrExpiration;
   final int size;
-  // final int sizeExpiration;
   final bool isExists;
 
   SmbFile(
       this.path,
       this.uncPath,
       this.share,
-      // this.fileId,
-      // this.fid,
       this.createTime,
       this.lastModified,
       this.lastAccess,
       this.attributes,
-      // this.attrExpiration,
       this.size,
-      // this.sizeExpiration,
       this.isExists) {
     name = path.filename(pathSeparator: PATH_DIV);
   }

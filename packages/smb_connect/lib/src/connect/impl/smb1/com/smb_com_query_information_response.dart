@@ -37,7 +37,7 @@ class SmbComQueryInformationResponse extends ServerMessageBlock
 
   @override
   int getLastAccessTime() {
-    // Fake access time
+    // 填充占位的访问时间戳占位值。
     return _convertTime(_lastWriteTime);
   }
 

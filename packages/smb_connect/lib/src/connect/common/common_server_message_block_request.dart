@@ -12,7 +12,7 @@ abstract class CommonServerMessageBlockRequest
 
   void setTid(int t);
 
-  /// custom response timeout for this request
+  /// 为当前单次请求单独覆盖的响应超时时间。
   int? getOverrideTimeout();
 
   @override

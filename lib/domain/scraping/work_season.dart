@@ -1,8 +1,8 @@
 import 'cloud_media_asset_presentation.dart';
 
-/// Preserve directory identity after provider titles replace the display name.
+/// 当外部刮削标题替换界面显示名后，继续保留目录级原始身份线索。
 abstract final class WorkSeason {
-  // A broadcast part is a search clue, never an implicit TMDB season number.
+  // 放送分割分部标记（`Part 2` 等）仅作搜索线索，绝不隐式视作 TMDB 季度编号。
   static final _part = RegExp(r'第\s*(\d{1,2})\s*部分|\bPart\s*(\d{1,2})\b', caseSensitive: false);
   static int? part(String title) {
     final matches = _part.allMatches(title).toList();
@@ -74,8 +74,8 @@ abstract final class WorkSeason {
   static bool conflictingYears(Map<String, Object?> work) =>
       work['conflicting_years'] == true || bracketYears(work).length > 1;
   static int? year(Map<String, Object?> work) {
-    // Filename parsing already separated title digits from year evidence.
-    // Keep that decision (including unknown), or a subsequently inherited year.
+    // 文件名解析器已完成标题内置数字与发行年份证据的剥离判定，
+    // 此处尊重该既有判定（含未知年份）或沿用父目录继承年份。
     if (work['filename_year_parsed'] == true) {
       return conflictingYears(work) ? null : (work['year'] as num?)?.toInt();
     }

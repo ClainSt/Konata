@@ -1,7 +1,7 @@
 part of 'work_matcher.dart';
 
-/// One provider entry to score. Built from search results, the offline
-/// index, or saved candidates; the scorer never performs I/O.
+/// 待打分评估的单条刮削源候选模型，由在线搜索结果、离线基准索引或历史候选构建；
+/// 打分器纯内存计算，绝不执行任何文件或网络 I/O。
 class MatchCandidate {
   const MatchCandidate({
     required this.provider,
@@ -17,16 +17,16 @@ class MatchCandidate {
     this.firstEpisodeSort,
   });
 
-  /// 'tmdb' or 'bangumi'.
+  /// 刮削数据来源标识：`tmdb` 或 `bangumi`。
   final String provider;
   final int id;
 
-  /// TMDB: 'tv' / 'movie'. Bangumi: 'anime'.
+  /// 条目介质类型（TMDB 为 `tv`/`movie`，Bangumi 为 `anime`）。
   final String type;
   final String title;
   final int? year;
 
-  /// For Bangumi the first alias is the original (Japanese) name.
+  /// 对 Bangumi 条目而言，别名列表首项始终为其原始日文片名。
   final List<String> aliases;
   final List<SeasonInfo> seasons;
   final String? airDate;
@@ -93,13 +93,13 @@ class SeasonInfo {
 }
 
 enum MatchTier {
-  /// Bind automatically.
+  /// 高置信度，直接自动绑定该条目。
   high,
 
-  /// Adopt Top-1 on the poster wall, mark for optional review.
+  /// 采用榜首候选展示于海报墙，并保留待人工复核标记。
   medium,
 
-  /// Leave unbound; keep the clean local title.
+  /// 保持未绑定状态，沿用清洗后的本地作品名称。
   none,
 }
 
@@ -259,7 +259,7 @@ double _wmSimilarity(String a, String b) {
       }
     }
     final dice = 2 * shared / (a.length + b.length - 2) * 0.9;
-    // A long local title almost fully inside a longer official name with an
+    // 较长的本地标题几乎完整落入更长官方名称且包含独立分隔词元时的补充匹配分支。
     // inserted subtitle ("キノの旅 病気の国" vs "キノの旅 the Beautiful World
     // 病気の国") is strong evidence even when Dice is diluted.
     final coverage = shorter.length >= 6

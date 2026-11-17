@@ -26,12 +26,12 @@ class SmbConnectException extends Error {
 
 class NbtException extends SmbConnectException {
   static const int serialVersionUID = 1;
-  // error classes
+  // SMB 错误大类码表与默认文案。
   static const int SUCCESS = 0;
   static const int ERR_NAM_SRVC = 0x01;
   static const int ERR_SSN_SRVC = 0x02;
 
-  // name service error codes
+  // NetBIOS 名称服务异常状态码常量。
   static const int FMT_ERR = 0x1;
   static const int SRV_ERR = 0x2;
   static const int IMP_ERR = 0x4;
@@ -39,7 +39,7 @@ class NbtException extends SmbConnectException {
   static const int ACT_ERR = 0x6;
   static const int CFT_ERR = 0x7;
 
-  // session service error codes
+  // NetBIOS 会话服务异常状态码常量。
   static const int CONNECTION_REFUSED = -1;
   static const int NOT_LISTENING_CALLED = 0x80;
   static const int NOT_LISTENING_CALLING = 0x81;
@@ -116,7 +116,6 @@ class SmbException extends Error {
       res[NtStatus.NT_STATUS_CODES[i]] = NtStatus.NT_STATUS_MESSAGES[i];
     }
     for (int i = 0; i < DosError.DOS_ERROR_CODES.length; i++) {
-      // dosErrorCodeStatusesTmp.put(DOS_ERROR_CODES[i][0], DOS_ERROR_CODES[i][1]);
       var code = DosError.DOS_ERROR_CODES[i];
       int mappedNtCode = code.$2;
       String? mappedNtMessage = res[mappedNtCode];
@@ -141,9 +140,9 @@ class SmbException extends Error {
     return {for (var code in DosError.DOS_ERROR_CODES) code.$1: code.$2};
   }
 
-  // to replace a bunch of one-off binary searches
+  // 以静态哈希表取代零散的二分查找表。
   static final Map<int, String> _errorCodeMessages = _buildErrorCodeMessages();
-  // ignore: unused_field
+  /* 保留协议异常对照预留字段，豁免未使用提示 */ // ignore: unused_field
   static final Map<int, String> _winErrorCodeMessages =
       _buildWinErrorCodeMessages();
   static final Map<int, int> _dosErrorCodeStatuses =

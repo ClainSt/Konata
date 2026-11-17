@@ -6,6 +6,7 @@ import '../../domain/models/episode.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/playback_record.dart';
 import '../../domain/models/work.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
@@ -65,30 +66,36 @@ class EpisodeDrawerCard extends StatefulWidget {
 class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
   bool _hovered = false;
 
-  Future<void> _handleSecondaryTap(TapUpDetails details) async {
+  Future<void> _showEpisodeMenu(Offset globalPos) async {
+    final allowExternal =
+        KonataAdaptiveTokens.isWindows && widget.onPlayExternal != null;
     final hasAnyMenuAction =
         widget.onMarkCompleted != null ||
         widget.onPlayBuiltin != null ||
-        widget.onPlayExternal != null;
-    if (!hasAnyMenuAction) {
+        allowExternal;
+    if (!hasAnyMenuAction && !KonataAdaptiveTokens.isAndroid) {
       widget.onAdjustSlot();
       return;
     }
     final isCompleted = widget.playback?.isCompleted ?? false;
+    final itemHeight = KonataAdaptiveTokens.isAndroid
+        ? KonataAdaptiveTokens.touchTarget
+        : kMinInteractiveDimension;
     final pos = RelativeRect.fromLTRB(
-      details.globalPosition.dx,
-      details.globalPosition.dy,
-      details.globalPosition.dx,
-      details.globalPosition.dy,
+      globalPos.dx,
+      globalPos.dy,
+      globalPos.dx,
+      globalPos.dy,
     );
     final action = await showMenu<String>(
       context: context,
       position: pos,
       items: [
         if (widget.onPlayBuiltin != null)
-          const PopupMenuItem<String>(
+          PopupMenuItem<String>(
             value: 'builtin',
-            child: Row(
+            height: itemHeight,
+            child: const Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(Icons.smart_display_outlined, size: 17),
@@ -97,10 +104,11 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
               ],
             ),
           ),
-        if (widget.onPlayExternal != null)
-          const PopupMenuItem<String>(
+        if (allowExternal)
+          PopupMenuItem<String>(
             value: 'external',
-            child: Row(
+            height: itemHeight,
+            child: const Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(Icons.open_in_new_rounded, size: 17),
@@ -110,9 +118,10 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
             ),
           ),
         if (!isCompleted && widget.onMarkCompleted != null)
-          const PopupMenuItem<String>(
+          PopupMenuItem<String>(
             value: 'complete',
-            child: Row(
+            height: itemHeight,
+            child: const Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(Icons.check_circle_outline_rounded, size: 17),
@@ -121,9 +130,10 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
               ],
             ),
           ),
-        const PopupMenuItem<String>(
+        PopupMenuItem<String>(
           value: 'adjust',
-          child: Row(
+          height: itemHeight,
+          child: const Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(Icons.tune_rounded, size: 17),
@@ -249,7 +259,8 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
         onTap: widget.onTap,
-        onSecondaryTapUp: _handleSecondaryTap,
+        onSecondaryTapUp: (details) => _showEpisodeMenu(details.globalPosition),
+        onLongPressStart: (details) => _showEpisodeMenu(details.globalPosition),
         child: SizedBox(
           width: 244,
           child: Column(
@@ -297,6 +308,50 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                                   color: Colors.white.withValues(alpha: 0.72),
                                 ),
                               ),
+                        if (KonataAdaptiveTokens.isAndroid)
+                          Positioned(
+                            left: 0,
+                            top: 0,
+                            child: Builder(
+                              builder: (btnContext) => GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () {
+                                  final box =
+                                      btnContext.findRenderObject()
+                                          as RenderBox?;
+                                  final pos = box != null
+                                      ? box.localToGlobal(
+                                          box.size.center(Offset.zero),
+                                        )
+                                      : Offset.zero;
+                                  _showEpisodeMenu(pos);
+                                },
+                                child: SizedBox.square(
+                                  key: ValueKey('episode_more_${ep.id}'),
+                                  dimension: KonataAdaptiveTokens.touchTarget,
+                                  child: Align(
+                                    alignment: Alignment.topLeft,
+                                    child: Container(
+                                      margin: const EdgeInsets.all(6),
+                                      width: 28,
+                                      height: 28,
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.56,
+                                        ),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.more_horiz_rounded,
+                                        size: 16,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                         if (hasProgressBadge)
                           Positioned(
                             top: 6,

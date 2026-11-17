@@ -1,10 +1,6 @@
 import 'package:pointycastle/asn1.dart';
 
 class ASN1TaggedObject extends ASN1Sequence {
-  // static int tagClassFrom(ASN1Object obj) {
-  //   return //obj is ASN1Sequence && obj.elements?.isNotEmpty == true
-  //       // ? ASN1Tags.SEQUENCE :
-  //       ASN1Tags.TAGGED | ASN1Tags.CONSTRUCTED;
   // }
 
   ASN1TaggedObject(ASN1Object obj, {int? tag, int tagNo = 0})
@@ -13,7 +9,7 @@ class ASN1TaggedObject extends ASN1Sequence {
             elements: [obj]);
 
   ///
-  /// Creates an [ASN1TaggedObject] entity from the given [encodedBytes].
+  /// 解析含显式或隐式上下文标签的 ASN.1 编码对象。
   ///
   ASN1TaggedObject.fromBytes(super.encodedBytes) : super.fromBytes() {
     elements = [];

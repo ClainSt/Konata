@@ -1,35 +1,25 @@
-// Copyright 2013 The Flutter Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// 遵循 Flutter 官方组件 BSD 开源许可协议（详见随包 LICENSE 文件）。
 
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
-/// A stub implementation to satisfy compilation of multi-platform packages that
-/// depend on path_provider_windows. This should never actually be created.
+/// 为多端公共包提供的空桩实现，仅用于满足编译期条件导出解析。
 ///
-/// Notably, because path_provider needs to manually register
-/// path_provider_windows, anything with a transitive dependency on
-/// path_provider will also depend on path_provider_windows, not just at the
-/// pubspec level but the code level.
 class PathProviderWindows extends PathProviderPlatform {
   String get executablePath => '';
-  /// Errors on attempted instantiation of the stub. It exists only to satisfy
-  /// compile-time dependencies, and should never actually be created.
+  /// 运行期禁止实例化该占位空桩类。
   PathProviderWindows() : assert(false);
 
-  /// Registers the Windows implementation.
+  /// 向全局平台通道注册当前 Windows 路径提供实现。
   static void registerWith() {
     PathProviderPlatform.instance = PathProviderWindows();
   }
 
-  /// Stub; see comment on VersionInfoQuerier.
+  /// 版本查询器空桩占位定义。
   VersionInfoQuerier versionInfoQuerier = VersionInfoQuerier();
 
-  /// Match PathProviderWindows so that the analyzer won't report invalid
-  /// overrides if tests provide fake PathProviderWindows implementations.
+  /// 保持与 `PathProviderWindows` 方法签名一致，以免分析器或测试桩报错。
   Future<String?> getPath(String folderID) async => '';
 }
 
-/// Stub to satisfy the analyzer, which doesn't seem to handle conditional
-/// exports correctly.
+/// 为分析器提供稳定条件导出桩字段。
 class VersionInfoQuerier {}

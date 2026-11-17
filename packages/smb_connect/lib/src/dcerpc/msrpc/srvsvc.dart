@@ -171,8 +171,6 @@ class SrvsvcShareInfoCtr1 extends NdrObject {
       }
       src = src.derive(arrayi);
       for (int i = 0; i < arrays; i++) {
-        // if (array[i] == null) {
-        //   array[i] = ShareInfo1();
         // }
         array![i].decode(src);
       }

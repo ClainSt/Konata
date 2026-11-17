@@ -1,8 +1,7 @@
 import 'package:charset/charset.dart';
 import 'package:smb_connect/src/utils/encoding.dart';
 
-/// Utility class holding several protocol constrants
-/// @author mbechler
+/// 收录通用 SMB 协议常量、属性位及共享打开语义编码的工具常量类。
 abstract class SmbConstants {
   static const int DEFAULT_PORT = 445;
 
@@ -11,9 +10,7 @@ abstract class SmbConstants {
   static const int DEFAULT_SO_TIMEOUT = 10000; //35000;
   static const int DEFAULT_RCV_BUF_SIZE = 0xFFFF;
   static const int DEFAULT_SND_BUF_SIZE = 0xFFFF;
-  // static const int DEFAULT_NOTIFY_BUF_SIZE = 1024;
 
-  // static const int DEFAULT_SSN_LIMIT = 250;
   static const int DEFAULT_CONN_TIMEOUT = 35000;
 
   static const int FLAGS_NONE = 0x00;
@@ -52,31 +49,31 @@ abstract class SmbConstants {
   static const int CAP_LARGE_WRITEX = 0x8000;
   static const int CAP_EXTENDED_SECURITY = 0x80000000;
 
-  // file attribute encoding
-  /// File is marked read-only
+  // SMB 文件基础属性标志位编码定义。
+  /// 只读属性标志（ATTR_READONLY）。
   static const int ATTR_READONLY = 0x01;
 
-  /// File is marked hidden
+  /// 隐藏属性标志（ATTR_HIDDEN）。
   static const int ATTR_HIDDEN = 0x02;
 
-  /// File is marked a system file
+  /// 系统文件属性标志（ATTR_SYSTEM）。
   static const int ATTR_SYSTEM = 0x04;
 
-  /// File is marked a volume
+  /// 磁盘卷标属性标志（ATTR_VOLUME）。
   static const int ATTR_VOLUME = 0x08;
 
-  /// File is a directory
+  /// 目录节点属性标志（ATTR_DIRECTORY）。
   static const int ATTR_DIRECTORY = 0x10;
 
-  /// Files is marked to be archived
+  /// 存档属性标志（ATTR_ARCHIVE）。
   static const int ATTR_ARCHIVE = 0x20;
 
-  // extended file attribute encoding(others same as above)
+  // 扩展文件属性编码（其余基础属性位同上一致）。
   static const int ATTR_COMPRESSED = 0x800;
   static const int ATTR_NORMAL = 0x080;
   static const int ATTR_TEMPORARY = 0x100;
 
-  // access mask encoding
+  // NT 文件访问权限位掩码常量编码。
   static const int FILE_READ_DATA = 0x00000001; // 1
   static const int FILE_WRITE_DATA = 0x00000002; // 2
   static const int FILE_APPEND_DATA = 0x00000004; // 3
@@ -96,7 +93,7 @@ abstract class SmbConstants {
   static const int GENERIC_WRITE = 0x40000000; // 30
   static const int GENERIC_READ = 0x80000000; // 31
 
-  // flags for move and copy
+  // 复制与重命名操作标志位掩码。
   static const int FLAGS_TARGET_MUST_BE_FILE = 0x0001;
   static const int FLAGS_TARGET_MUST_BE_DIRECTORY = 0x0002;
   static const int FLAGS_COPY_TARGET_MODE_ASCII = 0x0004;
@@ -104,7 +101,7 @@ abstract class SmbConstants {
   static const int FLAGS_VERIFY_ALL_WRITES = 0x0010;
   static const int FLAGS_TREE_COPY = 0x0020;
 
-  // open function
+  // SMB1 OpenFunction 打开创建动作掩码。
   static const int OPEN_FUNCTION_FAIL_IF_EXISTS = 0x0000;
   static const int OPEN_FUNCTION_OVERWRITE_IF_EXISTS = 0x0020;
 
@@ -124,67 +121,58 @@ abstract class SmbConstants {
 
   static const int FOREVER = -1;
 
-  /// When specified as the shareAccess constructor parameter,
-  /// other SMB clients
-  /// will not be permitted to access the target file and will receive "The
-  /// file is being accessed by another process" message.
+  /// 共享控制参数：禁止其他客户端并发打开或访问目标文件。
   static const int FILE_NO_SHARE = 0x00;
 
-  /// When specified as the shareAccess constructor parameter,
-  /// other SMB clients will be permitted to read from the target file while
-  /// this file is open. This constant may be logically OR'd with other share
-  /// access flags.
+  /// 共享控制参数：禁止其他客户端并发打开或访问目标文件。
+  /// 允许其他 SMB 客户端在本端持有句柄期间并发只读访问（可与其他共享位按位或组合）。
   static const int FILE_SHARE_READ = 0x01;
 
-  /// When specified as the shareAccess constructor parameter,
-  /// other SMB clients will be permitted to write to the target file while
-  /// this file is open. This constant may be logically OR'd with other share
-  /// access flags.
+  /// 共享控制参数：禁止其他客户端并发打开或访问目标文件。
+  /// 允许其他 SMB 客户端并发写入同一打开目标文件。
   static const int FILE_SHARE_WRITE = 0x02;
 
-  /// When specified as the shareAccess constructor parameter,
-  /// other SMB clients will be permitted to delete the target file while
-  /// this file is open. This constant may be logically OR'd with other share
-  /// access flags.
+  /// 共享控制参数：禁止其他客户端并发打开或访问目标文件。
+  /// 允许其他 SMB 客户端并发删除或重命名同一打开目标文件。
   static const int FILE_SHARE_DELETE = 0x04;
 
-  /// Default sharing mode for files
+  /// 默认共享访问模式（允许并发读写与删除，即 `FILE_SHARE_READ | WRITE | DELETE`）。
   static const int DEFAULT_SHARING =
       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
 
-  /// represents is a regular file or directory.
+  /// 资源节点类型：常规文件系统文件或子目录。
   static const int TYPE_FILESYSTEM = 0x01;
 
-  /// represents is a workgroup.
+  /// 资源节点类型：NetBIOS 域或工作组。
   static const int TYPE_WORKGROUP = 0x02;
 
-  /// represents is a server.
+  /// 资源节点类型：SMB 文件服务器主机节点。
   static const int TYPE_SERVER = 0x04;
 
-  /// represents is a share.
+  /// 资源节点类型：文件共享根目录。
   static const int TYPE_SHARE = 0x08;
 
-  /// represents is a named pipe.
+  /// 资源节点类型：IPC 命名管道端点。
   static const int TYPE_NAMED_PIPE = 0x10;
 
-  /// represents is a printer.
+  /// 资源节点类型：网络共享打印机资源。
   static const int TYPE_PRINTER = 0x20;
 
-  /// represents is a communications device.
+  /// 资源节点类型：网络串口/通信设备资源。
   static const int TYPE_COMM = 0x40;
 
-  /* open flags */
+  /* 文件打开控制及处置方式标志常量 */
 
   static const int O_RDONLY = 0x01;
   static const int O_WRONLY = 0x02;
   static const int O_RDWR = 0x03;
   static const int O_APPEND = 0x04;
 
-  // Open Function Encoding
-  // create if the file does not exist
+  // SMB 打开行为动作掩码定义。
+  // 文件不存在时自动新建文件。
   static const int O_CREAT = 0x0010;
-  // fail if the file exists
+  // 若文件已存在则令打开操作失败。
   static const int O_EXCL = 0x0020;
-  // truncate if the file exists
+  // 若文件已存在则将其内容清空截断。
   static const int O_TRUNC = 0x0040;
 }

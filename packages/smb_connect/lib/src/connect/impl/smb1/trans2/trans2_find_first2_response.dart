@@ -96,12 +96,9 @@ class Trans2FindFirst2Response extends SmbComTransactionResponse {
 
       e.decode(buffer, bufferIndex, len);
 
-      /// lastNameOffset ends up pointing to either to
-      /// the exact location of the filename(e.g. Win98)
-      /// or to the start of the entry containing the
-      /// filename(e.g. NT). Ahhrg! In either case the
-      /// lastNameOffset falls between the start of the
-      /// entry and the next entry.
+      /// `lastNameOffset` 在部分服务端指向末条文件名自身，或在 NT 上指向整条目录项起始位置，
+      /// 且 NT 4 末项 `nextEntryOffset` 为 0，须以 `dataCount` 界定实际结束位置以防计算越界；
+      /// Win98 服务端尾部可能额外附带 4 字节零值及共享名，已按实测兼容处理。
       if (_lastNameBufferIndex >= bufferIndex &&
           (e.getNextEntryOffset() == 0 ||
               _lastNameBufferIndex < (bufferIndex + e.getNextEntryOffset()))) {
@@ -114,8 +111,6 @@ class Trans2FindFirst2Response extends SmbComTransactionResponse {
 
     this.results = results;
 
-    /// last nextEntryOffset for NT 4(but not 98) is 0 so we must
-    /// use dataCount or our accounting will report an error for NT :~(
     return dataCount;
   }
 

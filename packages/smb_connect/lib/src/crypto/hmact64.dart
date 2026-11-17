@@ -4,10 +4,7 @@ import 'dart:typed_data';
 import 'package:pointycastle/export.dart';
 
 ///
-/// This is an implementation of the HMACT64 keyed hashing algorithm.
-/// HMACT64 is defined by Luke Leighton as a modified HMAC-MD5 (RFC 2104)
-/// in which the key is truncated at 64 bytes (rather than being hashed
-/// via MD5).
+/// HMACT64 键控摘要算法实现（将密钥截断在 64 字节而非预哈希的变体 HMAC-MD5）。
 class HMACT64 implements Digest {
   static const int BLOCK_LENGTH = 64;
 
@@ -29,7 +26,7 @@ class HMACT64 implements Digest {
   @override
   int get byteLength => BLOCK_LENGTH;
 
-  /// Creates an HMACT64 instance which uses the given secret key material.
+  /// 使用给定的原始密钥字节构造 `HMACT64` 哈希实例。
   HMACT64(List<int> key) {
     int length = min(key.length, BLOCK_LENGTH);
 
@@ -57,7 +54,6 @@ class HMACT64 implements Digest {
   @override
   int doFinal(Uint8List out, int outOff) {
     var digest = md5.process(Uint8List(0));
-    // int res = md5.doFinal(out, outOff);
     md5.update(opad, 0, opad.length);
     md5.update(digest, 0, digest.length);
     return md5.doFinal(out, outOff);

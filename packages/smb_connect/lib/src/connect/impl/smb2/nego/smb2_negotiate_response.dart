@@ -65,10 +65,6 @@ class Smb2NegotiateResponse extends ServerMessageBlock2Response
     return (commonCapabilities & cap) == cap;
   }
 
-  // @override
-  // bool isDFSSupported() {
-  //   return !config.isDfsDisabled() &&
-  //       haveCapabilitiy(Smb2Constants.SMB2_GLOBAL_CAP_DFS);
   // }
 
   @override
@@ -78,12 +74,10 @@ class Smb2NegotiateResponse extends ServerMessageBlock2Response
     }
 
     if (req.isSigningEnforced() && !isSigningEnabled()) {
-      // log.error("Signing is enforced but server does not allow it");
       return false;
     }
 
     if (dialectRevision == Smb2Constants.SMB2_DIALECT_ANY) {
-      // log.error("Server returned ANY dialect");
       return false;
     }
 
@@ -100,7 +94,6 @@ class Smb2NegotiateResponse extends ServerMessageBlock2Response
     }
 
     if (selected == null) {
-      // log.error("Server returned an unknown dialect");
       return false;
     }
 
@@ -110,7 +103,7 @@ class Smb2NegotiateResponse extends ServerMessageBlock2Response
     }
     selectedDialect = selected;
 
-    // Filter out unsupported capabilities
+    // 过滤仅保留本客户端与当前配置共同支持的 SMB2 全局能力位。
     commonCapabilities = r.capabilities & capabilities;
 
     if ((commonCapabilities & Smb2Constants.SMB2_GLOBAL_CAP_ENCRYPTION) != 0) {
@@ -137,7 +130,6 @@ class Smb2NegotiateResponse extends ServerMessageBlock2Response
 
   bool checkNegotiateContexts(Smb2NegotiateRequest req, int caps) {
     if (_negotiateContexts == null || _negotiateContexts!.isEmpty) {
-      // log.error("Response lacks negotiate contexts");
       return false;
     }
 
@@ -157,7 +149,6 @@ class Smb2NegotiateResponse extends ServerMessageBlock2Response
         supportsEncryption = true;
       } else if (ncr.getContextType() ==
           EncryptionNegotiateContext.NEGO_CTX_ENC_TYPE) {
-        // log.error("Multiple encryption negotiate contexts");
         return false;
       } else if (!foundPreauth &&
           ncr.getContextType() ==
@@ -171,20 +162,16 @@ class Smb2NegotiateResponse extends ServerMessageBlock2Response
         selectedPreauthHash = pi.hashAlgos![0];
       } else if (ncr.getContextType() ==
           PreauthIntegrityNegotiateContext.NEGO_CTX_PREAUTH_TYPE) {
-        // log.error("Multiple preauth negotiate contexts");
         return false;
       }
     }
 
     if (!foundPreauth) {
-      // log.error("Missing preauth negotiate context");
       return false;
     }
     if (!foundEnc && (caps & Smb2Constants.SMB2_GLOBAL_CAP_ENCRYPTION) != 0) {
-      // log.error("Missing encryption negotiate context");
       return false;
     } else if (!foundEnc) {
-      // log.debug("No encryption support");
     }
     return true;
   }
@@ -192,7 +179,6 @@ class Smb2NegotiateResponse extends ServerMessageBlock2Response
   static bool checkPreauthContext(
       Smb2NegotiateRequest req, PreauthIntegrityNegotiateContext pc) {
     if (pc.hashAlgos == null || pc.hashAlgos!.length != 1) {
-      // log.error("Server returned no hash selection");
       return false;
     }
 
@@ -213,7 +199,6 @@ class Smb2NegotiateResponse extends ServerMessageBlock2Response
       }
     }
     if (!valid) {
-      // log.error("Server returned invalid hash selection");
       return false;
     }
     return true;
@@ -223,7 +208,6 @@ class Smb2NegotiateResponse extends ServerMessageBlock2Response
       Smb2NegotiateRequest req, EncryptionNegotiateContext ec) {
     var ecCiphers = ec.ciphers;
     if (ecCiphers == null || ecCiphers.length != 1) {
-      // log.error("Server returned no cipher selection");
       return false;
     }
 
@@ -245,7 +229,6 @@ class Smb2NegotiateResponse extends ServerMessageBlock2Response
       }
     }
     if (!valid) {
-      // log.error("Server returned invalid cipher selection");
       return false;
     }
     return true;

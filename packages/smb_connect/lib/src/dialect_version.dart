@@ -1,22 +1,22 @@
 import 'connect/impl/smb2/smb2_constants.dart';
 
 enum DialectVersion {
-  /// Legacy
+  /// SMB1 传统协议方言（NTLM/LM 兼容）。
   SMB1(false, -1),
 
-  /// SMB 2.02 - Windows Vista+
+  /// SMB 2.0.2 方言（自 Windows Vista 起支持）。
   SMB202(true, Smb2Constants.SMB2_DIALECT_0202),
 
-  /// SMB 2.1 - Windows 7/Server 2008R2
+  /// SMB 2.1 方言（自 Windows 7 / Server 2008 R2 起支持）。
   SMB210(true, Smb2Constants.SMB2_DIALECT_0210),
 
-  /// SMB 3.0 - Windows 8/Server 2012
+  /// SMB 3.0 方言（自 Windows 8 / Server 2012 起支持）。
   SMB300(true, Smb2Constants.SMB2_DIALECT_0300),
 
-  /// SMB 3.0.2 - Windows 8.1/Server 2012R2
+  /// SMB 3.0.2 方言（自 Windows 8.1 / Server 2012 R2 起支持）。
   SMB302(true, Smb2Constants.SMB2_DIALECT_0302),
 
-  /// SMB 3.1.1 - Windows 10/Server 2016
+  /// SMB 3.1.1 方言（自 Windows 10 / Server 2016 起支持）。
   SMB311(true, Smb2Constants.SMB2_DIALECT_0311);
 
   final bool smb2;

@@ -1,8 +1,8 @@
-// GENERATED CODE - DO NOT MODIFY BY HAND
+// 自动生成的 Drift 数据库映射代码，请勿手动修改。
 
 part of 'konata_database.dart';
 
-// ignore_for_file: type=lint
+/* Drift 自动生成的数据库映射代码，沿用内置规则豁免。 */ // ignore_for_file: type=lint
 class $MediaSourcesTable extends MediaSources
     with TableInfo<$MediaSourcesTable, MediaSourceRow> {
   @override

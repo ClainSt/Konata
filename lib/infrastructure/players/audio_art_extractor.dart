@@ -165,7 +165,7 @@ class AudioAssetExtractor {
     if (cursor >= frame.length) return null;
     cursor++; // skip picture type byte
 
-    // Skip description terminated by single NUL (latin1/utf8) or double NUL (UTF-16)
+    // 跳过以单 NUL（Latin1/UTF-8）或双 NUL（UTF-16）结尾的封面描述字符串。
     if (encoding == 1 || encoding == 2) {
       while (cursor + 1 < frame.length) {
         if (frame[cursor] == 0 && frame[cursor + 1] == 0) {

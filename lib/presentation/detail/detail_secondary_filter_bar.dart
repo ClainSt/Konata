@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
@@ -74,7 +75,9 @@ class _DetailSecondaryFilterBarState extends State<DetailSecondaryFilterBar> {
 
   @override
   Widget build(BuildContext context) {
-    final barHeight = widget.compact ? 30.0 : 32.0;
+    final barHeight = KonataAdaptiveTokens.isAndroid
+        ? KonataAdaptiveTokens.touchTarget
+        : (widget.compact ? 30.0 : 32.0);
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: widget.horizontalPadding),
       child: SizedBox(
@@ -171,7 +174,18 @@ class _SecondaryFilterChipState extends State<_SecondaryFilterChip> {
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 160),
               curve: Curves.easeOutCubic,
-              constraints: BoxConstraints(maxWidth: widget.compact ? 250 : 290),
+              alignment: KonataAdaptiveTokens.isAndroid
+                  ? Alignment.center
+                  : null,
+              constraints: BoxConstraints(
+                minWidth: KonataAdaptiveTokens.isAndroid
+                    ? KonataAdaptiveTokens.touchTarget
+                    : 0,
+                minHeight: KonataAdaptiveTokens.isAndroid
+                    ? KonataAdaptiveTokens.touchTarget
+                    : 0,
+                maxWidth: widget.compact ? 250 : 290,
+              ),
               padding: EdgeInsets.symmetric(
                 horizontal: widget.compact ? 11 : 13,
                 vertical: widget.compact ? 5 : 6,

@@ -106,7 +106,6 @@ class SmbRandomAccessFile implements RandomAccessFile {
     int length = min(remainSize, _buffer.length);
     if (length == 0) {
       throw "Empty read to buffer";
-      // return 0;
     }
     int res = await controller.read(_buffer, offset, length);
     _bufferFilePosition = offset;

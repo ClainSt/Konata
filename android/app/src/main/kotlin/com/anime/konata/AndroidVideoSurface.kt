@@ -23,7 +23,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
 
-/** Native playback surface. No view or buffer exists until playback creates it. */
+/// 原生播放视频表面；仅在播放会话创建后分配底层视图与缓冲。
 class AndroidVideoSurfaceFactory(private val messenger: BinaryMessenger) :
     PlatformViewFactory(StandardMessageCodec.INSTANCE) {
     override fun create(context: Context, viewId: Int, args: Any?): PlatformView =
@@ -89,7 +89,7 @@ private class AndroidVideoSurface(context: Context, id: Int, messenger: BinaryMe
         val caps = view.display?.hdrCapabilities ?: return 0
         if (!caps.supportedHdrTypes.contains(Display.HdrCapabilities.HDR_TYPE_HDR10)) return 0
         val peak = caps.desiredMaxLuminance
-        // Unknown/invalid capabilities take the established SDR path.
+        // 未识别或无效峰值数据时回落至标准 SDR 渲染路径。
         return if (peak.isFinite() && peak in 100f..10000f) peak.toInt() else 0
     }
 
@@ -128,11 +128,9 @@ private class AndroidVideoSurface(context: Context, id: Int, messenger: BinaryMe
         displays.unregisterDisplayListener(displayListener)
         view.holder.removeCallback(this)
         current = 0
-        // Dart acknowledges each reference only after mpv has detached EGL.
-        // Keep the channel until those acknowledgements arrive, including pop.
+        // Dart 侧仅在 mpv 解绑 EGL 后才逐一确认表面引用；即使页面弹出，也保留通道至全部确认完成。
         channel.invokeMethod("lost", null)
-        // lost may release the last reference before Dart calls releaseAll.
-        // Keep that final acknowledgement reachable even with no references.
+        // 丢弃事件可能在 Dart 调用 releaseAll 前释放最后一个引用，因此需维持末次确认通道可达。
         if (closed && references.isEmpty()) channel.setMethodCallHandler(null)
     }
 
@@ -151,8 +149,7 @@ private class AndroidVideoSurface(context: Context, id: Int, messenger: BinaryMe
             return
         }
         copying = true
-        // Normally read one bounded row; full-frame readback is an explicit
-        // diagnostic request. These buffers never persist or run per frame.
+        // 默认仅截取单行扫描样本；全帧回读仅用于显式诊断请求，且缓冲不落盘、不逐帧运行。
         val space = if (pq) ColorSpace.get(ColorSpace.Named.BT2020_PQ)
             else ColorSpace.get(ColorSpace.Named.SRGB)
         val bitmap = Bitmap.createBitmap(width, if (fullFrame) height else 1,

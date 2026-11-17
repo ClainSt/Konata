@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:ui';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../../application/providers/platform_capability.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 
@@ -36,8 +36,7 @@ class _WindowControlsState extends State<WindowControls>
   bool _isMaximized = false;
   Timer? _metricsSyncTimer;
 
-  bool get _canControlWindow =>
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+  bool get _canControlWindow => KonataPlatform.isWindows;
 
   @override
   void initState() {
@@ -157,6 +156,9 @@ class _WindowControlsState extends State<WindowControls>
 
   @override
   Widget build(BuildContext context) {
+    if (!_canControlWindow) {
+      return const SizedBox.shrink();
+    }
     final p = context.palette;
     final showPill = widget.forceLightIcons || widget.showGlassPill;
     final iconColor = widget.forceLightIcons

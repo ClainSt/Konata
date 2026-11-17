@@ -1,10 +1,4 @@
-/**
- * This file is a part of media_kit (https://github.com/media-kit/media-kit).
- *
- * Copyright © 2021 & onwards, Hitesh Kumar Saini <saini123hitesh@gmail.com>.
- * All rights reserved.
- * Use of this source code is governed by MIT license that can be found in the LICENSE file.
- */
+// media_kit Android 原生辅助桥接模块（MIT 许可）。
 package com.alexmercerind.mediakitandroidhelper;
 
 import android.net.Uri;
@@ -19,7 +13,7 @@ public class MediaKitAndroidHelper {
         System.loadLibrary("mediakitandroidhelper");
     }
 
-    // Store android.content.Context for access in openFileDescriptor.
+    // 保存应用级 Context 引用，供 openFileDescriptor 解析 content:// 句柄。
     private static Context applicationContext = null;
 
     public static native long newGlobalObjectRef(Object obj);

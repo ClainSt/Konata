@@ -72,7 +72,7 @@ void main() {
           fileSize: 1024,
           assetKind: AssetKind.cdAlbum,
         ),
-        // [210322] Official Radio... (aac)
+        // 官方广播特典目录样例（AAC 音频格式）
         const ScannedFileInput(
           relativePath:
               '$root/[210322] Official Radio Program (aac)/Radio #01.aac',
@@ -80,7 +80,7 @@ void main() {
           fileSize: 1024,
           assetKind: AssetKind.cdAlbum,
         ),
-        // [210602] ... (flac+webp)
+        // 无损特典专辑目录样例（FLAC 与扫图）
         const ScannedFileInput(
           relativePath:
               '$root/[210602] 86 Original Soundtrack (flac+webp)/Disc 1/01.flac',
@@ -88,7 +88,7 @@ void main() {
           fileSize: 1024,
           assetKind: AssetKind.cdAlbum,
         ),
-        // SPECIAL DRAMA CD
+        // 特别篇广播剧 CD 样例标签
         const ScannedFileInput(
           relativePath: '$root/SPECIAL DRAMA CD/Drama 01.flac',
           fileName: 'Drama 01.flac',

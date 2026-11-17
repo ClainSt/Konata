@@ -110,12 +110,13 @@ class _KonataGlassToastOverlayState extends State<_KonataGlassToastOverlay>
             ? Colors.white.withValues(alpha: 0.18)
             : Colors.white.withValues(alpha: 0.92));
 
-    // 在窗口正中心悬浮展示轻提示，避免遮挡底部操作胶囊或详情页工具栏。
+    // 在窗口安全区正中心悬浮展示轻提示，避免遮挡底部操作胶囊或详情页工具栏。
     return Positioned.fill(
       child: IgnorePointer(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Center(
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Center(
             child: FadeTransition(
             opacity: _opacity,
             child: SlideTransition(
@@ -177,6 +178,7 @@ class _KonataGlassToastOverlayState extends State<_KonataGlassToastOverlay>
               ),
             ),
           ),
+        ),
         ),
         ),
       ),

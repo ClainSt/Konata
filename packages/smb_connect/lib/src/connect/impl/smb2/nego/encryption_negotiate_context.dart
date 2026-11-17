@@ -6,13 +6,13 @@ import 'package:smb_connect/src/connect/smb_util.dart';
 
 class EncryptionNegotiateContext
     implements NegotiateContextRequest, NegotiateContextResponse {
-  /// Context type
+  /// 协商上下文（Negotiate Context）类型标识码。
   static const int NEGO_CTX_ENC_TYPE = 0x2;
 
-  /// AES 128 CCM
+  /// 加密套件标识：AES-128-CCM。
   static const int CIPHER_AES128_CCM = 0x1;
 
-  /// AES 128 GCM
+  /// 加密套件标识：AES-128-GCM。
   static const int CIPHER_AES128_GCM = 0x2;
 
   List<int>? ciphers;

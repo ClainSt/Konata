@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui';
 
@@ -16,6 +17,7 @@ import '../../domain/models/network_config.dart';
 import '../../domain/repositories/file_system_gateway.dart';
 import '../../infrastructure/sources/byte_stream_source_gateway.dart';
 import '../../infrastructure/sources/source_gateway_factory.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_toast.dart';
@@ -266,11 +268,51 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
     }
   }
 
+  Offset? _lastDoubleTapLocalPos;
+
   void _resetZoom() {
     _transformController.value = Matrix4.identity();
     if (mounted && _currentScale != 1.0) {
       setState(() => _currentScale = 1.0);
     }
+  }
+
+  void _toggleDoubleTapZoom(double viewportWidth, double viewportHeight) {
+    if (_currentScale > 1.02) {
+      _resetZoom();
+      return;
+    }
+    const targetScale = 2.5;
+    final focal =
+        _lastDoubleTapLocalPos ?? Offset(viewportWidth / 2, viewportHeight / 2);
+    final minTx = viewportWidth * (1.0 - targetScale);
+    final minTy = viewportHeight * (1.0 - targetScale);
+    final tx = (focal.dx * (1.0 - targetScale)).clamp(
+      minTx <= 0 ? minTx : 0.0,
+      0.0,
+    );
+    final ty = (focal.dy * (1.0 - targetScale)).clamp(
+      minTy <= 0 ? minTy : 0.0,
+      0.0,
+    );
+    _transformController.value = Matrix4(
+      targetScale,
+      0,
+      0,
+      0,
+      0,
+      targetScale,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      tx,
+      ty,
+      0,
+      1,
+    );
   }
 
   void _handleWheelZoom(
@@ -370,8 +412,29 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
     final current = scans[safeIdx];
     final source = widget.bundle.sourcesById[current.sourceId];
     final size = MediaQuery.sizeOf(context);
-    final dialogWidth = (size.width * 0.88).clamp(640.0, 1320.0);
-    final dialogHeight = (size.height * 0.86).clamp(480.0, 880.0);
+    final safe = MediaQuery.paddingOf(context);
+    final compact =
+        size.width < KonataAdaptiveTokens.tabletBreakpoint ||
+        size.height < KonataAdaptiveTokens.shortViewportHeight;
+    final inset = compact ? 10.0 : 24.0;
+    final dialogWidth = (compact
+        ? math.max(240.0, size.width - safe.horizontal - inset * 2)
+        : (size.width * 0.88).clamp(
+            math.min(640.0, size.width - 48.0),
+            1320.0,
+          )).toDouble();
+    final dialogHeight = (compact
+        ? math.max(200.0, size.height - safe.vertical - inset * 2)
+        : (size.height * 0.86).clamp(
+            math.min(480.0, size.height - 48.0),
+            880.0,
+          )).toDouble();
+    final iconConstraints = KonataAdaptiveTokens.isAndroid
+        ? const BoxConstraints(
+            minWidth: KonataAdaptiveTokens.touchTarget,
+            minHeight: KonataAdaptiveTokens.touchTarget,
+          )
+        : null;
 
     return CallbackShortcuts(
       bindings: {
@@ -383,7 +446,9 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
           },
         if (scans.length > 1)
           const SingleActivator(LogicalKeyboardKey.arrowRight): () {
-            if (safeIdx < scans.length - 1) unawaited(_selectIndex(safeIdx + 1));
+            if (safeIdx < scans.length - 1) {
+              unawaited(_selectIndex(safeIdx + 1));
+            }
           },
       },
       child: Focus(
@@ -391,7 +456,7 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
         child: Dialog(
           backgroundColor: Colors.transparent,
           elevation: 0,
-          insetPadding: const EdgeInsets.all(24),
+          insetPadding: EdgeInsets.all(inset),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(20),
             child: BackdropFilter(
@@ -400,7 +465,9 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
                 width: dialogWidth,
                 height: dialogHeight,
                 decoration: BoxDecoration(
-                  color: KonataTheme.lightboxDarkSurface.withValues(alpha: 0.82),
+                  color: KonataTheme.lightboxDarkSurface.withValues(
+                    alpha: 0.82,
+                  ),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                     color: Colors.white.withValues(alpha: 0.16),
@@ -409,7 +476,12 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
                 child: Column(
                   children: [
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 12, 12, 10),
+                      padding: EdgeInsets.fromLTRB(
+                        compact ? 12.0 : 18.0,
+                        compact ? 6.0 : 12.0,
+                        compact ? 6.0 : 12.0,
+                        compact ? 6.0 : 10.0,
+                      ),
                       child: Row(
                         children: [
                           Expanded(
@@ -422,7 +494,7 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
                                   overflow: TextOverflow.ellipsis,
                                   style: KonataTheme.detailTextStyle(
                                     color: Colors.white,
-                                    fontSize: 14,
+                                    fontSize: compact ? 13 : 14,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -439,30 +511,33 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
                               ],
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.12),
+                          if (!compact) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.12),
+                                ),
+                              ),
+                              child: Text(
+                                '${(_currentScale * 100).round()}%',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
-                            child: Text(
-                              '${(_currentScale * 100).round()}%',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
+                          ],
                           IconButton(
                             tooltip: '重置缩放（双击画面也可还原）',
+                            constraints: iconConstraints,
                             onPressed: _currentScale > 1.005
                                 ? _resetZoom
                                 : null,
@@ -472,19 +547,23 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
                               size: 19,
                             ),
                           ),
-                          IconButton(
-                            tooltip: '用系统图片查看器打开',
-                            onPressed: () =>
-                                unawaited(_openInSystemViewer(current, source)),
-                            icon: const Icon(
-                              Icons.open_in_new_rounded,
-                              color: Colors.white,
-                              size: 19,
+                          if (KonataAdaptiveTokens.isWindows)
+                            IconButton(
+                              tooltip: '用系统图片查看器打开',
+                              constraints: iconConstraints,
+                              onPressed: () => unawaited(
+                                _openInSystemViewer(current, source),
+                              ),
+                              icon: const Icon(
+                                Icons.open_in_new_rounded,
+                                color: Colors.white,
+                                size: 19,
+                              ),
                             ),
-                          ),
                           if (scans.length > 1) ...[
                             IconButton(
                               tooltip: '上一张 (←)',
+                              constraints: iconConstraints,
                               onPressed: safeIdx > 0
                                   ? () => unawaited(_selectIndex(safeIdx - 1))
                                   : null,
@@ -495,6 +574,7 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
                             ),
                             IconButton(
                               tooltip: '下一张 (→)',
+                              constraints: iconConstraints,
                               onPressed: safeIdx < scans.length - 1
                                   ? () => unawaited(_selectIndex(safeIdx + 1))
                                   : null,
@@ -506,6 +586,7 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
                           ],
                           IconButton(
                             tooltip: '关闭 (Esc)',
+                            constraints: iconConstraints,
                             onPressed: () => Navigator.of(context).pop(),
                             icon: const Icon(
                               Icons.close_rounded,
@@ -562,7 +643,9 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
         return Listener(
           onPointerSignal: (event) => _handleWheelZoom(event, vw, vh),
           child: GestureDetector(
-            onDoubleTap: _resetZoom,
+            onDoubleTapDown: (details) =>
+                _lastDoubleTapLocalPos = details.localPosition,
+            onDoubleTap: () => _toggleDoubleTapZoom(vw, vh),
             child: InteractiveViewer(
               transformationController: _transformController,
               panEnabled: true,
@@ -577,6 +660,7 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
                   child: Image(
                     image: provider,
                     fit: BoxFit.contain,
+                    filterQuality: FilterQuality.medium,
                     gaplessPlayback: false,
                     errorBuilder: (_, _, _) => Text(
                       '图像解码失败或格式不受支持',

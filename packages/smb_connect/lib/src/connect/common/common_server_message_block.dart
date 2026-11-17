@@ -6,7 +6,7 @@ import 'package:smb_connect/src/connect/transport/message.dart';
 import 'common_server_message_block_response.dart';
 
 abstract class CommonServerMessageBlock extends Message {
-  /// Decode message data from the given byte array
+  /// 从给定字节数组解码协议报文主体数据结构。
   int decode(Uint8List buffer, int bufferIndex);
 
   int encode(Uint8List dst, int dstIndex);

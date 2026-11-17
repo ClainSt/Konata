@@ -73,7 +73,7 @@ class EpisodeNumberExtractor {
     r'第\s*([0-9一二三四五六七八九十百零〇]{1,5})\s*[話话集回](?:\s*[-~&]\s*([0-9一二三四五六七八九十百零〇]{1,5})\s*[話话集回]?)?|巻\s*[ノの之]\s*([0-9一二三四五六七八九十百零〇]{1,3})(?=\s|[「『]|$)',
   );
 
-  // 8. [12 END] / [48_END] / [05v2] / [14(Final Act 01)] / [13 Part1]
+  // 8. 括号内完结/版本/分段标识，如 [12 END] / [48_END] / [05v2] / [14(Final Act 01)] / [13 Part1]
   static final RegExp _l8BracketEndOrVer = RegExp(
     r'[\[\(【]\s*(\d{1,4})(?:(?:v\d+)|(?:[\s_]*[\(\[]?(?:END|FIN|FINAL|完|终)[\)\]]?)|(?:[\s_]+(?:Part\s*[A-Z0-9]+|前編|後編|前篇|后篇))|(?:\s*\([^)]+\)))\s*[\]\)】]',
     caseSensitive: false,
@@ -197,7 +197,7 @@ class EpisodeNumberExtractor {
       }
     }
 
-    // L5: EP05 / Episode 05 / E01-02
+    // L5：显式集数前缀匹配（如 EP05 / Episode 05 / E01-02）
     final m5 = _l5ExplicitEp.firstMatch(cleanedForScan);
     if (m5 != null) {
       final eStart = int.tryParse(m5.group(1) ?? '');
@@ -242,7 +242,7 @@ class EpisodeNumberExtractor {
       }
     }
 
-    // L8: [12 END] / [05v2]
+    // L8：括号内完结与修订版本号集数匹配（如 [12 END] / [05v2]）
     for (final m8 in _l8BracketEndOrVer.allMatches(cleanedForScan)) {
       final e = int.tryParse(m8.group(1) ?? '');
       if (e != null && _isSafeStandaloneEpisode(e)) {
@@ -305,7 +305,7 @@ class EpisodeNumberExtractor {
       }
     }
 
-    // L13: " - 01" / "_01_" / " - 1 - Title"
+    // L13：横杠或下划线分隔集号匹配（如 " - 01" / "_01_" / " - 1 - 标题"）
     for (final m13 in _l13DashSeparator.allMatches(cleanedForScan)) {
       final e = int.tryParse(m13.group(1) ?? m13.group(2) ?? '');
       if (e != null && _isSafeExplicitEpisode(e)) {

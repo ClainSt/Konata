@@ -54,7 +54,6 @@ class Smb2FilesEnumerator extends SmbFilesEnumerator {
       throw SmbException.getMessageByCode(createResp.status);
     }
     _fileId = createResp.fileId;
-    // _fileIndex = createResp.fil
     return queryReq.getResponse()?.getResults();
   }
 

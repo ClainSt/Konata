@@ -16,11 +16,11 @@ bool FlutterWindow::OnCreate() {
 
   RECT frame = GetClientArea();
 
-  // The size here must match the window dimensions to avoid unnecessary surface
-  // creation / destruction in the startup path.
+  // 此处控制器尺寸必须与当前窗口客户区尺寸一致，以避免启动阶段表面反复重建。
+  // 减少启动期间 DXGI 表面创建与销毁开销。
   flutter_controller_ = std::make_unique<flutter::FlutterViewController>(
       frame.right - frame.left, frame.bottom - frame.top, project_);
-  // Ensure that basic setup of the controller was successful.
+  // 确认 Flutter 视图控制器及其子窗口句柄初始化成功。
   if (!flutter_controller_->engine() || !flutter_controller_->view()) {
     return false;
   }
@@ -42,9 +42,9 @@ bool FlutterWindow::OnCreate() {
     this->Show();
   });
 
-  // Flutter can complete the first frame before the "show window" callback is
-  // registered. The following call ensures a frame is pending to ensure the
-  // window is shown. It is a no-op if the first frame hasn't completed yet.
+  // Flutter 可能在首帧显示回调注册前即完成首帧绘制，以下强制刷新绘制以确保窗口可见；
+  // 若首帧尚未就绪则此调用自然为空操作。
+  // 防止窗口启动时长时间停留在不可见状态。
   flutter_controller_->ForceRedraw();
 
   return true;
@@ -66,7 +66,7 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
-  // Give Flutter, including plugins, an opportunity to handle window messages.
+  // 优先交由 Flutter 引擎与已注册插件拦截处理窗口消息。
   if (flutter_controller_) {
     std::optional<LRESULT> result =
         flutter_controller_->HandleTopLevelWindowProc(hwnd, message, wparam,

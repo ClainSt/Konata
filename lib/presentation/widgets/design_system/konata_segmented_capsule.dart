@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import '../../theme/konata_adaptive_tokens.dart';
 
 import '../../theme/konata_palette.dart';
 import '../../theme/konata_playback_tokens.dart';
@@ -159,23 +160,23 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
     );
     final trackPadding = widget.compact ? 3.0 : 3.5;
 
-    final itemsRow = Row(
-      mainAxisSize: widget.expand ? MainAxisSize.max : MainAxisSize.min,
-      children: [
-        for (var i = 0; i < widget.options.length; i++)
-          _buildItemWrapper(
-            index: i,
-            option: widget.options[i],
-            selected: i == selectedIndex,
-            hovered: _hoveredIndex == i,
-            palette: p,
-            showFallbackPill:
-                !widget.expand && _thumbRect == null && i == selectedIndex,
-            thumbBg: thumbBg,
-            thumbBorder: thumbBorder,
-          ),
-      ],
-    );
+    final items = <Widget>[
+      for (var i = 0; i < widget.options.length; i++)
+        _buildItemWrapper(
+          index: i,
+          option: widget.options[i],
+          selected: i == selectedIndex,
+          hovered: _hoveredIndex == i,
+          palette: p,
+          showFallbackPill:
+              !widget.expand && _thumbRect == null && i == selectedIndex,
+          thumbBg: thumbBg,
+          thumbBorder: thumbBorder,
+        ),
+    ];
+    final itemsRow = widget.expand
+        ? Row(children: items)
+        : Wrap(children: items);
 
     return Container(
       padding: EdgeInsets.all(trackPadding),
@@ -187,7 +188,9 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
       child: widget.expand
           ? LayoutBuilder(
               builder: (context, constraints) {
-                final count = widget.options.isEmpty ? 1 : widget.options.length;
+                final count = widget.options.isEmpty
+                    ? 1
+                    : widget.options.length;
                 final slotWidth = constraints.maxWidth / count;
                 final thumbLeft = selectedIndex >= 0
                     ? selectedIndex * slotWidth
@@ -258,7 +261,9 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
       fallbackBoxColor: showFallbackPill ? thumbBg : null,
       fallbackBorderColor: showFallbackPill ? thumbBorder : null,
       onHoverChanged: (v) => setState(() {
-        _hoveredIndex = v ? index : (_hoveredIndex == index ? null : _hoveredIndex);
+        _hoveredIndex = v
+            ? index
+            : (_hoveredIndex == index ? null : _hoveredIndex);
       }),
       onTap: () {
         if (!selected) {
@@ -349,6 +354,12 @@ class _SegmentChip<T> extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
         child: Container(
+          constraints: KonataAdaptiveTokens.isAndroid
+              ? const BoxConstraints(
+                  minHeight: KonataAdaptiveTokens.touchTarget,
+                  minWidth: KonataAdaptiveTokens.touchTarget,
+                )
+              : null,
           decoration: fallbackBoxColor != null
               ? BoxDecoration(
                   color: fallbackBoxColor,
@@ -379,7 +390,11 @@ class _SegmentChip<T> extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   if (option.icon != null) ...[
-                    Icon(option.icon, size: compact ? 13 : 14, color: textColor),
+                    Icon(
+                      option.icon,
+                      size: compact ? 13 : 14,
+                      color: textColor,
+                    ),
                     const SizedBox(width: 5),
                   ],
                   Stack(
@@ -463,10 +478,7 @@ class KonataSmoothSectionSwitcher extends StatelessWidget {
         switchOutCurve: Curves.easeInCubic,
         layoutBuilder: (currentChild, previousChildren) => Stack(
           alignment: alignment,
-          children: <Widget>[
-            ...previousChildren,
-            ?currentChild,
-          ],
+          children: <Widget>[...previousChildren, ?currentChild],
         ),
         transitionBuilder: (child, anim) => FadeTransition(
           opacity: anim,
@@ -478,10 +490,7 @@ class KonataSmoothSectionSwitcher extends StatelessWidget {
             child: child,
           ),
         ),
-        child: KeyedSubtree(
-          key: ValueKey<Object>(switchKey),
-          child: child,
-        ),
+        child: KeyedSubtree(key: ValueKey<Object>(switchKey), child: child),
       ),
     );
   }

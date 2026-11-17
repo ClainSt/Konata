@@ -17,8 +17,6 @@ class DcerpcSmb1 extends DcerpcBase {
         TransTransactNamedPipe(transport.config, fid, buf, offset, length);
     TransTransactNamedPipeResponse resp =
         TransTransactNamedPipeResponse(transport.config, inB);
-    // if ((getPipeType() & SmbPipeResource.PIPE_TYPE_DCE_TRANSACT) ==
-    // SmbPipeResource.PIPE_TYPE_DCE_TRANSACT) {
     req.setMaxDataCount(1024);
     // }
     tree.prepare(req);

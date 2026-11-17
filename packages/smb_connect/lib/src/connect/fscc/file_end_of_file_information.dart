@@ -4,7 +4,6 @@ import 'package:smb_connect/src/encodable.dart';
 import 'package:smb_connect/src/connect/fscc/file_information.dart';
 import 'package:smb_connect/src/connect/smb_util.dart';
 
-// TODO: all vars to final decode to factory constructor
 class FileEndOfFileInformation implements FileInformation, Encodable {
   int _endOfFile = 0;
 

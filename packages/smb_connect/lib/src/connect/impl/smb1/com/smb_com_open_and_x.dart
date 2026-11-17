@@ -9,12 +9,12 @@ import 'package:smb_connect/src/smb_constants.dart';
 import 'package:smb_connect/src/utils/strings.dart';
 
 class SmbComOpenAndX extends AndXServerMessageBlock {
-  // flags (not the same as flags constructor argument)
+  // 报文内部行为标志（注意区别于构造函数传入的共享控制标志）。
   static const int FLAGS_RETURN_ADDITIONAL_INFO = 0x01;
   static const int FLAGS_REQUEST_OPLOCK = 0x02;
   static const int FLAGS_REQUEST_BATCH_OPLOCK = 0x04;
 
-  // Access Mode Encoding for desiredAccess
+  // `desiredAccess` 字段对应 SMB 访问模式编码。
   static const int SHARING_COMPATIBILITY = 0x00;
   static const int SHARING_DENY_READ_WRITE_EXECUTE = 0x10;
   static const int SHARING_DENY_WRITE = 0x20;
@@ -37,7 +37,7 @@ class SmbComOpenAndX extends AndXServerMessageBlock {
       openFunction = 0,
       allocationSize = 0;
 
-  // flags is NOT the same as flags member
+  // 此局部变量与类成员 `flags` 含义独立。
 
   SmbComOpenAndX(super.config, String fileName, int access, int shareAccess,
       int flags, this.fileAttributes, ServerMessageBlock? andx)
@@ -50,7 +50,7 @@ class SmbComOpenAndX extends AndXServerMessageBlock {
       desiredAccess = 0x2; /* Mmm, I thought 0x03 was RDWR */
     }
 
-    // map shareAccess as far as we can
+    // 尽可能将共享权限组合映射至兼容的标志值。
     if ((shareAccess & SmbConstants.FILE_SHARE_READ) != 0 &&
         (shareAccess & SmbConstants.FILE_SHARE_WRITE) != 0) {
       desiredAccess |= SHARING_DENY_NONE;
@@ -61,33 +61,33 @@ class SmbComOpenAndX extends AndXServerMessageBlock {
     } else if ((shareAccess & SmbConstants.FILE_SHARE_READ) == 0) {
       desiredAccess |= SHARING_DENY_READ_EXECUTE;
     } else {
-      // neither SHARE_READ nor SHARE_WRITE are set
+      // 既未启用共享读也未启用共享写（独占或仅删除模式）。
       desiredAccess |= SHARING_DENY_READ_WRITE_EXECUTE;
     }
 
     desiredAccess &=
         ~0x1; // Win98 doesn't like GENERIC_READ ?! -- get Access Denied.
 
-    // searchAttributes
+    // 目录匹配搜索属性过滤掩码。
     searchAttributes = SmbConstants.ATTR_DIRECTORY |
         SmbConstants.ATTR_HIDDEN |
         SmbConstants.ATTR_SYSTEM;
 
-    // openFunction
+    // OpenFunction 动作标志编码。
     if ((flags & SmbConstants.O_TRUNC) == SmbConstants.O_TRUNC) {
-      // truncate the file
+      // 目标文件存在时清零截断原内容。
       if ((flags & SmbConstants.O_CREAT) == SmbConstants.O_CREAT) {
-        // create it if necessary
+        // 若文件不存在则创建新文件。
         openFunction = OPEN_FN_TRUNC | OPEN_FN_CREATE;
       } else {
         openFunction = OPEN_FN_TRUNC;
       }
     } else {
-      // don't truncate the file
+      // 打开已有文件并保留原有数据内容。
       if ((flags & SmbConstants.O_CREAT) == SmbConstants.O_CREAT) {
-        // create it if necessary
+        // 若文件不存在则创建新文件。
         if ((flags & SmbConstants.O_EXCL) == SmbConstants.O_EXCL) {
-          // fail if already exists
+          // 若文件已存在则令请求失败返回冲突错误。
           openFunction = OPEN_FN_CREATE | OPEN_FN_FAIL_IF_EXISTS;
         } else {
           openFunction = OPEN_FN_CREATE | OPEN_FN_OPEN;

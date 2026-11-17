@@ -5,7 +5,6 @@ import 'package:smb_connect/src/connect/fscc/file_information.dart';
 import 'package:smb_connect/src/connect/smb_util.dart';
 import 'package:smb_connect/src/utils/strings.dart';
 
-// TODO: all vars to final decode to factory constructor
 class FileBasicInfo implements BasicFileInformation {
   int createTime = 0;
   int lastAccessTime = 0;

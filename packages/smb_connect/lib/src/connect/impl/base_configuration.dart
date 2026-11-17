@@ -47,14 +47,12 @@ class BaseConfiguration implements Configuration {
   int flags2;
   @override
   int capabilities;
-  // int sessionLimit = SmbConstants.DEFAULT_SSN_LIMIT;
   @override
   final int responseTimeout;
   @override
   final int soTimeout;
   @override
   final int connTimeout;
-  // int sessionTimeout = SmbConstants.DEFAULT_SO_TIMEOUT;
   @override
   final String nativeOs;
   @override
@@ -136,7 +134,6 @@ class BaseConfiguration implements Configuration {
           (isUseExtendedSecurity
               ? SmbConstants.FLAGS2_EXTENDED_SECURITY_NEGOTIATION
               : 0) |
-          // (signingPreferred ? SmbConstants.FLAGS2_SECURITY_SIGNATURES : 0) |
           (isUseNtStatus ? SmbConstants.FLAGS2_STATUS32 : 0) |
           (isUseUnicode ? SmbConstants.FLAGS2_UNICODE : 0); // || forceUnicode
     }
@@ -156,25 +153,13 @@ class BaseConfiguration implements Configuration {
     if (cmd == SmbComConstants.SMB_COM_QUERY_INFORMATION) {
       return 0;
     }
-    // int? set = batchLimits[cmd];
-    // if (set != null) {
-    //   return set;
     // }
 
-    // set = doGetBatchLimit(cmd);
-    // if (set != null) {
-    // batchLimits[cmd] = set;
-    // return set;
     // }
 
-    // set = DEFAULT_BATCH_LIMITS[cmd];
-    // if (set != null) {
-    //   return set;
     // }
     return 1;
   }
 
-  // int? doGetBatchLimit(String cmd) {
-  //   return null;
   // }
 }

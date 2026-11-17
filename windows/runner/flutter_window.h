@@ -9,28 +9,28 @@
 #include "d3d11_texture_bridge.h"
 #include "win32_window.h"
 
-// A window that does nothing but host a Flutter view.
+// 专门用于承载并托管单一 Flutter 视图的 Win32 顶级窗口包装类。
 class FlutterWindow : public Win32Window {
  public:
-  // Creates a new FlutterWindow hosting a Flutter view running |project|.
+  // 构造基于指定 Dart 工程配置的新版宿主窗口实例。
   explicit FlutterWindow(const flutter::DartProject& project);
   virtual ~FlutterWindow();
 
  protected:
-  // Win32Window:
+  // Win32Window 生命周期钩子实现：
   bool OnCreate() override;
   void OnDestroy() override;
   LRESULT MessageHandler(HWND window, UINT const message, WPARAM const wparam,
                          LPARAM const lparam) noexcept override;
 
  private:
-  // The project to run.
+  // 待加载启动的 Flutter 工程运行时配置。
   flutter::DartProject project_;
 
-  // The Flutter instance hosted by this window.
+  // 由当前窗口直接持有的 Flutter 视图控制器实例。
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
 
-  // Native D3D11 shared texture bridge for libmpv video playback.
+  // 供原生 `libmpv` 视频渲染使用的 D3D11 共享纹理桥接器。
   std::unique_ptr<D3D11TextureBridge> d3d11_bridge_;
 };
 

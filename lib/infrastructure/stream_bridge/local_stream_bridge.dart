@@ -5,7 +5,9 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
+import '../../domain/models/media_source.dart';
 import '../sources/byte_stream_source_gateway.dart';
+import '../sources/source_access_error.dart';
 import '../sources/subtitle_matcher.dart';
 import '../storage/storage_root_provider.dart';
 import 'http_byte_range.dart';
@@ -34,6 +36,7 @@ class _RegisteredStreamSession {
     required this.fileName,
     required this.ownsGateway,
     required this.etag,
+    this.sourceKind = MediaSourceKind.webdav,
     DateTime? createdAt,
     this.cachedLength,
   }) : lastAccessedAt = createdAt ?? DateTime.now();
@@ -44,11 +47,13 @@ class _RegisteredStreamSession {
   final String fileName;
   final bool ownsGateway;
   final String etag;
+  final MediaSourceKind sourceKind;
   DateTime lastAccessedAt;
   int activeStreams = 0;
   int? cachedLength;
   Future<int?>? inflightLengthProbe;
   RemoteWindowReader? windowReader;
+  String? lastDiagnosticError;
 }
 
 /// 本地安全回环按需 HTTP Range 流媒体网桥（绑定 `127.0.0.1` 动态空闲端口）。
@@ -74,7 +79,46 @@ class LocalStreamBridge {
   Future<HttpServer>? _starting;
   Timer? _reaperTimer;
   final Map<String, _RegisteredStreamSession> _sessions = {};
+  final Map<String, String> _recentErrorsByPath = {};
+  final Map<String, String> _recentErrorsByToken = {};
   int _tokenCounter = 0;
+
+  void _recordDiagnostic(_RegisteredStreamSession session, Object error) {
+    final classified = SourceAccessErrorClassifier.classify(
+      error,
+      session.sourceKind,
+    );
+    final message = classified.kind == SourceAccessProblemKind.path
+        ? '媒体文件不存在或源路径已变更（${session.relativePath}），请前往「媒体源」重新扫描同步'
+        : classified.message;
+    session.lastDiagnosticError = message;
+    final normPath = session.relativePath.replaceAll('\\', '/');
+    _recentErrorsByPath.remove(normPath);
+    _recentErrorsByPath[normPath] = message;
+    while (_recentErrorsByPath.length > 24) {
+      _recentErrorsByPath.remove(_recentErrorsByPath.keys.first);
+    }
+    _recentErrorsByToken.remove(session.token);
+    _recentErrorsByToken[session.token] = message;
+    while (_recentErrorsByToken.length > 24) {
+      _recentErrorsByToken.remove(_recentErrorsByToken.keys.first);
+    }
+  }
+
+  /// 查询指定流令牌或相对路径最近一次捕获的上游访问故障中文说明。
+  String? describeLastError({String? token, String? relativePath}) {
+    if (token != null && token.isNotEmpty) {
+      final live = _sessions[token]?.lastDiagnosticError;
+      if (live != null && live.isNotEmpty) return live;
+      final recentByTok = _recentErrorsByToken[token];
+      if (recentByTok != null && recentByTok.isNotEmpty) return recentByTok;
+    }
+    if (relativePath != null && relativePath.isNotEmpty) {
+      final norm = relativePath.replaceAll('\\', '/');
+      return _recentErrorsByPath[norm];
+    }
+    return null;
+  }
 
   /// 当前监听端口号（未启动时返回 `null`）。
   int? get port => _server?.port;
@@ -116,6 +160,7 @@ class LocalStreamBridge {
     required String fileName,
     int? knownLength,
     bool ownsGateway = false,
+    MediaSourceKind sourceKind = MediaSourceKind.webdav,
   }) async {
     final server = await ensureStarted();
     _tokenCounter += 1;
@@ -136,6 +181,7 @@ class LocalStreamBridge {
     // 会话级强 ETag：禁止将弱 ETag 用于 If-Range 的强校验。
     final etag = '"$etagDigest"';
 
+    _recentErrorsByPath.remove(relativePath.replaceAll('\\', '/'));
     _sessions[token] = _RegisteredStreamSession(
       token: token,
       gateway: gateway,
@@ -143,6 +189,7 @@ class LocalStreamBridge {
       fileName: fileName,
       ownsGateway: ownsGateway,
       etag: etag,
+      sourceKind: sourceKind,
       cachedLength: sanitizedLength,
     );
 
@@ -424,6 +471,9 @@ class LocalStreamBridge {
           : await session.gateway.openByteRange(session.relativePath, start: 0);
       await _streamChunksWithAbort(fullStream, response);
     } catch (error) {
+      if (trackedSession != null) {
+        _recordDiagnostic(trackedSession, error);
+      }
       try {
         final msg = error.toString();
         if (error is PathNotFoundException || msg.contains('HTTP 404')) {

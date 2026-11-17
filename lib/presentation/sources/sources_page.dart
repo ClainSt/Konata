@@ -7,6 +7,7 @@ import '../../application/providers/source_actions_provider.dart';
 import '../../application/scraping/scrape_progress.dart';
 import '../../domain/models/media_source.dart';
 import '../audio/mini_audio_bar.dart';
+import '../settings/settings_page.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
@@ -61,18 +62,18 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
       builder: (_) => SourceEditorDialog(
         existing: existing,
         onSave: (source, password, {clearPassword = false}) async {
-          await ref.read(konataActionsProvider).saveMediaSource(
+          await ref
+              .read(konataActionsProvider)
+              .saveMediaSource(
                 source: source,
                 password: password,
                 clearPassword: clearPassword,
               );
         },
-        onTestConnection: (
-          draft, {
-          passwordOverride,
-          clearPassword = false,
-        }) {
-          return ref.read(konataActionsProvider).testMediaSourceConnection(
+        onTestConnection: (draft, {passwordOverride, clearPassword = false}) {
+          return ref
+              .read(konataActionsProvider)
+              .testMediaSourceConnection(
                 draft,
                 passwordOverride: passwordOverride,
                 clearPassword: clearPassword,
@@ -87,10 +88,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
     if (!confirmed || !mounted) return;
     await ref.read(konataActionsProvider).deleteMediaSource(source.id);
     if (!mounted) return;
-    showKonataToast(
-      context,
-      '已移除媒体源「${source.label}」（原始媒体文件未受影响）',
-    );
+    showKonataToast(context, '已移除媒体源「${source.label}」（原始媒体文件未受影响）');
   }
 
   void _openProgressDialog() {
@@ -109,18 +107,30 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
       _openProgressDialog();
       return;
     }
+    final netCfg = ref.read(tmdbNetworkConfigProvider).valueOrNull;
+    if (netCfg != null && netCfg.credential.trim().isEmpty && mounted) {
+      showKonataToast(
+        context,
+        '提醒：当前尚未配置 TMDB API 密钥，无法获取 TMDB 剧照与分集详情，请前往「设置 -> 刮削与网络」配置',
+        isError: true,
+      );
+    }
     if (mounted) {
       setState(() => _bannerDismissed = false);
       _openProgressDialog();
     }
     try {
-      await notifier.scanSource(
-        source,
-        scanRootsOverride: scanRootsOverride,
-      );
+      await notifier.scanSource(source, scanRootsOverride: scanRootsOverride);
     } catch (_) {
       // 错误详情已同步写入 ScrapeProgress，通过进度卡片与弹窗展示。
     }
+  }
+
+  void _jumpToApiSettings() {
+    ref.read(selectedSettingsCategoryProvider.notifier).state =
+        SettingsCategory.network;
+    ref.read(selectedNavSectionProvider.notifier).state =
+        KonataNavSection.settings;
   }
 
   void _openFolderPicker(MediaSource source) {
@@ -128,10 +138,8 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
       context: context,
       builder: (_) => SourceFolderPickerDialog(
         source: source,
-        onScanSelected: (selectedPaths) => _startScan(
-          source,
-          scanRootsOverride: selectedPaths,
-        ),
+        onScanSelected: (selectedPaths) =>
+            _startScan(source, scanRootsOverride: selectedPaths),
       ),
     );
   }
@@ -141,6 +149,10 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
     final p = context.palette;
     final sourcesAsync = ref.watch(mediaSourcesProvider);
     final progress = ref.watch(scrapeControllerProvider);
+    final netCfgAsync = ref.watch(tmdbNetworkConfigProvider);
+    final missingTmdbApi =
+        netCfgAsync.hasValue &&
+        (netCfgAsync.value?.credential.trim().isEmpty ?? false);
     final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
     final showBanner = progress.phase != ScrapePhase.idle && !_bannerDismissed;
 
@@ -156,6 +168,13 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
         KonataPageHeader(
           title: '媒体源管理',
           actions: [
+            if (missingTmdbApi)
+              KonataPillButton.secondary(
+                label: '未配置 TMDB API · 去设置',
+                icon: Icons.warning_amber_rounded,
+                compact: true,
+                onPressed: _jumpToApiSettings,
+              ),
             KonataPillButton.primary(
               label: '添加媒体源',
               icon: Icons.add_rounded,
@@ -203,16 +222,15 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
                           child: ScrapeProgressBanner(
                             progress: progress,
                             onInspect: _openProgressDialog,
-                            onCancel: progress.isRunning &&
-                                    !progress.cancelRequested
+                            onCancel:
+                                progress.isRunning && !progress.cancelRequested
                                 ? () => ref
-                                    .read(scrapeControllerProvider.notifier)
-                                    .requestCancel()
+                                      .read(scrapeControllerProvider.notifier)
+                                      .requestCancel()
                                 : null,
                             onDismiss: progress.isRunning
                                 ? null
-                                : () =>
-                                    setState(() => _bannerDismissed = true),
+                                : () => setState(() => _bannerDismissed = true),
                           ),
                         ),
                       ),
@@ -275,10 +293,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
             },
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (err, _) => Center(
-              child: Text(
-                '加载媒体源失败: $err',
-                style: TextStyle(color: p.danger),
-              ),
+              child: Text('加载媒体源失败: $err', style: TextStyle(color: p.danger)),
             ),
           ),
         ),
@@ -356,10 +371,7 @@ class _SourceCard extends StatelessWidget {
                     source.location,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: p.textSecondary,
-                      fontSize: 12.5,
-                    ),
+                    style: TextStyle(color: p.textSecondary, fontSize: 12.5),
                   ),
                 ],
               ),

@@ -15,6 +15,7 @@ import '../../infrastructure/network/bangumi_service.dart';
 import '../../infrastructure/network/priority_http_scheduler.dart';
 import '../../infrastructure/network/tmdb_service.dart';
 import '../../infrastructure/sources/directory_scanner.dart';
+import '../../infrastructure/sources/source_access_error.dart';
 import 'scrape_candidate_fetcher.dart';
 import 'scrape_compute_worker.dart';
 import 'scrape_progress.dart';
@@ -26,7 +27,8 @@ import 'series_auto_linker.dart';
 typedef ScrapeProgressListener = void Function(ScrapeProgress progress);
 
 /// 媒体源网关构建函数。
-typedef GatewayBuilder = Future<MediaSourceGateway> Function(MediaSource source);
+typedef GatewayBuilder =
+    Future<MediaSourceGateway> Function(MediaSource source);
 
 /// Konata 2.0 四段漏斗后台刮削调度器。
 class ScrapeOrchestrator {
@@ -153,10 +155,14 @@ class ScrapeOrchestrator {
           .map((e) => e.trim().replaceAll('\\', '/'))
           .where((e) => e.isNotEmpty)
           .toSet();
-      final groupedWorks = groupedWorksAll.where((folder) {
-        final norm = folder.folderRelativePath.trim().replaceAll('\\', '/');
-        return !ignoredFolders.any((ig) => norm == ig || norm.startsWith('$ig/'));
-      }).toList(growable: false);
+      final groupedWorks = groupedWorksAll
+          .where((folder) {
+            final norm = folder.folderRelativePath.trim().replaceAll('\\', '/');
+            return !ignoredFolders.any(
+              (ig) => norm == ig || norm.startsWith('$ig/'),
+            );
+          })
+          .toList(growable: false);
 
       emit(
         tracker.advance(
@@ -184,7 +190,9 @@ class ScrapeOrchestrator {
         activeWorkIds.add(result.workId);
         for (final v in folder.variants) {
           activeVariantIds.add(
-            ScrapeWorkPersister.deterministicId('${v.sourceId}::${v.relativePath}'),
+            ScrapeWorkPersister.deterministicId(
+              '${v.sourceId}::${v.relativePath}',
+            ),
           );
         }
         final snap = tracker.snapshot;
@@ -192,11 +200,14 @@ class ScrapeOrchestrator {
           tracker.advance(
             processedWorks: snap.processedWorks + 1,
             matchedWorks:
-                snap.matchedWorks + (result.status == ScrapeStatus.matched ? 1 : 0),
+                snap.matchedWorks +
+                (result.status == ScrapeStatus.matched ? 1 : 0),
             reviewWorks:
-                snap.reviewWorks + (result.status == ScrapeStatus.needsReview ? 1 : 0),
+                snap.reviewWorks +
+                (result.status == ScrapeStatus.needsReview ? 1 : 0),
             unmatchedWorks:
-                snap.unmatchedWorks + (result.status == ScrapeStatus.unmatched ? 1 : 0),
+                snap.unmatchedWorks +
+                (result.status == ScrapeStatus.unmatched ? 1 : 0),
           ),
         );
       }
@@ -208,6 +219,17 @@ class ScrapeOrchestrator {
         activeVariantIds: activeVariantIds,
         scopedRoots: effectiveRoots,
       );
+
+      // 当局部扫描新入库的作品在同源范围外存在同身份/同名旧副本，且旧目录已在源端消失时，自动清除该幽灵重复作品。
+      if (effectiveRoots.isNotEmpty && activeWorkIds.isNotEmpty) {
+        await _pruneMovedOutOfScopeGhostWorks(
+          gateway: gateway,
+          sourceId: source.id,
+          sourceKind: source.kind,
+          newlyActiveWorkIds: activeWorkIds,
+          scopedRoots: effectiveRoots,
+        );
+      }
 
       await SeriesAutoLinker.reconcileAll(
         repository: _repository,
@@ -237,7 +259,10 @@ class ScrapeOrchestrator {
     String sourceId,
     GroupedWorkFolder folder,
   ) async {
-    final existing = await _persister.findExistingWorkForFolder(sourceId, folder);
+    final existing = await _persister.findExistingWorkForFolder(
+      sourceId,
+      folder,
+    );
     final workId =
         existing?.id ??
         ScrapeWorkPersister.deterministicId(
@@ -277,7 +302,8 @@ class ScrapeOrchestrator {
       if (preRemap != null) {
         lockedSeasons.addAll(preRemap.referencedSeasons);
       }
-      if (lockedDetail?.collectionId != null && lockedDetail!.collectionId! > 0) {
+      if (lockedDetail?.collectionId != null &&
+          lockedDetail!.collectionId! > 0) {
         _tmdbCollectionIdByTmdbId[lockedDetail.tmdbId] =
             lockedDetail.collectionId!;
       }
@@ -330,11 +356,9 @@ class ScrapeOrchestrator {
           folder,
           extraQueries: [detail.title, ...detail.aliases.take(2)],
         );
-        final explicitDecision = await _computeWorker.evaluateMatch(
-          folder,
-          [detail],
-          bangumiCandidates: bgmCandidates,
-        );
+        final explicitDecision = await _computeWorker.evaluateMatch(folder, [
+          detail,
+        ], bangumiCandidates: bgmCandidates);
         final status = await _bindAndPersistDetail(
           workId: workId,
           existing: existing,
@@ -461,8 +485,7 @@ class ScrapeOrchestrator {
         existing: existing,
         folder: effectiveFolder,
         detail: decision.best!.detail,
-        matchedSeason:
-            decision.matchedSeason ?? decision.best!.matchedSeason,
+        matchedSeason: decision.matchedSeason ?? decision.best!.matchedSeason,
         bangumiCandidate: decision.bestBangumi,
         seasons: seasons,
         isManualLocked: false,
@@ -659,7 +682,10 @@ class ScrapeOrchestrator {
 
     var variants = await _repository.getVariantsByWork(workId);
     if (writeIdToFolderName && variants.isNotEmpty) {
-      variants = await _persister.tryAppendTmdbIdToLocalFolder(variants, tmdbId);
+      variants = await _persister.tryAppendTmdbIdToLocalFolder(
+        variants,
+        tmdbId,
+      );
     }
 
     GroupedWorkFolder? targetFolder;
@@ -692,11 +718,9 @@ class ScrapeOrchestrator {
               targetFolder,
               extraQueries: [detail.title, ...detail.aliases.take(2)],
             );
-      final matchDecision = await _computeWorker.evaluateMatch(
-        targetFolder,
-        [detail],
-        bangumiCandidates: bgmRescue,
-      );
+      final matchDecision = await _computeWorker.evaluateMatch(targetFolder, [
+        detail,
+      ], bangumiCandidates: bgmRescue);
       final matchedSeason =
           matchDecision.matchedSeason ??
           targetFolder.seasonHint ??
@@ -844,6 +868,151 @@ class ScrapeOrchestrator {
       tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
     );
     return updated;
+  }
+
+  /// 仅针对与本次新扫入作品同身份（相同 TMDB/Bangumi 或同名同文件）的同源旧作品核实源目录存活性，自动清理因目录改名产生的幽灵重复卡片。
+  Future<void> _pruneMovedOutOfScopeGhostWorks({
+    required MediaSourceGateway gateway,
+    required String sourceId,
+    required MediaSourceKind sourceKind,
+    required Set<String> newlyActiveWorkIds,
+    required List<String> scopedRoots,
+  }) async {
+    final normScoped = scopedRoots
+        .map(
+          (r) =>
+              r.trim().replaceAll('\\', '/').replaceAll(RegExp(r'^/+|/+$'), ''),
+        )
+        .where((r) => r.isNotEmpty)
+        .toList(growable: false);
+    if (normScoped.isEmpty) return;
+
+    bool inScoped(String path) {
+      return normScoped.any(
+        (root) => path == root || path.startsWith('$root/'),
+      );
+    }
+
+    final allWorks = await _repository.getAllWorks();
+    final newWorks = allWorks
+        .where((w) => newlyActiveWorkIds.contains(w.id))
+        .toList(growable: false);
+    if (newWorks.isEmpty) return;
+
+    final allSourceVariants = await _repository.getVariantsBySource(sourceId);
+    final variantsByWork = <String, List<MediaVariant>>{};
+    for (final v in allSourceVariants) {
+      variantsByWork.putIfAbsent(v.workId, () => <MediaVariant>[]).add(v);
+    }
+
+    final newFileSetsByWork = <String, Set<String>>{
+      for (final nw in newWorks)
+        nw.id: {
+          for (final v in (variantsByWork[nw.id] ?? const <MediaVariant>[]))
+            if (v.assetKind == AssetKind.video) v.fileName.toLowerCase(),
+        },
+    };
+
+    bool matchesAnyNewWork(Work oldWork, List<MediaVariant> oldVars) {
+      final oldVideoNames = {
+        for (final v in oldVars)
+          if (v.assetKind == AssetKind.video) v.fileName.toLowerCase(),
+      };
+      for (final nw in newWorks) {
+        if (nw.id == oldWork.id) continue;
+        if (oldWork.tmdbId != null &&
+            nw.tmdbId == oldWork.tmdbId &&
+            nw.tmdbMediaType == oldWork.tmdbMediaType &&
+            nw.matchedSeason == oldWork.matchedSeason) {
+          return true;
+        }
+        if (oldWork.bangumiId != null && nw.bangumiId == oldWork.bangumiId) {
+          return true;
+        }
+        if (nw.title.trim().toLowerCase() ==
+            oldWork.title.trim().toLowerCase()) {
+          return true;
+        }
+        final nwFiles = newFileSetsByWork[nw.id] ?? const <String>{};
+        final hasDistinctiveNames = oldVideoNames.every((n) => n.length >= 16);
+        if (hasDistinctiveNames &&
+            oldVideoNames.isNotEmpty &&
+            oldVideoNames.length == nwFiles.length &&
+            oldVideoNames.containsAll(nwFiles)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    final listedChildrenByParent = <String, Set<String>?>{};
+    Future<bool> isDirDefinitelyMissing(String relDir) async {
+      final slash = relDir.lastIndexOf('/');
+      final parent = slash > 0 ? relDir.substring(0, slash) : '';
+      final leaf = (slash > 0 ? relDir.substring(slash + 1) : relDir)
+          .trim()
+          .toLowerCase();
+      Set<String>? siblings;
+      if (listedChildrenByParent.containsKey(parent)) {
+        siblings = listedChildrenByParent[parent];
+      } else {
+        try {
+          final entries = await gateway.listDirectory(parent);
+          siblings = {for (final e in entries) e.name.trim().toLowerCase()};
+        } catch (err) {
+          final classified = SourceAccessErrorClassifier.classify(
+            err,
+            sourceKind,
+          );
+          siblings = classified.kind == SourceAccessProblemKind.path
+              ? const <String>{}
+              : null;
+        }
+        listedChildrenByParent[parent] = siblings;
+      }
+      return siblings != null && !siblings.contains(leaf);
+    }
+
+    for (final w in allWorks) {
+      if (newlyActiveWorkIds.contains(w.id)) continue;
+      final oldVars = variantsByWork[w.id];
+      if (oldVars == null || oldVars.isEmpty) continue;
+      if (oldVars.any((v) => v.workLocked || v.scopeLocked)) continue;
+
+      // 确保该旧作品未关联其他媒体源且全部位于本次局部扫描范围之外
+      final fullWorkVars = await _repository.getVariantsByWork(w.id);
+      if (fullWorkVars.any((v) => v.sourceId != sourceId)) continue;
+      final outOfScopeDirs = <String>{};
+      var anyInScope = false;
+      for (final v in oldVars) {
+        final norm = v.relativePath
+            .trim()
+            .replaceAll('\\', '/')
+            .replaceAll(RegExp(r'^/+|/+$'), '');
+        if (inScoped(norm)) {
+          anyInScope = true;
+          break;
+        }
+        final segs = norm.split('/').where((s) => s.isNotEmpty).toList();
+        if (segs.length > 1) {
+          final depth = segs.length >= 3 ? 2 : 1;
+          outOfScopeDirs.add(segs.sublist(0, depth).join('/'));
+        }
+      }
+      if (anyInScope || outOfScopeDirs.isEmpty) continue;
+      if (!matchesAnyNewWork(w, oldVars)) continue;
+
+      var allMissing = true;
+      for (final d in outOfScopeDirs) {
+        if (!await isDirDefinitelyMissing(d)) {
+          allMissing = false;
+          break;
+        }
+      }
+      if (allMissing) {
+        await _repository.deleteWork(w.id);
+      }
+    }
   }
 
   static String _normalizeSourceRelPath(String raw) {

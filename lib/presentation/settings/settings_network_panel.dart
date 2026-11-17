@@ -177,10 +177,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          '刮削与网络',
-          style: KonataTheme.h2Style(p),
-        ),
+        Text('刮削与网络', style: KonataTheme.h2Style(p)),
         const SizedBox(height: 6),
         Text(
           '刮削优先连接官方服务；当官方地址连接超时或在中国大陆网络受阻时，将自动无缝回退至下方配置的备用地址。',
@@ -205,11 +202,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
             }
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                tmdbCard,
-                const SizedBox(height: 16),
-                bgmCard,
-              ],
+              children: [tmdbCard, const SizedBox(height: 16), bgmCard],
             );
           },
         ),
@@ -234,15 +227,39 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
                   fontWeight: FontWeight.w700,
                 ),
               ),
+              const SizedBox(width: 8),
+              ValueListenableBuilder<TextEditingValue>(
+                valueListenable: _credentialController,
+                builder: (_, val, _) {
+                  final configured = val.text.trim().isNotEmpty;
+                  final badge = configured ? p.accentBadge : p.warningBadge;
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2.5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: badge.bg,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: badge.border),
+                    ),
+                    child: Text(
+                      configured ? '已配置' : '未配置',
+                      style: TextStyle(
+                        color: badge.fg,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  );
+                },
+              ),
               const Spacer(),
               KonataPillButton.ghost(
                 label: '如何获取TMDB API',
                 icon: Icons.help_outline_rounded,
                 compact: true,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 6,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                 onPressed: () {
                   showKonataGlassDialog<void>(
                     context: context,
@@ -286,10 +303,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
                 label: '恢复默认',
                 icon: Icons.restart_alt_rounded,
                 compact: true,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 6,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                 onPressed: _restoreTmdbDefaults,
               ),
             ],
@@ -297,8 +311,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
           const SizedBox(height: 14),
           _EndpointBackupField(
             title: '备用 API 地址',
-            officialSubtitle:
-                '官方标准地址 · ${TmdbNetworkConfig.defaultApiBase}',
+            officialSubtitle: '官方标准地址 · ${TmdbNetworkConfig.defaultApiBase}',
             controller: _tmdbApiBackupController,
             hintText: TmdbNetworkConfig.defaultTmdbBackupApiBase,
             testButtonLabel: _testingTmdbApi ? '测试中...' : 'API 连接测试',
@@ -355,10 +368,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
                 label: '恢复默认',
                 icon: Icons.restart_alt_rounded,
                 compact: true,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 6,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                 onPressed: _restoreBangumiDefaults,
               ),
             ],
@@ -421,18 +431,9 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
           KonataSegmentedCapsule<ProxyMode>(
             selected: _proxyMode,
             options: const [
-              KonataSegmentOption(
-                value: ProxyMode.system,
-                label: '跟随系统代理（默认）',
-              ),
-              KonataSegmentOption(
-                value: ProxyMode.custom,
-                label: '自定义本地代理',
-              ),
-              KonataSegmentOption(
-                value: ProxyMode.none,
-                label: '不使用代理',
-              ),
+              KonataSegmentOption(value: ProxyMode.system, label: '跟随系统代理（默认）'),
+              KonataSegmentOption(value: ProxyMode.custom, label: '自定义本地代理'),
+              KonataSegmentOption(value: ProxyMode.none, label: '不使用代理'),
             ],
             onChanged: (v) {
               if (_proxyMode == v) return;

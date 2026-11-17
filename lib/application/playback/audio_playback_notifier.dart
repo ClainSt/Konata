@@ -20,6 +20,7 @@ import '../../infrastructure/players/libmpv_ffi.dart';
 import '../../infrastructure/players/mpv_quality_profile.dart';
 import '../../infrastructure/sources/byte_stream_source_gateway.dart';
 import '../../infrastructure/sources/local_source_gateway.dart';
+import '../../infrastructure/sources/source_access_error.dart';
 import '../../infrastructure/sources/source_gateway_factory.dart';
 import '../../infrastructure/storage/storage_root_provider.dart';
 import '../providers/diagnostics_providers.dart';
@@ -1277,10 +1278,15 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       }
     } catch (e) {
       if (generation == _loadGeneration && mounted) {
+        final fallbackCover = state.cover is EmptyAudioCover
+            ? _resolvePosterFallback(item.work)
+            : state.cover;
+        final friendly = e is SourceAccessException ? e.message : '音频加载失败：$e';
         state = state.copyWith(
           isBuffering: false,
           isPlaying: false,
-          errorMessage: '音频加载失败: $e',
+          cover: fallbackCover,
+          errorMessage: friendly,
         );
       }
     }
@@ -1291,7 +1297,14 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     if (source == null || source.kind == MediaSourceKind.local) {
       if (source != null) {
         final gw = LocalSourceGateway(rootPath: source.location);
-        return gw.resolveAbsolutePath(item.effectiveRelativePath);
+        final absPath = gw.resolveAbsolutePath(item.effectiveRelativePath);
+        if (!await File(absPath).exists()) {
+          throw SourceAccessException(
+            SourceAccessProblemKind.path,
+            '本地音频文件不存在或路径已变更（${item.effectiveRelativePath}），请检查磁盘挂载或重新扫描媒体源',
+          );
+        }
+        return absPath;
       }
       return item.effectiveRelativePath;
     }
@@ -1308,6 +1321,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       fileName: item.effectiveFileName,
       knownLength: item.variant.fileSize > 0 ? item.variant.fileSize : null,
       ownsGateway: true,
+      sourceKind: source.kind,
     );
     _activeStreamToken = reg.token;
     return reg.url.toString();
@@ -1755,10 +1769,23 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       }
       _loadedPhysicalKey = null;
       _isTransitioningCueBoundary = false;
+      final curItem = state.currentItem;
+      final bridgeDiag = _ref
+          .read(localStreamBridgeProvider)
+          .describeLastError(
+            token: _activeStreamToken,
+            relativePath: curItem?.effectiveRelativePath,
+          );
+      final fallbackCover = (state.cover is EmptyAudioCover && curItem != null)
+          ? _resolvePosterFallback(curItem.work)
+          : state.cover;
       state = state.copyWith(
         isPlaying: false,
         isBuffering: false,
-        errorMessage: '音频解码中断 (${event.errorCode})',
+        cover: fallbackCover,
+        errorMessage:
+            bridgeDiag ??
+            '音频读取或解码中断 (code: ${event.errorCode})，请确认媒体文件路径未变更且源连接正常',
       );
     }
   }
@@ -2088,6 +2115,13 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   /// 循环切换单曲/列表/顺序播放模式。
   void cycleLoopMode() {
     state = state.copyWith(loopMode: state.loopMode.nextMode());
+  }
+
+  /// 手动关闭当前音频错误提示横幅。
+  void dismissError() {
+    if (state.errorMessage != null) {
+      state = state.copyWith(clearError: true);
+    }
   }
 
   /// 停止音频播放、释放本地流并关闭迷你栏与沉浸页。

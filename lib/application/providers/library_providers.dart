@@ -265,9 +265,7 @@ final filteredLibraryItemsProvider =
           if (w.tmdbId != null && w.tmdbId.toString().contains(query)) {
             return true;
           }
-          return item.releaseGroups.any(
-            (g) => g.toLowerCase().contains(query),
-          );
+          return item.releaseGroups.any((g) => g.toLowerCase().contains(query));
         }).toList();
       });
     });
@@ -366,9 +364,7 @@ reconcileWorkExtraEpisodes({
             titleHint: slot.extraTitleHint,
             workTitle: work.title,
           );
-      groups
-          .putIfAbsent(canonicalKey, () => [])
-          .add((variant: v, slot: slot));
+      groups.putIfAbsent(canonicalKey, () => []).add((variant: v, slot: slot));
     }
 
     if (groups.isEmpty) continue;
@@ -376,10 +372,10 @@ reconcileWorkExtraEpisodes({
     final entries = groups.entries.toList(growable: true);
     if (entries.length >= 2) {
       // 优先让与现有标题语义最一致的组保留原 episodeId，完整承接播放历史
-      final existingCompact = (ep.title ?? '')
-          .trim()
-          .toLowerCase()
-          .replaceAll(RegExp(r'\s+'), '');
+      final existingCompact = (ep.title ?? '').trim().toLowerCase().replaceAll(
+        RegExp(r'\s+'),
+        '',
+      );
       final matchIdx = entries.indexWhere((e) {
         final hint = (e.value.first.slot.extraTitleHint ?? '')
             .trim()
@@ -410,7 +406,8 @@ reconcileWorkExtraEpisodes({
                     ep.title,
                     desiredTitle,
                   ));
-        final shouldFixType = desiredType != null && desiredType != ep.extraType;
+        final shouldFixType =
+            desiredType != null && desiredType != ep.extraType;
         if (shouldFixTitle || shouldFixType) {
           final updatedEp = Episode(
             id: ep.id,
@@ -493,11 +490,7 @@ final workRedirectMapProvider = StateProvider<Map<String, String>>(
 );
 
 /// 登记旧作品被合并或迁移至目标存活作品的重定向关系。
-void recordWorkRedirect(
-  Ref ref,
-  String sourceWorkId,
-  String targetWorkId,
-) {
+void recordWorkRedirect(Ref ref, String sourceWorkId, String targetWorkId) {
   if (sourceWorkId.isEmpty ||
       targetWorkId.isEmpty ||
       sourceWorkId == targetWorkId) {
@@ -570,7 +563,8 @@ final workDetailBundleProvider =
       final mergedEpisodeIds = mergedEpisodes.map((e) => e.id).toSet();
       final mergedVariants = List<MediaVariant>.of(variants);
       final seenVariantPaths = <String>{
-        for (final v in variants) '${v.sourceId}::${v.relativePath.toLowerCase()}',
+        for (final v in variants)
+          '${v.sourceId}::${v.relativePath.toLowerCase()}',
       };
 
       final cdList = <MediaVariant>[
@@ -621,6 +615,12 @@ final workDetailBundleProvider =
         final member = seriesMembers[i];
         photos.cacheWorkTitle(member.id, member.title);
         if (member.id == work.id) continue;
+        final isDuplicateSameInstallment =
+            work.tmdbId != null &&
+            member.tmdbId == work.tmdbId &&
+            member.tmdbMediaType == work.tmdbMediaType &&
+            member.matchedSeason == work.matchedSeason;
+        if (isDuplicateSameInstallment) continue;
         final mRawEpisodes = await repo.getEpisodesByWork(member.id);
         final mRawVariants = await repo.getVariantsByWork(member.id);
         final mReconciled = await reconcileWorkExtraEpisodes(
@@ -676,16 +676,22 @@ final workDetailBundleProvider =
         }
       }
 
-      cdList.sort(
-        (a, b) => a.relativePath.toLowerCase().compareTo(
+      cdList.sort((a, b) {
+        final aOwn = a.workId == work.id;
+        final bOwn = b.workId == work.id;
+        if (aOwn != bOwn) return aOwn ? -1 : 1;
+        return a.relativePath.toLowerCase().compareTo(
           b.relativePath.toLowerCase(),
-        ),
-      );
-      scanList.sort(
-        (a, b) => a.relativePath.toLowerCase().compareTo(
+        );
+      });
+      scanList.sort((a, b) {
+        final aOwn = a.workId == work.id;
+        final bOwn = b.workId == work.id;
+        if (aOwn != bOwn) return aOwn ? -1 : 1;
+        return a.relativePath.toLowerCase().compareTo(
           b.relativePath.toLowerCase(),
-        ),
-      );
+        );
+      });
 
       return WorkDetailBundle(
         work: work,

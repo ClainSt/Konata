@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/artwork_provider.dart';
 import '../../application/providers/library_providers.dart';
+import '../../application/providers/scraping_providers.dart';
 import '../audio/mini_audio_bar.dart';
 import '../detail/work_detail_page.dart';
+import '../settings/settings_page.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
@@ -40,6 +42,10 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     final reviewCount =
         ref.watch(needsReviewItemsProvider).valueOrNull?.length ?? 0;
     final hiddenCount = ref.watch(hiddenWorksProvider).valueOrNull?.length ?? 0;
+    final netCfgAsync = ref.watch(tmdbNetworkConfigProvider);
+    final missingTmdbApi =
+        netCfgAsync.hasValue &&
+        (netCfgAsync.value?.credential.trim().isEmpty ?? false);
     final imageLoader = ref.watch(tmdbImageLoaderProvider);
     final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
     final totalCount = totalCountAsync.valueOrNull ?? 0;
@@ -71,6 +77,15 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                 )
               : null,
           actions: [
+            if (missingTmdbApi)
+              _MissingApiHeaderPill(
+                onTap: () {
+                  ref.read(selectedSettingsCategoryProvider.notifier).state =
+                      SettingsCategory.network;
+                  ref.read(selectedNavSectionProvider.notifier).state =
+                      KonataNavSection.settings;
+                },
+              ),
             if (hiddenCount > 0)
               _HiddenWorksHeaderButton(
                 count: hiddenCount,
@@ -146,6 +161,61 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _MissingApiHeaderPill extends StatefulWidget {
+  const _MissingApiHeaderPill({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  State<_MissingApiHeaderPill> createState() => _MissingApiHeaderPillState();
+}
+
+class _MissingApiHeaderPillState extends State<_MissingApiHeaderPill> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final badge = p.warningBadge;
+    return Tooltip(
+      message: '尚未配置 TMDB API 密钥，点击前往「设置 -> 刮削与网络」配置',
+      waitDuration: const Duration(milliseconds: 300),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6.5),
+            decoration: BoxDecoration(
+              color: _hovered ? badge.bg.withValues(alpha: 0.95) : badge.bg,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: badge.border, width: 1),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.key_off_rounded, size: 14, color: badge.fg),
+                const SizedBox(width: 5),
+                Text(
+                  '未配置 API',
+                  style: TextStyle(
+                    color: badge.fg,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

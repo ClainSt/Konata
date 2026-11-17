@@ -29,6 +29,11 @@ enum SettingsCategory {
   final IconData icon;
 }
 
+/// 当前激活的设置二级分类 Provider（支持从外部提醒横幅一键直达「刮削与网络」等面板）。
+final selectedSettingsCategoryProvider = StateProvider<SettingsCategory>(
+  (ref) => SettingsCategory.appearance,
+);
+
 /// 双栏布局设置页面（统一一级页头 + 左侧无框分类导航 + 右侧自适应全宽铺展面板）。
 class SettingsPage extends ConsumerStatefulWidget {
   /// 创建设置页面。
@@ -50,6 +55,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   void _selectCategory(SettingsCategory category) {
+    ref.read(selectedSettingsCategoryProvider.notifier).state = category;
     if (_selected == category) {
       return;
     }
@@ -61,6 +67,18 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<SettingsCategory>(selectedSettingsCategoryProvider, (_, next) {
+      if (_selected != next && mounted) {
+        setState(() => _selected = next);
+        if (_contentCtrl.hasClients) {
+          _contentCtrl.jumpTo(0);
+        }
+      }
+    });
+    final syncedCategory = ref.watch(selectedSettingsCategoryProvider);
+    if (_selected != syncedCategory) {
+      _selected = syncedCategory;
+    }
     final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
 
     return Column(

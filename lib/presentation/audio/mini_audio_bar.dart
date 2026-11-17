@@ -121,6 +121,8 @@ class _GlobalAudioOverlayLayer extends ConsumerWidget {
       return const SizedBox.shrink();
     }
 
+    final errorMsg = audioState.errorMessage?.trim() ?? '';
+
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -151,7 +153,95 @@ class _GlobalAudioOverlayLayer extends ConsumerWidget {
               ? const ImmersiveAudioPage(key: ValueKey('immersive_audio'))
               : const SizedBox.shrink(),
         ),
+        // 音频路径失效或读取异常全局醒目提示横幅
+        if (errorMsg.isNotEmpty)
+          Positioned(
+            left: 28,
+            right: 28,
+            top: expanded ? 62 : null,
+            bottom: expanded
+                ? null
+                : (KonataPlaybackTokens.miniBarBottomInset +
+                      KonataPlaybackTokens.miniBarHeight +
+                      10),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 680),
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: _AudioErrorBanner(
+                    message: errorMsg,
+                    onDismiss: () =>
+                        ref.read(audioPlaybackProvider.notifier).dismissError(),
+                  ),
+                ),
+              ),
+            ),
+          ),
       ],
+    );
+  }
+}
+
+class _AudioErrorBanner extends StatelessWidget {
+  const _AudioErrorBanner({required this.message, required this.onDismiss});
+
+  final String message;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: p.dangerBadge.bg.withValues(alpha: p.isDark ? 0.90 : 0.95),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: p.dangerBadge.border, width: 1),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.error_outline_rounded,
+                size: 18,
+                color: p.dangerBadge.fg,
+              ),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  message,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: p.dangerBadge.fg,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    decoration: TextDecoration.none,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onDismiss,
+                child: Padding(
+                  padding: const EdgeInsets.all(2),
+                  child: Icon(
+                    Icons.close_rounded,
+                    size: 16,
+                    color: p.dangerBadge.fg,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

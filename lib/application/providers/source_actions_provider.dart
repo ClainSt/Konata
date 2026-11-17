@@ -112,12 +112,15 @@ class KonataActionsCoordinator {
     }
   }
 
-  /// 前台高优先级搜索 TMDB 候选（供手动纠错弹窗使用）。
+  /// 前台高优先级搜索 TMDB 候选（供手动纠错弹窗使用；未配置密钥时立即抛出明确中文指引）。
   Future<List<TmdbSearchResult>> searchTmdbInteractive(
     String query, {
     int? year,
   }) async {
     final config = await _ref.read(tmdbNetworkConfigProvider.future);
+    if (config.credential.trim().isEmpty) {
+      throw StateError('尚未配置 TMDB API 密钥，请先前往「设置 -> 刮削与网络」填写密钥');
+    }
     final scheduler = _ref.read(priorityHttpSchedulerProvider);
     final client = TmdbHttpClient(config: config, scheduler: scheduler);
     final tmdb = TmdbService(httpClient: client);
@@ -217,9 +220,8 @@ class KonataActionsCoordinator {
   }
 
   /// 测试 TMDB API 连通性（官方优先，受阻自动探测备用地址）。
-  Future<ConnectivityReport> testTmdbConnectivity(
-    TmdbNetworkConfig config,
-  ) => testTmdbApiConnectivity(config);
+  Future<ConnectivityReport> testTmdbConnectivity(TmdbNetworkConfig config) =>
+      testTmdbApiConnectivity(config);
 
   /// 测试 TMDB API 连通性（官方优先，受阻自动探测备用地址）。
   Future<ConnectivityReport> testTmdbApiConnectivity(

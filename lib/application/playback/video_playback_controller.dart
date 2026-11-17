@@ -208,8 +208,9 @@ class VideoPlaybackState {
       subtitleDelaySeconds: subtitleDelaySeconds ?? this.subtitleDelaySeconds,
       audioDelaySeconds: audioDelaySeconds ?? this.audioDelaySeconds,
       trackMemory: trackMemory ?? this.trackMemory,
-      activeSkipWindow:
-          clearSkipWindow ? null : (activeSkipWindow ?? this.activeSkipWindow),
+      activeSkipWindow: clearSkipWindow
+          ? null
+          : (activeSkipWindow ?? this.activeSkipWindow),
       transientBanner: clearTransientBanner
           ? null
           : (transientBanner ?? this.transientBanner),
@@ -227,20 +228,19 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     this.request, {
     this.sessionFactory,
     this.deferBootstrap = false,
-  })
-    : super(
-        VideoPlaybackState(
-          currentWork: request.work,
-          currentBundle: request.bundle,
-          currentEpisode: request.episode,
-          currentVariant: request.variant,
-          volume: _ref.read(playbackPreferencesProvider).defaultVolume,
-          speed: _ref
-              .read(playbackPreferencesProvider)
-              .qualityConfig
-              .defaultSpeed,
-        ),
-      ) {
+  }) : super(
+         VideoPlaybackState(
+           currentWork: request.work,
+           currentBundle: request.bundle,
+           currentEpisode: request.episode,
+           currentVariant: request.variant,
+           volume: _ref.read(playbackPreferencesProvider).defaultVolume,
+           speed: _ref
+               .read(playbackPreferencesProvider)
+               .qualityConfig
+               .defaultSpeed,
+         ),
+       ) {
     _bundleCacheByWorkId[request.work.id] = request.bundle;
     if (!deferBootstrap) {
       _bootstrap();
@@ -557,7 +557,9 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       });
       session.adapterNameListenable.addListener(() {
         if (mounted) {
-          state = state.copyWith(adapterName: session.adapterNameListenable.value);
+          state = state.copyWith(
+            adapterName: session.adapterNameListenable.value,
+          );
         }
       });
 
@@ -592,10 +594,34 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       session.onNotice = showTransientBanner;
       session.onFatalError = (msg) {
         if (mounted) {
+          final bridgeDiag = _ref
+              .read(localStreamBridgeProvider)
+              .describeLastError(relativePath: request.variant.relativePath);
+          var effectiveMsg = bridgeDiag ?? msg;
+          if (bridgeDiag == null &&
+              request.source != null &&
+              request.source!.kind == MediaSourceKind.local) {
+            final rootClean = request.source!.location.replaceAll(
+              RegExp(r'[\\/]+$'),
+              '',
+            );
+            final relClean = request.variant.relativePath
+                .replaceAll('\\', '/')
+                .replaceAll(RegExp(r'^/+'), '')
+                .split('/')
+                .join(Platform.pathSeparator);
+            final localPath = relClean.isEmpty
+                ? request.source!.location
+                : '$rootClean${Platform.pathSeparator}$relClean';
+            if (!File(localPath).existsSync()) {
+              effectiveMsg =
+                  '本地视频文件不存在或路径已变更（${request.variant.relativePath}），请检查磁盘挂载或重新扫描媒体源';
+            }
+          }
           state = state.copyWith(
             isInitializing: false,
             isBuffering: false,
-            errorMessage: msg,
+            errorMessage: effectiveMsg,
           );
         }
       };
@@ -712,7 +738,8 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
         return;
       }
       final variant = state.currentVariant;
-      final source = activeBundle.sourcesById[variant.sourceId] ?? request.source;
+      final source =
+          activeBundle.sourcesById[variant.sourceId] ?? request.source;
       var svc = _thumbnailService;
       if (svc == null) {
         svc = MpvThumbnailService(
@@ -728,7 +755,9 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
           variant: variant,
           source: source,
           chapters: state.chapters,
-          durationSeconds: state.durationSeconds > 0 ? state.durationSeconds : null,
+          durationSeconds: state.durationSeconds > 0
+              ? state.durationSeconds
+              : null,
         ),
       );
     });
@@ -794,11 +823,14 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     if (prefs.promptChapterSkip && state.activeSkipWindow != active) {
       state = state.copyWith(activeSkipWindow: active);
       _skipFadeTimer?.cancel();
-      _skipFadeTimer = Timer(PlaybackQualityConfig.skipPillAutoFadeDuration, () {
-        if (!mounted) return;
-        _dismissedSkipWindow = active;
-        state = state.copyWith(clearSkipWindow: true);
-      });
+      _skipFadeTimer = Timer(
+        PlaybackQualityConfig.skipPillAutoFadeDuration,
+        () {
+          if (!mounted) return;
+          _dismissedSkipWindow = active;
+          state = state.copyWith(clearSkipWindow: true);
+        },
+      );
     }
   }
 
@@ -1027,9 +1059,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       for (final ch in chapters) {
         if (ch.startSeconds > pos + 1.0) {
           seekAbsolute(ch.startSeconds);
-          showTransientBanner(
-            ch.title.isNotEmpty ? '章节：${ch.title}' : '下一章节',
-          );
+          showTransientBanner(ch.title.isNotEmpty ? '章节：${ch.title}' : '下一章节');
           return;
         }
       }
@@ -1134,13 +1164,17 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   }
 
   void setSubtitleDelay(double delaySeconds) {
-    final clamped = double.parse(delaySeconds.clamp(-60.0, 60.0).toStringAsFixed(2));
+    final clamped = double.parse(
+      delaySeconds.clamp(-60.0, 60.0).toStringAsFixed(2),
+    );
     _session?.setSubtitleDelay(clamped);
     state = state.copyWith(subtitleDelaySeconds: clamped);
   }
 
   void setAudioDelay(double delaySeconds) {
-    final clamped = double.parse(delaySeconds.clamp(-60.0, 60.0).toStringAsFixed(2));
+    final clamped = double.parse(
+      delaySeconds.clamp(-60.0, 60.0).toStringAsFixed(2),
+    );
     _session?.setAudioDelay(clamped);
     state = state.copyWith(audioDelaySeconds: clamped);
   }

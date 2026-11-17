@@ -14,6 +14,7 @@ import '../sources/local_source_gateway.dart';
 import '../sources/source_access_error.dart';
 import '../sources/source_gateway_factory.dart';
 import '../stream_bridge/local_stream_bridge.dart';
+import 'foobar_beefweb_tracker.dart';
 import 'mpv_ipc_tracker.dart';
 import 'potplayer_win32_tracker.dart';
 
@@ -21,7 +22,7 @@ import 'potplayer_win32_tracker.dart';
 typedef ProcessStarter =
     Future<Process> Function(String executable, List<String> arguments);
 
-/// 基于本地 HTTP 流网桥 + MPV IPC / PotPlayer Win32 控制消息的真实外部播放器启动器。
+/// 基于本地 HTTP 流网桥 + MPV IPC / PotPlayer Win32 / Foobar Beefweb 的真实外部程序启动器。
 class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
   /// 创建真实播放器启动器。
   RealExternalPlayerLauncher({
@@ -63,16 +64,36 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
   }) async {
     final effectivePlayer = await _resolvePlayerConfig(player);
     if (effectivePlayer == null) {
+      if (player?.kind == ExternalPlayerKind.imageViewer) {
+        return LaunchPlaybackResult(
+          launched: false,
+          message: '外部图片查看器路径不存在：${player!.executablePath}',
+        );
+      }
+      if (player?.kind == ExternalPlayerKind.audioPlayer) {
+        return LaunchPlaybackResult(
+          launched: false,
+          message: '外部音频播放器路径不存在：${player!.executablePath}',
+        );
+      }
       return const LaunchPlaybackResult(
         launched: false,
-        message: '未检测到可用的外部播放器，请在「设置 -> 外部播放器」中配置 MPV 或 PotPlayer 路径',
+        message: '未检测到可用的外部播放器，请在「设置 -> 外部播放器」中配置路径',
       );
     }
 
     if (source == null) {
       return const LaunchPlaybackResult(
         launched: false,
-        message: '未找到该视频所属媒体源配置，无法启动播放',
+        message: '未找到所属媒体源配置，无法启动外部程序',
+      );
+    }
+
+    if (effectivePlayer.kind == ExternalPlayerKind.imageViewer) {
+      return _launchLocalImageViewer(
+        viewer: effectivePlayer,
+        variant: variant,
+        source: source,
       );
     }
 
@@ -83,14 +104,14 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
     try {
       if (source.kind == MediaSourceKind.local) {
         final localGw = LocalSourceGateway(rootPath: source.location);
-        final absVideoPath = localGw.resolveAbsolutePath(variant.relativePath);
-        if (!await File(absVideoPath).exists()) {
+        final absMediaPath = localGw.resolveAbsolutePath(variant.relativePath);
+        if (!await File(absMediaPath).exists()) {
           return LaunchPlaybackResult(
             launched: false,
-            message: '本地视频文件不存在或移动：$absVideoPath',
+            message: '本地媒体文件不存在或已移动：$absMediaPath',
           );
         }
-        targetUrlOrPath = absVideoPath;
+        targetUrlOrPath = absMediaPath;
         localSubtitlePaths = await _resolveLocalSubtitles(
           localGw,
           variant.externalSubtitles,
@@ -134,7 +155,8 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
       return LaunchPlaybackResult(launched: false, message: msg);
     }
 
-    final pipePath = effectivePlayer.kind == ExternalPlayerKind.mpv
+    final protocolKind = _detectProtocolKind(effectivePlayer);
+    final pipePath = protocolKind == ExternalPlayerKind.mpv
         ? MpvIpcTracker.createPipePath(
             '${variant.id}_${DateTime.now().microsecondsSinceEpoch}',
           )
@@ -149,6 +171,7 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
 
     final arguments = _buildArguments(
       player: effectivePlayer,
+      protocolKind: protocolKind,
       targetUrlOrPath: targetUrlOrPath,
       displayTitle: displayTitle,
       pipePath: pipePath,
@@ -168,7 +191,7 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
       }
       return LaunchPlaybackResult(
         launched: false,
-        message: '无法启动播放器 ${effectivePlayer.name}：$error',
+        message: '无法启动播放器 ${_displayName(effectivePlayer)}：$error',
       );
     }
 
@@ -179,7 +202,9 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
 
     _attachProgressTracker(
       player: effectivePlayer,
+      protocolKind: protocolKind,
       process: process,
+      targetUrlOrPath: targetUrlOrPath,
       pipePath: pipePath,
       startSeconds: startSeconds,
       onProgressUpdate: onProgressUpdate,
@@ -194,19 +219,91 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
         : '';
     return LaunchPlaybackResult(
       launched: true,
-      message: '已启动 ${effectivePlayer.name}$resumeHint$subHint',
+      message: '已启动 ${_displayName(effectivePlayer)}$resumeHint$subHint',
     );
+  }
+
+  Future<LaunchPlaybackResult> _launchLocalImageViewer({
+    required ExternalPlayerConfig viewer,
+    required MediaVariant variant,
+    required MediaSource source,
+  }) async {
+    if (source.kind != MediaSourceKind.local) {
+      return const LaunchPlaybackResult(launched: false, message: '');
+    }
+    final localGw = LocalSourceGateway(rootPath: source.location);
+    final absImagePath = localGw.resolveAbsolutePath(variant.relativePath);
+    if (!await File(absImagePath).exists()) {
+      return LaunchPlaybackResult(
+        launched: false,
+        message: '本地扫图文件不存在或已移动：$absImagePath',
+      );
+    }
+    final args = sanitizeAndOrderPlayerArguments(
+      leadingOptions: const [],
+      argumentsTemplate: viewer.argumentsTemplate,
+      targetUrlOrPath: absImagePath,
+    );
+    try {
+      final process = await _processStarter(viewer.executablePath, args);
+      unawaited(process.stdout.drain<void>().catchError((_) {}));
+      unawaited(process.stderr.drain<void>().catchError((_) {}));
+      return LaunchPlaybackResult(
+        launched: true,
+        message: '已启动 ${_displayName(viewer)}',
+      );
+    } catch (error) {
+      return LaunchPlaybackResult(
+        launched: false,
+        message: '无法启动图片查看器 ${_displayName(viewer)}：$error',
+      );
+    }
+  }
+
+  String _displayName(ExternalPlayerConfig player) {
+    final trimmed = player.name.trim();
+    if (trimmed.isNotEmpty) return trimmed;
+    if (player.kind == ExternalPlayerKind.audioPlayer) return 'foobar2000';
+    if (player.kind == ExternalPlayerKind.imageViewer) return 'Honeyview';
+    if (player.kind == ExternalPlayerKind.mpv) return 'MPV';
+    if (player.kind == ExternalPlayerKind.potplayer) return 'PotPlayer';
+    return '外部程序';
+  }
+
+  ExternalPlayerKind _detectProtocolKind(ExternalPlayerConfig player) {
+    if (player.kind == ExternalPlayerKind.mpv ||
+        player.kind == ExternalPlayerKind.potplayer ||
+        player.kind == ExternalPlayerKind.imageViewer) {
+      return player.kind;
+    }
+    final normalized = player.executablePath
+        .replaceAll('/', '\\')
+        .toLowerCase();
+    final idx = normalized.lastIndexOf('\\');
+    final exe = idx >= 0 ? normalized.substring(idx + 1) : normalized;
+    if (exe == 'mpv.exe' || exe == 'mpvnet.exe' || exe == 'mpv') {
+      return ExternalPlayerKind.mpv;
+    }
+    if (exe.contains('potplayer')) {
+      return ExternalPlayerKind.potplayer;
+    }
+    if (player.kind == ExternalPlayerKind.audioPlayer ||
+        exe.contains('foobar')) {
+      return ExternalPlayerKind.audioPlayer;
+    }
+    return player.kind;
   }
 
   List<String> _buildArguments({
     required ExternalPlayerConfig player,
+    required ExternalPlayerKind protocolKind,
     required String targetUrlOrPath,
     required String displayTitle,
     required String pipePath,
     required int startSeconds,
     required List<String> subtitlePaths,
   }) {
-    if (player.kind == ExternalPlayerKind.mpv) {
+    if (protocolKind == ExternalPlayerKind.mpv) {
       return MpvIpcTracker.buildLaunchArguments(
         targetUrlOrPath: targetUrlOrPath,
         pipePath: pipePath,
@@ -216,7 +313,7 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
         argumentsTemplate: player.argumentsTemplate,
       );
     }
-    if (player.kind == ExternalPlayerKind.potplayer) {
+    if (protocolKind == ExternalPlayerKind.potplayer) {
       return PotPlayerWin32Tracker.buildLaunchArguments(
         targetUrlOrPath: targetUrlOrPath,
         startSeconds: startSeconds,
@@ -233,25 +330,24 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
 
   void _attachProgressTracker({
     required ExternalPlayerConfig player,
+    required ExternalPlayerKind protocolKind,
     required Process process,
+    required String targetUrlOrPath,
     required String pipePath,
     required int startSeconds,
     required PlaybackProgressCallback? onProgressUpdate,
     required String? sessionToken,
   }) {
-    Future<void> persist(
-      int pos,
-      int dur, {
-      required bool isFinal,
-    }) async {
+    Future<void> persist(int pos, int dur, {required bool isFinal}) async {
       if (onProgressUpdate != null) {
         await onProgressUpdate(pos, dur, isFinal: isFinal);
       }
     }
 
     unawaited(() async {
+      var unregisterImmediately = true;
       try {
-        if (player.kind == ExternalPlayerKind.mpv) {
+        if (protocolKind == ExternalPlayerKind.mpv) {
           await MpvIpcTracker.trackProcess(
             pipePath: pipePath,
             exitCodeFuture: process.exitCode,
@@ -259,7 +355,7 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
             startSeconds: startSeconds,
             pipeClient: mpvPipeClient,
           );
-        } else if (player.kind == ExternalPlayerKind.potplayer) {
+        } else if (protocolKind == ExternalPlayerKind.potplayer) {
           await PotPlayerWin32Tracker.trackProcess(
             processId: process.pid,
             exitCodeFuture: process.exitCode,
@@ -267,11 +363,19 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
             startSeconds: startSeconds,
             probe: potProbe,
           );
+        } else if (protocolKind == ExternalPlayerKind.audioPlayer) {
+          unregisterImmediately = await FoobarBeefwebTracker.trackProcess(
+            targetUrlOrPath: targetUrlOrPath,
+            exitCodeFuture: process.exitCode,
+            onPersist: persist,
+            startSeconds: startSeconds,
+            keepRemoteSessionAlive: sessionToken != null,
+          );
         } else {
           await process.exitCode;
         }
       } finally {
-        if (sessionToken != null) {
+        if (sessionToken != null && unregisterImmediately) {
           await streamBridge.unregisterSession(sessionToken);
         }
       }
@@ -302,6 +406,10 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
           !hasSeparator ||
           await File(candidate).exists()) {
         return provided;
+      }
+      if (provided.kind == ExternalPlayerKind.audioPlayer ||
+          provided.kind == ExternalPlayerKind.imageViewer) {
+        return null;
       }
     }
     const presets = <({ExternalPlayerKind kind, String name, String path})>[

@@ -281,17 +281,52 @@ class PlaybackCoordinator {
     _ref.invalidate(playbackHistoryProvider);
   }
 
-  /// 调用外部播放器播放附属 CD 无损/音频音轨（不污染正片续播历史）。
+  /// 调用外部播放器播放附属 CD 无损/音频音轨，并同步写入 `cd::` 独立音频记录（不污染正片续播历史）。
   Future<LaunchPlaybackResult> playCdVariant({
     required Work work,
     required MediaVariant variant,
     MediaSource? source,
     ExternalPlayerConfig? player,
+    int startSeconds = 0,
   }) async {
     final repo = _ref.read(libraryRepositoryProvider);
-    final effectivePlayer =
-        player ??
-        await _pickDefaultVideoPlayer(await repo.getExternalPlayers());
+    final allPlayers = await repo.getExternalPlayers();
+    final effectivePlayer = player ?? await _pickDefaultAudioPlayer(allPlayers);
+
+    final existingRecords = await repo.getPlaybacksByWork(work.id);
+    final defaultEpisodeId =
+        '${PlaybackRecord.audioEpisodePrefix}${variant.id}';
+    PlaybackRecord? prevRecord;
+    for (final item in existingRecords) {
+      final isAudioRec =
+          item.episodeId.startsWith(PlaybackRecord.audioEpisodePrefix) ||
+          item.id.startsWith(PlaybackRecord.audioEpisodePrefix);
+      if (isAudioRec &&
+          (item.episodeId == defaultEpisodeId ||
+              item.variantId == variant.id)) {
+        prevRecord = item;
+        break;
+      }
+    }
+
+    final effectiveStart = startSeconds > 0
+        ? startSeconds
+        : ((prevRecord != null &&
+                  !prevRecord.isCompleted &&
+                  prevRecord.positionSeconds > 5)
+              ? prevRecord.positionSeconds
+              : 0);
+    final initialPosition = effectiveStart > 0
+        ? effectiveStart
+        : (prevRecord?.positionSeconds ?? 0);
+    final initialDuration = prevRecord?.durationSeconds ?? 0;
+    final initialCompleted = prevRecord?.isCompleted ?? false;
+    final recordId = prevRecord?.id ?? defaultEpisodeId;
+    final episodeId = prevRecord?.episodeId ?? defaultEpisodeId;
+    final trackTitle = prevRecord?.episodeTitle.isNotEmpty == true
+        ? prevRecord!.episodeTitle
+        : variant.fileName;
+
     MediaSource? resolvedSource = source;
     if (resolvedSource == null) {
       final allSources = await repo.getMediaSources();
@@ -302,22 +337,133 @@ class PlaybackCoordinator {
         }
       }
     }
+    final sourceType = resolvedSource?.kind ?? MediaSourceKind.local;
+
     final tempEpisode = Episode(
-      id: 'cd::${variant.id}',
+      id: episodeId,
       workId: work.id,
       seasonNumber: 0,
+      episodeNumber: prevRecord?.episodeNumber,
       category: EpisodeCategory.extra,
-      title: variant.fileName,
+      title: trackTitle,
     );
     final launcher = _ref.read(externalPlayerLauncherProvider);
-    return launcher.launch(
+    final launchRes = await launcher.launch(
       work: work,
       episode: tempEpisode,
       variant: variant,
       player: effectivePlayer,
       source: resolvedSource,
-      startSeconds: 0,
+      startSeconds: effectiveStart,
+      onProgressUpdate:
+          (posSeconds, durSeconds, {required bool isFinal}) async {
+            final completed = PlaybackRecord.computeCompleted(
+              positionSeconds: posSeconds,
+              durationSeconds: durSeconds,
+            );
+            await repo.recordPlayback(
+              PlaybackRecord(
+                id: recordId,
+                workId: work.id,
+                episodeId: episodeId,
+                variantId: variant.id,
+                seasonNumber: 0,
+                episodeNumber: prevRecord?.episodeNumber,
+                episodeTitle: trackTitle,
+                sourceType: sourceType,
+                playedAt: DateTime.now(),
+                positionSeconds: posSeconds,
+                durationSeconds: durSeconds,
+                isCompleted: completed,
+              ),
+            );
+            _invalidateWorkAndHistory(work.id);
+          },
     );
+
+    if (launchRes.launched) {
+      await repo.recordPlayback(
+        PlaybackRecord(
+          id: recordId,
+          workId: work.id,
+          episodeId: episodeId,
+          variantId: variant.id,
+          seasonNumber: 0,
+          episodeNumber: prevRecord?.episodeNumber,
+          episodeTitle: trackTitle,
+          sourceType: sourceType,
+          playedAt: DateTime.now(),
+          positionSeconds: initialPosition,
+          durationSeconds: initialDuration,
+          isCompleted: initialCompleted,
+        ),
+      );
+      _invalidateWorkAndHistory(work.id);
+    }
+    return launchRes;
+  }
+
+  /// 若已配置外部看图程序且扫图位于本地磁盘则拉起外部程序，否则返回 `null` 回退内置预览。
+  Future<LaunchPlaybackResult?> openExternalScan({
+    required Work work,
+    required MediaVariant variant,
+    MediaSource? source,
+  }) async {
+    final repo = _ref.read(libraryRepositoryProvider);
+    final players = await repo.getExternalPlayers();
+    ExternalPlayerConfig? viewer;
+    for (final p in players) {
+      if (p.kind == ExternalPlayerKind.imageViewer &&
+          p.executablePath.trim().isNotEmpty) {
+        viewer = p;
+        break;
+      }
+    }
+    if (viewer == null) return null;
+
+    MediaSource? resolvedSource = source;
+    if (resolvedSource == null) {
+      final allSources = await repo.getMediaSources();
+      for (final s in allSources) {
+        if (s.id == variant.sourceId) {
+          resolvedSource = s;
+          break;
+        }
+      }
+    }
+    if (resolvedSource == null ||
+        resolvedSource.kind != MediaSourceKind.local) {
+      return null;
+    }
+
+    final tempEpisode = Episode(
+      id: 'scan::${variant.id}',
+      workId: work.id,
+      seasonNumber: 0,
+      category: EpisodeCategory.extra,
+      title: variant.fileName,
+    );
+    return _ref
+        .read(externalPlayerLauncherProvider)
+        .launch(
+          work: work,
+          episode: tempEpisode,
+          variant: variant,
+          player: viewer,
+          source: resolvedSource,
+        );
+  }
+
+  Future<ExternalPlayerConfig?> _pickDefaultAudioPlayer(
+    List<ExternalPlayerConfig> players,
+  ) async {
+    for (final p in players) {
+      if (p.kind == ExternalPlayerKind.audioPlayer &&
+          p.executablePath.trim().isNotEmpty) {
+        return p;
+      }
+    }
+    return _pickDefaultVideoPlayer(players);
   }
 
   Future<ExternalPlayerConfig?> _pickDefaultVideoPlayer(

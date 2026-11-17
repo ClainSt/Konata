@@ -18,6 +18,15 @@ abstract final class WebDavGatewayConfig {
   /// 默认单次 HTTP 请求超时。
   static const Duration defaultRequestTimeout = Duration(seconds: 15);
 
+  /// TCP 建连超时上限（快速失败防死连接挂起）。
+  static const Duration defaultConnectTimeout = Duration(seconds: 6);
+
+  /// `HEAD` 探测文件长度超时上限（超时立即降级 `Range: bytes=0-0`）。
+  static const Duration defaultHeadProbeTimeout = Duration(seconds: 5);
+
+  /// 远程流式读取首包响应头超时上限（兼容 AList / OpenList / CD2 云盘冷直链唤醒）。
+  static const Duration defaultStreamOpenTimeout = Duration(seconds: 25);
+
   /// 持久连接空闲保活时长。
   static const Duration idleKeepAliveTimeout = Duration(seconds: 60);
 
@@ -26,6 +35,68 @@ abstract final class WebDavGatewayConfig {
 
   /// 允许跟踪的最大 30x 重定向跳数（防重定向循环）。
   static const int maxRedirects = 5;
+
+  /// 通用流媒体客户端标识（兼容各大网盘 302 CDN 与 WAF 放行策略）。
+  static const String defaultUserAgent = 'VLC/3.0.20 LibVLC/3.0.20';
+
+  /// 判断目标主机是否属于回环、RFC1918 局域网或 Tailscale/CGNAT 内网段（强制 DIRECT 直连绕过代理）。
+  static bool isDirectBypassHost(String rawHost) {
+    var host = rawHost.trim().toLowerCase();
+    if (host.startsWith('[') && host.endsWith(']') && host.length > 2) {
+      host = host.substring(1, host.length - 1);
+    }
+    if (host.isEmpty ||
+        host == 'localhost' ||
+        host == '::1' ||
+        host == '0:0:0:0:0:0:0:1' ||
+        host.endsWith('.local') ||
+        host.endsWith('.lan') ||
+        host.endsWith('.internal')) {
+      return true;
+    }
+    if (host.startsWith('fe80:') ||
+        host.startsWith('fc') ||
+        host.startsWith('fd')) {
+      return true;
+    }
+    final parts = host.split('.');
+    if (parts.length == 4) {
+      final o0 = int.tryParse(parts[0]);
+      final o1 = int.tryParse(parts[1]);
+      final o2 = int.tryParse(parts[2]);
+      final o3 = int.tryParse(parts[3]);
+      if (o0 != null && o1 != null && o2 != null && o3 != null) {
+        if (o0 == 127 || o0 == 10) return true;
+        if (o0 == 192 && o1 == 168) return true;
+        if (o0 == 169 && o1 == 254) return true;
+        if (o0 == 172 && o1 >= 16 && o1 <= 31) return true;
+        if (o0 == 100 && o1 >= 64 && o1 <= 127) return true;
+      }
+    }
+    return false;
+  }
+
+  /// 智能代理路由：内网与回环强制直连，公网地址尊重系统环境代理配置。
+  static String resolveSmartProxy(Uri uri) {
+    if (isDirectBypassHost(uri.host)) {
+      return 'DIRECT';
+    }
+    try {
+      return HttpClient.findProxyFromEnvironment(uri);
+    } catch (_) {
+      return 'DIRECT';
+    }
+  }
+
+  /// 创建统一调优的底层 [HttpClient]。
+  static HttpClient createConfiguredIoClient() {
+    return HttpClient()
+      ..connectionTimeout = defaultConnectTimeout
+      ..maxConnectionsPerHost = maxConnectionsPerHost
+      ..idleTimeout = idleKeepAliveTimeout
+      ..userAgent = defaultUserAgent
+      ..findProxy = resolveSmartProxy;
+  }
 }
 
 class _WebDavPoolSlot {
@@ -89,9 +160,7 @@ class WebDavConnectionPool {
       if (clientBuilder != null) {
         return _WebDavPoolSlot(client: clientBuilder!());
       }
-      final io = HttpClient()
-        ..maxConnectionsPerHost = WebDavGatewayConfig.maxConnectionsPerHost
-        ..idleTimeout = WebDavGatewayConfig.idleKeepAliveTimeout;
+      final io = WebDavGatewayConfig.createConfiguredIoClient();
       return _WebDavPoolSlot(ioClient: io, client: IOClient(io));
     });
   }
@@ -181,10 +250,7 @@ class WebDavSourceGateway
        _ownsClient = httpClient == null && connectionPool == null;
 
   static http.Client _createDefaultHttpClient() {
-    final io = HttpClient()
-      ..maxConnectionsPerHost = WebDavGatewayConfig.maxConnectionsPerHost
-      ..idleTimeout = WebDavGatewayConfig.idleKeepAliveTimeout;
-    return IOClient(io);
+    return IOClient(WebDavGatewayConfig.createConfiguredIoClient());
   }
 
   final Uri _rootUri;
@@ -260,6 +326,7 @@ class WebDavSourceGateway
     return headers;
   }
 
+  /// 对路径逐段执行严格单次 UTF-8 百分号编码（确保 `+`->`%2B`、`&`->`%26`、`{}`/`[]`/空格精确编码且不二次编码 `%`）。
   Uri _resolveUri(String relativePath, {required bool asDirectory}) {
     final segments = relativePath
         .replaceAll('\\', '/')
@@ -271,8 +338,12 @@ class WebDavSourceGateway
     }
     final baseSegments = _rootUri.pathSegments.where((s) => s.isNotEmpty);
     final all = [...baseSegments, ...segments];
-    final joined = '/${all.join('/')}${asDirectory ? '/' : ''}';
-    return _rootUri.replace(path: joined);
+    final encodedSegments = all.map(Uri.encodeComponent).join('/');
+    final encodedPath = all.isEmpty
+        ? '/'
+        : '/$encodedSegments${asDirectory ? '/' : ''}';
+    final authority = _rootUri.hasAuthority ? '//${_rootUri.authority}' : '';
+    return Uri.parse('${_rootUri.scheme}:$authority$encodedPath');
   }
 
   static bool _isSameOrigin(Uri a, Uri b) {
@@ -296,23 +367,45 @@ class WebDavSourceGateway
     Map<String, String>? extraHeaders,
     String? body,
     required http.Client activeClient,
+    Duration? timeoutOverride,
   }) async {
+    final effectiveTimeout = timeoutOverride ?? requestTimeout;
     http.Request build(Map<String, String> headers) {
       final req = http.Request(method, uri)
         ..followRedirects = false
         ..headers.addAll(headers);
+      req.headers.putIfAbsent(
+        HttpHeaders.userAgentHeader,
+        () => WebDavGatewayConfig.defaultUserAgent,
+      );
       if (body != null) {
         req.body = body;
       }
       return req;
     }
 
+    Future<http.StreamedResponse> sendWithStaleRetry(
+      Map<String, String> headers,
+    ) async {
+      try {
+        return await activeClient
+            .send(build(headers))
+            .timeout(effectiveTimeout);
+      } catch (error) {
+        // 当池化 Keep-Alive 连接被服务端半关闭时，立即换新连接无感重试一次。
+        final isStaleSocket =
+            error is SocketException ||
+            error is HttpException ||
+            error is http.ClientException;
+        if (!isStaleSocket) rethrow;
+        return activeClient.send(build(headers)).timeout(effectiveTimeout);
+      }
+    }
+
     final initialHeaders = includeCredentials
         ? _buildAuthHeaders(method: method, uri: uri, extra: extraHeaders)
         : <String, String>{...?extraHeaders};
-    var streamed = await activeClient
-        .send(build(initialHeaders))
-        .timeout(requestTimeout);
+    var streamed = await sendWithStaleRetry(initialHeaders);
 
     if (includeCredentials &&
         streamed.statusCode == 401 &&
@@ -337,9 +430,7 @@ class WebDavSourceGateway
           extra: extraHeaders,
           overrideChallenge: wwwAuth,
         );
-        streamed = await activeClient
-            .send(build(retryHeaders))
-            .timeout(requestTimeout);
+        streamed = await sendWithStaleRetry(retryHeaders);
       }
     }
     return streamed;
@@ -352,6 +443,7 @@ class WebDavSourceGateway
     Map<String, String>? extraHeaders,
     String? body,
     http.Client? client,
+    Duration? timeoutOverride,
   }) async {
     final activeClient = client ?? _client;
     var currentUri = uri;
@@ -366,6 +458,7 @@ class WebDavSourceGateway
         extraHeaders: extraHeaders,
         body: body ?? (hop == 0 ? buildRequest(const {}).body : null),
         activeClient: activeClient,
+        timeoutOverride: timeoutOverride,
       );
 
       if (!_isRedirectStatus(streamed.statusCode)) {
@@ -432,7 +525,9 @@ class WebDavSourceGateway
   ) {
     final doc = XmlDocument.parse(xmlText);
     final decodedRoot = Uri.decodeFull(_rootUri.path);
-    final rootPrefix = decodedRoot.endsWith('/') ? decodedRoot : '$decodedRoot/';
+    final rootPrefix = decodedRoot.endsWith('/')
+        ? decodedRoot
+        : '$decodedRoot/';
     final requestPath = _normalizeComparePath(Uri.decodeFull(requestUri.path));
     final normalizedSelfRel = requestRelativePath
         .trim()
@@ -544,17 +639,26 @@ class WebDavSourceGateway
   @override
   Future<int?> probeFileLength(String relativePath) async {
     final uri = _resolveUri(relativePath, asDirectory: false);
-    final streamed = await _sendWithDigestRetry(
-      (headers) => http.Request('HEAD', uri)..headers.addAll(headers),
-      method: 'HEAD',
-      uri: uri,
-    );
-    await streamed.stream.drain<void>();
-    if (streamed.statusCode == 404) return null;
-    if (streamed.statusCode >= 200 && streamed.statusCode < 300) {
-      final lenStr = streamed.headers[HttpHeaders.contentLengthHeader];
-      final parsed = lenStr != null ? int.tryParse(lenStr) : null;
-      if (parsed != null && parsed > 0) return parsed;
+    final headTimeout =
+        requestTimeout < WebDavGatewayConfig.defaultHeadProbeTimeout
+        ? requestTimeout
+        : WebDavGatewayConfig.defaultHeadProbeTimeout;
+    try {
+      final streamed = await _sendWithDigestRetry(
+        (headers) => http.Request('HEAD', uri)..headers.addAll(headers),
+        method: 'HEAD',
+        uri: uri,
+        timeoutOverride: headTimeout,
+      );
+      await streamed.stream.drain<void>();
+      if (streamed.statusCode == 404) return null;
+      if (streamed.statusCode >= 200 && streamed.statusCode < 300) {
+        final lenStr = streamed.headers[HttpHeaders.contentLengthHeader];
+        final parsed = lenStr != null ? int.tryParse(lenStr) : null;
+        if (parsed != null && parsed > 0) return parsed;
+      }
+    } catch (_) {
+      // 兼容禁用 HEAD、对 HEAD 超时或主动断连的 WebDAV 驱动，立即回退 bytes=0-0。
     }
 
     // 兼容部分禁用 HEAD 或未返回 Content-Length 的 WebDAV 服务：回退至 bytes=0-0 探测 Content-Range 总长度。
@@ -589,6 +693,10 @@ class WebDavSourceGateway
     final rangeHeader = endInclusive != null
         ? 'bytes=$start-$endInclusive'
         : 'bytes=$start-';
+    final streamTimeout =
+        requestTimeout == WebDavGatewayConfig.defaultRequestTimeout
+        ? WebDavGatewayConfig.defaultStreamOpenTimeout
+        : requestTimeout;
 
     // 复用持久 Keep-Alive HTTP 连接池与 Digest 质询认证缓存，消除分段 Seek / 读取的 TLS 与 401 冷启动开销。
     final http.StreamedResponse streamed = await _sendWithDigestRetry(
@@ -597,6 +705,7 @@ class WebDavSourceGateway
       uri: uri,
       extraHeaders: {'Range': rangeHeader},
       client: _client,
+      timeoutOverride: streamTimeout,
     );
 
     if (streamed.statusCode < 200 || streamed.statusCode >= 300) {

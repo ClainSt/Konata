@@ -251,7 +251,8 @@ void main() {
           createdClients += 1;
           return _CountingMockClient(
             onRequest: (request) async {
-              final auth = request.headers[HttpHeaders.authorizationHeader] ?? '';
+              final auth =
+                  request.headers[HttpHeaders.authorizationHeader] ?? '';
               if (auth.startsWith('Digest ')) {
                 digestRequests += 1;
                 return http.Response(propfindXml, 207);
@@ -326,6 +327,57 @@ void main() {
       pool.dispose();
       expect(closedClients, equals(1));
     });
+
+    test(
+      'WebDavSourceGateway 精确编码路径中的 +/&/{}/[] 且内网/Tailscale 强制 DIRECT 绕过代理',
+      () async {
+        Uri? capturedUri;
+        final mockClient = MockClient((request) async {
+          capturedUri = request.url;
+          return http.Response.bytes(
+            const [0x66, 0x4C, 0x61, 0x43],
+            206,
+            headers: const {'content-range': 'bytes 0-3/4'},
+          );
+        });
+        final gw = WebDavSourceGateway(
+          rootUri: Uri.parse('http://192.168.1.247:29798/dav'),
+          httpClient: mockClient,
+        );
+        final stream = await gw.openByteRange(
+          '未添加TMDB ID/加速世界 TV+Movie/[SweetSub&VCB] {tmdb-217512}/ドラマ + CD-1.flac',
+          start: 0,
+          endInclusive: 3,
+        );
+        final bytes = await stream.expand((c) => c).toList();
+        expect(bytes, equals(const [0x66, 0x4C, 0x61, 0x43]));
+        expect(capturedUri, isNotNull);
+        final rawUrl = capturedUri.toString();
+        expect(rawUrl, contains('TV%2BMovie'));
+        expect(rawUrl, contains('SweetSub%26VCB'));
+        expect(rawUrl, contains('%20%2B%20CD-1.flac'));
+        expect(rawUrl, isNot(contains('%25')));
+
+        expect(
+          WebDavGatewayConfig.resolveSmartProxy(
+            Uri.parse('http://192.168.1.247:29798/dav'),
+          ),
+          equals('DIRECT'),
+        );
+        expect(
+          WebDavGatewayConfig.resolveSmartProxy(
+            Uri.parse('http://100.88.12.34:5244/dav'),
+          ),
+          equals('DIRECT'),
+        );
+        expect(
+          WebDavGatewayConfig.resolveSmartProxy(
+            Uri.parse('http://127.0.0.1:61325/stream/abc/01.flac'),
+          ),
+          equals('DIRECT'),
+        );
+      },
+    );
   });
 }
 

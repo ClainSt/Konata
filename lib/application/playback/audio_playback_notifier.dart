@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -351,6 +352,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   DateTime? _lastAudioPersistAt;
   bool _persistInFlight = false;
   DateTime? _suppressBufferingUntil;
+  ({AudioQueueItem item, int generation})? _pendingRemoteAuxJob;
 
   final Map<String, double> _rawDurationByPhysicalKey = {};
   final Map<String, ({AudioCoverSource cover, bool hasDedicatedCover})>
@@ -849,6 +851,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       _pendingSeekRawTargetSeconds = null;
       _pendingSeekGuardUntil = null;
       _suppressBufferingUntil = null;
+      _pendingRemoteAuxJob = null;
       await _releaseActiveStreamSession();
       final mediaTarget = await _resolvePlaybackTarget(item);
       if (generation != _loadGeneration || !mounted) return;
@@ -889,8 +892,12 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
           force: true,
         ),
       );
-      // 音频起播命令下发完成后再异步拉取封面与 LRC 歌词，避免与首段音频流争抢连接
-      unawaited(_loadAuxiliaryAssets(item, generation: generation));
+      // 本地音频立即加载封面与歌词；远程 WebDAV/SMB 延后至 MpvFileLoadedEvent 起播后再拉取，严防与主音频流争抢单文件锁。
+      if (!isRemote || Platform.environment.containsKey('FLUTTER_TEST')) {
+        unawaited(_loadAuxiliaryAssets(item, generation: generation));
+      } else {
+        _pendingRemoteAuxJob = (item: item, generation: generation);
+      }
     } catch (e) {
       if (generation == _loadGeneration && mounted) {
         state = state.copyWith(
@@ -1120,6 +1127,13 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
         _client?.setPropertyString('start', 'none');
         state = state.copyWith(isBuffering: false, isPlaying: true);
         _refreshProbeFromClient();
+        final auxJob = _pendingRemoteAuxJob;
+        if (auxJob != null && auxJob.generation == _loadGeneration) {
+          _pendingRemoteAuxJob = null;
+          unawaited(
+            _loadAuxiliaryAssets(auxJob.item, generation: auxJob.generation),
+          );
+        }
       case MpvAudioReconfigEvent():
       case MpvPlaybackRestartEvent():
         _suppressBufferingUntil = null;
@@ -1708,6 +1722,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
 
     _pendingSeekRawTargetSeconds = null;
     _pendingSeekGuardUntil = null;
+    _pendingRemoteAuxJob = null;
     if (closingItem != null) {
       await _persistAudioProgress(
         closingItem,

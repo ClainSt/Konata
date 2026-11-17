@@ -197,6 +197,9 @@ class PlaybackDispatcher {
       }
     }
 
+    // 拉起外部音频播放器前互斥暂停内置迷你音频播放器
+    await _ref.read(audioPlaybackProvider.notifier).pauseForVideoSession();
+
     return _ref
         .read(playbackCoordinatorProvider)
         .playCdVariant(
@@ -205,6 +208,17 @@ class PlaybackDispatcher {
           source: source,
           player: explicitPlayer,
         );
+  }
+
+  /// 若已配置外部图片查看器且媒体源为本地文件则优先拉起，否则返回 `null` 交由内置预览处理。
+  Future<LaunchPlaybackResult?> tryOpenExternalScan({
+    required Work work,
+    required MediaVariant variant,
+    MediaSource? source,
+  }) {
+    return _ref
+        .read(playbackCoordinatorProvider)
+        .openExternalScan(work: work, variant: variant, source: source);
   }
 }
 

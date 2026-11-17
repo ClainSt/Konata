@@ -135,6 +135,8 @@ class EmbeddedMpvSession {
   String? _cachedFfmpegVersion;
   PlaybackQualityConfig _lastQualityConfig = const PlaybackQualityConfig();
   DateTime? _suppressBufferingUntil;
+  ({EmbeddedVideoLoadRequest request, int generation})?
+  _pendingRemoteSidecarJob;
 
   bool get isDisposed => _disposed;
   bool get isInitialized => _client?.isInitialized ?? false;
@@ -308,6 +310,7 @@ class EmbeddedMpvSession {
     }
 
     final generation = ++_loadGeneration;
+    _pendingRemoteSidecarJob = null;
     _fileLoadedForCurrentGen = false;
     _hasRestartedFirstFrame = false;
     _hwdecFallbackAttempted = false;
@@ -367,9 +370,14 @@ class EmbeddedMpvSession {
 
     if (request.source != null &&
         request.source!.kind != MediaSourceKind.local) {
-      unawaited(
-        _discoverAndAttachRemoteSidecars(request, generation: generation),
-      );
+      if (Platform.environment.containsKey('FLUTTER_TEST')) {
+        unawaited(
+          _discoverAndAttachRemoteSidecars(request, generation: generation),
+        );
+      } else {
+        // 优先让主视频流独占 AList / OpenList / CD2 通道完成首帧建联，待 FileLoaded 后再异步补扫目录与下载外挂字幕。
+        _pendingRemoteSidecarJob = (request: request, generation: generation);
+      }
     }
   }
 
@@ -462,9 +470,13 @@ class EmbeddedMpvSession {
     );
     _activeStreamTokens.add(mainReg.token);
 
+    final cachedSubs = await streamBridge.resolveExistingCachedSubtitles(
+      workId: request.workId,
+      subtitleRelativePaths: variant.externalSubtitles,
+    );
     return (
       mediaTarget: mainReg.url.toString(),
-      subtitlePaths: const <String>[],
+      subtitlePaths: cachedSubs,
       audioTargets: const <String>[],
     );
   }
@@ -609,6 +621,16 @@ class EmbeddedMpvSession {
           }
         }
         _mountSidecarsAndResolveTracks();
+        final sidecarJob = _pendingRemoteSidecarJob;
+        if (sidecarJob != null && sidecarJob.generation == _loadGeneration) {
+          _pendingRemoteSidecarJob = null;
+          unawaited(
+            _discoverAndAttachRemoteSidecars(
+              sidecarJob.request,
+              generation: sidecarJob.generation,
+            ),
+          );
+        }
       case MpvPlaybackRestartEvent():
         _hasRestartedFirstFrame = true;
         _suppressBufferingUntil = null;
@@ -1019,6 +1041,7 @@ class EmbeddedMpvSession {
     if (_disposed) return;
     _disposed = true;
     ++_loadGeneration;
+    _pendingRemoteSidecarJob = null;
 
     await _eventSub?.cancel();
     _eventSub = null;

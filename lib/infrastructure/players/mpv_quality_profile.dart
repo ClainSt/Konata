@@ -71,9 +71,7 @@ class PlaybackQualityConfig {
   static const String defaultSubColorHex = '#FFFFFFFF';
 
   /// 智能章节跳过提示浮窗默认显示时长（4 秒）。
-  static const Duration skipPillAutoFadeDuration = Duration(
-    milliseconds: 4000,
-  );
+  static const Duration skipPillAutoFadeDuration = Duration(milliseconds: 4000);
 
   /// 自动连播下一集顶部轻提示显示时长（3 秒）。
   static const Duration autoNextEpisodeToastDuration = Duration(
@@ -229,13 +227,13 @@ class MpvQualityProfile {
   static const String windowsAudioDriver = 'wasapi';
   static const String androidAudioDriver = 'aaudio,audiotrack,opensles';
 
-  /// WebDAV / HTTP 远程流防风控单连接 Keep-Alive 复用与加速探测参数。
+  /// WebDAV / HTTP 本地流网桥回环重连与大封面/高码率头部加速探测参数。
   static const String remoteStreamLavfOptions =
-      'reconnect=1,reconnect_streamed=1,reconnect_delay_max=2,multiple_requests=1';
-  static const String remoteVideoProbesize = '524288';
-  static const String remoteAudioProbesize = '262144';
+      'reconnect=1,reconnect_streamed=1,reconnect_delay_max=2';
+  static const String remoteVideoProbesize = '2097152';
+  static const String remoteAudioProbesize = '8388608';
   static const String remoteVideoAnalyzeDuration = '1.5';
-  static const String remoteAudioAnalyzeDuration = '0.8';
+  static const String remoteAudioAnalyzeDuration = '2.0';
   static const int remoteVideoDemuxerMaxBytesMiB = 180;
   static const int remoteVideoDemuxerMaxBackBytesMiB = 120;
   static const int remoteAudioDemuxerMaxBytesMiB = 64;
@@ -275,8 +273,7 @@ class MpvQualityProfile {
         cscale: 'spline36',
         dscale: 'mitchell',
       ),
-      VideoQualityPreset.lightweight ||
-      VideoQualityPreset.softwareFallback => (
+      VideoQualityPreset.lightweight || VideoQualityPreset.softwareFallback => (
         scale: 'bilinear',
         cscale: 'bilinear',
         dscale: 'bilinear',
@@ -387,6 +384,7 @@ class MpvQualityProfile {
     setter.setOption(client, 'cache-pause-wait', '0.25');
     setter.setOption(client, 'demuxer-readahead-secs', '20');
     if (isRemoteStream) {
+      setter.setOption(client, 'http-proxy', '');
       setter.setOption(client, 'stream-lavf-o', remoteStreamLavfOptions);
       setter.setOption(client, 'demuxer-lavf-probesize', remoteVideoProbesize);
       setter.setOption(
@@ -403,7 +401,11 @@ class MpvQualityProfile {
       'resampler=soxr,precision=${config.audioResamplerPrecision}',
     );
     setter.setOption(client, 'gapless-audio', 'yes');
-    setter.setOption(client, 'ao', isWindows ? windowsAudioDriver : androidAudioDriver);
+    setter.setOption(
+      client,
+      'ao',
+      isWindows ? windowsAudioDriver : androidAudioDriver,
+    );
     if (config.audioDevice.trim().isNotEmpty && config.audioDevice != 'auto') {
       setter.setOption(client, 'audio-device', config.audioDevice);
     }
@@ -417,11 +419,7 @@ class MpvQualityProfile {
     setter.setOption(client, 'audio-file-auto', 'fuzzy');
     setter.setOption(client, 'sub-font-provider', 'auto');
     setter.setOption(client, 'sub-font-size', '${subParams.fontSize}');
-    setter.setOption(
-      client,
-      'sub-scale',
-      subParams.scale.toStringAsFixed(4),
-    );
+    setter.setOption(client, 'sub-scale', subParams.scale.toStringAsFixed(4));
     setter.setOption(client, 'sub-margin-y', '${subParams.marginY}');
     setter.setOption(client, 'sub-pos', '${subParams.subPos}');
     setter.setOption(client, 'sub-use-margins', 'yes');
@@ -653,6 +651,7 @@ class MpvQualityProfile {
     setter.setOption(client, 'demuxer-max-bytes', '${audioMaxMiB}MiB');
     setter.setOption(client, 'demuxer-max-back-bytes', '${audioBackMiB}MiB');
     if (isRemoteStream) {
+      setter.setOption(client, 'http-proxy', '');
       setter.setOption(client, 'stream-lavf-o', remoteStreamLavfOptions);
       setter.setOption(client, 'demuxer-lavf-probesize', remoteAudioProbesize);
       setter.setOption(
@@ -688,6 +687,7 @@ class MpvQualityProfile {
               config.demuxerMaxBackBytesMiB,
               remoteVideoDemuxerMaxBackBytesMiB,
             );
+      setter.setString(client, 'http-proxy', '');
       setter.setString(client, 'stream-lavf-o', remoteStreamLavfOptions);
       setter.setString(
         client,

@@ -7,38 +7,38 @@
 
 namespace {
 
-/// Window attribute that enables dark mode window decorations.
+/// 启用 Windows 深色模式窗口非客户区装饰的系统属性常量。
 ///
-/// Redefined in case the developer's machine has a Windows SDK older than
-/// version 10.0.22000.0.
-/// See: https://docs.microsoft.com/windows/win32/api/dwmapi/ne-dwmapi-dwmwindowattribute
+/// 为兼容低于 `10.0.22000.0` 的旧版 Windows SDK 在此处手动重定义该枚举值。
+/// 支持老旧构建环境顺利通过编译。
+/// 参考文档：DWM 窗口属性官方定义（dwmapi）。
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
-/// Registry key for app theme preference.
+/// 系统注册表中存储当前用户应用深浅色主题偏好的键路径。
 ///
-/// A value of 0 indicates apps should use dark mode. A non-zero or missing
-/// value indicates apps should use light mode.
+/// 键值为 `0` 表示启用深色模式，非零或键值缺失则默认启用浅色模式。
+/// 依据系统个性化设置动态响应深浅色切换。
 constexpr const wchar_t kGetPreferredBrightnessRegKey[] =
   L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
 constexpr const wchar_t kGetPreferredBrightnessRegValue[] = L"AppsUseLightTheme";
 
-// The number of Win32Window objects that currently exist.
+// 当前进程中活跃存活的 `Win32Window` 实例计数。
 static int g_active_window_count = 0;
 
 using EnableNonClientDpiScaling = BOOL __stdcall(HWND hwnd);
 
-// Scale helper to convert logical scaler values to physical using passed in
-// scale factor
+// 依据当前窗口缩放系数将逻辑尺寸换算为物理像素尺寸；
+// 保证不同 DPI 屏幕下的布局一致。
 int Scale(int source, double scale_factor) {
   return static_cast<int>(source * scale_factor);
 }
 
-// Dynamically loads the |EnableNonClientDpiScaling| from the User32 module.
-// This API is only needed for PerMonitor V1 awareness mode.
+// 从 `User32` 动态加载 `EnableNonClientDpiScaling` 系统函数；
+// 该接口仅在按显示器 V1 级 DPI 感知模式下按需调用。
 void EnableFullDpiSupportIfAvailable(HWND hwnd) {
   HMODULE user32_module = LoadLibraryA("User32.dll");
   if (!user32_module) {
@@ -55,12 +55,12 @@ void EnableFullDpiSupportIfAvailable(HWND hwnd) {
 
 }  // namespace
 
-// Manages the Win32Window's window class registration.
+// 集中维护 `Win32Window` 原生 Win32 窗口类注册与反注册生命周期。
 class WindowClassRegistrar {
  public:
   ~WindowClassRegistrar() = default;
 
-  // Returns the singleton registrar instance.
+  // 获取窗口类注册器全局唯一静态实例。
   static WindowClassRegistrar* GetInstance() {
     if (!instance_) {
       instance_ = new WindowClassRegistrar();
@@ -68,12 +68,12 @@ class WindowClassRegistrar {
     return instance_;
   }
 
-  // Returns the name of the window class, registering the class if it hasn't
-  // previously been registered.
+  // 返回原生窗口类名；若尚未向系统注册则先行完成窗口类注册。
+  // 确保重复创建窗口时安全复用注册结果。
   const wchar_t* GetWindowClass();
 
-  // Unregisters the window class. Should only be called if there are no
-  // instances of the window.
+  // 从系统注销窗口类；仅在所有窗口实例均已销毁时调用。
+  // 避免存在活跃窗口时错误反注册窗口类。
   void UnregisterWindowClass();
 
  private:
@@ -154,7 +154,7 @@ bool Win32Window::Show() {
   return ShowWindow(window_handle_, SW_SHOWNORMAL);
 }
 
-// static
+// 静态窗口消息分发与缩放辅助函数定义。
 LRESULT CALLBACK Win32Window::WndProc(HWND const window,
                                       UINT const message,
                                       WPARAM const wparam,
@@ -201,7 +201,7 @@ Win32Window::MessageHandler(HWND hwnd,
     case WM_SIZE: {
       RECT rect = GetClientArea();
       if (child_content_ != nullptr) {
-        // Size and position the child window.
+        // 同步刷新所托管子视图窗口的客户区几何位置与尺寸。
         MoveWindow(child_content_, rect.left, rect.top, rect.right - rect.left,
                    rect.bottom - rect.top, TRUE);
       }
@@ -265,12 +265,12 @@ void Win32Window::SetQuitOnClose(bool quit_on_close) {
 }
 
 bool Win32Window::OnCreate() {
-  // No-op; provided for subclasses.
+  // 默认空实现钩子，供上层子类窗口按需覆写扩展。
   return true;
 }
 
 void Win32Window::OnDestroy() {
-  // No-op; provided for subclasses.
+  // 默认空实现钩子，供上层子类窗口按需覆写扩展。
 }
 
 void Win32Window::UpdateTheme(HWND const window) {

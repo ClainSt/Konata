@@ -28,7 +28,6 @@ class Smb1Session extends SmbSession {
       }
       return false;
     }
-    // var token = Uint8List(0);
     var negoResp =
         transport.getNegotiatedResponse()! as SmbComNegotiateResponse;
 
@@ -39,7 +38,6 @@ class Smb1Session extends SmbSession {
         true) {
       String host = getTargetHost();
       String? tdomain = config.domain;
-      // var s = credentials.getSubject();
       final doSigning = !anonymous &&
           (negoResp.getNegotiatedFlags2() &
                   SmbConstants.FLAGS2_SECURITY_SIGNATURES) !=
@@ -53,23 +51,16 @@ class Smb1Session extends SmbSession {
       if (nextToken == null) {
         var errorCode = resp1?.errorCode ?? NtStatus.NT_STATUS_LOGON_FAILURE;
         throw SmbAuthException(SmbException.getMessageByCode(errorCode));
-        // return false;
       }
       var resp2 = await ntlmSSP(ctx, anonymous, doSigning, negoResp, nextToken);
       nextToken = resp2?.blob;
       if (nextToken == null) {
         var errorCode = resp2?.errorCode ?? NtStatus.NT_STATUS_LOGON_FAILURE;
         throw SmbAuthException(SmbException.getMessageByCode(errorCode));
-        // return false;
       }
       nextToken = ctx.initSecContext(nextToken, 0, nextToken.length);
       if (ctx.isEstablished()) {
-        // print("Context is established");
-        // setNetbiosName(ctx.getNetbiosName());
         sessionKey = ctx.getSigningKey();
-        // if (request != null && request.getDigest() != null) {
-        //   /// success - install the signing digest
-        //   setDigest(request.getDigest());
         // }
         return true;
       } else if (!anonymous && isSignatureSetupRequired()) {
@@ -83,12 +74,7 @@ class Smb1Session extends SmbSession {
         return true;
       }
       return false;
-      // log.debug("Extended security negotiated");
-      // break;
-      // return;
     } else {
-      // else if ( config.isForceExtendedSecurity() ) {
-      //     throw SmbException("Server does not supported extended security");
       // }
       if (credentials is! NtlmPasswordAuthenticator) {
         throw SmbAuthException("Incompatible credentials");
@@ -96,35 +82,16 @@ class Smb1Session extends SmbSession {
       NtlmPasswordAuthenticator npa = credentials as NtlmPasswordAuthenticator;
 
       var request = SmbComSessionSetupAndX(config, negoResp, andx, credentials);
-      // if the connection already has a digest set up this needs to be used
+      // 若当前传输连接已安装签名摘要器，则复用现有摘要实例。
       request.setDigest(getDigest());
       var response = SmbComSessionSetupAndXResponse(config, andx: andxResponse);
       response.setExtendedSecurity(false);
 
-      /// Create SMB signature digest if necessary
-      /// Only the first SMB_COM_SESSION_SETUP_ANX with non-null or
-      /// blank password initializes signing.
+      /// 按需初始化 SMB 消息签名摘要器（仅首个携带非空凭据的会话建立报文初始化一次）。
 
       if (!anonymous && isSignatureSetupRequired()) {
-        // if (isExternalAuth(getContext(), npa)) {
-        //   /// preauthentication
-        //   SmbSessionImpl? smbSession;
-        //   SmbTreeImpl? t;
 
-        //   try {
-        //     //( SmbSessionImpl smbSession = trans.getSmbSession(getContext().withDefaultCredentials());
-        //     // SmbTreeImpl t = smbSession.getSmbTree(getContext().getConfig().getLogonShare(), null) ) {
-        //     smbSession =
-        //         transport.getSmbSession(getContext().withDefaultCredentials());
-        //     t = smbSession.getSmbTree(
-        //         getContext().getConfig().getLogonShare(), null);
-        //     t.treeConnect(null, null);
-        //   } finally {
-        //     smbSession?.close();
-        //     t?.close();
         //   }
-        // } else {
-        // log.debug("Initialize signing");
         Uint8List? signingKey =
             npa.getSigningKey(config, negoResp.getServerData().encryptionKey!);
         if (signingKey == null) {
@@ -149,22 +116,17 @@ class Smb1Session extends SmbSession {
         anonymous = true;
       }
 
-      // if (ex != null) {
-      //   throw ex;
       // }
 
       uid = response.getUid(); //setUid(response.getUid());
 
       var digest = request.getDigest();
       if (digest != null) {
-        // success - install the signing digest
         setDigest(digest);
       } else if (!anonymous && isSignatureSetupRequired()) {
         throw SmbException("Signing required but no session key available");
       }
 
-      // setSessionSetup(response);
-      // state = 0;
       return true;
     }
   }
@@ -175,34 +137,22 @@ class Smb1Session extends SmbSession {
       bool doSigning,
       SmbComNegotiateResponse negoResp,
       Uint8List prevToken) async {
-    // final curToken = token;
-    // if ( s != null ) {
-    //     try {
-    //         token = Subject.doAs(s, new PrivilegedExceptionAction<byte[]>() {
 
-    //             @Override
-    //             public byte[] run () throws Exception {
-    //                 return curCtx.initSecContext(curToken, 0, curToken == null ? 0 : curToken.length);
     //             }
 
     //         });
     //     }
-    //     catch ( PrivilegedActionException e ) {
-    //         if ( e.getException() instanceof SmbException )
 
     //         {
-    //             throw (SmbException) e.getException();
     //         }
-    //         throw new SmbException("Unexpected exception during context initialization", e);
     //     }
     // }
-    // else {
     var nextToken = ctx.initSecContext(prevToken, 0, prevToken.length);
     if (nextToken == null) {
       return null;
     }
     var request = SmbComSessionSetupAndX(config, negoResp, null, nextToken);
-    // if the connection already has a digest set up this needs to be used
+    // 若当前传输连接已安装签名摘要器，则复用现有摘要实例。
     request.setDigest(getDigest());
     if (doSigning && ctx.isEstablished() && isSignatureSetupRequired()) {
       var signingKey = ctx.getSigningKey();
@@ -211,7 +161,6 @@ class Smb1Session extends SmbSession {
       }
       sessionKey = signingKey;
     } else {
-      // print("Not yet initializing signing");
     }
 
     var response = SmbComSessionSetupAndXResponse(config, andx: null);
@@ -219,31 +168,14 @@ class Smb1Session extends SmbSession {
     request.setUid(uid);
     uid = 0;
 
-    // try {
     await transport.sendrecv(request, response: response);
     // }
-    // catch ( SmbAuthException sae ) {
-    // throw sae;
     // }
-    // catch ( SmbException se ) {
     //     ex = se;
-    //     if ( se.getNtStatus() == NtStatus.NT_STATUS_INVALID_PARAMETER ) {
-    //         // a relatively large range of samba versions has a bug causing
-    //         // an invalid parameter error when a SPNEGO MIC is in place and auth fails
-    //         ex = new SmbAuthException("Login failed", se);
     //     }
     //     /*
-    //      * Apparently once a successful NTLMSSP login occurs, the
-    //      * server will return "Access denied" even if a logoff is
-    //      * sent. Unfortunately calling disconnect() doesn't always
-    //      * actually shutdown the connection before other threads
-    //      * have committed themselves (e.g. InterruptTest example).
     //      */
-    //     try {
-    //         trans.disconnect(true);
     //     }
-    //     catch ( Exception e ) {
-    //         log.debug("Failed to disconnect transport", e);
     //     }
     // }
 
@@ -255,17 +187,12 @@ class Smb1Session extends SmbSession {
       anonymous = true;
     }
 
-    // if (ex != null) {
-    //   throw ex;
     // }
-    // var s = SmbException.getMessageByCode(response.errorCode);
-    // print(s);
 
     uid = response.getUid();
     var digest = request.getDigest();
     if (digest != null) {
-      /// success - install the signing digest
-      // log.debug("Setting digest");
+      /// 认证与签名协商成功，安装当前会话签名摘要器。
       setDigest(digest);
     }
     return response; //.blob;
@@ -285,7 +212,6 @@ class Smb1Session extends SmbSession {
       try {
         await transport.send(request, SmbComBlankResponse(config));
       } catch (se) {
-        // log.debug("SmbComLogoffAndX failed", se);
       }
       uid = 0;
     }

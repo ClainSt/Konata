@@ -1,4 +1,3 @@
-// typedef DataBuffer = List<int>; //Uint8List;
 
 import 'dart:async';
 import 'dart:io';
@@ -28,11 +27,8 @@ abstract class SocketReader {
     var n = await _readChunkFor(length);
     if (n < length) {
       throw "Can't read $length from Socket";
-      // return -1;
     }
-    // int startOffset = offset, startLength = length;
     int count = 0;
-    // int remain = length + _chunkOffset;
     do {
       var chunk = _chunks[0];
       if (chunk.length <= length + _chunkOffset) {
@@ -45,17 +41,13 @@ abstract class SocketReader {
         offset += size;
         length -= size;
         count += size;
-        // remain -= chunk.length;
       } else {
         arrayCopy(chunk, _chunkOffset, buffer, offset, length);
         count += length;
         _chunkOffset += length;
         length = 0;
-        // remain -= length;
       }
     } while (length > 0);
-    // print(
-    //     "read[$startLength]: ${buffer.toHexString2(startOffset, startLength)}");
     return count;
   }
 
@@ -72,7 +64,6 @@ abstract class SocketReader {
       return -1;
     }
     int length = bytes;
-    // int remain = bytes + _chunkOffset;
     do {
       var chunk = _chunks[0];
       if (chunk.length <= length + _chunkOffset) {
@@ -82,14 +73,11 @@ abstract class SocketReader {
         var size = chunk.length - _chunkOffset;
         _chunkOffset = 0;
         length -= size;
-        // remain -= chunk.length;
       } else {
         _chunkOffset += length;
-        // remain -= length;
         length = 0;
       }
     } while (length > 0);
-    // _chunkOffset = remain * -1;
     return bytes;
   }
 }
@@ -97,13 +85,7 @@ abstract class SocketReader {
 class SocketReader1 extends SocketReader {
   SocketReader1(super._socket);
 
-  // @override
-  // int _readedBytes() {
-  //   int res = 0;
-  //   for (var chunk in _chunks) {
-  //     res += chunk.length;
   //   }
-  //   return res - _chunkOffset;
   // }
 
   @override
@@ -117,7 +99,6 @@ class SocketReader1 extends SocketReader {
       _chunkBytes += chunk.length;
       readed += chunk.length;
       if (bytes < readed) {
-        // print("read chunks: ${_chunks.length}, $readed bytes (wait $bytes)");
         return readed;
       }
     }
@@ -138,7 +119,6 @@ class SocketReader2 extends SocketReader {
       (event) {
         if (debugPrint) {
           print("read[${event.length}]: ${event.toHexString()}");
-          // print("listen ${event.length}");
         }
         _chunks.add(event);
         _chunkBytes += event.length;
@@ -148,8 +128,7 @@ class SocketReader2 extends SocketReader {
         if (debugPrint) {
           print("Smb Reader closed");
         }
-        // Peer EOF can arrive while the output sink is bound to a pending
-        // flush. A graceful close would throw from this stream callback.
+        // 当输出流正绑定未完成的 flush 时对端可能突然关闭触发 EOF；安全抑制流回调中的关流异常。
         _finish(const SocketException('SMB peer closed'), StackTrace.current);
       },
       onError: (Object error, StackTrace stack) => _finish(error, stack),
@@ -161,8 +140,7 @@ class SocketReader2 extends SocketReader {
     _failure = error;
     _failureStack = stack;
     _socket.destroy();
-    // Buffered final bytes can still satisfy an already running read. Its
-    // parser reports truncation if it needs more; an empty reader fails now.
+    // 缓冲区残留字节仍可满足进行中的读取请求；仅当缓冲耗尽时向空读立即报错。
     if (available() == 0) onFailure?.call(error, stack);
   }
 

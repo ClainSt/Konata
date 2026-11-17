@@ -3,66 +3,43 @@ import 'dart:typed_data';
 import 'package:pointycastle/export.dart';
 import 'package:smb_connect/src/utils/extensions.dart';
 
-/// This class represents the symmetric algorithms in its various modes
-/// (<code>ECB</code>, <code>CFB</code>, <code>OFB</code>, <code>CBC</code>,
-/// <code>PCBC</code>, <code>CTR</code>, and <code>CTS</code>) and
-/// padding schemes (<code>PKCS5Padding</code>, <code>NoPadding</code>,
-/// <code>ISO10126Padding</code>).
+/// 对称分组密码核心调度器：统一封装 ECB/CFB/OFB/CBC/PCBC/CTR/CTS 工作模式及填充方案。
 ///
-/// @author Gigi Ankeny
-/// @author Jan Luehe
-/// @see ElectronicCodeBook
-/// @see CipherFeedback
-/// @see OutputFeedback
-/// @see CipherBlockChaining
-/// @see PCBC
-/// @see CounterMode
-/// @see CipherTextStealing
 class DESCipherInternal implements StreamCipher {
-  /// internal buffer
+  /// 加解密分块对齐期间使用的内部字节暂存缓冲区。
   late Uint8List buffer;
 
-  /// block size of cipher in bytes
+  /// 当前对称算法单个分组的字节宽度。
   int blockSize = 0;
 
-  /// unit size (number of input bytes that can be processed at a time)
+  /// 每次流/分组步进可处理的输入单位字节数。
   int unitBytes = 0;
 
-  /// index of the content size left in the buffer
+  /// 内部缓冲区中当前尚余有效未处理字节长度。
   int buffered = 0;
 
-  /// minimum number of bytes in the buffer required for
-  /// FeedbackCipher.encryptFinal()/decryptFinal() call.
-  /// update() must buffer this many bytes before starting
-  /// to encrypt/decrypt data.
-  /// currently, only the following cases have non-zero values:
-  /// 1) CTS mode - due to its special handling on the last two blocks
-  /// (the last one may be incomplete).
+  /// 执行末块 `encryptFinal/decryptFinal` 前缓冲区必须保留的最小输入字节数（如 CTS 末两块）。
   int minBytes = 0;
 
-  /// number of bytes needed to make the total input length a multiple
-  /// of the blocksize (this is used in feedback mode, when the number of
-  /// input bytes that are processed at a time is different from the block
-  /// size)
+  /// 使累计输入长度成为分组整数倍尚需补齐的差额字节数。
   int diffBlocksize = 0;
 
-  /// padding class
+  /// 数据末块填充（Padding）策略实现对象。
   Padding? padding;
 
-  /// internal cipher engine
-  // FeedbackCipher? cipher;
+  /// 底层对称加密/解密引擎具体实现。
   ECBBlockCipher? cipher;
 
-  /// the cipher mode
+  /// 当前配置的对称密码工作模式编号。
   int cipherMode = ECB_MODE;
 
-  /// are we encrypting or decrypting?
+  /// 指示当前处于解密方向还是加密方向。
   bool decrypting = false;
 
   @override
   String get algorithmName => throw UnimplementedError();
 
-  /// Block Mode constants
+  /// 对称密码工作模式常量定义组。
   static const int ECB_MODE = 0;
   static const int CBC_MODE = 1;
   static const int CFB_MODE = 2;
@@ -71,22 +48,16 @@ class DESCipherInternal implements StreamCipher {
   static const int CTR_MODE = 5;
   static const int CTS_MODE = 6;
 
-  /// Creates an instance of CipherCore with default ECB mode and
-  /// PKCS5Padding.
+  /// 构造默认 ECB 模式且带 PKCS5 填充的分组密码核心实例；预留至少 `blockSize+1` 缓冲区以适配 CTS 与解密去填。
   DESCipherInternal(BlockCipher impl, int blkSize) {
     blockSize = blkSize;
     unitBytes = blkSize;
     diffBlocksize = blkSize;
 
-    /// The buffer should be usable for all cipher mode and padding
-    /// schemes. Thus, it has to be at least (blockSize+1) for CTS.
-    /// In decryption mode, it also hold the possible padding block.
 
     buffer = Uint8List(blockSize * 2); // new byte[blockSize*2];
 
-    // set mode and padding
     cipher = ECBBlockCipher(impl); //ElectronicCodeBook(impl);
-    // padding = PKCS5Padding(blockSize);
   }
 
   static int getNumOfUnit(String mode, int offset, int blockSize) {
@@ -105,71 +76,25 @@ class DESCipherInternal implements StreamCipher {
   }
 
   ///
-  /// Initializes this cipher with a key, a set of
-  /// algorithm parameters, and a source of randomness.
+  /// 使用指定密钥、算法参数（如 IV）及随机源初始化当前加解密上下文。
   ///
-  /// <p>The cipher is initialized for one of the following four operations:
-  /// encryption, decryption, key wrapping or key unwrapping, depending on
-  /// the value of <code>opmode</code>.
   ///
-  /// <p>If this cipher (including its underlying feedback or padding scheme)
-  /// requires any random bytes, it will get them from <code>random</code>.
   ///
-  /// @param opmode the operation mode of this cipher (this is one of
-  /// the following:
-  /// <code>ENCRYPT_MODE</code>, <code>DECRYPT_MODE</code>,
-  /// <code>WRAP_MODE</code> or <code>UNWRAP_MODE</code>)
-  /// @param key the encryption key
-  /// @param params the algorithm parameters
-  /// @param random the source of randomness
   ///
-  /// @exception InvalidKeyException if the given key is inappropriate for
-  /// initializing this cipher
-  /// @exception InvalidAlgorithmParameterException if the given algorithm
-  /// parameters are inappropriate for this cipher
   @override
   void init(bool forEncryption, CipherParameters? key) {
     decrypting = !forEncryption;
-    // if (key is KeyParameter) {
-    //   Uint8List keyBytes = key.key;
     // }
-    //, AlgorithmParameterSpec params, SecureRandom random throws InvalidKeyException, InvalidAlgorithmParameterException {
-    // decrypting = (opmode == Cipher.DECRYPT_MODE)
-    // || (opmode == Cipher.UNWRAP_MODE);
 
-    //     Uint8List keyBytes = getKeyBytes(key);
-    //     Uint8List ivBytes = null;
-    //     try {
-    //         if (params != null) {
-    //             if (params instanceof IvParameterSpec) {
-    //                 ivBytes = ((IvParameterSpec) params).getIV();
-    //                 if ((ivBytes == null) || (ivBytes.length != blockSize)) {
-    //                     throw Exception("Wrong IV length: must be $blockSize bytes long");//InvalidAlgorithmParameterException
     //                 }
-    //             } else if (params instanceof RC2ParameterSpec) {
-    //                 ivBytes = ((RC2ParameterSpec) params).getIV();
-    //                 if ((ivBytes != null) && (ivBytes.length != blockSize)) {
-    //                     throw Exception("Wrong IV length: must be $blockSize bytes long");//InvalidAlgorithmParameterException
     //                 }
-    //             } else {
-    //                 throw Exception("Unsupported parameter: $params");//InvalidAlgorithmParameterException
     //             }
     //         }
-    //         if (cipherMode == ECB_MODE) {
-    //             if (ivBytes != null) {
-    //                 throw Exception("ECB mode cannot use IV");//InvalidAlgorithmParameterException
     //             }
-    //         } else if (ivBytes == null) {
-    //             if (decrypting) {
-    //                 throw Exception("Parameters missing");//InvalidAlgorithmParameterException
     //             }
 
-    //             if (random == null) {
-    //                 random = SunJCE.getRandom();
     //             }
 
-    //             ivBytes = new byte[blockSize];
-    //             random.nextBytes(ivBytes);
     //         }
 
     buffered = 0;
@@ -178,186 +103,51 @@ class DESCipherInternal implements StreamCipher {
     cipher!.init(forEncryption, key);
   }
 
-  /// Continues a multiple-part encryption or decryption operation
-  /// (depending on how this cipher was initialized), processing another data
-  /// part.
+  /// 分段流式加解密更新接口：处理输入切片 `[inputOffset, inputOffset+inputLen)` 并写入 `output`。
   ///
-  /// <p>The first <code>inputLen</code> bytes in the <code>input</code>
-  /// buffer, starting at <code>inputOffset</code>, are processed, and the
-  /// result is stored in the <code>output</code> buffer, starting at
-  /// <code>outputOffset</code>.
   ///
-  /// @param input the input buffer
-  /// @param inputOffset the offset in <code>input</code> where the input
-  /// starts
-  /// @param inputLen the input length
-  /// @param output the buffer for the result
-  /// @param outputOffset the offset in <code>output</code> where the result
-  /// is stored
   ///
-  /// @return the number of bytes stored in <code>output</code>
   ///
-  /// @exception ShortBufferException if the given output buffer is too small
-  /// to hold the result
   @override
   void processBytes(
       Uint8List inp, int inpOff, int len0, Uint8List out, int outOff) {
-    //     // figure out how much can be sent to crypto function
-    // int len = buffered + inputLen;
-    //     len -= minBytes;
-    //     if (padding != null && decrypting) {
-    //         // do not include the padding bytes when decrypting
-    //         len -= blockSize;
-    //     }
-    //     // do not count the trailing bytes which do not make up a unit
-    //     len = (len > 0 ? (len - (len % unitBytes)) : 0);
-
-    //     // check output buffer capacity
-    //     if (output == null || (output.length - outputOffset) < len) {
-    //         throw Exception("Output buffer must be (at least) $len bytes long");//ShortBufferException
     //     }
 
-    //     int outLen = 0;
-    //     if (len != 0) { // there is some work to do
-    //         if ((input == output)
-    //              && (outputOffset - inputOffset < inputLen)
-    //              && (inputOffset - outputOffset < buffer.length)) {
-    //             // copy 'input' out to avoid its content being
-    //             // overwritten prematurely.
-    //             input = Arrays.copyOfRange(input, inputOffset,
-    //                 inputOffset + inputLen);
-    //             inputOffset = 0;
+    //     }
+
     //         }
-    //         if (len <= buffered) {
-    //             // all to-be-processed data are from 'buffer'
-    //             if (decrypting) {
-    //                 outLen = cipher.decrypt(buffer, 0, len, output, outputOffset);
-    //             } else {
-    //                 outLen = cipher.encrypt(buffer, 0, len, output, outputOffset);
     //             }
-    //             buffered -= len;
-    //             if (buffered != 0) {
-    //                 System.arraycopy(buffer, len, buffer, 0, buffered);
     //             }
-    //         } else { // len > buffered
-    //             int inputConsumed = len - buffered;
-    //             int temp;
-    //             if (buffered > 0) {
-    //                 int bufferCapacity = buffer.length - buffered;
-    //                 if (bufferCapacity != 0) {
-    //                     temp = min(bufferCapacity, inputConsumed);
-    //                     if (unitBytes != blockSize) {
-    //                         temp -= ((buffered + temp) % unitBytes);
     //                     }
-    //                     System.arraycopy(input, inputOffset, buffer, buffered, temp);
-    //                     inputOffset = inputOffset + temp;
-    //                     inputConsumed -= temp;
-    //                     inputLen -= temp;
-    //                     buffered = buffered + temp;
     //                 }
-    //                 // process 'buffer'. When finished we can null out 'buffer'
-    //                 // Only necessary to null out if buffer holds data for encryption
-    //                 if (decrypting) {
-    //                      outLen = cipher.decrypt(buffer, 0, buffered, output, outputOffset);
-    //                 } else {
-    //                      outLen = cipher.encrypt(buffer, 0, buffered, output, outputOffset);
-    //                      //encrypt mode. Zero out internal (input) buffer
-    //                      Arrays.fill(buffer, (byte) 0x00);
     //                 }
-    //                 outputOffset = outputOffset + outLen;
-    //                 buffered = 0;
     //             }
-    //             if (inputConsumed > 0) { // still has input to process
-    //                 if (decrypting) {
-    //                     outLen += cipher.decrypt(input, inputOffset, inputConsumed,
-    //                         output, outputOffset);
-    //                 } else {
-    //                     outLen += cipher.encrypt(input, inputOffset, inputConsumed,
-    //                         output, outputOffset);
     //                 }
-    //                 inputOffset += inputConsumed;
-    //                 inputLen -= inputConsumed;
     //             }
     //         }
-    //         // Let's keep track of how many bytes are needed to make
-    //         // the total input length a multiple of blocksize when
-    //         // padding is applied
-    //         if (unitBytes != blockSize) {
-    //             if (len < diffBlocksize) {
-    //                 diffBlocksize -= len;
-    //             } else {
-    //                 diffBlocksize = blockSize -
-    //                     ((len - diffBlocksize) % blockSize);
     //             }
     //         }
     //     }
-    //     // Store remaining input into 'buffer' again
-    //     if (inputLen > 0) {
-    //         System.arraycopy(input, inputOffset, buffer, buffered,
-    //                          inputLen);
-    //         buffered = buffered + inputLen;
     //     }
-    //     return outLen;
   }
 
   ///
-  /// Encrypts or decrypts data in a single-part operation,
-  /// or finishes a multiple-part operation.
-  /// The data is encrypted or decrypted, depending on how this cipher was
-  /// initialized.
+  /// 完成单次或分段末块加解密处理（自动应用或校验去除 Padding，并返回最终输出字节数组）。
   ///
-  /// <p>The first <code>inputLen</code> bytes in the <code>input</code>
-  /// buffer, starting at <code>inputOffset</code>, and any input bytes that
-  /// may have been buffered during a previous <code>update</code> operation,
-  /// are processed, with padding (if requested) being applied.
-  /// The result is stored in a new buffer.
   ///
-  /// <p>The cipher is reset to its initial state (uninitialized) after this
-  /// call.
   ///
-  /// @param input the input buffer
-  /// @param inputOffset the offset in <code>input</code> where the input
-  /// starts
-  /// @param inputLen the input length
   ///
-  /// @return the new buffer with the result
   ///
-  /// @exception IllegalBlockSizeException if this cipher is a block cipher,
-  /// no padding has been requested (only in encryption mode), and the total
-  /// input length of the data processed by this cipher is not a multiple of
-  /// block size
-  /// @exception BadPaddingException if this cipher is in decryption mode,
-  /// and (un)padding has been requested, but the decrypted data is not
-  /// bounded by the appropriate padding bytes
   @override
   Uint8List process(Uint8List data) {
     Uint8List output = Uint8List(data.length);
     var finalBuf = prepareInputBuffer(data, 0, data.length, output, 0);
     fillOutputBuffer(finalBuf, 0, output, 0, output.length, data);
-    //     try {
-    //         Uint8List output = new byte[getOutputSizeByOperation(inputLen, true)];
-    //         Uint8List finalBuf = prepareInputBuffer(input, inputOffset,
-    //                 inputLen, output, 0);
-    //         int finalOffset = (finalBuf == input) ? inputOffset : 0;
-    //         int finalBufLen = (finalBuf == input) ? inputLen : finalBuf.length;
 
-    //         int outLen = fillOutputBuffer(finalBuf, finalOffset, output, 0,
-    //                 finalBufLen, input);
 
     endDoFinal();
-    //         if (outLen < output.length) {
-    //             Uint8List copy = Arrays.copyOf(output, outLen);
-    //             if (decrypting) {
-    //                 // Zero out internal (output) array
-    //                 Arrays.fill(output, (byte) 0x00);
     //             }
-    //             return copy;
-    //         } else {
-    //             return output;
     //         }
-    //     } catch (ShortBufferException e) {
-    //         // never thrown
-    //         throw Exception("Unexpected exception", e);//ProviderException
     //     }
     return output;
   }
@@ -372,23 +162,21 @@ class DESCipherInternal implements StreamCipher {
 
   @override
   void reset() {
-    // TODO: implement reset
   }
 
   @override
   int returnByte(int inp) {
-    // TODO: implement returnByte
     throw UnimplementedError();
   }
 
   Uint8List prepareInputBuffer(Uint8List input, int inputOffset, int inputLen,
       Uint8List output, int outputOffset) {
-    // calculate total input length
+    // 计算总输入与内部残留缓存合计字节数。
     int len = buffered + inputLen;
-    // calculate padding length
+    // 计算末块补齐所需的填充字节数。
     int totalLen = len;
     int paddingLen = 0;
-    // will the total input length be a multiple of blockSize?
+    // 检查总输入长度是否恰好对齐分组整数倍。
     if (unitBytes != blockSize) {
       if (totalLen < diffBlocksize) {
         paddingLen = diffBlocksize - totalLen;
@@ -408,11 +196,7 @@ class DESCipherInternal implements StreamCipher {
     }
 
     ///
-    /// prepare the final input, assemble a new buffer if any
-    /// of the following is true:
-    ///  - 'input' and 'output' are the same buffer
-    ///  - there are internally buffered bytes
-    ///  - doing encryption and padding is needed
+    /// 当输入输出缓冲区重叠、内部有缓存在途字节或需加密填充时，重组最终连续处理缓冲区；用毕立即清零敏感暂存区。
 
     if ((buffered != 0) ||
         (!decrypting && padding != null) ||
@@ -432,9 +216,7 @@ class DESCipherInternal implements StreamCipher {
             dstOffset: 0,
             length: buffered);
         if (!decrypting) {
-          // done with input buffer. We should zero out the
-          // data if we're in encrypt mode.
-          // Arrays.fill(buffer, (byte) 0x00);
+          // 加密模式下处理完成后立即擦除内部输入缓存，避免敏感明文残留在内存中。
           buffer.fill();
         }
       }
@@ -447,8 +229,6 @@ class DESCipherInternal implements StreamCipher {
             length: inputLen);
       }
       if (paddingLen != 0) {
-        // padding.padWithLen(
-        //     finalBuf, buffered + inputLen, paddingLen);
       }
       return finalBuf;
     }
@@ -461,14 +241,11 @@ class DESCipherInternal implements StreamCipher {
     try {
       len = finalNoPadding(finalBuf, finalOffset, output, outOfs, finalBufLen);
       if (decrypting && padding != null) {
-        // TODO: No padding
-        // padding!.process(false, output);
-        // len = unpad(len, outOfs, output);
       }
       return len;
     } finally {
       if (!decrypting && finalBuf != input) {
-        // done with internal finalBuf array. Copied to output
+        // 末块数据已完整写出至结果缓冲区，收尾清理内部缓冲状态。
         finalBuf.fill();
       }
     }

@@ -11,8 +11,7 @@ import android.webkit.MimeTypeMap
 import java.io.File
 import java.io.FileNotFoundException
 
-/** Read-only SAF access to artwork only. Never exposes the library, credentials,
- * cache index, temporary downloads, or arbitrary paths under app storage. */
+/// 只读 SAF 艺术图文档提供器，严格隔离媒体库文件、凭据、缓存索引与临时目录。
 class ArtworkDocumentsProvider : DocumentsProvider() {
     private val root get() = File(requireNotNull(context).filesDir, "artwork").canonicalFile
     private val documentColumns = arrayOf(Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME,

@@ -161,25 +161,13 @@ extension StringExtension on String? {
 }
 
 String fromUNIBytes(Uint8List buff, int srcOffset, int len) {
-// var f = File("utf-16le.txt");
-// var bytes = f.readAsBytesSync();
 
-// Note that this assumes that the system's native endianness is the same as
-// the file's.
-// var utf16CodeUnits =
+// 按宿主系统小端字节序解析字符编码（与 Windows/Android 运行平台一致）。
   Uint8List bytes = Uint8List(len);
   byteArrayCopy(
       src: buff, srcOffset: srcOffset, dst: bytes, dstOffset: 0, length: len);
 
   return String.fromCharCodes(bytes.buffer.asUint16List());
-  // final decodeBuff = Uint8List(len);
-  // byteArrayCopy(
-  //     src: buff,
-  //     srcOffset: srcOffset,
-  //     dst: decodeBuff,
-  //     dstOffset: 0,
-  //     length: len);
-  // return utf16.decode(decodeBuff);
 }
 
 String fromASCIIBytes(Uint8List buff, int srcOffset, int len) {
@@ -193,7 +181,7 @@ String fromASCIIBytes(Uint8List buff, int srcOffset, int len) {
   return ascii.decode(decodeBuff);
 }
 
-/// decoded string
+/// 解码并截断末尾 NUL 字符后的最终字符串。
 String fromOEMBytes(
     Uint8List src, int srcIndex, int len, Configuration config) {
   return fromOEMBytesFor(src, srcIndex, len, config.oemEncoding);
@@ -210,7 +198,7 @@ String fromOEMBytesFor(Uint8List src, int srcIndex, int len, CodePage cp) {
   }
 }
 
-/// position of terminating null bytes
+/// 双字节 Unicode 字符串末尾双空终止符所在的字节偏移位置。
 int findUNITermination(Uint8List buffer, int bufferIndex, int maxLen) {
   int len = 0;
   while (buffer[bufferIndex + len] != 0x00 ||
@@ -223,7 +211,7 @@ int findUNITermination(Uint8List buffer, int bufferIndex, int maxLen) {
   return len;
 }
 
-/// position of terminating null byte
+/// 单字节 ASCII/OEM 字符串末尾单空终止符所在偏移位置。
 int findTermination(Uint8List buffer, int bufferIndex, int maxLen) {
   int len = 0;
   while (buffer[bufferIndex + len] != 0x00) {

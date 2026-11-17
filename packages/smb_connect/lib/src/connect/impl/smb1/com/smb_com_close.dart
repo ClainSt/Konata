@@ -36,7 +36,6 @@ class SmbComClose extends ServerMessageBlock
     if (digest != null) {
       SMB1SigningDigest.writeUTime(config, _lastWriteTime, dst, dstIndex);
     } else {
-      // log.trace("SmbComClose without a digest");
     }
     return 6;
   }

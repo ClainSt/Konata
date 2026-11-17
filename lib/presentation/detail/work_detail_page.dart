@@ -1,6 +1,5 @@
 import 'dart:ui';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -18,6 +17,7 @@ import '../../infrastructure/cache/scan_thumbnail_scheduler.dart';
 import '../audio/mini_audio_bar.dart';
 import '../dialogs/work_artwork_picker_dialog.dart';
 import '../shell/window_controls.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
@@ -193,11 +193,23 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                     }
                     final work = bundle.work;
                     _maybeBackfillBangumiScore(work.id, work.bangumiScore);
-                    final bgPath =
-                        (work.backdropPath != null &&
-                            work.backdropPath!.isNotEmpty)
-                        ? work.backdropPath!
-                        : (work.posterPath ?? '');
+                    final screenSize = MediaQuery.sizeOf(context);
+                    final safeTop = MediaQuery.paddingOf(context).top;
+                    final compactPhone =
+                        KonataAdaptiveTokens.isAndroid &&
+                        screenSize.width < KonataAdaptiveTokens.tabletBreakpoint;
+                    final allowBackdropDecode =
+                        !KonataAdaptiveTokens.isAndroid ||
+                        (screenSize.width >=
+                                KonataAdaptiveTokens.tabletBreakpoint &&
+                            screenSize.height >= 480);
+                    final heroPadH = compactPhone ? 16.0 : 36.0;
+                    final bgPath = allowBackdropDecode
+                        ? ((work.backdropPath != null &&
+                                  work.backdropPath!.isNotEmpty)
+                              ? work.backdropPath!
+                              : (work.posterPath ?? ''))
+                        : '';
                     final hasBackdrop =
                         work.backdropPath != null &&
                         work.backdropPath!.isNotEmpty;
@@ -269,15 +281,19 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              const SizedBox(height: 62),
+                              SizedBox(
+                                height: KonataAdaptiveTokens.isAndroid
+                                    ? safeTop + 60
+                                    : 62,
+                              ),
                               Expanded(
                                 child: Align(
                                   alignment: Alignment.bottomLeft,
                                   child: SingleChildScrollView(
                                     padding: EdgeInsets.fromLTRB(
-                                      36,
+                                      heroPadH,
                                       8,
-                                      36,
+                                      heroPadH,
                                       effectiveActiveTab == null ? 24 : 18,
                                     ),
                                     child: DetailHeroInfo(
@@ -397,16 +413,18 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                         overrideEngine: PreferredPlaybackEngine
                                             .builtinLibmpv,
                                       ),
-                                  onEpisodePlayExternal: (ep) =>
-                                      DetailActionHandlers.playEpisode(
-                                        context: context,
-                                        ref: ref,
-                                        bundle: bundle,
-                                        episode: ep,
-                                        players: players,
-                                        overrideEngine: PreferredPlaybackEngine
-                                            .externalPlayer,
-                                      ),
+                                  onEpisodePlayExternal:
+                                      KonataAdaptiveTokens.isWindows
+                                      ? (ep) => DetailActionHandlers.playEpisode(
+                                          context: context,
+                                          ref: ref,
+                                          bundle: bundle,
+                                          episode: ep,
+                                          players: players,
+                                          overrideEngine: PreferredPlaybackEngine
+                                              .externalPlayer,
+                                        )
+                                      : null,
                                   onEpisodeMarkCompleted: (ep) =>
                                       DetailActionHandlers.markEpisodeCompleted(
                                         context: context,
@@ -526,15 +544,19 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                             .builtinLibmpv,
                                         expandImmersive: true,
                                       ),
-                                  onCdPlayExternal: (variant) =>
-                                      DetailActionHandlers.playCdAsset(
-                                        context: context,
-                                        ref: ref,
-                                        bundle: bundle,
-                                        variant: variant,
-                                        overrideEngine: PreferredPlaybackEngine
-                                            .externalPlayer,
-                                      ),
+                                  onCdPlayExternal:
+                                      KonataAdaptiveTokens.isWindows
+                                      ? (variant) =>
+                                            DetailActionHandlers.playCdAsset(
+                                              context: context,
+                                              ref: ref,
+                                              bundle: bundle,
+                                              variant: variant,
+                                              overrideEngine:
+                                                  PreferredPlaybackEngine
+                                                      .externalPlayer,
+                                            )
+                                      : null,
                                   onScanTap: (variant) =>
                                       DetailActionHandlers.openScanViewer(
                                         context,
@@ -559,8 +581,10 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                   ),
                 ),
                 Positioned(
-                  top: 12,
-                  left: 16,
+                  top: KonataAdaptiveTokens.isAndroid
+                      ? MediaQuery.paddingOf(context).top + 8
+                      : 12,
+                  left: KonataAdaptiveTokens.isAndroid ? 12 : 16,
                   right: 14,
                   child: _WorkDetailTopBar(
                     forceLightIcons: forceLightChrome,
@@ -599,6 +623,9 @@ class _WorkDetailTopBar extends StatelessWidget {
     final borderColor = forceLightIcons
         ? Colors.white.withValues(alpha: 0.22)
         : p.hairline;
+    final btnSize = KonataAdaptiveTokens.isAndroid
+        ? KonataAdaptiveTokens.touchTarget
+        : 38.0;
     const dragZone = SizedBox(height: 38);
 
     return Row(
@@ -619,8 +646,8 @@ class _WorkDetailTopBar extends StatelessWidget {
             ),
             child: SizedBox(
               key: const ValueKey('work_detail_back_button'),
-              width: 38,
-              height: 38,
+              width: btnSize,
+              height: btnSize,
               child: ClipOval(
                 child: BackdropFilter(
                   filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
@@ -648,7 +675,7 @@ class _WorkDetailTopBar extends StatelessWidget {
           ),
         ),
         Expanded(
-          child: (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows)
+          child: KonataAdaptiveTokens.isWindows
               ? DragToMoveArea(child: dragZone)
               : dragZone,
         ),

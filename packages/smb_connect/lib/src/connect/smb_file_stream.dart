@@ -23,8 +23,7 @@ Stream<Uint8List> smbOpenRead(
   length = length ?? (file.size - start);
   final negotiated =
       tree.transport.getNegotiatedResponse()?.getReceiveBufferSize();
-  // Stay within one existing read request and the negotiated receive limit.
-  // Serial 4 KiB reads otherwise make Wi-Fi RTT dominate media throughput.
+  // 单次拉取受控于协商接收上限；若退化为串行 4 KiB 小包将在 Wi-Fi 高延迟网络下严重拖慢媒体吞吐。
   final blockSize =
       tree.transport.isSMB2() && negotiated != null && negotiated > 0
           ? min(64936, negotiated)
@@ -32,7 +31,7 @@ Stream<Uint8List> smbOpenRead(
   var position = 0;
   try {
     while (position < length) {
-      // A stream consumer may retain this chunk after the next read starts.
+      // 流消费端可能在下次读取发起后仍持有当前数据块，须确保分片视图独立安全。
       final buff = Uint8List(min(blockSize, length - position));
       final res = await smbReadFromFile(
           file, tree, fileId, fid, buff, position + start, 0, buff.length);
@@ -51,7 +50,6 @@ void readAsync(SmbFile file, SmbTree tree, Uint8List? fileId, int fid,
     int start, int? length, StreamController<Uint8List> controller) async {
   length ??= (file.size - start);
   var buffSize = min(length, 0xFFF);
-  // int index = 0;
   var position = 0;
   Uint8List buff = Uint8List(buffSize);
   do {
@@ -107,11 +105,9 @@ Future<int> smbReadFromFile(SmbFile file, SmbTree tree, Uint8List? fileId,
   SmbComReadAndXResponse response = SmbComReadAndXResponse(tree.config, b, off);
   int r, n;
   int blockSize = 64936;
-  // (type == SmbConstants.TYPE_FILESYSTEM) ? readSizeFile : readSize;
   do {
     r = len > blockSize ? blockSize : len;
 
-    // try {
     if (tree.transport.isSMB2()) {
       Smb2ReadRequest request = Smb2ReadRequest(
         tree.config,
@@ -122,22 +118,12 @@ Future<int> smbReadFromFile(SmbFile file, SmbTree tree, Uint8List? fileId,
         offset: type == SmbConstants.TYPE_NAMED_PIPE ? 0 : fp,
         remainingBytes: len - r,
       );
-      // request.setOffset(type == SmbConstants.TYPE_NAMED_PIPE ? 0 : fp);
-      // request.setReadLength(r);
-      // request.setRemainingBytes(len - r);
 
-      // try {
       tree.prepare(request);
       Smb2ReadResponse resp = await tree.transport
           .sendrecv(request, params: {RequestParam.NO_RETRY});
       n = resp.dataLength;
-      // } catch (e) {
-      //   //SmbException
-      //   if (e.getNtStatus() == 0xC0000011) {
-      //     // log.debug("Reached end of file", e);
       //     n = -1;
-      //   } else {
-      //     throw e;
       //   }
       // }
       if (n <= 0) {
@@ -162,15 +148,8 @@ Future<int> smbReadFromFile(SmbFile file, SmbTree tree, Uint8List? fileId,
     tree.prepare(request);
     response = await tree.transport
         .sendrecv(request, response: response, params: {RequestParam.NO_RETRY});
-    // th.send(request, response: response, params: {RequestParam.NO_RETRY});
     n = response.getDataLength();
-    // } catch (se) {
-    //   //SmbException
-    //   if (type == SmbConstants.TYPE_NAMED_PIPE &&
-    //       se.getNtStatus() == NtStatus.NT_STATUS_PIPE_BROKEN) {
-    //     return -1;
     //   }
-    //   throw seToIoe(se);
     // }
     if (n <= 0) {
       return ((fp - start) > 0 ? fp - start : -1);
@@ -179,9 +158,6 @@ Future<int> smbReadFromFile(SmbFile file, SmbTree tree, Uint8List? fileId,
     len -= n;
     response.adjustOffset(n);
   } while (len > blockSize && n == r);
-  // this used to be len > 0, but this is BS:
-  // - InputStream.read gives no such guarantee
-  // - otherwise the caller would need to figure out the block size, or otherwise might end up with very small
-  // reads
+  // 输入流读取不保证一次填满全长，允许按对端单次返回块大小直接交付以提升流式响应度。
   return (fp - start);
 }

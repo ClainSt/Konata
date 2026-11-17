@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../widgets/design_system/konata_settings_row.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/scraping_providers.dart';
@@ -191,7 +192,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
             final tmdbCard = _buildTmdbCard(p, actions);
             final bgmCard = _buildBangumiCard(p, actions);
             if (constraints.maxWidth >= 760) {
-              return Row(
+              return KonataSettingsRow(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(child: tmdbCard),
@@ -217,7 +218,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          KonataSettingsRow(
             children: [
               Text(
                 'TMDB API 密钥',
@@ -288,7 +289,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          KonataSettingsRow(
             children: [
               Text(
                 'TMDB 服务',
@@ -353,7 +354,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          KonataSettingsRow(
             children: [
               Text(
                 'Bangumi 服务',
@@ -521,7 +522,7 @@ class _EndpointBackupField extends StatelessWidget {
           onSubmitted: onSubmitted,
         ),
         const SizedBox(height: 8),
-        Row(
+        KonataSettingsRow(
           children: [
             KonataPillButton.secondary(
               label: testButtonLabel,

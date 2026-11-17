@@ -2,51 +2,51 @@ import 'dart:typed_data';
 import 'package:smb_connect/src/connect/transport/message.dart';
 
 abstract class Response extends Message {
-  /// whether the response is received
+  /// 标识对端应答报文是否已成功送达并完成解码。
   bool isReceived();
 
-  /// Set received status
+  /// 标记当前请求已收到有效应答。
   void setReceived();
 
-  /// Unset received status
+  /// 清除当前请求的已接收状态标记。
   void clearReceived();
 
-  /// number of credits granted by the server
+  /// 本条响应中服务端实际批准授予的信用额度。
   int getGrantedCredits();
 
-  /// status code
+  /// 服务端返回的 NTSTATUS 状态码。
   int getErrorCode();
 
   void setMid(int k);
 
-  /// mid
+  /// 唯一标识当前事务请求/响应配对的消息 ID。
   int getMid();
 
-  /// whether signature verification is successful
+  /// 响应报文签名校验是否通过。
   bool verifySignature(Uint8List buffer, int i, int size);
 
-  /// whether signature verification failed
+  /// 响应报文签名校验是否失败。
   bool isVerifyFailed();
 
-  /// whether the response is an error
+  /// 判断响应是否携带有失败/异常状态码。
   bool isError();
 
-  /// Set error status
+  /// 记录响应解码或协议处理阶段发生的异常状态。
   void error();
 
-  /// the message timeout
+  /// 当前请求允许的独立等待超时时间。
   int? getExpiration();
 
-  /// message timeout
+  /// 返回当前请求适用的等待超时时间。
   void setExpiration(int? exp);
 
   void reset();
 
-  /// an exception linked to an error
+  /// 与本次请求失败状态绑定的异常详情实例。
   Exception? getException();
 
   void setException(Exception? e);
 
-  /// chained response
+  /// 复合响应链中的下一条应答消息对象。
   Response? getNextResponse();
 }

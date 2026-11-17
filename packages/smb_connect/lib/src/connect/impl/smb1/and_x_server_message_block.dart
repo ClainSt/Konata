@@ -40,18 +40,12 @@ abstract class AndXServerMessageBlock extends ServerMessageBlock {
 
   int getBatchLimit(Configuration cfg, int cmd) {
     ///
-    /// the default limit is 0 batched messages before this
-    /// one, meaning this message cannot be batched.
+    /// 默认批处理上限为 0（即该命令前不允许拼接其他前驱消息）。
     return 0;
   }
 
   ///
-  /// We overload this method from ServerMessageBlock because
-  /// we want writeAndXWireFormat to write the parameterWords
-  /// and bytes. This is so we can write batched smbs because
-  /// all but the first smb of the chaain do not have a header
-  /// and therefore we do not want to writeHeaderWireFormat. We
-  /// just recursivly call writeAndXWireFormat.
+  /// 覆写父类序列化入口，确保 `AndX` 链式后续消息仅输出参数字与字节载荷而不重复写入公共 SMB 包头。
   ////
 
   @override
@@ -69,10 +63,7 @@ abstract class AndXServerMessageBlock extends ServerMessageBlock {
   }
 
   ///
-  /// We overload this because we want readAndXWireFormat to
-  /// read the parameter words and bytes. This is so when
-  /// commands are batched together we can recursivly call
-  /// readAndXWireFormat without reading the non-existent header.
+  /// 覆写父类反序列化入口，递归解析 `AndX` 链条中后续不带包头的参数字与字节数据区。
   ////
 
   @override
@@ -115,14 +106,8 @@ abstract class AndXServerMessageBlock extends ServerMessageBlock {
     dstIndex += byteCount;
 
     ///
-    /// Normally, without intervention everything would batch
-    /// with everything else. If the below clause evaluates true
-    /// the andx command will not be written and therefore the
-    /// response will not read a batched command and therefore
-    /// the 'received' member of the response object will not
-    /// be set to true indicating the send and sendTransaction
-    /// methods that the next part should be sent. This is a
-    /// very indirect and simple batching control mechanism.
+    /// 批处理控制条件：当超出允许拼接深度或类型不兼容时中止继续打包并直接跳过空 `AndX` 响应，
+    /// 从而通知上层继续独立发送后续分段报文。
     if (andx == null ||
         !config.isUseBatching ||
         batchLevel >= getBatchLimit(config, andx!.getCommand())) {
@@ -131,21 +116,15 @@ abstract class AndXServerMessageBlock extends ServerMessageBlock {
 
       dst[start + ANDX_COMMAND_OFFSET] = 0xFF;
       dst[start + ANDX_RESERVED_OFFSET] = 0x00;
-      // dst[start + ANDX_OFFSET_OFFSET] = 0x00;
-      // dst[start + ANDX_OFFSET_OFFSET + 1] = 0x00;
       dst[start + ANDX_OFFSET_OFFSET] = 0xde;
       dst[start + ANDX_OFFSET_OFFSET + 1] = 0xde;
 
-      // andx not used; return
+      // 未携带后续 `AndX` 命令，直接结束链式序列化并返回。
       return dstIndex - start;
     }
 
     ///
-    /// The message provided to batch has a batchLimit that is
-    /// higher than the current batchLevel so we will now encode
-    /// that chained message. Before doing so we must increment
-    /// the batchLevel of the andx message in case it itself is an
-    /// andx message and needs to perform the same check as above.
+    /// 当前待拼接子报文允许更高的批处理深度，递增计数后递归编码该链式子消息。
     andx!.batchLevel = batchLevel + 1;
 
     dst[start + ANDX_COMMAND_OFFSET] = andxCommand;
@@ -156,24 +135,13 @@ abstract class AndXServerMessageBlock extends ServerMessageBlock {
     andx!.setUseUnicode(isUseUnicode());
     if (andx is AndXServerMessageBlock) {
       ///
-      /// A word about communicating header info to andx smbs
+      /// 将外层主报文 UID 等必要头部字段透传给子 `AndX` 消息，保证日志与签名上下文一致。
       ///
-      /// This is where we recursively invoke the provided andx smb
-      /// object to write it's parameter words and bytes to our outgoing
-      /// array. Incedentally when these andx smbs are created they are not
-      /// necessarily populated with header data because they're not writing
-      /// the header, only their body. But for whatever reason one might wish
-      /// to populate fields if the writeXxx operation needs this header data
-      /// for whatever reason. I copy over the uid here so it appears correct
-      /// in logging output. Logging of andx segments of messages inadvertantly
-      /// print header information because of the way toString always makes a
-      /// super.toString() call(see toString() at the end of all smbs classes).
       andx!.uid = uid;
       dstIndex +=
           (andx as AndXServerMessageBlock).writeAndXWireFormat(dst, dstIndex);
     } else {
-      // the andx smb is not of type andx so lets just write it here and
-      // were done.
+      // 当前后续子报文并非可继续嵌套的 `AndX` 类型，直接原地写入并结束。
       int andxStart = dstIndex;
       andx!.wordCount = andx!.writeParameterWordsWireFormat(dst, dstIndex);
       dstIndex += andx!.wordCount + 1;
@@ -196,28 +164,23 @@ abstract class AndXServerMessageBlock extends ServerMessageBlock {
 
     if (wordCount != 0) {
       ///
-      /// these fields are common to all andx commands
-      /// so let's populate them here
+      /// 写入所有 `AndX` 链式指令共享的标准偏移与命令码前缀。
       andxCommand = buffer[bufferIndex];
       andxOffset = SMBUtil.readInt2(buffer, bufferIndex + 2);
 
       if (andxOffset == 0) {
-        /// Snap server workaround */
+        /// 兼容旧版 Snap Server 设备响应格式异常的规避处理。
         andxCommand = 0xFF;
       }
 
       ///
-      /// no point in calling readParameterWordsWireFormat if there are no more
-      /// parameter words. besides, win98 doesn't return "OptionalSupport" field
+      /// 兼容 Win98 等不返回 `OptionalSupport` 的旧服务端：无剩余参数字时直接跳过读取。
       if (wordCount > 2) {
         readParameterWordsWireFormat(buffer, bufferIndex + 4);
 
         ///
-        /// The SMB_COM_NT_CREATE_ANDX response wordCount is wrong. There's an
-        /// extra 16 bytes for some "Offline Files (CSC or Client Side Caching)"
-        /// junk. We need to bump up the wordCount here so that this method returns
-        /// the correct number of bytes for signing purposes. Otherwise we get a
-        /// signing verification failure.
+        /// `SMB_COM_NT_CREATE_ANDX` 响应的 `wordCount` 常少算 16 字节客户端缓存结构；
+        /// 需在此向上校准偏移字节数，以保障后续报文长度统计与签名验证无误。
         if (getCommand() == SmbComConstants.SMB_COM_NT_CREATE_ANDX &&
             (this as SmbComNTCreateAndXResponse).isExtended() &&
             (this as SmbComNTCreateAndXResponse).getFileType() != 1) {
@@ -237,10 +200,8 @@ abstract class AndXServerMessageBlock extends ServerMessageBlock {
     }
 
     ///
-    /// if there is an andx and it itself is an andx then just recur by
-    /// calling this method for it. otherwise just read it's parameter words
-    /// and bytes as usual. Note how we can't just call andx.readWireFormat
-    /// because there's no header.
+    /// 若后续响应仍为 `AndX` 则递归解码，否则直接按常规非链式报文读取其参数与载荷，
+    /// 并依 `andxOffset` 同步推进缓冲区游标。
     final andx = this.andx;
     if (errorCode != 0 || andxCommand == 0xFF) {
       andxCommand = 0xFF;
@@ -250,7 +211,7 @@ abstract class AndXServerMessageBlock extends ServerMessageBlock {
       throw SmbRuntimeException("no andx command supplied with response");
     } else {
       ///
-      /// Set bufferIndex according to andxOffset
+      // 根据 `andxOffset` 定位链式子报文起始下标。
       bufferIndex = headerStart + andxOffset;
 
       andx.headerStart = headerStart;
@@ -268,13 +229,12 @@ abstract class AndXServerMessageBlock extends ServerMessageBlock {
         bufferIndex += andx.readAndXWireFormat(buffer, bufferIndex);
       } else {
         ///
-        /// Just a plain smb. Read it as normal.
+        /// 普通非 `AndX` 报文响应，按标准包体流程解码。
         buffer[bufferIndex++] = (andx.wordCount & 0xFF);
 
         if (andx.wordCount != 0) {
           ///
-          /// no point in calling readParameterWordsWireFormat if there are no more
-          /// parameter words. besides, win98 doesn't return "OptionalSupport" field
+          /// 兼容 Win98 等不返回 `OptionalSupport` 的旧服务端：无剩余参数字时直接跳过读取。
           if (andx.wordCount > 2) {
             bufferIndex +=
                 andx.readParameterWordsWireFormat(buffer, bufferIndex);

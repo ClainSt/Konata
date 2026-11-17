@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
 $source = [Drawing.Image]::FromFile((Join-Path $root 'assets/brand/icons/windows.png'))
@@ -8,7 +8,7 @@ function Export-IconPng($path, [int]$size, [bool]$white, [bool]$adaptive, $input
   $graphics.Clear($(if ($white) {[Drawing.Color]::White} else {[Drawing.Color]::Transparent}))
   $graphics.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
   $graphics.CompositingQuality = [Drawing.Drawing2D.CompositingQuality]::HighQuality
-  # Compact stars allow a larger foreground; keep face and stars inside the safe area.
+  # 紧凑排布星标以增大主体前景占比，并确保角色与星标均位于安全区内。
   if ($adaptive) { $edge = $size * 0.50; $offset = ($size - $edge) / 2 } else { $offset = 0; $edge = $size }
   $graphics.DrawImage($inputImage, [single]$offset, [single]$offset, [single]$edge, [single]$edge)
   $bitmap.Save((Join-Path $root $path), [Drawing.Imaging.ImageFormat]::Png)
@@ -16,7 +16,7 @@ function Export-IconPng($path, [int]$size, [bool]$white, [bool]$adaptive, $input
 }
 Export-IconPng 'assets/brand/icons/android.png' 1024 $true $false $source
 Export-IconPng 'assets/brand/konata-ui.png' 128 $false $false $source
-# Match the adaptive foreground (50% of 108 dp) inside a 72 dp round viewport.
+# 将自适应前景占比（108 dp 中的 50%）对齐至 72 dp 圆形视口内部。
 $round = New-Object Drawing.Bitmap 1024,1024
 $roundGraphics = [Drawing.Graphics]::FromImage($round)
 $roundGraphics.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::AntiAlias

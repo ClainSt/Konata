@@ -16,7 +16,6 @@ class Smb2IoctlResponse extends ServerMessageBlock2Response {
   Uint8List? fileId;
   int ioctlFlags = 0;
   Decodable? outputData;
-  // Decodable? inputData;
   int outputLength = 0;
 
   Smb2IoctlResponse(super.config, {this.outputBuffer, this.ctlCode = 0});
@@ -31,12 +30,9 @@ class Smb2IoctlResponse extends ServerMessageBlock2Response {
     int status = getStatus();
     return status != NtStatus.NT_STATUS_INVALID_PARAMETER &&
         !(status == NtStatus.NT_STATUS_INVALID_PARAMETER
-        // && (ctlCode == Smb2IoctlRequest.FSCTL_SRV_COPYCHUNK || ctlCode == Smb2IoctlRequest.FSCTL_SRV_COPYCHUNK_WRITE)
         ) &&
         !(status == NtStatus.NT_STATUS_BUFFER_OVERFLOW &&
             (ctlCode == Smb2IoctlRequest.FSCTL_PIPE_TRANSCEIVE
-            // || ctlCode == Smb2IoctlRequest.FSCTL_PIPE_PEEK
-            // || ctlCode == Smb2IoctlRequest.FSCTL_DFS_GET_REFERRALS
             )) &&
         super.isErrorResponseStatus();
   }
@@ -79,11 +75,8 @@ class Smb2IoctlResponse extends ServerMessageBlock2Response {
     bufferIndex += 4;
     bufferIndex += 4; // Reserved2
 
-    // inputData = createInputDecodable();
     outputData = outputBuffer == null ? createOutputDecodable() : null;
 
-    // if (inputData != null) {
-    //   inputData!.decode(buffer, inputOffset, inputCount);
     // }
     bufferIndex = max(inputOffset + inputCount, bufferIndex);
 
@@ -107,22 +100,9 @@ class Smb2IoctlResponse extends ServerMessageBlock2Response {
 
   Decodable? createOutputDecodable() {
     switch (ctlCode) {
-      // case Smb2IoctlRequest.FSCTL_DFS_GET_REFERRALS:
-      //   return DfsReferralResponseBuffer();
-      // case Smb2IoctlRequest.FSCTL_SRV_REQUEST_RESUME_KEY:
-      //   return SrvRequestResumeKeyResponse();
-      // case Smb2IoctlRequest.FSCTL_SRV_COPYCHUNK:
-      // case Smb2IoctlRequest.FSCTL_SRV_COPYCHUNK_WRITE:
-      //   return SrvCopyChunkCopyResponse();
-      // case Smb2IoctlRequest.FSCTL_VALIDATE_NEGOTIATE_INFO:
-      //   return ValidateNegotiateInfoResponse();
-      // case Smb2IoctlRequest.FSCTL_PIPE_PEEK:
-      //   return SrvPipePeekResponse();
     }
     return null;
   }
 
-  // Decodable? createInputDecodable() {
-  //   return null;
   // }
 }

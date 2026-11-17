@@ -23,9 +23,6 @@ class Smb2StreamConsumer extends SmbStreamConsumer {
   Future writeToFile(List<int> b) async {
     int off = 0;
     int len = b.length;
-    // int blockSize = (this.file.getType() == SmbConstants.TYPE_FILESYSTEM)
-    //     ? this.writeSizeFile
-    //     : this.writeSize;
 
     do {
       int w =

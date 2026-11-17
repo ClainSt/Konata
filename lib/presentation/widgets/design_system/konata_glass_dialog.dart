@@ -1,7 +1,9 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../../theme/konata_adaptive_tokens.dart';
 import '../../theme/konata_palette.dart';
 import 'konata_draggable_dialog.dart';
 
@@ -41,7 +43,7 @@ class KonataGlassDialog extends StatelessWidget {
   /// 主体内容（若外部未提供高度限制且内容较多，建议内部自行滚动或配合 [maxHeight]）。
   final Widget child;
 
-  /// 弹窗固定宽度。
+  /// 弹窗基准宽度（窄视口自动收敛防溢出）。
   final double width;
 
   /// 可选固定高度。
@@ -62,6 +64,27 @@ class KonataGlassDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final screen = MediaQuery.sizeOf(context);
+    final safe = MediaQuery.paddingOf(context);
+    final compact =
+        screen.width < KonataAdaptiveTokens.tabletBreakpoint ||
+        screen.height < KonataAdaptiveTokens.shortViewportHeight;
+    final availableW = math.max(220.0, screen.width - safe.horizontal - 24.0);
+    final availableH = math.max(
+      180.0,
+      screen.height -
+          safe.vertical -
+          MediaQuery.viewInsetsOf(context).vertical -
+          24.0,
+    );
+    final effectiveWidth = math.min(width, availableW);
+    final effectiveHeight = height != null
+        ? math.min(height!, availableH)
+        : null;
+    final effectiveMaxHeight = maxHeight != null
+        ? math.min(maxHeight!, availableH)
+        : (KonataAdaptiveTokens.isAndroid ? availableH : null);
+
     final glassBg = p.isDark
         ? const Color(0xFF1F232D).withValues(alpha: 0.90)
         : const Color(0xFFFDFDFE).withValues(alpha: 0.94);
@@ -69,6 +92,13 @@ class KonataGlassDialog extends StatelessWidget {
         ? Colors.white.withValues(alpha: 0.18)
         : Colors.white.withValues(alpha: 0.95);
     final shadowColor = Colors.black.withValues(alpha: p.isDark ? 0.38 : 0.14);
+
+    Widget body = child;
+    if (effectiveHeight == null &&
+        effectiveMaxHeight != null &&
+        maxHeight == null) {
+      body = SingleChildScrollView(child: child);
+    }
 
     return KonataDraggableDialog(
       child: DecoratedBox(
@@ -87,20 +117,21 @@ class KonataGlassDialog extends StatelessWidget {
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 44, sigmaY: 44),
             child: Container(
-              width: width,
-              height: height,
-              constraints: maxHeight != null
-                  ? BoxConstraints(maxHeight: maxHeight!)
+              width: effectiveWidth,
+              height: effectiveHeight,
+              constraints: effectiveMaxHeight != null
+                  ? BoxConstraints(maxHeight: effectiveMaxHeight)
                   : null,
-              padding: const EdgeInsets.all(22),
+              padding: EdgeInsets.all(compact ? 16 : 22),
               decoration: BoxDecoration(
                 color: glassBg,
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(color: glassBorder, width: 1),
               ),
               child: Column(
-                mainAxisSize:
-                    height != null ? MainAxisSize.max : MainAxisSize.min,
+                mainAxisSize: effectiveHeight != null
+                    ? MainAxisSize.max
+                    : MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
@@ -111,9 +142,11 @@ class KonataGlassDialog extends StatelessWidget {
                             padding: const EdgeInsets.symmetric(vertical: 4),
                             child: Text(
                               title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 color: p.textPrimary,
-                                fontSize: 18,
+                                fontSize: compact ? 16.5 : 18,
                                 fontWeight: FontWeight.w700,
                                 letterSpacing: -0.2,
                               ),
@@ -121,7 +154,7 @@ class KonataGlassDialog extends StatelessWidget {
                           ),
                         ),
                       ),
-                      if (headerTrailing != null) ...[
+                      if (headerTrailing != null && !compact) ...[
                         const SizedBox(width: 8),
                         headerTrailing!,
                       ],
@@ -132,21 +165,25 @@ class KonataGlassDialog extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  if (height != null || maxHeight != null)
-                    Flexible(child: child)
+                  if (headerTrailing != null && compact) ...[
+                    const SizedBox(height: 8),
+                    headerTrailing!,
+                  ],
+                  SizedBox(height: compact ? 12 : 16),
+                  if (effectiveHeight != null || effectiveMaxHeight != null)
+                    Flexible(child: body)
                   else
-                    child,
+                    body,
                   if (actions != null && actions!.isNotEmpty) ...[
-                    const SizedBox(height: 18),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        for (int i = 0; i < actions!.length; i++) ...[
-                          if (i > 0) const SizedBox(width: 10),
-                          actions![i],
-                        ],
-                      ],
+                    SizedBox(height: compact ? 12 : 18),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 10,
+                        runSpacing: 8,
+                        children: actions!,
+                      ),
                     ),
                   ],
                 ],
@@ -159,7 +196,7 @@ class KonataGlassDialog extends StatelessWidget {
   }
 }
 
-/// 圆形半透明微光关闭按钮（供毛玻璃侧栏与弹窗头部复用）。
+/// 圆形半透明微光关闭按钮（供毛玻璃侧栏与弹窗头部复用，Android 保证 48dp 热区）。
 class KonataGlassCloseButton extends StatefulWidget {
   /// 创建圆形微光关闭按钮。
   const KonataGlassCloseButton({
@@ -185,6 +222,9 @@ class _KonataGlassCloseButtonState extends State<KonataGlassCloseButton> {
   Widget build(BuildContext context) {
     final p = context.palette;
     final enabled = widget.onPressed != null;
+    final touchSize = KonataAdaptiveTokens.isAndroid
+        ? KonataAdaptiveTokens.touchTarget
+        : 30.0;
 
     return Tooltip(
       message: widget.tooltip,
@@ -193,24 +233,31 @@ class _KonataGlassCloseButtonState extends State<KonataGlassCloseButton> {
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
         child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onTap: widget.onPressed,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 140),
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: _hovered && enabled ? p.surfaceHover : p.surface,
-              border: Border.all(
-                color: _hovered && enabled ? p.hoverBorder : p.hairline,
-                width: 1,
+          child: SizedBox(
+            width: touchSize,
+            height: touchSize,
+            child: Center(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 140),
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _hovered && enabled ? p.surfaceHover : p.surface,
+                  border: Border.all(
+                    color: _hovered && enabled ? p.hoverBorder : p.hairline,
+                    width: 1,
+                  ),
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  Icons.close_rounded,
+                  size: 16,
+                  color: enabled ? p.textSecondary : p.textMuted,
+                ),
               ),
-            ),
-            alignment: Alignment.center,
-            child: Icon(
-              Icons.close_rounded,
-              size: 16,
-              color: enabled ? p.textSecondary : p.textMuted,
             ),
           ),
         ),

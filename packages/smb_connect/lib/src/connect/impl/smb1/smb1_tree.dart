@@ -20,8 +20,7 @@ class Smb1Tree extends SmbTree {
     SmbNegotiationResponse? nego = transport.getNegotiatedResponse();
     String unc = "\\\\$tconHostName\\$share";
     //
-    // IBM iSeries doesn't like specifying a service. Always reset
-    // the service to whatever was determined in the constructor.
+    // 兼容 IBM iSeries 服务端：禁止携带显式服务类型串，始终重置为构造默认服务标识。
     //
     String? svc = service0;
 

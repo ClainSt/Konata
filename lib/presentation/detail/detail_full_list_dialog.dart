@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import '../../domain/models/episode.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/playback/cue_variant_resolver.dart';
 import '../../infrastructure/cache/scan_thumbnail_scheduler.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
@@ -318,8 +320,22 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
   Widget build(BuildContext context) {
     final p = context.palette;
     final screenSize = MediaQuery.sizeOf(context);
-    final dialogWidth = (screenSize.width * 0.84).clamp(620.0, 1180.0);
-    final dialogHeight = (screenSize.height * 0.82).clamp(480.0, 820.0);
+    final safe = MediaQuery.paddingOf(context);
+    final compact =
+        screenSize.width < KonataAdaptiveTokens.tabletBreakpoint ||
+        screenSize.height < KonataAdaptiveTokens.shortViewportHeight;
+    final dialogWidth = (compact
+        ? math.max(240.0, screenSize.width - safe.horizontal - 24.0)
+        : (screenSize.width * 0.84).clamp(
+            math.min(620.0, screenSize.width - 24.0),
+            1180.0,
+          )).toDouble();
+    final dialogHeight = (compact
+        ? math.max(200.0, screenSize.height - safe.vertical - 24.0)
+        : (screenSize.height * 0.82).clamp(
+            math.min(480.0, screenSize.height - 24.0),
+            820.0,
+          )).toDouble();
 
     final mainEps = widget.bundle.episodes
         .where((e) => e.category == EpisodeCategory.main)
@@ -439,7 +455,12 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
                   width: 1,
                 ),
               ),
-              padding: const EdgeInsets.fromLTRB(22, 18, 22, 18),
+              padding: EdgeInsets.fromLTRB(
+                compact ? 14.0 : 22.0,
+                compact ? 12.0 : 18.0,
+                compact ? 14.0 : 22.0,
+                compact ? 12.0 : 18.0,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -455,29 +476,39 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
                               overflow: TextOverflow.ellipsis,
                               style: KonataTheme.detailTextStyle(
                                 palette: p,
-                                fontSize: 17,
+                                fontSize: compact ? 15.5 : 17,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      SizedBox(
-                        width: 248,
-                        height: 34,
-                        child: _FrostedSearchField(
-                          controller: _searchController,
-                          onChanged: (v) {
-                            if (_query == v) return;
-                            setState(() => _query = v);
-                            _jumpToTop();
-                          },
+                      if (!compact) ...[
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 248,
+                          height: KonataAdaptiveTokens.isAndroid
+                              ? KonataAdaptiveTokens.touchTarget
+                              : 34,
+                          child: _FrostedSearchField(
+                            controller: _searchController,
+                            onChanged: (v) {
+                              if (_query == v) return;
+                              setState(() => _query = v);
+                              _jumpToTop();
+                            },
+                          ),
                         ),
-                      ),
+                      ],
                       const SizedBox(width: 10),
                       IconButton(
                         tooltip: '关闭 (Esc)',
+                        constraints: KonataAdaptiveTokens.isAndroid
+                            ? const BoxConstraints(
+                                minWidth: KonataAdaptiveTokens.touchTarget,
+                                minHeight: KonataAdaptiveTokens.touchTarget,
+                              )
+                            : null,
                         onPressed: () => Navigator.of(context).pop(),
                         style: IconButton.styleFrom(
                           backgroundColor: KonataPlaybackTokens.softFill(p),
@@ -494,6 +525,22 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
                       ),
                     ],
                   ),
+                  if (compact) ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: KonataAdaptiveTokens.isAndroid
+                          ? KonataAdaptiveTokens.touchTarget
+                          : 36,
+                      child: _FrostedSearchField(
+                        controller: _searchController,
+                        onChanged: (v) {
+                          if (_query == v) return;
+                          setState(() => _query = v);
+                          _jumpToTop();
+                        },
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,

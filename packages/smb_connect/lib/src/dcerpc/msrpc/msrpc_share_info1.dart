@@ -26,7 +26,7 @@ class MsrpcShareInfo1 implements FileEntry {
   @override
   int getType() {
     ///
-    /// 0x80000000 means hidden but SmbFile.isHidden() checks for $ at end
+    /// `0x80000000` 表示系统管理共享；对外按末尾 `$` 号判定隐藏属性。
     ///
     switch (type & 0xFFFF) {
       case 1:

@@ -3,9 +3,9 @@ import 'cloud_media_file_classifier.dart';
 import 'personal_filename_parser.dart';
 import 'work_matcher.dart';
 
-/// Filename tokens are used only for matching and short extra labels.
+/// 文件名解析词条仅用于元数据匹配及生成简洁特典展示标签。
 class CloudMediaAssetPresentation {
-  /// Explicit film labels on unnumbered main files in a television inventory.
+  /// 在剧集型目录清单中，为无集号主正片识别显式剧场版/电影标签。
   static bool isIndependentMovie(Map<String, Object?> asset) {
     if (asset['category'] != 'main' ||
         asset['episode'] != null ||
@@ -62,7 +62,7 @@ class CloudMediaAssetPresentation {
     return tokens.every(_technicalBracketToken.hasMatch);
   }
 
-  /// Display-only cleanup: keep content labels and numbering intact.
+  /// 仅用于展示层的标签清洗：完整保留内容类型标识与原始编号。
   static String cleanedExtraFilename(Map<String, Object?> asset) {
     final original = asset['name']?.toString().trim();
     final path =
@@ -123,8 +123,8 @@ class CloudMediaAssetPresentation {
     caseSensitive: false,
   );
 
-  // Releases such as Moozzi2 use [SP02] or "- SP07 [OVA - 01]" as a disc/clip
-  // index before a descriptive bracketed content label. A bare [SP01] stays SP.
+  // 部分压制组（如 Moozzi2）习惯用 `[SP02]` 或 `- SP07 [OVA - 01]` 作为光盘或片段索引
+  // 置于括号内容说明前；若仅有裸 `[SP01]` 而无额外描述，则仍保留为 SP。
   static String? _groupedSpecialContent(String name) {
     var bracketedGroup = true;
     var group = RegExp(r'\[SP\d{1,3}\]', caseSensitive: false).firstMatch(name);
@@ -181,7 +181,7 @@ class CloudMediaAssetPresentation {
     if (!RegExp(r'[a-z\u3040-\u9fff]', caseSensitive: false).hasMatch(suffix)) {
       return null;
     }
-    // Codec-only trailing tags do not describe a separate content item.
+    // 仅包含编码参数信息的尾部标签不能代表独立特典条目。
     final cleaned = cleanedExtraFilename({'name': '$suffix.mkv'});
     if (cleaned.trim().isEmpty) return null;
     if (!bracketedGroup &&
@@ -218,8 +218,8 @@ class CloudMediaAssetPresentation {
         caseSensitive: false,
       ).firstMatch(name);
       if (interview != null) return 'IV${interview.group(3)}';
-      // Only accept an isolated release label. Codec/resolution tags must
-      // never become the title of an otherwise unidentified extra.
+      // 仅采信独立且明确的内容发布标签；编码器与分辨率标签绝不能
+      // 充当未识别特典的显示标题。
       final labels = RegExp(
         r'\[([a-z]{1,8})[ ._-]?(\d{1,3}[a-z]?)\]',
         caseSensitive: false,
@@ -398,9 +398,9 @@ class CloudMediaAssetPresentation {
   static String category(Map<String, Object?> asset) {
     if (extraType(asset) == 'MENU') return 'extra';
     final category = '${asset['category']}';
-    // Legacy/ambiguous videos remain editable as "review" in association
-    // management, but the detail page places them under extras so no playable
-    // file disappears from the UI.
+    // 历史或语义模糊的视频在关联管理页中保留“待确认”以便手动调整；
+    // 但详情页会统一归入特典标签页，确保任何可播文件都不会从界面消失。
+    // 详情页归类兜底，防止局部影片遗漏展示。
     return category == 'review' ? 'extra' : category;
   }
 
@@ -410,9 +410,9 @@ class CloudMediaAssetPresentation {
   static int? explicitSeasonNumber(Map<String, Object?> asset) {
     final explicit = int.tryParse('${asset['season_number'] ?? ''}');
     if (explicit != null) return explicit;
-    // A relative asset path can omit the selected library root, so retain
-    // the work identity as a fallback. Never infer a season from a bare
-    // number: it may be an episode, release year, or resolution.
+    // 相对资源路径可能不含所选媒体库根目录，因此保留作品身份作为兜底；
+    // 绝不能根据裸数字反推季号：该数字可能是集数、发行年份或分辨率。
+    // 避免将集号、年份或清晰度误判为季度编号。
     for (final value in [
       asset['name'],
       asset['relative_path'],
@@ -427,9 +427,9 @@ class CloudMediaAssetPresentation {
 
   static int? _seasonFromText(String value) {
     final text = value.replaceAll('\\', '/');
-    // A collection marker such as S1+S2 or S01-S02 describes several
-    // seasons, not a per-file season. Continue checking other sources so
-    // an explicit filename S02E01 still wins over its collection directory.
+    // 如 `S1+S2`、`S01-S02` 等合集标识涵盖多个季度，而非单文件所属季号；
+    // 此处需继续检索其余线索，确保文件名中显式的 `S02E01` 仍能
+    // 优先覆盖外层合集目录标记。
     if (RegExp(
           r'(?<![a-z0-9])S(\d{1,2})[ ._]*(?:[+&~～]|[-–—])[ ._]*S?(\d{1,2})(?![a-z0-9])',
           caseSensitive: false,
@@ -480,9 +480,9 @@ class CloudMediaAssetPresentation {
     return null;
   }
 
-  /// Only unseasoned files may use absolute numbering across consecutive
-  /// TMDB seasons. Explicit SxxExx/folder seasons align cumulative numbers
-  /// when locked onto season K > 1.
+  /// 仅未标记季度的文件允许跨连续 TMDB 季度使用绝对集号；
+  /// 当文件已通过 `SxxExx` 或目录锁定到 `K > 1` 季时，
+  /// 需按季度偏移将累计集号对齐至当季局部集号。
   static ({int season, int number})? episodeCoordinates(
     Map<String, Object?> asset,
     Map<String, dynamic> seasons,
@@ -557,8 +557,8 @@ class CloudMediaAssetPresentation {
     if (category(asset) != 'extra' || specialType(asset) == null) return false;
     final original = asset['name']?.toString() ?? '';
     final name = (_groupedSpecialContent(original) ?? original).toLowerCase();
-    // A later promotional token overrides an earlier OVA/OAD label.
-    // Match complete tokens so titles such as "Acme" remain eligible.
+    // 靠后出现的宣传片词条权重覆盖先前的 OVA/OAD 标签。
+    // 严格按完整单词边界匹配词条，防止误伤含 `CM` 等子串的标题。
     if (RegExp(
       r'(^|[^a-z0-9])(?:tvcm|bdcm|pvcm|cm|pv)(?:[\s._-]*\d+)?(?=[^a-z0-9]|$)',
     ).hasMatch(name)) {
@@ -631,8 +631,8 @@ class CloudMediaAssetPresentation {
         '',
   );
 
-  /// Normalizes English/Roman part numerals (`I..X`, `ONE..SIX`) to Arabic digits
-  /// while keeping word boundaries so subtitle comparisons handle `Stage I` == `Stage 1`.
+  /// 将英文与罗马篇章数字（`I..X`、`ONE..SIX`）归一化为阿拉伯数字，
+  /// 同时保持词边界校验，使副标题比对能正确等价 `Stage I` 与 `Stage 1`。
   static String normalizeWithNumerals(String value) {
     var text = PersonalFilenameParser.unifyIdentityPunctuation(value)
         .replaceAll(RegExp(r'\{tmdb-\d+\}', caseSensitive: false), ' ')
@@ -656,7 +656,7 @@ class CloudMediaAssetPresentation {
       );
     }
     const singleMap = {'I': '1', 'V': '5', 'X': '10'};
-    // Context-guarded Roman numerals I/V/X after title keywords or trailing boundaries.
+    // 对紧跟在标题关键词后或位于末尾边界的罗马数字 `I/V/X` 做上下文保护归一化。
     text = text.replaceAllMapped(
       RegExp(
         r'\b(stage|part|pt|vol|volume|act|phase|chapter|season|series|ova|oad|sp|special|disc|disk|episode|ep|alternative|alter|story|arc|movie|film)\s+(I|V|X)\b',
@@ -709,8 +709,8 @@ class CloudMediaAssetPresentation {
     return numbers;
   }
 
-  /// Compares two subtitles using numeral equivalence, part-number conflict guards,
-  /// and stopword-trimmed token containment (`Part I` -> `Part`,
+  /// 综合数字等价归一化、篇目编号冲突保护以及停用词裁剪后的词元包含关系
+  /// （例如将 `Part I` 规范化后比对）来判定两段副标题是否指向同一作品内容。
   /// `The Way to Finale` -> `Finale`).
   static double subtitleSimilarity(String a, String b) {
     final normA = normalizeWithNumerals(a);
@@ -729,7 +729,7 @@ class CloudMediaAssetPresentation {
 
     var best = WorkMatcher.similarity(compactA, compactB);
 
-    // First installment often omits "1" / "I" (e.g. "Side Story I" vs "Side Story").
+    // 系列首作常省略编号 `1` / `I`（如 `Side Story I` 与 `Side Story` 视为同指）。
     if ((numsA.isNotEmpty && numsB.isEmpty && numsA.last == 1) ||
         (numsB.isNotEmpty && numsA.isEmpty && numsB.last == 1)) {
       final strippedA =
@@ -827,8 +827,8 @@ class CloudMediaAssetPresentation {
     }
     final text = content ?? cleanedExtraFilename(asset);
     if (prefixStrip.isEmpty && content == null) {
-      // Without a known work title or grouped subtitle block, do not treat
-      // the main show stem before [OVA]/[SP] as an exclusive subtitle.
+      // 在缺乏已知作品名或成组副标题块的前提下，
+      // 不将 `[OVA]`/`[SP]` 前方的主体词干视为独占副标题。
       return const [];
     }
     final normalized = normalizeWithNumerals(text);
@@ -1012,10 +1012,10 @@ class CloudMediaAssetPresentation {
     return explicitSpecialNumber({'name': stripped});
   }
 
-  /// Uses the explicit OVA/SP number first, then subtitle/semantic/season
-  /// alignment and stable same-type ordering.
-  /// The computed mapping is stored with the TMDB cache and never renames a
-  /// cloud file.
+  /// 优先匹配显式 `OVA/SP` 编号，其次综合副标题、语义关键词与季度对齐，
+  /// 最后按同类型稳定顺序分配；计算得到的映射结果仅写入 TMDB 缓存，
+  /// 绝不会重命名任何媒体源中的原始文件。
+  /// 仅更新本地缓存映射表以保证媒体源只读安全。
   static Map<String, Map<String, dynamic>> mapSpecialEpisodes({
     required List<Map<String, Object?>> assets,
     required List<Map<String, dynamic>> specials,
@@ -1064,8 +1064,8 @@ class CloudMediaAssetPresentation {
       return airYear == null || (airYear - yearInt).abs() <= 1;
     }
 
-    // Pass 1: Exclusive subtitle high-confidence binding (allows cross-year spin-off
-    // matches like "[SP07] [Show Evol OVA]" while blocking generic "Show [OVA].mkv").
+    // 第一轮：独占副标题高置信绑定（支持跨年份外传匹配如 `[SP07] [Show Evol OVA]`，
+    // 同时拦截泛化文件名 `Show [OVA].mkv` 发生误绑）。
     final allCandidates = assets.where(isSpecialMappingCandidate).toList()
       ..sort((a, b) => assetKey(a).compareTo(assetKey(b)));
     for (final asset in allCandidates) {
@@ -1134,7 +1134,7 @@ class CloudMediaAssetPresentation {
       }
     }
 
-    // Pass 2: Group remaining assets by subfamily (OVA -> SP -> OVA_SP).
+    // 第二轮：按子类别分组处理剩余特典资源（顺序：`OVA -> SP -> OVA_SP`）。
     final assetsByType = <String, List<Map<String, Object?>>>{};
     for (final asset in allCandidates) {
       if (matchedPaths.contains(assetKey(asset))) continue;
@@ -1178,7 +1178,7 @@ class CloudMediaAssetPresentation {
       final sortedPool = [...pool]..sort(compareWithSeasonAffinity);
       var nextIndex = 0;
 
-      // Detect a contiguous numbered short sub-series in Season 0 (e.g.
+      // 检测第 0 季中连续编号的短篇子系列（便于成段按序对齐）。
       // "小加速世界 1..8" spanning S00E01,02,04..07,09,10 around interleaved OVAs).
       final prefixBuckets = <String, Map<int, List<Map<String, dynamic>>>>{};
       final prefixRegex = RegExp(
@@ -1219,8 +1219,8 @@ class CloudMediaAssetPresentation {
         }
       }
 
-      // In multi-season sub-pools (e.g. Season 2's S0E07..S0E12 named "SP1..SP6"),
-      // check whether entries carry distinct relative title numbers matching the asset.
+      // 在多季共享特别篇池中（例如第 2 季对应 S0E07..S0E12 且命名为 `SP1..SP6`），
+      // 核验条目标题是否携带与当前资源一致的相对编号。
       final useRelativeTitleNumbers =
           !allowDirectEpisodeMatch &&
           group.any((a) => explicitSpecialNumber(a) != null) &&
@@ -1345,7 +1345,7 @@ class CloudMediaAssetPresentation {
         return score;
       }
 
-      // Check whether assets have semantic/episode clues needing best-score pairing.
+      // 检查资源是否包含语义或集数线索，决定是否需按最高分最优配对。
       final hasClues = group.any((a) {
         final original = a['name']?.toString() ?? '';
         final text = _groupedSpecialContent(original) ?? cleanedExtraFilename(a);
@@ -1501,10 +1501,10 @@ class CloudMediaAssetPresentation {
           typeAssets.where((a) => explicitSpecialNumber(a) == null).toList()
             ..sort((a, b) => assetKey(a).compareTo(assetKey(b)));
 
-      // Preempt numbered slots ONLY for OVA bundles with an explicit standalone
-      // OAD/OVA volume label (e.g. Show OAD + OVA 01..06).
-      // For SP bundles (e.g. SP1..2 + 03 alter-end, 04 alter-end), numbered SPs
-      // must lock slots 1..2 first so alternate endings align semantically after them.
+      // 仅当 OVA 合集明确附带独立 `OAD/OVA` 卷标时，允许其优先占位数号槽位
+      // （例如主 OVA 附带 OAD + OVA 01..06）；
+      // 对于 SP 组合（例如 `SP1..2 + 03/04` 分支结局），必须先锁定编号 `1..2` 的槽位，
+      // 再让无标准编号的分支结局随后按语义对齐。
       final preemptStandaloneOad =
           family == 'OVA' &&
           unnumberedAssets.isNotEmpty &&
@@ -1623,7 +1623,7 @@ class CloudMediaAssetPresentation {
         );
       }
 
-      // Remaining unnumbered assets run AFTER numbered assets lock their slots.
+      // 所有未编号资源统一安排在已编号资源锁定槽位之后再执行匹配。
       final remainingUnnumbered = unnumberedAssets
           .where((a) => !matchedPaths.contains(assetKey(a)))
           .toList();
@@ -1640,8 +1640,8 @@ class CloudMediaAssetPresentation {
                     .toList(),
                 remainingUnnumbered.length,
               );
-        // For SPs with alternate-ending/episode clues, also check unclaimed Season 0
-        // entries inside yearInt ± 1 whose overview mentions endings/episodes.
+        // 对于带有分支结局或特典集线索的 SP，额外检索 `yearInt ± 1` 区间内
+        // 尚未被认领且简介提及结局或对应话数的第 0 季条目。
         if (family == 'SP' && unnumberedPool.length < remainingUnnumbered.length) {
           final extraCandidates = specials.where((e) {
             if (claimed.contains(_specialOrder(e)) || isRecap(e)) return false;
@@ -1658,8 +1658,8 @@ class CloudMediaAssetPresentation {
         assignUnnumberedWithSemantics(remainingUnnumbered, unnumberedPool);
       }
 
-      // OVA_SP fallback: if dedicated OVA_SP Season 0 entries are absent/exhausted,
-      // fall back to unclaimed SP entries (matching year/season/OVA overview cues).
+      // 混合特典兜底：若第 0 季专属条目缺失或已用尽，
+      // 回退至未被占用的 SP 条目并结合年份/季度/简介线索匹配。
       if (family == 'OVA_SP') {
         final leftOver = typeAssets
             .where((a) => !matchedPaths.contains(assetKey(a)))
@@ -1729,8 +1729,8 @@ class CloudMediaAssetPresentation {
     return match?.group(2)?.toUpperCase();
   }
 
-  /// Filename scanners commonly call an OVA what TMDB names an OAD (and vice
-  /// versa). They share the same specials pool, while SP stays independent.
+  /// 压制组命名常将 TMDB 标注的 `OAD` 称为 `OVA`（反之亦然），
+  /// 二者共享同一特别篇候选池，而 `SP` 序列保持独立。
   static String _specialFamily(String? type) =>
       type == 'OVA' || type == 'OAD' || type == 'EX' ? 'OVA' : type ?? '';
 

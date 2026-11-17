@@ -66,7 +66,7 @@ class Smb1Connect extends SmbConnect {
     var tree = await shareTree(share);
     if (isCapabilitiyNtSMBS()) {
       //
-      // Trans2 Query Path Information Request / Response
+      // Trans2 按路径查询元信息请求与响应处理器。
       //
       var response =
           Trans2QueryPathInformationResponse(configuration, infoLevel);
@@ -85,7 +85,7 @@ class Smb1Connect extends SmbConnect {
       }
     } else {
       //
-      // Query Information Request / Response
+      // 基础文件属性查询请求与响应处理器。
       //
       var response = SmbComQueryInformationResponse(
           configuration, getServerTimeZoneOffset());
@@ -137,7 +137,6 @@ class Smb1Connect extends SmbConnect {
   Future<SmbFile> delete(SmbFile file) async {
     if (!file.canWrite()) {
       throw "Access denied";
-      // return false;
     }
     var tree = await shareTree(file.share);
     ServerMessageBlock req;
@@ -159,12 +158,8 @@ class Smb1Connect extends SmbConnect {
       throw "Can't delete ${file.path}: ${SmbException.getMessageByCode(resp.errorCode)}";
     }
     return SmbFile.notExists(file.path, file.uncPath, file.share);
-    // throw SmbException.getMessageByCode(req.status);
   }
 
-  // @override
-  // Future<SmbFile> copyTo(SmbFile srcFile, String dstPath,
-  //     {bool replace = false}) {
   // }
 
   @override

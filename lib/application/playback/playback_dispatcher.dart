@@ -10,9 +10,11 @@ import '../../domain/playback/cue_variant_resolver.dart';
 import '../../infrastructure/players/audio_art_extractor.dart';
 import '../../domain/repositories/external_player_launcher.dart';
 import '../providers/library_providers.dart';
+import '../providers/platform_capability.dart';
 import '../providers/playback_providers.dart';
 import 'audio_playback_notifier.dart';
 import 'playback_preferences_provider.dart';
+import 'unified_playback_coordinator.dart';
 import 'video_playback_controller.dart';
 
 /// 视频播放统一分发决策结果（保持 `application -> presentation` 严格单向隔离）。
@@ -101,13 +103,15 @@ class PlaybackDispatcher {
         .length;
 
     final prefs = _ref.read(playbackPreferencesProvider);
-    final effectiveEngine = explicitPlayer != null
-        ? PreferredPlaybackEngine.externalPlayer
-        : (overrideEngine ?? prefs.defaultVideoEngine);
+    final effectiveEngine = KonataPlatform.isAndroid
+        ? PreferredPlaybackEngine.builtinLibmpv
+        : (explicitPlayer != null
+              ? PreferredPlaybackEngine.externalPlayer
+              : (overrideEngine ?? prefs.defaultVideoEngine));
 
     if (effectiveEngine == PreferredPlaybackEngine.builtinLibmpv) {
       final runtime = await _ref.read(mpvRuntimeVersionsProvider.future);
-      if (runtime.isAvailable) {
+      if (runtime.isAvailable || KonataPlatform.isAndroid) {
         // 互斥暂停全局迷你音频播放器，避免内置视频与音频同时发声
         await _ref.read(audioPlaybackProvider.notifier).pauseForVideoSession();
 
@@ -176,13 +180,18 @@ class PlaybackDispatcher {
   }) async {
     final source = sourcesById[variant.sourceId];
     final prefs = _ref.read(playbackPreferencesProvider);
-    final effectiveEngine = explicitPlayer != null
-        ? PreferredPlaybackEngine.externalPlayer
-        : (overrideEngine ?? prefs.defaultAudioEngine);
+    final effectiveEngine = KonataPlatform.isAndroid
+        ? PreferredPlaybackEngine.builtinLibmpv
+        : (explicitPlayer != null
+              ? PreferredPlaybackEngine.externalPlayer
+              : (overrideEngine ?? prefs.defaultAudioEngine));
 
     if (effectiveEngine == PreferredPlaybackEngine.builtinLibmpv) {
       final runtime = await _ref.read(mpvRuntimeVersionsProvider.future);
-      if (runtime.isAvailable) {
+      if (runtime.isAvailable || KonataPlatform.isAndroid) {
+        if (_ref.read(activeVideoSessionProvider).isActive) {
+          await _ref.read(activeVideoSessionProvider.notifier).closeVideo();
+        }
         final effectiveList = cdPlaylist.isEmpty ? [variant] : cdPlaylist;
         await _ref
             .read(audioPlaybackProvider.notifier)
@@ -278,6 +287,9 @@ class PlaybackDispatcher {
     required MediaVariant variant,
     MediaSource? source,
   }) {
+    if (KonataPlatform.isAndroid) {
+      return Future<LaunchPlaybackResult?>.value(null);
+    }
     return _ref
         .read(playbackCoordinatorProvider)
         .openExternalScan(work: work, variant: variant, source: source);

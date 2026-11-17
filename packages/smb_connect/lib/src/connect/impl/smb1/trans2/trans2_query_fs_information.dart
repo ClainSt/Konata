@@ -39,11 +39,7 @@ class Trans2QueryFSInformation extends SmbComTransaction {
     SMBUtil.writeInt2(_mapInformationLevel(_informationLevel), dst, dstIndex);
     dstIndex += 2;
 
-    /// windows98 has what appears to be another 4 0's followed by the share
-    /// name as a zero terminated ascii string "\TMP" + '\0'
     ///
-    /// As is this works, but it deviates from the spec section 4.1.6.6 but
-    /// maybe I should put it in. Wonder what NT does?
 
     return dstIndex - start;
   }

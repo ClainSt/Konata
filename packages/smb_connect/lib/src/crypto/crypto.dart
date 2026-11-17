@@ -40,7 +40,6 @@ class Crypto {
 
   static Uint8List des7to8(List<int> key) {
     Uint8List key8 = Uint8List(8);
-    // byte key8[] = new byte[8];
     key8[0] = key[0] & 0xFE;
     key8[1] = (key[0] << 7) | ((key[1] & 0xFF) >>> 1);
     key8[2] = (key[1] << 6) | ((key[2] & 0xFF) >>> 2);

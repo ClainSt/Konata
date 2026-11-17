@@ -5,7 +5,6 @@ import 'package:smb_connect/src/connect/smb_util.dart';
 import 'package:smb_connect/src/utils/extensions.dart';
 import 'package:smb_connect/src/utils/strings.dart';
 
-// TODO: all vars to final decode to factory constructor
 class FileRenameInformation2 implements FileInformation {
   bool _replaceIfExists;
   String? _fileName;

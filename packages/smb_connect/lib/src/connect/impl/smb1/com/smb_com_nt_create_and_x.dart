@@ -13,9 +13,9 @@ import 'smb_com_nt_create_and_x_response.dart';
 
 class SmbComNTCreateAndX extends AndXServerMessageBlock
     implements Request<SmbComNTCreateAndXResponse> {
-  // share access specified in SmbFile
+  // 沿用 `SmbFile` 构造函数声明的共享访问标志。
 
-  // create disposition
+  // 文件创建/打开处置策略参数（CreateDisposition）。
 
   static const int FILE_SUPERSEDE = 0x0;
 
@@ -29,13 +29,13 @@ class SmbComNTCreateAndX extends AndXServerMessageBlock
 
   static const int FILE_OVERWRITE_IF = 0x5;
 
-  // create options
+  // 文件创建附加选项掩码（CreateOptions）。
   static const int FILE_WRITE_THROUGH = 0x00000002;
   static const int FILE_SEQUENTIAL_ONLY = 0x00000004;
   static const int FILE_SYNCHRONOUS_IO_ALERT = 0x00000010;
   static const int FILE_SYNCHRONOUS_IO_NONALERT = 0x00000020;
 
-  // security flags
+  // 安全描述符与模拟级别标志位（SecurityFlags）。
   static const int SECURITY_CONTEXT_TRACKING = 0x01;
   static const int SECURITY_EFFECTIVE_ONLY = 0x02;
 
@@ -69,27 +69,27 @@ class SmbComNTCreateAndX extends AndXServerMessageBlock
         SmbConstants.FILE_READ_EA |
         SmbConstants.FILE_READ_ATTRIBUTES;
 
-    // extFileAttributes
+    // 扩展文件属性位掩码。
     extFileAttributes = extFileAttributes;
 
-    // shareAccess
+    // 文件共享访问控制模式。
     shareAccess = shareAccess;
 
-    // createDisposition
+    // 打开或新建文件处置语义。
     if ((flags & SmbConstants.O_TRUNC) == SmbConstants.O_TRUNC) {
-      // truncate the file
+      // 目标文件存在时清零截断原内容。
       if ((flags & SmbConstants.O_CREAT) == SmbConstants.O_CREAT) {
-        // create it if necessary
+        // 若文件不存在则创建新文件。
         createDisposition = FILE_OVERWRITE_IF;
       } else {
         createDisposition = FILE_OVERWRITE;
       }
     } else {
-      // don't truncate the file
+      // 打开已有文件并保留原有数据内容。
       if ((flags & SmbConstants.O_CREAT) == SmbConstants.O_CREAT) {
-        // create it if necessary
+        // 若文件不存在则创建新文件。
         if ((flags & SmbConstants.O_EXCL) == SmbConstants.O_EXCL) {
-          // fail if already exists
+          // 若文件已存在则令请求失败返回冲突错误。
           createDisposition = FILE_CREATE;
         } else {
           createDisposition = FILE_OPEN_IF;
@@ -129,7 +129,7 @@ class SmbComNTCreateAndX extends AndXServerMessageBlock
     int start = dstIndex;
 
     dst[dstIndex++] = 0x00;
-    // name length without counting null termination
+    // 目标名称字节长度（不含结尾空终止符）。
     namelenIndex = dstIndex;
     dstIndex += 2;
     SMBUtil.writeInt4(flags0, dst, dstIndex);

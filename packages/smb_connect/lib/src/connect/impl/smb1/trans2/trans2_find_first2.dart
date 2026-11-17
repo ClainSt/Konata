@@ -8,7 +8,7 @@ import 'package:smb_connect/src/utils/base.dart';
 import 'package:smb_connect/src/utils/strings.dart';
 
 class Trans2FindFirst2 extends SmbComTransaction {
-  // flags
+  // 协议命令控制标志位掩码。
 
   static const int FLAGS_CLOSE_AFTER_THIS_REQUEST = 0x01;
   static const int FLAGS_CLOSE_IF_END_REACHED = 0x02;
@@ -23,7 +23,7 @@ class Trans2FindFirst2 extends SmbComTransaction {
   int _maxItems = 0;
   String? _wildcard;
 
-  // information levels
+  // SMB/FSCC 信息查询级别标识常量。
 
   static const int SMB_INFO_STANDARD = 1;
   static const int SMB_INFO_QUERY_EA_SIZE = 2;

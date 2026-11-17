@@ -489,7 +489,7 @@ class _PeExportParser {
     if (magic != 0x20B) {
       throw FormatException('仅支持 PE32+ (x64) DLL, magic=0x${magic.toRadixString(16)}');
     }
-    // PE32+ Optional Header: DataDirectory starts at optOffset + 112.
+    // PE32+ 可选头结构中 DataDirectory 起始于 optOffset + 112。
     final exportRva = data.getUint32(optOffset + 112, Endian.little);
     final exportSize = data.getUint32(optOffset + 116, Endian.little);
     if (exportRva == 0 || exportSize == 0) {

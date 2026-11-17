@@ -116,7 +116,7 @@ abstract final class CompactWebpEncoder {
         ((hasAlpha ? 1 : 0) << 28);
     writer.writeBits(headerWord, 32);
 
-    // Transform: COLOR_INDEXING_TRANSFORM (type = 3)
+    // 图像变换头：采用调色板索引变换（`COLOR_INDEXING_TRANSFORM`，类型码 3）
     writer.writeBits(1, 1); // transform_present = 1
     writer.writeBits(3, 2); // COLOR_INDEXING_TRANSFORM
     writer.writeBits(palette.length - 1, 8);
@@ -313,13 +313,13 @@ abstract final class CompactWebpEncoder {
     final out = Uint8List(8 + riffSize);
     final bd = ByteData.sublistView(out);
 
-    // "RIFF"
+    // 写入 RIFF 容器头标识（ASCII 魔数）
     out[0] = 0x52;
     out[1] = 0x49;
     out[2] = 0x46;
     out[3] = 0x46;
     bd.setUint32(4, riffSize, Endian.little);
-    // "WEBP"
+    // 写入 WEBP 格式四字符标识
     out[8] = 0x57;
     out[9] = 0x45;
     out[10] = 0x42;

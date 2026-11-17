@@ -52,13 +52,13 @@ class Smb2SigningDigest implements SMBSigningDigest {
       CommonServerMessageBlock? request, CommonServerMessageBlock? response) {
     _digest.reset();
 
-    // zero out signature field
+    // 校验前先将报头 16 字节签名域临时清零。
     int index = offset + SIGNATURE_OFFSET;
     for (int i = 0; i < SIGNATURE_LENGTH; i++) {
       data[index + i] = 0;
     }
 
-    // set signed flag
+    // 同步打上 `SIGNED` 标志位并重新计算摘要比对。
     int oldFlags = SMBUtil.readInt4(data, offset + 16);
     int flags = oldFlags | Smb2Constants.SMB2_FLAGS_SIGNED;
     SMBUtil.writeInt4(flags, data, offset + 16);
@@ -82,7 +82,6 @@ class Smb2SigningDigest implements SMBSigningDigest {
 
     int flags = SMBUtil.readInt4(data, offset + 16);
     if ((flags & Smb2Constants.SMB2_FLAGS_SIGNED) == 0) {
-      // log.error("The server did not sign a message we expected to be signed");
       return true;
     }
 

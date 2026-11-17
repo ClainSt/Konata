@@ -8,8 +8,8 @@ import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage
 import 'package:path_provider/path_provider.dart';
 import 'package:win32/win32.dart';
 
-/// Ciphertext stays beside Konata; DPAPI protects it for the Windows account.
-/// Legacy Credential Manager values are read only for migration, never changed.
+/// 凭据密文就近保存在 Konata 同级目录，由当前 Windows 账户的 DPAPI 加密保护。
+/// 历史凭据管理器仅用于只读迁移读取，绝不反向改写原有存储。
 class FlutterSecureStorageWindows extends FlutterSecureStoragePlatform {
   FlutterSecureStorageWindows({this.directory, this.readLegacy});
   final Directory? directory;
@@ -42,7 +42,7 @@ class FlutterSecureStorageWindows extends FlutterSecureStoragePlatform {
       input.ref
         ..cbData = bytes.length
         ..pbData = buffer;
-      // CRYPTPROTECT_UI_FORBIDDEN; never prompt or fall back to plaintext.
+      // 禁用交互式提示标志 CRYPTPROTECT_UI_FORBIDDEN，绝不弹窗或降级为明文保存。
       final result = protect
           ? CryptProtectData(input, null, null, null, 1, output)
           : CryptUnprotectData(input, null, null, null, 1, output);
@@ -100,8 +100,7 @@ class FlutterSecureStorageWindows extends FlutterSecureStoragePlatform {
         final value = jsonDecode(utf8.decode(plaintext));
         return value is String ? value : null;
       } on StateError {
-        // DPAPI is account-bound. A moved/corrupt file is unavailable, not a
-        // reason to prevent library startup or to replace the original file.
+        // DPAPI 强绑定当前账户；迁移或损坏的密文仅视为不可读，不能阻断媒体库启动或覆盖原文件。
         return null;
       } on FormatException {
         return null;
@@ -111,7 +110,7 @@ class FlutterSecureStorageWindows extends FlutterSecureStoragePlatform {
     }
     if (await File('${root.path}/legacy-disabled').exists()) return null;
     final value = await (readLegacy ?? _readLegacy)(key);
-    // Tombstones also prevent re-importing deleted or absent legacy values.
+    // 墓碑标记同时用于防止重复导入已删除或原本不存在的历史凭据。
     await _save(key, value);
     return value;
   }

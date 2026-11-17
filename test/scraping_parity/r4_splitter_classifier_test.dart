@@ -181,7 +181,7 @@ void main() {
       expect(inv.episodes, {1, 2});
       expect(inv.extras, hasLength(4));
 
-      // Standalone weak extra classification outside contiguous directory stays extra.
+      // 处于非连续正文目录外的孤立弱特典文件保持归类为特典。
       expect(
         CloudMediaFileClassifier.classifyAsset(
           'Show',
@@ -404,7 +404,7 @@ void main() {
       expect(m2Cluster.inventory.movieMarker, isTrue);
       expect(m1Cluster.inventory.fileHints, contains('Turn A Gundam'));
 
-      // Movie.1.2017 / Movie.2.2018 inside Movies/ under {tmdb-N}
+      // 验证 `{tmdb-N}` 目录下 `Movies/` 子文件夹内按年份命名多部剧场版的拆分效果。
       final datedMovieAssets = [
         _asset('tv1', 'Blue Horizon - 01.mkv'),
         _asset('tv2', 'Blue Horizon - 02.mkv'),
@@ -482,7 +482,7 @@ void main() {
         allOf(contains('ONE'), contains('TWO')),
       );
 
-      // Season-tagged Alternative must stay unified (not split as two OVAs).
+      // 带季度标记的替代篇必须维持整体合并（禁止错误拆分成多部 OVA）。
       final seasonalAssets = [
         _asset('s1', '[Group] Horizon Alternative Season 1 - 01.mkv'),
         _asset('s2', '[Group] Horizon Alternative Season 1 - 02.mkv'),
@@ -515,7 +515,7 @@ void main() {
       expect(tvCluster.inventory.tmdbId, 99112);
       expect(tvCluster.inventory.episodes, {1, 2, 3});
 
-      // Plain #00 without subtitle must NOT split.
+      // 无副标题的普通 `#00` 章节不得触发作品拆分。
       final plainAssets = [
         _asset(
           'p0',

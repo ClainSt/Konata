@@ -47,7 +47,7 @@ class Trans2QueryPathInformationResponse extends SmbComTransactionResponse {
   @override
   @protected
   int readParametersWireFormat(Uint8List buffer, int bufferIndex, int len) {
-    // observed two zero ints here with at least win98
+    // 实测部分 Win98 服务端在此位置固定填充两字节零值。
     return 2;
   }
 

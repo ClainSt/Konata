@@ -14,7 +14,6 @@ class DcerpcBinding {
     "netdfs": netdfsGetSyntax(),
     "netlogon": "12345678-1234-abcd-ef00-01234567cffb:1.0",
     "wkssvc": "6BFFD098-A112-3610-9833-46C3F87E345A:1.0",
-    // "samr": "12345778-1234-ABCD-EF00-0123456789AC:1.0",
   };
 
   String? proto;
@@ -83,19 +82,11 @@ class DcerpcBinding {
   }
 
   ///
-  /// Bindings are in the form:
-  /// proto:\\server[key1=val1,key2=val2]
+  /// 解析 DCERPC 端点绑定字符串（如 `ncacn_np:\\server[endpoint=\pipe\srvsvc]`，缺失主机默认 `127.0.0.1`）。
   /// or
-  /// proto:server[key1=val1,key2=val2]
   /// or
-  /// proto:[key1=val1,key2=val2]
   ///
-  /// If a key is absent it is assumed to be 'endpoint'. Thus the
-  /// following are equivalent:
-  /// proto:\\ts0.win.net[endpoint=\pipe\srvsvc]
-  /// proto:ts0.win.net[\pipe\srvsvc]
   ///
-  /// If the server is absent it is set to "127.0.0.1"
   ///
   static DcerpcBinding parse(String str) {
     int state, mark, si;
@@ -125,7 +116,7 @@ class DcerpcBinding {
           if (ch == '[') {
             String server = str.substring(mark, si).trim();
             if (server.isEmpty) {
-              // this can also be a v6 address within brackets, look ahead required
+              // 此处也可能是带方括号包裹的 IPv6 地址，须前瞻分隔符识别。
               int nexts = str.indexOf('[', si + 1);
               int nexte = str.indexOf(']', si);
               if (nexts >= 0 && nexte >= 0 && nexte == nexts - 1) {

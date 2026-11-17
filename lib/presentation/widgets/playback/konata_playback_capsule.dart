@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../../../domain/playback/playback_formatters.dart';
 import '../../../domain/playback/playback_probe_stats.dart';
+import '../../theme/konata_adaptive_tokens.dart';
 import '../../theme/konata_palette.dart';
 import '../../theme/konata_playback_tokens.dart';
 import '../design_system/ellipsis_text_with_tooltip.dart';
@@ -146,13 +147,16 @@ class KonataAudioLoopButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final btnSize = KonataAdaptiveTokens.isAndroid
+        ? KonataAdaptiveTokens.touchTarget
+        : KonataPlaybackTokens.immersiveSwitchButtonSize;
     return KonataCapsuleIconButton(
       key: const ValueKey('konata_audio_loop_button'),
       icon: icon,
       tooltip: tooltip,
       color: p.textPrimary,
       size: 18,
-      fixedSize: KonataPlaybackTokens.immersiveSwitchButtonSize,
+      fixedSize: btnSize,
       borderRadius: KonataPlaybackTokens.immersiveSwitchButtonRadius,
       padding: EdgeInsets.zero,
       highlighted: false,
@@ -196,7 +200,11 @@ class KonataPlaybackCapsule extends StatefulWidget {
     this.previewRevisionListenable,
     this.previewThumbnailResolver,
     this.onPreviewHoverSecondsChanged,
+    this.maxWidth,
   });
+
+  /// 可选最大宽度覆写（例如平板端底部控制坞限制为 `640dp`）。
+  final double? maxWidth;
 
   /// 当前播放秒数。
   final double positionSeconds;
@@ -331,20 +339,37 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
         previewSeconds != null &&
         total > 0;
 
+    final effectiveMaxWidth =
+        widget.maxWidth ?? KonataPlaybackTokens.capsuleMaxWidth;
+    final touch = KonataAdaptiveTokens.isAndroid;
+    final effectiveHeight = touch
+        ? KonataAdaptiveTokens.playerHeight
+        : KonataPlaybackTokens.capsuleHeight;
+    final effectiveRadius = touch
+        ? KonataAdaptiveTokens.capsuleRadius
+        : KonataPlaybackTokens.capsuleRadius;
+    final actionFixedSize = touch
+        ? KonataAdaptiveTokens.touchTarget
+        : KonataPlaybackTokens.immersiveSwitchButtonSize;
+    final playFixedSize = touch ? KonataAdaptiveTokens.touchTarget : 38.0;
+
     return Material(
       type: MaterialType.transparency,
       child: DefaultTextStyle.merge(
         style: const TextStyle(decoration: TextDecoration.none),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            maxWidth: KonataPlaybackTokens.capsuleMaxWidth,
-            minWidth: KonataPlaybackTokens.capsuleMinWidth,
+          constraints: BoxConstraints(
+            maxWidth: effectiveMaxWidth,
+            minWidth: math.min(
+              effectiveMaxWidth,
+              touch ? 280.0 : KonataPlaybackTokens.capsuleMinWidth,
+            ),
           ),
           child: LayoutBuilder(
             builder: (context, constraints) {
               final capsuleWidth = constraints.maxWidth.isFinite
                   ? constraints.maxWidth
-                  : KonataPlaybackTokens.capsuleMaxWidth;
+                  : effectiveMaxWidth;
               final inset = KonataPlaybackTokens.capsuleProgressHorizontalInset;
               final barSpan = (capsuleWidth - inset * 2).clamp(
                 1.0,
@@ -467,9 +492,7 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                 children: [
                   Container(
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(
-                        KonataPlaybackTokens.capsuleRadius,
-                      ),
+                      borderRadius: BorderRadius.circular(effectiveRadius),
                       boxShadow: [
                         BoxShadow(
                           color: KonataPlaybackTokens.shadowColor(p),
@@ -479,33 +502,31 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                       ],
                     ),
                     foregroundDecoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(
-                        KonataPlaybackTokens.capsuleRadius,
-                      ),
+                      borderRadius: BorderRadius.circular(effectiveRadius),
                       border: Border.all(color: borderColor, width: 1),
                     ),
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(
-                        KonataPlaybackTokens.capsuleRadius,
-                      ),
+                      borderRadius: BorderRadius.circular(effectiveRadius),
                       child: BackdropFilter(
                         filter: ImageFilter.blur(
                           sigmaX: KonataPlaybackTokens.capsuleBlurSigma,
                           sigmaY: KonataPlaybackTokens.capsuleBlurSigma,
                         ),
                         child: Container(
-                          height: KonataPlaybackTokens.capsuleHeight,
+                          height: effectiveHeight,
                           decoration: BoxDecoration(
                             color: bgColor,
                             borderRadius: BorderRadius.circular(
-                              KonataPlaybackTokens.capsuleRadius,
+                              effectiveRadius,
                             ),
                           ),
                           child: Stack(
                             children: [
                               // 1. 响应式三区对称枢轴主控内容区（宽屏锁死播放/暂停键圆心位于胶囊 50.0% 绝对正中心；窄窗优雅降级防溢出）
                               Padding(
-                                padding: KonataPlaybackTokens.capsulePadding,
+                                padding: touch
+                                    ? const EdgeInsets.fromLTRB(14, 2, 10, 10)
+                                    : KonataPlaybackTokens.capsulePadding,
                                 child: LayoutBuilder(
                                   builder: (context, rowConstraints) {
                                     final playPauseButton = KeyedSubtree(
@@ -519,7 +540,7 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                                         tooltip: widget.isPlaying ? '暂停' : '播放',
                                         color: primaryFg,
                                         size: 24,
-                                        fixedSize: 38,
+                                        fixedSize: playFixedSize,
                                         borderRadius: 999,
                                         padding: EdgeInsets.zero,
                                         onTap: widget.onTogglePlayPause,
@@ -530,8 +551,7 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                                       tooltip: '上一项',
                                       color: primaryFg,
                                       size: 20,
-                                      fixedSize: KonataPlaybackTokens
-                                          .immersiveSwitchButtonSize,
+                                      fixedSize: actionFixedSize,
                                       borderRadius: KonataPlaybackTokens
                                           .immersiveSwitchButtonRadius,
                                       padding: EdgeInsets.zero,
@@ -542,8 +562,7 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                                       tooltip: '下一项',
                                       color: primaryFg,
                                       size: 20,
-                                      fixedSize: KonataPlaybackTokens
-                                          .immersiveSwitchButtonSize,
+                                      fixedSize: actionFixedSize,
                                       borderRadius: KonataPlaybackTokens
                                           .immersiveSwitchButtonRadius,
                                       padding: EdgeInsets.zero,
@@ -556,8 +575,7 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                                             tooltip: widget.listTooltip,
                                             color: primaryFg,
                                             size: 18,
-                                            fixedSize: KonataPlaybackTokens
-                                                .immersiveSwitchButtonSize,
+                                            fixedSize: actionFixedSize,
                                             borderRadius: KonataPlaybackTokens
                                                 .immersiveSwitchButtonRadius,
                                             padding: EdgeInsets.zero,

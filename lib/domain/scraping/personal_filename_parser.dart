@@ -89,8 +89,8 @@ class PersonalFilenameParser {
     return p.basenameWithoutExtension(base).trim();
   }
 
-  /// An additional search candidate, never a destructive filename rewrite.
-  /// Dictionary membership alone does not establish a work identity.
+  /// 提供额外的候选片名线索供搜索比对，绝不破坏原始文件名语义。
+  /// 仅命中字幕组词典不足以直接作为作品身份依据。
   static String? withoutKnownReleaseGroups(String filename) {
     final base = baseNameWithoutExtension(filename);
     var stripped = base.replaceAllMapped(RegExp(r'\[([^\]]+)\]|【([^】]+)】'), (
@@ -100,7 +100,7 @@ class PersonalFilenameParser {
       return ReleaseGroups.contains(tag) ? ' ' : m[0]!;
     }).trim();
     final separators = RegExp(r'-').allMatches(stripped).toList();
-    // Bound suffix probes; a hyphen inside a group name is part of the name.
+    // 限制尾缀探测深度；部分字幕组名内部自带连字符，须保持名称整体性。
     for (final match in separators.skip(
       separators.length > 8 ? separators.length - 8 : 0,
     )) {
@@ -113,9 +113,9 @@ class PersonalFilenameParser {
     return '$stripped${p.extension(filename)}';
   }
 
-  /// Fully bracketed releases can contain a group, several translated titles,
-  /// episode and encoding tags. Keep possible titles for provider validation;
-  /// position alone is not evidence that a block is a group or a work.
+  /// 全括号风格文件名通常依次包含字幕组、多语译名、集号与编码规格信息；
+  /// 解析时将潜在标题均保留交由刮削源核验，
+  /// 切勿仅凭方括号位置武断区分字幕组与正片标题。
   static List<String> bracketTitleCandidates(String filename) {
     final base = baseNameWithoutExtension(filename);
     final pattern = RegExp(r'\[([^\]]+)\]|【([^】]+)】');
@@ -141,7 +141,7 @@ class PersonalFilenameParser {
         continue;
       }
       if (RegExp(r'^\d{1,4}(?:v\d+)?$', caseSensitive: false).hasMatch(block)) {
-        // Preserve a numeric title only when another numeric block follows.
+        // 仅当后续紧跟另一组数字标签块时，才保留前方纯数字块作为数字片名（如 `[86]`）。
         if (!blocks.skip(i + 1).any((b) => RegExp(r'^\d{1,3}$').hasMatch(b))) {
           continue;
         }
@@ -202,8 +202,8 @@ class PersonalFilenameParser {
     );
     if (cleaned != pathOrName) {
       final candidate = _extractAnimeTitleKeyword(cleaned);
-      // A known group can also be a real title (e.g. WAR). Keep that case
-      // available for the caller's confirmed-directory alias check.
+      // 部分已知字幕组短名也可能与真实作品标题重名（如 `WAR`），
+      // 需保留该候选供上层结合已确认目录别名复核。
       if (candidate.isNotEmpty && !RegExp(r'^\d+$').hasMatch(candidate)) {
         return candidate;
       }
@@ -361,8 +361,8 @@ class PersonalFilenameParser {
     }
 
     // 形如 " - 01" / " - 02v2" / " - 12.5" / " - 01-02" 的结尾集数
-    // Remove at most one suffix. Repeating this would turn "Animation 12 -
-    // 01" into "Animation" and erase part of the real title.
+    // 最多剥离一次年份或尾缀；连续多次剥离会把如 `Animation 12 - 01`
+    // 误削为 `Animation`，从而抹掉真实片名组成部分。
     name = name.replaceFirst(
       RegExp(
         r'(?:(?:\s+[-_]\s*\d{1,3}(?:\.5)?|\s+0\d{1,2}(?:\.5)?|\s*#\s*\d{1,3}(?:\.5)?)(?:v\d+)?'
@@ -429,8 +429,8 @@ class PersonalFilenameParser {
   }
 
   static String _stripLeadingGroupTags(String name) {
-    // A bracketed title followed only by an episode/technical tag must survive.
-    // Unknown adjacent bracket blocks cannot be reliably split into title/group.
+    // 括号标题后若仅跟集号或技术规格标签，必须完整保留该标题；
+    // 对相邻未知方括号区块不做不可靠的主从切分猜测。
     final outside = name
         .replaceAll(RegExp(r'\[[^\]]*\]|【[^】]*】'), ' ')
         .replaceAll(

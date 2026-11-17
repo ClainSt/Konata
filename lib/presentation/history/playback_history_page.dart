@@ -18,6 +18,7 @@ import '../../domain/models/playback_record.dart';
 import '../audio/mini_audio_bar.dart';
 import '../audio/smart_cover_framing.dart';
 import '../detail/work_detail_page.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../video/embedded_video_page.dart';
@@ -295,7 +296,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
         );
     switch (decision) {
       case OpenBuiltinVideoDecision(:final request):
-        await EmbeddedVideoPage.push(navigator, request);
+        await EmbeddedVideoPage.push(navigator, request, ref: ref);
       case LaunchedExternalVideoDecision(:final result):
         if (context.mounted && result.message.isNotEmpty) {
           showKonataToast(context, result.message, isError: !result.launched);
@@ -316,14 +317,18 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
       globalPos.dx,
       globalPos.dy,
     );
+    final itemHeight = KonataAdaptiveTokens.isAndroid
+        ? KonataAdaptiveTokens.touchTarget
+        : kMinInteractiveDimension;
     final action = await showMenu<String>(
       context: context,
       position: pos,
       items: [
         if (!isAudio) ...[
-          const PopupMenuItem<String>(
+          PopupMenuItem<String>(
             value: 'builtin',
-            child: Row(
+            height: itemHeight,
+            child: const Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(Icons.smart_display_outlined, size: 17),
@@ -332,21 +337,24 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
               ],
             ),
           ),
-          const PopupMenuItem<String>(
-            value: 'external',
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.open_in_new_rounded, size: 17),
-                SizedBox(width: 8),
-                Text('使用外部播放器续播'),
-              ],
+          if (KonataAdaptiveTokens.isWindows)
+            PopupMenuItem<String>(
+              value: 'external',
+              height: itemHeight,
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.open_in_new_rounded, size: 17),
+                  SizedBox(width: 8),
+                  Text('使用外部播放器续播'),
+                ],
+              ),
             ),
-          ),
         ],
         if (!rec.isCompleted)
           PopupMenuItem<String>(
             value: 'complete',
+            height: itemHeight,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -356,9 +364,10 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
               ],
             ),
           ),
-        const PopupMenuItem<String>(
+        PopupMenuItem<String>(
           value: 'delete',
-          child: Row(
+          height: itemHeight,
+          child: const Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(Icons.delete_outline_rounded, size: 17),
@@ -490,8 +499,18 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     final selectedAccent = isDeleteMode ? p.danger : p.accent;
     final poster =
         work?.posterPath ?? work?.bangumiPosterPath ?? work?.posterFallback;
-    final coverWidth = isAudio ? _audioCoverSize : _videoCoverWidth;
-    final coverHeight = isAudio ? _audioCoverSize : _videoCoverHeight;
+    final showTouchMore = KonataAdaptiveTokens.isAndroid && !inSelection;
+    final compactCard =
+        KonataAdaptiveTokens.isAndroid &&
+        MediaQuery.sizeOf(context).width < KonataAdaptiveTokens.tabletBreakpoint;
+    final cardPad = compactCard ? 12.0 : _cardPadding;
+    final coverGap = compactCard ? 12.0 : _coverTextGap;
+    final coverWidth = isAudio
+        ? (compactCard ? 92.0 : _audioCoverSize)
+        : (compactCard ? 88.0 : _videoCoverWidth);
+    final coverHeight = isAudio
+        ? (compactCard ? 92.0 : _audioCoverSize)
+        : (compactCard ? 126.0 : _videoCoverHeight);
     final coverRadius = isAudio ? 12.0 : 10.0;
 
     final Widget coverWidget = isAudio
@@ -500,7 +519,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
             variantId: rec.variantId,
             fallbackPoster: poster,
             imageLoader: imageLoader,
-            size: _audioCoverSize,
+            size: coverWidth,
           )
         : (poster != null && poster.isNotEmpty
               ? ManagedImage(
@@ -527,7 +546,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                 softWrap: true,
                 style: TextStyle(
                   color: p.textPrimary,
-                  fontSize: _titleFontSize,
+                  fontSize: compactCard ? 17.5 : _titleFontSize,
                   fontWeight: FontWeight.w700,
                   height: _titleLineHeight,
                 ),
@@ -543,6 +562,35 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                       : Icons.radio_button_unchecked_rounded,
                   size: 22,
                   color: selected ? selectedAccent : p.textMuted,
+                ),
+              ),
+            ] else if (showTouchMore) ...[
+              const SizedBox(width: 4),
+              Builder(
+                builder: (btnContext) => GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    final box = btnContext.findRenderObject() as RenderBox?;
+                    final anchor = box != null
+                        ? box.localToGlobal(box.size.center(Offset.zero))
+                        : Offset.zero;
+                    _showRowMenu(
+                      context: context,
+                      ref: ref,
+                      globalPos: anchor,
+                      rec: rec,
+                      isAudio: isAudio,
+                    );
+                  },
+                  child: SizedBox.square(
+                    key: ValueKey('history_more_${rec.id}'),
+                    dimension: KonataAdaptiveTokens.touchTarget,
+                    child: Icon(
+                      Icons.more_horiz_rounded,
+                      size: 20,
+                      color: p.textSecondary,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -625,7 +673,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     );
 
     final Widget card = KonataSurfaceCard(
-      padding: const EdgeInsets.all(_cardPadding),
+      padding: EdgeInsets.all(cardPad),
       enableHover: !selected,
       backgroundColor: selected
           ? selectedAccent.withValues(alpha: p.isDark ? 0.14 : 0.08)
@@ -647,7 +695,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
               ),
             ),
           ),
-          const SizedBox(width: _coverTextGap),
+          SizedBox(width: coverGap),
           Expanded(
             child: stretchHeight
                 ? Column(
@@ -671,6 +719,15 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
 
     return GestureDetector(
       onSecondaryTapUp: inSelection
+          ? null
+          : (details) => _showRowMenu(
+              context: context,
+              ref: ref,
+              globalPos: details.globalPosition,
+              rec: rec,
+              isAudio: isAudio,
+            ),
+      onLongPressStart: inSelection
           ? null
           : (details) => _showRowMenu(
               context: context,
@@ -871,24 +928,33 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
 
                   return LayoutBuilder(
                     builder: (context, constraints) {
+                      final compactList =
+                          KonataAdaptiveTokens.isAndroid &&
+                          constraints.maxWidth <
+                              KonataAdaptiveTokens.tabletBreakpoint;
+                      final listPadH = compactList
+                          ? KonataAdaptiveTokens.horizontalInset
+                          : KonataTheme.pageHorizontalPadding;
                       final twoColumns =
                           constraints.maxWidth >= _twoColumnBreakpoint;
                       final rowCount = twoColumns
                           ? (records.length + 1) ~/ 2
                           : records.length;
                       final contentWidth =
-                          constraints.maxWidth -
-                          KonataTheme.pageHorizontalPadding * 2;
+                          constraints.maxWidth - listPadH * 2;
                       final cardWidth = twoColumns
                           ? math.max(120.0, (contentWidth - _colGap) / 2)
                           : contentWidth;
+                      final trailingWidth = inSelection
+                          ? 30.0
+                          : (KonataAdaptiveTokens.isAndroid ? 52.0 : 0.0);
                       final titleMaxWidth =
                           cardWidth -
                           _cardPadding * 2 -
                           2 -
                           activeCoverWidth -
                           _coverTextGap -
-                          (inSelection ? 30 : 0);
+                          trailingWidth;
                       final epH = twoColumns
                           ? _measureSingleLineHeight(
                               context,
@@ -936,9 +1002,9 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                         builder: (_, ctrl) => ListView.separated(
                           controller: ctrl,
                           padding: EdgeInsets.fromLTRB(
-                            KonataTheme.pageHorizontalPadding,
+                            listPadH,
                             0,
-                            KonataTheme.pageHorizontalPadding,
+                            listPadH,
                             28 + bottomClearance,
                           ),
                           itemCount: rowCount,

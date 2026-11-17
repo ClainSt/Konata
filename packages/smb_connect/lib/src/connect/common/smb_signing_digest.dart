@@ -4,17 +4,15 @@ import 'common_server_message_block.dart';
 
 abstract class SMBSigningDigest {
   ///
-  /// Performs MAC signing of the SMB. This is done as follows.
-  /// The signature field of the SMB is overwritten with the sequence number;
-  /// The MD5 digest of the MAC signing key + the entire SMB is taken;
-  /// The first 8 ints of this are placed in the signature field.
+  /// 执行 SMB1 MAC 报文签名：先将签名字段覆写为请求序号，
+  /// 再对“MAC 签名密钥 + 整包报文”计算 MD5 摘要，
+  /// 最后取摘要前 8 字节回填入 SMB 头部签名字段。
   ///
   void sign(Uint8List data, int offset, int length,
       CommonServerMessageBlock request, CommonServerMessageBlock response);
 
   ///
-  /// Performs MAC signature verification. This calculates the signature
-  /// of the SMB and compares it to the signature field on the SMB itself.
+  /// 执行 SMB1 MAC 报文签名核验：按同算法重算摘要并与报头签名比对。
   ///
   bool verify(Uint8List data, int offset, int length, int extraPad,
       CommonServerMessageBlock msg);

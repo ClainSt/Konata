@@ -27,11 +27,6 @@ class DcerpcSmb2 extends DcerpcBase {
     tree.prepare(ioctlReq);
     var ioctlResp = await transport
         .sendrecv<Smb2IoctlResponse>(ioctlReq, params: {RequestParam.NO_RETRY});
-    // print(ioctlResp);
-    // // ioctlReq.flags = Smb2IoctlRequest.SMB2_O_IOCTL_IS_FSCTL;
-    // // ioctlReq.inputData = ByteEncodable(buf, off, length);
-    // // ioctlReq.maxOutputResponse = maxRecvSize;
-    // Smb2IoctlResponse resp = th.send(ioctlReq, params: {RequestParam.NO_RETRY});
     return ioctlResp.outputLength;
   }
 }

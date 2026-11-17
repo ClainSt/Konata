@@ -5,7 +5,6 @@ import 'package:smb_connect/src/connect/fscc/file_information.dart';
 import 'package:smb_connect/src/connect/smb_util.dart';
 import 'package:smb_connect/src/smb_constants.dart';
 
-// TODO: all vars to final decode to factory constructor
 class FileStandardInfo implements BasicFileInformation {
   int allocationSize = 0;
   int endOfFile = 0;

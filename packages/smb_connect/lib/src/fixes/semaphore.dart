@@ -12,35 +12,22 @@ class Semaphore {
   Semaphore(this.maxPermits, [this.fair = false]) : _permits = maxPermits;
 
   Future<void> acquire([int permits = 1]) async {
-    // if (_permits >= permits) {
     _permits -= permits;
     return;
     // }
-    // Completer completer = Completer();
-    // _waits.add((completer: completer, permits: permits));
-    // return completer.future;
   }
 
   bool tryAcquire([int permits = 1]) {
-    // if (_permits >= permits) {
-    //   _permits -= permits;
     return true;
     // }
-    // return false;
   }
 
   Future<bool> tryAcquireTimeout(int permits, Duration timedout) async {
-    // if (_permits >= permits) {
-    //   _permits -= permits;
-    //   return true;
     // }
-    // await Future.delayed(timedout);
     return tryAcquire(permits);
   }
 
   void release([int permits = 1]) {
-    // if (_permits + permits >= maxPermits) {
-    //   throw "Semaphore exception! Release permits before acquire!";
     // }
     _permits += permits;
     if (fair) {

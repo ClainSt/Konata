@@ -34,6 +34,7 @@ class PlaybackPreferencesState {
     this.autoNextEpisode = true,
     this.promptChapterSkip = true,
     this.autoSkipChapter = false,
+    this.autoEnterPip = true,
     this.defaultVolume = 100.0,
   });
 
@@ -58,6 +59,9 @@ class PlaybackPreferencesState {
   /// 是否直接自动跳过检测到的 OP / ED（默认关闭，推荐温和提示）。
   final bool autoSkipChapter;
 
+  /// Android 视频播放期间切入系统后台时是否自动开启画中画（默认开启）。
+  final bool autoEnterPip;
+
   /// 内置播放器默认初始音量（`0 ~ 100`）。
   final double defaultVolume;
 
@@ -70,6 +74,7 @@ class PlaybackPreferencesState {
     bool? autoNextEpisode,
     bool? promptChapterSkip,
     bool? autoSkipChapter,
+    bool? autoEnterPip,
     double? defaultVolume,
   }) {
     return PlaybackPreferencesState(
@@ -81,6 +86,7 @@ class PlaybackPreferencesState {
       autoNextEpisode: autoNextEpisode ?? this.autoNextEpisode,
       promptChapterSkip: promptChapterSkip ?? this.promptChapterSkip,
       autoSkipChapter: autoSkipChapter ?? this.autoSkipChapter,
+      autoEnterPip: autoEnterPip ?? this.autoEnterPip,
       defaultVolume: defaultVolume ?? this.defaultVolume,
     );
   }
@@ -95,6 +101,7 @@ class PlaybackPreferencesState {
         other.autoNextEpisode == autoNextEpisode &&
         other.promptChapterSkip == promptChapterSkip &&
         other.autoSkipChapter == autoSkipChapter &&
+        other.autoEnterPip == autoEnterPip &&
         other.defaultVolume == defaultVolume;
   }
 
@@ -107,6 +114,7 @@ class PlaybackPreferencesState {
     autoNextEpisode,
     promptChapterSkip,
     autoSkipChapter,
+    autoEnterPip,
     defaultVolume,
   );
 }
@@ -254,6 +262,12 @@ class PlaybackPreferencesNotifier
     await _persist();
   }
 
+  /// 切换切入后台自动开启画中画开关。
+  Future<void> setAutoEnterPip(bool value) async {
+    state = state.copyWith(autoEnterPip: value);
+    await _persist();
+  }
+
   /// 更新默认音量。
   Future<void> setDefaultVolume(double value) async {
     state = state.copyWith(defaultVolume: value.clamp(0.0, 100.0));
@@ -277,6 +291,7 @@ class PlaybackPreferencesNotifier
       'autoNextEpisode': s.autoNextEpisode,
       'promptChapterSkip': s.promptChapterSkip,
       'autoSkipChapter': s.autoSkipChapter,
+      'autoEnterPip': s.autoEnterPip,
       'defaultVolume': s.defaultVolume,
       'preset': q.preset.name,
       'hardwareDecode': q.hardwareDecode,
@@ -350,6 +365,9 @@ class PlaybackPreferencesNotifier
       autoSkipChapter: map['autoSkipChapter'] is bool
           ? map['autoSkipChapter'] as bool
           : false,
+      autoEnterPip: map['autoEnterPip'] is bool
+          ? map['autoEnterPip'] as bool
+          : true,
       defaultVolume: parseDouble(map['defaultVolume'], 100.0, 0.0, 100.0),
       qualityConfig: PlaybackQualityConfig(
         preset: parseEnum(

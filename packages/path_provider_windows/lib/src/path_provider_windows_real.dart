@@ -1,6 +1,4 @@
-// Copyright 2013 The Flutter Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// 遵循 Flutter 官方组件 BSD 开源许可协议（详见随包 LICENSE 文件）。
 
 import 'dart:ffi';
 import 'dart:io';
@@ -16,30 +14,24 @@ import 'guid.dart';
 import 'win32_wrappers.dart';
 import 'portable_data.dart';
 
-/// Constant for en-US language used in VersionInfo keys.
+/// `VersionInfo` 资源键中使用的 `en-US` 语言代码常量。
 @visibleForTesting
 const String languageEn = '0409';
 
-/// Constant for CP1252 encoding used in VersionInfo keys
+/// `VersionInfo` 资源键中使用的 `CP1252` 代码页编码常量。
 @visibleForTesting
 const String encodingCP1252 = '04e4';
 
-/// Constant for Unicode encoding used in VersionInfo keys
+/// `VersionInfo` 资源键中使用的 Unicode 编码常量。
 @visibleForTesting
 const String encodingUnicode = '04b0';
 
-/// Wraps the Win32 VerQueryValue API call.
+/// 封装 Win32 `VerQueryValue` 版本资源查询调用，便于测试期注入模拟元数据。
 ///
-/// This class exists to allow injecting alternate metadata in tests without
-/// building multiple custom test binaries.
 @visibleForTesting
 class VersionInfoQuerier {
-  /// Returns the value for [key] in [versionInfo]s in section with given
-  /// language and encoding, or null if there is no such entry,
-  /// or if versionInfo is null.
+  /// 查询指定语言与编码区段下 `[versionInfo]` 中 `[key]` 对应的字符串值（缺失返回空）。
   ///
-  /// See https://docs.microsoft.com/windows/win32/menurc/versioninfo-resource
-  /// for list of possible language and encoding values.
   String? getStringValue(
     Pointer<Uint8>? versionInfo,
     String key, {
@@ -68,9 +60,8 @@ class VersionInfoQuerier {
   }
 }
 
-/// The Windows implementation of [PathProviderPlatform]
+/// `[PathProviderPlatform]` 的 Windows 平台实现（基于 `package:path_provider` 与便携根目录）。
 ///
-/// This class implements the `package:path_provider` functionality for Windows.
 class PathProviderWindows extends PathProviderPlatform {
   String get executablePath => Platform.resolvedExecutable;
   static final _portableData = <String, Future<Directory>>{};
@@ -91,16 +82,16 @@ class PathProviderWindows extends PathProviderPlatform {
     });
   }
 
-  /// Registers the Windows implementation.
+  /// 向全局平台通道注册当前 Windows 路径提供实现。
   static void registerWith() {
     PathProviderPlatform.instance = PathProviderWindows();
   }
 
-  /// The object to use for performing VerQueryValue calls.
+  /// 用于执行版本资源查询的底层适配器实例。
   @visibleForTesting
   VersionInfoQuerier versionInfoQuerier = VersionInfoQuerier();
 
-  /// This is typically the same as the TMP environment variable.
+  /// 返回 Windows 临时目录（一般对应 `TMP` 环境变量）。
   @override
   Future<String?> getTemporaryPath() async {
     final directory =
@@ -128,10 +119,8 @@ class PathProviderWindows extends PathProviderPlatform {
   @override
   Future<String?> getDownloadsPath() => getPath(WindowsKnownFolder.Downloads);
 
-  /// Retrieve any known folder from Windows.
+  /// 根据 `[WindowsKnownFolder]` 提供的 `GUID` 查询对应 Windows 系统目录。
   ///
-  /// folderID is a GUID that represents a specific known folder ID, drawn from
-  /// [WindowsKnownFolder].
   Future<String?> getPath(String folderID) {
     final Pointer<Pointer<Utf16>> pathPtrPtr = calloc<Pointer<Utf16>>();
     final Pointer<GUID> knownFolderID = calloc<GUID>()..ref.parse(folderID);
@@ -165,16 +154,9 @@ class PathProviderWindows extends PathProviderPlatform {
       versionInfoQuerier.getStringValue(infoBuffer, key,
           language: languageEn, encoding: encodingUnicode);
 
-  /// Returns the relative path string to append to the root directory returned
-  /// by Win32 APIs for application storage (such as RoamingAppDir) to get a
-  /// directory that is unique to the application.
+  /// 生成追加于系统应用数据根目录之后的相对子路径（通常为 `厂商\产品名\`）；
+  /// 读取可执行文件 `VERSIONINFO` 资源并缺省回落至可执行文件名称。
   ///
-  /// The convention is to use company-name\product-name\. This will use that if
-  /// possible, using the data in the VERSIONINFO resource, with the following
-  /// fallbacks:
-  /// - If the company name isn't there, that component will be dropped.
-  /// - If the product name isn't there, it will use the exe's filename (without
-  ///   extension).
   String _getApplicationSpecificSubdirectory() {
     String? companyName;
     String? productName;
@@ -184,7 +166,7 @@ class PathProviderWindows extends PathProviderPlatform {
     final Pointer<DWORD> unused = calloc<DWORD>();
     Pointer<BYTE>? infoBuffer;
     try {
-      // Get the module name.
+      // 查询当前可执行模块完整路径名。
       final int moduleNameLength =
           GetModuleFileName(0, moduleNameBuffer, MAX_PATH);
       if (moduleNameLength == 0) {
@@ -192,7 +174,7 @@ class PathProviderWindows extends PathProviderPlatform {
         throw _createWin32Exception(error);
       }
 
-      // From that, load the VERSIONINFO resource
+      // 基于模块路径加载 `VERSIONINFO` 资源块。
       final int infoSize = GetFileVersionInfoSize(moduleNameBuffer, unused);
       if (infoSize != 0) {
         infoBuffer = calloc<BYTE>(infoSize);
@@ -207,7 +189,7 @@ class PathProviderWindows extends PathProviderPlatform {
       productName =
           _sanitizedDirectoryName(_getStringValue(infoBuffer, 'ProductName'));
 
-      // If there was no product name, use the executable name.
+      // 若版本资源缺少产品名，则回退采用可执行文件名（不含扩展名）。
       productName ??=
           path.basenameWithoutExtension(moduleNameBuffer.toDartString());
 
@@ -223,20 +205,18 @@ class PathProviderWindows extends PathProviderPlatform {
     }
   }
 
-  /// Makes [rawString] safe as a directory component. See
-  /// https://docs.microsoft.com/windows/win32/fileio/naming-a-file#naming-conventions
+  /// 清洗 `[rawString]` 使之符合 Windows 合法目录名规范，全清理为空时返回 `null`。
   ///
-  /// If after sanitizing the string is empty, returns null.
   String? _sanitizedDirectoryName(String? rawString) {
     if (rawString == null) {
       return null;
     }
     String sanitized = rawString
-        // Replace banned characters.
+        // 替换系统目录名禁止字符。
         .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_')
-        // Remove trailing whitespace.
+        // 去除末尾空白字符。
         .trimRight()
-        // Ensure that it does not end with a '.'.
+        // 确保目录名不以点号 `.` 结尾。
         .replaceAll(RegExp(r'[.]+$'), '');
     const int kMaxComponentLength = 255;
     if (sanitized.length > kMaxComponentLength) {
@@ -249,11 +229,5 @@ class PathProviderWindows extends PathProviderPlatform {
 Exception _createWin32Exception(int errorCode) {
   return PlatformException(
       code: 'Win32 Error',
-      // TODO(stuartmorgan): Consider getting the system error message via
-      // FormatMessage if it turns out to be necessary for debugging issues.
-      // Plugin-client-level usability isn't a major consideration since per
-      // https://github.com/flutter/flutter/blob/master/docs/ecosystem/contributing/README.md#platform-exception-handling
-      // any case that comes up in practice should be handled and returned
-      // via a plugin-specific exception, not this fallback.
       message: 'Error code 0x${errorCode.toRadixString(16)}');
 }

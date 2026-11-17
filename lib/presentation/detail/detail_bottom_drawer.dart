@@ -9,6 +9,7 @@ import '../../domain/matching/supplementary_subclassifier.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/playback/cue_variant_resolver.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
@@ -389,141 +390,150 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
       DetailDrawerTab.scan => filteredScanList.length,
     };
 
+    final screenW = MediaQuery.sizeOf(context).width;
+    final compactDrawer =
+        KonataAdaptiveTokens.isAndroid &&
+        screenW < KonataAdaptiveTokens.tabletBreakpoint;
+    final drawerPadH = compactDrawer ? 16.0 : 36.0;
+
+    final leftTabCapsule = SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (widget.bundle.seriesMembers.length >= 2 &&
+              widget.onSelectSeriesWork != null) ...[
+            SeriesSwitcherDropdown(
+              activeWork: widget.bundle.work,
+              seriesMembers: widget.bundle.seriesMembers,
+              seriesGroup: widget.bundle.seriesGroup,
+              onSelectWork: widget.onSelectSeriesWork!,
+            ),
+            const SizedBox(width: 8),
+          ],
+          _FrostedNavCapsule(
+            padding: const EdgeInsets.all(4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DetailDrawerTabChip(
+                  label: '正片 (${mainEps.length})',
+                  active: isExpanded && currentTab == DetailDrawerTab.main,
+                  onTap: () => widget.onToggleTab(DetailDrawerTab.main),
+                ),
+                const SizedBox(width: 4),
+                DetailDrawerTabChip(
+                  label: '特典 (${extraEps.length})',
+                  active: isExpanded && currentTab == DetailDrawerTab.extra,
+                  onTap: () => widget.onToggleTab(DetailDrawerTab.extra),
+                ),
+                if (cdList.isNotEmpty) ...[
+                  const SizedBox(width: 4),
+                  DetailDrawerTabChip(
+                    label: 'CD (${cdList.length})',
+                    active: isExpanded && currentTab == DetailDrawerTab.cd,
+                    onTap: () => widget.onToggleTab(DetailDrawerTab.cd),
+                  ),
+                ],
+                if (scanList.isNotEmpty) ...[
+                  const SizedBox(width: 4),
+                  DetailDrawerTabChip(
+                    label: 'Scan (${scanList.length})',
+                    active: isExpanded && currentTab == DetailDrawerTab.scan,
+                    onTap: () => widget.onToggleTab(DetailDrawerTab.scan),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+
+    final rightOpsCapsule = _FrostedNavCapsule(
+      padding: isExpanded
+          ? const EdgeInsets.symmetric(horizontal: 6, vertical: 4)
+          : const EdgeInsets.all(4),
+      child: AnimatedSize(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isExpanded) ...[
+              DetailDrawerHeaderButton(
+                icon: Icons.grid_view_rounded,
+                tooltip: '完整列表',
+                enabled: currentRawCount > 0,
+                onPressed: () =>
+                    _openFullList(context, currentTab, activeSecondaryKey),
+              ),
+              const SizedBox(width: 2),
+              DetailDrawerHeaderButton(
+                icon: Icons.chevron_left_rounded,
+                tooltip: '向左翻页',
+                enabled: currentCount > 1,
+                onPressed: () => _scrollRailBy(-520),
+              ),
+              const SizedBox(width: 2),
+              DetailDrawerHeaderButton(
+                icon: Icons.chevron_right_rounded,
+                tooltip: '向右翻页',
+                enabled: currentCount > 1,
+                onPressed: () => _scrollRailBy(520),
+              ),
+              const SizedBox(width: 2),
+              DetailDrawerHeaderButton(
+                icon: Icons.keyboard_arrow_down_rounded,
+                tooltip: '收起剧集 (Esc)',
+                onPressed: widget.onCollapse,
+              ),
+              const SizedBox(width: 2),
+            ],
+            CompositedTransformTarget(
+              link: _gearLink,
+              child: DetailDrawerHeaderButton(
+                icon: Icons.settings_rounded,
+                tooltip: '作品管理选项',
+                active: _gearMenuEntry != null,
+                onPressed: _toggleGearMenu,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // 选集控制顶栏：左右两端各悬一枚磨砂胶囊，与下方卡片左右边距 36px 严格齐平
         Padding(
-          padding: EdgeInsets.fromLTRB(36, 0, 36, isExpanded ? 14 : 24),
-          child: Row(
-            children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (widget.bundle.seriesMembers.length >= 2 &&
-                          widget.onSelectSeriesWork != null) ...[
-                        SeriesSwitcherDropdown(
-                          activeWork: widget.bundle.work,
-                          seriesMembers: widget.bundle.seriesMembers,
-                          seriesGroup: widget.bundle.seriesGroup,
-                          onSelectWork: widget.onSelectSeriesWork!,
-                        ),
-                        const SizedBox(width: 8),
-                      ],
-                      _FrostedNavCapsule(
-                        padding: const EdgeInsets.all(4),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            DetailDrawerTabChip(
-                              label: '正片 (${mainEps.length})',
-                              active:
-                                  isExpanded &&
-                                  currentTab == DetailDrawerTab.main,
-                              onTap: () =>
-                                  widget.onToggleTab(DetailDrawerTab.main),
-                            ),
-                            const SizedBox(width: 4),
-                            DetailDrawerTabChip(
-                              label: '特典 (${extraEps.length})',
-                              active:
-                                  isExpanded &&
-                                  currentTab == DetailDrawerTab.extra,
-                              onTap: () =>
-                                  widget.onToggleTab(DetailDrawerTab.extra),
-                            ),
-                            if (cdList.isNotEmpty) ...[
-                              const SizedBox(width: 4),
-                              DetailDrawerTabChip(
-                                label: 'CD (${cdList.length})',
-                                active:
-                                    isExpanded &&
-                                    currentTab == DetailDrawerTab.cd,
-                                onTap: () =>
-                                    widget.onToggleTab(DetailDrawerTab.cd),
-                              ),
-                            ],
-                            if (scanList.isNotEmpty) ...[
-                              const SizedBox(width: 4),
-                              DetailDrawerTabChip(
-                                label: 'Scan (${scanList.length})',
-                                active:
-                                    isExpanded &&
-                                    currentTab == DetailDrawerTab.scan,
-                                onTap: () =>
-                                    widget.onToggleTab(DetailDrawerTab.scan),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              _FrostedNavCapsule(
-                padding: isExpanded
-                    ? const EdgeInsets.symmetric(horizontal: 6, vertical: 4)
-                    : const EdgeInsets.all(4),
-                child: AnimatedSize(
-                  duration: const Duration(milliseconds: 200),
-                  curve: Curves.easeOutCubic,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (isExpanded) ...[
-                        DetailDrawerHeaderButton(
-                          icon: Icons.grid_view_rounded,
-                          tooltip: '完整列表',
-                          enabled: currentRawCount > 0,
-                          onPressed: () => _openFullList(
-                            context,
-                            currentTab,
-                            activeSecondaryKey,
-                          ),
-                        ),
-                        const SizedBox(width: 2),
-                        DetailDrawerHeaderButton(
-                          icon: Icons.chevron_left_rounded,
-                          tooltip: '向左翻页',
-                          enabled: currentCount > 1,
-                          onPressed: () => _scrollRailBy(-520),
-                        ),
-                        const SizedBox(width: 2),
-                        DetailDrawerHeaderButton(
-                          icon: Icons.chevron_right_rounded,
-                          tooltip: '向右翻页',
-                          enabled: currentCount > 1,
-                          onPressed: () => _scrollRailBy(520),
-                        ),
-                        const SizedBox(width: 2),
-                        DetailDrawerHeaderButton(
-                          icon: Icons.keyboard_arrow_down_rounded,
-                          tooltip: '收起剧集 (Esc)',
-                          onPressed: widget.onCollapse,
-                        ),
-                        const SizedBox(width: 2),
-                      ],
-                      CompositedTransformTarget(
-                        link: _gearLink,
-                        child: DetailDrawerHeaderButton(
-                          icon: Icons.settings_rounded,
-                          tooltip: '作品管理选项',
-                          active: _gearMenuEntry != null,
-                          onPressed: _toggleGearMenu,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+          padding: EdgeInsets.fromLTRB(
+            drawerPadH,
+            0,
+            drawerPadH,
+            isExpanded ? 14 : (compactDrawer ? 14 : 24),
           ),
+          child: compactDrawer && isExpanded
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: rightOpsCapsule,
+                    ),
+                    const SizedBox(height: 8),
+                    leftTabCapsule,
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(child: leftTabCapsule),
+                    const SizedBox(width: 12),
+                    rightOpsCapsule,
+                  ],
+                ),
         ),
         // 无框悬浮剧集卡片行：直接悬浮在底部渐暗背景之上，彻底取消深黑大底框
         AnimatedSize(
@@ -543,6 +553,7 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
                           items: secondaryItems,
                           totalCount: currentRawCount,
                           selectedKey: activeSecondaryKey,
+                          horizontalPadding: drawerPadH,
                           onSelected: (k) => _selectSecondaryKey(currentTab, k),
                         ),
                       ),
@@ -681,7 +692,14 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
       },
       child: ListView.separated(
         controller: _railController,
-        padding: const EdgeInsets.symmetric(horizontal: 36),
+        padding: EdgeInsets.symmetric(
+          horizontal:
+              KonataAdaptiveTokens.isAndroid &&
+                  MediaQuery.sizeOf(context).width <
+                      KonataAdaptiveTokens.tabletBreakpoint
+              ? 16
+              : 36,
+        ),
         scrollDirection: Axis.horizontal,
         itemCount: itemCount,
         separatorBuilder: (_, _) => const SizedBox(width: 14),

@@ -51,13 +51,13 @@ class SmbComSessionSetupAndX extends AndXServerMessageBlock {
           if (server.encryptedPasswords) {
             _lmHash = a.getAnsiHash(config, server.encryptionKey!);
             _ntHash = a.getUnicodeHash(config, server.encryptionKey!);
-            // prohibit HTTP auth attempts for the null session
+            // 空会话建立过程中禁止尝试 HTTP 认证回调。
             if ((_lmHash == null || _lmHash!.isEmpty) &&
                 (_ntHash == null || _ntHash!.isEmpty)) {
               throw SmbRuntimeException("Null setup prohibited.");
             }
           } else {
-            // plain text
+            // 明文凭据认证模式分支。
             String password = a.getPassword();
             _lmHash = Uint8List((password.length + 1) * 2);
             _ntHash = Uint8List(0);

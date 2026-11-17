@@ -75,7 +75,11 @@ android/.kotlin/
 !/packages/**/KONATA_PATCH*.md
 !/tool/native/README.md
 /photos/
+/.agent-work/
 
 # Local ad-hoc dataset audit scripts
 /tool/audit_*.dart
 /tool/benchmark_cloud.dart
+.agent-work/
+.codex/
+.agent/

@@ -4,7 +4,6 @@ import 'package:smb_connect/src/connect/impl/smb1/server_message_block.dart';
 
 class SmbComBlankResponse extends ServerMessageBlock {
   SmbComBlankResponse(super.config); // {
-  //   super(config);
   // }
 
   @override

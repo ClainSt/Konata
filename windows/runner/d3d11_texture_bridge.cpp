@@ -163,10 +163,10 @@ bool CreateD3D11Device(flutter::FlutterEngine* engine,
       D3D_FEATURE_LEVEL_10_0,
   };
 
-  // Never pass D3D11_CREATE_DEVICE_SINGLETHREADED so mpv d3d11va decoder threads
-  // can operate safely with multithread protection enabled. Prefer
-  // D3D11_CREATE_DEVICE_VIDEO_SUPPORT for zero-copy d3d11va, falling back if a
-  // driver refuses video-device creation.
+  // 绝不能传入单线程标志 `D3D11_CREATE_DEVICE_SINGLETHREADED`，确保 mpv 硬件解码线程
+  // 在开启多线程保护下安全并发；优先申请视频支持标志以启用零拷贝解码，
+  // 若部分显卡驱动拒绝创建视频设备上下文，则自动回退常规设备创建流程。
+  // 兼顾硬件硬解兼容与老旧驱动回退稳定性。
   const UINT video_flags =
       D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT;
   const UINT basic_flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
@@ -210,7 +210,7 @@ bool CreateD3D11Device(flutter::FlutterEngine* engine,
   }
 
   if (out_adapter_name != nullptr) {
-    *out_adapter_name = "Direct3D 11 Hardware";
+    out_adapter_name->assign("Direct3D 11 Hardware");
     Microsoft::WRL::ComPtr<IDXGIDevice> dxgi_device;
     if (SUCCEEDED((*out_device).As(&dxgi_device)) && dxgi_device) {
       Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
@@ -219,7 +219,7 @@ bool CreateD3D11Device(flutter::FlutterEngine* engine,
         if (SUCCEEDED(adapter->GetDesc(&desc))) {
           const std::string utf8 = WideToUtf8(desc.Description);
           if (!utf8.empty()) {
-            *out_adapter_name = utf8;
+            out_adapter_name->assign(utf8);
           }
         }
       }
@@ -265,8 +265,7 @@ class D3D11TextureBridge::RenderSession
     if (!initialized) {
       if (!InitializeSoftwareBackend()) {
         if (error_message != nullptr) {
-          *error_message =
-              "Failed to initialize both D3D11 and software mpv render context";
+          error_message->assign("Failed to initialize both D3D11 and software mpv render context");
         }
         return false;
       }
@@ -303,8 +302,8 @@ class D3D11TextureBridge::RenderSession
       stop_requested_ = true;
     }
 
-    // Detach mpv callback before joining render thread so mpv never posts
-    // new notifications during teardown or after render_ctx destruction.
+    // 在 join 渲染线程之前先解绑 mpv 更新回调，确保释放过程中不会继续投递渲染通知。
+    // 防止对象销毁期间发生悬空回调访问。
     if (render_ctx_ != nullptr && symbols_.set_update_callback != nullptr) {
       symbols_.set_update_callback(render_ctx_, nullptr, nullptr);
     }
@@ -444,8 +443,8 @@ class D3D11TextureBridge::RenderSession
     }
     const int64_t id_to_remove = texture_id_;
     texture_id_ = -1;
-    // Keep session alive through std::shared_ptr until Flutter finishes using
-    // TextureVariant callbacks on its raster thread.
+    // 通过 `std::shared_ptr` 延长渲染会话生命周期，直至 Flutter 光栅线程彻底释放纹理。
+    // 保证纹理回调生命周期与外部纹理安全注销同步。
     std::shared_ptr<RenderSession> self_guard = shared_from_this();
     std::shared_ptr<flutter::TextureVariant> retired_variant(
         std::move(texture_variant_));
@@ -753,7 +752,7 @@ class D3D11TextureBridge::RenderSession
   }
 
   void RecoverOrFallbackFromD3D11Failure(size_t width, size_t height) {
-    // Tear down old render context first so mpv releases GPU references cleanly.
+    // 先拆除旧渲染上下文，确保 mpv 干净释放占用的 GPU 资源引用。
     if (render_ctx_ != nullptr) {
       symbols_.set_update_callback(render_ctx_, nullptr, nullptr);
       symbols_.free(render_ctx_);
@@ -765,8 +764,8 @@ class D3D11TextureBridge::RenderSession
       ReleaseD3D11ResourcesLocked();
     }
 
-    // Attempt 1: recreate hardware D3D11 device + mpv D3D11 context keeping same
-    // textureId.
+    // 恢复方案 1：尝试沿用当前 `textureId` 原地重建 D3D11 硬件设备与渲染上下文。
+    // 维持原纹理 ID 不变以实现零闪烁热恢复。
     if (!d3d11_recovery_attempted_) {
       d3d11_recovery_attempted_ = true;
       if (CreateD3D11Device(engine_, &device_, &context_, &adapter_name_)) {
@@ -806,8 +805,8 @@ class D3D11TextureBridge::RenderSession
       }
     }
 
-    // Attempt 2: switch transparently to software PixelBufferTexture and notify
-    // Dart to rebind Texture widget to the new textureId.
+    // 恢复方案 2：透明回退至软件像素缓冲纹理，并通知 Dart 侧绑定全新 `textureId`。
+    // 驱动 Dart 侧纹理组件切换至重新申请的纹理编号。
     UnregisterCurrentTexture();
     if (InitializeSoftwareBackend()) {
       RenderSoftwareFrame(width, height);

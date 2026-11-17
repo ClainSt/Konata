@@ -175,7 +175,7 @@ class DetailActionHandlers {
         );
     switch (decision) {
       case OpenBuiltinVideoDecision(:final request):
-        await EmbeddedVideoPage.push(navigator, request);
+        await EmbeddedVideoPage.push(navigator, request, ref: ref);
       case LaunchedExternalVideoDecision(:final result):
         if (context.mounted && result.message.isNotEmpty) {
           showKonataToast(context, result.message, isError: !result.launched);

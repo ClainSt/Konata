@@ -15,28 +15,28 @@ import 'package:smb_connect/src/utils/extensions.dart';
 enum DcerpcState { none, binding, bind }
 
 abstract class DcerpcBase {
-  /// The pipe should be opened read-only.
+  /// 以只读方式打开目标命名管道。
   static const int PIPE_TYPE_RDONLY = SmbConstants.O_RDONLY;
 
-  /// The pipe should be opened only for writing.
+  /// 以只写方式打开目标命名管道。
   static const int PIPE_TYPE_WRONLY = SmbConstants.O_WRONLY;
 
-  /// The pipe should be opened for both reading and writing.
+  /// 以可读可写方式打开目标命名管道。
   static const int PIPE_TYPE_RDWR = SmbConstants.O_RDWR;
 
-  /// Pipe operations should behave like the <code>CallNamedPipe</code> Win32 Named Pipe function.
+  /// 管道通信行为模拟 Win32 `CallNamedPipe` 事务型读写模式。
   static const int PIPE_TYPE_CALL = 0x0100;
 
-  /// Pipe operations should behave like the <code>TransactNamedPipe</code> Win32 Named Pipe function.
+  /// 管道通信行为模拟 Win32 `TransactNamedPipe` 交互模式。
   static const int PIPE_TYPE_TRANSACT = 0x0200;
 
-  /// Pipe is used for DCE
+  /// 声明该命名管道专用于 DCERPC 远程过程调用通信。
   static const int PIPE_TYPE_DCE_TRANSACT = 0x0200 | 0x0400;
 
-  /// Pipe should use it's own exclusive transport connection
+  /// 指示该命名管道独占使用一条独立 SMB 底层传输连接。
   static const int PIPE_TYPE_UNSHARED = 0x800;
 
-  /* This 0x20000 bit is going to get chopped! */
+  /* 提醒：高位的 0x20000 标志位将在后续位宽转换时被截断。 */
   static const int pipeFlags =
       (0x2019F << 16) | PIPE_TYPE_RDWR | PIPE_TYPE_DCE_TRANSACT;
   static const int pipeAccess = (pipeFlags & 7) | 0x20000;
@@ -44,7 +44,6 @@ abstract class DcerpcBase {
 
   final SmbTransport transport;
   final SmbTree tree;
-  // final int access;
   DcerpcState _state = DcerpcState.none;
   final AtomicInteger _msgNum = AtomicInteger();
 
@@ -69,10 +68,7 @@ abstract class DcerpcBase {
     msg.flags = 3;
     msg.callId = _msgNum.incrementAndGet();
     msg.encode(buf);
-    // int off = 0;
-    // int length = msg.length;
     int n = await doSendRecieve(out, 0, msg.length, inB);
-    // print(n);
 
     if (n != 0) {
       NdrBuffer hdrBuf = NdrBuffer(inB, 0);
@@ -96,15 +92,13 @@ abstract class DcerpcBase {
     Uint8List fragBytes = Uint8List(maxRecv);
     NdrBuffer fragBuf = NdrBuffer(fragBytes, 0);
     while (!msg.isFlagSet(DcerpcConstants.DCERPC_LAST_FRAG)) {
-      // doReceiveFragment(fragBytes);
       _setupReceivedFragment(fragBuf);
       fragBuf.reset();
       msg.decodeHeader(fragBuf);
       int stubFragLen = msg.length - 24;
       if ((off + stubFragLen) > inp.length) {
-        // shouldn't happen if allochint is correct or greater
+        // 只要分片分配长度提示准确或更大，正常协议流转不应走到此分支。
         Uint8List tmp = Uint8List(off + stubFragLen);
-        // System.arraycopy(inp, 0, tmp, 0, off);
         byteArrayCopy(
             src: inp, srcOffset: 0, dst: tmp, dstOffset: 0, length: off);
         inp = tmp;
@@ -157,7 +151,7 @@ abstract class DcerpcBase {
           if (ch == '[') {
             String server = str.substring(mark, si).trim();
             if (server.isEmpty) {
-              // this can also be a v6 address within brackets, look ahead required
+              // 此处也可能是带方括号包裹的 IPv6 地址，须前瞻分隔符识别。
               int nexts = str.indexOf('[', si + 1);
               int nexte = str.indexOf(']', si);
               if (nexts >= 0 && nexte >= 0 && nexte == nexts - 1) {

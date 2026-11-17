@@ -6,19 +6,19 @@ import 'personal_filename_parser.dart';
 import 'title_normalizer.dart';
 import 'work_season.dart';
 
-/// What a work folder contains, derived only from paths and sizes.
-/// No network, no video reads. Pure and cheap enough to run on every scan.
+/// 仅依据相对路径与文件字节大小推导的作品目录清单画像；
+/// 纯确定性计算，零网络请求与视频解码读取，可高频应用于全量扫描。
 enum WorkShape {
-  /// One logical feature (movie / one-shot OVA), possibly several encodes.
+  /// 单个逻辑正片单元（剧场版或单集 OVA），可合并多个不同压制版本。
   feature,
 
-  /// Two or more logical episodes.
+  /// 包含两集及以上逻辑正片剧集的连续作品。
   series,
 
-  /// Many unrelated titles in one folder; never auto-bind to one entry.
+  /// 单目录混杂多部互不关联作品的合集形态，严禁自动绑定单线条目。
   anthology,
 
-  /// No playable main content (only extras, or a sample/bonus folder).
+  /// 不包含任何可播正片内容（仅含特典映像或样片/花絮目录）。
   empty,
 }
 
@@ -28,7 +28,7 @@ class LogicalItem {
   final int? episode, season;
   final List<String> files = [];
 
-  /// Normalized series title of every encode merged into this item.
+  /// 归并至同一正片逻辑条目下的各压制版本归一化系列标题。
   final List<String> titles = [];
 }
 
@@ -89,16 +89,16 @@ class DirectoryInventory {
   /// The user wrote 剧场版 / Movie in the folder name.
   final bool folderMovieMarker;
 
-  /// Only filenames say movie (weaker evidence).
+  /// 仅文件名包含剧场版关键词的弱电影特征信号。
   final bool fileMovieMarker;
   final List<LogicalItem> main;
   final List<String> extras;
   final WorkShape shape;
 
-  /// Folder-derived titles, highest trust first.
+  /// 由目录名解析出的候选标题列表，按置信度从高到低排列。
   final List<String> titleHints;
 
-  /// Filename-derived titles (romaji / original / subtitles).
+  /// 由文件名解析出的候选标题列表（涵盖罗马音、原名及副标题）。
   final List<String> fileHints;
 
   Set<int> get episodes => {
@@ -147,7 +147,7 @@ abstract final class DirectoryAnalyzer {
     caseSensitive: false,
   );
 
-  /// Unambiguous side content that is never the main feature, even alone.
+  /// 语义明确的纯附属影像词汇：即便目录内单独存在，也不视作正片。
   static final _unambiguousExtra = RegExp(
     r'(?<![a-z0-9])(?:nc(?:op|ed)\w*|pv\w*|cm\w*|menus?(?:[ ._-]*ex)?\d*|'
     r'music[ ._-]*(?:video|clip)|mv[ ._-]*making|'
@@ -162,10 +162,10 @@ abstract final class DirectoryAnalyzer {
     caseSensitive: false,
   );
 
-  /// Context-dependent extra words: extra alongside main episodes or when small,
-  /// but a sole large feature (>= 150 MB) whose title touches "Event"/"Talk"/"MV"
-  /// must not be wiped into [WorkShape.empty]. OP/ED is matched separately with
-  /// strict alphanumeric boundaries via [CloudMediaFileClassifier.isOpEdExtra].
+  /// 上下文敏感的特典词汇：同存正片或体积偏小时判作特典；
+  /// 但若独立大型正片（体积 >= 150 MB）标题恰好包含 `Event`/`Talk`/`MV` 等词，
+  /// 绝不能被误清为空目录 `[WorkShape.empty]`；`OP/ED` 另外通过严格边界校验识别。
+  /// 详见 `[CloudMediaFileClassifier.isOpEdExtra]`。
   static final _ambiguousExtra = RegExp(
     r'(?<![a-z0-9])(?:interviews?|events?|talk|radio|logo|gallery|advice|'
     r'mv|music[ ._-]*clip|spots?|info|supporters?|digest|recap|'
@@ -182,9 +182,9 @@ abstract final class DirectoryAnalyzer {
     caseSensitive: false,
   );
 
-  /// Extracts the clean base title from a pure special-collection directory
-  /// such as `<Title> Extras`, `<Title> Specials`, `<Title> SPs`, `<Title> 特典`,
-  /// or `<Title> Extra`, while preserving proper work titles like `Extra Stage`.
+  /// 从纯特典合集目录中提取干净基础标题
+  /// （如 `<标题> Extras`、`<标题> Specials`、`<标题> SPs`、`<标题> 特典` 或 `<标题> Extra`），
+  /// 同时完整保留诸如 `Extra Stage` 等自身即带 Extra 的专有作品名称。
   static String? _extractSpecialCollectionTitle(String cleanFolderTitle) {
     final match = _specialCollectionFolderSuffix.firstMatch(cleanFolderTitle);
     if (match == null) return null;
@@ -209,7 +209,7 @@ abstract final class DirectoryAnalyzer {
     caseSensitive: false,
   );
 
-  /// [files] are paths relative to [folder] (posix or windows separators).
+  /// 参数 `[files]` 为相对于目录 `[folder]` 的路径列表（兼容 POSIX 与 Windows 分隔符）。
   static DirectoryInventory analyze(
     String folder,
     Iterable<({String path, int? size})> files,
@@ -263,8 +263,8 @@ abstract final class DirectoryAnalyzer {
       }
     }
     if (specialCollectionTitle != null) {
-      // Pure special-collection directories (e.g., "<Title> Extras/Specials/SPs")
-      // map non-OP/ED soft items into main so Season 0 matching can pair them.
+      // 纯特典合集目录（如 `<标题> Extras/Specials/SPs`）将非 OP/ED 的软特典项提升为候选正片，
+      // 以便与 TMDB 第 0 季特别篇条目完成精确配对。
       for (final item in soft) {
         final file = p.posix.basename(item.path);
         if (CloudMediaFileClassifier.isOpEdExtra(file)) {
@@ -282,9 +282,9 @@ abstract final class DirectoryAnalyzer {
         soft,
         supplementaryFolder: supplementaryFolder,
       );
-      // OVA / special-edition / extra-stage folders: their "specials" are the
-      // work. Trailers and menus never get promoted; ambiguous extra words only
-      // promote when backed by main-feature file size (>= 150 MB).
+      // 独立 OVA / 特别版 / Extra Stage 目录：其中“特别篇”即为该作品主体；
+      // 预告片与菜单绝不提升，语义模糊词汇仅在达到主片体量（>= 150 MB）时
+      // 才允许提升识别为主正片。
       if (main.isEmpty && !supplementaryFolder) {
         for (final item in soft) {
           if (item.ambiguous &&
@@ -307,8 +307,8 @@ abstract final class DirectoryAnalyzer {
         for (final item in soft) {
           extras.add(item.path);
         }
-        // Demote unnumbered tiny clips (< 20% of median episode size and < 120 MB)
-        // when mixed into a real multi-episode BDRip folder.
+        // 若无编号短片段体积不足中位单集大小 20% 且小于 120 MB，
+        // 在多集正片 BDRip 目录中自动降级归类为附属特典。
         final epSizes = [
           for (final item in main.values)
             if (item.episode != null)
@@ -342,8 +342,8 @@ abstract final class DirectoryAnalyzer {
     }
 
     var items = main.values.toList();
-    // A single numbered file is a numbered title (Legend 01, Movie 3, #02),
-    // not episode N of a series, unless it carries an explicit episodic marker
+    // 单个带编号的文件通常本身就是带序号的作品标题（如 `Legend 01`、`Movie 3`、`#02`），
+    // 而非连续剧第 N 集，除非它显式带有标准剧集前缀标记。
     // (SxxExx, EPxx, E01, 第x話, 02v2, or bracketed/hyphen `[01]`/`- 01` without movie marker).
     final numbered = items.where((i) => i.episode != null).toList();
     if (numbered.length == 1) {
@@ -383,8 +383,8 @@ abstract final class DirectoryAnalyzer {
       for (final i in items)
         if (i.episode == null) i.title,
     };
-    // One dominant series with side content (digests, recap shorts) is still
-    // that series; anthology needs several comparable runs.
+    // 主干清晰、仅混有少量总集篇或短片花絮的目录仍属单一作品；
+    // 只有同时包含多段规模相当的独立系列时才判定为混杂合集。
     final perSeries = <String, int>{};
     for (final item in items.where((i) => i.episode != null)) {
       for (final title in item.titles.where(meaningful)) {
@@ -401,7 +401,7 @@ abstract final class DirectoryAnalyzer {
             featureTitles.length >= 6 &&
                 featureTitles.length > episodeTitles.length * 4 &&
                 items.where((i) => i.episode != null).length < 6)) {
-      // Many unrelated series or films (e.g. SD Gundam Mk1..Mk5 + Gaiden).
+      // 目录内混杂多部无关剧场版或外传系列（例如 SD 高达外传全集）。
       shape = WorkShape.anthology;
     } else if (items.any((i) => i.episode != null)) {
       shape = WorkShape.series;
@@ -447,7 +447,7 @@ abstract final class DirectoryAnalyzer {
         )
         .trim();
     hint(titleHints, withoutMarker);
-    // Collapse counts by frequency: the dominant filename title first.
+    // 按频次降序汇总归一化标题，将出现最频繁的文件名主标题排在首位。
     final counts = <String, int>{};
     for (final item in items) {
       for (final file in item.files) {
@@ -532,9 +532,9 @@ abstract final class DirectoryAnalyzer {
     );
   }
 
-  /// Splits trailing season/sequel suffixes into `(baseTitle, season)` so
-  /// search queries include the clean base title while `WorkMatcher` receives
-  /// the season signal (e.g. `Mob Psycho 100 II` -> base `Mob Psycho 100`, S2).
+  /// 将尾部季度或续作后缀拆分为 `(baseTitle, season)` 二元组，
+  /// 使搜索请求携带纯净基础名称的同时，向 `WorkMatcher` 传递精确季度信号
+  /// （例如 `Mob Psycho 100 II` 拆为 `Mob Psycho 100` 与第 2 季）。
   static ({String baseTitle, int? season}) splitSeasonSuffix(
     String raw, {
     required bool isSeries,
@@ -561,8 +561,8 @@ abstract final class DirectoryAnalyzer {
 
     if (!isSeries) return (baseTitle: trimmed, season: null);
 
-    // 2. Trailing Roman numeral season (II / III / IV / Ⅱ / Ⅲ / Ⅳ) on series,
-    //    excluding technical/mecha model designators (Mk-II, Mark II, Type II, Part II).
+    // 2. 识别系列标题末尾罗马季度编号（`II / III / IV / Ⅱ / Ⅲ / Ⅳ`），
+    //    自动排除机体型号或技术代号（如 `Mk-II`、`Mark II`、`Type II`、`Part II`）。
     final romanTail = RegExp(
       r'^(.+?)\s+(II|III|IV|Ⅱ|Ⅲ|Ⅳ)$',
       caseSensitive: false,
@@ -592,8 +592,8 @@ abstract final class DirectoryAnalyzer {
       _ovaMarker.hasMatch(inventory.folder) ||
       inventory.main.any((i) => i.files.any((f) => _ovaMarker.hasMatch(f)));
 
-  /// Preserves main-directory numbered episodes whose weak bracketed/recap notes
-  /// would otherwise demote them out of a contiguous 1..N integer sequence.
+  /// 保留位于主目录内且处于连续 `1..N` 整数序列中的正片剧集，
+  /// 防止仅因附带括号注记或回顾提示就被误降级为特典。
   static List<({String path, int? size, bool ambiguous})>
   _protectContiguousMainEpisodes(
     Map<String, LogicalItem> main,
@@ -730,8 +730,8 @@ abstract final class DirectoryAnalyzer {
               rawFile: file,
             ),
           );
-    // Encodes of one episode collapse on (season, number); the series title
-    // is kept for anthology detection and hints only.
+    // 同一集的多种压制版本按 `(season, number)` 键折叠去重；
+    // 系列标题仅额外保留用于合集判定与名称提示。
     final key = episode == null
         ? 'f:$core'
         : 'e:${season?.group(1) ?? ''}:$episode';
@@ -745,10 +745,10 @@ abstract final class DirectoryAnalyzer {
       ..titles.add(title);
   }
 
-  /// Text before the episode number: "Wake Up, Girls! 10" -> "Wake Up, Girls!",
+  /// 截取集号前面的标题主干（例如 `"Wake Up, Girls! 10"` 提取为 `"Wake Up, Girls!"`），
   /// "キノの旅 #03 予言の国" -> "キノの旅", "SD Gundam Mk3 - Episode 01" ->
-  /// "SD Gundam Mk3", while preserving numeric titles ("86", "Mob Psycho 100",
-  /// "Steins;Gate 0") when the right-side episode token was already stripped.
+  /// 完整保留机体号（`SD Gundam Mk3`）及自带数字的原作片名（如 `86`、`Mob Psycho 100`、
+  /// `Steins;Gate 0`），防止右端集号剥离后误伤作品自身数字。
   static String seriesTitle(String keyword, int? episode, {String? rawFile}) {
     var value = keyword;
     if (episode != null) {
@@ -785,8 +785,8 @@ abstract final class DirectoryAnalyzer {
     return value.isEmpty ? keyword : value;
   }
 
-  /// Same work, different encode: drop brackets, parentheses and every token
-  /// from the first resolution / source / year-before-resolution onward.
+  /// 同一作品不同压制版本归一化：剔除方圆括号并自首个分辨率、片源或年份
+  /// 技术规格词元起截断尾部，以保证不同版本收口为同一作品标题。
   static String versionKey(String file) {
     var base = PersonalFilenameParser.baseNameWithoutExtension(file);
     final withoutBlocks = base
@@ -870,7 +870,7 @@ abstract final class DirectoryAnalyzer {
     caseSensitive: false,
   ).hasMatch(path);
 
-  /// Folder name without provider markers, years and bracketed tags.
+  /// 清理刮削源标记、发行年份及方括号标签后的纯净目录名称。
   static String cleanTitle(String folderName) {
     var title = PersonalFilenameParser.withoutTmdbMarkers(folderName)
         .replaceAll(_bangumiMarker, ' ')
@@ -880,8 +880,8 @@ abstract final class DirectoryAnalyzer {
     return title.isEmpty ? folderName : title;
   }
 
-  /// Comparison key: width/case/kana/roman/multiplication/trad-simp folded,
-  /// punctuation-free, and numbers without leading zeros ("Legend 01" == "Legend 1").
+  /// 跨语言标题比对键：统一折叠全半角、大小写、假名、罗马数字、乘号及繁简体，
+  /// 剔除标点符号并移除数字前导零（保证 `Legend 01` 与 `Legend 1` 一致）。
   static String normalize(String value) => TitleNormalizer.fold(value)
       .replaceAll(RegExp(r'(?<!\d)0+(?=\d)'), '')
       .replaceAll(

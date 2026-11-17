@@ -1,6 +1,6 @@
 plugins {
     id("com.android.application")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    // Flutter Gradle 插件必须在 Android 与 Kotlin Gradle 插件之后应用。
     id("dev.flutter.flutter-gradle-plugin")
 }
 
@@ -23,8 +23,8 @@ android {
     defaultConfig {
         applicationId = "com.anime.konata"
         manifestPlaceholders["konataLabel"] = if (scraperPackage) "Konata Scraper Test" else "Konata"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
+        // 以下最小/目标 SDK 与版本号配置按 Flutter 宿主配置自动注入。
+        // 相关构建参数遵循 Flutter Gradle 插件规范。
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -56,7 +56,7 @@ android {
     }
 }
 
-// Missing credentials must fail even when AGP would otherwise produce an unsigned APK.
+// 缺少正式签名凭据时必须直接阻断构建，避免 AGP 意外产出未签名 APK。
 tasks.matching { it.name == "preReleaseBuild" }.configureEach {
     doFirst {
         check(isolatedReleaseValidation || (publicKeystore.isFile && !publicKeyPassword.orNull.isNullOrBlank())) {

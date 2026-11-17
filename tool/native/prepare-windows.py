@@ -41,8 +41,8 @@ for name in ['dovi-hlg-fallback.patch', 'windows-dovi-base-metadata.patch',
         subprocess.run(['patch', '-d', str(target), '-p1', '--reverse', '--dry-run', '-i', str(patch)], check=True)
 script = (target / 'ci/build-mingw64-full.sh').read_text()
 script = script.replace('. ./ci/build-common.sh', '''. ./ci/build-common.sh
-# The image follows FFmpeg master; use options supported by pinned FFmpeg 9.0.2.
-# Encoding and devices are disabled below; keep playback, network and GPU paths.
+# 构建镜像追踪 FFmpeg 主干，以下显式指定与固定 FFmpeg 9.0.2 兼容的配置项。
+# 禁用通用编码器与设备输入，仅保留解码播放、网络及 GPU 渲染通路。
 FF_CONFIGURE="--enable-version3 --disable-debug --disable-w32threads --enable-pthreads --enable-iconv --enable-zlib --enable-libxml2 --enable-lzma --enable-libdav1d --enable-libopus --enable-libvorbis --enable-schannel --enable-ffnvcodec --enable-cuda-llvm --enable-vulkan --enable-libplacebo --enable-libass --enable-libfreetype --enable-libharfbuzz --enable-libfribidi --enable-libsoxr --enable-libzimg --enable-libopenjpeg --enable-libwebp --enable-libjxl --enable-lcms2 --enable-libbluray"
 ''', 1)
 def replace_once(old, new):
@@ -70,15 +70,14 @@ for directory, revision in [
 replace_once('meson wrap install mujs', 'test -f subprojects/mujs.wrap')
 (target / 'subprojects').mkdir(exist_ok=True)
 shutil.copyfile(Path(__file__).with_name('mujs.wrap'), target / 'subprojects/mujs.wrap')
-# Keep libass as the subtitle renderer; terminal sixel and desktop media controls
-# are not used by Konata. Preserve GPU renderers, color management and scripting.
+# 保留 libass 作为字幕渲染器；Konata 不使用终端 sixel 与桌面媒体控件，保留 GPU 渲染、色彩管理与脚本能力。
 for start, end in [('group "Building libsixel"', 'group "Building libarchive"'), ('group "Building subrandr"', 'group "Building mpv"')]:
     a, b = script.index(start), script.index(end)
     script = script[:a] + script[b:]
 replace_once('-D{shaderc,sixel,spirv-cross,subrandr,uchardet,vapoursynth,vulkan}=enabled', '-D{shaderc,spirv-cross,uchardet,vulkan}=enabled\n    -D{sixel,subrandr,vapoursynth}=disabled')
 replace_once('-D{win32-smtc,zimg}=enabled', '-Dwin32-smtc=disabled -Dzimg=enabled')
 script = script.replace('$(nproc)', '${KONATA_JOBS:-2}')
-# Keep the GCC runtime static, as in the shipped native library.
+# 保持静态链接 GCC 运行库，与分发版原生动态库构建口径一致。
 script = script.replace('-L$FFBUILD_PREFIX/lib -liconv"',
                         '-L$FFBUILD_PREFIX/lib -liconv -static-libgcc"')
 script = script.replace('ninja install', 'ninja -j"${KONATA_JOBS:-2}" install')

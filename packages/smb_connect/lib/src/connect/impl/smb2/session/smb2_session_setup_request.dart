@@ -73,7 +73,6 @@ class Smb2SessionSetupRequest
     dstIndex += pad8(dstIndex);
 
     if (token != null) {
-      // print("Smb2SessionSetup token: ${token!.toHexString()}");
       byteArrayCopy(
           src: token!,
           srcOffset: 0,

@@ -1,5 +1,5 @@
-/// Conservative filename and directory classification shared by scans and
-/// repair passes. Provider IDs are optional; media semantics come first.
+/// 扫描器与重整校准共用的保守文件名/目录分类器；
+/// 外部刮削源 ID 为可选项，始终以本地媒体语义判定为先。
 abstract final class CloudMediaFileClassifier {
   static final _supplementaryDirectory = RegExp(
     r'^(?:sp|sps|special|specials|extra|extras|bonus|nc|ncop|nced|pv|cm|'
@@ -45,22 +45,22 @@ abstract final class CloudMediaFileClassifier {
     caseSensitive: false,
   );
 
-  /// Adjacent bracketed extra tag followed immediately by an episode-like
-  /// bracket, e.g. `[SP][01]`, `[OVA][01]`, `[OAD][01]`, `[NCOP][01]`.
+  /// 相邻括号特典标识后紧跟类集号括号，例如 `[SP][01]`、`[OVA][01]`、`[OAD][01]`、`[NCOP][01]`。
+  /// 用于识别双括号拆分的特典序号。
   static final adjacentBracketExtra = RegExp(
     r'[\[【]\s*(?:sp|special|ova|oad|pv|cm|ncop(?:ed)?|nced)\s*[\]】]\s*'
     r'[\[【]\s*\d{1,3}(?:v\d+)?\s*[\]】]',
     caseSensitive: false,
   );
 
-  /// Bundled disc-order extra markers like `[13(OAD)]`, `[11(OAD)]`, `[12(OVA01)]`.
+  /// 捆绑光盘顺序的特典标记，例如 `[13(OAD)]`、`[11(OAD)]`、`[12(OVA01)]`。
   static final bundledExtraTag = RegExp(
     r'[\[【]\s*\d{1,3}\s*[\(（]\s*(?:oad|ova\d*|sp\d*|special)\s*[\)）]\s*[\]】]',
     caseSensitive: false,
   );
 
-  /// Japanese BD/DVD extra keywords that indicate side footage when paired
-  /// with main feature/series files in the same directory.
+  /// 日版蓝光/DVD 常见特典关键词；当目录内同存正片剧集时，
+  /// 命中此类关键词的文件应降级识别为附属映像特典。
   static final contextualJapanBdExtra = RegExp(
     r'初日舞台挨拶|舞台挨拶|キャストトークショー|トークショー|'
     r'(?:スペシャル|キャスト)?[\s._-]*トーク(?:ショー)?|talk[\s._-]+show|'
@@ -131,9 +131,9 @@ abstract final class CloudMediaFileClassifier {
     caseSensitive: false,
   );
 
-  /// Strips CRC32 checksum brackets, technical spec bracket blocks
-  /// (resolution/codec/bit-depth/audio), and frame-rate tags before extra
-  /// classification or episode extraction.
+  /// 在执行特典归类与集号提取前，先行剥离 CRC32 校验括号、
+  /// 编码技术规格括号（分辨率/编码/位深/音轨）及帧率标签。
+  /// 避免编码参数干扰正片集号与特典识别。
   static String stripTechnicalNoise(String name) {
     var result = name
         .replaceAll(_crc32Bracket, ' ')
@@ -261,12 +261,12 @@ abstract final class CloudMediaFileClassifier {
     caseSensitive: false,
   );
 
-  /// Whether [name] is a standalone OP/ED extra token (strict alphanumeric boundaries).
+  /// 判断 [name] 是否包含严格的独立 `OP/ED` 特典词元（校验字母数字边界）。
   static bool isOpEdExtra(String name) =>
       _opEdExtra.hasMatch(stripTechnicalNoise(name));
 
-  /// Whether a video carries strong extra markers (NCOP/NCED/PV/CM/Menu/Preview/
-  /// OP/ED/Making/Sample/Supplementary directory) as opposed to weak notes such
+  /// 判断视频是否携带强特典标记（如无字幕主题曲、预告、宣传片、菜单、预览及特典目录），
+  /// 以区分仅带弱备注标识的正片文件。
   /// as `[Special]`, `Recap`, or `総集編`.
   static bool isStrongSupplementary(String directory, String name) {
     if (isSupplementaryDirectory(directory)) return true;
@@ -288,9 +288,9 @@ abstract final class CloudMediaFileClassifier {
   static bool isNoCredit(String name) =>
       _noCredit.hasMatch(stripTechnicalNoise(name));
 
-  /// Whether a video is clearly side content without needing directory-wide
-  /// counts. Scanners use this to identify the remaining unnumbered main
-  /// candidate in a directory that also contains trailers, menus and events.
+  /// 判断单个视频无需参考目录内其余文件计数即可确认为附属内容，
+  /// 扫描器据此从含预告/菜单/活动视频的目录中筛选出唯一无编号正片候选。
+  /// 保障单剧场版或单卷 OVA 目录的主正片稳定识别。
   static bool isClearlySupplementary(String directory, String name) {
     if (isSupplementaryDirectory(directory)) return true;
     if (_releaseSample.hasMatch(name)) return true;
@@ -333,9 +333,9 @@ abstract final class CloudMediaFileClassifier {
       return 'extra';
     }
 
-    // A movie or one-part work often has no episode token. Treat an otherwise
-    // unclassified video as main content when it is the only video in its
-    // directory or when the work name explicitly says movie.
+    // 剧场版或单集作品通常无集号标识：当目录内仅此一份可播视频，
+    // 或作品标题明确包含电影/剧场版词汇时，将未命中特典的唯一视频视作正片。
+    // 避免独生无编号剧场版被误过滤。
     if (_isMovieContext(directory, name)) return 'episode';
     if (RegExp(r'\{tmdb-\d+\}', caseSensitive: false).hasMatch(name)) {
       return 'episode';
@@ -388,9 +388,9 @@ abstract final class CloudMediaFileClassifier {
     return nameNumbers.length <= 1;
   }
 
-  /// Resolves a filename episode number with directory-aware title-number
-  /// suppression. Callers that build indexes should use this variant so a
-  /// numeric work title does not inflate the directory's numbered-video count.
+  /// 结合目录级“标题数字抑制”策略解析文件名集号；
+  /// 构建目录索引的调用方应优先使用此入口，避免作品名自带数字（如 `86`、`365`）
+  /// 虚增目录内的带编号正片数量统计。
   static int? episodeNumberFromNameInDirectory(String directory, String name) {
     final cleanName = stripTechnicalNoise(name);
     final episodeNumber = episodeNumberFromName(cleanName);
@@ -402,8 +402,8 @@ abstract final class CloudMediaFileClassifier {
     return null;
   }
 
-  /// Explicit markers are authoritative even when the work title contains the
-  /// same number. Title-number suppression is only for loose fallback matches.
+  /// 即使作品标题本身含有相同数字，显式集号标识依然具有最高权威性；
+  /// 标题数字抑制策略仅作用于宽松兜底数字提取路径。
   static bool _hasExplicitEpisodeMarker(String name) {
     final searchable = _withoutSeasonAndPartMarkers(
       _normalizeName(stripTechnicalNoise(name)),
@@ -462,9 +462,9 @@ abstract final class CloudMediaFileClassifier {
     return _extractPostMarkerEpisode(searchable, explicitCheck: true) != null;
   }
 
-  /// Extracts the first episode represented by a filename. Range files such
-  /// as 01-04 and 003&004 map to their first episode; the original filename is
-  /// retained by the catalog for playback and display.
+  /// 提取文件名所代表的首个集号；多集连播文件名（如 `01-04`、`003&004`）
+  /// 默认映射至起始集号，完整原始文件名仍由目录索引保留用于播放与展示。
+  /// 确保连续合集文件具备唯一稳定的排序主键。
   static int? episodeNumberFromName(String name) {
     final normalized = _normalizeName(stripTechnicalNoise(name));
     final normalizedStem = normalized.replaceFirst(
@@ -576,8 +576,8 @@ abstract final class CloudMediaFileClassifier {
     String searchable, {
     bool explicitCheck = false,
   }) {
-    // Explicit separator episode before subtitle or tags takes strict precedence
-    // over title sequel numerals (e.g. "Eizou Hakusho II - 01 Yusuke").
+    // 位于副标题或方括号标签前方的显式分隔符集号具备最高优先级，
+    // 优先于作品续作数字（例如 `Eizou Hakusho II - 01 Yusuke`）。
     final spacedDash = RegExp(
       r'(?:^|\s|[\]】)])[-–—]\s+(\d{1,4})(?:v\d+)?(?![a-z0-9.])'
       r'(?=\s+(?!(?:days?|hours?|minutes?|mins?|seconds?|secs?|years?|'
@@ -701,7 +701,7 @@ abstract final class CloudMediaFileClassifier {
       final number = _number(entryMatch?.group(group));
       if (number != null && !_technicalNumber(number)) return number;
     }
-    // Prefer complete episode evidence anywhere before legacy annotated tokens.
+    // 优先采纳任意位置出现的完整规范集号证据，其次才回退历史注解格式。
     return completeOnly
         ? _episodeFromBrackets(name, completeOnly: false)
         : null;

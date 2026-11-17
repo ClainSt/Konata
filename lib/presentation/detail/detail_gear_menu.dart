@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 
@@ -143,11 +144,12 @@ class DetailGearMenuOverlay extends StatelessWidget {
                         label: '重新抓取 TMDB 数据',
                         onTap: () => onSelect(onRescrape),
                       ),
-                      _MenuRow(
-                        icon: Icons.folder_open_rounded,
-                        label: '打开本地所在文件夹',
-                        onTap: () => onSelect(onOpenLocalDir),
-                      ),
+                      if (KonataAdaptiveTokens.isWindows)
+                        _MenuRow(
+                          icon: Icons.folder_open_rounded,
+                          label: '打开本地所在文件夹',
+                          onTap: () => onSelect(onOpenLocalDir),
+                        ),
                     ],
                   ),
                 ),
@@ -179,23 +181,28 @@ class _MenuRow extends StatelessWidget {
     final fg = isDanger ? p.danger : p.textPrimary;
     return InkWell(
       onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-        child: Row(
-          children: [
-            Icon(icon, size: 17, color: fg),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: fg,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
+      child: ConstrainedBox(
+        constraints: KonataAdaptiveTokens.isAndroid
+            ? const BoxConstraints(minHeight: KonataAdaptiveTokens.touchTarget)
+            : const BoxConstraints(),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          child: Row(
+            children: [
+              Icon(icon, size: 17, color: fg),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: fg,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -232,6 +239,9 @@ class DetailDrawerHeaderButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final btnSize = KonataAdaptiveTokens.isAndroid
+        ? KonataAdaptiveTokens.touchTarget
+        : 30.0;
     return Tooltip(
       message: tooltip,
       child: InkWell(
@@ -239,8 +249,8 @@ class DetailDrawerHeaderButton extends StatelessWidget {
         onTap: enabled ? onPressed : null,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 140),
-          width: 30,
-          height: 30,
+          width: btnSize,
+          height: btnSize,
           decoration: BoxDecoration(
             color: active
                 ? KonataPlaybackTokens.activePillBg(p)
@@ -325,6 +335,13 @@ class _DetailDrawerTabChipState extends State<DetailDrawerTabChip> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           curve: Curves.easeOutCubic,
+          constraints: KonataAdaptiveTokens.isAndroid
+              ? const BoxConstraints(
+                  minWidth: KonataAdaptiveTokens.touchTarget,
+                  minHeight: KonataAdaptiveTokens.touchTarget,
+                )
+              : null,
+          alignment: KonataAdaptiveTokens.isAndroid ? Alignment.center : null,
           padding: EdgeInsets.symmetric(
             horizontal: widget.compact ? 12 : 14,
             vertical: widget.compact ? 6 : 7,

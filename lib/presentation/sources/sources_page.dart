@@ -8,6 +8,7 @@ import '../../application/scraping/scrape_progress.dart';
 import '../../domain/models/media_source.dart';
 import '../audio/mini_audio_bar.dart';
 import '../settings/settings_page.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
@@ -148,16 +149,33 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
   Widget build(BuildContext context) {
     final p = context.palette;
     final sourcesAsync = ref.watch(mediaSourcesProvider);
-    final progress = ref.watch(scrapeControllerProvider);
+    final scanState = ref.watch(
+      scrapeControllerProvider.select(
+        (s) => (
+          active: s.phase != ScrapePhase.idle,
+          isRunning: s.isRunning,
+          sourceId: s.sourceId,
+        ),
+      ),
+    );
     final netCfgAsync = ref.watch(tmdbNetworkConfigProvider);
     final missingTmdbApi =
         netCfgAsync.hasValue &&
         (netCfgAsync.value?.credential.trim().isEmpty ?? false);
     final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
-    final showBanner = progress.phase != ScrapePhase.idle && !_bannerDismissed;
+    final showBanner = scanState.active && !_bannerDismissed;
+    final screenW = MediaQuery.sizeOf(context).width;
+    final padH =
+        KonataAdaptiveTokens.isAndroid &&
+            screenW < KonataAdaptiveTokens.tabletBreakpoint
+        ? KonataAdaptiveTokens.horizontalInset
+        : KonataTheme.pageHorizontalPadding;
 
-    ref.listen<ScrapeProgress>(scrapeControllerProvider, (prev, next) {
-      if (_bannerDismissed && next.isRunning) {
+    ref.listen<bool>(scrapeControllerProvider.select((s) => s.isRunning), (
+      prev,
+      isRunning,
+    ) {
+      if (_bannerDismissed && isRunning) {
         setState(() => _bannerDismissed = false);
       }
     });
@@ -212,25 +230,14 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
                   slivers: [
                     if (showBanner)
                       SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(
-                          KonataTheme.pageHorizontalPadding,
-                          0,
-                          KonataTheme.pageHorizontalPadding,
-                          14,
-                        ),
+                        padding: EdgeInsets.fromLTRB(padH, 0, padH, 14),
                         sliver: SliverToBoxAdapter(
-                          child: ScrapeProgressBanner(
-                            progress: progress,
-                            onInspect: _openProgressDialog,
-                            onCancel:
-                                progress.isRunning && !progress.cancelRequested
-                                ? () => ref
-                                      .read(scrapeControllerProvider.notifier)
-                                      .requestCancel()
-                                : null,
-                            onDismiss: progress.isRunning
-                                ? null
-                                : () => setState(() => _bannerDismissed = true),
+                          child: RepaintBoundary(
+                            child: _LiveScrapeProgressBanner(
+                              onInspect: _openProgressDialog,
+                              onDismiss: () =>
+                                  setState(() => _bannerDismissed = true),
+                            ),
                           ),
                         ),
                       ),
@@ -261,9 +268,9 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
                     else
                       SliverPadding(
                         padding: EdgeInsets.fromLTRB(
-                          KonataTheme.pageHorizontalPadding,
+                          padH,
                           0,
-                          KonataTheme.pageHorizontalPadding,
+                          padH,
                           28 + bottomClearance,
                         ),
                         sliver: SliverList.separated(
@@ -273,8 +280,8 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
                           itemBuilder: (_, index) {
                             final source = sources[index];
                             final isScanningThis =
-                                progress.isRunning &&
-                                progress.sourceId == source.id;
+                                scanState.isRunning &&
+                                scanState.sourceId == source.id;
                             return _SourceCard(
                               source: source,
                               testing: _testingSourceId == source.id,
@@ -298,6 +305,29 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _LiveScrapeProgressBanner extends ConsumerWidget {
+  const _LiveScrapeProgressBanner({
+    required this.onInspect,
+    required this.onDismiss,
+  });
+
+  final VoidCallback onInspect;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final progress = ref.watch(scrapeControllerProvider);
+    return ScrapeProgressBanner(
+      progress: progress,
+      onInspect: onInspect,
+      onCancel: progress.isRunning && !progress.cancelRequested
+          ? () => ref.read(scrapeControllerProvider.notifier).requestCancel()
+          : null,
+      onDismiss: progress.isRunning ? null : onDismiss,
     );
   }
 }
@@ -330,78 +360,127 @@ class _SourceCard extends StatelessWidget {
       MediaSourceKind.smb => 'SMB 共享',
     };
 
+    final isAndroid = KonataAdaptiveTokens.isAndroid;
+    final iconConstraints = isAndroid
+        ? const BoxConstraints(
+            minWidth: KonataAdaptiveTokens.touchTarget,
+            minHeight: KonataAdaptiveTokens.touchTarget,
+          )
+        : null;
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onPickFolders,
       child: KonataSurfaceCard(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
         enableHover: true,
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: p.softFill,
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                kindLabel,
-                style: TextStyle(
-                  color: p.textSecondary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    source.label,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final infoRow = Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: p.softFill,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    kindLabel,
                     style: TextStyle(
-                      color: p.textPrimary,
-                      fontSize: 15,
+                      color: p.textSecondary,
+                      fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    source.location,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: p.textSecondary, fontSize: 12.5),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        source.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: p.textPrimary,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        source.location,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: p.textSecondary, fontSize: 12.5),
+                      ),
+                    ],
                   ),
-                ],
+                ),
+              ],
+            );
+
+            final actionWidgets = <Widget>[
+              KonataPillButton.primary(
+                label: scanning ? '扫描中...' : '选择目录',
+                icon: Icons.folder_open_rounded,
+                compact: true,
+                onPressed: onPickFolders,
               ),
-            ),
-            KonataPillButton.primary(
-              label: scanning ? '扫描中...' : '选择目录',
-              icon: Icons.folder_open_rounded,
-              compact: true,
-              onPressed: onPickFolders,
-            ),
-            const SizedBox(width: 8),
-            KonataPillButton.secondary(
-              label: testing ? '测试中...' : '测试连通',
-              compact: true,
-              onPressed: testing ? null : onTest,
-            ),
-            const SizedBox(width: 6),
-            IconButton(
-              tooltip: '编辑',
-              color: p.textSecondary,
-              icon: const Icon(Icons.edit_outlined, size: 18),
-              onPressed: onEdit,
-            ),
-            IconButton(
-              tooltip: '删除',
-              color: p.textSecondary,
-              icon: const Icon(Icons.delete_outline_rounded, size: 18),
-              onPressed: onDelete,
-            ),
-          ],
+              KonataPillButton.secondary(
+                label: testing ? '测试中...' : '测试连通',
+                compact: true,
+                onPressed: testing ? null : onTest,
+              ),
+              IconButton(
+                tooltip: '编辑',
+                constraints: iconConstraints,
+                color: p.textSecondary,
+                icon: const Icon(Icons.edit_outlined, size: 18),
+                onPressed: onEdit,
+              ),
+              IconButton(
+                tooltip: '删除',
+                constraints: iconConstraints,
+                color: p.textSecondary,
+                icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                onPressed: onDelete,
+              ),
+            ];
+
+            if (constraints.maxWidth >= 560) {
+              return Row(
+                children: [
+                  Expanded(child: infoRow),
+                  const SizedBox(width: 12),
+                  actionWidgets[0],
+                  const SizedBox(width: 8),
+                  actionWidgets[1],
+                  const SizedBox(width: 6),
+                  actionWidgets[2],
+                  actionWidgets[3],
+                ],
+              );
+            }
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                infoRow,
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: actionWidgets,
+                ),
+              ],
+            );
+          },
         ),
       ),
     );

@@ -1,14 +1,14 @@
-/// Lightweight, dependency-free normalizer for anime/film titles across
-/// Traditional/Simplified Chinese, fullwidth ASCII, Japanese kana, Unicode
-/// Roman numerals, and title multiplication separators.
+/// 零依赖轻量番剧/影视标题归一化工具，统一处理简繁体中文、全半角 ASCII、
+/// 日语假名、Unicode 罗马数字及标题专用乘号分隔符。
+/// 用于本地标题归并、索引建键与跨源高召回匹配。
 ///
-/// The Traditional-to-Simplified character mapping table is extracted from the
-/// OpenCC (Open Chinese Convert) TSCharacters lexicon (Apache License 2.0).
+/// 繁简汉字对照字符映射表提取自 OpenCC 开放中文转换项目的 `TSCharacters` 词典
+/// （遵循 Apache License 2.0 开源许可协议）。
 class TitleNormalizer {
   const TitleNormalizer._();
 
-  // OpenCC TSCharacters subset covering high-frequency Chinese characters and
-  // common anime/film title vocabulary (1:1 code-unit aligned).
+  // 高频繁简汉字与常见影视/动画片名词汇子集映射（按单个 Unicode 码元一比一对齐）。
+  // 确保高频作品译名在简繁差异下保持相同归一键。
   static const String _traditionalChars =
       '並亂亞來係俠個倫側偵偽傑傘備傢傳傷僅價儀億優兒內兩冊凍凱創劇劍劑動務勝勞勢勳勵勸區協卻厭參吳員問啟喚喪喬單嗎嗚嘆嘯噁噴嚇嚴囉國圍園圓圖團執堅報場塗墊墜墮墳壇壓壘壞壯壺壽夠夢夥奧奪奮娛婦媽嬰孫學宮實寧審寫寬寵寶將專尋對導尷屆屬岡島峽嵐嶺巔師帶幣幫幹幾庫廠廢廣廳張強彈彙後從復徵徹惡惱愛態慶慾憐憑憤憲憶應懷懸戀戰戲戶捲掃採揚換揮損搖撲擊擬擴攝敗敘敵數斷於時曆曉書會東條楓業極構槍樂樓標樣機橫檔櫻歐歡歷歸殘殺毀氣決況涼淨減準溫滅滾漢潔潛澤灣災為無煉熱爭爺爾獄獎獨獵獸獻現瑪環產畫異當疊療發盡監盤眾確禮種稱穩窮競筆範築簡籃紀約紅紋納紐純紙級紛細終組結絕給統絲經維網緊線緣編緩練縮縱總織繞繪繫繼續羅義習聖聯聰聲職聽腦臉臨臺與興舉艦莊華萊萬蒼蓮薩藍藥蘇蘭處號蟲術衛衝裏裝裡製複襲見規視親覺覽觀計訊討訓記設許訴診証評詞試詩話該詳語誤說誰課調談請論諜諸證識譯議護變讓讚負財貢貧貨販貪責貴買費貼貿賀資賞賢賣賦質賴賺賽贈贊贏趕趙跡踐躍軀車軌軍軒軟載輕輛輝輩輪輯輸轉轎辭農迴這連週進遊運過達違遙遜遠適遲遷選遺邁還邊邏郵鄉鄰醫釋針釣鈴銀銅鋸鋼錄錢錦錯鍊鍋鍵鎖鎮鏈鏡鐘鐵鑑長門閃閉開閏閒間閣閥閱閻闘關陣陰陽隊階際隨險隱隻雖雙雜雞離難雲電霧靈靜韓響頁頂項順須預領頭頻題額顏願類顧顯風飄飛飢飯飲飼飽飾養餘館馬駐騎騙騷驅驗驚體髮鬆鬥鬧鬱魚魯鮮鯉鯨鳥鳳鳴鴻鵝鶴鷹麗麥麵黃點黨齊齒齡龍龜葉';
 
@@ -44,8 +44,8 @@ class TitleNormalizer {
     };
   }
 
-  /// Converts high-frequency Traditional Chinese characters into Simplified
-  /// Chinese while preserving ASCII case, Japanese kana, and punctuation.
+  /// 将高频繁体汉字转换为对应简体汉字，同时完整保留 ASCII 字母大小写、
+  /// 日语假名及原有标点结构。
   static String toSimplified(String input) {
     if (input.isEmpty) return input;
     var changed = false;
@@ -62,10 +62,10 @@ class TitleNormalizer {
     return changed ? buffer.toString() : input;
   }
 
-  /// Folds fullwidth ASCII, multiplication signs (`×`/`✕`/`✖`), Unicode Roman
-  /// numerals (`Ⅰ..Ⅻ`), Japanese katakana (including halfwidth & prolonged
-  /// sound marks), and Traditional Chinese characters into a canonical lowercase
-  /// form suitable for cross-script matching.
+  /// 将全角字符、乘号（`×`/`✕`/`✖`）、Unicode 罗马数字（`Ⅰ..Ⅻ`）、
+  /// 日语片假名（含半角片假名及长音符）以及繁体中文统一折叠为规范小写比较形式，
+  /// 适用于跨文字体系的模糊及精确片名比对。
+  /// 屏蔽全半角与平片假名写法差异。
   static String fold(String input) {
     if (input.isEmpty) return '';
     final runes = input.runes.toList(growable: false);
@@ -124,8 +124,8 @@ class TitleNormalizer {
         continue;
       }
       if (rune == 0xFF9E || rune == 0xFF9F) {
-        // Standalone halfwidth voiced/semi-voiced marks are folded away when
-        // not attached to a convertible kana.
+        // 未附着在可转换基础假名之后的孤立半角浊音/半浊音符号直接折叠剔除。
+        // 避免孤立音标残留破坏标题归一化键。
         continue;
       }
 
@@ -154,20 +154,20 @@ class TitleNormalizer {
 
   static String? _combineHalfwidthKatakana(int base, int mark) {
     if (mark == 0xFF9E) {
-      // Halfwidth dakuten (ﾞ)
+      // 半角浊音符号（`ﾞ`）
       if (base == 0xFF73) return 'ゔ'; // ｳﾞ
       if (base >= 0xFF76 && base <= 0xFF84) {
-        // ｶ-ｺ, ｻ-ｿ, ﾀ-ﾄ -> +1 codepoint in hiragana
+        // 清音假名 `ｶ-ｺ`、`ｻ-ｿ`、`ﾀ-ﾄ` 对应平假名码位加 1 转浊音。
         final hira = _halfwidthBaseHiragana.codeUnitAt(base - 0xFF66);
         return String.fromCharCode(hira + 1);
       }
       if (base >= 0xFF8A && base <= 0xFF8E) {
-        // ﾊ-ﾎ -> +1 codepoint in hiragana (ば-ぼ)
+        // `ﾊ-ﾎ` 对应平假名码位加 1 转为 `ば-ぼ`。
         final hira = _halfwidthBaseHiragana.codeUnitAt(base - 0xFF66);
         return String.fromCharCode(hira + 1);
       }
     } else if (mark == 0xFF9F && base >= 0xFF8A && base <= 0xFF8E) {
-      // Halfwidth handakuten (ﾟ) -> ﾊ-ﾎ +2 codepoints (ぱ-ぽ)
+      // 半角半浊音符号（`ﾟ`）使 `ﾊ-ﾎ` 码位加 2 转为 `ぱ-ぽ`。
       final hira = _halfwidthBaseHiragana.codeUnitAt(base - 0xFF66);
       return String.fromCharCode(hira + 2);
     }
@@ -221,8 +221,8 @@ class TitleNormalizer {
 
   static bool _isHiraganaCode(int rune) => rune >= 0x3041 && rune <= 0x309F || rune == 0x30FC;
 
-  /// Transliterates Japanese kana runs inside [input] into ASCII romaji while
-  /// keeping Latin characters and inserting spaces around kana transitions.
+  /// 将字符串 [input] 中的连续日语假名音译为 ASCII 罗马音，
+  /// 同时保留拉丁字符并在文字切换边界自动补齐空格分词。
   static String kanaToRomaji(String input) {
     if (!containsKana(input)) return input;
     final folded = fold(input);
@@ -248,7 +248,7 @@ class TitleNormalizer {
       final di = two == null ? null : _digraphKana[two];
       if (di != null) {
         if (!prevWasKana && out.isNotEmpty && folded[i - 1] != ' ') {
-          // Separate mixed script transition if preceded by non-space CJK/Latin.
+          // 当紧邻前驱为非空白字符时，在混合文字边界插入空格分隔。
           out.write(' ');
         }
         out.write(di);
@@ -276,8 +276,8 @@ class TitleNormalizer {
     return out.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
-  /// Folds English/loanword orthography and Japanese romaji into a common
-  /// phonetic representation (e.g. `igh->ai`, `ph->f`, `l->r`, `v->b`, `y->i`).
+  /// 将英语外来词拼写与日语罗马音折叠至统一语音近音形式
+  ///（如将 `igh->ai`、`ph->f`、`l->r`、`v->b`、`y->i` 规范化等价）。
   static String phoneticLatinFold(String input) {
     var s = input.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
     if (s.isEmpty) return '';
@@ -298,7 +298,7 @@ class TitleNormalizer {
     return s;
   }
 
-  /// Consonant skeleton after [phoneticLatinFold] (preserves optional leading vowel).
+  /// 在执行 `[phoneticLatinFold]` 后提取辅音骨架并可选保留首元音特征。
   static String phoneticSkeleton(String input) {
     final f = phoneticLatinFold(input);
     if (f.isEmpty) return '';
@@ -316,8 +316,8 @@ class TitleNormalizer {
     return out.toString();
   }
 
-  /// Checks whether [token] (a Latin word from local title/filename) is
-  /// phonetically covered by transliterated kana romaji components.
+  /// 判定本地标题或文件名拉丁词元 `[token]` 是否能由音译罗马音组件在语音上覆盖。
+  /// 用于跨日文假名与英文字母拼写的召回率补足。
   static bool phoneticTokenCovered(
     String token, {
     required String romajiFolded,
@@ -366,8 +366,8 @@ class TitleNormalizer {
     return 2 * shared / (a.length + b.length - 2);
   }
 
-  /// Estimates cross-script phonetic similarity (`0..0.88`) between an ASCII/
-  /// romaji local title and a remote title containing Japanese kana.
+  /// 估算纯 ASCII/罗马音本地片名与含日语假名远程片名之间的跨语种语音相似度
+  /// （取值区间 `0..0.88`）。
   static double romajiKanaSimilarity(String localAscii, String remoteRaw) {
     if (!containsKana(remoteRaw)) return 0;
     if (RegExp(r'[\u3040-\u9fff]').hasMatch(localAscii)) return 0;

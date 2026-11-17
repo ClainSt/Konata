@@ -11,7 +11,7 @@ import '../../../../utils/enumeration.dart';
 
 abstract class SmbComTransaction extends ServerMessageBlock
     implements Enumeration<SmbComTransaction> {
-  // relative to headerStart
+  // 该字段偏移量均以 `headerStart` 报文起始为基准。
   static const int PRIMARY_SETUP_OFFSET = 61;
   static const int SECONDARY_PARAMETER_OFFSET = 51;
 
@@ -72,7 +72,6 @@ abstract class SmbComTransaction extends ServerMessageBlock
 
   SmbComTransaction(super.config, int command, {this.subCommand = 0})
       : super(command: command) {
-    // this.subCommand = subCommand;
     maxDataCount = config.transactionBufferSize - 512;
     maxParameterCount = 1024;
     primarySetupOffset = PRIMARY_SETUP_OFFSET;
@@ -125,12 +124,12 @@ abstract class SmbComTransaction extends ServerMessageBlock
     if (_isPrimary) {
       _isPrimary = false;
 
-      // primarySetupOffset
-      // SMB_COM_TRANSACTION: 61 = 32 SMB header + 1 (word count) + 28 (fixed words)
-      // SMB_COM_NT_TRANSACTION: 69 = 32 SMB header + 1 (word count) + 38 (fixed words)
+      // 主请求 Setup 字数组起始偏移。
+      // Transaction 基础包长：61 字节（32 头 + 1 wordCount + 28 固定参数）。
+      // NT_TRANSACTION 基础包长：69 字节（32 头 + 1 wordCount + 38 固定参数）。
       parameterOffset = primarySetupOffset;
 
-      // 2* setupCount
+      // 每个 setup 项占 2 字节，总计 `2 * setupCount`。
       parameterOffset += setupCount * 2;
       parameterOffset += 2; // ByteCount
 
@@ -163,7 +162,7 @@ abstract class SmbComTransaction extends ServerMessageBlock
       } else {
         setCommand(SmbComConstants.SMB_COM_NT_TRANSACT_SECONDARY);
       }
-      // totalParameterCount and totalDataCount are set ok from primary
+      // 参数总数与数据总长度均已在首包头部正确赋值。
 
       parameterOffset = SECONDARY_PARAMETER_OFFSET;
       if ((totalParameterCount - parameterDisplacement) > 0) {
@@ -171,7 +170,7 @@ abstract class SmbComTransaction extends ServerMessageBlock
         parameterOffset += _pad1;
       }
 
-      // caclulate parameterDisplacement before calculating parameterCount
+      // 先算出本分片的参数位移再确定实际发送的参数字节数。
       parameterDisplacement += parameterCount;
 
       int available = maxBufferSize - parameterOffset - _pad1;
@@ -231,7 +230,6 @@ abstract class SmbComTransaction extends ServerMessageBlock
     }
     SMBUtil.writeInt2(parameterCount, dst, dstIndex);
     dstIndex += 2;
-    // writeInt2(( parameterCount == 0 ? 0 : parameterOffset ), dst, dstIndex );
     SMBUtil.writeInt2(parameterOffset, dst, dstIndex);
     dstIndex += 2;
     if (getCommand() == SmbComConstants.SMB_COM_TRANSACTION_SECONDARY) {

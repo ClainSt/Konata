@@ -1,6 +1,5 @@
 abstract class WinError {
-  /// Don't bother to edit this. Everything within the interface
-  /// block is automatically generated from the ntstatus package.
+  /// NTSTATUS 状态码常量集合（与底层自动生成的错误映射表保持对齐）。
   static const int ERROR_SUCCESS = 0;
   static const int ERROR_ACCESS_DENIED = 5;
   static const int ERROR_REQ_NOT_ACCEP = 71;

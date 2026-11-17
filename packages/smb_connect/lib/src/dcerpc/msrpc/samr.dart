@@ -412,8 +412,6 @@ class SamrRidWithAttributeArray extends NdrObject {
       }
       src = src.derive(ridsi);
       for (int i = 0; i < ridss; i++) {
-        // if (rids[i] == null) {
-        //   rids[i] = samr_SamrRidWithAttribute();
         // }
         rids![i].decode(src);
       }

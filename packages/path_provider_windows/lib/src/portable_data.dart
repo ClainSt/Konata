@@ -1,8 +1,7 @@
 import 'dart:io';
 import 'package:path/path.dart' as path;
 
-/// Copies legacy data once, before any database or preferences are opened.
-/// The old directory remains intact; an existing portable directory always wins.
+/// 在打开数据库与设置前执行单次历史数据迁移；保留旧目录原貌，已存在的便携目录优先。
 Future<Directory> preparePortableData(
     Directory target, Directory? legacy) async {
   if (await FileSystemEntity.type(target.path, followLinks: false) ==
@@ -17,8 +16,7 @@ Future<Directory> preparePortableData(
       final locks = <String, RandomAccessFile>{};
       var promoted = false;
       try {
-        // SQLite holds locks in these files while another copy is running.
-        // Refuse a concurrent migration instead of copying a changing database.
+        // 存在另一个运行中实例时 SQLite 会持有文件锁，此时拒绝并发迁移以免拷贝脏库。
         for (final name in [
           for (final database in ['ccplayer.db', 'artwork/cache-index.sqlite'])
             for (final suffix in ['', '-wal', '-shm', '-journal'])
@@ -28,8 +26,7 @@ Future<Directory> preparePortableData(
           if (!await file.exists()) continue;
           final handle = await file.open();
           locks[path.normalize(file.path)] = handle;
-          // SQLite's database locks live at 0x40000000, beyond the EOF of
-          // ordinary libraries. Windows' default EOF range does not cover them.
+          // SQLite 数据库文件锁区间位于高位偏移 `0x40000000`，超出普通文件默认 EOF 锁检测范围。
           await handle.lock(FileLock.exclusive, 0, 0x7fffffff);
         }
         await for (final entry
@@ -49,8 +46,7 @@ Future<Directory> preparePortableData(
             if (held == null) {
               await entry.copy(destination);
             } else {
-              // Windows denies CopyFile's second handle while our lock is held.
-              // Read through the same locked handle with a bounded buffer.
+              // 持锁期间 Windows 会拒绝 `CopyFile` 打开第二个句柄，故直接通过当前持锁句柄分块读取拷贝。
               final output = await copied.open(mode: FileMode.write);
               try {
                 await held.setPosition(0);
@@ -87,7 +83,7 @@ Future<Directory> preparePortableData(
       await target.create();
     }
   }
-  // Never silently fall back to AppData when the portable folder is read-only.
+  // 便携目录处于只读状态时严禁静默回退写入系统 `AppData`。
   final probe = File(path.join(target.path, '.write-check-$pid'));
   try {
     await probe.writeAsString('', flush: true);

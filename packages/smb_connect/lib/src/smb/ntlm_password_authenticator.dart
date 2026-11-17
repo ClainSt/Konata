@@ -18,12 +18,9 @@ import 'ntlm_util.dart';
 import 'ssp_context.dart';
 
 ///
-/// This class stores and encrypts NTLM user credentials.
+/// 保存并按需派生 NTLM/LM/NTLMv2 会话响应及摘要密钥的用户凭据管理器。
 ///
-/// Contrary to {@link NtlmPasswordAuthentication} this does not cause guest authentication
-/// when the "guest" username is supplied. Use {@link AuthenticationType} instead.
 ///
-/// @author mbechler
 ///
 class NtlmPasswordAuthenticator implements Credentials {
   static const int serialVersionUID = -5;
@@ -139,27 +136,20 @@ class NtlmPasswordAuthenticator implements Credentials {
     return ntlmContext;
   }
 
-  /// Returns the domain.
+  /// 获取当前凭据关联的域名或工作组名称。
   @override
   String getUserDomain() => domain;
 
   String getSpecifiedUserDomain() => domain;
 
-  /// Returns the username.
+  /// 获取当前凭据的登录用户名。
   String getUsername() => username;
 
-  /// Returns the password in plain text or null if the raw password
-  /// hashes were used to construct this NtlmPasswordAuthentication
-  /// object which will be the case when NTLM HTTP Authentication is
-  /// used. There is no way to retrieve a users password in plain text unless
-  /// it is supplied by the user at runtime.
+  /// 返回账户明文密码（若凭据由哈希透传构造，则返回空）。
   String getPassword() => password;
 
-  /// Return the domain and username in the format:
-  /// domain\\username.
-  // @override
+  /// 按 `域\用户名` 标准格式返回账户显示标识。
   String getName() {
-    // bool d = domain != null && domain.length() > 0;
     return domain.isNotEmpty ? "$domain\\$username" : username;
   }
 
@@ -190,8 +180,7 @@ class NtlmPasswordAuthenticator implements Credentials {
           break;
         case 1:
 
-          /// Get ASCII hex value and convert to platform dependent
-          /// encoding like EBCDIC perhaps
+          /// 取 ASCII 十六进制字符码值用于兼容平台编解码。
           b[0] = (int.parse(str.substring(i, i + 2), radix: 16) & 0xFF);
           outStr.add(ascii.decode(b));
           i++;
@@ -205,7 +194,7 @@ class NtlmPasswordAuthenticator implements Credentials {
     return NtlmContext.NTLMSSP_OID == mechanism;
   }
 
-  /// Computes the 24 byte ANSI password hash given the 8 byte server challenge.
+  /// 基于 8 字节服务端质询随机数与明文密码计算 24 字节 ANSI LM 响应摘要。
   Uint8List getAnsiHash(Configuration config, Uint8List chlng) {
     switch (Configuration.lanManCompatibility) {
       case 0:
@@ -224,7 +213,7 @@ class NtlmPasswordAuthenticator implements Credentials {
     }
   }
 
-  /// Computes the 24 byte Unicode password hash given the 8 byte server challenge.
+  /// 基于 8 字节服务端质询随机数与 Unicode 密码计算 24 字节 NTLM v1 响应摘要。
   Uint8List getUnicodeHash(Configuration config, Uint8List chlng) {
     switch (Configuration.lanManCompatibility) {
       case 0:
@@ -259,21 +248,21 @@ class NtlmPasswordAuthenticator implements Credentials {
       case 4:
       case 5:
 
-        /// This code is only called if extended security is not on.
+        /// 仅当服务端未启用扩展会话安全性时才调用传统用户会话密钥派生逻辑。
         throw SmbException(
             "NTLMv2 requires extended security (useExtendedSecurity must be true if lmCompatibility >= 3)");
     }
     return null;
   }
 
-  /// Returns the effective user session key.
+  /// 计算并返回当前认证上下文的有效用户签名/加密会话密钥。
   Uint8List? getUserSessionKey(Configuration config, Uint8List chlng) {
     Uint8List key = Uint8List(16);
     getUserSessionKeyBuff(config, chlng, key, 0);
     return key;
   }
 
-  /// Calculates the effective user session key.
+  /// 根据认证级别（NTLMv1/NTLMv2/LM）推导有效会话密钥。
   void getUserSessionKeyBuff(
       Configuration config, Uint8List chlng, Uint8List dest, int offset) {
     MessageDigest md4 = Crypto.getMD4();

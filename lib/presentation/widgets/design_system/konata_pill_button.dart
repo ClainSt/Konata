@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme/konata_adaptive_tokens.dart';
 
 import '../../theme/konata_palette.dart';
 
@@ -115,7 +116,9 @@ class _KonataPillButtonState extends State<KonataPillButton> {
     Color? borderColor;
     switch (widget.variant) {
       case KonataPillVariant.primary:
-        bgColor = _hovered && enabled ? p.primaryButtonHoverBg : p.primaryButtonBg;
+        bgColor = _hovered && enabled
+            ? p.primaryButtonHoverBg
+            : p.primaryButtonBg;
         fgColor = p.primaryButtonFg;
       case KonataPillVariant.secondary:
         bgColor = _hovered && enabled
@@ -134,22 +137,25 @@ class _KonataPillButtonState extends State<KonataPillButton> {
         fgColor = p.dangerBadge.fg;
         borderColor = widget.borderColor ?? p.dangerBadge.border;
     }
-    if (widget.variant != KonataPillVariant.danger && widget.borderColor != null) {
+    if (widget.variant != KonataPillVariant.danger &&
+        widget.borderColor != null) {
       borderColor = widget.borderColor;
     }
 
-    final padding = widget.padding ??
+    final padding =
+        widget.padding ??
         (widget.height != null
             ? EdgeInsets.symmetric(horizontal: widget.compact ? 14 : 18)
             : (widget.compact
-                ? const EdgeInsets.symmetric(horizontal: 13, vertical: 7)
-                : const EdgeInsets.symmetric(horizontal: 18, vertical: 10)));
+                  ? const EdgeInsets.symmetric(horizontal: 13, vertical: 7)
+                  : const EdgeInsets.symmetric(horizontal: 18, vertical: 10)));
 
     return MouseRegion(
       cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: widget.onPressed,
         child: AnimatedOpacity(
           duration: const Duration(milliseconds: 140),
@@ -157,7 +163,15 @@ class _KonataPillButtonState extends State<KonataPillButton> {
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
             curve: Curves.easeOutCubic,
-            height: widget.height,
+            constraints: KonataAdaptiveTokens.isAndroid
+                ? const BoxConstraints(
+                    minHeight: KonataAdaptiveTokens.touchTarget,
+                    minWidth: KonataAdaptiveTokens.touchTarget,
+                  )
+                : null,
+            height: KonataAdaptiveTokens.isAndroid
+                ? null
+                : widget.height,
             padding: padding,
             decoration: BoxDecoration(
               color: bgColor,
@@ -184,7 +198,8 @@ class _KonataPillButtonState extends State<KonataPillButton> {
                   style: TextStyle(
                     color: fgColor,
                     fontSize: widget.compact ? 12.5 : 13.5,
-                    fontWeight: (widget.variant == KonataPillVariant.primary ||
+                    fontWeight:
+                        (widget.variant == KonataPillVariant.primary ||
                             widget.variant == KonataPillVariant.danger)
                         ? FontWeight.w600
                         : FontWeight.w500,
@@ -233,10 +248,7 @@ class KonataQuickFillRow extends StatelessWidget {
         runSpacing: 6,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Text(
-            '快捷填入：',
-            style: TextStyle(color: p.textMuted, fontSize: 11.5),
-          ),
+          Text('快捷填入：', style: TextStyle(color: p.textMuted, fontSize: 11.5)),
           for (final term in terms)
             KonataPillButton.secondary(
               label: term,

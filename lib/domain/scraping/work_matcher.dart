@@ -2,8 +2,8 @@ import 'directory_analyzer.dart';
 import 'title_normalizer.dart';
 part 'work_matcher_models.dart';
 
-/// Deterministic multi-signal scorer. All weights live here so tuning is one
-/// place and one benchmark (test/work_matcher_benchmark_test.dart).
+/// 确定性多信号作品匹配打分器：全部特征权重集中定义于此，
+/// 便于单点调参并通过离线基准测试集统一验证精度。
 abstract final class WorkMatcher {
   static const _highScore = 70.0, _mediumScore = 50.0;
   static const _highMargin = 15.0, _mediumMargin = 8.0;
@@ -43,7 +43,7 @@ abstract final class WorkMatcher {
 
   static final _cjkPattern = RegExp(r'[\u3040-\u9fff]');
 
-  /// Generates bidirectional romaji-arc <-> CJK-arc query candidates
+  /// 生成罗马音篇章名与中文/日文篇章后缀之间的双向扩展查询候选。
   /// (e.g. "Danganronpa 3 - Mirai Hen" <-> "Danganronpa 3 未来篇").
   static List<String> expandRomajiArcQueries(String raw) {
     final trimmed = raw.trim();
@@ -88,8 +88,8 @@ abstract final class WorkMatcher {
           caseSensitive: false,
         );
 
-  /// Extracts canonical CJK arc suffixes (e.g. `未来篇`, `未来編`) corresponding
-  /// to any romaji arc token present in [raw].
+  /// 提取与 `[raw]` 中罗马音篇章词汇相对应的规范中日文篇章后缀（如 `未来篇`、`未来編`）。
+  /// 提升带有罗马音副标题资源的线上检索命中率。
   static List<String> romajiArcSuffixesFor(String raw) {
     final trimmed = raw.trim();
     if (trimmed.isEmpty) return const [];
@@ -638,7 +638,7 @@ abstract final class WorkMatcher {
       }
       ranking.add(scored);
     }
-    // Bangumi has no type/season tree here; title + optional year/eps decide.
+    // Bangumi 条目体系无嵌套季度树，此处直接综合片名、年份及话数信号评分决策。
     final baseDecision = _decide(ranking, high: 45, medium: 36);
     if (baseDecision.tier != MatchTier.high) {
       final multiPart = _resolveBangumiMultiPartTie(inventory, ranking);
@@ -671,7 +671,7 @@ abstract final class WorkMatcher {
     if (inventory.shape == WorkShape.empty) return MatchResult.empty;
     final linked = bangumi?.candidate;
     final year = inventory.year ?? linked?.year;
-    // A year borrowed from Bangumi can differ for OVA/TV editions: softer.
+    // 从 Bangumi 借用的年份可能因 TV/OVA 版本发行差异存在偏差，此处采用柔和惩罚。
     final borrowed = inventory.year == null;
     final matchedBgm =
         bangumi != null && bangumi.tier != MatchTier.none ? linked : null;
@@ -819,7 +819,7 @@ abstract final class WorkMatcher {
           scored.add(5, 'file says movie');
         }
       case WorkShape.series:
-        // A short explicit run (IGLOO S03E01-03) can still be one film entry.
+        // 少数显式短集数区间（例如 `IGLOO S03E01-03`）在 TMDB 下仍可能对应电影条目。
         scored.add(inventory.episodeCount <= 3 ? -5 : -35, 'series vs movie');
       case WorkShape.anthology:
         scored.add(-80, 'anthology');
@@ -967,7 +967,7 @@ abstract final class WorkMatcher {
         yearOf = s0.year ?? yearOf;
         scored.add(12, 'mapped special season');
       } else {
-        // A special / OVA set can live in season 0 or a tiny season.
+        // 特别篇或 OVA 合集可能挂在 TMDB 第 0 季或独立短季下方。
         final small = [...specials, ...regular.where((s) => s.count <= 3)]
             .where((s) {
               final diff = _yearDiff(year, s.year);
@@ -1359,7 +1359,7 @@ abstract final class WorkMatcher {
           season.count - episodes <= 4) {
         score += 2;
       }
-      // Split-cour cumulative episode numbering (e.g. S2 files numbered 13..24).
+      // 分割放送作品常沿用累计集号编码（例如第 2 季文件仍从 13 编至 24 话）。
       var cumOffset = false;
       if (priorCount > 0 &&
           minEp != null &&
@@ -1461,7 +1461,7 @@ abstract final class WorkMatcher {
   static int _yearDiff(int? a, int? b) =>
       a == null || b == null ? 99 : (a - b).abs();
 
-  /// Cross-provider agreement: TMDB lists the Bangumi original name.
+  /// 跨源一致性加分：TMDB 候选条目命中了已匹配的 Bangumi 原版日文片名。
   static void _linked(
     ScoredCandidate scored,
     MatchCandidate bangumi, {
@@ -1487,8 +1487,8 @@ abstract final class WorkMatcher {
     scored.add(bonus, 'bangumi agrees');
   }
 
-  /// True when a verified short Bangumi special/OVA belongs to the franchise of
-  /// [candidate] (a multi-episode TMDB TV series hosting specials in Season 0).
+  /// 判断已验证的短篇 Bangumi OVA/特别篇条目是否隶属于当前 TMDB 多集正片系列
+  /// （适用于在第 0 季统一托管特别篇的 TMDB 长篇剧集候选 `[candidate]`）。
   static bool _isParentTvForBangumiSpecial(
     DirectoryInventory inventory,
     MatchCandidate candidate,
@@ -1514,7 +1514,7 @@ abstract final class WorkMatcher {
 
     final specials = candidate.seasons.where((s) => s.number == 0).toList();
     if (specials.isEmpty || specials.first.count < localCount) return false;
-    // Do not hijack a short TV season that already matches the episode count.
+    // 若短篇 TV 季条目已与当前本地集数精确吻合，则禁止反向劫持归并至其他季度。
     final regular = candidate.seasons.where((s) => s.number > 0).toList();
     if (inventory.season != 0 &&
         regular.any(
@@ -1569,7 +1569,7 @@ abstract final class WorkMatcher {
     return false;
   }
 
-  /// Penalizes candidates whose subtitle after a shared base prefix conflicts
+  /// 当候选条目在共享主标题前缀之后的副标题与本地冲突时予以扣分，
   /// with the local folder's explicit subtitle (e.g. "快盗天使双胞胎~心跳不已~"
   /// vs "快盗天使BREAK", or "Wake Up, Girls! 七人的偶像" vs "Wake Up, Girls! 新章").
   static double _subtitleConflictPenalty(
@@ -1609,9 +1609,9 @@ abstract final class WorkMatcher {
       return 0;
     }
 
-    // If a filename carries an explicit subtitle that agrees strongly with a
-    // candidate alias (without unilateral sequel suffix), do not penalize
-    // cross-language folder/TMDB translation differences.
+    // 若文件名携带了明确的副标题且与某候选别名高度一致（且不附带单边续作后缀），
+    // 即使文件夹名与 TMDB 中译存在跨语言翻译差异也不再扣分。
+    // 保障文件名自带副标题的高置信精准绑定不受目录译名差异影响。
     for (final fh in inventory.fileHints.take(2)) {
       final fn = DirectoryAnalyzer.normalize(fh.replaceAll(_movieWord, ' '));
       if (fn.length < 6) continue;
@@ -1790,8 +1790,8 @@ abstract final class WorkMatcher {
     return covered;
   }
 
-  /// Best similarity between local titles and remote names, 0..1.
-  /// Folder titles are trusted more than filename titles.
+  /// 计算本地片名列表与远程候选别名间的最优相似度（`0..1`）；
+  /// 其中目录推导名称的权重信任度高于文件名推导名称。
   static double _title(DirectoryInventory inventory, MatchCandidate candidate) {
     final primaryNorm = DirectoryAnalyzer.normalize(inventory.title);
     final baseCandNorm = DirectoryAnalyzer.normalize(candidate.title);
@@ -1856,8 +1856,8 @@ abstract final class WorkMatcher {
       for (final hint in hints) {
         final localNorm = DirectoryAnalyzer.normalize(hint);
         if (localNorm.isEmpty) continue;
-        // Season-stripped base hints are recall helpers: full weight on multi-season
-        // or single-season continuous TMDB TV entries, discounted on per-season Bangumi entries.
+        // 剥离季度后的基础名称提示主要用于召回辅助：在多季或单季连续 TMDB 剧集保持全权重，
+        // 而在按单季分条建档的 Bangumi 候选中予以权重折减以防季号串台。
         var effectiveWeight = weight;
         if (inventory.season != null &&
             inventory.season! > 1 &&
@@ -2010,8 +2010,8 @@ abstract final class WorkMatcher {
     return best;
   }
 
-  /// Exact 1.0; containment scales with length ratio; otherwise bigram Dice.
-  /// Exact 1.0; containment scales with length ratio; otherwise bigram Dice.
+  /// 完全一致返回 `1.0`；包含关系按长度比例缩放；其余情况退化计算二元字符集 Dice 系数。
+  /// 完全一致返回 `1.0`；包含关系按长度比例缩放；其余情况退化计算二元字符集 Dice 系数。
   static double similarity(String a, String b) => _wmSimilarity(a, b);
 
   static MatchResult _decide(

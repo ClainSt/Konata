@@ -8,6 +8,7 @@ import '../../domain/matching/playback_resume_resolver.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/tmdb_models.dart';
 import '../../domain/models/work.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
@@ -251,6 +252,11 @@ class _FrostedPlayButtonState extends State<FrostedPlayButton> {
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 140),
                 curve: Curves.easeOutCubic,
+                constraints: KonataAdaptiveTokens.isAndroid
+                    ? const BoxConstraints(
+                        minHeight: KonataAdaptiveTokens.touchTarget,
+                      )
+                    : null,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 22,
                   vertical: 11,

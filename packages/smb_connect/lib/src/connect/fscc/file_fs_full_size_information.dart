@@ -6,7 +6,6 @@ import 'package:smb_connect/src/connect/smb_util.dart';
 
 import '../common/alloc_info.dart';
 
-// TODO: all vars to final decode to factory constructor
 class FileFsFullSizeInformation
     implements AllocInfo, FileSystemInformation, Decodable {
   int _alloc = 0; // Also handles SmbQueryFSSizeInfo
@@ -24,24 +23,21 @@ class FileFsFullSizeInformation
     return _alloc * _sectPerAlloc * _intsPerSect;
   }
 
-  // @override
-  // int getFree() {
-  //   return _free * _sectPerAlloc * _intsPerSect;
   // }
 
   @override
   int decode(Uint8List buffer, int bufferIndex, int len) {
     int start = bufferIndex;
 
-    // Read total allocation units.
+    // 读取文件系统总分配簇数量。
     _alloc = SMBUtil.readInt8(buffer, bufferIndex);
     bufferIndex += 8;
 
-    // read caller available allocation units
+    // 读取当前调用方可用的剩余分配簇数量。
     _free = SMBUtil.readInt8(buffer, bufferIndex);
     bufferIndex += 8;
 
-    // skip actual free units
+    // 跳过底层实际空闲簇统计字段。
     bufferIndex += 8;
 
     _sectPerAlloc = SMBUtil.readInt4(buffer, bufferIndex);

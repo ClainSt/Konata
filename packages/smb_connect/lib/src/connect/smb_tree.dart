@@ -43,17 +43,6 @@ abstract class SmbTree {
   bool isSMB2() => transport.isSMB2();
 
   Future close(); // async {
-  //   if (isSMB2()) {
-  //     Smb2TreeDisconnectRequest disconnectReq =
-  //         Smb2TreeDisconnectRequest(config);
-  //     prepare(disconnectReq);
-  //     await transport.sendrecv(disconnectReq);
-  //   } else {
-  //     var disconnectReq = SmbComTreeDisconnect(config);
-  //     var disconnectResp = SmbComBlankResponse(config);
-  //     prepare(disconnectReq);
-  //     await transport.sendrecv(disconnectReq, response: disconnectResp);
   //   }
-  //   await session.close();
   // }
 }

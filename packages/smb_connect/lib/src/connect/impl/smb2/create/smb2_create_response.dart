@@ -150,10 +150,6 @@ class Smb2CreateResponse extends ServerMessageBlock2Response
             length: nameBytes.length);
         cci = max(cci, createContextStart + nameOffset + nameLength);
 
-        // CreateContextResponse? cc = createContext(nameBytes);
-        // if (cc != null) {
-        //   cc.decode(buffer, createContextStart + dataOffset, dataLength);
-        //   contexts.add(cc);
         // }
 
         cci = max(cci, createContextStart + dataOffset + dataLength);
@@ -163,12 +159,9 @@ class Smb2CreateResponse extends ServerMessageBlock2Response
         }
         bufferIndex = max(bufferIndex, cci);
       } while (next > 0);
-      // _createContexts = [];
     }
     return bufferIndex - start;
   }
 
-  // static CreateContextResponse? createContext(Uint8List nameBytes) {
-  //   return null;
   // }
 }

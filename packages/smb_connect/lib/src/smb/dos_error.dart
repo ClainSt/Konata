@@ -45,8 +45,7 @@ abstract class DosError {
     (0x08c20002, 0xC0000071),
   ];
 
-  /// These aren't really used -- the map above is used
-  /// to immediately map to NTSTATUS codes.
+  /// 备用旧式状态码描述列表；实际快速映射直接查阅上方常量哈希表完成。
   static final List<String> DOS_ERROR_MESSAGES = [
     "The operation completed successfully.",
     "Incorrect function.",

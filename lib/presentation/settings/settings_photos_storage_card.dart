@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../theme/konata_adaptive_tokens.dart';
+import '../widgets/design_system/konata_settings_row.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -76,7 +78,7 @@ class SettingsPhotosStorageCard extends ConsumerWidget {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
-            child: Row(
+            child: KonataSettingsRow(
               children: [
                 Expanded(
                   child: Column(
@@ -90,7 +92,10 @@ class SettingsPhotosStorageCard extends ConsumerWidget {
                       const SizedBox(height: 3),
                       Text(
                         '全站海报、背景原画与 Scan `.webp` 微缩图均按作品目录就近存放，零写入系统盘或临时目录',
-                        style: TextStyle(color: p.textSecondary, fontSize: 12.5),
+                        style: TextStyle(
+                          color: p.textSecondary,
+                          fontSize: 12.5,
+                        ),
                       ),
                     ],
                   ),
@@ -123,7 +128,7 @@ class SettingsPhotosStorageCard extends ConsumerWidget {
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: p.hairline),
                   ),
-                  child: Row(
+                  child: KonataSettingsRow(
                     children: [
                       Icon(
                         Icons.folder_outlined,
@@ -172,7 +177,7 @@ class SettingsPhotosStorageCard extends ConsumerWidget {
                   ],
                 ),
                 const SizedBox(height: 14),
-                Row(
+                KonataSettingsRow(
                   children: [
                     Expanded(
                       child: Text(
@@ -187,22 +192,22 @@ class SettingsPhotosStorageCard extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    KonataPillButton.secondary(
-                      label: '打开 photos 文件夹',
-                      icon: Icons.folder_open_rounded,
-                      compact: true,
-                      onPressed: () =>
-                          unawaited(_openPhotosFolder(context, storage)),
-                    ),
+                    if (KonataAdaptiveTokens.isWindows)
+                      KonataPillButton.secondary(
+                        label: '打开 photos 文件夹',
+                        icon: Icons.folder_open_rounded,
+                        compact: true,
+                        onPressed: () =>
+                            unawaited(_openPhotosFolder(context, storage)),
+                      ),
                     const SizedBox(width: 8),
                     KonataPillButton.secondary(
                       label: '自定义清理',
                       icon: Icons.cleaning_services_outlined,
                       compact: true,
                       onPressed: canCustomizeClean
-                          ? () => unawaited(
-                              showPhotoCustomCleanupDialog(context),
-                            )
+                          ? () =>
+                                unawaited(showPhotoCustomCleanupDialog(context))
                           : null,
                     ),
                   ],
@@ -217,10 +222,7 @@ class SettingsPhotosStorageCard extends ConsumerWidget {
 }
 
 class _CategoryStatChip extends StatelessWidget {
-  const _CategoryStatChip({
-    required this.label,
-    required this.stat,
-  });
+  const _CategoryStatChip({required this.label, required this.stat});
 
   final String label;
   final PhotoCategoryStat? stat;

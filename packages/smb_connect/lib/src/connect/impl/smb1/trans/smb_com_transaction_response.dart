@@ -9,7 +9,7 @@ import '../../../../smb/file_entry.dart';
 
 abstract class SmbComTransactionResponse extends ServerMessageBlock
     implements Enumeration<SmbComTransactionResponse> {
-  // relative to headerStart
+  // 该字段偏移量均以 `headerStart` 报文起始为基准。
   static const int SETUP_OFFSET = 61;
 
   static const int DISCONNECT_TID = 0x01;
@@ -36,7 +36,7 @@ abstract class SmbComTransactionResponse extends ServerMessageBlock
   bool isPrimary = true;
   Uint8List? txnBuf;
 
-  /// for doNetEnum and doFindFirstNext */
+  /// 供目录枚举及首批搜索指令统一初始化剩余响应判定。
   int status = 0;
   int numEntries = 0;
   List<FileEntry>? results;
@@ -96,7 +96,7 @@ abstract class SmbComTransactionResponse extends ServerMessageBlock
   int decode(Uint8List buffer, int bufferIndex) {
     int len = super.decode(buffer, bufferIndex);
     if (byteCount == 0) {
-      // otherwise hasMore may not be correctly set
+      // 若缺省初始化可能导致 `hasMore` 续传标志状态错误。
       readBytesWireFormat(buffer, len + bufferIndex);
     }
     nextElement();
@@ -157,8 +157,7 @@ abstract class SmbComTransactionResponse extends ServerMessageBlock
     }
 
     ///
-    /// Check to see if the entire transaction has been
-    /// read. If so call the read methods.
+    /// 核验多包分片 Transaction 的参数与数据区是否全部收齐；齐备后立即触发整体解码。
 
     if (!_parametersDone &&
         (parameterDisplacement + parameterCount) == totalParameterCount) {

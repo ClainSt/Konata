@@ -66,10 +66,6 @@ class Smb1ComAndXStreamConsumer extends _Smb1StreamConsumer {
       w = len > SmbStreamConsumer.blockSize ? SmbStreamConsumer.blockSize : len;
 
       _reqx.setParam2(fid, position, len - w, b, off, w);
-      // if ((flags & 1) != 0) {
-      //   _reqx.setParam(fid, position, len, b, off, w);
-      //   _reqx.setWriteMode(0x8);
-      // } else {
       _reqx.setWriteMode(0);
       // }
 

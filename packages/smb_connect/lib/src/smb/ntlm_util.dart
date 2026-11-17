@@ -8,9 +8,8 @@ import 'package:smb_connect/src/utils/strings.dart';
 
 import '../utils/encdec.dart';
 
-/// @author mbechler
 class NtlmUtil {
-  /// the calculated response
+  /// 计算所得的 NTLM 质询应答摘要字节数组。
   static Uint8List getNTLMv2Response(
       Uint8List responseKeyNT,
       Uint8List serverChallenge,
@@ -44,7 +43,7 @@ class NtlmUtil {
         responseKeyNT, serverChallenge, temp, 0, temp.length);
   }
 
-  /// the calculated response
+  /// 计算所得的 NTLM 质询应答摘要字节数组。
   static Uint8List getLMv2ResponseBuff(Uint8List responseKeyLM,
       Uint8List serverChallenge, Uint8List clientChallenge) {
     return NtlmUtil.computeResponse(responseKeyLM, serverChallenge,
@@ -69,14 +68,14 @@ class NtlmUtil {
     return ret;
   }
 
-  /// the caclulated mac
+  /// 计算所得的 MAC 消息认证校验码。
   static Uint8List nTOWFv2Pass(
       String domain, String username, String password) {
     return nTOWFv2Hash(domain, username, getNTHash(password));
   }
 
-  /// NT password hash
-  /// the caclulated mac
+  /// 根据 Unicode 密码派生的 16 字节 MD4 NT 哈希。
+  /// 计算所得的 MAC 消息认证校验码。
   static Uint8List nTOWFv2Hash(
       String domain, String username, Uint8List passwordHash) {
     MessageDigest hmac = Crypto.getHMACT64(passwordHash);
@@ -85,19 +84,19 @@ class NtlmUtil {
     return hmac.digest();
   }
 
-  /// nt password hash
+  /// 16 字节 NT 密码哈希值。
   static Uint8List getNTHash(String password) {
     MessageDigest md4 = Crypto.getMD4();
     md4.updateBuff(password.getUNIBytes());
     return md4.digest();
   }
 
-  /// the calculated hash
+  /// 基于明文密码派生得到的响应或密钥哈希结果。
   static Uint8List nTOWFv1(String password) {
     return getNTHash(password);
   }
 
-  /// the calculated response
+  /// 计算所得的 NTLM 质询应答摘要字节数组。
   static Uint8List getNTLM2Response(Uint8List passwordHash,
       Uint8List serverChallenge, Uint8List clientChallenge) {
     Uint8List sessionHash = Uint8List(8);
@@ -120,14 +119,14 @@ class NtlmUtil {
     return ntResponse;
   }
 
-  /// Creates the LMv2 response for the supplied information.
+  /// 根据域、用户名、密码哈希与客户端随机挑衅数计算 24 字节 LMv2 响应。
   static Uint8List getLMv2ResponsePass(String domain, String user,
       String password, Uint8List challenge, Uint8List clientChallenge) {
     return getLMv2ResponseHash(
         domain, user, getNTHash(password), challenge, clientChallenge);
   }
 
-  /// Creates the LMv2 response for the supplied information.
+  /// 根据域、用户名、密码哈希与客户端随机挑衅数计算 24 字节 LMv2 响应。
   static Uint8List getLMv2ResponseHash(String domain, String user,
       Uint8List passwordHash, Uint8List challenge, Uint8List clientChallenge) {
     Uint8List response = Uint8List(24);
@@ -148,14 +147,14 @@ class NtlmUtil {
     return response;
   }
 
-  /// Generate the Unicode MD4 hash for the password associated with these credentials.
-  /// the calculated response
+  /// 生成关联密码的 UTF-16LE 小端字节序 MD4 NT 哈希值。
+  /// 计算所得的 NTLM 质询应答摘要字节数组。
   static Uint8List getNTLMResponsePass(String password, Uint8List challenge) {
     return getNTLMResponseHash(getNTHash(password), challenge);
   }
 
-  /// Generate the Unicode MD4 hash for the password associated with these credentials.
-  /// the calculated response
+  /// 生成关联密码的 UTF-16LE 小端字节序 MD4 NT 哈希值。
+  /// 计算所得的 NTLM 质询应答摘要字节数组。
   static Uint8List getNTLMResponseHash(
       Uint8List passwordHash, Uint8List challenge) {
     Uint8List p21 = Uint8List(21);
@@ -166,7 +165,7 @@ class NtlmUtil {
     return p24;
   }
 
-  /// Generate the ANSI DES hash for the password associated with these credentials.
+  /// 生成兼容早期协议的 ANSI DES（LM）口令哈希值。
   static Uint8List getPreNTLMResponse(
       Configuration config, String password, Uint8List challenge) {
     Uint8List p14 = Uint8List(14);
@@ -175,7 +174,7 @@ class NtlmUtil {
     Uint8List passwordBytes = password.getOEMBytes(config);
     int passwordLength = passwordBytes.length;
 
-    // Only encrypt the first 14 bytes of the password for Pre 0.12 NT LM
+    // 传统 LM 哈希协议规定仅截取明文密码前 14 个字节参与双 DES 加密。
     if (passwordLength > 14) {
       passwordLength = 14;
     }
@@ -190,13 +189,10 @@ class NtlmUtil {
     return p24;
   }
 
-  // KGS!@#$%
   static final Uint8List S8 =
       Uint8List.fromList([0x4b, 0x47, 0x53, 0x21, 0x40, 0x23, 0x24, 0x25]);
 
-  /// Accepts key multiple of 7
-  /// Returns enc multiple of 8
-  /// Multiple is the same like: 21 byte key gives 24 byte result
+  /// 接收 7 字节倍数的 DES 扩展输入密钥并返回 8 字节倍数加密输出。
   static void E(Uint8List key, Uint8List data, Uint8List e) {
     Uint8List key7 = Uint8List(7);
     Uint8List e8 = Uint8List(8);

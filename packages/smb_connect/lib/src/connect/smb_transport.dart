@@ -53,7 +53,6 @@ class SmbTransport {
   bool _smb2 = false;
   final Configuration config;
   OnSmbDisconnect? onDisconnect;
-  // final Address _address;
   final String host;
   int _port;
 
@@ -67,7 +66,7 @@ class SmbTransport {
   Future<void>? _closing;
 
   late final bool _signingEnforced;
-  // ignore: prefer_final_fields
+  /* 沿用协议状态字段可变定义，保留静态规则豁免 */ // ignore: prefer_final_fields
   int _desiredCredits = 512;
   final Semaphore _credits = Semaphore(1, true);
   SmbNegotiationResponse? _negotiated;
@@ -107,8 +106,7 @@ class SmbTransport {
     try {
       await _reader?.close();
     } finally {
-      // Also handles failure before the reader was installed. Destruction must
-      // still happen if cancelling the reader subscription fails.
+      // 兼容处理读取器尚未就绪前提前失败的场景；即便取消流订阅报错也必须完成资源销毁。
       _socket?.destroy();
     }
   }
@@ -123,29 +121,20 @@ class SmbTransport {
     return await _connect();
   }
 
-  /// Negotiate Protocol Request / Response
+  /// SMB 协议版本与能力协商请求及响应处理。
   Future<bool> _connect() async {
     try {
       SmbNegotiation resp = await _negotiate();
 
-      // if (resp.response == null) {
-      //   throw SmbException("Failed to connect.");
       // }
 
       if (!resp.response.isValid(resp.request)) {
         throw SmbException("This client is not compatible with the server.");
       }
 
-      // bool serverRequireSig = resp.response.isSigningRequired();
-      // bool serverEnableSig = resp.response.isSigningEnabled();
-      // if ( log.isDebugEnabled() ) {
-      //     log.debug(
-      //         "Signature negotiation enforced $_signingEnforced (server $serverRequireSig) enabled "
-      //                 + this.getContext().getConfig().isSigningEnabled() + " (server $serverEnableSig)");
       // }
 
-      // Adjust negotiated values
-      // _tconHostName = _address.getHostName();
+      // 根据协商应答报文修正本连接的缓冲区与签名限制参数。
       _negotiated = resp.response;
       if (resp.response.getSelectedDialect()?.atLeast(DialectVersion.SMB311) ==
           true) {
@@ -183,14 +172,10 @@ class SmbTransport {
               rethrow;
             }
             completer.response.setReceived();
-            // bool isAsync = completer.response is ServerMessageBlock2 &&
-            //     (completer.response as ServerMessageBlock2).async;
             if (completer.response.isReceived()) {
-              // print("Success complete response $key");
               completer.completer.complete(completer.response);
             } else {
               responses[key] = completer;
-              // print("Recvd async");
             }
           } else {
             print("Error complete response $key");
@@ -209,10 +194,7 @@ class SmbTransport {
   }
 
   Future<SmbNegotiation> _negotiate() async {
-    // We cannot use Transport.sendrecv() yet because
-    // the Transport thread is not setup until doConnect()
-    // returns and we want to suppress all communication
-    // until we have properly negotiated.
+    // 在 `doConnect()` 完成握手前传输监听循环尚未启动，暂不通过通用 `sendrecv()` 收发以免提前泄露常规报文。
     //
     if (_port == 139) {
       await _ssn139();
@@ -222,13 +204,13 @@ class SmbTransport {
       }
       var socket = await Socket.connect(host, SmbConstants.DEFAULT_PORT,
           timeout: Duration(milliseconds: config.soTimeout));
-      // close() may have completed while the TCP connection was still pending.
+      // 当 TCP 建链仍在等待返回期间，外层可能已并发触发 `close()` 关闭传输层。
       if (_closing != null) {
         socket.destroy();
         throw const SocketException('SMB transport closed during connection');
       }
       _socket = socket;
-      // ignore: unawaited_futures
+      /* 底层传输泵异步派发，无需同步等待返回 */ // ignore: unawaited_futures
       socket.done.then((e) {
         if (config.debugPrint) {
           print("Smb socket diconnected from done");
@@ -245,7 +227,6 @@ class SmbTransport {
     }
 
     if (isSMB2()) {
-      //  || config.isUseSMB2OnlyNegotiation()
       return await _negotiate2(null);
     }
 
@@ -275,7 +256,6 @@ class SmbTransport {
         throw SmbConnectException(
             "Server returned invalid dialect verison in multi protocol negotiation");
       }
-      // FIXME: permits & credits
       int permits = r.getInitialCredits();
       if (permits > 0) {
         _credits.release(permits);
@@ -291,7 +271,6 @@ class SmbTransport {
           null);
     }
 
-    /// FIXME: permits & credits
     int permits = resp.getInitialCredits();
     if (permits > 0) {
       _credits.release(permits);
@@ -301,55 +280,14 @@ class SmbTransport {
   }
 
   Future<void> _ssn139() async {
-    // Name calledName = Name(config, _address.firstCalledName(), 0x20, null);
     // do {
-    //   _socket = await Socket.connect(_host, 139);
-    //   // if ( this.localAddr != null )
-    //   //     this.socket.bind(new InetSocketAddress(this.localAddr, this.localPort));
-    //   // this.socket.setSoTimeout(this.transportContext.getConfig().soTimeout);
 
-    //   _inp = SocketReader2(_socket);
-    //   _out = SocketWriter(_socket);
 
-    //   SessionServicePacket ssp = SessionRequestPacket.name(
-    //       config, calledName, tc.getNameServiceClient().getLocalName());
-    //   _out.write(_wbuf, 0, ssp.writeWireFormat(_wbuf, 0));
-    //   if (await readn(_inp, _wbuf, 0, 4) < 4) {
-    //     // try {
-    //     _socket.close();
-    //     // } catch (ioe) {
-    //     //IOException
-    //     // log.debug("Failed to close socket", ioe);
     //     // }
-    //     throw SmbException("EOF during NetBIOS session request");
     //   }
-    //   switch (_rbuf[0] & 0xFF) {
-    //     case SessionServicePacket.POSITIVE_SESSION_RESPONSE:
-    //       // if ( log.isDebugEnabled() ) {
-    //       //     log.debug("session established ok with " + _address);
     //       // }
-    //       return;
-    //     case SessionServicePacket.NEGATIVE_SESSION_RESPONSE:
-    //       int errorCode = await _inp.readByte() & 0xFF;
-    //       switch (errorCode) {
-    //         case NbtException.CALLED_NOT_PRESENT:
-    //         case NbtException.NOT_LISTENING_CALLED:
-    //           _socket.close();
-    //           break;
-    //         default:
-    //           disconnect(true);
-    //           throw NbtException(NbtException.ERR_SSN_SRVC, errorCode);
     //       }
-    //       break;
-    //     case -1:
-    //       disconnect(true);
-    //       throw NbtException(
-    //           NbtException.ERR_SSN_SRVC, NbtException.CONNECTION_REFUSED);
-    //     default:
-    //       disconnect(true);
-    //       throw NbtException(NbtException.ERR_SSN_SRVC, 0);
     //   }
-    // } while ((calledName.name = _address.nextCalledName(tc)) != null);
 
     throw SmbIOException(
         "Failed to establish session with $host on port $_port");
@@ -366,7 +304,7 @@ class SmbTransport {
     int n = req.encode(_sbuf, 4);
     Encdec.encUint32BE(n & 0xFFFF, _sbuf, 0);
 
-    /// 4 int ssn msg header */
+    /// NetBIOS 会话消息 4 字节固定头部。
     _out.write(_sbuf, 0, 4 + n);
     await _out.flush();
     _sbuf.fill();
@@ -374,10 +312,9 @@ class SmbTransport {
   }
 
   Future<void> _negotiatePeek() async {
-    /// Note the Transport thread isn't running yet so we can
-    /// read from the socket here.
+    /// 此时传输读取泵尚未接管套接字，可安全直接阻塞读取协议协商头部。
     if (await _peekKey() == null) {
-      /// try to read header */
+      /// 尝试先预读 4 字节传输头。
       throw "transport closed in negotiate"; //IOException("transport closed in negotiate")
     }
     int size = Encdec.decUint16BE(_sbuf, 2) & 0xFFFF;
@@ -393,7 +330,7 @@ class SmbTransport {
   Future<SmbNegotiation> _negotiate2(Smb2NegotiateResponse? first) async {
     int securityMode = _getRequestSecurityMode(first);
 
-    // further negotiation needed
+    // 仍需后续交互报文完成协商流程。
     Smb2NegotiateRequest smb2neg = Smb2NegotiateRequest(config, securityMode);
     Smb2NegotiateResponse? r;
     Uint8List? negoReqBuffer;
@@ -460,8 +397,8 @@ class SmbTransport {
       }
     } while (_sbuf[0] == 0x85);
 
-    /// Dodge NetBIOS keep-alive */
-    /// read smb header */
+    /// 跳过 NetBIOS Keep-Alive 保活空包（消息类型 `0x85`）。
+    /// 读取 SMB 协议公共头魔数及长度前缀。
     if ((await readn(_inp, _sbuf, 4, SmbConstants.SMB1_HEADER_LENGTH)) <
         SmbConstants.SMB1_HEADER_LENGTH) {
       return null;
@@ -470,10 +407,8 @@ class SmbTransport {
     while (true) {
       ///
       /// 01234567
-      /// 00SSFSMB
+      /// 报头魔数布局：`00 SS FSMB`（`S` 为载荷长度，`FSMB` 为 SMB1 标志，SMB2/3 为 `0xFE SMB`）。
       /// 0 - 0's
-      /// S - size of payload
-      /// FSMB - 0xFF SMB magic #
 
       if (_sbuf[0] == 0x00 &&
           _sbuf[4] == 0xFE &&
@@ -482,7 +417,7 @@ class SmbTransport {
           _sbuf[7] == Bytes.B_Byte) {
         //'B'
         _smb2 = true;
-        // also read the rest of the header
+        // 继续读完报头其余固定字段部分。
         int lenDiff =
             Smb2Constants.SMB2_HEADER_LENGTH - SmbConstants.SMB1_HEADER_LENGTH;
         if (await readn(
@@ -502,13 +437,11 @@ class SmbTransport {
         //'B'
         break;
 
-        /// all good (SMB) */
+        /// 报文头合法有效，准备解码对应 SMB 响应体。
       }
 
-      /// out of phase maybe? */
-      /// inch forward 1 int and try again */
+      /// 疑似字节流边界错位，尝试向前按字节滑动窗口重新同步魔数。
       for (int i = 0; i < 35; i++) {
-        // log.warn("Possibly out of phase, trying to resync " + Hexdump.toHexString(_sbuf, 0, 16));
         _sbuf[i] = _sbuf[i + 1];
       }
       int b;
@@ -519,10 +452,7 @@ class SmbTransport {
     }
 
     ///
-    /// Unless key returned is null or invalid Transport.loop() always
-    /// calls doRecv() after and no one else but the transport thread
-    /// should call doRecv(). Therefore it is ok to expect that the data
-    /// in sbuf will be preserved for copying into BUF in doRecv().
+    /// 仅由传输监听主泵独占顺序读取并调用 `doRecv()`，故 `_sbuf` 缓冲数据在拷贝期间保持安全不变。
 
     return Encdec.decUint16LE(_sbuf, 34) & 0xFFFF;
   }
@@ -578,7 +508,6 @@ class SmbTransport {
     try {
       var resp = response ?? request.getResponse() as T;
       await doSend(request);
-      // await _doRecv(resp);
       return resp;
     } catch (e) {
       return null;
@@ -597,7 +526,7 @@ class SmbTransport {
     _negotiated?.setupRequest(request);
 
     ///
-    /// First request w/ interim response
+    /// 发送首个请求并等待中间临时确认应答。
     ///
     try {
       req.setBuffer(config.bufferCache.getBuffer());
@@ -606,7 +535,6 @@ class SmbTransport {
         SmbComBlankResponse interim = SmbComBlankResponse(config);
         await sendrecv(req, response: interim, params: params);
         if (interim.getErrorCode() != 0) {
-          // checkStatus(req, interim);
         }
         req.nextElement().getMid();
       } else {
@@ -626,11 +554,10 @@ class SmbTransport {
         resp.setBuffer(txbuf);
 
         ///
-        /// Send multiple fragments
+        /// 连续分片发送大块事务消息载荷。
         ///
         bool hasMore;
         do {
-          // doSend0(req);
           await doSend(req, params);
           hasMore = req.hasMoreElements();
           if (hasMore) {
@@ -639,12 +566,11 @@ class SmbTransport {
         } while (hasMore);
 
         ///
-        /// Receive multiple fragments
+        /// 连续分片接收并重组多段响应数据。
         ///
         await waitResponse(req.getMid(), response);
 
         if (resp.getErrorCode() != 0) {
-          // checkStatus(req, resp);
         }
         return response;
       } finally {
@@ -654,7 +580,6 @@ class SmbTransport {
         }
       }
     } catch (ie) {
-      // throw new TransportException(ie);
     } finally {
       var buff = req.releaseBuffer();
       if (buff != null) {
@@ -734,21 +659,17 @@ class SmbTransport {
     CommonServerMessageBlock smb = request as CommonServerMessageBlock;
     Uint8List buffer = getBufferCache().getBuffer();
     try {
-      // synchronize around encode and write so that the ordering for
-      // SMB1 signing can be maintained
+      // 对报文编码与套接字写出加序同步，保证 SMB1 MAC 签名递增序号严格按发送顺序一致。
       int n = smb.encode(buffer, 4);
       Encdec.encUint32BE(
           n & 0xFFFF, buffer, 0); /* 4 byte session message header */
       //
-      // For some reason this can sometimes get broken up into another
-      // "NBSS Continuation Message" frame according to WireShark
+      // 部分网络环境下大帧写出偶现被切分为附加续传帧，保持整段缓冲读取即可兼容。
       _out.write(buffer, 0, 4 + n);
       await _out.flush();
     } finally {
       getBufferCache().releaseBuffer(buffer);
     }
-    // if ( !request.isResponseAsync() ) {
-    //   _credits.release(grantedCredits);
     // }
   }
 
@@ -765,8 +686,7 @@ class SmbTransport {
     Completer<CommonServerMessageBlockResponse> completer = Completer();
     responses[key] = (response: response, completer: completer);
     final result = completer.future.timeout(waitResponseTimeout);
-    // A fast peer may answer during the preceding socket flush, before this
-    // waiter is registered. Consume that buffered response now.
+    // 高速服务端可能在本端冲刷缓冲区期间即提前回包，先消费已落入暂存队列的响应。
     if (_inp.available() > 0) onListenReader();
     try {
       return await result;
@@ -817,7 +737,7 @@ class SmbTransport {
     try {
       int rl = nextCommand != 0 ? nextCommand : size;
 
-      // read and decode first
+      // 优先读取并解码首段分片应答正文。
       byteArrayCopy(
           src: _sbuf,
           srcOffset: 4,
@@ -844,7 +764,7 @@ class SmbTransport {
           break;
         }
 
-        // read next header
+        // 继续读取后续分片的协议头定位偏移。
         await readn(_inp, buffer, 0, Smb2Constants.SMB2_HEADER_LENGTH);
         nextCommand = Encdec.decUint32LE(buffer, 20);
 
@@ -891,16 +811,16 @@ class SmbTransport {
       int errorCode = Encdec.decUint32LE(buffer, 9) & 0xFFFFFFFF;
       if (resp.getCommand() == SmbComConstants.SMB_COM_READ_ANDX &&
           (errorCode == 0 || errorCode == NtStatus.NT_STATUS_BUFFER_OVERFLOW)) {
-        // overflow indicator normal for pipe
+        // 命名管道读取出现缓冲区溢出状态码属正常分段提示，忽略继续。
         SmbComReadAndXResponse r = resp as SmbComReadAndXResponse;
         int off = SmbConstants.SMB1_HEADER_LENGTH;
 
-        /// WordCount thru dataOffset always 27 */
+        /// `WordCount` 至 `dataOffset` 区间长度固定为 27 字。
         await readn(_inp, buffer, 4 + off, 27);
         off += 27;
         resp.decode(buffer, 4);
 
-        /// EMC can send pad w/o data */
+        /// 兼容 EMC 存储设备在无数据时仍附带额外填充字节的实现。
         int pad = r.getDataOffset() - off;
         if (r.getByteCount() > 0 && pad > 0 && pad < 4) {
           await readn(_inp, buffer, 4 + off, pad);
@@ -909,7 +829,7 @@ class SmbTransport {
         if (r.getDataLength() > 0) {
           await readn(_inp, r.getData()!, r.getOffset(), r.getDataLength());
 
-          /// read direct */
+          /// 直接按字节流偏移读出载荷。
         }
       } else {
         await readn(_inp, buffer, 4 + SmbConstants.SMB1_HEADER_LENGTH,
@@ -921,54 +841,10 @@ class SmbTransport {
     }
   }
 
-  // bool _checkStatus(ServerMessageBlock req, ServerMessageBlock resp) {
-  //   bool cont = false;
-  //   if (resp.getErrorCode() == 0x30002) {
-  //     // if using DOS error codes this indicates a DFS referral
-  //     resp.setErrorCode(NtStatus.NT_STATUS_PATH_NOT_COVERED);
-  //   } else {
-  //     resp.setErrorCode(SmbException.getStatusByCode(resp.getErrorCode()));
   //   }
-  //   switch (resp.getErrorCode()) {
-  //     case NtStatus.NT_STATUS_OK:
-  //       cont = true;
-  //       break;
-  //     case NtStatus.NT_STATUS_ACCESS_DENIED:
-  //     case NtStatus.NT_STATUS_WRONG_PASSWORD:
-  //     case NtStatus.NT_STATUS_LOGON_FAILURE:
-  //     case NtStatus.NT_STATUS_ACCOUNT_RESTRICTION:
-  //     case NtStatus.NT_STATUS_INVALID_LOGON_HOURS:
-  //     case NtStatus.NT_STATUS_INVALID_WORKSTATION:
-  //     case NtStatus.NT_STATUS_PASSWORD_EXPIRED:
-  //     case NtStatus.NT_STATUS_ACCOUNT_DISABLED:
-  //     case NtStatus.NT_STATUS_ACCOUNT_LOCKED_OUT:
-  //     case NtStatus.NT_STATUS_TRUSTED_DOMAIN_FAILURE:
-  //       throw SmbAuthException(
-  //           SmbException.getMessageByCode(resp.getErrorCode()));
-  //     case 0xC00000BB: // NT_STATUS_NOT_SUPPORTED
-  //       throw SmbUnsupportedOperationException();
-  //     case NtStatus.NT_STATUS_PATH_NOT_COVERED:
-  //     // samba fails to report the proper status for some operations
-  //     case 0xC00000A2: // NT_STATUS_MEDIA_WRITE_PROTECTED
-  //       // FIXME: checkReferral(resp, req.getPath(), req);
-  //       break;
-  //     case NtStatus.NT_STATUS_BUFFER_OVERFLOW:
-  //       break; /* normal for DCERPC named pipes */
-  //     case NtStatus.NT_STATUS_MORE_PROCESSING_REQUIRED:
-  //       break; /* normal for NTLMSSP */
-  //     default:
-  //       // if (log.isDebugEnabled()) {
-  //       //   log.debug("Error code: 0x" +
-  //       //       Hexdump.toHexString(resp.getErrorCode(), 8) +
-  //       //       " for " +
-  //       //       req.getClass().getSimpleName());
   //       // }
-  //       throw SmbException.code(resp.getErrorCode(), null);
   //   }
-  //   if (resp.isVerifyFailed()) {
-  //     throw SmbException("Signature verification failed.");
   //   }
-  //   return cont;
   // }
 
   @protected
@@ -991,7 +867,7 @@ class SmbTransport {
 
   bool isSigningEnforced() => _signingEnforced;
 
-  /// Read bytes from the input stream into a buffer
+  /// 从底层输入流持续读取指定字节数写入目标缓冲区。
   static Future<int> readn(
       SocketReader inp, Uint8List b, int off, int len) async {
     int i = 0, n = -5;

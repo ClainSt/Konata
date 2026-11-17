@@ -17,9 +17,6 @@ class SmbComTreeConnectAndXResponse extends AndXServerMessageBlock
   SmbComTreeConnectAndXResponse(super.config, ServerMessageBlock? andx)
       : super(andx: andx);
 
-  // @override
-  // String? getService() {
-  //   return service;
   // }
 
   String getNativeFileSystem() {
@@ -30,14 +27,8 @@ class SmbComTreeConnectAndXResponse extends AndXServerMessageBlock
     return supportSearchBits;
   }
 
-  // @override
-  // bool isShareDfs() {
-  //   return shareIsInDfs;
   // }
 
-  // @override
-  // bool isValidTid() {
-  //   return getTid() != 0xFFFF;
   // }
 
   @override
@@ -70,13 +61,11 @@ class SmbComTreeConnectAndXResponse extends AndXServerMessageBlock
     int len = readStringLength(buffer, bufferIndex, 32);
     try {
       service = fromASCIIBytes(buffer, bufferIndex, len);
-      //String(buffer, bufferIndex, len, "ASCII");
     } catch (uee) {
-      //UnsupportedEncodingException
       return 0;
     }
     bufferIndex += len + 1;
-    // win98 observed not returning nativeFileSystem
+    // 旧版 Win98 服务端实测可能省略返回本机文件系统名称。
     return bufferIndex - start;
   }
 

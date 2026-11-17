@@ -79,7 +79,7 @@ class Smb2CreateRequest extends ServerMessageBlock2Request<Smb2CreateResponse>
     if (path.isNotEmpty && path[0] == '\\') {
       path = path.substring(1);
     }
-    // win8.1 returns ACCESS_DENIED if the trailing backslash is included
+    // Windows 8.1 要求路径末尾不附带多余反斜杠，否则会误报 `ACCESS_DENIED`。
     if (path.length > 1 && path[path.length - 1] == '\\') {
       path = path.substring(0, path.length - 1);
     }
@@ -142,9 +142,6 @@ class Smb2CreateRequest extends ServerMessageBlock2Request<Smb2CreateResponse>
     }
 
     size += ServerMessageBlock2.size8(nameLen);
-    // if (_createContexts != null) {
-    //   for (CreateContextRequest ccr in _createContexts!) {
-    //     size += ServerMessageBlock2.size8(ccr.size());
     //   }
     // }
     return ServerMessageBlock2.size8(size);
@@ -196,7 +193,7 @@ class Smb2CreateRequest extends ServerMessageBlock2Request<Smb2CreateResponse>
         dstOffset: dstIndex,
         length: nameBytes.length);
     if (nameBytes.isEmpty) {
-      // buffer must contain at least one int
+      // 响应缓冲载荷至少需包含一个 32 位整型数据长度。
       dstIndex++;
     } else {
       dstIndex += nameBytes.length;
@@ -205,51 +202,14 @@ class Smb2CreateRequest extends ServerMessageBlock2Request<Smb2CreateResponse>
     dstIndex += pad8(dstIndex);
 
     int totalCreateContextLength = 0;
-    // if (_createContexts == null || _createContexts.isEmpty) {
     SMBUtil.writeInt4(0, dst, createContextOffsetOffset);
-    // } else {
-    //   SMBUtil.writeInt4(
-    //       dstIndex - getHeaderStart(), dst, createContextOffsetOffset);
-    //   int lastStart = -1;
-    //   for (CreateContextRequest createContext in _createContexts) {
-    //     int structStart = dstIndex;
 
-    //     SMBUtil.writeInt4(0, dst, structStart);
-    //     if (lastStart > 0) {
-    //       // set next pointer of previous CREATE_CONTEXT
-    //       SMBUtil.writeInt4(structStart - dstIndex, dst, lastStart);
     //     }
 
-    //     dstIndex += 4;
-    //     Uint8List cnBytes = createContext.getName();
-    //     int cnOffsetOffset = dstIndex;
-    //     SMBUtil.writeInt2(cnBytes.length, dst, dstIndex + 2);
-    //     dstIndex += 4;
 
-    //     int dataOffsetOffset = dstIndex + 2;
-    //     dstIndex += 4;
-    //     int dataLengthOffset = dstIndex;
-    //     dstIndex += 4;
 
-    //     SMBUtil.writeInt2(dstIndex - structStart, dst, cnOffsetOffset);
-    //     byteArrayCopy(
-    //         src: cnBytes,
-    //         srcOffset: 0,
-    //         dst: dst,
-    //         dstOffset: dstIndex,
-    //         length: cnBytes.length);
-    //     dstIndex += cnBytes.length;
-    //     dstIndex += pad8(dstIndex);
 
-    //     SMBUtil.writeInt2(dstIndex - structStart, dst, dataOffsetOffset);
-    //     int len = createContext.encode(dst, dstIndex);
-    //     SMBUtil.writeInt4(len, dst, dataLengthOffset);
-    //     dstIndex += len;
 
-    //     int pad = pad8(dstIndex);
-    //     totalCreateContextLength += len + pad;
-    //     dstIndex += pad;
-    //     lastStart = structStart;
     //   }
     // }
     SMBUtil.writeInt4(totalCreateContextLength, dst, createContextLengthOffset);

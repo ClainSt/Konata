@@ -11,25 +11,16 @@ import '../request_with_file_id.dart';
 import '../server_message_block2_request.dart';
 import 'smb2_ioctl_response.dart';
 
-/// 2.2.31 SMB2 IOCTL Request
-/// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/5c03c9d6-15de-48a2-9835-8fb37f8a79d8
+/// MS-SMB2 2.2.31 节 IOCTL 控制请求报文结构定义。
 class Smb2IoctlRequest extends ServerMessageBlock2Request<Smb2IoctlResponse>
     implements RequestWithFileId {
-  // static const int FSCTL_DFS_GET_REFERRALS = 0x0060194;
-  // static const int FSCTL_PIPE_PEEK = 0x0011400C;
   static const int FSCTL_PIPE_WAIT = 0x00110018;
   static const int FSCTL_PIPE_TRANSCEIVE = 0x0011C017;
-  // static const int FSCTL_SRV_COPYCHUNK = 0x001440F2;
-  // static const int FSCTL_SRV_ENUMERATE_SNAPSHOTS = 0x00144064;
-  // static const int FSCTL_SRV_REQUEST_RESUME_KEY = 0x00140078;
-  // static const int FSCTL_SRV_READ_HASH = 0x001441bb;
-  // static const int FSCTL_SRV_COPYCHUNK_WRITE = 0x001480F2;
   static const int FSCTL_LRM_REQUEST_RESILENCY = 0x001401D4;
   static const int FSCTL_QUERY_NETWORK_INTERFACE_INFO = 0x001401FC;
   static const int FSCTL_SET_REPARSE_POINT = 0x000900A4;
   static const int FSCTL_DFS_GET_REFERRALS_EX = 0x000601B0;
   static const int FSCTL_FILE_LEVEL_TRIM = 0x00098208;
-  // static const int FSCTL_VALIDATE_NEGOTIATE_INFO = 0x000140204;
 
   static const int SMB2_O_IOCTL_IS_FSCTL = 0x1;
 

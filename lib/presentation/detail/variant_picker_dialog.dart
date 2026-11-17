@@ -7,6 +7,7 @@ import '../../domain/models/episode.dart';
 import '../../domain/models/external_player_config.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
@@ -128,34 +129,36 @@ class _VariantPickerDialogState extends State<VariantPickerDialog> {
       width: 660,
       maxHeight: 540,
       title: '选择播放版本 · $epLabel',
-      headerTrailing: SizedBox(
-        width: 196,
-        child: KonataDropdown<String>(
-          dense: true,
-          leadingIcon: Icons.play_circle_outline_rounded,
-          value: _selectedTargetId,
-          options: [
-            const KonataDropdownOption<String>(
-              value: _optionFollowDefault,
-              label: '跟随全局播放设置',
-            ),
-            const KonataDropdownOption<String>(
-              value: _optionBuiltin,
-              label: '内置高保真 (libmpv)',
-            ),
-            for (final pl in widget.players)
-              KonataDropdownOption<String>(
-                value: pl.id,
-                label: '外部 · ${pl.name}',
+      headerTrailing: KonataAdaptiveTokens.isWindows
+          ? SizedBox(
+              width: 196,
+              child: KonataDropdown<String>(
+                dense: true,
+                leadingIcon: Icons.play_circle_outline_rounded,
+                value: _selectedTargetId,
+                options: [
+                  const KonataDropdownOption<String>(
+                    value: _optionFollowDefault,
+                    label: '跟随全局播放设置',
+                  ),
+                  const KonataDropdownOption<String>(
+                    value: _optionBuiltin,
+                    label: '内置高保真 (libmpv)',
+                  ),
+                  for (final pl in widget.players)
+                    KonataDropdownOption<String>(
+                      value: pl.id,
+                      label: '外部 · ${pl.name}',
+                    ),
+                ],
+                onChanged: (id) {
+                  setState(() {
+                    _selectedTargetId = id;
+                  });
+                },
               ),
-          ],
-          onChanged: (id) {
-            setState(() {
-              _selectedTargetId = id;
-            });
-          },
-        ),
-      ),
+            )
+          : null,
       child: KonataDraggableScrollbar(
         controller: _listCtrl,
         builder: (_, ctrl) => ListView.separated(

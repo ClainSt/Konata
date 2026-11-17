@@ -16,7 +16,7 @@ class Encdec {
   static const int TIME_1970_MILLIS_64LE = 8;
 
   ///
-  /// Encode integers
+  /// 按小端字节序向缓冲区写入无符号定长整数（2/4/8 字节）。
   ///
   static int encUint16BE(int s, Uint8List dst, int di) {
     dst[di++] = ((s >> 8) & 0xFF);
@@ -47,7 +47,7 @@ class Encdec {
   }
 
   ///
-  /// Decode integers
+  /// 从缓冲区按小端字节序读取无符号定长整数（2/4/8 字节）。
   ///
   static int decUint16BE(Uint8List src, int si) {
     return (((src[si] & 0xFF) << 8) | (src[si + 1] & 0xFF));
@@ -72,7 +72,7 @@ class Encdec {
   }
 
   ///
-  /// Encode and decode 64 bit integers
+  /// 64 位长整型小端字节序编解码辅助方法。
   ///
   static int encUint64BE(int l, Uint8List dst, int di) {
     encUint32BE((l & 0xFFFFFFFF), dst, di + 4);
@@ -103,7 +103,7 @@ class Encdec {
   }
 
   ///
-  /// Encode floats
+  /// 将单精度浮点数按 IEEE 754 小端序写入 4 字节。
   ///
   static int encFloatLE(double f, Uint8List dst, int di) {
     var buff = ByteData(4);
@@ -118,7 +118,7 @@ class Encdec {
   }
 
   ///
-  /// Decode floating point numbers
+  /// 按 IEEE 754 小端序从缓冲区读取单精度浮点数。
   ///
   static double decFloatLE(Uint8List src, int si) {
     var buff = ByteData.view(src.buffer, si, 4);
@@ -131,7 +131,7 @@ class Encdec {
   }
 
   ///
-  /// Encode and decode doubles
+  /// 双精度浮点数 IEEE 754 小端序编解码。
   ///
   static int encDoubleLE(double d, Uint8List dst, int di) {
     var buff = ByteData(8);
@@ -156,7 +156,7 @@ class Encdec {
   }
 
   ///
-  /// Encode times
+  /// 将毫秒时间戳转换为 Windows FILETIME（100 纳秒自 1601 年计）并写入小端缓冲区。
   ///
   static int encTime(DateTime date, Uint8List dst, int di, int enc) {
     int t;
@@ -200,7 +200,7 @@ class Encdec {
   }
 
   ///
-  /// Decode times
+  /// 从缓冲区读取 Windows FILETIME 64 位整数并还原为 Unix 毫秒时间戳。
   ///
   static DateTime decTime(Uint8List src, int si, int enc) {
     int t;

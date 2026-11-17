@@ -18,6 +18,7 @@ import '../../domain/playback/chapter_skip_analyzer.dart';
 import '../../domain/playback/playback_probe_stats.dart';
 import '../../domain/playback/subtitle_and_audio_choices.dart';
 import '../../domain/playback/track_preferences.dart';
+import '../../domain/playback/video_aspect_mode.dart';
 import '../../domain/playback/watched_tracker.dart';
 import '../../domain/repositories/external_player_launcher.dart';
 import '../../infrastructure/players/android/android_video_surface_controller.dart';
@@ -28,9 +29,11 @@ import '../../infrastructure/players/mpv_thumbnail_service.dart';
 import '../../infrastructure/storage/storage_root_provider.dart';
 import '../providers/diagnostics_providers.dart';
 import '../providers/library_providers.dart';
+import '../providers/platform_capability.dart';
 import '../providers/playback_providers.dart';
 import 'audio_playback_notifier.dart';
 import 'playback_preferences_provider.dart';
+import 'unified_playback_coordinator.dart';
 
 /// 启动内置视频播放页面的强类型不可变请求键。
 class VideoLaunchRequest {
@@ -88,6 +91,9 @@ class VideoPlaybackState {
     this.volume = 100.0,
     this.isMuted = false,
     this.isFullscreen = false,
+    this.audioOnlyMode = false,
+    this.aspectMode = VideoAspectMode.auto,
+    this.windowBrightness = 0.5,
     this.probeOverlayVisible = false,
     this.sideSheetOpen = false,
     this.probeStats = const PlaybackProbeStats(),
@@ -123,6 +129,9 @@ class VideoPlaybackState {
   final double volume;
   final bool isMuted;
   final bool isFullscreen;
+  final bool audioOnlyMode;
+  final VideoAspectMode aspectMode;
+  final double windowBrightness;
   final bool probeOverlayVisible;
   final bool sideSheetOpen;
   final PlaybackProbeStats probeStats;
@@ -158,6 +167,9 @@ class VideoPlaybackState {
     double? volume,
     bool? isMuted,
     bool? isFullscreen,
+    bool? audioOnlyMode,
+    VideoAspectMode? aspectMode,
+    double? windowBrightness,
     bool? probeOverlayVisible,
     bool? sideSheetOpen,
     PlaybackProbeStats? probeStats,
@@ -196,6 +208,9 @@ class VideoPlaybackState {
       volume: volume ?? this.volume,
       isMuted: isMuted ?? this.isMuted,
       isFullscreen: isFullscreen ?? this.isFullscreen,
+      audioOnlyMode: audioOnlyMode ?? this.audioOnlyMode,
+      aspectMode: aspectMode ?? this.aspectMode,
+      windowBrightness: windowBrightness ?? this.windowBrightness,
       probeOverlayVisible: probeOverlayVisible ?? this.probeOverlayVisible,
       sideSheetOpen: sideSheetOpen ?? this.sideSheetOpen,
       probeStats: probeStats ?? this.probeStats,
@@ -519,6 +534,15 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       if (!mounted) return;
       _ref.read(videoPlaybackActiveProvider.notifier).state = true;
       await _ref.read(audioPlaybackProvider.notifier).pauseForVideoSession();
+      await AndroidPlaybackWindowBridge.beginWindow();
+      await AndroidPlaybackWindowBridge.requestAudioFocus(
+        onLoss: () {
+          if (mounted && state.isPlaying) {
+            _session?.setPlaying(false);
+            state = state.copyWith(isPlaying: false);
+          }
+        },
+      );
     });
 
     final mutex = _ref.read(embeddedSessionMutexProvider);
@@ -1114,6 +1138,32 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     state = state.copyWith(isMuted: next);
   }
 
+  /// 在不重建解码会话的前提下切换视频后台纯音频模式（`vid=no` ↔ `vid=auto`）。
+  void setAudioOnlyMode(bool enabled) {
+    if (state.audioOnlyMode == enabled) return;
+    _session?.setVideoTrackEnabled(!enabled);
+    state = state.copyWith(audioOnlyMode: enabled);
+    showTransientBanner(enabled ? '已切换为后台纯音频模式' : '已恢复视频画面渲染');
+  }
+
+  /// 切换视频后台纯音频模式。
+  void toggleAudioOnlyMode() => setAudioOnlyMode(!state.audioOnlyMode);
+
+  /// 切换视频画面比例模式。
+  void setAspectMode(VideoAspectMode mode) {
+    if (state.aspectMode == mode) return;
+    _session?.applyAspectMode(mode);
+    state = state.copyWith(aspectMode: mode);
+    showTransientBanner('画面比例：${mode.label}');
+  }
+
+  /// 调节播放窗口亮度（`0.0 ~ 1.0`）。
+  void setWindowBrightness(double brightness) {
+    final clamped = brightness.clamp(0.0, 1.0).toDouble();
+    state = state.copyWith(windowBrightness: clamped);
+    unawaited(AndroidPlaybackWindowBridge.setBrightness(clamped));
+  }
+
   void selectSubtitle(SubtitleChoice? choice) {
     _session?.selectSubtitle(choice);
     final nextMemory = state.trackMemory.rememberSubtitle(
@@ -1227,14 +1277,23 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     state = state.copyWith(sideSheetOpen: open);
   }
 
-  /// 切换桌面全屏（绝不触碰 `flutter_acrylic` 窗体材质，防止 DWM 黑闪）。
+  /// 切换全屏或 Android 横屏全屏模式（Windows 绝不触碰 `flutter_acrylic` 窗体材质防 DWM 黑闪）。
   Future<void> toggleFullscreen() async {
-    if (!(!kIsWeb && defaultTargetPlatform == TargetPlatform.windows)) return;
     final next = !state.isFullscreen;
-    await windowManager.setFullScreen(next);
-    await Window.hideWindowControls();
-    if (mounted) {
-      state = state.copyWith(isFullscreen: next);
+    if (KonataPlatform.isWindows) {
+      await windowManager.setFullScreen(next);
+      await Window.hideWindowControls();
+      if (mounted) {
+        state = state.copyWith(isFullscreen: next);
+      }
+      return;
+    }
+    if (KonataPlatform.isAndroid) {
+      await AndroidPlaybackWindowBridge.setLandscapePreferred(next);
+      await AndroidPlaybackWindowBridge.setSystemBarsHidden(next);
+      if (mounted) {
+        state = state.copyWith(isFullscreen: next);
+      }
     }
   }
 
@@ -1380,11 +1439,12 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       state = state.copyWith(isClosing: true);
     }
 
-    if (state.isFullscreen &&
-        !kIsWeb &&
-        defaultTargetPlatform == TargetPlatform.windows) {
+    if (state.isFullscreen && KonataPlatform.isWindows) {
       await windowManager.setFullScreen(false);
       await Window.hideWindowControls();
+    } else if (KonataPlatform.isAndroid) {
+      await AndroidPlaybackWindowBridge.endWindow();
+      await AndroidPlaybackWindowBridge.abandonAudioFocus();
     }
 
     await _persistProgress(isFinal: true);

@@ -53,23 +53,23 @@ final class AvPairs {
     return false;
   }
 
-  /// first occurance of the given type
+  /// 查找给定类型的首个 AvPair 属性条目。
   static AvPair? get(List<AvPair> pairs, int type) {
     return pairs.findFirst((element) => element.type == type);
   }
 
-  /// Remove all occurances of the given type
+  /// 从属性列表中移除所有匹配指定类型的 AvPair。
   static void remove(List<AvPair> pairs, int type) {
     pairs.removeWhere((element) => element.type == type);
   }
 
-  /// Replace all occurances of the given type
+  /// 替换列表中同类型 AvPair 属性条目。
   static void replace(List<AvPair> pairs, AvPair rep) {
     remove(pairs, rep.type);
     pairs.add(rep);
   }
 
-  /// encoded avpairs
+  /// 将 AvPair 列表序列化编码为连续小端二进制负载。
   static Uint8List encode(List<AvPair> pairs) {
     int size = 0;
     for (AvPair p in pairs) {
@@ -89,15 +89,12 @@ final class AvPairs {
           dst: enc,
           dstOffset: pos + 4,
           length: raw.length);
-      // print("encode AvPairs  ${enc.toHexString()}"); //${p.type}
       pos += 4 + raw.length;
     }
 
-    // MsvAvEOL
+    // 写入列表结尾结束条目 `MsvAvEOL`（type=0, len=0）。
     SMBUtil.writeInt2(AvPair.MsvAvEOL, enc, pos);
     SMBUtil.writeInt2(0, enc, pos + 2);
-    // pos += 4;
-    // print("encode AvPairs  ${enc.toHexString()}"); //${p.type}
     return enc;
   }
 

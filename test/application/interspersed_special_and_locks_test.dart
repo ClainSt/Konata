@@ -116,7 +116,7 @@ void main() {
               });
             }
             if (path.endsWith('/v0/episodes')) {
-              // 同时返回 type=0 正片 (12 话) 与穿插其中的 type=1 特别篇 (2017-11-21)
+              // 同时返回 type=0 正片 (12 话) 与穿插其中的 type=1 特别篇（2017 年 11 月 21 日）
               final eps = <Map<String, Object?>>[];
               final baseDates = <String>[
                 '2017-10-10',

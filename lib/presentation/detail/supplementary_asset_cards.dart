@@ -8,6 +8,7 @@ import '../../domain/formatting/media_display_formatter.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../infrastructure/cache/scan_thumbnail_scheduler.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
@@ -60,23 +61,29 @@ class CdDrawerCard extends StatefulWidget {
 class _CdDrawerCardState extends State<CdDrawerCard> {
   bool _hovered = false;
 
-  Future<void> _handleSecondaryTap(TapUpDetails details) async {
-    if (widget.onPlayImmersive == null && widget.onPlayExternal == null) {
+  Future<void> _showCdMenu(Offset globalPos) async {
+    final allowExternal =
+        KonataAdaptiveTokens.isWindows && widget.onPlayExternal != null;
+    if (widget.onPlayImmersive == null && !allowExternal) {
       return;
     }
+    final itemHeight = KonataAdaptiveTokens.isAndroid
+        ? KonataAdaptiveTokens.touchTarget
+        : kMinInteractiveDimension;
     final pos = RelativeRect.fromLTRB(
-      details.globalPosition.dx,
-      details.globalPosition.dy,
-      details.globalPosition.dx,
-      details.globalPosition.dy,
+      globalPos.dx,
+      globalPos.dy,
+      globalPos.dx,
+      globalPos.dy,
     );
     final action = await showMenu<String>(
       context: context,
       position: pos,
       items: [
-        const PopupMenuItem<String>(
+        PopupMenuItem<String>(
           value: 'default',
-          child: Row(
+          height: itemHeight,
+          child: const Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(Icons.play_arrow_rounded, size: 17),
@@ -86,9 +93,10 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
           ),
         ),
         if (widget.onPlayImmersive != null)
-          const PopupMenuItem<String>(
+          PopupMenuItem<String>(
             value: 'immersive',
-            child: Row(
+            height: itemHeight,
+            child: const Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(Icons.album_rounded, size: 17),
@@ -97,10 +105,11 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
               ],
             ),
           ),
-        if (widget.onPlayExternal != null)
-          const PopupMenuItem<String>(
+        if (allowExternal)
+          PopupMenuItem<String>(
             value: 'external',
-            child: Row(
+            height: itemHeight,
+            child: const Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(Icons.open_in_new_rounded, size: 17),
@@ -145,7 +154,8 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
         onTap: widget.onTap,
-        onSecondaryTapUp: _handleSecondaryTap,
+        onSecondaryTapUp: (details) => _showCdMenu(details.globalPosition),
+        onLongPressStart: (details) => _showCdMenu(details.globalPosition),
         child: SizedBox(
           width: 244,
           child: Column(
@@ -215,6 +225,51 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                             top: 6,
                             left: 6,
                             child: _MiniTag(label: '系列共用'),
+                          ),
+                        if (KonataAdaptiveTokens.isAndroid &&
+                            widget.onPlayImmersive != null)
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: Builder(
+                              builder: (btnContext) => GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () {
+                                  final box =
+                                      btnContext.findRenderObject()
+                                          as RenderBox?;
+                                  final pos = box != null
+                                      ? box.localToGlobal(
+                                          box.size.center(Offset.zero),
+                                        )
+                                      : Offset.zero;
+                                  _showCdMenu(pos);
+                                },
+                                child: SizedBox.square(
+                                  key: ValueKey('cd_more_${v.id}'),
+                                  dimension: KonataAdaptiveTokens.touchTarget,
+                                  child: Align(
+                                    alignment: Alignment.bottomRight,
+                                    child: Container(
+                                      margin: const EdgeInsets.all(6),
+                                      width: 28,
+                                      height: 28,
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.50,
+                                        ),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.more_horiz_rounded,
+                                        size: 16,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
                           ),
                       ],
                     ),

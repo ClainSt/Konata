@@ -90,7 +90,7 @@ class UUID extends RpcUuidT {
     return (i & 0xFFFF);
   }
 
-  /// Construct a UUID from string
+  /// 从标准十六进制连字符字符串解析构建 UUID 对象。
   UUID.str(String str) {
     var arr = str;
     timeLow = _hexToBin(arr, 0, 8);

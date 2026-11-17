@@ -27,12 +27,12 @@ class SMB1SigningDigest implements SMBSigningDigest {
     _digest = Crypto.getMD5();
   }
 
-  /// Update digest with data
+  /// 将当前报文数据喂入 MAC 签名摘要引擎更新校验态。
   void update(Uint8List input, int offset, int len) {
     if (len == 0) {
       return;
 
-      /// CRITICAL */
+      /// 关键报文校验路径，不可跳过。
     }
     _digest.update(input, offset, len);
     updates++;
@@ -73,8 +73,6 @@ class SMB1SigningDigest implements SMBSigningDigest {
         );
       }
     } catch (ex) {
-      //Exception
-      // log.error("Signature failed", ex);
     } finally {
       if (request is SmbComNtCancel) {
         signSequence++;
@@ -90,8 +88,7 @@ class SMB1SigningDigest implements SMBSigningDigest {
     ServerMessageBlock msg = m as ServerMessageBlock;
 
     if ((msg.getFlags2() & SmbConstants.FLAGS2_SECURITY_SIGNATURES) == 0) {
-      // signature requirements need to be checked somewhere else
-      // log.warn("Expected signed response, but is not signed");
+      // 签名强制策略校验由传输会话外层统一拦截判定。
       return false;
     }
 
@@ -104,7 +101,7 @@ class SMB1SigningDigest implements SMBSigningDigest {
     update(sequence, 0, sequence.length);
     index += 8;
     if (msg.getCommand() == SmbComConstants.SMB_COM_READ_ANDX) {
-      /// SmbComReadAndXResponse reads directly from the stream into separate Uint8List b.
+      /// 读取响应包时直接从底层网络流拷贝载荷进调用方提供的目标字节缓冲区 `b`。
       SmbComReadAndXResponse raxr = msg as SmbComReadAndXResponse;
       int length = msg.getLength() - raxr.getDataLength();
       update(data, index, length - SmbConstants.SIGNATURE_OFFSET - 8);
@@ -136,22 +133,22 @@ class SMB1SigningDigest implements SMBSigningDigest {
     }
 
     if (cfg.localTimezone.inDaylightTime(DateTime.now())) {
-      // in DST
+      // 本地当前处于夏令时期间（DST）。
       if (cfg.localTimezone
           .inDaylightTime(DateTime.fromMillisecondsSinceEpoch(t))) {
-        // t also in DST so no correction
+        // 目标时间戳同属夏令时区间，无需额外小时补偿。
       } else {
-        // t not in DST so subtract 1 hour
+        // 目标时间戳非夏令时，补偿扣减 1 小时偏移。
         t -= 3600000;
       }
     } else {
-      // not in DST
+      // 本地当前处于非夏令时期间。
       if (cfg.localTimezone
           .inDaylightTime(DateTime.fromMillisecondsSinceEpoch(t))) {
-        // t is in DST so add 1 hour
+        // 目标时间戳处于夏令时期间，补偿增加 1 小时偏移。
         t += 3600000;
       } else {
-        // t isn't in DST either
+        // 目标时间戳同处非夏令时区间，无需修正。
       }
     }
     SMBUtil.writeInt4(t ~/ 1000, dst, dstIndex);

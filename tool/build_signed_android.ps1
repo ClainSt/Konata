@@ -1,4 +1,4 @@
-# Run in the key holder's own interactive PowerShell session.
+﻿# 仅在签名密钥持有者的交互式 PowerShell 会话中运行。
 param(
     [ValidateRange(0, 2147481647)] [int] $BuildNumber = 0,
     [string] $BuildName = '1.0.0'
@@ -32,7 +32,7 @@ $previous = Get-Content -LiteralPath (Join-Path $project 'release/latest-build.j
 if ($BuildNumber -eq 0) {
     $BuildNumber = [Math]::Max(2002, [int]$previous.androidVersionCode - 2000 + 1)
 }
-# Flutter's split ARM64 APK adds its ABI offset to the Flutter build number.
+# Flutter 分 ABI 打包 ARM64 APK 时会自动在构建号上叠加 ABI 偏移量。
 $expectedVersionCode = $BuildNumber + 2000
 if ($expectedVersionCode -le $previous.androidVersionCode) {
     throw "新版 APK 版本号 $expectedVersionCode 必须大于现有版本 $($previous.androidVersionCode)。"
@@ -53,7 +53,7 @@ try {
         throw '密钥证书与现有发布版本不一致，已停止构建。'
     }
     Set-BuildStage 'building-release'
-    # Regenerate the Release plugin registrant after flutter test or pub get.
+    # 在 flutter test 或 pub get 后重新生成 Release 插件注册代码。
     & $flutter build apk --release --target-platform android-arm64 --split-per-abi --build-name=$BuildName --build-number=$BuildNumber 2>&1 |
         Tee-Object -FilePath (Join-Path $statusDir 'android-release-build.log')
     if ($LASTEXITCODE) { throw 'Android Release 构建失败。' }

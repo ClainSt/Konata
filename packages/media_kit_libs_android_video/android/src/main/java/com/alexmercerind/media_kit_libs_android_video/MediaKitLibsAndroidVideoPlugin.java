@@ -1,10 +1,4 @@
-/**
- * This file is a part of media_kit (https://github.com/media-kit/media-kit).
- *
- * Copyright © 2021 & onwards, Hitesh Kumar Saini <saini123hitesh@gmail.com>.
- * All rights reserved.
- * Use of this source code is governed by MIT license that can be found in the LICENSE file.
- */
+// media_kit Android 原生视频运行时加载插件（MIT 许可）。
 package com.alexmercerind.media_kit_libs_android_video;
 
 import java.util.Arrays;
@@ -25,10 +19,10 @@ import io.flutter.embedding.engine.plugins.FlutterPlugin;
 
 import com.alexmercerind.mediakitandroidhelper.MediaKitAndroidHelper;
 
-/** MediaKitLibsAndroidVideoPlugin */
+/// Android 视频播放原生库加载入口。
 public class MediaKitLibsAndroidVideoPlugin implements FlutterPlugin {
     static {
-        // DynamicLibrary.open on Dart side may not work on some ancient devices unless System.loadLibrary is called first.
+        // 部分旧版设备上仅靠 Dart 侧 DynamicLibrary.open 可能失败，需预先触发 System.loadLibrary。
         try {
             System.loadLibrary("mpv");
         } catch (Throwable e) {
@@ -40,7 +34,7 @@ public class MediaKitLibsAndroidVideoPlugin implements FlutterPlugin {
     public void onAttachedToEngine(@NonNull FlutterPluginBinding flutterPluginBinding) {
         Log.i("media_kit", "package:media_kit_libs_android_video attached.");
         try {
-            // Save android.content.Context for access later within MediaKitAndroidHelpers e.g. loading bundled assets.
+            // 缓存应用上下文，供 MediaKitAndroidHelper 后续读取打包资源与内容描述符。
             MediaKitAndroidHelper.setApplicationContextJava(flutterPluginBinding.getApplicationContext());
             Log.i("media_kit", "Saved application context.");
         } catch (Throwable e) {

@@ -845,7 +845,7 @@ class DESCrypt implements BlockCipher {
   ];
 
   ///
-  ///        Initial Permutation
+  /// DES 算法初始置换（IP）位映射表定义。
   static final List<int> initPermLeft0 = [
     0x00000000,
     0x00008000,
@@ -1455,13 +1455,11 @@ class DESCrypt implements BlockCipher {
   ];
 
   ///
-  /// the encryption key array after expansion and permutation
-  // byte[] expandedKey = null;
+  /// 经扩展与子密钥轮置换后的 DES 轮密钥调度数组。
   Uint8List? expandedKey;
 
   ///
-  /// Are we encrypting or decrypting?
-  // bool decrypting = false;
+  /// 标识当前 DES 轮变换方向是否为解密模式。
   bool forEncryption = false;
 
   @override
@@ -1473,15 +1471,9 @@ class DESCrypt implements BlockCipher {
   @override
   void init(bool forEncryption, CipherParameters? params) {
     this.forEncryption = forEncryption;
-    // this.decrypting = decrypting;
-    // if (!algorithm.equalsIgnoreCase("DES")) {
-    //     throw new InvalidKeyException("Wrong algorithm: DES required");
     // }
-    // if (rawKey.length != DES_BLOCK_SIZE) {
-    //     throw new InvalidKeyException("Wrong key size");
     // }
     if (params is KeyParameter) {
-      // key = params.key;
       expandKey(params.key);
     } else {
       throw Exception("Required KeyParameter as params");
@@ -1510,43 +1502,20 @@ class DESCrypt implements BlockCipher {
   }
 
   ///
-  /// Performs encryption operation.
+  /// 对输入明文分块 `[plainOffset, plainOffset+len)` 执行 DES 块加密并写入 `cipher`。
   ///
-  /// <p>The input plain text <code>plain</code>, starting at
-  /// <code>plainOffset</code> and ending at
-  /// <code>(plainOffset + len - 1)</code>, is encrypted.
-  /// The result is stored in <code>cipher</code>, starting at
-  /// <code>cipherOffset</code>.
   ///
-  /// <p>The subclass that implements Cipher should ensure that
-  /// <code>init</code> has been called before this method is called.
   ///
-  /// @param plain the buffer with the input data to be encrypted
-  /// @param plainOffset the offset in <code>plain</code>
-  /// @param cipher the buffer for the result
-  /// @param cipherOffset the offset in <code>cipher</code>
   void encryptBlock(
       Uint8List plain, int plainOffset, Uint8List cipher, int cipherOffset) {
-    //, int plainOffset, byte[] cipher, int cipherOffset)
     cipherBlock(plain, plainOffset, cipher, cipherOffset); //
   }
 
   ///
-  /// Performs decryption operation.
+  /// 对输入密文分块 `[cipherOffset, cipherOffset+len)` 执行 DES 块解密并还原至 `plain`。
   ///
-  /// <p>The input cipher text <code>cipher</code>, starting at
-  /// <code>cipherOffset</code> and ending at
-  /// <code>(cipherOffset + len - 1)</code>, is decrypted.
-  /// The result is stored in <code>plain</code>, starting at
-  /// <code>plainOffset</code>.
   ///
-  /// <p>The subclass that implements Cipher should ensure that
-  /// <code>init</code> has been called before this method is called.
   ///
-  /// @param cipher the buffer with the input data to be decrypted
-  /// @param cipherOffset the offset in <code>cipherOffset</code>
-  /// @param plain the buffer for the result
-  /// @param plainOffset the offset in <code>plain</code>
   void decryptBlock(
       Uint8List cipher, int cipherOffset, Uint8List plain, int plainOffset) {
     cipherBlock(cipher, cipherOffset, plain, plainOffset);
@@ -1564,7 +1533,7 @@ class DESCrypt implements BlockCipher {
     final key = expandedKey!;
 
     if (forEncryption) {
-      //decrypting
+      // 执行逆序轮密钥解密轮变换。
       offset = 0 - DES_BLOCK_SIZE;
       j = 0;
     } else {
@@ -1573,13 +1542,11 @@ class DESCrypt implements BlockCipher {
     }
 
     for (i = 0; i < 16; i++) {
-      // make the first and last bit adjacent
-      // move the first bit to the last
+      // 旋转使首位与末位比特相邻以匹配 S-Box 查找位序。
+      // 将首比特循环左移归位。
       temp = (right << 1) | ((right >> 31) & 1);
 
-      // mangler function:
-      // every 6 bit is fed into the sbox, which
-      // produces 4-bit output
+      // Feistel 轮扩展与 S 盒压缩代换函数（每 6 位经 S 盒查表映射输出 4 位）：
       left ^= s0p[(temp & 0x3f) ^ key[j + 0]] ^
           s1p[((temp >> 4) & 0x3f) ^ key[j + 1]] ^
           s2p[((temp >> 8) & 0x3f) ^ key[j + 2]] ^
@@ -1588,7 +1555,7 @@ class DESCrypt implements BlockCipher {
           s5p[((temp >> 20) & 0x3f) ^ key[j + 5]] ^
           s6p[((temp >> 24) & 0x3f) ^ key[j + 6]];
 
-      // make the last sbox input the last bit from right[0]
+      // 将 `right[0]` 最高位回填补足末组 S 盒输入。
       temp = ((right & 1) << 5) | ((right >> 27) & 0x1f);
       left ^= s7p[temp ^ key[j + 7]];
       temp = left;
@@ -1605,8 +1572,6 @@ class DESCrypt implements BlockCipher {
 
   static void perm(int left, int right, Uint8List out, int offset) {
     int low, high, temp;
-    // Uint8List out = Uint8List(8);
-    // int offset = 0;
 
     temp = left;
     high = permRight0[temp & 0x0000000f];
@@ -1650,7 +1615,6 @@ class DESCrypt implements BlockCipher {
     out[offset + 5] = (high >> 8);
     out[offset + 6] = (high >> 16);
     out[offset + 7] = (high >> 24);
-    // return out;
   }
 
   static int initialPermutationLeft(Uint8List block, int offset) {
@@ -2595,6 +2559,5 @@ class DESCrypt implements BlockCipher {
 
   @override
   void reset() {
-    // TODO: implement reset
   }
 }

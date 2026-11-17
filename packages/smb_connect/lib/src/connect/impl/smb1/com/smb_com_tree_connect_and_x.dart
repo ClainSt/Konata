@@ -60,27 +60,21 @@ class SmbComTreeConnectAndX extends AndXServerMessageBlock {
     final credentials = _credentials; //ctx.getCredentials();
     if (server.security == SmbConstants.SECURITY_SHARE &&
         credentials is NtlmPasswordAuthenticator) {
-      // NtlmPasswordAuthenticator pwAuth =
-      //     ctx.getCredentials() as NtlmPasswordAuthenticator;
-      // if (isExternalAuth(pwAuth)) {
-      //   _passwordLength = 1;
-      // } else
       if (server.encryptedPasswords) {
-        // encrypted
+        // 质询响应加密认证模式分支。
         try {
           _password = credentials.getAnsiHash(config, server.encryptionKey!);
         } catch (e) {
-          //GeneralSecurityException
           throw SmbRuntimeException("Failed to encrypt password"); //, e);
         }
         _passwordLength = _password?.length ?? 0;
       } else {
-        // plain text
+        // 明文凭据认证模式分支。
         _password = Uint8List((credentials.getPassword().length + 1) * 2);
         _passwordLength = writeString(credentials.getPassword(), _password!, 0);
       }
     } else {
-      // no password in tree connect
+      // 挂载共享路径树连接请求不附带额外密码明文。
       _passwordLength = 1;
     }
 
@@ -97,11 +91,6 @@ class SmbComTreeConnectAndX extends AndXServerMessageBlock {
     var credentials = _credentials;
     if (server.security == SmbConstants.SECURITY_SHARE &&
         credentials is NtlmPasswordAuthenticator) {
-      // NtlmPasswordAuthenticator pwAuth =
-      //     ctx.getCredentials() as NtlmPasswordAuthenticator;
-      // if (isExternalAuth(pwAuth)) {
-      //   dst[dstIndex++] = 0x00;
-      // } else {
       byteArrayCopy(
           src: _password!,
           srcOffset: 0,
@@ -111,7 +100,7 @@ class SmbComTreeConnectAndX extends AndXServerMessageBlock {
       dstIndex += _passwordLength;
       // }
     } else {
-      // no password in tree connect
+      // 挂载共享路径树连接请求不附带额外密码明文。
       dst[dstIndex++] = 0x00;
     }
     dstIndex += writeString(path!, dst, dstIndex);
@@ -123,7 +112,6 @@ class SmbComTreeConnectAndX extends AndXServerMessageBlock {
           dstOffset: dstIndex,
           length: service!.length);
     } catch (uee) {
-      //UnsupportedEncodingException
       return 0;
     }
     dstIndex += service!.length;

@@ -1,34 +1,29 @@
-// Copyright 2013 The Flutter Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// 遵循 Flutter 官方组件 BSD 开源许可协议（详见随包 LICENSE 文件）。
 
 import 'dart:ffi';
 import 'dart:typed_data';
 
-/// Representation of the Win32 GUID struct.
-// For the layout of this struct, see
-// https://learn.microsoft.com/windows/win32/api/guiddef/ns-guiddef-guid
+/// Win32 原生 `GUID` 内存结构体 FFI 映射表示。
+// 该结构体内存布局对应微软官方文档定义。
 @Packed(4)
 base class GUID extends Struct {
-  /// Native Data1 field.
+  /// 原生 GUID `Data1` 32 位字段。
   @Uint32()
   external int data1;
 
-  /// Native Data2 field.
+  /// 原生 GUID `Data2` 16 位字段。
   @Uint16()
   external int data2;
 
-  /// Native Data3 field.
+  /// 原生 GUID `Data3` 16 位字段。
   @Uint16()
   external int data3;
 
-  /// Native Data4 field.
-  // This should be an eight-element byte array, but there's no such annotation.
+  /// 原生 GUID `Data4` 64 位字段（逻辑上等同 8 字节数组）。
   @Uint64()
   external int data4;
 
-  /// Parses a GUID string, with optional enclosing "{}"s and optional "-"s,
-  /// into data.
+  /// 解析允许可选花括号 `{}` 与连字符 `-` 的 GUID 字符串并写入原生结构体。
   void parse(String guid) {
     final String hexOnly = guid.replaceAll(RegExp(r'[{}-]'), '');
     if (hexOnly.length != 32) {
@@ -42,10 +37,7 @@ base class GUID extends Struct {
     data1 = bytes.getInt32(0);
     data2 = bytes.getInt16(4);
     data3 = bytes.getInt16(6);
-    // [bytes] is big endian, but the host is little endian, so a default
-    // big-endian read would reverse the bytes. Since data4 is supposed to be
-    // a byte array, the order should be preserved, so do a little-endian read.
-    // https://en.wikipedia.org/wiki/Universally_unique_identifier#Encoding
+    // 输入序列按大端排列而宿主通常为小端序，需显式按字节顺序读取 `Data4` 并维持原字节序。
     data4 = bytes.getInt64(8, Endian.little);
   }
 }

@@ -7,7 +7,7 @@ import 'package:smb_connect/src/utils/extensions.dart';
 import 'ntlm_message.dart';
 
 ///
-/// Represents an NTLMSSP Type-2 message.
+/// NTLMSSP Type-2 质询（CHALLENGE）应答报文。
 ///
 class Type2Message extends NtlmPacket {
   final Uint8List? challenge;
@@ -17,7 +17,7 @@ class Type2Message extends NtlmPacket {
 
   static final Map<String, Uint8List> TARGET_INFO_CACHE = {};
 
-  /// Creates a Type-2 message with the specified parameters.
+  /// 解析或构造携带服务端质询随机数及目标属性信息的 Type-2 报文。
   Type2Message(
     int flags,
     this.challenge,
@@ -87,7 +87,7 @@ class Type2Message extends NtlmPacket {
         length: 8);
     pos += 8;
 
-    // Reserved
+    // 8 字节保留空区（仅本地上下文交互期使用）。
     Uint8List? contextBytes = context;
     byteArrayCopy(
         src: contextBytes ?? Uint8List(8),
@@ -166,9 +166,8 @@ class Type2Message extends NtlmPacket {
     pos += 8;
 
     if (targetNameOff < pos + 8 || input.length < pos + 8) {
-      // no room for Context/Reserved
+      // 目标缓冲区剩余空间不足以容纳 Context/Reserved 字段，提前中止解码。
       throw SmbMalformedDataException("no room for Context/Reserved");
-      // return;
     }
 
     Uint8List? contextBytes;
@@ -185,14 +184,12 @@ class Type2Message extends NtlmPacket {
     pos += 8;
 
     if (targetNameOff < pos + 8 || input.length < pos + 8) {
-      // no room for target info
-      // return;
+      // 目标缓冲区剩余空间不足以读取 TargetInfo 字段，直接跳过。
       throw SmbMalformedDataException("no room for target info");
     }
 
     Uint8List targetInfo = NtlmPacket.readSecurityBuffer(input, pos);
     if (targetInfo.isNotEmpty) {
-      // setTargetInformation(targetInfo);
     }
     return Type2Message(
         flags, challengeBytes, target, contextBytes, targetInfo);

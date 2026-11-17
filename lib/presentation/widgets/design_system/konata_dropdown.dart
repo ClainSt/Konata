@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import '../../theme/konata_adaptive_tokens.dart';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
@@ -173,7 +174,11 @@ class _KonataDropdownState<T> extends State<KonataDropdown<T>> {
     final activeOption = widget.options
         .where((opt) => opt.value == widget.value)
         .firstOrNull;
-    final height = widget.dense ? 32.0 : 38.0;
+    final height = KonataAdaptiveTokens.isAndroid
+        ? KonataAdaptiveTokens.touchTarget
+        : widget.dense
+        ? 32.0
+        : 38.0;
 
     return CompositedTransformTarget(
       link: _link,
@@ -189,9 +194,7 @@ class _KonataDropdownState<T> extends State<KonataDropdown<T>> {
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 140),
             height: height,
-            padding: EdgeInsets.symmetric(
-              horizontal: widget.dense ? 10 : 12,
-            ),
+            padding: EdgeInsets.symmetric(horizontal: widget.dense ? 10 : 12),
             decoration: BoxDecoration(
               color: !widget.enabled
                   ? p.softFill.withValues(alpha: 0.55)
@@ -366,7 +369,11 @@ class _KonataSearchableSelectState<T> extends State<KonataSearchableSelect<T>> {
     final activeOption = widget.options
         .where((opt) => opt.value == widget.value)
         .firstOrNull;
-    final height = widget.dense ? 34.0 : 38.0;
+    final height = KonataAdaptiveTokens.isAndroid
+        ? KonataAdaptiveTokens.touchTarget
+        : widget.dense
+        ? 34.0
+        : 38.0;
 
     return CompositedTransformTarget(
       link: _link,
@@ -503,7 +510,9 @@ class _KonataMultiSelectDropdownState<T>
   @override
   void initState() {
     super.initState();
-    _selectedNotifier = ValueNotifier<Set<T>>(Set<T>.from(widget.selectedValues));
+    _selectedNotifier = ValueNotifier<Set<T>>(
+      Set<T>.from(widget.selectedValues),
+    );
   }
 
   @override
@@ -549,10 +558,7 @@ class _KonataMultiSelectDropdownState<T>
 
     final effectiveWidth = widget.menuWidth != null
         ? math.min(widget.menuWidth!, screenSize.width - 24)
-        : math.max(
-            triggerSize.width,
-            math.min(200.0, screenSize.width - 24),
-          );
+        : math.max(triggerSize.width, math.min(200.0, screenSize.width - 24));
     final spaceBelow =
         screenSize.height - (triggerOffset.dy + triggerSize.height) - 16;
     final spaceAbove = triggerOffset.dy - 16;
@@ -606,7 +612,11 @@ class _KonataMultiSelectDropdownState<T>
   Widget build(BuildContext context) {
     final p = context.palette;
     final isOpen = _entry != null;
-    final height = widget.centerAligned ? 36.0 : (widget.dense ? 32.0 : 38.0);
+    final height = KonataAdaptiveTokens.isAndroid
+        ? KonataAdaptiveTokens.touchTarget
+        : widget.centerAligned
+        ? 36.0
+        : (widget.dense ? 32.0 : 38.0);
     final label = widget.displayText.trim().isNotEmpty
         ? widget.displayText
         : widget.hintText;
@@ -628,9 +638,7 @@ class _KonataMultiSelectDropdownState<T>
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 140),
             height: height,
-            padding: EdgeInsets.symmetric(
-              horizontal: widget.dense ? 10 : 12,
-            ),
+            padding: EdgeInsets.symmetric(horizontal: widget.dense ? 10 : 12),
             decoration: BoxDecoration(
               color: !widget.enabled
                   ? p.softFill.withValues(alpha: 0.55)
@@ -824,7 +832,7 @@ class _FrostedDropdownOverlayState<T> extends State<_FrostedDropdownOverlay<T>>
             setState(() => _hoveredIndex = null);
           }
         },
-          child: KonataDraggableScrollbar(
+        child: KonataDraggableScrollbar(
           controller: _scrollCtrl,
           builder: (_, ctrl) => ListView.builder(
             controller: ctrl,
@@ -846,8 +854,7 @@ class _FrostedDropdownOverlayState<T> extends State<_FrostedDropdownOverlay<T>>
                 centerAligned: widget.centerAligned,
                 hovered: !selected && _hoveredIndex == index,
                 onHoverEnter: () {
-                  final next =
-                      selected && !widget.multiSelect ? null : index;
+                  final next = selected && !widget.multiSelect ? null : index;
                   if (_hoveredIndex != next) {
                     setState(() => _hoveredIndex = next);
                   }
@@ -887,167 +894,201 @@ class _FrostedDropdownOverlayState<T> extends State<_FrostedDropdownOverlay<T>>
                 onTap: widget.onDismiss,
               ),
             ),
-        CompositedTransformFollower(
-          link: widget.link,
-          targetAnchor: widget.centerAligned
-              ? (widget.openUpward
-                    ? Alignment.topCenter
-                    : Alignment.bottomCenter)
-              : (widget.openUpward ? Alignment.topLeft : Alignment.bottomLeft),
-          followerAnchor: widget.centerAligned
-              ? (widget.openUpward
-                    ? Alignment.bottomCenter
-                    : Alignment.topCenter)
-              : (widget.openUpward ? Alignment.bottomLeft : Alignment.topLeft),
-          offset: Offset(widget.horizontalShift, widget.openUpward ? -6 : 6),
-          child: Material(
-            color: Colors.transparent,
-            child: FadeTransition(
-              opacity: _fadeAnim,
-              child: ScaleTransition(
-                scale: _scaleAnim,
-                alignment: widget.openUpward
-                    ? Alignment.bottomCenter
-                    : Alignment.topCenter,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(14),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
-                    child: Container(
-                      width: widget.width,
-                      constraints: BoxConstraints(maxHeight: widget.maxHeight),
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      decoration: BoxDecoration(
-                        color: panelBg,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: panelBorder, width: 1),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(
-                              alpha: p.isDark ? 0.42 : 0.14,
-                            ),
-                            blurRadius: 24,
-                            offset: const Offset(0, 10),
+            CompositedTransformFollower(
+              link: widget.link,
+              targetAnchor: widget.centerAligned
+                  ? (widget.openUpward
+                        ? Alignment.topCenter
+                        : Alignment.bottomCenter)
+                  : (widget.openUpward
+                        ? Alignment.topLeft
+                        : Alignment.bottomLeft),
+              followerAnchor: widget.centerAligned
+                  ? (widget.openUpward
+                        ? Alignment.bottomCenter
+                        : Alignment.topCenter)
+                  : (widget.openUpward
+                        ? Alignment.bottomLeft
+                        : Alignment.topLeft),
+              offset: Offset(
+                widget.horizontalShift,
+                widget.openUpward ? -6 : 6,
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: FadeTransition(
+                  opacity: _fadeAnim,
+                  child: ScaleTransition(
+                    scale: _scaleAnim,
+                    alignment: widget.openUpward
+                        ? Alignment.bottomCenter
+                        : Alignment.topCenter,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+                        child: Container(
+                          width: widget.width,
+                          constraints: BoxConstraints(
+                            maxHeight: widget.maxHeight,
                           ),
-                        ],
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          if (widget.searchable) ...[
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(8, 2, 8, 6),
-                              child: TextField(
-                                controller: _searchCtrl,
-                                focusNode: _searchFocus,
-                                style: TextStyle(
-                                  color: p.textPrimary,
-                                  fontSize: 12.5,
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          decoration: BoxDecoration(
+                            color: panelBg,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: panelBorder, width: 1),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(
+                                  alpha: p.isDark ? 0.42 : 0.14,
                                 ),
-                                decoration: InputDecoration(
-                                  isDense: true,
-                                  hintText: widget.searchHint,
-                                  hintStyle: TextStyle(
-                                    color: p.textMuted,
-                                    fontSize: 12,
+                                blurRadius: 24,
+                                offset: const Offset(0, 10),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (widget.searchable) ...[
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    8,
+                                    2,
+                                    8,
+                                    6,
                                   ),
-                                  prefixIcon: Icon(
-                                    Icons.search_rounded,
-                                    size: 16,
-                                    color: p.textMuted,
-                                  ),
-                                  prefixIconConstraints: const BoxConstraints(
-                                    minWidth: 32,
-                                    minHeight: 30,
-                                  ),
-                                  suffixIcon: _query.isNotEmpty
-                                      ? IconButton(
-                                          icon: const Icon(
-                                            Icons.close_rounded,
-                                            size: 14,
+                                  child: TextField(
+                                    controller: _searchCtrl,
+                                    focusNode: _searchFocus,
+                                    style: TextStyle(
+                                      color: p.textPrimary,
+                                      fontSize: 12.5,
+                                    ),
+                                    decoration: InputDecoration(
+                                      isDense: true,
+                                      hintText: widget.searchHint,
+                                      hintStyle: TextStyle(
+                                        color: p.textMuted,
+                                        fontSize: 12,
+                                      ),
+                                      prefixIcon: Icon(
+                                        Icons.search_rounded,
+                                        size: 16,
+                                        color: p.textMuted,
+                                      ),
+                                      prefixIconConstraints:
+                                          const BoxConstraints(
+                                            minWidth: 32,
+                                            minHeight: 30,
                                           ),
-                                          color: p.textSecondary,
-                                          padding: EdgeInsets.zero,
-                                          constraints:
-                                              const BoxConstraints.tightFor(
-                                                width: 28,
-                                                height: 28,
+                                      suffixIcon: _query.isNotEmpty
+                                          ? IconButton(
+                                              icon: const Icon(
+                                                Icons.close_rounded,
+                                                size: 14,
                                               ),
-                                          onPressed: () {
-                                            _searchCtrl.clear();
-                                            setState(() {
-                                              _query = '';
-                                              _hoveredIndex = null;
-                                            });
-                                            if (_scrollCtrl.hasClients) {
-                                              _scrollCtrl.jumpTo(0);
-                                            }
-                                          },
-                                        )
-                                      : null,
-                                  filled: true,
-                                  fillColor: p.softFill,
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 8,
+                                              color: p.textSecondary,
+                                              padding: EdgeInsets.zero,
+                                              constraints:
+                                                  BoxConstraints.tightFor(
+                                                    width:
+                                                        defaultTargetPlatform ==
+                                                            TargetPlatform
+                                                                .android
+                                                        ? KonataAdaptiveTokens
+                                                              .touchTarget
+                                                        : 28,
+                                                    height:
+                                                        defaultTargetPlatform ==
+                                                            TargetPlatform
+                                                                .android
+                                                        ? KonataAdaptiveTokens
+                                                              .touchTarget
+                                                        : 28,
+                                                  ),
+                                              onPressed: () {
+                                                _searchCtrl.clear();
+                                                setState(() {
+                                                  _query = '';
+                                                  _hoveredIndex = null;
+                                                });
+                                                if (_scrollCtrl.hasClients) {
+                                                  _scrollCtrl.jumpTo(0);
+                                                }
+                                              },
+                                            )
+                                          : null,
+                                      filled: true,
+                                      fillColor: p.softFill,
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 8,
+                                          ),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                        borderSide: BorderSide(
+                                          color: p.hairline,
+                                        ),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                        borderSide: BorderSide(
+                                          color: p.hairline,
+                                        ),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                        borderSide: BorderSide(
+                                          color: p.accent.withValues(
+                                            alpha: 0.65,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    onChanged: (v) {
+                                      setState(() {
+                                        _query = v;
+                                        _hoveredIndex = null;
+                                      });
+                                      if (_scrollCtrl.hasClients) {
+                                        _scrollCtrl.jumpTo(0);
+                                      }
+                                    },
                                   ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide(color: p.hairline),
+                                ),
+                                Divider(height: 1, color: p.hairline),
+                              ],
+                              if (filtered.isEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 18,
                                   ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide(color: p.hairline),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide(
-                                      color: p.accent.withValues(alpha: 0.65),
+                                  child: Center(
+                                    child: Text(
+                                      widget.emptyText,
+                                      style: TextStyle(
+                                        color: p.textMuted,
+                                        fontSize: 12.5,
+                                      ),
                                     ),
                                   ),
-                                ),
-                                onChanged: (v) {
-                                  setState(() {
-                                    _query = v;
-                                    _hoveredIndex = null;
-                                  });
-                                  if (_scrollCtrl.hasClients) {
-                                    _scrollCtrl.jumpTo(0);
-                                  }
-                                },
-                              ),
-                            ),
-                            Divider(height: 1, color: p.hairline),
-                          ],
-                          if (filtered.isEmpty)
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 18,
-                              ),
-                              child: Center(
-                                child: Text(
-                                  widget.emptyText,
-                                  style: TextStyle(
-                                    color: p.textMuted,
-                                    fontSize: 12.5,
-                                  ),
-                                ),
-                              ),
-                            )
-                          else
-                            Flexible(child: listContent),
-                        ],
+                                )
+                              else
+                                Flexible(child: listContent),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-        ),
-      ],
+          ],
         ),
       ),
     );
@@ -1099,6 +1140,11 @@ class _DropdownOptionTile extends StatelessWidget {
         onTap: onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 110),
+          constraints: KonataAdaptiveTokens.isAndroid
+              ? const BoxConstraints(
+                  minHeight: KonataAdaptiveTokens.touchTarget,
+                )
+              : null,
           margin: const EdgeInsets.symmetric(vertical: 1.5),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
@@ -1127,8 +1173,9 @@ class _DropdownOptionTile extends StatelessWidget {
                         style: TextStyle(
                           color: selected ? p.accent : p.textPrimary,
                           fontSize: 12.5,
-                          fontWeight:
-                              selected ? FontWeight.w600 : FontWeight.w500,
+                          fontWeight: selected
+                              ? FontWeight.w600
+                              : FontWeight.w500,
                         ),
                       ),
                     ),
@@ -1158,8 +1205,9 @@ class _DropdownOptionTile extends StatelessWidget {
                             style: TextStyle(
                               color: selected ? p.accent : p.textPrimary,
                               fontSize: 12.5,
-                              fontWeight:
-                                  selected ? FontWeight.w600 : FontWeight.w500,
+                              fontWeight: selected
+                                  ? FontWeight.w600
+                                  : FontWeight.w500,
                             ),
                           ),
                           if (subtitle != null && subtitle!.trim().isNotEmpty)

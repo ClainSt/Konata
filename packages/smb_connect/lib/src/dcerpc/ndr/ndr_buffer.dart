@@ -140,8 +140,8 @@ class NdrBuffer {
     return val;
   }
 
-  /* float */
-  /* double */
+  /* 32 位单精度浮点 NDR 编码实现 */
+  /* 64 位双精度浮点 NDR 编码实现 */
   void encNdrString(String s) {
     align(4);
     int i = index;

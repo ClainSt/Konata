@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../theme/konata_adaptive_tokens.dart';
+import '../widgets/design_system/konata_settings_row.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/theme_providers.dart';
@@ -21,13 +23,10 @@ class SettingsAppearancePanel extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          '外观',
-          style: KonataTheme.h2Style(p),
-        ),
+        Text('外观', style: KonataTheme.h2Style(p)),
         const SizedBox(height: 6),
         Text(
-          '选择全站主题模式与 Windows 11 原生 DWM 透明材质，更改后立即生效',
+          '选择全站主题模式，更改后立即生效',
           style: KonataTheme.captionStyle(p, fontSize: 13),
         ),
         const SizedBox(height: 18),
@@ -44,7 +43,7 @@ class SettingsAppearancePanel extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 14),
-              Row(
+              KonataSettingsRow(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
@@ -78,7 +77,7 @@ class SettingsAppearancePanel extends ConsumerWidget {
                   Expanded(
                     child: _ThemeOptionCard(
                       label: '跟随系统',
-                      subtitle: '自动适配 Windows',
+                      subtitle: '自动适配系统',
                       selected: currentMode == ThemeMode.system,
                       previewBg: KonataTheme.themePreviewDarkCard,
                       previewCard: KonataTheme.themePreviewLightCanvas,
@@ -94,56 +93,59 @@ class SettingsAppearancePanel extends ConsumerWidget {
             ],
           ),
         ),
-        const SizedBox(height: 16),
-        KonataSurfaceCard(
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '窗口材质',
-                      style: TextStyle(
-                        color: p.textPrimary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
+        if (KonataAdaptiveTokens.isWindows) ...[
+          const SizedBox(height: 16),
+          KonataSurfaceCard(
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '窗口材质',
+                        style: TextStyle(
+                          color: p.textPrimary,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
+                      const SizedBox(height: 6),
+                      Text(
+                        currentMaterial.subtitle,
+                        style: TextStyle(
+                          color: p.textSecondary,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                KonataSegmentedCapsule<KonataWindowMaterial>(
+                  selected: currentMaterial,
+                  options: const [
+                    KonataSegmentOption(
+                      value: KonataWindowMaterial.acrylic,
+                      label: '亚克力',
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      currentMaterial.subtitle,
-                      style: TextStyle(
-                        color: p.textSecondary,
-                        fontSize: 12.5,
-                      ),
+                    KonataSegmentOption(
+                      value: KonataWindowMaterial.mica,
+                      label: '云母',
+                    ),
+                    KonataSegmentOption(
+                      value: KonataWindowMaterial.tabbed,
+                      label: '云母变体',
                     ),
                   ],
+                  onChanged: (value) => ref
+                      .read(windowMaterialProvider.notifier)
+                      .setMaterial(value),
                 ),
-              ),
-              const SizedBox(width: 16),
-              KonataSegmentedCapsule<KonataWindowMaterial>(
-                selected: currentMaterial,
-                options: const [
-                  KonataSegmentOption(
-                    value: KonataWindowMaterial.acrylic,
-                    label: '亚克力',
-                  ),
-                  KonataSegmentOption(
-                    value: KonataWindowMaterial.mica,
-                    label: '云母',
-                  ),
-                  KonataSegmentOption(
-                    value: KonataWindowMaterial.tabbed,
-                    label: '云母变体',
-                  ),
-                ],
-                onChanged: (value) =>
-                    ref.read(windowMaterialProvider.notifier).setMaterial(value),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+        ],
       ],
     );
   }
@@ -256,10 +258,7 @@ class _ThemeOptionCard extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 subtitle,
-                style: TextStyle(
-                  color: p.textMuted,
-                  fontSize: 11.5,
-                ),
+                style: TextStyle(color: p.textMuted, fontSize: 11.5),
               ),
             ],
           ),

@@ -12,8 +12,12 @@ import '../../domain/matching/episode_title_formatter.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/series_group.dart';
 import '../../domain/models/work.dart';
+import '../../domain/playback/playback_formatters.dart';
+import '../../domain/playback/playback_probe_stats.dart';
 import '../../domain/playback/track_preferences.dart';
+import '../../domain/playback/video_aspect_mode.dart';
 import '../../infrastructure/players/mpv_quality_profile.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
@@ -24,9 +28,10 @@ import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/playback/konata_spec_badge.dart';
 
-/// 右滑侧栏四标签页枚举。
+/// 右滑侧栏五标签页枚举（覆盖选集、章节、字幕、音轨与画面比例/倍速）。
 enum VideoSideSheetTab {
   episodes('选集'),
+  chapters('章节'),
   subtitles('字幕'),
   audio('音频'),
   video('画面');
@@ -56,6 +61,7 @@ class VideoSideSheet extends ConsumerStatefulWidget {
 class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
   late VideoSideSheetTab _tab;
   final ScrollController _epCtrl = ScrollController();
+  final ScrollController _chapterCtrl = ScrollController();
   final ScrollController _subCtrl = ScrollController();
   final ScrollController _audioCtrl = ScrollController();
   final ScrollController _videoCtrl = ScrollController();
@@ -133,6 +139,7 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
   @override
   void dispose() {
     _epCtrl.dispose();
+    _chapterCtrl.dispose();
     _subCtrl.dispose();
     _audioCtrl.dispose();
     _videoCtrl.dispose();
@@ -178,7 +185,27 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(videoPlaybackProvider(widget.request));
+    // 严格排除 positionSeconds 订阅，防止播放期间侧栏列表随跳秒高频重建
+    ref.watch(
+      videoPlaybackProvider(widget.request).select(
+        (s) => (
+          s.currentWork,
+          s.currentBundle,
+          s.currentEpisode,
+          s.chapters,
+          s.subtitles,
+          s.audioTracks,
+          s.availableAudioDevices,
+          s.availableShaders,
+          s.subtitleDelaySeconds,
+          s.audioDelaySeconds,
+          s.speed,
+          s.aspectMode,
+          s.audioOnlyMode,
+        ),
+      ),
+    );
+    final state = ref.read(videoPlaybackProvider(widget.request));
     final controller = ref.read(videoPlaybackProvider(widget.request).notifier);
     final prefs = ref.watch(playbackPreferencesProvider);
     final pPal = context.palette;
@@ -186,7 +213,9 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
     return KonataGlassSideSheet(
       title: '播放控制台',
       width: KonataPlaybackTokens.videoSideSheetWidth,
-      bottomInset: KonataPlaybackTokens.videoSideSheetBottomInset,
+      bottomInset: KonataAdaptiveTokens.isAndroid
+          ? 16.0
+          : KonataPlaybackTokens.videoSideSheetBottomInset,
       onClose: widget.onClose,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -199,6 +228,10 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
                 KonataSegmentOption(
                   value: VideoSideSheetTab.episodes,
                   label: '选集',
+                ),
+                KonataSegmentOption(
+                  value: VideoSideSheetTab.chapters,
+                  label: '章节',
                 ),
                 KonataSegmentOption(
                   value: VideoSideSheetTab.subtitles,
@@ -232,6 +265,11 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
                   state,
                   controller,
                 ),
+                VideoSideSheetTab.chapters => _buildChaptersTab(
+                  pPal,
+                  state.chapters,
+                  controller,
+                ),
                 VideoSideSheetTab.subtitles => _buildSubtitlesTab(
                   pPal,
                   state,
@@ -255,6 +293,27 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildChaptersTab(
+    KonataPalette pPal,
+    List<PlaybackChapter> chapters,
+    VideoPlaybackController controller,
+  ) {
+    if (chapters.isEmpty) {
+      return Center(
+        child: Text(
+          '当前视频未内嵌章节标记',
+          style: TextStyle(color: pPal.textMuted, fontSize: 12.5),
+        ),
+      );
+    }
+    return _ChapterListLeaf(
+      request: widget.request,
+      chapters: chapters,
+      scrollController: _chapterCtrl,
+      onSeekChapter: (sec) => controller.seekAbsolute(sec),
     );
   }
 
@@ -607,22 +666,24 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
                 controller.setAudioDelay(state.audioDelaySeconds + d),
             onReset: () => controller.setAudioDelay(0),
           ),
-          const SizedBox(height: 12),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(
-              'WASAPI 独占直通',
-              style: TextStyle(color: pPal.textPrimary, fontSize: 13.5),
+          if (KonataAdaptiveTokens.isWindows) ...[
+            const SizedBox(height: 12),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                'WASAPI 独占直通',
+                style: TextStyle(color: pPal.textPrimary, fontSize: 13.5),
+              ),
+              subtitle: Text(
+                '绕过系统混音器以比特精确输出源码',
+                style: TextStyle(color: pPal.textMuted, fontSize: 11.5),
+              ),
+              value: prefs.qualityConfig.wasapiExclusive,
+              onChanged: (v) => controller.updateLiveQuality(
+                (c) => c.copyWith(wasapiExclusive: v),
+              ),
             ),
-            subtitle: Text(
-              '绕过系统混音器以比特精确输出源码',
-              style: TextStyle(color: pPal.textMuted, fontSize: 11.5),
-            ),
-            value: prefs.qualityConfig.wasapiExclusive,
-            onChanged: (v) => controller.updateLiveQuality(
-              (c) => c.copyWith(wasapiExclusive: v),
-            ),
-          ),
+          ],
         ],
       ),
     );
@@ -687,6 +748,21 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
             ),
           ),
           const SizedBox(height: 12),
+          _SectionLabel(pPal, '画面比例'),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final mode in VideoAspectMode.values)
+                _SpeedPillButton(
+                  label: mode.label,
+                  selected: state.aspectMode == mode,
+                  onTap: () => controller.setAspectMode(mode),
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
           _SectionLabel(pPal, '播放倍速'),
           const SizedBox(height: 8),
           Wrap(
@@ -700,6 +776,20 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
                   onTap: () => controller.setPlaybackSpeed(s),
                 ),
             ],
+          ),
+          const SizedBox(height: 12),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(
+              '后台纯音频模式',
+              style: TextStyle(color: pPal.textPrimary, fontSize: 13.5),
+            ),
+            subtitle: Text(
+              '暂停视频画面渲染，仅保留音轨低功耗连续播放',
+              style: TextStyle(color: pPal.textMuted, fontSize: 11.5),
+            ),
+            value: state.audioOnlyMode,
+            onChanged: controller.setAudioOnlyMode,
           ),
           const SizedBox(height: 16),
           _SectionLabel(pPal, 'GLSL 着色器链'),
@@ -910,6 +1000,11 @@ class _SelectableTrackTileState extends State<_SelectableTrackTile> {
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 140),
+          constraints: BoxConstraints(
+            minHeight: KonataAdaptiveTokens.isAndroid
+                ? KonataAdaptiveTokens.touchTarget
+                : 0,
+          ),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             color: bgColor,
@@ -1004,25 +1099,38 @@ class _SpeedPillButtonState extends State<_SpeedPillButton> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
-          decoration: BoxDecoration(
-            color: widget.selected
-                ? pPal.primaryButtonBg
-                : (_hovered ? pPal.softFill : Colors.transparent),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: widget.selected ? pPal.primaryButtonBg : pPal.hairline,
-            ),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            minWidth: KonataAdaptiveTokens.isAndroid
+                ? KonataAdaptiveTokens.touchTarget
+                : 0,
+            minHeight: KonataAdaptiveTokens.isAndroid
+                ? KonataAdaptiveTokens.touchTarget
+                : 0,
           ),
-          child: Text(
-            widget.label,
-            style: TextStyle(
-              color: widget.selected ? pPal.primaryButtonFg : pPal.textPrimary,
-              fontSize: 12,
-              fontWeight: widget.selected ? FontWeight.w600 : FontWeight.w400,
-              fontFeatures: KonataPlaybackTokens.tabularNumbers,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 140),
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: widget.selected
+                  ? pPal.primaryButtonBg
+                  : (_hovered ? pPal.softFill : Colors.transparent),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: widget.selected ? pPal.primaryButtonBg : pPal.hairline,
+              ),
+            ),
+            child: Text(
+              widget.label,
+              style: TextStyle(
+                color: widget.selected
+                    ? pPal.primaryButtonFg
+                    : pPal.textPrimary,
+                fontSize: 12,
+                fontWeight: widget.selected ? FontWeight.w600 : FontWeight.w400,
+                fontFeatures: KonataPlaybackTokens.tabularNumbers,
+              ),
             ),
           ),
         ),
@@ -1049,17 +1157,34 @@ class _DelayStepperRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sign = delaySeconds > 0 ? '+' : '';
+    final btnConstraints = KonataAdaptiveTokens.isAndroid
+        ? const BoxConstraints(
+            minWidth: KonataAdaptiveTokens.touchTarget,
+            minHeight: KonataAdaptiveTokens.touchTarget,
+          )
+        : null;
     return Row(
       children: [
         Text(label, style: TextStyle(color: pPal.textSecondary, fontSize: 12.5)),
         const Spacer(),
         IconButton(
-          visualDensity: VisualDensity.compact,
+          constraints: btnConstraints,
+          visualDensity: KonataAdaptiveTokens.isAndroid
+              ? VisualDensity.standard
+              : VisualDensity.compact,
           tooltip: '-0.1s',
           onPressed: () => onDelta(-0.1),
           icon: const Icon(Icons.remove_circle_outline_rounded, size: 18),
         ),
         TextButton(
+          style: KonataAdaptiveTokens.isAndroid
+              ? TextButton.styleFrom(
+                  minimumSize: const Size(
+                    KonataAdaptiveTokens.touchTarget,
+                    KonataAdaptiveTokens.touchTarget,
+                  ),
+                )
+              : null,
           onPressed: onReset,
           child: Text(
             '$sign${delaySeconds.toStringAsFixed(1)}s',
@@ -1070,12 +1195,69 @@ class _DelayStepperRow extends StatelessWidget {
           ),
         ),
         IconButton(
-          visualDensity: VisualDensity.compact,
+          constraints: btnConstraints,
+          visualDensity: KonataAdaptiveTokens.isAndroid
+              ? VisualDensity.standard
+              : VisualDensity.compact,
           tooltip: '+0.1s',
           onPressed: () => onDelta(0.1),
           icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
         ),
       ],
+    );
+  }
+}
+
+class _ChapterListLeaf extends ConsumerWidget {
+  const _ChapterListLeaf({
+    required this.request,
+    required this.chapters,
+    required this.scrollController,
+    required this.onSeekChapter,
+  });
+
+  final VideoLaunchRequest request;
+  final List<PlaybackChapter> chapters;
+  final ScrollController scrollController;
+  final ValueChanged<double> onSeekChapter;
+
+  static int _activeChapterIdx(List<PlaybackChapter> list, double pos) {
+    for (var i = list.length - 1; i >= 0; i--) {
+      if (pos >= list[i].startSeconds - 0.3) return i;
+    }
+    return 0;
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final activeIdx = ref.watch(
+      videoPlaybackProvider(request).select(
+        (s) => _activeChapterIdx(chapters, s.positionSeconds),
+      ),
+    );
+    return KonataDraggableScrollbar(
+      controller: scrollController,
+      padding: const EdgeInsets.only(right: 4),
+      builder: (_, ctrl) => ListView.separated(
+        controller: ctrl,
+        padding: const EdgeInsets.fromLTRB(16, 0, 20, 20),
+        itemCount: chapters.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 8),
+        itemBuilder: (context, index) {
+          final ch = chapters[index];
+          final title = ch.title.trim().isNotEmpty
+              ? ch.title.trim()
+              : '章节 ${index + 1}';
+          final stamp = PlaybackFormatters.formatMediaDuration(ch.startSeconds);
+          return _SelectableTrackTile(
+            primaryTitle: title,
+            badgeLabel: stamp,
+            leadingIcon: Icons.bookmark_outline_rounded,
+            selected: index == activeIdx,
+            onTap: () => onSeekChapter(ch.startSeconds),
+          );
+        },
+      ),
     );
   }
 }

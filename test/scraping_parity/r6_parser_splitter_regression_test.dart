@@ -95,7 +95,7 @@ void main() {
         );
       }
 
-      // Directory with main episodes (even missing 1..3) never promotes [SP][01..03] into main.
+      // 目录已包含正片剧集时（即便缺失 1..3 话），绝不将 `[SP][01..03]` 提升为正片。
       final inv = DirectoryAnalyzer.analyze(
         'SD_Gundam_Sangokuden',
         [
@@ -109,7 +109,7 @@ void main() {
       expect(inv.main.map((e) => e.episode).toList(), [4, 5]);
       expect(inv.extras, hasLength(3));
 
-      // Mixed TV+Movie directory keeps [SP][01..03] in extraFiles instead of main ep 1..3.
+      // 混合 TV 与剧场版目录下将 `[SP][01..03]` 保持归入特典列表而非正片 1..3 集。
       final split = MultiWorkSplitter.split('SD高达三国传 TV+Movie', [
         _asset('m1', '[Koeisub][SD_Gundam_Sangokuden_Brave_Battle_Warriors][01][BDrip].mkv'),
         _asset('m4', '[Koeisub][SD_Gundam_Sangokuden_Brave_Battle_Warriors][04][BDrip].mkv'),
@@ -229,7 +229,7 @@ void main() {
         'MENU',
       );
 
-      // Must not split [MV] under Music/ as a separate movie work.
+      // 不得将 `Music/` 目录内的音乐短片文件错误拆分为独立剧场版作品。
       final split = MultiWorkSplitter.split('机动战士高达 库库鲁斯·杜安之岛 (2022) {tmdb-883768}', [
         _asset('main', 'Mobile Suit Gundam Cucuruz Doan\'s Island (2022) [BDRip 1080p].mkv'),
         _asset('mv', mvPath),

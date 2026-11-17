@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../theme/konata_palette.dart';
 
+final ValueNotifier<Object?> _activeHoveredTileToken = ValueNotifier<Object?>(
+  null,
+);
+
 /// 全站统一圆角 `12px` 半透明微光卡片容器，直接透出底层系统 DWM 光影。
 class KonataSurfaceCard extends StatefulWidget {
   /// 创建微光描边卡片容器。
@@ -44,7 +48,7 @@ class _KonataSurfaceCardState extends State<KonataSurfaceCard> {
   Widget build(BuildContext context) {
     final p = context.palette;
     final box = AnimatedContainer(
-      duration: const Duration(milliseconds: 140),
+      duration: const Duration(milliseconds: 110),
       padding: widget.padding,
       decoration: BoxDecoration(
         color:
@@ -61,7 +65,9 @@ class _KonataSurfaceCardState extends State<KonataSurfaceCard> {
       child: widget.child,
     );
 
-    if (!widget.enableHover) return box;
+    if (!widget.enableHover) {
+      return box;
+    }
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
@@ -91,7 +97,7 @@ class KonataListTile extends StatefulWidget {
   /// 可选左侧图标或徽标。
   final Widget? leading;
 
-  /// 可选右侧控件（如 Switch 或 `>` 箭头）。
+  /// 可选右侧控件（如 Switch 或箭头图标）。
   final Widget? trailing;
 
   /// 点击整行回调。
@@ -102,27 +108,64 @@ class KonataListTile extends StatefulWidget {
 }
 
 class _KonataListTileState extends State<KonataListTile> {
-  bool _hovered = false;
+  final Object _token = Object();
+
+  @override
+  void dispose() {
+    if (identical(_activeHoveredTileToken.value, _token)) {
+      _activeHoveredTileToken.value = null;
+    }
+    super.dispose();
+  }
+
+  void _setHovered(bool hovered) {
+    if (widget.onTap == null) {
+      if (identical(_activeHoveredTileToken.value, _token)) {
+        _activeHoveredTileToken.value = null;
+      }
+      return;
+    }
+    if (hovered) {
+      if (!identical(_activeHoveredTileToken.value, _token)) {
+        _activeHoveredTileToken.value = _token;
+      }
+    } else if (identical(_activeHoveredTileToken.value, _token)) {
+      _activeHoveredTileToken.value = null;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
     final clickable = widget.onTap != null;
+    final hoverFill = p.isDark
+        ? Colors.white.withValues(alpha: 0.07)
+        : Colors.black.withValues(alpha: 0.045);
+    final idleFill = hoverFill.withValues(alpha: 0.0);
 
     return MouseRegion(
       cursor: clickable ? SystemMouseCursors.click : SystemMouseCursors.basic,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      onEnter: (_) => _setHovered(true),
+      onHover: (_) => _setHovered(true),
+      onExit: (_) => _setHovered(false),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-            color: clickable && _hovered ? p.surfaceHover : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
-          ),
+        child: ValueListenableBuilder<Object?>(
+          valueListenable: _activeHoveredTileToken,
+          builder: (context, activeToken, child) {
+            final isHovered = clickable && identical(activeToken, _token);
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 70),
+              curve: Curves.easeOut,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: isHovered ? hoverFill : idleFill,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: child,
+            );
+          },
           child: Row(
             children: [
               if (widget.leading != null) ...[

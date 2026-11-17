@@ -78,7 +78,8 @@ class DetailActionHandlers {
       return;
     }
     final saved = bundle.playbackByEpisodeId[episode.id];
-    final effectiveStart = startSeconds ??
+    final effectiveStart =
+        startSeconds ??
         ((saved != null && !saved.isCompleted && saved.positionSeconds > 5)
             ? saved.positionSeconds
             : 0);
@@ -103,7 +104,18 @@ class DetailActionHandlers {
         sourcesById: bundle.sourcesById,
         players: players,
         initialEngine: overrideEngine,
-        initialPlayer: explicitPlayer,
+        initialPlayer:
+            explicitPlayer ??
+            players
+                .where(
+                  (p) =>
+                      p.kind ==
+                          ref
+                              .read(playbackPreferencesProvider)
+                              .preferredExternalVideoKind &&
+                      p.executablePath.trim().isNotEmpty,
+                )
+                .firstOrNull,
         onPlay: (variant, pickedEngine, player) {
           launchVariant(
             context: context,
@@ -165,7 +177,9 @@ class DetailActionHandlers {
         ? (bundle.sourcesById[firstVariant.sourceId]?.kind ??
               MediaSourceKind.local)
         : MediaSourceKind.local;
-    await ref.read(playbackCoordinatorProvider).markEpisodeCompleted(
+    await ref
+        .read(playbackCoordinatorProvider)
+        .markEpisodeCompleted(
           work: bundle.work,
           episode: episode,
           variant: firstVariant,
@@ -236,10 +250,7 @@ class DetailActionHandlers {
             children: [
               KonataSegmentedCapsule<EpisodeCategory>(
                 options: const [
-                  KonataSegmentOption(
-                    value: EpisodeCategory.main,
-                    label: '正片',
-                  ),
+                  KonataSegmentOption(value: EpisodeCategory.main, label: '正片'),
                   KonataSegmentOption(
                     value: EpisodeCategory.extra,
                     label: '特典',
@@ -313,7 +324,9 @@ class DetailActionHandlers {
     BuildContext context,
     WorkDetailBundle bundle,
   ) {
-    final hasMain = bundle.episodes.any((e) => e.category == EpisodeCategory.main);
+    final hasMain = bundle.episodes.any(
+      (e) => e.category == EpisodeCategory.main,
+    );
     return showKonataGlassDialog<WorkMergeOutcome>(
       context: context,
       builder: (_) => WorkMergeTargetDialog(
@@ -346,10 +359,7 @@ class DetailActionHandlers {
   ) async {
     await ref.read(workManagementProvider).hideWork(bundle.work.id);
     if (context.mounted) {
-      showKonataToast(
-        context,
-        '已隐藏「${bundle.work.title}」，可在 设置 -> 外观与显示 中恢复',
-      );
+      showKonataToast(context, '已隐藏「${bundle.work.title}」，可在 设置 -> 外观与显示 中恢复');
       Navigator.of(context).maybePop();
     }
   }
@@ -447,7 +457,8 @@ class DetailActionHandlers {
   ) {
     return showKonataGlassDialog<void>(
       context: context,
-      builder: (_) => ScanLightboxDialog(bundle: bundle, initialVariant: variant),
+      builder: (_) =>
+          ScanLightboxDialog(bundle: bundle, initialVariant: variant),
     );
   }
 }

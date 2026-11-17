@@ -43,6 +43,45 @@ class PlaybackDispatcher {
 
   final Ref _ref;
 
+  Future<ExternalPlayerConfig?> _resolvePreferredVideoPlayer(
+    ExternalPlayerKind preferredKind,
+  ) async {
+    List<ExternalPlayerConfig> players =
+        _ref.read(externalPlayersProvider).valueOrNull ?? const [];
+    if (players.isEmpty) {
+      try {
+        players = await _ref
+            .read(externalPlayersProvider.future)
+            .timeout(const Duration(milliseconds: 120));
+      } catch (_) {
+        players = const [];
+      }
+    }
+    final configured = players
+        .where(
+          (p) =>
+              (p.kind == ExternalPlayerKind.mpv ||
+                  p.kind == ExternalPlayerKind.potplayer ||
+                  p.kind == ExternalPlayerKind.custom) &&
+              p.executablePath.trim().isNotEmpty,
+        )
+        .toList(growable: false);
+    if (configured.isEmpty) {
+      return null;
+    }
+    for (final p in configured) {
+      if (p.kind == preferredKind) {
+        return p;
+      }
+    }
+    for (final p in configured) {
+      if (p.isDefault) {
+        return p;
+      }
+    }
+    return configured.first;
+  }
+
   /// 分发播放指定剧集物理变体（无 Flutter UI / Navigator 依赖）。
   Future<VideoDispatchDecision> dispatchVideoVariant({
     required WorkDetailBundle bundle,
@@ -79,6 +118,9 @@ class PlaybackDispatcher {
         );
         return OpenBuiltinVideoDecision(request);
       }
+      final fallbackPlayer =
+          explicitPlayer ??
+          await _resolvePreferredVideoPlayer(prefs.preferredExternalVideoKind);
       // 内嵌 libmpv 不可用时优雅降级至外部播放器
       final fallbackResult = await _ref
           .read(playbackCoordinatorProvider)
@@ -88,7 +130,7 @@ class PlaybackDispatcher {
             variant: variant,
             sourceType: sourceType,
             source: source,
-            player: explicitPlayer,
+            player: fallbackPlayer,
             startSeconds: startSeconds,
             mainEpisodeCount: mainEpisodeCount,
           );
@@ -100,6 +142,9 @@ class PlaybackDispatcher {
       );
     }
 
+    final resolvedPlayer =
+        explicitPlayer ??
+        await _resolvePreferredVideoPlayer(prefs.preferredExternalVideoKind);
     final extResult = await _ref
         .read(playbackCoordinatorProvider)
         .playVariant(
@@ -108,7 +153,7 @@ class PlaybackDispatcher {
           variant: variant,
           sourceType: sourceType,
           source: source,
-          player: explicitPlayer,
+          player: resolvedPlayer,
           startSeconds: startSeconds,
           mainEpisodeCount: mainEpisodeCount,
         );

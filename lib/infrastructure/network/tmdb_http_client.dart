@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
+import '../../domain/formatting/network_error_sanitizer.dart';
 import '../../domain/models/network_config.dart';
 import '../../domain/models/tmdb_models.dart';
 import 'priority_http_scheduler.dart';
@@ -85,6 +88,18 @@ class TmdbHttpClient {
 
   http.Client? _cachedIoClient;
 
+  static const MethodChannel _androidNetworkChannel = MethodChannel(
+    'ccplayer/network',
+  );
+  static const List<String> _dohJsonEndpoints = <String>[
+    'https://223.5.5.5/resolve',
+    'https://1.1.1.1/dns-query',
+  ];
+  final Map<String, ({String directive, DateTime expiresAt})>
+  _androidProxyCache = {};
+  final Map<String, ({InternetAddress address, DateTime expiresAt})>
+  _dohResolvedCache = {};
+
   /// 当前生效的网络配置。
   TmdbNetworkConfig get config => _config;
 
@@ -95,6 +110,8 @@ class TmdbHttpClient {
   void updateConfig(TmdbNetworkConfig next) {
     _config = next;
     _cooldown.clearAll();
+    _androidProxyCache.clear();
+    _dohResolvedCache.clear();
     _cachedIoClient?.close();
     _cachedIoClient = null;
   }
@@ -249,18 +266,50 @@ class TmdbHttpClient {
     required Duration timeout,
     Object? body,
   }) async {
-    final client = _getClient();
+    if (_injectedClient == null &&
+        Platform.isAndroid &&
+        _config.proxyMode == ProxyMode.system) {
+      await _warmAndroidSystemProxy(uri);
+    }
+
     final finalHeaders = <String, String>{
       'Accept': 'application/json',
       if (method == 'POST') 'Content-Type': 'application/json',
-      'User-Agent': 'Konata/2.0 (Windows)',
+      'User-Agent': Platform.isAndroid
+          ? 'Konata/2.0 (Android)'
+          : 'Konata/2.0 (Windows)',
       ...headers,
     };
 
-    final future = method == 'POST'
-        ? client.post(uri, headers: finalHeaders, body: body)
-        : client.get(uri, headers: finalHeaders);
-    final response = await future.timeout(timeout);
+    Future<http.Response> dispatch() {
+      final client = _getClient();
+      final future = method == 'POST'
+          ? client.post(uri, headers: finalHeaders, body: body)
+          : client.get(uri, headers: finalHeaders);
+      return future.timeout(timeout);
+    }
+
+    http.Response response;
+    try {
+      response = await dispatch();
+    } catch (error) {
+      if (_injectedClient == null &&
+          _isDnsLookupError(error) &&
+          _effectiveProxyDirectiveForUri(uri) == 'DIRECT') {
+        final resolved = await _resolveHostViaDoh(uri.host);
+        if (resolved != null) {
+          try {
+            response = await dispatch();
+          } catch (retryError) {
+            throw _sanitizeThrownError(retryError);
+          }
+        } else {
+          throw _sanitizeThrownError(error);
+        }
+      } else {
+        throw _sanitizeThrownError(error);
+      }
+    }
 
     if (response.statusCode == 429) {
       final retrySec =
@@ -271,6 +320,24 @@ class TmdbHttpClient {
       );
     }
     return response;
+  }
+
+  Object _sanitizeThrownError(Object error) {
+    if (error is http.ClientException) {
+      final safeMsg = NetworkErrorSanitizer.redactSecrets(error.message);
+      final rawUri = error.uri?.toString();
+      final safeUri = rawUri == null
+          ? null
+          : Uri.tryParse(NetworkErrorSanitizer.redactSecrets(rawUri));
+      return http.ClientException(safeMsg, safeUri);
+    }
+    return error;
+  }
+
+  bool _isDnsLookupError(Object error) {
+    final text = error.toString().toLowerCase();
+    return text.contains('failed host lookup') ||
+        text.contains('no address associated with hostname');
   }
 
   Uri? _usableBackup(Uri primary, Uri? backup) {
@@ -384,6 +451,9 @@ class TmdbHttpClient {
     Map<String, String> headers = const {},
     bool checkAuthErrors = false,
   }) async {
+    final safePrimaryAddr = NetworkErrorSanitizer.redactSecrets(
+      primaryUri.toString(),
+    );
     final sw = Stopwatch()..start();
     try {
       final resp = await _sendSingle(
@@ -399,7 +469,7 @@ class TmdbHttpClient {
           reachable: true,
           latencyMs: sw.elapsedMilliseconds,
           usedBackup: false,
-          resolvedAddress: primaryUri.toString(),
+          resolvedAddress: safePrimaryAddr,
           statusSummary: '官方直连成功 (${sw.elapsedMilliseconds}ms)',
         );
       }
@@ -409,7 +479,7 @@ class TmdbHttpClient {
         return ConnectivityReport(
           reachable: false,
           latencyMs: sw.elapsedMilliseconds,
-          resolvedAddress: primaryUri.toString(),
+          resolvedAddress: safePrimaryAddr,
           errorMessage: 'API 密钥无效 (HTTP ${resp.statusCode})',
           statusSummary: '官方地址连通，但 API 密钥无效 (HTTP ${resp.statusCode})',
         );
@@ -418,7 +488,7 @@ class TmdbHttpClient {
         return ConnectivityReport(
           reachable: false,
           latencyMs: sw.elapsedMilliseconds,
-          resolvedAddress: primaryUri.toString(),
+          resolvedAddress: safePrimaryAddr,
           errorMessage: 'HTTP ${resp.statusCode}',
           statusSummary: '官方返回 HTTP ${resp.statusCode}',
         );
@@ -439,6 +509,9 @@ class TmdbHttpClient {
       );
     }
 
+    final safeBackupAddr = NetworkErrorSanitizer.redactSecrets(
+      usableBackup.toString(),
+    );
     final backupSw = Stopwatch()..start();
     try {
       final bResp = await _sendSingle(
@@ -453,7 +526,7 @@ class TmdbHttpClient {
           reachable: true,
           latencyMs: backupSw.elapsedMilliseconds,
           usedBackup: true,
-          resolvedAddress: usableBackup.toString(),
+          resolvedAddress: safeBackupAddr,
           statusSummary:
               '官方不可达，已自动回退备用地址连通 (${backupSw.elapsedMilliseconds}ms)',
         );
@@ -464,7 +537,7 @@ class TmdbHttpClient {
           reachable: false,
           latencyMs: backupSw.elapsedMilliseconds,
           usedBackup: true,
-          resolvedAddress: usableBackup.toString(),
+          resolvedAddress: safeBackupAddr,
           errorMessage: '备用地址返回密钥无效 (HTTP ${bResp.statusCode})',
           statusSummary:
               '官方不可达，备用地址返回密钥无效 (HTTP ${bResp.statusCode})',
@@ -474,7 +547,7 @@ class TmdbHttpClient {
         reachable: false,
         latencyMs: backupSw.elapsedMilliseconds,
         usedBackup: true,
-        resolvedAddress: usableBackup.toString(),
+        resolvedAddress: safeBackupAddr,
         errorMessage: 'HTTP ${bResp.statusCode}',
         statusSummary: '官方不可达，备用地址返回 HTTP ${bResp.statusCode}',
       );
@@ -489,22 +562,152 @@ class TmdbHttpClient {
     }
   }
 
+  /// 查询并短期缓存 Android 系统 Wi-Fi HTTP 代理配置（兼容未开启 TUN 模式的系统代理）。
+  Future<void> _warmAndroidSystemProxy(Uri uri) async {
+    if (uri.scheme != 'http' && uri.scheme != 'https') return;
+    final key = '${uri.scheme}://${uri.host}'.toLowerCase();
+    final now = _now();
+    final cached = _androidProxyCache[key];
+    if (cached != null && now.isBefore(cached.expiresAt)) {
+      return;
+    }
+    try {
+      final probeUrl = '${uri.scheme}://${uri.host}/';
+      final directive = await _androidNetworkChannel
+          .invokeMethod<String>('proxy', probeUrl)
+          .timeout(const Duration(milliseconds: 600));
+      if (directive != null && directive.trim().isNotEmpty) {
+        _androidProxyCache[key] = (
+          directive: directive.trim(),
+          expiresAt: now.add(const Duration(seconds: 30)),
+        );
+      }
+    } catch (_) {
+      // 单元测试或后台无引擎绑定环境回退至环境变量探测。
+    }
+  }
+
+  String _effectiveProxyDirectiveForUri(Uri uri) {
+    switch (_config.proxyMode) {
+      case ProxyMode.none:
+        return 'DIRECT';
+      case ProxyMode.custom:
+        return _parseProxyDirective(_config.proxyUrl) ?? 'DIRECT';
+      case ProxyMode.system:
+        if (Platform.isAndroid) {
+          final key = '${uri.scheme}://${uri.host}'.toLowerCase();
+          final cached = _androidProxyCache[key];
+          if (cached != null && _now().isBefore(cached.expiresAt)) {
+            return cached.directive;
+          }
+        }
+        return HttpClient.findProxyFromEnvironment(uri);
+    }
+  }
+
+  InternetAddress? _lookupCachedDohAddress(String host) {
+    final key = host.trim().toLowerCase();
+    if (key.isEmpty) return null;
+    final entry = _dohResolvedCache[key];
+    if (entry == null) return null;
+    if (!_now().isBefore(entry.expiresAt)) {
+      _dohResolvedCache.remove(key);
+      return null;
+    }
+    return entry.address;
+  }
+
+  /// 当本地 DNS 发生域名解析失败时，通过加密 DoH 接口解析目标域名 IPv4 地址并缓存。
+  Future<InternetAddress?> _resolveHostViaDoh(String host) async {
+    final normalized = host.trim().toLowerCase();
+    if (normalized.isEmpty || InternetAddress.tryParse(normalized) != null) {
+      return null;
+    }
+    final existing = _lookupCachedDohAddress(normalized);
+    if (existing != null) return existing;
+
+    final dohClient = HttpClient()
+      ..connectionTimeout = const Duration(milliseconds: 2200)
+      ..findProxy = (_) => 'DIRECT';
+    try {
+      for (final endpoint in _dohJsonEndpoints) {
+        try {
+          final queryUri = Uri.parse(endpoint).replace(
+            queryParameters: <String, String>{'name': normalized, 'type': 'A'},
+          );
+          final req = await dohClient
+              .getUrl(queryUri)
+              .timeout(const Duration(milliseconds: 2200));
+          req.headers.set('Accept', 'application/dns-json');
+          final resp = await req.close().timeout(
+            const Duration(milliseconds: 2200),
+          );
+          if (resp.statusCode != 200) continue;
+          final payload = await utf8.decoder
+              .bind(resp)
+              .join()
+              .timeout(const Duration(milliseconds: 2000));
+          final decoded = jsonDecode(payload);
+          if (decoded is! Map) continue;
+          final answers = decoded['Answer'];
+          if (answers is! List) continue;
+          for (final item in answers) {
+            if (item is! Map) continue;
+            final data = item['data']?.toString().trim() ?? '';
+            final addr = InternetAddress.tryParse(data);
+            if (addr != null) {
+              _dohResolvedCache[normalized] = (
+                address: addr,
+                expiresAt: _now().add(const Duration(minutes: 10)),
+              );
+              return addr;
+            }
+          }
+        } catch (_) {
+          // 单个公共 DoH 节点不可达时继续尝试备选节点。
+        }
+      }
+    } finally {
+      dohClient.close(force: true);
+    }
+    return null;
+  }
+
   http.Client _getClient() {
     if (_injectedClient != null) return _injectedClient;
     if (_cachedIoClient != null) return _cachedIoClient!;
 
     final ioClient = HttpClient()..connectionTimeout = primaryTimeout;
-    switch (_config.proxyMode) {
-      case ProxyMode.system:
-        ioClient.findProxy = HttpClient.findProxyFromEnvironment;
-      case ProxyMode.none:
-        ioClient.findProxy = (_) => 'DIRECT';
-      case ProxyMode.custom:
-        final directive = _parseProxyDirective(_config.proxyUrl);
-        if (directive != null) {
-          ioClient.findProxy = (_) => directive;
-        }
-    }
+    ioClient.findProxy = _effectiveProxyDirectiveForUri;
+    ioClient.connectionFactory = (Uri url, String? proxyHost, int? proxyPort) {
+      if (proxyHost != null && proxyPort != null) {
+        return Socket.startConnect(proxyHost, proxyPort);
+      }
+      final isHttps = url.scheme.toLowerCase() == 'https';
+      final defaultPort = isHttps ? 443 : 80;
+      final port = url.hasPort ? url.port : defaultPort;
+      final dohAddress = _lookupCachedDohAddress(url.host);
+      if (dohAddress != null) {
+        final socketFuture = Socket.connect(
+          dohAddress,
+          port,
+          timeout: primaryTimeout,
+        ).then<Socket>((rawSocket) async {
+          if (!isHttps) return rawSocket;
+          try {
+            return await SecureSocket.secure(rawSocket, host: url.host);
+          } catch (_) {
+            rawSocket.destroy();
+            rethrow;
+          }
+        });
+        return Future.value(ConnectionTask.fromSocket(socketFuture, () {}));
+      }
+      if (isHttps) {
+        return SecureSocket.startConnect(url.host, port);
+      }
+      return Socket.startConnect(url.host, port);
+    };
     _cachedIoClient = IOClient(ioClient);
     return _cachedIoClient!;
   }

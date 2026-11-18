@@ -143,13 +143,18 @@ class _AudioContentClearance extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final visible = ref.watch(miniAudioBottomClearanceProvider) > 0;
     final hidden = ref.watch(capsuleNavigationHiddenProvider);
+    final subRoutePushed = ref.watch(subRoutePushedProvider);
+    final isVideoMini = ref.watch(
+      activeVideoSessionProvider.select((s) => s.isMinimized),
+    );
     final android = KonataAdaptiveTokens.isAndroid;
     final geometry = AdaptiveCapsuleLayout(
       size: MediaQuery.sizeOf(context),
-      safe: MediaQuery.paddingOf(context),
+      safe: AdaptiveCapsuleLayout.effectiveSafeInsetsOf(context),
       android: android,
       playerVisible: visible,
-      navigationVisible: !hidden,
+      navigationVisible: !hidden && !subRoutePushed,
+      isVideoMini: isVideoMini,
     );
     final resolvedClearance = android
         ? geometry.bottomClearance
@@ -183,6 +188,7 @@ class _GlobalAudioOverlayLayer extends ConsumerWidget {
     }
 
     final hidden = ref.watch(capsuleNavigationHiddenProvider);
+    final subRoutePushed = ref.watch(subRoutePushedProvider);
     final android = KonataAdaptiveTokens.isAndroid;
     final videoActiveFlag = ref.watch(videoPlaybackActiveProvider);
     final audioExpanded = ref.watch(immersiveAudioExpandedProvider);
@@ -196,10 +202,11 @@ class _GlobalAudioOverlayLayer extends ConsumerWidget {
 
     final geometry = AdaptiveCapsuleLayout(
       size: MediaQuery.sizeOf(context),
-      safe: MediaQuery.paddingOf(context),
+      safe: AdaptiveCapsuleLayout.effectiveSafeInsetsOf(context),
       android: android,
       playerVisible: anyMiniCapsuleVisible,
-      navigationVisible: !hidden,
+      navigationVisible: !hidden && !subRoutePushed,
+      isVideoMini: miniVideoVisible,
     );
 
     if (videoActiveFlag && !videoSession.isActive) {
@@ -236,6 +243,11 @@ class _GlobalAudioOverlayLayer extends ConsumerWidget {
           return true;
         }
         if (audioExpanded) {
+          if (ref.read(immersivePortraitQueueSheetOpenProvider)) {
+            ref.read(immersivePortraitQueueSheetOpenProvider.notifier).state =
+                false;
+            return true;
+          }
           ref.read(immersiveAudioExpandedProvider.notifier).state = false;
           return true;
         }
@@ -246,7 +258,7 @@ class _GlobalAudioOverlayLayer extends ConsumerWidget {
         children: [
           // 持久浮动毛玻璃播放胶囊（承载纯音频或收起后的视频圆角实时预览）
           AnimatedPositioned(
-            duration: const Duration(milliseconds: 220),
+            duration: const Duration(milliseconds: 100),
             curve: Curves.easeOutCubic,
             left: android
                 ? geometry.playerRect.left
@@ -261,7 +273,7 @@ class _GlobalAudioOverlayLayer extends ConsumerWidget {
                             geometry.playerRect.bottom
                       : KonataPlaybackTokens.miniBarBottomInset),
             child: AnimatedOpacity(
-              duration: const Duration(milliseconds: 180),
+              duration: const Duration(milliseconds: 85),
               opacity: anyMiniCapsuleVisible ? 1.0 : 0.0,
               child: IgnorePointer(
                 ignoring: !anyMiniCapsuleVisible,
@@ -287,13 +299,13 @@ class _GlobalAudioOverlayLayer extends ConsumerWidget {
           ),
           // 全屏流光倒影沉浸音频页
           AnimatedSwitcher(
-            duration: const Duration(milliseconds: 260),
+            duration: const Duration(milliseconds: 115),
             switchInCurve: Curves.easeOutCubic,
             switchOutCurve: Curves.easeInCubic,
             transitionBuilder: (child, animation) => FadeTransition(
               opacity: animation,
               child: ScaleTransition(
-                scale: Tween<double>(begin: 0.97, end: 1.0).animate(animation),
+                scale: Tween<double>(begin: 0.98, end: 1.0).animate(animation),
                 child: child,
               ),
             ),
@@ -762,14 +774,14 @@ class _MiniAudioBarState extends ConsumerState<MiniAudioBar> {
 
   Widget _buildTouchCapsule(BuildContext context, AudioPlaybackState state) {
     final notifier = ref.read(audioPlaybackProvider.notifier);
+    final p = context.palette;
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: 1.15,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final isTablet =
-              MediaQuery.sizeOf(context).shortestSide >=
-              KonataAdaptiveTokens.tabletBreakpoint;
-          final compactMobileBar = !isTablet && constraints.maxWidth < 430.0;
+          final tightGap = constraints.maxWidth < 360.0
+              ? 6.0
+              : KonataAdaptiveTokens.safeGap;
           return GestureDetector(
             onHorizontalDragUpdate: (details) {
               final current = ref.read(audioPlaybackProvider);
@@ -795,7 +807,7 @@ class _MiniAudioBarState extends ConsumerState<MiniAudioBar> {
                     Positioned.fill(
                       child: Row(
                         children: [
-                          const SizedBox(width: KonataAdaptiveTokens.safeGap),
+                          SizedBox(width: tightGap),
                           GestureDetector(
                             onTap: _openImmersive,
                             behavior: HitTestBehavior.opaque,
@@ -818,7 +830,7 @@ class _MiniAudioBarState extends ConsumerState<MiniAudioBar> {
                               ),
                             ),
                           ),
-                          const SizedBox(width: KonataAdaptiveTokens.safeGap),
+                          SizedBox(width: tightGap),
                           Expanded(
                             child: GestureDetector(
                               behavior: HitTestBehavior.opaque,
@@ -834,41 +846,69 @@ class _MiniAudioBarState extends ConsumerState<MiniAudioBar> {
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: KonataTheme.textStyle(
-                                      color: context.palette.textPrimary,
+                                      color: p.textPrimary,
                                     ),
                                   ),
                                 ),
                               ),
                             ),
                           ),
-                          KonataCapsuleIconButton(
-                            key: const ValueKey('mini_audio_play_pause'),
-                            icon: state.isPlaying
-                                ? Icons.pause_rounded
-                                : Icons.play_arrow_rounded,
-                            tooltip: state.isPlaying ? '暂停' : '播放',
-                            fixedSize: KonataAdaptiveTokens.touchTarget,
-                            color: context.palette.textPrimary,
-                            onTap: notifier.togglePlayPause,
+                          Flexible(
+                            flex: 0,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerRight,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  KonataCapsuleIconButton(
+                                    key: const ValueKey('mini_audio_loop_mode'),
+                                    icon: switch (state.loopMode) {
+                                      AudioLoopMode.sequence =>
+                                        Icons.trending_flat_rounded,
+                                      AudioLoopMode.loopAll =>
+                                        Icons.repeat_rounded,
+                                      AudioLoopMode.loopOne =>
+                                        Icons.repeat_one_rounded,
+                                    },
+                                    tooltip: '循环模式：${state.loopMode.label}',
+                                    fixedSize: KonataAdaptiveTokens.touchTarget,
+                                    color: p.textPrimary,
+                                    onTap: notifier.cycleLoopMode,
+                                  ),
+                                  KonataCapsuleIconButton(
+                                    key: const ValueKey('mini_audio_previous'),
+                                    icon: Icons.skip_previous_rounded,
+                                    tooltip: '上一曲',
+                                    fixedSize: KonataAdaptiveTokens.touchTarget,
+                                    color: p.textPrimary,
+                                    onTap: notifier.previous,
+                                  ),
+                                  KonataCapsuleIconButton(
+                                    key: const ValueKey(
+                                      'mini_audio_play_pause',
+                                    ),
+                                    icon: state.isPlaying
+                                        ? Icons.pause_rounded
+                                        : Icons.play_arrow_rounded,
+                                    tooltip: state.isPlaying ? '暂停' : '播放',
+                                    fixedSize: KonataAdaptiveTokens.touchTarget,
+                                    color: p.textPrimary,
+                                    onTap: notifier.togglePlayPause,
+                                  ),
+                                  KonataCapsuleIconButton(
+                                    key: const ValueKey('mini_audio_next'),
+                                    icon: Icons.skip_next_rounded,
+                                    tooltip: '下一曲',
+                                    fixedSize: KonataAdaptiveTokens.touchTarget,
+                                    color: p.textPrimary,
+                                    onTap: notifier.next,
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
-                          if (!compactMobileBar) ...[
-                            KonataCapsuleIconButton(
-                              icon: Icons.skip_next_rounded,
-                              tooltip: '下一曲',
-                              fixedSize: KonataAdaptiveTokens.touchTarget,
-                              color: context.palette.textPrimary,
-                              onTap: notifier.next,
-                            ),
-                            KonataCapsuleIconButton(
-                              icon: Icons.queue_music_rounded,
-                              tooltip: isTablet ? '专辑曲目' : '更多播放控制',
-                              fixedSize: KonataAdaptiveTokens.touchTarget,
-                              color: context.palette.textPrimary,
-                              onTap: isTablet
-                                  ? _toggleQueueOverlay
-                                  : _showTouchControls,
-                            ),
-                          ],
+                          const SizedBox(width: 2),
                         ],
                       ),
                     ),
@@ -878,38 +918,6 @@ class _MiniAudioBarState extends ConsumerState<MiniAudioBar> {
             ),
           );
         },
-      ),
-    );
-  }
-
-  void _showTouchControls() {
-    final notifier = ref.read(audioPlaybackProvider.notifier);
-    showKonataGlassDialog<void>(
-      context: context,
-      builder: (dialogContext) => KonataGlassDialog(
-        title: '播放控制',
-        child: Wrap(
-          children: [
-            for (final action in <(IconData, String, VoidCallback)>[
-              (Icons.skip_previous_rounded, '上一曲', notifier.previous),
-              (Icons.repeat_rounded, '切换循环模式', notifier.cycleLoopMode),
-              (Icons.volume_off_rounded, '切换静音', notifier.toggleMute),
-              (Icons.queue_music_rounded, '专辑曲目', _toggleQueueOverlay),
-              (Icons.open_in_full_rounded, '展开全屏', _openImmersive),
-              (Icons.close_rounded, '停止并关闭', notifier.stopAndClose),
-            ])
-              KonataCapsuleIconButton(
-                icon: action.$1,
-                tooltip: action.$2,
-                fixedSize: KonataAdaptiveTokens.touchTarget,
-                color: context.palette.textPrimary,
-                onTap: () {
-                  Navigator.of(dialogContext).pop();
-                  action.$3();
-                },
-              ),
-          ],
-        ),
       ),
     );
   }

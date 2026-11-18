@@ -9,6 +9,7 @@ import 'package:ccplayer/presentation/widgets/design_system/adaptive_action_head
 import 'package:ccplayer/presentation/widgets/design_system/konata_glass_capsule.dart';
 import 'package:ccplayer/presentation/shell/adaptive_capsule_layout.dart';
 import 'package:ccplayer/presentation/shell/capsule_navigation.dart';
+import 'package:ccplayer/presentation/theme/konata_adaptive_tokens.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
 import 'package:ccplayer/presentation/widgets/playback/konata_playback_capsule.dart';
 import 'package:flutter/material.dart';
@@ -254,7 +255,7 @@ void main() {
     expect(cramped.leftClearance, greaterThan(0));
     expect(cramped.playerRect.left, greaterThanOrEqualTo(cramped.leftClearance));
   });
-  testWidgets('手机窄屏 MiniAudioBar 精简为封面与单行标题加播放暂停', (tester) async {
+  testWidgets('手机窄屏 MiniAudioBar 固定展示循环与上下首及播放暂停四键且零溢出', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     try {
       tester.view.physicalSize = const Size(360, 800);
@@ -276,7 +277,7 @@ void main() {
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(
                     maxWidth: 336,
-                    maxHeight: 56,
+                    maxHeight: 64,
                   ),
                   child: const MiniAudioBar(),
                 ),
@@ -300,8 +301,11 @@ void main() {
         ),
       );
       await tester.pump();
+      expect(find.byKey(const ValueKey('mini_audio_loop_mode')), findsOneWidget);
+      expect(find.byTooltip('上一曲'), findsOneWidget);
       expect(find.byTooltip('暂停'), findsOneWidget);
-      expect(find.byTooltip('下一曲'), findsNothing);
+      expect(find.byTooltip('下一曲'), findsOneWidget);
+      expect(find.byIcon(Icons.queue_music_rounded), findsNothing);
       expect(find.text('超长单曲名称测试避免垂直成列挤压'), findsOneWidget);
       expect(tester.takeException(), isNull);
     } finally {
@@ -482,11 +486,11 @@ void main() {
       );
       expect(layout.playerRect.height, 64);
       expect(layout.playerRect.width, lessThanOrEqualTo(600));
+      expect(layout.playerRect.center.dx, size.width / 2);
       expect(
-        layout.playerRect.center.dx,
-        (layout.leftClearance + size.width) / 2,
+        size.height - layout.playerRect.bottom,
+        safe.bottom + KonataAdaptiveTokens.tabletBottomInset,
       );
-      expect(size.height - layout.playerRect.bottom, safe.bottom + 16);
     });
   }
   test('手机竖屏双层与二级页补位', () {
@@ -505,10 +509,13 @@ void main() {
     );
     expect(normal.navigationRect.center.dx, 195);
     expect(normal.playerRect.left, 12);
-    expect(normal.navigationRect.top - normal.playerRect.bottom, 8);
+    expect(
+      normal.navigationRect.top - normal.playerRect.bottom,
+      KonataAdaptiveTokens.capsuleStackGap,
+    );
     expect(
       detail.playerRect.bottom - normal.playerRect.bottom,
-      normal.navigationThickness + 8,
+      normal.navigationThickness + KonataAdaptiveTokens.capsuleStackGap,
     );
     expect(detail.bottomClearance, lessThan(normal.bottomClearance));
   });

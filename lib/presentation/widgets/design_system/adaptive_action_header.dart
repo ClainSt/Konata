@@ -18,6 +18,7 @@ class AdaptiveHeaderAction {
     required this.onPressed,
     this.highlighted = false,
     this.wideWidget,
+    this.preserveWideWidgetOnNarrow = false,
   });
 
   /// 可选测试/语义定位键。
@@ -40,6 +41,9 @@ class AdaptiveHeaderAction {
 
   /// 宽视口（桌面/平板横屏）平铺展示的自定义胶囊控件；缺省回退为图标按钮。
   final Widget? wideWidget;
+
+  /// 窄视口（手机及平板竖屏）是否强制保留 [wideWidget] 图文胶囊形态而不折叠为纯图标。
+  final bool preserveWideWidgetOnNarrow;
 }
 
 /// 基于 `LayoutBuilder` 实时测量可用宽度的自适应顶栏组件。
@@ -472,7 +476,11 @@ class _AdaptiveActionHeaderState extends State<AdaptiveActionHeader> {
                         onPressed: _openNarrowSearch,
                       ),
                     ),
-                  for (final action in visiblePrimary) _buildIconButton(action),
+                  for (final action in visiblePrimary)
+                    (action.preserveWideWidgetOnNarrow &&
+                            action.wideWidget != null)
+                        ? action.wideWidget!
+                        : _buildIconButton(action),
                   if (showOverflowButton)
                     _buildIconButton(
                       AdaptiveHeaderAction(

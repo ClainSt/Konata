@@ -11,6 +11,7 @@ import 'application/providers/theme_providers.dart';
 import 'domain/config/konata_lane_config.dart';
 import 'infrastructure/storage/storage_root_provider.dart';
 import 'presentation/audio/mini_audio_bar.dart';
+import 'presentation/shell/adaptive_capsule_layout.dart';
 import 'presentation/shell/android_scroll_capture_bridge.dart';
 import 'presentation/shell/desktop_shell.dart';
 import 'presentation/theme/konata_theme.dart';
@@ -108,10 +109,12 @@ class KonataApp extends ConsumerWidget {
     });
 
     final navKey = ref.watch(rootNavigatorKeyProvider);
+    final routeObserver = ref.watch(rootRouteObserverProvider);
     final appTitle = KonataLaneConfig.resolveDesktopWindowTitle();
 
     return MaterialApp(
       navigatorKey: navKey,
+      navigatorObservers: [routeObserver],
       title: appTitle,
       debugShowCheckedModeBanner: false,
       scrollBehavior: const KonataScrollBehavior(),

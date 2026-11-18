@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/providers/library_providers.dart';
 import '../../application/providers/scraping_providers.dart';
 import '../../application/scraping/scrape_progress.dart';
+import '../../domain/formatting/network_error_sanitizer.dart';
 import '../theme/konata_palette.dart';
 import '../widgets/design_system/adaptive_responsive_row.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
@@ -263,7 +264,7 @@ class _ScanProgressDialogState extends ConsumerState<ScanProgressDialog> {
               progress.errorMessage!.trim().isNotEmpty) ...[
             const SizedBox(height: 8),
             Text(
-              progress.errorMessage!,
+              NetworkErrorSanitizer.toUserMessage(progress.errorMessage!),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(color: p.danger, fontSize: 12),

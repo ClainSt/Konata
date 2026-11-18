@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../domain/formatting/media_display_formatter.dart';
 import '../../domain/repositories/file_system_gateway.dart';
-import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
@@ -35,14 +34,22 @@ class SourceBrowserEntryRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final shortLandscape = MediaQuery.sizeOf(context).height < 500;
     if (entry.isDirectory) {
       return InkWell(
         onTap: onEnterDirectory,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          padding: EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: shortLandscape ? 2 : 6,
+          ),
           child: Row(
             children: [
-              Checkbox(value: checked, onChanged: (_) => onToggleDirectory()),
+              Checkbox(
+                visualDensity: shortLandscape ? VisualDensity.compact : null,
+                value: checked,
+                onChanged: (_) => onToggleDirectory(),
+              ),
               const SizedBox(width: 4),
               Icon(
                 Icons.folder_rounded,
@@ -133,18 +140,17 @@ void showSourceBrowserHelpDialog(BuildContext context) {
   );
 }
 
-/// 媒体源浏览弹窗整窗切换后的全高「已选目录管理视图」（支持单选移除与全选/反选/批量移除）。
+/// 媒体源浏览弹窗「已选目录管理视图」（支持整窗切换与双栏常驻，统一通过勾选配合全选/反选/批量移除）。
 class SourceSelectedScopePanel extends StatefulWidget {
-  /// 创建全高已选目录管理视图。
+  /// 创建已选目录管理视图。
   const SourceSelectedScopePanel({
     super.key,
     required this.selectedPaths,
     required this.busy,
     required this.onBackToBrowse,
-    required this.onRemovePath,
     required this.onRemovePathsBatch,
-    required this.onClearAll,
     required this.onShowHelp,
+    this.showBackButton = true,
   });
 
   /// 当前已选的相对目录路径列表（已排序）。
@@ -153,20 +159,17 @@ class SourceSelectedScopePanel extends StatefulWidget {
   /// 是否处于提交或扫描触发中。
   final bool busy;
 
-  /// 返回浏览目录视图回调。
+  /// 返回浏览目录视图回调（整窗切换模式下使用）。
   final VoidCallback onBackToBrowse;
-
-  /// 移除单个已选目录回调。
-  final ValueChanged<String> onRemovePath;
 
   /// 批量移除多个已选目录回调。
   final ValueChanged<List<String>> onRemovePathsBatch;
 
-  /// 清空全部已选目录回调。
-  final VoidCallback onClearAll;
-
   /// 查看多选规则说明回调。
   final VoidCallback onShowHelp;
+
+  /// 是否展示左上角「返回浏览目录」按钮（双栏常驻模式下隐藏）。
+  final bool showBackButton;
 
   @override
   State<SourceSelectedScopePanel> createState() =>
@@ -231,31 +234,65 @@ class _SourceSelectedScopePanelState extends State<SourceSelectedScopePanel> {
   Widget build(BuildContext context) {
     final p = context.palette;
     final checkedCount = _checkedPaths.length;
+    final shortLandscape = MediaQuery.sizeOf(context).height < 500;
+
+    final helpButton = IconButton(
+      key: const ValueKey('source_scope_help_button'),
+      tooltip: '多选扫描说明',
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+      padding: const EdgeInsets.all(4),
+      iconSize: 18,
+      color: p.textSecondary,
+      icon: const Icon(Icons.help_outline_rounded),
+      onPressed: widget.onShowHelp,
+    );
+
+    final batchButtons = <Widget>[
+      if (widget.selectedPaths.isNotEmpty) ...[
+        KonataPillButton.ghost(
+          label: '全选',
+          compact: true,
+          onPressed: widget.busy ? null : _selectAll,
+        ),
+        const SizedBox(width: 4),
+        KonataPillButton.ghost(
+          label: '反选',
+          compact: true,
+          onPressed: widget.busy ? null : _invertSelection,
+        ),
+        const SizedBox(width: 4),
+        KonataPillButton.secondary(
+          label: checkedCount > 0 ? '批量移除 ($checkedCount)' : '批量移除',
+          compact: true,
+          onPressed: (widget.busy || checkedCount == 0)
+              ? null
+              : _removeCheckedBatch,
+        ),
+      ],
+    ];
 
     return KonataSurfaceCard(
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.all(shortLandscape ? 8 : 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            alignment: WrapAlignment.spaceBetween,
-            children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  KonataPillButton.secondary(
-                    key: const ValueKey('source_scope_back_to_browse'),
-                    label: '返回浏览目录',
-                    icon: Icons.arrow_back_rounded,
-                    compact: true,
-                    onPressed: widget.busy ? null : widget.onBackToBrowse,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
+          if (widget.showBackButton) ...[
+            Row(
+              children: [
+                KonataPillButton.secondary(
+                  key: const ValueKey('source_scope_back_to_browse'),
+                  label: '返回浏览目录',
+                  icon: Icons.arrow_back_rounded,
+                  compact: true,
+                  onPressed: widget.busy ? null : widget.onBackToBrowse,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
                     '已选目录 · ${widget.selectedPaths.length}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: p.textPrimary,
                       fontSize: 13.5,
@@ -263,77 +300,81 @@ class _SourceSelectedScopePanelState extends State<SourceSelectedScopePanel> {
                       fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                   ),
-                  IconButton(
-                    tooltip: '多选扫描说明',
-                    visualDensity: VisualDensity.compact,
-                    iconSize: 17,
-                    color: p.textSecondary,
-                    icon: const Icon(Icons.help_outline_rounded),
-                    onPressed: widget.onShowHelp,
-                  ),
-                ],
-              ),
-              if (widget.selectedPaths.isNotEmpty)
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    KonataPillButton.ghost(
-                      label: '全选',
-                      compact: true,
-                      onPressed: widget.busy ? null : _selectAll,
-                    ),
-                    KonataPillButton.ghost(
-                      label: '反选',
-                      compact: true,
-                      onPressed: widget.busy ? null : _invertSelection,
-                    ),
-                    KonataPillButton.secondary(
-                      label: checkedCount > 0
-                          ? '批量移除 ($checkedCount)'
-                          : '批量移除',
-                      compact: true,
-                      onPressed: (widget.busy || checkedCount == 0)
-                          ? null
-                          : _removeCheckedBatch,
-                    ),
-                  ],
                 ),
+                helpButton,
+              ],
+            ),
+            if (batchButtons.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(children: batchButtons),
+              ),
             ],
-          ),
-          const SizedBox(height: 8),
+          ] else
+            Row(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        Text(
+                          '已选目录 · ${widget.selectedPaths.length}',
+                          style: TextStyle(
+                            color: p.textPrimary,
+                            fontSize: 13.0,
+                            fontWeight: FontWeight.w700,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                        if (batchButtons.isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          ...batchButtons,
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                helpButton,
+              ],
+            ),
+          SizedBox(height: shortLandscape ? 4 : 6),
           Divider(height: 1, color: p.hairline),
-          const SizedBox(height: 10),
+          SizedBox(height: shortLandscape ? 6 : 8),
           Expanded(
             child: widget.selectedPaths.isEmpty
                 ? Center(
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
                             Icons.checklist_rtl_rounded,
-                            size: 34,
+                            size: shortLandscape ? 26 : 32,
                             color: p.textMuted,
                           ),
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 6),
                           Text(
                             '当前未勾选指定目录（默认扫描整源）',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: p.textPrimary,
-                              fontSize: 13.5,
+                              fontSize: 12.5,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          KonataPillButton.secondary(
-                            label: '去浏览并勾选目录',
-                            compact: true,
-                            onPressed: widget.busy ? null : widget.onBackToBrowse,
-                          ),
+                          if (widget.showBackButton) ...[
+                            const SizedBox(height: 10),
+                            KonataPillButton.secondary(
+                              label: '去浏览并勾选目录',
+                              compact: true,
+                              onPressed:
+                                  widget.busy ? null : widget.onBackToBrowse,
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -342,9 +383,10 @@ class _SourceSelectedScopePanelState extends State<SourceSelectedScopePanel> {
                     controller: _scrollCtrl,
                     builder: (_, ctrl) => ListView.separated(
                       controller: ctrl,
-                      padding: const EdgeInsets.only(right: 12),
+                      padding: const EdgeInsets.only(right: 4),
                       itemCount: widget.selectedPaths.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 6),
+                      separatorBuilder: (_, _) =>
+                          SizedBox(height: shortLandscape ? 4 : 6),
                       itemBuilder: (_, index) {
                         final path = widget.selectedPaths[index];
                         final checked = _checkedPaths.contains(path);
@@ -354,9 +396,10 @@ class _SourceSelectedScopePanelState extends State<SourceSelectedScopePanel> {
                           borderRadius: BorderRadius.circular(10),
                           onTap: widget.busy ? null : () => _toggleChecked(path),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(
+                            width: double.infinity,
+                            padding: EdgeInsets.symmetric(
                               horizontal: 10,
-                              vertical: 8,
+                              vertical: shortLandscape ? 3 : 8,
                             ),
                             decoration: BoxDecoration(
                               color: checked
@@ -372,6 +415,9 @@ class _SourceSelectedScopePanelState extends State<SourceSelectedScopePanel> {
                             child: Row(
                               children: [
                                 Checkbox(
+                                  visualDensity: shortLandscape
+                                      ? VisualDensity.compact
+                                      : null,
                                   value: checked,
                                   onChanged: widget.busy
                                       ? null
@@ -409,25 +455,6 @@ class _SourceSelectedScopePanelState extends State<SourceSelectedScopePanel> {
                                           ),
                                         ),
                                     ],
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                SizedBox(
-                                  width: KonataAdaptiveTokens.isAndroid
-                                      ? KonataAdaptiveTokens.touchTarget
-                                      : 32,
-                                  height: KonataAdaptiveTokens.isAndroid
-                                      ? KonataAdaptiveTokens.touchTarget
-                                      : 32,
-                                  child: IconButton(
-                                    tooltip: '移除该目录',
-                                    padding: EdgeInsets.zero,
-                                    iconSize: 16,
-                                    color: p.textSecondary,
-                                    icon: const Icon(Icons.close_rounded),
-                                    onPressed: widget.busy
-                                        ? null
-                                        : () => widget.onRemovePath(path),
                                   ),
                                 ),
                               ],

@@ -2,6 +2,7 @@ import 'dart:collection';
 import 'dart:io';
 
 import '../../domain/config/konata_lane_config.dart';
+import '../../domain/formatting/network_error_sanitizer.dart';
 
 /// Konata 轻量诊断与异常日志环形缓冲存储器（纯 Infrastructure 层 IO 封装）。
 class DiagnosticsLogStore {
@@ -22,13 +23,14 @@ class DiagnosticsLogStore {
     record('DIAG', '详细调试日志已${enabled ? '开启' : '关闭'}');
   }
 
-  /// 写入一条运行或异常日志。
+  /// 写入一条运行或异常日志（自动脱敏 URL 查询参数与授权头中的密钥）。
   void record(String tag, String message, {bool isError = false}) {
     if (!isError && !_verbose && _buffer.length >= 40) {
       return;
     }
+    final sanitized = NetworkErrorSanitizer.redactSecrets(message);
     final now = DateTime.now().toIso8601String();
-    final line = '[$now][$tag]${isError ? '[ERR]' : ''} $message';
+    final line = '[$now][$tag]${isError ? '[ERR]' : ''} $sanitized';
     if (_buffer.length >= maxEntries) {
       _buffer.removeFirst();
     }

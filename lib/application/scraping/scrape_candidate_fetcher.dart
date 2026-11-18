@@ -1,3 +1,4 @@
+import '../../domain/formatting/network_error_sanitizer.dart';
 import '../../domain/matching/directory_grouper.dart';
 import '../../domain/models/tmdb_models.dart';
 import '../../domain/models/work.dart';
@@ -22,7 +23,10 @@ class ScrapeCandidateFetcher {
 
   /// 若当前子簇无显式 ID 但合集父目录带 `{tmdb-N}`，拉取父系列官方标题作为补充检索线索。
   Future<({List<String> extraQueries, TmdbWorkDetail? parentDetail})>
-  fetchParentCollectionContext(GroupedWorkFolder folder) async {
+  fetchParentCollectionContext(
+    GroupedWorkFolder folder, {
+    void Function(Object error)? onNetworkError,
+  }) async {
     final parentId = folder.parentTmdbId;
     if (parentId == null) {
       return (extraQueries: const <String>[], parentDetail: null);
@@ -31,11 +35,20 @@ class ScrapeCandidateFetcher {
         ? [folder.parentTmdbType!]
         : const [TmdbMediaType.tv, TmdbMediaType.movie];
     for (final type in types) {
-      final detail = await _tmdbService.getWorkDetail(
-        parentId,
-        type,
-        priority: RequestPriority.background,
-      );
+      TmdbWorkDetail? detail;
+      try {
+        detail = await _tmdbService.getWorkDetail(
+          parentId,
+          type,
+          priority: RequestPriority.background,
+        );
+      } catch (error) {
+        if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+          onNetworkError?.call(error);
+          return (extraQueries: const <String>[], parentDetail: null);
+        }
+        rethrow;
+      }
       if (detail == null) continue;
       final extra = <String>[];
       final parentTitles = [detail.title, ...detail.aliases.take(2)]
@@ -54,30 +67,41 @@ class ScrapeCandidateFetcher {
   }
 
   /// 阶段 2：显式 TMDB ID 直连拉取，并在未限定类型且首选 404 时自动尝试另一侧类型 (`tv <-> movie`)。
-  Future<TmdbWorkDetail?> fetchExplicitDetail(GroupedWorkFolder folder) async {
+  Future<TmdbWorkDetail?> fetchExplicitDetail(
+    GroupedWorkFolder folder, {
+    void Function(Object error)? onNetworkError,
+  }) async {
     final tmdbId = folder.explicitTmdbId;
     if (tmdbId == null) return null;
 
     final primaryType =
         folder.explicitMediaType ??
         (folder.isMovieHint ? TmdbMediaType.movie : TmdbMediaType.tv);
-    final primaryDetail = await _tmdbService.getWorkDetail(
-      tmdbId,
-      primaryType,
-      priority: RequestPriority.background,
-    );
-    if (primaryDetail != null) return primaryDetail;
-
-    // 若文件夹标记如 `{tmdb-999}` / `[tmdbid=999]` 未写死类型，首选 404 时自动尝试另一侧类型。
-    if (folder.explicitMediaType == null) {
-      final fallbackType = primaryType == TmdbMediaType.tv
-          ? TmdbMediaType.movie
-          : TmdbMediaType.tv;
-      return _tmdbService.getWorkDetail(
+    try {
+      final primaryDetail = await _tmdbService.getWorkDetail(
         tmdbId,
-        fallbackType,
+        primaryType,
         priority: RequestPriority.background,
       );
+      if (primaryDetail != null) return primaryDetail;
+
+      // 若文件夹标记如 `{tmdb-999}` / `[tmdbid=999]` 未写死类型，首选 404 时自动尝试另一侧类型。
+      if (folder.explicitMediaType == null) {
+        final fallbackType = primaryType == TmdbMediaType.tv
+            ? TmdbMediaType.movie
+            : TmdbMediaType.tv;
+        return await _tmdbService.getWorkDetail(
+          tmdbId,
+          fallbackType,
+          priority: RequestPriority.background,
+        );
+      }
+    } catch (error) {
+      if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+        onNetworkError?.call(error);
+        return null;
+      }
+      rethrow;
     }
 
     return null;
@@ -200,6 +224,7 @@ class ScrapeCandidateFetcher {
     GroupedWorkFolder folder, {
     ScoredBangumiCandidate? bangumiCandidate,
     List<String> extraQueries = const [],
+    void Function(Object error)? onNetworkError,
   }) async {
     final queries = ScrapeDomainAdapter.buildSearchQueries(
       folder,
@@ -209,6 +234,7 @@ class ScrapeCandidateFetcher {
     final searchYear = ScrapeDomainAdapter.extractSearchYear(folder);
     final candidatesMap = <String, TmdbSearchResult>{};
     final typeFilter = folder.prefersTvSearch ? TmdbMediaType.tv : null;
+    var networkAborted = false;
 
     Future<void> collectWave(
       Iterable<String> qs, {
@@ -216,22 +242,33 @@ class ScrapeCandidateFetcher {
       String language = 'zh-CN',
       required int cap,
     }) async {
+      if (networkAborted) return;
       for (final q in qs) {
-        final hits = await _tmdbService.searchAnime(
-          q,
-          year: year,
-          language: language,
-          mediaTypeFilter: typeFilter,
-          priority: RequestPriority.background,
-        );
-        for (final h in hits) {
-          candidatesMap.putIfAbsent('${h.mediaType.name}:${h.tmdbId}', () => h);
+        try {
+          final hits = await _tmdbService.searchAnime(
+            q,
+            year: year,
+            language: language,
+            mediaTypeFilter: typeFilter,
+            priority: RequestPriority.background,
+          );
+          for (final h in hits) {
+            candidatesMap.putIfAbsent('${h.mediaType.name}:${h.tmdbId}', () => h);
+          }
+          if (candidatesMap.length >= cap) break;
+        } catch (error) {
+          if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+            networkAborted = true;
+            onNetworkError?.call(error);
+            return;
+          }
+          rethrow;
         }
-        if (candidatesMap.length >= cap) break;
       }
     }
 
     bool waveNeedsBackup() {
+      if (networkAborted) return false;
       if (candidatesMap.isEmpty) return true;
       var bestPreview = 0.0;
       for (final hit in candidatesMap.values) {
@@ -253,10 +290,10 @@ class ScrapeCandidateFetcher {
     }
 
     // Wave 3：中文搜索候选仍稀缺或失真时，回退英文与日文检索提升冷门或原名番剧召回率。
-    if (candidatesMap.length < 3 || waveNeedsBackup()) {
+    if (!networkAborted && (candidatesMap.length < 3 || waveNeedsBackup())) {
       await collectWave(queries.take(3), language: 'en-US', cap: 12);
     }
-    if (candidatesMap.length < 3 || waveNeedsBackup()) {
+    if (!networkAborted && (candidatesMap.length < 3 || waveNeedsBackup())) {
       await collectWave(queries.take(3), language: 'ja-JP', cap: 12);
     }
 
@@ -283,12 +320,20 @@ class ScrapeCandidateFetcher {
 
     final details = <TmdbWorkDetail>[];
     for (final item in detailTargets) {
-      final detail = await _tmdbService.getWorkDetail(
-        item.tmdbId,
-        item.mediaType,
-        priority: RequestPriority.background,
-      );
-      if (detail != null) details.add(detail);
+      try {
+        final detail = await _tmdbService.getWorkDetail(
+          item.tmdbId,
+          item.mediaType,
+          priority: RequestPriority.background,
+        );
+        if (detail != null) details.add(detail);
+      } catch (error) {
+        if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+          onNetworkError?.call(error);
+          break;
+        }
+        rethrow;
+      }
     }
     return details;
   }
@@ -299,6 +344,7 @@ class ScrapeCandidateFetcher {
     GroupedWorkFolder folder,
     BangumiSubjectCandidate bangumi, {
     List<TmdbWorkDetail> existingDetails = const [],
+    void Function(Object error)? onNetworkError,
   }) async {
     final rawNames = <String>[
       if (bangumi.nameCn.trim().isNotEmpty) bangumi.nameCn.trim(),
@@ -318,49 +364,68 @@ class ScrapeCandidateFetcher {
     };
     final hitMap = <String, TmdbSearchResult>{};
     final typeFilter = folder.prefersTvSearch ? TmdbMediaType.tv : null;
+    var networkAborted = false;
 
     Future<void> runSearch(
       Iterable<String> qs, {
       int? year,
       required String lang,
     }) async {
+      if (networkAborted) return;
       for (final q in qs) {
-        final hits = await _tmdbService.searchAnime(
-          q,
-          year: year,
-          language: lang,
-          mediaTypeFilter: typeFilter,
-          priority: RequestPriority.background,
-        );
-        for (final h in hits) {
-          final k = '${h.mediaType.name}:${h.tmdbId}';
-          if (!seenIds.contains(k)) {
-            hitMap.putIfAbsent(k, () => h);
+        try {
+          final hits = await _tmdbService.searchAnime(
+            q,
+            year: year,
+            language: lang,
+            mediaTypeFilter: typeFilter,
+            priority: RequestPriority.background,
+          );
+          for (final h in hits) {
+            final k = '${h.mediaType.name}:${h.tmdbId}';
+            if (!seenIds.contains(k)) {
+              hitMap.putIfAbsent(k, () => h);
+            }
           }
+          if (hitMap.length >= 6) break;
+        } catch (error) {
+          if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+            networkAborted = true;
+            onNetworkError?.call(error);
+            return;
+          }
+          rethrow;
         }
-        if (hitMap.length >= 6) break;
       }
     }
 
     await runSearch(queries.take(3), year: bangumi.year, lang: 'zh-CN');
-    if (hitMap.isEmpty && bangumi.year != null) {
+    if (!networkAborted && hitMap.isEmpty && bangumi.year != null) {
       await runSearch(queries.take(3), lang: 'zh-CN');
     }
-    if (hitMap.isEmpty) {
+    if (!networkAborted && hitMap.isEmpty) {
       await runSearch(queries.take(2), lang: 'ja-JP');
     }
     if (hitMap.isEmpty) return existingDetails;
 
     final fetched = <TmdbWorkDetail>[...existingDetails];
     for (final hit in hitMap.values.take(4)) {
-      final detail = await _tmdbService.getWorkDetail(
-        hit.tmdbId,
-        hit.mediaType,
-        priority: RequestPriority.background,
-      );
-      if (detail != null &&
-          seenIds.add('${detail.mediaType.name}:${detail.tmdbId}')) {
-        fetched.add(detail);
+      try {
+        final detail = await _tmdbService.getWorkDetail(
+          hit.tmdbId,
+          hit.mediaType,
+          priority: RequestPriority.background,
+        );
+        if (detail != null &&
+            seenIds.add('${detail.mediaType.name}:${detail.tmdbId}')) {
+          fetched.add(detail);
+        }
+      } catch (error) {
+        if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+          onNetworkError?.call(error);
+          break;
+        }
+        rethrow;
       }
     }
     return fetched;
@@ -373,8 +438,9 @@ class ScrapeCandidateFetcher {
   })> fetchSeasonBundle(
     int tmdbId,
     TmdbMediaType mediaType,
-    Set<int> seasons,
-  ) async {
+    Set<int> seasons, {
+    void Function(Object error)? onNetworkError,
+  }) async {
     if (mediaType != TmdbMediaType.tv) {
       return (
         episodes: const <TmdbEpisodeDetail>[],
@@ -385,14 +451,22 @@ class ScrapeCandidateFetcher {
     final allEpisodes = <TmdbEpisodeDetail>[];
     final details = <int, TmdbSeasonDetail>{};
     for (final season in targetSeasons) {
-      final seasonDetail = await _tmdbService.getSeasonDetail(
-        tmdbId,
-        season,
-        priority: RequestPriority.background,
-      );
-      if (seasonDetail != null) {
-        details[season] = seasonDetail;
-        allEpisodes.addAll(seasonDetail.episodes);
+      try {
+        final seasonDetail = await _tmdbService.getSeasonDetail(
+          tmdbId,
+          season,
+          priority: RequestPriority.background,
+        );
+        if (seasonDetail != null) {
+          details[season] = seasonDetail;
+          allEpisodes.addAll(seasonDetail.episodes);
+        }
+      } catch (error) {
+        if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+          onNetworkError?.call(error);
+          break;
+        }
+        rethrow;
       }
     }
     return (episodes: allEpisodes, seasonDetails: details);

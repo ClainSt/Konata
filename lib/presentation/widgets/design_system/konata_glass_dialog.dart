@@ -154,6 +154,8 @@ class KonataGlassDialog extends StatelessWidget {
     this.height,
     this.maxHeight,
     this.headerTrailing,
+    this.inlineHeaderTrailing = false,
+    this.headerBottomSpacing,
     this.actions,
     this.onClose,
     this.enableLandscapeCompactInput = true,
@@ -176,6 +178,12 @@ class KonataGlassDialog extends StatelessWidget {
 
   /// 可选标题栏右侧扩展控件（紧邻关闭按钮左侧）。
   final Widget? headerTrailing;
+
+  /// 是否强制在窄宽度（如手机横屏）下也将 [headerTrailing] 内联放置于顶部标题行。
+  final bool inlineHeaderTrailing;
+
+  /// 可选自定义标题栏与主体之间的底部间距。
+  final double? headerBottomSpacing;
 
   /// 可选底部操作按钮区（右对齐排列）。
   final List<Widget>? actions;
@@ -301,7 +309,9 @@ class KonataGlassDialog extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Offstage(
-                      offstage: landscapeCompactInput,
+                      offstage:
+                          landscapeCompactInput &&
+                          !(inlineHeaderTrailing && headerTrailing != null),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -316,7 +326,7 @@ class KonataGlassDialog extends StatelessWidget {
                                     ),
                                     child: Text(
                                       title,
-                                      maxLines: 2,
+                                      maxLines: inlineHeaderTrailing ? 1 : 2,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         color: p.textPrimary,
@@ -328,7 +338,8 @@ class KonataGlassDialog extends StatelessWidget {
                                   ),
                                 ),
                               ),
-                              if (headerTrailing != null && !narrowWidth) ...[
+                              if (headerTrailing != null &&
+                                  (!narrowWidth || inlineHeaderTrailing)) ...[
                                 const SizedBox(width: 8),
                                 headerTrailing!,
                               ],
@@ -340,11 +351,20 @@ class KonataGlassDialog extends StatelessWidget {
                               ),
                             ],
                           ),
-                          if (headerTrailing != null && narrowWidth) ...[
+                          if (headerTrailing != null &&
+                              narrowWidth &&
+                              !inlineHeaderTrailing) ...[
                             const SizedBox(height: 8),
                             headerTrailing!,
                           ],
-                          SizedBox(height: shortViewport ? 6 : (compact ? 12 : 16)),
+                          SizedBox(
+                            height: landscapeCompactInput
+                                ? 2
+                                : (headerBottomSpacing ??
+                                      (shortViewport
+                                          ? 6
+                                          : (compact ? 12 : 16))),
+                          ),
                         ],
                       ),
                     ),

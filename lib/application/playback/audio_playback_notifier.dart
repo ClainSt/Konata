@@ -15,6 +15,7 @@ import '../../domain/playback/cue_and_lrc_parser.dart';
 import '../../domain/playback/cue_variant_resolver.dart';
 import '../../domain/playback/playback_formatters.dart';
 import '../../domain/repositories/file_system_gateway.dart';
+import '../../infrastructure/players/android/android_media_session_bridge.dart';
 import '../../infrastructure/players/audio_art_extractor.dart';
 import '../../infrastructure/players/libmpv_ffi.dart';
 import '../../infrastructure/players/mpv_quality_profile.dart';
@@ -23,6 +24,7 @@ import '../../infrastructure/sources/local_source_gateway.dart';
 import '../../infrastructure/sources/source_access_error.dart';
 import '../../infrastructure/sources/source_gateway_factory.dart';
 import '../../infrastructure/storage/storage_root_provider.dart';
+import '../providers/artwork_provider.dart';
 import '../providers/diagnostics_providers.dart';
 import '../providers/library_providers.dart';
 import '../providers/platform_capability.dart';
@@ -468,7 +470,15 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     this._ref, {
     this.clientFactory,
     this.gatewayFactory = const MediaSourceGatewayFactory(),
-  }) : super(const AudioPlaybackState());
+    AndroidMediaSessionBridge? mediaSessionBridge,
+  }) : _mediaSessionBridge =
+           mediaSessionBridge ??
+           AndroidMediaSessionBridge(
+             isSupported: () => KonataPlatform.isAndroid,
+           ),
+       super(const AudioPlaybackState()) {
+    _bindAndroidMediaSessionCallbacks();
+  }
 
   static const int _propTimePos = 101;
   static const int _propDuration = 102;
@@ -483,6 +493,142 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   final Ref _ref;
   final LibMpvClient Function()? clientFactory;
   final MediaSourceGatewayFactory gatewayFactory;
+  final AndroidMediaSessionBridge _mediaSessionBridge;
+  final Map<String, Uint8List> _posterNotificationBytesCache = {};
+  final Set<String> _loadingPosterNotificationKeys = {};
+
+  /// 暴露媒体会话通信桥实例供集成与单元测试观测。
+  AndroidMediaSessionBridge get mediaSessionBridge => _mediaSessionBridge;
+
+  void _bindAndroidMediaSessionCallbacks() {
+    _mediaSessionBridge.bindCallbacks(
+      onPlay: () {
+        if (mounted && state.isActive) {
+          unawaited(setPlaying(true));
+        }
+      },
+      onPause: () {
+        if (mounted && state.isActive) {
+          unawaited(setPlaying(false));
+        }
+      },
+      onTogglePlayPause: () {
+        if (mounted && state.isActive) {
+          unawaited(togglePlayPause());
+        }
+      },
+      onPrevious: () {
+        if (mounted && state.isActive) {
+          unawaited(previous());
+        }
+      },
+      onNext: () {
+        if (mounted && state.isActive) {
+          unawaited(next());
+        }
+      },
+      onSeekToSeconds: (seconds) {
+        if (mounted && state.isActive) {
+          unawaited(seekRelativeTrackSeconds(seconds));
+        }
+      },
+      onStop: () {
+        if (mounted && state.isActive) {
+          unawaited(stopAndClose());
+        }
+      },
+    );
+  }
+
+  @override
+  set state(AudioPlaybackState value) {
+    super.state = value;
+    _syncAndroidMediaSession();
+  }
+
+  void _syncAndroidMediaSession({bool forcePositionSync = false}) {
+    if (!KonataPlatform.isAndroid) return;
+    _bindAndroidMediaSessionCallbacks();
+    final item = state.currentItem;
+    if (!state.isActive || item == null) {
+      unawaited(_mediaSessionBridge.stopSession());
+      return;
+    }
+
+    String coverKey = '';
+    Uint8List? coverBytes;
+    switch (state.cover) {
+      case MemoryAudioCover(:final bytes):
+        if (bytes.isNotEmpty) {
+          coverKey = 'mem_${(state.cover as MemoryAudioCover).contentHash}';
+          coverBytes = bytes;
+        }
+      case ManagedPosterAudioCover(:final url, :final workId, :final revision):
+        final candidateKey = 'poster_${workId}_${url}_$revision';
+        final cachedBytes = _posterNotificationBytesCache[candidateKey];
+        if (cachedBytes != null && cachedBytes.isNotEmpty) {
+          coverKey = candidateKey;
+          coverBytes = cachedBytes;
+        } else {
+          _warmPosterBytesForNotification(candidateKey, url);
+        }
+      case EmptyAudioCover():
+        coverKey = '';
+    }
+
+    final artistParts = <String>[
+      if (item.performer.trim().isNotEmpty) item.performer.trim(),
+      if (item.work.title.trim().isNotEmpty &&
+          item.work.title.trim() != item.performer.trim())
+        item.work.title.trim(),
+    ];
+    final artistLabel = artistParts.isNotEmpty
+        ? artistParts.join(' · ')
+        : item.work.title.trim();
+    final albumLabel = item.albumTitle.trim().isNotEmpty
+        ? item.albumTitle.trim()
+        : item.work.title.trim();
+
+    unawaited(
+      _mediaSessionBridge.syncSession(
+        trackId: item.id,
+        title: item.title,
+        artist: artistLabel,
+        album: albumLabel,
+        durationSeconds: state.durationSeconds,
+        positionSeconds: state.positionSeconds,
+        isPlaying: state.isPlaying,
+        coverKey: coverKey,
+        coverBytes: coverBytes,
+        forcePositionSync: forcePositionSync,
+      ),
+    );
+  }
+
+  void _warmPosterBytesForNotification(String cacheKey, String url) {
+    if (url.isEmpty || _loadingPosterNotificationKeys.contains(cacheKey)) {
+      return;
+    }
+    _loadingPosterNotificationKeys.add(cacheKey);
+    unawaited(() async {
+      try {
+        final loader = _ref.read(tmdbImageLoaderProvider);
+        final bytes = await loader(url, targetWidth: 512);
+        if (bytes.isEmpty || !mounted) return;
+        _posterNotificationBytesCache.remove(cacheKey);
+        _posterNotificationBytesCache[cacheKey] = bytes;
+        while (_posterNotificationBytesCache.length > 16) {
+          _posterNotificationBytesCache.remove(
+            _posterNotificationBytesCache.keys.first,
+          );
+        }
+        _syncAndroidMediaSession();
+      } catch (_) {
+      } finally {
+        _loadingPosterNotificationKeys.remove(cacheKey);
+      }
+    }());
+  }
 
   static const Duration _cueSeekDebounceWindow = Duration(milliseconds: 900);
   static const int _maxAlbumCacheEntries = 32;
@@ -2009,6 +2155,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       activeLyricIndex: lyricIdx,
       isBuffering: cachedHit ? false : state.isBuffering,
     );
+    _syncAndroidMediaSession(forcePositionSync: true);
     unawaited(
       _persistAudioProgress(
         item,
@@ -2199,6 +2346,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       c.command(['stop']);
     }
     _volumeBeforeDuck = null;
+    await _mediaSessionBridge.stopSession();
     await AndroidPlaybackWindowBridge.abandonAudioFocus();
     await _releaseActiveStreamSession();
     _ref.read(immersiveAudioExpandedProvider.notifier).state = false;
@@ -2263,6 +2411,8 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   @override
   void dispose() {
     ++_loadGeneration;
+    unawaited(_mediaSessionBridge.stopSession());
+    _mediaSessionBridge.dispose();
     unawaited(_eventSub?.cancel());
     _eventSub = null;
     unawaited(_releaseActiveStreamSession());

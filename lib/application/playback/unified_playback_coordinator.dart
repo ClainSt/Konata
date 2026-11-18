@@ -130,7 +130,7 @@ class AndroidPlaybackWindowBridge {
     } catch (_) {}
   }
 
-  /// 统一协同 `SystemChrome` 与原生窗口方向控制，视频播放强制横屏、退出视频或纯音频恢复全向。
+  /// 统一协同 `SystemChrome` 与原生窗口方向控制，视频播放强制横屏、退出或收起时立即释放全向旋转。
   static Future<void> applyVideoOrientationAndWindow({
     required bool landscape,
     bool hideSystemBars = false,
@@ -143,11 +143,13 @@ class AndroidPlaybackWindowBridge {
                 DeviceOrientation.landscapeLeft,
                 DeviceOrientation.landscapeRight,
               ]
-            : const <DeviceOrientation>[],
+            : DeviceOrientation.values,
       );
     } catch (_) {}
-    await setLandscapePreferred(landscape);
-    await setSystemBarsHidden(hideSystemBars);
+    await Future.wait(<Future<void>>[
+      setLandscapePreferred(landscape),
+      setSystemBarsHidden(hideSystemBars),
+    ]);
   }
 
   /// 开启 Android 播放传感器旋转支持。
@@ -161,6 +163,9 @@ class AndroidPlaybackWindowBridge {
   /// 退出 Android 播放窗口系统栏隐藏与方向覆写。
   static Future<void> endWindow() async {
     if (!KonataPlatform.isAndroid) return;
+    try {
+      await SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    } catch (_) {}
     try {
       await _windowChannel.invokeMethod<void>('setBrightness', -1.0);
     } catch (_) {}
@@ -562,6 +567,11 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
     if (willEnterPip) return;
     if (vidState.isPlaying) {
       _ref.read(videoPlaybackProvider(req).notifier).setPlayingPausedByLifecycle();
+    }
+    if (KonataPlatform.isAndroid) {
+      unawaited(
+        SystemChrome.setPreferredOrientations(DeviceOrientation.values),
+      );
     }
     await AndroidPlaybackWindowBridge.abandonAudioFocus();
   }

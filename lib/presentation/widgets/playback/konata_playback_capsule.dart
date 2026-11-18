@@ -201,10 +201,14 @@ class KonataPlaybackCapsule extends StatefulWidget {
     this.previewThumbnailResolver,
     this.onPreviewHoverSecondsChanged,
     this.maxWidth,
+    this.enableBackdropBlur = true,
   });
 
   /// 可选最大宽度覆写（例如平板端底部控制坞限制为 `640dp`）。
   final double? maxWidth;
+
+  /// 是否启用底层高斯模糊（Android 硬件视频前景可关闭以消除透明覆盖层双影）。
+  final bool enableBackdropBlur;
 
   /// 当前播放秒数。
   final double positionSeconds;
@@ -321,7 +325,9 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
       alwaysShowHours: showHours,
     );
 
-    final bgColor = KonataPlaybackTokens.glassSurface(p);
+    final bgColor = widget.enableBackdropBlur
+        ? KonataPlaybackTokens.glassSurface(p)
+        : (p.isDark ? const Color(0xCC161618) : p.surface);
     final borderColor = KonataPlaybackTokens.glassBorder(p);
     final primaryFg = p.textPrimary;
     final secondaryFg = p.isDark ? p.textSecondary : p.textPrimary;
@@ -509,262 +515,295 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(effectiveRadius),
-                      child: BackdropFilter(
-                        filter: ImageFilter.blur(
-                          sigmaX: KonataPlaybackTokens.capsuleBlurSigma,
-                          sigmaY: KonataPlaybackTokens.capsuleBlurSigma,
-                        ),
-                        child: Container(
-                          height: effectiveHeight,
-                          decoration: BoxDecoration(
-                            color: bgColor,
-                            borderRadius: BorderRadius.circular(
-                              effectiveRadius,
+                      child: Builder(
+                        builder: (context) {
+                          final capsuleSurface = Container(
+                            height: effectiveHeight,
+                            decoration: BoxDecoration(
+                              color: bgColor,
+                              borderRadius: BorderRadius.circular(
+                                effectiveRadius,
+                              ),
                             ),
-                          ),
-                          child: Stack(
-                            children: [
-                              // 1. 响应式三区对称枢轴主控内容区（宽屏锁死播放/暂停键圆心位于胶囊 50.0% 绝对正中心；窄窗优雅降级防溢出）
-                              Padding(
-                                padding: touch
-                                    ? const EdgeInsets.fromLTRB(14, 2, 10, 10)
-                                    : KonataPlaybackTokens.capsulePadding,
-                                child: LayoutBuilder(
-                                  builder: (context, rowConstraints) {
-                                    final playPauseButton = KeyedSubtree(
-                                      key: const ValueKey(
-                                        'konata_capsule_play_pause_button',
-                                      ),
-                                      child: KonataCapsuleIconButton(
-                                        icon: widget.isPlaying
-                                            ? Icons.pause_rounded
-                                            : Icons.play_arrow_rounded,
-                                        tooltip: widget.isPlaying ? '暂停' : '播放',
+                            child: Stack(
+                              children: [
+                                // 1. 响应式三区对称枢轴主控内容区（锁死上一话/播放暂停/下一话严格位于胶囊 50.0% 绝对正中心）
+                                Padding(
+                                  padding: touch
+                                      ? const EdgeInsets.fromLTRB(12, 2, 12, 10)
+                                      : KonataPlaybackTokens.capsulePadding,
+                                  child: LayoutBuilder(
+                                    builder: (context, rowConstraints) {
+                                      final playPauseButton = KeyedSubtree(
+                                        key: const ValueKey(
+                                          'konata_capsule_play_pause_button',
+                                        ),
+                                        child: KonataCapsuleIconButton(
+                                          icon: widget.isPlaying
+                                              ? Icons.pause_rounded
+                                              : Icons.play_arrow_rounded,
+                                          tooltip: widget.isPlaying
+                                              ? '暂停'
+                                              : '播放',
+                                          color: primaryFg,
+                                          size: 24,
+                                          fixedSize: playFixedSize,
+                                          borderRadius: 999,
+                                          padding: EdgeInsets.zero,
+                                          onTap: widget.onTogglePlayPause,
+                                        ),
+                                      );
+                                      final prevSlot = KonataCapsuleIconButton(
+                                        icon: Icons.skip_previous_rounded,
+                                        tooltip: '上一项',
                                         color: primaryFg,
-                                        size: 24,
-                                        fixedSize: playFixedSize,
-                                        borderRadius: 999,
+                                        size: 20,
+                                        fixedSize: actionFixedSize,
+                                        borderRadius: KonataPlaybackTokens
+                                            .immersiveSwitchButtonRadius,
                                         padding: EdgeInsets.zero,
-                                        onTap: widget.onTogglePlayPause,
-                                      ),
-                                    );
-                                    final prevSlot = KonataCapsuleIconButton(
-                                      icon: Icons.skip_previous_rounded,
-                                      tooltip: '上一项',
-                                      color: primaryFg,
-                                      size: 20,
-                                      fixedSize: actionFixedSize,
-                                      borderRadius: KonataPlaybackTokens
-                                          .immersiveSwitchButtonRadius,
-                                      padding: EdgeInsets.zero,
-                                      onTap: widget.onPrevious,
-                                    );
-                                    final nextSlot = KonataCapsuleIconButton(
-                                      icon: Icons.skip_next_rounded,
-                                      tooltip: '下一项',
-                                      color: primaryFg,
-                                      size: 20,
-                                      fixedSize: actionFixedSize,
-                                      borderRadius: KonataPlaybackTokens
-                                          .immersiveSwitchButtonRadius,
-                                      padding: EdgeInsets.zero,
-                                      onTap: widget.onNext,
-                                    );
-                                    final listButton =
-                                        widget.onToggleList != null
-                                        ? KonataCapsuleIconButton(
-                                            icon: Icons.menu_rounded,
-                                            tooltip: widget.listTooltip,
-                                            color: primaryFg,
-                                            size: 18,
-                                            fixedSize: actionFixedSize,
-                                            borderRadius: KonataPlaybackTokens
-                                                .immersiveSwitchButtonRadius,
-                                            padding: EdgeInsets.zero,
-                                            highlighted: widget.isListActive,
-                                            highlightColor: accentFg,
-                                            showHighlightBorder: false,
-                                            onTap: widget.onToggleList,
-                                          )
-                                        : null;
+                                        onTap: widget.onPrevious,
+                                      );
+                                      final nextSlot = KonataCapsuleIconButton(
+                                        icon: Icons.skip_next_rounded,
+                                        tooltip: '下一项',
+                                        color: primaryFg,
+                                        size: 20,
+                                        fixedSize: actionFixedSize,
+                                        borderRadius: KonataPlaybackTokens
+                                            .immersiveSwitchButtonRadius,
+                                        padding: EdgeInsets.zero,
+                                        onTap: widget.onNext,
+                                      );
+                                      final listButton =
+                                          widget.onToggleList != null
+                                          ? KonataCapsuleIconButton(
+                                              icon: Icons.menu_rounded,
+                                              tooltip: widget.listTooltip,
+                                              color: primaryFg,
+                                              size: 18,
+                                              fixedSize: actionFixedSize,
+                                              borderRadius: KonataPlaybackTokens
+                                                  .immersiveSwitchButtonRadius,
+                                              padding: EdgeInsets.zero,
+                                              highlighted: widget.isListActive,
+                                              highlightColor: accentFg,
+                                              showHighlightBorder: false,
+                                              onTap: widget.onToggleList,
+                                            )
+                                          : null;
 
-                                    final symmetricMinWidth = touch
-                                        ? 620.0
-                                        : (KonataPlaybackTokens
-                                                  .capsuleCenterSymmetricBreakpoint -
-                                              KonataPlaybackTokens
-                                                  .capsulePadding
-                                                  .horizontal);
-                                    final useSymmetricCenter =
-                                        rowConstraints.maxWidth >=
-                                        symmetricMinWidth;
+                                      final symmetricMinWidth = touch
+                                          ? 420.0
+                                          : (KonataPlaybackTokens
+                                                    .capsuleCenterSymmetricBreakpoint -
+                                                KonataPlaybackTokens
+                                                    .capsulePadding
+                                                    .horizontal);
+                                      final useSymmetricCenter =
+                                          rowConstraints.maxWidth >=
+                                          symmetricMinWidth;
 
-                                    if (useSymmetricCenter) {
+                                      if (useSymmetricCenter) {
+                                        final centerGap = touch ? 6.0 : 12.0;
+                                        return Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.center,
+                                          children: [
+                                            Expanded(
+                                              child: Row(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.center,
+                                                children: [
+                                                  Expanded(child: leftContent),
+                                                  if (widget
+                                                          .leadingCenterButton !=
+                                                      null) ...[
+                                                    const SizedBox(width: 4),
+                                                    widget.leadingCenterButton!,
+                                                  ],
+                                                ],
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Row(
+                                              key: const ValueKey(
+                                                'konata_capsule_center_transport',
+                                              ),
+                                              mainAxisSize: MainAxisSize.min,
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.center,
+                                              children: [
+                                                prevSlot,
+                                                SizedBox(width: centerGap),
+                                                playPauseButton,
+                                                SizedBox(width: centerGap),
+                                                nextSlot,
+                                              ],
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Align(
+                                                alignment:
+                                                    Alignment.centerRight,
+                                                child: FittedBox(
+                                                  fit: BoxFit.scaleDown,
+                                                  alignment:
+                                                      Alignment.centerRight,
+                                                  child: Row(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .center,
+                                                    children: [
+                                                      if (listButton !=
+                                                          null) ...[
+                                                        listButton,
+                                                        if (widget
+                                                                .trailingCenterButtons
+                                                                .isNotEmpty ||
+                                                            widget.rightSlot !=
+                                                                null)
+                                                          const SizedBox(
+                                                            width: 2,
+                                                          ),
+                                                      ],
+                                                      if (widget
+                                                          .trailingCenterButtons
+                                                          .isNotEmpty) ...[
+                                                        Row(
+                                                          mainAxisSize:
+                                                              MainAxisSize.min,
+                                                          children: widget
+                                                              .trailingCenterButtons,
+                                                        ),
+                                                        if (widget.rightSlot !=
+                                                            null)
+                                                          const SizedBox(
+                                                            width: 4,
+                                                          ),
+                                                      ],
+                                                      if (widget.rightSlot !=
+                                                          null)
+                                                        widget.rightSlot!,
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        );
+                                      }
+
+                                      final ultraCompactTouch =
+                                          touch &&
+                                          rowConstraints.maxWidth < 350.0;
                                       return Row(
                                         crossAxisAlignment:
                                             CrossAxisAlignment.center,
                                         children: [
-                                          Expanded(
-                                            child: Row(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.center,
-                                              children: [
-                                                Expanded(child: leftContent),
-                                                if (widget
-                                                        .leadingCenterButton !=
-                                                    null) ...[
-                                                  const SizedBox(width: 8),
-                                                  widget.leadingCenterButton!,
-                                                ],
-                                              ],
-                                            ),
-                                          ),
-                                          const SizedBox(width: 12),
+                                          Expanded(child: leftContent),
+                                          const SizedBox(width: 8),
                                           Row(
                                             mainAxisSize: MainAxisSize.min,
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.center,
                                             children: [
-                                              prevSlot,
-                                              const SizedBox(width: 12),
+                                              ?widget.leadingCenterButton,
+                                              if (widget.onPrevious != null &&
+                                                  !ultraCompactTouch)
+                                                prevSlot,
                                               playPauseButton,
-                                              const SizedBox(width: 12),
-                                              nextSlot,
+                                              if (widget.onNext != null &&
+                                                  !ultraCompactTouch)
+                                                nextSlot,
+                                              ?listButton,
+                                              if (!ultraCompactTouch)
+                                                ...widget.trailingCenterButtons,
                                             ],
                                           ),
-                                          const SizedBox(width: 12),
-                                          Expanded(
-                                            child: Row(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.center,
-                                              children: [
-                                                if (listButton != null) ...[
-                                                  listButton,
-                                                  if (widget
-                                                      .trailingCenterButtons
-                                                      .isNotEmpty)
-                                                    const SizedBox(width: 4),
-                                                ],
-                                                if (widget
-                                                    .trailingCenterButtons
-                                                    .isNotEmpty)
-                                                  Row(
-                                                    mainAxisSize:
-                                                        MainAxisSize.min,
-                                                    children: widget
-                                                        .trailingCenterButtons,
-                                                  ),
-                                                const SizedBox(width: 6),
-                                                if (widget.rightSlot != null)
-                                                  Expanded(
-                                                    child: Align(
-                                                      alignment:
-                                                          Alignment.centerRight,
-                                                      child: widget.rightSlot!,
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
-                                          ),
+                                          if (widget.rightSlot != null) ...[
+                                            const SizedBox(width: 8),
+                                            widget.rightSlot!,
+                                          ],
                                         ],
                                       );
-                                    }
-
-                                    final ultraCompactTouch =
-                                        touch && rowConstraints.maxWidth < 350.0;
-                                    return Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.center,
-                                      children: [
-                                        Expanded(child: leftContent),
-                                        const SizedBox(width: 8),
-                                        Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            ?widget.leadingCenterButton,
-                                            if (widget.onPrevious != null &&
-                                                !ultraCompactTouch)
-                                              prevSlot,
-                                            playPauseButton,
-                                            if (widget.onNext != null &&
-                                                !ultraCompactTouch)
-                                              nextSlot,
-                                            ?listButton,
-                                            if (!ultraCompactTouch)
-                                              ...widget.trailingCenterButtons,
-                                          ],
-                                        ),
-                                        if (widget.rightSlot != null) ...[
-                                          const SizedBox(width: 8),
-                                          widget.rightSlot!,
-                                        ],
-                                      ],
-                                    );
-                                  },
+                                    },
+                                  ),
                                 ),
-                              ),
-                              // 2. 胶囊内部底置内缩全圆角细滑轨（无深色矩形热区背景盒）与 45° 菱形章节点
-                              Positioned(
-                                left: inset,
-                                right: inset,
-                                bottom: 0,
-                                height: KonataPlaybackTokens
-                                    .capsuleProgressHitHeight,
-                                child: _InsetBottomProgressRail(
-                                  progressRatio: progressRatio,
-                                  totalDurationSeconds: total,
-                                  chapters: widget.chapters,
-                                  activeChapterIndex: activeChapterIndex,
-                                  hovered:
-                                      _progressHovered || _dragSeconds != null,
-                                  activeColor: accentFg,
-                                  inactiveColor: trackInactive,
-                                  onHoverChanged: (hovering, ratio) {
-                                    setState(() {
-                                      _progressHovered = hovering;
-                                      _hoverRatio = hovering ? ratio : null;
-                                    });
-                                    if (hovering &&
-                                        ratio != null &&
-                                        total > 0) {
-                                      _notifyPreviewSeconds(ratio * total);
-                                    } else if (_dragSeconds == null) {
-                                      _notifyPreviewSeconds(null);
-                                    }
-                                  },
-                                  onScrubStartOrUpdate: (ratio) {
-                                    if (total <= 0) return;
-                                    final sec = ratio * total;
-                                    setState(() {
-                                      _dragSeconds = sec;
-                                      _hoverRatio = ratio;
-                                    });
-                                    _notifyPreviewSeconds(sec);
-                                  },
-                                  onScrubEnd: () {
-                                    final target = _dragSeconds;
-                                    setState(() => _dragSeconds = null);
-                                    if (!_progressHovered) {
-                                      _notifyPreviewSeconds(null);
-                                    }
-                                    if (target != null && total > 0) {
+                                // 2. 胶囊内部底置内缩全圆角细滑轨与 45° 菱形章节点
+                                Positioned(
+                                  left: inset,
+                                  right: inset,
+                                  bottom: 0,
+                                  height: KonataPlaybackTokens
+                                      .capsuleProgressHitHeight,
+                                  child: _InsetBottomProgressRail(
+                                    progressRatio: progressRatio,
+                                    totalDurationSeconds: total,
+                                    chapters: widget.chapters,
+                                    activeChapterIndex: activeChapterIndex,
+                                    hovered:
+                                        _progressHovered ||
+                                        _dragSeconds != null,
+                                    activeColor: accentFg,
+                                    inactiveColor: trackInactive,
+                                    onHoverChanged: (hovering, ratio) {
+                                      setState(() {
+                                        _progressHovered = hovering;
+                                        _hoverRatio = hovering ? ratio : null;
+                                      });
+                                      if (hovering &&
+                                          ratio != null &&
+                                          total > 0) {
+                                        _notifyPreviewSeconds(ratio * total);
+                                      } else if (_dragSeconds == null) {
+                                        _notifyPreviewSeconds(null);
+                                      }
+                                    },
+                                    onScrubStartOrUpdate: (ratio) {
+                                      if (total <= 0) return;
+                                      final sec = ratio * total;
+                                      setState(() {
+                                        _dragSeconds = sec;
+                                        _hoverRatio = ratio;
+                                      });
+                                      _notifyPreviewSeconds(sec);
+                                    },
+                                    onScrubEnd: () {
+                                      final target = _dragSeconds;
+                                      setState(() => _dragSeconds = null);
+                                      if (!_progressHovered) {
+                                        _notifyPreviewSeconds(null);
+                                      }
+                                      if (target != null && total > 0) {
+                                        widget.onSeek(target);
+                                      }
+                                    },
+                                    onScrubCommitRatio: (ratio) {
+                                      if (total <= 0) return;
+                                      final target = ratio * total;
+                                      setState(() => _dragSeconds = null);
+                                      if (!_progressHovered) {
+                                        _notifyPreviewSeconds(null);
+                                      }
                                       widget.onSeek(target);
-                                    }
-                                  },
-                                  onScrubCommitRatio: (ratio) {
-                                    if (total <= 0) return;
-                                    final target = ratio * total;
-                                    setState(() => _dragSeconds = null);
-                                    if (!_progressHovered) {
-                                      _notifyPreviewSeconds(null);
-                                    }
-                                    widget.onSeek(target);
-                                  },
+                                    },
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
-                        ),
+                              ],
+                            ),
+                          );
+                          if (!widget.enableBackdropBlur) {
+                            return capsuleSurface;
+                          }
+                          return BackdropFilter(
+                            filter: ImageFilter.blur(
+                              sigmaX: KonataPlaybackTokens.capsuleBlurSigma,
+                              sigmaY: KonataPlaybackTokens.capsuleBlurSigma,
+                            ),
+                            child: capsuleSurface,
+                          );
+                        },
                       ),
                     ),
                   ),

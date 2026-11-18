@@ -17,8 +17,9 @@ abstract final class KonataAdaptiveTokens {
   static const touchTarget = 48.0;
   static const navigationPadding = 4.0;
   static const safeGap = 8.0;
+  static const capsuleStackGap = 10.0;
   static const horizontalInset = 12.0;
-  static const tabletBottomInset = 16.0;
+  static const tabletBottomInset = 18.0;
   static const playerHeight = 64.0;
   static const playerMaxWidth = 600.0;
   static const tabletPlayerMaxWidth = 640.0;

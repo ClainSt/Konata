@@ -174,6 +174,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
               icon: Icons.add_rounded,
               label: '添加媒体源',
               highlighted: true,
+              preserveWideWidgetOnNarrow: true,
               wideWidget: KonataPillButton.primary(
                 label: '添加媒体源',
                 icon: Icons.add_rounded,

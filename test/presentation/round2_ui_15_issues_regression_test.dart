@@ -298,7 +298,7 @@ void main() {
       await tester.tap(animBCheck.first);
       await tester.pump();
 
-      expect(find.text('已选目录 · 2'), findsOneWidget);
+      expect(find.text('已选目录 · 2（点击管理）'), findsOneWidget);
 
       // 点击紧凑入口栏切换到整窗「已选目录管理视图」
       await tester.tap(find.byKey(const ValueKey('source_selected_scope_entry')));

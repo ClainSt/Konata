@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
+import '../widgets/design_system/konata_draggable_scrollbar.dart';
 
 /// 详情页公共高透运维胶囊（展开态在齿轮左侧展示「完整列表」与可选「收起」图标，齿轮固定最右侧并弹出管理菜单）。
 class DetailOpsCapsule extends StatefulWidget {
@@ -66,6 +67,7 @@ class DetailOpsCapsule extends StatefulWidget {
 
 class _DetailOpsCapsuleState extends State<DetailOpsCapsule> {
   final LayerLink _gearLink = LayerLink();
+  final GlobalKey _gearButtonKey = GlobalKey();
   OverlayEntry? _gearMenuEntry;
 
   @override
@@ -79,16 +81,25 @@ class _DetailOpsCapsuleState extends State<DetailOpsCapsule> {
     _gearMenuEntry = null;
   }
 
+  Rect? _resolveGearButtonRect() {
+    final box = _gearButtonKey.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return null;
+    final topLeft = box.localToGlobal(Offset.zero);
+    return topLeft & box.size;
+  }
+
   void _toggleMenu() {
     if (_gearMenuEntry != null) {
       _closeMenu();
       setState(() {});
       return;
     }
+    final anchorRect = _resolveGearButtonRect();
     final overlay = Overlay.of(context, rootOverlay: true);
     _gearMenuEntry = OverlayEntry(
       builder: (_) => DetailGearMenuOverlay(
         link: _gearLink,
+        anchorRect: anchorRect,
         openDownward: widget.openDownward,
         onDismiss: () {
           _closeMenu();
@@ -165,6 +176,7 @@ class _DetailOpsCapsuleState extends State<DetailOpsCapsule> {
                   const SizedBox(width: 2),
                 ],
                 CompositedTransformTarget(
+                  key: _gearButtonKey,
                   link: _gearLink,
                   child: DetailDrawerHeaderButton(
                     icon: Icons.settings_rounded,
@@ -182,8 +194,8 @@ class _DetailOpsCapsuleState extends State<DetailOpsCapsule> {
   }
 }
 
-/// 详情页底部齿轮向上或右上角齿轮向下弹出的高透毛玻璃作品管理菜单。
-class DetailGearMenuOverlay extends StatelessWidget {
+/// 详情页齿轮弹出的高透毛玻璃作品管理菜单（自适应展开方向并严格钳制安全区高度，支持纵向滚动）。
+class DetailGearMenuOverlay extends StatefulWidget {
   /// 创建悬浮作品管理菜单。
   const DetailGearMenuOverlay({
     super.key,
@@ -198,6 +210,7 @@ class DetailGearMenuOverlay extends StatelessWidget {
     required this.onDeleteWork,
     required this.onRescrape,
     required this.onOpenLocalDir,
+    this.anchorRect,
     this.onManageSeries,
     this.onMergeWork,
     this.openDownward = false,
@@ -206,13 +219,16 @@ class DetailGearMenuOverlay extends StatelessWidget {
   /// 锚定在齿轮图标上的坐标连接器。
   final LayerLink link;
 
+  /// 齿轮按钮在屏幕坐标系中的全局包围盒（用于精确计算上下可用安全区高度）。
+  final Rect? anchorRect;
+
   /// 点击空白处关闭回调。
   final VoidCallback onDismiss;
 
   /// 执行某项并关闭菜单的包裹器。
   final ValueChanged<VoidCallback> onSelect;
 
-  /// 6 个管理动作 + 管理系列 + 刷新元数据 + 打开本地目录回调。
+  /// 各项作品管理操作回调。
   final VoidCallback onManualMatch;
   final VoidCallback onManualEdit;
   final VoidCallback onEditPoster;
@@ -224,33 +240,64 @@ class DetailGearMenuOverlay extends StatelessWidget {
   final VoidCallback? onManageSeries;
   final VoidCallback? onMergeWork;
 
-  /// 是否向下展开（Android 手机右上角齿轮置顶时需向下弹出避免裁切）。
+  /// 首选是否向下展开（当首选方向剩余高度不足时会自动翻转至空间更大的一侧）。
   final bool openDownward;
+
+  @override
+  State<DetailGearMenuOverlay> createState() => _DetailGearMenuOverlayState();
+}
+
+class _DetailGearMenuOverlayState extends State<DetailGearMenuOverlay> {
+  final ScrollController _scrollCtrl = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final maxMenuH = math.max(
-      180.0,
-      MediaQuery.sizeOf(context).height - MediaQuery.paddingOf(context).vertical - 88.0,
+    final screen = MediaQuery.sizeOf(context);
+    final safe = MediaQuery.viewPaddingOf(context);
+    final totalSafeHeight = math.max(
+      140.0,
+      screen.height - safe.vertical - 24.0,
     );
+
+    var effectiveDownward = widget.openDownward;
+    var maxMenuH = totalSafeHeight;
+    final rect = widget.anchorRect;
+    if (rect != null) {
+      final spaceAbove = rect.top - safe.top - 16.0;
+      final spaceBelow = screen.height - safe.bottom - rect.bottom - 16.0;
+      final preferredSpace = effectiveDownward ? spaceBelow : spaceAbove;
+      final oppositeSpace = effectiveDownward ? spaceAbove : spaceBelow;
+      if (preferredSpace < 240.0 && oppositeSpace > preferredSpace + 24.0) {
+        effectiveDownward = !effectiveDownward;
+      }
+      final chosenSpace = effectiveDownward ? spaceBelow : spaceAbove;
+      maxMenuH = math.min(totalSafeHeight, math.max(120.0, chosenSpace));
+    }
+
     return Stack(
       children: [
         Positioned.fill(
           child: GestureDetector(
             behavior: HitTestBehavior.translucent,
-            onTap: onDismiss,
+            onTap: widget.onDismiss,
           ),
         ),
         CompositedTransformFollower(
-          link: link,
-          targetAnchor: openDownward
+          link: widget.link,
+          targetAnchor: effectiveDownward
               ? Alignment.bottomRight
               : Alignment.topRight,
-          followerAnchor: openDownward
+          followerAnchor: effectiveDownward
               ? Alignment.topRight
               : Alignment.bottomRight,
-          offset: Offset(0, openDownward ? 8 : -12),
+          offset: Offset(0, effectiveDownward ? 8 : -8),
           child: Material(
             color: Colors.transparent,
             child: ClipRRect(
@@ -258,6 +305,7 @@ class DetailGearMenuOverlay extends StatelessWidget {
               child: BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
                 child: Container(
+                  key: const ValueKey('detail_gear_menu_container'),
                   width: 218,
                   constraints: BoxConstraints(maxHeight: maxMenuH),
                   padding: const EdgeInsets.symmetric(vertical: 6),
@@ -275,72 +323,78 @@ class DetailGearMenuOverlay extends StatelessWidget {
                       ),
                     ],
                   ),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _MenuRow(
-                          icon: Icons.manage_search_rounded,
-                          label: '绑定元数据',
-                          onTap: () => onSelect(onManualMatch),
-                        ),
-                        _MenuRow(
-                          icon: Icons.edit_note_rounded,
-                          label: '手动编辑',
-                          onTap: () => onSelect(onManualEdit),
-                        ),
-                        _MenuRow(
-                          icon: Icons.image_outlined,
-                          label: '编辑封面',
-                          onTap: () => onSelect(onEditPoster),
-                        ),
-                        _MenuRow(
-                          icon: Icons.wallpaper_rounded,
-                          label: '编辑背景图',
-                          onTap: () => onSelect(onEditBackdrop),
-                        ),
-                        _MenuRow(
-                          icon: Icons.layers_rounded,
-                          label: '管理系列编组',
-                          onTap: () {
-                            final fn = onManageSeries;
-                            if (fn != null) {
-                              onSelect(fn);
-                            } else {
-                              onDismiss();
-                            }
-                          },
-                        ),
-                        if (onMergeWork != null)
+                  child: KonataDraggableScrollbar(
+                    controller: _scrollCtrl,
+                    builder: (_, ctrl) => SingleChildScrollView(
+                      controller: ctrl,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
                           _MenuRow(
-                            icon: Icons.merge_type_rounded,
-                            label: '合并整部作品至其他条目...',
-                            onTap: () => onSelect(onMergeWork!),
+                            icon: Icons.manage_search_rounded,
+                            label: '绑定元数据',
+                            onTap: () => widget.onSelect(widget.onManualMatch),
                           ),
-                        _MenuRow(
-                          icon: Icons.visibility_off_outlined,
-                          label: '隐藏作品',
-                          onTap: () => onSelect(onHideWork),
-                        ),
-                        _MenuRow(
-                          icon: Icons.delete_outline_rounded,
-                          label: '删除作品',
-                          isDanger: true,
-                          onTap: () => onSelect(onDeleteWork),
-                        ),
-                        Divider(height: 10, color: p.hairline),
-                        _MenuRow(
-                          icon: Icons.refresh_rounded,
-                          label: '重新抓取 TMDB 数据',
-                          onTap: () => onSelect(onRescrape),
-                        ),
-                        if (KonataAdaptiveTokens.isWindows)
                           _MenuRow(
-                            icon: Icons.folder_open_rounded,
-                            label: '打开本地所在文件夹',
-                            onTap: () => onSelect(onOpenLocalDir),
+                            icon: Icons.edit_note_rounded,
+                            label: '手动编辑',
+                            onTap: () => widget.onSelect(widget.onManualEdit),
                           ),
-                      ],
+                          _MenuRow(
+                            icon: Icons.image_outlined,
+                            label: '编辑封面',
+                            onTap: () => widget.onSelect(widget.onEditPoster),
+                          ),
+                          _MenuRow(
+                            icon: Icons.wallpaper_rounded,
+                            label: '编辑背景图',
+                            onTap: () => widget.onSelect(widget.onEditBackdrop),
+                          ),
+                          _MenuRow(
+                            icon: Icons.layers_rounded,
+                            label: '管理系列编组',
+                            onTap: () {
+                              final fn = widget.onManageSeries;
+                              if (fn != null) {
+                                widget.onSelect(fn);
+                              } else {
+                                widget.onDismiss();
+                              }
+                            },
+                          ),
+                          if (widget.onMergeWork != null)
+                            _MenuRow(
+                              icon: Icons.merge_type_rounded,
+                              label: '合并整部作品至其他条目...',
+                              onTap: () =>
+                                  widget.onSelect(widget.onMergeWork!),
+                            ),
+                          _MenuRow(
+                            icon: Icons.visibility_off_outlined,
+                            label: '隐藏作品',
+                            onTap: () => widget.onSelect(widget.onHideWork),
+                          ),
+                          _MenuRow(
+                            icon: Icons.delete_outline_rounded,
+                            label: '删除作品',
+                            isDanger: true,
+                            onTap: () => widget.onSelect(widget.onDeleteWork),
+                          ),
+                          Divider(height: 10, color: p.hairline),
+                          _MenuRow(
+                            icon: Icons.refresh_rounded,
+                            label: '重新抓取 TMDB 数据',
+                            onTap: () => widget.onSelect(widget.onRescrape),
+                          ),
+                          if (KonataAdaptiveTokens.isWindows)
+                            _MenuRow(
+                              icon: Icons.folder_open_rounded,
+                              label: '打开本地所在文件夹',
+                              onTap: () =>
+                                  widget.onSelect(widget.onOpenLocalDir),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),

@@ -320,50 +320,6 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                                   color: Colors.white.withValues(alpha: 0.72),
                                 ),
                               ),
-                        if (KonataAdaptiveTokens.isAndroid)
-                          Positioned(
-                            left: 0,
-                            top: 0,
-                            child: Builder(
-                              builder: (btnContext) => GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTap: () {
-                                  final box =
-                                      btnContext.findRenderObject()
-                                          as RenderBox?;
-                                  final pos = box != null
-                                      ? box.localToGlobal(
-                                          box.size.center(Offset.zero),
-                                        )
-                                      : Offset.zero;
-                                  _showEpisodeMenu(pos);
-                                },
-                                child: SizedBox.square(
-                                  key: ValueKey('episode_more_${ep.id}'),
-                                  dimension: KonataAdaptiveTokens.touchTarget,
-                                  child: Align(
-                                    alignment: Alignment.topLeft,
-                                    child: Container(
-                                      margin: const EdgeInsets.all(6),
-                                      width: 28,
-                                      height: 28,
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withValues(
-                                          alpha: 0.56,
-                                        ),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: const Icon(
-                                        Icons.more_horiz_rounded,
-                                        size: 16,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
                         if (hasProgressBadge)
                           Positioned(
                             top: 6,

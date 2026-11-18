@@ -300,7 +300,7 @@ class EmbeddedMpvSession {
               )
               .cast<AndroidSurfaceDescriptor>()
               .first
-              .timeout(const Duration(milliseconds: 2500));
+              .timeout(const Duration(milliseconds: 350));
         } on TimeoutException {
           desc = ctrl.current;
         }

@@ -52,11 +52,11 @@ abstract final class KonataTheme {
   static const double pageHeaderBottomSpacing = 16.0;
 
   /// 全局动画时序与曲线 Token。
-  static const Duration standardTransition = Duration(milliseconds: 200);
-  static const Duration capsuleSlideDuration = Duration(milliseconds: 220);
-  static const Duration panelSwitchDuration = Duration(milliseconds: 180);
-  static const Duration navSliderDuration = Duration(milliseconds: 260);
-  static const Duration tabSwitchDuration = Duration(milliseconds: 220);
+  static const Duration standardTransition = Duration(milliseconds: 95);
+  static const Duration capsuleSlideDuration = Duration(milliseconds: 100);
+  static const Duration panelSwitchDuration = Duration(milliseconds: 85);
+  static const Duration navSliderDuration = Duration(milliseconds: 220);
+  static const Duration tabSwitchDuration = Duration(milliseconds: 100);
   static const Duration settingsAutoSaveDebounce = Duration(milliseconds: 300);
 
   /// 弹窗视口安全边界留白。

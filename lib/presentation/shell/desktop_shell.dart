@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/library_providers.dart';
 import '../../application/playback/playback_preferences_provider.dart';
+import '../../application/playback/unified_playback_coordinator.dart';
 import '../../application/providers/theme_providers.dart';
 import '../audio/mini_audio_bar.dart';
 import '../history/playback_history_page.dart';
@@ -59,12 +60,16 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
           ref.watch(capsuleNavigationHiddenProvider) ||
           ref.watch(immersiveAudioExpandedProvider) ||
           ref.watch(videoPlaybackActiveProvider);
+      final isVideoMini = ref.watch(
+        activeVideoSessionProvider.select((s) => s.isMinimized),
+      );
       final geometry = AdaptiveCapsuleLayout(
         size: MediaQuery.sizeOf(context),
-        safe: MediaQuery.paddingOf(context),
+        safe: AdaptiveCapsuleLayout.effectiveSafeInsetsOf(context),
         android: true,
         playerVisible: bottomClearance > 0,
         navigationVisible: !hidden,
+        isVideoMini: isVideoMini,
       );
       return CallbackShortcuts(
         bindings: {

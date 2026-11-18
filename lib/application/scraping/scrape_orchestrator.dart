@@ -1,3 +1,4 @@
+import '../../domain/formatting/network_error_sanitizer.dart';
 import '../../domain/matching/directory_grouper.dart';
 import '../../domain/matching/episode_remapper.dart';
 import '../../domain/matching/work_matcher.dart';
@@ -186,7 +187,7 @@ class ScrapeOrchestrator {
         }
         emit(tracker.advance(currentItemName: folder.cleanTitle));
 
-        final result = await _processSingleFolder(source.id, folder);
+        final result = await _processSingleFolderSafe(source.id, folder);
         activeWorkIds.add(result.workId);
         for (final v in folder.variants) {
           activeVariantIds.add(
@@ -231,12 +232,18 @@ class ScrapeOrchestrator {
         );
       }
 
-      await SeriesAutoLinker.reconcileAll(
-        repository: _repository,
-        bangumiService: _bangumiService,
-        tmdbService: _tmdbService,
-        tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
-      );
+      try {
+        await SeriesAutoLinker.reconcileAll(
+          repository: _repository,
+          bangumiService: _bangumiService,
+          tmdbService: _tmdbService,
+          tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
+        );
+      } catch (linkError) {
+        if (!NetworkErrorSanitizer.isTransientNetworkError(linkError)) {
+          rethrow;
+        }
+      }
 
       final completed = tracker.advance(
         phase: ScrapePhase.completed,
@@ -247,12 +254,69 @@ class ScrapeOrchestrator {
     } catch (error) {
       final failed = tracker.advance(
         phase: ScrapePhase.failed,
-        errorMessage: '$error',
+        errorMessage: NetworkErrorSanitizer.toUserMessage(error),
       );
       emit(failed);
       rethrow;
     } finally {
       await gateway.close();
+    }
+  }
+
+  Future<({ScrapeStatus status, String workId})> _processSingleFolderSafe(
+    String sourceId,
+    GroupedWorkFolder folder,
+  ) async {
+    try {
+      return await _processSingleFolder(sourceId, folder);
+    } catch (error) {
+      if (!NetworkErrorSanitizer.isTransientNetworkError(error)) {
+        rethrow;
+      }
+      final existing = await _persister.findExistingWorkForFolder(
+        sourceId,
+        folder,
+      );
+      final workId =
+          existing?.id ??
+          ScrapeWorkPersister.deterministicId(
+            '$sourceId::${folder.folderRelativePath}',
+          );
+      if (existing != null && existing.scrapeStatus == ScrapeStatus.matched) {
+        await _persister.syncEpisodesAndVariants(
+          work: existing,
+          folder: folder,
+          tmdbEpisodes: const [],
+        );
+        return (status: existing.scrapeStatus, workId: workId);
+      }
+      final fallbackWork = Work(
+        id: workId,
+        title: folder.cleanTitle,
+        year: folder.year,
+        folderTmdbHint: folder.explicitTmdbId,
+        isManualLocked: false,
+        isHidden: existing?.keepHidden == true
+            ? true
+            : (existing?.isHidden ?? false),
+        keepHidden: existing?.keepHidden ?? false,
+        scrapeStatus: ScrapeStatus.needsReview,
+        reviewReason: NetworkErrorSanitizer.toUserMessage(
+          error,
+          prefix: 'TMDB 网络异常，已使用本地目录降级入库',
+        ),
+      );
+      await _repository.upsertWork(fallbackWork);
+      await _photosStorage?.renameWorkFolderIfNeeded(
+        fallbackWork.id,
+        fallbackWork.title,
+      );
+      await _persister.syncEpisodesAndVariants(
+        work: fallbackWork,
+        folder: folder,
+        tmdbEpisodes: const [],
+      );
+      return (status: ScrapeStatus.needsReview, workId: workId);
     }
   }
 
@@ -348,10 +412,18 @@ class ScrapeOrchestrator {
       return (status: existing.scrapeStatus, workId: workId);
     }
 
+    Object? tmdbNetworkError;
+    void recordTmdbError(Object err) {
+      tmdbNetworkError ??= err;
+    }
+
     // 阶段 2：显式文件夹 `[tmdbid=xxx]` / `.nfo` 精确直连通道（含首选 404 跨类型重试与 Bangumi 补充封面）。
     var effectiveFolder = folder;
     if (folder.explicitTmdbId != null) {
-      final detail = await _candidateFetcher.fetchExplicitDetail(folder);
+      final detail = await _candidateFetcher.fetchExplicitDetail(
+        folder,
+        onNetworkError: recordTmdbError,
+      );
       if (detail != null) {
         final bgmCandidates = await _candidateFetcher.fetchBangumiCandidates(
           folder,
@@ -382,13 +454,16 @@ class ScrapeOrchestrator {
         );
         return (status: status, workId: workId);
       }
-      // 双侧均 404 时清除失效的 explicitTmdbId，防止进入阶段 3 后全员遭 -60 分误罚。
-      effectiveFolder = folder.withoutExplicitTmdb();
+      // 仅在无网络异常（即双侧真实 404）时清除失效的 explicitTmdbId，防止网络故障误抹除目录显式提示。
+      if (tmdbNetworkError == null) {
+        effectiveFolder = folder.withoutExplicitTmdb();
+      }
     }
 
     // 阶段 3：Bangumi 在线优先匹配 -> 交叉关键词救回 TMDB 搜索 -> 合集父系列兜底 -> 双向互保重评。
     final parentCtx = await _candidateFetcher.fetchParentCollectionContext(
       effectiveFolder,
+      onNetworkError: recordTmdbError,
     );
     var bgmCandidates = await _candidateFetcher.fetchBangumiCandidates(
       effectiveFolder,
@@ -399,11 +474,14 @@ class ScrapeOrchestrator {
       bgmCandidates,
     );
 
-    var candidates = await _candidateFetcher.fetchCandidateDetails(
-      effectiveFolder,
-      bangumiCandidate: bgmEval.best,
-      extraQueries: parentCtx.extraQueries,
-    );
+    var candidates = tmdbNetworkError != null
+        ? const <TmdbWorkDetail>[]
+        : await _candidateFetcher.fetchCandidateDetails(
+            effectiveFolder,
+            bangumiCandidate: bgmEval.best,
+            extraQueries: parentCtx.extraQueries,
+            onNetworkError: recordTmdbError,
+          );
     var decision = await _computeWorker.evaluateMatch(
       effectiveFolder,
       candidates,
@@ -433,13 +511,15 @@ class ScrapeOrchestrator {
     // 当初轮 TMDB 未命中、跨源不一致被清空、或优胜条目缺少 16:9 横版背景图时，
     // 使用已命中的 Bangumi 中/日文净化词干与年份进行二次 `/search/tv` 兜底救回。
     final rescueBgmTarget = decision.bestBangumi ?? bgmEval.best;
-    if (rescueBgmTarget != null &&
+    if (tmdbNetworkError == null &&
+        rescueBgmTarget != null &&
         (decision.best == null ||
             (decision.best!.detail.backdropPath?.trim().isEmpty ?? true))) {
       final rescued = await _candidateFetcher.rescueTmdbByBangumi(
         effectiveFolder,
         rescueBgmTarget.subject,
         existingDetails: candidates,
+        onNetworkError: recordTmdbError,
       );
       if (rescued.length > candidates.length) {
         candidates = rescued;
@@ -498,16 +578,38 @@ class ScrapeOrchestrator {
       return (status: status, workId: workId);
     }
 
-    if (decision.best == null && decision.bestBangumi != null) {
-      final bgmStatus = decision.level == MatchLevel.autoBind
+    // 若本次因 TMDB 网络异常未能获取候选，但本地已存在成功匹配的旧记录，保留既有元数据并同步分集文件。
+    if (tmdbNetworkError != null &&
+        existing != null &&
+        existing.scrapeStatus == ScrapeStatus.matched) {
+      await _persister.syncEpisodesAndVariants(
+        work: existing,
+        folder: effectiveFolder,
+        tmdbEpisodes: const [],
+      );
+      return (status: existing.scrapeStatus, workId: workId);
+    }
+
+    final fallbackBgmCandidate =
+        decision.bestBangumi ??
+        (tmdbNetworkError != null ? bgmEval.best : null);
+    if (decision.best == null && fallbackBgmCandidate != null) {
+      final bgmStatus =
+          (tmdbNetworkError == null && decision.level == MatchLevel.autoBind)
           ? ScrapeStatus.matched
           : ScrapeStatus.needsReview;
+      final bgmReviewReason = tmdbNetworkError != null
+          ? NetworkErrorSanitizer.toUserMessage(
+              tmdbNetworkError!,
+              prefix: 'TMDB 网络异常，已降级使用 Bangumi 元数据入库',
+            )
+          : decision.reviewReason;
       final work = ScrapeWorkPersister.buildBangumiOnlyWork(
         id: workId,
         folder: effectiveFolder,
-        bangumiCandidate: decision.bestBangumi!,
+        bangumiCandidate: fallbackBgmCandidate,
         status: bgmStatus,
-        reviewReason: decision.reviewReason,
+        reviewReason: bgmReviewReason,
         isManualLocked: false,
         isHidden: existing?.keepHidden == true
             ? true
@@ -517,9 +619,10 @@ class ScrapeOrchestrator {
       await _repository.upsertWork(work);
       await _photosStorage?.renameWorkFolderIfNeeded(work.id, work.title);
       await _persister.saveTopCandidates(workId, decision.topCandidates);
-      final bgmEpisodes = bgmStatus == ScrapeStatus.matched
+      final bgmEpisodes =
+          (bgmStatus == ScrapeStatus.matched || tmdbNetworkError != null)
           ? await _candidateFetcher.fetchBangumiEpisodes(
-              decision.bestBangumi!.subject.id,
+              fallbackBgmCandidate.subject.id,
               type: null,
             )
           : const <BangumiEpisodeEntry>[];
@@ -532,9 +635,17 @@ class ScrapeOrchestrator {
       return (status: bgmStatus, workId: workId);
     }
 
-    final status = decision.level == MatchLevel.reviewRequired
+    final status =
+        (tmdbNetworkError != null ||
+            decision.level == MatchLevel.reviewRequired)
         ? ScrapeStatus.needsReview
         : ScrapeStatus.unmatched;
+    final reviewReason = tmdbNetworkError != null
+        ? NetworkErrorSanitizer.toUserMessage(
+            tmdbNetworkError!,
+            prefix: 'TMDB 网络异常，已使用本地目录降级入库',
+          )
+        : decision.reviewReason;
     final work = Work(
       id: workId,
       title: effectiveFolder.cleanTitle,
@@ -546,7 +657,7 @@ class ScrapeOrchestrator {
           : (existing?.isHidden ?? false),
       keepHidden: existing?.keepHidden ?? false,
       scrapeStatus: status,
-      reviewReason: decision.reviewReason,
+      reviewReason: reviewReason,
     );
     await _repository.upsertWork(work);
     await _photosStorage?.renameWorkFolderIfNeeded(work.id, work.title);

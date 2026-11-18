@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../domain/formatting/network_error_sanitizer.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/network_config.dart';
 import '../../domain/models/work.dart';
@@ -109,7 +110,7 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
       if (state.phase != ScrapePhase.failed) {
         state = state.copyWith(
           phase: ScrapePhase.failed,
-          errorMessage: '$error',
+          errorMessage: NetworkErrorSanitizer.toUserMessage(error),
         );
       }
       rethrow;

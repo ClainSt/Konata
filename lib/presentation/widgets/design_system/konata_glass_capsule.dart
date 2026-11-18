@@ -14,6 +14,7 @@ class KonataGlassCapsule extends StatelessWidget {
     required this.child,
     this.radius,
     this.padding,
+    this.enableBackdropBlur = true,
   });
 
   /// 子内容。
@@ -25,31 +26,40 @@ class KonataGlassCapsule extends StatelessWidget {
   /// 可选内部边距。
   final EdgeInsetsGeometry? padding;
 
+  /// 是否启用底层高斯模糊采样（在硬件视频层前景可关闭以避免透明覆盖层帧缓冲重影）。
+  final bool enableBackdropBlur;
+
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final effectiveRadius = radius ?? KonataAdaptiveTokens.capsuleRadius;
     final body = padding != null
         ? Padding(padding: padding!, child: child)
         : child;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(effectiveRadius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(
-          sigmaX: KonataPlaybackTokens.capsuleBlurSigma,
-          sigmaY: KonataPlaybackTokens.capsuleBlurSigma,
-        ),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: KonataPlaybackTokens.glassSurface(context.palette),
-            borderRadius: BorderRadius.circular(effectiveRadius),
-            border: Border.all(
-              color: KonataPlaybackTokens.glassBorder(context.palette),
-              width: KonataAdaptiveTokens.borderWidth,
-            ),
-          ),
-          child: body,
+    final decorated = DecoratedBox(
+      decoration: BoxDecoration(
+        color: enableBackdropBlur
+            ? KonataPlaybackTokens.glassSurface(p)
+            : (p.isDark ? const Color(0xCC161618) : p.surface),
+        borderRadius: BorderRadius.circular(effectiveRadius),
+        border: Border.all(
+          color: KonataPlaybackTokens.glassBorder(p),
+          width: KonataAdaptiveTokens.borderWidth,
         ),
       ),
+      child: body,
+    );
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(effectiveRadius),
+      child: enableBackdropBlur
+          ? BackdropFilter(
+              filter: ImageFilter.blur(
+                sigmaX: KonataPlaybackTokens.capsuleBlurSigma,
+                sigmaY: KonataPlaybackTokens.capsuleBlurSigma,
+              ),
+              child: decorated,
+            )
+          : decorated,
     );
   }
 }

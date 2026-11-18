@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -679,38 +681,168 @@ class _FullscreenPlayerOverlaySlot extends ConsumerWidget {
     }
 
     final immersiveAudioNavKey = ref.watch(_immersiveAudioNavigatorKeyProvider);
+    final originRect = konataFloatingMiniWindowRectNotifier.value;
     return Stack(
       fit: StackFit.expand,
       children: [
         if (showImmersiveAudio)
-          HeroControllerScope.none(
-            child: Navigator(
-              key: immersiveAudioNavKey,
-              onGenerateRoute: (_) => PageRouteBuilder<void>(
-                pageBuilder: (_, _, _) =>
-                    const ImmersiveAudioPage(key: ValueKey('immersive_audio')),
-                transitionDuration: Duration.zero,
-                reverseTransitionDuration: Duration.zero,
+          _SpringViewportMorphFrame(
+            key: const ValueKey('spring_morph_audio_fullscreen'),
+            originRect: originRect,
+            allowClipRadius: true,
+            child: HeroControllerScope.none(
+              child: Navigator(
+                key: immersiveAudioNavKey,
+                onGenerateRoute: (_) => PageRouteBuilder<void>(
+                  pageBuilder: (_, _, _) => const ImmersiveAudioPage(
+                    key: ValueKey('immersive_audio'),
+                  ),
+                  transitionDuration: Duration.zero,
+                  reverseTransitionDuration: Duration.zero,
+                ),
               ),
             ),
           ),
         if (showExpandedVideo)
-          EmbeddedVideoPage(
-            key: ValueKey('global_embedded_video_${videoReq.hashCode}'),
-            request: videoReq,
-            sharedVideoSurface: KonataHardwareVideoSurface(
-              key: GlobalObjectKey(videoReq),
+          _SpringViewportMorphFrame(
+            key: ValueKey('spring_morph_video_${videoReq.hashCode}'),
+            originRect: videoSession.isInPipMode ? null : originRect,
+            allowClipRadius: !KonataAdaptiveTokens.isAndroid,
+            child: EmbeddedVideoPage(
+              key: ValueKey('global_embedded_video_${videoReq.hashCode}'),
               request: videoReq,
-              miniPreview: false,
+              sharedVideoSurface: KonataHardwareVideoSurface(
+                key: GlobalObjectKey(videoReq),
+                request: videoReq,
+                miniPreview: false,
+              ),
+              inPipMode: videoSession.isInPipMode,
+              onCollapseToMini: () => unawaited(
+                ref.read(activeVideoSessionProvider.notifier).collapseToMini(),
+              ),
+              onCloseSession: () =>
+                  ref.read(activeVideoSessionProvider.notifier).closeVideo(),
             ),
-            inPipMode: videoSession.isInPipMode,
-            onCollapseToMini: () => unawaited(
-              ref.read(activeVideoSessionProvider.notifier).collapseToMini(),
-            ),
-            onCloseSession: () =>
-                ref.read(activeVideoSessionProvider.notifier).closeVideo(),
           ),
       ],
+    );
+  }
+}
+
+/// 悬浮小窗与全屏舞台之间的临界阻尼 `SpringSimulation` 视口矩形与圆角连续形变容器。
+///
+/// 过渡到达终态后立即停钟并直通返回 `child`（零闲置 Ticker、零稳态包装开销）。
+class _SpringViewportMorphFrame extends StatefulWidget {
+  const _SpringViewportMorphFrame({
+    super.key,
+    required this.originRect,
+    required this.allowClipRadius,
+    required this.child,
+  });
+
+  final Rect? originRect;
+  final bool allowClipRadius;
+  final Widget child;
+
+  @override
+  State<_SpringViewportMorphFrame> createState() =>
+      _SpringViewportMorphFrameState();
+}
+
+class _SpringViewportMorphFrameState extends State<_SpringViewportMorphFrame>
+    with SingleTickerProviderStateMixin {
+  AnimationController? _controller;
+  Rect? _startRect;
+  bool _morphing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _startRect = widget.originRect;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_controller != null || _startRect == null) return;
+    final disableAnimations = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    if (disableAnimations) {
+      _startRect = null;
+      return;
+    }
+    final ctrl = AnimationController.unbounded(vsync: this)
+      ..addStatusListener(_onStatusChanged);
+    _controller = ctrl;
+    _morphing = true;
+    final sim = SpringSimulation(
+      KonataPlaybackTokens.stageMorphSpring,
+      0.0,
+      1.0,
+      0.0,
+      tolerance: const Tolerance(distance: 1e-3, velocity: 1e-3),
+    );
+    ctrl.animateWith(sim);
+  }
+
+  void _onStatusChanged(AnimationStatus status) {
+    if (status == AnimationStatus.completed ||
+        status == AnimationStatus.dismissed) {
+      _controller?.stop();
+      if (mounted && _morphing) {
+        setState(() {
+          _morphing = false;
+          _startRect = null;
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller
+      ?..removeStatusListener(_onStatusChanged)
+      ..dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ctrl = _controller;
+    final startRect = _startRect;
+    if (!_morphing || ctrl == null || startRect == null) {
+      return widget.child;
+    }
+    final fullSize = MediaQuery.sizeOf(context);
+    if (fullSize.width <= 0 || fullSize.height <= 0) {
+      return widget.child;
+    }
+    final endRect = Offset.zero & fullSize;
+    return AnimatedBuilder(
+      animation: ctrl,
+      child: widget.child,
+      builder: (_, child) {
+        final t = ctrl.value.clamp(0.0, 1.0);
+        final rect = Rect.lerp(startRect, endRect, t) ?? endRect;
+        final sx = (rect.width / endRect.width).clamp(0.05, 1.0);
+        final sy = (rect.height / endRect.height).clamp(0.05, 1.0);
+        final radius =
+            lerpDouble(KonataPlaybackTokens.floatingMiniRadius, 0.0, t) ?? 0.0;
+        final matrix = Matrix4.identity()
+          ..translateByDouble(rect.left, rect.top, 0.0, 1.0)
+          ..scaleByDouble(sx, sy, 1.0, 1.0);
+        // 保持子页面按全屏终态尺寸一次布局，仅由 GPU 合成矩阵连续缩放平移，彻底消除形变帧溢出与逐帧重排。
+        final clipped = (widget.allowClipRadius && radius > 0.5)
+            ? ClipRRect(
+                borderRadius: BorderRadius.circular(radius / sx),
+                child: child,
+              )
+            : child!;
+        return Transform(
+          alignment: Alignment.topLeft,
+          transform: matrix,
+          child: clipped,
+        );
+      },
     );
   }
 }

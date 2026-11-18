@@ -89,7 +89,8 @@ class EmbeddedVideoPage extends ConsumerStatefulWidget {
   ConsumerState<EmbeddedVideoPage> createState() => _EmbeddedVideoPageState();
 }
 
-class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
+class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage>
+    with WidgetsBindingObserver {
   final FocusNode _focusNode = FocusNode(debugLabel: 'embedded_video_focus');
   final GlobalKey _stageRectKey = GlobalKey();
 
@@ -110,6 +111,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
 
   Timer? _rightHoldTimer;
   bool _rightHoldBoostActivated = false;
+  DateTime? _lastLeftRepeatSeekAt;
 
   VideoSideSheetTab _sideSheetTab = VideoSideSheetTab.episodes;
   bool _exiting = false;
@@ -118,6 +120,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _scheduleIdleHide();
     if (KonataAdaptiveTokens.isAndroid && !widget.inPipMode) {
       final audioOnly =
@@ -141,10 +144,11 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _idleTimer?.cancel();
     _lockPeekTimer?.cancel();
     _cornerBadgeTimer?.cancel();
-    _rightHoldTimer?.cancel();
+    _cancelRightHoldSpeedBoost();
     _statusCueNotifier.dispose();
     if (_lastHudProgressActive == false) {
       try {
@@ -420,6 +424,24 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
     _focusNode.requestFocus();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      _cancelRightHoldSpeedBoost();
+    }
+  }
+
+  /// 在松键、窗口失焦或应用切后台时立即撤回右方向键 2.0x 临时倍速并恢复按住前的常驻倍速。
+  void _cancelRightHoldSpeedBoost() {
+    _rightHoldTimer?.cancel();
+    _rightHoldTimer = null;
+    if (!_rightHoldBoostActivated) return;
+    _rightHoldBoostActivated = false;
+    try {
+      ref.read(videoPlaybackProvider(widget.request).notifier).endSpeedBoost();
+    } catch (_) {}
+  }
+
   KeyEventResult _handleKeyEvent(FocusNode _, KeyEvent event) {
     if (_screenLocked) return KeyEventResult.ignored;
     final key = event.logicalKey;
@@ -436,7 +458,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
       if (event is KeyDownEvent) {
         _rightHoldBoostActivated = false;
         _rightHoldTimer?.cancel();
-        _rightHoldTimer = Timer(const Duration(milliseconds: 260), () {
+        _rightHoldTimer = Timer(KonataPlaybackTokens.arrowRightHoldDelay, () {
           if (!mounted) return;
           _rightHoldBoostActivated = true;
           controller.startSpeedBoost();
@@ -453,6 +475,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
       }
       if (event is KeyUpEvent) {
         _rightHoldTimer?.cancel();
+        _rightHoldTimer = null;
         if (_rightHoldBoostActivated) {
           _rightHoldBoostActivated = false;
           controller.endSpeedBoost();
@@ -460,6 +483,42 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
           controller.seekRelative(5.0);
           _flashCornerStatus('+5 秒', Icons.forward_5_rounded);
         }
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      if (event is KeyDownEvent) {
+        _lastLeftRepeatSeekAt = DateTime.now();
+        if (shift) {
+          controller.seekRelative(-85.0);
+          _flashCornerStatus('快退 85 秒', Icons.fast_rewind_rounded);
+        } else {
+          controller.seekRelative(-5.0);
+          _flashCornerStatus('-5 秒', Icons.replay_5_rounded);
+        }
+        return KeyEventResult.handled;
+      }
+      if (event is KeyRepeatEvent) {
+        final now = DateTime.now();
+        final last = _lastLeftRepeatSeekAt;
+        if (last == null ||
+            now.difference(last) >=
+                KonataPlaybackTokens.arrowLeftRepeatThrottle) {
+          _lastLeftRepeatSeekAt = now;
+          if (shift) {
+            controller.seekRelative(-85.0);
+            _flashCornerStatus('快退 85 秒', Icons.fast_rewind_rounded);
+          } else {
+            controller.seekRelative(-5.0);
+            _flashCornerStatus('-5 秒', Icons.replay_5_rounded);
+          }
+        }
+        return KeyEventResult.handled;
+      }
+      if (event is KeyUpEvent) {
+        _lastLeftRepeatSeekAt = null;
         return KeyEventResult.handled;
       }
       return KeyEventResult.ignored;
@@ -488,17 +547,6 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
           showKonataToast(context, '截图未能生成，请稍后再试', isError: true);
         }
       }());
-      return KeyEventResult.handled;
-    }
-
-    if (key == LogicalKeyboardKey.arrowLeft) {
-      if (shift) {
-        controller.seekRelative(-85.0);
-        _flashCornerStatus('快退 85 秒', Icons.fast_rewind_rounded);
-      } else {
-        controller.seekRelative(-5.0);
-        _flashCornerStatus('-5 秒', Icons.replay_5_rounded);
-      }
       return KeyEventResult.handled;
     }
 
@@ -955,6 +1003,11 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
       child: Focus(
         focusNode: _focusNode,
         autofocus: true,
+        onFocusChange: (hasFocus) {
+          if (!hasFocus) {
+            _cancelRightHoldSpeedBoost();
+          }
+        },
         onKeyEvent: _handleKeyEvent,
         child: Scaffold(
           backgroundColor: isAndroid && !snap.audioOnlyMode

@@ -4,9 +4,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../domain/models/episode.dart';
+import '../../domain/models/media_variant.dart';
 import '../../domain/playback/video_aspect_mode.dart';
+import '../providers/library_providers.dart';
 import '../providers/platform_capability.dart';
 import 'audio_playback_notifier.dart';
+import 'pip_recovery_store.dart';
 import 'playback_preferences_provider.dart';
 import 'video_playback_controller.dart';
 
@@ -421,6 +425,114 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
   }
 
   final Ref _ref;
+  PipRecoveryMode _lastRecoveryMode = PipRecoveryMode.none;
+  bool _coldRestoreAttempted = false;
+
+  /// 最近一次画中画或回前台恢复所命中的双态路径（供诊断与回归测试断言）。
+  PipRecoveryMode get lastRecoveryMode => _lastRecoveryMode;
+
+  Future<void> _persistActiveSnapshot({required bool wasInPip}) async {
+    final req = state.request;
+    if (req == null) return;
+    final vidState = _ref.read(videoPlaybackProvider(req));
+    if (vidState.isClosing || vidState.errorMessage != null) return;
+    final ctrl = _ref.read(videoPlaybackProvider(req).notifier);
+    final snapshot = PipPlaybackRecoverySnapshot(
+      workId: ctrl.activeWork.id,
+      episodeId: vidState.currentEpisode.id,
+      variantId: vidState.currentVariant.id,
+      positionSeconds: ctrl.currentPositionSeconds,
+      audioOnly: vidState.audioOnlyMode,
+      wasInPip: wasInPip,
+      savedAtEpochMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    await _ref.read(pipRecoveryStoreProvider).save(snapshot);
+  }
+
+  Future<void> _clearPersistedSnapshot() async {
+    await _ref.read(pipRecoveryStoreProvider).clear();
+  }
+
+  /// 进程被系统回收后冷启动或回前台时检查并按需恢复画中画持久化快照：
+  /// - 若当前解码引擎仍存活，直接走 `engineAliveRebind` 重绑底层表面；
+  /// - 若当前无活跃会话且存在有效快照，则从媒体库重建 `VideoLaunchRequest` 并按精确秒数冷恢复。
+  Future<PipRecoveryMode> recoverPlaybackIfNeeded({
+    bool forceColdCheck = false,
+  }) async {
+    final req = state.request;
+    if (req != null) {
+      _lastRecoveryMode = PipRecoveryMode.engineAliveRebind;
+      final ctrl = _ref.read(videoPlaybackProvider(req).notifier);
+      await ctrl.rebindAndroidSurfaceIfNeeded();
+      return PipRecoveryMode.engineAliveRebind;
+    }
+    if (_coldRestoreAttempted && !forceColdCheck) {
+      return PipRecoveryMode.none;
+    }
+    _coldRestoreAttempted = true;
+
+    final store = _ref.read(pipRecoveryStoreProvider);
+    final snapshot = await store.load();
+    if (snapshot == null || !snapshot.isFreshAt(DateTime.now())) {
+      if (snapshot != null) {
+        await store.clear();
+      }
+      _lastRecoveryMode = PipRecoveryMode.none;
+      return PipRecoveryMode.none;
+    }
+
+    try {
+      final bundle = await _ref.read(
+        workDetailBundleProvider(snapshot.workId).future,
+      );
+      if (bundle == null || !mounted) {
+        await store.clear();
+        _lastRecoveryMode = PipRecoveryMode.none;
+        return PipRecoveryMode.none;
+      }
+      Episode? episode;
+      for (final e in bundle.episodes) {
+        if (e.id == snapshot.episodeId) {
+          episode = e;
+          break;
+        }
+      }
+      MediaVariant? variant;
+      for (final v in bundle.variants) {
+        if (v.id == snapshot.variantId) {
+          variant = v;
+          break;
+        }
+      }
+      if (episode == null || variant == null) {
+        await store.clear();
+        _lastRecoveryMode = PipRecoveryMode.none;
+        return PipRecoveryMode.none;
+      }
+      final source = bundle.sourcesById[variant.sourceId];
+      await store.clear();
+      await openVideo(
+        VideoLaunchRequest(
+          work: bundle.work,
+          episode: episode,
+          variant: variant,
+          bundle: bundle,
+          source: source,
+          startSeconds: snapshot.positionSeconds.floor(),
+        ),
+      );
+      if (snapshot.audioOnly && state.request != null) {
+        _ref
+            .read(videoPlaybackProvider(state.request!).notifier)
+            .setAudioOnlyMode(true);
+      }
+      _lastRecoveryMode = PipRecoveryMode.coldSnapshotRestore;
+      return PipRecoveryMode.coldSnapshotRestore;
+    } catch (_) {
+      _lastRecoveryMode = PipRecoveryMode.none;
+      return PipRecoveryMode.none;
+    }
+  }
 
   /// 启动或热切换全局视频会话并展开全屏舞台。
   Future<void> openVideo(VideoLaunchRequest nextRequest) async {
@@ -524,6 +636,8 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
   Future<void> closeVideo() async {
     final req = state.request;
     state = const ActiveVideoSessionState();
+    _lastRecoveryMode = PipRecoveryMode.none;
+    unawaited(_clearPersistedSnapshot());
     _ref.read(videoPlaybackActiveProvider.notifier).state = false;
     unawaited(
       AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
@@ -550,10 +664,11 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
     }
   }
 
-  /// 宿主应用退入系统后台时兜底检查：非画中画且未开启后台纯音频时自动暂停并释放音频焦点。
+  /// 宿主应用退入系统后台时兜底检查：持久化恢复快照，非画中画且未开启后台纯音频时自动暂停并释放音频焦点。
   Future<void> handleAppBackgrounded() async {
     final req = state.request;
     if (req == null) return;
+    await _persistActiveSnapshot(wasInPip: state.isInPipMode);
     if (state.isInPipMode) return;
     final vidState = _ref.read(videoPlaybackProvider(req));
     if (vidState.audioOnlyMode || vidState.isClosing) return;
@@ -576,20 +691,28 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
     await AndroidPlaybackWindowBridge.abandonAudioFocus();
   }
 
-  /// 宿主应用回到前台时恢复音频焦点。
+  /// 宿主应用回到前台时恢复音频焦点，并按引擎存活 / 快照冷重建双态恢复画面。
   void handleAppForegrounded() {
     final req = state.request;
-    if (req == null) return;
+    if (req == null) {
+      unawaited(recoverPlaybackIfNeeded());
+      return;
+    }
+    _lastRecoveryMode = PipRecoveryMode.engineAliveRebind;
+    unawaited(_clearPersistedSnapshot());
     final vidState = _ref.read(videoPlaybackProvider(req));
+    final ctrl = _ref.read(videoPlaybackProvider(req).notifier);
+    if (!vidState.isClosing) {
+      unawaited(ctrl.rebindAndroidSurfaceIfNeeded());
+    }
     if (vidState.isPlaying && !vidState.isClosing) {
-      unawaited(
-        _ref.read(videoPlaybackProvider(req).notifier).ensureAudioFocus(),
-      );
+      unawaited(ctrl.ensureAudioFocus());
     }
   }
 
   void _handleNativePipDismissed() {
     final req = state.request;
+    unawaited(_clearPersistedSnapshot());
     if (!mounted || req == null) return;
     state = state.copyWith(isInPipMode: false);
     _ref.read(videoPlaybackProvider(req).notifier).setPlayingPausedByLifecycle();
@@ -606,6 +729,7 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
           .read(videoPlaybackProvider(req).notifier)
           .setAudioOnlyMode(false);
     }
+    await _persistActiveSnapshot(wasInPip: true);
     return _ref.read(androidPipChannelClientProvider).enterPipNow();
   }
 
@@ -613,13 +737,22 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
     if (!mounted) return;
     if (state.request == null) {
       state = state.copyWith(isInPipMode: false);
+      if (!inPip) {
+        unawaited(recoverPlaybackIfNeeded(forceColdCheck: true));
+      }
       return;
     }
     if (inPip) {
       state = state.copyWith(isInPipMode: true, isExpanded: true);
       _ref.read(videoPlaybackActiveProvider.notifier).state = true;
+      unawaited(_persistActiveSnapshot(wasInPip: true));
     } else {
       state = state.copyWith(isInPipMode: false);
+      _lastRecoveryMode = PipRecoveryMode.engineAliveRebind;
+      unawaited(_clearPersistedSnapshot());
+      final req = state.request!;
+      final ctrl = _ref.read(videoPlaybackProvider(req).notifier);
+      unawaited(ctrl.rebindAndroidSurfaceIfNeeded());
     }
   }
 

@@ -1369,6 +1369,21 @@ class EmbeddedMpvSession {
     return fallback;
   }
 
+  /// Android 画中画退出或回前台时按需重绑当前底层 `Surface`（不重建解码器与播放会话）。
+  Future<void> rebindCurrentAndroidSurface() async {
+    final surf = _androidSurface;
+    if (_disposed ||
+        !_useAndroidSurfaceSession ||
+        !_videoTrackEnabled ||
+        surf == null ||
+        surf.isDisposed) {
+      return;
+    }
+    final desc = await surf.queryCurrent();
+    if (_disposed || desc == null || desc.wid <= 0) return;
+    await _enqueueAndroidSurfaceUpdate(desc, sourceCtrl: surf);
+  }
+
   /// Android 运行期间动态接入或热重绑硬件视频表面，避免路由或容器变更后丢帧黑屏。
   Future<void> attachOrRebindAndroidSurface(
     AndroidVideoSurfaceController ctrl,

@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import '../widgets/design_system/konata_settings_row.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/scraping_providers.dart';
@@ -10,6 +9,7 @@ import '../../domain/models/network_config.dart';
 import '../../domain/models/tmdb_models.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
+import '../widgets/design_system/adaptive_responsive_row.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
@@ -178,13 +178,6 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('刮削与网络', style: KonataTheme.h2Style(p)),
-        const SizedBox(height: 6),
-        Text(
-          '刮削优先连接官方服务；当官方地址连接超时或在中国大陆网络受阻时，将自动无缝回退至下方配置的备用地址。',
-          style: KonataTheme.captionStyle(p, fontSize: 13, height: 1.45),
-        ),
-        const SizedBox(height: 18),
         _buildTmdbCredentialCard(p),
         const SizedBox(height: 16),
         LayoutBuilder(
@@ -192,7 +185,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
             final tmdbCard = _buildTmdbCard(p, actions);
             final bgmCard = _buildBangumiCard(p, actions);
             if (constraints.maxWidth >= 760) {
-              return KonataSettingsRow(
+              return Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(child: tmdbCard),
@@ -218,44 +211,21 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          KonataSettingsRow(
+          Row(
             children: [
-              Text(
-                'TMDB API 密钥',
-                style: TextStyle(
-                  color: p.textPrimary,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
+              Expanded(
+                child: Text(
+                  'TMDB API 密钥',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: p.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
-              ValueListenableBuilder<TextEditingValue>(
-                valueListenable: _credentialController,
-                builder: (_, val, _) {
-                  final configured = val.text.trim().isNotEmpty;
-                  final badge = configured ? p.accentBadge : p.warningBadge;
-                  return Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2.5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: badge.bg,
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: badge.border),
-                    ),
-                    child: Text(
-                      configured ? '已配置' : '未配置',
-                      style: TextStyle(
-                        color: badge.fg,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  );
-                },
-              ),
-              const Spacer(),
               KonataPillButton.ghost(
                 label: '如何获取TMDB API',
                 icon: Icons.help_outline_rounded,
@@ -289,17 +259,21 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          KonataSettingsRow(
+          Row(
             children: [
-              Text(
-                'TMDB 服务',
-                style: TextStyle(
-                  color: p.textPrimary,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
+              Expanded(
+                child: Text(
+                  'TMDB 服务',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: p.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               KonataPillButton.ghost(
                 label: '恢复默认',
                 icon: Icons.restart_alt_rounded,
@@ -354,17 +328,21 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          KonataSettingsRow(
+          Row(
             children: [
-              Text(
-                'Bangumi 服务',
-                style: TextStyle(
-                  color: p.textPrimary,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
+              Expanded(
+                child: Text(
+                  'Bangumi 服务',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: p.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               KonataPillButton.ghost(
                 label: '恢复默认',
                 icon: Icons.restart_alt_rounded,
@@ -421,7 +399,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '网络代理（可选）',
+            '网络代理',
             style: TextStyle(
               color: p.textPrimary,
               fontSize: 14.5,
@@ -432,8 +410,8 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
           KonataSegmentedCapsule<ProxyMode>(
             selected: _proxyMode,
             options: const [
-              KonataSegmentOption(value: ProxyMode.system, label: '跟随系统代理（默认）'),
-              KonataSegmentOption(value: ProxyMode.custom, label: '自定义本地代理'),
+              KonataSegmentOption(value: ProxyMode.system, label: '系统代理'),
+              KonataSegmentOption(value: ProxyMode.custom, label: '自定义代理'),
               KonataSegmentOption(value: ProxyMode.none, label: '不使用代理'),
             ],
             onChanged: (v) {
@@ -522,18 +500,21 @@ class _EndpointBackupField extends StatelessWidget {
           onSubmitted: onSubmitted,
         ),
         const SizedBox(height: 8),
-        KonataSettingsRow(
-          children: [
-            KonataPillButton.secondary(
+        AdaptiveResponsiveRow(
+          estimatedTrailingWidth: report != null ? 160 : 0,
+          minLeadingWidth: 140,
+          stackedTrailingAlignment: Alignment.centerLeft,
+          leading: Align(
+            alignment: Alignment.centerLeft,
+            child: KonataPillButton.secondary(
               label: testButtonLabel,
               icon: Icons.network_check_rounded,
               compact: true,
               onPressed: testing ? null : onTest,
             ),
-            if (report != null) ...[
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
+          ),
+          trailing: report != null
+              ? Text(
                   report!.displayText,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -543,10 +524,8 @@ class _EndpointBackupField extends StatelessWidget {
                         : p.danger,
                     fontSize: 12.2,
                   ),
-                ),
-              ),
-            ],
-          ],
+                )
+              : const SizedBox.shrink(),
         ),
       ],
     );

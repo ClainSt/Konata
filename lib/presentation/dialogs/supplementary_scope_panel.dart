@@ -6,6 +6,7 @@ import '../../domain/models/media_variant.dart';
 import '../../domain/models/series_group.dart';
 import '../../domain/models/work.dart';
 import '../theme/konata_palette.dart';
+import '../widgets/design_system/adaptive_responsive_row.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_dropdown.dart';
@@ -216,11 +217,15 @@ class _SupplementaryScopePanelState extends State<SupplementaryScopePanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            Flexible(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: MediaQuery.withClampedTextScaling(
+                maxScaleFactor: 1.15,
                 child: KonataSegmentedCapsule<_SuppFilterKind>(
                   compact: true,
                   selected: _filterKind,
@@ -249,9 +254,8 @@ class _SupplementaryScopePanelState extends State<SupplementaryScopePanel> {
                 ),
               ),
             ),
-            const SizedBox(width: 10),
             SizedBox(
-              width: 205,
+              width: 196,
               child: KonataSoftTextField(
                 controller: _searchCtrl,
                 dense: true,
@@ -311,43 +315,13 @@ class _SupplementaryScopePanelState extends State<SupplementaryScopePanel> {
                                 horizontal: 10,
                                 vertical: 8,
                               ),
-                              child: Row(
-                                children: [
-                                  InkWell(
-                                    borderRadius: BorderRadius.circular(6),
-                                    onTap: () => setState(() {
-                                      if (!_expandedGroups.remove(groupKey)) {
-                                        _expandedGroups.add(groupKey);
-                                      }
-                                    }),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 4,
-                                        vertical: 4,
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            isExpanded
-                                                ? Icons.keyboard_arrow_down_rounded
-                                                : Icons.keyboard_arrow_right_rounded,
-                                            size: 18,
-                                            color: p.textSecondary,
-                                          ),
-                                          const SizedBox(width: 4),
-                                          _KindMiniTag(
-                                            label: _kindLabel(
-                                              firstVariant.assetKind,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: InkWell(
+                              child: AdaptiveResponsiveRow(
+                                minLeadingWidth: 160,
+                                estimatedTrailingWidth: 188,
+                                expandTrailingWhenStacked: true,
+                                leading: Row(
+                                  children: [
+                                    InkWell(
                                       borderRadius: BorderRadius.circular(6),
                                       onTap: () => setState(() {
                                         if (!_expandedGroups.remove(groupKey)) {
@@ -356,64 +330,102 @@ class _SupplementaryScopePanelState extends State<SupplementaryScopePanel> {
                                       }),
                                       child: Padding(
                                         padding: const EdgeInsets.symmetric(
-                                          vertical: 2,
+                                          horizontal: 4,
+                                          vertical: 4,
                                         ),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            EllipsisTextWithTooltip(
-                                              text: shortDir,
-                                              tooltipMessage: fullDir,
-                                              maxLines: 1,
-                                              style: TextStyle(
-                                                color: p.textPrimary,
-                                                fontSize: 12.6,
-                                                fontWeight: FontWeight.w600,
-                                              ),
+                                            Icon(
+                                              isExpanded
+                                                  ? Icons
+                                                        .keyboard_arrow_down_rounded
+                                                  : Icons
+                                                        .keyboard_arrow_right_rounded,
+                                              size: 18,
+                                              color: p.textSecondary,
                                             ),
-                                            const SizedBox(height: 1),
-                                            Text(
-                                              '${items.length} 个文件 · ${_scopeSummaryText(groupVal, items)}',
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: TextStyle(
-                                                color: p.textMuted,
-                                                fontSize: 11,
+                                            const SizedBox(width: 4),
+                                            _KindMiniTag(
+                                              label: _kindLabel(
+                                                firstVariant.assetKind,
                                               ),
                                             ),
                                           ],
                                         ),
                                       ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  SizedBox(
-                                    width: 188,
-                                    child: KonataDropdown<String>(
-                                      dense: true,
-                                      enabled: !widget.saving,
-                                      value: groupVal,
-                                      options: groupOptions,
-                                      onChanged: (next) {
-                                        if (next == 'mixed') return;
-                                        setState(() {
-                                          for (final d in items) {
-                                            _applyDropdownValue(d, next);
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(6),
+                                        onTap: () => setState(() {
+                                          if (!_expandedGroups.remove(
+                                            groupKey,
+                                          )) {
+                                            _expandedGroups.add(groupKey);
                                           }
-                                        });
-                                        widget.onChanged();
-                                      },
+                                        }),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 2,
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              EllipsisTextWithTooltip(
+                                                text: shortDir,
+                                                tooltipMessage: fullDir,
+                                                maxLines: 1,
+                                                style: TextStyle(
+                                                  color: p.textPrimary,
+                                                  fontSize: 12.6,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 1),
+                                              Text(
+                                                '${items.length} 个文件 · ${_scopeSummaryText(groupVal, items)}',
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  color: p.textMuted,
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
                                     ),
+                                  ],
+                                ),
+                                trailing: SizedBox(
+                                  width: 188,
+                                  child: KonataDropdown<String>(
+                                    dense: true,
+                                    enabled: !widget.saving,
+                                    value: groupVal,
+                                    options: groupOptions,
+                                    onChanged: (next) {
+                                      if (next == 'mixed') return;
+                                      setState(() {
+                                        for (final d in items) {
+                                          _applyDropdownValue(d, next);
+                                        }
+                                      });
+                                      widget.onChanged();
+                                    },
                                   ),
-                                ],
+                                ),
                               ),
                             ),
                             if (isExpanded) ...[
                               Divider(height: 1, color: p.hairline),
                               Padding(
                                 padding: const EdgeInsets.fromLTRB(
-                                  32,
+                                  24,
                                   6,
                                   10,
                                   8,
@@ -425,40 +437,38 @@ class _SupplementaryScopePanelState extends State<SupplementaryScopePanel> {
                                         padding: const EdgeInsets.symmetric(
                                           vertical: 4,
                                         ),
-                                        child: Row(
-                                          children: [
-                                            Expanded(
-                                              child: EllipsisTextWithTooltip(
-                                                text: d.item.variant.fileName,
-                                                tooltipMessage:
-                                                    d.item.variant.relativePath,
-                                                maxLines: 1,
-                                                style: TextStyle(
-                                                  color: p.textSecondary,
-                                                  fontSize: 11.8,
-                                                ),
-                                              ),
+                                        child: AdaptiveResponsiveRow(
+                                          minLeadingWidth: 140,
+                                          estimatedTrailingWidth: 180,
+                                          expandTrailingWhenStacked: true,
+                                          leading: EllipsisTextWithTooltip(
+                                            text: d.item.variant.fileName,
+                                            tooltipMessage:
+                                                d.item.variant.relativePath,
+                                            maxLines: 1,
+                                            style: TextStyle(
+                                              color: p.textSecondary,
+                                              fontSize: 11.8,
                                             ),
-                                            const SizedBox(width: 8),
-                                            SizedBox(
-                                              width: 180,
-                                              child: KonataDropdown<String>(
-                                                dense: true,
-                                                enabled: !widget.saving,
-                                                value: _draftValue(d),
-                                                options: baseOptions,
-                                                onChanged: (next) {
-                                                  setState(
-                                                    () => _applyDropdownValue(
-                                                      d,
-                                                      next,
-                                                    ),
-                                                  );
-                                                  widget.onChanged();
-                                                },
-                                              ),
+                                          ),
+                                          trailing: SizedBox(
+                                            width: 180,
+                                            child: KonataDropdown<String>(
+                                              dense: true,
+                                              enabled: !widget.saving,
+                                              value: _draftValue(d),
+                                              options: baseOptions,
+                                              onChanged: (next) {
+                                                setState(
+                                                  () => _applyDropdownValue(
+                                                    d,
+                                                    next,
+                                                  ),
+                                                );
+                                                widget.onChanged();
+                                              },
                                             ),
-                                          ],
+                                          ),
                                         ),
                                       ),
                                   ],

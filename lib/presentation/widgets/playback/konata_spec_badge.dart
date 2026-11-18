@@ -51,39 +51,42 @@ class KonataSpecBadge extends StatelessWidget {
       textColor = p.isDark ? p.textSecondary : p.textPrimary;
     }
 
-    return Container(
-      padding: KonataPlaybackTokens.specBadgePadding,
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(
-          KonataPlaybackTokens.specBadgeRadius,
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.15,
+      child: Container(
+        padding: KonataPlaybackTokens.specBadgePadding,
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(
+            KonataPlaybackTokens.specBadgeRadius,
+          ),
+          border: Border.all(color: borderColor, width: 1),
         ),
-        border: Border.all(color: borderColor, width: 1),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 12, color: textColor),
-            const SizedBox(width: 4),
-          ],
-          Flexible(
-            child: Text(
-              label,
-              maxLines: 1,
-              softWrap: false,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: textColor,
-                fontSize: KonataPlaybackTokens.specBadgeFontSize,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.15,
-                fontFeatures: KonataPlaybackTokens.tabularNumbers,
-                height: 1.1,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 12, color: textColor),
+              const SizedBox(width: 4),
+            ],
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: textColor,
+                  fontSize: KonataPlaybackTokens.specBadgeFontSize,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.15,
+                  fontFeatures: KonataPlaybackTokens.tabularNumbers,
+                  height: 1.1,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -121,25 +124,28 @@ class EpisodeCategoryBadge extends StatelessWidget {
       textColor = p.textPrimary;
     }
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6.5, vertical: 2),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(
-          KonataPlaybackTokens.specBadgeRadius,
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.15,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6.5, vertical: 2),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(
+            KonataPlaybackTokens.specBadgeRadius,
+          ),
+          border: Border.all(color: borderColor, width: 1.0),
         ),
-        border: Border.all(color: borderColor, width: 1.0),
-      ),
-      child: Text(
-        label,
-        maxLines: 1,
-        softWrap: false,
-        style: TextStyle(
-          color: textColor,
-          fontSize: 10.5,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.15,
-          height: 1.1,
+        child: Text(
+          label,
+          maxLines: 1,
+          softWrap: false,
+          style: TextStyle(
+            color: textColor,
+            fontSize: 10.5,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.15,
+            height: 1.1,
+          ),
         ),
       ),
     );

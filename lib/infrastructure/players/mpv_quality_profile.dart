@@ -253,7 +253,8 @@ class MpvQualityProfile {
       return 'd3d11va,d3d11va-copy,auto-safe';
     }
     if (isAndroid) {
-      return 'mediacodec,auto-safe';
+      // Android 优先尝试零拷贝硬解并在需要时自动回退至兼容拷贝路径
+      return 'auto-safe';
     }
     return 'auto-safe';
   }
@@ -322,12 +323,15 @@ class MpvQualityProfile {
     setter.setOption(client, 'osc', 'no');
     setter.setOption(client, 'osd-level', '0');
 
-    // 视频渲染后端与硬件解码策略
+    // 视频渲染后端与硬件解码策略（Android 延迟至有效像素表面就绪后再切换至 vo=gpu）
     if (isWindows) {
       setter.setOption(client, 'vo', windowsVideoDriver);
     } else if (isAndroid) {
-      setter.setOption(client, 'vo', androidVideoDriver);
+      setter.setOption(client, 'vo', 'null');
       setter.setOption(client, 'gpu-context', 'android');
+      setter.setOption(client, 'gpu-api', 'opengl');
+      setter.setOption(client, 'opengl-es', 'yes');
+      setter.setOption(client, 'egl-output-format', 'rgb10_a2');
     } else {
       setter.setOption(client, 'vo', windowsVideoDriver);
     }
@@ -340,10 +344,16 @@ class MpvQualityProfile {
         isAndroid: isAndroid,
       ),
     );
-    setter.setOption(client, 'hwdec-codecs', 'all');
+    setter.setOption(
+      client,
+      'hwdec-codecs',
+      isAndroid ? 'h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1' : 'all',
+    );
 
-    // 高精色彩管理与抖动（Windows D3D11 使用 rgba16hf 防止触发 dumb mode，其余平台使用 rgba16f）
-    setter.setOption(client, 'fbo-format', isWindows ? 'rgba16hf' : 'rgba16f');
+    // 高精色彩管理与抖动（Windows D3D11 使用 rgba16hf 防止触发 dumb mode，Android 保持 GLES 自适应）
+    if (isWindows) {
+      setter.setOption(client, 'fbo-format', 'rgba16hf');
+    }
     setter.setOption(client, 'dither-depth', 'auto');
     setter.setOption(client, 'dither', 'fruit');
     final scalers = resolveScalers(config.preset);
@@ -417,7 +427,17 @@ class MpvQualityProfile {
     final subParams = resolveSubtitleParameters(config);
     setter.setOption(client, 'sub-auto', 'fuzzy');
     setter.setOption(client, 'audio-file-auto', 'fuzzy');
-    setter.setOption(client, 'sub-font-provider', 'auto');
+    if (isAndroid) {
+      setter.setOption(client, 'sub-font-provider', 'none');
+      setter.setOption(
+        client,
+        'sub-fonts-dir',
+        p.join(mpvConfigDir.path, 'fonts'),
+      );
+      setter.setOption(client, 'sub-scale-with-window', 'yes');
+    } else {
+      setter.setOption(client, 'sub-font-provider', 'auto');
+    }
     setter.setOption(client, 'sub-font-size', '${subParams.fontSize}');
     setter.setOption(client, 'sub-scale', subParams.scale.toStringAsFixed(4));
     setter.setOption(client, 'sub-margin-y', '${subParams.marginY}');

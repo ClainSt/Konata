@@ -65,11 +65,6 @@ class SettingsAboutPanel extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          '关于',
-          style: KonataTheme.h2Style(p),
-        ),
-        const SizedBox(height: 16),
         KonataSurfaceCard(
           child: Row(
             children: [
@@ -83,26 +78,29 @@ class SettingsAboutPanel extends ConsumerWidget {
                 ),
               ),
               const SizedBox(width: 14),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Konata',
-                    style: TextStyle(
-                      color: p.textPrimary,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Konata',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: p.textPrimary,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '版本 1.0.0',
-                    style: TextStyle(
-                      color: p.textSecondary,
-                      fontSize: 13,
+                    const SizedBox(height: 2),
+                    Text(
+                      '版本 1.0.0',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: p.textSecondary, fontSize: 13),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),

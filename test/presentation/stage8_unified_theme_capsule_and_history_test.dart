@@ -387,10 +387,10 @@ void main() {
       await tester.tap(find.text('显示'));
       await tester.pumpAndSettle();
 
-      expect(find.text('详情页显示'), findsOneWidget);
-      expect(find.text('标题显示'), findsOneWidget);
-      expect(find.text('显示作品简介'), findsOneWidget);
-      expect(find.text('本地图片存储 (photos/)'), findsOneWidget);
+      expect(find.text('详情页显示'), findsNothing);
+      expect(find.text('详情页标题'), findsOneWidget);
+      expect(find.text('作品简介'), findsOneWidget);
+      expect(find.text('本地图片存储'), findsOneWidget);
 
       // 点击默认「标题徽标」多选触发器：勾选「文字标题」后浮层不收起
       await tester.tap(find.text('标题徽标').first);

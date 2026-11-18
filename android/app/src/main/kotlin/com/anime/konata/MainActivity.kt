@@ -9,6 +9,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Rect
 import android.graphics.drawable.Icon
 import android.media.AudioAttributes
@@ -17,9 +19,15 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.CancellationSignal
+import android.os.Handler
+import android.os.Looper
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import android.util.Rational
+import android.view.PixelCopy
+import android.view.ScrollCaptureCallback
+import android.view.ScrollCaptureSession
 import android.view.WindowManager
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
@@ -28,10 +36,14 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.embedding.engine.FlutterShellArgs
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.StandardMethodCodec
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.util.function.Consumer
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /// Android 主活动宿主：承载硬件视频表面、音频焦点、窗口亮度/全屏控制及原生画中画生命周期。
@@ -50,8 +62,10 @@ class MainActivity : FlutterActivity() {
     private var visibleBars = 0
     private var audioFocusChannel: MethodChannel? = null
     private var pipChannel: MethodChannel? = null
+    private var scrollCaptureChannel: MethodChannel? = null
     private var audioFocusRequest: AudioFocusRequest? = null
     private var pipReceiverRegistered = false
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private var pipEligible = false
     private var pipIsPlaying = false
@@ -60,15 +74,23 @@ class MainActivity : FlutterActivity() {
     private var pipAspectNumerator = 16
     private var pipAspectDenominator = 9
     private var pipSourceRect: Rect? = null
+    private var inPipState = false
+    private var lastPipExitMillis = 0L
+
+    private var scrollHasTarget = false
+    private var scrollTargetRect = Rect()
 
     private val audioManager by lazy { getSystemService(AUDIO_SERVICE) as AudioManager }
     private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
-        if (change == AudioManager.AUDIOFOCUS_LOSS ||
-            change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT ||
-            change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
-            // 系统音频焦点被抢占时通知播放控制器立即暂停
-            runOnUiThread { audioFocusChannel?.invokeMethod("loss", null) }
-        }
+        val eventName = when (change) {
+            AudioManager.AUDIOFOCUS_LOSS -> "loss"
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> "lossTransient"
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> "duck"
+            AudioManager.AUDIOFOCUS_GAIN -> "gain"
+            else -> null
+        } ?: return@OnAudioFocusChangeListener
+        // 系统音频焦点变更时立即通知播放协调器暂停、压低音量或恢复播放
+        runOnUiThread { audioFocusChannel?.invokeMethod("focusChange", eventName) }
     }
 
     private val pipControlReceiver = object : BroadcastReceiver() {
@@ -77,6 +99,14 @@ class MainActivity : FlutterActivity() {
             val cmd = intent.getStringExtra(EXTRA_PIP_COMMAND) ?: return
             runOnUiThread { pipChannel?.invokeMethod("action", cmd) }
         }
+    }
+
+    override fun getFlutterShellArgs(): FlutterShellArgs {
+        val args = super.getFlutterShellArgs()
+        // 强制 Android 渲染管线使用 OpenGL ES 并关闭 HCPP，消除 Vulkan 交换链句柄冲突崩溃与旋转残影
+        args.add("--impeller-backend=opengles")
+        args.add("--enable-hcpp-and-surface-control=false")
+        return args
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -108,7 +138,8 @@ class MainActivity : FlutterActivity() {
                 .setAudioAttributes(AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE).build())
-                .setWillPauseWhenDucked(true)
+                .setAcceptsDelayedFocusGain(false)
+                .setWillPauseWhenDucked(false)
                 .setOnAudioFocusChangeListener(audioFocusListener).build()
                 .also { audioFocusRequest = it }
             audioManager.requestAudioFocus(request)
@@ -134,12 +165,19 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                window.decorView.setScrollCaptureCallback(null)
+            } catch (_: Exception) {}
+        }
         endPlaybackWindow()
         abandonPlaybackAudioFocus()
         audioFocusChannel?.setMethodCallHandler(null)
         audioFocusChannel = null
         pipChannel?.setMethodCallHandler(null)
         pipChannel = null
+        scrollCaptureChannel?.setMethodCallHandler(null)
+        scrollCaptureChannel = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 
@@ -178,7 +216,7 @@ class MainActivity : FlutterActivity() {
     private fun endPlaybackWindow() {
         setPlaybackFullscreen(false)
         setWindowBrightnessOverride(-1.0)
-        previousOrientation?.let { requestedOrientation = it }
+        requestedOrientation = previousOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         previousOrientation = null
     }
 
@@ -269,8 +307,8 @@ class MainActivity : FlutterActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        // Android 8 ~ 11 在离开前台时依据实时资格触发画中画（Android 12+ 由 setAutoEnterEnabled 接管）
-        if (Build.VERSION.SDK_INT in Build.VERSION_CODES.O..Build.VERSION_CODES.R) {
+        // 全版本离开前台时均按实时资格兜底触发系统画中画，兼容三键导航与 HOME 键切后台
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             if (pipEligible && !isInPictureInPictureMode) {
                 try {
                     enterPictureInPictureMode(buildPipParams())
@@ -279,11 +317,31 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        lastPipExitMillis = 0L
+    }
+
+    override fun onStop() {
+        val exitedPipRecently = inPipState ||
+            (lastPipExitMillis > 0L && (System.currentTimeMillis() - lastPipExitMillis) < 1200L)
+        if (exitedPipRecently) {
+            inPipState = false
+            lastPipExitMillis = 0L
+            runOnUiThread {
+                pipChannel?.invokeMethod("pipDismissed", null)
+            }
+        }
+        super.onStop()
+    }
+
     override fun onPictureInPictureModeChanged(
         isInPictureInPictureMode: Boolean,
         newConfig: Configuration
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        inPipState = isInPictureInPictureMode
+        lastPipExitMillis = if (isInPictureInPictureMode) 0L else System.currentTimeMillis()
         runOnUiThread {
             pipChannel?.invokeMethod("pipChanged", isInPictureInPictureMode)
         }
@@ -403,7 +461,6 @@ class MainActivity : FlutterActivity() {
                 "begin" -> {
                     if (previousOrientation == null) {
                         previousOrientation = requestedOrientation
-                        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
                     }
                     result.success(null)
                 }
@@ -415,21 +472,23 @@ class MainActivity : FlutterActivity() {
                         if (previousOrientation == null) {
                             previousOrientation = requestedOrientation
                         }
-                        // 锁定精确当前朝向（含反向横竖屏），解锁后恢复传感器自由旋转
+                        // 锁定精确当前朝向（含反向横竖屏），解锁后恢复横屏传感器方向
                         requestedOrientation = if (locked) ActivityInfo.SCREEN_ORIENTATION_LOCKED
-                            else ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                            else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                         result.success(locked)
                     }
                 }
                 "setLandscape" -> {
                     val landscape = call.arguments == true
-                    if (previousOrientation == null) {
-                        previousOrientation = requestedOrientation
-                    }
-                    requestedOrientation = if (landscape) {
-                        ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                    if (landscape) {
+                        if (previousOrientation == null) {
+                            previousOrientation = requestedOrientation
+                        }
+                        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                     } else {
-                        ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                        requestedOrientation = previousOrientation
+                            ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                        previousOrientation = null
                     }
                     result.success(null)
                 }
@@ -445,6 +504,38 @@ class MainActivity : FlutterActivity() {
                 "end" -> { endPlaybackWindow(); result.success(null) }
                 else -> result.notImplemented()
             }
+        }
+        scrollCaptureChannel = MethodChannel(messenger, "ccplayer/scroll_capture").also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "updateScrollTarget" -> {
+                        val args = call.arguments as? Map<*, *>
+                        val hasTarget = args?.get("hasTarget") == true
+                        val left = (args?.get("leftPx") as? Number)?.toInt() ?: 0
+                        val top = (args?.get("topPx") as? Number)?.toInt() ?: 0
+                        val right = (args?.get("rightPx") as? Number)?.toInt() ?: 0
+                        val bottom = (args?.get("bottomPx") as? Number)?.toInt() ?: 0
+                        scrollHasTarget = hasTarget && right > left && bottom > top
+                        if (scrollHasTarget) {
+                            scrollTargetRect.set(left, top, right, bottom)
+                        } else {
+                            scrollTargetRect.setEmpty()
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            window.decorView.scrollCaptureHint = if (scrollHasTarget) {
+                                android.view.View.SCROLL_CAPTURE_HINT_INCLUDE
+                            } else {
+                                android.view.View.SCROLL_CAPTURE_HINT_AUTO
+                            }
+                        }
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            installScrollCaptureCallback()
         }
         MethodChannel(messenger, "ccplayer/mpv_profile", StandardMethodCodec.INSTANCE,
             messenger.makeBackgroundTaskQueue()).setMethodCallHandler { call, result ->
@@ -536,5 +627,199 @@ class MainActivity : FlutterActivity() {
             }
         }
         return files
+    }
+
+    @RequiresApi(Build.VERSION_CODES.S)
+    private fun installScrollCaptureCallback() {
+        window.decorView.setScrollCaptureCallback(object : ScrollCaptureCallback {
+            private var captureWindowRect = Rect()
+
+            override fun onScrollCaptureSearch(
+                signal: CancellationSignal,
+                onReady: Consumer<Rect>
+            ) {
+                if (signal.isCanceled || !scrollHasTarget || scrollTargetRect.isEmpty) {
+                    onReady.accept(Rect())
+                    return
+                }
+                onReady.accept(Rect(scrollTargetRect))
+            }
+
+            override fun onScrollCaptureStart(
+                session: ScrollCaptureSession,
+                signal: CancellationSignal,
+                onReady: Runnable
+            ) {
+                if (signal.isCanceled) return
+                runOnUiThread {
+                    val channel = scrollCaptureChannel
+                    if (channel == null) {
+                        onReady.run()
+                        return@runOnUiThread
+                    }
+                    channel.invokeMethod("beginCapture", null, object : MethodChannel.Result {
+                        override fun success(result: Any?) {
+                            val map = result as? Map<*, *>
+                            val left = (map?.get("leftPx") as? Number)?.toInt() ?: scrollTargetRect.left
+                            val top = (map?.get("topPx") as? Number)?.toInt() ?: scrollTargetRect.top
+                            val right = (map?.get("rightPx") as? Number)?.toInt() ?: scrollTargetRect.right
+                            val bottom = (map?.get("bottomPx") as? Number)?.toInt() ?: scrollTargetRect.bottom
+                            captureWindowRect = if (right > left && bottom > top) {
+                                Rect(left, top, right, bottom)
+                            } else {
+                                Rect(scrollTargetRect)
+                            }
+                            onReady.run()
+                        }
+
+                        override fun error(code: String, msg: String?, details: Any?) {
+                            captureWindowRect = Rect(scrollTargetRect)
+                            onReady.run()
+                        }
+
+                        override fun notImplemented() {
+                            captureWindowRect = Rect(scrollTargetRect)
+                            onReady.run()
+                        }
+                    })
+                }
+            }
+
+            override fun onScrollCaptureImageRequest(
+                session: ScrollCaptureSession,
+                signal: CancellationSignal,
+                captureArea: Rect,
+                onComplete: Consumer<Rect>
+            ) {
+                if (signal.isCanceled) {
+                    onComplete.accept(Rect())
+                    return
+                }
+                runOnUiThread {
+                    val channel = scrollCaptureChannel
+                    if (channel == null || captureWindowRect.isEmpty) {
+                        onComplete.accept(Rect())
+                        return@runOnUiThread
+                    }
+                    val args = mapOf("requestedTopPx" to captureArea.top.toDouble())
+                    channel.invokeMethod("scrollToCaptureArea", args, object : MethodChannel.Result {
+                        override fun success(result: Any?) {
+                            if (signal.isCanceled) {
+                                onComplete.accept(Rect())
+                                return
+                            }
+                            val map = result as? Map<*, *>
+                            if (map?.get("ok") != true) {
+                                onComplete.accept(Rect())
+                                return
+                            }
+                            val actualDelta = (map["actualDeltaPx"] as? Number)?.toInt() ?: 0
+                            val viewLeft = (map["leftPx"] as? Number)?.toInt() ?: captureWindowRect.left
+                            val viewTop = (map["topPx"] as? Number)?.toInt() ?: captureWindowRect.top
+                            val viewRight = (map["rightPx"] as? Number)?.toInt() ?: captureWindowRect.right
+                            val viewBottom = (map["bottomPx"] as? Number)?.toInt() ?: captureWindowRect.bottom
+                            val winHeight = max(0, viewBottom - viewTop)
+                            val winWidth = max(0, viewRight - viewLeft)
+                            if (winWidth <= 0 || winHeight <= 0) {
+                                onComplete.accept(Rect())
+                                return
+                            }
+
+                            // 将逻辑请求区与当前视口偏移对齐，计算可见裁剪矩形
+                            val reqStart = captureArea.top
+                            val reqEnd = captureArea.bottom
+                            val visStart = max(reqStart, actualDelta)
+                            val visEnd = min(reqEnd, actualDelta + winHeight)
+                            if (visEnd <= visStart) {
+                                onComplete.accept(Rect())
+                                return
+                            }
+
+                            val localTop = visStart - actualDelta
+                            val stripHeight = visEnd - visStart
+                            val copyLeft = viewLeft + max(0, captureArea.left)
+                            val copyRight = min(viewRight, viewLeft + captureArea.right)
+                            val copyWidth = copyRight - copyLeft
+                            if (copyWidth <= 0 || stripHeight <= 0) {
+                                onComplete.accept(Rect())
+                                return
+                            }
+
+                            val srcRect = Rect(copyLeft, viewTop + localTop, copyRight, viewTop + localTop + stripHeight)
+                            val bitmap = Bitmap.createBitmap(copyWidth, stripHeight, Bitmap.Config.ARGB_8888)
+                            try {
+                                PixelCopy.request(window, srcRect, bitmap, { copyResult ->
+                                    try {
+                                        if (copyResult == PixelCopy.SUCCESS && !signal.isCanceled) {
+                                            val resultRect = Rect(
+                                                captureArea.left,
+                                                visStart,
+                                                captureArea.left + copyWidth,
+                                                visEnd
+                                            )
+                                            val canvas: Canvas? = try {
+                                                session.surface.lockCanvas(null)
+                                            } catch (_: Exception) {
+                                                try {
+                                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                                        session.surface.lockHardwareCanvas()
+                                                    } else {
+                                                        null
+                                                    }
+                                                } catch (_: Exception) {
+                                                    null
+                                                }
+                                            }
+                                            if (canvas != null) {
+                                                try {
+                                                    canvas.drawBitmap(bitmap, 0f, 0f, null)
+                                                } finally {
+                                                    try {
+                                                        session.surface.unlockCanvasAndPost(canvas)
+                                                    } catch (_: Exception) {}
+                                                }
+                                                onComplete.accept(resultRect)
+                                            } else {
+                                                onComplete.accept(Rect())
+                                            }
+                                        } else {
+                                            onComplete.accept(Rect())
+                                        }
+                                    } finally {
+                                        bitmap.recycle()
+                                    }
+                                }, mainHandler)
+                            } catch (_: Exception) {
+                                bitmap.recycle()
+                                onComplete.accept(Rect())
+                            }
+                        }
+
+                        override fun error(code: String, msg: String?, details: Any?) {
+                            onComplete.accept(Rect())
+                        }
+
+                        override fun notImplemented() {
+                            onComplete.accept(Rect())
+                        }
+                    })
+                }
+            }
+
+            override fun onScrollCaptureEnd(onReady: Runnable) {
+                runOnUiThread {
+                    val channel = scrollCaptureChannel
+                    if (channel == null) {
+                        onReady.run()
+                        return@runOnUiThread
+                    }
+                    channel.invokeMethod("endCapture", null, object : MethodChannel.Result {
+                        override fun success(result: Any?) = onReady.run()
+                        override fun error(code: String, msg: String?, details: Any?) = onReady.run()
+                        override fun notImplemented() = onReady.run()
+                    })
+                }
+            }
+        })
     }
 }

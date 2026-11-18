@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import '../theme/konata_adaptive_tokens.dart';
-import '../widgets/design_system/konata_settings_row.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/theme_providers.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
+import '../widgets/design_system/adaptive_responsive_row.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 
@@ -20,16 +20,43 @@ class SettingsAppearancePanel extends ConsumerWidget {
     final currentMode = ref.watch(themeModeProvider);
     final currentMaterial = ref.watch(windowMaterialProvider);
 
+    final cards = [
+      _ThemeOptionCard(
+        label: '深色模式',
+        subtitle: '影院黑曜石',
+        selected: currentMode == ThemeMode.dark,
+        previewBg: KonataTheme.cinemaObsidian,
+        previewCard: KonataTheme.themePreviewDarkCard,
+        previewPill: KonataPalette.dark.primaryButtonBg,
+        onTap: () =>
+            ref.read(themeModeProvider.notifier).setThemeMode(ThemeMode.dark),
+      ),
+      _ThemeOptionCard(
+        label: '浅色模式',
+        subtitle: '画册米白',
+        selected: currentMode == ThemeMode.light,
+        previewBg: KonataTheme.themePreviewLightCanvas,
+        previewCard: Colors.white,
+        previewPill: KonataPalette.light.primaryButtonBg,
+        onTap: () =>
+            ref.read(themeModeProvider.notifier).setThemeMode(ThemeMode.light),
+      ),
+      _ThemeOptionCard(
+        label: '跟随系统',
+        subtitle: '自动适配系统',
+        selected: currentMode == ThemeMode.system,
+        previewBg: KonataTheme.themePreviewDarkCard,
+        previewCard: KonataTheme.themePreviewLightCanvas,
+        previewPill: KonataTheme.themePreviewNeutralPill,
+        isSplitPreview: true,
+        onTap: () =>
+            ref.read(themeModeProvider.notifier).setThemeMode(ThemeMode.system),
+      ),
+    ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('外观', style: KonataTheme.h2Style(p)),
-        const SizedBox(height: 6),
-        Text(
-          '选择全站主题模式，更改后立即生效',
-          style: KonataTheme.captionStyle(p, fontSize: 13),
-        ),
-        const SizedBox(height: 18),
         KonataSurfaceCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -43,52 +70,29 @@ class SettingsAppearancePanel extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 14),
-              KonataSettingsRow(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: _ThemeOptionCard(
-                      label: '深色模式',
-                      subtitle: '影院黑曜石',
-                      selected: currentMode == ThemeMode.dark,
-                      previewBg: KonataTheme.cinemaObsidian,
-                      previewCard: KonataTheme.themePreviewDarkCard,
-                      previewPill: KonataPalette.dark.primaryButtonBg,
-                      onTap: () => ref
-                          .read(themeModeProvider.notifier)
-                          .setThemeMode(ThemeMode.dark),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _ThemeOptionCard(
-                      label: '浅色模式',
-                      subtitle: '画册米白',
-                      selected: currentMode == ThemeMode.light,
-                      previewBg: KonataTheme.themePreviewLightCanvas,
-                      previewCard: Colors.white,
-                      previewPill: KonataPalette.light.primaryButtonBg,
-                      onTap: () => ref
-                          .read(themeModeProvider.notifier)
-                          .setThemeMode(ThemeMode.light),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _ThemeOptionCard(
-                      label: '跟随系统',
-                      subtitle: '自动适配系统',
-                      selected: currentMode == ThemeMode.system,
-                      previewBg: KonataTheme.themePreviewDarkCard,
-                      previewCard: KonataTheme.themePreviewLightCanvas,
-                      previewPill: KonataTheme.themePreviewNeutralPill,
-                      isSplitPreview: true,
-                      onTap: () => ref
-                          .read(themeModeProvider.notifier)
-                          .setThemeMode(ThemeMode.system),
-                    ),
-                  ),
-                ],
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  if (constraints.maxWidth >= 460) {
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (var i = 0; i < cards.length; i++) ...[
+                          if (i > 0) const SizedBox(width: 12),
+                          Expanded(child: cards[i]),
+                        ],
+                      ],
+                    );
+                  }
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (var i = 0; i < cards.length; i++) ...[
+                        if (i > 0) const SizedBox(height: 10),
+                        cards[i],
+                      ],
+                    ],
+                  );
+                },
               ),
             ],
           ),
@@ -96,53 +100,31 @@ class SettingsAppearancePanel extends ConsumerWidget {
         if (KonataAdaptiveTokens.isWindows) ...[
           const SizedBox(height: 16),
           KonataSurfaceCard(
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '窗口材质',
-                        style: TextStyle(
-                          color: p.textPrimary,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        currentMaterial.subtitle,
-                        style: TextStyle(
-                          color: p.textSecondary,
-                          fontSize: 12.5,
-                        ),
-                      ),
-                    ],
+            child: AdaptiveSettingTile(
+              padding: EdgeInsets.zero,
+              title: '窗口材质',
+              subtitle: currentMaterial.subtitle,
+              estimatedTrailingWidth: 220,
+              trailing: KonataSegmentedCapsule<KonataWindowMaterial>(
+                selected: currentMaterial,
+                options: const [
+                  KonataSegmentOption(
+                    value: KonataWindowMaterial.acrylic,
+                    label: '亚克力',
                   ),
-                ),
-                const SizedBox(width: 16),
-                KonataSegmentedCapsule<KonataWindowMaterial>(
-                  selected: currentMaterial,
-                  options: const [
-                    KonataSegmentOption(
-                      value: KonataWindowMaterial.acrylic,
-                      label: '亚克力',
-                    ),
-                    KonataSegmentOption(
-                      value: KonataWindowMaterial.mica,
-                      label: '云母',
-                    ),
-                    KonataSegmentOption(
-                      value: KonataWindowMaterial.tabbed,
-                      label: '云母变体',
-                    ),
-                  ],
-                  onChanged: (value) => ref
-                      .read(windowMaterialProvider.notifier)
-                      .setMaterial(value),
-                ),
-              ],
+                  KonataSegmentOption(
+                    value: KonataWindowMaterial.mica,
+                    label: '云母',
+                  ),
+                  KonataSegmentOption(
+                    value: KonataWindowMaterial.tabbed,
+                    label: '云母变体',
+                  ),
+                ],
+                onChanged: (value) => ref
+                    .read(windowMaterialProvider.notifier)
+                    .setMaterial(value),
+              ),
             ),
           ),
         ],

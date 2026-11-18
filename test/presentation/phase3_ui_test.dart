@@ -486,13 +486,14 @@ void main() {
       expect(find.byIcon(Icons.keyboard_arrow_up_rounded), findsNothing);
       expect(find.byIcon(Icons.settings_rounded), findsOneWidget);
 
-      // 点击 正片 (1) 展开悬浮剧集条，右侧平滑显现 < / > / ⌄ 控制胶囊
+      // 点击 正片 (1) 展开悬浮剧集条，右侧平滑显现 ⊞ / ⌄ 控制胶囊，且不再保留左右翻页箭头
       await tester.tap(find.text('正片 (1)'));
       await tester.pumpAndSettle();
       expect(find.text('[VCB-Studio] Frieren [02].mkv'), findsOneWidget);
       expect(find.text('02 · 没必要魔法'), findsOneWidget);
-      expect(find.byIcon(Icons.chevron_left_rounded), findsOneWidget);
-      expect(find.byIcon(Icons.chevron_right_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.grid_view_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.chevron_left_rounded), findsNothing);
+      expect(find.byIcon(Icons.chevron_right_rounded), findsNothing);
       expect(find.byIcon(Icons.keyboard_arrow_down_rounded), findsOneWidget);
 
       // 点击收起按钮一键折叠剧集缩略图条，恢复仅保留齿轮

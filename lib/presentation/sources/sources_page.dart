@@ -7,13 +7,12 @@ import '../../application/providers/source_actions_provider.dart';
 import '../../application/scraping/scrape_progress.dart';
 import '../../domain/models/media_source.dart';
 import '../audio/mini_audio_bar.dart';
-import '../settings/settings_page.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
+import '../widgets/design_system/adaptive_action_header.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
-import '../widgets/design_system/konata_page_header.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/design_system/konata_toast.dart';
@@ -22,6 +21,7 @@ import 'scan_progress_dialog.dart';
 import 'scrape_progress_banner.dart';
 import 'source_editor_dialog.dart';
 import 'source_folder_picker_dialog.dart';
+import 'tmdb_scrape_guard.dart';
 
 /// 媒体源管理页面（支持本地目录 / WebDAV / SMB 增删改、连通测试与触发扫描）。
 class SourcesPage extends ConsumerStatefulWidget {
@@ -108,13 +108,8 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
       _openProgressDialog();
       return;
     }
-    final netCfg = ref.read(tmdbNetworkConfigProvider).valueOrNull;
-    if (netCfg != null && netCfg.credential.trim().isEmpty && mounted) {
-      showKonataToast(
-        context,
-        '提醒：当前尚未配置 TMDB API 密钥，无法获取 TMDB 剧照与分集详情，请前往「设置 -> 刮削与网络」配置',
-        isError: true,
-      );
+    if (!await ensureTmdbConfiguredForScrape(context, ref)) {
+      return;
     }
     if (mounted) {
       setState(() => _bannerDismissed = false);
@@ -125,13 +120,6 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
     } catch (_) {
       // 错误详情已同步写入 ScrapeProgress，通过进度卡片与弹窗展示。
     }
-  }
-
-  void _jumpToApiSettings() {
-    ref.read(selectedSettingsCategoryProvider.notifier).state =
-        SettingsCategory.network;
-    ref.read(selectedNavSectionProvider.notifier).state =
-        KonataNavSection.settings;
   }
 
   void _openFolderPicker(MediaSource source) {
@@ -158,10 +146,6 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
         ),
       ),
     );
-    final netCfgAsync = ref.watch(tmdbNetworkConfigProvider);
-    final missingTmdbApi =
-        netCfgAsync.hasValue &&
-        (netCfgAsync.value?.credential.trim().isEmpty ?? false);
     final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
     final showBanner = scanState.active && !_bannerDismissed;
     final screenW = MediaQuery.sizeOf(context).width;
@@ -183,19 +167,18 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        KonataPageHeader(
+        AdaptiveActionHeader(
           title: '媒体源管理',
-          actions: [
-            if (missingTmdbApi)
-              KonataPillButton.secondary(
-                label: '未配置 TMDB API · 去设置',
-                icon: Icons.warning_amber_rounded,
-                compact: true,
-                onPressed: _jumpToApiSettings,
-              ),
-            KonataPillButton.primary(
-              label: '添加媒体源',
+          primaryActions: [
+            AdaptiveHeaderAction(
               icon: Icons.add_rounded,
+              label: '添加媒体源',
+              highlighted: true,
+              wideWidget: KonataPillButton.primary(
+                label: '添加媒体源',
+                icon: Icons.add_rounded,
+                onPressed: () => _openEditor(),
+              ),
               onPressed: () => _openEditor(),
             ),
           ],

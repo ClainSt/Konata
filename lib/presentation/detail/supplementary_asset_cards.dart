@@ -35,6 +35,7 @@ class CdDrawerCard extends StatefulWidget {
     this.directSubdirLabel,
     this.displayTitleOverride,
     this.onDarkBackdrop = true,
+    this.cardWidth = 244.0,
   });
 
   final MediaVariant variant;
@@ -53,6 +54,9 @@ class CdDrawerCard extends StatefulWidget {
   /// 可选外部覆写展示标题（缺省时展示原文件名）。
   final String? displayTitleOverride;
   final bool onDarkBackdrop;
+
+  /// 卡片展示宽度（默认 `244dp`，手机横/竖屏可按可用高度适配）。
+  final double cardWidth;
 
   @override
   State<CdDrawerCard> createState() => _CdDrawerCardState();
@@ -148,17 +152,19 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
         ? widget.displayTitleOverride!.trim()
         : _stripAssetExtension(v.fileName);
 
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        onSecondaryTapUp: (details) => _showCdMenu(details.globalPosition),
-        onLongPressStart: (details) => _showCdMenu(details.globalPosition),
-        child: SizedBox(
-          width: 244,
-          child: Column(
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.15,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          onSecondaryTapUp: (details) => _showCdMenu(details.globalPosition),
+          onLongPressStart: (details) => _showCdMenu(details.globalPosition),
+          child: SizedBox(
+            width: widget.cardWidth,
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               AnimatedContainer(
@@ -310,6 +316,7 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
           ),
         ),
       ),
+    ),
     );
   }
 }
@@ -328,6 +335,7 @@ class ScanDrawerCard extends ConsumerStatefulWidget {
     this.directSubdirLabel,
     this.displayTitleOverride,
     this.onDarkBackdrop = true,
+    this.cardWidth = 244.0,
   });
 
   final MediaVariant variant;
@@ -345,6 +353,9 @@ class ScanDrawerCard extends ConsumerStatefulWidget {
   /// 可选外部覆写展示标题（缺省时展示原文件名）。
   final String? displayTitleOverride;
   final bool onDarkBackdrop;
+
+  /// 卡片展示宽度（默认 `244dp`，手机横/竖屏可按可用高度适配）。
+  final double cardWidth;
 
   @override
   ConsumerState<ScanDrawerCard> createState() => _ScanDrawerCardState();
@@ -439,15 +450,17 @@ class _ScanDrawerCardState extends ConsumerState<ScanDrawerCard> {
         ? widget.displayTitleOverride!.trim()
         : _stripAssetExtension(v.fileName);
 
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: SizedBox(
-          width: 244,
-          child: Column(
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.15,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: SizedBox(
+            width: widget.cardWidth,
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               AnimatedContainer(
@@ -541,6 +554,7 @@ class _ScanDrawerCardState extends ConsumerState<ScanDrawerCard> {
           ),
         ),
       ),
+    ),
     );
   }
 }

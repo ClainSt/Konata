@@ -347,11 +347,15 @@ class _SourceEditorDialogState extends State<SourceEditorDialog> {
                                 visualDensity: VisualDensity.compact,
                               ),
                               const SizedBox(width: 4),
-                              Text(
-                                '清除已存储的登录密码',
-                                style: TextStyle(
-                                  color: p.textSecondary,
-                                  fontSize: 12.5,
+                              Expanded(
+                                child: Text(
+                                  '清除已存储的登录密码',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: p.textSecondary,
+                                    fontSize: 12.5,
+                                  ),
                                 ),
                               ),
                             ],

@@ -26,10 +26,13 @@ enum SettingsCategory {
   final IconData icon;
 }
 
-/// 当前激活的设置二级分类 Provider（支持从外部提醒横幅一键直达「刮削与网络」等面板）。
+/// 当前激活的设置二级分类 Provider（支持从外部提醒弹窗一键直达「刮削与网络」等面板）。
 final selectedSettingsCategoryProvider = StateProvider<SettingsCategory>(
   (ref) => SettingsCategory.appearance,
 );
+
+/// 外部深链直达设置子页的脉冲计数器（确保手机端即使目标分类已选中也能主动推入二级页面）。
+final settingsDeepLinkPulseProvider = StateProvider<int>((ref) => 0);
 
 /// 双栏布局设置页面（统一一级页头 + 左侧无框分类导航 + 右侧自适应全宽铺展面板）。
 class SettingsPage extends ConsumerStatefulWidget {
@@ -44,9 +47,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     final selected = ref.watch(selectedSettingsCategoryProvider);
+    final deepLinkPulse = ref.watch(settingsDeepLinkPulseProvider);
     final navigation = ref.read(capsuleNavigationHiddenProvider.notifier);
     return AdaptiveSettingsContainer<SettingsCategory>(
       selected: selected,
+      deepLinkPulse: deepLinkPulse,
       onSelected: (value) =>
           ref.read(selectedSettingsCategoryProvider.notifier).state = value,
       onDetailVisibilityChanged: (value) => navigation.state = value,

@@ -77,17 +77,39 @@ class AndroidPlaybackWindowBridge {
   );
 
   static VoidCallback? _onAudioFocusLoss;
+  static VoidCallback? _onAudioFocusDuck;
+  static VoidCallback? _onAudioFocusGain;
   static bool _focusHandlerBound = false;
 
-  /// 绑定音频焦点丢失回调并在 Android 端请求播放音频焦点。
-  static Future<void> requestAudioFocus({VoidCallback? onLoss}) async {
+  /// 绑定音频焦点变更回调并在 Android 端请求播放音频焦点（`AUDIOFOCUS_GAIN`）。
+  static Future<void> requestAudioFocus({
+    VoidCallback? onLoss,
+    VoidCallback? onDuck,
+    VoidCallback? onGain,
+  }) async {
     if (!KonataPlatform.isAndroid) return;
     _onAudioFocusLoss = onLoss;
+    _onAudioFocusDuck = onDuck;
+    _onAudioFocusGain = onGain;
     if (!_focusHandlerBound) {
       _focusHandlerBound = true;
       _audioFocusChannel.setMethodCallHandler((call) async {
         if (call.method == 'loss') {
           _onAudioFocusLoss?.call();
+        } else if (call.method == 'focusChange') {
+          switch (call.arguments?.toString()) {
+            case 'loss':
+            case 'lossTransient':
+              _onAudioFocusLoss?.call();
+            case 'duck':
+              if (_onAudioFocusDuck != null) {
+                _onAudioFocusDuck!.call();
+              } else {
+                _onAudioFocusLoss?.call();
+              }
+            case 'gain':
+              _onAudioFocusGain?.call();
+          }
         }
         return null;
       });
@@ -100,10 +122,32 @@ class AndroidPlaybackWindowBridge {
   /// 释放 Android 音频焦点。
   static Future<void> abandonAudioFocus() async {
     _onAudioFocusLoss = null;
+    _onAudioFocusDuck = null;
+    _onAudioFocusGain = null;
     if (!KonataPlatform.isAndroid) return;
     try {
       await _audioFocusChannel.invokeMethod<void>('abandon');
     } catch (_) {}
+  }
+
+  /// 统一协同 `SystemChrome` 与原生窗口方向控制，视频播放强制横屏、退出视频或纯音频恢复全向。
+  static Future<void> applyVideoOrientationAndWindow({
+    required bool landscape,
+    bool hideSystemBars = false,
+  }) async {
+    if (!KonataPlatform.isAndroid) return;
+    try {
+      await SystemChrome.setPreferredOrientations(
+        landscape
+            ? const [
+                DeviceOrientation.landscapeLeft,
+                DeviceOrientation.landscapeRight,
+              ]
+            : const <DeviceOrientation>[],
+      );
+    } catch (_) {}
+    await setLandscapePreferred(landscape);
+    await setSystemBarsHidden(hideSystemBars);
   }
 
   /// 开启 Android 播放传感器旋转支持。
@@ -251,6 +295,7 @@ class AndroidPipChannelClient {
   void bindCallbacks({
     required ValueChanged<bool> onPipModeChanged,
     required ValueChanged<String> onRemoteAction,
+    VoidCallback? onPipDismissed,
   }) {
     try {
       ServicesBinding.instance;
@@ -259,6 +304,8 @@ class AndroidPipChannelClient {
           case 'pipChanged':
             final active = call.arguments == true;
             onPipModeChanged(active);
+          case 'pipDismissed':
+            onPipDismissed?.call();
           case 'action':
             final action = call.arguments?.toString() ?? '';
             if (action.isNotEmpty) {
@@ -364,6 +411,7 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
     pipClient.bindCallbacks(
       onPipModeChanged: _handleNativePipModeChanged,
       onRemoteAction: _handleNativePipRemoteAction,
+      onPipDismissed: _handleNativePipDismissed,
     );
   }
 
@@ -380,6 +428,14 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
       if (currentReq == nextRequest) {
         state = state.copyWith(isExpanded: true);
         _ref.read(videoPlaybackActiveProvider.notifier).state = true;
+        final curAudioOnly =
+            _ref.read(videoPlaybackProvider(currentReq)).audioOnlyMode;
+        unawaited(
+          AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
+            landscape: !curAudioOnly,
+            hideSystemBars: !curAudioOnly,
+          ),
+        );
         return;
       }
       // 同一作品或同一系列内的换集：直接复用现有底层解码器会话热切换，避免销毁重建！
@@ -390,6 +446,12 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
           currentCtrl.activeWork.id == nextRequest.work.id) {
         state = state.copyWith(isExpanded: true);
         _ref.read(videoPlaybackActiveProvider.notifier).state = true;
+        unawaited(
+          AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
+            landscape: !currentState.audioOnlyMode,
+            hideSystemBars: !currentState.audioOnlyMode,
+          ),
+        );
         await currentCtrl.switchToEpisode(
           nextRequest.episode,
           targetBundle: nextRequest.bundle,
@@ -407,6 +469,12 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
       isInPipMode: false,
     );
     _ref.read(videoPlaybackActiveProvider.notifier).state = true;
+    unawaited(
+      AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
+        landscape: true,
+        hideSystemBars: true,
+      ),
+    );
   }
 
   /// 将当前视频从全屏收起至常驻播放胶囊圆角预览（保持解码器与播放状态不断流）。
@@ -414,16 +482,28 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
     if (state.request == null) return;
     state = state.copyWith(isExpanded: false, isInPipMode: false);
     _ref.read(videoPlaybackActiveProvider.notifier).state = false;
-    unawaited(AndroidPlaybackWindowBridge.setSystemBarsHidden(false));
-    unawaited(AndroidPlaybackWindowBridge.setLandscapePreferred(false));
+    unawaited(
+      AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
+        landscape: false,
+        hideSystemBars: false,
+      ),
+    );
   }
 
   /// 从常驻播放胶囊重新平滑展开至全屏视频舞台（零重建解码会话）。
   void expandToFull() {
-    if (state.request == null) return;
+    final req = state.request;
+    if (req == null) return;
     _ref.read(immersiveAudioExpandedProvider.notifier).state = false;
     state = state.copyWith(isExpanded: true);
     _ref.read(videoPlaybackActiveProvider.notifier).state = true;
+    final audioOnly = _ref.read(videoPlaybackProvider(req)).audioOnlyMode;
+    unawaited(
+      AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
+        landscape: !audioOnly,
+        hideSystemBars: !audioOnly,
+      ),
+    );
   }
 
   /// 更新视频舞台在屏幕中的源矩形提示。
@@ -441,6 +521,12 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
     state = const ActiveVideoSessionState();
     _ref.read(videoPlaybackActiveProvider.notifier).state = false;
     unawaited(
+      AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
+        landscape: false,
+        hideSystemBars: false,
+      ),
+    );
+    unawaited(
       _ref
           .read(androidPipChannelClientProvider)
           .syncState(
@@ -457,6 +543,47 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
     if (req != null) {
       await _ref.read(videoPlaybackProvider(req).notifier).closeAndRelease();
     }
+  }
+
+  /// 宿主应用退入系统后台时兜底检查：非画中画且未开启后台纯音频时自动暂停并释放音频焦点。
+  Future<void> handleAppBackgrounded() async {
+    final req = state.request;
+    if (req == null) return;
+    if (state.isInPipMode) return;
+    final vidState = _ref.read(videoPlaybackProvider(req));
+    if (vidState.audioOnlyMode || vidState.isClosing) return;
+    final autoEnterPip = _ref.read(playbackPreferencesProvider).autoEnterPip;
+    final willEnterPip =
+        KonataPlatform.isAndroid &&
+        autoEnterPip &&
+        state.isExpanded &&
+        vidState.isPlaying &&
+        vidState.errorMessage == null;
+    if (willEnterPip) return;
+    if (vidState.isPlaying) {
+      _ref.read(videoPlaybackProvider(req).notifier).setPlayingPausedByLifecycle();
+    }
+    await AndroidPlaybackWindowBridge.abandonAudioFocus();
+  }
+
+  /// 宿主应用回到前台时恢复音频焦点。
+  void handleAppForegrounded() {
+    final req = state.request;
+    if (req == null) return;
+    final vidState = _ref.read(videoPlaybackProvider(req));
+    if (vidState.isPlaying && !vidState.isClosing) {
+      unawaited(
+        _ref.read(videoPlaybackProvider(req).notifier).ensureAudioFocus(),
+      );
+    }
+  }
+
+  void _handleNativePipDismissed() {
+    final req = state.request;
+    if (!mounted || req == null) return;
+    state = state.copyWith(isInPipMode: false);
+    _ref.read(videoPlaybackProvider(req).notifier).setPlayingPausedByLifecycle();
+    unawaited(AndroidPlaybackWindowBridge.abandonAudioFocus());
   }
 
   /// 主动请求进入 Android 系统画中画。
@@ -556,6 +683,7 @@ final androidPipAutoSyncProvider = Provider<AndroidPipSyncPayload>((ref) {
     final eligible =
         KonataPlatform.isAndroid &&
         autoEnterPref &&
+        (session.isExpanded || session.isInPipMode) &&
         snap.isPlaying &&
         !snap.audioOnly &&
         !snap.isClosing &&

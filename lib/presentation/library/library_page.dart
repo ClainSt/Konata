@@ -3,15 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/artwork_provider.dart';
 import '../../application/providers/library_providers.dart';
-import '../../application/providers/scraping_providers.dart';
 import '../audio/mini_audio_bar.dart';
 import '../detail/work_detail_page.dart';
-import '../settings/settings_page.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
+import '../widgets/design_system/adaptive_action_header.dart';
+import '../widgets/design_system/adaptive_card_grid.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
-import '../widgets/design_system/konata_page_header.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import 'hidden_works_dialog.dart';
 import 'poster_card.dart';
@@ -43,10 +42,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     final reviewCount =
         ref.watch(needsReviewItemsProvider).valueOrNull?.length ?? 0;
     final hiddenCount = ref.watch(hiddenWorksProvider).valueOrNull?.length ?? 0;
-    final netCfgAsync = ref.watch(tmdbNetworkConfigProvider);
-    final missingTmdbApi =
-        netCfgAsync.hasValue &&
-        (netCfgAsync.value?.credential.trim().isEmpty ?? false);
+    final searchQuery = ref.watch(librarySearchQueryProvider);
     final imageLoader = ref.watch(tmdbImageLoaderProvider);
     final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
     final totalCount = totalCountAsync.valueOrNull ?? 0;
@@ -54,7 +50,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        KonataPageHeader(
+        AdaptiveActionHeader(
           title: '全部作品',
           badge: totalCount > 0
               ? Container(
@@ -77,25 +73,31 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                   ),
                 )
               : null,
-          actions: [
-            if (missingTmdbApi)
-              _MissingApiHeaderPill(
-                onTap: () {
-                  ref.read(selectedSettingsCategoryProvider.notifier).state =
-                      SettingsCategory.network;
-                  ref.read(selectedNavSectionProvider.notifier).state =
-                      KonataNavSection.settings;
-                },
+          searchQuery: KonataAdaptiveTokens.isAndroid ? searchQuery : null,
+          onSearchChanged: KonataAdaptiveTokens.isAndroid
+              ? (v) => ref.read(librarySearchQueryProvider.notifier).state = v
+              : null,
+          primaryActions: [
+            if (reviewCount > 0)
+              AdaptiveHeaderAction(
+                icon: Icons.rule_folder_outlined,
+                label: '待复核 ($reviewCount)',
+                highlighted: true,
+                wideWidget: _ReviewHeaderPill(
+                  count: reviewCount,
+                  onTap: () => showReviewDialog(context),
+                ),
+                onPressed: () => showReviewDialog(context),
               ),
             if (hiddenCount > 0)
-              _HiddenWorksHeaderButton(
-                count: hiddenCount,
-                onTap: () => showHiddenWorksDialog(context),
-              ),
-            if (reviewCount > 0)
-              _ReviewHeaderPill(
-                count: reviewCount,
-                onTap: () => showReviewDialog(context),
+              AdaptiveHeaderAction(
+                icon: Icons.visibility_off_outlined,
+                label: '已隐藏作品 ($hiddenCount)',
+                wideWidget: _HiddenWorksHeaderButton(
+                  count: hiddenCount,
+                  onTap: () => showHiddenWorksDialog(context),
+                ),
+                onPressed: () => showHiddenWorksDialog(context),
               ),
           ],
         ),
@@ -104,10 +106,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
             data: (items) {
               if (items.isEmpty) {
                 return _EmptyLibraryState(
-                  isSearching: ref
-                      .watch(librarySearchQueryProvider)
-                      .trim()
-                      .isNotEmpty,
+                  isSearching: searchQuery.trim().isNotEmpty,
                   onGoSources: () {
                     ref.read(selectedNavSectionProvider.notifier).state =
                         KonataNavSection.sources;
@@ -123,13 +122,9 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                   final padH = compact
                       ? KonataAdaptiveTokens.horizontalInset
                       : KonataTheme.pageHorizontalPadding;
-                  final gridSpan = width - padH * 2;
-                  final columns = (gridSpan / (compact ? 148 : 196))
-                      .floor()
-                      .clamp(2, 8);
                   return KonataDraggableScrollbar(
                     controller: _gridCtrl,
-                    builder: (_, ctrl) => GridView.builder(
+                    builder: (_, ctrl) => AdaptiveCardGrid(
                       controller: ctrl,
                       padding: EdgeInsets.fromLTRB(
                         padH,
@@ -137,14 +132,13 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                         padH,
                         28 + bottomClearance,
                       ),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: columns,
-                        mainAxisSpacing: 20,
-                        crossAxisSpacing: 16,
-                        childAspectRatio: 0.58,
-                      ),
+                      minPhoneCardWidth: 108.0,
+                      minWideCardWidth: 158.0,
+                      crossAxisSpacing: compact ? 12.0 : 16.0,
+                      mainAxisSpacing: compact ? 16.0 : 20.0,
+                      twoLineTextBaseHeight: 50.0,
                       itemCount: items.length,
-                      itemBuilder: (_, index) {
+                      itemBuilder: (_, index, _) {
                         final item = items[index];
                         return PosterCard(
                           item: item,
@@ -171,77 +165,6 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _MissingApiHeaderPill extends StatefulWidget {
-  const _MissingApiHeaderPill({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  State<_MissingApiHeaderPill> createState() => _MissingApiHeaderPillState();
-}
-
-class _MissingApiHeaderPillState extends State<_MissingApiHeaderPill> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    final badge = p.warningBadge;
-    return Tooltip(
-      message: '尚未配置 TMDB API 密钥，点击前往「设置 -> 刮削与网络」配置',
-      waitDuration: const Duration(milliseconds: 300),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.onTap,
-          child: ConstrainedBox(
-            constraints: KonataAdaptiveTokens.isAndroid
-                ? const BoxConstraints(
-                    minWidth: KonataAdaptiveTokens.touchTarget,
-                    minHeight: KonataAdaptiveTokens.touchTarget,
-                  )
-                : const BoxConstraints(),
-            child: Center(
-              widthFactor: 1,
-              heightFactor: 1,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 11,
-                  vertical: 6.5,
-                ),
-                decoration: BoxDecoration(
-                  color: _hovered ? badge.bg.withValues(alpha: 0.95) : badge.bg,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: badge.border, width: 1),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.key_off_rounded, size: 14, color: badge.fg),
-                    const SizedBox(width: 5),
-                    Text(
-                      '未配置 API',
-                      style: TextStyle(
-                        color: badge.fg,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }
@@ -403,20 +326,21 @@ class _EmptyLibraryState extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             isSearching ? '没有匹配当前筛选条件的作品' : '媒体库尚未入库任何作品',
+            textAlign: TextAlign.center,
             style: TextStyle(
               color: p.textPrimary,
               fontSize: 15,
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 6),
-          Text(
-            isSearching
-                ? '可尝试按日文原名、压制组或 TMDB ID 检索'
-                : '前往「媒体源」添加本地目录、WebDAV 或 SMB 共享并启动扫描',
-            style: TextStyle(color: p.textSecondary, fontSize: 12.5),
-          ),
-          if (!isSearching) ...[
+          if (isSearching) ...[
+            const SizedBox(height: 6),
+            Text(
+              '可尝试按日文原名、压制组或 TMDB ID 检索',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: p.textSecondary, fontSize: 12.5),
+            ),
+          ] else ...[
             const SizedBox(height: 18),
             KonataPillButton.primary(
               label: '前往添加媒体源',

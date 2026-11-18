@@ -68,6 +68,7 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
   final List<GlobalKey> _itemKeys = <GlobalKey>[];
 
   Rect? _thumbRect;
+  Size? _lastTrackSize;
   bool _hasAnimatedOnce = false;
   int? _hoveredIndex;
 
@@ -119,6 +120,7 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
           !itemBox.hasSize) {
         return;
       }
+      final trackSize = trackBox.size;
       final topLeft = itemBox.localToGlobal(Offset.zero, ancestor: trackBox);
       final nextRect = Rect.fromLTWH(
         topLeft.dx,
@@ -126,6 +128,7 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
         itemBox.size.width,
         itemBox.size.height,
       );
+      _lastTrackSize = trackSize;
       if (_thumbRect == null) {
         setState(() {
           _thumbRect = nextRect;
@@ -142,18 +145,33 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
     });
   }
 
+  void _handleOuterTapPosition(Offset globalPosition) {
+    for (var i = 0; i < widget.options.length && i < _itemKeys.length; i++) {
+      final box = _itemKeys[i].currentContext?.findRenderObject() as RenderBox?;
+      if (box == null || !box.attached || !box.hasSize) continue;
+      final local = box.globalToLocal(globalPosition);
+      if (local.dx >= 0 && local.dx <= box.size.width) {
+        final target = widget.options[i].value;
+        if (target != widget.selected) {
+          widget.onChanged(target);
+        }
+        return;
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
 
     final trackBg = KonataPlaybackTokens.softFill(p);
-    final trackBorder = KonataPlaybackTokens.glassBorder(p);
+    final trackBorder = KonataPlaybackTokens.segmentedTrackBorder(p);
     final thumbBg = p.isDark
         ? Colors.white.withValues(alpha: 0.18)
-        : Colors.white.withValues(alpha: 0.94);
+        : Colors.white.withValues(alpha: 0.96);
     final thumbBorder = p.isDark
         ? Colors.white.withValues(alpha: 0.16)
-        : Colors.black.withValues(alpha: 0.06);
+        : Colors.black.withValues(alpha: 0.08);
 
     final selectedIndex = widget.options.indexWhere(
       (o) => o.value == widget.selected,
@@ -176,9 +194,9 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
     ];
     final itemsRow = widget.expand
         ? Row(children: items)
-        : Wrap(children: items);
+        : Row(mainAxisSize: MainAxisSize.min, children: items);
 
-    return Container(
+    final innerTrack = Container(
       padding: EdgeInsets.all(trackPadding),
       decoration: BoxDecoration(
         color: trackBg,
@@ -238,6 +256,54 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
                 itemsRow,
               ],
             ),
+    );
+
+    Widget result = widget.expand
+        ? innerTrack
+        : LayoutBuilder(
+            builder: (context, constraints) {
+              if (_lastTrackSize != null) {
+                final maxW = constraints.maxWidth;
+                if (maxW.isFinite && _lastTrackSize!.width > maxW) {
+                  _scheduleMeasure();
+                }
+              }
+              if (!constraints.hasBoundedWidth) {
+                return innerTrack;
+              }
+              return Align(
+                alignment: Alignment.centerLeft,
+                widthFactor: 1,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: innerTrack,
+                ),
+              );
+            },
+          );
+
+    if (KonataAdaptiveTokens.isAndroid) {
+      // Android 透明外扩至 48dp 触控高度并保持水平按段坐标映射，视觉轨道尺寸严格对齐 Windows。
+      result = GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapUp: (details) => _handleOuterTapPosition(details.globalPosition),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minHeight: KonataAdaptiveTokens.touchTarget,
+          ),
+          child: Center(
+            widthFactor: widget.expand ? null : 1,
+            heightFactor: 1,
+            child: result,
+          ),
+        ),
+      );
+    }
+
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.15,
+      child: result,
     );
   }
 
@@ -354,12 +420,6 @@ class _SegmentChip<T> extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
         child: Container(
-          constraints: KonataAdaptiveTokens.isAndroid
-              ? const BoxConstraints(
-                  minHeight: KonataAdaptiveTokens.touchTarget,
-                  minWidth: KonataAdaptiveTokens.touchTarget,
-                )
-              : null,
           decoration: fallbackBoxColor != null
               ? BoxDecoration(
                   color: fallbackBoxColor,

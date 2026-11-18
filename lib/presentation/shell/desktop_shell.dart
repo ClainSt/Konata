@@ -17,7 +17,6 @@ import '../widgets/design_system/konata_keep_alive_tab_switcher.dart';
 import 'top_nav_bar.dart';
 import 'adaptive_capsule_layout.dart';
 import 'capsule_navigation.dart';
-import 'capsule_shell_actions.dart';
 
 /// Konata 桌面端透明流光无框主壳层（透出 Windows 11 原生 DWM Acrylic/Mica 背景）。
 class DesktopShell extends ConsumerStatefulWidget {
@@ -85,41 +84,13 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
                     padding: EdgeInsets.only(left: geometry.leftClearance),
                     child: SafeArea(
                       bottom: false,
-                      child: Column(
-                        children: [
-                          if (!hidden)
-                            CapsuleShellActions(
-                              query: searchQuery,
-                              focusNode: _searchFocusNode,
-                              onChanged: (value) {
-                                ref
-                                    .read(selectedNavSectionProvider.notifier)
-                                    .state = KonataNavSection
-                                    .library;
-                                ref
-                                        .read(
-                                          librarySearchQueryProvider.notifier,
-                                        )
-                                        .state =
-                                    value;
-                              },
-                              onToggleTheme: () => ref
-                                  .read(themeModeProvider.notifier)
-                                  .toggleLightDark(
-                                    MediaQuery.platformBrightnessOf(context),
-                                  ),
-                            ),
-                          Expanded(
-                            child: KonataKeepAliveTabSwitcher(
-                              activeIndex: activeSection.index,
-                              children: const [
-                                LibraryPage(),
-                                SourcesPage(),
-                                PlaybackHistoryPage(),
-                                SettingsPage(),
-                              ],
-                            ),
-                          ),
+                      child: KonataKeepAliveTabSwitcher(
+                        activeIndex: activeSection.index,
+                        children: const [
+                          LibraryPage(),
+                          SourcesPage(),
+                          PlaybackHistoryPage(),
+                          SettingsPage(),
                         ],
                       ),
                     ),
@@ -129,7 +100,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
                   Positioned.fromRect(
                     rect: geometry.navigationRect,
                     child: CapsuleNavigation(
-                      vertical: geometry.tablet,
+                      vertical: geometry.verticalNavigation,
                       selectedIndex: activeSection.index,
                       onSelected: (index) =>
                           ref.read(selectedNavSectionProvider.notifier).state =

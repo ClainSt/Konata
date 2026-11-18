@@ -41,7 +41,7 @@ class ReviewDialog extends ConsumerWidget {
     final reviewAsync = ref.watch(needsReviewItemsProvider);
     final viewport = MediaQuery.sizeOf(context);
     final maxSafeWidth = math.max(
-      320.0,
+      220.0,
       viewport.width - KonataTheme.dialogViewportMargin * 2,
     );
     final dialogWidth = math.min(

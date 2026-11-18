@@ -1110,14 +1110,16 @@ void main() {
       expect(find.byType(DetailSecondaryFilterBar), findsOneWidget);
       expect(find.text('完整列表'), findsNothing);
 
-      // 展开态右上方控件栏固定展示 `[ ⊞ < > ⌄ ⚙ ]`，且 `⊞` 严格位于 `<` 左侧
+      // 展开态右上方控件栏固定展示 `[ ⊞ ⌄ ⚙ ]`（三端已移除 `<` `>` 翻页箭头），且 `⊞` 严格位于 `⌄` 左侧
       final gridBtn = find.byIcon(Icons.grid_view_rounded);
-      final prevBtn = find.byIcon(Icons.chevron_left_rounded);
+      final collapseBtn = find.byIcon(Icons.keyboard_arrow_down_rounded);
       expect(gridBtn, findsOneWidget);
-      expect(prevBtn, findsOneWidget);
+      expect(collapseBtn, findsOneWidget);
+      expect(find.byIcon(Icons.chevron_left_rounded), findsNothing);
+      expect(find.byIcon(Icons.chevron_right_rounded), findsNothing);
       expect(
         tester.getTopLeft(gridBtn).dx,
-        lessThan(tester.getTopLeft(prevBtn).dx),
+        lessThan(tester.getTopLeft(collapseBtn).dx),
       );
     });
   });

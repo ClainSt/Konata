@@ -5,7 +5,7 @@ import 'package:ccplayer/application/playback/audio_playback_notifier.dart';
 import 'package:ccplayer/domain/models/work.dart';
 import 'package:ccplayer/domain/models/media_variant.dart';
 import 'package:ccplayer/presentation/audio/mini_audio_bar.dart';
-import 'package:ccplayer/presentation/shell/capsule_shell_actions.dart';
+import 'package:ccplayer/presentation/widgets/design_system/adaptive_action_header.dart';
 import 'package:ccplayer/presentation/widgets/design_system/konata_glass_capsule.dart';
 import 'package:ccplayer/presentation/shell/adaptive_capsule_layout.dart';
 import 'package:ccplayer/presentation/shell/capsule_navigation.dart';
@@ -200,30 +200,114 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     });
   }
-  testWidgets('触屏搜索清除与主题入口', (tester) async {
-    var query = '';
-    var toggles = 0;
-    final focus = FocusNode();
-    addTearDown(focus.dispose);
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: KonataTheme.darkTheme(),
-        home: Scaffold(
-          body: CapsuleShellActions(
-            query: '',
-            focusNode: focus,
-            onChanged: (value) => query = value,
-            onToggleTheme: () => toggles++,
+  testWidgets('自适应顶栏窄屏折叠搜索图标、点击原地展开与清除', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    try {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      var query = '';
+      final focus = FocusNode();
+      addTearDown(focus.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: KonataTheme.darkTheme(),
+          home: Scaffold(
+            body: AdaptiveActionHeader(
+              title: '全部作品',
+              searchQuery: query,
+              searchFocusNode: focus,
+              onSearchChanged: (value) => query = value,
+            ),
           ),
         ),
-      ),
+      );
+      expect(find.byType(TextField), findsNothing);
+      await tester.tap(find.byTooltip('搜索'));
+      await tester.pumpAndSettle();
+      expect(find.byType(TextField), findsOneWidget);
+      await tester.enterText(find.byType(TextField), '作品');
+      await tester.pump();
+      expect(query, '作品');
+      await tester.tap(find.byTooltip('清除搜索'));
+      await tester.pumpAndSettle();
+      expect(query, '');
+      await tester.tap(find.byTooltip('收起搜索'));
+      await tester.pumpAndSettle();
+      expect(find.byType(TextField), findsNothing);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+  test('手机矮横屏底部不足并排时自动切换左竖导航释放水平空间', () {
+    final cramped = AdaptiveCapsuleLayout(
+      size: const Size(568, 320),
+      safe: const EdgeInsets.fromLTRB(0, 24, 0, 20),
+      android: true,
+      playerVisible: true,
     );
-    await tester.enterText(find.byType(TextField), '作品');
-    expect(query, '作品');
-    await tester.tap(find.byTooltip('清除搜索'));
-    expect(query, '');
-    await tester.tap(find.byTooltip('切换深浅主题'));
-    expect(toggles, 1);
+    expect(cramped.shortPhone, isTrue);
+    expect(cramped.verticalNavigation, isTrue);
+    expect(cramped.leftClearance, greaterThan(0));
+    expect(cramped.playerRect.left, greaterThanOrEqualTo(cramped.leftClearance));
+  });
+  testWidgets('手机窄屏 MiniAudioBar 精简为封面与单行标题加播放暂停', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    try {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      late _Audio audio;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            audioPlaybackProvider.overrideWith((ref) => audio = _Audio(ref)),
+          ],
+          child: MaterialApp(
+            theme: KonataTheme.darkTheme(),
+            home: Scaffold(
+              body: Align(
+                alignment: Alignment.bottomCenter,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: 336,
+                    maxHeight: 56,
+                  ),
+                  child: const MiniAudioBar(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      audio.emit(
+        _initial.copyWith(
+          queue: [
+            AudioQueueItem(
+              id: 'track_narrow_1',
+              title: '超长单曲名称测试避免垂直成列挤压',
+              albumTitle: 'Album',
+              work: _initial.queue.single.work,
+              variant: _initial.queue.single.variant,
+            ),
+          ],
+          isPlaying: true,
+        ),
+      );
+      await tester.pump();
+      expect(find.byTooltip('暂停'), findsOneWidget);
+      expect(find.byTooltip('下一曲'), findsNothing);
+      expect(find.text('超长单曲名称测试避免垂直成列挤压'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
   for (final size in [
     const Size(1920, 1080),

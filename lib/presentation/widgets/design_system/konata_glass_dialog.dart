@@ -22,6 +22,105 @@ Future<T?> showKonataGlassDialog<T>({
   );
 }
 
+/// 全站统一毛玻璃底部抽屉呼出入口（供窄屏折叠动作、筛选排序面板共用，严格同源玻璃材质与圆角）。
+Future<T?> showKonataGlassBottomSheet<T>({
+  required BuildContext context,
+  required String title,
+  required WidgetBuilder builder,
+  List<Widget>? actions,
+}) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  return showModalBottomSheet<T>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.black.withValues(alpha: isDark ? 0.48 : 0.34),
+    builder: (sheetCtx) {
+      final p = sheetCtx.palette;
+      final glassBg = p.isDark
+          ? const Color(0xFF1F232D).withValues(alpha: 0.92)
+          : const Color(0xFFFDFDFE).withValues(alpha: 0.95);
+      final glassBorder = p.isDark
+          ? Colors.white.withValues(alpha: 0.18)
+          : Colors.white.withValues(alpha: 0.95);
+      final maxH = MediaQuery.sizeOf(sheetCtx).height * 0.78;
+      return ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxH),
+        child: ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 44, sigmaY: 44),
+            child: Container(
+              decoration: BoxDecoration(
+                color: glassBg,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(22),
+                ),
+                border: Border(
+                  top: BorderSide(color: glassBorder, width: 1),
+                  left: BorderSide(color: glassBorder, width: 1),
+                  right: BorderSide(color: glassBorder, width: 1),
+                ),
+              ),
+              child: Material(
+                type: MaterialType.transparency,
+                child: SafeArea(
+                  top: false,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(18, 14, 12, 8),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: p.textPrimary,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            KonataGlassCloseButton(
+                              onPressed: () => Navigator.of(sheetCtx).maybePop(),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Divider(height: 1, thickness: 1, color: p.hairline),
+                      Flexible(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                          child: builder(sheetCtx),
+                        ),
+                      ),
+                      if (actions != null && actions.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+                          child: Wrap(
+                            alignment: WrapAlignment.end,
+                            spacing: 10,
+                            runSpacing: 8,
+                            children: actions,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
 /// 全站统一悬浮毛玻璃弹窗容器（36px 高斯模糊 + 通透半透明玻璃叠色 + 1px 微光描边）。
 class KonataGlassDialog extends StatelessWidget {
   /// 创建毛玻璃弹窗。

@@ -289,6 +289,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   bool _closedCleanly = false;
   bool _alreadyPersistedCompleted = false;
   double? _speedBeforeBoost;
+  double? _volumeBeforeDuck;
   int _thumbnailGeneration = 0;
 
   /// 当前正在播放的活跃作品实体（支持同系列跨季原地热切换）。
@@ -521,11 +522,54 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     return true;
   }
 
-  /// Android `PlatformView` 创建后向控制器交付硬件表面通道。
+  /// Android `PlatformView` 创建后向控制器交付硬件表面通道（支持路由重建时动态热重绑）。
   void attachAndroidSurface(AndroidVideoSurfaceController ctrl) {
     if (_androidSurfaceCompleter != null &&
         !_androidSurfaceCompleter.isCompleted) {
       _androidSurfaceCompleter.complete(ctrl);
+      return;
+    }
+    final session = _session;
+    if (session != null && !session.isDisposed) {
+      unawaited(session.attachOrRebindAndroidSurface(ctrl));
+    }
+  }
+
+  /// 向 Android 系统请求 `AUDIOFOCUS_GAIN` 并挂载失焦暂停 / 闪避降音监听。
+  Future<void> ensureAudioFocus() async {
+    if (!KonataPlatform.isAndroid) return;
+    await AndroidPlaybackWindowBridge.requestAudioFocus(
+      onLoss: () {
+        if (!mounted || state.isClosing) return;
+        _volumeBeforeDuck = null;
+        if (state.isPlaying) {
+          _session?.setPlaying(false);
+          state = state.copyWith(isPlaying: false);
+        }
+      },
+      onDuck: () {
+        if (!mounted || state.isClosing || !state.isPlaying) return;
+        _volumeBeforeDuck ??= state.volume;
+        final ducked = (_volumeBeforeDuck! * 0.25).clamp(0.0, 100.0);
+        _session?.setVolume(ducked);
+      },
+      onGain: () {
+        if (!mounted || state.isClosing) return;
+        final restore = _volumeBeforeDuck;
+        _volumeBeforeDuck = null;
+        if (restore != null) {
+          _session?.setVolume(restore);
+        }
+      },
+    );
+  }
+
+  /// 系统后台或关闭画中画时由生命周期协调器触发的精确暂停。
+  void setPlayingPausedByLifecycle() {
+    _volumeBeforeDuck = null;
+    if (state.isPlaying) {
+      _session?.setPlaying(false);
+      state = state.copyWith(isPlaying: false);
     }
   }
 
@@ -535,14 +579,14 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       _ref.read(videoPlaybackActiveProvider.notifier).state = true;
       await _ref.read(audioPlaybackProvider.notifier).pauseForVideoSession();
       await AndroidPlaybackWindowBridge.beginWindow();
-      await AndroidPlaybackWindowBridge.requestAudioFocus(
-        onLoss: () {
-          if (mounted && state.isPlaying) {
-            _session?.setPlaying(false);
-            state = state.copyWith(isPlaying: false);
-          }
-        },
-      );
+      await ensureAudioFocus();
+      if (!state.audioOnlyMode &&
+          _ref.read(activeVideoSessionProvider).isExpanded) {
+        await AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
+          landscape: true,
+          hideSystemBars: true,
+        );
+      }
     });
 
     final mutex = _ref.read(embeddedSessionMutexProvider);
@@ -737,13 +781,25 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     required List<MpvAudioDevice> audioDevices,
   }) {
     if (!mounted) return;
+    final stats = _session?.collectProbeStats() ?? state.probeStats;
     state = state.copyWith(
       subtitles: subtitles,
       audioTracks: audioTracks,
       chapters: chapters,
       availableAudioDevices: audioDevices,
-      probeStats: _session?.collectProbeStats() ?? state.probeStats,
+      probeStats: stats,
     );
+    if (KonataPlatform.isAndroid &&
+        !state.audioOnlyMode &&
+        (stats.videoWidth ?? 0) > 0 &&
+        _ref.read(activeVideoSessionProvider).isExpanded) {
+      unawaited(
+        AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
+          landscape: true,
+          hideSystemBars: true,
+        ),
+      );
+    }
     _recomputeChapterSkipPlan();
     _thumbnailService?.updateChapters(
       chapters,
@@ -964,6 +1020,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       unawaited(_preloadAdjacentSeriesBundles());
     }
 
+    unawaited(ensureAudioFocus());
     await session.loadMediaVariant(
       EmbeddedVideoLoadRequest(
         workId: resolvedBundle.work.id,
@@ -1020,6 +1077,11 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
 
   void togglePlayPause() {
     final next = !state.isPlaying;
+    if (next) {
+      _volumeBeforeDuck = null;
+      _session?.setVolume(state.volume);
+      unawaited(ensureAudioFocus());
+    }
     _session?.setPlaying(next);
     state = state.copyWith(isPlaying: next);
   }
@@ -1143,6 +1205,16 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     if (state.audioOnlyMode == enabled) return;
     _session?.setVideoTrackEnabled(!enabled);
     state = state.copyWith(audioOnlyMode: enabled);
+    if (KonataPlatform.isAndroid) {
+      final sessionExpanded = _ref.read(activeVideoSessionProvider).isExpanded;
+      final useLandscape = !enabled && sessionExpanded;
+      unawaited(
+        AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
+          landscape: useLandscape,
+          hideSystemBars: useLandscape,
+        ),
+      );
+    }
     showTransientBanner(enabled ? '已切换为后台纯音频模式' : '已恢复视频画面渲染');
   }
 
@@ -1443,6 +1515,10 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       await windowManager.setFullScreen(false);
       await Window.hideWindowControls();
     } else if (KonataPlatform.isAndroid) {
+      await AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
+        landscape: false,
+        hideSystemBars: false,
+      );
       await AndroidPlaybackWindowBridge.endWindow();
       await AndroidPlaybackWindowBridge.abandonAudioFocus();
     }

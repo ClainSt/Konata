@@ -341,22 +341,33 @@ class _ArtworkCropDialogState extends State<ArtworkCropDialog> {
             ),
           ),
           const SizedBox(height: 12),
-          Row(
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 6,
             children: [
-              Icon(
-                Icons.open_with_rounded,
-                size: 14,
-                color: p.textSecondary,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  '拖拽选框移动位置 · 拖拽四角锚点或滚动滚轮等比缩放',
-                  style: TextStyle(color: p.textSecondary, fontSize: 12),
-                ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.open_with_rounded,
+                    size: 14,
+                    color: p.textSecondary,
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      '拖拽选框移动位置 · 拖拽四角锚点等比缩放',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: p.textSecondary, fontSize: 12),
+                    ),
+                  ),
+                ],
               ),
               Text(
-                '原图 ${widget.source.width}×${widget.source.height}  ·  裁切区域 ${px.width}×${px.height}',
+                '原图 ${widget.source.width}×${widget.source.height} · 裁切 ${px.width}×${px.height}',
                 style: TextStyle(
                   color: p.textPrimary,
                   fontSize: 12,

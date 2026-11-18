@@ -155,13 +155,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // 1. 存在 CD 与 Scan 时动态显示 CD (1) / Scan (1)，并与正片/特典统一成无框胶囊
+    // 1. 存在 CD 与 Scan 时动态显示 CD (1) / Scan (1)，并与正片/特典统一成无框胶囊，三端均不显示左右翻页箭头
     expect(find.text('正片 (10)'), findsOneWidget);
     expect(find.text('特典 (1)'), findsOneWidget);
     expect(find.text('CD (1)'), findsOneWidget);
     expect(find.text('Scan (1)'), findsOneWidget);
-    expect(find.byIcon(Icons.chevron_left_rounded), findsOneWidget);
-    expect(find.byIcon(Icons.chevron_right_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.grid_view_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.chevron_left_rounded), findsNothing);
+    expect(find.byIcon(Icons.chevron_right_rounded), findsNothing);
     expect(find.byIcon(Icons.keyboard_arrow_down_rounded), findsOneWidget);
     expect(find.byIcon(Icons.settings_rounded), findsOneWidget);
 

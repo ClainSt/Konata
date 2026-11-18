@@ -492,85 +492,120 @@ class _SourceFileRow extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  if (subHierarchy.isNotEmpty) ...[
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: p.accentBadge.bg,
-                        borderRadius: BorderRadius.circular(5),
-                        border: Border.all(color: p.accentBadge.border),
-                      ),
-                      child: Text(
-                        '$subHierarchy/',
-                        maxLines: 1,
-                        softWrap: false,
-                        style: TextStyle(
-                          color: p.accentBadge.fg,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          fontFamily: 'Consolas',
-                          height: 1.15,
-                        ),
-                      ),
+              child: LayoutBuilder(
+                builder: (context, rowBox) {
+                  final subTag = subHierarchy.isNotEmpty
+                      ? Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: p.accentBadge.bg,
+                            borderRadius: BorderRadius.circular(5),
+                            border: Border.all(color: p.accentBadge.border),
+                          ),
+                          child: Text(
+                            '$subHierarchy/',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: p.accentBadge.fg,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              fontFamily: 'Consolas',
+                              height: 1.15,
+                            ),
+                          ),
+                        )
+                      : null;
+                  final nameText = EllipsisTextWithTooltip(
+                    text: variant.fileName,
+                    tooltipMessage: subHierarchy.isNotEmpty
+                        ? '$subHierarchy/${variant.fileName}'
+                        : variant.fileName,
+                    maxLines: 1,
+                    style: TextStyle(
+                      color: selectable ? p.textPrimary : p.textSecondary,
+                      fontSize: 12.8,
+                      fontWeight: FontWeight.w500,
+                      height: 1.25,
                     ),
-                    const SizedBox(width: 7),
-                  ],
-                  Expanded(
-                    child: EllipsisTextWithTooltip(
-                      text: variant.fileName,
-                      tooltipMessage: subHierarchy.isNotEmpty
-                          ? '$subHierarchy/${variant.fileName}'
-                          : variant.fileName,
-                      maxLines: 1,
-                      style: TextStyle(
-                        color: selectable ? p.textPrimary : p.textSecondary,
-                        fontSize: 12.8,
-                        fontWeight: FontWeight.w500,
-                        height: 1.25,
-                      ),
+                  );
+                  final kindPill = kindLabel != null
+                      ? Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: p.softFill,
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(color: p.hairline),
+                          ),
+                          child: Text(
+                            kindLabel,
+                            maxLines: 1,
+                            softWrap: false,
+                            style: TextStyle(color: p.textMuted, fontSize: 10.5),
+                          ),
+                        )
+                      : null;
+                  final sizeText = Text(
+                    MediaDisplayFormatter.formatBytes(
+                      variant.fileSize,
+                      emptyFallback: '0 B',
                     ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 10),
-            if (kindLabel != null) ...[
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: p.softFill,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: p.hairline),
-                ),
-                child: Text(
-                  kindLabel,
-                  style: TextStyle(color: p.textMuted, fontSize: 10.5),
-                ),
-              ),
-              const SizedBox(width: 8),
-            ],
-            SizedBox(
-              width: 76,
-              child: Text(
-                MediaDisplayFormatter.formatBytes(
-                  variant.fileSize,
-                  emptyFallback: '0 B',
-                ),
-                textAlign: TextAlign.right,
-                maxLines: 1,
-                softWrap: false,
-                style: KonataTheme.textStyle(
-                  color: p.textMuted,
-                  fontSize: 11.8,
-                  weight: 500,
-                  tabularFigures: true,
-                ),
+                    textAlign: TextAlign.right,
+                    maxLines: 1,
+                    softWrap: false,
+                    style: KonataTheme.textStyle(
+                      color: p.textMuted,
+                      fontSize: 11.8,
+                      weight: 500,
+                      tabularFigures: true,
+                    ),
+                  );
+
+                  if (rowBox.maxWidth >= 360) {
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        if (subTag != null) ...[
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 160),
+                            child: subTag,
+                          ),
+                          const SizedBox(width: 7),
+                        ],
+                        Expanded(child: nameText),
+                        const SizedBox(width: 10),
+                        if (kindPill != null) ...[
+                          kindPill,
+                          const SizedBox(width: 8),
+                        ],
+                        SizedBox(width: 76, child: sizeText),
+                      ],
+                    );
+                  }
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      nameText,
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          ?subTag,
+                          ?kindPill,
+                          sizeText,
+                        ],
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
           ],

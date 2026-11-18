@@ -11,6 +11,7 @@ import '../../infrastructure/cache/photos_storage.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
+import '../widgets/design_system/adaptive_responsive_row.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
@@ -120,7 +121,7 @@ class _PhotoCustomCleanupDialogState
     final imageLoader = ref.watch(tmdbImageLoaderProvider);
     final viewport = MediaQuery.sizeOf(context);
     final maxSafeWidth = math.max(
-      320.0,
+      220.0,
       viewport.width - KonataTheme.dialogViewportMargin * 2,
     );
     final dialogWidth = math.min(
@@ -129,7 +130,7 @@ class _PhotoCustomCleanupDialogState
     );
     final dialogHeight = math.min(
       680.0,
-      math.max(360.0, viewport.height * 0.82),
+      math.max(260.0, viewport.height * 0.82),
     );
 
     final includesMetadataArt =
@@ -183,7 +184,11 @@ class _PhotoCustomCleanupDialogState
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // 区块一：清理图片类别多选
-              Row(
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 6,
                 children: [
                   Text(
                     '1. 选择要清理的图片类别',
@@ -193,72 +198,111 @@ class _PhotoCustomCleanupDialogState
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const Spacer(),
-                  KonataPillButton.ghost(
-                    label: '仅微缩图',
-                    compact: true,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    onPressed: _cleaning
-                        ? null
-                        : () => setState(() {
-                            _selectedCategories
-                              ..clear()
-                              ..addAll(_defaultRegenerable);
-                          }),
-                  ),
-                  const SizedBox(width: 4),
-                  KonataPillButton.ghost(
-                    label: '全选类别',
-                    compact: true,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    onPressed: _cleaning
-                        ? null
-                        : () => setState(() {
-                            _selectedCategories.addAll(
-                              PhotoStorageCategory.values,
-                            );
-                          }),
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: [
+                      KonataPillButton.ghost(
+                        label: '仅微缩图',
+                        compact: true,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        onPressed: _cleaning
+                            ? null
+                            : () => setState(() {
+                                _selectedCategories
+                                  ..clear()
+                                  ..addAll(_defaultRegenerable);
+                              }),
+                      ),
+                      KonataPillButton.ghost(
+                        label: '全选类别',
+                        compact: true,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        onPressed: _cleaning
+                            ? null
+                            : () => setState(() {
+                                _selectedCategories.addAll(
+                                  PhotoStorageCategory.values,
+                                );
+                              }),
+                      ),
+                    ],
                   ),
                 ],
               ),
               const SizedBox(height: 8),
-              Row(
-                children: [
-                  for (
-                    var i = 0;
-                    i < PhotoStorageCategory.values.length;
-                    i++
-                  ) ...[
-                    if (i > 0) const SizedBox(width: 8),
-                    Expanded(
-                      child: _CleanupCategoryChip(
-                        category: PhotoStorageCategory.values[i],
-                        stat:
-                            perCategoryStats[PhotoStorageCategory.values[i]] ??
-                            PhotoCategoryStat.zero,
-                        selected: _selectedCategories.contains(
-                          PhotoStorageCategory.values[i],
+              LayoutBuilder(
+                builder: (context, chipBox) {
+                  if (chipBox.maxWidth >= 520) {
+                    return Row(
+                      children: [
+                        for (
+                          var i = 0;
+                          i < PhotoStorageCategory.values.length;
+                          i++
+                        ) ...[
+                          if (i > 0) const SizedBox(width: 8),
+                          Expanded(
+                            child: _CleanupCategoryChip(
+                              category: PhotoStorageCategory.values[i],
+                              stat:
+                                  perCategoryStats[PhotoStorageCategory
+                                      .values[i]] ??
+                                  PhotoCategoryStat.zero,
+                              selected: _selectedCategories.contains(
+                                PhotoStorageCategory.values[i],
+                              ),
+                              onTap: _cleaning
+                                  ? null
+                                  : () {
+                                      final cat =
+                                          PhotoStorageCategory.values[i];
+                                      setState(() {
+                                        if (!_selectedCategories.remove(cat)) {
+                                          _selectedCategories.add(cat);
+                                        }
+                                      });
+                                    },
+                            ),
+                          ),
+                        ],
+                      ],
+                    );
+                  }
+                  return Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final cat in PhotoStorageCategory.values)
+                        SizedBox(
+                          width: math.max(
+                            112.0,
+                            (chipBox.maxWidth - 8) / 2,
+                          ),
+                          child: _CleanupCategoryChip(
+                            category: cat,
+                            stat:
+                                perCategoryStats[cat] ??
+                                PhotoCategoryStat.zero,
+                            selected: _selectedCategories.contains(cat),
+                            onTap: _cleaning
+                                ? null
+                                : () => setState(() {
+                                    if (!_selectedCategories.remove(cat)) {
+                                      _selectedCategories.add(cat);
+                                    }
+                                  }),
+                          ),
                         ),
-                        onTap: _cleaning
-                            ? null
-                            : () {
-                                final cat = PhotoStorageCategory.values[i];
-                                setState(() {
-                                  if (!_selectedCategories.remove(cat)) {
-                                    _selectedCategories.add(cat);
-                                  }
-                                });
-                              },
-                      ),
-                    ),
-                  ],
-                ],
+                    ],
+                  );
+                },
               ),
               if (includesMetadataArt) ...[
                 const SizedBox(height: 8),
@@ -297,60 +341,74 @@ class _PhotoCustomCleanupDialogState
               const SizedBox(height: 14),
 
               // 区块二：媒体库作品列表（单选 / 多选 / 全选 / 取消全选）
-              Row(
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 6,
                 children: [
-                  Text(
-                    '2. 选择目标作品',
-                    style: TextStyle(
-                      color: p.textPrimary,
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 10,
+                    runSpacing: 4,
+                    children: [
+                      Text(
+                        '2. 选择目标作品',
+                        style: TextStyle(
+                          color: p.textPrimary,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        '已选 ${_selectedWorkDirKeys.length} / ${entries.length} 部作品',
+                        style: TextStyle(
+                          color: p.textSecondary,
+                          fontSize: 12.5,
+                          fontFeatures: KonataPlaybackTokens.tabularNumbers,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 10),
-                  Text(
-                    '已选 ${_selectedWorkDirKeys.length} / ${entries.length} 部作品',
-                    style: TextStyle(
-                      color: p.textSecondary,
-                      fontSize: 12.5,
-                      fontFeatures: KonataPlaybackTokens.tabularNumbers,
-                    ),
-                  ),
-                  const Spacer(),
-                  KonataPillButton.ghost(
-                    label: '全选',
-                    compact: true,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    onPressed: _cleaning || filtered.isEmpty
-                        ? null
-                        : () => setState(() {
-                            _selectedWorkDirKeys.addAll(
-                              filtered.map((e) => e.workDirKey),
-                            );
-                          }),
-                  ),
-                  const SizedBox(width: 4),
-                  KonataPillButton.ghost(
-                    label: '取消全选',
-                    compact: true,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    onPressed: _cleaning || _selectedWorkDirKeys.isEmpty
-                        ? null
-                        : () => setState(() {
-                            if (_query.trim().isEmpty) {
-                              _selectedWorkDirKeys.clear();
-                            } else {
-                              _selectedWorkDirKeys.removeAll(
-                                filtered.map((e) => e.workDirKey),
-                              );
-                            }
-                          }),
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: [
+                      KonataPillButton.ghost(
+                        label: '全选',
+                        compact: true,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        onPressed: _cleaning || filtered.isEmpty
+                            ? null
+                            : () => setState(() {
+                                _selectedWorkDirKeys.addAll(
+                                  filtered.map((e) => e.workDirKey),
+                                );
+                              }),
+                      ),
+                      KonataPillButton.ghost(
+                        label: '取消全选',
+                        compact: true,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        onPressed: _cleaning || _selectedWorkDirKeys.isEmpty
+                            ? null
+                            : () => setState(() {
+                                if (_query.trim().isEmpty) {
+                                  _selectedWorkDirKeys.clear();
+                                } else {
+                                  _selectedWorkDirKeys.removeAll(
+                                    filtered.map((e) => e.workDirKey),
+                                  );
+                                }
+                              }),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -433,41 +491,43 @@ class _PhotoCustomCleanupDialogState
               const SizedBox(height: 16),
 
               // 底部结算动作栏
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '预计释放：'
-                      '${MediaDisplayFormatter.formatBytes(estimatedBytes, emptyFallback: '0 B')}'
-                      '（共 $estimatedFiles 张图片）',
-                      style: TextStyle(
-                        color: estimatedFiles > 0
-                            ? p.textPrimary
-                            : p.textSecondary,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        fontFeatures: KonataPlaybackTokens.tabularNumbers,
-                      ),
+              AdaptiveResponsiveRow(
+                minLeadingWidth: 160,
+                estimatedTrailingWidth: 170,
+                leading: Text(
+                  '预计释放：'
+                  '${MediaDisplayFormatter.formatBytes(estimatedBytes, emptyFallback: '0 B')}'
+                  '（共 $estimatedFiles 张图片）',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: estimatedFiles > 0 ? p.textPrimary : p.textSecondary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    fontFeatures: KonataPlaybackTokens.tabularNumbers,
+                  ),
+                ),
+                trailing: Wrap(
+                  spacing: 10,
+                  runSpacing: 8,
+                  children: [
+                    KonataPillButton.secondary(
+                      label: '取消',
+                      compact: true,
+                      onPressed: _cleaning
+                          ? null
+                          : () => Navigator.of(context).maybePop(),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  KonataPillButton.secondary(
-                    label: '取消',
-                    compact: true,
-                    onPressed: _cleaning
-                        ? null
-                        : () => Navigator.of(context).maybePop(),
-                  ),
-                  const SizedBox(width: 10),
-                  KonataPillButton.danger(
-                    label: _cleaning ? '清理中...' : '清理所选',
-                    icon: Icons.delete_sweep_outlined,
-                    compact: true,
-                    onPressed: (!_cleaning && estimatedFiles > 0)
-                        ? () => _executeCleanup(estimatedFiles)
-                        : null,
-                  ),
-                ],
+                    KonataPillButton.danger(
+                      label: _cleaning ? '清理中...' : '清理所选',
+                      icon: Icons.delete_sweep_outlined,
+                      compact: true,
+                      onPressed: (!_cleaning && estimatedFiles > 0)
+                          ? () => _executeCleanup(estimatedFiles)
+                          : null,
+                    ),
+                  ],
+                ),
               ),
             ],
           );

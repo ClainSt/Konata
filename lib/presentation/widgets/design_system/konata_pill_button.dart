@@ -150,68 +150,78 @@ class _KonataPillButtonState extends State<KonataPillButton> {
                   ? const EdgeInsets.symmetric(horizontal: 13, vertical: 7)
                   : const EdgeInsets.symmetric(horizontal: 18, vertical: 10)));
 
-    return MouseRegion(
-      cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onPressed,
-        child: AnimatedOpacity(
-          duration: const Duration(milliseconds: 140),
-          opacity: enabled ? 1.0 : 0.45,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            curve: Curves.easeOutCubic,
-            constraints: KonataAdaptiveTokens.isAndroid
-                ? const BoxConstraints(
-                    minHeight: KonataAdaptiveTokens.touchTarget,
-                    minWidth: KonataAdaptiveTokens.touchTarget,
-                  )
-                : null,
-            height: KonataAdaptiveTokens.isAndroid
-                ? null
-                : widget.height,
-            padding: padding,
-            decoration: BoxDecoration(
-              color: bgColor,
-              borderRadius: BorderRadius.circular(999),
-              border: borderColor == null
-                  ? null
-                  : Border.all(color: borderColor, width: 1),
+    Widget visualPill = AnimatedOpacity(
+      duration: const Duration(milliseconds: 140),
+      opacity: enabled ? 1.0 : 0.45,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOutCubic,
+        height: widget.height,
+        padding: padding,
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(999),
+          border: borderColor == null
+              ? null
+              : Border.all(color: borderColor, width: 1),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            if (widget.icon != null) ...[
+              Icon(
+                widget.icon,
+                size: widget.compact ? 15 : 17,
+                color: fgColor,
+              ),
+              const SizedBox(width: 6),
+            ],
+            Text(
+              widget.label,
+              maxLines: 1,
+              softWrap: false,
+              style: TextStyle(
+                color: fgColor,
+                fontSize: widget.compact ? 12.5 : 13.5,
+                fontWeight:
+                    (widget.variant == KonataPillVariant.primary ||
+                        widget.variant == KonataPillVariant.danger)
+                    ? FontWeight.w600
+                    : FontWeight.w500,
+              ),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                if (widget.icon != null) ...[
-                  Icon(
-                    widget.icon,
-                    size: widget.compact ? 15 : 17,
-                    color: fgColor,
-                  ),
-                  const SizedBox(width: 6),
-                ],
-                Text(
-                  widget.label,
-                  style: TextStyle(
-                    color: fgColor,
-                    fontSize: widget.compact ? 12.5 : 13.5,
-                    fontWeight:
-                        (widget.variant == KonataPillVariant.primary ||
-                            widget.variant == KonataPillVariant.danger)
-                        ? FontWeight.w600
-                        : FontWeight.w500,
-                  ),
-                ),
-                if (widget.trailing != null) ...[
-                  const SizedBox(width: 2),
-                  widget.trailing!,
-                ],
-              ],
-            ),
-          ),
+            if (widget.trailing != null) ...[
+              const SizedBox(width: 2),
+              widget.trailing!,
+            ],
+          ],
+        ),
+      ),
+    );
+
+    if (KonataAdaptiveTokens.isAndroid) {
+      // Android 仅在最外层扩展 48dp 透明触控热区，内层染色胶囊严格保留 Windows 同源修长比例。
+      visualPill = ConstrainedBox(
+        constraints: const BoxConstraints(
+          minHeight: KonataAdaptiveTokens.touchTarget,
+          minWidth: KonataAdaptiveTokens.touchTarget,
+        ),
+        child: Center(widthFactor: 1, heightFactor: 1, child: visualPill),
+      );
+    }
+
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.15,
+      child: MouseRegion(
+        cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onPressed,
+          child: visualPill,
         ),
       ),
     );

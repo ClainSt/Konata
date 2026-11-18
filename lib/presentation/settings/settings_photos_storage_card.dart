@@ -1,16 +1,16 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import '../theme/konata_adaptive_tokens.dart';
-import '../widgets/design_system/konata_settings_row.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../application/providers/library_providers.dart';
 import '../../domain/formatting/media_display_formatter.dart';
 import '../../infrastructure/cache/photos_storage.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
+import '../widgets/design_system/adaptive_responsive_row.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_surface_card.dart';
@@ -71,36 +71,32 @@ class SettingsPhotosStorageCard extends ConsumerWidget {
         snapshot != null &&
         (snapshot.libraryWorkCount > 0 || (stats?.totalFiles ?? 0) > 0);
 
+    final summaryText = stats == null
+        ? '--'
+        : '${stats.workFolderCount} 部作品 · '
+              '${stats.totalFiles} 张 · '
+              '${MediaDisplayFormatter.formatBytes(stats.totalBytes, emptyFallback: '0 B')}';
+
     return KonataSurfaceCard(
       padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
-            child: KonataSettingsRow(
+            padding: const EdgeInsets.fromLTRB(18, 14, 14, 10),
+            child: Row(
               children: [
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '本地图片存储 (photos/)',
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        '全站海报、背景原画与 Scan `.webp` 微缩图均按作品目录就近存放，零写入系统盘或临时目录',
-                        style: TextStyle(
-                          color: p.textSecondary,
-                          fontSize: 12.5,
-                        ),
-                      ),
-                    ],
+                  child: Text(
+                    '本地图片存储',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 KonataPillButton.ghost(
                   label: loading ? '统计中...' : '刷新',
                   icon: Icons.refresh_rounded,
@@ -128,40 +124,43 @@ class SettingsPhotosStorageCard extends ConsumerWidget {
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: p.hairline),
                   ),
-                  child: KonataSettingsRow(
-                    children: [
-                      Icon(
-                        Icons.folder_outlined,
-                        size: 16,
-                        color: p.textSecondary,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: EllipsisTextWithTooltip(
-                          text: rootPath,
-                          maxLines: 1,
-                          style: TextStyle(
-                            color: p.textPrimary,
-                            fontSize: 12.5,
-                            fontFamily: 'Consolas',
+                  child: AdaptiveResponsiveRow(
+                    estimatedTrailingWidth: 165,
+                    minLeadingWidth: 140,
+                    verticalGap: 6,
+                    stackedTrailingAlignment: Alignment.centerLeft,
+                    leading: Row(
+                      children: [
+                        Icon(
+                          Icons.folder_outlined,
+                          size: 16,
+                          color: p.textSecondary,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: EllipsisTextWithTooltip(
+                            text: rootPath,
+                            maxLines: 1,
+                            style: TextStyle(
+                              color: p.textPrimary,
+                              fontSize: 12.5,
+                              fontFamily: 'Consolas',
+                            ),
                           ),
                         ),
+                      ],
+                    ),
+                    trailing: Text(
+                      summaryText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: p.textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        fontFeatures: KonataPlaybackTokens.tabularNumbers,
                       ),
-                      const SizedBox(width: 12),
-                      Text(
-                        stats == null
-                            ? '--'
-                            : '${stats.workFolderCount} 部作品 · '
-                                  '${stats.totalFiles} 张 · '
-                                  '${MediaDisplayFormatter.formatBytes(stats.totalBytes, emptyFallback: '0 B')}',
-                        style: TextStyle(
-                          color: p.textSecondary,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          fontFeatures: KonataPlaybackTokens.tabularNumbers,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -177,40 +176,48 @@ class SettingsPhotosStorageCard extends ConsumerWidget {
                   ],
                 ),
                 const SizedBox(height: 14),
-                KonataSettingsRow(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '可再生缓存 (scans + thumbnails)：'
-                        '${MediaDisplayFormatter.formatBytes(regenerableBytes, emptyFallback: '0 B')}'
-                        '（$regenerableFiles 张）',
-                        style: TextStyle(
-                          color: p.textMuted,
-                          fontSize: 12,
-                          fontFeatures: KonataPlaybackTokens.tabularNumbers,
+                AdaptiveResponsiveRow(
+                  estimatedTrailingWidth: KonataAdaptiveTokens.isWindows
+                      ? 250
+                      : 112,
+                  minLeadingWidth: 140,
+                  leading: Text(
+                    '可再生缓存 (scans + thumbnails)：'
+                    '${MediaDisplayFormatter.formatBytes(regenerableBytes, emptyFallback: '0 B')}'
+                    '（$regenerableFiles 张）',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: p.textMuted,
+                      fontSize: 12,
+                      fontFeatures: KonataPlaybackTokens.tabularNumbers,
+                    ),
+                  ),
+                  trailing: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (KonataAdaptiveTokens.isWindows)
+                        KonataPillButton.secondary(
+                          label: '打开 photos 文件夹',
+                          icon: Icons.folder_open_rounded,
+                          compact: true,
+                          onPressed: () =>
+                              unawaited(_openPhotosFolder(context, storage)),
                         ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    if (KonataAdaptiveTokens.isWindows)
                       KonataPillButton.secondary(
-                        label: '打开 photos 文件夹',
-                        icon: Icons.folder_open_rounded,
+                        label: '自定义清理',
+                        icon: Icons.cleaning_services_outlined,
                         compact: true,
-                        onPressed: () =>
-                            unawaited(_openPhotosFolder(context, storage)),
+                        onPressed: canCustomizeClean
+                            ? () => unawaited(
+                                showPhotoCustomCleanupDialog(context),
+                              )
+                            : null,
                       ),
-                    const SizedBox(width: 8),
-                    KonataPillButton.secondary(
-                      label: '自定义清理',
-                      icon: Icons.cleaning_services_outlined,
-                      compact: true,
-                      onPressed: canCustomizeClean
-                          ? () =>
-                                unawaited(showPhotoCustomCleanupDialog(context))
-                          : null,
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ),

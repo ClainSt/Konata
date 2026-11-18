@@ -20,23 +20,44 @@ class AdaptiveCapsuleLayout {
   final bool android;
   final bool playerVisible;
   final bool navigationVisible;
+  static const double _minSideBySidePlayerWidth = 360.0;
+
   bool get tablet =>
       android && size.shortestSide >= KonataAdaptiveTokens.tabletBreakpoint;
   bool get shortPhone =>
       android &&
       !tablet &&
       size.height < KonataAdaptiveTokens.shortViewportHeight;
+
+  double get _usableBottomWidth => math.max(
+    0.0,
+    size.width - safe.horizontal - KonataAdaptiveTokens.horizontalInset * 2,
+  );
+
+  double get _remainingSideBySidePlayerWidth =>
+      _usableBottomWidth -
+      navigationLength -
+      KonataAdaptiveTokens.horizontalInset;
+
+  /// 当可用底宽不足以从容并排容纳导航与播放胶囊时，矮横屏手机自动将导航迁至左侧垂直居中以释放水平宽度。
+  bool get verticalNavigation =>
+      tablet ||
+      (shortPhone &&
+          playerVisible &&
+          navigationVisible &&
+          _remainingSideBySidePlayerWidth < _minSideBySidePlayerWidth);
+
   double get navigationThickness =>
       KonataAdaptiveTokens.touchTarget +
       KonataAdaptiveTokens.navigationPadding * 2;
   double get navigationLength =>
       KonataAdaptiveTokens.touchTarget * 4 +
       KonataAdaptiveTokens.navigationPadding * 2;
-  double get leftClearance => tablet && navigationVisible
+  double get leftClearance => verticalNavigation && navigationVisible
       ? navigationThickness + KonataAdaptiveTokens.safeGap
       : 0;
   Rect get navigationRect {
-    if (tablet) {
+    if (verticalNavigation) {
       return Rect.fromLTWH(
         safe.left,
         safe.top + (size.height - safe.vertical - navigationLength) / 2,
@@ -73,7 +94,7 @@ class AdaptiveCapsuleLayout {
           safe.right -
           KonataAdaptiveTokens.horizontalInset * 2,
     );
-    if (shortPhone && navigationVisible) {
+    if (shortPhone && navigationVisible && !verticalNavigation) {
       final left = navigationRect.right + KonataAdaptiveTokens.horizontalInset;
       return Rect.fromLTRB(
         left,
@@ -82,7 +103,7 @@ class AdaptiveCapsuleLayout {
         bottom,
       );
     }
-    final lift = !tablet && navigationVisible
+    final lift = !verticalNavigation && navigationVisible
         ? navigationThickness + KonataAdaptiveTokens.safeGap
         : 0.0;
     return Rect.fromLTWH(
@@ -97,7 +118,7 @@ class AdaptiveCapsuleLayout {
   double get errorBottomInset {
     final top = playerVisible
         ? playerRect.top
-        : (!tablet && navigationVisible
+        : (!verticalNavigation && navigationVisible
               ? navigationRect.top
               : size.height - safe.bottom);
     return size.height - top + KonataAdaptiveTokens.safeGap;
@@ -107,7 +128,7 @@ class AdaptiveCapsuleLayout {
     if (!android) return 0;
     final top = playerVisible
         ? playerRect.top
-        : (!tablet && navigationVisible
+        : (!verticalNavigation && navigationVisible
               ? navigationRect.top
               : size.height - safe.bottom);
     return size.height - top + KonataAdaptiveTokens.safeGap;

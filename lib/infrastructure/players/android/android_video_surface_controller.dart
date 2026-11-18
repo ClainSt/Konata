@@ -60,7 +60,12 @@ class AndroidVideoSurfaceController {
           final width = (args['width'] as num?)?.toInt() ?? 0;
           final height = (args['height'] as num?)?.toInt() ?? 0;
           final hdrPeak = (args['hdrPeak'] as num?)?.toDouble() ?? 0.0;
-          _current = wid > 0
+          // 仅在句柄与像素宽高均有效时派发就绪事件，避免将 0x0 表面传入 libmpv
+          if (wid > 0 && (width <= 0 || height <= 0)) {
+            _current = null;
+            return null;
+          }
+          _current = (wid > 0 && width > 0 && height > 0)
               ? AndroidSurfaceDescriptor(
                   wid: wid,
                   width: width,
@@ -81,17 +86,22 @@ class AndroidVideoSurfaceController {
     return null;
   }
 
-  /// 主动向原生端查询当前可用表面信息。
+  /// 主动向原生端查询当前可用表面信息（句柄与宽高均需大于 0）。
   Future<AndroidSurfaceDescriptor?> queryCurrent() async {
     try {
       final result = await _channel.invokeMapMethod<String, Object?>('current');
       if (result == null) return null;
       final wid = (result['wid'] as num?)?.toInt() ?? 0;
-      if (wid <= 0) return null;
+      final width = (result['width'] as num?)?.toInt() ?? 0;
+      final height = (result['height'] as num?)?.toInt() ?? 0;
+      if (wid <= 0 || width <= 0 || height <= 0) {
+        _current = null;
+        return null;
+      }
       _current = AndroidSurfaceDescriptor(
         wid: wid,
-        width: (result['width'] as num?)?.toInt() ?? 0,
-        height: (result['height'] as num?)?.toInt() ?? 0,
+        width: width,
+        height: height,
         hdrPeak: (result['hdrPeak'] as num?)?.toDouble() ?? 0.0,
       );
       return _current;
@@ -100,10 +110,24 @@ class AndroidVideoSurfaceController {
     }
   }
 
+  /// 控制器是否已释放。
+  bool _disposed = false;
+
+  /// 当前已释放标识。
+  bool get isDisposed => _disposed;
+
+  /// 在 libmpv 解绑 `vo=null` / `wid=0` 后精确释放指定旧表面的 JNI 全局引用。
+  Future<void> releaseReference(int wid) async {
+    if (wid <= 0) return;
+    try {
+      await _channel.invokeMethod<void>('release', wid);
+    } catch (_) {}
+  }
+
   /// 释放与当前视图关联的全局 Surface 引用。
   Future<void> releaseSurface() async {
     try {
-      await _channel.invokeMethod<void>('release');
+      await _channel.invokeMethod<void>('releaseAll');
     } catch (_) {}
     _current = null;
   }
@@ -142,6 +166,8 @@ class AndroidVideoSurfaceController {
 
   /// 注销通道监听器。
   Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
     _channel.setMethodCallHandler(null);
     if (!_surfaceChanges.isClosed) {
       await _surfaceChanges.close();

@@ -524,6 +524,14 @@ typedef _MpvRenderContextRenderDart =
 typedef _MpvRenderContextFreeNative = Void Function(Pointer<Void> ctx);
 typedef _MpvRenderContextFreeDart = void Function(Pointer<Void> ctx);
 
+typedef _MediaKitGetJavaVmNative = Pointer<Void> Function();
+typedef _MediaKitGetJavaVmDart = Pointer<Void> Function();
+
+typedef _AvJniSetJavaVmNative =
+    Int32 Function(Pointer<Void> vm, Pointer<Void> logCtx);
+typedef _AvJniSetJavaVmDart =
+    int Function(Pointer<Void> vm, Pointer<Void> logCtx);
+
 /// 将 `MPV_RENDER_API_TYPE_SW` 输出的 `rgb0` 像素帧封装为轻量 24-bit 无压缩 BMP 字节流。
 Uint8List encodeRgb0ToBmp(Uint8List rgb0, int width, int height) {
   if (width <= 0 || height <= 0 || rgb0.length < width * height * 4) {
@@ -536,9 +544,9 @@ Uint8List encodeRgb0ToBmp(Uint8List rgb0, int width, int height) {
   final bmp = Uint8List(fileSize);
   final view = ByteData.sublistView(bmp);
 
-  // 位图文件头 BITMAPFILEHEADER（14 字节）
-  bmp[0] = 0x42; // 'B'
-  bmp[1] = 0x4D; // 'M'
+  // 位图文件头 BITMAPFILEHEADER（14 字节，魔数为 BM）
+  bmp[0] = 0x42;
+  bmp[1] = 0x4D;
   view.setUint32(2, fileSize, Endian.little);
   view.setUint32(10, 54, Endian.little);
 
@@ -550,6 +558,7 @@ Uint8List encodeRgb0ToBmp(Uint8List rgb0, int width, int height) {
   view.setUint16(28, 24, Endian.little);
   view.setUint32(34, pixelDataSize, Endian.little);
 
+  // 将 rgb0 像素序重排为 BMP 所需的倒置蓝绿红字节序
   final srcStride = width * 4;
   for (var y = 0; y < height; y++) {
     final srcRowOffset = (height - 1 - y) * srcStride;
@@ -557,9 +566,9 @@ Uint8List encodeRgb0ToBmp(Uint8List rgb0, int width, int height) {
     for (var x = 0; x < width; x++) {
       final si = srcRowOffset + x * 4;
       final di = dstRowOffset + x * 3;
-      bmp[di] = rgb0[si + 2]; // B
-      bmp[di + 1] = rgb0[si + 1]; // G
-      bmp[di + 2] = rgb0[si]; // R
+      bmp[di] = rgb0[si + 2];
+      bmp[di + 1] = rgb0[si + 1];
+      bmp[di + 2] = rgb0[si];
     }
   }
   return bmp;
@@ -630,9 +639,41 @@ class FfiLibMpvClient implements LibMpvClient, LibMpvSoftwareFrameSource {
         );
   }
 
+  static bool _androidJavaVmRegistered = false;
+
+  /// 将 Android 宿主进程 JavaVM 句柄注册至 FFmpeg/libmpv JNI 上下文，解锁 vo=gpu 表面绑定与 MediaCodec 硬解。
+  static void _ensureAndroidJavaVmRegistered(DynamicLibrary mpvLibrary) {
+    if (!Platform.isAndroid || _androidJavaVmRegistered) return;
+    try {
+      final helperLib = DynamicLibrary.open('libmediakitandroidhelper.so');
+      final getJavaVm = helperLib
+          .lookupFunction<_MediaKitGetJavaVmNative, _MediaKitGetJavaVmDart>(
+            'MediaKitAndroidHelperGetJavaVM',
+          );
+      final jvm = getJavaVm();
+      if (jvm == nullptr) return;
+
+      DynamicLibrary avCodecLib;
+      try {
+        avCodecLib = DynamicLibrary.open('libavcodec.so');
+      } catch (_) {
+        avCodecLib = mpvLibrary;
+      }
+      final setJavaVm = avCodecLib
+          .lookupFunction<_AvJniSetJavaVmNative, _AvJniSetJavaVmDart>(
+            'av_jni_set_java_vm',
+          );
+      final rc = setJavaVm(jvm, nullptr);
+      if (rc == 0) {
+        _androidJavaVmRegistered = true;
+      }
+    } catch (_) {}
+  }
+
   /// 创建尚未执行 `mpv_initialize()` 的原生 `libmpv` 客户端。
   factory FfiLibMpvClient.create({String? preferredLibraryPath}) {
     final resolved = _openLibMpv(preferredLibraryPath: preferredLibraryPath);
+    _ensureAndroidJavaVmRegistered(resolved.library);
     final mpvCreate = resolved.library
         .lookupFunction<_MpvCreateNative, _MpvCreateDart>('mpv_create');
     final handle = mpvCreate();

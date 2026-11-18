@@ -114,6 +114,14 @@ class EmbeddedMpvSession {
   StreamSubscription<D3D11TextureChangedEvent>? _d3d11ChangeSub;
   StreamSubscription<AndroidSurfaceDescriptor?>? _androidSurfaceSub;
   AndroidVideoSurfaceController? _androidSurface;
+  Future<void> _androidSurfaceSerial = Future<void>.value();
+  bool _useAndroidSurfaceSession = false;
+  int _boundAndroidWid = 0;
+  int _boundAndroidWidth = 0;
+  int _boundAndroidHeight = 0;
+  int _boundAndroidHdrPeak = -1;
+  Timer? _firstFrameWatchdogTimer;
+  bool _firstFrameWatchdogReboundOnce = false;
 
   int? _d3d11SessionId;
   final List<String> _activeStreamTokens = [];
@@ -146,7 +154,7 @@ class EmbeddedMpvSession {
   bool get isInitialized => _client?.isInitialized ?? false;
   bool get isUsingSoftwareFallback => _usingSoftwareFallback;
 
-  /// 初始化底层 `libmpv`（Windows 创建 D3D11 离屏三缓冲纹理 / Android 绑定 `wid`）并起播首个视频。
+  /// 初始化底层 `libmpv`（Windows 创建 D3D11 离屏三缓冲纹理 / Android 绑定原生像素表面）并起播首个视频。
   Future<void> initializeAndLoad({
     required EmbeddedVideoLoadRequest request,
     required PlaybackQualityConfig qualityConfig,
@@ -159,6 +167,9 @@ class EmbeddedMpvSession {
     _trackMemory = trackMemory;
     _trackPreferences = trackPreferences;
     _lastQualityConfig = qualityConfig;
+    _useAndroidSurfaceSession =
+        Platform.isAndroid || androidSurfaceSupplier != null;
+    final useWindowsD3D11 = Platform.isWindows && !_useAndroidSurfaceSession;
     final isRemote =
         request.source != null && request.source!.kind != MediaSourceKind.local;
 
@@ -170,28 +181,6 @@ class EmbeddedMpvSession {
       );
     }
 
-    int? androidWid;
-    if (Platform.isAndroid && androidSurfaceSupplier != null) {
-      final ctrl = await androidSurfaceSupplier();
-      _androidSurface = ctrl;
-      var desc = await ctrl.queryCurrent();
-      if (desc == null || desc.wid <= 0) {
-        desc = await ctrl.surfaceChanges
-            .where((e) => e != null && e.wid > 0)
-            .cast<AndroidSurfaceDescriptor>()
-            .first
-            .timeout(const Duration(seconds: 6));
-      }
-      androidWid = desc.wid;
-      _renderBackend.value = 'gpu';
-      _androidSurfaceSub = ctrl.surfaceChanges.listen((next) {
-        if (_disposed || _client == null || _client!.isDisposed) return;
-        if (next != null && next.wid > 0) {
-          _client!.setPropertyInt64('wid', next.wid);
-        }
-      });
-    }
-
     final client = clientFactory != null
         ? clientFactory!()
         : FfiLibMpvClient.create();
@@ -199,8 +188,8 @@ class EmbeddedMpvSession {
 
     final hwdecValue = MpvQualityProfile.resolveHwdecValue(
       config: qualityConfig,
-      isWindows: Platform.isWindows,
-      isAndroid: Platform.isAndroid,
+      isWindows: useWindowsD3D11,
+      isAndroid: _useAndroidSurfaceSession,
     );
     _hwdecWasEnabled = hwdecValue != 'no';
     _usingSoftwareFallback = !_hwdecWasEnabled;
@@ -211,13 +200,13 @@ class EmbeddedMpvSession {
       mpvConfigDir: mpvDir,
       screenshotDir: workPhotoDir,
       isRemoteStream: isRemote,
+      isWindowsOverride: useWindowsD3D11,
+      isAndroidOverride: _useAndroidSurfaceSession,
       logStore: logStore,
     );
 
-    if (Platform.isWindows) {
+    if (useWindowsD3D11) {
       client.setOptionString('gpu-api', 'd3d11');
-    } else if (androidWid != null && androidWid > 0) {
-      client.setOptionString('wid', androidWid.toString());
     }
 
     final initRc = client.initialize();
@@ -230,7 +219,7 @@ class EmbeddedMpvSession {
     _cachedMpvVersion = client.getPropertyString('mpv-version');
     _cachedFfmpegVersion = client.getPropertyString('ffmpeg-version');
 
-    if (Platform.isWindows) {
+    if (useWindowsD3D11) {
       final handle = await _d3d11Bridge.createSession(
         mpvHandleAddress: client.handleAddress,
         width: request.initialWidth,
@@ -267,6 +256,7 @@ class EmbeddedMpvSession {
     MpvQualityProfile.applyPostInitVideoProperties(
       client,
       config: qualityConfig,
+      isWindowsOverride: useWindowsD3D11,
       onWasapiFallbackNotice: onNotice,
       logStore: logStore,
     );
@@ -294,6 +284,33 @@ class EmbeddedMpvSession {
 
     _eventSub = client.events.listen(_handleMpvEvent);
 
+    if (_useAndroidSurfaceSession && androidSurfaceSupplier != null) {
+      final ctrl = await androidSurfaceSupplier();
+      if (_disposed) return;
+      _bindAndroidSurfaceController(ctrl);
+      var desc = await ctrl.queryCurrent();
+      if (desc == null ||
+          desc.wid <= 0 ||
+          desc.width <= 0 ||
+          desc.height <= 0) {
+        try {
+          desc = await ctrl.surfaceChanges
+              .where(
+                (e) => e != null && e.wid > 0 && e.width > 0 && e.height > 0,
+              )
+              .cast<AndroidSurfaceDescriptor>()
+              .first
+              .timeout(const Duration(milliseconds: 2500));
+        } on TimeoutException {
+          desc = ctrl.current;
+        }
+      }
+      if (_disposed) return;
+      if (desc != null && desc.wid > 0 && desc.width > 0 && desc.height > 0) {
+        await _enqueueAndroidSurfaceUpdate(desc, sourceCtrl: ctrl);
+      }
+    }
+
     await loadMediaVariant(request, trackMemory: _trackMemory);
   }
 
@@ -317,6 +334,8 @@ class EmbeddedMpvSession {
     _pendingRemoteSidecarJob = null;
     _fileLoadedForCurrentGen = false;
     _hasRestartedFirstFrame = false;
+    _firstFrameWatchdogReboundOnce = false;
+    _firstFrameWatchdogTimer?.cancel();
     _hwdecFallbackAttempted = false;
     _lastPositionSeconds = request.startSeconds > 0
         ? request.startSeconds.toDouble()
@@ -627,6 +646,9 @@ class EmbeddedMpvSession {
           }
         }
         _mountSidecarsAndResolveTracks();
+        if (_useAndroidSurfaceSession && _videoTrackEnabled) {
+          _scheduleFirstFrameWatchdog();
+        }
         final sidecarJob = _pendingRemoteSidecarJob;
         if (sidecarJob != null && sidecarJob.generation == _loadGeneration) {
           _pendingRemoteSidecarJob = null;
@@ -639,12 +661,14 @@ class EmbeddedMpvSession {
         }
       case MpvPlaybackRestartEvent():
         _hasRestartedFirstFrame = true;
+        _firstFrameWatchdogTimer?.cancel();
         _suppressBufferingUntil = null;
         onFirstFrameRendered?.call();
         onBufferingChanged?.call(false);
         _syncHwdecCurrent();
         _emitMediaMetadataSnapshot();
       case MpvVideoReconfigEvent():
+        _firstFrameWatchdogTimer?.cancel();
         _syncHwdecCurrent();
         _emitMediaMetadataSnapshot();
       case MpvAudioReconfigEvent():
@@ -969,6 +993,9 @@ class EmbeddedMpvSession {
         'vid',
         (restore != null && restore.isNotEmpty) ? restore : 'auto',
       );
+      if (_useAndroidSurfaceSession && _androidSurface != null) {
+        unawaited(attachOrRebindAndroidSurface(_androidSurface!));
+      }
     }
   }
 
@@ -1097,11 +1124,206 @@ class EmbeddedMpvSession {
     return fallback;
   }
 
+  /// Android 运行期间动态接入或热重绑硬件视频表面，避免路由或容器变更后丢帧黑屏。
+  Future<void> attachOrRebindAndroidSurface(
+    AndroidVideoSurfaceController ctrl,
+  ) async {
+    if (_disposed || !_useAndroidSurfaceSession || ctrl.isDisposed) return;
+    if (identical(_androidSurface, ctrl)) {
+      final desc = await ctrl.queryCurrent();
+      if (_disposed || desc == null) return;
+      await _enqueueAndroidSurfaceUpdate(desc, sourceCtrl: ctrl);
+      return;
+    }
+
+    await _androidSurfaceSub?.cancel();
+    _androidSurfaceSub = null;
+    final previous = _androidSurface;
+    _bindAndroidSurfaceController(ctrl);
+
+    // 先在串口队列内解绑旧表面的 EGL 与 vo，再释放其全部原生句柄
+    await _enqueueAndroidSurfaceUpdate(null, sourceCtrl: previous);
+    if (previous != null && !previous.isDisposed) {
+      await previous.releaseSurface();
+      await previous.dispose();
+    }
+    if (_disposed || ctrl.isDisposed) return;
+
+    var desc = await ctrl.queryCurrent();
+    if (desc == null || desc.wid <= 0 || desc.width <= 0 || desc.height <= 0) {
+      try {
+        desc = await ctrl.surfaceChanges
+            .where(
+              (e) => e != null && e.wid > 0 && e.width > 0 && e.height > 0,
+            )
+            .cast<AndroidSurfaceDescriptor>()
+            .first
+            .timeout(const Duration(milliseconds: 2500));
+      } on TimeoutException {
+        desc = ctrl.current;
+      }
+    }
+    if (_disposed || desc == null) return;
+    await _enqueueAndroidSurfaceUpdate(desc, sourceCtrl: ctrl);
+  }
+
+  void _bindAndroidSurfaceController(AndroidVideoSurfaceController ctrl) {
+    _androidSurface = ctrl;
+    unawaited(_androidSurfaceSub?.cancel());
+    _androidSurfaceSub = ctrl.surfaceChanges.listen((next) {
+      if (_disposed || _client == null || _client!.isDisposed) return;
+      unawaited(_enqueueAndroidSurfaceUpdate(next, sourceCtrl: ctrl));
+    });
+  }
+
+  Future<void> _enqueueAndroidSurfaceUpdate(
+    AndroidSurfaceDescriptor? desc, {
+    AndroidVideoSurfaceController? sourceCtrl,
+    bool forceRebind = false,
+  }) {
+    final op = _androidSurfaceSerial.then((_) async {
+      await _applyAndroidSurfaceUpdate(
+        desc,
+        sourceCtrl: sourceCtrl,
+        forceRebind: forceRebind,
+      );
+    });
+    _androidSurfaceSerial = op.catchError((Object _, StackTrace _) {});
+    return op;
+  }
+
+  Future<void> _applyAndroidSurfaceUpdate(
+    AndroidSurfaceDescriptor? desc, {
+    AndroidVideoSurfaceController? sourceCtrl,
+    bool forceRebind = false,
+  }) async {
+    final client = _client;
+    if (_disposed ||
+        client == null ||
+        client.isDisposed ||
+        !client.isInitialized) {
+      return;
+    }
+
+    final nextWid = desc?.wid ?? 0;
+    final width = desc?.width ?? 0;
+    final height = desc?.height ?? 0;
+    final hdrPeak = (desc?.hdrPeak ?? 0).round();
+
+    if (nextWid != 0 && (width <= 0 || height <= 0)) {
+      return;
+    }
+
+    // 同一 Surface 仅像素尺寸变化时原地更新 android-surface-size，避免重开 VO 打断硬解
+    if (!forceRebind &&
+        nextWid != 0 &&
+        nextWid == _boundAndroidWid &&
+        hdrPeak == _boundAndroidHdrPeak) {
+      if (width != _boundAndroidWidth || height != _boundAndroidHeight) {
+        client.setPropertyString('android-surface-size', '${width}x$height');
+        _boundAndroidWidth = width;
+        _boundAndroidHeight = height;
+      }
+      if (_videoTrackEnabled &&
+          client.getPropertyString('vo') !=
+              MpvQualityProfile.androidVideoDriver) {
+        client.setPropertyString('vo', MpvQualityProfile.androidVideoDriver);
+      }
+      return;
+    }
+
+    // 更换或卸载 Surface 前必须先置空 vo=null 与 wid=0 安全释放旧 EGLSurface
+    final previousWid = _boundAndroidWid;
+    client.setPropertyString('vo', 'null');
+    client.setPropertyString('wid', '0');
+    _boundAndroidWid = 0;
+    _boundAndroidWidth = 0;
+    _boundAndroidHeight = 0;
+    _boundAndroidHdrPeak = -1;
+
+    if (previousWid != 0 && previousWid != nextWid) {
+      await (sourceCtrl ?? _androidSurface)?.releaseReference(previousWid);
+      if (_disposed || client.isDisposed || !client.isInitialized) return;
+    }
+
+    if (nextWid <= 0) {
+      return;
+    }
+
+    client.setPropertyString('android-hdr-peak', '$hdrPeak');
+    client.setPropertyString('android-surface-size', '${width}x$height');
+    client.setPropertyString('wid', '$nextWid');
+    _boundAndroidWid = nextWid;
+    _boundAndroidWidth = width;
+    _boundAndroidHeight = height;
+    _boundAndroidHdrPeak = hdrPeak;
+    _renderBackend.value = MpvQualityProfile.androidVideoDriver;
+
+    if (_videoTrackEnabled) {
+      client.setPropertyString('vo', MpvQualityProfile.androidVideoDriver);
+      final vid = client.getPropertyString('vid');
+      if (vid == 'no') {
+        client.setPropertyString('vid', _savedVidBeforeDisable ?? 'auto');
+      }
+      if (client.getPropertyFlag('pause') ?? false) {
+        client.command(['seek', '0', 'relative', 'exact']);
+      }
+    }
+  }
+
+  void _scheduleFirstFrameWatchdog() {
+    _firstFrameWatchdogTimer?.cancel();
+    final gen = _loadGeneration;
+    _firstFrameWatchdogTimer = Timer(
+      const Duration(milliseconds: 2500),
+      () => unawaited(_verifyFirstFrameRenderedOrRecover(gen)),
+    );
+  }
+
+  Future<void> _verifyFirstFrameRenderedOrRecover(int generation) async {
+    final client = _client;
+    if (_disposed ||
+        generation != _loadGeneration ||
+        !_videoTrackEnabled ||
+        _hasRestartedFirstFrame ||
+        client == null ||
+        client.isDisposed ||
+        !client.isInitialized) {
+      return;
+    }
+    if (!_firstFrameWatchdogReboundOnce) {
+      _firstFrameWatchdogReboundOnce = true;
+      final surf = _androidSurface;
+      if (surf != null && !surf.isDisposed) {
+        final desc = await surf.queryCurrent();
+        if (desc != null &&
+            desc.wid > 0 &&
+            desc.width > 0 &&
+            desc.height > 0 &&
+            !_disposed &&
+            generation == _loadGeneration) {
+          await _enqueueAndroidSurfaceUpdate(
+            desc,
+            sourceCtrl: surf,
+            forceRebind: true,
+          );
+          _scheduleFirstFrameWatchdog();
+          return;
+        }
+      }
+    }
+    if (!_hwdecFallbackAttempted && _hwdecWasEnabled) {
+      _triggerSoftwareDecodeFallback();
+    }
+  }
+
   /// 严格按「停止事件订阅 -> 释放 D3D11/Android 渲染句柄 -> 异步 `mpv_terminate_destroy` -> 注销流网桥」串行释放。
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
     ++_loadGeneration;
+    _firstFrameWatchdogTimer?.cancel();
+    _firstFrameWatchdogTimer = null;
     _pendingRemoteSidecarJob = null;
 
     await _eventSub?.cancel();
@@ -1119,6 +1341,20 @@ class EmbeddedMpvSession {
 
     final androidSurf = _androidSurface;
     _androidSurface = null;
+    if (androidSurf != null || _useAndroidSurfaceSession) {
+      await _androidSurfaceSerial.catchError((_) {});
+      final activeClient = _client;
+      if (activeClient != null &&
+          !activeClient.isDisposed &&
+          activeClient.isInitialized) {
+        activeClient.setPropertyString('vo', 'null');
+        activeClient.setPropertyString('wid', '0');
+      }
+      _boundAndroidWid = 0;
+      _boundAndroidWidth = 0;
+      _boundAndroidHeight = 0;
+      _boundAndroidHdrPeak = -1;
+    }
     if (androidSurf != null) {
       await androidSurf.releaseSurface();
       await androidSurf.dispose();

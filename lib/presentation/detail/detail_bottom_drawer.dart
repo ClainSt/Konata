@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/gestures.dart';
@@ -23,6 +24,18 @@ import 'supplementary_asset_cards.dart';
 
 /// 详情页底部选集分页（正片、特典，以及有内容时动态显示的 CD / Scan）。
 enum DetailDrawerTab { main, extra, cd, scan }
+
+/// 详情页选集区在不同设备形态下的排版模式。
+enum DetailDrawerLayoutMode {
+  /// 桌面端与平板端底部叠加模式：左下分类胶囊 + 右下 `[⊞ ⌄ ⚙]`，展开后向上推开内容区。
+  bottomOverlay,
+
+  /// 手机竖屏流式分区模式：顶部运维胶囊由页面右上角顶栏统一渲染，此处呈现分类胶囊与横向轨道并位于简介上方。
+  phonePortraitSection,
+
+  /// 手机横屏全高选集模式：返回按钮、分类胶囊与右上 `[⊞ ⚙]` 顶部平齐一行，下方剧集轨道自适应高度显示完整标题与原名。
+  phoneLandscapeRail,
+}
 
 /// 详情页无黑框左右分置毛玻璃导航胶囊与悬浮剧集卡片轨道。
 class DetailBottomDrawer extends StatefulWidget {
@@ -59,6 +72,8 @@ class DetailBottomDrawer extends StatefulWidget {
     this.showCdTab = true,
     this.showScanTab = true,
     this.onSecondaryFilterChanged,
+    this.layoutMode = DetailDrawerLayoutMode.bottomOverlay,
+    this.leadingBarWidget,
   });
 
   /// 作品完整数据包。
@@ -125,16 +140,36 @@ class DetailBottomDrawer extends StatefulWidget {
   /// 切换二级筛选标签时触发（可用于取消未完成的 Scan 缩略图加载队列）。
   final VoidCallback? onSecondaryFilterChanged;
 
+  /// 当前设备形态下的排版模式。
+  final DetailDrawerLayoutMode layoutMode;
+
+  /// 手机横屏模式下置于分类胶囊左侧的返回按钮（使左箭头与分类长胶囊顶部平齐）。
+  final Widget? leadingBarWidget;
+
   @override
-  State<DetailBottomDrawer> createState() => _DetailBottomDrawerState();
+  State<DetailBottomDrawer> createState() => DetailBottomDrawerState();
 }
 
-class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
+/// [DetailBottomDrawer] 状态对象（向外暴露 [openCurrentFullList] 供手机竖屏右上角运维胶囊直接唤起当前分类完整列表）。
+class DetailBottomDrawerState extends State<DetailBottomDrawer> {
   final ScrollController _railController = ScrollController();
-  final LayerLink _gearLink = LayerLink();
   final Map<DetailDrawerTab, String?> _selectedSecondaryKeyByTab =
       <DetailDrawerTab, String?>{};
-  OverlayEntry? _gearMenuEntry;
+  DetailDrawerTab _lastComputedTab = DetailDrawerTab.main;
+  String? _lastComputedSecondaryKey;
+  int _lastComputedRawCount = 0;
+
+  /// 由外部（如手机竖屏右上角「完整列表」按钮）按当前激活分类与二级筛选直接打开完整列表弹窗。
+  Future<void> openCurrentFullList() {
+    if (_lastComputedRawCount <= 0) {
+      return Future<void>.value();
+    }
+    return _openFullList(
+      context,
+      _lastComputedTab,
+      _lastComputedSecondaryKey,
+    );
+  }
 
   @override
   void didUpdateWidget(covariant DetailBottomDrawer oldWidget) {
@@ -188,60 +223,8 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
 
   @override
   void dispose() {
-    _closeGearMenu();
     _railController.dispose();
     super.dispose();
-  }
-
-  void _scrollRailBy(double delta) {
-    if (!_railController.hasClients) return;
-    final pos = _railController.position;
-    final target = (pos.pixels + delta).clamp(0.0, pos.maxScrollExtent);
-    _railController.animateTo(
-      target,
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-    );
-  }
-
-  void _closeGearMenu() {
-    _gearMenuEntry?.remove();
-    _gearMenuEntry = null;
-  }
-
-  void _toggleGearMenu() {
-    if (_gearMenuEntry != null) {
-      _closeGearMenu();
-      setState(() {});
-      return;
-    }
-    final overlay = Overlay.of(context, rootOverlay: true);
-    _gearMenuEntry = OverlayEntry(
-      builder: (ctx) => DetailGearMenuOverlay(
-        link: _gearLink,
-        onDismiss: () {
-          _closeGearMenu();
-          if (mounted) setState(() {});
-        },
-        onSelect: (action) {
-          _closeGearMenu();
-          if (mounted) setState(() {});
-          action();
-        },
-        onManualMatch: widget.onOpenManualMatch,
-        onManualEdit: widget.onOpenManualEdit,
-        onEditPoster: widget.onOpenPosterPicker,
-        onEditBackdrop: widget.onOpenBackdropPicker,
-        onHideWork: widget.onHideWork,
-        onDeleteWork: widget.onOpenDeleteWorkSafe(),
-        onRescrape: widget.onRescrape,
-        onOpenLocalDir: widget.onOpenLocalDir,
-        onManageSeries: widget.onOpenSeriesManage,
-        onMergeWork: widget.onOpenMergeWork,
-      ),
-    );
-    overlay.insert(_gearMenuEntry!);
-    setState(() {});
   }
 
   @override
@@ -389,119 +372,261 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
       DetailDrawerTab.cd => filteredCdList.length,
       DetailDrawerTab.scan => filteredScanList.length,
     };
+    _lastComputedTab = currentTab;
+    _lastComputedSecondaryKey = activeSecondaryKey;
+    _lastComputedRawCount = currentRawCount;
 
+    final isPhoneMode =
+        widget.layoutMode != DetailDrawerLayoutMode.bottomOverlay;
     final screenW = MediaQuery.sizeOf(context).width;
     final compactDrawer =
-        KonataAdaptiveTokens.isAndroid &&
-        screenW < KonataAdaptiveTokens.tabletBreakpoint;
-    final drawerPadH = compactDrawer ? 16.0 : 36.0;
+        isPhoneMode ||
+        (KonataAdaptiveTokens.isAndroid &&
+            screenW < KonataAdaptiveTokens.tabletBreakpoint);
+    final drawerPadH = isPhoneMode ? 14.0 : (compactDrawer ? 16.0 : 36.0);
+    final openSeriesDownward =
+        widget.layoutMode == DetailDrawerLayoutMode.phoneLandscapeRail;
 
     final leftTabCapsule = SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (widget.bundle.seriesMembers.length >= 2 &&
-              widget.onSelectSeriesWork != null) ...[
-            SeriesSwitcherDropdown(
-              activeWork: widget.bundle.work,
-              seriesMembers: widget.bundle.seriesMembers,
-              seriesGroup: widget.bundle.seriesGroup,
-              onSelectWork: widget.onSelectSeriesWork!,
-            ),
-            const SizedBox(width: 8),
-          ],
-          _FrostedNavCapsule(
-            padding: const EdgeInsets.all(4),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DetailDrawerTabChip(
-                  label: '正片 (${mainEps.length})',
-                  active: isExpanded && currentTab == DetailDrawerTab.main,
-                  onTap: () => widget.onToggleTab(DetailDrawerTab.main),
-                ),
-                const SizedBox(width: 4),
-                DetailDrawerTabChip(
-                  label: '特典 (${extraEps.length})',
-                  active: isExpanded && currentTab == DetailDrawerTab.extra,
-                  onTap: () => widget.onToggleTab(DetailDrawerTab.extra),
-                ),
-                if (cdList.isNotEmpty) ...[
-                  const SizedBox(width: 4),
-                  DetailDrawerTabChip(
-                    label: 'CD (${cdList.length})',
-                    active: isExpanded && currentTab == DetailDrawerTab.cd,
-                    onTap: () => widget.onToggleTab(DetailDrawerTab.cd),
-                  ),
-                ],
-                if (scanList.isNotEmpty) ...[
-                  const SizedBox(width: 4),
-                  DetailDrawerTabChip(
-                    label: 'Scan (${scanList.length})',
-                    active: isExpanded && currentTab == DetailDrawerTab.scan,
-                    onTap: () => widget.onToggleTab(DetailDrawerTab.scan),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-
-    final rightOpsCapsule = _FrostedNavCapsule(
-      padding: isExpanded
-          ? const EdgeInsets.symmetric(horizontal: 6, vertical: 4)
-          : const EdgeInsets.all(4),
-      child: AnimatedSize(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOutCubic,
+      child: MediaQuery.withClampedTextScaling(
+        maxScaleFactor: 1.15,
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (isExpanded) ...[
-              DetailDrawerHeaderButton(
-                icon: Icons.grid_view_rounded,
-                tooltip: '完整列表',
-                enabled: currentRawCount > 0,
-                onPressed: () =>
-                    _openFullList(context, currentTab, activeSecondaryKey),
+            if (widget.bundle.seriesMembers.length >= 2 &&
+                widget.onSelectSeriesWork != null) ...[
+              SeriesSwitcherDropdown(
+                activeWork: widget.bundle.work,
+                seriesMembers: widget.bundle.seriesMembers,
+                seriesGroup: widget.bundle.seriesGroup,
+                onSelectWork: widget.onSelectSeriesWork!,
+                compact: isPhoneMode,
+                openDownward: openSeriesDownward,
               ),
-              const SizedBox(width: 2),
-              DetailDrawerHeaderButton(
-                icon: Icons.chevron_left_rounded,
-                tooltip: '向左翻页',
-                enabled: currentCount > 1,
-                onPressed: () => _scrollRailBy(-520),
-              ),
-              const SizedBox(width: 2),
-              DetailDrawerHeaderButton(
-                icon: Icons.chevron_right_rounded,
-                tooltip: '向右翻页',
-                enabled: currentCount > 1,
-                onPressed: () => _scrollRailBy(520),
-              ),
-              const SizedBox(width: 2),
-              DetailDrawerHeaderButton(
-                icon: Icons.keyboard_arrow_down_rounded,
-                tooltip: '收起剧集 (Esc)',
-                onPressed: widget.onCollapse,
-              ),
-              const SizedBox(width: 2),
+              const SizedBox(width: 8),
             ],
-            CompositedTransformTarget(
-              link: _gearLink,
-              child: DetailDrawerHeaderButton(
-                icon: Icons.settings_rounded,
-                tooltip: '作品管理选项',
-                active: _gearMenuEntry != null,
-                onPressed: _toggleGearMenu,
+            _FrostedNavCapsule(
+              padding: EdgeInsets.all(isPhoneMode ? 3 : 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DetailDrawerTabChip(
+                    label: '正片 (${mainEps.length})',
+                    compact: isPhoneMode,
+                    active: isExpanded && currentTab == DetailDrawerTab.main,
+                    onTap: () => widget.onToggleTab(DetailDrawerTab.main),
+                  ),
+                  SizedBox(width: isPhoneMode ? 2 : 4),
+                  DetailDrawerTabChip(
+                    label: '特典 (${extraEps.length})',
+                    compact: isPhoneMode,
+                    active: isExpanded && currentTab == DetailDrawerTab.extra,
+                    onTap: () => widget.onToggleTab(DetailDrawerTab.extra),
+                  ),
+                  if (cdList.isNotEmpty) ...[
+                    SizedBox(width: isPhoneMode ? 2 : 4),
+                    DetailDrawerTabChip(
+                      label: 'CD (${cdList.length})',
+                      compact: isPhoneMode,
+                      active: isExpanded && currentTab == DetailDrawerTab.cd,
+                      onTap: () => widget.onToggleTab(DetailDrawerTab.cd),
+                    ),
+                  ],
+                  if (scanList.isNotEmpty) ...[
+                    SizedBox(width: isPhoneMode ? 2 : 4),
+                    DetailDrawerTabChip(
+                      label: 'Scan (${scanList.length})',
+                      compact: isPhoneMode,
+                      active: isExpanded && currentTab == DetailDrawerTab.scan,
+                      onTap: () => widget.onToggleTab(DetailDrawerTab.scan),
+                    ),
+                  ],
+                ],
               ),
             ),
           ],
         ),
       ),
+    );
+
+    DetailOpsCapsule buildOpsCapsule({
+      required bool showCollapse,
+      required bool openDownward,
+    }) {
+      return DetailOpsCapsule(
+        isExpanded: isExpanded,
+        hasContent: currentRawCount > 0,
+        showCollapseButton: showCollapse,
+        openDownward: openDownward,
+        onOpenFullList: () =>
+            _openFullList(context, currentTab, activeSecondaryKey),
+        onCollapse: widget.onCollapse,
+        onManualMatch: widget.onOpenManualMatch,
+        onManualEdit: widget.onOpenManualEdit,
+        onEditPoster: widget.onOpenPosterPicker,
+        onEditBackdrop: widget.onOpenBackdropPicker,
+        onHideWork: widget.onHideWork,
+        onDeleteWork: widget.onOpenDeleteWorkSafe(),
+        onRescrape: widget.onRescrape,
+        onOpenLocalDir: widget.onOpenLocalDir,
+        onManageSeries: widget.onOpenSeriesManage,
+        onMergeWork: widget.onOpenMergeWork,
+      );
+    }
+
+    if (widget.layoutMode == DetailDrawerLayoutMode.phoneLandscapeRail) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                if (widget.leadingBarWidget != null) ...[
+                  widget.leadingBarWidget!,
+                  const SizedBox(width: 8),
+                ],
+                Expanded(child: leftTabCapsule),
+                const SizedBox(width: 8),
+                buildOpsCapsule(showCollapse: false, openDownward: true),
+              ],
+            ),
+          ),
+          if (showSecondaryBar)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: DetailSecondaryFilterBar(
+                items: secondaryItems,
+                totalCount: currentRawCount,
+                selectedKey: activeSecondaryKey,
+                horizontalPadding: 12,
+                compact: true,
+                onSelected: (k) => _selectSecondaryKey(currentTab, k),
+              ),
+            ),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (ctx, constraints) {
+                final scale = MediaQuery.textScalerOf(
+                  ctx,
+                ).scale(1.0).clamp(1.0, 1.15);
+                final availH = math.max(120.0, constraints.maxHeight - 8.0);
+                final metaReserve =
+                    (widget.showRawVideoFilename ? 86.0 : 38.0) * scale;
+                final maxThumbH = math.max(54.0, availH - metaReserve);
+                final adaptiveWidth = (maxThumbH * 16 / 9).clamp(96.0, 236.0);
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: currentCount == 0
+                      ? Center(
+                          child: Text(
+                            '该分类下暂无内容',
+                            style: KonataTheme.detailTextStyle(
+                              palette: context.palette,
+                              color: Colors.white.withValues(alpha: 0.82),
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        )
+                      : _buildTabRail(
+                          tab: currentTab,
+                          episodes: currentEps,
+                          mainEpisodeCount: mainEps.length,
+                          cdList: filteredCdList,
+                          scanList: filteredScanList,
+                          extraDisplayTitleByEpId: extraDisplayTitleByEpId,
+                          cdSummary: cdSummary,
+                          scanSummary: scanSummary,
+                          activeSecondaryKey: activeSecondaryKey,
+                          cardWidth: adaptiveWidth,
+                          compactMeta: true,
+                          railPadH: 12.0,
+                        ),
+                );
+              },
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (widget.layoutMode == DetailDrawerLayoutMode.phonePortraitSection) {
+      final portraitRailH = widget.showRawVideoFilename ? 214.0 : 164.0;
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: leftTabCapsule,
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: !isExpanded
+                ? const SizedBox.shrink()
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SizedBox(height: 10),
+                      if (showSecondaryBar)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: DetailSecondaryFilterBar(
+                            items: secondaryItems,
+                            totalCount: currentRawCount,
+                            selectedKey: activeSecondaryKey,
+                            horizontalPadding: 16,
+                            compact: true,
+                            onSelected: (k) =>
+                                _selectSecondaryKey(currentTab, k),
+                          ),
+                        ),
+                      SizedBox(
+                        height: portraitRailH,
+                        child: currentCount == 0
+                            ? Center(
+                                child: Text(
+                                  '该分类下暂无内容',
+                                  style: KonataTheme.detailTextStyle(
+                                    palette: context.palette,
+                                    color: Colors.white.withValues(alpha: 0.82),
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              )
+                            : _buildTabRail(
+                                tab: currentTab,
+                                episodes: currentEps,
+                                mainEpisodeCount: mainEps.length,
+                                cdList: filteredCdList,
+                                scanList: filteredScanList,
+                                extraDisplayTitleByEpId:
+                                    extraDisplayTitleByEpId,
+                                cdSummary: cdSummary,
+                                scanSummary: scanSummary,
+                                activeSecondaryKey: activeSecondaryKey,
+                                cardWidth: 204.0,
+                                compactMeta: false,
+                                railPadH: 16.0,
+                              ),
+                      ),
+                    ],
+                  ),
+          ),
+        ],
+      );
+    }
+
+    final rightOpsCapsule = buildOpsCapsule(
+      showCollapse: true,
+      openDownward: false,
     );
 
     return Column(
@@ -515,25 +640,13 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
             drawerPadH,
             isExpanded ? 14 : (compactDrawer ? 14 : 24),
           ),
-          child: compactDrawer && isExpanded
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: rightOpsCapsule,
-                    ),
-                    const SizedBox(height: 8),
-                    leftTabCapsule,
-                  ],
-                )
-              : Row(
-                  children: [
-                    Expanded(child: leftTabCapsule),
-                    const SizedBox(width: 12),
-                    rightOpsCapsule,
-                  ],
-                ),
+          child: Row(
+            children: [
+              Expanded(child: leftTabCapsule),
+              const SizedBox(width: 12),
+              rightOpsCapsule,
+            ],
+          ),
         ),
         // 无框悬浮剧集卡片行：直接悬浮在底部渐暗背景之上，彻底取消深黑大底框
         AnimatedSize(
@@ -584,6 +697,9 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
                                 cdSummary: cdSummary,
                                 scanSummary: scanSummary,
                                 activeSecondaryKey: activeSecondaryKey,
+                                cardWidth: 244.0,
+                                compactMeta: false,
+                                railPadH: drawerPadH,
                               ),
                       ),
                     ),
@@ -604,10 +720,14 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
     required CdAlbumGroupSummary cdSummary,
     required ScanVolumeGroupSummary scanSummary,
     required String? activeSecondaryKey,
+    double cardWidth = 244.0,
+    bool compactMeta = false,
+    double? railPadH,
   }) {
     final showSharedBadge = widget.bundle.seriesMembers.length >= 2;
     return switch (tab) {
       DetailDrawerTab.main || DetailDrawerTab.extra => _buildWheelRail(
+        railPadH: railPadH,
         itemCount: episodes.length,
         itemBuilder: (_, index) => _buildCard(
           episodes[index],
@@ -615,9 +735,12 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
           displayTitleOverride: tab == DetailDrawerTab.extra
               ? extraDisplayTitleByEpId[episodes[index].id]
               : null,
+          cardWidth: cardWidth,
+          compactMeta: compactMeta,
         ),
       ),
       DetailDrawerTab.cd => _buildWheelRail(
+        railPadH: railPadH,
         itemCount: cdList.length,
         itemBuilder: (_, index) {
           final v = cdList[index];
@@ -635,6 +758,7 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
               : null;
           return CdDrawerCard(
             variant: v,
+            cardWidth: cardWidth,
             showSeriesSharedBadge: showSharedBadge,
             displayTitleOverride: titleOverride,
             directSubdirLabel: showDirectSubdir
@@ -651,6 +775,7 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
         },
       ),
       DetailDrawerTab.scan => _buildWheelRail(
+        railPadH: railPadH,
         itemCount: scanList.length,
         itemBuilder: (_, index) {
           final v = scanList[index];
@@ -659,6 +784,7 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
               activeSecondaryKey == null && scanSummary.hasMultipleSubdirs;
           return ScanDrawerCard(
             variant: v,
+            cardWidth: cardWidth,
             source: widget.bundle.sourcesById[v.sourceId],
             workId: widget.bundle.work.id,
             workTitle: widget.bundle.work.title,
@@ -676,7 +802,15 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
   Widget _buildWheelRail({
     required int itemCount,
     required IndexedWidgetBuilder itemBuilder,
+    double? railPadH,
   }) {
+    final effectivePadH =
+        railPadH ??
+        (KonataAdaptiveTokens.isAndroid &&
+                MediaQuery.sizeOf(context).width <
+                    KonataAdaptiveTokens.tabletBreakpoint
+            ? 16.0
+            : 36.0);
     return Listener(
       onPointerSignal: (event) {
         if (event is PointerScrollEvent && _railController.hasClients) {
@@ -692,14 +826,7 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
       },
       child: ListView.separated(
         controller: _railController,
-        padding: EdgeInsets.symmetric(
-          horizontal:
-              KonataAdaptiveTokens.isAndroid &&
-                  MediaQuery.sizeOf(context).width <
-                      KonataAdaptiveTokens.tabletBreakpoint
-              ? 16
-              : 36,
-        ),
+        padding: EdgeInsets.symmetric(horizontal: effectivePadH),
         scrollDirection: Axis.horizontal,
         itemCount: itemCount,
         separatorBuilder: (_, _) => const SizedBox(width: 14),
@@ -712,6 +839,8 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
     Episode ep,
     int mainEpisodeCount, {
     String? displayTitleOverride,
+    double cardWidth = 244.0,
+    bool compactMeta = false,
   }) {
     final variants = widget.bundle.variantsForEpisode(ep.id);
     final playback = widget.bundle.playbackByEpisodeId[ep.id];
@@ -719,6 +848,8 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
     return EpisodeDrawerCard(
       episode: ep,
       variants: variants,
+      cardWidth: cardWidth,
+      compactMeta: compactMeta,
       fallbackBackdropPath:
           widget.bundle.work.backdropPath ?? widget.bundle.work.posterPath,
       imageLoader: widget.imageLoader,

@@ -27,6 +27,10 @@ abstract final class KonataPlaybackTokens {
   static Color softFill(KonataPalette p) =>
       p.isDark ? const Color(0x24FFFFFF) : const Color(0x120F172A);
 
+  /// 分段切换胶囊外轨描边色（深浅主题均保持清晰 1px 轮廓与质感层次）。
+  static Color segmentedTrackBorder(KonataPalette p) =>
+      p.isDark ? const Color(0x24FFFFFF) : const Color(0x1A0F172A);
+
   /// 根据当前主题解析胶囊内部微交互高亮/激活背景色。
   static Color activePillBg(KonataPalette p) =>
       p.isDark ? const Color(0x38FFFFFF) : const Color(0x140F172A);

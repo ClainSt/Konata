@@ -233,20 +233,11 @@ class SourceSelectedScopePanel extends StatelessWidget {
                           const SizedBox(height: 10),
                           Text(
                             '当前未勾选指定目录',
+                            textAlign: TextAlign.center,
                             style: TextStyle(
                               color: p.textPrimary,
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            '可在左侧勾选单个或多个文件夹，或点击地址栏左侧复选框选中当前所在目录；未勾选时将覆盖整个媒体源。',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: p.textSecondary,
-                              fontSize: 12,
-                              height: 1.45,
                             ),
                           ),
                         ],

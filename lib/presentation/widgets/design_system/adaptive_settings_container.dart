@@ -37,12 +37,14 @@ class AdaptiveSettingsContainer<T> extends StatefulWidget {
     required this.onSelected,
     required this.onDetailVisibilityChanged,
     this.bottomClearance = 0,
+    this.deepLinkPulse = 0,
   });
   final List<AdaptiveSettingsCategory<T>> categories;
   final T selected;
   final ValueChanged<T> onSelected;
   final ValueChanged<bool> onDetailVisibilityChanged;
   final double bottomClearance;
+  final int deepLinkPulse;
   @override
   State<AdaptiveSettingsContainer<T>> createState() =>
       _AdaptiveSettingsContainerState<T>();
@@ -54,7 +56,9 @@ class _AdaptiveSettingsContainerState<T>
   @override
   void didUpdateWidget(covariant AdaptiveSettingsContainer<T> oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.selected != widget.selected && !_detailOpen && _phone) {
+    final selectedChanged = oldWidget.selected != widget.selected;
+    final deepLinked = oldWidget.deepLinkPulse != widget.deepLinkPulse;
+    if ((selectedChanged || deepLinked) && !_detailOpen && _phone) {
       final matches = _categories.where((c) => c.value == widget.selected);
       if (matches.isNotEmpty) {
         WidgetsBinding.instance.addPostFrameCallback((_) {

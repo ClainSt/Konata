@@ -201,13 +201,6 @@ class _SettingsExternalToolsPanelState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('外部调用', style: KonataTheme.h2Style(p)),
-        const SizedBox(height: 6),
-        Text(
-          '配置外部视频播放器（MPV / PotPlayer）与外部音画查看程序，用于热接力续播与右键指定打开',
-          style: KonataTheme.captionStyle(p, fontSize: 13),
-        ),
-        const SizedBox(height: 18),
         KonataSurfaceCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

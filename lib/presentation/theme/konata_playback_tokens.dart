@@ -212,6 +212,31 @@ abstract final class KonataPlaybackTokens {
   static const double floatingMiniOverlayIconSize = 16.0;
   static const double floatingMiniTransportIconSize = 20.0;
   static const Duration floatingMiniSnapDuration = Duration(milliseconds: 180);
+
+  /// 悬浮小窗松手吸附临界阻尼物理弹簧参数（120Hz 跟手速度继承，落位立即停钟）。
+  static final SpringDescription floatingMiniSnapSpring =
+      SpringDescription.withDampingRatio(
+        mass: 1.0,
+        stiffness: 420.0,
+        ratio: 1.0,
+      );
+
+  /// 悬浮小窗与全屏播放舞台之间的视口/圆角形变临界阻尼物理弹簧参数。
+  static final SpringDescription stageMorphSpring =
+      SpringDescription.withDampingRatio(
+        mass: 1.0,
+        stiffness: 380.0,
+        ratio: 1.0,
+      );
+
+  /// 物理弹簧初始归一化速度钳位上限，防止极高速甩动产生过冲。
+  static const double springNormalizedVelocityMax = 14.0;
+
+  /// Windows 左方向键按住连发快退节流周期（250ms）。
+  static const Duration arrowLeftRepeatThrottle = Duration(milliseconds: 250);
+
+  /// Windows 右方向键长按进入 2.0x 临时倍速判定阈值（260ms）。
+  static const Duration arrowRightHoldDelay = Duration(milliseconds: 260);
   static const Duration floatingMiniOverlayFadeDuration = Duration(
     milliseconds: 140,
   );

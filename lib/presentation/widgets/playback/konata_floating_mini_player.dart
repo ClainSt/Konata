@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -73,7 +74,8 @@ class _KonataFloatingMiniPlayerState
   );
   final ValueNotifier<bool> _chromeVisibleNotifier = ValueNotifier<bool>(false);
   late final AnimationController _snapController;
-  Animation<Offset>? _snapAnimation;
+  Offset _snapStartOffset = Offset.zero;
+  Offset _snapEndOffset = Offset.zero;
   Timer? _chromeAutoHideTimer;
 
   bool _offsetInitialized = false;
@@ -84,10 +86,9 @@ class _KonataFloatingMiniPlayerState
   @override
   void initState() {
     super.initState();
-    _snapController = AnimationController(
-      vsync: this,
-      duration: KonataPlaybackTokens.floatingMiniSnapDuration,
-    )..addListener(_handleSnapTick);
+    _snapController = AnimationController.unbounded(vsync: this)
+      ..addListener(_handleSnapTick)
+      ..addStatusListener(_handleSnapStatusChanged);
     _syncTargetFromLayout(animate: false);
   }
 
@@ -110,6 +111,7 @@ class _KonataFloatingMiniPlayerState
   void dispose() {
     _chromeAutoHideTimer?.cancel();
     _snapController
+      ..removeStatusListener(_handleSnapStatusChanged)
       ..removeListener(_handleSnapTick)
       ..dispose();
     _chromeVisibleNotifier.dispose();
@@ -164,15 +166,31 @@ class _KonataFloatingMiniPlayerState
   }
 
   void _handleSnapTick() {
-    final anim = _snapAnimation;
-    if (anim != null) {
-      _liveOffsetNotifier.value = anim.value;
+    final t = _snapController.value;
+    final next = Offset(
+      _snapStartOffset.dx + (_snapEndOffset.dx - _snapStartOffset.dx) * t,
+      _snapStartOffset.dy + (_snapEndOffset.dy - _snapStartOffset.dy) * t,
+    );
+    _liveOffsetNotifier.value = next;
+  }
+
+  void _handleSnapStatusChanged(AnimationStatus status) {
+    if (status == AnimationStatus.completed ||
+        status == AnimationStatus.dismissed) {
+      // 弹簧落位后立即对齐精确目标点并停钟，严禁残留闲置 Ticker。
+      _snapController.stop();
+      _liveOffsetNotifier.value = _snapEndOffset;
     }
   }
 
-  void _animateToOffset(Offset target) {
+  void _animateToOffset(
+    Offset target, {
+    Offset releaseVelocityPxPerSec = Offset.zero,
+  }) {
     final start = _liveOffsetNotifier.value;
-    if ((start - target).distance < 0.5) {
+    final delta = target - start;
+    final distance = delta.distance;
+    if (distance < 0.5) {
       _snapController.stop();
       _liveOffsetNotifier.value = target;
       return;
@@ -184,10 +202,26 @@ class _KonataFloatingMiniPlayerState
       _liveOffsetNotifier.value = target;
       return;
     }
-    _snapAnimation = Tween<Offset>(begin: start, end: target).animate(
-      CurvedAnimation(parent: _snapController, curve: Curves.easeOutCubic),
+
+    _snapStartOffset = start;
+    _snapEndOffset = target;
+    // 将松手瞬时二维速度投影到起止位移方向，归一化为临界阻尼物理弹簧初速度。
+    final projectedSpeedPx =
+        (releaseVelocityPxPerSec.dx * delta.dx +
+            releaseVelocityPxPerSec.dy * delta.dy) /
+        distance;
+    final normalizedVelocity = (projectedSpeedPx / distance).clamp(
+      -KonataPlaybackTokens.springNormalizedVelocityMax,
+      KonataPlaybackTokens.springNormalizedVelocityMax,
     );
-    _snapController.forward(from: 0.0);
+    final simulation = SpringSimulation(
+      KonataPlaybackTokens.floatingMiniSnapSpring,
+      0.0,
+      1.0,
+      normalizedVelocity,
+      tolerance: const Tolerance(distance: 1e-3, velocity: 1e-3),
+    );
+    _snapController.animateWith(simulation);
   }
 
   void _revealChromeWithTimer() {
@@ -258,16 +292,20 @@ class _KonataFloatingMiniPlayerState
     }
   }
 
-  void _handlePanEndOrCancel(Size miniSize) {
+  void _handlePanEndOrCancel(Size miniSize, [DragEndDetails? details]) {
     final layout = widget.layout;
     if (widget.standalone || layout == null || !_isDragging) return;
     _isDragging = false;
-    final settled = layout.snapMiniWindowOffset(
-      _liveOffsetNotifier.value,
+    final velocity = details?.velocity.pixelsPerSecond ?? Offset.zero;
+    // 继承轻扫惯性趋势（最多投影 70ms），使顺手一甩自然吸附目标边缘。
+    final projectedOffset = _liveOffsetNotifier.value + velocity * 0.07;
+    final clampedProjected = layout.clampMiniWindowOffset(
+      projectedOffset,
       miniSize,
     );
+    final settled = layout.snapMiniWindowOffset(clampedProjected, miniSize);
     _publishMiniRect(settled & miniSize);
-    _animateToOffset(settled);
+    _animateToOffset(settled, releaseVelocityPxPerSec: velocity);
     final encoded = layout.encodeNormalizedAnchor(settled, miniSize);
     final prevAnchor = ref.read(floatingMiniWindowAnchorProvider);
     if (prevAnchor == null || (prevAnchor - encoded).distance > 0.002) {
@@ -320,7 +358,7 @@ class _KonataFloatingMiniPlayerState
               : (d) => _handlePanUpdate(d, miniSize),
           onPanEnd: widget.standalone
               ? null
-              : (_) => _handlePanEndOrCancel(miniSize),
+              : (d) => _handlePanEndOrCancel(miniSize, d),
           onPanCancel: widget.standalone
               ? null
               : () => _handlePanEndOrCancel(miniSize),

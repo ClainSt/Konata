@@ -571,6 +571,15 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     }
   }
 
+  /// Android 画中画返回或切回前台时重绑当前底层硬件表面（引擎存活路径，绝不重建解码会话）。
+  Future<void> rebindAndroidSurfaceIfNeeded() async {
+    final session = _session;
+    if (!mounted || state.isClosing || session == null || session.isDisposed) {
+      return;
+    }
+    await session.rebindCurrentAndroidSurface();
+  }
+
   /// 向 Android 系统请求 `AUDIOFOCUS_GAIN` 并挂载失焦暂停 / 闪避降音监听。
   Future<void> ensureAudioFocus() async {
     if (!KonataPlatform.isAndroid) return;

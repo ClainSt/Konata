@@ -43,6 +43,7 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
   late final AnimationController _controller;
   late final Animation<Offset> _slideAnimation;
   late final Animation<double> _fadeAnimation;
+  final ValueNotifier<double> _dragDx = ValueNotifier<double>(0.0);
   bool _closing = false;
 
   @override
@@ -71,6 +72,7 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
 
   @override
   void dispose() {
+    _dragDx.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -82,6 +84,21 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
     if (mounted) {
       widget.onClose();
     }
+  }
+
+  void _onHeaderHorizontalDragUpdate(DragUpdateDetails details) {
+    if (_closing) return;
+    _dragDx.value = (_dragDx.value + details.delta.dx).clamp(0.0, 500.0);
+  }
+
+  void _onHeaderHorizontalDragEnd(DragEndDetails details) {
+    if (_closing) return;
+    final velocity = details.primaryVelocity ?? 0.0;
+    if (_dragDx.value > 56.0 || velocity > 380.0) {
+      _handleClose();
+      return;
+    }
+    _dragDx.value = 0.0;
   }
 
   @override
@@ -116,7 +133,7 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
         ? Colors.white.withValues(alpha: 0.18)
         : Colors.white.withValues(alpha: 0.95);
 
-    return Stack(
+    final sheetStack = Stack(
       children: [
         Positioned.fill(
           child: FadeTransition(
@@ -132,62 +149,77 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
           right: isAndroid ? rightInset : 16,
           bottom: bottomInset,
           width: effectiveWidth,
-          child: SlideTransition(
-            position: _slideAnimation,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(18),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(
-                      alpha: p.isDark ? 0.38 : 0.14,
+          child: ValueListenableBuilder<double>(
+            valueListenable: _dragDx,
+            builder: (context, dx, child) => Transform.translate(
+              offset: Offset(dx, 0),
+              child: child,
+            ),
+            child: SlideTransition(
+              position: _slideAnimation,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(
+                        alpha: p.isDark ? 0.38 : 0.14,
+                      ),
+                      blurRadius: 32,
+                      offset: const Offset(-4, 12),
                     ),
-                    blurRadius: 32,
-                    offset: const Offset(-4, 12),
-                  ),
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 44, sigmaY: 44),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: panelColor,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: borderColor, width: 1),
-                    ),
-                    child: Material(
-                      type: MaterialType.transparency,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Padding(
-                            padding: EdgeInsets.fromLTRB(
-                              isShort ? 16 : 22,
-                              isShort ? 10 : 16,
-                              isShort ? 10 : 14,
-                              isShort ? 6 : 10,
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    widget.title,
-                                    style: TextStyle(
-                                      color: p.textPrimary,
-                                      fontSize: isShort ? 17 : 20,
-                                      fontWeight: FontWeight.w700,
-                                      letterSpacing: -0.2,
-                                    ),
-                                  ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 44, sigmaY: 44),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: panelColor,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: borderColor, width: 1),
+                      ),
+                      child: Material(
+                        type: MaterialType.transparency,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onHorizontalDragUpdate:
+                                  _onHeaderHorizontalDragUpdate,
+                              onHorizontalDragEnd: _onHeaderHorizontalDragEnd,
+                              child: Padding(
+                                padding: EdgeInsets.fromLTRB(
+                                  isShort ? 16 : 22,
+                                  isShort ? 10 : 16,
+                                  isShort ? 10 : 14,
+                                  isShort ? 6 : 10,
                                 ),
-                                KonataGlassCloseButton(onPressed: _handleClose),
-                              ],
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        widget.title,
+                                        style: TextStyle(
+                                          color: p.textPrimary,
+                                          fontSize: isShort ? 17 : 20,
+                                          fontWeight: FontWeight.w700,
+                                          letterSpacing: -0.2,
+                                        ),
+                                      ),
+                                    ),
+                                    KonataGlassCloseButton(
+                                      onPressed: _handleClose,
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
-                          ),
-                          Expanded(child: widget.child),
-                        ],
+                            Expanded(child: widget.child),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -198,5 +230,18 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
         ),
       ],
     );
+
+    if (Navigator.maybeOf(context) != null) {
+      return PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) {
+            _handleClose();
+          }
+        },
+        child: sheetStack,
+      );
+    }
+    return sheetStack;
   }
 }

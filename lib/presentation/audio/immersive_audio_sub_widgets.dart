@@ -210,6 +210,7 @@ class ImmersiveAudioCapsuleDockLeaf extends ConsumerWidget {
     required this.notifier,
     this.leading,
     this.title,
+    this.trailingCenterPrimaryButton,
     this.trailingCenterButtons = const [],
     this.rightSlot,
     this.maxWidth,
@@ -220,6 +221,7 @@ class ImmersiveAudioCapsuleDockLeaf extends ConsumerWidget {
   final bool isPlaying;
   final AudioLoopMode loopMode;
   final AudioPlaybackNotifier notifier;
+  final Widget? trailingCenterPrimaryButton;
   final List<Widget> trailingCenterButtons;
   final Widget? rightSlot;
   final double? maxWidth;
@@ -253,6 +255,7 @@ class ImmersiveAudioCapsuleDockLeaf extends ConsumerWidget {
           highlighted: loopMode != AudioLoopMode.sequence,
           onTap: notifier.cycleLoopMode,
         ),
+        trailingCenterPrimaryButton: trailingCenterPrimaryButton,
         trailingCenterButtons: trailingCenterButtons,
         rightSlot: rightSlot,
       ),

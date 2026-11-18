@@ -7,6 +7,7 @@ import '../../domain/models/episode.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/work.dart';
 import '../../domain/parsing/bdrip_parser.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../widgets/design_system/adaptive_responsive_row.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
@@ -39,6 +40,10 @@ class WorkManualEditDialog extends ConsumerStatefulWidget {
 
 class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
   final ScrollController _metaScrollCtrl = ScrollController();
+  final FocusNode _titleFocusNode = FocusNode();
+  final FocusNode _origFocusNode = FocusNode();
+  final FocusNode _yearFocusNode = FocusNode();
+  final FocusNode _overviewFocusNode = FocusNode();
   late final TextEditingController _titleCtrl;
   late final TextEditingController _origCtrl;
   late final TextEditingController _yearCtrl;
@@ -84,6 +89,10 @@ class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
   @override
   void dispose() {
     _metaScrollCtrl.dispose();
+    _titleFocusNode.dispose();
+    _origFocusNode.dispose();
+    _yearFocusNode.dispose();
+    _overviewFocusNode.dispose();
     _titleCtrl.dispose();
     _origCtrl.dispose();
     _yearCtrl.dispose();
@@ -293,11 +302,44 @@ class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
     final p = context.palette;
     final hasMappingLock = _rows.any((r) => r.variant.mappingLocked) &&
         widget.bundle.work.tmdbId != null;
+    final screenSize = MediaQuery.sizeOf(context);
+    final inlineHeaderTabs =
+        screenSize.height < KonataAdaptiveTokens.shortViewportHeight &&
+        screenSize.width >= KonataAdaptiveTokens.tabletBreakpoint;
+
+    Widget buildSectionTabs({required bool compact}) {
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: MediaQuery.withClampedTextScaling(
+          maxScaleFactor: 1.15,
+          child: KonataSegmentedCapsule<_ManualEditSection>(
+            compact: compact,
+            selected: _section,
+            options: const [
+              KonataSegmentOption(
+                value: _ManualEditSection.metadata,
+                label: '元数据',
+              ),
+              KonataSegmentOption(
+                value: _ManualEditSection.episodes,
+                label: '文件映射',
+              ),
+              KonataSegmentOption(
+                value: _ManualEditSection.supplementary,
+                label: '附属共享',
+              ),
+            ],
+            onChanged: (v) => setState(() => _section = v),
+          ),
+        ),
+      );
+    }
 
     return KonataGlassDialog(
       width: 760,
       maxHeight: 640,
       title: '手动编辑作品信息与分集归属',
+      headerTrailing: inlineHeaderTabs ? buildSectionTabs(compact: true) : null,
       onClose: _saving ? null : () => Navigator.of(context).pop<String?>(null),
       actions: [
         KonataPillButton.ghost(
@@ -311,77 +353,77 @@ class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
           onPressed: _saving ? null : _save,
         ),
       ],
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: MediaQuery.withClampedTextScaling(
-              maxScaleFactor: 1.15,
-              child: KonataSegmentedCapsule<_ManualEditSection>(
-                compact: MediaQuery.sizeOf(context).width < 560,
-                selected: _section,
-                options: [
-                  const KonataSegmentOption(
-                    value: _ManualEditSection.metadata,
-                    label: '作品简介与元数据',
-                  ),
-                  KonataSegmentOption(
-                    value: _ManualEditSection.episodes,
-                    label: '文件映射修正 (${_rows.length})',
-                  ),
-                  if (_scopeDrafts.isNotEmpty)
-                    KonataSegmentOption(
-                      value: _ManualEditSection.supplementary,
-                      label: '附属共享 (${_scopeDrafts.length})',
+      child: Builder(
+        builder: (dialogCtx) {
+          final landscapeCompact =
+              KonataGlassDialog.isLandscapeCompactInputActive(dialogCtx);
+          final shortViewport =
+              MediaQuery.sizeOf(dialogCtx).height <
+              KonataAdaptiveTokens.shortViewportHeight;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Offstage(
+                offstage: landscapeCompact || inlineHeaderTabs,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    buildSectionTabs(
+                      compact: MediaQuery.sizeOf(dialogCtx).width < 560,
                     ),
-                ],
-                onChanged: (v) => setState(() => _section = v),
+                    SizedBox(height: shortViewport ? 8 : 14),
+                  ],
+                ),
               ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Expanded(
-            child: KonataSmoothSectionSwitcher(
-              switchKey: _section,
-              alignment: Alignment.topLeft,
-              child: switch (_section) {
-                _ManualEditSection.metadata => _buildMetadataForm(p),
-                _ManualEditSection.episodes => FileMappingPanel(
-                  rows: _rows,
-                  referenceEpisodes: widget.bundle.episodes,
-                  defaultMainSeason: widget.bundle.work.matchedSeason ?? 1,
-                  selectedVariantIds: _selectedForSplit,
-                  saving: _saving,
-                  hasAnyMappingLock: hasMappingLock,
-                  onChanged: () => setState(() {}),
-                  onResetMappings: _resetMappingsToAuto,
-                  onSplitSelected: _splitSelectedToIndependentWork,
-                  onMoveSelectedToWork: _moveSelectedToOtherWork,
+              Expanded(
+                child: KonataSmoothSectionSwitcher(
+                  switchKey: _section,
+                  alignment: Alignment.topLeft,
+                  child: switch (_section) {
+                    _ManualEditSection.metadata => _buildMetadataForm(p),
+                    _ManualEditSection.episodes => FileMappingPanel(
+                      rows: _rows,
+                      referenceEpisodes: widget.bundle.episodes,
+                      defaultMainSeason: widget.bundle.work.matchedSeason ?? 1,
+                      selectedVariantIds: _selectedForSplit,
+                      saving: _saving,
+                      hasAnyMappingLock: hasMappingLock,
+                      onChanged: () => setState(() {}),
+                      onResetMappings: _resetMappingsToAuto,
+                      onSplitSelected: _splitSelectedToIndependentWork,
+                      onMoveSelectedToWork: _moveSelectedToOtherWork,
+                    ),
+                    _ManualEditSection.supplementary => SupplementaryScopePanel(
+                      drafts: _scopeDrafts,
+                      seriesMembers: widget.bundle.seriesMembers,
+                      saving: _saving,
+                      onChanged: () => setState(() {}),
+                      onOpenSeriesManage: _openSeriesManageFromDialog,
+                    ),
+                  },
                 ),
-                _ManualEditSection.supplementary => SupplementaryScopePanel(
-                  drafts: _scopeDrafts,
-                  seriesMembers: widget.bundle.seriesMembers,
-                  saving: _saving,
-                  onChanged: () => setState(() {}),
-                  onOpenSeriesManage: _openSeriesManageFromDialog,
-                ),
-              },
-            ),
-          ),
-        ],
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 
   Widget _buildMetadataForm(KonataPalette p) {
+    final compactIme = KonataGlassDialog.isLandscapeCompactInputActive(context);
     return KonataDraggableScrollbar(
       controller: _metaScrollCtrl,
       builder: (_, ctrl) => ListView(
         controller: ctrl,
         padding: const EdgeInsets.only(right: 14),
         children: [
-          KonataSoftTextField(controller: _titleCtrl, label: '中文 / 主标题'),
+          KonataSoftTextField(
+            controller: _titleCtrl,
+            focusNode: _titleFocusNode,
+            label: '中文 / 主标题',
+          ),
           const SizedBox(height: 12),
           AdaptiveResponsiveRow(
             minLeadingWidth: 160,
@@ -389,10 +431,12 @@ class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
             expandTrailingWhenStacked: true,
             leading: KonataSoftTextField(
               controller: _origCtrl,
+              focusNode: _origFocusNode,
               label: '日文 / 原始标题',
             ),
             trailing: KonataSoftTextField(
               controller: _yearCtrl,
+              focusNode: _yearFocusNode,
               label: '年份',
               keyboardType: TextInputType.number,
             ),
@@ -400,8 +444,9 @@ class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
           const SizedBox(height: 12),
           KonataSoftTextField(
             controller: _overviewCtrl,
+            focusNode: _overviewFocusNode,
             label: '剧情简介',
-            maxLines: 5,
+            maxLines: compactIme ? 1 : 5,
           ),
           const SizedBox(height: 10),
           AdaptiveResponsiveRow(

@@ -121,6 +121,28 @@ Future<T?> showKonataGlassBottomSheet<T>({
   );
 }
 
+class _KonataGlassDialogInputScope extends InheritedWidget {
+  const _KonataGlassDialogInputScope({
+    required this.viewInsets,
+    required this.landscapeCompactInputActive,
+    required super.child,
+  });
+
+  final EdgeInsets viewInsets;
+  final bool landscapeCompactInputActive;
+
+  static _KonataGlassDialogInputScope? maybeOf(BuildContext context) {
+    return context
+        .dependOnInheritedWidgetOfExactType<_KonataGlassDialogInputScope>();
+  }
+
+  @override
+  bool updateShouldNotify(_KonataGlassDialogInputScope oldWidget) {
+    return viewInsets != oldWidget.viewInsets ||
+        landscapeCompactInputActive != oldWidget.landscapeCompactInputActive;
+  }
+}
+
 /// 全站统一悬浮毛玻璃弹窗容器（36px 高斯模糊 + 通透半透明玻璃叠色 + 1px 微光描边）。
 class KonataGlassDialog extends StatelessWidget {
   /// 创建毛玻璃弹窗。
@@ -134,6 +156,7 @@ class KonataGlassDialog extends StatelessWidget {
     this.headerTrailing,
     this.actions,
     this.onClose,
+    this.enableLandscapeCompactInput = true,
   });
 
   /// 弹窗标题。
@@ -160,22 +183,54 @@ class KonataGlassDialog extends StatelessWidget {
   /// 点击右上角关闭按钮回调（默认为 `Navigator.of(context).maybePop()`）。
   final VoidCallback? onClose;
 
+  /// 在矮屏横屏（高度低于 `500dp`）且软键盘弹出时是否启用紧凑顶部输入态。
+  final bool enableLandscapeCompactInput;
+
+  /// 读取弹窗外层传入的真实系统软键盘遮挡间距（避免被 `removeViewInsets` 吞掉）。
+  static EdgeInsets effectiveViewInsetsOf(BuildContext context) {
+    return _KonataGlassDialogInputScope.maybeOf(context)?.viewInsets ??
+        MediaQuery.viewInsetsOf(context);
+  }
+
+  /// 判断当前弹窗是否处于矮横屏（`height < 500dp`）软键盘弹出紧凑输入态。
+  static bool isLandscapeCompactInputActive(BuildContext context) {
+    final scope = _KonataGlassDialogInputScope.maybeOf(context);
+    if (scope != null) return scope.landscapeCompactInputActive;
+    final size = MediaQuery.sizeOf(context);
+    return size.height < KonataAdaptiveTokens.shortViewportHeight &&
+        MediaQuery.viewInsetsOf(context).bottom > 0;
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
     final screen = MediaQuery.sizeOf(context);
     final safe = MediaQuery.paddingOf(context);
-    final compact =
-        screen.width < KonataAdaptiveTokens.tabletBreakpoint ||
+    final viewInsets = MediaQuery.viewInsetsOf(context);
+    final landscapeCompactInput =
+        enableLandscapeCompactInput &&
+        screen.height < KonataAdaptiveTokens.shortViewportHeight &&
+        viewInsets.bottom > 0;
+    final shortViewport =
         screen.height < KonataAdaptiveTokens.shortViewportHeight;
-    final availableW = math.max(220.0, screen.width - safe.horizontal - 24.0);
-    final availableH = math.max(
-      180.0,
-      screen.height -
-          safe.vertical -
-          MediaQuery.viewInsetsOf(context).vertical -
-          24.0,
+    final narrowWidth = screen.width < KonataAdaptiveTokens.tabletBreakpoint;
+    final compact = narrowWidth || shortViewport;
+    final outerMargin = landscapeCompactInput
+        ? 2.0
+        : (shortViewport ? 6.0 : 12.0);
+    final availableW = math.max(
+      220.0,
+      screen.width - safe.horizontal - outerMargin * 2,
     );
+    final availableH = landscapeCompactInput
+        ? math.max(
+            48.0,
+            screen.height - safe.top - viewInsets.bottom - outerMargin * 2,
+          )
+        : math.max(
+            180.0,
+            screen.height - safe.vertical - viewInsets.vertical - outerMargin * 2,
+          );
     final effectiveWidth = math.min(width, availableW);
     final effectiveHeight = height != null
         ? math.min(height!, availableH)
@@ -199,93 +254,126 @@ class KonataGlassDialog extends StatelessWidget {
       body = SingleChildScrollView(child: child);
     }
 
-    return KonataDraggableDialog(
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-              color: shadowColor,
-              blurRadius: 36,
-              offset: const Offset(0, 14),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(18),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 44, sigmaY: 44),
-            child: Container(
-              width: effectiveWidth,
-              height: effectiveHeight,
-              constraints: effectiveMaxHeight != null
-                  ? BoxConstraints(maxHeight: effectiveMaxHeight)
-                  : null,
-              padding: EdgeInsets.all(compact ? 16 : 22),
-              decoration: BoxDecoration(
-                color: glassBg,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: glassBorder, width: 1),
+    return _KonataGlassDialogInputScope(
+      viewInsets: viewInsets,
+      landscapeCompactInputActive: landscapeCompactInput,
+      child: KonataDraggableDialog(
+        viewportMargin: outerMargin,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [
+              BoxShadow(
+                color: shadowColor,
+                blurRadius: 36,
+                offset: const Offset(0, 14),
               ),
-              child: Column(
-                mainAxisSize: effectiveHeight != null
-                    ? MainAxisSize.max
-                    : MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: KonataDialogDragHandle(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: Text(
-                              title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: p.textPrimary,
-                                fontSize: compact ? 16.5 : 18,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: -0.2,
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 44, sigmaY: 44),
+              child: Container(
+                width: effectiveWidth,
+                height: effectiveHeight,
+                constraints: effectiveMaxHeight != null
+                    ? BoxConstraints(maxHeight: effectiveMaxHeight)
+                    : null,
+                padding: landscapeCompactInput
+                    ? const EdgeInsets.symmetric(horizontal: 10, vertical: 4)
+                    : (shortViewport
+                          ? const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 10,
+                            )
+                          : EdgeInsets.all(compact ? 16 : 22)),
+                decoration: BoxDecoration(
+                  color: glassBg,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: glassBorder, width: 1),
+                ),
+                // 使用 Offstage 而非条件增删节点，保持主体槽位深度恒定，防止软键盘切换时输入框卸载丢焦点。
+                child: Column(
+                  mainAxisSize: effectiveHeight != null
+                      ? MainAxisSize.max
+                      : MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Offstage(
+                      offstage: landscapeCompactInput,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: KonataDialogDragHandle(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 4,
+                                    ),
+                                    child: Text(
+                                      title,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: p.textPrimary,
+                                        fontSize: compact ? 16.5 : 18,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: -0.2,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ),
-                            ),
+                              if (headerTrailing != null && !narrowWidth) ...[
+                                const SizedBox(width: 8),
+                                headerTrailing!,
+                              ],
+                              const SizedBox(width: 8),
+                              KonataGlassCloseButton(
+                                onPressed:
+                                    onClose ??
+                                    () => Navigator.of(context).maybePop(),
+                              ),
+                            ],
                           ),
-                        ),
-                      ),
-                      if (headerTrailing != null && !compact) ...[
-                        const SizedBox(width: 8),
-                        headerTrailing!,
-                      ],
-                      const SizedBox(width: 8),
-                      KonataGlassCloseButton(
-                        onPressed:
-                            onClose ?? () => Navigator.of(context).maybePop(),
-                      ),
-                    ],
-                  ),
-                  if (headerTrailing != null && compact) ...[
-                    const SizedBox(height: 8),
-                    headerTrailing!,
-                  ],
-                  SizedBox(height: compact ? 12 : 16),
-                  if (effectiveHeight != null || effectiveMaxHeight != null)
-                    Flexible(child: body)
-                  else
-                    body,
-                  if (actions != null && actions!.isNotEmpty) ...[
-                    SizedBox(height: compact ? 12 : 18),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Wrap(
-                        alignment: WrapAlignment.end,
-                        spacing: 10,
-                        runSpacing: 8,
-                        children: actions!,
+                          if (headerTrailing != null && narrowWidth) ...[
+                            const SizedBox(height: 8),
+                            headerTrailing!,
+                          ],
+                          SizedBox(height: shortViewport ? 6 : (compact ? 12 : 16)),
+                        ],
                       ),
                     ),
+                    if (effectiveHeight != null || effectiveMaxHeight != null)
+                      Flexible(child: body)
+                    else
+                      body,
+                    if (actions != null && actions!.isNotEmpty)
+                      Offstage(
+                        offstage: landscapeCompactInput,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            SizedBox(height: shortViewport ? 8 : (compact ? 12 : 18)),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: Wrap(
+                                alignment: WrapAlignment.end,
+                                spacing: 10,
+                                runSpacing: 8,
+                                children: actions!,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                   ],
-                ],
+                ),
               ),
             ),
           ),

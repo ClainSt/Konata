@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../theme/konata_palette.dart';
@@ -231,11 +233,40 @@ class _KonataListTileState extends State<KonataListTile> {
                 ],
               );
 
+              final scale = (MediaQuery.textScalerOf(context).scale(14.0) / 14.0)
+                  .clamp(1.0, 1.45);
+              final hasSubtitle =
+                  widget.subtitle != null && widget.subtitle!.isNotEmpty;
+              var minLead = widget.leading != null ? 176.0 : 140.0;
+              if (!hasSubtitle) {
+                final titlePainter = TextPainter(
+                  text: TextSpan(
+                    text: widget.title,
+                    style: DefaultTextStyle.of(context).style.merge(
+                      const TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  maxLines: 1,
+                  textDirection:
+                      Directionality.maybeOf(context) ?? TextDirection.ltr,
+                  textScaler: MediaQuery.textScalerOf(context),
+                )..layout();
+                final iconSpace = widget.leading != null ? 40.0 : 4.0;
+                final singleLineNeeded =
+                    (titlePainter.width + iconSpace) / scale;
+                if (singleLineNeeded < minLead) {
+                  minLead = math.max(88.0, singleLineNeeded);
+                }
+              }
+
               return AdaptiveResponsiveRow(
                 leading: leadingRow,
                 trailing: widget.trailing!,
                 estimatedTrailingWidth: widget.estimatedTrailingWidth,
-                minLeadingWidth: widget.leading != null ? 176.0 : 140.0,
+                minLeadingWidth: minLead,
                 expandTrailingWhenStacked: widget.expandTrailingWhenStacked,
               );
             },

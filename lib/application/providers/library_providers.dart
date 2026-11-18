@@ -18,6 +18,7 @@ import '../../infrastructure/database/drift_library_repository.dart';
 import '../../infrastructure/database/konata_database.dart';
 import '../../infrastructure/storage/storage_root_provider.dart';
 import '../scraping/scrape_work_persister.dart';
+import '../scraping/series_auto_linker.dart';
 
 /// 顶部胶囊导航栏固定 4 个一级页面标签。
 enum KonataNavSection {
@@ -169,11 +170,27 @@ final selectedNavSectionProvider = StateProvider<KonataNavSection>(
 /// 媒体库实时搜索关键词。
 final librarySearchQueryProvider = StateProvider<String>((ref) => '');
 
+/// 启动期系列归组与 ClearLogo 一次无感自愈标记（由 Riverpod 托管，避免重复扫描数据库）。
+final _initialSeriesReconcileDoneProvider = StateProvider<bool>((ref) => false);
+
 /// 媒体库全量作品列表（默认自动过滤已隐藏作品，含版本与压制组摘要）。
 final libraryItemsProvider = FutureProvider<List<WorkLibraryItem>>((ref) async {
   final repo = ref.watch(libraryRepositoryProvider);
   final photos = ref.watch(photosStorageProvider);
-  final works = await repo.getAllWorks();
+  var works = await repo.getAllWorks();
+  if (!ref.read(_initialSeriesReconcileDoneProvider) && works.isNotEmpty) {
+    ref.read(_initialSeriesReconcileDoneProvider.notifier).state = true;
+    try {
+      final changed = await SeriesAutoLinker.reconcileAll(repository: repo);
+      if (changed) {
+        ref.invalidate(seriesGroupsProvider);
+        ref.invalidate(workDetailBundleProvider);
+        works = await repo.getAllWorks();
+      }
+    } catch (_) {
+      // 无网络或裁剪 mock 仓储下静默跳过自愈，不影响首屏加载。
+    }
+  }
   final items = <WorkLibraryItem>[];
   for (final work in works) {
     photos.cacheWorkTitle(work.id, work.title);

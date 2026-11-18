@@ -20,6 +20,78 @@ const List<Shadow> _kHeroBackdropTextShadows = [
   Shadow(color: Color(0x8C000000), blurRadius: 12, offset: Offset(0, 2)),
 ];
 
+/// 严格锁死最大高度与最大宽度的透明背景标题徽标（ClearLogo）组件。
+///
+/// 无论透明徽标原图为窄长条或竖向/方形（如《86》），统一按 `BoxFit.contain`
+/// 与 `Alignment.bottomLeft` 缩放约束在限定盒内，防止向下撑开详情页文档流。
+class DetailLockedClearLogo extends StatelessWidget {
+  /// 创建限高透明标题徽标。
+  const DetailLockedClearLogo({
+    super.key,
+    required this.work,
+    required this.imageLoader,
+    required this.maxHeight,
+    required this.maxWidth,
+    this.alignment = Alignment.bottomLeft,
+    this.errorBuilder,
+  });
+
+  /// 目标作品实体。
+  final Work work;
+
+  /// 图片加载器。
+  final ManagedImageLoader imageLoader;
+
+  /// 徽标允许占用的最大高度。
+  final double maxHeight;
+
+  /// 徽标允许占用的最大宽度。
+  final double maxWidth;
+
+  /// 徽标在边界盒内的对齐方式（默认左下 `Alignment.bottomLeft`）。
+  final Alignment alignment;
+
+  /// 图片加载失败时的占位回退构造器。
+  final Widget Function(BuildContext, Object, StackTrace?)? errorBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    final path = work.logoPath?.trim() ?? '';
+    if (path.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.38),
+            blurRadius: 24,
+            spreadRadius: -8,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: maxWidth,
+          maxHeight: maxHeight,
+        ),
+        child: ManagedImage(
+          path,
+          loader: imageLoader,
+          owner: work.id,
+          artwork: ManagedArtwork.logo,
+          imageSize: TmdbImageSize.original,
+          fit: BoxFit.contain,
+          alignment: alignment,
+          errorBuilder:
+              errorBuilder ?? (_, _, _) => const SizedBox.shrink(),
+        ),
+      ),
+    );
+  }
+}
+
 /// 详情页左侧透明标题 Logo、单行元信息与唯一主播放按钮。
 class DetailHeroInfo extends StatelessWidget {
   /// 创建详情主视觉信息区。
@@ -35,6 +107,9 @@ class DetailHeroInfo extends StatelessWidget {
     this.onDismissReview,
     this.titleFontSize = 34.0,
     this.fullWidthPlayButton = false,
+    this.overlayLogoHandledSeparately = false,
+    this.logoMaxHeight = 80.0,
+    this.logoMaxWidth = 340.0,
   });
 
   /// 作品详情聚合数据包。
@@ -67,6 +142,15 @@ class DetailHeroInfo extends StatelessWidget {
   /// 主播放按钮是否撑满容器宽度（手机竖屏网易爆米花风格主按钮）。
   final bool fullWidthPlayButton;
 
+  /// 是否已将 ClearLogo 叠放在上方头图暗色渐变遮罩内（为 `true` 时文档流内不再占高度）。
+  final bool overlayLogoHandledSeparately;
+
+  /// 透明徽标在文档流模式下的最大高度上限。
+  final double logoMaxHeight;
+
+  /// 透明徽标在文档流模式下的最大宽度上限。
+  final double logoMaxWidth;
+
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
@@ -92,9 +176,10 @@ class DetailHeroInfo extends StatelessWidget {
     final buttonLabel = resumePlan?.buttonLabel ?? '开始播放';
 
     final hasLogo = work.logoPath != null && work.logoPath!.trim().isNotEmpty;
-    final renderLogo = showTitleLogo && hasLogo;
+    final renderLogoInFlow =
+        !overlayLogoHandledSeparately && showTitleLogo && hasLogo;
     final renderTextTitle = showTitleText || (showTitleLogo && !hasLogo);
-    final hasTitleSection = renderLogo || renderTextTitle;
+    final hasTitleSection = renderLogoInFlow || renderTextTitle;
     final hasOverview =
         showOverview &&
         work.overview != null &&
@@ -108,42 +193,22 @@ class DetailHeroInfo extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (renderLogo)
-            DecoratedBox(
-              decoration: BoxDecoration(
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.38),
-                    blurRadius: 28,
-                    spreadRadius: -8,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxWidth: 360,
-                  maxHeight: 110,
-                ),
-                child: ManagedImage(
-                  work.logoPath!,
-                  loader: imageLoader,
-                  owner: work.id,
-                  artwork: ManagedArtwork.logo,
-                  imageSize: TmdbImageSize.original,
-                  fit: BoxFit.contain,
-                  alignment: Alignment.centerLeft,
-                  errorBuilder: (_, _, _) => showTitleText
-                      ? const SizedBox.shrink()
-                      : _FallbackTitleBlock(
-                          title: work.title,
-                          originalTitle: work.originalTitle,
-                          fontSize: titleFontSize,
-                        ),
-                ),
-              ),
+          if (renderLogoInFlow)
+            DetailLockedClearLogo(
+              work: work,
+              imageLoader: imageLoader,
+              maxWidth: logoMaxWidth,
+              maxHeight: logoMaxHeight,
+              alignment: Alignment.bottomLeft,
+              errorBuilder: (_, _, _) => showTitleText
+                  ? const SizedBox.shrink()
+                  : _FallbackTitleBlock(
+                      title: work.title,
+                      originalTitle: work.originalTitle,
+                      fontSize: titleFontSize,
+                    ),
             ),
-          if (renderLogo && renderTextTitle) const SizedBox(height: 10),
+          if (renderLogoInFlow && renderTextTitle) const SizedBox(height: 10),
           if (renderTextTitle)
             _FallbackTitleBlock(
               title: work.title,

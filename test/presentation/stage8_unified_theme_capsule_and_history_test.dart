@@ -302,7 +302,7 @@ void main() {
       );
     });
 
-    testWidgets('SettingsPlayersPanel libmpv 就绪标签采用蓝色 accentBadge 而非绿底', (
+    testWidgets('SettingsPlayersPanel 移除内置核心与默认路由并保留核心画质卡片', (
       tester,
     ) async {
       tester.view.physicalSize = const Size(1280, 800);
@@ -327,14 +327,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final pillTextFinder = find.text('mpv 0.40.0 · FFmpeg n7.1');
-      expect(pillTextFinder, findsOneWidget);
-      final pillText = tester.widget<Text>(pillTextFinder);
-      expect(pillText.style?.color, KonataPalette.light.accentBadge.fg);
-      expect(
-        pillText.style?.color,
-        isNot(equals(KonataPalette.light.successBadge.fg)),
-      );
+      expect(find.text('内置核心与默认路由'), findsNothing);
+      expect(find.text('mpv 0.40.0 · FFmpeg n7.1'), findsNothing);
+      expect(find.text('视频渲染与看番体验'), findsOneWidget);
+      expect(find.text('无损音频与着色器链路'), findsOneWidget);
     });
   });
 

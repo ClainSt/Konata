@@ -34,6 +34,9 @@ class SettingsDisplayPanel extends ConsumerWidget {
       if (prefs.showTitleText) _DetailTitleDisplayElement.textTitle,
       if (prefs.showTitleLogo) _DetailTitleDisplayElement.titleLogo,
     };
+    final titleDropdownWidth = MediaQuery.sizeOf(context).width < 390
+        ? 156.0
+        : 172.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -45,14 +48,14 @@ class SettingsDisplayPanel extends ConsumerWidget {
             children: [
               KonataListTile(
                 title: '详情页标题',
-                estimatedTrailingWidth: 172,
+                estimatedTrailingWidth: titleDropdownWidth,
                 leading: Icon(
                   Icons.title_rounded,
                   size: 20,
                   color: p.textSecondary,
                 ),
                 trailing: SizedBox(
-                  width: 172,
+                  width: titleDropdownWidth,
                   child: KonataMultiSelectDropdown<_DetailTitleDisplayElement>(
                     dense: true,
                     menuWidth: 172,

@@ -117,6 +117,7 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
       _cancelRequested = false;
       _ref.invalidate(libraryItemsProvider);
       _ref.invalidate(worksCountProvider);
+      _ref.invalidate(seriesGroupsProvider);
     }
   }
 
@@ -156,6 +157,7 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
         .renameWorkFolderIfNeeded(updated.id, updated.title);
     _ref.invalidate(libraryItemsProvider);
     _ref.invalidate(worksCountProvider);
+    _ref.invalidate(seriesGroupsProvider);
     _ref.invalidate(workDetailBundleProvider(workId));
     _ref.invalidate(workScrapeCandidatesProvider(workId));
     return updated;

@@ -20,6 +20,7 @@ import '../sources/subtitle_matcher.dart';
 import '../sources/work_detail_warmup_service.dart';
 import '../storage/storage_root_provider.dart';
 import '../stream_bridge/local_stream_bridge.dart';
+import '../subtitles/subtitle_font_pool_manager.dart';
 import 'android/android_video_surface_controller.dart';
 import 'konata_video_texture_bridge.dart';
 import 'libmpv_ffi.dart';
@@ -99,7 +100,9 @@ class EmbeddedMpvSession {
     this.gatewayFactory = const MediaSourceGatewayFactory(),
     this.probeCollector = const PlaybackProbeCollector(),
     this.subtitleDirectoryIndex,
-  });
+    SubtitleFontPoolManager? fontPoolManager,
+  }) : _fontPoolManager =
+           fontPoolManager ?? SubtitleFontPoolManager(storageRoot: storageRoot);
 
   static const int _propTimePos = 201;
   static const int _propDuration = 202;
@@ -121,6 +124,10 @@ class EmbeddedMpvSession {
   final MediaSourceGatewayFactory gatewayFactory;
   final PlaybackProbeCollector probeCollector;
   final SubtitleDirectoryIndex? subtitleDirectoryIndex;
+  final SubtitleFontPoolManager _fontPoolManager;
+
+  String _defaultSubFontsDir = '';
+  String _activeSubFontsDir = '';
 
   final ValueNotifier<int?> _textureId = ValueNotifier<int?>(null);
   final ValueNotifier<String> _renderBackend = ValueNotifier<String>('');
@@ -262,6 +269,8 @@ class EmbeddedMpvSession {
         request.source != null && request.source!.kind != MediaSourceKind.local;
 
     final mpvDir = await storageRoot.ensureMpvConfigDir();
+    _defaultSubFontsDir = p.join(mpvDir.path, 'fonts');
+    _activeSubFontsDir = _defaultSubFontsDir;
     final workPhotoDir = await _resolveScreenshotDir(request.workId);
     if (Platform.isAndroid) {
       await AndroidVideoSurfaceController.preparePortableCjkFontSymlinks(
@@ -449,6 +458,27 @@ class EmbeddedMpvSession {
 
     final isRemote =
         request.source != null && request.source!.kind != MediaSourceKind.local;
+    // 本地媒体同级 Fonts/ 原位只读直挂 sub-fonts-dir（0 拷贝、跨集 0 ms 复用）。
+    if (!isRemote) {
+      final siblingFonts = await _fontPoolManager.resolveInPlaceSiblingFontsDir(
+        resolved.mediaTarget,
+      );
+      if (_disposed || generation != _loadGeneration) {
+        await _unregisterTokens(_activeStreamTokens);
+        await _unregisterTokens(previousTokens);
+        return;
+      }
+      final targetFontsDir = siblingFonts?.directoryPath ?? _defaultSubFontsDir;
+      if (targetFontsDir.isNotEmpty && targetFontsDir != _activeSubFontsDir) {
+        client.setPropertyString('sub-fonts-dir', targetFontsDir);
+        _activeSubFontsDir = targetFontsDir;
+      }
+    } else if (_defaultSubFontsDir.isNotEmpty &&
+        _activeSubFontsDir != _defaultSubFontsDir) {
+      client.setPropertyString('sub-fonts-dir', _defaultSubFontsDir);
+      _activeSubFontsDir = _defaultSubFontsDir;
+    }
+
     MpvQualityProfile.applyRuntimeStreamProfile(
       client,
       isRemoteStream: isRemote,

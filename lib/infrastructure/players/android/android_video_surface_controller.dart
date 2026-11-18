@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
+import '../../subtitles/subtitle_font_pool_manager.dart';
+
 /// Android 根窗口底层（Underlay）硬件表面变化快照。
 class AndroidSurfaceDescriptor {
   /// 创建 Android 表面状态快照。
@@ -196,7 +198,7 @@ class AndroidVideoSurfaceController {
     _current = null;
   }
 
-  /// 为 Android 端便携 `mpv` 配置目录准备 `fonts/` 子目录及系统 CJK 字体符号链接，
+  /// 为 Android 端便携 `mpv` 配置目录准备 `fonts/` 子目录及经运行时实证的系统 CJK 字体符号链接，
   /// 保障 ASS/SSA 番剧外挂字幕不因缺失字体方框乱码。
   static Future<void> preparePortableCjkFontSymlinks(
     Directory mpvConfigDir,
@@ -207,20 +209,14 @@ class AndroidVideoSurfaceController {
       await fontsDir.create(recursive: true);
     }
 
-    const systemFontCandidates = [
-      '/system/fonts/NotoSansCJK-Regular.ttc',
-      '/system/fonts/NotoSerifCJK-Regular.ttc',
-      '/system/fonts/DroidSansFallback.ttf',
-      '/system/fonts/NotoSansSC-Regular.otf',
-    ];
-    for (final sysPath in systemFontCandidates) {
-      final source = File(sysPath);
-      if (!await source.exists()) continue;
-      final linkPath = p.join(fontsDir.path, p.basename(sysPath));
+    final verifiedFonts =
+        await SubtitleFontPoolManager.discoverVerifiedSystemCjkFonts();
+    for (final source in verifiedFonts) {
+      final linkPath = p.join(fontsDir.path, p.basename(source.path));
       final link = Link(linkPath);
       if (!await link.exists() && !await File(linkPath).exists()) {
         try {
-          await link.create(sysPath);
+          await link.create(source.path);
         } catch (_) {
           // 部分 ROM 限制沙箱外符号链接时静默忽略，由 libmpv 默认字体兜底。
         }

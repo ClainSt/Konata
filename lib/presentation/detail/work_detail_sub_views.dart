@@ -2,16 +2,16 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:window_manager/window_manager.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/detail_display_preferences_provider.dart';
 import '../../application/providers/library_providers.dart';
+import '../../composition/platform_composition.dart';
 import '../../domain/matching/playback_resume_resolver.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/tmdb_models.dart';
 import '../../domain/models/work.dart';
 import '../audio/smart_cover_framing.dart';
-import '../shell/window_controls.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
@@ -512,7 +512,7 @@ class WorkDetailBackCircle extends StatelessWidget {
 }
 
 /// 详情页顶部常驻防死锁导航栏（左上返回按钮 + Windows 可拖拽标题区 + 右上控制胶囊）。
-class WorkDetailTopBar extends StatelessWidget {
+class WorkDetailTopBar extends ConsumerWidget {
   /// 创建详情页顶部导航栏。
   const WorkDetailTopBar({
     super.key,
@@ -535,8 +535,9 @@ class WorkDetailTopBar extends StatelessWidget {
   final Widget? trailingOps;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     const dragZone = SizedBox(height: 38);
+    final windowHost = ref.watch(konataWindowHostProvider);
 
     return Row(
       children: [
@@ -546,13 +547,13 @@ class WorkDetailTopBar extends StatelessWidget {
         ),
         Expanded(
           child: KonataAdaptiveTokens.isWindows
-              ? const DragToMoveArea(child: dragZone)
+              ? windowHost.buildDragToMoveArea(child: dragZone)
               : dragZone,
         ),
         if (trailingOps != null)
           trailingOps!
         else
-          WindowControls(
+          windowHost.buildWindowControls(
             forceLightIcons: forceLightIcons,
             showGlassPill: showGlassChrome,
           ),

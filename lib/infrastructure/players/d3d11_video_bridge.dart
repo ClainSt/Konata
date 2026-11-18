@@ -2,66 +2,16 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
-/// Windows D3D11 离屏共享纹理会话句柄。
-class D3D11VideoSessionHandle {
-  /// 创建会话句柄对象。
-  const D3D11VideoSessionHandle({
-    required this.sessionId,
-    required this.textureId,
-    required this.backend,
-    required this.adapterName,
-  });
+import 'konata_video_texture_bridge.dart';
 
-  /// 原生端会话 ID。
-  final int sessionId;
+export 'konata_video_texture_bridge.dart'
+    show
+        D3D11TextureChangedEvent,
+        D3D11VideoSessionHandle,
+        KonataVideoTextureBridge;
 
-  /// Flutter `Texture(textureId: ...)` 绑定 ID。
-  final int textureId;
-
-  /// 实际启用的渲染后端（`d3d11` 或 `sw`）。
-  final String backend;
-
-  /// DXGI 显卡适配器名称或软解说明。
-  final String adapterName;
-
-  /// 是否正在运行软件渲染回退模式。
-  bool get isSoftwareFallback => backend == 'sw';
-
-  /// 复制并更新热切换后的纹理与后端信息。
-  D3D11VideoSessionHandle copyWith({
-    int? textureId,
-    String? backend,
-    String? adapterName,
-  }) {
-    return D3D11VideoSessionHandle(
-      sessionId: sessionId,
-      textureId: textureId ?? this.textureId,
-      backend: backend ?? this.backend,
-      adapterName: adapterName ?? this.adapterName,
-    );
-  }
-}
-
-/// D3D11 设备丢失自动重建/降级 SW 时从 C++ 原生端主动推送的纹理热切换事件。
-class D3D11TextureChangedEvent {
-  /// 创建纹理变更事件。
-  const D3D11TextureChangedEvent({
-    required this.sessionId,
-    required this.textureId,
-    required this.backend,
-    required this.adapterName,
-    required this.reason,
-  });
-
-  final int sessionId;
-  final int textureId;
-  final String backend;
-  final String adapterName;
-  final String reason;
-}
-
-/// `"konata/d3d11_video"` MethodChannel 的强类型 Dart 桥接封装。
-class D3D11VideoBridge {
+/// `"konata/d3d11_video"` MethodChannel 的 Windows D3D11 桥接实现。
+class D3D11VideoBridge implements KonataVideoTextureBridge {
   /// 构造 D3D11 桥接客户端。
   D3D11VideoBridge({MethodChannel? channel})
     : _channel = channel ?? const MethodChannel(channelName) {
@@ -76,6 +26,7 @@ class D3D11VideoBridge {
       StreamController<D3D11TextureChangedEvent>.broadcast();
 
   /// 原生设备丢失降级时触发的新纹理 ID 推送流。
+  @override
   Stream<D3D11TextureChangedEvent> get textureChanges =>
       _changesController.stream;
 
@@ -103,6 +54,7 @@ class D3D11VideoBridge {
   }
 
   /// 为指定 `mpv_handle*` 创建离屏三缓冲渲染会话并注册 Flutter 外接纹理。
+  @override
   Future<D3D11VideoSessionHandle> createSession({
     required int mpvHandleAddress,
     int width = 1280,
@@ -130,6 +82,7 @@ class D3D11VideoBridge {
   }
 
   /// 通知原生渲染目标同步调整分辨率（最小节流至整数像素）。
+  @override
   Future<void> resize({
     required int sessionId,
     required int width,
@@ -144,6 +97,7 @@ class D3D11VideoBridge {
   }
 
   /// 释放原生渲染上下文并注销纹理。
+  @override
   Future<void> disposeSession(int sessionId) async {
     if (sessionId <= 0) return;
     try {
@@ -154,6 +108,7 @@ class D3D11VideoBridge {
   }
 
   /// 查询当前 Windows 适配器可用性与显卡名称。
+  @override
   Future<({bool available, String adapterName})> getAdapterInfo() async {
     try {
       final result = await _channel.invokeMapMethod<String, Object?>(
@@ -172,6 +127,7 @@ class D3D11VideoBridge {
   }
 
   /// 关闭监听并清理流控制器。
+  @override
   Future<void> dispose() async {
     _channel.setMethodCallHandler(null);
     if (!_changesController.isClosed) {

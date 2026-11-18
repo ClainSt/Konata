@@ -5,6 +5,7 @@ import 'package:ccplayer/application/providers/library_providers.dart';
 import 'package:ccplayer/application/providers/scraping_providers.dart';
 import 'package:ccplayer/application/providers/source_actions_provider.dart';
 import 'package:ccplayer/application/providers/work_management_provider.dart';
+import 'package:ccplayer/composition/windows_composition_root.dart';
 import 'package:ccplayer/domain/models/episode.dart';
 import 'package:ccplayer/domain/models/media_source.dart';
 import 'package:ccplayer/domain/models/media_variant.dart';
@@ -331,6 +332,7 @@ void main() {
                 detailDrawerExpandedProvider.overrideWith(
                   (_) => presetDrawerExpanded,
                 ),
+                ...WindowsCompositionRoot.providerOverrides(),
               ],
               child: MaterialApp(
                 locale: const Locale('zh', 'CN'),

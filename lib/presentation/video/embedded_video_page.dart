@@ -7,12 +7,11 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:window_manager/window_manager.dart';
 
 import '../../application/playback/unified_playback_coordinator.dart';
 import '../../application/playback/video_playback_controller.dart';
+import '../../composition/platform_composition.dart';
 import '../../domain/playback/playback_formatters.dart';
-import '../shell/window_controls.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
@@ -1207,7 +1206,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
           ),
           if (isWindows && !snap.isFullscreen) ...[
             const SizedBox(width: 4),
-            const WindowControls(),
+            ref.read(konataWindowHostProvider).buildWindowControls(),
           ],
         ],
       ),
@@ -1222,7 +1221,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
     }
 
     if (isWindows && !snap.isFullscreen) {
-      bar = DragToMoveArea(child: bar);
+      bar = ref.read(konataWindowHostProvider).buildDragToMoveArea(child: bar);
     }
     return bar;
   }

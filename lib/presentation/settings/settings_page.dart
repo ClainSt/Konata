@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../composition/platform_composition.dart';
 import '../audio/mini_audio_bar.dart';
 import '../shell/adaptive_capsule_layout.dart';
 import '../widgets/design_system/adaptive_settings_container.dart';
 import 'settings_about_panel.dart';
 import 'settings_appearance_panel.dart';
 import 'settings_display_panel.dart';
-import 'settings_external_tools_panel.dart';
 import 'settings_network_panel.dart';
 import 'settings_players_panel.dart';
 
@@ -48,6 +48,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   Widget build(BuildContext context) {
     final selected = ref.watch(selectedSettingsCategoryProvider);
     final deepLinkPulse = ref.watch(settingsDeepLinkPulseProvider);
+    final externalToolsBuilder = ref.watch(
+      desktopExternalToolsPanelBuilderProvider,
+    );
     final navigation = ref.read(capsuleNavigationHiddenProvider.notifier);
     return AdaptiveSettingsContainer<SettingsCategory>(
       selected: selected,
@@ -71,13 +74,13 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               SettingsCategory.about => '版本、诊断日志与项目资料',
             },
             desktopOnly: category == SettingsCategory.externalTools,
-            panel: (_) => switch (category) {
+            panel: (ctx) => switch (category) {
               SettingsCategory.appearance => const SettingsAppearancePanel(),
               SettingsCategory.display => const SettingsDisplayPanel(),
               SettingsCategory.network => const SettingsNetworkPanel(),
               SettingsCategory.player => const SettingsPlayersPanel(),
               SettingsCategory.externalTools =>
-                const SettingsExternalToolsPanel(),
+                externalToolsBuilder?.call(ctx) ?? const SizedBox.shrink(),
               SettingsCategory.about => const SettingsAboutPanel(),
             },
           ),

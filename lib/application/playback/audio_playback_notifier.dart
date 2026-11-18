@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
+import '../../composition/platform_composition.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/playback_record.dart';
@@ -31,6 +32,7 @@ import '../providers/platform_capability.dart';
 import '../providers/playback_providers.dart';
 import 'playback_preferences_provider.dart';
 import 'unified_playback_coordinator.dart';
+import 'unified_playback_engine.dart';
 
 /// CD 音频播放循环模式。
 enum AudioLoopMode {
@@ -651,6 +653,9 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   int _eofHandledMpvEntryId = -1;
   int _trackRetryCount = 0;
   int _consecutiveFailedTracks = 0;
+  double _trackProgressBaselineSeconds = 0.0;
+
+  UnifiedPlaybackEngine get _engine => _ref.read(unifiedPlaybackEngineProvider);
 
   double? _pendingSeekRawTargetSeconds;
   DateTime? _pendingSeekGuardUntil;
@@ -728,6 +733,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     final initialVol = _ref.read(playbackPreferencesProvider).defaultVolume;
     _trackRetryCount = 0;
     _consecutiveFailedTracks = 0;
+    _engine.recordManualSelection();
     state = state.copyWith(
       isActive: true,
       queue: items,
@@ -972,6 +978,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       cueRelativePath: cueVariant.relativePath,
       gatewayFactory: gatewayFactory,
       knownFileSize: cueVariant.fileSize > 0 ? cueVariant.fileSize : null,
+      legacyDecoder: _ref.read(legacyCodePageDecoderProvider),
     );
     if (cueSheet == null || cueSheet.tracks.isEmpty) {
       _nonExpandableCueIds.add(cueVariant.id);
@@ -1383,7 +1390,8 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
         }
         final start = cueStart + clampedInitialOffset;
         _activeCommandedGeneration = generation;
-        _consecutiveFailedTracks = 0;
+        _trackProgressBaselineSeconds = clampedInitialOffset;
+        _engine.advanceLogicalTrack();
         _pendingSeekRawTargetSeconds = start;
         _pendingSeekGuardUntil = DateTime.now().add(_cueSeekDebounceWindow);
         client.setPropertyFlag('pause', false);
@@ -1598,6 +1606,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
         probeEmbeddedCover: needEmbeddedProbe,
         probeFolderCover: needFolderCoverProbe,
         cachedSiblings: cachedSiblings,
+        legacyDecoder: _ref.read(legacyCodePageDecoderProvider),
       );
       if (aux.siblings != null && cachedSiblings == null) {
         _siblingsByDirCache[dirCacheKey] = aux.siblings!;
@@ -1736,9 +1745,10 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     switch (event) {
       case MpvFileLoadedEvent():
         // CUE 起始偏移已在 loadfile 前通过 mpv `start` 属性直达起播，加载完成后复位避免切曲串台。
+        // 严禁在 FILE_LOADED 提前清零连续坏文件熔断计数，仅在证实有效音频推进 >= 500ms 或手动点选时清零。
         _client?.setPropertyString('start', 'none');
         _trackRetryCount = 0;
-        _consecutiveFailedTracks = 0;
+        _engine.recordFileLoaded();
         state = state.copyWith(isBuffering: false, isPlaying: true);
         _refreshProbeFromClient();
         final auxJob = _pendingRemoteAuxJob;
@@ -1771,6 +1781,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       case MpvStartFileEvent(:final playlistEntryId):
         if (playlistEntryId > 0) {
           _currentMpvPlaylistEntryId = playlistEntryId;
+          _engine.bindPlaylistEntryId(playlistEntryId);
         }
       case MpvVideoReconfigEvent():
         break;
@@ -1887,6 +1898,12 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     final relPos = state.durationSeconds > 0
         ? (rawPositionSeconds - cueStart).clamp(0.0, state.durationSeconds)
         : math.max(0.0, rawPositionSeconds - cueStart);
+    final advancedMs = ((relPos - _trackProgressBaselineSeconds) * 1000).round();
+    if (advancedMs >= UnifiedPlaybackEngine.effectiveAudioProgressThresholdMs) {
+      if (_engine.recordEffectiveProgress(audioAdvancedMs: advancedMs)) {
+        _consecutiveFailedTracks = 0;
+      }
+    }
     final lyricIdx = state.lrcDocument?.activeIndexAt(relPos) ?? -1;
     state = state.copyWith(positionSeconds: relPos, activeLyricIndex: lyricIdx);
     unawaited(
@@ -1917,6 +1934,8 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     final nextGen = ++_loadGeneration;
     _activeCommandedGeneration = nextGen;
     _isTransitioningCueBoundary = false;
+    _trackProgressBaselineSeconds = 0.0;
+    _engine.advanceLogicalTrack();
 
     final nextDuration = _resolveTrackDurationSeconds(
       nextItem,
@@ -2061,6 +2080,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
 
     _trackRetryCount = 0;
     _consecutiveFailedTracks += 1;
+    final circuitBreakerTripped = _engine.recordPhysicalMediaFailure();
     _loadedPhysicalKey = null;
     final fallbackCover =
         (state.cover is EmptyAudioCover && failedItem != null)
@@ -2069,6 +2089,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
 
     final rawNextIdx = state.currentIndex + 1;
     final canAdvance =
+        !circuitBreakerTripped &&
         state.queue.length > 1 &&
         _consecutiveFailedTracks < state.queue.length &&
         (rawNextIdx < state.queue.length ||
@@ -2088,6 +2109,17 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
         targetIdx,
         generation: nextGen,
         preserveErrorToast: true,
+      );
+      return;
+    }
+
+    if (circuitBreakerTripped) {
+      state = state.copyWith(
+        isPlaying: false,
+        isBuffering: false,
+        cover: fallbackCover,
+        errorMessage:
+            '连续 ${UnifiedPlaybackEngine.maxConsecutiveBadFiles} 个音频文件加载异常（$reasonMessage），已熔断停播',
       );
       return;
     }
@@ -2321,6 +2353,8 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   /// 切换上一首。
   Future<void> previous() async {
     if (state.queue.isEmpty) return;
+    _consecutiveFailedTracks = 0;
+    _engine.recordManualSelection();
     if (state.positionSeconds > 4.0) {
       await seekRelativeTrackSeconds(0.0);
       return;
@@ -2339,6 +2373,8 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   /// 切换下一首。
   Future<void> next() async {
     if (state.queue.isEmpty) return;
+    _consecutiveFailedTracks = 0;
+    _engine.recordManualSelection();
     final target = (state.currentIndex + 1) % state.queue.length;
     final gen = ++_loadGeneration;
     await _startTrackAtIndex(target, generation: gen);
@@ -2347,6 +2383,8 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   /// 跳转队列中指定索引曲目。
   Future<void> playQueueIndex(int index) async {
     if (index < 0 || index >= state.queue.length) return;
+    _consecutiveFailedTracks = 0;
+    _engine.recordManualSelection();
     final gen = ++_loadGeneration;
     await _startTrackAtIndex(index, generation: gen);
   }
@@ -2472,6 +2510,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     final closingPos = state.positionSeconds;
     final closingDur = state.durationSeconds;
     ++_loadGeneration;
+    _engine.resetSession();
     _activeCommandedGeneration = 0;
     _completedGeneration = -1;
     if (_currentMpvPlaylistEntryId > _retiredMpvPlaylistEntryId) {

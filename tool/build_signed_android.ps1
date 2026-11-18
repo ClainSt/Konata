@@ -53,8 +53,8 @@ try {
         throw '密钥证书与现有发布版本不一致，已停止构建。'
     }
     Set-BuildStage 'building-release'
-    # 在 flutter test 或 pub get 后重新生成 Release 插件注册代码。
-    & $flutter build apk --release --target-platform android-arm64 --split-per-abi --build-name=$BuildName --build-number=$BuildNumber 2>&1 |
+    # 在 flutter test 或 pub get 后重新生成 Release 插件注册代码，显式指向 Android 裁剪入口。
+    & $flutter build apk --release -t lib/main_android.dart --target-platform android-arm64 --split-per-abi --build-name=$BuildName --build-number=$BuildNumber 2>&1 |
         Tee-Object -FilePath (Join-Path $statusDir 'android-release-build.log')
     if ($LASTEXITCODE) { throw 'Android Release 构建失败。' }
     $apk = Join-Path $project 'build/app/outputs/flutter-apk/app-arm64-v8a-release.apk'

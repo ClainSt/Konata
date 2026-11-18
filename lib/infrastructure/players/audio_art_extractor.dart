@@ -8,7 +8,6 @@ import '../../domain/playback/cue_and_lrc_parser.dart';
 import '../../domain/repositories/file_system_gateway.dart';
 import '../sources/byte_stream_source_gateway.dart';
 import '../sources/source_gateway_factory.dart';
-import 'libmpv_ffi.dart';
 
 /// 从音频容器头部字节中内存解析出的内嵌专辑封面数据（零全量落盘）。
 class ExtractedAudioResources {
@@ -228,6 +227,7 @@ class AudioAssetExtractor {
     bool probeEmbeddedCover = true,
     bool probeFolderCover = true,
     List<RemoteEntry>? cachedSiblings,
+    LegacyCodePageDecoder? legacyDecoder,
   }) async {
     final gateway = await gatewayFactory.create(source);
     try {
@@ -302,7 +302,7 @@ class AudioAssetExtractor {
             if (lrcBytes != null) {
               lrc = LrcParser.parseBytes(
                 lrcBytes,
-                legacyDecoder: WindowsCodePageDecoder.decode,
+                legacyDecoder: legacyDecoder,
               );
             }
           }
@@ -430,6 +430,7 @@ class AudioAssetExtractor {
     required String cueRelativePath,
     required MediaSourceGatewayFactory gatewayFactory,
     int? knownFileSize,
+    LegacyCodePageDecoder? legacyDecoder,
   }) async {
     final gateway = await gatewayFactory.create(source);
     try {
@@ -447,10 +448,7 @@ class AudioAssetExtractor {
         maxBytes: effectiveMax,
       );
       if (bytes == null) return null;
-      return CueParser.parseBytes(
-        bytes,
-        legacyDecoder: WindowsCodePageDecoder.decode,
-      );
+      return CueParser.parseBytes(bytes, legacyDecoder: legacyDecoder);
     } finally {
       await gateway.close();
     }

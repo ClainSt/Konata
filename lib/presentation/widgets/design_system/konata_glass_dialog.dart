@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../../shell/adaptive_capsule_layout.dart';
 import '../../theme/konata_adaptive_tokens.dart';
 import '../../theme/konata_palette.dart';
 import 'konata_draggable_dialog.dart';
@@ -302,12 +303,14 @@ class _KonataFollowFingerSheetSurfaceState
       surface = KeyedSubtree(key: widget.surfaceKey, child: surface);
     }
 
-    return ValueListenableBuilder<double>(
-      valueListenable: _dragOffset,
-      child: surface,
-      builder: (context, dy, child) => Transform.translate(
-        offset: Offset(0, dy),
-        child: child,
+    return KonataModalRouteScope(
+      child: ValueListenableBuilder<double>(
+        valueListenable: _dragOffset,
+        child: surface,
+        builder: (context, dy, child) => Transform.translate(
+          offset: Offset(0, dy),
+          child: child,
+        ),
       ),
     );
   }

@@ -685,7 +685,7 @@ void main() {
       );
       expect(find.text('1080p'), findsOneWidget);
 
-      // 2. MiniAudioBar 胶囊：居中 < 0.5px + 纯图标 32x32 循环键无 Text 子节点
+      // 2. KonataFloatingMiniPlayer 音频小窗：底部三键严格等距且播放键正居卡片水平中心
       const audioItem = AudioQueueItem(
         id: 'cd_1',
         work: work,
@@ -702,11 +702,9 @@ void main() {
       );
       await tester.pumpWidget(
         _wrapPhase9App(
-          const Align(
-            alignment: Alignment.bottomCenter,
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-              child: MiniAudioBar(),
+          const Center(
+            child: KonataFloatingMiniPlayer.standalone(
+              kind: FloatingMiniPlayerKind.audio,
             ),
           ),
           scopeKey: const ValueKey('phase9_mini_audio_scope'),
@@ -736,23 +734,29 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 50));
 
-      final miniCapsuleRect = tester.getRect(
-        find.byType(KonataPlaybackCapsule),
+      final miniCardRect = tester.getRect(
+        find.byKey(const ValueKey('konata_floating_mini_player')),
+      );
+      final miniPrevRect = tester.getRect(
+        find.byKey(const ValueKey('floating_mini_audio_prev')),
       );
       final miniPlayRect = tester.getRect(
-        find.byKey(const ValueKey('konata_capsule_play_pause_button')),
+        find.byKey(const ValueKey('floating_mini_audio_play_pause')),
+      );
+      final miniNextRect = tester.getRect(
+        find.byKey(const ValueKey('floating_mini_audio_next')),
       );
       expect(
-        (miniPlayRect.center.dx - miniCapsuleRect.center.dx).abs(),
+        (miniPlayRect.center.dx - miniCardRect.center.dx).abs(),
         lessThan(0.5),
       );
-      final miniLoopBtn = find.byType(KonataAudioLoopButton);
-      expect(miniLoopBtn, findsOneWidget);
-      expect(tester.getSize(miniLoopBtn), equals(const Size(32, 32)));
       expect(
-        find.descendant(of: miniLoopBtn, matching: find.byType(Text)),
-        findsNothing,
+        ((miniPlayRect.center.dx - miniPrevRect.center.dx) -
+                (miniNextRect.center.dx - miniPlayRect.center.dx))
+            .abs(),
+        lessThan(0.5),
       );
+      expect(find.text('ハルユキの災難'), findsNothing);
 
       // 3. ImmersiveAudioPage 胶囊：居中 < 0.5px + 纯图标循环键无 Text 子节点
       await tester.pumpWidget(

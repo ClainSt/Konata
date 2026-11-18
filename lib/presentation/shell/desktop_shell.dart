@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/library_providers.dart';
 import '../../application/playback/playback_preferences_provider.dart';
-import '../../application/playback/unified_playback_coordinator.dart';
 import '../../application/providers/theme_providers.dart';
 import '../audio/mini_audio_bar.dart';
 import '../history/playback_history_page.dart';
@@ -53,23 +52,21 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
   Widget build(BuildContext context) {
     final activeSection = ref.watch(selectedNavSectionProvider);
     final searchQuery = ref.watch(librarySearchQueryProvider);
-    final bottomClearance = ref.watch(miniAudioBottomClearanceProvider);
+    final miniKind = ref.watch(activeFloatingMiniPlayerKindProvider);
+    final miniAnchor = ref.watch(floatingMiniWindowAnchorProvider);
 
     if (KonataAdaptiveTokens.isAndroid) {
       final hidden =
           ref.watch(capsuleNavigationHiddenProvider) ||
           ref.watch(immersiveAudioExpandedProvider) ||
           ref.watch(videoPlaybackActiveProvider);
-      final isVideoMini = ref.watch(
-        activeVideoSessionProvider.select((s) => s.isMinimized),
-      );
       final geometry = AdaptiveCapsuleLayout(
         size: MediaQuery.sizeOf(context),
         safe: AdaptiveCapsuleLayout.effectiveSafeInsetsOf(context),
         android: true,
-        playerVisible: bottomClearance > 0,
         navigationVisible: !hidden,
-        isVideoMini: isVideoMini,
+        miniKind: miniKind,
+        normalizedMiniAnchor: miniAnchor,
       );
       return CallbackShortcuts(
         bindings: {
@@ -118,13 +115,14 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         ),
       );
     }
+    final desktopBottomClearance = ref.watch(miniAudioBottomClearanceProvider);
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyK, control: true):
             _activateSearch,
       },
       child: KonataBottomClearanceScope(
-        bottomClearance: bottomClearance,
+        bottomClearance: desktopBottomClearance,
         child: Scaffold(
           backgroundColor: Colors.transparent,
           body: ClipRect(

@@ -47,7 +47,6 @@ import 'package:ccplayer/presentation/library/library_page.dart';
 import 'package:ccplayer/presentation/shell/adaptive_capsule_layout.dart';
 import 'package:ccplayer/presentation/sources/source_folder_picker_dialog.dart';
 import 'package:ccplayer/presentation/sources/sources_page.dart';
-import 'package:ccplayer/presentation/theme/konata_adaptive_tokens.dart';
 import 'package:ccplayer/presentation/theme/konata_palette.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
 import 'package:ccplayer/presentation/video/embedded_video_page.dart';
@@ -1207,45 +1206,45 @@ void main() {
     test(
       '模块四（问题 17, 20, 21, 28, 29）：详情页与平板迷你胶囊整屏居中及 AndroidMediaSessionBridge 双向交互',
       () async {
-        // 1. 验证详情页（手机横屏含左侧挖孔）与平板竖屏迷你胶囊均严格处于整屏宽度水平正中央
+        // 1. 验证手机横屏（含左侧挖孔）与平板竖屏下悬浮小窗严格遵守安全区且不压住导航胶囊
         final phoneDetailLandscape = AdaptiveCapsuleLayout(
           size: const Size(844, 390),
           safe: const EdgeInsets.fromLTRB(44, 0, 0, 16),
           android: true,
-          playerVisible: true,
           navigationVisible: false,
+          miniKind: FloatingMiniPlayerKind.video,
         );
-        expect(phoneDetailLandscape.playerRect.center.dx, closeTo(422.0, 0.5));
+        expect(
+          phoneDetailLandscape.floatingMiniWindowRect!.left,
+          greaterThanOrEqualTo(44.0),
+        );
 
         final phoneLibVideoMiniLandscape = AdaptiveCapsuleLayout(
           size: const Size(844, 390),
           safe: const EdgeInsets.fromLTRB(44, 0, 0, 16),
           android: true,
-          playerVisible: true,
           navigationVisible: true,
-          isVideoMini: true,
+          miniKind: FloatingMiniPlayerKind.video,
         );
         expect(
-          phoneLibVideoMiniLandscape.playerRect.center.dx,
-          closeTo(422.0, 0.5),
-        );
-        expect(
-          phoneLibVideoMiniLandscape.navigationRect.top -
-              phoneLibVideoMiniLandscape.playerRect.bottom,
-          closeTo(KonataAdaptiveTokens.capsuleStackGap, 0.1),
+          phoneLibVideoMiniLandscape.floatingMiniWindowRect!.overlaps(
+            phoneLibVideoMiniLandscape.navigationRect,
+          ),
+          isFalse,
         );
 
         final narrowTabletPortrait = AdaptiveCapsuleLayout(
           size: const Size(600, 960),
           safe: const EdgeInsets.fromLTRB(0, 24, 0, 16),
           android: true,
-          playerVisible: true,
           navigationVisible: true,
+          miniKind: FloatingMiniPlayerKind.audio,
         );
-        expect(narrowTabletPortrait.playerRect.center.dx, closeTo(300.0, 0.5));
         expect(
-          960.0 - narrowTabletPortrait.playerRect.bottom,
-          closeTo(16.0 + KonataAdaptiveTokens.tabletBottomInset, 0.1),
+          narrowTabletPortrait.floatingMiniWindowRect!.overlaps(
+            narrowTabletPortrait.navigationRect,
+          ),
+          isFalse,
         );
 
         // 2. 验证 AndroidMediaSessionBridge 向原生通知栏推送高清封面/元数据/时长，并响应双向拖拽 seekTo 与上下首

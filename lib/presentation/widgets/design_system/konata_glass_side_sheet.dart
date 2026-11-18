@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../../shell/adaptive_capsule_layout.dart';
 import '../../theme/konata_adaptive_tokens.dart';
 import '../../theme/konata_palette.dart';
 import 'konata_glass_dialog.dart';
@@ -232,14 +233,16 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
     );
 
     if (Navigator.maybeOf(context) != null) {
-      return PopScope(
-        canPop: false,
-        onPopInvokedWithResult: (didPop, _) {
-          if (!didPop) {
-            _handleClose();
-          }
-        },
-        child: sheetStack,
+      return KonataModalRouteScope(
+        child: PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) {
+              _handleClose();
+            }
+          },
+          child: sheetStack,
+        ),
       );
     }
     return sheetStack;

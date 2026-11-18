@@ -17,17 +17,14 @@ abstract final class KonataAdaptiveTokens {
   static const touchTarget = 48.0;
   static const navigationPadding = 4.0;
   static const safeGap = 8.0;
-  static const capsuleStackGap = 10.0;
   static const horizontalInset = 12.0;
   static const tabletBottomInset = 18.0;
   static const playerHeight = 64.0;
-  static const playerMaxWidth = 600.0;
   static const tabletPlayerMaxWidth = 640.0;
   static const tabletTopSafeMin = 44.0;
   static const capsuleRadius = 28.0;
   static const borderWidth = 1.0;
   static const progressHeight = 2.0;
-  static const coverSize = 38.0;
   static const iconSize = 20.0;
   static const toastAutoDismissDuration = Duration(seconds: 4);
   static const toastEnterDuration = Duration(milliseconds: 200);

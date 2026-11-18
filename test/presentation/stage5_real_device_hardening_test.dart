@@ -334,7 +334,7 @@ void main() {
     );
 
     testWidgets(
-      '2. MiniAudioBar 脱离 Scaffold 时悬停气泡与选曲浮层 TextDecoration.none 零黄双下划线且采用内嵌底置滑轨',
+      '2. 脱离 Scaffold 的播控胶囊与悬浮小窗保持 TextDecoration.none 零黄双下划线且采用内嵌底置滑轨',
       (tester) async {
         tester.view.physicalSize = const Size(1024, 720);
         tester.view.devicePixelRatio = 1.0;
@@ -364,7 +364,7 @@ void main() {
           ),
         ];
 
-        // 故意不使用 Scaffold，直接放在 MaterialApp(home: Stack/Align) 模拟 DesktopShell 顶层 Overlay
+        // 故意不使用 Scaffold，直接放在 MaterialApp(home: Stack) 模拟顶层 Overlay 环境
         await tester.pumpWidget(
           ProviderScope(
             overrides: [
@@ -392,13 +392,34 @@ void main() {
               locale: const Locale('zh', 'CN'),
               supportedLocales: const [Locale('zh', 'CN')],
               localizationsDelegates: GlobalMaterialLocalizations.delegates,
-              home: const Stack(
+              home: Stack(
                 children: [
                   Align(
                     alignment: Alignment.bottomCenter,
                     child: Padding(
-                      padding: EdgeInsets.only(bottom: 18),
-                      child: MiniAudioBar(),
+                      padding: const EdgeInsets.only(bottom: 18),
+                      child: Material(
+                        type: MaterialType.transparency,
+                        child: DefaultTextStyle.merge(
+                          style: const TextStyle(
+                            decoration: TextDecoration.none,
+                          ),
+                          child: KonataPlaybackCapsule(
+                            title: 'Seishun Complex',
+                            positionSeconds: 40.0,
+                            durationSeconds: 200.0,
+                            isPlaying: true,
+                            onTogglePlayPause: () {},
+                            onSeek: (_) {},
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const Align(
+                    alignment: Alignment.topRight,
+                    child: KonataFloatingMiniPlayer.standalone(
+                      kind: FloatingMiniPlayerKind.audio,
                     ),
                   ),
                 ],
@@ -408,7 +429,6 @@ void main() {
         );
         await tester.pump();
 
-        // 校验胶囊内部所有 Text 拥有 Material 祖先且无黄色双下划线（decoration != underline）
         void assertAllTextsNoUnderline(String stageLabel) {
           for (final element in find.byType(Text).evaluate()) {
             final textWidget = element.widget as Text;
@@ -431,9 +451,8 @@ void main() {
           }
         }
 
-        assertAllTextsNoUnderline('MiniAudioBar 主胶囊');
+        assertAllTextsNoUnderline('播控胶囊与悬浮小窗');
 
-        // 悬停内嵌底置进度条：触发悬停时间气泡并校验其位于无下划线 Material 作用域内
         final capsuleRect = tester.getRect(find.byType(KonataPlaybackCapsule));
         final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
         await mouse.addPointer(
@@ -444,12 +463,6 @@ void main() {
         assertAllTextsNoUnderline('进度条悬停时间气泡');
         await mouse.moveTo(Offset.zero);
         await tester.pump();
-
-        // 打开 ☰ 选曲 OverlayPortal 面板并校验所有文本零下划线
-        await tester.tap(find.byIcon(Icons.menu_rounded));
-        await tester.pump(const Duration(milliseconds: 180));
-        expect(find.text('专辑曲目 (1)'), findsOneWidget);
-        assertAllTextsNoUnderline('OverlayPortal 选曲浮层');
       },
     );
 

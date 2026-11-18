@@ -556,13 +556,13 @@ void main() {
       expect(constructCount, equals(1));
       expect(closeCount, equals(0));
 
-      // 点击收起按钮转为迷你胶囊圆角预览，绝不关闭解码器
+      // 点击收起按钮转为 16:9 悬浮视频小窗，绝不关闭解码器
       await tester.tap(find.byKey(const ValueKey('video_collapse_button')));
       await tester.pumpAndSettle();
 
       expect(find.byType(EmbeddedVideoPage), findsNothing);
       expect(
-        find.byKey(const ValueKey('mini_video_preview_target')),
+        find.byKey(const ValueKey('konata_floating_mini_player')),
         findsOneWidget,
       );
       expect(container.read(miniAudioBottomClearanceProvider), greaterThan(0));
@@ -573,16 +573,22 @@ void main() {
         equals(UnifiedMediaKind.video),
       );
 
-      // 切换后台纯音频模式（手机窄屏长按标题唤起操作抽屉）并再次展开至全屏，控制器与会话不重建
-      await tester.longPress(
-        find.byKey(const ValueKey('mini_video_title_target')),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('切换后台纯音频'));
+      // 切换后台纯音频模式并按两段式轻触（首次显现角标，再次轻触展开）回到全屏，控制器与会话不重建
+      fakeCtrl.toggleAudioOnlyMode();
       await tester.pumpAndSettle();
       expect(fakeCtrl.state.audioOnlyMode, isTrue);
 
-      await tester.tap(find.byKey(const ValueKey('mini_video_preview_target')));
+      await tester.tap(
+        find.byKey(const ValueKey('floating_mini_surface_tap_target')),
+      );
+      await tester.pump();
+      expect(
+        find.byKey(const ValueKey('floating_mini_close_button')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('floating_mini_surface_tap_target')),
+      );
       await tester.pumpAndSettle();
       expect(find.byType(EmbeddedVideoPage), findsOneWidget);
       expect(find.byType(KonataCachedArtworkBackdrop), findsOneWidget);

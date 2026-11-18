@@ -843,10 +843,10 @@ void main() {
       expect(find.text('标记为已看'), findsOneWidget);
       expect(find.text('清理记录'), findsOneWidget);
 
-      // 验证长标题自动折行且不省略
+      // 验证长标题最多两行省略截断且不挤出底部进度日期两行
       final longTitleText = tester.widget<Text>(find.text(longTitle));
-      expect(longTitleText.softWrap, isTrue);
-      expect(longTitleText.maxLines, isNull);
+      expect(longTitleText.maxLines, equals(2));
+      expect(longTitleText.overflow, equals(TextOverflow.ellipsis));
 
       // 验证双列同行左右两张卡片顶部齐平且等高
       final cards = find.byType(KonataSurfaceCard);

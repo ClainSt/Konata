@@ -253,18 +253,21 @@ class _SourceSelectedScopePanelState extends State<SourceSelectedScopePanel> {
         KonataPillButton.ghost(
           label: '全选',
           compact: true,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
           onPressed: widget.busy ? null : _selectAll,
         ),
-        const SizedBox(width: 4),
+        const SizedBox(width: 2),
         KonataPillButton.ghost(
           label: '反选',
           compact: true,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
           onPressed: widget.busy ? null : _invertSelection,
         ),
-        const SizedBox(width: 4),
+        const SizedBox(width: 2),
         KonataPillButton.secondary(
-          label: checkedCount > 0 ? '批量移除 ($checkedCount)' : '批量移除',
+          label: checkedCount > 0 ? '移除 ($checkedCount)' : '移除',
           compact: true,
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
           onPressed: (widget.busy || checkedCount == 0)
               ? null
               : _removeCheckedBatch,

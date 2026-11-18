@@ -32,6 +32,7 @@ import '../providers/platform_capability.dart';
 import '../providers/playback_providers.dart';
 import 'audio_playback_notifier.dart';
 import 'playback_preferences_provider.dart';
+import 'subtitle_memory_engine.dart';
 import 'unified_playback_coordinator.dart';
 import 'unified_playback_engine.dart';
 
@@ -275,6 +276,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   final Map<String, CrossEpisodeTrackMemory> _trackMemoryByWorkId = {};
 
   EmbeddedMpvSession? _session;
+  SubtitleMemoryEngine? _subtitleMemoryEngine;
   MpvThumbnailService? _thumbnailService;
   final ValueNotifier<int> _thumbnailRevision = ValueNotifier<int>(0);
   Timer? _persistTimer;
@@ -1164,6 +1166,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     }
 
     unawaited(ensureAudioFocus());
+    _subtitleMemoryEngine?.resetForPhysicalMediaEpoch();
     await session.loadMediaVariant(
       EmbeddedVideoLoadRequest(
         workId: resolvedBundle.work.id,
@@ -1391,7 +1394,28 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     unawaited(AndroidPlaybackWindowBridge.setBrightness(clamped));
   }
 
+  SubtitleMemoryEngine _ensureSubtitleMemoryEngine() {
+    return _subtitleMemoryEngine ??= SubtitleMemoryEngine(
+      clientSupplier: () => _session?.activeClient,
+      playbackEngine: _ref.read(unifiedPlaybackEngineProvider),
+      legacyCodePageDecoder: _ref.read(legacyCodePageDecoderProvider),
+      onTrackStateChanged: () => _session?.refreshMetadata(),
+    );
+  }
+
+  /// 经单一串行权威通道执行内存级无副作用字幕挂载（多编码归一 / OpenCC / 离线调轴）。
+  Future<SubtitleMemoryApplyResult> applyMemorySubtitleIntent(
+    AuthoritativeSubtitleIntent intent,
+  ) async {
+    final result = await _ensureSubtitleMemoryEngine().applyIntent(intent);
+    if (mounted && result.applied && result.zeroedInstantSubDelay) {
+      state = state.copyWith(subtitleDelaySeconds: 0.0);
+    }
+    return result;
+  }
+
   void selectSubtitle(SubtitleChoice? choice) {
+    _subtitleMemoryEngine?.invalidatePendingIntents();
     _session?.selectSubtitle(choice);
     final nextMemory = state.trackMemory.rememberSubtitle(
       choice == null || choice.mpvTrackId == null
@@ -1420,6 +1444,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   }
 
   void addExternalSubtitleFile(String path) {
+    _subtitleMemoryEngine?.invalidatePendingIntents();
     _session?.addExternalSubtitleFile(path);
     showTransientBanner('已加载外挂字幕');
   }
@@ -1441,6 +1466,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   }
 
   void setSubtitleDelay(double delaySeconds) {
+    _subtitleMemoryEngine?.invalidatePendingIntents();
     final clamped = double.parse(
       delaySeconds.clamp(-60.0, 60.0).toStringAsFixed(2),
     );
@@ -1676,6 +1702,8 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     _skipFadeTimer?.cancel();
     _chapterSkipWakeTimer?.cancel();
     _bannerTimer?.cancel();
+    _subtitleMemoryEngine?.dispose();
+    _subtitleMemoryEngine = null;
     await _releaseThumbnailService(disposeNotifier: true);
 
     if (mounted) {
@@ -1715,6 +1743,8 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     _chapterSkipWakeTimer?.cancel();
     _bannerTimer?.cancel();
     _thumbnailWarmupTimer?.cancel();
+    _subtitleMemoryEngine?.dispose();
+    _subtitleMemoryEngine = null;
 
     if (!_closedCleanly) {
       _closedCleanly = true;

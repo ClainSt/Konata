@@ -202,6 +202,13 @@ class EmbeddedMpvSession {
   bool get isUsingSoftwareFallback => _usingSoftwareFallback;
   bool get isPositionObservationEnabled => _positionObserved;
 
+  /// 当前活跃的底层 `libmpv` 客户端实例（供上层字幕内存引擎在受控通道内执行直注与选轨）。
+  LibMpvClient? get activeClient =>
+      (_disposed || _client == null || _client!.isDisposed) ? null : _client;
+
+  /// 当前物理媒体装载代数（切集或销毁时递增）。
+  int get loadGeneration => _loadGeneration;
+
   /// 实时读取当前底层精确播放秒数（OSD 隐藏退订期间供低频持久化与唤醒同步使用）。
   double? readCurrentPositionSeconds() {
     final client = _client;
@@ -580,6 +587,7 @@ class EmbeddedMpvSession {
 
     final cachedSubs = await streamBridge.resolveExistingCachedSubtitles(
       workId: request.workId,
+      sourceId: source.id,
       subtitleRelativePaths: variant.externalSubtitles,
     );
     return (
@@ -620,8 +628,34 @@ class EmbeddedMpvSession {
           source.id,
           parentRel,
         );
-        if (cachedSnapshot != null) {
+        if (cachedSnapshot != null && !cachedSnapshot.incompleteForSimplified) {
           siblingPaths.addAll(cachedSnapshot.siblingPaths);
+        } else if (cachedSnapshot != null &&
+            cachedSnapshot.incompleteForSimplified &&
+            cachedSnapshot.unscannedSubdirs.isNotEmpty) {
+          // 已有快照仅在前 4 个子目录命中非简中字幕且仍有未扫目录：续扫剩余子目录，不写假阴性负缓存。
+          final mergedPaths = <String>[...cachedSnapshot.siblingPaths];
+          var extraScanned = 0;
+          for (final subDir in cachedSnapshot.unscannedSubdirs) {
+            if (_disposed || generation != _loadGeneration) return;
+            extraScanned += 1;
+            try {
+              final subEntries = await sidecarGw.listDirectory(subDir);
+              for (final sub in subEntries) {
+                if (!sub.isDirectory) mergedPaths.add(sub.relativePath);
+              }
+            } catch (_) {}
+          }
+          subtitleDirectoryIndex?.put(
+            sourceId: source.id,
+            dirRelativePath: parentRel,
+            siblingPaths: mergedPaths,
+            hasUnscannedSubdirs: false,
+            scannedSubdirCount:
+                cachedSnapshot.scannedSubdirCount + extraScanned,
+            unscannedSubdirs: const [],
+          );
+          siblingPaths.addAll(mergedPaths);
         } else {
           final entries = await sidecarGw.listDirectory(parentRel);
           if (_disposed || generation != _loadGeneration) return;
@@ -656,12 +690,16 @@ class EmbeddedMpvSession {
               }
             } catch (_) {}
           }
+          final remainingSubdirs = scannedSubdirs < candidateSubdirs.length
+              ? candidateSubdirs.sublist(scannedSubdirs)
+              : const <String>[];
           subtitleDirectoryIndex?.put(
             sourceId: source.id,
             dirRelativePath: parentRel,
             siblingPaths: discoveredPaths,
-            hasUnscannedSubdirs: candidateSubdirs.length > scannedSubdirs,
+            hasUnscannedSubdirs: remainingSubdirs.isNotEmpty,
             scannedSubdirCount: scannedSubdirs,
+            unscannedSubdirs: remainingSubdirs,
           );
           siblingPaths.addAll(discoveredPaths);
         }
@@ -676,6 +714,7 @@ class EmbeddedMpvSession {
       final localSubs = await streamBridge.materializeRemoteSubtitles(
         gateway: byteGw,
         workId: request.workId,
+        sourceId: source.id,
         subtitleRelativePaths: {
           ...matchedSubs.subtitlePaths,
           ...variant.externalSubtitles,

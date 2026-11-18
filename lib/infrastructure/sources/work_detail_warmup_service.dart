@@ -17,6 +17,7 @@ class SubtitleDirectorySnapshot {
     required this.hasUnscannedSubdirs,
     required this.incompleteForSimplified,
     this.scannedSubdirCount = 0,
+    this.unscannedSubdirs = const [],
   });
 
   /// 同级及已扫描子目录下的全部文件相对路径。
@@ -33,6 +34,9 @@ class SubtitleDirectorySnapshot {
 
   /// 实际已扫描的子目录数量。
   final int scannedSubdirCount;
+
+  /// 尚未深入扫描的剩余候选子目录相对路径列表（供需要简中字幕时按需续扫）。
+  final List<String> unscannedSubdirs;
 }
 
 /// 同级字幕与外挂音轨目录内存表（LRU + TTL 5 分钟，供详情页静默预热与起播 0 ms 查表）。
@@ -81,15 +85,19 @@ class SubtitleDirectoryIndex {
     required List<String> siblingPaths,
     required bool hasUnscannedSubdirs,
     required int scannedSubdirCount,
+    List<String> unscannedSubdirs = const [],
   }) {
     final hasSimplifiedSub = siblingPaths.any(_isLikelySimplifiedSubtitlePath);
-    final incompleteForSimplified = hasUnscannedSubdirs && !hasSimplifiedSub;
+    final effectiveHasUnscanned =
+        hasUnscannedSubdirs || unscannedSubdirs.isNotEmpty;
+    final incompleteForSimplified = effectiveHasUnscanned && !hasSimplifiedSub;
     final snapshot = SubtitleDirectorySnapshot(
       siblingPaths: List<String>.unmodifiable(siblingPaths),
       cachedAt: _clock(),
-      hasUnscannedSubdirs: hasUnscannedSubdirs,
+      hasUnscannedSubdirs: effectiveHasUnscanned,
       incompleteForSimplified: incompleteForSimplified,
       scannedSubdirCount: scannedSubdirCount,
+      unscannedSubdirs: List<String>.unmodifiable(unscannedSubdirs),
     );
     final key = _buildKey(sourceId, dirRelativePath);
     _entries.remove(key);
@@ -250,13 +258,16 @@ class WorkDetailWarmupService {
         } catch (_) {}
       }
 
-      final hasUnscannedSubdirs = candidateSubdirs.length > scanned;
+      final unscanned = scanned < candidateSubdirs.length
+          ? candidateSubdirs.sublist(scanned)
+          : const <String>[];
       return directoryIndex.put(
         sourceId: source.id,
         dirRelativePath: dirRelativePath,
         siblingPaths: siblingPaths,
-        hasUnscannedSubdirs: hasUnscannedSubdirs,
+        hasUnscannedSubdirs: unscanned.isNotEmpty,
         scannedSubdirCount: scanned,
+        unscannedSubdirs: unscanned,
       );
     } finally {
       await gw.close();

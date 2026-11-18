@@ -1,18 +1,14 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
-/// 传统东亚多字节文本编码类型（面向日文与中文 BD CUE / LRC）。
-enum LegacyTextEncoding {
-  /// 日文 Shift-JIS / CP932。
-  shiftJis,
+import '../text/multibyte_text_decoder.dart';
 
-  /// 简体中文 GBK / CP936。
-  gbk,
-}
-
-/// 可选外部代码页解码桥接签名（由基础设施层按需注入 Win32 CP932/CP936 解码器）。
-typedef LegacyCodePageDecoder =
-    String? Function(List<int> bytes, LegacyTextEncoding encoding);
+export '../text/multibyte_text_decoder.dart'
+    show
+        DetectedTextCharset,
+        DecodedTextResult,
+        LegacyCodePageDecoder,
+        LegacyTextEncoding,
+        MultibyteTextDecoder;
 
 /// CUE 虚拟音轨实体（带 `[startSeconds, endSeconds]` 精确切片区间）。
 class CueTrack {
@@ -155,205 +151,24 @@ class LrcDocument {
   }
 }
 
-/// 纯 Dart 多编码探测与解码器（UTF-8 / UTF-16LE / UTF-16BE / Shift-JIS / GBK）。
+/// 播放领域统一多编码探测与解码入口（直接复用全仓唯一的 `MultibyteTextDecoder`）。
 class PlaybackTextDecoder {
   PlaybackTextDecoder._();
 
-  /// 将原始字节解码为字符串；遇到非 UTF-8 字节时识别 Shift-JIS 与 GBK。
+  /// 将原始字节解码为字符串（支持 UTF-8 / UTF-16LE/BE / CP932 / GB18030 / Big5）。
   static String decodeBytes(
     Uint8List bytes, {
     LegacyCodePageDecoder? legacyDecoder,
   }) {
-    if (bytes.isEmpty) return '';
-
-    // 1. BOM 优先判定
-    if (bytes.length >= 3 &&
-        bytes[0] == 0xEF &&
-        bytes[1] == 0xBB &&
-        bytes[2] == 0xBF) {
-      return utf8.decode(bytes.sublist(3), allowMalformed: true);
-    }
-    if (bytes.length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE) {
-      return _decodeUtf16(bytes.sublist(2), littleEndian: true);
-    }
-    if (bytes.length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF) {
-      return _decodeUtf16(bytes.sublist(2), littleEndian: false);
-    }
-
-    // 2. 严格 UTF-8 尝试
-    try {
-      return utf8.decode(bytes, allowMalformed: false);
-    } catch (_) {}
-
-    // 3. 启发式区分 Shift-JIS 与 GBK
-    final encoding = detectLegacyEncoding(bytes);
-    if (legacyDecoder != null) {
-      final decoded = legacyDecoder(bytes, encoding);
-      if (decoded != null && decoded.isNotEmpty) {
-        return decoded;
-      }
-    }
-
-    if (encoding == LegacyTextEncoding.shiftJis) {
-      return _decodeShiftJisPureDart(bytes);
-    }
-    return _decodeGbkFallbackPureDart(bytes);
+    return MultibyteTextDecoder.decodeBytes(
+      bytes,
+      legacyDecoder: legacyDecoder,
+    );
   }
 
-  /// 基于字节文法统计判断传统文本偏向 Shift-JIS 还是 GBK。
+  /// 基于字节文法统计判断传统文本偏向 Shift-JIS、GB18030/GBK 还是 Big5。
   static LegacyTextEncoding detectLegacyEncoding(List<int> bytes) {
-    var sjisHits = 0;
-    var sjisExclusiveHits = 0;
-    var gbkHits = 0;
-
-    for (var i = 0; i < bytes.length; i++) {
-      final b = bytes[i];
-      if (b < 0x80) continue;
-
-      // 半角片假名 (0xA1..0xDF)
-      if (b >= 0xA1 && b <= 0xDF && i + 1 < bytes.length) {
-        final next = bytes[i + 1];
-        if (next < 0x80 || (next >= 0xA1 && next <= 0xDF)) {
-          sjisExclusiveHits += 2;
-          sjisHits += 2;
-          continue;
-        }
-      }
-
-      // Shift-JIS 首字节独占区间 0x81..0x9F（后接 0x40..0x7E 或 0x80..0xFC）
-      if ((b >= 0x81 && b <= 0x9F) && i + 1 < bytes.length) {
-        final b2 = bytes[i + 1];
-        if ((b2 >= 0x40 && b2 <= 0x7E) || (b2 >= 0x80 && b2 <= 0xFC)) {
-          sjisExclusiveHits += 3;
-          sjisHits += 3;
-          // 高频平假名/片假名段 (0x82 / 0x83) 权重更高
-          if (b == 0x82 || b == 0x83) {
-            sjisExclusiveHits += 4;
-          }
-          i++;
-          continue;
-        }
-      }
-
-      if ((b >= 0xE0 && b <= 0xEF) && i + 1 < bytes.length) {
-        final b2 = bytes[i + 1];
-        if ((b2 >= 0x40 && b2 <= 0x7E) || (b2 >= 0x80 && b2 <= 0xFC)) {
-          sjisHits += 1;
-        }
-      }
-
-      // GBK 典型双高字节汉字区 (0xB0..0xF7 + 0xA1..0xFE)
-      if ((b >= 0xA1 && b <= 0xF7) && i + 1 < bytes.length) {
-        final b2 = bytes[i + 1];
-        if (b2 >= 0xA1 && b2 <= 0xFE) {
-          gbkHits += (b >= 0xB0) ? 3 : 1;
-          i++;
-          continue;
-        }
-      }
-    }
-
-    if (sjisExclusiveHits > 0 && sjisHits + sjisExclusiveHits >= gbkHits) {
-      return LegacyTextEncoding.shiftJis;
-    }
-    return gbkHits > sjisHits
-        ? LegacyTextEncoding.gbk
-        : LegacyTextEncoding.shiftJis;
-  }
-
-  static String _decodeUtf16(List<int> bytes, {required bool littleEndian}) {
-    final codeUnits = <int>[];
-    for (var i = 0; i + 1 < bytes.length; i += 2) {
-      final lo = littleEndian ? bytes[i] : bytes[i + 1];
-      final hi = littleEndian ? bytes[i + 1] : bytes[i];
-      codeUnits.add((hi << 8) | lo);
-    }
-    return String.fromCharCodes(codeUnits);
-  }
-
-  static String _decodeShiftJisPureDart(List<int> bytes) {
-    final out = StringBuffer();
-    for (var i = 0; i < bytes.length; i++) {
-      final b1 = bytes[i];
-      if (b1 < 0x80) {
-        out.writeCharCode(b1);
-        continue;
-      }
-      // 半角片假名 0xA1..0xDF -> U+FF61..U+FF9F
-      if (b1 >= 0xA1 && b1 <= 0xDF) {
-        out.writeCharCode(0xFF61 + (b1 - 0xA1));
-        continue;
-      }
-      if (((b1 >= 0x81 && b1 <= 0x9F) || (b1 >= 0xE0 && b1 <= 0xFC)) &&
-          i + 1 < bytes.length) {
-        final b2 = bytes[i + 1];
-        i++;
-        final mapped = _mapShiftJisKanaOrSymbol(b1, b2);
-        if (mapped != null) {
-          out.writeCharCode(mapped);
-        } else {
-          out.write('\uFFFD');
-        }
-        continue;
-      }
-      out.write('\uFFFD');
-    }
-    return out.toString();
-  }
-
-  static int? _mapShiftJisKanaOrSymbol(int b1, int b2) {
-    if (b1 == 0x81) {
-      return switch (b2) {
-        0x40 => 0x3000, // 全角空格
-        0x41 => 0x3001, // 、
-        0x42 => 0x3002, // 。
-        0x43 => 0xFF0C, // ，
-        0x44 => 0xFF0E, // ．
-        0x45 => 0x30FB, // ・
-        0x46 => 0xFF1A, // ：
-        0x47 => 0xFF1B, // ；
-        0x48 => 0xFF1F, // ？
-        0x49 => 0xFF01, // ！
-        0x5B => 0x30FC, // ー
-        0x60 => 0x301C, // 〜
-        0x69 => 0xFF08, // （
-        0x6A => 0xFF09, // ）
-        0x75 => 0x300C, // 「
-        0x76 => 0x300D, // 」
-        0x77 => 0x300E, // 『
-        0x78 => 0x300F, // 』
-        _ => null,
-      };
-    }
-    // 平假名 0x829F..0x82F1 -> U+3041..U+3093
-    if (b1 == 0x82) {
-      if (b2 >= 0x4F && b2 <= 0x58) return 0xFF10 + (b2 - 0x4F);
-      if (b2 >= 0x60 && b2 <= 0x79) return 0xFF21 + (b2 - 0x60);
-      if (b2 >= 0x81 && b2 <= 0x9A) return 0xFF41 + (b2 - 0x81);
-      if (b2 >= 0x9F && b2 <= 0xF1) return 0x3041 + (b2 - 0x9F);
-    }
-    // 片假名 0x8340..0x8396（跳过 0x7F 间隙）-> U+30A1..U+30F6
-    if (b1 == 0x83 && b2 >= 0x40 && b2 <= 0x96 && b2 != 0x7F) {
-      final offset = b2 < 0x7F ? (b2 - 0x40) : (b2 - 0x41);
-      return 0x30A1 + offset;
-    }
-    return null;
-  }
-
-  static String _decodeGbkFallbackPureDart(List<int> bytes) {
-    final out = StringBuffer();
-    for (var i = 0; i < bytes.length; i++) {
-      final b1 = bytes[i];
-      if (b1 < 0x80) {
-        out.writeCharCode(b1);
-        continue;
-      }
-      if (b1 >= 0x81 && b1 <= 0xFE && i + 1 < bytes.length) {
-        i++;
-      }
-      out.write('\uFFFD');
-    }
-    return out.toString();
+    return MultibyteTextDecoder.detectLegacyEncoding(bytes);
   }
 }
 

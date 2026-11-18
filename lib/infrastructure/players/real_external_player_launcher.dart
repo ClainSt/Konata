@@ -140,6 +140,7 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
           localSubtitlePaths = await streamBridge.materializeRemoteSubtitles(
             gateway: readableGw,
             workId: work.id,
+            sourceId: source.id,
             subtitleRelativePaths: variant.externalSubtitles,
           );
         }

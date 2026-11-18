@@ -28,6 +28,49 @@ abstract final class StreamBridgeConfig {
   static const int maxSubtitleMaterializeBytes = 32 * 1024 * 1024;
 }
 
+/// 经同卷 `.part` 校验并原子落盘的原始外挂字幕缓存记录。
+class MaterializedSubtitleRecord {
+  /// 创建原始字幕缓存记录。
+  const MaterializedSubtitleRecord({
+    required this.relativePath,
+    required this.localFilePath,
+    required this.sourceSha1,
+    required this.byteLength,
+    required this.cacheKey,
+    this.validator = '',
+  });
+
+  /// 媒体源中的原始相对路径。
+  final String relativePath;
+
+  /// 本地应用便携缓存目录中的原子落盘绝对路径。
+  final String localFilePath;
+
+  /// 原始字幕字节流的 SHA-1 十六进制摘要（供后续处理与云端子集去重）。
+  final String sourceSha1;
+
+  /// 校验后的实际字节长度。
+  final int byteLength;
+
+  /// 绑定 `(sourceId, canonicalRelativePath, validator)` 的缓存键。
+  final String cacheKey;
+
+  /// 源版本验证器（如强 ETag、修改时间或探测字节长度）。
+  final String validator;
+}
+
+class _SingleDigestSink implements Sink<Digest> {
+  Digest? digest;
+
+  @override
+  void add(Digest data) {
+    digest = data;
+  }
+
+  @override
+  void close() {}
+}
+
 class _RegisteredStreamSession {
   _RegisteredStreamSession({
     required this.token,
@@ -233,10 +276,45 @@ class LocalStreamBridge {
     return expiredTokens.length;
   }
 
+  /// 规范化字幕相对路径（统一斜杠与首尾分隔符，作为缓存定位键组成部分）。
+  static String canonicalizeSubtitleRelativePath(String rawPath) {
+    return rawPath
+        .replaceAll('\\', '/')
+        .replaceAll(RegExp(r'/+'), '/')
+        .replaceAll(RegExp(r'^/|/$'), '');
+  }
+
+  /// 构造绑定 `(sourceId, canonicalRelativePath, sourceValidator)` 的原始字幕缓存定位键。
+  static String buildSubtitleCacheKey({
+    required String sourceId,
+    required String relativePath,
+    String validator = '',
+  }) {
+    final canonical = canonicalizeSubtitleRelativePath(relativePath);
+    return '$sourceId\x00$canonical\x00$validator';
+  }
+
+  static String _subtitlePathBucket(String sourceId, String canonicalRelPath) {
+    return sha1
+        .convert(utf8.encode('$sourceId\x00$canonicalRelPath'))
+        .toString()
+        .substring(0, 16);
+  }
+
+  static String _subtitleVersionBucket(String validator) {
+    if (validator.isEmpty) return 'v_default';
+    final digest = sha1.convert(utf8.encode(validator)).toString();
+    return 'v_${digest.substring(0, 12)}';
+  }
+
   /// 纯本地零网络检查已缓存落盘的外挂字幕路径（供远程视频首帧零网络秒挂已有字幕）。
+  ///
+  /// 缓存定位键严格绑定 `(sourceId, canonicalRelativePath, validator)`，消除跨季/跨集同名串用。
   Future<List<String>> resolveExistingCachedSubtitles({
     required String workId,
     required List<String> subtitleRelativePaths,
+    String? sourceId,
+    Map<String, String>? validatorsByPath,
   }) async {
     if (subtitleRelativePaths.isEmpty) return const [];
     final dirHash = sha1
@@ -244,29 +322,97 @@ class LocalStreamBridge {
         .toString()
         .substring(0, 12);
     final targetDir = await _storageRoot.ensureSubtitleStageDir(dirHash);
+    final resolvedSourceId = (sourceId == null || sourceId.isEmpty)
+        ? workId
+        : sourceId;
     final hits = <String>[];
-    for (var i = 0; i < subtitleRelativePaths.length; i++) {
-      final relPath = subtitleRelativePaths[i];
-      final baseName = p.posix.basename(relPath.replaceAll('\\', '/'));
+    for (final relPath in subtitleRelativePaths) {
+      final canonical = canonicalizeSubtitleRelativePath(relPath);
+      final baseName = p.posix.basename(canonical);
       if (!SubtitleMatcher.isSubtitleFile(baseName)) continue;
-      final destFile = File(p.join(targetDir.path, '$i', baseName));
-      if (await destFile.exists()) {
-        final len = await destFile.length();
-        if (len > 0 && len <= StreamBridgeConfig.maxSubtitleMaterializeBytes) {
+
+      final pathBucketDir = Directory(
+        p.join(targetDir.path, _subtitlePathBucket(resolvedSourceId, canonical)),
+      );
+      if (!await pathBucketDir.exists()) continue;
+
+      final explicitValidator = validatorsByPath?[relPath]?.trim();
+      if (explicitValidator != null && explicitValidator.isNotEmpty) {
+        final destFile = File(
+          p.join(
+            pathBucketDir.path,
+            _subtitleVersionBucket(explicitValidator),
+            baseName,
+          ),
+        );
+        if (await _isValidCachedSubtitleFile(destFile)) {
           hits.add(destFile.path);
         }
+        continue;
+      }
+
+      // 未显式提供源版本验证器时，仅在当前 (sourceId, canonicalRelativePath) 隔离桶内检索最新有效文件。
+      final defaultFile = File(
+        p.join(pathBucketDir.path, 'v_default', baseName),
+      );
+      if (await _isValidCachedSubtitleFile(defaultFile)) {
+        hits.add(defaultFile.path);
+        continue;
+      }
+
+      File? newestCandidate;
+      DateTime? newestMtime;
+      await for (final entity in pathBucketDir.list(followLinks: false)) {
+        if (entity is! Directory) continue;
+        final candidate = File(p.join(entity.path, baseName));
+        if (!await _isValidCachedSubtitleFile(candidate)) continue;
+        final stat = await candidate.stat();
+        if (newestMtime == null || stat.modified.isAfter(newestMtime)) {
+          newestMtime = stat.modified;
+          newestCandidate = candidate;
+        }
+      }
+      if (newestCandidate != null) {
+        hits.add(newestCandidate.path);
       }
     }
     return hits;
   }
 
-  /// 将远程源中的外挂字幕文件并发拉取并写入应用便携 `cache/tmp/konata_subs/` 目录。
-  ///
-  /// 严格校验扩展名与文件体积上限（<= 32 MiB），并将文件存入索引隔离目录保持原始文件名完整无前缀篡改。
+  Future<bool> _isValidCachedSubtitleFile(File file) async {
+    if (!await file.exists()) return false;
+    final len = await file.length();
+    return len > 0 && len <= StreamBridgeConfig.maxSubtitleMaterializeBytes;
+  }
+
+  /// 将远程源中的外挂字幕文件并发拉取并经同卷 `.part` 校验后原子落盘，返回本地路径列表。
   Future<List<String>> materializeRemoteSubtitles({
     required ByteRangeReadableGateway gateway,
     required String workId,
     required List<String> subtitleRelativePaths,
+    String? sourceId,
+    Map<String, String>? validatorsByPath,
+  }) async {
+    final records = await materializeRemoteSubtitleRecords(
+      gateway: gateway,
+      workId: workId,
+      subtitleRelativePaths: subtitleRelativePaths,
+      sourceId: sourceId,
+      validatorsByPath: validatorsByPath,
+    );
+    return records.map((r) => r.localFilePath).toList(growable: false);
+  }
+
+  /// 将远程源中的外挂字幕文件经同卷 `.part` 完整性校验后原子 `rename` 落盘，并计算 `<srcSha1>`。
+  ///
+  /// 缓存路径严格绑定 `(sourceId, canonicalRelativePath, validator)`，保证同作品跨季同名零串用、
+  /// 网络中断半包零污染。
+  Future<List<MaterializedSubtitleRecord>> materializeRemoteSubtitleRecords({
+    required ByteRangeReadableGateway gateway,
+    required String workId,
+    required List<String> subtitleRelativePaths,
+    String? sourceId,
+    Map<String, String>? validatorsByPath,
   }) async {
     if (subtitleRelativePaths.isEmpty) return const [];
     final dirHash = sha1
@@ -274,25 +420,21 @@ class LocalStreamBridge {
         .toString()
         .substring(0, 12);
     final targetDir = await _storageRoot.ensureSubtitleStageDir(dirHash);
+    final resolvedSourceId = (sourceId == null || sourceId.isEmpty)
+        ? workId
+        : sourceId;
 
     final results = await Future.wait(
       subtitleRelativePaths.asMap().entries.map((entry) async {
         final relPath = entry.value;
-        final baseName = p.posix.basename(relPath.replaceAll('\\', '/'));
+        final canonical = canonicalizeSubtitleRelativePath(relPath);
+        final baseName = p.posix.basename(canonical);
         if (!SubtitleMatcher.isSubtitleFile(baseName)) {
           return null;
         }
-        final subDir = Directory(p.join(targetDir.path, '${entry.key}'));
-        final destFile = File(p.join(subDir.path, baseName));
+
         int? probedLen;
         try {
-          if (await destFile.exists()) {
-            final existingLen = await destFile.length();
-            if (existingLen > 0 &&
-                existingLen <= StreamBridgeConfig.maxSubtitleMaterializeBytes) {
-              return destFile.path;
-            }
-          }
           probedLen = await gateway.probeFileLength(relPath);
           if (probedLen != null &&
               probedLen > StreamBridgeConfig.maxSubtitleMaterializeBytes) {
@@ -300,39 +442,119 @@ class LocalStreamBridge {
           }
         } catch (_) {}
 
-        await subDir.create(recursive: true);
-        final sink = destFile.openWrite();
+        final explicitValidator = validatorsByPath?[relPath]?.trim() ?? '';
+        final effectiveValidator = explicitValidator.isNotEmpty
+            ? explicitValidator
+            : (probedLen != null && probedLen > 0 ? 'len:$probedLen' : '');
+        final cacheKey = buildSubtitleCacheKey(
+          sourceId: resolvedSourceId,
+          relativePath: canonical,
+          validator: effectiveValidator,
+        );
+        final pathBucket = _subtitlePathBucket(resolvedSourceId, canonical);
+        final versionBucket = _subtitleVersionBucket(effectiveValidator);
+        final versionDir = Directory(
+          p.join(targetDir.path, pathBucket, versionBucket),
+        );
+        final destFile = File(p.join(versionDir.path, baseName));
+
+        // 命中同键且字节完整的已落盘缓存直接计算 SHA-1 返回，零重复下载。
+        if (await destFile.exists()) {
+          final existingLen = await destFile.length();
+          final lenMatches =
+              probedLen == null || probedLen <= 0 || existingLen == probedLen;
+          if (existingLen > 0 &&
+              existingLen <= StreamBridgeConfig.maxSubtitleMaterializeBytes &&
+              lenMatches) {
+            final digest = await _computeFileSha1(destFile);
+            return MaterializedSubtitleRecord(
+              relativePath: relPath,
+              localFilePath: destFile.path,
+              sourceSha1: digest,
+              byteLength: existingLen,
+              cacheKey: cacheKey,
+              validator: effectiveValidator,
+            );
+          }
+        }
+
+        await versionDir.create(recursive: true);
+        final uniqueSuffix =
+            '${DateTime.now().microsecondsSinceEpoch}_${entry.key}';
+        final partFile = File('${destFile.path}.part.$uniqueSuffix');
+        final digestSink = _SingleDigestSink();
+        final sha1Input = sha1.startChunkedConversion(digestSink);
+        final sink = partFile.openWrite();
         var writtenBytes = 0;
-        var failedOrOversized = false;
+        var failed = false;
         try {
           final stream = await gateway.openByteRange(relPath, start: 0);
           await for (final chunk in stream) {
+            if (chunk.isEmpty) continue;
             writtenBytes += chunk.length;
             if (writtenBytes > StreamBridgeConfig.maxSubtitleMaterializeBytes) {
-              failedOrOversized = true;
+              failed = true;
               break;
             }
             sink.add(chunk);
+            sha1Input.add(chunk);
           }
-          if (!failedOrOversized) {
+          if (!failed) {
             await sink.flush();
           }
         } catch (_) {
-          failedOrOversized = true;
+          failed = true;
         } finally {
           await sink.close();
+          sha1Input.close();
         }
-        if (failedOrOversized) {
-          if (await destFile.exists()) {
-            await destFile.delete().catchError((_) => destFile);
+
+        final lengthValid =
+            writtenBytes > 0 &&
+            writtenBytes <= StreamBridgeConfig.maxSubtitleMaterializeBytes &&
+            (probedLen == null || probedLen <= 0 || writtenBytes == probedLen);
+        final srcDigest = digestSink.digest;
+        if (failed || !lengthValid || srcDigest == null) {
+          if (await partFile.exists()) {
+            await partFile.delete().catchError((_) => partFile);
           }
           return null;
         }
-        return destFile.path;
+
+        try {
+          // 同卷原子 rename 发布，严禁目标路径出现半包损坏文件。
+          await partFile.rename(destFile.path);
+        } catch (_) {
+          if (await partFile.exists()) {
+            await partFile.delete().catchError((_) => partFile);
+          }
+          return null;
+        }
+
+        return MaterializedSubtitleRecord(
+          relativePath: relPath,
+          localFilePath: destFile.path,
+          sourceSha1: srcDigest.toString(),
+          byteLength: writtenBytes,
+          cacheKey: cacheKey,
+          validator: effectiveValidator,
+        );
       }),
     );
 
-    return results.whereType<String>().toList(growable: false);
+    return results
+        .whereType<MaterializedSubtitleRecord>()
+        .toList(growable: false);
+  }
+
+  Future<String> _computeFileSha1(File file) async {
+    final digestSink = _SingleDigestSink();
+    final input = sha1.startChunkedConversion(digestSink);
+    await for (final chunk in file.openRead()) {
+      input.add(chunk);
+    }
+    input.close();
+    return digestSink.digest?.toString() ?? '';
   }
 
   Future<int?> _resolveTotalLength(_RegisteredStreamSession session) {

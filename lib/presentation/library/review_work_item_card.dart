@@ -234,7 +234,10 @@ class _ReviewWorkItemCardState extends ConsumerState<ReviewWorkItemCard> {
                 orElse: () => const SizedBox.shrink(),
               );
 
-              if (constraints.maxWidth >= 420) {
+              final singleRowMinWidth =
+                  416.0 *
+                  MediaQuery.textScalerOf(context).scale(1.0).clamp(1.0, 1.35);
+              if (constraints.maxWidth >= singleRowMinWidth) {
                 final gap = isCompactRow ? 3.0 : 6.0;
                 return Row(
                   children: [
@@ -393,35 +396,31 @@ class _ReviewCandidateRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Flexible(
-                      child: Text(
-                        candidate.title,
-                        maxLines: 1,
-                        softWrap: false,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: p.textPrimary,
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w700,
-                        ),
+                    Text(
+                      candidate.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: p.textPrimary,
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(width: 8),
                     Text(
                       yearEpLabel,
                       maxLines: 1,
-                      softWrap: false,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: p.textSecondary,
                         fontSize: 11.5,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    const SizedBox(width: 6),
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 6,
@@ -447,7 +446,6 @@ class _ReviewCandidateRow extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 6),
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 6,

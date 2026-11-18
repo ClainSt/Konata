@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -19,6 +20,8 @@ class SeriesSwitcherDropdown extends StatefulWidget {
     required this.seriesMembers,
     this.seriesGroup,
     required this.onSelectWork,
+    this.compact = false,
+    this.openDownward = false,
   });
 
   /// 当前正在详情页展示的作品。
@@ -32,6 +35,12 @@ class SeriesSwitcherDropdown extends StatefulWidget {
 
   /// 选定同系列其它成员后的原地切换回调。
   final ValueChanged<String> onSelectWork;
+
+  /// 是否使用紧凑视觉尺寸（手机横/竖屏适用，保留最小触控热区）。
+  final bool compact;
+
+  /// 浮层是否向下弹出（当触发器置于顶部栏时防止超出顶部裁切）。
+  final bool openDownward;
 
   @override
   State<SeriesSwitcherDropdown> createState() => _SeriesSwitcherDropdownState();
@@ -78,6 +87,7 @@ class _SeriesSwitcherDropdownState extends State<SeriesSwitcherDropdown> {
         activeWorkId: widget.activeWork.id,
         seriesMembers: orderedMembers,
         labelBuilder: _memberDisplayLabel,
+        openDownward: widget.openDownward,
         onDismiss: () {
           _closeMenu();
           if (mounted) setState(() {});
@@ -113,80 +123,96 @@ class _SeriesSwitcherDropdownState extends State<SeriesSwitcherDropdown> {
     final p = context.palette;
     final isOpen = _menuEntry != null;
 
-    return CompositedTransformTarget(
-      link: _link,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(999),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-          child: Material(
-            color: isOpen
-                ? KonataPlaybackTokens.activePillBg(p)
-                : KonataPlaybackTokens.glassSurface(p),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(999),
-              side: BorderSide(
-                color: isOpen
-                    ? KonataPlaybackTokens.activeGlassBorder(p)
-                    : KonataPlaybackTokens.glassBorder(p),
-                width: 1,
-              ),
+    final effectiveCompact =
+        widget.compact ||
+        (KonataAdaptiveTokens.isAndroid &&
+            MediaQuery.sizeOf(context).shortestSide <
+                KonataAdaptiveTokens.tabletBreakpoint);
+    final pill = ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+        child: Material(
+          color: isOpen
+              ? KonataPlaybackTokens.activePillBg(p)
+              : KonataPlaybackTokens.glassSurface(p),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(999),
+            side: BorderSide(
+              color: isOpen
+                  ? KonataPlaybackTokens.activeGlassBorder(p)
+                  : KonataPlaybackTokens.glassBorder(p),
+              width: 1,
             ),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(999),
-              hoverColor: KonataPlaybackTokens.hoverFill(p),
-              onTap: _toggleMenu,
-              child: ConstrainedBox(
-                constraints: KonataAdaptiveTokens.isAndroid
-                    ? const BoxConstraints(
-                        minHeight: KonataAdaptiveTokens.touchTarget,
-                      )
-                    : const BoxConstraints(),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 13,
-                    vertical: 8.5,
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(999),
+            hoverColor: KonataPlaybackTokens.hoverFill(p),
+            onTap: _toggleMenu,
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: effectiveCompact ? 10 : 13,
+                vertical: effectiveCompact ? 5.5 : 8.5,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.layers_rounded,
+                    size: effectiveCompact ? 13.5 : 14.5,
+                    color: p.textPrimary,
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.layers_rounded,
-                        size: 14.5,
-                        color: p.textPrimary,
+                  const SizedBox(width: 5),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: effectiveCompact ? 128 : 168,
+                    ),
+                    child: Text(
+                      currentLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: KonataTheme.detailTextStyle(
+                        palette: p,
+                        fontSize: effectiveCompact ? 12 : 13,
+                        fontWeight: FontWeight.w600,
                       ),
-                      const SizedBox(width: 6),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 168),
-                        child: Text(
-                          currentLabel,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: KonataTheme.detailTextStyle(
-                            palette: p,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      AnimatedRotation(
-                        turns: isOpen ? 0.5 : 0.0,
-                        duration: const Duration(milliseconds: 180),
-                        curve: Curves.easeOutCubic,
-                        child: Icon(
-                          Icons.keyboard_arrow_down_rounded,
-                          size: 17,
-                          color: p.textSecondary,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 3),
+                  AnimatedRotation(
+                    turns: isOpen ? 0.5 : 0.0,
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOutCubic,
+                    child: Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      size: effectiveCompact ? 16 : 17,
+                      color: p.textSecondary,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
         ),
+      ),
+    );
+
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.15,
+      child: CompositedTransformTarget(
+        link: _link,
+        child: KonataAdaptiveTokens.isAndroid
+            ? ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minHeight: KonataAdaptiveTokens.touchTarget,
+                ),
+                child: Center(
+                  widthFactor: 1.0,
+                  heightFactor: 1.0,
+                  child: pill,
+                ),
+              )
+            : pill,
       ),
     );
   }
@@ -201,6 +227,7 @@ class _SeriesMenuOverlay extends StatefulWidget {
     required this.labelBuilder,
     required this.onDismiss,
     required this.onPick,
+    this.openDownward = false,
   });
 
   final LayerLink link;
@@ -210,6 +237,7 @@ class _SeriesMenuOverlay extends StatefulWidget {
   final String Function(Work member, int index) labelBuilder;
   final VoidCallback onDismiss;
   final ValueChanged<String> onPick;
+  final bool openDownward;
 
   @override
   State<_SeriesMenuOverlay> createState() => _SeriesMenuOverlayState();
@@ -232,9 +260,13 @@ class _SeriesMenuOverlayState extends State<_SeriesMenuOverlay> {
         CompositedTransformFollower(
           link: widget.link,
           showWhenUnlinked: false,
-          targetAnchor: Alignment.topLeft,
-          followerAnchor: Alignment.bottomLeft,
-          offset: const Offset(0, -10),
+          targetAnchor: widget.openDownward
+              ? Alignment.bottomLeft
+              : Alignment.topLeft,
+          followerAnchor: widget.openDownward
+              ? Alignment.topLeft
+              : Alignment.bottomLeft,
+          offset: Offset(0, widget.openDownward ? 8 : -10),
           child: Material(
             color: Colors.transparent,
             child: ClipRRect(
@@ -243,7 +275,12 @@ class _SeriesMenuOverlayState extends State<_SeriesMenuOverlay> {
                 filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
                 child: Container(
                   width: 280,
-                  constraints: const BoxConstraints(maxHeight: 340),
+                  constraints: BoxConstraints(
+                    maxHeight: math.max(
+                      160.0,
+                      math.min(340.0, MediaQuery.sizeOf(context).height - 100),
+                    ),
+                  ),
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   decoration: BoxDecoration(
                     color: KonataPlaybackTokens.popoverSurface(p),

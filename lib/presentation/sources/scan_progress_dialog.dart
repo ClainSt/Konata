@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -5,6 +7,8 @@ import '../../application/providers/library_providers.dart';
 import '../../application/providers/scraping_providers.dart';
 import '../../application/scraping/scrape_progress.dart';
 import '../theme/konata_palette.dart';
+import '../widgets/design_system/adaptive_responsive_row.dart';
+import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
@@ -68,16 +72,18 @@ class _ScanProgressDialogState extends ConsumerState<ScanProgressDialog> {
           onPressed: () => Navigator.of(context).pop(),
         ),
       ],
-      child: SizedBox(
-        height: 468,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildSummaryCard(p, progress),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                KonataSegmentedCapsule<_ProgressTab>(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final tabHeader = Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              MediaQuery.withClampedTextScaling(
+                maxScaleFactor: 1.15,
+                child: KonataSegmentedCapsule<_ProgressTab>(
+                  compact: true,
                   selected: _activeTab,
                   onChanged: (tab) => setState(() => _activeTab = tab),
                   options: [
@@ -91,33 +97,71 @@ class _ScanProgressDialogState extends ConsumerState<ScanProgressDialog> {
                     ),
                   ],
                 ),
-                const Spacer(),
-                Text(
-                  progress.selectedRoots.isNotEmpty
-                      ? '局部范围 · ${progress.selectedRoots.length} 个目录'
-                      : '全库作用域',
-                  style: TextStyle(color: p.textSecondary, fontSize: 12),
-                ),
-              ],
+              ),
+              Text(
+                progress.selectedRoots.isNotEmpty
+                    ? '局部范围 · ${progress.selectedRoots.length} 个目录'
+                    : '全库作用域',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: p.textSecondary, fontSize: 12),
+              ),
+            ],
+          );
+
+          final paneCard = KonataSurfaceCard(
+            padding: const EdgeInsets.all(12),
+            child: KonataSmoothSectionSwitcher(
+              switchKey: _activeTab,
+              alignment: Alignment.topLeft,
+              child: _activeTab == _ProgressTab.folders
+                  ? ScanVisitedFoldersPane(
+                      progress: progress,
+                      visitedFolders: visited,
+                    )
+                  : ScanPendingReviewPane(items: reviewItems),
             ),
-            const SizedBox(height: 10),
-            Expanded(
-              child: KonataSurfaceCard(
-                padding: const EdgeInsets.all(12),
-                child: KonataSmoothSectionSwitcher(
-                  switchKey: _activeTab,
-                  alignment: Alignment.topLeft,
-                  child: _activeTab == _ProgressTab.folders
-                      ? ScanVisitedFoldersPane(
-                          progress: progress,
-                          visitedFolders: visited,
-                        )
-                      : ScanPendingReviewPane(items: reviewItems),
+          );
+
+          final scrollThreshold = constraints.maxWidth < 400 ? 440.0 : 300.0;
+          if (constraints.maxHeight.isFinite &&
+              constraints.maxHeight < scrollThreshold) {
+            return KonataDraggableScrollbar(
+              builder: (_, scrollCtrl) => SingleChildScrollView(
+                controller: scrollCtrl,
+                padding: const EdgeInsets.only(right: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildSummaryCard(p, progress),
+                    const SizedBox(height: 12),
+                    tabHeader,
+                    const SizedBox(height: 10),
+                    SizedBox(height: 200, child: paneCard),
+                  ],
                 ),
               ),
+            );
+          }
+
+          final targetH = constraints.maxHeight.isFinite
+              ? math.min(468.0, constraints.maxHeight)
+              : 468.0;
+          return SizedBox(
+            height: targetH,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildSummaryCard(p, progress),
+                const SizedBox(height: 12),
+                tabHeader,
+                const SizedBox(height: 10),
+                Expanded(child: paneCard),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -149,28 +193,28 @@ class _ScanProgressDialogState extends ConsumerState<ScanProgressDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  phaseTitle,
-                  style: TextStyle(
-                    color: p.textPrimary,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+          AdaptiveResponsiveRow(
+            minLeadingWidth: 160,
+            estimatedTrailingWidth: 180,
+            expandTrailingWhenStacked: true,
+            leading: Text(
+              phaseTitle,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: p.textPrimary,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
               ),
-              if (progress.currentItemName.isNotEmpty)
-                Flexible(
-                  child: Text(
+            ),
+            trailing: progress.currentItemName.isNotEmpty
+                ? Text(
                     progress.currentItemName,
-                    maxLines: 1,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(color: p.textSecondary, fontSize: 12.5),
-                  ),
-                ),
-            ],
+                  )
+                : const SizedBox.shrink(),
           ),
           const SizedBox(height: 10),
           ClipRRect(

@@ -297,11 +297,11 @@ class _WorkArtworkPickerDialogState
                   onChanged: (v) => setState(() => _selectedPath = v.trim()),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Padding(
                 padding: const EdgeInsets.only(top: 18),
                 child: KonataPillButton.secondary(
-                  label: '本地图片...',
+                  label: '本地...',
                   icon: Icons.folder_open_rounded,
                   compact: true,
                   onPressed: _pickLocalImage,
@@ -329,8 +329,8 @@ class _WorkArtworkPickerDialogState
                     builder: (_, ctrl) => GridView.builder(
                       controller: ctrl,
                       padding: const EdgeInsets.fromLTRB(4, 4, 14, 6),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: isPoster ? 4 : 2,
+                      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: isPoster ? 148 : 260,
                         mainAxisSpacing: 12,
                         crossAxisSpacing: 12,
                         childAspectRatio: isPoster ? 2 / 3 : 16 / 9,

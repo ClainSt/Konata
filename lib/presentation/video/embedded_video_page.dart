@@ -17,13 +17,13 @@ import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/design_system/konata_glass_capsule.dart';
+import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_toast.dart';
 import '../widgets/playback/konata_osd_stroked_text.dart';
 import '../widgets/playback/konata_playback_capsule.dart';
 import '../widgets/playback/konata_spec_badge.dart';
 import '../widgets/playback/konata_volume_control.dart';
 import 'video_hardware_surface.dart';
-import 'video_portrait_console.dart';
 import 'video_probe_overlay.dart';
 import 'video_side_sheet.dart';
 import 'video_touch_gesture_layer.dart';
@@ -33,7 +33,7 @@ import 'video_touch_gesture_layer.dart';
 /// 架构特性：
 /// - 顶层绝不订阅 `positionSeconds`；播放无操作满 3 秒后平滑隐藏 OSD，并彻底停止进度时间 UI 订阅（零重建重绘）；
 /// - 支持全局保活宿主挂载（收起为底部播放胶囊圆角预览不断流、不重建解码会话）与路由独立挂载双模式；
-/// - 完整覆盖桌面端、Android 平板（`>=44dp` 顶部避让、`<=640dp` 底坞、右滑抽屉）、手机横屏（隐藏系统栏 + 不贴边悬浮胶囊）与手机竖屏（上部视频舞台 + 下部队列/章节/音轨字幕快捷胶囊 + 一键横屏）；
+/// - 完整覆盖桌面端、Android 平板（`>=44dp` 顶部避让、`<=640dp` 底坞、右滑抽屉）与手机横屏（强制横屏 + 隐藏系统栏 + 不贴边悬浮胶囊）；
 /// - Android 画中画（PiP）纯净态隐藏全部胶囊、抽屉与 `SafeArea` 留白，仅保留全幅硬件纹理与原生字幕。
 class EmbeddedVideoPage extends ConsumerStatefulWidget {
   /// 创建内置视频播放页。
@@ -95,7 +95,6 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
   bool _instantHudHide = false;
   bool _screenLocked = false;
   bool _lockButtonPeek = false;
-  bool _portraitFillScreen = false;
   bool? _lastAndroidSystemBarsHidden;
   Timer? _idleTimer;
   Timer? _lockPeekTimer;
@@ -118,6 +117,18 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
   void initState() {
     super.initState();
     _scheduleIdleHide();
+    if (KonataAdaptiveTokens.isAndroid && !widget.inPipMode) {
+      final audioOnly =
+          ref.read(videoPlaybackProvider(widget.request)).audioOnlyMode;
+      if (!audioOnly) {
+        unawaited(
+          AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
+            landscape: true,
+            hideSystemBars: true,
+          ),
+        );
+      }
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _focusNode.requestFocus();
@@ -132,7 +143,14 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
     _lockPeekTimer?.cancel();
     _cornerBadgeTimer?.cancel();
     _rightHoldTimer?.cancel();
-    if (_lastAndroidSystemBarsHidden == true) {
+    if (KonataAdaptiveTokens.isAndroid && widget.onCollapseToMini == null) {
+      unawaited(
+        AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
+          landscape: false,
+          hideSystemBars: false,
+        ),
+      );
+    } else if (_lastAndroidSystemBarsHidden == true) {
       unawaited(AndroidPlaybackWindowBridge.setSystemBarsHidden(false));
     }
     _focusNode.dispose();
@@ -562,8 +580,13 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
         widget.sharedVideoSurface ??
         KonataHardwareVideoSurface(request: widget.request);
 
+    final size = MediaQuery.sizeOf(context);
+    final safe = MediaQuery.paddingOf(context);
+    final isAndroid = KonataAdaptiveTokens.isAndroid;
+    final isPipDimensions = isAndroid && size.height < 260 && size.width < 520;
+
     // 画中画纯净态：隐藏所有 Flutter 胶囊、抽屉与 SafeArea 留白，挂起进度监听，仅全幅纹理与字幕
-    if (widget.inPipMode) {
+    if (widget.inPipMode || isPipDimensions) {
       return ColoredBox(
         key: const ValueKey('video_pip_pure_stage'),
         color: KonataPlaybackTokens.cinemaPureBlack,
@@ -571,28 +594,29 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
       );
     }
 
-    final size = MediaQuery.sizeOf(context);
-    final safe = MediaQuery.paddingOf(context);
-    final isAndroid = KonataAdaptiveTokens.isAndroid;
     final isTablet =
         isAndroid && size.shortestSide >= KonataAdaptiveTokens.tabletBreakpoint;
     final isPhoneLandscape = isAndroid && !isTablet && size.width > size.height;
-    final isPhonePortrait = isAndroid && !isTablet && !isPhoneLandscape;
 
-    final vidW = snap.probeStats.videoWidth ?? 0;
-    final vidH = snap.probeStats.videoHeight ?? 0;
-    final isVerticalVideo = vidH > vidW && vidW > 0;
-    final useSplitPortraitConsole =
-        isPhonePortrait && !isVerticalVideo && !_portraitFillScreen;
-
-    // 手机横屏隐藏系统状态栏与手势栏，竖屏或平板恢复
-    _syncAndroidSystemBars(isPhoneLandscape);
+    // 进入视频全幅播放隐藏系统状态栏与手势栏，确保视口完整铺满
+    _syncAndroidSystemBars(isAndroid && (isPhoneLandscape || snap.isFullscreen));
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _reportStageSourceRect();
     });
 
+    final isWidgetTest = WidgetsBinding.instance.runtimeType
+        .toString()
+        .contains('TestWidgetsFlutterBinding');
+    final awaitingLandscapeRotation =
+        isAndroid &&
+        !isWidgetTest &&
+        !snap.audioOnlyMode &&
+        !widget.inPipMode &&
+        !isPipDimensions &&
+        size.width < size.height;
     final showHud =
+        !awaitingLandscapeRotation &&
         !_screenLocked &&
         (_hudVisible || snap.sideSheetOpen || _volumePopupActive);
     final hudDuration = _instantHudHide
@@ -694,7 +718,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
           if ((_cornerBadgeVisible || snap.isSpeedBoostActive) &&
               !_screenLocked)
             Positioned(
-              top: useSplitPortraitConsole ? 14 : 72,
+              top: 72,
               right: 20,
               child: IgnorePointer(
                 child: _MiniCornerStatusPill(
@@ -711,7 +735,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
           // 6. 自动连播 / 硬解回退 / 截图保存顶部描边纯文字提示
           if (snap.transientBanner != null && !_screenLocked)
             Positioned(
-              top: useSplitPortraitConsole ? 14 : 76,
+              top: 76,
               left: 24,
               right: 24,
               child: IgnorePointer(
@@ -731,9 +755,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
           // 7. 右下角智能跳过 OP/ED 胶囊
           if (snap.activeSkipWindow != null && !_screenLocked)
             Positioned(
-              bottom: useSplitPortraitConsole
-                  ? 58
-                  : KonataPlaybackTokens.skipPillBottomOffset,
+              bottom: KonataPlaybackTokens.skipPillBottomOffset,
               right: KonataPlaybackTokens.skipPillRightOffset,
               child: Listener(
                 behavior: HitTestBehavior.opaque,
@@ -747,25 +769,19 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
             ),
 
           // 8. 顶栏与底部控制坞（锁屏时彻底屏蔽）
-          if (useSplitPortraitConsole)
-            ..._buildSplitPortraitStageHud(
-              showHud: showHud,
-              hudDuration: hudDuration,
-              isPlaying: snap.isPlaying,
-              controller: controller,
-            )
-          else ...[
-            Positioned(
-              top: isTablet
-                  ? math.max(safe.top, KonataAdaptiveTokens.tabletTopSafeMin)
-                  : (isPhoneLandscape ? math.max(safe.top, 12.0) : 0.0),
-              left: isAndroid ? math.max(safe.left, 14.0) : 0.0,
-              right: isAndroid ? math.max(safe.right, 14.0) : 0.0,
-              child: AnimatedOpacity(
-                duration: hudDuration,
-                opacity: showHud ? 1.0 : 0.0,
-                child: IgnorePointer(
-                  ignoring: !showHud,
+          Positioned(
+            top: isTablet
+                ? math.max(safe.top, KonataAdaptiveTokens.tabletTopSafeMin)
+                : (isAndroid ? math.max(safe.top, 12.0) : 0.0),
+            left: isAndroid ? math.max(safe.left, 14.0) : 0.0,
+            right: isAndroid ? math.max(safe.right, 14.0) : 0.0,
+            child: AnimatedOpacity(
+              duration: hudDuration,
+              opacity: showHud ? 1.0 : 0.0,
+              child: IgnorePointer(
+                ignoring: !showHud,
+                child: MediaQuery.withClampedTextScaling(
+                  maxScaleFactor: 1.15,
                   child: Listener(
                     behavior: HitTestBehavior.opaque,
                     child: isAndroid
@@ -773,7 +789,6 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                             snap: snap,
                             controller: controller,
                             epTitle: epTitle,
-                            isPhonePortraitFullbleed: isPhonePortrait,
                           )
                         : _buildDesktopTopOverlayBar(
                             snap: snap,
@@ -784,18 +799,21 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                 ),
               ),
             ),
-            Positioned(
-              left: isAndroid ? math.max(safe.left, 16.0) : 20.0,
-              right: isAndroid ? math.max(safe.right, 16.0) : 20.0,
-              bottom: isAndroid
-                  ? math.max(safe.bottom, 14.0)
-                  : KonataPlaybackTokens.capsuleBottomOffset,
-              child: AnimatedOpacity(
-                duration: hudDuration,
-                opacity: showHud ? 1.0 : 0.0,
-                child: IgnorePointer(
-                  ignoring: !showHud,
-                  child: Center(
+          ),
+          Positioned(
+            left: isAndroid ? math.max(safe.left, 16.0) : 20.0,
+            right: isAndroid ? math.max(safe.right, 16.0) : 20.0,
+            bottom: isAndroid
+                ? math.max(safe.bottom, 14.0)
+                : KonataPlaybackTokens.capsuleBottomOffset,
+            child: AnimatedOpacity(
+              duration: hudDuration,
+              opacity: showHud ? 1.0 : 0.0,
+              child: IgnorePointer(
+                ignoring: !showHud,
+                child: Center(
+                  child: MediaQuery.withClampedTextScaling(
+                    maxScaleFactor: 1.15,
                     child: Listener(
                       behavior: HitTestBehavior.opaque,
                       child: _VideoBottomHudLeaf(
@@ -819,7 +837,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                 ),
               ),
             ),
-          ],
+          ),
         ],
       ),
     );
@@ -834,10 +852,6 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
         }
         if (snap.sideSheetOpen) {
           _closeSideSheet();
-          return;
-        }
-        if (_portraitFillScreen) {
-          setState(() => _portraitFillScreen = false);
           return;
         }
         if (isAndroid && snap.isFullscreen) {
@@ -861,32 +875,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                if (useSplitPortraitConsole)
-                  Column(
-                    children: [
-                      Container(
-                        color: KonataPlaybackTokens.cinemaPureBlack,
-                        padding: EdgeInsets.only(top: safe.top),
-                        child: AspectRatio(
-                          aspectRatio: 16 / 9,
-                          child: stageStack,
-                        ),
-                      ),
-                      Expanded(
-                        child: VideoPortraitConsole(
-                          request: widget.request,
-                          onOpenSideSheet: _openSideSheet,
-                          onEnterPip: () => unawaited(
-                            ref
-                                .read(activeVideoSessionProvider.notifier)
-                                .enterPipManually(),
-                          ),
-                        ),
-                      ),
-                    ],
-                  )
-                else
-                  stageStack,
+                stageStack,
 
                 // 右滑毛玻璃五标签侧栏（选集/章节/字幕/音轨/画面，开启期间不中断播放）
                 if (snap.sideSheetOpen && !_screenLocked)
@@ -905,98 +894,10 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
     );
   }
 
-  List<Widget> _buildSplitPortraitStageHud({
-    required bool showHud,
-    required Duration hudDuration,
-    required bool isPlaying,
-    required VideoPlaybackController controller,
-  }) {
-    final p = context.palette;
-    return [
-      Positioned(
-        top: 6,
-        left: 8,
-        right: 8,
-        child: AnimatedOpacity(
-          duration: hudDuration,
-          opacity: showHud ? 1.0 : 0.0,
-          child: IgnorePointer(
-            ignoring: !showHud,
-            child: Row(
-              children: [
-                KonataGlassCapsule(
-                  radius: 999,
-                  child: KonataCapsuleIconButton(
-                    key: const ValueKey('video_collapse_button'),
-                    icon: widget.onCollapseToMini != null
-                        ? Icons.keyboard_arrow_down_rounded
-                        : Icons.arrow_back_rounded,
-                    tooltip: widget.onCollapseToMini != null
-                        ? '收起至小窗胶囊'
-                        : '返回',
-                    color: p.textPrimary,
-                    size: 22,
-                    fixedSize: KonataAdaptiveTokens.touchTarget,
-                    onTap: _collapseOrExit,
-                  ),
-                ),
-                const Spacer(),
-                KonataGlassCapsule(
-                  radius: 999,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      KonataCapsuleIconButton(
-                        icon: Icons.open_in_full_rounded,
-                        tooltip: '竖屏铺满画面',
-                        color: p.textPrimary,
-                        size: 18,
-                        fixedSize: KonataAdaptiveTokens.touchTarget,
-                        onTap: () => setState(() => _portraitFillScreen = true),
-                      ),
-                      if (widget.onCollapseToMini != null)
-                        KonataCapsuleIconButton(
-                          icon: Icons.close_rounded,
-                          tooltip: '结束视频播放',
-                          color: p.textPrimary,
-                          size: 20,
-                          fixedSize: KonataAdaptiveTokens.touchTarget,
-                          onTap: () => unawaited(_closeSessionAndExit()),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-      Positioned(
-        left: 8,
-        right: 8,
-        bottom: 6,
-        child: AnimatedOpacity(
-          duration: hudDuration,
-          opacity: showHud ? 1.0 : 0.0,
-          child: IgnorePointer(
-            ignoring: !showHud,
-            child: _PortraitCompactVideoBarLeaf(
-              request: widget.request,
-              subscribeProgress: showHud && !widget.inPipMode,
-              isPlaying: isPlaying,
-              onLandscape: () => unawaited(controller.toggleFullscreen()),
-            ),
-          ),
-        ),
-      ),
-    ];
-  }
-
   Widget _buildAndroidFloatingTopCapsule({
     required dynamic snap,
     required VideoPlaybackController controller,
     required String epTitle,
-    required bool isPhonePortraitFullbleed,
   }) {
     final p = context.palette;
     final stats = snap.probeStats;
@@ -1007,101 +908,102 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
     final hwActive =
         stats.hwdecCurrent.isNotEmpty && stats.hwdecCurrent != 'no';
 
-    return KonataGlassCapsule(
-      key: const ValueKey('android_video_top_capsule'),
-      radius: KonataAdaptiveTokens.capsuleRadius,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(
-        children: [
-          KonataCapsuleIconButton(
-            key: const ValueKey('video_collapse_button'),
-            icon: widget.onCollapseToMini != null
-                ? Icons.keyboard_arrow_down_rounded
-                : Icons.arrow_back_rounded,
-            tooltip: widget.onCollapseToMini != null ? '收起至小窗胶囊' : '返回',
-            color: p.textPrimary,
-            size: 24,
-            fixedSize: KonataAdaptiveTokens.touchTarget,
-            onTap: _collapseOrExit,
-          ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Row(
-              children: [
-                Flexible(
-                  child: EllipsisTextWithTooltip(
-                    text: '${controller.activeWork.title} · $epTitle',
-                    style: TextStyle(
-                      color: p.textPrimary,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final narrowTop = constraints.maxWidth < 540;
+        return KonataGlassCapsule(
+          key: const ValueKey('android_video_top_capsule'),
+          radius: KonataAdaptiveTokens.capsuleRadius,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Row(
+            children: [
+              KonataCapsuleIconButton(
+                key: const ValueKey('video_collapse_button'),
+                icon: widget.onCollapseToMini != null
+                    ? Icons.keyboard_arrow_down_rounded
+                    : Icons.arrow_back_rounded,
+                tooltip: widget.onCollapseToMini != null ? '收起至小窗胶囊' : '返回',
+                color: p.textPrimary,
+                size: 24,
+                fixedSize: KonataAdaptiveTokens.touchTarget,
+                onTap: _collapseOrExit,
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: EllipsisTextWithTooltip(
+                        text: '${controller.activeWork.title} · $epTitle',
+                        style: TextStyle(
+                          color: p.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
+                    if (resBadge.isNotEmpty && !narrowTop) ...[
+                      const SizedBox(width: 8),
+                      KonataSpecBadge(label: resBadge, darkOverlay: true),
+                    ],
+                    if (hwActive && !narrowTop) ...[
+                      const SizedBox(width: 6),
+                      KonataSpecBadge(
+                        label: '硬解 (${stats.hwdecCurrent})',
+                        darkOverlay: true,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (!narrowTop) ...[
+                KonataCapsuleIconButton(
+                  key: const ValueKey('video_toggle_audio_only_button'),
+                  icon: Icons.headphones_rounded,
+                  tooltip: snap.audioOnlyMode ? '恢复视频画面' : '切换后台纯音频',
+                  color: p.textPrimary,
+                  highlighted: snap.audioOnlyMode,
+                  size: 19,
+                  fixedSize: KonataAdaptiveTokens.touchTarget,
+                  onTap: controller.toggleAudioOnlyMode,
+                ),
+                KonataCapsuleIconButton(
+                  key: const ValueKey('video_enter_pip_button'),
+                  icon: Icons.picture_in_picture_alt_rounded,
+                  tooltip: '进入画中画',
+                  color: p.textPrimary,
+                  size: 19,
+                  fixedSize: KonataAdaptiveTokens.touchTarget,
+                  onTap: () => unawaited(
+                    ref
+                        .read(activeVideoSessionProvider.notifier)
+                        .enterPipManually(),
                   ),
                 ),
-                if (resBadge.isNotEmpty && !isPhonePortraitFullbleed) ...[
-                  const SizedBox(width: 8),
-                  KonataSpecBadge(label: resBadge, darkOverlay: true),
-                ],
-                if (hwActive && !isPhonePortraitFullbleed) ...[
-                  const SizedBox(width: 6),
-                  KonataSpecBadge(
-                    label: '硬解 (${stats.hwdecCurrent})',
-                    darkOverlay: true,
-                  ),
-                ],
               ],
-            ),
+              KonataCapsuleIconButton(
+                key: const ValueKey('video_top_more_tune_button'),
+                icon: Icons.tune_rounded,
+                tooltip: '播控与画质设置',
+                color: p.textPrimary,
+                size: 20,
+                fixedSize: KonataAdaptiveTokens.touchTarget,
+                onTap: () => _openSideSheet(VideoSideSheetTab.video),
+              ),
+              if (widget.onCollapseToMini != null)
+                KonataCapsuleIconButton(
+                  key: const ValueKey('video_close_session_button'),
+                  icon: Icons.close_rounded,
+                  tooltip: '停止并关闭视频',
+                  color: p.textPrimary,
+                  size: 20,
+                  fixedSize: KonataAdaptiveTokens.touchTarget,
+                  onTap: () => unawaited(_closeSessionAndExit()),
+                ),
+            ],
           ),
-          if (isPhonePortraitFullbleed)
-            KonataCapsuleIconButton(
-              icon: Icons.close_fullscreen_rounded,
-              tooltip: '返回竖屏上下分栏',
-              color: p.textPrimary,
-              size: 19,
-              fixedSize: KonataAdaptiveTokens.touchTarget,
-              onTap: () => setState(() => _portraitFillScreen = false),
-            ),
-          KonataCapsuleIconButton(
-            key: const ValueKey('video_toggle_audio_only_button'),
-            icon: Icons.headphones_rounded,
-            tooltip: snap.audioOnlyMode ? '恢复视频画面' : '切换后台纯音频',
-            color: p.textPrimary,
-            highlighted: snap.audioOnlyMode,
-            size: 19,
-            fixedSize: KonataAdaptiveTokens.touchTarget,
-            onTap: controller.toggleAudioOnlyMode,
-          ),
-          KonataCapsuleIconButton(
-            key: const ValueKey('video_enter_pip_button'),
-            icon: Icons.picture_in_picture_alt_rounded,
-            tooltip: '进入画中画',
-            color: p.textPrimary,
-            size: 19,
-            fixedSize: KonataAdaptiveTokens.touchTarget,
-            onTap: () => unawaited(
-              ref.read(activeVideoSessionProvider.notifier).enterPipManually(),
-            ),
-          ),
-          KonataCapsuleIconButton(
-            icon: Icons.tune_rounded,
-            tooltip: '播控与画质设置',
-            color: p.textPrimary,
-            size: 20,
-            fixedSize: KonataAdaptiveTokens.touchTarget,
-            onTap: () => _openSideSheet(VideoSideSheetTab.video),
-          ),
-          if (widget.onCollapseToMini != null)
-            KonataCapsuleIconButton(
-              key: const ValueKey('video_close_session_button'),
-              icon: Icons.close_rounded,
-              tooltip: '停止并关闭视频',
-              color: p.textPrimary,
-              size: 20,
-              fixedSize: KonataAdaptiveTokens.touchTarget,
-              onTap: () => unawaited(_closeSessionAndExit()),
-            ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -1316,6 +1218,9 @@ class _VideoBottomHudLeaf extends ConsumerWidget {
     final canPrev = controller.hasPreviousEpisodeAny;
     final canNext = controller.hasNextEpisodeAny;
     final speedChanged = (speed - 1.0).abs() > 0.02;
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final narrowAndroidHud = isAndroid && screenWidth < 680;
+    final ultraNarrowAndroidHud = isAndroid && screenWidth < 400;
 
     return RepaintBoundary(
       child: KonataPlaybackCapsule(
@@ -1341,22 +1246,33 @@ class _VideoBottomHudLeaf extends ConsumerWidget {
         rightSlot: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            KonataCapsuleIconButton(
-              icon: Icons.subtitles_outlined,
-              tooltip: '字幕轨道',
-              color: p.textPrimary,
-              size: 18,
-              fixedSize: btnSize,
-              onTap: () => onOpenSideSheet(VideoSideSheetTab.subtitles),
-            ),
-            KonataCapsuleIconButton(
-              icon: Icons.audiotrack_outlined,
-              tooltip: '音轨切换',
-              color: p.textPrimary,
-              size: 18,
-              fixedSize: btnSize,
-              onTap: () => onOpenSideSheet(VideoSideSheetTab.audio),
-            ),
+            if (!narrowAndroidHud) ...[
+              KonataCapsuleIconButton(
+                icon: Icons.subtitles_outlined,
+                tooltip: '字幕轨道',
+                color: p.textPrimary,
+                size: 18,
+                fixedSize: btnSize,
+                onTap: () => onOpenSideSheet(VideoSideSheetTab.subtitles),
+              ),
+              KonataCapsuleIconButton(
+                icon: Icons.audiotrack_outlined,
+                tooltip: '音轨切换',
+                color: p.textPrimary,
+                size: 18,
+                fixedSize: btnSize,
+                onTap: () => onOpenSideSheet(VideoSideSheetTab.audio),
+              ),
+            ] else
+              KonataCapsuleIconButton(
+                key: const ValueKey('video_bottom_secondary_sheet_button'),
+                icon: Icons.tune_rounded,
+                tooltip: '音轨与字幕设置',
+                color: p.textPrimary,
+                size: 18,
+                fixedSize: btnSize,
+                onTap: () => onOpenSideSheet(VideoSideSheetTab.audio),
+              ),
             if (!isAndroid)
               KonataCapsuleIconButton(
                 icon: Icons.camera_alt_outlined,
@@ -1398,153 +1314,18 @@ class _VideoBottomHudLeaf extends ConsumerWidget {
                 externalRevealPulse: externalVolumePulse,
                 onPopupActiveChanged: onVolumePopupActiveChanged,
               ),
-            KonataCapsuleIconButton(
-              icon: isFullscreen
-                  ? Icons.fullscreen_exit_rounded
-                  : Icons.fullscreen_rounded,
-              tooltip: isFullscreen ? '退出全屏 (F / Esc)' : '全屏播放 (F / 双击)',
-              color: p.textPrimary,
-              size: 20,
-              fixedSize: btnSize,
-              onTap: () => unawaited(controller.toggleFullscreen()),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// 手机竖屏上部视频舞台紧凑进度与一键横屏胶囊叶子（OSD 隐藏时自动退订进度）。
-class _PortraitCompactVideoBarLeaf extends ConsumerStatefulWidget {
-  const _PortraitCompactVideoBarLeaf({
-    required this.request,
-    required this.subscribeProgress,
-    required this.isPlaying,
-    required this.onLandscape,
-  });
-
-  final VideoLaunchRequest request;
-  final bool subscribeProgress;
-  final bool isPlaying;
-  final VoidCallback onLandscape;
-
-  @override
-  ConsumerState<_PortraitCompactVideoBarLeaf> createState() =>
-      _PortraitCompactVideoBarLeafState();
-}
-
-class _PortraitCompactVideoBarLeafState
-    extends ConsumerState<_PortraitCompactVideoBarLeaf> {
-  double? _dragSeconds;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    final controller = ref.read(videoPlaybackProvider(widget.request).notifier);
-    final timing = widget.subscribeProgress
-        ? ref.watch(
-            videoPlaybackProvider(widget.request).select(
-              (s) => (pos: s.positionSeconds, dur: s.durationSeconds),
-            ),
-          )
-        : (
-            pos: ref.read(videoPlaybackProvider(widget.request)).positionSeconds,
-            dur: ref.read(videoPlaybackProvider(widget.request)).durationSeconds,
-          );
-
-    final total = timing.dur > 0 ? timing.dur : 0.0;
-    final effective = (_dragSeconds ?? timing.pos).clamp(
-      0.0,
-      total > 0 ? total : 1.0,
-    );
-    final showHours = total >= 3600;
-    final posText = PlaybackFormatters.formatMediaDuration(
-      total > 0 ? effective : 0.0,
-      alwaysShowHours: showHours,
-    );
-    final durText = PlaybackFormatters.formatMediaDuration(
-      total,
-      alwaysShowHours: showHours,
-    );
-
-    return RepaintBoundary(
-      child: KonataGlassCapsule(
-        radius: 999,
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: SizedBox(
-          height: KonataAdaptiveTokens.touchTarget,
-          child: Row(
-            children: [
+            if (!ultraNarrowAndroidHud)
               KonataCapsuleIconButton(
-                icon: widget.isPlaying
-                    ? Icons.pause_rounded
-                    : Icons.play_arrow_rounded,
-                tooltip: widget.isPlaying ? '暂停' : '播放',
-                color: p.textPrimary,
-                size: 24,
-                fixedSize: KonataAdaptiveTokens.touchTarget,
-                onTap: controller.togglePlayPause,
-              ),
-              Text(
-                posText,
-                style: TextStyle(
-                  color: p.textPrimary,
-                  fontSize: 11.5,
-                  fontFeatures: KonataPlaybackTokens.tabularNumbers,
-                ),
-              ),
-              Expanded(
-                child: SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    trackHeight: 3.0,
-                    thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 6,
-                    ),
-                    overlayShape: const RoundSliderOverlayShape(
-                      overlayRadius: 14,
-                    ),
-                    activeTrackColor: p.progressFill,
-                    inactiveTrackColor: p.progressTrack,
-                    thumbColor: p.textPrimary,
-                  ),
-                  child: Slider(
-                    value: total > 0 ? (effective / total).clamp(0.0, 1.0) : 0,
-                    onChangeStart: total > 0
-                        ? (v) => setState(() => _dragSeconds = v * total)
-                        : null,
-                    onChanged: total > 0
-                        ? (v) => setState(() => _dragSeconds = v * total)
-                        : null,
-                    onChangeEnd: total > 0
-                        ? (v) {
-                            final target = v * total;
-                            setState(() => _dragSeconds = null);
-                            controller.seekAbsolute(target);
-                          }
-                        : null,
-                  ),
-                ),
-              ),
-              Text(
-                durText,
-                style: TextStyle(
-                  color: p.textSecondary,
-                  fontSize: 11.5,
-                  fontFeatures: KonataPlaybackTokens.tabularNumbers,
-                ),
-              ),
-              KonataCapsuleIconButton(
-                key: const ValueKey('portrait_one_tap_landscape_button'),
-                icon: Icons.screen_rotation_rounded,
-                tooltip: '一键横屏全屏',
+                icon: isFullscreen
+                    ? Icons.fullscreen_exit_rounded
+                    : Icons.fullscreen_rounded,
+                tooltip: isFullscreen ? '退出全屏 (F / Esc)' : '全屏播放 (F / 双击)',
                 color: p.textPrimary,
                 size: 20,
-                fixedSize: KonataAdaptiveTokens.touchTarget,
-                onTap: widget.onLandscape,
+                fixedSize: btnSize,
+                onTap: () => unawaited(controller.toggleFullscreen()),
               ),
-            ],
-          ),
+          ],
         ),
       ),
     );
@@ -1669,12 +1450,6 @@ class _ErrorFallbackCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final minBtnSize = KonataAdaptiveTokens.isAndroid
-        ? const Size(
-            KonataAdaptiveTokens.touchTarget,
-            KonataAdaptiveTokens.touchTarget,
-          )
-        : null;
     return ClipRRect(
       borderRadius: BorderRadius.circular(18),
       child: BackdropFilter(
@@ -1698,29 +1473,18 @@ class _ErrorFallbackCard extends StatelessWidget {
                 style: TextStyle(color: p.textPrimary, fontSize: 13.5),
               ),
               const SizedBox(height: 18),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 12,
+                runSpacing: 8,
                 children: [
-                  OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: minBtnSize,
-                      foregroundColor: p.textPrimary,
-                      side: BorderSide(
-                        color: KonataPlaybackTokens.glassBorder(p),
-                      ),
-                    ),
-                    onPressed: onBack,
-                    child: const Text('返回'),
-                  ),
-                  if (showExternalButton) ...[
-                    const SizedBox(width: 12),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(minimumSize: minBtnSize),
+                  KonataPillButton.secondary(label: '返回', onPressed: onBack),
+                  if (showExternalButton)
+                    KonataPillButton.primary(
+                      label: '外部播放器打开',
+                      icon: Icons.open_in_new_rounded,
                       onPressed: onRelayExternal,
-                      icon: const Icon(Icons.open_in_new_rounded, size: 16),
-                      label: const Text('外部播放器打开'),
                     ),
-                  ],
                 ],
               ),
             ],

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -11,8 +13,11 @@ import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_dropdown.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
+import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/design_system/konata_toast.dart';
+
+enum _SeriesManagePane { members, candidates }
 
 class _MemberDraft {
   _MemberDraft({required this.work, required String initialLabel})
@@ -43,6 +48,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
   late final TextEditingController _searchCtrl;
   final List<_MemberDraft> _members = <_MemberDraft>[];
   String? _editingSeriesId;
+  _SeriesManagePane _mobilePane = _SeriesManagePane.members;
   bool _saving = false;
   bool _detachedPersisted = false;
 
@@ -313,26 +319,24 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
           onPressed: _saving ? null : _save,
         ),
       ],
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                flex: 3,
-                child: KonataSoftTextField(
-                  controller: _titleCtrl,
-                  label: '系列名称（在详情页切换下拉中展示）',
-                ),
-              ),
-              if (groups.isNotEmpty) ...[
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
+      child: LayoutBuilder(
+        builder: (context, outerConstraints) {
+          final isNarrow = outerConstraints.maxWidth < 600;
+          final isTightHeight =
+              outerConstraints.maxHeight.isFinite &&
+              outerConstraints.maxHeight < (isNarrow ? 460 : 340);
+
+          final formSection = isNarrow
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    KonataSoftTextField(
+                      controller: _titleCtrl,
+                      label: '系列名称（在详情页切换下拉中展示）',
+                    ),
+                    if (groups.isNotEmpty) ...[
+                      const SizedBox(height: 10),
                       Text(
                         '并入已有系列',
                         style: TextStyle(color: p.textSecondary, fontSize: 11.5),
@@ -362,195 +366,306 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                         },
                       ),
                     ],
-                  ),
-                ),
-              ],
-              if (_canDetachToIndependentSeries) ...[
-                const SizedBox(width: 10),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 1),
-                  child: KonataPillButton.secondary(
-                    label: '脱离为独立系列',
-                    icon: Icons.link_off_rounded,
-                    compact: true,
-                    onPressed: _saving ? null : _detachToIndependentSeries,
-                  ),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // 左侧：当前系列成员顺序与角色标签
-                Expanded(
-                  flex: 13,
-                  child: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: p.softFill,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: p.hairline),
+                    if (_canDetachToIndependentSeries) ...[
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: KonataPillButton.secondary(
+                          label: '脱离为独立系列',
+                          icon: Icons.link_off_rounded,
+                          compact: true,
+                          onPressed: _saving ? null : _detachToIndependentSeries,
+                        ),
+                      ),
+                    ],
+                  ],
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: KonataSoftTextField(
+                        controller: _titleCtrl,
+                        label: '系列名称（在详情页切换下拉中展示）',
+                      ),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
+                    if (groups.isNotEmpty) ...[
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '系列成员与排序 (${_members.length})',
+                              '并入已有系列',
                               style: TextStyle(
-                                color: p.textPrimary,
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w600,
+                                color: p.textSecondary,
+                                fontSize: 11.5,
                               ),
                             ),
-                            const Spacer(),
-                            Text(
-                              '海报墙仍各自独立展示',
-                              style: TextStyle(color: p.textMuted, fontSize: 11),
+                            const SizedBox(height: 5),
+                            KonataSearchableSelect<String>(
+                              value: groups.any((g) => g.id == _editingSeriesId)
+                                  ? _editingSeriesId
+                                  : null,
+                              hintText: '搜索要并入的已有系列...',
+                              searchHint: '输入系列标题检索...',
+                              enabled: !_saving,
+                              options: [
+                                for (final g in groups)
+                                  KonataDropdownOption<String>(
+                                    value: g.id,
+                                    label: g.title,
+                                  ),
+                              ],
+                              onChanged: (selectedId) {
+                                final group = groups
+                                    .where((g) => g.id == selectedId)
+                                    .firstOrNull;
+                                if (group != null) {
+                                  _switchToExistingSeries(group, allWorks);
+                                }
+                              },
                             ),
                           ],
                         ),
-                        const SizedBox(height: 8),
-                        Expanded(
-                          child: _members.isEmpty
-                              ? Center(
-                                  child: Text(
-                                    '当前编组已清空，保存后将解除系列关联；也可从右侧重新添加作品。',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: p.textMuted,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                )
-                              : KonataDraggableScrollbar(
-                                  controller: _membersCtrl,
-                                  builder: (_, ctrl) => ListView.separated(
-                                    controller: ctrl,
-                                    padding: const EdgeInsets.only(right: 12),
-                                    itemCount: _members.length,
-                                    separatorBuilder: (_, _) =>
-                                        Divider(height: 10, color: p.hairline),
-                                    itemBuilder: (_, index) {
-                                      final m = _members[index];
-                                      return _buildMemberRow(p, m, index);
-                                    },
-                                  ),
-                                ),
+                      ),
+                    ],
+                    if (_canDetachToIndependentSeries) ...[
+                      const SizedBox(width: 10),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 1),
+                        child: KonataPillButton.secondary(
+                          label: '脱离为独立系列',
+                          icon: Icons.link_off_rounded,
+                          compact: true,
+                          onPressed: _saving ? null : _detachToIndependentSeries,
                         ),
-                      ],
+                      ),
+                    ],
+                  ],
+                );
+
+          final membersPane = Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: p.softFill,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: p.hairline),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    Text(
+                      '系列成员与排序 (${_members.length})',
+                      style: TextStyle(
+                        color: p.textPrimary,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  ),
+                    Text(
+                      '海报墙仍各自独立展示',
+                      style: TextStyle(color: p.textMuted, fontSize: 11),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                // 右侧：从媒体库检索加入其它作品
+                const SizedBox(height: 8),
                 Expanded(
-                  flex: 9,
-                  child: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: p.softFill,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: p.hairline),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        KonataSoftTextField(
-                          controller: _searchCtrl,
-                          hintText: '搜索库内作品加入此系列...',
-                          onChanged: (_) => setState(() {}),
+                  child: _members.isEmpty
+                      ? Center(
+                          child: Text(
+                            '当前编组已清空，保存后将解除系列关联；也可切换到库内作品列表重新添加。',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: p.textMuted, fontSize: 12),
+                          ),
+                        )
+                      : KonataDraggableScrollbar(
+                          controller: _membersCtrl,
+                          builder: (_, ctrl) => ListView.separated(
+                            controller: ctrl,
+                            padding: const EdgeInsets.only(right: 10),
+                            itemCount: _members.length,
+                            separatorBuilder: (_, _) =>
+                                Divider(height: 10, color: p.hairline),
+                            itemBuilder: (_, index) {
+                              final m = _members[index];
+                              return _buildMemberRow(p, m, index);
+                            },
+                          ),
                         ),
-                        const SizedBox(height: 8),
-                        Expanded(
-                          child: candidates.isEmpty
-                              ? Center(
-                                  child: Text(
-                                    query.isEmpty
-                                        ? '暂无更多可加入的已入库作品'
-                                        : '未找到匹配的库内作品',
-                                    style: TextStyle(
-                                      color: p.textMuted,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                )
-                              : KonataDraggableScrollbar(
-                                  controller: _candidatesCtrl,
-                                  builder: (_, ctrl) => ListView.separated(
-                                    controller: ctrl,
-                                    padding: const EdgeInsets.only(right: 12),
-                                    itemCount: candidates.length,
-                                    separatorBuilder: (_, _) =>
-                                        Divider(height: 8, color: p.hairline),
-                                    itemBuilder: (_, idx) {
-                                      final w = candidates[idx];
-                                      return InkWell(
-                                        borderRadius: BorderRadius.circular(8),
-                                        onTap: _saving
-                                            ? null
-                                            : () => _addMember(w),
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 6,
-                                            vertical: 4,
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              Expanded(
-                                                child: Column(
-                                                  crossAxisAlignment:
-                                                      CrossAxisAlignment.start,
-                                                  children: [
-                                                    Text(
-                                                      w.title,
-                                                      maxLines: 1,
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
-                                                      style: TextStyle(
-                                                        color: p.textPrimary,
-                                                        fontSize: 12.5,
-                                                        fontWeight:
-                                                            FontWeight.w500,
-                                                      ),
-                                                    ),
-                                                    if (w.year != null)
-                                                      Text(
-                                                        '${w.year}',
-                                                        style: TextStyle(
-                                                          color: p.textMuted,
-                                                          fontSize: 11,
-                                                        ),
-                                                      ),
-                                                  ],
-                                                ),
-                                              ),
-                                              Icon(
-                                                Icons
-                                                    .add_circle_outline_rounded,
-                                                size: 18,
-                                                color: p.accent,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ),
-                        ),
-                      ],
-                    ),
-                  ),
                 ),
               ],
             ),
-          ),
-        ],
+          );
+
+          final candidatesPane = Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: p.softFill,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: p.hairline),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                KonataSoftTextField(
+                  controller: _searchCtrl,
+                  hintText: '搜索库内作品加入此系列...',
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: candidates.isEmpty
+                      ? Center(
+                          child: Text(
+                            query.isEmpty ? '暂无更多可加入的已入库作品' : '未找到匹配的库内作品',
+                            style: TextStyle(color: p.textMuted, fontSize: 12),
+                          ),
+                        )
+                      : KonataDraggableScrollbar(
+                          controller: _candidatesCtrl,
+                          builder: (_, ctrl) => ListView.separated(
+                            controller: ctrl,
+                            padding: const EdgeInsets.only(right: 10),
+                            itemCount: candidates.length,
+                            separatorBuilder: (_, _) =>
+                                Divider(height: 8, color: p.hairline),
+                            itemBuilder: (_, idx) {
+                              final w = candidates[idx];
+                              return InkWell(
+                                borderRadius: BorderRadius.circular(8),
+                                onTap: _saving ? null : () => _addMember(w),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 4,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              w.title,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: p.textPrimary,
+                                                fontSize: 12.5,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                            if (w.year != null)
+                                              Text(
+                                                '${w.year}',
+                                                style: TextStyle(
+                                                  color: p.textMuted,
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Icon(
+                                        Icons.add_circle_outline_rounded,
+                                        size: 18,
+                                        color: p.accent,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                ),
+              ],
+            ),
+          );
+
+          final bodyContent = isNarrow
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    MediaQuery.withClampedTextScaling(
+                      maxScaleFactor: 1.15,
+                      child: KonataSegmentedCapsule<_SeriesManagePane>(
+                        compact: true,
+                        selected: _mobilePane,
+                        onChanged: (pane) => setState(() => _mobilePane = pane),
+                        options: [
+                          KonataSegmentOption(
+                            value: _SeriesManagePane.members,
+                            label: '成员排序 (${_members.length})',
+                          ),
+                          KonataSegmentOption(
+                            value: _SeriesManagePane.candidates,
+                            label: '添加作品 (${candidates.length})',
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Expanded(
+                      child: _mobilePane == _SeriesManagePane.members
+                          ? membersPane
+                          : candidatesPane,
+                    ),
+                  ],
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(flex: 13, child: membersPane),
+                    const SizedBox(width: 12),
+                    Expanded(flex: 9, child: candidatesPane),
+                  ],
+                );
+
+          if (isTightHeight) {
+            return KonataDraggableScrollbar(
+              builder: (_, scrollCtrl) => SingleChildScrollView(
+                controller: scrollCtrl,
+                padding: const EdgeInsets.only(right: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    formSection,
+                    const SizedBox(height: 12),
+                    SizedBox(height: 240, child: bodyContent),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          final targetH = outerConstraints.maxHeight.isFinite
+              ? math.min(500.0, outerConstraints.maxHeight)
+              : 500.0;
+          return SizedBox(
+            height: targetH,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                formSection,
+                const SizedBox(height: 12),
+                Expanded(child: bodyContent),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -599,44 +714,19 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                   if (draft.work.year != null)
                     Text(
                       '${draft.work.year}${isCurrent ? ' · 当前条目' : ''}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(color: p.textMuted, fontSize: 10.5),
                     ),
                 ],
               ),
-            ),
-            IconButton(
-              tooltip: '上移',
-              visualDensity: VisualDensity.compact,
-              iconSize: 17,
-              onPressed: (_saving || index == 0)
-                  ? null
-                  : () => _moveMember(index, -1),
-              icon: const Icon(Icons.keyboard_arrow_up_rounded),
-            ),
-            IconButton(
-              tooltip: '下移',
-              visualDensity: VisualDensity.compact,
-              iconSize: 17,
-              onPressed: (_saving || index == _members.length - 1)
-                  ? null
-                  : () => _moveMember(index, 1),
-              icon: const Icon(Icons.keyboard_arrow_down_rounded),
-            ),
-            IconButton(
-              tooltip: '从系列移出',
-              visualDensity: VisualDensity.compact,
-              iconSize: 16,
-              color: p.danger,
-              onPressed: _saving ? null : () => _removeMemberAt(index),
-              icon: const Icon(Icons.remove_circle_outline_rounded),
             ),
           ],
         ),
         const SizedBox(height: 6),
         Row(
           children: [
-            SizedBox(
-              width: 172,
+            Expanded(
               child: TextField(
                 controller: draft.labelCtrl,
                 enabled: !_saving,
@@ -662,53 +752,84 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                 ),
               ),
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    for (final preset in SeriesLabelPresets.presets) ...[
-                      InkWell(
-                        borderRadius: BorderRadius.circular(6),
-                        onTap: _saving
-                            ? null
-                            : () => setState(() => draft.labelCtrl.text = preset),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
-                            vertical: 3.5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: draft.labelCtrl.text.trim() == preset
-                                ? p.accent.withValues(alpha: 0.18)
-                                : p.softFill,
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(
-                              color: draft.labelCtrl.text.trim() == preset
-                                  ? p.accent.withValues(alpha: 0.55)
-                                  : p.hairline,
-                            ),
-                          ),
-                          child: Text(
-                            preset,
-                            style: TextStyle(
-                              color: draft.labelCtrl.text.trim() == preset
-                                  ? p.accent
-                                  : p.textSecondary,
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                    ],
-                  ],
-                ),
-              ),
+            const SizedBox(width: 4),
+            IconButton(
+              tooltip: '上移',
+              visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+              padding: EdgeInsets.zero,
+              iconSize: 17,
+              onPressed: (_saving || index == 0)
+                  ? null
+                  : () => _moveMember(index, -1),
+              icon: const Icon(Icons.keyboard_arrow_up_rounded),
+            ),
+            IconButton(
+              tooltip: '下移',
+              visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+              padding: EdgeInsets.zero,
+              iconSize: 17,
+              onPressed: (_saving || index == _members.length - 1)
+                  ? null
+                  : () => _moveMember(index, 1),
+              icon: const Icon(Icons.keyboard_arrow_down_rounded),
+            ),
+            IconButton(
+              tooltip: '从系列移出',
+              visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+              padding: EdgeInsets.zero,
+              iconSize: 16,
+              color: p.danger,
+              onPressed: _saving ? null : () => _removeMemberAt(index),
+              icon: const Icon(Icons.remove_circle_outline_rounded),
             ),
           ],
+        ),
+        const SizedBox(height: 6),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final preset in SeriesLabelPresets.presets) ...[
+                InkWell(
+                  borderRadius: BorderRadius.circular(6),
+                  onTap: _saving
+                      ? null
+                      : () => setState(() => draft.labelCtrl.text = preset),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 3.5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: draft.labelCtrl.text.trim() == preset
+                          ? p.accent.withValues(alpha: 0.18)
+                          : p.softFill,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: draft.labelCtrl.text.trim() == preset
+                            ? p.accent.withValues(alpha: 0.55)
+                            : p.hairline,
+                      ),
+                    ),
+                    child: Text(
+                      preset,
+                      style: TextStyle(
+                        color: draft.labelCtrl.text.trim() == preset
+                            ? p.accent
+                            : p.textSecondary,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+              ],
+            ],
+          ),
         ),
       ],
     );

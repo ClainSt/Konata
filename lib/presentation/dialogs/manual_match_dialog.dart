@@ -336,28 +336,35 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
               ),
             ),
           ],
-          KonataSegmentedCapsule<_ManualMatchMode>(
-            selected: _mode,
-            options: const [
-              KonataSegmentOption(
-                value: _ManualMatchMode.tmdb,
-                label: 'TMDB 匹配',
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: MediaQuery.withClampedTextScaling(
+              maxScaleFactor: 1.15,
+              child: KonataSegmentedCapsule<_ManualMatchMode>(
+                compact: MediaQuery.sizeOf(context).width < 560,
+                selected: _mode,
+                options: const [
+                  KonataSegmentOption(
+                    value: _ManualMatchMode.tmdb,
+                    label: 'TMDB 匹配',
+                  ),
+                  KonataSegmentOption(
+                    value: _ManualMatchMode.hybrid,
+                    label: 'Bangumi × TMDB 混合',
+                  ),
+                  KonataSegmentOption(
+                    value: _ManualMatchMode.bangumiOnly,
+                    label: '仅 Bangumi',
+                  ),
+                ],
+                onChanged: _binding
+                    ? (_) {}
+                    : (m) => setState(() {
+                        _mode = m;
+                        _errorText = null;
+                      }),
               ),
-              KonataSegmentOption(
-                value: _ManualMatchMode.hybrid,
-                label: 'Bangumi × TMDB 混合',
-              ),
-              KonataSegmentOption(
-                value: _ManualMatchMode.bangumiOnly,
-                label: '仅 Bangumi',
-              ),
-            ],
-            onChanged: _binding
-                ? (_) {}
-                : (m) => setState(() {
-                    _mode = m;
-                    _errorText = null;
-                  }),
+            ),
           ),
           const SizedBox(height: 12),
           if (_mode == _ManualMatchMode.tmdb)
@@ -376,9 +383,10 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
                           dense: true,
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 8),
                       KonataPillButton.primary(
-                        label: _searching ? '搜索中...' : '搜索 TMDB',
+                        label: _searching ? '搜索中...' : '搜索',
+                        compact: MediaQuery.sizeOf(context).width < 520,
                         onPressed: _searching || _binding
                             ? null
                             : _performSearch,
@@ -396,10 +404,13 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
                     },
                   ),
                   const SizedBox(height: 10),
-                  Row(
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       SizedBox(
-                        width: 168,
+                        width: 148,
                         child: KonataSoftTextField(
                           controller: _directIdController,
                           hintText: '直接输入 TMDB ID',
@@ -407,23 +418,24 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
                           dense: true,
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      KonataSegmentedCapsule<TmdbMediaType>(
-                        compact: true,
-                        options: const [
-                          KonataSegmentOption(
-                            value: TmdbMediaType.tv,
-                            label: 'TV 番剧',
-                          ),
-                          KonataSegmentOption(
-                            value: TmdbMediaType.movie,
-                            label: '剧场版',
-                          ),
-                        ],
-                        selected: _directType,
-                        onChanged: (v) => setState(() => _directType = v),
+                      MediaQuery.withClampedTextScaling(
+                        maxScaleFactor: 1.15,
+                        child: KonataSegmentedCapsule<TmdbMediaType>(
+                          compact: true,
+                          options: const [
+                            KonataSegmentOption(
+                              value: TmdbMediaType.tv,
+                              label: 'TV 番剧',
+                            ),
+                            KonataSegmentOption(
+                              value: TmdbMediaType.movie,
+                              label: '剧场版',
+                            ),
+                          ],
+                          selected: _directType,
+                          onChanged: (v) => setState(() => _directType = v),
+                        ),
                       ),
-                      const SizedBox(width: 10),
                       KonataPillButton.secondary(
                         label: '强制绑定',
                         compact: true,
@@ -592,9 +604,10 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
                 onSubmitted: (_) => _searchBangumiOnly(),
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             KonataPillButton.primary(
-              label: _searchingBgm ? '搜索中...' : '搜索 Bangumi',
+              label: _searchingBgm ? '搜索中...' : '搜索',
+              compact: MediaQuery.sizeOf(context).width < 520,
               onPressed: _searchingBgm || _binding ? null : _searchBangumiOnly,
             ),
           ],
@@ -709,13 +722,16 @@ class _MatchResultTile extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   subtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: p.textSecondary, fontSize: 12),
                 ),
               ],
             ),
           ),
+          const SizedBox(width: 8),
           KonataPillButton.secondary(
-            label: '绑定并锁定',
+            label: '绑定',
             compact: true,
             onPressed: disabled ? null : onSelect,
           ),

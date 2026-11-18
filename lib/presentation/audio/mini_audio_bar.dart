@@ -12,6 +12,7 @@ import '../../application/playback/video_playback_controller.dart';
 import '../../application/providers/artwork_provider.dart';
 import '../../domain/playback/playback_formatters.dart';
 import '../shell/adaptive_capsule_layout.dart';
+import '../shell/android_scroll_capture_bridge.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
@@ -28,6 +29,9 @@ import '../widgets/playback/konata_spec_badge.dart';
 import '../widgets/playback/konata_volume_control.dart';
 import 'immersive_audio_page.dart';
 import 'smart_cover_framing.dart';
+
+/// 视频小窗胶囊长按操作抽屉是否打开，弹出期间临时让胶囊退让避免遮挡底部菜单。
+final _miniVideoSheetOpenProvider = StateProvider<bool>((ref) => false);
 
 /// 当常驻播放胶囊（纯音频或最小化视频小窗）处于可视状态时，供底部滚动视图预留防遮挡留白的高度 Provider。
 final miniAudioBottomClearanceProvider = Provider<double>((ref) {
@@ -147,11 +151,15 @@ class _AudioContentClearance extends ConsumerWidget {
       playerVisible: visible,
       navigationVisible: !hidden,
     );
+    final resolvedClearance = android
+        ? geometry.bottomClearance
+        : ref.watch(miniAudioBottomClearanceProvider);
     return KonataBottomClearanceScope(
-      bottomClearance: android
-          ? geometry.bottomClearance
-          : ref.watch(miniAudioBottomClearanceProvider),
-      child: child,
+      bottomClearance: resolvedClearance,
+      child: ScrollCaptureExclusionInsets(
+        bottomInset: resolvedClearance,
+        child: child,
+      ),
     );
   }
 }
@@ -179,10 +187,12 @@ class _GlobalAudioOverlayLayer extends ConsumerWidget {
     final videoActiveFlag = ref.watch(videoPlaybackActiveProvider);
     final audioExpanded = ref.watch(immersiveAudioExpandedProvider);
 
+    final miniVideoSheetOpen = ref.watch(_miniVideoSheetOpenProvider);
     final miniVideoVisible = videoSession.isMinimized;
     final miniAudioVisible =
         audio.$1 && !videoActiveFlag && !videoSession.isActive && !audioExpanded;
-    final anyMiniCapsuleVisible = miniVideoVisible || miniAudioVisible;
+    final anyMiniCapsuleVisible =
+        (miniVideoVisible && !miniVideoSheetOpen) || miniAudioVisible;
 
     final geometry = AdaptiveCapsuleLayout(
       size: MediaQuery.sizeOf(context),
@@ -207,6 +217,10 @@ class _GlobalAudioOverlayLayer extends ConsumerWidget {
     final errorMsg = audio.$2?.trim() ?? '';
 
     return _OverlayBackInterceptor(
+      onBackgrounded: () =>
+          ref.read(activeVideoSessionProvider.notifier).handleAppBackgrounded(),
+      onForegrounded: () =>
+          ref.read(activeVideoSessionProvider.notifier).handleAppForegrounded(),
       onInterceptBack: () async {
         if (videoSession.isActive &&
             videoSession.isExpanded &&
@@ -336,14 +350,18 @@ class _GlobalAudioOverlayLayer extends ConsumerWidget {
   }
 }
 
-/// 不依赖 `Router` 祖先的根级全屏播放层返回键拦截器。
+/// 不依赖 `Router` 祖先的根级全屏播放层返回键与前后台生命周期拦截器。
 class _OverlayBackInterceptor extends StatefulWidget {
   const _OverlayBackInterceptor({
     required this.onInterceptBack,
+    required this.onBackgrounded,
+    required this.onForegrounded,
     required this.child,
   });
 
   final Future<bool> Function() onInterceptBack;
+  final Future<void> Function() onBackgrounded;
+  final VoidCallback onForegrounded;
   final Widget child;
 
   @override
@@ -363,6 +381,16 @@ class _OverlayBackInterceptorState extends State<_OverlayBackInterceptor>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      unawaited(widget.onBackgrounded());
+    } else if (state == AppLifecycleState.resumed) {
+      widget.onForegrounded();
+    }
   }
 
   @override
@@ -734,107 +762,122 @@ class _MiniAudioBarState extends ConsumerState<MiniAudioBar> {
 
   Widget _buildTouchCapsule(BuildContext context, AudioPlaybackState state) {
     final notifier = ref.read(audioPlaybackProvider.notifier);
-    return GestureDetector(
-      onHorizontalDragUpdate: (details) {
-        final current = ref.read(audioPlaybackProvider);
-        final box = context.findRenderObject() as RenderBox?;
-        if (box == null || current.durationSeconds <= 0) return;
-        final local = box.globalToLocal(details.globalPosition);
-        notifier.seekRelativeTrackSeconds(
-          (local.dx / box.size.width).clamp(0.0, 1.0) * current.durationSeconds,
-        );
-      },
-      child: SizedBox(
-        height: KonataAdaptiveTokens.playerHeight,
-        child: KonataGlassCapsule(
-          child: Stack(
-            children: [
-              const Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: RepaintBoundary(child: _TouchAudioProgress()),
-              ),
-              Positioned.fill(
-                child: Row(
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.15,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isTablet =
+              MediaQuery.sizeOf(context).shortestSide >=
+              KonataAdaptiveTokens.tabletBreakpoint;
+          final compactMobileBar = !isTablet && constraints.maxWidth < 430.0;
+          return GestureDetector(
+            onHorizontalDragUpdate: (details) {
+              final current = ref.read(audioPlaybackProvider);
+              final box = context.findRenderObject() as RenderBox?;
+              if (box == null || current.durationSeconds <= 0) return;
+              final local = box.globalToLocal(details.globalPosition);
+              notifier.seekRelativeTrackSeconds(
+                (local.dx / box.size.width).clamp(0.0, 1.0) *
+                    current.durationSeconds,
+              );
+            },
+            child: SizedBox(
+              height: KonataAdaptiveTokens.playerHeight,
+              child: KonataGlassCapsule(
+                child: Stack(
                   children: [
-                    const SizedBox(width: KonataAdaptiveTokens.safeGap),
-                    GestureDetector(
-                      onTap: _openImmersive,
-                      behavior: HitTestBehavior.opaque,
-                      child: SizedBox(
-                        key: const ValueKey('mini_cover_target'),
-                        width: KonataAdaptiveTokens.touchTarget,
-                        height: KonataAdaptiveTokens.touchTarget,
-                        child: Center(
-                          child: HeroMode(
-                            enabled: !ref.watch(immersiveAudioExpandedProvider),
-                            child: Hero(
-                              tag: 'konata_audio_cover_hero',
-                              child: _MiniCoverThumbnail(cover: state.cover),
-                            ),
-                          ),
-                        ),
-                      ),
+                    const Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: RepaintBoundary(child: _TouchAudioProgress()),
                     ),
-                    const SizedBox(width: KonataAdaptiveTokens.safeGap),
-                    Expanded(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: _openImmersive,
-                        onLongPress: _toggleQueueOverlay,
-                        child: SizedBox(
-                          key: const ValueKey('mini_title_target'),
-                          height: KonataAdaptiveTokens.touchTarget,
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              state.currentItem?.title ?? '',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: KonataTheme.textStyle(
-                                color: context.palette.textPrimary,
+                    Positioned.fill(
+                      child: Row(
+                        children: [
+                          const SizedBox(width: KonataAdaptiveTokens.safeGap),
+                          GestureDetector(
+                            onTap: _openImmersive,
+                            behavior: HitTestBehavior.opaque,
+                            child: SizedBox(
+                              key: const ValueKey('mini_cover_target'),
+                              width: KonataAdaptiveTokens.touchTarget,
+                              height: KonataAdaptiveTokens.touchTarget,
+                              child: Center(
+                                child: HeroMode(
+                                  enabled: !ref.watch(
+                                    immersiveAudioExpandedProvider,
+                                  ),
+                                  child: Hero(
+                                    tag: 'konata_audio_cover_hero',
+                                    child: _MiniCoverThumbnail(
+                                      cover: state.cover,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
                           ),
-                        ),
+                          const SizedBox(width: KonataAdaptiveTokens.safeGap),
+                          Expanded(
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: _openImmersive,
+                              onLongPress: _toggleQueueOverlay,
+                              child: SizedBox(
+                                key: const ValueKey('mini_title_target'),
+                                height: KonataAdaptiveTokens.touchTarget,
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    state.currentItem?.title ?? '',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: KonataTheme.textStyle(
+                                      color: context.palette.textPrimary,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          KonataCapsuleIconButton(
+                            key: const ValueKey('mini_audio_play_pause'),
+                            icon: state.isPlaying
+                                ? Icons.pause_rounded
+                                : Icons.play_arrow_rounded,
+                            tooltip: state.isPlaying ? '暂停' : '播放',
+                            fixedSize: KonataAdaptiveTokens.touchTarget,
+                            color: context.palette.textPrimary,
+                            onTap: notifier.togglePlayPause,
+                          ),
+                          if (!compactMobileBar) ...[
+                            KonataCapsuleIconButton(
+                              icon: Icons.skip_next_rounded,
+                              tooltip: '下一曲',
+                              fixedSize: KonataAdaptiveTokens.touchTarget,
+                              color: context.palette.textPrimary,
+                              onTap: notifier.next,
+                            ),
+                            KonataCapsuleIconButton(
+                              icon: Icons.queue_music_rounded,
+                              tooltip: isTablet ? '专辑曲目' : '更多播放控制',
+                              fixedSize: KonataAdaptiveTokens.touchTarget,
+                              color: context.palette.textPrimary,
+                              onTap: isTablet
+                                  ? _toggleQueueOverlay
+                                  : _showTouchControls,
+                            ),
+                          ],
+                        ],
                       ),
-                    ),
-                    KonataCapsuleIconButton(
-                      icon: state.isPlaying
-                          ? Icons.pause_rounded
-                          : Icons.play_arrow_rounded,
-                      tooltip: state.isPlaying ? '暂停' : '播放',
-                      fixedSize: KonataAdaptiveTokens.touchTarget,
-                      color: context.palette.textPrimary,
-                      onTap: notifier.togglePlayPause,
-                    ),
-                    KonataCapsuleIconButton(
-                      icon: Icons.skip_next_rounded,
-                      tooltip: '下一曲',
-                      fixedSize: KonataAdaptiveTokens.touchTarget,
-                      color: context.palette.textPrimary,
-                      onTap: notifier.next,
-                    ),
-                    KonataCapsuleIconButton(
-                      icon: Icons.queue_music_rounded,
-                      tooltip: MediaQuery.sizeOf(context).shortestSide >=
-                              KonataAdaptiveTokens.tabletBreakpoint
-                          ? '专辑曲目'
-                          : '更多播放控制',
-                      fixedSize: KonataAdaptiveTokens.touchTarget,
-                      color: context.palette.textPrimary,
-                      onTap: MediaQuery.sizeOf(context).shortestSide >=
-                              KonataAdaptiveTokens.tabletBreakpoint
-                          ? _toggleQueueOverlay
-                          : _showTouchControls,
                     ),
                   ],
                 ),
               ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -1308,141 +1351,263 @@ class _MiniVideoCapsuleBar extends ConsumerWidget {
         ? KonataAdaptiveTokens.touchTarget
         : 38.0;
 
-    return Material(
-      type: MaterialType.transparency,
-      child: DefaultTextStyle.merge(
-        style: const TextStyle(decoration: TextDecoration.none),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: KonataAdaptiveTokens.isAndroid
-                ? KonataAdaptiveTokens.playerMaxWidth
-                : KonataPlaybackTokens.miniBarMaxWidth,
-          ),
-          child: SizedBox(
-            height: KonataAdaptiveTokens.playerHeight,
-            child: KonataGlassCapsule(
-              child: Stack(
-                children: [
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: RepaintBoundary(
-                      child: _TouchVideoMiniProgress(request: request),
-                    ),
-                  ),
-                  Positioned.fill(
-                    child: Row(
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.15,
+      child: Material(
+        type: MaterialType.transparency,
+        child: DefaultTextStyle.merge(
+          style: const TextStyle(decoration: TextDecoration.none),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: KonataAdaptiveTokens.isAndroid
+                  ? KonataAdaptiveTokens.playerMaxWidth
+                  : KonataPlaybackTokens.miniBarMaxWidth,
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final isTablet =
+                    MediaQuery.sizeOf(context).shortestSide >=
+                    KonataAdaptiveTokens.tabletBreakpoint;
+                final compactMobileBar =
+                    KonataAdaptiveTokens.isAndroid &&
+                    !isTablet &&
+                    constraints.maxWidth < 430.0;
+                return SizedBox(
+                  height: KonataAdaptiveTokens.playerHeight,
+                  child: KonataGlassCapsule(
+                    child: Stack(
                       children: [
-                        const SizedBox(width: KonataAdaptiveTokens.safeGap),
-                        GestureDetector(
-                          key: const ValueKey('mini_video_preview_target'),
-                          behavior: HitTestBehavior.opaque,
-                          onTap: sessionNotifier.expandToFull,
-                          child: SizedBox(
-                            height: KonataAdaptiveTokens.touchTarget,
-                            child: Center(
-                              child: Container(
-                                width: KonataPlaybackTokens.miniVideoPreviewWidth,
-                                height:
-                                    KonataPlaybackTokens.miniVideoPreviewHeight,
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(
-                                    KonataPlaybackTokens.miniVideoPreviewRadius,
-                                  ),
-                                  border: Border.all(
-                                    color: KonataPlaybackTokens.glassBorder(p),
-                                  ),
-                                ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(
-                                    KonataPlaybackTokens.miniVideoPreviewRadius,
-                                  ),
-                                  child: previewSurface,
-                                ),
-                              ),
-                            ),
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: RepaintBoundary(
+                            child: _TouchVideoMiniProgress(request: request),
                           ),
                         ),
-                        const SizedBox(width: KonataAdaptiveTokens.safeGap),
-                        Expanded(
-                          child: GestureDetector(
-                            key: const ValueKey('mini_video_title_target'),
-                            behavior: HitTestBehavior.opaque,
-                            onTap: sessionNotifier.expandToFull,
-                            child: SizedBox(
-                              height: KonataAdaptiveTokens.touchTarget,
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    epTitle,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: p.textPrimary,
-                                      fontSize: 13.5,
-                                      fontWeight: FontWeight.w600,
+                        Positioned.fill(
+                          child: Row(
+                            children: [
+                              const SizedBox(
+                                width: KonataAdaptiveTokens.safeGap,
+                              ),
+                              GestureDetector(
+                                key: const ValueKey(
+                                  'mini_video_preview_target',
+                                ),
+                                behavior: HitTestBehavior.opaque,
+                                onTap: sessionNotifier.expandToFull,
+                                child: SizedBox(
+                                  height: KonataAdaptiveTokens.touchTarget,
+                                  child: Center(
+                                    child: Container(
+                                      width: KonataPlaybackTokens
+                                          .miniVideoPreviewWidth,
+                                      height: KonataPlaybackTokens
+                                          .miniVideoPreviewHeight,
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(
+                                          KonataPlaybackTokens
+                                              .miniVideoPreviewRadius,
+                                        ),
+                                        border: Border.all(
+                                          color:
+                                              KonataPlaybackTokens.glassBorder(
+                                                p,
+                                              ),
+                                        ),
+                                      ),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(
+                                          KonataPlaybackTokens
+                                              .miniVideoPreviewRadius,
+                                        ),
+                                        child: previewSurface,
+                                      ),
                                     ),
                                   ),
-                                  Text(
-                                    snap.audioOnly
-                                        ? '$workTitle · 后台纯音频'
-                                        : workTitle,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: p.textSecondary,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
-                            ),
+                              const SizedBox(
+                                width: KonataAdaptiveTokens.safeGap,
+                              ),
+                              Expanded(
+                                child: GestureDetector(
+                                  key: const ValueKey(
+                                    'mini_video_title_target',
+                                  ),
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: sessionNotifier.expandToFull,
+                                  onLongPress: compactMobileBar
+                                      ? () async {
+                                          final navContext =
+                                              ref
+                                                  .read(rootNavigatorKeyProvider)
+                                                  .currentContext ??
+                                              (Navigator.maybeOf(context) !=
+                                                      null
+                                                  ? context
+                                                  : null);
+                                          if (navContext == null) return;
+                                          final sheetOpenCtrl = ref.read(
+                                            _miniVideoSheetOpenProvider
+                                                .notifier,
+                                          );
+                                          sheetOpenCtrl.state = true;
+                                          try {
+                                            await showKonataGlassBottomSheet<
+                                              void
+                                            >(
+                                              context: navContext,
+                                              title: epTitle,
+                                              builder: (sheetCtx) => Column(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  ListTile(
+                                                    leading: const Icon(
+                                                      Icons.headphones_rounded,
+                                                    ),
+                                                    title: Text(
+                                                      snap.audioOnly
+                                                          ? '恢复视频画面'
+                                                          : '切换后台纯音频',
+                                                    ),
+                                                    onTap: () {
+                                                      Navigator.of(
+                                                        sheetCtx,
+                                                      ).pop();
+                                                      controller
+                                                          .toggleAudioOnlyMode();
+                                                    },
+                                                  ),
+                                                  ListTile(
+                                                    leading: const Icon(
+                                                      Icons.close_rounded,
+                                                    ),
+                                                    title: const Text(
+                                                      '停止并关闭视频',
+                                                    ),
+                                                    onTap: () {
+                                                      Navigator.of(
+                                                        sheetCtx,
+                                                      ).pop();
+                                                      unawaited(
+                                                        sessionNotifier
+                                                            .closeVideo(),
+                                                      );
+                                                    },
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          } finally {
+                                            try {
+                                              sheetOpenCtrl.state = false;
+                                            } catch (_) {}
+                                          }
+                                        }
+                                      : null,
+                                  child: SizedBox(
+                                    height: KonataAdaptiveTokens.touchTarget,
+                                    child: compactMobileBar
+                                        ? Align(
+                                            alignment: Alignment.centerLeft,
+                                            child: Text(
+                                              epTitle,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: p.textPrimary,
+                                                fontSize: 13.5,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          )
+                                        : Column(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                epTitle,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  color: p.textPrimary,
+                                                  fontSize: 13.5,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                              Text(
+                                                snap.audioOnly
+                                                    ? '$workTitle · 后台纯音频'
+                                                    : workTitle,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  color: p.textSecondary,
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                  ),
+                                ),
+                              ),
+                              if (!compactMobileBar)
+                                KonataCapsuleIconButton(
+                                  key: const ValueKey(
+                                    'mini_video_audio_only_toggle',
+                                  ),
+                                  icon: Icons.headphones_rounded,
+                                  tooltip: snap.audioOnly
+                                      ? '恢复视频画面'
+                                      : '切换后台纯音频',
+                                  highlighted: snap.audioOnly,
+                                  fixedSize: btnSize,
+                                  color: p.textPrimary,
+                                  onTap: controller.toggleAudioOnlyMode,
+                                ),
+                              KonataCapsuleIconButton(
+                                key: const ValueKey('mini_video_play_pause'),
+                                icon: snap.isPlaying
+                                    ? Icons.pause_rounded
+                                    : Icons.play_arrow_rounded,
+                                tooltip: snap.isPlaying ? '暂停' : '播放',
+                                fixedSize: btnSize,
+                                color: p.textPrimary,
+                                onTap: controller.togglePlayPause,
+                              ),
+                              if (!compactMobileBar &&
+                                  controller.hasNextEpisodeAny)
+                                KonataCapsuleIconButton(
+                                  icon: Icons.skip_next_rounded,
+                                  tooltip: '下一话',
+                                  fixedSize: btnSize,
+                                  color: p.textPrimary,
+                                  onTap: () => unawaited(
+                                    controller.goToNextEpisode(),
+                                  ),
+                                ),
+                              if (!compactMobileBar)
+                                KonataCapsuleIconButton(
+                                  key: const ValueKey('mini_video_close'),
+                                  icon: Icons.close_rounded,
+                                  tooltip: '停止并关闭视频',
+                                  fixedSize: btnSize,
+                                  color: p.textPrimary,
+                                  onTap: () =>
+                                      unawaited(sessionNotifier.closeVideo()),
+                                ),
+                            ],
                           ),
-                        ),
-                        KonataCapsuleIconButton(
-                          key: const ValueKey('mini_video_audio_only_toggle'),
-                          icon: Icons.headphones_rounded,
-                          tooltip: snap.audioOnly ? '恢复视频画面' : '切换后台纯音频',
-                          highlighted: snap.audioOnly,
-                          fixedSize: btnSize,
-                          color: p.textPrimary,
-                          onTap: controller.toggleAudioOnlyMode,
-                        ),
-                        KonataCapsuleIconButton(
-                          key: const ValueKey('mini_video_play_pause'),
-                          icon: snap.isPlaying
-                              ? Icons.pause_rounded
-                              : Icons.play_arrow_rounded,
-                          tooltip: snap.isPlaying ? '暂停' : '播放',
-                          fixedSize: btnSize,
-                          color: p.textPrimary,
-                          onTap: controller.togglePlayPause,
-                        ),
-                        if (controller.hasNextEpisodeAny)
-                          KonataCapsuleIconButton(
-                            icon: Icons.skip_next_rounded,
-                            tooltip: '下一话',
-                            fixedSize: btnSize,
-                            color: p.textPrimary,
-                            onTap: () =>
-                                unawaited(controller.goToNextEpisode()),
-                          ),
-                        KonataCapsuleIconButton(
-                          key: const ValueKey('mini_video_close'),
-                          icon: Icons.close_rounded,
-                          tooltip: '停止并关闭视频',
-                          fixedSize: btnSize,
-                          color: p.textPrimary,
-                          onTap: () => unawaited(sessionNotifier.closeVideo()),
                         ),
                       ],
                     ),
                   ),
-                ],
-              ),
+                );
+              },
             ),
           ),
         ),

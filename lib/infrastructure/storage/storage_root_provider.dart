@@ -23,8 +23,17 @@ abstract final class StoragePathConfig {
 ///   - 绝不向 C 盘 `%APPDATA%`、`%LOCALAPPDATA%` 或系统 `%TEMP%` 写入缓存与截图。
 /// - **Android 端**：统一委托 `ApplicationSupportDirectory`，上层代码零平台分支。
 class StorageRootService {
-  /// 创建路径服务（可选注入隔离根目录供单测使用）。
+  /// 创建路径服务（可选注入隔离根目录供 Android 启动或单测使用）。
   const StorageRootService({this._overrideRoot});
+
+  /// 按当前运行平台构建根路径服务（Android 预先解析应用私有支持目录，避免同步读取可执行文件 `/system/bin`）。
+  static Future<StorageRootService> createForCurrentPlatform() async {
+    if (Platform.isAndroid) {
+      final appSupport = await getApplicationSupportDirectory();
+      return StorageRootService(overrideRoot: appSupport);
+    }
+    return const StorageRootService();
+  }
 
   final Directory? _overrideRoot;
 

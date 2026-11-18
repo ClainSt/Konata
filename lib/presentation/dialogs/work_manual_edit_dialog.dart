@@ -8,6 +8,7 @@ import '../../domain/models/media_variant.dart';
 import '../../domain/models/work.dart';
 import '../../domain/parsing/bdrip_parser.dart';
 import '../theme/konata_palette.dart';
+import '../widgets/design_system/adaptive_responsive_row.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
@@ -313,24 +314,31 @@ class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          KonataSegmentedCapsule<_ManualEditSection>(
-            selected: _section,
-            options: [
-              const KonataSegmentOption(
-                value: _ManualEditSection.metadata,
-                label: '作品简介与元数据',
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: MediaQuery.withClampedTextScaling(
+              maxScaleFactor: 1.15,
+              child: KonataSegmentedCapsule<_ManualEditSection>(
+                compact: MediaQuery.sizeOf(context).width < 560,
+                selected: _section,
+                options: [
+                  const KonataSegmentOption(
+                    value: _ManualEditSection.metadata,
+                    label: '作品简介与元数据',
+                  ),
+                  KonataSegmentOption(
+                    value: _ManualEditSection.episodes,
+                    label: '文件映射修正 (${_rows.length})',
+                  ),
+                  if (_scopeDrafts.isNotEmpty)
+                    KonataSegmentOption(
+                      value: _ManualEditSection.supplementary,
+                      label: '附属共享 (${_scopeDrafts.length})',
+                    ),
+                ],
+                onChanged: (v) => setState(() => _section = v),
               ),
-              KonataSegmentOption(
-                value: _ManualEditSection.episodes,
-                label: '文件映射修正 (${_rows.length})',
-              ),
-              if (_scopeDrafts.isNotEmpty)
-                KonataSegmentOption(
-                  value: _ManualEditSection.supplementary,
-                  label: '附属共享 (${_scopeDrafts.length})',
-                ),
-            ],
-            onChanged: (v) => setState(() => _section = v),
+            ),
           ),
           const SizedBox(height: 14),
           Expanded(
@@ -375,24 +383,19 @@ class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
         children: [
           KonataSoftTextField(controller: _titleCtrl, label: '中文 / 主标题'),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                flex: 3,
-                child: KonataSoftTextField(
-                  controller: _origCtrl,
-                  label: '日文 / 原始标题',
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: KonataSoftTextField(
-                  controller: _yearCtrl,
-                  label: '年份',
-                  keyboardType: TextInputType.number,
-                ),
-              ),
-            ],
+          AdaptiveResponsiveRow(
+            minLeadingWidth: 160,
+            estimatedTrailingWidth: 110,
+            expandTrailingWhenStacked: true,
+            leading: KonataSoftTextField(
+              controller: _origCtrl,
+              label: '日文 / 原始标题',
+            ),
+            trailing: KonataSoftTextField(
+              controller: _yearCtrl,
+              label: '年份',
+              keyboardType: TextInputType.number,
+            ),
           ),
           const SizedBox(height: 12),
           KonataSoftTextField(
@@ -401,26 +404,23 @@ class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
             maxLines: 5,
           ),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  widget.bundle.work.metadataLocked
-                      ? '当前元数据已人工锁定，点击「重新抓取 TMDB 数据」或重扫不会覆盖这里的标题、年份与简介。'
-                      : '仅当你修改了这里的标题、年份或简介并保存时，才会开启元数据锁定。',
-                  style: TextStyle(color: p.textMuted, fontSize: 12),
-                ),
-              ),
-              if (widget.bundle.work.metadataLocked &&
-                  widget.bundle.work.tmdbId != null) ...[
-                const SizedBox(width: 10),
-                KonataPillButton.ghost(
-                  label: '恢复自动抓取默认',
-                  compact: true,
-                  onPressed: _saving ? null : _resetMetadataToAuto,
-                ),
-              ],
-            ],
+          AdaptiveResponsiveRow(
+            minLeadingWidth: 180,
+            estimatedTrailingWidth: 150,
+            leading: Text(
+              widget.bundle.work.metadataLocked
+                  ? '当前元数据已人工锁定，点击「重新抓取 TMDB 数据」或重扫不会覆盖这里的标题、年份与简介。'
+                  : '仅当你修改了这里的标题、年份或简介并保存时，才会开启元数据锁定。',
+              style: TextStyle(color: p.textMuted, fontSize: 12),
+            ),
+            trailing: (widget.bundle.work.metadataLocked &&
+                    widget.bundle.work.tmdbId != null)
+                ? KonataPillButton.ghost(
+                    label: '恢复自动抓取默认',
+                    compact: true,
+                    onPressed: _saving ? null : _resetMetadataToAuto,
+                  )
+                : const SizedBox.shrink(),
           ),
         ],
       ),

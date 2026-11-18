@@ -25,8 +25,10 @@ import '../../infrastructure/sources/source_gateway_factory.dart';
 import '../../infrastructure/storage/storage_root_provider.dart';
 import '../providers/diagnostics_providers.dart';
 import '../providers/library_providers.dart';
+import '../providers/platform_capability.dart';
 import '../providers/playback_providers.dart';
 import 'playback_preferences_provider.dart';
+import 'unified_playback_coordinator.dart';
 
 /// CD 音频播放循环模式。
 enum AudioLoopMode {
@@ -521,6 +523,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   int? _rawSampleRateHz;
   String _rawAudioFormat = '';
   double _rawFileDurationSeconds = 0.0;
+  double? _volumeBeforeDuck;
 
   /// 判断文件名是否为受支持的音频物理轨。
   static bool isPlayableAudioFile(String fileName) =>
@@ -560,6 +563,14 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     }
 
     final previousItem = state.currentItem;
+    if (KonataPlatform.isAndroid) {
+      unawaited(
+        AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
+          landscape: false,
+          hideSystemBars: false,
+        ),
+      );
+    }
     final initialVol = _ref.read(playbackPreferencesProvider).defaultVolume;
     state = state.copyWith(
       isActive: true,
@@ -1192,6 +1203,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     final isRemote =
         item.source != null && item.source!.kind != MediaSourceKind.local;
     try {
+      await _ensureAudioFocus();
       await _ensureClientInitialized(isRemoteStream: isRemote);
       if (generation != _loadGeneration || !mounted) return;
       final client = _client!;
@@ -1872,24 +1884,55 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   /// 切换暂停 / 播放状态。
   Future<void> togglePlayPause() => setPlaying(!state.isPlaying);
 
+  Future<void> _ensureAudioFocus() async {
+    if (!KonataPlatform.isAndroid) return;
+    await AndroidPlaybackWindowBridge.requestAudioFocus(
+      onLoss: () {
+        if (!mounted || !state.isActive) return;
+        _volumeBeforeDuck = null;
+        if (state.isPlaying) {
+          unawaited(setPlaying(false));
+        }
+      },
+      onDuck: () {
+        if (!mounted || !state.isActive || !state.isPlaying) return;
+        _volumeBeforeDuck ??= state.volume;
+        final ducked = (_volumeBeforeDuck! * 0.25).clamp(0.0, 100.0);
+        _client?.setPropertyDouble('volume', ducked);
+      },
+      onGain: () {
+        if (!mounted || !state.isActive) return;
+        final restore = _volumeBeforeDuck;
+        _volumeBeforeDuck = null;
+        if (restore != null) {
+          _client?.setPropertyDouble('volume', state.isMuted ? 0.0 : restore);
+        }
+      },
+    );
+  }
+
   /// 显式设置播放状态（若已完播卸载或停在曲末，点击播放自动从头重载起播）。
   Future<void> setPlaying(bool playing) async {
-    if (playing &&
-        state.isActive &&
-        state.currentIndex >= 0 &&
-        state.currentIndex < state.queue.length) {
-      final atTrackEnd =
-          state.durationSeconds > 0 &&
-          state.positionSeconds >= state.durationSeconds - 0.15;
-      if (_loadedPhysicalKey == null || atTrackEnd) {
-        final resumeOffset = atTrackEnd ? 0.0 : state.positionSeconds;
-        final gen = ++_loadGeneration;
-        await _startTrackAtIndex(
-          state.currentIndex,
-          generation: gen,
-          initialTrackOffsetSeconds: resumeOffset,
-        );
-        return;
+    if (playing) {
+      _volumeBeforeDuck = null;
+      _client?.setPropertyDouble('volume', state.isMuted ? 0.0 : state.volume);
+      await _ensureAudioFocus();
+      if (state.isActive &&
+          state.currentIndex >= 0 &&
+          state.currentIndex < state.queue.length) {
+        final atTrackEnd =
+            state.durationSeconds > 0 &&
+            state.positionSeconds >= state.durationSeconds - 0.15;
+        if (_loadedPhysicalKey == null || atTrackEnd) {
+          final resumeOffset = atTrackEnd ? 0.0 : state.positionSeconds;
+          final gen = ++_loadGeneration;
+          await _startTrackAtIndex(
+            state.currentIndex,
+            generation: gen,
+            initialTrackOffsetSeconds: resumeOffset,
+          );
+          return;
+        }
       }
     }
     final c = _client;
@@ -2155,6 +2198,8 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     if (c != null && !c.isDisposed) {
       c.command(['stop']);
     }
+    _volumeBeforeDuck = null;
+    await AndroidPlaybackWindowBridge.abandonAudioFocus();
     await _releaseActiveStreamSession();
     _ref.read(immersiveAudioExpandedProvider.notifier).state = false;
     if (mounted) {

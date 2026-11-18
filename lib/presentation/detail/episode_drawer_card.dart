@@ -38,6 +38,8 @@ class EpisodeDrawerCard extends StatefulWidget {
     this.displayTitleOverride,
     this.showRawFileName = true,
     this.onDarkBackdrop = true,
+    this.cardWidth = 244.0,
+    this.compactMeta = false,
   });
 
   final Episode episode;
@@ -58,6 +60,12 @@ class EpisodeDrawerCard extends StatefulWidget {
 
   /// 是否直接叠放于详情页底部原画暗角之上（完整列表弹窗传 `false` 以适配亮/暗双主题面板）。
   final bool onDarkBackdrop;
+
+  /// 卡片展示宽度（默认 `244dp`，手机横/竖屏轨道可动态传入以保证标题与原始文件名完整展示）。
+  final double cardWidth;
+
+  /// 是否启用紧凑元信息间距与限幅行数（供手机横屏矮视口防止底部文字被裁切）。
+  final bool compactMeta;
 
   @override
   State<EpisodeDrawerCard> createState() => _EpisodeDrawerCardState();
@@ -209,7 +217,7 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                 style: KonataTheme.detailTextStyle(
                   palette: effectiveMetaPalette,
                   color: titleColor,
-                  fontSize: 14,
+                  fontSize: widget.compactMeta ? 13 : 14,
                   fontWeight: FontWeight.w600,
                 ).copyWith(shadows: metaShadows),
               ),
@@ -226,7 +234,7 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
           ],
         ),
         if (widget.showRawFileName && primaryVariant != null) ...[
-          const SizedBox(height: 3),
+          SizedBox(height: widget.compactMeta ? 2 : 3),
           Tooltip(
             message: primaryVariant.relativePath,
             child: Text(
@@ -234,14 +242,14 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                 primaryVariant.fileName,
               ),
               softWrap: true,
-              maxLines: 3,
+              maxLines: widget.compactMeta ? 2 : 3,
               overflow: TextOverflow.ellipsis,
               style: KonataTheme.detailTextStyle(
                 palette: effectiveMetaPalette,
                 color: fileNameColor,
-                fontSize: 12,
+                fontSize: widget.compactMeta ? 11.5 : 12,
                 fontWeight: FontWeight.w400,
-                height: 1.3,
+                height: 1.25,
               ).copyWith(shadows: metaShadows),
             ),
           ),
@@ -253,19 +261,23 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
       metaSection = Theme(data: KonataTheme.darkTheme(), child: metaSection);
     }
 
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        onSecondaryTapUp: (details) => _showEpisodeMenu(details.globalPosition),
-        onLongPressStart: (details) => _showEpisodeMenu(details.globalPosition),
-        child: SizedBox(
-          width: 244,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.15,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          onSecondaryTapUp: (details) =>
+              _showEpisodeMenu(details.globalPosition),
+          onLongPressStart: (details) =>
+              _showEpisodeMenu(details.globalPosition),
+          child: SizedBox(
+            width: widget.cardWidth,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
               AnimatedContainer(
                 duration: const Duration(milliseconds: 150),
                 curve: Curves.easeOutCubic,
@@ -418,12 +430,13 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                   ),
                 ),
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: widget.compactMeta ? 6 : 8),
               metaSection,
             ],
           ),
         ),
       ),
+    ),
     );
   }
 }

@@ -222,37 +222,41 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-            child: KonataSegmentedCapsule<VideoSideSheetTab>(
-              expand: true,
-              options: const [
-                KonataSegmentOption(
-                  value: VideoSideSheetTab.episodes,
-                  label: '选集',
-                ),
-                KonataSegmentOption(
-                  value: VideoSideSheetTab.chapters,
-                  label: '章节',
-                ),
-                KonataSegmentOption(
-                  value: VideoSideSheetTab.subtitles,
-                  label: '字幕',
-                ),
-                KonataSegmentOption(
-                  value: VideoSideSheetTab.audio,
-                  label: '音频',
-                ),
-                KonataSegmentOption(
-                  value: VideoSideSheetTab.video,
-                  label: '画面',
-                ),
-              ],
-              selected: _tab,
-              onChanged: (next) => setState(() {
-                _tab = next;
-                if (next == VideoSideSheetTab.episodes) {
-                  _pendingEpisodeAutoScroll = true;
-                }
-              }),
+            child: MediaQuery.withClampedTextScaling(
+              maxScaleFactor: 1.15,
+              child: KonataSegmentedCapsule<VideoSideSheetTab>(
+                expand: true,
+                compact: MediaQuery.sizeOf(context).width < 520,
+                options: const [
+                  KonataSegmentOption(
+                    value: VideoSideSheetTab.episodes,
+                    label: '选集',
+                  ),
+                  KonataSegmentOption(
+                    value: VideoSideSheetTab.chapters,
+                    label: '章节',
+                  ),
+                  KonataSegmentOption(
+                    value: VideoSideSheetTab.subtitles,
+                    label: '字幕',
+                  ),
+                  KonataSegmentOption(
+                    value: VideoSideSheetTab.audio,
+                    label: '音频',
+                  ),
+                  KonataSegmentOption(
+                    value: VideoSideSheetTab.video,
+                    label: '画面',
+                  ),
+                ],
+                selected: _tab,
+                onChanged: (next) => setState(() {
+                  _tab = next;
+                  if (next == VideoSideSheetTab.episodes) {
+                    _pendingEpisodeAutoScroll = true;
+                  }
+                }),
+              ),
             ),
           ),
           Expanded(
@@ -468,19 +472,24 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
         children: [
           Row(
             children: [
-              Text(
-                '字幕轨道',
-                style: TextStyle(
-                  color: pPal.textPrimary,
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w600,
+              Expanded(
+                child: Text(
+                  '字幕轨道',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: pPal.textPrimary,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-              const Spacer(),
-              TextButton.icon(
+              const SizedBox(width: 8),
+              KonataPillButton.ghost(
+                label: '加载外挂字幕',
+                icon: Icons.add_rounded,
+                compact: true,
                 onPressed: () => _pickExternalSubtitle(controller),
-                icon: const Icon(Icons.add_rounded, size: 16),
-                label: const Text('加载外挂字幕'),
               ),
             ],
           ),
@@ -1165,8 +1174,15 @@ class _DelayStepperRow extends StatelessWidget {
         : null;
     return Row(
       children: [
-        Text(label, style: TextStyle(color: pPal.textSecondary, fontSize: 12.5)),
-        const Spacer(),
+        Expanded(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: pPal.textSecondary, fontSize: 12.5),
+          ),
+        ),
+        const SizedBox(width: 8),
         IconButton(
           constraints: btnConstraints,
           visualDensity: KonataAdaptiveTokens.isAndroid
@@ -1176,23 +1192,10 @@ class _DelayStepperRow extends StatelessWidget {
           onPressed: () => onDelta(-0.1),
           icon: const Icon(Icons.remove_circle_outline_rounded, size: 18),
         ),
-        TextButton(
-          style: KonataAdaptiveTokens.isAndroid
-              ? TextButton.styleFrom(
-                  minimumSize: const Size(
-                    KonataAdaptiveTokens.touchTarget,
-                    KonataAdaptiveTokens.touchTarget,
-                  ),
-                )
-              : null,
+        KonataPillButton.ghost(
+          label: '$sign${delaySeconds.toStringAsFixed(1)}s',
+          compact: true,
           onPressed: onReset,
-          child: Text(
-            '$sign${delaySeconds.toStringAsFixed(1)}s',
-            style: TextStyle(
-              color: pPal.textPrimary,
-              fontFeatures: KonataPlaybackTokens.tabularNumbers,
-            ),
-          ),
         ),
         IconButton(
           constraints: btnConstraints,

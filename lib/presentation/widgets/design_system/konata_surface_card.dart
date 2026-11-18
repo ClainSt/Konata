@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/konata_palette.dart';
+import 'adaptive_responsive_row.dart';
 
 final ValueNotifier<Object?> _activeHoveredTileToken = ValueNotifier<Object?>(
   null,
@@ -85,6 +86,8 @@ class KonataListTile extends StatefulWidget {
     this.subtitle,
     this.leading,
     this.trailing,
+    this.estimatedTrailingWidth = 68.0,
+    this.expandTrailingWhenStacked = false,
     this.onTap,
   });
 
@@ -99,6 +102,12 @@ class KonataListTile extends StatefulWidget {
 
   /// 可选右侧控件（如 Switch 或箭头图标）。
   final Widget? trailing;
+
+  /// 预估右侧控件宽度（用于窄屏防挤字自动换位判断）。
+  final double estimatedTrailingWidth;
+
+  /// 自动换位至纵向堆叠时右侧控件是否横向撑满。
+  final bool expandTrailingWhenStacked;
 
   /// 点击整行回调。
   final VoidCallback? onTap;
@@ -166,45 +175,70 @@ class _KonataListTileState extends State<KonataListTile> {
               child: child,
             );
           },
-          child: Row(
-            children: [
-              if (widget.leading != null) ...[
-                widget.leading!,
-                const SizedBox(width: 14),
-              ],
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
+          child: Builder(
+            builder: (context) {
+              final titleBlock = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    widget.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: p.textPrimary,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (widget.subtitle != null &&
+                      widget.subtitle!.isNotEmpty) ...[
+                    const SizedBox(height: 3),
                     Text(
-                      widget.title,
+                      widget.subtitle!,
+                      maxLines: 4,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: p.textPrimary,
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w600,
+                        color: p.textSecondary,
+                        fontSize: 12.5,
+                        height: 1.4,
                       ),
                     ),
-                    if (widget.subtitle != null &&
-                        widget.subtitle!.isNotEmpty) ...[
-                      const SizedBox(height: 3),
-                      Text(
-                        widget.subtitle!,
-                        style: TextStyle(
-                          color: p.textSecondary,
-                          fontSize: 12.5,
-                          height: 1.4,
-                        ),
-                      ),
-                    ],
                   ],
-                ),
-              ),
-              if (widget.trailing != null) ...[
-                const SizedBox(width: 12),
-                widget.trailing!,
-              ],
-            ],
+                ],
+              );
+
+              if (widget.trailing == null) {
+                return Row(
+                  children: [
+                    if (widget.leading != null) ...[
+                      widget.leading!,
+                      const SizedBox(width: 14),
+                    ],
+                    Expanded(child: titleBlock),
+                  ],
+                );
+              }
+
+              final leadingRow = Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  if (widget.leading != null) ...[
+                    widget.leading!,
+                    const SizedBox(width: 14),
+                  ],
+                  Expanded(child: titleBlock),
+                ],
+              );
+
+              return AdaptiveResponsiveRow(
+                leading: leadingRow,
+                trailing: widget.trailing!,
+                estimatedTrailingWidth: widget.estimatedTrailingWidth,
+                minLeadingWidth: widget.leading != null ? 176.0 : 140.0,
+                expandTrailingWhenStacked: widget.expandTrailingWhenStacked,
+              );
+            },
           ),
         ),
       ),

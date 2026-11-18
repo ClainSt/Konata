@@ -33,6 +33,8 @@ class DetailHeroInfo extends StatelessWidget {
     this.showOverview = true,
     this.onManualMatch,
     this.onDismissReview,
+    this.titleFontSize = 34.0,
+    this.fullWidthPlayButton = false,
   });
 
   /// 作品详情聚合数据包。
@@ -58,6 +60,12 @@ class DetailHeroInfo extends StatelessWidget {
 
   /// 从待复核横幅忽略复核提示回调。
   final VoidCallback? onDismissReview;
+
+  /// 文字主标题字号（桌面默认 `34`，手机竖屏传入较小字号防止超大折行）。
+  final double titleFontSize;
+
+  /// 主播放按钮是否撑满容器宽度（手机竖屏网易爆米花风格主按钮）。
+  final bool fullWidthPlayButton;
 
   @override
   Widget build(BuildContext context) {
@@ -130,6 +138,7 @@ class DetailHeroInfo extends StatelessWidget {
                       : _FallbackTitleBlock(
                           title: work.title,
                           originalTitle: work.originalTitle,
+                          fontSize: titleFontSize,
                         ),
                 ),
               ),
@@ -139,6 +148,7 @@ class DetailHeroInfo extends StatelessWidget {
             _FallbackTitleBlock(
               title: work.title,
               originalTitle: work.originalTitle,
+              fontSize: titleFontSize,
             ),
           if (metaParts.isNotEmpty) ...[
             if (hasTitleSection) const SizedBox(height: 12),
@@ -177,7 +187,11 @@ class DetailHeroInfo extends StatelessWidget {
               onManualMatch: onManualMatch!,
               onDismiss: onDismissReview!,
             ),
-          FrostedPlayButton(label: buttonLabel, onPressed: onPrimaryPlay),
+          FrostedPlayButton(
+            label: buttonLabel,
+            onPressed: onPrimaryPlay,
+            expandWidth: fullWidthPlayButton,
+          ),
         ],
       ),
     );
@@ -191,6 +205,7 @@ class FrostedPlayButton extends StatefulWidget {
     super.key,
     required this.label,
     required this.onPressed,
+    this.expandWidth = false,
   });
 
   /// 按钮主文案（`开始播放` 或 `继续播放`）。
@@ -198,6 +213,9 @@ class FrostedPlayButton extends StatefulWidget {
 
   /// 点击回调。
   final VoidCallback? onPressed;
+
+  /// 是否横向撑满可用容器宽度（手机竖屏网易爆米花风格主按钮）。
+  final bool expandWidth;
 
   @override
   State<FrostedPlayButton> createState() => _FrostedPlayButtonState();
@@ -267,18 +285,25 @@ class _FrostedPlayButtonState extends State<FrostedPlayButton> {
                   border: Border.all(color: borderColor, width: 1),
                 ),
                 child: Row(
-                  mainAxisSize: MainAxisSize.min,
+                  mainAxisSize: widget.expandWidth
+                      ? MainAxisSize.max
+                      : MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(Icons.play_arrow_rounded, size: 20, color: fgColor),
                     const SizedBox(width: 8),
-                    Text(
-                      widget.label,
-                      style: KonataTheme.detailTextStyle(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.4,
-                        palette: p,
-                        color: fgColor,
+                    Flexible(
+                      child: Text(
+                        widget.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: KonataTheme.detailTextStyle(
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.4,
+                          palette: p,
+                          color: fgColor,
+                        ),
                       ),
                     ),
                   ],
@@ -293,10 +318,15 @@ class _FrostedPlayButtonState extends State<FrostedPlayButton> {
 }
 
 class _FallbackTitleBlock extends StatelessWidget {
-  const _FallbackTitleBlock({required this.title, required this.originalTitle});
+  const _FallbackTitleBlock({
+    required this.title,
+    required this.originalTitle,
+    this.fontSize = 34.0,
+  });
 
   final String title;
   final String? originalTitle;
+  final double fontSize;
 
   @override
   Widget build(BuildContext context) {
@@ -316,7 +346,7 @@ class _FallbackTitleBlock extends StatelessWidget {
           style: KonataTheme.detailTextStyle(
             palette: p,
             color: Colors.white,
-            fontSize: 34,
+            fontSize: fontSize,
             fontWeight: FontWeight.w700,
             letterSpacing: 0.5,
             height: 1.22,

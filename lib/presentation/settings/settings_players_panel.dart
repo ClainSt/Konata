@@ -1,8 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import '../theme/konata_adaptive_tokens.dart';
-import '../widgets/design_system/konata_settings_row.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as path;
 import 'package:url_launcher/url_launcher.dart';
@@ -10,8 +8,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../application/playback/playback_preferences_provider.dart';
 import '../../infrastructure/players/mpv_quality_profile.dart';
 import '../../infrastructure/storage/storage_root_provider.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
+import '../widgets/design_system/adaptive_responsive_row.dart';
 import '../widgets/design_system/konata_dropdown.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
@@ -95,13 +95,6 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('播放器', style: KonataTheme.h2Style(p)),
-        const SizedBox(height: 6),
-        Text(
-          '内置 libmpv D3D11 / MediaCodec 硬件管线与纯音频无损引擎配置，全自动音画还原与章节跳过控制',
-          style: KonataTheme.captionStyle(p, fontSize: 13),
-        ),
-        const SizedBox(height: 18),
         _buildRuntimeAndEngineCard(p, prefs, notifier, runtimeAsync),
         const SizedBox(height: 16),
         LayoutBuilder(
@@ -109,7 +102,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
             final videoCard = _buildVideoQualityCard(p, prefs, notifier);
             final audioCard = _buildAudioAndShaderCard(p, prefs, notifier);
             if (constraints.maxWidth >= 780) {
-              return KonataSettingsRow(
+              return Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(child: videoCard),
@@ -134,11 +127,35 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
     PlaybackPreferencesNotifier notifier,
     AsyncValue<MpvRuntimeVersions> runtimeAsync,
   ) {
+    final pill = runtimeAsync.when(
+      data: (ver) => _RuntimeStatusPill(
+        label: ver.isAvailable
+            ? '${ver.mpvVersion} · FFmpeg ${ver.ffmpegVersion}'
+            : (KonataAdaptiveTokens.isWindows
+                  ? 'libmpv 运行时未就绪（将自动回退外部播放器）'
+                  : '内置播放核心未就绪'),
+        badge: ver.isAvailable ? p.accentBadge : p.warningBadge,
+      ),
+      loading: () => _RuntimeStatusPill(
+        label: '正在探测内核...',
+        badge: KonataBadgeColors(
+          bg: p.softFill,
+          fg: p.textMuted,
+          border: p.hairline,
+        ),
+      ),
+      error: (e, st) =>
+          _RuntimeStatusPill(label: '内核探测失败', badge: p.dangerBadge),
+    );
+
     return KonataSurfaceCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          KonataSettingsRow(
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Text(
                 '内置核心与默认路由',
@@ -148,111 +165,53 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const SizedBox(width: 10),
-              runtimeAsync.when(
-                data: (ver) => _RuntimeStatusPill(
-                  label: ver.isAvailable
-                      ? '${ver.mpvVersion} · FFmpeg ${ver.ffmpegVersion}'
-                      : (KonataAdaptiveTokens.isWindows
-                            ? 'libmpv 运行时未就绪（将自动回退外部播放器）'
-                            : '内置播放核心未就绪'),
-                  badge: ver.isAvailable ? p.accentBadge : p.warningBadge,
-                ),
-                loading: () => _RuntimeStatusPill(
-                  label: '正在探测内核...',
-                  badge: KonataBadgeColors(
-                    bg: p.softFill,
-                    fg: p.textMuted,
-                    border: p.hairline,
-                  ),
-                ),
-                error: (e, st) =>
-                    _RuntimeStatusPill(label: '内核探测失败', badge: p.dangerBadge),
-              ),
+              pill,
             ],
           ),
           if (KonataAdaptiveTokens.isWindows) ...[
             const SizedBox(height: 16),
-            KonataSettingsRow(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '默认视频播放引擎',
-                        style: TextStyle(
-                          color: p.textPrimary,
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        '点击正片或特典卡片时默认打开的播放器；右键卡片可随时临时指定其他播放器',
-                        style: TextStyle(color: p.textSecondary, fontSize: 12),
-                      ),
-                    ],
+            AdaptiveSettingTile(
+              padding: EdgeInsets.zero,
+              title: '默认视频播放引擎',
+              subtitle: '点击正片或特典卡片时默认打开的播放器；右键卡片可随时临时指定其他播放器',
+              estimatedTrailingWidth: 210,
+              trailing: KonataSegmentedCapsule<PreferredPlaybackEngine>(
+                selected: prefs.defaultVideoEngine,
+                options: const [
+                  KonataSegmentOption(
+                    value: PreferredPlaybackEngine.builtinLibmpv,
+                    label: '内置播放器',
                   ),
-                ),
-                const SizedBox(width: 16),
-                KonataSegmentedCapsule<PreferredPlaybackEngine>(
-                  selected: prefs.defaultVideoEngine,
-                  options: const [
-                    KonataSegmentOption(
-                      value: PreferredPlaybackEngine.builtinLibmpv,
-                      label: '内置播放器',
-                    ),
-                    KonataSegmentOption(
-                      value: PreferredPlaybackEngine.externalPlayer,
-                      label: '外部播放器',
-                    ),
-                  ],
-                  onChanged: notifier.setDefaultVideoEngine,
-                ),
-              ],
+                  KonataSegmentOption(
+                    value: PreferredPlaybackEngine.externalPlayer,
+                    label: '外部播放器',
+                  ),
+                ],
+                onChanged: notifier.setDefaultVideoEngine,
+              ),
             ),
             const SizedBox(height: 14),
             Divider(height: 1, color: p.hairline),
             const SizedBox(height: 14),
-            KonataSettingsRow(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '默认 CD 音频引擎',
-                        style: TextStyle(
-                          color: p.textPrimary,
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        '内置无损纯音频内核支持迷你浮窗底栏、全屏流光倒影页及 CUE/LRC 分轨歌词',
-                        style: TextStyle(color: p.textSecondary, fontSize: 12),
-                      ),
-                    ],
+            AdaptiveSettingTile(
+              padding: EdgeInsets.zero,
+              title: '默认 CD 音频引擎',
+              subtitle: '内置无损纯音频内核支持迷你浮窗底栏、全屏流光倒影页及 CUE/LRC 分轨歌词',
+              estimatedTrailingWidth: 220,
+              trailing: KonataSegmentedCapsule<PreferredPlaybackEngine>(
+                selected: prefs.defaultAudioEngine,
+                options: const [
+                  KonataSegmentOption(
+                    value: PreferredPlaybackEngine.builtinLibmpv,
+                    label: '内置流光音频',
                   ),
-                ),
-                const SizedBox(width: 16),
-                KonataSegmentedCapsule<PreferredPlaybackEngine>(
-                  selected: prefs.defaultAudioEngine,
-                  options: const [
-                    KonataSegmentOption(
-                      value: PreferredPlaybackEngine.builtinLibmpv,
-                      label: '内置流光音频',
-                    ),
-                    KonataSegmentOption(
-                      value: PreferredPlaybackEngine.externalPlayer,
-                      label: '外部播放器',
-                    ),
-                  ],
-                  onChanged: notifier.setDefaultAudioEngine,
-                ),
-              ],
+                  KonataSegmentOption(
+                    value: PreferredPlaybackEngine.externalPlayer,
+                    label: '外部播放器',
+                  ),
+                ],
+                onChanged: notifier.setDefaultAudioEngine,
+              ),
             ),
           ],
         ],
@@ -434,47 +393,52 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                KonataSettingsRow(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'GLSL 自定义着色器',
-                            style: TextStyle(
-                              color: p.textPrimary,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '放入 userdata/shaders/ 下的 .glsl/.hook 文件（已识别 ${_shaderFiles.length} 个）',
-                            style: TextStyle(
-                              color: p.textSecondary,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
+                AdaptiveResponsiveRow(
+                  estimatedTrailingWidth: KonataAdaptiveTokens.isWindows
+                      ? 176
+                      : 84,
+                  minLeadingWidth: 140,
+                  leading: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'GLSL 自定义着色器',
+                        style: TextStyle(
+                          color: p.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    KonataPillButton.ghost(
-                      label: _scanningShaders ? '扫描中' : '刷新',
-                      icon: Icons.refresh_rounded,
-                      compact: true,
-                      onPressed: _scanningShaders ? null : _scanShaders,
-                    ),
-                    const SizedBox(width: 4),
-                    if (KonataAdaptiveTokens.isWindows)
-                      KonataPillButton.secondary(
-                        label: '打开目录',
-                        icon: Icons.folder_open_rounded,
+                      const SizedBox(height: 2),
+                      Text(
+                        '放入 userdata/shaders/ 下的 .glsl/.hook 文件（已识别 ${_shaderFiles.length} 个）',
+                        style: TextStyle(
+                          color: p.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                  trailing: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      KonataPillButton.ghost(
+                        label: _scanningShaders ? '扫描中' : '刷新',
+                        icon: Icons.refresh_rounded,
                         compact: true,
-                        onPressed: _openShadersFolder,
+                        onPressed: _scanningShaders ? null : _scanShaders,
                       ),
-                  ],
+                      if (KonataAdaptiveTokens.isWindows)
+                        KonataPillButton.secondary(
+                          label: '打开目录',
+                          icon: Icons.folder_open_rounded,
+                          compact: true,
+                          onPressed: _openShadersFolder,
+                        ),
+                    ],
+                  ),
                 ),
                 if (_shaderFiles.isNotEmpty) ...[
                   const SizedBox(height: 10),
@@ -511,19 +475,24 @@ class _RuntimeStatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-      decoration: BoxDecoration(
-        color: badge.bg,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: badge.border, width: 1),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: badge.fg,
-          fontSize: 11.5,
-          fontWeight: FontWeight.w600,
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.15,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+        decoration: BoxDecoration(
+          color: badge.bg,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: badge.border, width: 1),
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: badge.fg,
+            fontSize: 11.5,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
     );
@@ -582,21 +551,25 @@ class _ShaderTogglePillState extends State<_ShaderTogglePill> {
             borderRadius: BorderRadius.circular(999),
             border: Border.all(color: borderColor, width: 1),
           ),
-          child: KonataSettingsRow(
+          child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               if (selected) ...[
                 Icon(Icons.check_rounded, size: 13.5, color: fgColor),
                 const SizedBox(width: 5),
               ],
-              Text(
-                widget.label,
-                style: KonataTheme.textStyle(
-                  color: fgColor,
-                  fontSize: 12,
-                  weight: selected
-                      ? KonataTheme.weightActive
-                      : KonataTheme.weightRegularLabel,
+              Flexible(
+                child: Text(
+                  widget.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: KonataTheme.textStyle(
+                    color: fgColor,
+                    fontSize: 12,
+                    weight: selected
+                        ? KonataTheme.weightActive
+                        : KonataTheme.weightRegularLabel,
+                  ),
                 ),
               ),
             ],

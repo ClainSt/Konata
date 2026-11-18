@@ -22,10 +22,10 @@ import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../video/embedded_video_page.dart';
+import '../widgets/design_system/adaptive_action_header.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
-import '../widgets/design_system/konata_page_header.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_surface_card.dart';
@@ -438,6 +438,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     required BuildContext context,
     required WorkLibraryItem? item,
     required double titleMaxWidth,
+    required double titleTrailingMinHeight,
     required double epLineHeight,
     required double extraAudioDirHeight,
     required double progressLineHeight,
@@ -460,9 +461,13 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
       locale: Localizations.maybeLocaleOf(context),
     )..layout(maxWidth: math.max(40.0, titleMaxWidth));
 
-    final bottomRowH = math.max(_progressBarHeight, dateLineHeight);
+    final titleRowHeight = math.max(painter.height, titleTrailingMinHeight);
+    final stackedBottomRow = titleMaxWidth < 260.0;
+    final bottomRowH = stackedBottomRow
+        ? (_progressBarHeight + 8.0 + dateLineHeight)
+        : math.max(_progressBarHeight, dateLineHeight);
     final rightHeight =
-        painter.height +
+        titleRowHeight +
         _titleSubtitleGap +
         epLineHeight +
         extraAudioDirHeight +
@@ -472,7 +477,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
         bottomRowH;
     return math.max(
       coverHeight + _cardPadding * 2 + 2,
-      rightHeight + _cardPadding * 2 + 6,
+      rightHeight + _cardPadding * 2 + 8,
     );
   }
 
@@ -500,17 +505,19 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     final poster =
         work?.posterPath ?? work?.bangumiPosterPath ?? work?.posterFallback;
     final showTouchMore = KonataAdaptiveTokens.isAndroid && !inSelection;
+    final viewportWidth = MediaQuery.sizeOf(context).width;
     final compactCard =
         KonataAdaptiveTokens.isAndroid &&
-        MediaQuery.sizeOf(context).width < KonataAdaptiveTokens.tabletBreakpoint;
-    final cardPad = compactCard ? 12.0 : _cardPadding;
-    final coverGap = compactCard ? 12.0 : _coverTextGap;
+        viewportWidth < KonataAdaptiveTokens.tabletBreakpoint;
+    final veryNarrow = compactCard && viewportWidth < 380.0;
+    final cardPad = veryNarrow ? 10.0 : (compactCard ? 12.0 : _cardPadding);
+    final coverGap = veryNarrow ? 10.0 : (compactCard ? 12.0 : _coverTextGap);
     final coverWidth = isAudio
-        ? (compactCard ? 92.0 : _audioCoverSize)
-        : (compactCard ? 88.0 : _videoCoverWidth);
+        ? (veryNarrow ? 74.0 : (compactCard ? 92.0 : _audioCoverSize))
+        : (veryNarrow ? 74.0 : (compactCard ? 88.0 : _videoCoverWidth));
     final coverHeight = isAudio
-        ? (compactCard ? 92.0 : _audioCoverSize)
-        : (compactCard ? 126.0 : _videoCoverHeight);
+        ? (veryNarrow ? 74.0 : (compactCard ? 92.0 : _audioCoverSize))
+        : (veryNarrow ? 106.0 : (compactCard ? 126.0 : _videoCoverHeight));
     final coverRadius = isAudio ? 12.0 : 10.0;
 
     final Widget coverWidget = isAudio
@@ -544,9 +551,13 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
               child: Text(
                 work?.title ?? '未知作品',
                 softWrap: true,
+                maxLines: veryNarrow ? 2 : null,
+                overflow: veryNarrow ? TextOverflow.ellipsis : null,
                 style: TextStyle(
                   color: p.textPrimary,
-                  fontSize: compactCard ? 17.5 : _titleFontSize,
+                  fontSize: veryNarrow
+                      ? 15.5
+                      : (compactCard ? 17.5 : _titleFontSize),
                   fontWeight: FontWeight.w700,
                   height: _titleLineHeight,
                 ),
@@ -637,37 +648,56 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
           ),
         ),
         const SizedBox(height: _progressBarGap),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: SizedBox(
-                height: _progressBarHeight,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(999),
-                  child: LinearProgressIndicator(
-                    value: rec.isCompleted ? 1.0 : rec.progressRatio,
-                    backgroundColor: p.progressTrack,
-                    valueColor: AlwaysStoppedAnimation(
-                      rec.isCompleted ? p.success : p.progressFill,
-                    ),
+        LayoutBuilder(
+          builder: (context, barBox) {
+            final progressBar = SizedBox(
+              height: _progressBarHeight,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(999),
+                child: LinearProgressIndicator(
+                  value: rec.isCompleted ? 1.0 : rec.progressRatio,
+                  backgroundColor: p.progressTrack,
+                  valueColor: AlwaysStoppedAnimation(
+                    rec.isCompleted ? p.success : p.progressFill,
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: 14),
-            Text(
-              MediaDisplayFormatter.formatDateTimeMinute(rec.playedAt),
-              maxLines: 1,
-              softWrap: false,
-              style: KonataTheme.textStyle(
-                color: p.textMuted,
-                fontSize: _dateFontSize,
-                weight: 500,
-                tabularFigures: true,
+            );
+            final dateLabel = MediaQuery.withClampedTextScaling(
+              maxScaleFactor: 1.15,
+              child: Text(
+                MediaDisplayFormatter.formatDateTimeMinute(rec.playedAt),
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
+                style: KonataTheme.textStyle(
+                  color: p.textMuted,
+                  fontSize: veryNarrow ? 12.0 : _dateFontSize,
+                  weight: 500,
+                  tabularFigures: true,
+                ),
               ),
-            ),
-          ],
+            );
+            if (barBox.maxWidth < 260.0) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  progressBar,
+                  const SizedBox(height: 6),
+                  Align(alignment: Alignment.centerRight, child: dateLabel),
+                ],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(child: progressBar),
+                const SizedBox(width: 10),
+                Flexible(flex: 0, child: dateLabel),
+              ],
+            );
+          },
         ),
       ],
     );
@@ -811,85 +841,117 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            KonataPageHeader(
+            AdaptiveActionHeader(
               title: '播放记录',
-              badge: KonataSegmentedCapsule<PlaybackHistoryCategory>(
-                options: const [
-                  KonataSegmentOption(
-                    value: PlaybackHistoryCategory.video,
-                    label: '视频',
-                  ),
-                  KonataSegmentOption(
-                    value: PlaybackHistoryCategory.audio,
-                    label: '音频',
-                  ),
-                ],
-                selected: _activeTab,
-                onChanged: _switchTab,
+              badge: MediaQuery.withClampedTextScaling(
+                maxScaleFactor: 1.15,
+                child: KonataSegmentedCapsule<PlaybackHistoryCategory>(
+                  compact: true,
+                  options: const [
+                    KonataSegmentOption(
+                      value: PlaybackHistoryCategory.video,
+                      label: '视频',
+                    ),
+                    KonataSegmentOption(
+                      value: PlaybackHistoryCategory.audio,
+                      label: '音频',
+                    ),
+                  ],
+                  selected: _activeTab,
+                  onChanged: _switchTab,
+                ),
               ),
-              actions: [
+              primaryActions: [
                 if (hasRecords && !inSelection) ...[
-                  KonataPillButton.secondary(
-                    label: markCompletedLabel,
+                  AdaptiveHeaderAction(
                     icon: Icons.done_all_rounded,
-                    compact: true,
+                    label: markCompletedLabel,
+                    wideWidget: KonataPillButton.secondary(
+                      label: markCompletedLabel,
+                      icon: Icons.done_all_rounded,
+                      compact: true,
+                      onPressed: () =>
+                          _enterBatchMode(_HistoryBatchMode.markCompleted),
+                    ),
                     onPressed: () =>
                         _enterBatchMode(_HistoryBatchMode.markCompleted),
                   ),
-                  const SizedBox(width: 8),
-                  KonataPillButton.secondary(
-                    label: '清理记录',
+                  AdaptiveHeaderAction(
                     icon: Icons.delete_sweep_outlined,
-                    compact: true,
+                    label: '清理记录',
+                    wideWidget: KonataPillButton.secondary(
+                      label: '清理记录',
+                      icon: Icons.delete_sweep_outlined,
+                      compact: true,
+                      onPressed: () => _enterBatchMode(_HistoryBatchMode.delete),
+                    ),
                     onPressed: () => _enterBatchMode(_HistoryBatchMode.delete),
                   ),
-                ] else if (inSelection) ...[
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: Text(
-                      '已选 $selectedCount / ${records.length}',
-                      style: TextStyle(
-                        color: p.textSecondary,
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  KonataPillButton.ghost(
-                    label: allSelected ? '取消全选' : '全选',
-                    compact: true,
-                    onPressed: hasRecords
-                        ? () => _toggleSelectAll(records)
-                        : null,
-                  ),
-                  const SizedBox(width: 6),
-                  KonataPillButton.ghost(
-                    label: '取消',
-                    compact: true,
-                    onPressed: _exitBatchMode,
-                  ),
-                  const SizedBox(width: 6),
-                  if (_batchMode == _HistoryBatchMode.delete)
-                    KonataPillButton.danger(
-                      label: '确认清理',
-                      icon: Icons.delete_outline_rounded,
-                      compact: true,
-                      onPressed: selectedCount > 0
-                          ? () => _confirmBatchAction(context, ref, records)
-                          : null,
-                    )
-                  else
-                    KonataPillButton.primary(
-                      label: '确认标记',
-                      icon: Icons.check_rounded,
-                      compact: true,
-                      onPressed: selectedCount > 0
-                          ? () => _confirmBatchAction(context, ref, records)
-                          : null,
-                    ),
                 ],
               ],
             ),
+            if (inSelection)
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  KonataAdaptiveTokens.isAndroid &&
+                          MediaQuery.sizeOf(context).width <
+                              KonataAdaptiveTokens.tabletBreakpoint
+                      ? KonataAdaptiveTokens.horizontalInset
+                      : KonataTheme.pageHorizontalPadding,
+                  0,
+                  KonataAdaptiveTokens.isAndroid &&
+                          MediaQuery.sizeOf(context).width <
+                              KonataAdaptiveTokens.tabletBreakpoint
+                      ? KonataAdaptiveTokens.horizontalInset
+                      : KonataTheme.pageHorizontalPadding,
+                  10,
+                ),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      '已选 $selectedCount / ${records.length}',
+                      style: TextStyle(
+                        color: p.textSecondary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    KonataPillButton.ghost(
+                      label: allSelected ? '取消全选' : '全选',
+                      compact: true,
+                      onPressed: hasRecords
+                          ? () => _toggleSelectAll(records)
+                          : null,
+                    ),
+                    KonataPillButton.ghost(
+                      label: '取消',
+                      compact: true,
+                      onPressed: _exitBatchMode,
+                    ),
+                    if (_batchMode == _HistoryBatchMode.delete)
+                      KonataPillButton.danger(
+                        label: '确认清理',
+                        icon: Icons.delete_outline_rounded,
+                        compact: true,
+                        onPressed: selectedCount > 0
+                            ? () => _confirmBatchAction(context, ref, records)
+                            : null,
+                      )
+                    else
+                      KonataPillButton.primary(
+                        label: '确认标记',
+                        icon: Icons.check_rounded,
+                        compact: true,
+                        onPressed: selectedCount > 0
+                            ? () => _confirmBatchAction(context, ref, records)
+                            : null,
+                      ),
+                  ],
+                ),
+              ),
             Expanded(
               child: historyAsync.when(
                 data: (loadedRecords) {
@@ -1059,10 +1121,16 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                                   )
                                 : null;
 
+                            final titleTrailingMinHeight = inSelection
+                                ? 24.0
+                                : (KonataAdaptiveTokens.isAndroid
+                                      ? KonataAdaptiveTokens.touchTarget
+                                      : 0.0);
                             final leftHeight = _measureCardHeight(
                               context: context,
                               item: leftItem,
                               titleMaxWidth: titleMaxWidth,
+                              titleTrailingMinHeight: titleTrailingMinHeight,
                               epLineHeight: epH,
                               extraAudioDirHeight: leftDirLabel != null
                                   ? (_audioDirTopGap + audioDirLineH)
@@ -1077,6 +1145,8 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                                     context: context,
                                     item: rightItem,
                                     titleMaxWidth: titleMaxWidth,
+                                    titleTrailingMinHeight:
+                                        titleTrailingMinHeight,
                                     epLineHeight: epH,
                                     extraAudioDirHeight: rightDirLabel != null
                                         ? (_audioDirTopGap + audioDirLineH)

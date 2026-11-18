@@ -4,16 +4,21 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
+import 'package:ccplayer/domain/models/media_variant.dart';
 import 'package:ccplayer/domain/playback/playback_probe_stats.dart';
 import 'package:ccplayer/domain/playback/track_preferences.dart';
 import 'package:ccplayer/infrastructure/logging/diagnostics_log_store.dart';
+import 'package:ccplayer/infrastructure/players/android/android_video_surface_controller.dart';
+import 'package:ccplayer/infrastructure/players/embedded_mpv_session.dart';
 import 'package:ccplayer/infrastructure/players/libmpv_ffi.dart';
 import 'package:ccplayer/infrastructure/players/mpv_quality_profile.dart';
 import 'package:ccplayer/infrastructure/storage/storage_root_provider.dart';
+import 'package:ccplayer/infrastructure/stream_bridge/local_stream_bridge.dart';
 
 class _FakeLibMpvClient implements LibMpvClient {
   final Map<String, String> options = <String, String>{};
   final Map<String, String> stringProps = <String, String>{};
+  final List<({String name, String value})> stringPropLog = [];
   final Map<String, bool> boolProps = <String, bool>{};
   final Map<String, int> intProps = <String, int>{};
   final Map<String, double> doubleProps = <String, double>{};
@@ -53,6 +58,7 @@ class _FakeLibMpvClient implements LibMpvClient {
   int setPropertyString(String name, String value) {
     if (failProps.contains(name)) return MpvError.propertyNotFound;
     stringProps[name] = value;
+    stringPropLog.add((name: name, value: value));
     return MpvError.success;
   }
 
@@ -121,7 +127,48 @@ class _FakeLibMpvClient implements LibMpvClient {
   }
 }
 
+class _FakeAndroidSurfaceController extends AndroidVideoSurfaceController {
+  _FakeAndroidSurfaceController(this._initial) : super(77);
+
+  AndroidSurfaceDescriptor? _initial;
+  final StreamController<AndroidSurfaceDescriptor?> _changes =
+      StreamController<AndroidSurfaceDescriptor?>.broadcast();
+  final List<int> releasedRefs = [];
+
+  @override
+  AndroidSurfaceDescriptor? get current => _initial;
+
+  @override
+  Stream<AndroidSurfaceDescriptor?> get surfaceChanges => _changes.stream;
+
+  @override
+  Future<AndroidSurfaceDescriptor?> queryCurrent() async => _initial;
+
+  @override
+  Future<void> releaseReference(int wid) async {
+    releasedRefs.add(wid);
+  }
+
+  @override
+  Future<void> releaseSurface() async {
+    _initial = null;
+  }
+
+  @override
+  Future<void> dispose() async {
+    await _changes.close();
+  }
+
+  void emit(AndroidSurfaceDescriptor? desc) {
+    _initial = desc;
+    if (!_changes.isClosed) {
+      _changes.add(desc);
+    }
+  }
+}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   group('StorageRootService 便携根目录与截图分配测试', () {
     late Directory tempRoot;
     late StorageRootService storage;
@@ -374,5 +421,121 @@ void main() {
       expect(probe.isAvailable, isTrue);
       expect(probe.mpvVersion, isNotEmpty);
     });
+
+    test('Android 视频前置配置启用 opengl-es 与 rgb10_a2 并延时初始化 vo=null', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'konata_android_mpv_cfg_',
+      );
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      final storage = StorageRootService(overrideRoot: tempDir);
+      final client = _FakeLibMpvClient();
+      final mpvDir = await storage.ensureMpvConfigDir();
+
+      MpvQualityProfile.applyPreInitVideoOptions(
+        client,
+        config: const PlaybackQualityConfig(),
+        mpvConfigDir: mpvDir,
+        isWindowsOverride: false,
+        isAndroidOverride: true,
+      );
+
+      expect(client.options['vo'], equals('null'));
+      expect(client.options['gpu-context'], equals('android'));
+      expect(client.options['gpu-api'], equals('opengl'));
+      expect(client.options['opengl-es'], equals('yes'));
+      expect(client.options['egl-output-format'], equals('rgb10_a2'));
+      expect(client.options['hwdec'], equals('auto-safe'));
+      expect(client.options['sub-font-provider'], equals('none'));
+      expect(client.options.containsKey('fbo-format'), isFalse);
+    });
+
+    test(
+      'EmbeddedMpvSession 按序绑定 android-hdr-peak/surface-size/wid/vo 且同表面尺寸变更不重开 vo',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'konata_android_mpv_sess_',
+        );
+        addTearDown(() async {
+          if (await tempDir.exists()) await tempDir.delete(recursive: true);
+        });
+        final storage = StorageRootService(overrideRoot: tempDir);
+        final bridge = LocalStreamBridge(storageRoot: storage);
+        addTearDown(bridge.dispose);
+        final client = _FakeLibMpvClient();
+        const initialDesc = AndroidSurfaceDescriptor(
+          wid: 42,
+          width: 1220,
+          height: 2712,
+          hdrPeak: 1000.0,
+        );
+        final fakeSurface = _FakeAndroidSurfaceController(initialDesc);
+
+        final session = EmbeddedMpvSession(
+          storageRoot: storage,
+          streamBridge: bridge,
+          clientFactory: () => client,
+        );
+        addTearDown(session.dispose);
+
+        const variant = MediaVariant(
+          id: 'v_android',
+          workId: 'w_android',
+          sourceId: 's_android',
+          relativePath: '01.mkv',
+          fileName: '01.mkv',
+          fileSize: 1024,
+        );
+
+        await session.initializeAndLoad(
+          request: const EmbeddedVideoLoadRequest(
+            workId: 'w_android',
+            variant: variant,
+          ),
+          qualityConfig: const PlaybackQualityConfig(),
+          androidSurfaceSupplier: () async => fakeSurface,
+        );
+
+        final bindSequence = client.stringPropLog
+            .where(
+              (e) =>
+                  e.name == 'android-hdr-peak' ||
+                  e.name == 'android-surface-size' ||
+                  e.name == 'wid' ||
+                  e.name == 'vo',
+            )
+            .map((e) => '${e.name}=${e.value}')
+            .toList();
+        expect(
+          bindSequence,
+          containsAllInOrder([
+            'vo=null',
+            'wid=0',
+            'android-hdr-peak=1000',
+            'android-surface-size=1220x2712',
+            'wid=42',
+            'vo=gpu',
+          ]),
+        );
+
+        // 同 Surface 旋转或全屏切换时仅更新 android-surface-size，绝不重置 vo 与 wid
+        client.stringPropLog.clear();
+        fakeSurface.emit(
+          const AndroidSurfaceDescriptor(
+            wid: 42,
+            width: 2712,
+            height: 1220,
+            hdrPeak: 1000.0,
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+
+        final resizeLog = client.stringPropLog
+            .map((e) => '${e.name}=${e.value}')
+            .toList();
+        expect(resizeLog, equals(['android-surface-size=2712x1220']));
+      },
+    );
   });
 }

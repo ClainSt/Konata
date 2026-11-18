@@ -8,7 +8,9 @@ import 'package:window_manager/window_manager.dart';
 
 import 'application/playback/playback_preferences_provider.dart';
 import 'application/providers/theme_providers.dart';
+import 'infrastructure/storage/storage_root_provider.dart';
 import 'presentation/audio/mini_audio_bar.dart';
+import 'presentation/shell/android_scroll_capture_bridge.dart';
 import 'presentation/shell/desktop_shell.dart';
 import 'presentation/theme/konata_theme.dart';
 import 'presentation/theme/window_material_controller.dart';
@@ -42,7 +44,19 @@ Future<void> main() async {
     });
   }
 
-  runApp(const ProviderScope(child: KonataApp()));
+  final storageRoot = (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
+      ? await StorageRootService.createForCurrentPlatform()
+      : null;
+
+  runApp(
+    ProviderScope(
+      overrides: [
+        if (storageRoot != null)
+          storageRootProvider.overrideWithValue(storageRoot),
+      ],
+      child: const KonataApp(),
+    ),
+  );
 }
 
 /// Konata 全局桌面滚动行为：支持多指针拖拽并禁用框架隐式自动套壳的不可控默认滚动条，
@@ -89,8 +103,10 @@ class KonataApp extends ConsumerWidget {
       );
     });
 
+    final navKey = ref.watch(rootNavigatorKeyProvider);
+
     return MaterialApp(
-      navigatorKey: ref.watch(rootNavigatorKeyProvider),
+      navigatorKey: navKey,
       title: 'Konata',
       debugShowCheckedModeBanner: false,
       scrollBehavior: const KonataScrollBehavior(),
@@ -100,8 +116,10 @@ class KonataApp extends ConsumerWidget {
       themeMode: themeMode,
       theme: KonataTheme.lightTheme(),
       darkTheme: KonataTheme.darkTheme(),
-      builder: (context, child) =>
-          MiniAudioOverlayHost(child: child ?? const SizedBox.shrink()),
+      builder: (context, child) => AndroidScrollCaptureScope(
+        navigatorKey: navKey,
+        child: MiniAudioOverlayHost(child: child ?? const SizedBox.shrink()),
+      ),
       home: const DesktopShell(),
     );
   }

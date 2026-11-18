@@ -2,6 +2,7 @@ import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -32,7 +33,6 @@ import 'package:ccplayer/presentation/history/playback_history_page.dart';
 import 'package:ccplayer/presentation/theme/konata_adaptive_tokens.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
 import 'package:ccplayer/presentation/video/embedded_video_page.dart';
-import 'package:ccplayer/presentation/video/video_portrait_console.dart';
 import 'package:ccplayer/presentation/video/video_side_sheet.dart';
 import 'package:ccplayer/presentation/widgets/playback/konata_cached_artwork_backdrop.dart';
 import 'package:ccplayer/presentation/widgets/playback/konata_playback_capsule.dart';
@@ -438,7 +438,8 @@ void main() {
       SharedPreferences.setMockInitialValues({});
 
       final db = KonataDatabase(NativeDatabase.memory());
-      addTearDown(db.close);
+      addTearDown(() async => tester.runAsync(db.close));
+      await tester.runAsync(() => db.customSelect('SELECT 1').get());
       final container = ProviderContainer(
         overrides: [
           libraryRepositoryProvider.overrideWithValue(DriftLibraryRepository(db)),
@@ -489,7 +490,8 @@ void main() {
       SharedPreferences.setMockInitialValues({});
 
       final db = KonataDatabase(NativeDatabase.memory());
-      addTearDown(db.close);
+      addTearDown(() async => tester.runAsync(db.close));
+      await tester.runAsync(() => db.customSelect('SELECT 1').get());
       final req = _buildVideoRequest();
       var constructCount = 0;
       var closeCount = 0;
@@ -498,6 +500,9 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           libraryRepositoryProvider.overrideWithValue(DriftLibraryRepository(db)),
+          audioPlaybackProvider.overrideWith(
+            (ref) => _StubAudioNotifier(ref, const AudioPlaybackState()),
+          ),
           tmdbImageLoaderProvider.overrideWithValue(
             (_, {targetWidth, imageSize}) async => _sample1x1Png,
           ),
@@ -532,6 +537,7 @@ void main() {
         UncontrolledProviderScope(
           container: container,
           child: MaterialApp(
+            navigatorKey: container.read(rootNavigatorKeyProvider),
             locale: const Locale('zh', 'CN'),
             supportedLocales: const [Locale('zh', 'CN')],
             localizationsDelegates: GlobalMaterialLocalizations.delegates,
@@ -566,10 +572,12 @@ void main() {
         equals(UnifiedMediaKind.video),
       );
 
-      // 切换后台纯音频模式并再次展开至全屏，控制器与会话不重建
-      await tester.tap(
-        find.byKey(const ValueKey('mini_video_audio_only_toggle')),
+      // 切换后台纯音频模式（手机窄屏长按标题唤起操作抽屉）并再次展开至全屏，控制器与会话不重建
+      await tester.longPress(
+        find.byKey(const ValueKey('mini_video_title_target')),
       );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('切换后台纯音频'));
       await tester.pumpAndSettle();
       expect(fakeCtrl.state.audioOnlyMode, isTrue);
 
@@ -685,14 +693,44 @@ void main() {
     });
   });
 
-  group('4. 视频三形态自适应、五标签毛玻璃侧栏、触控手势与锁屏屏蔽', () {
-    testWidgets('手机竖屏下部队列章节/音轨字幕快捷胶囊 + 48dp 热区与一键横屏', (tester) async {
+  group('4. 视频强制限位横屏全幅、五标签毛玻璃侧栏、触控手势与锁屏屏蔽', () {
+    testWidgets('进入视频页立即请求横屏与沉浸窗并全幅铺满视口（无竖屏白底分栏）', (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
       addTearDown(() => debugDefaultTargetPlatformOverride = null);
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
       SharedPreferences.setMockInitialValues({});
+
+      final orientationCalls = <Object?>[];
+      final windowCalls = <(String, Object?)>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'SystemChrome.setPreferredOrientations') {
+            orientationCalls.add(call.arguments);
+          }
+          return null;
+        },
+      );
+      const playbackWindowChannel = MethodChannel('ccplayer/playback_window');
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        playbackWindowChannel,
+        (call) async {
+          windowCalls.add((call.method, call.arguments));
+          return null;
+        },
+      );
+      addTearDown(() {
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        );
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          playbackWindowChannel,
+          null,
+        );
+      });
 
       final req = _buildVideoRequest();
       await tester.pumpWidget(
@@ -736,23 +774,28 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      expect(find.byType(VideoPortraitConsole), findsOneWidget);
+      expect(
+        orientationCalls,
+        contains(
+          equals([
+            'DeviceOrientation.landscapeLeft',
+            'DeviceOrientation.landscapeRight',
+          ]),
+        ),
+      );
+      expect(windowCalls, contains(('setLandscape', true)));
 
-      for (final key in const [
-        ValueKey('portrait_one_tap_landscape_button'),
-        ValueKey('portrait_quick_audio'),
-        ValueKey('portrait_quick_subtitles'),
-        ValueKey('portrait_quick_video'),
-        ValueKey('portrait_quick_audio_only'),
-        ValueKey('portrait_quick_pip'),
-      ]) {
-        final sz = tester.getSize(find.byKey(key));
-        expect(sz.width, greaterThanOrEqualTo(48.0));
-        expect(sz.height, greaterThanOrEqualTo(48.0));
-      }
+      // 校验视频表面全幅铺满视口，不存在白底分栏
+      final stageSize = tester.getSize(
+        find.byKey(const ValueKey('android_hardware_surface_placeholder')),
+      );
+      expect(stageSize.width, equals(390.0));
+      expect(stageSize.height, equals(844.0));
 
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
+      expect(orientationCalls.last, isEmpty);
+      expect(windowCalls, contains(('setLandscape', false)));
       debugDefaultTargetPlatformOverride = null;
     });
 
@@ -1063,7 +1106,8 @@ void main() {
       SharedPreferences.setMockInitialValues({});
 
       final db = KonataDatabase(NativeDatabase.memory());
-      addTearDown(db.close);
+      addTearDown(() async => tester.runAsync(db.close));
+      await tester.runAsync(() => db.customSelect('SELECT 1').get());
       final req = _buildVideoRequest();
       late _TrackingVideoController fakeCtrl;
       final pipClient = AndroidPipChannelClient();
@@ -1071,6 +1115,9 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           libraryRepositoryProvider.overrideWithValue(DriftLibraryRepository(db)),
+          audioPlaybackProvider.overrideWith(
+            (ref) => _StubAudioNotifier(ref, const AudioPlaybackState()),
+          ),
           playbackPreferencesProvider.overrideWith(
             (_) => PlaybackPreferencesNotifier(enablePersistence: false),
           ),
@@ -1109,6 +1156,7 @@ void main() {
         UncontrolledProviderScope(
           container: container,
           child: MaterialApp(
+            navigatorKey: container.read(rootNavigatorKeyProvider),
             locale: const Locale('zh', 'CN'),
             supportedLocales: const [Locale('zh', 'CN')],
             localizationsDelegates: GlobalMaterialLocalizations.delegates,
@@ -1192,6 +1240,165 @@ void main() {
       await tester.pumpAndSettle();
       debugDefaultTargetPlatformOverride = null;
     });
+
+    testWidgets('AudioFocus 抢占降音、后台自动暂停释放焦点及系统关闭 PiP 同步暂停', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      SharedPreferences.setMockInitialValues({});
+
+      final audioFocusMethods = <String>[];
+      const audioFocusCodec = StandardMethodCodec();
+      const focusChannel = 'ccplayer/audio_focus';
+      const pipChannel = 'ccplayer/pip';
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(const MethodChannel(focusChannel), (
+            call,
+          ) async {
+            audioFocusMethods.add(call.method);
+            return true;
+          });
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(const MethodChannel(pipChannel), (
+            call,
+          ) async {
+            return true;
+          });
+      addTearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(const MethodChannel(focusChannel), null);
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(const MethodChannel(pipChannel), null);
+      });
+
+      final db = KonataDatabase(NativeDatabase.memory());
+      addTearDown(() async => tester.runAsync(db.close));
+      await tester.runAsync(() => db.customSelect('SELECT 1').get());
+      final req = _buildVideoRequest();
+      late _TrackingVideoController fakeCtrl;
+      final pipClient = AndroidPipChannelClient();
+
+      final container = ProviderContainer(
+        overrides: [
+          libraryRepositoryProvider.overrideWithValue(DriftLibraryRepository(db)),
+          audioPlaybackProvider.overrideWith(
+            (ref) => _StubAudioNotifier(ref, const AudioPlaybackState()),
+          ),
+          playbackPreferencesProvider.overrideWith(
+            (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+          ),
+          androidPipChannelClientProvider.overrideWithValue(pipClient),
+          videoPlaybackProvider(req).overrideWith((ref) {
+            fakeCtrl = _TrackingVideoController(
+              ref,
+              req,
+              onConstructed: () {},
+              onClosed: () {},
+            );
+            fakeCtrl.forceState(
+              VideoPlaybackState(
+                isInitializing: false,
+                isBuffering: false,
+                hasFirstFrame: true,
+                isPlaying: true,
+                volume: 80.0,
+                currentWork: req.work,
+                currentBundle: req.bundle,
+                currentEpisode: req.episode,
+                currentVariant: req.variant,
+                durationSeconds: 1440.0,
+              ),
+            );
+            return fakeCtrl;
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+      final keepAliveSub = container.listen(
+        videoPlaybackProvider(req),
+        (_, _) {},
+      );
+      addTearDown(keepAliveSub.close);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: Scaffold(body: SizedBox.expand())),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final sessionNotifier = container.read(
+        activeVideoSessionProvider.notifier,
+      );
+      await sessionNotifier.openVideo(req);
+      await tester.pumpAndSettle();
+
+      // 绑定音频焦点并模拟外部音乐抢占 (duck -> gain -> lossTransient)
+      var duckCount = 0;
+      var lossCount = 0;
+      var gainCount = 0;
+      await AndroidPlaybackWindowBridge.requestAudioFocus(
+        onDuck: () => duckCount++,
+        onLoss: () => lossCount++,
+        onGain: () => gainCount++,
+      );
+      expect(audioFocusMethods, contains('request'));
+
+      await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .handlePlatformMessage(
+            focusChannel,
+            audioFocusCodec.encodeMethodCall(
+              const MethodCall('focusChange', 'duck'),
+            ),
+            (_) {},
+          );
+      await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .handlePlatformMessage(
+            focusChannel,
+            audioFocusCodec.encodeMethodCall(
+              const MethodCall('focusChange', 'gain'),
+            ),
+            (_) {},
+          );
+      await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .handlePlatformMessage(
+            focusChannel,
+            audioFocusCodec.encodeMethodCall(
+              const MethodCall('focusChange', 'lossTransient'),
+            ),
+            (_) {},
+          );
+      expect(duckCount, equals(1));
+      expect(gainCount, equals(1));
+      expect(lossCount, equals(1));
+
+      // 原生用户划掉 PiP 小窗时主动暂停播放并释放焦点
+      await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .handlePlatformMessage(
+            pipChannel,
+            audioFocusCodec.encodeMethodCall(const MethodCall('pipDismissed')),
+            (_) {},
+          );
+      await tester.pump();
+      expect(container.read(activeVideoSessionProvider).isInPipMode, isFalse);
+      expect(fakeCtrl.state.isPlaying, isFalse);
+      expect(audioFocusMethods, contains('abandon'));
+
+      // 关闭自动画中画并切后台时必须自动暂停并释放音频焦点
+      fakeCtrl.forceState(fakeCtrl.state.copyWith(isPlaying: true));
+      await container
+          .read(playbackPreferencesProvider.notifier)
+          .setAutoEnterPip(false);
+      await sessionNotifier.handleAppBackgrounded();
+      expect(fakeCtrl.state.isPlaying, isFalse);
+
+      await sessionNotifier.closeVideo();
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      debugDefaultTargetPlatformOverride = null;
+    });
   });
 
   group('6. Android 端外部程序彻底过滤与触控 48dp 更多操作入口', () {
@@ -1206,25 +1413,28 @@ void main() {
       SharedPreferences.setMockInitialValues({});
 
       final db = KonataDatabase(NativeDatabase.memory());
-      addTearDown(db.close);
+      addTearDown(() async => tester.runAsync(db.close));
+      await tester.runAsync(() => db.customSelect('SELECT 1').get());
       final repo = DriftLibraryRepository(db);
       final req = _buildVideoRequest();
-      await repo.upsertWork(req.work);
-      await repo.recordPlayback(
-        PlaybackRecord(
-          id: 'rec_android_1',
-          workId: req.work.id,
-          episodeId: req.episode.id,
-          variantId: req.variant.id,
-          seasonNumber: 1,
-          episodeNumber: 1,
-          episodeTitle: '第一话',
-          sourceType: MediaSourceKind.local,
-          playedAt: DateTime(2026, 11, 18, 10, 0),
-          positionSeconds: 100,
-          durationSeconds: 1440,
-        ),
-      );
+      await tester.runAsync(() async {
+        await repo.upsertWork(req.work);
+        await repo.recordPlayback(
+          PlaybackRecord(
+            id: 'rec_android_1',
+            workId: req.work.id,
+            episodeId: req.episode.id,
+            variantId: req.variant.id,
+            seasonNumber: 1,
+            episodeNumber: 1,
+            episodeTitle: '第一话',
+            sourceType: MediaSourceKind.local,
+            playedAt: DateTime(2026, 11, 18, 10, 0),
+            positionSeconds: 100,
+            durationSeconds: 1440,
+          ),
+        );
+      });
 
       final container = ProviderContainer(
         overrides: [

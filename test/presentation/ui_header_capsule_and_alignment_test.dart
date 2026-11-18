@@ -17,6 +17,7 @@ import 'package:ccplayer/presentation/sources/scrape_progress_banner.dart';
 import 'package:ccplayer/presentation/sources/sources_page.dart';
 import 'package:ccplayer/presentation/theme/konata_playback_tokens.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
+import 'package:ccplayer/presentation/widgets/design_system/adaptive_action_header.dart';
 import 'package:ccplayer/presentation/widgets/design_system/konata_page_header.dart';
 import 'package:ccplayer/presentation/widgets/design_system/konata_pill_button.dart';
 import 'package:ccplayer/presentation/widgets/design_system/konata_segmented_capsule.dart';
@@ -146,7 +147,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final headerBtn = find.descendant(
-        of: find.byType(KonataPageHeader),
+        of: find.byType(AdaptiveActionHeader),
         matching: find.byType(KonataPillButton),
       );
       final banner = find.byType(ScrapeProgressBanner);

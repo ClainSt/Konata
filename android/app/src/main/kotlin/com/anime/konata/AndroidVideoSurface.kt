@@ -55,7 +55,8 @@ private class AndroidVideoSurface(context: Context, id: Int, messenger: BinaryMe
     private val release = helper.getDeclaredMethod("deleteGlobalObjectRef", Long::class.javaPrimitiveType).apply { isAccessible = true }
 
     init {
-        view.holder.setFormat(PixelFormat.RGBA_1010102)
+        // 将视频表面提升至媒体覆盖子层，确保位于暂停态根 FlutterSurfaceView 之上且仍处于 HUD 视图层之下。
+        view.setZOrderMediaOverlay(true)
         view.holder.addCallback(this)
         displays.registerDisplayListener(displayListener, main)
         channel.setMethodCallHandler { call, result ->
@@ -66,8 +67,14 @@ private class AndroidVideoSurface(context: Context, id: Int, messenger: BinaryMe
                 "captureFrame" -> capture(result, true, call.argument<Boolean>("pq") == true,
                     call.argument<Boolean>("packed10") == true)
                 "release" -> {
-                    val reference = (call.arguments as Number).toLong()
-                    if (references.remove(reference)) release.invoke(null, reference)
+                    val reference = (call.arguments as? Number)?.toLong()
+                    if (reference != null) {
+                        if (references.remove(reference)) release.invoke(null, reference)
+                    } else {
+                        references.forEach { release.invoke(null, it) }
+                        references.clear()
+                        current = 0L
+                    }
                     if (closed && disposed && references.isEmpty()) channel.setMethodCallHandler(null)
                     result.success(null)
                 }
@@ -111,6 +118,12 @@ private class AndroidVideoSurface(context: Context, id: Int, messenger: BinaryMe
         if (closed || disposed) return
         current = retain.invoke(null, holder.surface) as Long
         references.add(current)
+        val frame = holder.surfaceFrame
+        if (frame.width() > 0 && frame.height() > 0) {
+            this.width = frame.width()
+            this.height = frame.height()
+            channel.invokeMethod("changed", state())
+        }
     }
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         if (closed || disposed) return

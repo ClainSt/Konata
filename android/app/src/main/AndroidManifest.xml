@@ -36,6 +36,12 @@
             </intent-filter>
         </activity>
         <meta-data
+            android:name="io.flutter.embedding.android.ImpellerBackend"
+            android:value="opengles" />
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableHcpp"
+            android:value="false" />
+        <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
     </application>

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -153,49 +155,60 @@ class _SourceFolderPickerDialogState
             onPressed: _busy ? null : _scanNow,
           ),
       ],
-      child: SizedBox(
-        height: 468,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildTopControls(p, filtered.length),
-            const SizedBox(height: 10),
-            Expanded(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final listPane = KonataSurfaceCard(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    child: _buildEntryList(p, filtered),
-                  );
-                  final sidePane = SourceSelectedScopePanel(
-                    selectedPaths: sortedSelected,
-                    busy: _busy,
-                    onRemovePath: _togglePath,
-                    onClearAll: () => setState(() => _selectedPaths.clear()),
-                    onShowHelp: () => showSourceBrowserHelpDialog(context),
-                  );
+      child: LayoutBuilder(
+        builder: (context, outerConstraints) {
+          final targetH = outerConstraints.maxHeight.isFinite
+              ? math.min(468.0, outerConstraints.maxHeight)
+              : 468.0;
+          return SizedBox(
+            height: targetH,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildTopControls(p, filtered.length),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final listPane = KonataSurfaceCard(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: _buildEntryList(p, filtered),
+                      );
+                      final sidePane = SourceSelectedScopePanel(
+                        selectedPaths: sortedSelected,
+                        busy: _busy,
+                        onRemovePath: _togglePath,
+                        onClearAll: () =>
+                            setState(() => _selectedPaths.clear()),
+                        onShowHelp: () => showSourceBrowserHelpDialog(context),
+                      );
 
-                  if (constraints.maxWidth >= 680) {
-                    return Row(
-                      children: [
-                        Expanded(flex: 3, child: listPane),
-                        const SizedBox(width: 12),
-                        SizedBox(width: 274, child: sidePane),
-                      ],
-                    );
-                  }
-                  return Column(
-                    children: [
-                      Expanded(child: listPane),
-                      const SizedBox(height: 10),
-                      SizedBox(height: 150, child: sidePane),
-                    ],
-                  );
-                },
-              ),
+                      if (constraints.maxWidth >= 560) {
+                        return Row(
+                          children: [
+                            Expanded(flex: 3, child: listPane),
+                            const SizedBox(width: 12),
+                            SizedBox(
+                              width: math.min(274.0, constraints.maxWidth * 0.42),
+                              child: sidePane,
+                            ),
+                          ],
+                        );
+                      }
+                      return Column(
+                        children: [
+                          Expanded(flex: 3, child: listPane),
+                          const SizedBox(height: 10),
+                          Expanded(flex: 2, child: sidePane),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }

@@ -75,47 +75,55 @@ class _DetailSecondaryFilterBarState extends State<DetailSecondaryFilterBar> {
 
   @override
   Widget build(BuildContext context) {
+    final screenW = MediaQuery.sizeOf(context).width;
+    final isPhone =
+        KonataAdaptiveTokens.isAndroid &&
+        screenW < KonataAdaptiveTokens.tabletBreakpoint;
+    final effectiveCompact = widget.compact || isPhone;
     final barHeight = KonataAdaptiveTokens.isAndroid
         ? KonataAdaptiveTokens.touchTarget
-        : (widget.compact ? 30.0 : 32.0);
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: widget.horizontalPadding),
-      child: SizedBox(
-        height: barHeight,
-        child: Listener(
-          onPointerSignal: (event) {
-            if (event is PointerScrollEvent && _scrollController.hasClients) {
-              final delta = event.scrollDelta.dy != 0
-                  ? event.scrollDelta.dy
-                  : event.scrollDelta.dx;
-              final pos = _scrollController.position;
-              final target = (_scrollController.offset + delta).clamp(
-                pos.minScrollExtent,
-                pos.maxScrollExtent,
-              );
-              _scrollController.jumpTo(target);
-            }
-          },
-          child: ListView(
-            controller: _scrollController,
-            scrollDirection: Axis.horizontal,
-            children: [
-              _SecondaryFilterChip(
-                label: '全部',
-                selected: widget.selectedKey == null,
-                compact: widget.compact,
-                onTap: () => widget.onSelected(null),
-              ),
-              for (final item in widget.items) ...[
-                const SizedBox(width: 8),
+        : (effectiveCompact ? 30.0 : 32.0);
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.15,
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: widget.horizontalPadding),
+        child: SizedBox(
+          height: barHeight,
+          child: Listener(
+            onPointerSignal: (event) {
+              if (event is PointerScrollEvent && _scrollController.hasClients) {
+                final delta = event.scrollDelta.dy != 0
+                    ? event.scrollDelta.dy
+                    : event.scrollDelta.dx;
+                final pos = _scrollController.position;
+                final target = (_scrollController.offset + delta).clamp(
+                  pos.minScrollExtent,
+                  pos.maxScrollExtent,
+                );
+                _scrollController.jumpTo(target);
+              }
+            },
+            child: ListView(
+              controller: _scrollController,
+              scrollDirection: Axis.horizontal,
+              children: [
                 _SecondaryFilterChip(
-                  label: item.label,
-                  selected: widget.selectedKey == item.key,
-                  compact: widget.compact,
-                  onTap: () => widget.onSelected(item.key),
+                  label: '全部',
+                  selected: widget.selectedKey == null,
+                  compact: effectiveCompact,
+                  onTap: () => widget.onSelected(null),
                 ),
+                for (final item in widget.items) ...[
+                  SizedBox(width: isPhone ? 6 : 8),
+                  _SecondaryFilterChip(
+                    label: item.label,
+                    selected: widget.selectedKey == item.key,
+                    compact: effectiveCompact,
+                    onTap: () => widget.onSelected(item.key),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -161,58 +169,56 @@ class _SecondaryFilterChipState extends State<_SecondaryFilterChip> {
       hovered: _hovered,
     );
 
+    final pill = ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOutCubic,
+          constraints: BoxConstraints(maxWidth: widget.compact ? 210 : 280),
+          padding: EdgeInsets.symmetric(
+            horizontal: widget.compact ? 11 : 13,
+            vertical: widget.compact ? 4.5 : 6,
+          ),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: borderColor,
+              width: widget.selected ? 1.0 : 0.85,
+            ),
+          ),
+          child: EllipsisTextWithTooltip(
+            text: widget.label,
+            maxLines: 1,
+            style: KonataTheme.detailTextStyle(
+              palette: p,
+              color: textColor,
+              fontSize: widget.compact ? 11.5 : 12,
+              fontWeight: widget.selected ? FontWeight.w600 : FontWeight.w500,
+            ),
+          ),
+        ),
+      ),
+    );
+
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(999),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
-              curve: Curves.easeOutCubic,
-              alignment: KonataAdaptiveTokens.isAndroid
-                  ? Alignment.center
-                  : null,
-              constraints: BoxConstraints(
-                minWidth: KonataAdaptiveTokens.isAndroid
-                    ? KonataAdaptiveTokens.touchTarget
-                    : 0,
-                minHeight: KonataAdaptiveTokens.isAndroid
-                    ? KonataAdaptiveTokens.touchTarget
-                    : 0,
-                maxWidth: widget.compact ? 250 : 290,
-              ),
-              padding: EdgeInsets.symmetric(
-                horizontal: widget.compact ? 11 : 13,
-                vertical: widget.compact ? 5 : 6,
-              ),
-              decoration: BoxDecoration(
-                color: bgColor,
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: borderColor,
-                  width: widget.selected ? 1.0 : 0.85,
+        child: KonataAdaptiveTokens.isAndroid
+            ? ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minWidth: KonataAdaptiveTokens.touchTarget,
+                  minHeight: KonataAdaptiveTokens.touchTarget,
                 ),
-              ),
-              child: EllipsisTextWithTooltip(
-                text: widget.label,
-                maxLines: 1,
-                style: KonataTheme.detailTextStyle(
-                  palette: p,
-                  color: textColor,
-                  fontSize: widget.compact ? 11.5 : 12,
-                  fontWeight: widget.selected
-                      ? FontWeight.w600
-                      : FontWeight.w500,
-                ),
-              ),
-            ),
-          ),
-        ),
+                child: Center(widthFactor: 1.0, heightFactor: 1.0, child: pill),
+              )
+            : pill,
       ),
     );
   }

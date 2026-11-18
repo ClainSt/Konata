@@ -253,11 +253,15 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            Flexible(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: MediaQuery.withClampedTextScaling(
+                maxScaleFactor: 1.15,
                 child: KonataSegmentedCapsule<_MappingCategoryFilter>(
                   compact: true,
                   selected: _filter,
@@ -282,9 +286,8 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                 ),
               ),
             ),
-            const SizedBox(width: 8),
             SizedBox(
-              width: 170,
+              width: 160,
               child: KonataSoftTextField(
                 controller: _searchCtrl,
                 dense: true,
@@ -296,8 +299,7 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                 }),
               ),
             ),
-            if (folderList.length >= 2) ...[
-              const SizedBox(width: 6),
+            if (folderList.length >= 2)
               SizedBox(
                 width: 150,
                 child: KonataDropdown<String>(
@@ -314,9 +316,8 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                   ],
                   onChanged: _selectSubfolder,
                 ),
-              ),
-            ] else ...[
-              const SizedBox(width: 6),
+              )
+            else
               KonataPillButton.ghost(
                 label: '全选当前',
                 compact: true,
@@ -331,15 +332,12 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                         widget.onChanged();
                       },
               ),
-            ],
-            if (widget.hasAnyMappingLock) ...[
-              const SizedBox(width: 6),
+            if (widget.hasAnyMappingLock)
               KonataPillButton.ghost(
                 label: '恢复自动重排',
                 compact: true,
                 onPressed: widget.saving ? null : widget.onResetMappings,
               ),
-            ],
           ],
         ),
         const SizedBox(height: 8),
@@ -375,54 +373,27 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                       final isSelected = widget.selectedVariantIds.contains(
                         row.variant.id,
                       );
-                      return Row(
-                        children: [
-                          SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: Checkbox(
-                              value: isSelected,
-                              onChanged: widget.saving
-                                  ? null
-                                  : (checked) => _handleCheckboxTap(
-                                      visibleRows,
-                                      index,
-                                      checked,
-                                    ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: EllipsisTextWithTooltip(
-                              text: row.variant.fileName,
-                              tooltipMessage: row.variant.relativePath,
-                              maxLines: 1,
-                              style: TextStyle(
-                                color: p.textPrimary,
-                                fontSize: 12.6,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          EpisodeSlotPickerButton(
-                            row: row,
-                            referenceEpisodes: widget.referenceEpisodes,
-                            defaultMainSeason: widget.defaultMainSeason,
-                            enabled: !widget.saving,
-                            onPicked: (cat, season, epNum, extraType) {
-                              setState(() {
-                                row.category = cat;
-                                row.seasonNumber = season;
-                                row.episodeNumber = epNum;
-                                if (extraType != null) {
-                                  row.extraType = extraType;
-                                }
-                              });
-                              widget.onChanged();
-                            },
-                          ),
-                          const SizedBox(width: 6),
-                          KonataSegmentedCapsule<EpisodeCategory>(
+                      final slotControls = <Widget>[
+                        EpisodeSlotPickerButton(
+                          row: row,
+                          referenceEpisodes: widget.referenceEpisodes,
+                          defaultMainSeason: widget.defaultMainSeason,
+                          enabled: !widget.saving,
+                          onPicked: (cat, season, epNum, extraType) {
+                            setState(() {
+                              row.category = cat;
+                              row.seasonNumber = season;
+                              row.episodeNumber = epNum;
+                              if (extraType != null) {
+                                row.extraType = extraType;
+                              }
+                            });
+                            widget.onChanged();
+                          },
+                        ),
+                        MediaQuery.withClampedTextScaling(
+                          maxScaleFactor: 1.15,
+                          child: KonataSegmentedCapsule<EpisodeCategory>(
                             compact: true,
                             selected: row.category,
                             options: const [
@@ -451,35 +422,98 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                               widget.onChanged();
                             },
                           ),
-                          const SizedBox(width: 6),
-                          SizedBox(
-                            width: 72,
-                            child: InlineNumberStepperBox(
-                              label: '季',
-                              value: row.seasonNumber,
-                              enabled:
-                                  !widget.saving &&
-                                  row.category == EpisodeCategory.main,
-                              onChanged: (val) {
-                                setState(() => row.seasonNumber = val);
-                                widget.onChanged();
-                              },
-                            ),
+                        ),
+                        SizedBox(
+                          width: 72,
+                          child: InlineNumberStepperBox(
+                            label: '季',
+                            value: row.seasonNumber,
+                            enabled:
+                                !widget.saving &&
+                                row.category == EpisodeCategory.main,
+                            onChanged: (val) {
+                              setState(() => row.seasonNumber = val);
+                              widget.onChanged();
+                            },
                           ),
-                          const SizedBox(width: 4),
-                          SizedBox(
-                            width: 72,
-                            child: InlineNumberStepperBox(
-                              label: '集',
-                              value: row.episodeNumber,
-                              enabled: !widget.saving,
-                              onChanged: (val) {
-                                setState(() => row.episodeNumber = val);
-                                widget.onChanged();
-                              },
-                            ),
+                        ),
+                        SizedBox(
+                          width: 72,
+                          child: InlineNumberStepperBox(
+                            label: '集',
+                            value: row.episodeNumber,
+                            enabled: !widget.saving,
+                            onChanged: (val) {
+                              setState(() => row.episodeNumber = val);
+                              widget.onChanged();
+                            },
                           ),
-                        ],
+                        ),
+                      ];
+
+                      return LayoutBuilder(
+                        builder: (context, rowConstraints) {
+                          final fileHead = Row(
+                            children: [
+                              SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: Checkbox(
+                                  value: isSelected,
+                                  onChanged: widget.saving
+                                      ? null
+                                      : (checked) => _handleCheckboxTap(
+                                          visibleRows,
+                                          index,
+                                          checked,
+                                        ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: EllipsisTextWithTooltip(
+                                  text: row.variant.fileName,
+                                  tooltipMessage: row.variant.relativePath,
+                                  maxLines: 1,
+                                  style: TextStyle(
+                                    color: p.textPrimary,
+                                    fontSize: 12.6,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                          if (rowConstraints.maxWidth >= 560) {
+                            return Row(
+                              children: [
+                                Expanded(child: fileHead),
+                                const SizedBox(width: 8),
+                                ...[
+                                  for (var i = 0; i < slotControls.length; i++) ...[
+                                    if (i > 0) const SizedBox(width: 6),
+                                    slotControls[i],
+                                  ],
+                                ],
+                              ],
+                            );
+                          }
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              fileHead,
+                              const SizedBox(height: 6),
+                              Padding(
+                                padding: const EdgeInsets.only(left: 32),
+                                child: Wrap(
+                                  spacing: 6,
+                                  runSpacing: 6,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: slotControls,
+                                ),
+                              ),
+                            ],
+                          );
+                        },
                       );
                     },
                   ),
@@ -581,13 +615,15 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
           ),
           if (_showSequentialBar) ...[
             const SizedBox(height: 8),
-            Row(
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Text(
                   '批量重排季/起始集：',
                   style: TextStyle(color: p.textSecondary, fontSize: 11.8),
                 ),
-                const SizedBox(width: 6),
                 SizedBox(
                   width: 78,
                   child: KonataSoftTextField(
@@ -597,7 +633,6 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                     keyboardType: TextInputType.number,
                   ),
                 ),
-                const SizedBox(width: 8),
                 SizedBox(
                   width: 78,
                   child: KonataSoftTextField(
@@ -607,7 +642,6 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                     keyboardType: TextInputType.number,
                   ),
                 ),
-                const SizedBox(width: 10),
                 KonataPillButton.primary(
                   label: '应用连续编号',
                   compact: true,

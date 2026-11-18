@@ -1,4 +1,8 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/playback/audio_playback_notifier.dart';
@@ -33,6 +37,9 @@ class KonataHardwareVideoSurface extends ConsumerStatefulWidget {
 
 class _KonataHardwareVideoSurfaceState
     extends ConsumerState<KonataHardwareVideoSurface> {
+  final GlobalKey _androidSurfaceViewKey = GlobalKey(
+    debugLabel: 'konata_android_surface_view',
+  );
   Size? _lastReportedSurfaceSize;
   double? _lastReportedDpr;
 
@@ -74,11 +81,27 @@ class _KonataHardwareVideoSurfaceState
           color: KonataPlaybackTokens.cinemaPureBlack,
         );
       } else {
-        rawSurface = AndroidView(
+        rawSurface = PlatformViewLink(
+          key: _androidSurfaceViewKey,
           viewType: AndroidVideoSurfaceController.viewType,
-          onPlatformViewCreated: (viewId) => controller.attachAndroidSurface(
-            AndroidVideoSurfaceController(viewId),
+          surfaceFactory: (context, platformController) => AndroidViewSurface(
+            controller: platformController as AndroidViewController,
+            gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
+            hitTestBehavior: PlatformViewHitTestBehavior.transparent,
           ),
+          onCreatePlatformView: (params) {
+            // 在原生视图创建完成前预先注册通道与控制器，防止丢失首帧表面尺寸变更回调
+            controller.attachAndroidSurface(
+              AndroidVideoSurfaceController(params.id),
+            );
+            return PlatformViewsService.initExpensiveAndroidView(
+                id: params.id,
+                viewType: AndroidVideoSurfaceController.viewType,
+                layoutDirection: TextDirection.ltr,
+              )
+              ..addOnPlatformViewCreatedListener(params.onPlatformViewCreated)
+              ..create();
+          },
         );
       }
     } else {

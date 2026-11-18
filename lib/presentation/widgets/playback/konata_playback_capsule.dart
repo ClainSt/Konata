@@ -353,12 +353,14 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
         : KonataPlaybackTokens.immersiveSwitchButtonSize;
     final playFixedSize = touch ? KonataAdaptiveTokens.touchTarget : 38.0;
 
-    return Material(
-      type: MaterialType.transparency,
-      child: DefaultTextStyle.merge(
-        style: const TextStyle(decoration: TextDecoration.none),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.15,
+      child: Material(
+        type: MaterialType.transparency,
+        child: DefaultTextStyle.merge(
+          style: const TextStyle(decoration: TextDecoration.none),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
             maxWidth: effectiveMaxWidth,
             minWidth: math.min(
               effectiveMaxWidth,
@@ -586,13 +588,16 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                                           )
                                         : null;
 
+                                    final symmetricMinWidth = touch
+                                        ? 620.0
+                                        : (KonataPlaybackTokens
+                                                  .capsuleCenterSymmetricBreakpoint -
+                                              KonataPlaybackTokens
+                                                  .capsulePadding
+                                                  .horizontal);
                                     final useSymmetricCenter =
                                         rowConstraints.maxWidth >=
-                                        KonataPlaybackTokens
-                                                .capsuleCenterSymmetricBreakpoint -
-                                            KonataPlaybackTokens
-                                                .capsulePadding
-                                                .horizontal;
+                                        symmetricMinWidth;
 
                                     if (useSymmetricCenter) {
                                       return Row(
@@ -665,6 +670,8 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                                       );
                                     }
 
+                                    final ultraCompactTouch =
+                                        touch && rowConstraints.maxWidth < 350.0;
                                     return Row(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.center,
@@ -675,12 +682,16 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
                                             ?widget.leadingCenterButton,
-                                            if (widget.onPrevious != null)
+                                            if (widget.onPrevious != null &&
+                                                !ultraCompactTouch)
                                               prevSlot,
                                             playPauseButton,
-                                            if (widget.onNext != null) nextSlot,
+                                            if (widget.onNext != null &&
+                                                !ultraCompactTouch)
+                                              nextSlot,
                                             ?listButton,
-                                            ...widget.trailingCenterButtons,
+                                            if (!ultraCompactTouch)
+                                              ...widget.trailingCenterButtons,
                                           ],
                                         ),
                                         if (widget.rightSlot != null) ...[
@@ -788,6 +799,7 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
           ),
         ),
       ),
+    ),
     );
   }
 }

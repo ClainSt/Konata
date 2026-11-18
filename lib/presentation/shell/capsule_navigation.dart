@@ -23,28 +23,31 @@ class CapsuleNavigation extends StatelessWidget {
       (Icons.history_rounded, '播放记录'),
       (Icons.settings_outlined, '设置'),
     ];
-    return KonataGlassCapsule(
-      child: Padding(
-        padding: const EdgeInsets.all(KonataAdaptiveTokens.navigationPadding),
-        child: Flex(
-          direction: vertical ? Axis.vertical : Axis.horizontal,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (var i = 0; i < items.length; i++)
-              Semantics(
-                selected: selectedIndex == i,
-                button: true,
-                label: items[i].$2,
-                child: KonataCapsuleIconButton(
-                  icon: items[i].$1,
-                  tooltip: items[i].$2,
-                  fixedSize: KonataAdaptiveTokens.touchTarget,
-                  highlighted: selectedIndex == i,
-                  color: context.palette.textPrimary,
-                  onTap: () => onSelected(i),
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.15,
+      child: KonataGlassCapsule(
+        child: Padding(
+          padding: const EdgeInsets.all(KonataAdaptiveTokens.navigationPadding),
+          child: Flex(
+            direction: vertical ? Axis.vertical : Axis.horizontal,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (var i = 0; i < items.length; i++)
+                Semantics(
+                  selected: selectedIndex == i,
+                  button: true,
+                  label: items[i].$2,
+                  child: KonataCapsuleIconButton(
+                    icon: items[i].$1,
+                    tooltip: items[i].$2,
+                    fixedSize: KonataAdaptiveTokens.touchTarget,
+                    highlighted: selectedIndex == i,
+                    color: context.palette.textPrimary,
+                    onTap: () => onSelected(i),
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );

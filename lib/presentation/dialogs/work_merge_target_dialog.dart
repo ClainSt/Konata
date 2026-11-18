@@ -205,27 +205,30 @@ class _WorkMergeTargetDialogState extends ConsumerState<WorkMergeTargetDialog> {
                 Expanded(
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
-                    child: KonataSegmentedCapsule<MergeVideoCategoryMode>(
-                      compact: true,
-                      selected: _mode,
-                      options: [
-                        if (!widget._isPartialMove)
+                    child: MediaQuery.withClampedTextScaling(
+                      maxScaleFactor: 1.15,
+                      child: KonataSegmentedCapsule<MergeVideoCategoryMode>(
+                        compact: true,
+                        selected: _mode,
+                        options: [
+                          if (!widget._isPartialMove)
+                            const KonataSegmentOption(
+                              value: MergeVideoCategoryMode.preserve,
+                              label: '保持原分类',
+                            ),
                           const KonataSegmentOption(
-                            value: MergeVideoCategoryMode.preserve,
-                            label: '保持原分类',
+                            value: MergeVideoCategoryMode.asExtra,
+                            label: '作为特典并入',
                           ),
-                        const KonataSegmentOption(
-                          value: MergeVideoCategoryMode.asExtra,
-                          label: '作为特典并入',
-                        ),
-                        const KonataSegmentOption(
-                          value: MergeVideoCategoryMode.asMain,
-                          label: '作为正片并入',
-                        ),
-                      ],
-                      onChanged: _submitting
-                          ? (_) {}
-                          : (m) => setState(() => _mode = m),
+                          const KonataSegmentOption(
+                            value: MergeVideoCategoryMode.asMain,
+                            label: '作为正片并入',
+                          ),
+                        ],
+                        onChanged: _submitting
+                            ? (_) {}
+                            : (m) => setState(() => _mode = m),
+                      ),
                     ),
                   ),
                 ),

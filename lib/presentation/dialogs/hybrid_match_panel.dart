@@ -7,6 +7,7 @@ import '../../domain/models/tmdb_models.dart';
 import '../../domain/models/work.dart';
 import '../../domain/scraping/bangumi_models.dart';
 import '../theme/konata_palette.dart';
+import '../widgets/design_system/adaptive_responsive_row.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_dropdown.dart';
 import '../widgets/design_system/konata_pill_button.dart';
@@ -313,31 +314,28 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
           ),
         ),
         const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                (_selectedBgm != null && _selectedTmdbDetail != null)
-                    ? _buildMappingPreview(effectiveStartEp, fileCount)
-                    : '请依次选定 Bangumi 独立条目与 TMDB 母系列季/集',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: p.textSecondary, fontSize: 12),
-              ),
-            ),
-            const SizedBox(width: 10),
-            KonataPillButton.primary(
-              label: widget.disabled ? '绑定中...' : '确认混合绑定并锁定',
-              icon: Icons.merge_type_rounded,
-              compact: true,
-              onPressed:
-                  (widget.disabled ||
-                      _selectedBgm == null ||
-                      _selectedTmdbDetail == null)
-                  ? null
-                  : _handleSubmit,
-            ),
-          ],
+        AdaptiveResponsiveRow(
+          minLeadingWidth: 160,
+          estimatedTrailingWidth: 170,
+          leading: Text(
+            (_selectedBgm != null && _selectedTmdbDetail != null)
+                ? _buildMappingPreview(effectiveStartEp, fileCount)
+                : '请依次选定 Bangumi 独立条目与 TMDB 母系列季/集',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: p.textSecondary, fontSize: 12),
+          ),
+          trailing: KonataPillButton.primary(
+            label: widget.disabled ? '绑定中...' : '确认混合绑定并锁定',
+            icon: Icons.merge_type_rounded,
+            compact: true,
+            onPressed:
+                (widget.disabled ||
+                    _selectedBgm == null ||
+                    _selectedTmdbDetail == null)
+                ? null
+                : _handleSubmit,
+          ),
         ),
       ],
     );
@@ -492,6 +490,8 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
                 const SizedBox(height: 3),
                 Text(
                   '${bgm.year ?? '未知年份'} · $scoreText${_loadingBgmDetail ? ' · 补全详情中...' : ''}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: p.textSecondary, fontSize: 11.5),
                 ),
               ],
@@ -623,6 +623,8 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
                     const SizedBox(height: 2),
                     Text(
                       '${detail.mediaType == TmdbMediaType.tv ? 'TMDB 母系列' : 'TMDB 电影'} · #${detail.tmdbId}（自动共享该系列背景图池）',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(color: p.textSecondary, fontSize: 11.3),
                     ),
                   ],
@@ -642,46 +644,50 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
           ),
           if (detail.mediaType == TmdbMediaType.tv) ...[
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Text(
-                  'TMDB 季：',
-                  style: TextStyle(color: p.textSecondary, fontSize: 12),
-                ),
-                Expanded(
-                  child: KonataDropdown<int>(
-                    dense: true,
-                    enabled: !_loadingTmdbSeason,
-                    value: seasonNumbers.contains(_selectedSeasonNumber)
-                        ? _selectedSeasonNumber
-                        : seasonNumbers.first,
-                    options: [
-                      for (final sn in seasonNumbers)
-                        KonataDropdownOption(
-                          value: sn,
-                          label: seasonMap[sn] ?? 'Season $sn',
-                        ),
-                    ],
-                    onChanged: (sn) => _loadTmdbSeason(detail.tmdbId, sn),
+            AdaptiveResponsiveRow(
+              minLeadingWidth: 160,
+              estimatedTrailingWidth: 96,
+              expandTrailingWhenStacked: true,
+              leading: Row(
+                children: [
+                  Text(
+                    'TMDB 季：',
+                    style: TextStyle(color: p.textSecondary, fontSize: 12),
                   ),
-                ),
-                const SizedBox(width: 10),
-                SizedBox(
-                  width: 96,
-                  child: KonataSoftTextField(
-                    controller: _episodeNumCtrl,
-                    label: fileCount > 1 ? '起始集号' : '对应集号',
-                    keyboardType: TextInputType.number,
-                    dense: true,
-                    onChanged: (v) {
-                      final parsed = int.tryParse(v.trim());
-                      if (parsed != null && parsed > 0) {
-                        setState(() => _startEpisodeNumber = parsed);
-                      }
-                    },
+                  Expanded(
+                    child: KonataDropdown<int>(
+                      dense: true,
+                      enabled: !_loadingTmdbSeason,
+                      value: seasonNumbers.contains(_selectedSeasonNumber)
+                          ? _selectedSeasonNumber
+                          : seasonNumbers.first,
+                      options: [
+                        for (final sn in seasonNumbers)
+                          KonataDropdownOption(
+                            value: sn,
+                            label: seasonMap[sn] ?? 'Season $sn',
+                          ),
+                      ],
+                      onChanged: (sn) => _loadTmdbSeason(detail.tmdbId, sn),
+                    ),
                   ),
+                ],
+              ),
+              trailing: SizedBox(
+                width: 96,
+                child: KonataSoftTextField(
+                  controller: _episodeNumCtrl,
+                  label: fileCount > 1 ? '起始集号' : '对应集号',
+                  keyboardType: TextInputType.number,
+                  dense: true,
+                  onChanged: (v) {
+                    final parsed = int.tryParse(v.trim());
+                    if (parsed != null && parsed > 0) {
+                      setState(() => _startEpisodeNumber = parsed);
+                    }
+                  },
                 ),
-              ],
+              ),
             ),
             const SizedBox(height: 6),
             if (_loadingTmdbSeason)

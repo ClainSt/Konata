@@ -16,6 +16,7 @@ import 'package:ccplayer/domain/scraping/bangumi_models.dart';
 import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
 import 'package:ccplayer/infrastructure/database/konata_database.dart';
 import 'package:ccplayer/presentation/detail/work_detail_page.dart';
+import 'package:ccplayer/presentation/dialogs/manual_match_dialog.dart';
 import 'package:ccplayer/presentation/history/playback_history_page.dart';
 import 'package:ccplayer/presentation/shell/window_controls.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
@@ -182,7 +183,7 @@ void main() {
                 (_, {targetWidth, imageSize}) async => _transparentPng,
               ),
               tmdbNetworkConfigProvider.overrideWith(
-                (_) async => const TmdbNetworkConfig(),
+                (_) async => const TmdbNetworkConfig(credential: 'test-tmdb-key'),
               ),
               konataActionsProvider.overrideWith(
                 (ref) => _FakeKonataActionsCoordinator(ref),
@@ -214,7 +215,12 @@ void main() {
         await tester.pumpAndSettle();
 
         // 搜索 TMDB 并选择返回命中，触发合并进 existing-work-86（temp-work-1 已删除）
-        await tester.tap(find.text('搜索 TMDB'));
+        await tester.tap(
+          find.descendant(
+            of: find.byType(ManualMatchDialog),
+            matching: find.text('搜索'),
+          ),
+        );
         await tester.pumpAndSettle();
         await tester.tap(find.text('86 -不存在的战区-').last);
         await tester.pumpAndSettle();
@@ -270,7 +276,7 @@ void main() {
                 (_, {targetWidth, imageSize}) async => _transparentPng,
               ),
               tmdbNetworkConfigProvider.overrideWith(
-                (_) async => const TmdbNetworkConfig(),
+                (_) async => const TmdbNetworkConfig(credential: 'test-tmdb-key'),
               ),
             ],
             child: MaterialApp(

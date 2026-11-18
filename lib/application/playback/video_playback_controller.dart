@@ -280,11 +280,14 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   Timer? _persistTimer;
   Timer? _probeTimer;
   Timer? _skipFadeTimer;
+  Timer? _chapterSkipWakeTimer;
   Timer? _bannerTimer;
   Timer? _thumbnailWarmupTimer;
 
   ChapterSkipPlan _skipPlan = const ChapterSkipPlan();
   DetectedSkipWindow? _dismissedSkipWindow;
+  bool _hudProgressActive = true;
+  double _latestPositionSeconds = 0.0;
   bool _persistDirty = false;
   bool _closedCleanly = false;
   bool _alreadyPersistedCompleted = false;
@@ -303,6 +306,39 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     final members = activeBundle.seriesMembers;
     if (members.length < 2) return [activeWork];
     return SeriesSeasonFormatter.sortSeriesMembers(members);
+  }
+
+  /// 当前是否开启高频播放进度向 UI 派发（OSD 隐藏或画中画静默期为 `false`，保持 0 重绘唤醒）。
+  bool get isHudProgressActive => _hudProgressActive;
+
+  /// 当前真实播放秒数（即使 OSD 隐藏静默期未刷新 `state.positionSeconds` 亦保持精确）。
+  double get currentPositionSeconds =>
+      _hudProgressActive ? state.positionSeconds : _latestPositionSeconds;
+
+  /// 控制 OSD 隐藏稳态期是否挂起高频进度订阅与 Riverpod 状态派发。
+  ///
+  /// 当 `active == false` 时退订底层 `time-pos` 监听，改由单次章节唤醒定时器与低频持久化按需采样，
+  /// 保障纯视频播放稳态期 Flutter UI / Raster 线程 0% 无谓唤醒。
+  void setHudProgressActive(bool active) {
+    if (!mounted || _hudProgressActive == active) return;
+    _hudProgressActive = active;
+    _session?.setPositionObservationEnabled(active);
+    if (active) {
+      _chapterSkipWakeTimer?.cancel();
+      _chapterSkipWakeTimer = null;
+      final latest =
+          _session?.readCurrentPositionSeconds() ?? _latestPositionSeconds;
+      _latestPositionSeconds = latest;
+      if ((latest - state.positionSeconds).abs() > 0.01) {
+        state = state.copyWith(positionSeconds: latest);
+      }
+      _evaluateChapterSkipWindow(latest);
+    } else {
+      final latest =
+          _session?.readCurrentPositionSeconds() ?? state.positionSeconds;
+      _latestPositionSeconds = latest;
+      _scheduleNextChapterSkipWake();
+    }
   }
 
   /// 缩略图缓存变更版本号（仅通知进度条悬停气泡局部刷新，零全页重建）。
@@ -734,11 +770,29 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
 
         _persistTimer?.cancel();
         _persistTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+          if (!_hudProgressActive && state.isPlaying) {
+            final sampled = _session?.readCurrentPositionSeconds();
+            if (sampled != null && sampled.isFinite) {
+              _latestPositionSeconds = sampled;
+              _persistDirty = true;
+              _watchedTracker.sample(
+                positionSeconds: sampled,
+                durationSeconds: state.durationSeconds,
+                isPlaying: state.isPlaying,
+                speed: state.speed,
+              );
+              _evaluateChapterSkipWindow(sampled);
+            }
+          }
           if (_persistDirty) {
             _persistDirty = false;
             unawaited(_persistProgress(isFinal: false));
           }
         });
+        if (!_hudProgressActive) {
+          session.setPositionObservationEnabled(false);
+          _scheduleNextChapterSkipWake();
+        }
       } catch (e) {
         if (mounted) {
           state = state.copyWith(
@@ -753,6 +807,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
 
   void _handlePositionChanged(double posSeconds) {
     if (!mounted) return;
+    _latestPositionSeconds = posSeconds;
     _persistDirty = true;
     _watchedTracker.sample(
       positionSeconds: posSeconds,
@@ -760,7 +815,9 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       isPlaying: state.isPlaying,
       speed: state.speed,
     );
-    state = state.copyWith(positionSeconds: posSeconds);
+    if (_hudProgressActive) {
+      state = state.copyWith(positionSeconds: posSeconds);
+    }
     _evaluateChapterSkipWindow(posSeconds);
   }
 
@@ -777,6 +834,14 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   void _handlePlayingChanged(bool playing) {
     if (!mounted) return;
     state = state.copyWith(isPlaying: playing);
+    if (!_hudProgressActive) {
+      if (playing) {
+        _scheduleNextChapterSkipWake();
+      } else {
+        _chapterSkipWakeTimer?.cancel();
+        _chapterSkipWakeTimer = null;
+      }
+    }
     if (!playing && _persistDirty) {
       _persistDirty = false;
       unawaited(_persistProgress(isFinal: false));
@@ -879,6 +944,8 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   void _recomputeChapterSkipPlan() {
     if (state.durationSeconds <= 0 || state.chapters.isEmpty) {
       _skipPlan = const ChapterSkipPlan();
+      _chapterSkipWakeTimer?.cancel();
+      _chapterSkipWakeTimer = null;
       if (state.activeSkipWindow != null) {
         _skipFadeTimer?.cancel();
         state = state.copyWith(clearSkipWindow: true);
@@ -890,11 +957,56 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       totalDurationSeconds: state.durationSeconds,
       hasNextEpisode: hasNextEpisodeAny,
     );
-    final active = _skipPlan.activeWindowAt(state.positionSeconds);
+    final active = _skipPlan.activeWindowAt(currentPositionSeconds);
     if (active == null && state.activeSkipWindow != null) {
       _skipFadeTimer?.cancel();
       state = state.copyWith(clearSkipWindow: true);
     }
+    if (!_hudProgressActive) {
+      _scheduleNextChapterSkipWake();
+    }
+  }
+
+  /// OSD 静默期使用单次精确计时器按需唤醒 OP/ED 跳过判定，彻底避免高频轮询。
+  void _scheduleNextChapterSkipWake() {
+    _chapterSkipWakeTimer?.cancel();
+    _chapterSkipWakeTimer = null;
+    if (!mounted || _hudProgressActive || !state.isPlaying) return;
+    final pos = _latestPositionSeconds;
+    final candidates = <DetectedSkipWindow>[
+      if (_skipPlan.opening != null) _skipPlan.opening!,
+      if (_skipPlan.ending != null) _skipPlan.ending!,
+    ];
+    if (candidates.isEmpty) return;
+
+    double? nextDeltaSeconds;
+    for (final w in candidates) {
+      if (w.containsPosition(pos)) {
+        nextDeltaSeconds = 0.0;
+        break;
+      }
+      if (w.startSeconds > pos) {
+        final delta = w.startSeconds - pos;
+        if (nextDeltaSeconds == null || delta < nextDeltaSeconds) {
+          nextDeltaSeconds = delta;
+        }
+      }
+    }
+    if (nextDeltaSeconds == null) return;
+    final effectiveSpeed = state.speed > 0.1 ? state.speed : 1.0;
+    final waitMs = ((nextDeltaSeconds / effectiveSpeed) * 1000).ceil().clamp(
+      50,
+      3600 * 1000,
+    );
+    _chapterSkipWakeTimer = Timer(Duration(milliseconds: waitMs), () {
+      if (!mounted || _hudProgressActive) return;
+      final sampled = _session?.readCurrentPositionSeconds();
+      if (sampled != null && sampled.isFinite) {
+        _latestPositionSeconds = sampled;
+        _evaluateChapterSkipWindow(sampled);
+      }
+      _scheduleNextChapterSkipWake();
+    });
   }
 
   void _evaluateChapterSkipWindow(double posSeconds) {
@@ -911,14 +1023,17 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
 
     if (_dismissedSkipWindow == active) return;
 
-    if (prefs.autoSkipChapter) {
+    // 严格遵守防误判红线：无名 ~90s 层级二启发式候选（allowsAutoSkip == false）绝不自动跳过，仅展示手动胶囊。
+    if (prefs.autoSkipChapter && active.allowsAutoSkip) {
       _dismissedSkipWindow = active;
       unawaited(executeSkipWindow(active));
       showTransientBanner('已自动${active.label}');
       return;
     }
 
-    if (prefs.promptChapterSkip && state.activeSkipWindow != active) {
+    if ((prefs.promptChapterSkip ||
+            (prefs.autoSkipChapter && !active.allowsAutoSkip)) &&
+        state.activeSkipWindow != active) {
       state = state.copyWith(activeSkipWindow: active);
       _skipFadeTimer?.cancel();
       _skipFadeTimer = Timer(
@@ -1017,6 +1132,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
             ? saved.positionSeconds
             : 0);
 
+    _latestPositionSeconds = resumePos.toDouble();
     state = state.copyWith(
       currentWork: resolvedBundle.work,
       currentBundle: resolvedBundle,
@@ -1109,15 +1225,25 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     final clamped = state.durationSeconds > 0
         ? seconds.clamp(0.0, state.durationSeconds)
         : (seconds < 0 ? 0.0 : seconds);
+    _latestPositionSeconds = clamped;
     final cachedHit = _session?.seekAbsolute(clamped) ?? false;
-    state = state.copyWith(
-      positionSeconds: clamped,
-      isBuffering: cachedHit ? false : state.isBuffering,
-    );
+    if (_hudProgressActive) {
+      state = state.copyWith(
+        positionSeconds: clamped,
+        isBuffering: cachedHit ? false : state.isBuffering,
+      );
+    } else {
+      if (cachedHit && state.isBuffering) {
+        state = state.copyWith(isBuffering: false);
+      }
+      _scheduleNextChapterSkipWake();
+    }
   }
 
   void seekRelative(double deltaSeconds) {
-    seekAbsolute(state.positionSeconds + deltaSeconds);
+    final base =
+        _session?.readCurrentPositionSeconds() ?? currentPositionSeconds;
+    seekAbsolute(base + deltaSeconds);
   }
 
   void stepFrameForward() {
@@ -1132,7 +1258,8 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
 
   void previousChapterOrEpisode() {
     final chapters = state.chapters;
-    final pos = state.positionSeconds;
+    final pos =
+        _session?.readCurrentPositionSeconds() ?? currentPositionSeconds;
     if (chapters.isNotEmpty) {
       PlaybackChapter? prev;
       for (final ch in chapters) {
@@ -1158,7 +1285,8 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
 
   void nextChapterOrEpisode() {
     final chapters = state.chapters;
-    final pos = state.positionSeconds;
+    final pos =
+        _session?.readCurrentPositionSeconds() ?? currentPositionSeconds;
     if (chapters.isNotEmpty) {
       for (final ch in chapters) {
         if (ch.startSeconds > pos + 1.0) {
@@ -1386,8 +1514,18 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     }
   }
 
-  /// 一键截取纯净原画 PNG 视频帧并写入 `<Root>/photos/<作品目录>/`。
-  Future<File?> captureCleanScreenshot() async {
+  /// 一键截取原画 PNG 视频帧（支持纯净视频帧与含字幕帧；Windows 存作品目录，Android 事务写入系统相册）。
+  Future<File?> captureCleanScreenshot({
+    ScreenshotCaptureMode mode = ScreenshotCaptureMode.pureVideo,
+  }) async {
+    final res = await captureScreenshot(mode: mode);
+    return res?.file;
+  }
+
+  /// 双模原画截图（返回桌面文件或 Android `MediaStore` 相册 URI）。
+  Future<ScreenshotCaptureResult?> captureScreenshot({
+    ScreenshotCaptureMode mode = ScreenshotCaptureMode.pureVideo,
+  }) async {
     final session = _session;
     if (session == null) return null;
     final work = activeWork;
@@ -1399,21 +1537,25 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     final epTag = state.currentEpisode.episodeNumber != null
         ? 'EP${state.currentEpisode.episodeNumber.toString().padLeft(2, '0')}'
         : null;
-    final file = await session.captureCleanScreenshot(
+    final res = await session.captureScreenshot(
       workPhotoDir: workDir,
       episodeTag: epTag,
+      mode: mode,
+      albumName: 'Konata',
     );
-    if (file != null) {
-      showTransientBanner('已保存纯净原画截图：${file.path}');
+    if (res != null) {
+      showTransientBanner('已保存${res.mode.label}截图：${res.displayLabel}');
     }
-    return file;
+    return res;
   }
 
   /// 一键热接力至外部播放器：携带精确当前秒数退出内置播放页并在外部播放器续播回写。
   Future<LaunchPlaybackResult> relayToExternalPlayer([
     ExternalPlayerConfig? targetPlayer,
   ]) async {
-    final relayPos = state.positionSeconds.round();
+    final relayPos =
+        (_session?.readCurrentPositionSeconds() ?? currentPositionSeconds)
+            .round();
     final work = activeWork;
     final bundle = activeBundle;
     final ep = state.currentEpisode;
@@ -1442,7 +1584,9 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     final ep = state.currentEpisode;
     final variant = state.currentVariant;
     final durDouble = state.durationSeconds;
-    final posDouble = state.positionSeconds;
+    final posDouble =
+        _session?.readCurrentPositionSeconds() ?? currentPositionSeconds;
+    _latestPositionSeconds = posDouble;
     final durSeconds = durDouble > 0 ? durDouble.round() : 0;
     final persistedPos = _watchedTracker.resolvePersistedPositionSeconds(
       positionSeconds: posDouble,
@@ -1521,6 +1665,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     _persistTimer?.cancel();
     _probeTimer?.cancel();
     _skipFadeTimer?.cancel();
+    _chapterSkipWakeTimer?.cancel();
     _bannerTimer?.cancel();
     await _releaseThumbnailService(disposeNotifier: true);
 
@@ -1558,6 +1703,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     _persistTimer?.cancel();
     _probeTimer?.cancel();
     _skipFadeTimer?.cancel();
+    _chapterSkipWakeTimer?.cancel();
     _bannerTimer?.cancel();
     _thumbnailWarmupTimer?.cancel();
 

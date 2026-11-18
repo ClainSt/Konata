@@ -40,6 +40,12 @@ class DetectedSkipWindow {
   /// true = 层级一显式命名匹配；false = 层级二时长规则匹配。
   final bool isTier1Named;
 
+  /// 是否允许在开启「自动跳过」时直接触发自动跳过。
+  ///
+  /// 仅层级一显式命名章节允许自动跳过；无名 ~90s 层级二启发式候选严格禁止自动跳过，
+  /// 仅展示手动跳过胶囊由用户确认，杜绝误跳冷开场或正片剧情。
+  bool get allowsAutoSkip => isTier1Named;
+
   /// 是否覆盖指定时间点。
   bool containsPosition(double positionSeconds) {
     return positionSeconds >= startSeconds && positionSeconds < endSeconds;

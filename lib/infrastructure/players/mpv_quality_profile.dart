@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:path/path.dart' as p;
 
+import '../../domain/playback/hwdec_safety_policy.dart';
 import '../../domain/playback/track_preferences.dart';
 import '../logging/diagnostics_log_store.dart';
 import 'libmpv_ffi.dart';
@@ -223,7 +224,8 @@ class MpvQualityProfile {
   MpvQualityProfile._();
 
   static const String windowsVideoDriver = 'libmpv';
-  static const String androidVideoDriver = 'gpu';
+  static const String androidVideoDriver = 'gpu-next';
+  static const String androidLegacyVideoDriver = 'gpu';
   static const String windowsAudioDriver = 'wasapi';
   static const String androidAudioDriver = 'aaudio,audiotrack,opensles';
 
@@ -323,7 +325,7 @@ class MpvQualityProfile {
     setter.setOption(client, 'osc', 'no');
     setter.setOption(client, 'osd-level', '0');
 
-    // 视频渲染后端与硬件解码策略（Android 延迟至有效像素表面就绪后再切换至 vo=gpu）
+    // 视频渲染后端与硬件解码策略（Android 延迟至有效像素表面就绪后再切换至 vo=gpu-next，支持 libplacebo HDR/DoVi）
     if (isWindows) {
       setter.setOption(client, 'vo', windowsVideoDriver);
     } else if (isAndroid) {
@@ -332,6 +334,7 @@ class MpvQualityProfile {
       setter.setOption(client, 'gpu-api', 'opengl');
       setter.setOption(client, 'opengl-es', 'yes');
       setter.setOption(client, 'egl-output-format', 'rgb10_a2');
+      setter.setOption(client, 'target-colorspace-hint', 'auto');
     } else {
       setter.setOption(client, 'vo', windowsVideoDriver);
     }
@@ -347,13 +350,19 @@ class MpvQualityProfile {
     setter.setOption(
       client,
       'hwdec-codecs',
-      isAndroid ? 'h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1' : 'all',
+      isAndroid ? HwdecSafetyPolicy.safeAndroidHwdecCodecs : 'all',
     );
+    // 自动按物理核数并发软解，保障 Hi10P / HEVC Rext 拦截回落时满帧流畅。
+    setter.setOption(client, 'vd-lavc-threads', '0');
 
-    // 高精色彩管理与抖动（Windows D3D11 使用 rgba16hf 防止触发 dumb mode，Android 保持 GLES 自适应）
+    // 高精色彩管理、libplacebo 动态 HDR 色调映射与抖动
+    // （Windows D3D11 使用 rgba16hf 保持 16-bit 浮点内部精度与亚克力透光兼容，Android 保持 GLES 自适应）
     if (isWindows) {
       setter.setOption(client, 'fbo-format', 'rgba16hf');
     }
+    setter.setOption(client, 'tone-mapping', 'bt.2446a');
+    setter.setOption(client, 'hdr-compute-peak', 'yes');
+    setter.setOption(client, 'gamut-mapping-mode', 'perceptual');
     setter.setOption(client, 'dither-depth', 'auto');
     setter.setOption(client, 'dither', 'fruit');
     final scalers = resolveScalers(config.preset);

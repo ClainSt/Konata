@@ -515,7 +515,7 @@ void main() {
             'android-hdr-peak=1000',
             'android-surface-size=1220x2712',
             'wid=42',
-            'vo=gpu',
+            'vo=${MpvQualityProfile.androidVideoDriver}',
           ]),
         );
 

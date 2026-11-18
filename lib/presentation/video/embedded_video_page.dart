@@ -12,6 +12,7 @@ import '../../application/playback/unified_playback_coordinator.dart';
 import '../../application/playback/video_playback_controller.dart';
 import '../../composition/platform_composition.dart';
 import '../../domain/playback/playback_formatters.dart';
+import '../../infrastructure/players/embedded_mpv_session.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
@@ -97,6 +98,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
   bool _screenLocked = false;
   bool _lockButtonPeek = false;
   bool? _lastAndroidSystemBarsHidden;
+  bool? _lastHudProgressActive;
   Timer? _idleTimer;
   Timer? _lockPeekTimer;
 
@@ -144,6 +146,13 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
     _cornerBadgeTimer?.cancel();
     _rightHoldTimer?.cancel();
     _statusCueNotifier.dispose();
+    if (_lastHudProgressActive == false) {
+      try {
+        ref
+            .read(videoPlaybackProvider(widget.request).notifier)
+            .setHudProgressActive(true);
+      } catch (_) {}
+    }
     if (KonataAdaptiveTokens.isAndroid && widget.onCollapseToMini == null) {
       unawaited(
         AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
@@ -182,6 +191,19 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
     if (_lastAndroidSystemBarsHidden == hideBars) return;
     _lastAndroidSystemBarsHidden = hideBars;
     unawaited(AndroidPlaybackWindowBridge.setSystemBarsHidden(hideBars));
+  }
+
+  void _syncHudProgressSubscription(bool active) {
+    if (_lastHudProgressActive == active) return;
+    _lastHudProgressActive = active;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        ref
+            .read(videoPlaybackProvider(widget.request).notifier)
+            .setHudProgressActive(active);
+      } catch (_) {}
+    });
   }
 
   void _scheduleIdleHide() {
@@ -457,9 +479,12 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
     }
 
     if (key == LogicalKeyboardKey.keyS) {
+      final mode = shift
+          ? ScreenshotCaptureMode.withSubtitles
+          : ScreenshotCaptureMode.pureVideo;
       unawaited(() async {
-        final f = await controller.captureCleanScreenshot();
-        if (mounted && f == null) {
+        final res = await controller.captureScreenshot(mode: mode);
+        if (mounted && res == null) {
           showKonataToast(context, '截图未能生成，请稍后再试', isError: true);
         }
       }());
@@ -589,9 +614,12 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
 
     // 画中画纯净态：隐藏所有 Flutter 胶囊、抽屉与 SafeArea 留白，挂起进度监听，仅全幅纹理与字幕
     if (widget.inPipMode || isPipDimensions) {
+      _syncHudProgressSubscription(false);
       return ColoredBox(
         key: const ValueKey('video_pip_pure_stage'),
-        color: KonataPlaybackTokens.cinemaPureBlack,
+        color: isAndroid && !snap.audioOnlyMode
+            ? Colors.transparent
+            : KonataPlaybackTokens.cinemaPureBlack,
         child: SizedBox.expand(child: videoSurface),
       );
     }
@@ -623,6 +651,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
         !awaitingLandscapeRotation &&
         !_screenLocked &&
         (_hudVisible || snap.sideSheetOpen || _volumePopupActive);
+    _syncHudProgressSubscription(showHud || snap.probeOverlayVisible);
     final hudDuration = _instantHudHide
         ? Duration.zero
         : KonataPlaybackTokens.hudFadeDuration;
@@ -667,8 +696,9 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
               screenLocked: _screenLocked,
               showLockButton: _screenLocked ? _lockButtonPeek : showHud,
               gesturesBlocked: snap.sideSheetOpen,
-              currentPositionReader: () =>
-                  ref.read(videoPlaybackProvider(widget.request)).positionSeconds,
+              currentPositionReader: () => ref
+                  .read(videoPlaybackProvider(widget.request).notifier)
+                  .currentPositionSeconds,
               durationReader: () =>
                   ref.read(videoPlaybackProvider(widget.request)).durationSeconds,
               brightnessReader: () => ref
@@ -927,7 +957,9 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
         autofocus: true,
         onKeyEvent: _handleKeyEvent,
         child: Scaffold(
-          backgroundColor: KonataPlaybackTokens.cinemaPureBlack,
+          backgroundColor: isAndroid && !snap.audioOnlyMode
+              ? Colors.transparent
+              : KonataPlaybackTokens.cinemaPureBlack,
           body: MouseRegion(
             cursor: showHud
                 ? SystemMouseCursors.basic
@@ -1020,6 +1052,19 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                 ),
               ),
               if (!narrowTop) ...[
+                KonataCapsuleIconButton(
+                  key: const ValueKey('video_android_screenshot_button'),
+                  icon: Icons.camera_alt_outlined,
+                  tooltip: '原画截图',
+                  color: p.textPrimary,
+                  size: 19,
+                  fixedSize: KonataAdaptiveTokens.touchTarget,
+                  onTap: () => unawaited(
+                    controller.captureScreenshot(
+                      mode: ScreenshotCaptureMode.pureVideo,
+                    ),
+                  ),
+                ),
                 KonataCapsuleIconButton(
                   key: const ValueKey('video_toggle_audio_only_button'),
                   icon: Icons.headphones_rounded,

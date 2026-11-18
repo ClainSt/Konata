@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
-/// Android `ccplayer/android_surface` 硬件表面变化快照。
+/// Android 根窗口底层（Underlay）硬件表面变化快照。
 class AndroidSurfaceDescriptor {
   /// 创建 Android 表面状态快照。
   const AndroidSurfaceDescriptor({
@@ -27,22 +27,32 @@ class AndroidSurfaceDescriptor {
   final double hdrPeak;
 }
 
-/// Android 10-bit (`RGBA_1010102`) 原生硬件表面控制器，与 `AndroidVideoSurface.kt` 通信。
+/// Android 10-bit (`RGBA_1010102`) 根窗口 Underlay 硬件表面控制器。
+///
+/// 通过 `ccplayer/android_underlay_surface` 直接驱动挂载于透明 Flutter 画布之下的底层 `SurfaceView`，
+/// 实现零 `PlatformView` 跨线程同步损耗与全类弹窗天然置顶覆盖。
 class AndroidVideoSurfaceController {
-  /// 为指定 `PlatformView` ID 创建通道控制器。
-  AndroidVideoSurfaceController(int viewId)
-    : _channel = MethodChannel('ccplayer/android_surface/$viewId') {
+  /// 创建根窗口底层表面通道控制器。
+  AndroidVideoSurfaceController([int _ = 0])
+    : _channel = const MethodChannel(underlayChannelName) {
     _channel.setMethodCallHandler(_onMethodCall);
   }
 
-  /// Kotlin 端注册的 `PlatformView` 唯一 ViewType。
-  static const String viewType = 'ccplayer/android_surface';
+  /// Kotlin 端注册的根窗口 Underlay 唯一通道名。
+  static const String underlayChannelName = 'ccplayer/android_underlay_surface';
 
   final MethodChannel _channel;
   final StreamController<AndroidSurfaceDescriptor?> _surfaceChanges =
       StreamController<AndroidSurfaceDescriptor?>.broadcast();
 
   AndroidSurfaceDescriptor? _current;
+  bool _disposed = false;
+  int? _lastLeftPx;
+  int? _lastTopPx;
+  int? _lastRightPx;
+  int? _lastBottomPx;
+  double? _lastRadiusPx;
+  bool _shown = false;
 
   /// 当前已知表面描述符（若已销毁或尚未创建则为 null）。
   AndroidSurfaceDescriptor? get current => _current;
@@ -50,6 +60,9 @@ class AndroidVideoSurfaceController {
   /// 表面就绪、尺寸变更或销毁丢失通知流。
   Stream<AndroidSurfaceDescriptor?> get surfaceChanges =>
       _surfaceChanges.stream;
+
+  /// 当前已释放标识。
+  bool get isDisposed => _disposed;
 
   Future<dynamic> _onMethodCall(MethodCall call) async {
     switch (call.method) {
@@ -60,7 +73,7 @@ class AndroidVideoSurfaceController {
           final width = (args['width'] as num?)?.toInt() ?? 0;
           final height = (args['height'] as num?)?.toInt() ?? 0;
           final hdrPeak = (args['hdrPeak'] as num?)?.toDouble() ?? 0.0;
-          // 仅在句柄与像素宽高均有效时派发就绪事件，避免将 0x0 表面传入 libmpv
+          // 仅在句柄与像素宽高均有效时派发就绪事件，避免将 0x0 表面传入 libmpv。
           if (wid > 0 && (width <= 0 || height <= 0)) {
             _current = null;
             return null;
@@ -84,6 +97,57 @@ class AndroidVideoSurfaceController {
         }
     }
     return null;
+  }
+
+  /// 显示并同步底层 Underlay 表面在物理像素坐标系下的矩形与圆角半径。
+  Future<void> syncViewportRect({
+    required int leftPx,
+    required int topPx,
+    required int rightPx,
+    required int bottomPx,
+    double cornerRadiusPx = 0.0,
+  }) async {
+    if (_disposed || rightPx <= leftPx || bottomPx <= topPx) return;
+    final radiusChanged =
+        _lastRadiusPx == null || (cornerRadiusPx - _lastRadiusPx!).abs() > 0.25;
+    if (_shown &&
+        _lastLeftPx == leftPx &&
+        _lastTopPx == topPx &&
+        _lastRightPx == rightPx &&
+        _lastBottomPx == bottomPx &&
+        !radiusChanged) {
+      return;
+    }
+    _lastLeftPx = leftPx;
+    _lastTopPx = topPx;
+    _lastRightPx = rightPx;
+    _lastBottomPx = bottomPx;
+    _lastRadiusPx = cornerRadiusPx;
+    final method = _shown ? 'setRect' : 'show';
+    _shown = true;
+    try {
+      await _channel.invokeMethod<Object?>(method, <String, Object>{
+        'leftPx': leftPx,
+        'topPx': topPx,
+        'rightPx': rightPx,
+        'bottomPx': bottomPx,
+        'radiusPx': cornerRadiusPx,
+      });
+    } catch (_) {}
+  }
+
+  /// 隐藏底层 Underlay 表面（纯音频模式或退出播放时立即释放系统缓冲）。
+  Future<void> hideViewport() async {
+    if (_disposed || !_shown) return;
+    _shown = false;
+    _lastLeftPx = null;
+    _lastTopPx = null;
+    _lastRightPx = null;
+    _lastBottomPx = null;
+    _lastRadiusPx = null;
+    try {
+      await _channel.invokeMethod<void>('hide');
+    } catch (_) {}
   }
 
   /// 主动向原生端查询当前可用表面信息（句柄与宽高均需大于 0）。
@@ -110,12 +174,6 @@ class AndroidVideoSurfaceController {
     }
   }
 
-  /// 控制器是否已释放。
-  bool _disposed = false;
-
-  /// 当前已释放标识。
-  bool get isDisposed => _disposed;
-
   /// 在 libmpv 解绑 `vo=null` / `wid=0` 后精确释放指定旧表面的 JNI 全局引用。
   Future<void> releaseReference(int wid) async {
     if (wid <= 0) return;
@@ -124,8 +182,14 @@ class AndroidVideoSurfaceController {
     } catch (_) {}
   }
 
-  /// 释放与当前视图关联的全局 Surface 引用。
+  /// 隐藏底层表面并释放与当前会话关联的全部 JNI 全局 Surface 引用。
   Future<void> releaseSurface() async {
+    _shown = false;
+    _lastLeftPx = null;
+    _lastTopPx = null;
+    _lastRightPx = null;
+    _lastBottomPx = null;
+    _lastRadiusPx = null;
     try {
       await _channel.invokeMethod<void>('releaseAll');
     } catch (_) {}
@@ -158,7 +222,7 @@ class AndroidVideoSurfaceController {
         try {
           await link.create(sysPath);
         } catch (_) {
-          // 部分 ROM 限制沙箱外符号链接时静默忽略，由 libmpv 默认字体兜底
+          // 部分 ROM 限制沙箱外符号链接时静默忽略，由 libmpv 默认字体兜底。
         }
       }
     }

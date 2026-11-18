@@ -1,6 +1,8 @@
 import 'dart:collection';
 import 'dart:io';
 
+import '../../domain/config/konata_lane_config.dart';
+
 /// Konata 轻量诊断与异常日志环形缓冲存储器（纯 Infrastructure 层 IO 封装）。
 class DiagnosticsLogStore {
   /// 创建诊断日志存储器。
@@ -39,8 +41,11 @@ class DiagnosticsLogStore {
       ..writeln('Konata 2.0 诊断日志报告')
       ..writeln('导出时间: ${DateTime.now().toIso8601String()}')
       ..writeln('详细调试日志: ${_verbose ? '已开启' : '未开启'}')
-      ..writeln('系统平台: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}')
-      ..writeln('----------------------------------------');
+      ..writeln('系统平台: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}');
+    if (KonataLaneConfig.isIsolatedLane()) {
+      header.writeln('隔离车道: ${KonataLaneConfig.resolveLane()}');
+    }
+    header.writeln('----------------------------------------');
 
     if (_buffer.isEmpty) {
       header.writeln('暂无异常或运行记录。');

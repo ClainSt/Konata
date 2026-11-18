@@ -63,15 +63,70 @@ class VersionInfoQuerier {
 /// `[PathProviderPlatform]` 的 Windows 平台实现（基于 `package:path_provider` 与便携根目录）。
 ///
 class PathProviderWindows extends PathProviderPlatform {
+  /// 创建 Windows 便携路径提供器（支持测试覆盖车道标识）。
+  PathProviderWindows({this.laneOverride});
+
+  /// 编译期注入的默认运行车道标识。
+  static const String _rawCompileTimeLane = String.fromEnvironment(
+    'KONATA_LANE',
+    defaultValue: '',
+  );
+
+  /// 仅在字母开头的安全标识范围内允许构建隔离目录名。
+  static final RegExp _validLanePattern = RegExp(r'^[a-z][a-z0-9_]{0,31}$');
+
+  /// 可选注入的车道覆盖标识（主要供单元测试隔离校验）。
+  final String? laneOverride;
+
   String get executablePath => Platform.resolvedExecutable;
   static final _portableData = <String, Future<Directory>>{};
 
+  /// 解析当前 Windows 运行态的隔离车道子目录名；主干（空值或 `main`）返回空。
+  String? _isolatedLaneDirectoryName() {
+    final normalized =
+        (laneOverride ?? _rawCompileTimeLane).trim().toLowerCase();
+    if (normalized.isEmpty || normalized == 'main') {
+      return null;
+    }
+    if (!_validLanePattern.hasMatch(normalized)) {
+      throw ArgumentError.value(
+        laneOverride ?? _rawCompileTimeLane,
+        'KONATA_LANE',
+        '车道标识仅允许字母开头的字母、数字与下划线（长度不超过 32 位）',
+      );
+    }
+    return 'Konata_$normalized';
+  }
+
+  /// 计算 Windows 便携数据基础目录（含开发态仓根与发行态可执行同级目录）。
+  String _desktopBaseRootPath() {
+    final cwd = Directory.current.path;
+    if (File(path.join(cwd, 'pubspec.yaml')).existsSync() &&
+        laneOverride == null &&
+        _isolatedLaneDirectoryName() != null) {
+      return cwd;
+    }
+    return path.dirname(executablePath);
+  }
+
+  /// 解析当前车道的有效根目录；主干直取基础目录，隔离车道分流至 `Konata_<lane>`。
+  String _portableRootPath() {
+    final baseRoot = _desktopBaseRootPath();
+    final isolatedDir = _isolatedLaneDirectoryName();
+    if (isolatedDir == null) {
+      return baseRoot;
+    }
+    return path.join(baseRoot, isolatedDir);
+  }
+
   Future<Directory> _supportDirectory() {
-    final target = path.join(path.dirname(executablePath), 'userdata');
+    final target = path.join(_portableRootPath(), 'userdata');
+    final isMainLane = _isolatedLaneDirectoryName() == null;
     return _portableData.putIfAbsent(target, () async {
       final directory = Directory(target);
       Directory? legacy;
-      if (!await directory.exists()) {
+      // 仅主干正式车道允许探测历史漫游目录并执行单次迁移；隔离车道严禁与正式库争抢锁或混入数据。
+      if (isMainLane && !await directory.exists()) {
         final base = await getPath(WindowsKnownFolder.RoamingAppData);
         if (base != null) {
           legacy =
@@ -91,11 +146,11 @@ class PathProviderWindows extends PathProviderPlatform {
   @visibleForTesting
   VersionInfoQuerier versionInfoQuerier = VersionInfoQuerier();
 
-  /// 返回 Windows 临时目录（一般对应 `TMP` 环境变量）。
+  /// 返回 Windows 临时目录（收口于当前车道根目录的 `cache/tmp`）。
   @override
   Future<String?> getTemporaryPath() async {
     final directory =
-        Directory(path.join(path.dirname(executablePath), 'cache', 'tmp'));
+        Directory(path.join(_portableRootPath(), 'cache', 'tmp'));
     await directory.create(recursive: true);
     return directory.path;
   }
@@ -110,8 +165,7 @@ class PathProviderWindows extends PathProviderPlatform {
 
   @override
   Future<String?> getApplicationCachePath() async {
-    final directory =
-        Directory(path.join(path.dirname(executablePath), 'cache'));
+    final directory = Directory(path.join(_portableRootPath(), 'cache'));
     await directory.create(recursive: true);
     return directory.path;
   }

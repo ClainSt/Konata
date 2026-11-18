@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <application
-        android:label="${konataLabel}"
+        android:label="@string/konata_app_name"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <provider

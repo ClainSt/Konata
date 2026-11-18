@@ -740,7 +740,7 @@ void main() {
     );
 
     testWidgets(
-      'MiniAudioBar 严格限制跳转热区、点击 ☰ 弹出 OverlayPortal 曲目浮层且支持 Esc 与外部点击自动收起',
+      'KonataFloatingMiniPlayer 音频小窗三键直点不误展开、封面两段式轻触展开与 3 秒自动隐去角标',
       (tester) async {
         tester.view.physicalSize = const Size(1024, 720);
         tester.view.devicePixelRatio = 1.0;
@@ -767,30 +767,6 @@ void main() {
             trackNumber: 1,
             cueStartSeconds: 0,
             cueEndSeconds: 180,
-            duration: Duration(seconds: 180),
-          ),
-          const AudioQueueItem(
-            id: 'q2',
-            work: work,
-            variant: variant,
-            title: 'Track Two',
-            performer: 'Artist A',
-            albumTitle: 'Best Album',
-            trackNumber: 2,
-            cueStartSeconds: 180,
-            cueEndSeconds: 360,
-            duration: Duration(seconds: 180),
-          ),
-          const AudioQueueItem(
-            id: 'q3',
-            work: work,
-            variant: variant,
-            title: 'Tail Track Three',
-            performer: 'Artist B',
-            albumTitle: 'Best Album',
-            trackNumber: 3,
-            cueStartSeconds: 360,
-            cueEndSeconds: null,
             duration: Duration(seconds: 180),
           ),
         ];
@@ -838,11 +814,9 @@ void main() {
                 GlobalCupertinoLocalizations.delegate,
               ],
               home: const Scaffold(
-                body: Align(
-                  alignment: Alignment.bottomCenter,
-                  child: Padding(
-                    padding: EdgeInsets.only(bottom: 18),
-                    child: MiniAudioBar(),
+                body: Center(
+                  child: KonataFloatingMiniPlayer.standalone(
+                    kind: FloatingMiniPlayerKind.audio,
                   ),
                 ),
               ),
@@ -851,74 +825,54 @@ void main() {
         );
         await tester.pump();
 
-        // 1. 点击中区/右区按钮及间隙严禁触发全屏跳转
-        await tester.tap(find.byIcon(Icons.pause_rounded));
-        await tester.pump();
-        expect(container.read(immersiveAudioExpandedProvider), isFalse);
-
-        final prevBox = tester.getRect(
-          find.byIcon(Icons.skip_previous_rounded),
-        );
-        final playBox = tester.getRect(find.byIcon(Icons.play_arrow_rounded));
-        await tester.tapAt(
-          Offset((prevBox.right + playBox.left) / 2, playBox.center.dy),
+        // 1. 点击底部三键严禁触发全屏跳转，且不显示曲名或循环键
+        expect(find.text('Track One'), findsNothing);
+        await tester.tap(
+          find.byKey(const ValueKey('floating_mini_audio_play_pause')),
         );
         await tester.pump();
         expect(container.read(immersiveAudioExpandedProvider), isFalse);
 
-        // 2. 点击 ☰ 不跳转全屏，且在正上方弹出曲目浮层、菜单按钮呈高亮激活态
-        await tester.tap(find.byIcon(Icons.menu_rounded));
-        await tester.pump(const Duration(milliseconds: 180));
-        expect(container.read(immersiveAudioExpandedProvider), isFalse);
-        expect(find.text('专辑曲目 (3)'), findsOneWidget);
-        expect(find.text('Tail Track Three'), findsOneWidget);
-        expect(find.text('03:00'), findsWidgets);
-
-        final menuBtn = tester.widget<KonataCapsuleIconButton>(
-          find.ancestor(
-            of: find.byIcon(Icons.menu_rounded),
-            matching: find.byType(KonataCapsuleIconButton),
-          ),
+        // 2. 默认纯净态无 × 角标；首次轻触封面显现 × 与展开图标，3 秒无操作自动隐去
+        expect(
+          find.byKey(const ValueKey('floating_mini_close_button')),
+          findsNothing,
         );
-        expect(menuBtn.highlighted, isTrue);
-
-        // 浮层正位于 MiniAudioBar 上方
-        final capsuleTop = tester
-            .getRect(find.byType(KonataPlaybackCapsule))
-            .top;
-        final popoverBottom = tester
-            .getRect(find.text('Tail Track Three'))
-            .bottom;
-        expect(popoverBottom, lessThan(capsuleTop));
-
-        // 在浮层内点选尾轨立即切歌并保持菜单可控
-        await tester.tap(find.text('Tail Track Three'));
+        await tester.tap(
+          find.byKey(const ValueKey('floating_mini_surface_tap_target')),
+        );
         await tester.pump();
-        expect(stubNotifier.playQueueIndexCalls, 1);
-        expect(stubNotifier.lastPlayedIndex, 2);
+        expect(container.read(immersiveAudioExpandedProvider), isFalse);
+        expect(
+          find.byKey(const ValueKey('floating_mini_close_button')),
+          findsOneWidget,
+        );
+        await tester.pump(const Duration(seconds: 3));
+        expect(
+          find.byKey(const ValueKey('floating_mini_close_button')),
+          findsNothing,
+        );
 
-        // 3. 按 Esc 自动收起曲目浮层
-        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        // 3. 显现角标期间再次轻触封面中心或左上展开图标可展开全屏页
+        await tester.tap(
+          find.byKey(const ValueKey('floating_mini_surface_tap_target')),
+        );
         await tester.pump();
-        expect(find.text('专辑曲目 (3)'), findsNothing);
-
-        // 4. 再打开浮层后点击外部空白区自动收起
-        await tester.tap(find.byIcon(Icons.menu_rounded));
-        await tester.pump();
-        expect(find.text('专辑曲目 (3)'), findsOneWidget);
-        await tester.tapAt(const Offset(40, 40));
-        await tester.pump();
-        expect(find.text('专辑曲目 (3)'), findsNothing);
-
-        // 5. 点击左侧信息区可展开沉浸页
-        await tester.tap(find.text('Tail Track Three').first);
+        await tester.tap(
+          find.byKey(const ValueKey('floating_mini_surface_tap_target')),
+        );
         await tester.pump();
         expect(container.read(immersiveAudioExpandedProvider), isTrue);
 
-        // 复位后测试显式 ↗ 按钮亦可展开全屏页
         container.read(immersiveAudioExpandedProvider.notifier).state = false;
         await tester.pump();
-        await tester.tap(find.byIcon(Icons.open_in_full_rounded));
+        await tester.tap(
+          find.byKey(const ValueKey('floating_mini_surface_tap_target')),
+        );
+        await tester.pump();
+        await tester.tap(
+          find.byKey(const ValueKey('floating_mini_expand_button')),
+        );
         await tester.pump();
         expect(container.read(immersiveAudioExpandedProvider), isTrue);
       },

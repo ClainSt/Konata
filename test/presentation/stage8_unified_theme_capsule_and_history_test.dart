@@ -259,8 +259,10 @@ void main() {
                 ),
               ),
               const Align(
-                alignment: Alignment.bottomCenter,
-                child: MiniAudioBar(),
+                alignment: Alignment.bottomRight,
+                child: KonataFloatingMiniPlayer.standalone(
+                  kind: FloatingMiniPlayerKind.audio,
+                ),
               ),
             ],
           ),

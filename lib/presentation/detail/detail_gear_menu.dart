@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../shell/adaptive_capsule_layout.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
@@ -96,28 +97,30 @@ class _DetailOpsCapsuleState extends State<DetailOpsCapsule> {
       barrierDismissible: true,
       barrierColor: Colors.transparent,
       transitionDuration: Duration.zero,
-      pageBuilder: (routeCtx, _, _) => DetailGearMenuOverlay(
-        link: _gearLink,
-        anchorRect: anchorRect,
-        openDownward: widget.openDownward,
-        onDismiss: () {
-          if (Navigator.of(routeCtx).canPop()) {
-            Navigator.of(routeCtx).pop();
-          }
-        },
-        onSelect: (action) {
-          Navigator.of(routeCtx).pop(action);
-        },
-        onManualMatch: widget.onManualMatch,
-        onManualEdit: widget.onManualEdit,
-        onEditPoster: widget.onEditPoster,
-        onEditBackdrop: widget.onEditBackdrop,
-        onHideWork: widget.onHideWork,
-        onDeleteWork: widget.onDeleteWork,
-        onRescrape: widget.onRescrape,
-        onOpenLocalDir: widget.onOpenLocalDir,
-        onManageSeries: widget.onManageSeries,
-        onMergeWork: widget.onMergeWork,
+      pageBuilder: (routeCtx, _, _) => KonataModalRouteScope(
+        child: DetailGearMenuOverlay(
+          link: _gearLink,
+          anchorRect: anchorRect,
+          openDownward: widget.openDownward,
+          onDismiss: () {
+            if (Navigator.of(routeCtx).canPop()) {
+              Navigator.of(routeCtx).pop();
+            }
+          },
+          onSelect: (action) {
+            Navigator.of(routeCtx).pop(action);
+          },
+          onManualMatch: widget.onManualMatch,
+          onManualEdit: widget.onManualEdit,
+          onEditPoster: widget.onEditPoster,
+          onEditBackdrop: widget.onEditBackdrop,
+          onHideWork: widget.onHideWork,
+          onDeleteWork: widget.onDeleteWork,
+          onRescrape: widget.onRescrape,
+          onOpenLocalDir: widget.onOpenLocalDir,
+          onManageSeries: widget.onManageSeries,
+          onMergeWork: widget.onMergeWork,
+        ),
       ),
     );
     _gearMenuRoute = route;

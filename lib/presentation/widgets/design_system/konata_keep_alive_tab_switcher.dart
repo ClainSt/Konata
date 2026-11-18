@@ -8,7 +8,7 @@ import '../../theme/konata_theme.dart';
 /// - 闲置页面保持挂载以 100% 保留滚动位置与状态，同时自动施加
 ///   `Offstage` + `TickerMode(enabled: false)` + `IgnorePointer` + `ExcludeFocus` 零绘制休眠；
 /// - 切换页签时按方向执行 `220ms` `Curves.easeOutCubic` 滑入淡入与微移淡出，
-///   支持中途连点无缝接力，并自动兼容系统减弱动画设置。
+///   支持中途连点无缝接力，静息态不挂载动画监听与额外离屏合成层。
 class KonataKeepAliveTabSwitcher extends StatefulWidget {
   /// 创建保状态方向感页面切换容器。
   const KonataKeepAliveTabSwitcher({
@@ -137,6 +137,7 @@ class _KonataKeepAliveTabSwitcherState
     final isActive = index == widget.activeIndex;
     final isLeaving = index == _leavingIndex;
     final visible = isActive || isLeaving;
+    final animating = visible && _leavingIndex != null;
 
     // 保持 Widget 树层级结构在进场、退场与静息态完全一致，防止 Opacity/Transform
     // 增删拆装子树导致子页面 State 与列表 ScrollPosition 被意外销毁重建。
@@ -149,7 +150,7 @@ class _KonataKeepAliveTabSwitcherState
           child: TickerMode(
             enabled: isActive,
             child: AnimatedBuilder(
-              animation: _curved,
+              animation: animating ? _curved : kAlwaysCompleteAnimation,
               child: _wrappedChildren[index],
               builder: (_, child) {
                 var opacity = 1.0;

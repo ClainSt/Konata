@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../../shell/adaptive_capsule_layout.dart';
 import '../../theme/konata_theme.dart';
 
 class _InstantPanGestureRecognizer extends PanGestureRecognizer {
@@ -147,50 +148,52 @@ class _KonataDraggableDialogState extends State<KonataDraggableDialog> {
       });
     }
 
-    return _KonataDraggableDialogScope(
-      isDragging: _isDragging,
-      onDragStart: _handleDragStart,
-      onDragUpdate: _handleDragUpdate,
-      onDragEnd: _handleDragEnd,
-      onResetPosition: _handleResetPosition,
-      child: Padding(
-        padding: shortIme
-            ? EdgeInsets.fromLTRB(
-                widget.viewportMargin,
-                safe.top + widget.viewportMargin,
-                widget.viewportMargin,
-                viewInsets.bottom + widget.viewportMargin,
-              )
-            : viewInsets + EdgeInsets.all(widget.viewportMargin),
-        child: MediaQuery.removeViewInsets(
-          removeLeft: true,
-          removeTop: true,
-          removeRight: true,
-          removeBottom: true,
-          context: context,
-          child: Transform.translate(
-            offset: clamped,
-            child: Align(
-              alignment: Alignment.center,
-              child: NotificationListener<SizeChangedLayoutNotification>(
-                onNotification: (_) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted) return;
-                    final next = _clampOffset(
-                      _offset,
-                      MediaQuery.sizeOf(context),
-                      _readDialogSize(),
-                    );
-                    if (next != _offset) {
-                      setState(() => _offset = next);
-                    }
-                  });
-                  return false;
-                },
-                child: SizeChangedLayoutNotifier(
-                  child: Material(
-                    type: MaterialType.transparency,
-                    child: KeyedSubtree(key: _dialogKey, child: widget.child),
+    return KonataModalRouteScope(
+      child: _KonataDraggableDialogScope(
+        isDragging: _isDragging,
+        onDragStart: _handleDragStart,
+        onDragUpdate: _handleDragUpdate,
+        onDragEnd: _handleDragEnd,
+        onResetPosition: _handleResetPosition,
+        child: Padding(
+          padding: shortIme
+              ? EdgeInsets.fromLTRB(
+                  widget.viewportMargin,
+                  safe.top + widget.viewportMargin,
+                  widget.viewportMargin,
+                  viewInsets.bottom + widget.viewportMargin,
+                )
+              : viewInsets + EdgeInsets.all(widget.viewportMargin),
+          child: MediaQuery.removeViewInsets(
+            removeLeft: true,
+            removeTop: true,
+            removeRight: true,
+            removeBottom: true,
+            context: context,
+            child: Transform.translate(
+              offset: clamped,
+              child: Align(
+                alignment: Alignment.center,
+                child: NotificationListener<SizeChangedLayoutNotification>(
+                  onNotification: (_) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) return;
+                      final next = _clampOffset(
+                        _offset,
+                        MediaQuery.sizeOf(context),
+                        _readDialogSize(),
+                      );
+                      if (next != _offset) {
+                        setState(() => _offset = next);
+                      }
+                    });
+                    return false;
+                  },
+                  child: SizeChangedLayoutNotifier(
+                    child: Material(
+                      type: MaterialType.transparency,
+                      child: KeyedSubtree(key: _dialogKey, child: widget.child),
+                    ),
                   ),
                 ),
               ),

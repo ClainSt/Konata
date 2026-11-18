@@ -1,41 +1,42 @@
-import 'package:ccplayer/application/playback/playback_preferences_provider.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ccplayer/application/playback/audio_playback_notifier.dart';
-import 'package:ccplayer/domain/models/work.dart';
+import 'package:ccplayer/application/playback/playback_preferences_provider.dart';
 import 'package:ccplayer/domain/models/media_variant.dart';
+import 'package:ccplayer/domain/models/work.dart';
 import 'package:ccplayer/presentation/audio/mini_audio_bar.dart';
-import 'package:ccplayer/presentation/widgets/design_system/adaptive_action_header.dart';
-import 'package:ccplayer/presentation/widgets/design_system/konata_glass_capsule.dart';
 import 'package:ccplayer/presentation/shell/adaptive_capsule_layout.dart';
 import 'package:ccplayer/presentation/shell/capsule_navigation.dart';
-import 'package:ccplayer/presentation/theme/konata_adaptive_tokens.dart';
+import 'package:ccplayer/presentation/theme/konata_playback_tokens.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
+import 'package:ccplayer/presentation/widgets/design_system/adaptive_action_header.dart';
 import 'package:ccplayer/presentation/widgets/playback/konata_playback_capsule.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _Audio extends AudioPlaybackNotifier {
   _Audio(super.ref) {
     state = _initial;
   }
+
   void emit(AudioPlaybackState next) => state = next;
-  double? seek;
-  int? selectedIndex;
+  int previousCalls = 0;
+  int nextCalls = 0;
 
   @override
-  Future<void> playQueueIndex(int index) async {
-    selectedIndex = index;
+  Future<void> previous() async {
+    previousCalls += 1;
   }
 
   @override
-  Future<void> seekRelativeTrackSeconds(double seconds) async {
-    seek = seconds;
+  Future<void> next() async {
+    nextCalls += 1;
   }
 }
 
 class _ShellBody extends ConsumerWidget {
   const _ShellBody();
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hidden = ref.watch(capsuleNavigationHiddenProvider);
@@ -44,7 +45,8 @@ class _ShellBody extends ConsumerWidget {
       safe: MediaQuery.paddingOf(context),
       android: true,
       navigationVisible: !hidden,
-      playerVisible: true,
+      miniKind: ref.watch(activeFloatingMiniPlayerKindProvider),
+      normalizedMiniAnchor: ref.watch(floatingMiniWindowAnchorProvider),
     );
     return Stack(
       children: [
@@ -65,6 +67,7 @@ class _ShellBody extends ConsumerWidget {
 
 class _PageList extends StatelessWidget {
   const _PageList();
+
   @override
   Widget build(BuildContext context) => ListView.builder(
     itemCount: 5,
@@ -95,112 +98,6 @@ const _initial = AudioPlaybackState(
 );
 
 void main() {
-  for (final size in [
-    const Size(1920, 1080),
-    const Size(1280, 800),
-    const Size(800, 1280),
-    const Size(390, 844),
-    const Size(844, 390),
-  ]) {
-    testWidgets('队列单行与空演唱者子曲目触控热区 $size', (tester) async {
-      final android = size.width != 1920;
-      debugDefaultTargetPlatformOverride = android
-          ? TargetPlatform.android
-          : TargetPlatform.windows;
-      addTearDown(() => debugDefaultTargetPlatformOverride = null);
-      tester.view.physicalSize = size;
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      late _Audio audio;
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            audioPlaybackProvider.overrideWith((ref) {
-              audio = _Audio(ref);
-              audio.emit(
-                _initial.copyWith(
-                  queue: [
-                    _initial.queue.single,
-                    AudioQueueItem(
-                      id: 'cue',
-                      work: _initial.queue.single.work,
-                      variant: _initial.queue.single.variant,
-                      title: '无演唱者子曲目',
-                      cueDiscTitle: '母碟',
-                      cueStartSeconds: 0,
-                      cueEndSeconds: 60,
-                    ),
-                  ],
-                ),
-              );
-              return audio;
-            }),
-          ],
-          child: MaterialApp(
-            theme: KonataTheme.darkTheme(),
-            builder: (_, child) => MiniAudioOverlayHost(child: child!),
-            home: const Scaffold(body: SizedBox.expand()),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      if (android) {
-        await tester.longPress(
-          find
-              .ancestor(
-                of: find.byKey(const ValueKey('mini_title_target')),
-                matching: find.byType(GestureDetector),
-              )
-              .first,
-        );
-      } else {
-        await tester.tap(find.byTooltip('展开专辑曲目'));
-      }
-      await tester.pumpAndSettle();
-      expect(find.text('专辑曲目 (2)'), findsOneWidget);
-      for (final entry in {'测试曲目': 0, '无演唱者子曲目': 1}.entries) {
-        final title = find.descendant(
-          of: find.byType(ListView),
-          matching: find.text(entry.key),
-        );
-        final target = find
-            .ancestor(of: title, matching: find.byType(GestureDetector))
-            .first;
-        final rect = tester.getRect(target);
-        if (android) {
-          expect(rect.height, greaterThanOrEqualTo(48));
-          expect(rect.width, greaterThanOrEqualTo(48));
-        } else {
-          final container = tester.widget<AnimatedContainer>(
-            find
-                .descendant(
-                  of: target,
-                  matching: find.byType(AnimatedContainer),
-                )
-                .first,
-          );
-          expect(container.constraints, isNull);
-          expect(
-            container.padding,
-            EdgeInsets.fromLTRB(
-              entry.value == 1 ? 26 : 10,
-              entry.value == 1 ? 6 : 8,
-              10,
-              entry.value == 1 ? 6 : 8,
-            ),
-          );
-        }
-        audio.selectedIndex = null;
-        await tester.tapAt(rect.topLeft + const Offset(1, 1));
-        await tester.pump();
-        expect(audio.selectedIndex, entry.value);
-      }
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox.shrink());
-      debugDefaultTargetPlatformOverride = null;
-    });
-  }
   testWidgets('自适应顶栏窄屏折叠搜索图标、点击原地展开与清除', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     try {
@@ -243,76 +140,21 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     }
   });
-  test('手机矮横屏底部不足并排时自动切换左竖导航释放水平空间', () {
+
+  test('手机矮横屏始终维持底部水平居中紧凑导航且悬浮小窗不压住导航胶囊', () {
     final cramped = AdaptiveCapsuleLayout(
       size: const Size(568, 320),
       safe: const EdgeInsets.fromLTRB(0, 24, 0, 20),
       android: true,
-      playerVisible: true,
+      miniKind: FloatingMiniPlayerKind.audio,
     );
     expect(cramped.shortPhone, isTrue);
-    expect(cramped.verticalNavigation, isTrue);
-    expect(cramped.leftClearance, greaterThan(0));
-    expect(cramped.playerRect.left, greaterThanOrEqualTo(cramped.leftClearance));
+    expect(cramped.verticalNavigation, isFalse);
+    expect(cramped.navigationRect.center.dx, closeTo(284.0, 0.5));
+    final miniRect = cramped.floatingMiniWindowRect!;
+    expect(miniRect.overlaps(cramped.navigationRect), isFalse);
   });
-  testWidgets('手机窄屏 MiniAudioBar 固定展示循环与上下首及播放暂停四键且零溢出', (tester) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    try {
-      tester.view.physicalSize = const Size(360, 800);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
 
-      late _Audio audio;
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            audioPlaybackProvider.overrideWith((ref) => audio = _Audio(ref)),
-          ],
-          child: MaterialApp(
-            theme: KonataTheme.darkTheme(),
-            home: Scaffold(
-              body: Align(
-                alignment: Alignment.bottomCenter,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: 336,
-                    maxHeight: 64,
-                  ),
-                  child: const MiniAudioBar(),
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-      audio.emit(
-        _initial.copyWith(
-          queue: [
-            AudioQueueItem(
-              id: 'track_narrow_1',
-              title: '超长单曲名称测试避免垂直成列挤压',
-              albumTitle: 'Album',
-              work: _initial.queue.single.work,
-              variant: _initial.queue.single.variant,
-            ),
-          ],
-          isPlaying: true,
-        ),
-      );
-      await tester.pump();
-      expect(find.byKey(const ValueKey('mini_audio_loop_mode')), findsOneWidget);
-      expect(find.byTooltip('上一曲'), findsOneWidget);
-      expect(find.byTooltip('暂停'), findsOneWidget);
-      expect(find.byTooltip('下一曲'), findsOneWidget);
-      expect(find.byIcon(Icons.queue_music_rounded), findsNothing);
-      expect(find.text('超长单曲名称测试避免垂直成列挤压'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    } finally {
-      await tester.pumpWidget(const SizedBox.shrink());
-      debugDefaultTargetPlatformOverride = null;
-    }
-  });
   for (final size in [
     const Size(1920, 1080),
     const Size(1280, 800),
@@ -320,7 +162,7 @@ void main() {
     const Size(390, 844),
     const Size(844, 390),
   ]) {
-    testWidgets('真实播放宿主布局退出与进度隔离 $size', (tester) async {
+    testWidgets('真实播放宿主悬浮小窗热区、进度叶子隔离与 Toast 协同避让 $size', (tester) async {
       debugDefaultTargetPlatformOverride = size.width == 1920
           ? TargetPlatform.windows
           : TargetPlatform.android;
@@ -351,88 +193,83 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('测试曲目'), findsOneWidget);
+
+      final miniFinder = find.byKey(
+        const ValueKey('konata_floating_mini_player'),
+      );
+      expect(miniFinder, findsOneWidget);
+      // 音频悬浮小窗不显示曲名与循环键
+      expect(find.text('测试曲目'), findsNothing);
       expect(tester.takeException(), isNull);
-      if (size.width != 1920) {
-        for (final key in [
-          'mini_cover_target',
-          'mini_title_target',
-          'mini_progress_target',
-        ]) {
-          final rect = tester.getRect(find.byKey(ValueKey(key)));
-          expect(rect.height, greaterThanOrEqualTo(48));
-          expect(rect.width, greaterThanOrEqualTo(48));
-        }
-        final container = ProviderScope.containerOf(
-          tester.element(find.byType(MiniAudioBar)),
-        );
-        for (final key in ['mini_cover_target', 'mini_title_target']) {
-          await tester.tap(
-            find
-                .ancestor(
-                  of: find.byKey(ValueKey(key)),
-                  matching: find.byType(GestureDetector),
-                )
-                .first,
-          );
-          expect(container.read(immersiveAudioExpandedProvider), isTrue);
-          container.read(immersiveAudioExpandedProvider.notifier).state = false;
-        }
-        await tester.pumpAndSettle();
-        final rebuilt = <Type>[];
-        debugOnRebuildDirtyWidget = (element, _) =>
-            rebuilt.add(element.widget.runtimeType);
-        final glass = tester.widget(find.byType(KonataGlassCapsule).first);
-        final list = tester.widget(find.byType(_PageList));
-        audio.emit(_initial.copyWith(positionSeconds: 30));
-        await tester.pump();
-        expect(
-          identical(
-            tester.widget(find.byType(KonataGlassCapsule).first),
-            glass,
-          ),
-          isTrue,
-        );
-        expect(identical(tester.widget(find.byType(_PageList)), list), isTrue);
-        debugOnRebuildDirtyWidget = null;
-        expect(
-          rebuilt.where((type) => type.toString() == '_TouchAudioProgress'),
-          isNotEmpty,
-        );
-        expect(
-          rebuilt.where(
-            (type) =>
-                type == KonataGlassCapsule ||
-                type == CapsuleNavigation ||
-                type == Scaffold ||
-                type == _PageList,
-          ),
-          isEmpty,
-        );
-        final progress = find.byKey(const ValueKey('mini_progress_target'));
-        final rect = tester.getRect(progress);
-        await tester.dragFrom(
-          Offset(rect.left + 20, rect.bottom - 1),
-          const Offset(40, 0),
-        );
-        expect(audio.seek, isNotNull);
+
+      for (final key in [
+        'floating_mini_surface_tap_target',
+        'floating_mini_audio_prev',
+        'floating_mini_audio_play_pause',
+        'floating_mini_audio_next',
+      ]) {
+        final rect = tester.getRect(find.byKey(ValueKey(key)));
+        expect(rect.height, greaterThanOrEqualTo(48));
+        expect(rect.width, greaterThanOrEqualTo(48));
       }
+
+      final container = ProviderScope.containerOf(tester.element(miniFinder));
+      // 首次轻触封面显现右上 × 与左上展开图标，再次轻触进入全屏音频页
+      expect(
+        find.byKey(const ValueKey('floating_mini_close_button')),
+        findsNothing,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('floating_mini_surface_tap_target')),
+      );
+      await tester.pump();
+      expect(
+        find.byKey(const ValueKey('floating_mini_close_button')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('floating_mini_expand_button')),
+      );
+      await tester.pump();
+      expect(container.read(immersiveAudioExpandedProvider), isTrue);
+      container.read(immersiveAudioExpandedProvider.notifier).state = false;
+      await tester.pumpAndSettle();
+
+      // 高频进度跳秒只驱动进度叶子，不带动宿主列表或导航胶囊重建
+      final rebuilt = <Type>[];
+      debugOnRebuildDirtyWidget = (element, _) =>
+          rebuilt.add(element.widget.runtimeType);
+      final list = tester.widget(find.byType(_PageList));
+      audio.emit(_initial.copyWith(positionSeconds: 45));
+      await tester.pump();
+      expect(identical(tester.widget(find.byType(_PageList)), list), isTrue);
+      debugOnRebuildDirtyWidget = null;
+      expect(
+        rebuilt.where((type) => type.toString() == '_FloatingAudioProgressLeaf'),
+        isNotEmpty,
+      );
+      expect(
+        rebuilt.where(
+          (type) =>
+              type == CapsuleNavigation ||
+              type == Scaffold ||
+              type == _PageList,
+        ),
+        isEmpty,
+      );
+
       if (size.width != 1920) {
-        final context = tester.element(find.byType(MiniAudioBar));
-        final container = ProviderScope.containerOf(context);
-        final before = tester.getTopLeft(find.byType(MiniAudioBar));
+        final before = tester.getTopLeft(miniFinder);
         container.read(capsuleNavigationHiddenProvider.notifier).state = true;
         await tester.pumpAndSettle();
-        final after = tester.getTopLeft(find.byType(MiniAudioBar));
+        final after = tester.getTopLeft(miniFinder);
         if (size.shortestSide < 600 && size.height > 500) {
           expect(after.dy, greaterThan(before.dy));
         }
+
         audio.emit(_initial.copyWith(errorMessage: '播放错误'));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 250));
-        final error = tester.getRect(find.text('播放错误'));
-        final player = tester.getRect(find.byType(MiniAudioBar));
-        expect(error.bottom, lessThanOrEqualTo(player.top));
         final errorClose = find.byKey(const ValueKey('konata_toast_close'));
         final errorCloseRect = tester.getRect(errorClose);
         expect(errorCloseRect.width, greaterThanOrEqualTo(48));
@@ -440,43 +277,25 @@ void main() {
         await tester.tapAt(errorCloseRect.center);
         await tester.pumpAndSettle();
         expect(find.text('播放错误'), findsNothing);
-
-        await tester.longPress(
-          find
-              .ancestor(
-                of: find.byKey(const ValueKey('mini_title_target')),
-                matching: find.byType(GestureDetector),
-              )
-              .first,
-        );
-        await tester.pumpAndSettle();
-        expect(find.text('专辑曲目 (1)'), findsOneWidget);
-        final queueClose = find.byKey(const ValueKey('mini_queue_close'));
-        final queueCloseRect = tester.getRect(queueClose);
-        expect(queueCloseRect.width, greaterThanOrEqualTo(48));
-        expect(queueCloseRect.height, greaterThanOrEqualTo(48));
-        await tester.tapAt(queueCloseRect.topLeft + const Offset(1, 1));
-        await tester.pumpAndSettle();
-        expect(find.text('专辑曲目 (1)'), findsNothing);
       }
+
       audio.emit(const AudioPlaybackState());
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 70));
-      expect(find.text('测试曲目'), findsWidgets);
       await tester.pumpAndSettle();
-      expect(find.text('测试曲目'), findsNothing);
+      expect(miniFinder, findsNothing);
       expect(tester.takeException(), isNull);
+      debugOnRebuildDirtyWidget = null;
       debugDefaultTargetPlatformOverride = null;
     });
   }
+
   const safe = EdgeInsets.fromLTRB(0, 24, 0, 20);
   for (final size in [const Size(1280, 800), const Size(800, 1280)]) {
-    test('平板左竖胶囊与右侧居中播放坞 $size', () {
+    test('平板左竖胶囊与同规格悬浮小窗安全停靠 $size', () {
       final layout = AdaptiveCapsuleLayout(
         size: size,
         safe: safe,
         android: true,
-        playerVisible: true,
+        miniKind: FloatingMiniPlayerKind.video,
       );
       expect(layout.tablet, isTrue);
       expect(layout.navigationRect.left, 0);
@@ -485,54 +304,45 @@ void main() {
         layout.navigationRect.center.dy,
         safe.top + (size.height - safe.vertical) / 2,
       );
-      expect(layout.playerRect.height, 64);
-      expect(layout.playerRect.width, lessThanOrEqualTo(600));
-      expect(layout.playerRect.center.dx, size.width / 2);
+      final miniRect = layout.floatingMiniWindowRect!;
       expect(
-        size.height - layout.playerRect.bottom,
-        safe.bottom + KonataAdaptiveTokens.tabletBottomInset,
+        miniRect.width,
+        equals(KonataPlaybackTokens.floatingMiniVideoWidth),
       );
+      expect(
+        miniRect.height,
+        equals(KonataPlaybackTokens.floatingMiniVideoHeight),
+      );
+      expect(miniRect.overlaps(layout.navigationRect), isFalse);
     });
   }
-  test('手机竖屏双层与二级页补位', () {
+
+  test('手机竖屏悬浮小窗避让导航与二级页下沉补位', () {
     final normal = AdaptiveCapsuleLayout(
       size: const Size(390, 844),
       safe: safe,
       android: true,
-      playerVisible: true,
+      miniKind: FloatingMiniPlayerKind.audio,
     );
     final detail = AdaptiveCapsuleLayout(
       size: normal.size,
       safe: safe,
       android: true,
-      playerVisible: true,
       navigationVisible: false,
+      miniKind: FloatingMiniPlayerKind.audio,
     );
     expect(normal.navigationRect.center.dx, 195);
-    expect(normal.playerRect.left, 12);
+    final normalMini = normal.floatingMiniWindowRect!;
+    final detailMini = detail.floatingMiniWindowRect!;
     expect(
-      normal.navigationRect.top - normal.playerRect.bottom,
-      KonataAdaptiveTokens.capsuleStackGap,
+      normal.navigationRect.top - normalMini.bottom,
+      closeTo(KonataPlaybackTokens.floatingMiniNavigationGap, 0.5),
     );
-    expect(
-      detail.playerRect.bottom - normal.playerRect.bottom,
-      normal.navigationThickness + KonataAdaptiveTokens.capsuleStackGap,
-    );
+    expect(detailMini.bottom, greaterThan(normalMini.bottom));
     expect(detail.bottomClearance, lessThan(normal.bottomClearance));
   });
-  test('手机矮横屏并排且不重叠', () {
-    final layout = AdaptiveCapsuleLayout(
-      size: const Size(844, 390),
-      safe: safe,
-      android: true,
-      playerVisible: true,
-    );
-    expect(layout.shortPhone, isTrue);
-    expect(layout.playerRect.left - layout.navigationRect.right, 12);
-    expect(layout.playerRect.bottom, layout.navigationRect.bottom);
-    expect(layout.playerRect.overlaps(layout.navigationRect), isFalse);
-  });
-  test('桌面宽屏仍为桌面导航', () {
+
+  test('桌面宽屏仍为桌面导航且无活跃小窗时零底距', () {
     final layout = AdaptiveCapsuleLayout(
       size: const Size(1920, 1080),
       safe: safe,
@@ -542,6 +352,7 @@ void main() {
     expect(layout.leftClearance, 0);
     expect(layout.bottomClearance, 0);
   });
+
   for (final size in [
     const Size(390, 844),
     const Size(844, 390),

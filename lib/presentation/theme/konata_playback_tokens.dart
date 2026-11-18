@@ -193,19 +193,31 @@ abstract final class KonataPlaybackTokens {
   );
   static const double specBadgeFontSize = 11.0;
 
-  /// 全局持久迷你音频底栏规范（与 `KonataPlaybackCapsule` 共享同源几何尺寸）。
-  static const double miniBarHeight = capsuleHeight;
-  static const double miniBarMaxWidth = capsuleMaxWidth;
-  static const double miniBarRadius = capsuleRadius;
-  static const double miniBarBlurSigma = capsuleBlurSigma;
-  static const double miniBarBottomInset = 18.0;
-  static const double miniBarHorizontalInset = 20.0;
-  static const double miniBarClearanceHeight = 88.0;
-  static const double miniQueuePopoverMaxWidth = 440.0;
-  static const double miniQueuePopoverMaxHeight = 320.0;
-  static const double miniQueuePopoverMinHeight = 160.0;
-  static const double miniQueuePopoverOffsetY = -10.0;
-  static const double miniQueuePopoverRadius = 18.0;
+  /// 全端统一可拖拽音视频悬浮小窗几何、吸附边距与交互时序常量。
+  static const double floatingMiniVideoWidth = 256.0;
+  static const double floatingMiniVideoHeight = 144.0;
+  static const double floatingMiniAudioCoverSize = 144.0;
+  static const double floatingMiniAudioControlsHeight = 48.0;
+  static const double floatingMiniAudioTotalHeight =
+      floatingMiniAudioCoverSize + floatingMiniAudioControlsHeight;
+  static const double floatingMiniRadius = 14.0;
+  static const double floatingMiniBorderWidth = 1.0;
+  static const double floatingMiniEdgeMargin = 12.0;
+  static const double floatingMiniNavigationGap = 10.0;
+  static const double floatingMiniBottomClearanceGap = 12.0;
+  static const double floatingMiniDesktopTopBarClearance = 52.0;
+  static const double floatingMiniBottomZoneThresholdRatio = 0.55;
+  static const double floatingMiniAudioStripBlurSigma = 20.0;
+  static const double floatingMiniOverlayPillSize = 28.0;
+  static const double floatingMiniOverlayIconSize = 16.0;
+  static const double floatingMiniTransportIconSize = 20.0;
+  static const Duration floatingMiniSnapDuration = Duration(milliseconds: 180);
+  static const Duration floatingMiniOverlayFadeDuration = Duration(
+    milliseconds: 140,
+  );
+  static const Duration floatingMiniOverlayAutoHideDuration = Duration(
+    seconds: 3,
+  );
   static const double miniBarHideBadgeBreakpoint = 720.0;
   static const Duration audioCueSeekDebounceWindow = Duration(
     milliseconds: 900,
@@ -246,11 +258,6 @@ abstract final class KonataPlaybackTokens {
   /// 解析详情页同行主操作胶囊的标准高度。
   static double detailActionCapsuleHeight({required bool isTouch}) =>
       isTouch ? detailActionCapsuleTouchHeight : detailActionCapsuleDesktopHeight;
-
-  /// 视频迷你胶囊实时画面圆角预览框尺寸。
-  static const double miniVideoPreviewWidth = 60.0;
-  static const double miniVideoPreviewHeight = 38.0;
-  static const double miniVideoPreviewRadius = 10.0;
 
   /// 全局鼠标滚轮与键盘音量调节步进（0 ~ 100，精确 1% 整数步进）。
   static const double wheelVolumeStep = 1.0;

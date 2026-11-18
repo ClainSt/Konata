@@ -29,7 +29,6 @@ import 'package:ccplayer/presentation/widgets/design_system/konata_draggable_dia
 import 'package:ccplayer/presentation/widgets/design_system/konata_glass_dialog.dart';
 import 'package:ccplayer/presentation/widgets/managed_image.dart';
 import 'package:ccplayer/presentation/widgets/playback/konata_playback_capsule.dart';
-import 'package:ccplayer/presentation/widgets/playback/konata_volume_control.dart';
 
 final Uint8List _transparentPng = Uint8List.fromList([
   0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
@@ -252,7 +251,7 @@ void main() {
       );
     });
 
-    testWidgets('MiniAudioBar 在亮/暗模式下保持统一深色高对比毛玻璃材质且音量 100 锁死单行显示', (
+    testWidgets('KonataFloatingMiniPlayer 音频小窗在亮/暗模式下保持 1:1 封面加底部三键纯净形态', (
       tester,
     ) async {
       tester.view.physicalSize = const Size(1280, 800);
@@ -277,7 +276,11 @@ void main() {
       for (final mode in [ThemeMode.light, ThemeMode.dark]) {
         await tester.pumpWidget(
           _wrapStage1App(
-            const Center(child: MiniAudioBar()),
+            const Center(
+              child: KonataFloatingMiniPlayer.standalone(
+                kind: FloatingMiniPlayerKind.audio,
+              ),
+            ),
             mode: mode,
             overrides: [
               audioPlaybackProvider.overrideWith(
@@ -301,15 +304,28 @@ void main() {
         );
         await tester.pump();
 
-        expect(find.byType(KonataPlaybackCapsule), findsOneWidget);
-        expect(find.byType(KonataVolumeControl), findsOneWidget);
-
-        expect(find.text('100'), findsNothing);
+        final rect = tester.getRect(
+          find.byKey(const ValueKey('konata_floating_mini_player')),
+        );
         expect(
-          find.descendant(
-            of: find.byType(KonataVolumeControl),
-            matching: find.byIcon(Icons.volume_up_rounded),
-          ),
+          rect.width,
+          closeTo(KonataPlaybackTokens.floatingMiniAudioCoverSize, 0.5),
+        );
+        expect(
+          rect.height,
+          closeTo(KonataPlaybackTokens.floatingMiniAudioTotalHeight, 0.5),
+        );
+        expect(find.text('Don\'t say "lazy"'), findsNothing);
+        expect(
+          find.byKey(const ValueKey('floating_mini_audio_prev')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('floating_mini_audio_play_pause')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('floating_mini_audio_next')),
           findsOneWidget,
         );
       }
@@ -527,14 +543,18 @@ void main() {
 
       final bgHeightAfter = tester.getSize(find.byType(ManagedImage).first).height;
       final chipBottomAfter = tester.getBottomLeft(find.text('正片 (1)')).dy;
+      const expectedClearance =
+          KonataPlaybackTokens.floatingMiniAudioTotalHeight +
+          KonataPlaybackTokens.floatingMiniEdgeMargin +
+          KonataPlaybackTokens.floatingMiniBottomClearanceGap;
       expect(bgHeightAfter, closeTo(800.0, 0.5));
       expect(
         chipBottomBefore - chipBottomAfter,
-        closeTo(KonataPlaybackTokens.miniBarClearanceHeight, 1.0),
+        closeTo(expectedClearance, 1.0),
       );
       expect(
         tester.getBottomLeft(find.byType(DetailBottomDrawer)).dy,
-        closeTo(800.0 - KonataPlaybackTokens.miniBarClearanceHeight, 1.0),
+        closeTo(800.0 - expectedClearance, 1.0),
       );
 
       // 关闭胶囊后平滑回落到底部原位

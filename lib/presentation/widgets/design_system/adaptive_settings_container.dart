@@ -150,7 +150,7 @@ class _SettingsDetailRouteState<T>
   late T _selected = widget.initial;
   @override
   Widget build(BuildContext context) {
-    final clearance = ref.watch(miniAudioBottomClearanceProvider);
+    final clearance = KonataBottomClearanceScope.resolve(context, ref);
     final category = widget.categories.firstWhere((c) => c.value == _selected);
     final phone =
         MediaQuery.sizeOf(context).shortestSide <

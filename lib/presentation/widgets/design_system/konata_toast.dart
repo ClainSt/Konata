@@ -71,16 +71,22 @@ abstract final class KonataToastController {
     }
   }
 
-  static void _registerViewport() {
+  /// 登记根级宿主（允许按需懒挂载 [KonataToastViewport] 以消除静息态图层开销）。
+  static void registerHost() {
     _mountedViewportCount += 1;
     _removeFallbackOverlay();
   }
 
-  static void _unregisterViewport() {
+  /// 注销根级宿主。
+  static void unregisterHost() {
     if (_mountedViewportCount > 0) {
       _mountedViewportCount -= 1;
     }
   }
+
+  static void _registerViewport() => registerHost();
+
+  static void _unregisterViewport() => unregisterHost();
 }
 
 OverlayEntry? _fallbackToastEntry;

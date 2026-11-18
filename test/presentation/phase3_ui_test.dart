@@ -941,7 +941,7 @@ void main() {
       showKonataToast(toastContext, '测试玻璃胶囊提示');
       await tester.pump();
       expect(find.text('测试玻璃胶囊提示'), findsOneWidget);
-      await tester.pump(const Duration(seconds: 3));
+      await tester.pump(const Duration(seconds: 4));
       await tester.pumpAndSettle();
       expect(find.text('测试玻璃胶囊提示'), findsNothing);
     });

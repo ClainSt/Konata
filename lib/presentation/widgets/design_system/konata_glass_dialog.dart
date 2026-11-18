@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../theme/konata_adaptive_tokens.dart';
@@ -22,7 +23,7 @@ Future<T?> showKonataGlassDialog<T>({
   );
 }
 
-/// 全站统一毛玻璃底部抽屉呼出入口（供窄屏折叠动作、筛选排序面板共用，严格同源玻璃材质与圆角）。
+/// 全站统一毛玻璃底部抽屉呼出入口（供窄屏折叠动作、筛选排序与播放队列共用，支持顶部横条跟手下拉与模态侧滑返回）。
 Future<T?> showKonataGlassBottomSheet<T>({
   required BuildContext context,
   required String title,
@@ -33,92 +34,283 @@ Future<T?> showKonataGlassBottomSheet<T>({
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: true,
+    enableDrag: false,
     backgroundColor: Colors.transparent,
     barrierColor: Colors.black.withValues(alpha: isDark ? 0.48 : 0.34),
     builder: (sheetCtx) {
       final p = sheetCtx.palette;
-      final glassBg = p.isDark
-          ? const Color(0xFF1F232D).withValues(alpha: 0.92)
-          : const Color(0xFFFDFDFE).withValues(alpha: 0.95);
-      final glassBorder = p.isDark
-          ? Colors.white.withValues(alpha: 0.18)
-          : Colors.white.withValues(alpha: 0.95);
       final maxH = MediaQuery.sizeOf(sheetCtx).height * 0.78;
-      return ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: maxH),
-        child: ClipRRect(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 44, sigmaY: 44),
-            child: Container(
-              decoration: BoxDecoration(
-                color: glassBg,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(22),
-                ),
-                border: Border(
-                  top: BorderSide(color: glassBorder, width: 1),
-                  left: BorderSide(color: glassBorder, width: 1),
-                  right: BorderSide(color: glassBorder, width: 1),
-                ),
-              ),
-              child: Material(
-                type: MaterialType.transparency,
-                child: SafeArea(
-                  top: false,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(18, 14, 12, 8),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: p.textPrimary,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                            KonataGlassCloseButton(
-                              onPressed: () => Navigator.of(sheetCtx).maybePop(),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Divider(height: 1, thickness: 1, color: p.hairline),
-                      Flexible(
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                          child: builder(sheetCtx),
-                        ),
-                      ),
-                      if (actions != null && actions.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
-                          child: Wrap(
-                            alignment: WrapAlignment.end,
-                            spacing: 10,
-                            runSpacing: 8,
-                            children: actions,
-                          ),
-                        ),
-                    ],
+      return KonataFollowFingerSheetSurface(
+        maxHeight: maxH,
+        onDismiss: () => Navigator.of(sheetCtx).maybePop(),
+        headerBuilder: (ctx) => Padding(
+          padding: const EdgeInsets.fromLTRB(18, 6, 12, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: p.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
-            ),
+              KonataGlassCloseButton(
+                onPressed: () => Navigator.of(ctx).maybePop(),
+              ),
+            ],
           ),
         ),
+        body: Flexible(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: builder(sheetCtx),
+          ),
+        ),
+        footer: (actions != null && actions.isNotEmpty)
+            ? Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+                child: Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 10,
+                  runSpacing: 8,
+                  children: actions,
+                ),
+              )
+            : null,
       );
     },
   );
+}
+
+/// 支持按住顶部横条跟手下拉收起的公共毛玻璃底部抽屉表面容器。
+class KonataFollowFingerSheetSurface extends StatefulWidget {
+  /// 创建跟手下拉毛玻璃底部抽屉表面。
+  const KonataFollowFingerSheetSurface({
+    super.key,
+    required this.headerBuilder,
+    required this.body,
+    required this.onDismiss,
+    this.footer,
+    this.height,
+    this.maxHeight,
+    this.surfaceKey,
+    this.dragHandleKey,
+    this.topRadius = 22.0,
+    this.blurSigma = 44.0,
+    this.surfaceColor,
+    this.borderColor,
+    this.applyBottomSafeArea = true,
+  });
+
+  /// 抽屉顶部标题区构建器（与顶部横条一并响应跟手下拉手势）。
+  final WidgetBuilder headerBuilder;
+
+  /// 抽屉主体内容区。
+  final Widget body;
+
+  /// 可选底部操作区。
+  final Widget? footer;
+
+  /// 下拉触发收起回调。
+  final VoidCallback onDismiss;
+
+  /// 可选固定高度。
+  final double? height;
+
+  /// 可选最大高度约束。
+  final double? maxHeight;
+
+  /// 可选抽屉面板容器键（位于跟手位移内部）。
+  final Key? surfaceKey;
+
+  /// 可选顶部横条语义/测试标识键。
+  final Key? dragHandleKey;
+
+  /// 顶部圆角半径。
+  final double topRadius;
+
+  /// 毛玻璃模糊半径。
+  final double blurSigma;
+
+  /// 可选表面覆盖色。
+  final Color? surfaceColor;
+
+  /// 可选边框覆盖色。
+  final Color? borderColor;
+
+  /// 是否在内部包裹底部安全区避让。
+  final bool applyBottomSafeArea;
+
+  @override
+  State<KonataFollowFingerSheetSurface> createState() =>
+      _KonataFollowFingerSheetSurfaceState();
+}
+
+class _KonataFollowFingerSheetSurfaceState
+    extends State<KonataFollowFingerSheetSurface>
+    with SingleTickerProviderStateMixin {
+  final ValueNotifier<double> _dragOffset = ValueNotifier<double>(0.0);
+  late final AnimationController _reboundController;
+  double _reboundStartOffset = 0.0;
+  bool _dismissed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _reboundController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 160),
+    )..addListener(() {
+        final t = Curves.easeOutCubic.transform(_reboundController.value);
+        _dragOffset.value = _reboundStartOffset * (1.0 - t);
+      });
+  }
+
+  @override
+  void dispose() {
+    _reboundController.dispose();
+    _dragOffset.dispose();
+    super.dispose();
+  }
+
+  void _onDragStart(DragStartDetails _) {
+    if (_reboundController.isAnimating) {
+      _reboundController.stop();
+    }
+  }
+
+  void _onDragUpdate(DragUpdateDetails details) {
+    if (_dismissed) return;
+    final next = (_dragOffset.value + details.delta.dy).clamp(0.0, 900.0);
+    _dragOffset.value = next;
+  }
+
+  void _onDragEnd(DragEndDetails details) {
+    if (_dismissed) return;
+    final velocity = details.primaryVelocity ?? 0.0;
+    if (_dragOffset.value > 52.0 || velocity > 360.0) {
+      _dismissed = true;
+      widget.onDismiss();
+      return;
+    }
+    if (_dragOffset.value > 0.0) {
+      _reboundStartOffset = _dragOffset.value;
+      _reboundController.forward(from: 0.0);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final glassBg =
+        widget.surfaceColor ??
+        (p.isDark
+            ? p.elevatedSurface.withValues(alpha: 0.92)
+            : p.elevatedSurface.withValues(alpha: 0.95));
+    final glassBorder = widget.borderColor ?? p.hoverBorder;
+
+    Widget content = Column(
+      mainAxisSize: widget.height != null ? MainAxisSize.max : MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          dragStartBehavior: DragStartBehavior.down,
+          onVerticalDragStart: _onDragStart,
+          onVerticalDragUpdate: _onDragUpdate,
+          onVerticalDragEnd: _onDragEnd,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: ColoredBox(
+                  key: widget.dragHandleKey,
+                  color: Colors.transparent,
+                  child: Padding(
+                    padding: const EdgeInsets.only(
+                      top: 10,
+                      bottom: 4,
+                      left: 32,
+                      right: 32,
+                    ),
+                    child: Container(
+                      width: 38,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: p.textMuted.withValues(alpha: 0.48),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              widget.headerBuilder(context),
+            ],
+          ),
+        ),
+        Divider(height: 1, thickness: 1, color: p.hairline),
+        widget.body,
+        ?widget.footer,
+      ],
+    );
+
+    if (widget.applyBottomSafeArea) {
+      content = SafeArea(top: false, child: content);
+    }
+
+    Widget surface = ClipRRect(
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(widget.topRadius),
+      ),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(
+          sigmaX: widget.blurSigma,
+          sigmaY: widget.blurSigma,
+        ),
+        child: Container(
+          height: widget.height,
+          decoration: BoxDecoration(
+            color: glassBg,
+            borderRadius: BorderRadius.vertical(
+              top: Radius.circular(widget.topRadius),
+            ),
+            border: Border(
+              top: BorderSide(color: glassBorder, width: 1),
+              left: BorderSide(color: glassBorder, width: 1),
+              right: BorderSide(color: glassBorder, width: 1),
+            ),
+          ),
+          child: Material(type: MaterialType.transparency, child: content),
+        ),
+      ),
+    );
+
+    if (widget.maxHeight != null) {
+      surface = ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: widget.maxHeight!),
+        child: surface,
+      );
+    }
+
+    if (widget.surfaceKey != null) {
+      surface = KeyedSubtree(key: widget.surfaceKey, child: surface);
+    }
+
+    return ValueListenableBuilder<double>(
+      valueListenable: _dragOffset,
+      child: surface,
+      builder: (context, dy, child) => Transform.translate(
+        offset: Offset(0, dy),
+        child: child,
+      ),
+    );
+  }
 }
 
 class _KonataGlassDialogInputScope extends InheritedWidget {

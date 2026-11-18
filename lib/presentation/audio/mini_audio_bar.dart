@@ -34,6 +34,10 @@ import 'smart_cover_framing.dart';
 /// 视频小窗胶囊长按操作抽屉是否打开，弹出期间临时让胶囊退让避免遮挡底部菜单。
 final _miniVideoSheetOpenProvider = StateProvider<bool>((ref) => false);
 
+final _immersiveAudioNavigatorKeyProvider = Provider<GlobalKey<NavigatorState>>(
+  (ref) => GlobalKey<NavigatorState>(debugLabel: 'immersive_audio_nav'),
+);
+
 /// 当常驻播放胶囊（纯音频或最小化视频小窗）处于可视状态时，供底部滚动视图预留防遮挡留白的高度 Provider。
 final miniAudioBottomClearanceProvider = Provider<double>((ref) {
   final audioActive = ref.watch(
@@ -237,8 +241,15 @@ class _GlobalAudioOverlayLayer extends ConsumerWidget {
           )
         : null;
 
+    final immersiveAudioNavKey = ref.watch(_immersiveAudioNavigatorKeyProvider);
     final fullscreenPlayerCoveringShell =
         audioExpanded || (videoSession.isActive && videoSession.isExpanded);
+    final shouldHandleSystemBack =
+        (videoSession.isActive &&
+            videoSession.isExpanded &&
+            !videoSession.isInPipMode) ||
+        audioExpanded ||
+        subRoutePushed;
     final toastBaseBottomClearance = fullscreenPlayerCoveringShell
         ? 0.0
         : (android
@@ -250,6 +261,7 @@ class _GlobalAudioOverlayLayer extends ConsumerWidget {
                     : 0.0));
 
     return _OverlayBackInterceptor(
+      handlesSystemBack: shouldHandleSystemBack,
       onBackgrounded: () =>
           ref.read(activeVideoSessionProvider.notifier).handleAppBackgrounded(),
       onForegrounded: () =>
@@ -269,6 +281,11 @@ class _GlobalAudioOverlayLayer extends ConsumerWidget {
           return true;
         }
         if (audioExpanded) {
+          final audioNav = immersiveAudioNavKey.currentState;
+          if (audioNav != null && audioNav.canPop()) {
+            await audioNav.maybePop();
+            return true;
+          }
           if (ref.read(immersivePortraitQueueSheetOpenProvider)) {
             ref.read(immersivePortraitQueueSheetOpenProvider.notifier).state =
                 false;
@@ -336,7 +353,18 @@ class _GlobalAudioOverlayLayer extends ConsumerWidget {
               ),
             ),
             child: (audioExpanded && !videoSession.isActive)
-                ? const ImmersiveAudioPage(key: ValueKey('immersive_audio'))
+                ? HeroControllerScope.none(
+                    child: Navigator(
+                      key: immersiveAudioNavKey,
+                      onGenerateRoute: (_) => PageRouteBuilder<void>(
+                        pageBuilder: (_, _, _) => const ImmersiveAudioPage(
+                          key: ValueKey('immersive_audio'),
+                        ),
+                        transitionDuration: Duration.zero,
+                        reverseTransitionDuration: Duration.zero,
+                      ),
+                    ),
+                  )
                 : const SizedBox.shrink(),
           ),
           // 全屏内置视频页（展开态复用同一 GlobalObjectKey 表面，零重建解码会话）
@@ -365,12 +393,14 @@ class _GlobalAudioOverlayLayer extends ConsumerWidget {
 /// 不依赖 `Router` 祖先的根级全屏播放层返回键与前后台生命周期拦截器。
 class _OverlayBackInterceptor extends StatefulWidget {
   const _OverlayBackInterceptor({
+    required this.handlesSystemBack,
     required this.onInterceptBack,
     required this.onBackgrounded,
     required this.onForegrounded,
     required this.child,
   });
 
+  final bool handlesSystemBack;
   final Future<bool> Function() onInterceptBack;
   final Future<void> Function() onBackgrounded;
   final VoidCallback onForegrounded;
@@ -387,10 +417,27 @@ class _OverlayBackInterceptorState extends State<_OverlayBackInterceptor>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _syncAndroidBackRegistration();
+  }
+
+  @override
+  void didUpdateWidget(covariant _OverlayBackInterceptor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.handlesSystemBack != widget.handlesSystemBack) {
+      _syncAndroidBackRegistration();
+    }
+  }
+
+  void _syncAndroidBackRegistration() {
+    if (!KonataAdaptiveTokens.isAndroid) return;
+    unawaited(SystemNavigator.setFrameworkHandlesBack(widget.handlesSystemBack));
   }
 
   @override
   void dispose() {
+    if (KonataAdaptiveTokens.isAndroid && widget.handlesSystemBack) {
+      unawaited(SystemNavigator.setFrameworkHandlesBack(false));
+    }
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

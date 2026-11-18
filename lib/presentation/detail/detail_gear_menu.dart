@@ -68,17 +68,12 @@ class DetailOpsCapsule extends StatefulWidget {
 class _DetailOpsCapsuleState extends State<DetailOpsCapsule> {
   final LayerLink _gearLink = LayerLink();
   final GlobalKey _gearButtonKey = GlobalKey();
-  OverlayEntry? _gearMenuEntry;
+  ModalRoute<VoidCallback>? _gearMenuRoute;
 
   @override
   void dispose() {
-    _closeMenu();
+    _gearMenuRoute = null;
     super.dispose();
-  }
-
-  void _closeMenu() {
-    _gearMenuEntry?.remove();
-    _gearMenuEntry = null;
   }
 
   Rect? _resolveGearButtonRect() {
@@ -89,26 +84,29 @@ class _DetailOpsCapsuleState extends State<DetailOpsCapsule> {
   }
 
   void _toggleMenu() {
-    if (_gearMenuEntry != null) {
-      _closeMenu();
+    final activeRoute = _gearMenuRoute;
+    if (activeRoute != null && activeRoute.isActive) {
+      Navigator.of(context, rootNavigator: true).removeRoute(activeRoute);
+      _gearMenuRoute = null;
       setState(() {});
       return;
     }
     final anchorRect = _resolveGearButtonRect();
-    final overlay = Overlay.of(context, rootOverlay: true);
-    _gearMenuEntry = OverlayEntry(
-      builder: (_) => DetailGearMenuOverlay(
+    final route = RawDialogRoute<VoidCallback>(
+      barrierDismissible: true,
+      barrierColor: Colors.transparent,
+      transitionDuration: Duration.zero,
+      pageBuilder: (routeCtx, _, _) => DetailGearMenuOverlay(
         link: _gearLink,
         anchorRect: anchorRect,
         openDownward: widget.openDownward,
         onDismiss: () {
-          _closeMenu();
-          if (mounted) setState(() {});
+          if (Navigator.of(routeCtx).canPop()) {
+            Navigator.of(routeCtx).pop();
+          }
         },
         onSelect: (action) {
-          _closeMenu();
-          if (mounted) setState(() {});
-          action();
+          Navigator.of(routeCtx).pop(action);
         },
         onManualMatch: widget.onManualMatch,
         onManualEdit: widget.onManualEdit,
@@ -122,8 +120,17 @@ class _DetailOpsCapsuleState extends State<DetailOpsCapsule> {
         onMergeWork: widget.onMergeWork,
       ),
     );
-    overlay.insert(_gearMenuEntry!);
+    _gearMenuRoute = route;
     setState(() {});
+    Navigator.of(context, rootNavigator: true).push<VoidCallback>(route).then((
+      selectedAction,
+    ) {
+      if (identical(_gearMenuRoute, route)) {
+        _gearMenuRoute = null;
+        if (mounted) setState(() {});
+      }
+      selectedAction?.call();
+    });
   }
 
   @override
@@ -181,7 +188,7 @@ class _DetailOpsCapsuleState extends State<DetailOpsCapsule> {
                   child: DetailDrawerHeaderButton(
                     icon: Icons.settings_rounded,
                     tooltip: '作品管理选项',
-                    active: _gearMenuEntry != null,
+                    active: _gearMenuRoute?.isActive == true,
                     onPressed: _toggleMenu,
                   ),
                 ),

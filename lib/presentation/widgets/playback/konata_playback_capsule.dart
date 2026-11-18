@@ -188,6 +188,7 @@ class KonataPlaybackCapsule extends StatefulWidget {
     this.leading,
     this.onTapInfo,
     this.leadingCenterButton,
+    this.trailingCenterPrimaryButton,
     this.onPrevious,
     this.onNext,
     this.onToggleList,
@@ -236,6 +237,9 @@ class KonataPlaybackCapsule extends StatefulWidget {
 
   /// 中央左侧扩展图标（例如循环模式切换）。
   final Widget? leadingCenterButton;
+
+  /// 中央五键对称组最右侧扩展图标（例如全屏音频控制坞与循环键等距对称的音量键）。
+  final Widget? trailingCenterPrimaryButton;
 
   /// 上一项回调。
   final VoidCallback? onPrevious;
@@ -606,6 +610,11 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
 
                                       if (useSymmetricCenter) {
                                         final centerGap = touch ? 6.0 : 12.0;
+                                        final fiveKeyCenter =
+                                            widget
+                                                    .trailingCenterPrimaryButton !=
+                                                null &&
+                                            widget.leadingCenterButton != null;
                                         return Row(
                                           crossAxisAlignment:
                                               CrossAxisAlignment.center,
@@ -616,9 +625,10 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                                                     CrossAxisAlignment.center,
                                                 children: [
                                                   Expanded(child: leftContent),
-                                                  if (widget
-                                                          .leadingCenterButton !=
-                                                      null) ...[
+                                                  if (!fiveKeyCenter &&
+                                                      widget
+                                                              .leadingCenterButton !=
+                                                          null) ...[
                                                     const SizedBox(width: 4),
                                                     widget.leadingCenterButton!,
                                                   ],
@@ -634,11 +644,20 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                                               crossAxisAlignment:
                                                   CrossAxisAlignment.center,
                                               children: [
+                                                if (fiveKeyCenter) ...[
+                                                  widget.leadingCenterButton!,
+                                                  SizedBox(width: centerGap),
+                                                ],
                                                 prevSlot,
                                                 SizedBox(width: centerGap),
                                                 playPauseButton,
                                                 SizedBox(width: centerGap),
                                                 nextSlot,
+                                                if (fiveKeyCenter) ...[
+                                                  SizedBox(width: centerGap),
+                                                  widget
+                                                      .trailingCenterPrimaryButton!,
+                                                ],
                                               ],
                                             ),
                                             const SizedBox(width: 8),
@@ -657,6 +676,23 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                                                         CrossAxisAlignment
                                                             .center,
                                                     children: [
+                                                      if (!fiveKeyCenter &&
+                                                          widget
+                                                                  .trailingCenterPrimaryButton !=
+                                                              null) ...[
+                                                        widget
+                                                            .trailingCenterPrimaryButton!,
+                                                        if (listButton !=
+                                                                null ||
+                                                            widget
+                                                                .trailingCenterButtons
+                                                                .isNotEmpty ||
+                                                            widget.rightSlot !=
+                                                                null)
+                                                          const SizedBox(
+                                                            width: 2,
+                                                          ),
+                                                      ],
                                                       if (listButton !=
                                                           null) ...[
                                                         listButton,
@@ -716,6 +752,8 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                                               if (widget.onNext != null &&
                                                   !ultraCompactTouch)
                                                 nextSlot,
+                                              ?widget
+                                                  .trailingCenterPrimaryButton,
                                               ?listButton,
                                               if (!ultraCompactTouch)
                                                 ...widget.trailingCenterButtons,

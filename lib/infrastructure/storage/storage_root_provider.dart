@@ -16,6 +16,8 @@ abstract final class StoragePathConfig {
   static const String tempSubdirName = 'tmp';
   static const String photosDirName = 'photos';
   static const String subtitleStageSubdirName = 'konata_subs';
+  static const String fontPoolSubdirName = 'konata_fonts';
+  static const String cloudSubsetCacheSubdirName = 'konata_cloud_subs';
 }
 
 /// Konata 统一便携根目录解析与工作区路径服务。
@@ -190,6 +192,26 @@ class StorageRootService {
     final tmp = await ensureTempDir();
     final dir = Directory(
       p.join(tmp.path, StoragePathConfig.subtitleStageSubdirName, workHash),
+    );
+    await dir.create(recursive: true);
+    return dir;
+  }
+
+  /// 返回单级字体哈希池目录 `<Root>/cache/tmp/konata_fonts/`。
+  Future<Directory> ensureFontPoolDir() async {
+    final tmp = await ensureTempDir();
+    final dir = Directory(
+      p.join(tmp.path, StoragePathConfig.fontPoolSubdirName),
+    );
+    await dir.create(recursive: true);
+    return dir;
+  }
+
+  /// 返回云端字体子集化字幕原子缓存目录 `<Root>/cache/tmp/konata_cloud_subs/`。
+  Future<Directory> ensureCloudSubtitleCacheDir() async {
+    final tmp = await ensureTempDir();
+    final dir = Directory(
+      p.join(tmp.path, StoragePathConfig.cloudSubsetCacheSubdirName),
     );
     await dir.create(recursive: true);
     return dir;

@@ -116,10 +116,15 @@ class TmdbService {
       }
     }
 
-    final logoPath = _selectBestLogoPath(json);
+    final logoPath = _selectBestLogoPath(
+      json,
+      tmdbId: tmdbId,
+      mediaType: mediaType,
+    );
     final voteAverage = (json['vote_average'] as num?)?.toDouble();
     final candidatePosters = _extractImageOptions(json, 'posters');
     final candidateBackdrops = _extractImageOptions(json, 'backdrops');
+    final candidateLogos = _extractImageOptions(json, 'logos');
     final preferredBackdrop =
         candidateBackdrops.isNotEmpty &&
             (candidateBackdrops.first.width ?? 0) >= 1920
@@ -152,6 +157,7 @@ class TmdbService {
       seasons: seasons,
       candidatePosters: candidatePosters,
       candidateBackdrops: candidateBackdrops,
+      candidateLogos: candidateLogos,
       collectionId: collectionId,
       collectionName: collectionName,
       genreIds: detailGenres,
@@ -460,11 +466,27 @@ class TmdbService {
     }
   }
 
-  static String? _selectBestLogoPath(Map<String, Object?> json) {
+  /// 已知被社区误上传到 TV 主条目、实际属于同名剧场版副标题的透明 Logo 纠偏映射表。
+  ///
+  /// 键为 TV 条目 TMDB ID，值为 `{误挂路径: 实际所属剧场版 TMDB ID}`。
+  static const Map<int, Map<String, int>> tmdbMistaggedTvLogoTargets = {
+    // 《加速世界》TV (43167) 名下被误传的《INFINITE∞BURST》剧场版 (381873) 标题徽标
+    43167: {'/wsQCRIHeVQJlO0MgU2oA3z6hgQd.png': 381873},
+  };
+
+  static String? _selectBestLogoPath(
+    Map<String, Object?> json, {
+    int? tmdbId,
+    TmdbMediaType? mediaType,
+  }) {
     final images = json['images'];
     if (images is! Map) return null;
     final logos = images['logos'];
     if (logos is! List || logos.isEmpty) return null;
+
+    final mistaggedForTv = mediaType == TmdbMediaType.tv && tmdbId != null
+        ? tmdbMistaggedTvLogoTargets[tmdbId]
+        : null;
 
     int langPriority(String? iso) {
       if (iso == 'zh') return 0;
@@ -481,11 +503,16 @@ class TmdbService {
       if (item is! Map) continue;
       final path = item['file_path']?.toString();
       if (path == null || path.isEmpty) continue;
-      // 优先选择透明 PNG
+      if (mistaggedForTv != null && mistaggedForTv.containsKey(path)) {
+        continue;
+      }
+      // 优先选择有投票背书的透明 PNG
       final isPng = path.toLowerCase().endsWith('.png');
+      final voteCount = (item['vote_count'] as num?)?.toInt();
       final rank = langPriority(item['iso_639_1']?.toString());
       final vote = ((item['vote_average'] as num?)?.toDouble() ?? 0.0) +
-          (isPng ? 0.5 : 0.0);
+          (isPng ? 0.5 : 0.0) +
+          ((voteCount ?? 1) > 0 ? 0.25 : 0.0);
       if (rank < bestLangRank || (rank == bestLangRank && vote > bestVote)) {
         bestLangRank = rank;
         bestVote = vote;
@@ -516,6 +543,7 @@ class TmdbService {
           width: (item['width'] as num?)?.toInt(),
           height: (item['height'] as num?)?.toInt(),
           voteAverage: (item['vote_average'] as num?)?.toDouble(),
+          voteCount: (item['vote_count'] as num?)?.toInt(),
         ),
       );
     }

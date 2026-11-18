@@ -291,6 +291,12 @@ abstract final class SeriesSeasonFormatter {
         .trim();
   }
 
+  /// 判断系列标签是否为空或通用角色预设（如 `第 1 季`、`剧场版`、`OVA`、`特别篇`）。
+  static bool isGenericRoleLabel(String? rawLabel) {
+    final trimmed = rawLabel?.trim() ?? '';
+    return trimmed.isEmpty || _genericRoleLabelPattern.hasMatch(trimmed);
+  }
+
   /// 解析并格式化单部系列成员的标准展示名称（如 `第 1 季 · <准确季名>`、`剧场版 · <准确片名>`、`OVA · <准确名称>`）。
   static String formatMemberLabel(
     Work member,
@@ -299,8 +305,7 @@ abstract final class SeriesSeasonFormatter {
     int? fallbackOrder,
   }) {
     final customRaw = member.seriesLabel?.trim() ?? '';
-    final isGenericPreset =
-        customRaw.isEmpty || _genericRoleLabelPattern.hasMatch(customRaw);
+    final isGenericPreset = isGenericRoleLabel(customRaw);
     if (!isGenericPreset) {
       // 用户已手填具名角色标签（如 `剧场版 Code: White`），保留干净文本不画蛇添足。
       return customRaw.replaceAll(RegExp(r'\s{2,}'), ' ').trim();

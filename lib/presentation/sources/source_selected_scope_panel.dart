@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../domain/formatting/media_display_formatter.dart';
 import '../../domain/repositories/file_system_gateway.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
@@ -132,26 +133,34 @@ void showSourceBrowserHelpDialog(BuildContext context) {
   );
 }
 
-/// 媒体源浏览器右侧「已选扫描范围」摘要与快速清理面板。
-class SourceSelectedScopePanel extends StatelessWidget {
-  /// 创建已选范围摘要面板。
+/// 媒体源浏览弹窗整窗切换后的全高「已选目录管理视图」（支持单选移除与全选/反选/批量移除）。
+class SourceSelectedScopePanel extends StatefulWidget {
+  /// 创建全高已选目录管理视图。
   const SourceSelectedScopePanel({
     super.key,
     required this.selectedPaths,
     required this.busy,
+    required this.onBackToBrowse,
     required this.onRemovePath,
+    required this.onRemovePathsBatch,
     required this.onClearAll,
     required this.onShowHelp,
   });
 
-  /// 当前已选的相对目录路径列表（已排序或原始集合）。
+  /// 当前已选的相对目录路径列表（已排序）。
   final List<String> selectedPaths;
 
   /// 是否处于提交或扫描触发中。
   final bool busy;
 
+  /// 返回浏览目录视图回调。
+  final VoidCallback onBackToBrowse;
+
   /// 移除单个已选目录回调。
   final ValueChanged<String> onRemovePath;
+
+  /// 批量移除多个已选目录回调。
+  final ValueChanged<List<String>> onRemovePathsBatch;
 
   /// 清空全部已选目录回调。
   final VoidCallback onClearAll;
@@ -160,57 +169,136 @@ class SourceSelectedScopePanel extends StatelessWidget {
   final VoidCallback onShowHelp;
 
   @override
+  State<SourceSelectedScopePanel> createState() =>
+      _SourceSelectedScopePanelState();
+}
+
+class _SourceSelectedScopePanelState extends State<SourceSelectedScopePanel> {
+  final ScrollController _scrollCtrl = ScrollController();
+  final Set<String> _checkedPaths = <String>{};
+
+  @override
+  void didUpdateWidget(covariant SourceSelectedScopePanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final currentSet = widget.selectedPaths.toSet();
+    _checkedPaths.removeWhere((p) => !currentSet.contains(p));
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  void _toggleChecked(String path) {
+    setState(() {
+      if (!_checkedPaths.remove(path)) {
+        _checkedPaths.add(path);
+      }
+    });
+  }
+
+  void _selectAll() {
+    setState(() {
+      _checkedPaths
+        ..clear()
+        ..addAll(widget.selectedPaths);
+    });
+  }
+
+  void _invertSelection() {
+    setState(() {
+      final next = <String>{};
+      for (final path in widget.selectedPaths) {
+        if (!_checkedPaths.contains(path)) {
+          next.add(path);
+        }
+      }
+      _checkedPaths
+        ..clear()
+        ..addAll(next);
+    });
+  }
+
+  void _removeCheckedBatch() {
+    if (_checkedPaths.isEmpty || widget.busy) return;
+    final targets = _checkedPaths.toList(growable: false);
+    setState(() => _checkedPaths.clear());
+    widget.onRemovePathsBatch(targets);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final checkedCount = _checkedPaths.length;
 
     return KonataSurfaceCard(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            alignment: WrapAlignment.spaceBetween,
             children: [
-              Expanded(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
-                  children: [
-                    Text(
-                      '已选目录',
-                      style: TextStyle(
-                        color: p.textPrimary,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  KonataPillButton.secondary(
+                    key: const ValueKey('source_scope_back_to_browse'),
+                    label: '返回浏览目录',
+                    icon: Icons.arrow_back_rounded,
+                    compact: true,
+                    onPressed: widget.busy ? null : widget.onBackToBrowse,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '已选目录 · ${widget.selectedPaths.length}',
+                    style: TextStyle(
+                      color: p.textPrimary,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      fontFeatures: const [FontFeature.tabularFigures()],
                     ),
-                    if (selectedPaths.isNotEmpty) ...[
-                      const SizedBox(width: 6),
-                      Text(
-                        '· ${selectedPaths.length}',
-                        style: TextStyle(
-                          color: p.textSecondary,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w500,
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
-                      ),
-                    ],
+                  ),
+                  IconButton(
+                    tooltip: '多选扫描说明',
+                    visualDensity: VisualDensity.compact,
+                    iconSize: 17,
+                    color: p.textSecondary,
+                    icon: const Icon(Icons.help_outline_rounded),
+                    onPressed: widget.onShowHelp,
+                  ),
+                ],
+              ),
+              if (widget.selectedPaths.isNotEmpty)
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    KonataPillButton.ghost(
+                      label: '全选',
+                      compact: true,
+                      onPressed: widget.busy ? null : _selectAll,
+                    ),
+                    KonataPillButton.ghost(
+                      label: '反选',
+                      compact: true,
+                      onPressed: widget.busy ? null : _invertSelection,
+                    ),
+                    KonataPillButton.secondary(
+                      label: checkedCount > 0
+                          ? '批量移除 ($checkedCount)'
+                          : '批量移除',
+                      compact: true,
+                      onPressed: (widget.busy || checkedCount == 0)
+                          ? null
+                          : _removeCheckedBatch,
+                    ),
                   ],
-                ),
-              ),
-              IconButton(
-                tooltip: '多选扫描说明',
-                visualDensity: VisualDensity.compact,
-                iconSize: 17,
-                color: p.textSecondary,
-                icon: const Icon(Icons.help_outline_rounded),
-                onPressed: onShowHelp,
-              ),
-              if (selectedPaths.isNotEmpty)
-                KonataPillButton.ghost(
-                  label: '清空',
-                  compact: true,
-                  onPressed: busy ? null : onClearAll,
                 ),
             ],
           ),
@@ -218,101 +306,132 @@ class SourceSelectedScopePanel extends StatelessWidget {
           Divider(height: 1, color: p.hairline),
           const SizedBox(height: 10),
           Expanded(
-            child: selectedPaths.isEmpty
+            child: widget.selectedPaths.isEmpty
                 ? Center(
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
                             Icons.checklist_rtl_rounded,
-                            size: 32,
+                            size: 34,
                             color: p.textMuted,
                           ),
                           const SizedBox(height: 10),
                           Text(
-                            '当前未勾选指定目录',
+                            '当前未勾选指定目录（默认扫描整源）',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: p.textPrimary,
-                              fontSize: 13,
+                              fontSize: 13.5,
                               fontWeight: FontWeight.w600,
                             ),
+                          ),
+                          const SizedBox(height: 12),
+                          KonataPillButton.secondary(
+                            label: '去浏览并勾选目录',
+                            compact: true,
+                            onPressed: widget.busy ? null : widget.onBackToBrowse,
                           ),
                         ],
                       ),
                     ),
                   )
                 : KonataDraggableScrollbar(
+                    controller: _scrollCtrl,
                     builder: (_, ctrl) => ListView.separated(
                       controller: ctrl,
                       padding: const EdgeInsets.only(right: 12),
-                      itemCount: selectedPaths.length,
+                      itemCount: widget.selectedPaths.length,
                       separatorBuilder: (_, _) => const SizedBox(height: 6),
                       itemBuilder: (_, index) {
-                        final path = selectedPaths[index];
+                        final path = widget.selectedPaths[index];
+                        final checked = _checkedPaths.contains(path);
                         final segments = path.split('/');
                         final name = segments.isEmpty ? path : segments.last;
-                        return Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: p.softFill,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.folder_rounded,
-                                size: 16,
-                                color: p.accent,
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(10),
+                          onTap: widget.busy ? null : () => _toggleChecked(path),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: checked
+                                  ? p.accent.withValues(alpha: 0.14)
+                                  : p.softFill,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: checked
+                                    ? p.accent.withValues(alpha: 0.45)
+                                    : p.hairline,
                               ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      name,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: p.textPrimary,
-                                        fontSize: 12.5,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    if (path != name)
+                            ),
+                            child: Row(
+                              children: [
+                                Checkbox(
+                                  value: checked,
+                                  onChanged: widget.busy
+                                      ? null
+                                      : (_) => _toggleChecked(path),
+                                ),
+                                Icon(
+                                  Icons.folder_rounded,
+                                  size: 18,
+                                  color: p.accent,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
                                       Text(
-                                        path,
+                                        name,
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
-                                          color: p.textMuted,
-                                          fontSize: 11,
-                                          fontFamily: 'Consolas',
+                                          color: p.textPrimary,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              InkWell(
-                                borderRadius: BorderRadius.circular(6),
-                                onTap: busy ? null : () => onRemovePath(path),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(4),
-                                  child: Icon(
-                                    Icons.close_rounded,
-                                    size: 15,
-                                    color: p.textSecondary,
+                                      if (path != name)
+                                        Text(
+                                          path,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: p.textMuted,
+                                            fontSize: 11.5,
+                                            fontFamily: 'Consolas',
+                                          ),
+                                        ),
+                                    ],
                                   ),
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 6),
+                                SizedBox(
+                                  width: KonataAdaptiveTokens.isAndroid
+                                      ? KonataAdaptiveTokens.touchTarget
+                                      : 32,
+                                  height: KonataAdaptiveTokens.isAndroid
+                                      ? KonataAdaptiveTokens.touchTarget
+                                      : 32,
+                                  child: IconButton(
+                                    tooltip: '移除该目录',
+                                    padding: EdgeInsets.zero,
+                                    iconSize: 16,
+                                    color: p.textSecondary,
+                                    icon: const Icon(Icons.close_rounded),
+                                    onPressed: widget.busy
+                                        ? null
+                                        : () => widget.onRemovePath(path),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         );
                       },

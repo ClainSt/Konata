@@ -131,8 +131,13 @@ class _KonataDraggableDialogState extends State<KonataDraggableDialog> {
   @override
   Widget build(BuildContext context) {
     final viewport = MediaQuery.sizeOf(context);
-    final clamped = _clampOffset(_offset, viewport, _lastDialogSize);
-    if (clamped != _offset) {
+    final viewInsets = MediaQuery.viewInsetsOf(context);
+    final safe = MediaQuery.paddingOf(context);
+    final shortIme = viewport.height < 500 && viewInsets.bottom > 0;
+    final clamped = shortIme
+        ? Offset.zero
+        : _clampOffset(_offset, viewport, _lastDialogSize);
+    if (!shortIme && clamped != _offset) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         final recheck = _clampOffset(_offset, MediaQuery.sizeOf(context), _readDialogSize());
@@ -148,12 +153,15 @@ class _KonataDraggableDialogState extends State<KonataDraggableDialog> {
       onDragUpdate: _handleDragUpdate,
       onDragEnd: _handleDragEnd,
       onResetPosition: _handleResetPosition,
-      child: AnimatedPadding(
-        padding:
-            MediaQuery.viewInsetsOf(context) +
-            EdgeInsets.all(widget.viewportMargin),
-        duration: const Duration(milliseconds: 100),
-        curve: Curves.decelerate,
+      child: Padding(
+        padding: shortIme
+            ? EdgeInsets.fromLTRB(
+                widget.viewportMargin,
+                safe.top + widget.viewportMargin,
+                widget.viewportMargin,
+                viewInsets.bottom + widget.viewportMargin,
+              )
+            : viewInsets + EdgeInsets.all(widget.viewportMargin),
         child: MediaQuery.removeViewInsets(
           removeLeft: true,
           removeTop: true,

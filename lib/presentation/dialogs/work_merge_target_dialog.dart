@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -60,6 +62,7 @@ class WorkMergeTargetDialog extends ConsumerStatefulWidget {
 
 class _WorkMergeTargetDialogState extends ConsumerState<WorkMergeTargetDialog> {
   final TextEditingController _searchCtrl = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
   final ScrollController _listCtrl = ScrollController();
   String _query = '';
   String? _selectedTargetId;
@@ -77,6 +80,7 @@ class _WorkMergeTargetDialogState extends ConsumerState<WorkMergeTargetDialog> {
 
   @override
   void dispose() {
+    _searchFocusNode.dispose();
     _searchCtrl.dispose();
     _listCtrl.dispose();
     super.dispose();
@@ -182,61 +186,85 @@ class _WorkMergeTargetDialogState extends ConsumerState<WorkMergeTargetDialog> {
           onPressed: (_submitting || _selectedTargetId == null) ? null : _submit,
         ),
       ],
-      child: SizedBox(
-        height: 430,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            KonataSoftTextField(
-              controller: _searchCtrl,
-              dense: true,
-              hintText: '搜索已有作品名 / 原名 / 年份 / TMDB ID / Bangumi ID...',
-              prefixIcon: Icons.search_rounded,
-              onChanged: (v) => setState(() => _query = v),
-            ),
-            const SizedBox(height: 10),
-            Row(
+      child: LayoutBuilder(
+        builder: (dialogCtx, outerConstraints) {
+          final targetH = outerConstraints.maxHeight.isFinite
+              ? math.min(430.0, outerConstraints.maxHeight)
+              : 430.0;
+          final landscapeCompact =
+              KonataGlassDialog.isLandscapeCompactInputActive(dialogCtx);
+          return SizedBox(
+            height: targetH,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  '归入方式：',
-                  style: TextStyle(color: p.textSecondary, fontSize: 12),
+                KonataSoftTextField(
+                  controller: _searchCtrl,
+                  focusNode: _searchFocusNode,
+                  dense: true,
+                  hintText: '搜索已有作品名 / 原名 / 年份 / TMDB ID / Bangumi ID...',
+                  prefixIcon: Icons.search_rounded,
+                  onChanged: (v) => setState(() => _query = v),
                 ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: MediaQuery.withClampedTextScaling(
-                      maxScaleFactor: 1.15,
-                      child: KonataSegmentedCapsule<MergeVideoCategoryMode>(
-                        compact: true,
-                        selected: _mode,
-                        options: [
-                          if (!widget._isPartialMove)
-                            const KonataSegmentOption(
-                              value: MergeVideoCategoryMode.preserve,
-                              label: '保持原分类',
+                const SizedBox(height: 10),
+                Offstage(
+                  offstage: landscapeCompact,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            '归入方式：',
+                            style: TextStyle(
+                              color: p.textSecondary,
+                              fontSize: 12,
                             ),
-                          const KonataSegmentOption(
-                            value: MergeVideoCategoryMode.asExtra,
-                            label: '作为特典并入',
                           ),
-                          const KonataSegmentOption(
-                            value: MergeVideoCategoryMode.asMain,
-                            label: '作为正片并入',
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: MediaQuery.withClampedTextScaling(
+                                maxScaleFactor: 1.15,
+                                child:
+                                    KonataSegmentedCapsule<
+                                      MergeVideoCategoryMode
+                                    >(
+                                      compact: true,
+                                      selected: _mode,
+                                      options: [
+                                        if (!widget._isPartialMove)
+                                          const KonataSegmentOption(
+                                            value:
+                                                MergeVideoCategoryMode.preserve,
+                                            label: '保持原分类',
+                                          ),
+                                        const KonataSegmentOption(
+                                          value: MergeVideoCategoryMode.asExtra,
+                                          label: '作为特典并入',
+                                        ),
+                                        const KonataSegmentOption(
+                                          value: MergeVideoCategoryMode.asMain,
+                                          label: '作为正片并入',
+                                        ),
+                                      ],
+                                      onChanged: _submitting
+                                          ? (_) {}
+                                          : (m) => setState(() => _mode = m),
+                                    ),
+                              ),
+                            ),
                           ),
                         ],
-                        onChanged: _submitting
-                            ? (_) {}
-                            : (m) => setState(() => _mode = m),
                       ),
-                    ),
+                      const SizedBox(height: 10),
+                    ],
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Expanded(
-              child: candidates.isEmpty
+                Expanded(
+                  child: candidates.isEmpty
                   ? Center(
                       child: Text(
                         confirmedAsync.isLoading
@@ -355,9 +383,11 @@ class _WorkMergeTargetDialogState extends ConsumerState<WorkMergeTargetDialog> {
                         },
                       ),
                     ),
+                ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }

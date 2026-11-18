@@ -74,6 +74,7 @@ class DetailBottomDrawer extends StatefulWidget {
     this.onSecondaryFilterChanged,
     this.layoutMode = DetailDrawerLayoutMode.bottomOverlay,
     this.leadingBarWidget,
+    this.hideOpsCapsuleInBar = false,
   });
 
   /// 作品完整数据包。
@@ -145,6 +146,9 @@ class DetailBottomDrawer extends StatefulWidget {
 
   /// 手机横屏模式下置于分类胶囊左侧的返回按钮（使左箭头与分类长胶囊顶部平齐）。
   final Widget? leadingBarWidget;
+
+  /// 是否在横屏选集栏顶部隐藏重复的操作胶囊（当顶部紧凑头图区已承载时启用）。
+  final bool hideOpsCapsuleInBar;
 
   @override
   State<DetailBottomDrawer> createState() => DetailBottomDrawerState();
@@ -480,7 +484,9 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+            padding: widget.hideOpsCapsuleInBar
+                ? const EdgeInsets.fromLTRB(12, 4, 12, 4)
+                : const EdgeInsets.fromLTRB(12, 8, 12, 6),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -489,8 +495,10 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
                   const SizedBox(width: 8),
                 ],
                 Expanded(child: leftTabCapsule),
-                const SizedBox(width: 8),
-                buildOpsCapsule(showCollapse: false, openDownward: true),
+                if (!widget.hideOpsCapsuleInBar) ...[
+                  const SizedBox(width: 8),
+                  buildOpsCapsule(showCollapse: false, openDownward: true),
+                ],
               ],
             ),
           ),
@@ -512,11 +520,14 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
                 final scale = MediaQuery.textScalerOf(
                   ctx,
                 ).scale(1.0).clamp(1.0, 1.15);
-                final availH = math.max(120.0, constraints.maxHeight - 8.0);
+                final availH = math.max(72.0, constraints.maxHeight - 8.0);
+                final compactHideFilename = availH < 145.0;
+                final effectiveShowFilename =
+                    !compactHideFilename && widget.showRawVideoFilename;
                 final metaReserve =
-                    (widget.showRawVideoFilename ? 86.0 : 38.0) * scale;
-                final maxThumbH = math.max(54.0, availH - metaReserve);
-                final adaptiveWidth = (maxThumbH * 16 / 9).clamp(96.0, 236.0);
+                    (effectiveShowFilename ? 74.0 : 34.0) * scale;
+                final maxThumbH = math.max(36.0, availH - metaReserve);
+                final adaptiveWidth = (maxThumbH * 16 / 9).clamp(84.0, 236.0);
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: currentCount == 0
@@ -543,6 +554,7 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
                           activeSecondaryKey: activeSecondaryKey,
                           cardWidth: adaptiveWidth,
                           compactMeta: true,
+                          showRawFilenameOverride: effectiveShowFilename,
                           railPadH: 12.0,
                         ),
                 );
@@ -722,6 +734,7 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
     required String? activeSecondaryKey,
     double cardWidth = 244.0,
     bool compactMeta = false,
+    bool? showRawFilenameOverride,
     double? railPadH,
   }) {
     final showSharedBadge = widget.bundle.seriesMembers.length >= 2;
@@ -737,6 +750,7 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
               : null,
           cardWidth: cardWidth,
           compactMeta: compactMeta,
+          showRawFilenameOverride: showRawFilenameOverride,
         ),
       ),
       DetailDrawerTab.cd => _buildWheelRail(
@@ -841,6 +855,7 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
     String? displayTitleOverride,
     double cardWidth = 244.0,
     bool compactMeta = false,
+    bool? showRawFilenameOverride,
   }) {
     final variants = widget.bundle.variantsForEpisode(ep.id);
     final playback = widget.bundle.playbackByEpisodeId[ep.id];
@@ -857,7 +872,7 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
       workMediaType: widget.bundle.work.tmdbMediaType,
       mainEpisodeCount: mainEpisodeCount,
       displayTitleOverride: displayTitleOverride,
-      showRawFileName: widget.showRawVideoFilename,
+      showRawFileName: showRawFilenameOverride ?? widget.showRawVideoFilename,
       onTap: () => widget.onEpisodeTap(ep),
       onPlayBuiltin: widget.onEpisodePlayBuiltin == null
           ? null

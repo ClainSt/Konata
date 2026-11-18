@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/gestures.dart';
@@ -12,8 +13,10 @@ import '../../application/providers/detail_display_preferences_provider.dart';
 import '../../application/providers/library_providers.dart';
 import '../../application/providers/scraping_providers.dart';
 import '../../application/providers/work_management_provider.dart';
+import '../../domain/matching/playback_resume_resolver.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/tmdb_models.dart';
+import '../../domain/models/work.dart';
 import '../../domain/playback/cue_variant_resolver.dart';
 import '../../infrastructure/cache/scan_thumbnail_scheduler.dart';
 import '../audio/mini_audio_bar.dart';
@@ -227,12 +230,14 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     required ValueChanged<DetailDrawerTab> onToggleTab,
     required VoidCallback onCollapse,
     Widget? leadingBarWidget,
+    bool hideOpsCapsuleInBar = false,
   }) {
     final typedPlayers = players.cast<dynamic>();
     return DetailBottomDrawer(
       key: _drawerKey,
       layoutMode: layoutMode,
       leadingBarWidget: leadingBarWidget,
+      hideOpsCapsuleInBar: hideOpsCapsuleInBar,
       bundle: bundle,
       activeTab: activeTab,
       preferredTab: preferredTab,
@@ -344,6 +349,74 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     );
   }
 
+  Widget _buildTopOpsCapsule(
+    WorkDetailBundle loaded,
+    DetailDrawerTab preferredTab,
+    DetailDisplayPreferences displayPrefs, {
+    required bool isExpanded,
+  }) {
+    return DetailOpsCapsule(
+      isExpanded: isExpanded,
+      hasContent: _hasContentForTab(loaded, preferredTab, displayPrefs),
+      showCollapseButton: false,
+      openDownward: true,
+      onOpenFullList: () => _drawerKey.currentState?.openCurrentFullList(),
+      onManualMatch: () => _handleOpenManualMatch(loaded),
+      onManualEdit: () => _handleOpenManualEdit(loaded),
+      onEditPoster: () => DetailActionHandlers.openArtworkPicker(
+        context,
+        loaded,
+        WorkArtworkKind.poster,
+      ),
+      onEditBackdrop: () => DetailActionHandlers.openArtworkPicker(
+        context,
+        loaded,
+        WorkArtworkKind.backdrop,
+      ),
+      onHideWork: () => DetailActionHandlers.hideWorkAndPop(
+        context,
+        ref,
+        loaded,
+      ),
+      onDeleteWork: () => DetailActionHandlers.confirmDeleteAndPop(
+        context,
+        ref,
+        loaded,
+      ),
+      onRescrape: () => _handleRescrape(loaded),
+      onOpenLocalDir: () => DetailActionHandlers.openLocalDirectory(
+        context,
+        ref,
+        loaded,
+      ),
+      onManageSeries: () => DetailActionHandlers.openSeriesManage(
+        context,
+        loaded,
+      ),
+      onMergeWork: () => _handleOpenMergeWork(loaded),
+    );
+  }
+
+  void _handlePortraitDrawerTabToggle(
+    DetailDrawerTab tab,
+    DetailDrawerTab preferredTab,
+  ) {
+    if (!_phonePortraitExpanded) {
+      ref.read(detailDrawerTabProvider.notifier).state = tab;
+      setState(() => _phonePortraitExpanded = true);
+    } else if (preferredTab == tab) {
+      if (preferredTab == DetailDrawerTab.scan) {
+        _scanScheduler.cancelAll();
+      }
+      setState(() => _phonePortraitExpanded = false);
+    } else {
+      if (preferredTab == DetailDrawerTab.scan && tab != DetailDrawerTab.scan) {
+        _scanScheduler.cancelAll();
+      }
+      ref.read(detailDrawerTabProvider.notifier).state = tab;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen<DetailDisplayPreferences>(detailDisplayPreferencesProvider, (
@@ -385,6 +458,21 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
         ? KonataBottomClearanceScope.resolve(context, ref)
         : MediaQuery.paddingOf(context).bottom;
     final forceLightChrome = p.isDark;
+    final outerSize = MediaQuery.sizeOf(context);
+    final outerPad = MediaQuery.paddingOf(context);
+    final isOuterPhoneLandscape =
+        KonataAdaptiveTokens.isAndroid &&
+        outerSize.shortestSide < KonataAdaptiveTokens.tabletBreakpoint &&
+        outerSize.width > outerSize.height;
+    final showPortraitOpsInTopBar =
+        KonataAdaptiveTokens.isAndroid &&
+        outerSize.height >= outerSize.width &&
+        bundleAsync.valueOrNull != null;
+    final useLightTopBarIcons =
+        forceLightChrome ||
+        (KonataAdaptiveTokens.isAndroid &&
+            outerSize.height >= outerSize.width &&
+            hasActiveBundle);
 
     return Listener(
       onPointerDown: (event) {
@@ -430,53 +518,103 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                         KonataAdaptiveTokens.isAndroid &&
                         screenSize.shortestSide >=
                             KonataAdaptiveTokens.tabletBreakpoint;
+                    final isTabletPortrait =
+                        isAndroidTablet &&
+                        screenSize.height >= screenSize.width;
+                    final hasLogo =
+                        work.logoPath != null &&
+                        work.logoPath!.trim().isNotEmpty;
 
-                    // 手机横屏：仅保留顶部平齐导航与选集胶囊，不展示作品标题、封面与简介
+                    // 手机横屏：「左文右画 + 横向暗色渐隐」紧凑头图 + 下方平齐选集滑轨
                     if (isPhoneLandscape) {
-                      return SafeArea(
-                        bottom: false,
-                        child: Padding(
-                          padding: EdgeInsets.only(bottom: bottomClearance),
-                          child: _buildBottomDrawer(
-                            bundle: bundle,
-                            layoutMode: DetailDrawerLayoutMode.phoneLandscapeRail,
-                            activeTab: preferredTab,
-                            preferredTab: preferredTab,
-                            displayPrefs: displayPrefs,
-                            imageLoader: imageLoader,
-                            players: players,
-                            leadingBarWidget: _WorkDetailBackCircle(
-                              forceLightIcons: forceLightChrome,
-                              onBack: _returnToLibrary,
-                            ),
-                            onToggleTab: (tab) {
-                              if (preferredTab == DetailDrawerTab.scan &&
-                                  tab != DetailDrawerTab.scan) {
-                                _scanScheduler.cancelAll();
-                              }
-                              ref.read(detailDrawerTabProvider.notifier).state =
-                                  tab;
-                            },
-                            onCollapse: () {},
-                          ),
+                      final landscapeHero = _DetailLandscapeHeroStrip(
+                        bundle: bundle,
+                        imageLoader: imageLoader,
+                        displayPrefs: displayPrefs,
+                        screenSize: screenSize,
+                        leadingBackButton: _WorkDetailBackCircle(
+                          forceLightIcons: true,
+                          onBack: _returnToLibrary,
                         ),
+                        trailingOpsCapsule: _buildTopOpsCapsule(
+                          bundle,
+                          preferredTab,
+                          displayPrefs,
+                          isExpanded: true,
+                        ),
+                        onPrimaryPlay: () =>
+                            DetailActionHandlers.handlePrimaryPlay(
+                              context: context,
+                              ref: ref,
+                              bundle: bundle,
+                              players: players,
+                            ),
+                      );
+                      final landscapeDrawer = _buildBottomDrawer(
+                        bundle: bundle,
+                        layoutMode: DetailDrawerLayoutMode.phoneLandscapeRail,
+                        hideOpsCapsuleInBar: true,
+                        activeTab: preferredTab,
+                        preferredTab: preferredTab,
+                        displayPrefs: displayPrefs,
+                        imageLoader: imageLoader,
+                        players: players,
+                        onToggleTab: (tab) {
+                          if (preferredTab == DetailDrawerTab.scan &&
+                              tab != DetailDrawerTab.scan) {
+                            _scanScheduler.cancelAll();
+                          }
+                          ref.read(detailDrawerTabProvider.notifier).state =
+                              tab;
+                        },
+                        onCollapse: () {},
+                      );
+                      final usableH = screenSize.height - bottomClearance;
+                      if (usableH < 340.0) {
+                        return KonataDraggableScrollbar(
+                          controller: _portraitScrollCtrl,
+                          builder: (_, ctrl) => SingleChildScrollView(
+                            controller: ctrl,
+                            padding: EdgeInsets.only(bottom: bottomClearance),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                landscapeHero,
+                                SafeArea(
+                                  top: false,
+                                  bottom: false,
+                                  child: SizedBox(
+                                    height: 212,
+                                    child: landscapeDrawer,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          landscapeHero,
+                          Expanded(
+                            child: SafeArea(
+                              top: false,
+                              bottom: false,
+                              child: Padding(
+                                padding: EdgeInsets.only(
+                                  bottom: bottomClearance,
+                                ),
+                                child: landscapeDrawer,
+                              ),
+                            ),
+                          ),
+                        ],
                       );
                     }
 
-                    // 手机竖屏：仿网易爆米花竖版海报封面流 + 剧集置于简介上方
-                    if (isPhonePortrait) {
-                      final posterPath =
-                          (work.posterPath != null &&
-                              work.posterPath!.isNotEmpty)
-                          ? work.posterPath!
-                          : (work.bangumiPosterPath != null &&
-                                    work.bangumiPosterPath!.isNotEmpty
-                                ? work.bangumiPosterPath!
-                                : (work.backdropPath ?? ''));
-                      final heroPosterH = (screenSize.height * 0.44).clamp(
-                        240.0,
-                        380.0,
-                      );
+                    // 手机竖屏与平板竖屏：顶部定比 16:9 横版背景图渐隐 + 下方纯暗底板承载徽标/标题/简介/选集
+                    if (isPhonePortrait || isTabletPortrait) {
                       final phoneTab = _phonePortraitExpanded
                           ? preferredTab
                           : null;
@@ -484,6 +622,12 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                           displayPrefs.showOverview &&
                           work.overview != null &&
                           work.overview!.trim().isNotEmpty;
+                      final contentPadH = isTabletPortrait ? 28.0 : 16.0;
+                      final overlayLogoMaxH = isTabletPortrait ? 68.0 : 56.0;
+                      final overlayLogoMaxW = math.min(
+                        screenSize.width * (isTabletPortrait ? 0.56 : 0.68),
+                        isTabletPortrait ? 300.0 : 240.0,
+                      );
 
                       return KonataDraggableScrollbar(
                         controller: _portraitScrollCtrl,
@@ -492,53 +636,20 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              SizedBox(
-                                height: heroPosterH,
-                                child: Stack(
-                                  fit: StackFit.expand,
-                                  children: [
-                                    if (posterPath.isNotEmpty) ...[
-                                      ManagedImage(
-                                        posterPath,
-                                        loader: imageLoader,
-                                        owner: work.id,
-                                        artwork: ManagedArtwork.poster,
-                                        fit: BoxFit.cover,
-                                        alignment: SmartCoverFraming
-                                            .defaultPosterAlignment,
-                                      ),
-                                    ] else
-                                      const ColoredBox(
-                                        color: KonataTheme.cinemaObsidian,
-                                      ),
-                                    IgnorePointer(
-                                      child: DecoratedBox(
-                                        decoration: BoxDecoration(
-                                          gradient: LinearGradient(
-                                            begin: Alignment.topCenter,
-                                            end: Alignment.bottomCenter,
-                                            stops: const [0.0, 0.48, 0.84, 1.0],
-                                            colors: [
-                                              Colors.black.withValues(
-                                                alpha: 0.28,
-                                              ),
-                                              Colors.transparent,
-                                              KonataTheme.cinemaObsidian
-                                                  .withValues(alpha: 0.76),
-                                              KonataTheme.cinemaObsidian,
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                              _DetailPortraitHeroHeader(
+                                work: work,
+                                imageLoader: imageLoader,
+                                screenSize: screenSize,
+                                isTablet: isTabletPortrait,
+                                showTitleLogo: displayPrefs.showTitleLogo,
+                                logoMaxHeight: overlayLogoMaxH,
+                                logoMaxWidth: overlayLogoMaxW,
                               ),
                               Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  16,
-                                  4,
-                                  16,
+                                padding: EdgeInsets.fromLTRB(
+                                  contentPadH,
+                                  6,
+                                  contentPadH,
                                   18,
                                 ),
                                 child: Theme(
@@ -548,9 +659,15 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                     imageLoader: imageLoader,
                                     showTitleText: displayPrefs.showTitleText,
                                     showTitleLogo: displayPrefs.showTitleLogo,
-                                    showOverview: false,
-                                    titleFontSize: 23,
-                                    fullWidthPlayButton: true,
+                                    showOverview: isTabletPortrait
+                                        ? displayPrefs.showOverview
+                                        : false,
+                                    overlayLogoHandledSeparately:
+                                        displayPrefs.showTitleLogo && hasLogo,
+                                    logoMaxHeight: overlayLogoMaxH,
+                                    logoMaxWidth: overlayLogoMaxW,
+                                    titleFontSize: isTabletPortrait ? 28 : 23,
+                                    fullWidthPlayButton: !isTabletPortrait,
                                     onPrimaryPlay: () =>
                                         DetailActionHandlers.handlePrimaryPlay(
                                           context: context,
@@ -578,37 +695,11 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                 displayPrefs: displayPrefs,
                                 imageLoader: imageLoader,
                                 players: players,
-                                onToggleTab: (tab) {
-                                  if (!_phonePortraitExpanded) {
-                                    ref
-                                            .read(
-                                              detailDrawerTabProvider.notifier,
-                                            )
-                                            .state =
-                                        tab;
-                                    setState(
-                                      () => _phonePortraitExpanded = true,
-                                    );
-                                  } else if (preferredTab == tab) {
-                                    if (preferredTab == DetailDrawerTab.scan) {
-                                      _scanScheduler.cancelAll();
-                                    }
-                                    setState(
-                                      () => _phonePortraitExpanded = false,
-                                    );
-                                  } else {
-                                    if (preferredTab == DetailDrawerTab.scan &&
-                                        tab != DetailDrawerTab.scan) {
-                                      _scanScheduler.cancelAll();
-                                    }
-                                    ref
-                                            .read(
-                                              detailDrawerTabProvider.notifier,
-                                            )
-                                            .state =
-                                        tab;
-                                  }
-                                },
+                                onToggleTab: (tab) =>
+                                    _handlePortraitDrawerTabToggle(
+                                      tab,
+                                      preferredTab,
+                                    ),
                                 onCollapse: () {
                                   _scanScheduler.cancelAll();
                                   setState(
@@ -616,7 +707,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                   );
                                 },
                               ),
-                              if (hasOverview) ...[
+                              if (!isTabletPortrait && hasOverview) ...[
                                 const SizedBox(height: 18),
                                 Padding(
                                   padding: const EdgeInsets.symmetric(
@@ -657,7 +748,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                       );
                     }
 
-                    // 桌面端与 Android 平板（含平板横屏）：完整展示背景大图与悬浮选集抽屉
+                    // 桌面端与 Android 平板横屏：全屏原画与底部悬浮选集抽屉
                     final safeTop = MediaQuery.paddingOf(context).top;
                     final allowBackdropDecode =
                         !KonataAdaptiveTokens.isAndroid || isAndroidTablet;
@@ -760,6 +851,8 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                       showTitleText: displayPrefs.showTitleText,
                                       showTitleLogo: displayPrefs.showTitleLogo,
                                       showOverview: displayPrefs.showOverview,
+                                      logoMaxHeight: 80.0,
+                                      logoMaxWidth: 340.0,
                                       onPrimaryPlay: () =>
                                           DetailActionHandlers.handlePrimaryPlay(
                                             context: context,
@@ -868,84 +961,21 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                     onReturnToLibrary: _returnToLibrary,
                   ),
                 ),
-                if (!(KonataAdaptiveTokens.isAndroid &&
-                    MediaQuery.sizeOf(context).shortestSide <
-                        KonataAdaptiveTokens.tabletBreakpoint &&
-                    MediaQuery.sizeOf(context).width >
-                        MediaQuery.sizeOf(context).height &&
-                    hasActiveBundle))
+                if (!(isOuterPhoneLandscape && hasActiveBundle))
                   Positioned(
-                    top: KonataAdaptiveTokens.isAndroid
-                        ? MediaQuery.paddingOf(context).top + 8
-                        : 12,
+                    top: KonataAdaptiveTokens.isAndroid ? outerPad.top + 8 : 12,
                     left: KonataAdaptiveTokens.isAndroid ? 12 : 16,
                     right: 14,
                     child: _WorkDetailTopBar(
-                      forceLightIcons: forceLightChrome,
+                      forceLightIcons: useLightTopBarIcons,
                       showGlassChrome: hasActiveBundle,
                       onBack: _returnToLibrary,
-                      trailingOps: (KonataAdaptiveTokens.isAndroid &&
-                              MediaQuery.sizeOf(context).shortestSide <
-                                  KonataAdaptiveTokens.tabletBreakpoint &&
-                              bundleAsync.valueOrNull != null)
-                          ? Builder(
-                              builder: (_) {
-                                final loaded = bundleAsync.valueOrNull!;
-                                return DetailOpsCapsule(
-                                  isExpanded: _phonePortraitExpanded,
-                                  hasContent: _hasContentForTab(
-                                    loaded,
-                                    preferredTab,
-                                    displayPrefs,
-                                  ),
-                                  showCollapseButton: false,
-                                  openDownward: true,
-                                  onOpenFullList: () => _drawerKey.currentState
-                                      ?.openCurrentFullList(),
-                                  onManualMatch: () =>
-                                      _handleOpenManualMatch(loaded),
-                                  onManualEdit: () =>
-                                      _handleOpenManualEdit(loaded),
-                                  onEditPoster: () =>
-                                      DetailActionHandlers.openArtworkPicker(
-                                        context,
-                                        loaded,
-                                        WorkArtworkKind.poster,
-                                      ),
-                                  onEditBackdrop: () =>
-                                      DetailActionHandlers.openArtworkPicker(
-                                        context,
-                                        loaded,
-                                        WorkArtworkKind.backdrop,
-                                      ),
-                                  onHideWork: () =>
-                                      DetailActionHandlers.hideWorkAndPop(
-                                        context,
-                                        ref,
-                                        loaded,
-                                      ),
-                                  onDeleteWork: () =>
-                                      DetailActionHandlers.confirmDeleteAndPop(
-                                        context,
-                                        ref,
-                                        loaded,
-                                      ),
-                                  onRescrape: () => _handleRescrape(loaded),
-                                  onOpenLocalDir: () =>
-                                      DetailActionHandlers.openLocalDirectory(
-                                        context,
-                                        ref,
-                                        loaded,
-                                      ),
-                                  onManageSeries: () =>
-                                      DetailActionHandlers.openSeriesManage(
-                                        context,
-                                        loaded,
-                                      ),
-                                  onMergeWork: () =>
-                                      _handleOpenMergeWork(loaded),
-                                );
-                              },
+                      trailingOps: showPortraitOpsInTopBar
+                          ? _buildTopOpsCapsule(
+                              bundleAsync.valueOrNull!,
+                              preferredTab,
+                              displayPrefs,
+                              isExpanded: _phonePortraitExpanded,
                             )
                           : null,
                     ),
@@ -954,6 +984,361 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 手机竖屏与平板竖屏共用的 `16:9` 原生比例背景头图（无横版背景时回退海报模糊氛围 + 底部锚定限高透明徽标）。
+class _DetailPortraitHeroHeader extends StatelessWidget {
+  const _DetailPortraitHeroHeader({
+    required this.work,
+    required this.imageLoader,
+    required this.screenSize,
+    required this.isTablet,
+    required this.showTitleLogo,
+    required this.logoMaxHeight,
+    required this.logoMaxWidth,
+  });
+
+  final Work work;
+  final ManagedImageLoader imageLoader;
+  final Size screenSize;
+  final bool isTablet;
+  final bool showTitleLogo;
+  final double logoMaxHeight;
+  final double logoMaxWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasBackdrop =
+        work.backdropPath != null && work.backdropPath!.trim().isNotEmpty;
+    final posterPath =
+        (work.posterPath != null && work.posterPath!.trim().isNotEmpty)
+        ? work.posterPath!.trim()
+        : (work.bangumiPosterPath?.trim() ?? '');
+    final hasLogo = work.logoPath != null && work.logoPath!.trim().isNotEmpty;
+
+    final raw169 = screenSize.width * 9 / 16;
+    final maxH = screenSize.height * (isTablet ? 0.34 : 0.42);
+    final heroHeight = hasBackdrop
+        ? math.max(120.0, math.min(raw169, maxH))
+        : (screenSize.height * (isTablet ? 0.32 : 0.36)).clamp(200.0, 330.0);
+
+    return SizedBox(
+      height: heroHeight,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (hasBackdrop)
+            ManagedImage(
+              work.backdropPath!,
+              loader: imageLoader,
+              owner: work.id,
+              artwork: ManagedArtwork.backdrop,
+              isHeroBackdrop: true,
+              imageSize: TmdbImageSize.original,
+              fit: BoxFit.cover,
+              alignment: Alignment.center,
+            )
+          else if (posterPath.isNotEmpty)
+            ClipRect(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  ManagedImage(
+                    posterPath,
+                    loader: imageLoader,
+                    owner: work.id,
+                    artwork: ManagedArtwork.poster,
+                    fit: BoxFit.cover,
+                    alignment: SmartCoverFraming.defaultPosterAlignment,
+                  ),
+                  BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+                    child: ColoredBox(
+                      color: Colors.black.withValues(alpha: 0.28),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            const ColoredBox(color: KonataTheme.cinemaObsidian),
+          IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  stops: const [0.0, 0.28, 0.56, 0.84, 1.0],
+                  colors: [
+                    Colors.black.withValues(alpha: 0.34),
+                    Colors.transparent,
+                    Colors.transparent,
+                    KonataTheme.cinemaObsidian.withValues(alpha: 0.72),
+                    KonataTheme.cinemaObsidian,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (showTitleLogo && hasLogo)
+            Positioned(
+              left: isTablet ? 28 : 16,
+              right: isTablet ? 28 : 16,
+              bottom: 8,
+              child: Align(
+                alignment: Alignment.bottomLeft,
+                child: DetailLockedClearLogo(
+                  key: const ValueKey('detail_hero_locked_logo'),
+                  work: work,
+                  imageLoader: imageLoader,
+                  maxHeight: logoMaxHeight,
+                  maxWidth: logoMaxWidth,
+                  alignment: Alignment.bottomLeft,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 手机横屏专属「左文右画 + 横向暗色渐隐」紧凑头图条（为下方选集滑轨保留充足高度）。
+class _DetailLandscapeHeroStrip extends StatelessWidget {
+  const _DetailLandscapeHeroStrip({
+    required this.bundle,
+    required this.imageLoader,
+    required this.displayPrefs,
+    required this.screenSize,
+    required this.leadingBackButton,
+    required this.trailingOpsCapsule,
+    required this.onPrimaryPlay,
+  });
+
+  final WorkDetailBundle bundle;
+  final ManagedImageLoader imageLoader;
+  final DetailDisplayPreferences displayPrefs;
+  final Size screenSize;
+  final Widget leadingBackButton;
+  final Widget trailingOpsCapsule;
+  final VoidCallback onPrimaryPlay;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final work = bundle.work;
+    final hasBackdrop =
+        work.backdropPath != null && work.backdropPath!.trim().isNotEmpty;
+    final posterPath =
+        (work.posterPath != null && work.posterPath!.trim().isNotEmpty)
+        ? work.posterPath!.trim()
+        : (work.bangumiPosterPath?.trim() ?? '');
+    final hasLogo = work.logoPath != null && work.logoPath!.trim().isNotEmpty;
+    final renderLogo = displayPrefs.showTitleLogo && hasLogo;
+
+    final mainEpisodes = bundle.episodes
+        .where((e) => e.category == EpisodeCategory.main)
+        .toList();
+    final metaParts = <String>[
+      if (work.year != null) '${work.year}',
+      if (mainEpisodes.isNotEmpty) '${mainEpisodes.length} 话',
+      if (work.bangumiScore != null && work.bangumiScore! > 0)
+        'Bangumi ${work.bangumiScore!.toStringAsFixed(1)}',
+    ];
+    final resumePlan = PlaybackResumeResolver.resolve(
+      episodes: bundle.episodes,
+      latestPlayback: bundle.latestPlayback,
+      playbackByEpisodeId: bundle.playbackByEpisodeId,
+      workTitle: work.title,
+      workMediaType: work.tmdbMediaType,
+    );
+    final buttonLabel = resumePlan?.buttonLabel ?? '开始播放';
+
+    final heroH = math.min(182.0, math.max(152.0, screenSize.height * 0.46));
+    final rightArtWidth = math.min(screenSize.width * 0.62, heroH * 16 / 9);
+
+    return SizedBox(
+      height: heroH,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          const ColoredBox(color: KonataTheme.cinemaObsidian),
+          if (hasBackdrop)
+            Positioned(
+              top: 0,
+              bottom: 0,
+              right: 0,
+              width: rightArtWidth,
+              child: ManagedImage(
+                work.backdropPath!,
+                loader: imageLoader,
+                owner: work.id,
+                artwork: ManagedArtwork.backdrop,
+                isHeroBackdrop: true,
+                imageSize: TmdbImageSize.original,
+                fit: BoxFit.cover,
+                alignment: Alignment.center,
+              ),
+            )
+          else if (posterPath.isNotEmpty)
+            Positioned(
+              top: 0,
+              bottom: 0,
+              right: 0,
+              width: rightArtWidth,
+              child: ClipRect(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ManagedImage(
+                      posterPath,
+                      loader: imageLoader,
+                      owner: work.id,
+                      artwork: ManagedArtwork.poster,
+                      fit: BoxFit.cover,
+                      alignment: SmartCoverFraming.defaultPosterAlignment,
+                    ),
+                    BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                      child: ColoredBox(
+                        color: Colors.black.withValues(alpha: 0.28),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  stops: const [0.0, 0.38, 0.66, 1.0],
+                  colors: [
+                    KonataTheme.cinemaObsidian,
+                    KonataTheme.cinemaObsidian.withValues(alpha: 0.94),
+                    KonataTheme.cinemaObsidian.withValues(alpha: 0.42),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: 20,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.transparent, KonataTheme.cinemaObsidian],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  leadingBackButton,
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: math.max(180.0, screenSize.width * 0.54),
+                        ),
+                        child: SingleChildScrollView(
+                          physics: const ClampingScrollPhysics(),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (renderLogo)
+                                DetailLockedClearLogo(
+                                  key: const ValueKey(
+                                    'detail_hero_locked_logo',
+                                  ),
+                                  work: work,
+                                  imageLoader: imageLoader,
+                                  maxHeight: 40.0,
+                                  maxWidth: math.min(
+                                    screenSize.width * 0.36,
+                                    200.0,
+                                  ),
+                                  alignment: Alignment.centerLeft,
+                                  errorBuilder: (_, _, _) => Text(
+                                    work.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: KonataTheme.detailTextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w700,
+                                      palette: p,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                )
+                              else
+                                Text(
+                                  work.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: KonataTheme.detailTextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    palette: p,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              if (metaParts.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  metaParts.join(' · '),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: KonataTheme.detailTextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600,
+                                    palette: p,
+                                    color: Colors.white.withValues(alpha: 0.88),
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 8),
+                              Theme(
+                                data: KonataTheme.darkTheme(),
+                                child: FrostedPlayButton(
+                                  label: buttonLabel,
+                                  onPressed: onPrimaryPlay,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  trailingOpsCapsule,
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

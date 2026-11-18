@@ -1487,7 +1487,8 @@ void main() {
 
       await tester.tap(histMore);
       await tester.pumpAndSettle();
-      expect(find.text('使用内置播放器续播'), findsOneWidget);
+      expect(find.text('继续观看'), findsOneWidget);
+      expect(find.text('使用内置播放器续播'), findsNothing);
       expect(find.text('使用外部播放器续播'), findsNothing);
 
       await tester.tapAt(const Offset(10, 10));

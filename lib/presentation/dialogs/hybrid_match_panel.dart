@@ -56,6 +56,9 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
   final TextEditingController _episodeNumCtrl = TextEditingController(
     text: '1',
   );
+  final FocusNode _bgmFocusNode = FocusNode();
+  final FocusNode _tmdbFocusNode = FocusNode();
+  final FocusNode _episodeNumFocusNode = FocusNode();
   final ScrollController _bgmScrollCtrl = ScrollController();
   final ScrollController _tmdbScrollCtrl = ScrollController();
   final ScrollController _epScrollCtrl = ScrollController();
@@ -81,10 +84,23 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
     super.initState();
     _bgmQueryCtrl = TextEditingController(text: widget.initialQuery);
     _tmdbQueryCtrl = TextEditingController(text: widget.initialQuery);
+    _bgmFocusNode.addListener(_onFocusUpdated);
+    _tmdbFocusNode.addListener(_onFocusUpdated);
+    _episodeNumFocusNode.addListener(_onFocusUpdated);
+  }
+
+  void _onFocusUpdated() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    _bgmFocusNode.removeListener(_onFocusUpdated);
+    _tmdbFocusNode.removeListener(_onFocusUpdated);
+    _episodeNumFocusNode.removeListener(_onFocusUpdated);
+    _bgmFocusNode.dispose();
+    _tmdbFocusNode.dispose();
+    _episodeNumFocusNode.dispose();
     _bgmQueryCtrl.dispose();
     _tmdbQueryCtrl.dispose();
     _episodeNumCtrl.dispose();
@@ -403,6 +419,7 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
             Expanded(
               child: KonataSoftTextField(
                 controller: _bgmQueryCtrl,
+                focusNode: _bgmFocusNode,
                 hintText: '输入 Bangumi 条目中文或日文名...',
                 dense: true,
                 onSubmitted: (_) => _searchBangumi(),
@@ -518,6 +535,7 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
             Expanded(
               child: KonataSoftTextField(
                 controller: _tmdbQueryCtrl,
+                focusNode: _tmdbFocusNode,
                 hintText: '输入所属 TMDB 母系列名（如主系列名称）...',
                 dense: true,
                 onSubmitted: (_) => _searchTmdb(),
@@ -677,6 +695,7 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
                 width: 96,
                 child: KonataSoftTextField(
                   controller: _episodeNumCtrl,
+                  focusNode: _episodeNumFocusNode,
                   label: fileCount > 1 ? '起始集号' : '对应集号',
                   keyboardType: TextInputType.number,
                   dense: true,

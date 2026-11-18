@@ -2,6 +2,7 @@ import '../../domain/models/series_group.dart';
 import '../../domain/models/work.dart';
 import '../../domain/repositories/library_repository.dart';
 import '../../infrastructure/network/bangumi_service.dart';
+import '../../infrastructure/network/tmdb_service.dart';
 
 /// 系列（Series）自动编组协同器。
 ///
@@ -70,6 +71,10 @@ class SeriesAutoLinker {
     '电影',
     '合集',
     '待整理',
+    '待分类',
+    '未添加tmdb id',
+    'unsorted',
+    'uncategorized',
   };
 
   static final RegExp _seasonDirPattern = RegExp(
@@ -87,7 +92,12 @@ class SeriesAutoLinker {
   );
 
   static final RegExp _seasonMarkerDirPattern = RegExp(
-    r'(?:^|[\s._-])(?:season[\s._-]*\d+|s0?\d+|第\s*[0-9一二三四五六七八九十两]+\s*[季期]|剧场版|movie|ova|oad)(?:$|[\s._-])',
+    r'(?:^|[\s._-])(?:season[\s._-]*\d+|s0?\d+|第\s*[0-9一二三四五六七八九十两]+\s*[季期]|系列|合集|全集|series|collection|剧场版|movie|ova|oad)(?:$|[\s._-])',
+    caseSensitive: false,
+  );
+
+  static final RegExp _franchiseContainerPattern = RegExp(
+    r'(?:系列|合集|全集|总集|series|collection|franchise)$',
     caseSensitive: false,
   );
 
@@ -96,15 +106,31 @@ class SeriesAutoLinker {
     caseSensitive: false,
   );
 
-  /// 在全库或局部分析后，对媒体库作品执行自动系列编组对账与持久化。
-  static Future<void> reconcileAll({
+  static final RegExp _subtitleBoundaryPattern = RegExp(
+    r'^(?:[:：\-—～~·/／!！?？(（\[【\s]|剧场版|电影版|总集篇|特别篇|特別編|ova|oad|movie|the\s+movie)',
+    caseSensitive: false,
+  );
+
+  static final RegExp _spinOffKeywordPattern = RegExp(
+    r'(?:剧场版|电影版|总集篇|特别篇|特別編|ova|oad|movie|the\s+movie|infinite|burst)',
+    caseSensitive: false,
+  );
+
+  static final RegExp _cjkCharPattern = RegExp(r'[\u4e00-\u9fff\u3040-\u30ff]');
+
+  /// 在全库或局部分析后，对媒体库作品执行自动系列编组与 ClearLogo 交叉纠偏。
+  ///
+  /// 返回本次是否对作品归属、ClearLogo 或系列编组产生了持久化变更。
+  static Future<bool> reconcileAll({
     required LibraryRepository repository,
     BangumiService? bangumiService,
+    TmdbService? tmdbService,
     Map<int, int> tmdbCollectionIdByTmdbId = const {},
   }) async {
     final allWorks = await repository.getAllWorks();
     final existingGroups = await repository.getAllSeriesGroups();
     final existingGroupById = {for (final g in existingGroups) g.id: g};
+    var mutated = false;
 
     // 保留已有 SeriesGroup 上沉淀的 tmdbCollectionId。
     final effectiveCollectionByTmdbId = <int, int>{...tmdbCollectionIdByTmdbId};
@@ -126,7 +152,7 @@ class SeriesAutoLinker {
     }).toList();
 
     if (eligibleWorks.isEmpty) {
-      return;
+      return false;
     }
 
     final uf = _UnionFind(eligibleWorks.length);
@@ -187,16 +213,27 @@ class SeriesAutoLinker {
       }
     }
     final byRootKey = <String, List<_WorkFolderDescriptor>>{};
+    final bySameWorkDir = <String, List<int>>{};
     for (final desc in rootEntries) {
       if (desc.collectionRoot != null) {
         final key = '${desc.sourceId}::${desc.collectionRoot}';
         byRootKey.putIfAbsent(key, () => []).add(desc);
+      }
+      final workDirLeaf = desc.workDir.split('/').last;
+      if (!_isGenericFolder(workDirLeaf)) {
+        final sameDirKey = '${desc.sourceId}::${desc.workDir.toLowerCase()}';
+        bySameWorkDir.putIfAbsent(sameDirKey, () => []).add(desc.workIndex);
       }
     }
     for (final entries in byRootKey.values) {
       if (entries.length < 2) continue;
       if (_shouldLinkFolderCluster(entries)) {
         uf.unionAll(entries.map((e) => e.workIndex).toList());
+      }
+    }
+    for (final sameDirIndices in bySameWorkDir.values) {
+      if (sameDirIndices.length >= 2) {
+        uf.unionAll(sameDirIndices);
       }
     }
 
@@ -223,7 +260,23 @@ class SeriesAutoLinker {
       }
     }
 
-    // 聚合连通分量并写入 SeriesGroup 与成员关联。
+    // 7. 跨类型主标题归一化前缀聚类（如 TV 正片《加速世界》与剧场版《加速世界：无限超频》）。
+    for (var i = 0; i < eligibleWorks.length; i++) {
+      final tvCandidate = eligibleWorks[i];
+      if (!_isTvLikeWork(tvCandidate)) continue;
+      for (var j = 0; j < eligibleWorks.length; j++) {
+        if (i == j) continue;
+        final spinOffCandidate = eligibleWorks[j];
+        if (!_isSpinOffOrMovieCandidate(tvCandidate, spinOffCandidate)) {
+          continue;
+        }
+        if (_matchesCrossTypeSeriesStem(tvCandidate, spinOffCandidate)) {
+          uf.union(i, j);
+        }
+      }
+    }
+
+    // 聚合连通分量并写入 SeriesGroup、ClearLogo 交叉纠偏与成员关联。
     final components = <int, List<Work>>{};
     for (var i = 0; i < eligibleWorks.length; i++) {
       final root = uf.find(i);
@@ -233,15 +286,27 @@ class SeriesAutoLinker {
     final referencedGroupIds = <String>{};
     final updatedWorkIds = <String>{};
 
-    for (final members in components.values) {
+    for (final rawMembers in components.values) {
+      final logoHealResult = await _reconcileSeriesClearLogos(
+        members: rawMembers,
+        tmdbService: tmdbService,
+      );
+      final members = logoHealResult.healedMembers;
+      final healedWorkIds = logoHealResult.healedWorkIds;
+
       final hasLockedMember = members.any(
         (w) => w.seriesLocked && w.seriesId != null && w.seriesId!.isNotEmpty,
       );
       if (members.length < 2 && !hasLockedMember) {
         for (final w in members) {
-          if (!w.seriesLocked && w.seriesId != null) {
-            await repository.upsertWork(w.copyWith(clearSeries: true));
+          final logoChanged = healedWorkIds.contains(w.id);
+          final needClearSeries = !w.seriesLocked && w.seriesId != null;
+          if (needClearSeries || logoChanged) {
+            await repository.upsertWork(
+              needClearSeries ? w.copyWith(clearSeries: true) : w,
+            );
             updatedWorkIds.add(w.id);
+            mutated = true;
           }
         }
         continue;
@@ -273,15 +338,20 @@ class SeriesAutoLinker {
       );
       final groupTitle = _deriveSeriesTitle(existingGroup, sortedMembers);
       final now = DateTime.now();
-      await repository.upsertSeriesGroup(
-        SeriesGroup(
-          id: targetSeriesId,
-          title: groupTitle,
-          tmdbCollectionId: groupCollectionId,
-          createdAt: existingGroup?.createdAt ?? now,
-          updatedAt: now,
-        ),
-      );
+      if (existingGroup == null ||
+          existingGroup.title != groupTitle ||
+          existingGroup.tmdbCollectionId != groupCollectionId) {
+        await repository.upsertSeriesGroup(
+          SeriesGroup(
+            id: targetSeriesId,
+            title: groupTitle,
+            tmdbCollectionId: groupCollectionId,
+            createdAt: existingGroup?.createdAt ?? now,
+            updatedAt: now,
+          ),
+        );
+        mutated = true;
+      }
 
       final usedOrders = <int>{};
       for (final w in sortedMembers) {
@@ -292,10 +362,16 @@ class SeriesAutoLinker {
 
       var nextOrder = 1;
       for (final w in sortedMembers) {
+        final logoChanged = healedWorkIds.contains(w.id);
         if (w.seriesLocked) {
           // 严格尊重人工锁定的 seriesId / seriesOrder / seriesLabel。
           if (w.seriesId != null && w.seriesId!.isNotEmpty) {
             referencedGroupIds.add(w.seriesId!);
+          }
+          if (logoChanged) {
+            await repository.upsertWork(w);
+            updatedWorkIds.add(w.id);
+            mutated = true;
           }
           continue;
         }
@@ -306,12 +382,18 @@ class SeriesAutoLinker {
         usedOrders.add(assignedOrder);
         nextOrder++;
 
-        final assignedLabel = _defaultSeriesLabel(
-          w,
-          fallbackIndex: assignedOrder,
-          sortedMembers: sortedMembers,
-        );
-        if (w.seriesId != targetSeriesId ||
+        final keepCustomLabel =
+            w.seriesId == targetSeriesId &&
+            !SeriesSeasonFormatter.isGenericRoleLabel(w.seriesLabel);
+        final assignedLabel = keepCustomLabel
+            ? w.seriesLabel!.trim()
+            : _defaultSeriesLabel(
+                w,
+                fallbackIndex: assignedOrder,
+                sortedMembers: sortedMembers,
+              );
+        if (logoChanged ||
+            w.seriesId != targetSeriesId ||
             w.seriesOrder != assignedOrder ||
             w.seriesLabel != assignedLabel) {
           await repository.upsertWork(
@@ -322,6 +404,7 @@ class SeriesAutoLinker {
             ),
           );
           updatedWorkIds.add(w.id);
+          mutated = true;
         }
       }
     }
@@ -339,6 +422,7 @@ class SeriesAutoLinker {
           referencedGroupIds.add(w.seriesId!);
         } else {
           await repository.upsertWork(w.copyWith(clearSeries: true));
+          mutated = true;
         }
       }
     }
@@ -346,8 +430,188 @@ class SeriesAutoLinker {
     for (final group in existingGroups) {
       if (!referencedGroupIds.contains(group.id)) {
         await repository.deleteSeriesGroup(group.id);
+        mutated = true;
       }
     }
+
+    return mutated;
+  }
+
+  static bool _isTvLikeWork(Work w) {
+    return w.tmdbMediaType == TmdbMediaType.tv ||
+        (w.tmdbMediaType == null && w.matchedSeason != null);
+  }
+
+  static bool _isSpinOffOrMovieCandidate(Work tvWork, Work candidate) {
+    if (tvWork.tmdbId != null &&
+        candidate.tmdbId == tvWork.tmdbId &&
+        candidate.tmdbMediaType == tvWork.tmdbMediaType) {
+      return false;
+    }
+    if (candidate.tmdbMediaType == TmdbMediaType.movie) {
+      return true;
+    }
+    final combined = '${candidate.title} ${candidate.originalTitle ?? ''}';
+    return _spinOffKeywordPattern.hasMatch(combined);
+  }
+
+  static bool _matchesCrossTypeSeriesStem(Work tvWork, Work spinOffWork) {
+    final stems = <String>{
+      for (final raw in [tvWork.title, tvWork.originalTitle])
+        if (raw != null && raw.trim().isNotEmpty)
+          raw.trim().replaceFirst(_trailingSeasonSuffixPattern, '').trim(),
+    };
+    final targets = <String>[
+      spinOffWork.title.trim(),
+      if (spinOffWork.originalTitle != null &&
+          spinOffWork.originalTitle!.trim().isNotEmpty)
+        spinOffWork.originalTitle!.trim(),
+    ];
+    for (final stem in stems) {
+      for (final target in targets) {
+        if (_isPrefixSubtitleMatch(stem, target)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  static bool _isPrefixSubtitleMatch(String stemRaw, String targetRaw) {
+    final stem = stemRaw.trim().replaceAll(RegExp(r'\s+'), ' ');
+    final target = targetRaw.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (stem.isEmpty || target.length <= stem.length) {
+      return false;
+    }
+    final compactStem = stem.replaceAll(
+      RegExp(r'[\s\-_:：·・!！?？/／()（）\[\]【】]'),
+      '',
+    );
+    final minLen = _cjkCharPattern.hasMatch(compactStem) ? 2 : 5;
+    if (compactStem.length < minLen) {
+      return false;
+    }
+    if (!target.toLowerCase().startsWith(stem.toLowerCase())) {
+      return false;
+    }
+    final suffix = target.substring(stem.length);
+    return _subtitleBoundaryPattern.hasMatch(suffix);
+  }
+
+  static Future<({List<Work> healedMembers, Set<String> healedWorkIds})>
+  _reconcileSeriesClearLogos({
+    required List<Work> members,
+    TmdbService? tmdbService,
+  }) async {
+    final working = List<Work>.of(members);
+    final healedIds = <String>{};
+
+    final movieLogoPaths = <String>{};
+    for (var i = 0; i < working.length; i++) {
+      final m = working[i];
+      if (m.tmdbMediaType != TmdbMediaType.movie) continue;
+      final existingLogo = m.logoPath?.trim() ?? '';
+      if (existingLogo.isNotEmpty) {
+        movieLogoPaths.add(existingLogo);
+      }
+      if (tmdbService != null && m.tmdbId != null && m.tmdbId! > 0) {
+        try {
+          final detail = await tmdbService.getWorkDetail(
+            m.tmdbId!,
+            TmdbMediaType.movie,
+          );
+          if (detail != null) {
+            for (final logo in detail.candidateLogos) {
+              if (logo.filePath.trim().isNotEmpty) {
+                movieLogoPaths.add(logo.filePath.trim());
+              }
+            }
+            if (existingLogo.isEmpty &&
+                !m.posterLocked &&
+                !m.metadataLocked &&
+                detail.logoPath != null &&
+                detail.logoPath!.trim().isNotEmpty) {
+              working[i] = m.copyWith(logoPath: detail.logoPath!.trim());
+              healedIds.add(m.id);
+              movieLogoPaths.add(detail.logoPath!.trim());
+            }
+          }
+        } catch (_) {
+          // 离线或接口异常时不阻断本地编组修复。
+        }
+      }
+    }
+
+    for (var i = 0; i < working.length; i++) {
+      final tv = working[i];
+      if (tv.tmdbMediaType != TmdbMediaType.tv) continue;
+      final currentLogo = tv.logoPath?.trim() ?? '';
+      if (currentLogo.isEmpty) continue;
+
+      final mistaggedTargets = tv.tmdbId != null
+          ? TmdbService.tmdbMistaggedTvLogoTargets[tv.tmdbId!]
+          : null;
+      final isKnownMistagged =
+          mistaggedTargets != null && mistaggedTargets.containsKey(currentLogo);
+      final collidesWithMovie =
+          !tv.posterLocked &&
+          !tv.metadataLocked &&
+          movieLogoPaths.contains(currentLogo);
+
+      if (!isKnownMistagged && !collidesWithMovie) {
+        continue;
+      }
+
+      // 将明确属于同名剧场版的 Logo 归还给系列内缺失徽标的剧场版成员。
+      if (isKnownMistagged) {
+        final expectedMovieId = mistaggedTargets[currentLogo];
+        for (var j = 0; j < working.length; j++) {
+          final mv = working[j];
+          if (mv.tmdbMediaType != TmdbMediaType.movie) continue;
+          if (expectedMovieId != null && mv.tmdbId != expectedMovieId) {
+            continue;
+          }
+          if ((mv.logoPath == null || mv.logoPath!.trim().isEmpty) &&
+              !mv.posterLocked &&
+              !mv.metadataLocked) {
+            working[j] = mv.copyWith(logoPath: currentLogo);
+            healedIds.add(mv.id);
+          }
+        }
+      }
+
+      String? replacementLogo;
+      if (tmdbService != null && tv.tmdbId != null && tv.tmdbId! > 0) {
+        try {
+          final detail = await tmdbService.getWorkDetail(
+            tv.tmdbId!,
+            TmdbMediaType.tv,
+          );
+          if (detail != null) {
+            for (final candidate in detail.candidateLogos) {
+              final path = candidate.filePath.trim();
+              if (path.isEmpty || path == currentLogo) continue;
+              if (mistaggedTargets != null &&
+                  mistaggedTargets.containsKey(path)) {
+                continue;
+              }
+              if (movieLogoPaths.contains(path)) continue;
+              replacementLogo = path;
+              break;
+            }
+          }
+        } catch (_) {
+          // 离线态直接清除错误 ClearLogo，由详情页文字标题稳妥接管。
+        }
+      }
+
+      working[i] = replacementLogo != null
+          ? tv.copyWith(logoPath: replacementLogo)
+          : tv.copyWith(clearLogoPath: true);
+      healedIds.add(tv.id);
+    }
+
+    return (healedMembers: working, healedWorkIds: healedIds);
   }
 
   static bool _isSeriesRelation(String relation) {
@@ -461,12 +725,16 @@ class SeriesAutoLinker {
     }
     if (segments.isEmpty) return null;
 
+    final workDirPath = segments.join('/');
     String? rootPath;
-    if (hadSeasonSegment) {
-      // e.g. [ReinForce] Spy x Family/Season 1 -> 合集根是 [ReinForce] Spy x Family
-      rootPath = segments.join('/');
+    if (_franchiseContainerPattern.hasMatch(segments.last.trim())) {
+      // 例如：未添加TMDB ID/加速世界系列 -> 直接将系列容器目录作为合集根
+      rootPath = workDirPath;
+    } else if (hadSeasonSegment) {
+      // 例如：[ReinForce] Spy x Family/Season 1 -> 合集根是 [ReinForce] Spy x Family
+      rootPath = workDirPath;
     } else if (segments.length >= 2) {
-      // e.g. [ReinForce] Spy x Family/Code White -> 检查父目录是否为泛化目录
+      // 例如：[ReinForce] Spy x Family/Code White -> 检查父目录是否为泛化目录
       final parent = segments.sublist(0, segments.length - 1);
       final parentLeaf = parent.last.trim();
       if (!_isGenericFolder(parentLeaf)) {
@@ -474,7 +742,12 @@ class SeriesAutoLinker {
       }
     }
 
-    if (rootPath == null || _isGenericFolder(rootPath.split('/').last)) {
+    final validRootPath =
+        rootPath != null && !_isGenericFolder(rootPath.split('/').last)
+        ? rootPath
+        : null;
+    final workDirLeaf = sortedDirs.first.key.split('/').last;
+    if (validRootPath == null && _isGenericFolder(workDirLeaf)) {
       return null;
     }
 
@@ -482,7 +755,7 @@ class SeriesAutoLinker {
       workIndex: workIndex,
       sourceId: sourceId,
       workDir: sortedDirs.first.key,
-      collectionRoot: rootPath,
+      collectionRoot: validRootPath,
       hadSeasonSubdir: hadSeasonSegment,
     );
   }

@@ -60,6 +60,9 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
   final ScrollController _tmdbSearchScrollCtrl = ScrollController();
   final ScrollController _tmdbCandScrollCtrl = ScrollController();
   final ScrollController _bgmScrollCtrl = ScrollController();
+  final FocusNode _tmdbQueryFocusNode = FocusNode();
+  final FocusNode _directIdFocusNode = FocusNode();
+  final FocusNode _bgmQueryFocusNode = FocusNode();
   late final TextEditingController _queryController;
   late final TextEditingController _bgmQueryController;
   final TextEditingController _directIdController = TextEditingController();
@@ -81,6 +84,13 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
     if (widget.isSplitMode) {
       _mode = _ManualMatchMode.hybrid;
     }
+    _tmdbQueryFocusNode.addListener(_onFocusUpdated);
+    _directIdFocusNode.addListener(_onFocusUpdated);
+    _bgmQueryFocusNode.addListener(_onFocusUpdated);
+  }
+
+  void _onFocusUpdated() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -88,6 +98,12 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
     _tmdbSearchScrollCtrl.dispose();
     _tmdbCandScrollCtrl.dispose();
     _bgmScrollCtrl.dispose();
+    _tmdbQueryFocusNode.removeListener(_onFocusUpdated);
+    _directIdFocusNode.removeListener(_onFocusUpdated);
+    _bgmQueryFocusNode.removeListener(_onFocusUpdated);
+    _tmdbQueryFocusNode.dispose();
+    _directIdFocusNode.dispose();
+    _bgmQueryFocusNode.dispose();
     _queryController.dispose();
     _bgmQueryController.dispose();
     _directIdController.dispose();
@@ -315,272 +331,334 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
           ? '绑定为独立作品 (${widget.splitVariants.length} 个源文件)'
           : '手动纠错匹配',
       onClose: _binding ? () {} : () => Navigator.of(context).pop(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (widget.isSplitMode) ...[
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-              decoration: BoxDecoration(
-                color: p.softFill,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: p.hairline),
-              ),
-              child: Text(
-                '已选源文件：${widget.splitVariants.first.fileName}${widget.splitVariants.length > 1 ? ' 等 ${widget.splitVariants.length} 个视频' : ''}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: p.textSecondary, fontSize: 12),
-              ),
-            ),
-          ],
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: MediaQuery.withClampedTextScaling(
-              maxScaleFactor: 1.15,
-              child: KonataSegmentedCapsule<_ManualMatchMode>(
-                compact: MediaQuery.sizeOf(context).width < 560,
-                selected: _mode,
-                options: const [
-                  KonataSegmentOption(
-                    value: _ManualMatchMode.tmdb,
-                    label: 'TMDB 匹配',
-                  ),
-                  KonataSegmentOption(
-                    value: _ManualMatchMode.hybrid,
-                    label: 'Bangumi × TMDB 混合',
-                  ),
-                  KonataSegmentOption(
-                    value: _ManualMatchMode.bangumiOnly,
-                    label: '仅 Bangumi',
-                  ),
-                ],
-                onChanged: _binding
-                    ? (_) {}
-                    : (m) => setState(() {
-                        _mode = m;
-                        _errorText = null;
-                      }),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          if (_mode == _ManualMatchMode.tmdb)
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: KonataSoftTextField(
-                          controller: _queryController,
-                          hintText: '输入作品中文名 / 日文原名 / 英文名搜索 TMDB',
-                          prefixIcon: Icons.search_rounded,
-                          onSubmitted: (_) => _performSearch(),
-                          dense: true,
+      child: Builder(
+        builder: (dialogCtx) {
+          final landscapeCompactInput =
+              KonataGlassDialog.isLandscapeCompactInputActive(dialogCtx);
+          final tmdbSearchingByDirectId =
+              landscapeCompactInput && _directIdFocusNode.hasFocus;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Offstage(
+                offstage: landscapeCompactInput,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (widget.isSplitMode)
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: p.softFill,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: p.hairline),
+                        ),
+                        child: Text(
+                          '已选源文件：${widget.splitVariants.first.fileName}${widget.splitVariants.length > 1 ? ' 等 ${widget.splitVariants.length} 个视频' : ''}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: p.textSecondary, fontSize: 12),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      KonataPillButton.primary(
-                        label: _searching ? '搜索中...' : '搜索',
-                        compact: MediaQuery.sizeOf(context).width < 520,
-                        onPressed: _searching || _binding
-                            ? null
-                            : _performSearch,
-                      ),
-                    ],
-                  ),
-                  KonataQuickFillRow(
-                    terms: quickTerms,
-                    disabled: _searching || _binding,
-                    onPick: (term) {
-                      _queryController.text = term;
-                      _queryController.selection = TextSelection.collapsed(
-                        offset: term.length,
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      SizedBox(
-                        width: 148,
-                        child: KonataSoftTextField(
-                          controller: _directIdController,
-                          hintText: '直接输入 TMDB ID',
-                          keyboardType: TextInputType.number,
-                          dense: true,
-                        ),
-                      ),
-                      MediaQuery.withClampedTextScaling(
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: MediaQuery.withClampedTextScaling(
                         maxScaleFactor: 1.15,
-                        child: KonataSegmentedCapsule<TmdbMediaType>(
-                          compact: true,
+                        child: KonataSegmentedCapsule<_ManualMatchMode>(
+                          compact: MediaQuery.sizeOf(dialogCtx).width < 560,
+                          selected: _mode,
                           options: const [
                             KonataSegmentOption(
-                              value: TmdbMediaType.tv,
-                              label: 'TV 番剧',
+                              value: _ManualMatchMode.tmdb,
+                              label: 'TMDB 匹配',
                             ),
                             KonataSegmentOption(
-                              value: TmdbMediaType.movie,
-                              label: '剧场版',
+                              value: _ManualMatchMode.hybrid,
+                              label: 'Bangumi × TMDB 混合',
+                            ),
+                            KonataSegmentOption(
+                              value: _ManualMatchMode.bangumiOnly,
+                              label: '仅 Bangumi',
                             ),
                           ],
-                          selected: _directType,
-                          onChanged: (v) => setState(() => _directType = v),
-                        ),
-                      ),
-                      KonataPillButton.secondary(
-                        label: '强制绑定',
-                        compact: true,
-                        onPressed: _binding
-                            ? null
-                            : () {
-                                final id = int.tryParse(
-                                  _directIdController.text.trim(),
-                                );
-                                if (id != null && id > 0) {
-                                  _bindTarget(id, _directType);
-                                } else {
-                                  setState(
-                                    () => _errorText = '请输入有效的数字 TMDB ID',
-                                  );
-                                }
-                              },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  if (!widget.isSplitMode)
-                    Material(
-                      type: MaterialType.transparency,
-                      child: CheckboxListTile(
-                        value: _writeIdToFolder,
-                        onChanged: (v) =>
-                            setState(() => _writeIdToFolder = v ?? false),
-                        controlAffinity: ListTileControlAffinity.leading,
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(
-                          '同时将 [tmdbid=xxx] 写入本地作品目录名（永久防错）',
-                          style: TextStyle(color: p.textSecondary, fontSize: 12.5),
+                          onChanged: _binding
+                              ? (_) {}
+                              : (m) => setState(() {
+                                  _mode = m;
+                                  _errorText = null;
+                                }),
                         ),
                       ),
                     ),
-                  if (_errorText != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(
-                        _errorText!,
-                        style: TextStyle(color: p.danger, fontSize: 12),
-                      ),
-                    ),
-                  const SizedBox(height: 10),
-                  Expanded(
-                    child: _searchResults.isNotEmpty
-                        ? KonataDraggableScrollbar(
-                            controller: _tmdbSearchScrollCtrl,
-                            builder: (_, ctrl) => ListView.separated(
-                              controller: ctrl,
-                              padding: const EdgeInsets.only(right: 14),
-                              itemCount: _searchResults.length,
-                              separatorBuilder: (_, _) =>
-                                  const SizedBox(height: 8),
-                              itemBuilder: (_, index) {
-                                final item = _searchResults[index];
-                                return _MatchResultTile(
-                                  title: item.title,
-                                  subtitle:
-                                      '${item.mediaType == TmdbMediaType.tv ? 'TV' : '剧场版'} · ${item.year ?? '未知年份'} · TMDB #${item.tmdbId}',
-                                  posterPath: item.posterPath,
-                                  imageLoader: imageLoader,
-                                  disabled: _binding,
-                                  onSelect: () =>
-                                      _bindTarget(item.tmdbId, item.mediaType),
+                    const SizedBox(height: 12),
+                  ],
+                ),
+              ),
+              if (_mode == _ManualMatchMode.tmdb)
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Offstage(
+                        offstage: tmdbSearchingByDirectId,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: KonataSoftTextField(
+                                    controller: _queryController,
+                                    focusNode: _tmdbQueryFocusNode,
+                                    hintText: '输入作品中文名 / 日文原名 / 英文名搜索 TMDB',
+                                    prefixIcon: Icons.search_rounded,
+                                    onSubmitted: (_) => _performSearch(),
+                                    dense: true,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                KonataPillButton.primary(
+                                  label: _searching ? '搜索中...' : '搜索',
+                                  compact:
+                                      MediaQuery.sizeOf(dialogCtx).width < 520,
+                                  onPressed: _searching || _binding
+                                      ? null
+                                      : _performSearch,
+                                ),
+                              ],
+                            ),
+                            KonataQuickFillRow(
+                              terms: quickTerms,
+                              disabled: _searching || _binding,
+                              onPick: (term) {
+                                _queryController.text = term;
+                                _queryController.selection =
+                                    TextSelection.collapsed(
+                                  offset: term.length,
                                 );
                               },
                             ),
-                          )
-                        : (widget.isSplitMode
-                              ? Center(
-                                  child: Text(
-                                    '搜索 TMDB 词条或直接填入 TMDB ID 创建独立作品',
+                            SizedBox(height: landscapeCompactInput ? 4 : 10),
+                          ],
+                        ),
+                      ),
+                      Offstage(
+                        offstage:
+                            landscapeCompactInput && !tmdbSearchingByDirectId,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                SizedBox(
+                                  width: 148,
+                                  child: KonataSoftTextField(
+                                    controller: _directIdController,
+                                    focusNode: _directIdFocusNode,
+                                    hintText: '直接输入 TMDB ID',
+                                    keyboardType: TextInputType.number,
+                                    dense: true,
+                                  ),
+                                ),
+                                MediaQuery.withClampedTextScaling(
+                                  maxScaleFactor: 1.15,
+                                  child: KonataSegmentedCapsule<TmdbMediaType>(
+                                    compact: true,
+                                    options: const [
+                                      KonataSegmentOption(
+                                        value: TmdbMediaType.tv,
+                                        label: 'TV 番剧',
+                                      ),
+                                      KonataSegmentOption(
+                                        value: TmdbMediaType.movie,
+                                        label: '剧场版',
+                                      ),
+                                    ],
+                                    selected: _directType,
+                                    onChanged: (v) =>
+                                        setState(() => _directType = v),
+                                  ),
+                                ),
+                                KonataPillButton.secondary(
+                                  label: '强制绑定',
+                                  compact: true,
+                                  onPressed: _binding
+                                      ? null
+                                      : () {
+                                          final id = int.tryParse(
+                                            _directIdController.text.trim(),
+                                          );
+                                          if (id != null && id > 0) {
+                                            _bindTarget(id, _directType);
+                                          } else {
+                                            setState(
+                                              () => _errorText =
+                                                  '请输入有效的数字 TMDB ID',
+                                            );
+                                          }
+                                        },
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            if (!widget.isSplitMode)
+                              Material(
+                                type: MaterialType.transparency,
+                                child: CheckboxListTile(
+                                  value: _writeIdToFolder,
+                                  onChanged: (v) => setState(
+                                    () => _writeIdToFolder = v ?? false,
+                                  ),
+                                  controlAffinity:
+                                      ListTileControlAffinity.leading,
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  title: Text(
+                                    '同时将 [tmdbid=xxx] 写入本地作品目录名（永久防错）',
                                     style: TextStyle(
-                                      color: p.textMuted,
+                                      color: p.textSecondary,
                                       fontSize: 12.5,
                                     ),
                                   ),
-                                )
-                              : candidatesAsync.when(
-                                  data: (candidates) {
-                                    if (candidates.isEmpty) {
-                                      return Center(
-                                        child: Text(
-                                          '输入关键词搜索或直接填入 TMDB ID 进行强制锁定',
-                                          style: TextStyle(
-                                            color: p.textMuted,
-                                            fontSize: 12.5,
-                                          ),
-                                        ),
-                                      );
-                                    }
-                                    return KonataDraggableScrollbar(
-                                      controller: _tmdbCandScrollCtrl,
-                                      builder: (_, ctrl) => ListView.separated(
-                                        controller: ctrl,
-                                        padding: const EdgeInsets.only(right: 14),
-                                        itemCount: candidates.length,
-                                        separatorBuilder: (_, _) =>
-                                            const SizedBox(height: 8),
-                                        itemBuilder: (_, index) {
-                                          final c = candidates[index];
-                                          return _MatchResultTile(
-                                            title: c.title,
-                                            subtitle:
-                                                '推荐候选 #${c.rank} · 匹配度 ${c.score.toStringAsFixed(0)} · ${c.year ?? '未知年份'}',
-                                            posterPath: c.posterPath,
-                                            imageLoader: imageLoader,
-                                            disabled: _binding,
-                                            onSelect: () => _bindTarget(
-                                              c.tmdbId,
-                                              c.mediaType,
-                                            ),
-                                          );
-                                        },
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      if (_errorText != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Text(
+                            _errorText!,
+                            style: TextStyle(color: p.danger, fontSize: 12),
+                          ),
+                        ),
+                      SizedBox(height: landscapeCompactInput ? 4 : 10),
+                      Expanded(
+                        child: _searchResults.isNotEmpty
+                            ? KonataDraggableScrollbar(
+                                controller: _tmdbSearchScrollCtrl,
+                                builder: (_, ctrl) => ListView.separated(
+                                  controller: ctrl,
+                                  padding: const EdgeInsets.only(right: 14),
+                                  itemCount: _searchResults.length,
+                                  separatorBuilder: (_, _) =>
+                                      const SizedBox(height: 8),
+                                  itemBuilder: (_, index) {
+                                    final item = _searchResults[index];
+                                    return _MatchResultTile(
+                                      title: item.title,
+                                      subtitle:
+                                          '${item.mediaType == TmdbMediaType.tv ? 'TV' : '剧场版'} · ${item.year ?? '未知年份'} · TMDB #${item.tmdbId}',
+                                      posterPath: item.posterPath,
+                                      imageLoader: imageLoader,
+                                      disabled: _binding,
+                                      onSelect: () => _bindTarget(
+                                        item.tmdbId,
+                                        item.mediaType,
                                       ),
                                     );
                                   },
-                                  loading: () => const Center(
-                                    child: CircularProgressIndicator(),
-                                  ),
-                                  error: (_, _) => const SizedBox.shrink(),
-                                )),
+                                ),
+                              )
+                            : (widget.isSplitMode
+                                  ? Center(
+                                      child: Text(
+                                        '搜索 TMDB 词条或直接填入 TMDB ID 创建独立作品',
+                                        style: TextStyle(
+                                          color: p.textMuted,
+                                          fontSize: 12.5,
+                                        ),
+                                      ),
+                                    )
+                                  : candidatesAsync.when(
+                                      data: (candidates) {
+                                        if (candidates.isEmpty) {
+                                          return Center(
+                                            child: Text(
+                                              '输入关键词搜索或直接填入 TMDB ID 进行强制锁定',
+                                              style: TextStyle(
+                                                color: p.textMuted,
+                                                fontSize: 12.5,
+                                              ),
+                                            ),
+                                          );
+                                        }
+                                        return KonataDraggableScrollbar(
+                                          controller: _tmdbCandScrollCtrl,
+                                          builder: (_, ctrl) =>
+                                              ListView.separated(
+                                                controller: ctrl,
+                                                padding: const EdgeInsets.only(
+                                                  right: 14,
+                                                ),
+                                                itemCount: candidates.length,
+                                                separatorBuilder: (_, _) =>
+                                                    const SizedBox(height: 8),
+                                                itemBuilder: (_, index) {
+                                                  final c = candidates[index];
+                                                  return _MatchResultTile(
+                                                    title: c.title,
+                                                    subtitle:
+                                                        '推荐候选 #${c.rank} · 匹配度 ${c.score.toStringAsFixed(0)} · ${c.year ?? '未知年份'}',
+                                                    posterPath: c.posterPath,
+                                                    imageLoader: imageLoader,
+                                                    disabled: _binding,
+                                                    onSelect: () => _bindTarget(
+                                                      c.tmdbId,
+                                                      c.mediaType,
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                        );
+                                      },
+                                      loading: () => const Center(
+                                        child: CircularProgressIndicator(),
+                                      ),
+                                      error: (_, _) => const SizedBox.shrink(),
+                                    )),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            )
-          else if (_mode == _ManualMatchMode.hybrid)
-            Expanded(
-              child: HybridMatchPanel(
-                initialQuery: widget.initialQuery,
-                fileCount: widget.isSplitMode ? widget.splitVariants.length : 1,
-                imageLoader: imageLoader,
-                disabled: _binding,
-                onSubmit: _submitHybrid,
-                quickTerms: quickTerms,
-              ),
-            )
-          else
-            Expanded(
-              child: _buildBangumiOnlyTab(p, imageLoader, quickTerms),
-            ),
-        ],
+                )
+              else if (_mode == _ManualMatchMode.hybrid)
+                Expanded(
+                  child: HybridMatchPanel(
+                    initialQuery: widget.initialQuery,
+                    fileCount: widget.isSplitMode
+                        ? widget.splitVariants.length
+                        : 1,
+                    imageLoader: imageLoader,
+                    disabled: _binding,
+                    onSubmit: _submitHybrid,
+                    quickTerms: quickTerms,
+                  ),
+                )
+              else
+                Expanded(
+                  child: _buildBangumiOnlyTab(
+                    p,
+                    imageLoader,
+                    quickTerms,
+                    landscapeCompactInput: landscapeCompactInput,
+                  ),
+                ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -588,8 +666,9 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
   Widget _buildBangumiOnlyTab(
     KonataPalette p,
     ManagedImageLoader imageLoader,
-    List<String> quickTerms,
-  ) {
+    List<String> quickTerms, {
+    bool landscapeCompactInput = false,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -598,6 +677,7 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
             Expanded(
               child: KonataSoftTextField(
                 controller: _bgmQueryController,
+                focusNode: _bgmQueryFocusNode,
                 hintText: '输入作品中文名 / 日文名检索 Bangumi 条目',
                 prefixIcon: Icons.search_rounded,
                 dense: true,
@@ -626,7 +706,7 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
           const SizedBox(height: 8),
           Text(_errorText!, style: TextStyle(color: p.danger, fontSize: 12)),
         ],
-        const SizedBox(height: 10),
+        SizedBox(height: landscapeCompactInput ? 4 : 10),
         Expanded(
           child: _bgmOnlyResults.isEmpty
               ? Center(

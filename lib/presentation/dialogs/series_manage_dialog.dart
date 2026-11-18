@@ -21,12 +21,17 @@ enum _SeriesManagePane { members, candidates }
 
 class _MemberDraft {
   _MemberDraft({required this.work, required String initialLabel})
-    : labelCtrl = TextEditingController(text: initialLabel);
+    : labelCtrl = TextEditingController(text: initialLabel),
+      labelFocusNode = FocusNode();
 
   final Work work;
   final TextEditingController labelCtrl;
+  final FocusNode labelFocusNode;
 
-  void dispose() => labelCtrl.dispose();
+  void dispose() {
+    labelCtrl.dispose();
+    labelFocusNode.dispose();
+  }
 }
 
 /// 系列（Series）编组管理毛玻璃弹窗：合并多部作品、排序及设定预设/自定义角色标签。
@@ -44,6 +49,8 @@ class SeriesManageDialog extends ConsumerStatefulWidget {
 class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
   final ScrollController _membersCtrl = ScrollController();
   final ScrollController _candidatesCtrl = ScrollController();
+  final FocusNode _titleFocusNode = FocusNode();
+  final FocusNode _searchFocusNode = FocusNode();
   late final TextEditingController _titleCtrl;
   late final TextEditingController _searchCtrl;
   final List<_MemberDraft> _members = <_MemberDraft>[];
@@ -62,25 +69,42 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
         : widget.bundle.work.title.trim();
     _titleCtrl = TextEditingController(text: defaultTitle);
     _searchCtrl = TextEditingController();
+    _titleFocusNode.addListener(_onFocusUpdated);
+    _searchFocusNode.addListener(_onFocusUpdated);
 
     final initialWorks = widget.bundle.seriesMembers.isNotEmpty
         ? widget.bundle.seriesMembers
         : <Work>[widget.bundle.work];
     for (var i = 0; i < initialWorks.length; i++) {
       final w = initialWorks[i];
-      _members.add(
-        _MemberDraft(work: w, initialLabel: _inferLabel(w, i + 1)),
-      );
+      _addDraftInternal(w, _inferLabel(w, i + 1));
     }
+  }
+
+  void _onFocusUpdated() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _addDraftInternal(Work work, String initialLabel) {
+    final draft = _MemberDraft(work: work, initialLabel: initialLabel);
+    draft.labelFocusNode.addListener(_onFocusUpdated);
+    _members.add(draft);
   }
 
   @override
   void dispose() {
     _membersCtrl.dispose();
     _candidatesCtrl.dispose();
+    _titleFocusNode.removeListener(_onFocusUpdated);
+    _searchFocusNode.removeListener(_onFocusUpdated);
+    _titleFocusNode.dispose();
+    _searchFocusNode.dispose();
     _titleCtrl.dispose();
     _searchCtrl.dispose();
     for (final m in _members) {
+      m.labelFocusNode.removeListener(_onFocusUpdated);
       m.dispose();
     }
     super.dispose();
@@ -106,18 +130,14 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
   void _addMember(Work work) {
     if (_members.any((m) => m.work.id == work.id)) return;
     setState(() {
-      _members.add(
-        _MemberDraft(
-          work: work,
-          initialLabel: _inferLabel(work, _members.length + 1),
-        ),
-      );
+      _addDraftInternal(work, _inferLabel(work, _members.length + 1));
     });
   }
 
   void _removeMemberAt(int index) {
     setState(() {
       final removed = _members.removeAt(index);
+      removed.labelFocusNode.removeListener(_onFocusUpdated);
       removed.dispose();
     });
   }
@@ -150,17 +170,13 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
           widget.bundle.work,
       ];
       for (final m in _members) {
+        m.labelFocusNode.removeListener(_onFocusUpdated);
         m.dispose();
       }
-      _members
-        ..clear()
-        ..addAll([
-          for (var i = 0; i < merged.length; i++)
-            _MemberDraft(
-              work: merged[i],
-              initialLabel: _inferLabel(merged[i], i + 1),
-            ),
-        ]);
+      _members.clear();
+      for (var i = 0; i < merged.length; i++) {
+        _addDraftInternal(merged[i], _inferLabel(merged[i], i + 1));
+      }
     });
   }
 
@@ -224,16 +240,11 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
       _editingSeriesId = null;
       _titleCtrl.text = currentWork.title.trim();
       for (final m in _members) {
+        m.labelFocusNode.removeListener(_onFocusUpdated);
         m.dispose();
       }
-      _members
-        ..clear()
-        ..add(
-          _MemberDraft(
-            work: currentWork,
-            initialLabel: _inferLabel(currentWork, 1),
-          ),
-        );
+      _members.clear();
+      _addDraftInternal(currentWork, _inferLabel(currentWork, 1));
     });
     showKonataToast(context, '已从原系列脱离为独立条目');
   }
@@ -322,9 +333,22 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
       child: LayoutBuilder(
         builder: (context, outerConstraints) {
           final isNarrow = outerConstraints.maxWidth < 600;
-          final isTightHeight =
-              outerConstraints.maxHeight.isFinite &&
-              outerConstraints.maxHeight < (isNarrow ? 460 : 340);
+          final viewInsets = KonataGlassDialog.effectiveViewInsetsOf(context);
+          final landscapeCompactInput =
+              KonataGlassDialog.isLandscapeCompactInputActive(context);
+          final anyMemberLabelFocused = _members.any(
+            (m) => m.labelFocusNode.hasFocus,
+          );
+          final hideFormForInput =
+              (landscapeCompactInput && !_titleFocusNode.hasFocus) ||
+              (viewInsets.bottom > 0 &&
+                  outerConstraints.maxHeight < 420 &&
+                  (_searchFocusNode.hasFocus ||
+                      anyMemberLabelFocused ||
+                      (isNarrow && _mobilePane == _SeriesManagePane.candidates)));
+          final hideFormExtras =
+              landscapeCompactInput ||
+              (viewInsets.bottom > 0 && outerConstraints.maxHeight < 420);
 
           final formSection = isNarrow
               ? Column(
@@ -333,64 +357,81 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                   children: [
                     KonataSoftTextField(
                       controller: _titleCtrl,
+                      focusNode: _titleFocusNode,
                       label: '系列名称（在详情页切换下拉中展示）',
                     ),
-                    if (groups.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      Text(
-                        '并入已有系列',
-                        style: TextStyle(color: p.textSecondary, fontSize: 11.5),
-                      ),
-                      const SizedBox(height: 5),
-                      KonataSearchableSelect<String>(
-                        value: groups.any((g) => g.id == _editingSeriesId)
-                            ? _editingSeriesId
-                            : null,
-                        hintText: '搜索要并入的已有系列...',
-                        searchHint: '输入系列标题检索...',
-                        enabled: !_saving,
-                        options: [
-                          for (final g in groups)
-                            KonataDropdownOption<String>(
-                              value: g.id,
-                              label: g.title,
+                    Offstage(
+                      offstage: hideFormExtras,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (groups.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Text(
+                              '并入已有系列',
+                              style: TextStyle(
+                                color: p.textSecondary,
+                                fontSize: 11.5,
+                              ),
                             ),
+                            const SizedBox(height: 5),
+                            KonataSearchableSelect<String>(
+                              value: groups.any((g) => g.id == _editingSeriesId)
+                                  ? _editingSeriesId
+                                  : null,
+                              hintText: '搜索要并入的已有系列...',
+                              searchHint: '输入系列标题检索...',
+                              enabled: !_saving,
+                              options: [
+                                for (final g in groups)
+                                  KonataDropdownOption<String>(
+                                    value: g.id,
+                                    label: g.title,
+                                  ),
+                              ],
+                              onChanged: (selectedId) {
+                                final group = groups
+                                    .where((g) => g.id == selectedId)
+                                    .firstOrNull;
+                                if (group != null) {
+                                  _switchToExistingSeries(group, allWorks);
+                                }
+                              },
+                            ),
+                          ],
+                          if (_canDetachToIndependentSeries) ...[
+                            const SizedBox(height: 10),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: KonataPillButton.secondary(
+                                label: '脱离为独立系列',
+                                icon: Icons.link_off_rounded,
+                                compact: true,
+                                onPressed: _saving
+                                    ? null
+                                    : _detachToIndependentSeries,
+                              ),
+                            ),
+                          ],
                         ],
-                        onChanged: (selectedId) {
-                          final group = groups
-                              .where((g) => g.id == selectedId)
-                              .firstOrNull;
-                          if (group != null) {
-                            _switchToExistingSeries(group, allWorks);
-                          }
-                        },
                       ),
-                    ],
-                    if (_canDetachToIndependentSeries) ...[
-                      const SizedBox(height: 10),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: KonataPillButton.secondary(
-                          label: '脱离为独立系列',
-                          icon: Icons.link_off_rounded,
-                          compact: true,
-                          onPressed: _saving ? null : _detachToIndependentSeries,
-                        ),
-                      ),
-                    ],
+                    ),
                   ],
                 )
               : Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Expanded(
+                      key: const ValueKey('series_title_input_slot'),
                       flex: 3,
                       child: KonataSoftTextField(
                         controller: _titleCtrl,
+                        focusNode: _titleFocusNode,
                         label: '系列名称（在详情页切换下拉中展示）',
                       ),
                     ),
-                    if (groups.isNotEmpty) ...[
+                    if (!hideFormExtras && groups.isNotEmpty) ...[
                       const SizedBox(width: 12),
                       Expanded(
                         flex: 2,
@@ -432,7 +473,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                         ),
                       ),
                     ],
-                    if (_canDetachToIndependentSeries) ...[
+                    if (!hideFormExtras && _canDetachToIndependentSeries) ...[
                       const SizedBox(width: 10),
                       Padding(
                         padding: const EdgeInsets.only(bottom: 1),
@@ -448,7 +489,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                 );
 
           final membersPane = Container(
-            padding: const EdgeInsets.all(10),
+            padding: EdgeInsets.all(landscapeCompactInput ? 6 : 10),
             decoration: BoxDecoration(
               color: p.softFill,
               borderRadius: BorderRadius.circular(12),
@@ -457,27 +498,36 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Wrap(
-                  alignment: WrapAlignment.spaceBetween,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    Text(
-                      '系列成员与排序 (${_members.length})',
-                      style: TextStyle(
-                        color: p.textPrimary,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
+                Offstage(
+                  offstage: landscapeCompactInput,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          Text(
+                            '系列成员与排序 (${_members.length})',
+                            style: TextStyle(
+                              color: p.textPrimary,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Text(
+                            '海报墙仍各自独立展示',
+                            style: TextStyle(color: p.textMuted, fontSize: 11),
+                          ),
+                        ],
                       ),
-                    ),
-                    Text(
-                      '海报墙仍各自独立展示',
-                      style: TextStyle(color: p.textMuted, fontSize: 11),
-                    ),
-                  ],
+                      const SizedBox(height: 8),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 8),
                 Expanded(
                   child: _members.isEmpty
                       ? Center(
@@ -507,7 +557,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
           );
 
           final candidatesPane = Container(
-            padding: const EdgeInsets.all(10),
+            padding: EdgeInsets.all(landscapeCompactInput ? 6 : 10),
             decoration: BoxDecoration(
               color: p.softFill,
               borderRadius: BorderRadius.circular(12),
@@ -516,12 +566,25 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                KonataSoftTextField(
-                  controller: _searchCtrl,
-                  hintText: '搜索库内作品加入此系列...',
-                  onChanged: (_) => setState(() {}),
+                Offstage(
+                  offstage: landscapeCompactInput &&
+                      _titleFocusNode.hasFocus &&
+                      !_searchFocusNode.hasFocus,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      KonataSoftTextField(
+                        controller: _searchCtrl,
+                        focusNode: _searchFocusNode,
+                        dense: landscapeCompactInput,
+                        hintText: '搜索库内作品加入此系列...',
+                        onChanged: (_) => setState(() {}),
+                      ),
+                      SizedBox(height: landscapeCompactInput ? 6 : 8),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 8),
                 Expanded(
                   child: candidates.isEmpty
                       ? Center(
@@ -594,29 +657,43 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
             ),
           );
 
+          final hideMembersInWideSearchIme =
+              landscapeCompactInput && _searchFocusNode.hasFocus;
+          final collapseBodyForTitleIme =
+              landscapeCompactInput && _titleFocusNode.hasFocus;
           final bodyContent = isNarrow
               ? Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    MediaQuery.withClampedTextScaling(
-                      maxScaleFactor: 1.15,
-                      child: KonataSegmentedCapsule<_SeriesManagePane>(
-                        compact: true,
-                        selected: _mobilePane,
-                        onChanged: (pane) => setState(() => _mobilePane = pane),
-                        options: [
-                          KonataSegmentOption(
-                            value: _SeriesManagePane.members,
-                            label: '成员排序 (${_members.length})',
+                    Offstage(
+                      offstage: hideFormForInput && landscapeCompactInput,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          MediaQuery.withClampedTextScaling(
+                            maxScaleFactor: 1.15,
+                            child: KonataSegmentedCapsule<_SeriesManagePane>(
+                              compact: true,
+                              selected: _mobilePane,
+                              onChanged: (pane) =>
+                                  setState(() => _mobilePane = pane),
+                              options: [
+                                KonataSegmentOption(
+                                  value: _SeriesManagePane.members,
+                                  label: '成员排序 (${_members.length})',
+                                ),
+                                KonataSegmentOption(
+                                  value: _SeriesManagePane.candidates,
+                                  label: '添加作品 (${candidates.length})',
+                                ),
+                              ],
+                            ),
                           ),
-                          KonataSegmentOption(
-                            value: _SeriesManagePane.candidates,
-                            label: '添加作品 (${candidates.length})',
-                          ),
+                          const SizedBox(height: 10),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 10),
                     Expanded(
                       child: _mobilePane == _SeriesManagePane.members
                           ? membersPane
@@ -627,42 +704,61 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
               : Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(flex: 13, child: membersPane),
-                    const SizedBox(width: 12),
-                    Expanded(flex: 9, child: candidatesPane),
+                    if (!hideMembersInWideSearchIme) ...[
+                      Expanded(
+                        key: const ValueKey('series_members_pane'),
+                        flex: 13,
+                        child: membersPane,
+                      ),
+                      const SizedBox(width: 12),
+                    ],
+                    Expanded(
+                      key: const ValueKey('series_candidates_pane'),
+                      flex: 9,
+                      child: candidatesPane,
+                    ),
                   ],
                 );
 
-          if (isTightHeight) {
-            return KonataDraggableScrollbar(
-              builder: (_, scrollCtrl) => SingleChildScrollView(
-                controller: scrollCtrl,
-                padding: const EdgeInsets.only(right: 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    formSection,
-                    const SizedBox(height: 12),
-                    SizedBox(height: 240, child: bodyContent),
-                  ],
-                ),
+          // 保持恒定单一布局容器树（严禁因高度阈值切换单双根分支），彻底根除软键盘弹出瞬间输入框销毁丢焦点；
+          // 矮横屏激活软键盘时按实时剩余高度紧凑收敛，非键盘态使用 260dp 安全保底高度消除溢出。
+          final targetH = landscapeCompactInput
+              ? (outerConstraints.maxHeight.isFinite
+                    ? math.max(36.0, outerConstraints.maxHeight)
+                    : 56.0)
+              : (outerConstraints.maxHeight.isFinite
+                    ? math.min(500.0, math.max(260.0, outerConstraints.maxHeight))
+                    : 500.0);
+          return SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
+            child: SizedBox(
+              height: targetH,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Offstage(
+                    offstage: hideFormForInput,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        formSection,
+                        SizedBox(
+                          height: collapseBodyForTitleIme
+                              ? 0.0
+                              : (landscapeCompactInput ? 6.0 : 12.0),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: Offstage(
+                      offstage: collapseBodyForTitleIme,
+                      child: bodyContent,
+                    ),
+                  ),
+                ],
               ),
-            );
-          }
-
-          final targetH = outerConstraints.maxHeight.isFinite
-              ? math.min(500.0, outerConstraints.maxHeight)
-              : 500.0;
-          return SizedBox(
-            height: targetH,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                formSection,
-                const SizedBox(height: 12),
-                Expanded(child: bodyContent),
-              ],
             ),
           );
         },
@@ -729,6 +825,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
             Expanded(
               child: TextField(
                 controller: draft.labelCtrl,
+                focusNode: draft.labelFocusNode,
                 enabled: !_saving,
                 style: TextStyle(color: p.textPrimary, fontSize: 12),
                 decoration: InputDecoration(

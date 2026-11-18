@@ -234,6 +234,7 @@ class ScrapeOrchestrator {
       await SeriesAutoLinker.reconcileAll(
         repository: _repository,
         bangumiService: _bangumiService,
+        tmdbService: _tmdbService,
         tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
       );
 
@@ -837,6 +838,7 @@ class ScrapeOrchestrator {
       await SeriesAutoLinker.reconcileAll(
         repository: _repository,
         bangumiService: _bangumiService,
+        tmdbService: _tmdbService,
         tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
       );
       return updated;
@@ -865,6 +867,7 @@ class ScrapeOrchestrator {
     await SeriesAutoLinker.reconcileAll(
       repository: _repository,
       bangumiService: _bangumiService,
+      tmdbService: _tmdbService,
       tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
     );
     return updated;

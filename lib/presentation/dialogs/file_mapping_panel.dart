@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../domain/models/episode.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_dropdown.dart';
+import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
@@ -68,6 +70,9 @@ class FileMappingPanel extends StatefulWidget {
 
 class _FileMappingPanelState extends State<FileMappingPanel> {
   final ScrollController _scrollCtrl = ScrollController();
+  final FocusNode _searchFocusNode = FocusNode();
+  final FocusNode _seqSeasonFocusNode = FocusNode();
+  final FocusNode _seqStartEpFocusNode = FocusNode();
   final TextEditingController _searchCtrl = TextEditingController();
   late final TextEditingController _seqSeasonCtrl;
   final TextEditingController _seqStartEpCtrl = TextEditingController(
@@ -90,6 +95,9 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
   @override
   void dispose() {
     _scrollCtrl.dispose();
+    _searchFocusNode.dispose();
+    _seqSeasonFocusNode.dispose();
+    _seqStartEpFocusNode.dispose();
     _searchCtrl.dispose();
     _seqSeasonCtrl.dispose();
     _seqStartEpCtrl.dispose();
@@ -249,109 +257,141 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
       for (final r in widget.rows) _parentFolder(r.variant.relativePath),
     };
     final folderList = folderSet.toList()..sort();
+    final landscapeCompact = KonataGlassDialog.isLandscapeCompactInputActive(
+      context,
+    );
+    final shortViewport =
+        MediaQuery.sizeOf(context).height <
+        KonataAdaptiveTokens.shortViewportHeight;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
+    final categoryCapsule = SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: MediaQuery.withClampedTextScaling(
+        maxScaleFactor: 1.15,
+        child: KonataSegmentedCapsule<_MappingCategoryFilter>(
+          compact: true,
+          selected: _filter,
+          options: [
+            KonataSegmentOption(
+              value: _MappingCategoryFilter.all,
+              label: '全部 (${widget.rows.length})',
+            ),
+            KonataSegmentOption(
+              value: _MappingCategoryFilter.main,
+              label: '正片 ($mainCount)',
+            ),
+            KonataSegmentOption(
+              value: _MappingCategoryFilter.extra,
+              label: '特典 ($extraCount)',
+            ),
+          ],
+          onChanged: (v) => setState(() {
+            _filter = v;
+            _lastClickedVisibleIndex = null;
+          }),
+        ),
+      ),
+    );
+
+    return LayoutBuilder(
+      builder: (context, panelConstraints) {
+        final inlineFilterInSearchRow =
+            !landscapeCompact &&
+            shortViewport &&
+            panelConstraints.maxWidth >= 560;
+        final dropdownW = inlineFilterInSearchRow
+            ? math.min(144.0, panelConstraints.maxWidth * 0.28)
+            : math.min(156.0, panelConstraints.maxWidth * 0.42);
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: MediaQuery.withClampedTextScaling(
-                maxScaleFactor: 1.15,
-                child: KonataSegmentedCapsule<_MappingCategoryFilter>(
-                  compact: true,
-                  selected: _filter,
-                  options: [
-                    KonataSegmentOption(
-                      value: _MappingCategoryFilter.all,
-                      label: '全部 (${widget.rows.length})',
-                    ),
-                    KonataSegmentOption(
-                      value: _MappingCategoryFilter.main,
-                      label: '正片 ($mainCount)',
-                    ),
-                    KonataSegmentOption(
-                      value: _MappingCategoryFilter.extra,
-                      label: '特典 ($extraCount)',
-                    ),
-                  ],
-                  onChanged: (v) => setState(() {
-                    _filter = v;
-                    _lastClickedVisibleIndex = null;
-                  }),
-                ),
-              ),
-            ),
-            SizedBox(
-              width: 160,
-              child: KonataSoftTextField(
-                controller: _searchCtrl,
-                dense: true,
-                hintText: '搜索文件名...',
-                prefixIcon: Icons.search_rounded,
-                onChanged: (v) => setState(() {
-                  _query = v;
-                  _lastClickedVisibleIndex = null;
-                }),
-              ),
-            ),
-            if (folderList.length >= 2)
-              SizedBox(
-                width: 150,
-                child: KonataDropdown<String>(
-                  dense: true,
-                  hintText: '按目录全选',
-                  value: null,
-                  options: [
-                    for (final dir in folderList)
-                      KonataDropdownOption(
-                        value: dir,
-                        label: dir.split('/').last,
-                        subtitle: dir,
+            Offstage(
+              offstage: landscapeCompact || inlineFilterInSearchRow,
+              child: Padding(
+                padding: EdgeInsets.only(bottom: shortViewport ? 6 : 8),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    categoryCapsule,
+                    if (widget.hasAnyMappingLock)
+                      KonataPillButton.ghost(
+                        label: '恢复自动重排',
+                        compact: true,
+                        onPressed: widget.saving ? null : widget.onResetMappings,
                       ),
                   ],
-                  onChanged: _selectSubfolder,
                 ),
-              )
-            else
-              KonataPillButton.ghost(
-                label: '全选当前',
-                compact: true,
-                onPressed: widget.saving || visibleRows.isEmpty
-                    ? null
-                    : () {
-                        setState(() {
-                          for (final r in visibleRows) {
-                            widget.selectedVariantIds.add(r.variant.id);
-                          }
-                        });
-                        widget.onChanged();
-                      },
               ),
-            if (widget.hasAnyMappingLock)
-              KonataPillButton.ghost(
-                label: '恢复自动重排',
-                compact: true,
-                onPressed: widget.saving ? null : widget.onResetMappings,
-              ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        if (selectedCount > 0) ...[
-          _buildBatchToolbar(p, selectedCount, visibleRows),
-          const SizedBox(height: 8),
-        ] else
-          Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: Text(
-              '提示：点击季集胶囊可直观挑选分集；按住 Shift 点击复选框可连续区间多选并开启批量修正工具栏。',
-              style: TextStyle(color: p.textMuted, fontSize: 11.4),
             ),
-          ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                if (inlineFilterInSearchRow) ...[
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: panelConstraints.maxWidth * 0.44,
+                    ),
+                    child: categoryCapsule,
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                Expanded(
+                  key: const ValueKey('file_mapping_search_slot'),
+                  child: KonataSoftTextField(
+                    key: const ValueKey('file_mapping_search_field'),
+                    controller: _searchCtrl,
+                    focusNode: _searchFocusNode,
+                    dense: true,
+                    hintText: '搜索文件名...',
+                    prefixIcon: Icons.search_rounded,
+                    onChanged: (v) => setState(() {
+                      _query = v;
+                      _lastClickedVisibleIndex = null;
+                    }),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: dropdownW,
+                  child: KonataDropdown<String>(
+                    dense: true,
+                    hintText: '按目录全选',
+                    value: null,
+                    enabled: !widget.saving && folderList.isNotEmpty,
+                    options: [
+                      for (final dir in folderList)
+                        KonataDropdownOption(
+                          value: dir,
+                          label: dir.split('/').last,
+                          subtitle: dir,
+                        ),
+                    ],
+                    onChanged: _selectSubfolder,
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: shortViewport ? 6 : 8),
+            if (selectedCount > 0) ...[
+              _buildBatchToolbar(p, selectedCount, visibleRows),
+              const SizedBox(height: 8),
+            ] else
+              Offstage(
+                offstage:
+                    landscapeCompact ||
+                    shortViewport ||
+                    KonataAdaptiveTokens.isAndroid,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text(
+                    '提示：点击季集胶囊可直观挑选分集；按住 Shift 点击复选框可连续区间多选并开启批量修正工具栏。',
+                    style: TextStyle(color: p.textMuted, fontSize: 11.4),
+                  ),
+                ),
+              ),
         Expanded(
           child: visibleRows.isEmpty
               ? Center(
@@ -521,6 +561,8 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
         ),
       ],
     );
+      },
+    );
   }
 
   Widget _buildBatchToolbar(
@@ -628,6 +670,7 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                   width: 78,
                   child: KonataSoftTextField(
                     controller: _seqSeasonCtrl,
+                    focusNode: _seqSeasonFocusNode,
                     label: '季号',
                     dense: true,
                     keyboardType: TextInputType.number,
@@ -637,6 +680,7 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                   width: 78,
                   child: KonataSoftTextField(
                     controller: _seqStartEpCtrl,
+                    focusNode: _seqStartEpFocusNode,
                     label: '起始集',
                     dense: true,
                     keyboardType: TextInputType.number,

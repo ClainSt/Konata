@@ -624,12 +624,14 @@ void main() {
       await tester.tap(find.text('我知道了'));
       await tester.pumpAndSettle();
 
-      // 拆分为独立一级菜单「播放器」与「外部调用」，原合并菜单不再存在
+      // 拆分为独立一级菜单「播放器」与「外部调用」，原合并菜单不再存在；并移除核心版本区块
       expect(find.text('播放与音画还原'), findsNothing);
       await tester.tap(find.text('播放器'));
       await tester.pumpAndSettle();
       expect(find.byType(SettingsPlayersPanel), findsOneWidget);
-      expect(find.text('内置核心与默认路由'), findsOneWidget);
+      expect(find.text('内置核心与默认路由'), findsNothing);
+      expect(find.text('视频渲染与看番体验'), findsOneWidget);
+      expect(find.text('无损音频与着色器链路'), findsOneWidget);
 
       await tester.tap(find.text('外部调用'));
       await tester.pumpAndSettle();

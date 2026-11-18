@@ -936,11 +936,11 @@ void main() {
         expect(find.text('标记为已听'), findsOneWidget);
         expect(find.text('ハルユキの災難'), findsOneWidget);
         expect(find.text('2026-11-16 22:12'), findsOneWidget);
-        // 音频封面 120x120，且成功加载 Folder.jpg (Image.memory)
+        // 音频紧凑 1:1 封面 86x86，且成功加载 Folder.jpg (Image.memory)
         expect(
           tester
               .widgetList<SizedBox>(find.byType(SizedBox))
-              .where((s) => s.width == 120 && s.height == 120),
+              .where((s) => s.width == 86 && s.height == 86),
           hasLength(1),
         );
         expect(find.byType(Image), findsAtLeastNWidgets(1));

@@ -1,4 +1,7 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/artwork_provider.dart';
@@ -8,15 +11,16 @@ import '../detail/work_detail_page.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
-import '../widgets/design_system/adaptive_action_header.dart';
 import '../widgets/design_system/adaptive_card_grid.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_pill_button.dart';
+import '../widgets/design_system/konata_soft_text_field.dart';
+import '../widgets/playback/konata_playback_capsule.dart';
 import 'hidden_works_dialog.dart';
 import 'poster_card.dart';
 import 'review_dialog.dart';
 
-/// 高密度媒体库海报墙主页（透明穿透底 + 同行右侧「待复核」微光胶囊 + 自适应高密度海报网格）。
+/// 高密度媒体库海报墙主页（全端统一「遮眼在左 + 待复核最右」秩序与双行搜索顶替交互）。
 class LibraryPage extends ConsumerStatefulWidget {
   /// 创建媒体库主页。
   const LibraryPage({super.key});
@@ -27,11 +31,58 @@ class LibraryPage extends ConsumerStatefulWidget {
 
 class _LibraryPageState extends ConsumerState<LibraryPage> {
   final ScrollController _gridCtrl = ScrollController();
+  final TextEditingController _searchCtrl = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  bool _searchBarOpen = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final initialQuery = ref.read(librarySearchQueryProvider);
+    if (initialQuery.isNotEmpty) {
+      _searchCtrl.text = initialQuery;
+      _searchBarOpen = true;
+    }
+    _searchCtrl.addListener(_onSearchCtrlTextChanged);
+  }
+
+  void _onSearchCtrlTextChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
 
   @override
   void dispose() {
+    _searchCtrl.removeListener(_onSearchCtrlTextChanged);
     _gridCtrl.dispose();
+    _searchCtrl.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
+  }
+
+  void _openMobileSearch() {
+    setState(() => _searchBarOpen = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _searchFocusNode.requestFocus();
+      }
+    });
+  }
+
+  void _clearMobileSearchOnly() {
+    _searchCtrl.clear();
+    ref.read(librarySearchQueryProvider.notifier).state = '';
+    if (mounted) {
+      _searchFocusNode.requestFocus();
+    }
+  }
+
+  void _closeMobileSearch() {
+    _searchCtrl.clear();
+    ref.read(librarySearchQueryProvider.notifier).state = '';
+    _searchFocusNode.unfocus();
+    setState(() => _searchBarOpen = false);
   }
 
   @override
@@ -43,63 +94,46 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
         ref.watch(needsReviewItemsProvider).valueOrNull?.length ?? 0;
     final hiddenCount = ref.watch(hiddenWorksProvider).valueOrNull?.length ?? 0;
     final searchQuery = ref.watch(librarySearchQueryProvider);
+    final filteredCount = filteredAsync.valueOrNull?.length;
     final imageLoader = ref.watch(tmdbImageLoaderProvider);
     final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
     final totalCount = totalCountAsync.valueOrNull ?? 0;
 
+    if (searchQuery != _searchCtrl.text) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final current = ref.read(librarySearchQueryProvider);
+        if (current != _searchCtrl.text) {
+          _searchCtrl.value = TextEditingValue(
+            text: current,
+            selection: TextSelection.collapsed(offset: current.length),
+          );
+          if (current.isNotEmpty && !_searchBarOpen) {
+            setState(() => _searchBarOpen = true);
+          }
+        }
+      });
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        AdaptiveActionHeader(
-          title: '全部作品',
-          badge: totalCount > 0
-              ? Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: p.softFill,
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: p.hairline, width: 1),
-                  ),
-                  child: Text(
-                    '$totalCount 部',
-                    style: KonataTheme.textStyle(
-                      color: p.textSecondary,
-                      fontSize: 13,
-                      weight: KonataTheme.weightActive,
-                    ),
-                  ),
-                )
-              : null,
-          searchQuery: KonataAdaptiveTokens.isAndroid ? searchQuery : null,
-          onSearchChanged: KonataAdaptiveTokens.isAndroid
-              ? (v) => ref.read(librarySearchQueryProvider.notifier).state = v
-              : null,
-          primaryActions: [
-            if (reviewCount > 0)
-              AdaptiveHeaderAction(
-                icon: Icons.rule_folder_outlined,
-                label: '待复核 ($reviewCount)',
-                highlighted: true,
-                wideWidget: _ReviewHeaderPill(
-                  count: reviewCount,
-                  onTap: () => showReviewDialog(context),
-                ),
-                onPressed: () => showReviewDialog(context),
-              ),
-            if (hiddenCount > 0)
-              AdaptiveHeaderAction(
-                icon: Icons.visibility_off_outlined,
-                label: '已隐藏作品 ($hiddenCount)',
-                wideWidget: _HiddenWorksHeaderButton(
-                  count: hiddenCount,
-                  onTap: () => showHiddenWorksDialog(context),
-                ),
-                onPressed: () => showHiddenWorksDialog(context),
-              ),
-          ],
+        _LibraryHeaderBar(
+          totalCount: totalCount,
+          filteredCount: filteredCount,
+          hiddenCount: hiddenCount,
+          reviewCount: reviewCount,
+          searchQuery: searchQuery,
+          searchOpen: _searchBarOpen,
+          searchController: _searchCtrl,
+          searchFocusNode: _searchFocusNode,
+          onOpenHidden: () => showHiddenWorksDialog(context),
+          onOpenReview: () => showReviewDialog(context),
+          onOpenSearch: _openMobileSearch,
+          onSearchChanged: (v) =>
+              ref.read(librarySearchQueryProvider.notifier).state = v,
+          onClearSearch: _clearMobileSearchOnly,
+          onCloseSearch: _closeMobileSearch,
         ),
         Expanded(
           child: filteredAsync.when(
@@ -169,8 +203,272 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   }
 }
 
+class _LibraryHeaderBar extends StatelessWidget {
+  const _LibraryHeaderBar({
+    required this.totalCount,
+    required this.filteredCount,
+    required this.hiddenCount,
+    required this.reviewCount,
+    required this.searchQuery,
+    required this.searchOpen,
+    required this.searchController,
+    required this.searchFocusNode,
+    required this.onOpenHidden,
+    required this.onOpenReview,
+    required this.onOpenSearch,
+    required this.onSearchChanged,
+    required this.onClearSearch,
+    required this.onCloseSearch,
+  });
+
+  final int totalCount;
+  final int? filteredCount;
+  final int hiddenCount;
+  final int reviewCount;
+  final String searchQuery;
+  final bool searchOpen;
+  final TextEditingController searchController;
+  final FocusNode searchFocusNode;
+  final VoidCallback onOpenHidden;
+  final VoidCallback onOpenReview;
+  final VoidCallback onOpenSearch;
+  final ValueChanged<String> onSearchChanged;
+  final VoidCallback onClearSearch;
+  final VoidCallback onCloseSearch;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final hasQuery = searchQuery.trim().isNotEmpty;
+    final countText = hasQuery && filteredCount != null
+        ? '$filteredCount / $totalCount 部'
+        : '$totalCount 部';
+    final countBadge = (totalCount > 0 || hasQuery)
+        ? Container(
+            key: const ValueKey('library_works_count_pill'),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: p.softFill,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: p.hairline, width: 1),
+            ),
+            child: Text(
+              countText,
+              style: KonataTheme.textStyle(
+                color: p.textSecondary,
+                fontSize: 13,
+                weight: KonataTheme.weightActive,
+              ),
+            ),
+          )
+        : null;
+
+    // 统一右侧入口顺序：遮眼图标永远在左，「待复核」文字胶囊永远固定在最右边。
+    final rightActions = (hiddenCount > 0 || reviewCount > 0)
+        ? Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              if (hiddenCount > 0)
+                _HiddenWorksHeaderButton(
+                  key: const ValueKey('library_hidden_works_button'),
+                  count: hiddenCount,
+                  onTap: onOpenHidden,
+                ),
+              if (hiddenCount > 0 && reviewCount > 0) const SizedBox(width: 6),
+              if (reviewCount > 0)
+                _ReviewHeaderPill(
+                  key: const ValueKey('library_review_pill'),
+                  count: reviewCount,
+                  onTap: onOpenReview,
+                ),
+            ],
+          )
+        : null;
+
+    if (!KonataAdaptiveTokens.isAndroid) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(
+          KonataTheme.pageHorizontalPadding,
+          KonataTheme.pageHeaderTopSpacing,
+          KonataTheme.pageHorizontalPadding,
+          KonataTheme.pageHeaderBottomSpacing,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      '全部作品',
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.ellipsis,
+                      style: KonataTheme.h1Style(p),
+                    ),
+                  ),
+                  if (countBadge != null) ...[
+                    const SizedBox(width: 12),
+                    countBadge,
+                  ],
+                ],
+              ),
+            ),
+            if (rightActions != null) ...[
+              const SizedBox(width: 12),
+              rightActions,
+            ],
+          ],
+        ),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < KonataAdaptiveTokens.tabletBreakpoint;
+        final padH = compact
+            ? KonataAdaptiveTokens.horizontalInset
+            : KonataTheme.pageHorizontalPadding;
+        final h1Style = compact && constraints.maxWidth < 400
+            ? KonataTheme.h1Style(p).copyWith(fontSize: 23)
+            : KonataTheme.h1Style(p);
+        final searchExpanded = searchOpen || hasQuery;
+
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            padH,
+            KonataAdaptiveTokens.safeGap,
+            padH,
+            10,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                height: KonataAdaptiveTokens.touchTarget,
+                child: searchExpanded
+                    ? Row(
+                        key: const ValueKey('library_header_search_row'),
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          KonataCapsuleIconButton(
+                            key: const ValueKey('library_header_search_close'),
+                            icon: Icons.arrow_back_rounded,
+                            tooltip: '关闭搜索',
+                            color: p.textPrimary,
+                            size: 20,
+                            fixedSize: KonataAdaptiveTokens.touchTarget,
+                            onTap: onCloseSearch,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: CallbackShortcuts(
+                              bindings: {
+                                const SingleActivator(LogicalKeyboardKey.escape):
+                                    onCloseSearch,
+                              },
+                              child: KonataSoftTextField(
+                                controller: searchController,
+                                focusNode: searchFocusNode,
+                                height: 42,
+                                prefixIcon: Icons.search_rounded,
+                                hintText: '搜索番剧名称、原名、压制组或 TMDB ID',
+                                suffix: searchController.text.isNotEmpty
+                                    ? IconButton(
+                                        key: const ValueKey(
+                                          'library_header_search_clear',
+                                        ),
+                                        tooltip: '清空搜索',
+                                        constraints:
+                                            const BoxConstraints.tightFor(
+                                              width: 36,
+                                              height: 36,
+                                            ),
+                                        padding: EdgeInsets.zero,
+                                        icon: Icon(
+                                          Icons.close_rounded,
+                                          size: 18,
+                                          color: p.textSecondary,
+                                        ),
+                                        onPressed: onClearSearch,
+                                      )
+                                    : null,
+                                onChanged: onSearchChanged,
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    : Row(
+                        key: const ValueKey('library_header_title_row'),
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  '全部作品',
+                                  maxLines: 1,
+                                  softWrap: false,
+                                  style: h1Style,
+                                ),
+                              ),
+                            ),
+                          ),
+                          if (rightActions != null) ...[
+                            const SizedBox(width: 8),
+                            MediaQuery.withClampedTextScaling(
+                              maxScaleFactor: 1.15,
+                              child: rightActions,
+                            ),
+                          ],
+                        ],
+                      ),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  if (countBadge != null)
+                    MediaQuery.withClampedTextScaling(
+                      maxScaleFactor: 1.15,
+                      child: countBadge,
+                    ),
+                  const Spacer(),
+                  if (!searchExpanded)
+                    KonataCapsuleIconButton(
+                      key: const ValueKey('library_header_search_button'),
+                      icon: Icons.search_rounded,
+                      tooltip: '搜索作品',
+                      color: p.textPrimary,
+                      size: 20,
+                      fixedSize: KonataAdaptiveTokens.touchTarget,
+                      onTap: onOpenSearch,
+                    )
+                  else
+                    SizedBox(height: math.max(36.0, 36.0)),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _HiddenWorksHeaderButton extends StatefulWidget {
-  const _HiddenWorksHeaderButton({required this.count, required this.onTap});
+  const _HiddenWorksHeaderButton({
+    super.key,
+    required this.count,
+    required this.onTap,
+  });
 
   final int count;
   final VoidCallback onTap;
@@ -223,7 +521,7 @@ class _HiddenWorksHeaderButtonState extends State<_HiddenWorksHeaderButton> {
 }
 
 class _ReviewHeaderPill extends StatefulWidget {
-  const _ReviewHeaderPill({required this.count, required this.onTap});
+  const _ReviewHeaderPill({super.key, required this.count, required this.onTap});
 
   final int count;
   final VoidCallback onTap;

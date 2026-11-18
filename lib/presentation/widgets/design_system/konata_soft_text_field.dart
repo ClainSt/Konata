@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/konata_palette.dart';
+import 'konata_glass_dialog.dart';
 
 /// 无外框圆角 `10px` 柔光填充输入框（彻底消除生硬矩形 `OutlineInputBorder`）。
 class KonataSoftTextField extends StatefulWidget {
@@ -109,6 +110,9 @@ class _KonataSoftTextFieldState extends State<KonataSoftTextField> {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final compactIme = KonataGlassDialog.isLandscapeCompactInputActive(context);
+    final effectiveDense = widget.dense || compactIme;
+    final effectiveHint = widget.hintText ?? (compactIme ? widget.label : null);
     final field = AnimatedContainer(
       duration: const Duration(milliseconds: 160),
       curve: Curves.easeOutCubic,
@@ -116,7 +120,7 @@ class _KonataSoftTextFieldState extends State<KonataSoftTextField> {
       alignment: widget.height != null ? Alignment.center : null,
       padding: EdgeInsets.symmetric(
         horizontal: 12,
-        vertical: widget.height != null ? 0 : (widget.dense ? 7 : 10),
+        vertical: widget.height != null ? 0 : (effectiveDense ? 7 : 10),
       ),
       decoration: BoxDecoration(
         color: p.softFill,
@@ -144,7 +148,7 @@ class _KonataSoftTextFieldState extends State<KonataSoftTextField> {
               onSubmitted: widget.onSubmitted,
               style: TextStyle(color: p.textPrimary, fontSize: 13.5),
               decoration: InputDecoration(
-                hintText: widget.hintText,
+                hintText: effectiveHint,
                 hintStyle: TextStyle(color: p.textMuted, fontSize: 13),
                 border: InputBorder.none,
                 enabledBorder: InputBorder.none,
@@ -167,15 +171,24 @@ class _KonataSoftTextFieldState extends State<KonataSoftTextField> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          widget.label!,
-          style: TextStyle(
-            color: p.textSecondary,
-            fontSize: 12.5,
-            fontWeight: FontWeight.w500,
+        Offstage(
+          offstage: compactIme,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                widget.label!,
+                style: TextStyle(
+                  color: p.textSecondary,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 6),
+            ],
           ),
         ),
-        const SizedBox(height: 6),
         field,
       ],
     );

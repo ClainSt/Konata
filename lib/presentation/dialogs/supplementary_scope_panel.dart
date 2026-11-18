@@ -150,6 +150,15 @@ class _SupplementaryScopePanelState extends State<SupplementaryScopePanel> {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    if (widget.drafts.isEmpty) {
+      return Center(
+        child: Text(
+          '当前作品暂未检测到特典、CD 或 Scan 附属条目。',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: p.textSecondary, fontSize: 13),
+        ),
+      );
+    }
     if (widget.seriesMembers.length < 2) {
       return Center(
         child: Column(

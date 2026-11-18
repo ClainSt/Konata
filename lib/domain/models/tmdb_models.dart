@@ -153,6 +153,7 @@ class TmdbArtworkImage {
     this.width,
     this.height,
     this.voteAverage,
+    this.voteCount,
   });
 
   /// TMDB 相对图片路径。
@@ -169,6 +170,9 @@ class TmdbArtworkImage {
 
   /// 用户评分。
   final double? voteAverage;
+
+  /// 社区投票人数（用于区分官方高投票与零票误传条目）。
+  final int? voteCount;
 }
 
 /// TMDB 作品完整详情（融合 `alternative_titles`、`translations` 与 `credits`）。
@@ -189,6 +193,7 @@ class TmdbWorkDetail {
     this.seasons = const [],
     this.candidatePosters = const [],
     this.candidateBackdrops = const [],
+    this.candidateLogos = const [],
     this.collectionId,
     this.collectionName,
     this.genreIds = const [],
@@ -235,6 +240,9 @@ class TmdbWorkDetail {
 
   /// 候选背景图列表。
   final List<TmdbArtworkImage> candidateBackdrops;
+
+  /// 候选透明标题徽标列表。
+  final List<TmdbArtworkImage> candidateLogos;
 
   /// 所属 TMDB 合集 ID（如多部剧场版同属一条 `belongs_to_collection`）。
   final int? collectionId;

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -60,6 +62,7 @@ Future<List<MediaVariant>?> showSourceFilesReviewDialog(
 class _SourceFilesReviewDialogState
     extends ConsumerState<SourceFilesReviewDialog> {
   final TextEditingController _filterController = TextEditingController();
+  final FocusNode _filterFocusNode = FocusNode();
   final ScrollController _listCtrl = ScrollController();
   final Set<String> _selectedIds = <String>{};
   String _query = '';
@@ -68,6 +71,7 @@ class _SourceFilesReviewDialogState
   @override
   void dispose() {
     _listCtrl.dispose();
+    _filterFocusNode.dispose();
     _filterController.dispose();
     super.dispose();
   }
@@ -301,53 +305,75 @@ class _SourceFilesReviewDialogState
               : () => _submitSelection(allVariants),
         ),
       ],
-      child: SizedBox(
-        height: 468,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildHeaderSummary(p, firstSource, commonDir, allVariants.length),
-            const SizedBox(height: 10),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
+      child: LayoutBuilder(
+        builder: (dialogCtx, outerConstraints) {
+          final targetH = outerConstraints.maxHeight.isFinite
+              ? math.min(468.0, outerConstraints.maxHeight)
+              : 468.0;
+          final landscapeCompact =
+              KonataGlassDialog.isLandscapeCompactInputActive(dialogCtx);
+          return SizedBox(
+            height: targetH,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                Offstage(
+                  offstage: landscapeCompact,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildHeaderSummary(
+                        p,
+                        firstSource,
+                        commonDir,
+                        allVariants.length,
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                  ),
+                ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: KonataSoftTextField(
+                        controller: _filterController,
+                        focusNode: _filterFocusNode,
+                        height: 36,
+                        dense: true,
+                        prefixIcon: Icons.search_rounded,
+                        borderRadius: BorderRadius.circular(999),
+                        hintText: '过滤文件名或子目录路径...',
+                        onChanged: (value) => setState(() => _query = value),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    KonataPillButton.secondary(
+                      height: 36,
+                      borderColor: p.hairline,
+                      label: allVisibleSelected ? '取消全选' : '全选视频',
+                      compact: true,
+                      onPressed: visibleVideos.isEmpty
+                          ? null
+                          : () => _toggleSelectAllVisible(visibleVideos),
+                    ),
+                    if (_selectedIds.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      KonataPillButton.ghost(
+                        height: 36,
+                        label: '清空 (${_selectedIds.length})',
+                        compact: true,
+                        onPressed: () => setState(() => _selectedIds.clear()),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 10),
                 Expanded(
-                  child: KonataSoftTextField(
-                    controller: _filterController,
-                    height: 36,
-                    dense: true,
-                    prefixIcon: Icons.search_rounded,
-                    borderRadius: BorderRadius.circular(999),
-                    hintText: '过滤文件名或子目录路径...',
-                    onChanged: (value) => setState(() => _query = value),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                KonataPillButton.secondary(
-                  height: 36,
-                  borderColor: p.hairline,
-                  label: allVisibleSelected ? '取消全选' : '全选视频',
-                  compact: true,
-                  onPressed: visibleVideos.isEmpty
-                      ? null
-                      : () => _toggleSelectAllVisible(visibleVideos),
-                ),
-                if (_selectedIds.isNotEmpty) ...[
-                  const SizedBox(width: 6),
-                  KonataPillButton.ghost(
-                    height: 36,
-                    label: '清空 (${_selectedIds.length})',
-                    compact: true,
-                    onPressed: () => setState(() => _selectedIds.clear()),
-                  ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 10),
-            Expanded(
-              child: KonataSurfaceCard(
-                padding: EdgeInsets.zero,
-                child: filtered.isEmpty
+                  child: KonataSurfaceCard(
+                    padding: EdgeInsets.zero,
+                    child: filtered.isEmpty
                     ? Center(
                         child: Text(
                           allVariants.isEmpty
@@ -379,10 +405,12 @@ class _SourceFilesReviewDialogState
                           },
                         ),
                       ),
-              ),
+                    ),
+                  ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }

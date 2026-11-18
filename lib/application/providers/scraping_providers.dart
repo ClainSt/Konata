@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/formatting/network_error_sanitizer.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/network_config.dart';
+import '../../domain/models/tmdb_models.dart';
 import '../../domain/models/work.dart';
 import '../../infrastructure/cache/artwork_cache.dart';
 import '../../infrastructure/network/bangumi_service.dart';
@@ -48,6 +49,7 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
 
   final Ref _ref;
   bool _cancelRequested = false;
+  static final Set<String> _autoBackfillInFlight = <String>{};
 
   Future<ScrapeOrchestrator> _buildOrchestrator() async {
     final config = await _ref.read(tmdbNetworkConfigProvider.future);
@@ -162,6 +164,75 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
     _ref.invalidate(workDetailBundleProvider(workId));
     _ref.invalidate(workScrapeCandidatesProvider(workId));
     return updated;
+  }
+
+  /// 详情页进入自动补全或手动点击重新抓取：自动补绑缺失的 `tmdbId` 并回填透明标题与无字横版背景。
+  Future<Work?> ensureOrRescrapeWork({
+    required String workId,
+    bool interactive = false,
+  }) async {
+    if (!interactive && !_autoBackfillInFlight.add(workId)) {
+      return null;
+    }
+    try {
+      final config = await _ref.read(tmdbNetworkConfigProvider.future);
+      if (!interactive && config.credentialKind == TmdbCredentialKind.none) {
+        return null;
+      }
+      final before = await _ref
+          .read(libraryRepositoryProvider)
+          .findWorkById(workId);
+      if (before == null) return null;
+
+      final orchestrator = await _buildOrchestrator();
+      final updated = await orchestrator.autoBindOrBackfillWorkTmdb(
+        workId,
+        interactive: interactive,
+      );
+      if (updated == null) return null;
+
+      if (updated.tmdbId != null && updated.tmdbMediaType != null) {
+        final autoMerged = await tryAutoMergeSupplementaryWork(
+          _ref,
+          sourceWorkId: workId,
+          bangumiId: updated.bangumiId,
+          tmdbId: updated.tmdbId!,
+          tmdbMediaType: updated.tmdbMediaType!,
+          matchedSeason: updated.matchedSeason,
+        );
+        if (autoMerged != null) {
+          await _ref
+              .read(photosStorageProvider)
+              .renameWorkFolderIfNeeded(autoMerged.id, autoMerged.title);
+          return autoMerged;
+        }
+      }
+
+      final changed =
+          updated.tmdbId != before.tmdbId ||
+          updated.logoPath != before.logoPath ||
+          updated.backdropPath != before.backdropPath ||
+          updated.title != before.title ||
+          interactive;
+      if (changed) {
+        await _ref
+            .read(photosStorageProvider)
+            .renameWorkFolderIfNeeded(updated.id, updated.title);
+        _ref.invalidate(libraryItemsProvider);
+        _ref.invalidate(worksCountProvider);
+        _ref.invalidate(seriesGroupsProvider);
+        _ref.invalidate(workDetailBundleProvider(workId));
+        _ref.invalidate(workScrapeCandidatesProvider(workId));
+      }
+      return updated;
+    } catch (_) {
+      if (!interactive) return null;
+      rethrow;
+    } finally {
+      if (!interactive) {
+        _autoBackfillInFlight.remove(workId);
+      }
+    }
   }
 }
 

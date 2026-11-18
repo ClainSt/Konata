@@ -2,6 +2,7 @@ import '../../domain/formatting/network_error_sanitizer.dart';
 import '../../domain/matching/directory_grouper.dart';
 import '../../domain/matching/episode_remapper.dart';
 import '../../domain/matching/work_matcher.dart';
+import '../../domain/models/episode.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/tmdb_models.dart';
@@ -777,6 +778,7 @@ class ScrapeOrchestrator {
     TmdbMediaType mediaType, {
     bool writeIdToFolderName = false,
     bool resetManualLocks = false,
+    bool markManualLocked = true,
   }) async {
     final existing = await _repository.findWorkById(workId);
     if (existing == null) {
@@ -877,7 +879,7 @@ class ScrapeOrchestrator {
         bangumiCandidate: matchDecision.bestBangumi,
         fallbackYear: existing.year,
         folderTmdbHint: tmdbId,
-        isManualLocked: true,
+        isManualLocked: markManualLocked || existing.isManualLocked,
         isHidden: existing.isHidden,
         keepHidden: existing.keepHidden,
       );
@@ -960,7 +962,7 @@ class ScrapeOrchestrator {
       detail: detail,
       fallbackYear: existing.year,
       folderTmdbHint: tmdbId,
-      isManualLocked: true,
+      isManualLocked: markManualLocked || existing.isManualLocked,
       isHidden: existing.isHidden,
       keepHidden: existing.keepHidden,
     );
@@ -982,6 +984,232 @@ class ScrapeOrchestrator {
       tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
     );
     return updated;
+  }
+
+  /// 详情页进入自动补全或点击重新抓取：为缺 `tmdbId`、`logoPath` 或无字横版背景的条目自动补绑并回填。
+  Future<Work?> autoBindOrBackfillWorkTmdb(
+    String workId, {
+    bool interactive = false,
+  }) async {
+    final existing = await _repository.findWorkById(workId);
+    if (existing == null) return null;
+
+    if (existing.tmdbId != null && existing.tmdbMediaType != null) {
+      if (interactive) {
+        return rebindWorkToTmdb(
+          workId,
+          existing.tmdbId!,
+          existing.tmdbMediaType!,
+        );
+      }
+      final missingLogo = existing.logoPath == null || existing.logoPath!.trim().isEmpty;
+      final missingBackdrop =
+          !existing.backdropLocked &&
+          (existing.backdropPath == null || existing.backdropPath!.trim().isEmpty);
+      if (!missingLogo && !missingBackdrop) {
+        return existing;
+      }
+      final detail = await _tmdbService.getWorkDetail(
+        existing.tmdbId!,
+        existing.tmdbMediaType!,
+        priority: RequestPriority.background,
+      );
+      if (detail == null) return existing;
+      final nextLogo = missingLogo
+          ? (detail.logoPath ?? existing.logoPath)
+          : existing.logoPath;
+      final canUpgradeRemoteBackdrop =
+          !existing.backdropLocked &&
+          (missingBackdrop ||
+              (missingLogo &&
+                  (existing.backdropPath?.startsWith('/') ?? false) &&
+                  (detail.backdropPath?.trim().isNotEmpty ?? false)));
+      final nextBackdrop = canUpgradeRemoteBackdrop
+          ? (detail.backdropPath ?? existing.backdropPath)
+          : existing.backdropPath;
+      if (nextLogo == existing.logoPath && nextBackdrop == existing.backdropPath) {
+        return existing;
+      }
+      final updated = existing.copyWith(
+        logoPath: nextLogo,
+        backdropPath: nextBackdrop,
+      );
+      await _repository.upsertWork(updated);
+      await SeriesAutoLinker.reconcileAll(
+        repository: _repository,
+        bangumiService: _bangumiService,
+        tmdbService: _tmdbService,
+        tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
+      );
+      return await _repository.findWorkById(workId) ?? updated;
+    }
+
+    if (!interactive && existing.metadataLocked) {
+      return existing;
+    }
+
+    final variants = await _repository.getVariantsByWork(workId);
+    final episodes = await _repository.getEpisodesByWork(workId);
+    final mainEpNums = episodes
+        .where(
+          (e) =>
+              e.category == EpisodeCategory.main &&
+              e.episodeNumber != null &&
+              e.episodeNumber! > 0,
+        )
+        .map((e) => e.episodeNumber!)
+        .toSet()
+        .toList()
+      ..sort();
+    final extraQueries = <String>[
+      existing.title.trim(),
+      if (existing.originalTitle != null) existing.originalTitle!.trim(),
+    ].where((s) => s.isNotEmpty).toSet().toList(growable: false);
+
+    GroupedWorkFolder? folder;
+    if (variants.isNotEmpty) {
+      final files = variants
+          .map(
+            (v) => ScannedFileInput(
+              relativePath: v.relativePath,
+              fileName: v.fileName,
+              fileSize: v.fileSize,
+              assetKind: v.assetKind,
+              externalSubtitles: v.externalSubtitles,
+              subtitleGroupHint: v.subtitleGroup,
+            ),
+          )
+          .toList(growable: false);
+      final grouped = await _computeWorker.groupFiles(
+        sourceId: variants.first.sourceId,
+        files: files,
+      );
+      if (grouped.isNotEmpty) {
+        folder = grouped.first;
+      }
+    }
+    folder ??= GroupedWorkFolder(
+      folderRelativePath: existing.title,
+      folderName: existing.title,
+      cleanTitle: existing.title,
+      explicitTmdbId: existing.folderTmdbHint,
+      year: existing.year,
+      seasonHint: existing.matchedSeason,
+      mainEpisodeNumbers: mainEpNums,
+      variants: const [],
+      titleHints: extraQueries,
+      extraSearchQueries: extraQueries,
+    );
+
+    final explicitId = existing.folderTmdbHint ?? folder.explicitTmdbId;
+    if (explicitId != null) {
+      final explicitFolder = folder.explicitTmdbId != null
+          ? folder
+          : GroupedWorkFolder(
+              folderRelativePath: folder.folderRelativePath,
+              folderName: folder.folderName,
+              cleanTitle: folder.cleanTitle,
+              explicitTmdbId: explicitId,
+              explicitMediaType: folder.explicitMediaType,
+              year: folder.year ?? existing.year,
+              seasonHint: folder.seasonHint ?? existing.matchedSeason,
+              mainEpisodeNumbers: folder.mainEpisodeNumbers.isNotEmpty
+                  ? folder.mainEpisodeNumbers
+                  : mainEpNums,
+              isMovieHint: folder.isMovieHint,
+              variants: folder.variants,
+              titleHints: folder.titleHints,
+              extraSearchQueries: extraQueries,
+            );
+      final explicitDetail = await _candidateFetcher.fetchExplicitDetail(
+        explicitFolder,
+      );
+      if (explicitDetail != null) {
+        return rebindWorkToTmdb(
+          workId,
+          explicitDetail.tmdbId,
+          explicitDetail.mediaType,
+          markManualLocked: interactive || existing.isManualLocked,
+        );
+      }
+    }
+
+    final bgmById = <int, BangumiSubjectCandidate>{};
+    if (_bangumiService != null && existing.bangumiId != null) {
+      try {
+        final bgmDetail = await _bangumiService.getSubjectDetail(
+          existing.bangumiId!,
+          priority: interactive
+              ? RequestPriority.interactive
+              : RequestPriority.background,
+        );
+        if (bgmDetail != null) {
+          bgmById[bgmDetail.id] = bgmDetail;
+        }
+      } catch (_) {}
+    }
+    final searchedBgm = await _candidateFetcher.fetchBangumiCandidates(
+      folder,
+      extraQueries: extraQueries,
+    );
+    for (final c in searchedBgm) {
+      bgmById.putIfAbsent(c.id, () => c);
+    }
+    final bgmCandidates = bgmById.values.toList(growable: false);
+    final bgmEval = await _computeWorker.evaluateBangumiMatch(
+      folder,
+      bgmCandidates,
+    );
+
+    var candidates = await _candidateFetcher.fetchCandidateDetails(
+      folder,
+      bangumiCandidate: bgmEval.best,
+      extraQueries: extraQueries,
+    );
+    var decision = await _computeWorker.evaluateMatch(
+      folder,
+      candidates,
+      bangumiCandidates: bgmCandidates,
+    );
+
+    final rescueTarget =
+        decision.bestBangumi?.subject ??
+        bgmEval.best?.subject ??
+        (existing.bangumiId != null ? bgmById[existing.bangumiId!] : null);
+    if (rescueTarget != null &&
+        (decision.best == null ||
+            (decision.best!.detail.backdropPath?.trim().isEmpty ?? true))) {
+      final rescued = await _candidateFetcher.rescueTmdbByBangumi(
+        folder,
+        rescueTarget,
+        existingDetails: candidates,
+      );
+      if (rescued.length > candidates.length) {
+        candidates = rescued;
+        decision = await _computeWorker.evaluateMatch(
+          folder,
+          candidates,
+          bangumiCandidates: bgmCandidates,
+        );
+      }
+    }
+
+    final best = decision.best;
+    final allowBind =
+        best != null &&
+        (decision.level == MatchLevel.autoBind ||
+            (existing.bangumiId != null &&
+                decision.level != MatchLevel.unmatched) ||
+            (interactive && decision.level != MatchLevel.unmatched));
+    if (!allowBind) {
+      return null;
+    }
+    return rebindWorkToTmdb(
+      workId,
+      best.detail.tmdbId,
+      best.detail.mediaType,
+      markManualLocked: interactive || existing.isManualLocked,
+    );
   }
 
   /// 仅针对与本次新扫入作品同身份（相同 TMDB/Bangumi 或同名同文件）的同源旧作品核实源目录存活性，自动清理因目录改名产生的幽灵重复卡片。

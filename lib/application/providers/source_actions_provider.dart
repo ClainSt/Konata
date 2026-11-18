@@ -185,7 +185,7 @@ class KonataActionsCoordinator {
         tmdbId,
         mediaType,
         priority: RequestPriority.interactive,
-        includeEnglishImages: false,
+        includeEnglishImages: true,
       );
     } finally {
       client.close();

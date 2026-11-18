@@ -218,7 +218,7 @@ void main() {
       final client = MockClient((request) async {
         expect(
           request.url.queryParameters['include_image_language'],
-          'zh,ja,null',
+          'zh,ja,en,null',
         );
         return http.Response.bytes(
           utf8.encode(

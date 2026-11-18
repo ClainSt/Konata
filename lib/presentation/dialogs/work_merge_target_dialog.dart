@@ -198,12 +198,10 @@ class _WorkMergeTargetDialogState extends ConsumerState<WorkMergeTargetDialog> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                KonataSoftTextField(
+                KonataSearchField(
                   controller: _searchCtrl,
                   focusNode: _searchFocusNode,
                   dense: true,
-                  hintText: '搜索已有作品名 / 原名 / 年份 / TMDB ID / Bangumi ID...',
-                  prefixIcon: Icons.search_rounded,
                   onChanged: (v) => setState(() => _query = v),
                 ),
                 const SizedBox(height: 10),
@@ -239,15 +237,15 @@ class _WorkMergeTargetDialogState extends ConsumerState<WorkMergeTargetDialog> {
                                           const KonataSegmentOption(
                                             value:
                                                 MergeVideoCategoryMode.preserve,
-                                            label: '保持原分类',
+                                            label: '原分类',
                                           ),
                                         const KonataSegmentOption(
                                           value: MergeVideoCategoryMode.asExtra,
-                                          label: '作为特典并入',
+                                          label: '特典',
                                         ),
                                         const KonataSegmentOption(
                                           value: MergeVideoCategoryMode.asMain,
-                                          label: '作为正片并入',
+                                          label: '正片',
                                         ),
                                       ],
                                       onChanged: _submitting

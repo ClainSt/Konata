@@ -417,10 +417,9 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
         Row(
           children: [
             Expanded(
-              child: KonataSoftTextField(
+              child: KonataSearchField(
                 controller: _bgmQueryCtrl,
                 focusNode: _bgmFocusNode,
-                hintText: '输入 Bangumi 条目中文或日文名...',
                 dense: true,
                 onSubmitted: (_) => _searchBangumi(),
               ),
@@ -533,10 +532,9 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
         Row(
           children: [
             Expanded(
-              child: KonataSoftTextField(
+              child: KonataSearchField(
                 controller: _tmdbQueryCtrl,
                 focusNode: _tmdbFocusNode,
-                hintText: '输入所属 TMDB 母系列名（如主系列名称）...',
                 dense: true,
                 onSubmitted: (_) => _searchTmdb(),
               ),

@@ -400,20 +400,6 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                               },
                             ),
                           ],
-                          if (_canDetachToIndependentSeries) ...[
-                            const SizedBox(height: 10),
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: KonataPillButton.secondary(
-                                label: '脱离为独立系列',
-                                icon: Icons.link_off_rounded,
-                                compact: true,
-                                onPressed: _saving
-                                    ? null
-                                    : _detachToIndependentSeries,
-                              ),
-                            ),
-                          ],
                         ],
                       ),
                     ),
@@ -574,11 +560,10 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      KonataSoftTextField(
+                      KonataSearchField(
                         controller: _searchCtrl,
                         focusNode: _searchFocusNode,
                         dense: landscapeCompactInput,
-                        hintText: '搜索库内作品加入此系列...',
                         onChanged: (_) => setState(() {}),
                       ),
                       SizedBox(height: landscapeCompactInput ? 6 : 8),
@@ -673,20 +658,39 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                         children: [
                           MediaQuery.withClampedTextScaling(
                             maxScaleFactor: 1.15,
-                            child: KonataSegmentedCapsule<_SeriesManagePane>(
-                              compact: true,
-                              selected: _mobilePane,
-                              onChanged: (pane) =>
-                                  setState(() => _mobilePane = pane),
-                              options: [
-                                KonataSegmentOption(
-                                  value: _SeriesManagePane.members,
-                                  label: '成员排序 (${_members.length})',
+                            child: Row(
+                              children: [
+                                Flexible(
+                                  child:
+                                      KonataSegmentedCapsule<_SeriesManagePane>(
+                                        compact: true,
+                                        selected: _mobilePane,
+                                        onChanged: (pane) =>
+                                            setState(() => _mobilePane = pane),
+                                        options: const [
+                                          KonataSegmentOption(
+                                            value: _SeriesManagePane.members,
+                                            label: '成员',
+                                          ),
+                                          KonataSegmentOption(
+                                            value: _SeriesManagePane.candidates,
+                                            label: '添加',
+                                          ),
+                                        ],
+                                      ),
                                 ),
-                                KonataSegmentOption(
-                                  value: _SeriesManagePane.candidates,
-                                  label: '添加作品 (${candidates.length})',
-                                ),
+                                if (_canDetachToIndependentSeries) ...[
+                                  const SizedBox(width: 8),
+                                  Spacer(),
+                                  KonataPillButton.secondary(
+                                    label: '脱离为独立系列',
+                                    icon: Icons.link_off_rounded,
+                                    compact: true,
+                                    onPressed: _saving
+                                        ? null
+                                        : _detachToIndependentSeries,
+                                  ),
+                                ],
                               ],
                             ),
                           ),

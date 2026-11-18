@@ -177,24 +177,15 @@ class _SourceFolderPickerDialogState
         .toList(growable: false);
   }
 
-  Widget _buildSearchField(KonataPalette p, {String? hintOverride}) {
-    return KonataSoftTextField(
+  Widget _buildSearchField(KonataPalette p) {
+    return KonataSearchField(
       controller: _searchController,
       focusNode: _searchFocusNode,
       dense: true,
-      prefixIcon: Icons.search_rounded,
-      hintText: hintOverride ?? '过滤当前目录下的文件夹或媒体文件...',
-      suffix: _searchQuery.isNotEmpty
-          ? IconButton(
-              icon: const Icon(Icons.close_rounded, size: 16),
-              color: p.textSecondary,
-              visualDensity: VisualDensity.compact,
-              onPressed: () {
-                _searchController.clear();
-                setState(() => _searchQuery = '');
-              },
-            )
-          : null,
+      onClear: () {
+        _searchController.clear();
+        setState(() => _searchQuery = '');
+      },
       onChanged: (v) => setState(() => _searchQuery = v),
     );
   }
@@ -218,7 +209,7 @@ class _SourceFolderPickerDialogState
       headerTrailing: isPhoneLandscape
           ? SizedBox(
               width: math.min(240.0, screen.width * 0.36),
-              child: _buildSearchField(p, hintOverride: '过滤当前目录...'),
+              child: _buildSearchField(p),
             )
           : null,
       onClose: _busy ? () {} : () => Navigator.of(context).pop(),

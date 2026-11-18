@@ -1188,7 +1188,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
               ),
             ),
           ),
-          // 第二段：中段左对齐曲目信息及两行实时歌词预览（无歌词时不显示冗余提示文字）
+          // 第二段：中段左对齐曲目名、音质徽章及两行实时歌词预览（不重复显示顶部已有的目录副标题）
           Padding(
             padding: const EdgeInsets.fromLTRB(22, 4, 22, 6),
             child: Column(
@@ -1213,15 +1213,6 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                       KonataSpecBadge(label: specLabel),
                     ],
                   ],
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  item.albumTitle.isNotEmpty
-                      ? item.albumTitle
-                      : item.work.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: p.textSecondary, fontSize: 13.5),
                 ),
                 if (!_portraitShowLyricsInPlace && hasLyrics) ...[
                   const SizedBox(height: 8),
@@ -1292,6 +1283,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           KonataCapsuleIconButton(
+                            key: const ValueKey('portrait_audio_loop_button'),
                             icon: switch (loopMode) {
                               AudioLoopMode.sequence =>
                                 Icons.trending_flat_rounded,
@@ -1322,6 +1314,16 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                             ),
                           ),
                           KonataCapsuleIconButton(
+                            key: const ValueKey('portrait_open_queue_button'),
+                            icon: Icons.queue_music_rounded,
+                            tooltip: '上拉或点击展开播放队列',
+                            color: p.textPrimary,
+                            size: 21,
+                            fixedSize: KonataAdaptiveTokens.touchTarget,
+                            onTap: _openPortraitQueueSheet,
+                          ),
+                          KonataCapsuleIconButton(
+                            key: const ValueKey('portrait_audio_mute_button'),
                             icon: isMuted
                                 ? Icons.volume_off_rounded
                                 : Icons.volume_up_rounded,
@@ -1330,15 +1332,6 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                             size: 20,
                             fixedSize: KonataAdaptiveTokens.touchTarget,
                             onTap: notifier.toggleMute,
-                          ),
-                          KonataCapsuleIconButton(
-                            key: const ValueKey('portrait_open_queue_button'),
-                            icon: Icons.queue_music_rounded,
-                            tooltip: '上拉或点击展开播放队列',
-                            color: p.textPrimary,
-                            size: 21,
-                            fixedSize: KonataAdaptiveTokens.touchTarget,
-                            onTap: _openPortraitQueueSheet,
                           ),
                         ],
                       ),

@@ -918,16 +918,21 @@ void main() {
           hasLength(1),
         );
 
-        // 日期与进度条在同一水平行，日期位于进度条右侧
+        // 进度条加「时间进度 + 观看日期」两行固定贴在封面底边（底边差值 <= 1px）
+        final coverRect = tester.getRect(
+          find.byWidgetPredicate(
+            (w) => w is SizedBox && w.width == 112 && w.height == 160,
+          ),
+        );
         final progressBarRect = tester.getRect(
           find.byType(LinearProgressIndicator),
         );
         final dateRect = tester.getRect(find.text('2026-11-16 21:58'));
+        expect(dateRect.top, greaterThanOrEqualTo(progressBarRect.bottom));
         expect(
-          (dateRect.center.dy - progressBarRect.center.dy).abs(),
-          lessThan(4.0),
+          (dateRect.bottom - coverRect.bottom).abs(),
+          lessThanOrEqualTo(1.0),
         );
-        expect(dateRect.left, greaterThan(progressBarRect.right));
 
         // 切换至「音频」页签
         await tester.tap(find.text('音频'));

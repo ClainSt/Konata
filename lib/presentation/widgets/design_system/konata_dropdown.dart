@@ -968,11 +968,6 @@ class _FrostedDropdownOverlayState<T> extends State<_FrostedDropdownOverlay<T>>
                                     ),
                                     decoration: InputDecoration(
                                       isDense: true,
-                                      hintText: widget.searchHint,
-                                      hintStyle: TextStyle(
-                                        color: p.textMuted,
-                                        fontSize: 12,
-                                      ),
                                       prefixIcon: Icon(
                                         Icons.search_rounded,
                                         size: 16,

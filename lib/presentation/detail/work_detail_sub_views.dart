@@ -225,7 +225,7 @@ class DetailLandscapeHeroBanner extends StatelessWidget {
         .clamp(216.0, 320.0);
     final artWidth = math.min(screenSize.width * 0.86, heroH * 16 / 9 * 1.24);
     final leftInset = math.max(16.0, safe.left + 12.0);
-    final topBackInset = math.max(7.0, safe.top + 6.0);
+    const topBackInset = 7.0;
 
     return SizedBox(
       key: const ValueKey('detail_phone_landscape_hero'),

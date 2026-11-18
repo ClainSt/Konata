@@ -112,7 +112,10 @@ class _KonataSoftTextFieldState extends State<KonataSoftTextField> {
     final p = context.palette;
     final compactIme = KonataGlassDialog.isLandscapeCompactInputActive(context);
     final effectiveDense = widget.dense || compactIme;
-    final effectiveHint = widget.hintText ?? (compactIme ? widget.label : null);
+    final isSearchInput = widget.prefixIcon == Icons.search_rounded;
+    final effectiveHint = isSearchInput
+        ? null
+        : (widget.hintText ?? (compactIme ? widget.label : null));
     final field = AnimatedContainer(
       duration: const Duration(milliseconds: 160),
       curve: Curves.easeOutCubic,
@@ -191,6 +194,112 @@ class _KonataSoftTextFieldState extends State<KonataSoftTextField> {
         ),
         field,
       ],
+    );
+  }
+}
+
+/// 全站统一公共搜索输入框（仅保留左侧放大镜图标与动态清空按钮，彻底去除占位提示词）。
+class KonataSearchField extends StatefulWidget {
+  /// 创建无占位提示词的统一搜索输入框。
+  const KonataSearchField({
+    super.key,
+    this.controller,
+    this.focusNode,
+    this.onChanged,
+    this.onSubmitted,
+    this.onClear,
+    this.dense = true,
+    this.height,
+    this.borderRadius,
+    this.showClearButton = true,
+  });
+
+  /// 文本控制器。
+  final TextEditingController? controller;
+
+  /// 焦点节点。
+  final FocusNode? focusNode;
+
+  /// 文本变更回调。
+  final ValueChanged<String>? onChanged;
+
+  /// 回车提交回调。
+  final ValueChanged<String>? onSubmitted;
+
+  /// 点击清空按钮回调（为空时默认清空 [controller] 并触发 `onChanged('')`）。
+  final VoidCallback? onClear;
+
+  /// 是否紧凑高度。
+  final bool dense;
+
+  /// 可选固定高度。
+  final double? height;
+
+  /// 可选圆角覆盖。
+  final BorderRadiusGeometry? borderRadius;
+
+  /// 输入非空时是否在尾部显示一键清除按钮。
+  final bool showClearButton;
+
+  @override
+  State<KonataSearchField> createState() => _KonataSearchFieldState();
+}
+
+class _KonataSearchFieldState extends State<KonataSearchField> {
+  TextEditingController? _internalController;
+
+  TextEditingController get _effectiveController =>
+      widget.controller ?? (_internalController ??= TextEditingController());
+
+  @override
+  void dispose() {
+    _internalController?.dispose();
+    super.dispose();
+  }
+
+  void _handleClear() {
+    if (widget.onClear != null) {
+      widget.onClear!();
+      return;
+    }
+    _effectiveController.clear();
+    widget.onChanged?.call('');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: _effectiveController,
+      builder: (context, value, _) {
+        return KonataSoftTextField(
+          controller: _effectiveController,
+          focusNode: widget.focusNode,
+          dense: widget.dense,
+          height: widget.height,
+          borderRadius: widget.borderRadius,
+          prefixIcon: Icons.search_rounded,
+          suffix: widget.showClearButton && value.text.isNotEmpty
+              ? GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _handleClear,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 2,
+                      vertical: 2,
+                    ),
+                    child: Icon(
+                      Icons.close_rounded,
+                      size: 16,
+                      color: p.textSecondary,
+                    ),
+                  ),
+                )
+              : null,
+          onChanged: widget.onChanged,
+          onSubmitted: widget.onSubmitted,
+        );
+      },
     );
   }
 }

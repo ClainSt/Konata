@@ -344,6 +344,10 @@ class _FrostedPlayButtonState extends State<FrostedPlayButton> {
         ? KonataPlaybackTokens.activeGlassBorder(p)
         : KonataPlaybackTokens.glassBorder(p);
     final fgColor = KonataTheme.detailPrimaryTextColor(p);
+    final capsuleHeight = KonataPlaybackTokens.detailActionCapsuleHeight(
+      isTouch: KonataAdaptiveTokens.isAndroid,
+    );
+    const radius = KonataPlaybackTokens.detailActionCapsuleRadius;
 
     return MouseRegion(
       cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
@@ -359,7 +363,7 @@ class _FrostedPlayButtonState extends State<FrostedPlayButton> {
         onTapCancel: enabled ? () => setState(() => _pressed = false) : null,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(radius),
             boxShadow: [
               BoxShadow(
                 color: KonataPlaybackTokens.shadowColor(p),
@@ -369,25 +373,22 @@ class _FrostedPlayButtonState extends State<FrostedPlayButton> {
             ],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(radius),
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 140),
                 curve: Curves.easeOutCubic,
-                constraints: KonataAdaptiveTokens.isAndroid
-                    ? const BoxConstraints(
-                        minHeight: KonataAdaptiveTokens.touchTarget,
-                      )
-                    : null,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 22,
-                  vertical: 11,
-                ),
+                width: widget.expandWidth ? double.infinity : null,
+                height: capsuleHeight,
+                padding: const EdgeInsets.symmetric(horizontal: 22),
                 decoration: BoxDecoration(
                   color: fillColor,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: borderColor, width: 1),
+                  borderRadius: BorderRadius.circular(radius),
+                  border: Border.all(
+                    color: borderColor,
+                    width: KonataPlaybackTokens.detailActionCapsuleBorderWidth,
+                  ),
                 ),
                 child: Row(
                   mainAxisSize: widget.expandWidth

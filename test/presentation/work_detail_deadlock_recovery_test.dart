@@ -434,7 +434,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.textContaining('观看至'));
+      await tester.tap(find.text('02:00 / 24:00'));
       await tester.pumpAndSettle();
 
       expect(find.byType(WorkDetailPage), findsNothing);

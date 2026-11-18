@@ -18,6 +18,7 @@ import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_draggable_dialog.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
+import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/managed_image.dart';
 import 'detail_bottom_drawer.dart';
 import 'detail_gear_menu.dart';
@@ -490,8 +491,9 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
                           height: KonataAdaptiveTokens.isAndroid
                               ? KonataAdaptiveTokens.touchTarget
                               : 34,
-                          child: _FrostedSearchField(
+                          child: KonataSearchField(
                             controller: _searchController,
+                            borderRadius: BorderRadius.circular(12),
                             onChanged: (v) {
                               if (_query == v) return;
                               setState(() => _query = v);
@@ -531,8 +533,9 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
                       height: KonataAdaptiveTokens.isAndroid
                           ? KonataAdaptiveTokens.touchTarget
                           : 36,
-                      child: _FrostedSearchField(
+                      child: KonataSearchField(
                         controller: _searchController,
+                        borderRadius: BorderRadius.circular(12),
                         onChanged: (v) {
                           if (_query == v) return;
                           setState(() => _query = v);
@@ -677,54 +680,43 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
       if (list.isEmpty) {
         return _buildEmptyMatch();
       }
-      return KonataDraggableScrollbar(
-        controller: _gridScrollController,
-        builder: (_, ctrl) => GridView.builder(
-          controller: ctrl,
-          padding: const EdgeInsets.only(right: 16, bottom: 6),
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 256,
-            mainAxisSpacing: 14,
-            crossAxisSpacing: 14,
-            mainAxisExtent: 214,
-          ),
-          itemCount: list.length,
-          itemBuilder: (_, index) {
-            final ep = list[index];
-            final variants = widget.bundle.variantsForEpisode(ep.id);
-            final playback = widget.bundle.playbackByEpisodeId[ep.id];
-            final markHandler = widget.onEpisodeMarkCompleted;
-            return EpisodeDrawerCard(
-              key: ValueKey('full_list_ep_${ep.id}'),
-              episode: ep,
-              variants: variants,
-              fallbackBackdropPath:
-                  widget.bundle.work.backdropPath ??
-                  widget.bundle.work.posterPath,
-              imageLoader: widget.imageLoader,
-              workTitle: widget.bundle.work.title,
-              workMediaType: widget.bundle.work.tmdbMediaType,
-              mainEpisodeCount: mainEps.length,
-              displayTitleOverride: _activeTab == DetailDrawerTab.extra
-                  ? extraDisplayTitleByEpId[ep.id]
-                  : null,
-              showRawFileName: widget.showRawVideoFilename,
-              onDarkBackdrop: false,
-              onTap: () => widget.onEpisodeTap(ep),
-              onPlayBuiltin: widget.onEpisodePlayBuiltin == null
-                  ? null
-                  : () => widget.onEpisodePlayBuiltin!(ep),
-              onPlayExternal: widget.onEpisodePlayExternal == null
-                  ? null
-                  : () => widget.onEpisodePlayExternal!(ep),
-              onAdjustSlot: () => widget.onEpisodeAdjustSlot(ep),
-              playback: playback,
-              onMarkCompleted: markHandler == null
-                  ? null
-                  : () => markHandler(ep),
-            );
-          },
-        ),
+      return _buildCompactCardRows<Episode>(
+        items: list,
+        itemBuilder: (ep) {
+          final variants = widget.bundle.variantsForEpisode(ep.id);
+          final playback = widget.bundle.playbackByEpisodeId[ep.id];
+          final markHandler = widget.onEpisodeMarkCompleted;
+          return EpisodeDrawerCard(
+            key: ValueKey('full_list_ep_${ep.id}'),
+            episode: ep,
+            variants: variants,
+            fallbackBackdropPath:
+                widget.bundle.work.backdropPath ??
+                widget.bundle.work.posterPath,
+            imageLoader: widget.imageLoader,
+            workTitle: widget.bundle.work.title,
+            workMediaType: widget.bundle.work.tmdbMediaType,
+            mainEpisodeCount: mainEps.length,
+            displayTitleOverride: _activeTab == DetailDrawerTab.extra
+                ? extraDisplayTitleByEpId[ep.id]
+                : null,
+            showRawFileName: widget.showRawVideoFilename,
+            compactMeta: true,
+            onDarkBackdrop: false,
+            onTap: () => widget.onEpisodeTap(ep),
+            onPlayBuiltin: widget.onEpisodePlayBuiltin == null
+                ? null
+                : () => widget.onEpisodePlayBuiltin!(ep),
+            onPlayExternal: widget.onEpisodePlayExternal == null
+                ? null
+                : () => widget.onEpisodePlayExternal!(ep),
+            onAdjustSlot: () => widget.onEpisodeAdjustSlot(ep),
+            playback: playback,
+            onMarkCompleted: markHandler == null
+                ? null
+                : () => markHandler(ep),
+          );
+        },
       );
     }
 
@@ -756,50 +748,38 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
 
       final showDirectSubdir =
           _selectedSecondaryKey == null && cdSummary.hasMultipleSubdirs;
-      return KonataDraggableScrollbar(
-        controller: _gridScrollController,
-        builder: (_, ctrl) => GridView.builder(
-          controller: ctrl,
-          padding: const EdgeInsets.only(right: 16, bottom: 6),
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 256,
-            mainAxisSpacing: 14,
-            crossAxisSpacing: 14,
-            mainAxisExtent: 214,
-          ),
-          itemCount: list.length,
-          itemBuilder: (_, index) {
-            final v = list[index];
-            final group = cdSummary.byVariantId[v.id];
-            final dot = v.fileName.lastIndexOf('.');
-            final stem = dot > 0 ? v.fileName.substring(0, dot) : v.fileName;
-            final titleOverride =
-                (CueVariantResolver.isGenericDiscImageStem(stem) &&
-                    group != null &&
-                    group.chipLabel.isNotEmpty &&
-                    group.chipLabel != 'CD')
-                ? group.chipLabel
-                : null;
-            return CdDrawerCard(
-              key: ValueKey('full_list_cd_${v.id}'),
-              variant: v,
-              showSeriesSharedBadge: showSharedBadge,
-              displayTitleOverride: titleOverride,
-              showRawFileName: widget.showRawVideoFilename,
-              directSubdirLabel: showDirectSubdir
-                  ? group?.directSubdirShort
-                  : null,
-              onDarkBackdrop: false,
-              onTap: () => widget.onCdTap?.call(v),
-              onPlayImmersive: widget.onCdPlayImmersive == null
-                  ? null
-                  : () => widget.onCdPlayImmersive!(v),
-              onPlayExternal: widget.onCdPlayExternal == null
-                  ? null
-                  : () => widget.onCdPlayExternal!(v),
-            );
-          },
-        ),
+      return _buildCompactCardRows<MediaVariant>(
+        items: list,
+        itemBuilder: (v) {
+          final group = cdSummary.byVariantId[v.id];
+          final dot = v.fileName.lastIndexOf('.');
+          final stem = dot > 0 ? v.fileName.substring(0, dot) : v.fileName;
+          final titleOverride =
+              (CueVariantResolver.isGenericDiscImageStem(stem) &&
+                  group != null &&
+                  group.chipLabel.isNotEmpty &&
+                  group.chipLabel != 'CD')
+              ? group.chipLabel
+              : null;
+          return CdDrawerCard(
+            key: ValueKey('full_list_cd_${v.id}'),
+            variant: v,
+            showSeriesSharedBadge: showSharedBadge,
+            displayTitleOverride: titleOverride,
+            showRawFileName: widget.showRawVideoFilename,
+            directSubdirLabel: showDirectSubdir
+                ? group?.directSubdirShort
+                : null,
+            onDarkBackdrop: false,
+            onTap: () => widget.onCdTap?.call(v),
+            onPlayImmersive: widget.onCdPlayImmersive == null
+                ? null
+                : () => widget.onCdPlayImmersive!(v),
+            onPlayExternal: widget.onCdPlayExternal == null
+                ? null
+                : () => widget.onCdPlayExternal!(v),
+          );
+        },
       );
     }
 
@@ -830,36 +810,68 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
 
     final showDirectSubdir =
         _selectedSecondaryKey == null && scanSummary.hasMultipleSubdirs;
-    return KonataDraggableScrollbar(
-      controller: _gridScrollController,
-      builder: (_, ctrl) => GridView.builder(
-        controller: ctrl,
-        padding: const EdgeInsets.only(right: 16, bottom: 6),
-        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 256,
-          mainAxisSpacing: 14,
-          crossAxisSpacing: 14,
-          mainAxisExtent: 214,
-        ),
-        itemCount: list.length,
-        itemBuilder: (_, index) {
-          final v = list[index];
-          final group = scanSummary.byVariantId[v.id];
-          return ScanDrawerCard(
-            key: ValueKey('full_list_scan_${v.id}'),
-            variant: v,
-            source: widget.bundle.sourcesById[v.sourceId],
-            workId: widget.bundle.work.id,
-            workTitle: widget.bundle.work.title,
-            showSeriesSharedBadge: showSharedBadge,
-            directSubdirLabel: showDirectSubdir
-                ? group?.directSubdirShort
-                : null,
-            onDarkBackdrop: false,
-            onTap: () => widget.onScanTap?.call(v),
-          );
-        },
-      ),
+    return _buildCompactCardRows<MediaVariant>(
+      items: list,
+      itemBuilder: (v) {
+        final group = scanSummary.byVariantId[v.id];
+        return ScanDrawerCard(
+          key: ValueKey('full_list_scan_${v.id}'),
+          variant: v,
+          source: widget.bundle.sourcesById[v.sourceId],
+          workId: widget.bundle.work.id,
+          workTitle: widget.bundle.work.title,
+          showSeriesSharedBadge: showSharedBadge,
+          directSubdirLabel: showDirectSubdir ? group?.directSubdirShort : null,
+          onDarkBackdrop: false,
+          onTap: () => widget.onScanTap?.call(v),
+        );
+      },
+    );
+  }
+
+  /// 按卡片「16:9 缩略图 + 底部实际文字」真实自然高度紧凑分行排布，消除固定网格行高造成的垂直空隙。
+  Widget _buildCompactCardRows<T>({
+    required List<T> items,
+    required Widget Function(T item) itemBuilder,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const rightPad = 16.0;
+        const crossSpacing = 12.0;
+        const maxExtent = 256.0;
+        final usableWidth = math.max(120.0, constraints.maxWidth - rightPad);
+        final columns = math.max(
+          1,
+          ((usableWidth + crossSpacing) / (maxExtent + crossSpacing)).ceil(),
+        );
+        final rowCount = (items.length + columns - 1) ~/ columns;
+
+        return KonataDraggableScrollbar(
+          controller: _gridScrollController,
+          builder: (_, ctrl) => ListView.separated(
+            controller: ctrl,
+            padding: const EdgeInsets.only(right: rightPad, bottom: 6),
+            itemCount: rowCount,
+            separatorBuilder: (_, _) => const SizedBox(height: 10),
+            itemBuilder: (_, rowIdx) {
+              final start = rowIdx * columns;
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var col = 0; col < columns; col++) ...[
+                    if (col > 0) const SizedBox(width: crossSpacing),
+                    Expanded(
+                      child: start + col < items.length
+                          ? itemBuilder(items[start + col])
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
+                ],
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
@@ -875,89 +887,6 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
           fontSize: 13.5,
           fontWeight: FontWeight.w500,
         ),
-      ),
-    );
-  }
-}
-
-class _FrostedSearchField extends StatelessWidget {
-  const _FrostedSearchField({
-    required this.controller,
-    required this.onChanged,
-  });
-
-  final TextEditingController controller;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    return Container(
-      decoration: BoxDecoration(
-        color: KonataPlaybackTokens.softFill(p),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: p.isDark
-              ? KonataPlaybackTokens.glassBorder(p)
-              : const Color(0x260F172A),
-          width: 0.9,
-        ),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      alignment: Alignment.center,
-      child: ValueListenableBuilder<TextEditingValue>(
-        valueListenable: controller,
-        builder: (context, value, _) {
-          return Row(
-            children: [
-              Icon(Icons.search_rounded, size: 16, color: p.textSecondary),
-              const SizedBox(width: 7),
-              Expanded(
-                child: TextField(
-                  controller: controller,
-                  onChanged: onChanged,
-                  style: KonataTheme.detailTextStyle(
-                    palette: p,
-                    color: p.textPrimary,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w400,
-                  ),
-                  cursorColor: p.textPrimary,
-                  decoration: InputDecoration(
-                    isDense: true,
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    hintText: '搜索文件名或分组...',
-                    hintStyle: KonataTheme.detailTextStyle(
-                      palette: p,
-                      color: p.textMuted,
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w400,
-                    ),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-              ),
-              if (value.text.isNotEmpty)
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () {
-                    controller.clear();
-                    onChanged('');
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.only(left: 4),
-                    child: Icon(
-                      Icons.close_rounded,
-                      size: 15,
-                      color: p.textSecondary,
-                    ),
-                  ),
-                ),
-            ],
-          );
-        },
       ),
     );
   }

@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -438,18 +436,6 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     }
   }
 
-  double _measureSingleLineHeight(BuildContext context, TextStyle style) {
-    final effective = DefaultTextStyle.of(context).style.merge(style);
-    final painter = TextPainter(
-      text: TextSpan(text: 'Hg测试01', style: effective),
-      maxLines: 1,
-      textDirection: Directionality.maybeOf(context) ?? TextDirection.ltr,
-      textScaler: MediaQuery.textScalerOf(context),
-      locale: Localizations.maybeLocaleOf(context),
-    )..layout();
-    return painter.height;
-  }
-
   String? _resolveAudioDirectoryLabel(
     PlaybackRecord rec,
     WorkLibraryItem? item,
@@ -469,49 +455,6 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
       return label;
     }
     return null;
-  }
-
-  double _measureDesktopVideoCardHeight({
-    required BuildContext context,
-    required WorkLibraryItem? item,
-    required double titleMaxWidth,
-    required double epLineHeight,
-    required double progressLineHeight,
-    required double dateLineHeight,
-  }) {
-    final title = item?.work.title ?? '未知作品';
-    final effectiveTitleStyle = DefaultTextStyle.of(context).style.merge(
-      const TextStyle(
-        fontSize: PlaybackHistoryCardMetrics.titleFontSize,
-        fontWeight: FontWeight.w700,
-        height: PlaybackHistoryCardMetrics.titleLineHeight,
-      ),
-    );
-    final painter = TextPainter(
-      text: TextSpan(text: title, style: effectiveTitleStyle),
-      textDirection: Directionality.maybeOf(context) ?? TextDirection.ltr,
-      textScaler: MediaQuery.textScalerOf(context),
-      locale: Localizations.maybeLocaleOf(context),
-    )..layout(maxWidth: math.max(40.0, titleMaxWidth));
-
-    final stackedBottomRow = titleMaxWidth < 260.0;
-    final bottomRowH = stackedBottomRow
-        ? (PlaybackHistoryCardMetrics.progressBarHeight + 8.0 + dateLineHeight)
-        : math.max(PlaybackHistoryCardMetrics.progressBarHeight, dateLineHeight);
-    final rightHeight =
-        painter.height +
-        PlaybackHistoryCardMetrics.titleSubtitleGap +
-        epLineHeight +
-        16.0 +
-        progressLineHeight +
-        PlaybackHistoryCardMetrics.progressBarGap +
-        bottomRowH;
-    return math.max(
-      PlaybackHistoryCardMetrics.videoCoverHeight +
-          PlaybackHistoryCardMetrics.cardPadding * 2 +
-          2,
-      rightHeight + PlaybackHistoryCardMetrics.cardPadding * 2 + 8,
-    );
   }
 
   Widget _buildRecordItemCard({
@@ -762,61 +705,6 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                       final rowCount = twoColumns
                           ? (records.length + 1) ~/ 2
                           : records.length;
-                      final contentWidth =
-                          constraints.maxWidth - listPadH * 2;
-                      final cardWidth = twoColumns
-                          ? math.max(
-                              120.0,
-                              (contentWidth -
-                                      PlaybackHistoryCardMetrics.colGap) /
-                                  2,
-                            )
-                          : contentWidth;
-                      final trailingWidth =
-                          (inSelection || KonataAdaptiveTokens.isAndroid)
-                          ? 36.0
-                          : 0.0;
-                      final titleMaxWidth =
-                          cardWidth -
-                          PlaybackHistoryCardMetrics.cardPadding * 2 -
-                          2 -
-                          PlaybackHistoryCardMetrics.videoCoverWidth -
-                          PlaybackHistoryCardMetrics.coverTextGap -
-                          trailingWidth;
-                      final epH = twoColumns && !isAudioTab
-                          ? _measureSingleLineHeight(
-                              context,
-                              const TextStyle(
-                                fontSize:
-                                    PlaybackHistoryCardMetrics.subtitleFontSize,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            )
-                          : 0.0;
-                      final progH = twoColumns && !isAudioTab
-                          ? _measureSingleLineHeight(
-                              context,
-                              KonataTheme.textStyle(
-                                color: p.progressFill,
-                                fontSize:
-                                    PlaybackHistoryCardMetrics.progressFontSize,
-                                weight: 600,
-                                tabularFigures: true,
-                              ),
-                            )
-                          : 0.0;
-                      final dateH = twoColumns && !isAudioTab
-                          ? _measureSingleLineHeight(
-                              context,
-                              KonataTheme.textStyle(
-                                color: p.textMuted,
-                                fontSize:
-                                    PlaybackHistoryCardMetrics.dateFontSize,
-                                weight: 500,
-                                tabularFigures: true,
-                              ),
-                            )
-                          : 0.0;
                       final cdSummaryCache = <String, CdAlbumGroupSummary>{};
 
                       return KonataDraggableScrollbar(
@@ -827,7 +715,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                             listPadH,
                             0,
                             listPadH,
-                            28 + bottomClearance,
+                            36 + bottomClearance,
                           ),
                           itemCount: rowCount,
                           separatorBuilder: (_, _) =>
@@ -880,95 +768,37 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                                   )
                                 : null;
 
-                            if (isAudioTab) {
-                              return Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(
-                                    child: _buildRecordItemCard(
-                                      context: context,
-                                      rec: leftRec,
-                                      item: leftItem,
-                                      isAudio: true,
-                                      stretchHeight: false,
-                                      audioDirLabel: leftDirLabel,
-                                      imageLoader: imageLoader,
-                                    ),
-                                  ),
-                                  const SizedBox(
-                                    width: PlaybackHistoryCardMetrics.colGap,
-                                  ),
-                                  Expanded(
-                                    child: rightRec != null
-                                        ? _buildRecordItemCard(
-                                            context: context,
-                                            rec: rightRec,
-                                            item: rightItem,
-                                            isAudio: true,
-                                            stretchHeight: false,
-                                            audioDirLabel: rightDirLabel,
-                                            imageLoader: imageLoader,
-                                          )
-                                        : const SizedBox.shrink(),
-                                  ),
-                                ],
-                              );
-                            }
-
-                            final leftHeight = _measureDesktopVideoCardHeight(
-                              context: context,
-                              item: leftItem,
-                              titleMaxWidth: titleMaxWidth,
-                              epLineHeight: epH,
-                              progressLineHeight: progH,
-                              dateLineHeight: dateH,
-                            );
-                            final rightHeight = rightRec == null
-                                ? leftHeight
-                                : _measureDesktopVideoCardHeight(
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: _buildRecordItemCard(
                                     context: context,
-                                    item: rightItem,
-                                    titleMaxWidth: titleMaxWidth,
-                                    epLineHeight: epH,
-                                    progressLineHeight: progH,
-                                    dateLineHeight: dateH,
-                                  );
-                            final rowHeight = math.max(leftHeight, rightHeight);
-
-                            return SizedBox(
-                              height: rowHeight,
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  Expanded(
-                                    child: _buildRecordItemCard(
-                                      context: context,
-                                      rec: leftRec,
-                                      item: leftItem,
-                                      isAudio: false,
-                                      stretchHeight: true,
-                                      audioDirLabel: null,
-                                      imageLoader: imageLoader,
-                                    ),
+                                    rec: leftRec,
+                                    item: leftItem,
+                                    isAudio: isAudioTab,
+                                    stretchHeight: true,
+                                    audioDirLabel: leftDirLabel,
+                                    imageLoader: imageLoader,
                                   ),
-                                  const SizedBox(
-                                    width: PlaybackHistoryCardMetrics.colGap,
-                                  ),
-                                  Expanded(
-                                    child: rightRec != null
-                                        ? _buildRecordItemCard(
-                                            context: context,
-                                            rec: rightRec,
-                                            item: rightItem,
-                                            isAudio: false,
-                                            stretchHeight: true,
-                                            audioDirLabel: null,
-                                            imageLoader: imageLoader,
-                                          )
-                                        : const SizedBox.shrink(),
-                                  ),
-                                ],
-                              ),
+                                ),
+                                const SizedBox(
+                                  width: PlaybackHistoryCardMetrics.colGap,
+                                ),
+                                Expanded(
+                                  child: rightRec != null
+                                      ? _buildRecordItemCard(
+                                          context: context,
+                                          rec: rightRec,
+                                          item: rightItem,
+                                          isAudio: isAudioTab,
+                                          stretchHeight: true,
+                                          audioDirLabel: rightDirLabel,
+                                          imageLoader: imageLoader,
+                                        )
+                                      : const SizedBox.shrink(),
+                                ),
+                              ],
                             );
                           },
                         ),

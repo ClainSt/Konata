@@ -600,12 +600,7 @@ class _ExpandableSearchBox extends StatelessWidget {
                               color: p.textPrimary,
                               fontSize: 12.5,
                             ),
-                            decoration: InputDecoration(
-                              hintText: '搜索作品 / 原名 / 压制组 / ID',
-                              hintStyle: TextStyle(
-                                color: p.textMuted,
-                                fontSize: 12,
-                              ),
+                            decoration: const InputDecoration(
                               border: InputBorder.none,
                               enabledBorder: InputBorder.none,
                               focusedBorder: InputBorder.none,

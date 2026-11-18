@@ -128,8 +128,12 @@ class _SeriesSwitcherDropdownState extends State<SeriesSwitcherDropdown> {
         (KonataAdaptiveTokens.isAndroid &&
             MediaQuery.sizeOf(context).shortestSide <
                 KonataAdaptiveTokens.tabletBreakpoint);
+    final capsuleHeight = KonataPlaybackTokens.detailActionCapsuleHeight(
+      isTouch: KonataAdaptiveTokens.isAndroid,
+    );
+    const radius = KonataPlaybackTokens.detailActionCapsuleRadius;
     final pill = ClipRRect(
-      borderRadius: BorderRadius.circular(999),
+      borderRadius: BorderRadius.circular(radius),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
         child: Material(
@@ -137,37 +141,38 @@ class _SeriesSwitcherDropdownState extends State<SeriesSwitcherDropdown> {
               ? KonataPlaybackTokens.activePillBg(p)
               : KonataPlaybackTokens.glassSurface(p),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(radius),
             side: BorderSide(
               color: isOpen
                   ? KonataPlaybackTokens.activeGlassBorder(p)
                   : KonataPlaybackTokens.glassBorder(p),
-              width: 1,
+              width: KonataPlaybackTokens.detailActionCapsuleBorderWidth,
             ),
           ),
           child: InkWell(
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(radius),
             hoverColor: KonataPlaybackTokens.hoverFill(p),
             onTap: _toggleMenu,
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: effectiveCompact ? 10 : 13,
-                vertical: effectiveCompact ? 5.5 : 8.5,
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.layers_rounded,
-                    size: effectiveCompact ? 13.5 : 14.5,
-                    color: p.textPrimary,
-                  ),
-                  const SizedBox(width: 5),
-                  ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxWidth: effectiveCompact ? 128 : 168,
+            child: SizedBox(
+              height: capsuleHeight,
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: effectiveCompact ? 12 : 15,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.layers_rounded,
+                      size: effectiveCompact ? 14.5 : 15.5,
+                      color: p.textPrimary,
                     ),
-                    child: Text(
+                    const SizedBox(width: 6),
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: effectiveCompact ? 136 : 176,
+                      ),
+                      child: Text(
                       currentLabel,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -189,7 +194,8 @@ class _SeriesSwitcherDropdownState extends State<SeriesSwitcherDropdown> {
                       color: p.textSecondary,
                     ),
                   ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

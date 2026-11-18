@@ -237,6 +237,16 @@ abstract final class KonataPlaybackTokens {
   /// 平板端双栏全屏音频左栏封面最大边长（位于 360 ~ 420dp 区间）。
   static const double tabletAlbumCoverMaxSize = 396.0;
 
+  /// 详情页「继续播放」主按钮与「系列切换下拉」同行等高胶囊几何常量。
+  static const double detailActionCapsuleDesktopHeight = 42.0;
+  static const double detailActionCapsuleTouchHeight = 48.0;
+  static const double detailActionCapsuleRadius = 999.0;
+  static const double detailActionCapsuleBorderWidth = 1.0;
+
+  /// 解析详情页同行主操作胶囊的标准高度。
+  static double detailActionCapsuleHeight({required bool isTouch}) =>
+      isTouch ? detailActionCapsuleTouchHeight : detailActionCapsuleDesktopHeight;
+
   /// 视频迷你胶囊实时画面圆角预览框尺寸。
   static const double miniVideoPreviewWidth = 60.0;
   static const double miniVideoPreviewHeight = 38.0;

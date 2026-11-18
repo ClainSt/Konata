@@ -308,16 +308,16 @@ void main() {
       expect(find.text('全选'), findsOneWidget);
       expect(find.text('反选'), findsOneWidget);
 
-      // 验证反选、全选与批量移除
+      // 验证反选、全选与移除
       await tester.tap(find.text('反选'));
       await tester.pump();
-      expect(find.text('批量移除 (2)'), findsOneWidget);
+      expect(find.text('移除 (2)'), findsOneWidget);
       await tester.tap(find.text('反选'));
       await tester.pump();
       await tester.tap(find.text('全选'));
       await tester.pump();
-      expect(find.text('批量移除 (2)'), findsOneWidget);
-      await tester.tap(find.text('批量移除 (2)'));
+      expect(find.text('移除 (2)'), findsOneWidget);
+      await tester.tap(find.text('移除 (2)'));
       await tester.pump();
 
       expect(find.text('当前未勾选指定目录（默认扫描整源）'), findsOneWidget);

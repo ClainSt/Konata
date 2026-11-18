@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -100,9 +101,8 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
   Timer? _idleTimer;
   Timer? _lockPeekTimer;
 
-  bool _cornerBadgeVisible = false;
-  String _cornerBadgeText = '';
-  IconData _cornerBadgeIcon = Icons.pause_rounded;
+  final ValueNotifier<({String text, IconData icon, bool centered})?>
+      _statusCueNotifier = ValueNotifier(null);
   Timer? _cornerBadgeTimer;
 
   int _externalVolumePulse = 0;
@@ -144,6 +144,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
     _lockPeekTimer?.cancel();
     _cornerBadgeTimer?.cancel();
     _rightHoldTimer?.cancel();
+    _statusCueNotifier.dispose();
     if (KonataAdaptiveTokens.isAndroid && widget.onCollapseToMini == null) {
       unawaited(
         AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
@@ -290,18 +291,18 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
     }
   }
 
-  void _flashCornerStatus(String text, IconData icon) {
+  void _flashCornerStatus(
+    String text,
+    IconData icon, {
+    bool centered = false,
+  }) {
     _cornerBadgeTimer?.cancel();
-    setState(() {
-      _cornerBadgeText = text;
-      _cornerBadgeIcon = icon;
-      _cornerBadgeVisible = true;
-    });
+    _statusCueNotifier.value = (text: text, icon: icon, centered: centered);
     _cornerBadgeTimer = Timer(
       KonataPlaybackTokens.pauseBadgeDisplayDuration,
       () {
         if (mounted) {
-          setState(() => _cornerBadgeVisible = false);
+          _statusCueNotifier.value = null;
         }
       },
     );
@@ -451,6 +452,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
       _flashCornerStatus(
         willPlay ? '继续播放' : '已暂停',
         willPlay ? Icons.play_arrow_rounded : Icons.pause_rounded,
+        centered: true,
       );
       return KeyEventResult.handled;
     }
@@ -685,6 +687,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                 _flashCornerStatus(
                   willPlay ? '继续播放' : '已暂停',
                   willPlay ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                  centered: true,
                 );
               },
               onSeekRelative: controller.seekRelative,
@@ -735,20 +738,14 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
               ),
             ),
 
-          // 5. 倍速快进 / 暂停微缩角标
-          if ((_cornerBadgeVisible || snap.isSpeedBoostActive) &&
-              !_screenLocked)
-            Positioned(
-              top: 72,
-              right: 20,
-              child: IgnorePointer(
-                child: _MiniCornerStatusPill(
-                  icon: snap.isSpeedBoostActive
-                      ? Icons.fast_forward_rounded
-                      : _cornerBadgeIcon,
-                  label: snap.isSpeedBoostActive
-                      ? '2.0x 倍速快进中'
-                      : _cornerBadgeText,
+          // 5. 视频视口居中暂停提示与右上角倍速/跳转微缩角标（独立叶子订阅，不触发整页重建）
+          if (!_screenLocked)
+            Positioned.fill(
+              child: Padding(
+                padding: symmetricCutoutPadding,
+                child: _VideoStatusCueOverlayLeaf(
+                  cueListenable: _statusCueNotifier,
+                  isSpeedBoostActive: snap.isSpeedBoostActive,
                 ),
               ),
             ),
@@ -882,6 +879,17 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                           sideSheetOpen: snap.sideSheetOpen,
                           chapters: snap.chapters,
                           externalVolumePulse: _externalVolumePulse,
+                          onTogglePlayPause: () {
+                            final willPlay = !snap.isPlaying;
+                            controller.togglePlayPause();
+                            _flashCornerStatus(
+                              willPlay ? '继续播放' : '已暂停',
+                              willPlay
+                                  ? Icons.play_arrow_rounded
+                                  : Icons.pause_rounded,
+                              centered: true,
+                            );
+                          },
                           onOpenSideSheet: _openSideSheet,
                           onVolumePopupActiveChanged:
                               _handleVolumePopupActiveChanged,
@@ -1235,6 +1243,7 @@ class _VideoBottomHudLeaf extends ConsumerWidget {
     required this.sideSheetOpen,
     required this.chapters,
     required this.externalVolumePulse,
+    required this.onTogglePlayPause,
     required this.onOpenSideSheet,
     required this.onVolumePopupActiveChanged,
   });
@@ -1251,6 +1260,7 @@ class _VideoBottomHudLeaf extends ConsumerWidget {
   final bool sideSheetOpen;
   final List<dynamic> chapters;
   final int externalVolumePulse;
+  final VoidCallback onTogglePlayPause;
   final ValueChanged<VideoSideSheetTab> onOpenSideSheet;
   final ValueChanged<bool> onVolumePopupActiveChanged;
 
@@ -1289,7 +1299,7 @@ class _VideoBottomHudLeaf extends ConsumerWidget {
         durationSeconds: timing.dur,
         isPlaying: isPlaying,
         chapters: chapters.cast(),
-        onTogglePlayPause: controller.togglePlayPause,
+        onTogglePlayPause: onTogglePlayPause,
         onSeek: controller.seekAbsolute,
         onPrevious: canPrev
             ? () => unawaited(controller.goToPreviousEpisode())
@@ -1385,6 +1395,74 @@ class _VideoBottomHudLeaf extends ConsumerWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _VideoStatusCueOverlayLeaf extends StatelessWidget {
+  const _VideoStatusCueOverlayLeaf({
+    required this.cueListenable,
+    required this.isSpeedBoostActive,
+  });
+
+  final ValueListenable<({String text, IconData icon, bool centered})?>
+      cueListenable;
+  final bool isSpeedBoostActive;
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: ValueListenableBuilder<
+        ({String text, IconData icon, bool centered})?
+      >(
+        valueListenable: cueListenable,
+        builder: (context, cue, _) {
+          if (isSpeedBoostActive) {
+            return const Stack(
+              fit: StackFit.expand,
+              children: [
+                Positioned(
+                  top: 72,
+                  right: 20,
+                  child: IgnorePointer(
+                    child: _MiniCornerStatusPill(
+                      icon: Icons.fast_forward_rounded,
+                      label: '2.0x 倍速快进中',
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }
+          if (cue == null) return const SizedBox.shrink();
+          if (cue.centered) {
+            return IgnorePointer(
+              child: Center(
+                key: const ValueKey('video_center_status_pill'),
+                child: _MiniCornerStatusPill(
+                  icon: cue.icon,
+                  label: cue.text,
+                ),
+              ),
+            );
+          }
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              Positioned(
+                top: 72,
+                right: 20,
+                child: IgnorePointer(
+                  child: _MiniCornerStatusPill(
+                    icon: cue.icon,
+                    label: cue.text,
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

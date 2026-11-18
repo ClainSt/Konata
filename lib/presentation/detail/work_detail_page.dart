@@ -494,10 +494,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
         ? DetailDrawerTab.main
         : rawPreferredTab;
     final effectiveActiveTab = isDrawerExpanded ? preferredTab : null;
-    final playerBarActive = ref.watch(miniAudioBottomClearanceProvider) > 0;
-    final bottomClearance = playerBarActive
-        ? KonataBottomClearanceScope.resolve(context, ref)
-        : MediaQuery.paddingOf(context).bottom;
+    final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
     final forceLightChrome = p.isDark;
     final outerSize = MediaQuery.sizeOf(context);
     final outerPad = MediaQuery.paddingOf(context);
@@ -633,6 +630,8 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
+                              if (safePad.top > 0)
+                                SizedBox(height: safePad.top),
                               landscapeHero,
                               Padding(
                                 padding: EdgeInsets.symmetric(
@@ -878,60 +877,83 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                     return Stack(
                       fit: StackFit.expand,
                       children: [
-                        if (bgPath.isNotEmpty)
-                          ManagedImage(
-                            bgPath,
-                            loader: imageLoader,
-                            owner: work.id,
-                            artwork: ManagedArtwork.backdrop,
-                            isHeroBackdrop: true,
-                            imageSize: TmdbImageSize.original,
-                            fit: BoxFit.cover,
+                        Positioned(
+                          key: const ValueKey(
+                            'detail_wide_backdrop_stage',
                           ),
-                        if (!hasBackdrop && bgPath.isNotEmpty)
-                          BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
-                            child: Container(
-                              color: Colors.black.withValues(alpha: 0.36),
-                            ),
-                          ),
-                        IgnorePointer(
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              gradient: RadialGradient(
-                                center: const Alignment(-0.78, 0.58),
-                                radius: 0.82,
-                                stops: const [0.0, 0.52, 1.0],
-                                colors: [
-                                  Colors.black.withValues(alpha: 0.44),
-                                  Colors.black.withValues(alpha: 0.16),
-                                  Colors.transparent,
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        IgnorePointer(
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.bottomCenter,
-                                end: Alignment.topCenter,
-                                stops: isDrawerExpanded
-                                    ? const [0.0, 0.22, 0.44]
-                                    : const [0.0, 0.18],
-                                colors: isDrawerExpanded
-                                    ? [
-                                        Colors.black.withValues(alpha: 0.78),
-                                        Colors.black.withValues(alpha: 0.42),
-                                        Colors.transparent,
-                                      ]
-                                    : [
-                                        Colors.black.withValues(alpha: 0.30),
+                          top: KonataAdaptiveTokens.isAndroid ? safeTop : 0.0,
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              if (bgPath.isNotEmpty)
+                                ManagedImage(
+                                  bgPath,
+                                  loader: imageLoader,
+                                  owner: work.id,
+                                  artwork: ManagedArtwork.backdrop,
+                                  isHeroBackdrop: true,
+                                  imageSize: TmdbImageSize.original,
+                                  fit: BoxFit.cover,
+                                ),
+                              if (!hasBackdrop && bgPath.isNotEmpty)
+                                BackdropFilter(
+                                  filter: ImageFilter.blur(
+                                    sigmaX: 28,
+                                    sigmaY: 28,
+                                  ),
+                                  child: Container(
+                                    color: Colors.black.withValues(alpha: 0.36),
+                                  ),
+                                ),
+                              IgnorePointer(
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    gradient: RadialGradient(
+                                      center: const Alignment(-0.78, 0.58),
+                                      radius: 0.82,
+                                      stops: const [0.0, 0.52, 1.0],
+                                      colors: [
+                                        Colors.black.withValues(alpha: 0.44),
+                                        Colors.black.withValues(alpha: 0.16),
                                         Colors.transparent,
                                       ],
+                                    ),
+                                  ),
+                                ),
                               ),
-                            ),
+                              IgnorePointer(
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.bottomCenter,
+                                      end: Alignment.topCenter,
+                                      stops: isDrawerExpanded
+                                          ? const [0.0, 0.22, 0.44]
+                                          : const [0.0, 0.18],
+                                      colors: isDrawerExpanded
+                                          ? [
+                                              Colors.black.withValues(
+                                                alpha: 0.78,
+                                              ),
+                                              Colors.black.withValues(
+                                                alpha: 0.42,
+                                              ),
+                                              Colors.transparent,
+                                            ]
+                                          : [
+                                              Colors.black.withValues(
+                                                alpha: 0.30,
+                                              ),
+                                              Colors.transparent,
+                                            ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         // Android 平板横屏使用底部 padding 避让迷你播放胶囊的纵向滚动流，防止分类栏向上硬推遮挡播放按钮。

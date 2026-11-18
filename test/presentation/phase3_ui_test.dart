@@ -148,7 +148,7 @@ Widget _wrapApp(Widget child, {List<Override> overrides = const []}) {
 void main() {
   group('Phase 3 UI 与数据补强测试', () {
     test(
-      'TmdbService.getWorkDetail 优先提取 zh -> ja -> null 透明 PNG logoPath',
+      'TmdbService.getWorkDetail 优先提取 zh -> ja -> en -> null 透明 PNG logoPath',
       () async {
         final mockClient = MockClient((request) async {
           expect(
@@ -157,7 +157,7 @@ void main() {
           );
           expect(
             request.url.queryParameters['include_image_language'],
-            'zh,ja,null',
+            'zh,ja,en,null',
           );
           return http.Response.bytes(
             utf8.encode(

@@ -150,6 +150,7 @@ class TmdbArtworkImage {
   const TmdbArtworkImage({
     required this.filePath,
     this.isoLanguage,
+    this.isoCountry,
     this.width,
     this.height,
     this.voteAverage,
@@ -159,8 +160,11 @@ class TmdbArtworkImage {
   /// TMDB 相对图片路径。
   final String filePath;
 
-  /// 语言代码（如 `zh`、`ja`）。
+  /// 语言代码（如 `zh`、`ja`、`en`）。
   final String? isoLanguage;
+
+  /// 国家或地区细分代码（如 `CN`、`TW`、`HK`，用于区分简繁体中文徽标）。
+  final String? isoCountry;
 
   /// 宽度像素。
   final int? width;

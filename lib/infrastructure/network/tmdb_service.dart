@@ -72,12 +72,12 @@ class TmdbService {
     return merged;
   }
 
-  /// 一次性拉取作品详情、别名、多语言翻译、演职员表与季列表。
+  /// 一次性拉取作品详情、别名、多语言翻译与顶层图像集（默认包含英文以覆盖无中日文透明标题的 TV 番剧）。
   Future<TmdbWorkDetail?> getWorkDetail(
     int tmdbId,
     TmdbMediaType mediaType, {
     RequestPriority priority = RequestPriority.background,
-    bool includeEnglishImages = false,
+    bool includeEnglishImages = true,
   }) async {
     final segment = mediaType == TmdbMediaType.tv ? 'tv' : 'movie';
     final json = await _getJson('/$segment/$tmdbId', {
@@ -125,11 +125,20 @@ class TmdbService {
     final candidatePosters = _extractImageOptions(json, 'posters');
     final candidateBackdrops = _extractImageOptions(json, 'backdrops');
     final candidateLogos = _extractImageOptions(json, 'logos');
+    final textlessHdBackdrop = candidateBackdrops
+        .where(
+          (b) =>
+              (b.width ?? 0) >= 1280 &&
+              _backdropLanguageRank(b.isoLanguage) == 0,
+        )
+        .firstOrNull;
     final preferredBackdrop =
-        candidateBackdrops.isNotEmpty &&
-            (candidateBackdrops.first.width ?? 0) >= 1920
-        ? candidateBackdrops.first.filePath
-        : json['backdrop_path']?.toString();
+        textlessHdBackdrop?.filePath ??
+        json['backdrop_path']?.toString() ??
+        (candidateBackdrops.isNotEmpty &&
+                (candidateBackdrops.first.width ?? 0) >= 1280
+            ? candidateBackdrops.first.filePath
+            : null);
     final rawCollection = json['belongs_to_collection'];
     int? collectionId;
     String? collectionName;
@@ -488,13 +497,6 @@ class TmdbService {
         ? tmdbMistaggedTvLogoTargets[tmdbId]
         : null;
 
-    int langPriority(String? iso) {
-      if (iso == 'zh') return 0;
-      if (iso == 'ja') return 1;
-      if (iso == null || iso.isEmpty) return 2;
-      return 3;
-    }
-
     Map<dynamic, dynamic>? best;
     var bestLangRank = 99;
     var bestVote = -1.0;
@@ -506,13 +508,18 @@ class TmdbService {
       if (mistaggedForTv != null && mistaggedForTv.containsKey(path)) {
         continue;
       }
-      // 优先选择有投票背书的透明 PNG
+      // 按 简中 -> 繁中 -> 日文 -> 英文 -> 无语言 严格分级，并在同级内结合格式与社区投票择优（不做纵横比裁剪以免误杀横版或紧凑徽标）
       final isPng = path.toLowerCase().endsWith('.png');
       final voteCount = (item['vote_count'] as num?)?.toInt();
-      final rank = langPriority(item['iso_639_1']?.toString());
+      final isoLang = item['iso_639_1']?.toString();
+      final isoCountry = item['iso_3166_1']?.toString();
+      final rank = logoLanguageRank(isoLang, isoCountry);
+      final explicitCnBonus =
+          (rank == 0 && _isExplicitSimplifiedRegion(isoCountry)) ? 0.1 : 0.0;
       final vote = ((item['vote_average'] as num?)?.toDouble() ?? 0.0) +
           (isPng ? 0.5 : 0.0) +
-          ((voteCount ?? 1) > 0 ? 0.25 : 0.0);
+          ((voteCount ?? 1) > 0 ? 0.25 : 0.0) +
+          explicitCnBonus;
       if (rank < bestLangRank || (rank == bestLangRank && vote > bestVote)) {
         bestLangRank = rank;
         bestVote = vote;
@@ -520,6 +527,36 @@ class TmdbService {
       }
     }
     return best?['file_path']?.toString();
+  }
+
+  /// 计算透明徽标与海报的语言优先级（0:简中, 1:繁中, 2:日文, 3:英文, 4:无语言, 5:其他）。
+  static int logoLanguageRank(String? isoLanguage, String? isoCountry) {
+    final lang = (isoLanguage ?? '').trim().toLowerCase();
+    final country = (isoCountry ?? '').trim().toUpperCase();
+    if (lang == 'zh' || lang == 'cn') {
+      if (country == 'TW' || country == 'HK' || country == 'MO') {
+        return 1;
+      }
+      return 0;
+    }
+    if (lang == 'ja') return 2;
+    if (lang == 'en') return 3;
+    if (lang.isEmpty || lang == 'null' || lang == 'xx') return 4;
+    return 5;
+  }
+
+  static bool _isExplicitSimplifiedRegion(String? isoCountry) {
+    final country = (isoCountry ?? '').trim().toUpperCase();
+    return country == 'CN' || country == 'SG';
+  }
+
+  static int _backdropLanguageRank(String? isoLanguage) {
+    final lang = (isoLanguage ?? '').trim().toLowerCase();
+    if (lang.isEmpty || lang == 'null' || lang == 'xx') return 0;
+    if (lang == 'zh' || lang == 'cn') return 1;
+    if (lang == 'ja') return 2;
+    if (lang == 'en') return 3;
+    return 4;
   }
 
   static List<TmdbArtworkImage> _extractImageOptions(
@@ -540,6 +577,7 @@ class TmdbService {
         TmdbArtworkImage(
           filePath: path,
           isoLanguage: item['iso_639_1']?.toString(),
+          isoCountry: item['iso_3166_1']?.toString(),
           width: (item['width'] as num?)?.toInt(),
           height: (item['height'] as num?)?.toInt(),
           voteAverage: (item['vote_average'] as num?)?.toDouble(),
@@ -548,22 +586,34 @@ class TmdbService {
       );
     }
 
-    int langScore(String? iso) {
-      if (iso == 'zh') return 0;
-      if (iso == 'ja') return 1;
-      if (iso == null || iso.isEmpty) return 2;
-      if (iso == 'en') return 3;
-      return 4;
-    }
-
     parsed.sort((a, b) {
       if (key == 'backdrops') {
+        // 横版背景图优先选择 >=1280px 无语言无字纯净原画，同为无字时再优先 >=1920px，杜绝 1080p 带字剧照覆盖 720p 无字主视觉
+        final aHd = (a.width ?? 0) >= 1280 ? 0 : 1;
+        final bHd = (b.width ?? 0) >= 1280 ? 0 : 1;
+        if (aHd != bHd) return aHd.compareTo(bHd);
+        final aTextless = _backdropLanguageRank(a.isoLanguage) == 0 ? 0 : 1;
+        final bTextless = _backdropLanguageRank(b.isoLanguage) == 0 ? 0 : 1;
+        if (aTextless != bTextless) return aTextless.compareTo(bTextless);
         final aFullHd = (a.width ?? 0) >= 1920 ? 0 : 1;
         final bFullHd = (b.width ?? 0) >= 1920 ? 0 : 1;
         if (aFullHd != bFullHd) return aFullHd.compareTo(bFullHd);
+        final bc = _backdropLanguageRank(
+          a.isoLanguage,
+        ).compareTo(_backdropLanguageRank(b.isoLanguage));
+        if (bc != 0) return bc;
+        return (b.voteAverage ?? 0).compareTo(a.voteAverage ?? 0);
       }
-      final lc = langScore(a.isoLanguage).compareTo(langScore(b.isoLanguage));
+      final lc = logoLanguageRank(
+        a.isoLanguage,
+        a.isoCountry,
+      ).compareTo(logoLanguageRank(b.isoLanguage, b.isoCountry));
       if (lc != 0) return lc;
+      if (logoLanguageRank(a.isoLanguage, a.isoCountry) == 0) {
+        final aCn = _isExplicitSimplifiedRegion(a.isoCountry) ? 0 : 1;
+        final bCn = _isExplicitSimplifiedRegion(b.isoCountry) ? 0 : 1;
+        if (aCn != bCn) return aCn.compareTo(bCn);
+      }
       return (b.voteAverage ?? 0).compareTo(a.voteAverage ?? 0);
     });
     return parsed.take(24).toList(growable: false);

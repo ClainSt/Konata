@@ -14,6 +14,7 @@ import '../../application/providers/scraping_providers.dart';
 import '../../application/providers/work_management_provider.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/tmdb_models.dart';
+import '../../domain/models/work.dart';
 import '../../domain/playback/cue_variant_resolver.dart';
 import '../../infrastructure/cache/scan_thumbnail_scheduler.dart';
 import '../audio/mini_audio_bar.dart';
@@ -54,6 +55,7 @@ class WorkDetailPage extends ConsumerStatefulWidget {
 class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
   late String _activeWorkId = widget.workId;
   final Set<String> _scoreBackfillRequested = <String>{};
+  final Set<String> _tmdbBackfillRequested = <String>{};
   late final ScanThumbnailScheduler _scanScheduler;
   final ScrollController _portraitScrollCtrl = ScrollController();
   final ScrollController _tabletLandscapeScrollCtrl = ScrollController();
@@ -90,6 +92,32 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref.read(workManagementProvider).ensureWorkBangumiScore(workId);
+    });
+  }
+
+  void _maybeBackfillTmdbArtwork(Work work) {
+    final missingTmdbAfterBangumiFallback =
+        !work.metadataLocked &&
+        work.tmdbId == null &&
+        (work.bangumiId != null || work.folderTmdbHint != null);
+    final missingTvArtwork =
+        work.tmdbId != null &&
+        work.tmdbMediaType == TmdbMediaType.tv &&
+        ((work.logoPath == null || work.logoPath!.trim().isEmpty) ||
+            (!work.backdropLocked &&
+                (work.backdropPath == null ||
+                    work.backdropPath!.trim().isEmpty)));
+    if (!missingTmdbAfterBangumiFallback && !missingTvArtwork) return;
+    if (!_tmdbBackfillRequested.add(work.id)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final updated = await ref
+          .read(scrapeControllerProvider.notifier)
+          .ensureOrRescrapeWork(workId: work.id, interactive: false);
+      if (!mounted || updated == null) return;
+      if (updated.id != _activeWorkId) {
+        _switchActiveWork(updated.id);
+      }
     });
   }
 
@@ -165,8 +193,23 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
       } else {
         _showToast('已完成元数据刷新');
       }
+      return;
+    }
+    final bound = await ref
+        .read(scrapeControllerProvider.notifier)
+        .ensureOrRescrapeWork(workId: work.id, interactive: true);
+    if (!mounted) return;
+    if (bound == null || bound.tmdbId == null) {
+      _showToast('未能自动定位唯一 TMDB 条目，请使用绑定元数据匹配');
+      return;
+    }
+    if (bound.id != work.id) {
+      _switchActiveWork(
+        bound.id,
+        toastMessage: '已自动并入已有作品「${bound.title}」',
+      );
     } else {
-      _showToast('当前作品尚未绑定 TMDB ID，请先使用绑定元数据匹配');
+      _showToast('已自动补绑 TMDB 数据并更新图片');
     }
   }
 
@@ -543,6 +586,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                     }
                     final work = bundle.work;
                     _maybeBackfillBangumiScore(work.id, work.bangumiScore);
+                    _maybeBackfillTmdbArtwork(work);
                     final screenSize = MediaQuery.sizeOf(context);
                     final safePad = MediaQuery.paddingOf(context);
                     final isAndroidPhone =

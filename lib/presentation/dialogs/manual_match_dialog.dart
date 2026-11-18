@@ -6,6 +6,7 @@ import '../../application/providers/library_providers.dart';
 import '../../application/providers/scraping_providers.dart';
 import '../../application/providers/source_actions_provider.dart';
 import '../../application/providers/work_management_provider.dart';
+import '../../domain/formatting/network_error_sanitizer.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/tmdb_models.dart';
 import '../../domain/models/work.dart';
@@ -130,7 +131,10 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
     } catch (error) {
       if (mounted) {
         setState(() {
-          _errorText = 'TMDB 搜索失败: $error';
+          _errorText = NetworkErrorSanitizer.toUserMessage(
+            error,
+            prefix: 'TMDB 搜索失败',
+          );
           _searching = false;
         });
       }
@@ -216,7 +220,10 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
     } catch (error) {
       if (mounted) {
         setState(() {
-          _errorText = '绑定失败: $error';
+          _errorText = NetworkErrorSanitizer.toUserMessage(
+            error,
+            prefix: '绑定失败',
+          );
           _binding = false;
         });
       }
@@ -246,7 +253,10 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
     } catch (error) {
       if (mounted) {
         setState(() {
-          _errorText = '混合绑定失败: $error';
+          _errorText = NetworkErrorSanitizer.toUserMessage(
+            error,
+            prefix: '混合绑定失败',
+          );
           _binding = false;
         });
       }
@@ -272,7 +282,10 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _errorText = 'Bangumi 搜索失败: $error';
+        _errorText = NetworkErrorSanitizer.toUserMessage(
+          error,
+          prefix: 'Bangumi 搜索失败',
+        );
         _searchingBgm = false;
       });
     }
@@ -301,7 +314,10 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
     } catch (error) {
       if (mounted) {
         setState(() {
-          _errorText = '绑定失败: $error';
+          _errorText = NetworkErrorSanitizer.toUserMessage(
+            error,
+            prefix: '绑定失败',
+          );
           _binding = false;
         });
       }

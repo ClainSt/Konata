@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../application/scraping/scrape_progress.dart';
+import '../../domain/formatting/network_error_sanitizer.dart';
 import '../theme/konata_palette.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_surface_card.dart';
@@ -42,7 +43,8 @@ class ScrapeProgressBanner extends StatelessWidget {
         '扫描刮削完成：已匹配 ${progress.matchedWorks}，待复核 ${progress.reviewWorks}，未识别 ${progress.unmatchedWorks}',
       ScrapePhase.cancelled =>
         '已取消扫描：已遍历 ${progress.scannedDirectories} 目录，已处理 ${progress.processedWorks} 部作品',
-      ScrapePhase.failed => '扫描失败: ${progress.errorMessage ?? ''}',
+      ScrapePhase.failed =>
+        '扫描失败: ${progress.errorMessage == null ? '' : NetworkErrorSanitizer.toUserMessage(progress.errorMessage!)}',
     };
 
     return KonataSurfaceCard(

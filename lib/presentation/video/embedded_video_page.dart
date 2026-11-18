@@ -23,6 +23,7 @@ import '../widgets/playback/konata_osd_stroked_text.dart';
 import '../widgets/playback/konata_playback_capsule.dart';
 import '../widgets/playback/konata_spec_badge.dart';
 import '../widgets/playback/konata_volume_control.dart';
+import 'video_cutout_symmetry.dart';
 import 'video_hardware_surface.dart';
 import 'video_probe_overlay.dart';
 import 'video_side_sheet.dart';
@@ -73,8 +74,8 @@ class EmbeddedVideoPage extends ConsumerStatefulWidget {
     }
     await navigator.push<void>(
       PageRouteBuilder<void>(
-        transitionDuration: const Duration(milliseconds: 160),
-        reverseTransitionDuration: const Duration(milliseconds: 140),
+        transitionDuration: const Duration(milliseconds: 75),
+        reverseTransitionDuration: const Duration(milliseconds: 65),
         pageBuilder: (context, animation, secondaryAnimation) =>
             EmbeddedVideoPage(request: request),
         transitionsBuilder: (context, animation, secondaryAnimation, child) =>
@@ -596,10 +597,12 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
 
     final isTablet =
         isAndroid && size.shortestSide >= KonataAdaptiveTokens.tabletBreakpoint;
-    final isPhoneLandscape = isAndroid && !isTablet && size.width > size.height;
+    final viewPadding = MediaQuery.viewPaddingOf(context);
+    final displayFeatures = MediaQuery.displayFeaturesOf(context);
+    final hideAndroidBars = isAndroid && !snap.audioOnlyMode;
 
-    // 进入视频全幅播放隐藏系统状态栏与手势栏，确保视口完整铺满
-    _syncAndroidSystemBars(isAndroid && (isPhoneLandscape || snap.isFullscreen));
+    // 进入视频播放稳定隐藏系统状态栏与手势栏，杜绝因旋转首帧反复显隐造成顶栏跳变与双影
+    _syncAndroidSystemBars(hideAndroidBars);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _reportStageSourceRect();
@@ -624,18 +627,36 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
         : KonataPlaybackTokens.hudFadeDuration;
     final epTitle = controller.currentEpisodeTitle;
 
+    final symmetricCutoutPadding = (isAndroid && !snap.audioOnlyMode)
+        ? VideoCutoutSymmetry.resolveSymmetricCutoutPadding(
+            viewportSize: size,
+            viewPadding: viewPadding,
+            displayFeatures: displayFeatures,
+            systemBarsHidden: hideAndroidBars,
+          )
+        : EdgeInsets.zero;
+
     final stageStack = KeyedSubtree(
       key: _stageRectKey,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // 1. 纯黑基座 + 硬件视频纹理（鼠标滚轮调音热区）
+          // 1. 纯黑基座 + 挖孔对称黑边避让 + 硬件视频纹理（鼠标滚轮调音热区）
           Positioned.fill(
-            child: Listener(
-              behavior: HitTestBehavior.opaque,
-              onPointerSignal: (event) =>
-                  _handleVideoSurfacePointerSignal(event, controller: controller),
-              child: videoSurface,
+            child: ColoredBox(
+              color: KonataPlaybackTokens.cinemaPureBlack,
+              child: Padding(
+                key: const ValueKey('video_symmetric_cutout_frame'),
+                padding: symmetricCutoutPadding,
+                child: Listener(
+                  behavior: HitTestBehavior.opaque,
+                  onPointerSignal: (event) => _handleVideoSurfacePointerSignal(
+                    event,
+                    controller: controller,
+                  ),
+                  child: videoSurface,
+                ),
+              ),
             ),
           ),
 
@@ -768,76 +789,110 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
               ),
             ),
 
-          // 8. 顶栏与底部控制坞（锁屏时彻底屏蔽）
-          Positioned(
-            top: isTablet
-                ? math.max(safe.top, KonataAdaptiveTokens.tabletTopSafeMin)
-                : (isAndroid ? math.max(safe.top, 12.0) : 0.0),
-            left: isAndroid ? math.max(safe.left, 14.0) : 0.0,
-            right: isAndroid ? math.max(safe.right, 14.0) : 0.0,
-            child: AnimatedOpacity(
-              duration: hudDuration,
-              opacity: showHud ? 1.0 : 0.0,
-              child: IgnorePointer(
-                ignoring: !showHud,
-                child: MediaQuery.withClampedTextScaling(
-                  maxScaleFactor: 1.15,
-                  child: Listener(
-                    behavior: HitTestBehavior.opaque,
-                    child: isAndroid
-                        ? _buildAndroidFloatingTopCapsule(
-                            snap: snap,
-                            controller: controller,
-                            epTitle: epTitle,
+          // 8. 顶栏与底部控制坞（旋转过渡与锁屏时彻底不挂载，确保全局仅存在唯一顶栏胶囊）
+          if (!awaitingLandscapeRotation) ...[
+            Positioned(
+              top: isTablet
+                  ? math.max(
+                      math.max(safe.top, symmetricCutoutPadding.top),
+                      KonataAdaptiveTokens.tabletTopSafeMin,
+                    )
+                  : (isAndroid
+                        ? math.max(
+                            math.max(safe.top, symmetricCutoutPadding.top),
+                            12.0,
                           )
-                        : _buildDesktopTopOverlayBar(
-                            snap: snap,
-                            controller: controller,
-                            epTitle: epTitle,
-                          ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            left: isAndroid ? math.max(safe.left, 16.0) : 20.0,
-            right: isAndroid ? math.max(safe.right, 16.0) : 20.0,
-            bottom: isAndroid
-                ? math.max(safe.bottom, 14.0)
-                : KonataPlaybackTokens.capsuleBottomOffset,
-            child: AnimatedOpacity(
-              duration: hudDuration,
-              opacity: showHud ? 1.0 : 0.0,
-              child: IgnorePointer(
-                ignoring: !showHud,
-                child: Center(
+                        : 0.0),
+              left: isAndroid
+                  ? math.max(
+                      math.max(safe.left, symmetricCutoutPadding.left),
+                      14.0,
+                    )
+                  : 0.0,
+              right: isAndroid
+                  ? math.max(
+                      math.max(safe.right, symmetricCutoutPadding.right),
+                      14.0,
+                    )
+                  : 0.0,
+              child: AnimatedOpacity(
+                duration: hudDuration,
+                opacity: showHud ? 1.0 : 0.0,
+                child: IgnorePointer(
+                  ignoring: !showHud,
                   child: MediaQuery.withClampedTextScaling(
                     maxScaleFactor: 1.15,
                     child: Listener(
                       behavior: HitTestBehavior.opaque,
-                      child: _VideoBottomHudLeaf(
-                        request: widget.request,
-                        subscribeProgress: showHud && !widget.inPipMode,
-                        isTablet: isTablet,
-                        isPlaying: snap.isPlaying,
-                        speed: snap.speed,
-                        volume: snap.volume,
-                        isMuted: snap.isMuted,
-                        isFullscreen: snap.isFullscreen,
-                        sideSheetOpen: snap.sideSheetOpen,
-                        chapters: snap.chapters,
-                        externalVolumePulse: _externalVolumePulse,
-                        onOpenSideSheet: _openSideSheet,
-                        onVolumePopupActiveChanged:
-                            _handleVolumePopupActiveChanged,
+                      child: isAndroid
+                          ? _buildAndroidFloatingTopCapsule(
+                              snap: snap,
+                              controller: controller,
+                              epTitle: epTitle,
+                            )
+                          : _buildDesktopTopOverlayBar(
+                              snap: snap,
+                              controller: controller,
+                              epTitle: epTitle,
+                            ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: isAndroid
+                  ? math.max(
+                      math.max(safe.left, symmetricCutoutPadding.left),
+                      16.0,
+                    )
+                  : 20.0,
+              right: isAndroid
+                  ? math.max(
+                      math.max(safe.right, symmetricCutoutPadding.right),
+                      16.0,
+                    )
+                  : 20.0,
+              bottom: isAndroid
+                  ? math.max(
+                      math.max(safe.bottom, symmetricCutoutPadding.bottom),
+                      14.0,
+                    )
+                  : KonataPlaybackTokens.capsuleBottomOffset,
+              child: AnimatedOpacity(
+                duration: hudDuration,
+                opacity: showHud ? 1.0 : 0.0,
+                child: IgnorePointer(
+                  ignoring: !showHud,
+                  child: Center(
+                    child: MediaQuery.withClampedTextScaling(
+                      maxScaleFactor: 1.15,
+                      child: Listener(
+                        behavior: HitTestBehavior.opaque,
+                        child: _VideoBottomHudLeaf(
+                          request: widget.request,
+                          subscribeProgress: showHud && !widget.inPipMode,
+                          isTablet: isTablet,
+                          audioOnlyMode: snap.audioOnlyMode,
+                          isPlaying: snap.isPlaying,
+                          speed: snap.speed,
+                          volume: snap.volume,
+                          isMuted: snap.isMuted,
+                          isFullscreen: snap.isFullscreen,
+                          sideSheetOpen: snap.sideSheetOpen,
+                          chapters: snap.chapters,
+                          externalVolumePulse: _externalVolumePulse,
+                          onOpenSideSheet: _openSideSheet,
+                          onVolumePopupActiveChanged:
+                              _handleVolumePopupActiveChanged,
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -915,6 +970,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
           key: const ValueKey('android_video_top_capsule'),
           radius: KonataAdaptiveTokens.capsuleRadius,
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          enableBackdropBlur: snap.audioOnlyMode == true,
           child: Row(
             children: [
               KonataCapsuleIconButton(
@@ -1170,6 +1226,7 @@ class _VideoBottomHudLeaf extends ConsumerWidget {
     required this.request,
     required this.subscribeProgress,
     required this.isTablet,
+    required this.audioOnlyMode,
     required this.isPlaying,
     required this.speed,
     required this.volume,
@@ -1185,6 +1242,7 @@ class _VideoBottomHudLeaf extends ConsumerWidget {
   final VideoLaunchRequest request;
   final bool subscribeProgress;
   final bool isTablet;
+  final bool audioOnlyMode;
   final bool isPlaying;
   final double speed;
   final double volume;
@@ -1225,6 +1283,7 @@ class _VideoBottomHudLeaf extends ConsumerWidget {
     return RepaintBoundary(
       child: KonataPlaybackCapsule(
         maxWidth: isTablet ? KonataAdaptiveTokens.tabletPlayerMaxWidth : null,
+        enableBackdropBlur: !isAndroid || audioOnlyMode,
         title: null,
         positionSeconds: timing.pos,
         durationSeconds: timing.dur,
@@ -1304,16 +1363,15 @@ class _VideoBottomHudLeaf extends ConsumerWidget {
                   ),
                 ),
               ),
-            if (!isAndroid)
-              KonataVolumeControl(
-                volume: (volume / 100.0).clamp(0.0, 1.0),
-                isMuted: isMuted,
-                onVolumeChanged: (v) => controller.setVolume(v * 100.0),
-                onToggleMute: controller.toggleMute,
-                allowPopover: subscribeProgress,
-                externalRevealPulse: externalVolumePulse,
-                onPopupActiveChanged: onVolumePopupActiveChanged,
-              ),
+            KonataVolumeControl(
+              volume: (volume / 100.0).clamp(0.0, 1.0),
+              isMuted: isMuted,
+              onVolumeChanged: (v) => controller.setVolume(v * 100.0),
+              onToggleMute: controller.toggleMute,
+              allowPopover: subscribeProgress,
+              externalRevealPulse: externalVolumePulse,
+              onPopupActiveChanged: onVolumePopupActiveChanged,
+            ),
             if (!ultraNarrowAndroidHud)
               KonataCapsuleIconButton(
                 icon: isFullscreen

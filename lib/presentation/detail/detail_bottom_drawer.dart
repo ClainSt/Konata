@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/gestures.dart';
@@ -75,6 +74,8 @@ class DetailBottomDrawer extends StatefulWidget {
     this.layoutMode = DetailDrawerLayoutMode.bottomOverlay,
     this.leadingBarWidget,
     this.hideOpsCapsuleInBar = false,
+    this.hideSeriesSwitcherInBar = false,
+    this.showOpsInPortraitBar = false,
   });
 
   /// 作品完整数据包。
@@ -149,6 +150,12 @@ class DetailBottomDrawer extends StatefulWidget {
 
   /// 是否在横屏选集栏顶部隐藏重复的操作胶囊（当顶部紧凑头图区已承载时启用）。
   final bool hideOpsCapsuleInBar;
+
+  /// 是否隐藏分类栏左侧的系列切换下拉框（当主操作行已将其与播放按钮同行排布时启用）。
+  final bool hideSeriesSwitcherInBar;
+
+  /// 竖屏流式模式下是否在分类胶囊同一行最右侧展示运维齿轮胶囊（平板竖屏启用）。
+  final bool showOpsInPortraitBar;
 
   @override
   State<DetailBottomDrawer> createState() => DetailBottomDrawerState();
@@ -380,14 +387,23 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
     _lastComputedSecondaryKey = activeSecondaryKey;
     _lastComputedRawCount = currentRawCount;
 
+    final mqSize = MediaQuery.sizeOf(context);
+    final isTabletViewport =
+        mqSize.shortestSide >= KonataAdaptiveTokens.tabletBreakpoint;
     final isPhoneMode =
-        widget.layoutMode != DetailDrawerLayoutMode.bottomOverlay;
-    final screenW = MediaQuery.sizeOf(context).width;
+        widget.layoutMode != DetailDrawerLayoutMode.bottomOverlay &&
+        !isTabletViewport;
+    final screenW = mqSize.width;
     final compactDrawer =
         isPhoneMode ||
         (KonataAdaptiveTokens.isAndroid &&
             screenW < KonataAdaptiveTokens.tabletBreakpoint);
-    final drawerPadH = isPhoneMode ? 14.0 : (compactDrawer ? 16.0 : 36.0);
+    final drawerPadH = isPhoneMode
+        ? 14.0
+        : (isTabletViewport &&
+                  widget.layoutMode == DetailDrawerLayoutMode.phonePortraitSection
+              ? 28.0
+              : (compactDrawer ? 16.0 : 36.0));
     final openSeriesDownward =
         widget.layoutMode == DetailDrawerLayoutMode.phoneLandscapeRail;
 
@@ -398,7 +414,8 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (widget.bundle.seriesMembers.length >= 2 &&
+            if (!widget.hideSeriesSwitcherInBar &&
+                widget.bundle.seriesMembers.length >= 2 &&
                 widget.onSelectSeriesWork != null) ...[
               SeriesSwitcherDropdown(
                 activeWork: widget.bundle.work,
@@ -480,13 +497,13 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
     }
 
     if (widget.layoutMode == DetailDrawerLayoutMode.phoneLandscapeRail) {
+      final landscapeRailH = widget.showRawVideoFilename ? 216.0 : 166.0;
       return Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: widget.hideOpsCapsuleInBar
-                ? const EdgeInsets.fromLTRB(12, 4, 12, 4)
-                : const EdgeInsets.fromLTRB(12, 8, 12, 6),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -504,79 +521,78 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
           ),
           if (showSecondaryBar)
             Padding(
-              padding: const EdgeInsets.only(bottom: 4),
+              padding: const EdgeInsets.only(bottom: 8),
               child: DetailSecondaryFilterBar(
                 items: secondaryItems,
                 totalCount: currentRawCount,
                 selectedKey: activeSecondaryKey,
-                horizontalPadding: 12,
+                horizontalPadding: 16,
                 compact: true,
                 onSelected: (k) => _selectSecondaryKey(currentTab, k),
               ),
             ),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (ctx, constraints) {
-                final scale = MediaQuery.textScalerOf(
-                  ctx,
-                ).scale(1.0).clamp(1.0, 1.15);
-                final availH = math.max(72.0, constraints.maxHeight - 8.0);
-                final compactHideFilename = availH < 145.0;
-                final effectiveShowFilename =
-                    !compactHideFilename && widget.showRawVideoFilename;
-                final metaReserve =
-                    (effectiveShowFilename ? 74.0 : 34.0) * scale;
-                final maxThumbH = math.max(36.0, availH - metaReserve);
-                final adaptiveWidth = (maxThumbH * 16 / 9).clamp(84.0, 236.0);
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: currentCount == 0
-                      ? Center(
-                          child: Text(
-                            '该分类下暂无内容',
-                            style: KonataTheme.detailTextStyle(
-                              palette: context.palette,
-                              color: Colors.white.withValues(alpha: 0.82),
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        )
-                      : _buildTabRail(
-                          tab: currentTab,
-                          episodes: currentEps,
-                          mainEpisodeCount: mainEps.length,
-                          cdList: filteredCdList,
-                          scanList: filteredScanList,
-                          extraDisplayTitleByEpId: extraDisplayTitleByEpId,
-                          cdSummary: cdSummary,
-                          scanSummary: scanSummary,
-                          activeSecondaryKey: activeSecondaryKey,
-                          cardWidth: adaptiveWidth,
-                          compactMeta: true,
-                          showRawFilenameOverride: effectiveShowFilename,
-                          railPadH: 12.0,
-                        ),
-                );
-              },
-            ),
+          SizedBox(
+            height: landscapeRailH,
+            child: currentCount == 0
+                ? Center(
+                    child: Text(
+                      '该分类下暂无内容',
+                      style: KonataTheme.detailTextStyle(
+                        palette: context.palette,
+                        color: Colors.white.withValues(alpha: 0.82),
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  )
+                : _buildTabRail(
+                    tab: currentTab,
+                    episodes: currentEps,
+                    mainEpisodeCount: mainEps.length,
+                    cdList: filteredCdList,
+                    scanList: filteredScanList,
+                    extraDisplayTitleByEpId: extraDisplayTitleByEpId,
+                    cdSummary: cdSummary,
+                    scanSummary: scanSummary,
+                    activeSecondaryKey: activeSecondaryKey,
+                    cardWidth: 208.0,
+                    compactMeta: false,
+                    showRawFilenameOverride: widget.showRawVideoFilename,
+                    railPadH: 16.0,
+                  ),
           ),
         ],
       );
     }
 
     if (widget.layoutMode == DetailDrawerLayoutMode.phonePortraitSection) {
-      final portraitRailH = widget.showRawVideoFilename ? 214.0 : 164.0;
+      final portraitCardWidth = isTabletViewport ? 244.0 : 208.0;
+      final portraitRailH = isTabletViewport
+          ? (widget.showRawVideoFilename ? 228.0 : 182.0)
+          : (widget.showRawVideoFilename ? 216.0 : 166.0);
+      final sectionPadH = isTabletViewport ? 28.0 : 16.0;
       return Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: leftTabCapsule,
+            padding: EdgeInsets.symmetric(horizontal: sectionPadH),
+            child: widget.showOpsInPortraitBar
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(child: leftTabCapsule),
+                      const SizedBox(width: 12),
+                      buildOpsCapsule(
+                        showCollapse: true,
+                        openDownward: false,
+                      ),
+                    ],
+                  )
+                : leftTabCapsule,
           ),
           AnimatedSize(
-            duration: const Duration(milliseconds: 220),
+            duration: const Duration(milliseconds: 110),
             curve: Curves.easeOutCubic,
             alignment: Alignment.topCenter,
             child: !isExpanded
@@ -588,13 +604,13 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
                       const SizedBox(height: 10),
                       if (showSecondaryBar)
                         Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
+                          padding: const EdgeInsets.only(bottom: 8),
                           child: DetailSecondaryFilterBar(
                             items: secondaryItems,
                             totalCount: currentRawCount,
                             selectedKey: activeSecondaryKey,
-                            horizontalPadding: 16,
-                            compact: true,
+                            horizontalPadding: sectionPadH,
+                            compact: !isTabletViewport,
                             onSelected: (k) =>
                                 _selectSecondaryKey(currentTab, k),
                           ),
@@ -624,9 +640,11 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
                                 cdSummary: cdSummary,
                                 scanSummary: scanSummary,
                                 activeSecondaryKey: activeSecondaryKey,
-                                cardWidth: 204.0,
+                                cardWidth: portraitCardWidth,
                                 compactMeta: false,
-                                railPadH: 16.0,
+                                showRawFilenameOverride:
+                                    widget.showRawVideoFilename,
+                                railPadH: sectionPadH,
                               ),
                       ),
                     ],
@@ -662,7 +680,7 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
         ),
         // 无框悬浮剧集卡片行：直接悬浮在底部渐暗背景之上，彻底取消深黑大底框
         AnimatedSize(
-          duration: const Duration(milliseconds: 220),
+          duration: const Duration(milliseconds: 110),
           curve: Curves.easeOutCubic,
           alignment: Alignment.topCenter,
           child: !isExpanded
@@ -685,7 +703,7 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
                     Padding(
                       padding: const EdgeInsets.only(bottom: 20),
                       child: SizedBox(
-                        height: 222,
+                        height: 226,
                         child: currentCount == 0
                             ? Center(
                                 child: Text(
@@ -711,6 +729,8 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
                                 activeSecondaryKey: activeSecondaryKey,
                                 cardWidth: 244.0,
                                 compactMeta: false,
+                                showRawFilenameOverride:
+                                    widget.showRawVideoFilename,
                                 railPadH: drawerPadH,
                               ),
                       ),
@@ -775,6 +795,8 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
             cardWidth: cardWidth,
             showSeriesSharedBadge: showSharedBadge,
             displayTitleOverride: titleOverride,
+            showRawFileName:
+                showRawFilenameOverride ?? widget.showRawVideoFilename,
             directSubdirLabel: showDirectSubdir
                 ? group?.directSubdirShort
                 : null,

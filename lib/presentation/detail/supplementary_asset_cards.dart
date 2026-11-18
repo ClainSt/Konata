@@ -34,6 +34,7 @@ class CdDrawerCard extends StatefulWidget {
     this.onPlayExternal,
     this.directSubdirLabel,
     this.displayTitleOverride,
+    this.showRawFileName = true,
     this.onDarkBackdrop = true,
     this.cardWidth = 244.0,
   });
@@ -53,6 +54,9 @@ class CdDrawerCard extends StatefulWidget {
 
   /// 可选外部覆写展示标题（缺省时展示原文件名）。
   final String? displayTitleOverride;
+
+  /// 是否在卡片下方展示原始音频文件名。
+  final bool showRawFileName;
   final bool onDarkBackdrop;
 
   /// 卡片展示宽度（默认 `244dp`，手机横/竖屏可按可用高度适配）。
@@ -232,51 +236,6 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                             left: 6,
                             child: _MiniTag(label: '系列共用'),
                           ),
-                        if (KonataAdaptiveTokens.isAndroid &&
-                            widget.onPlayImmersive != null)
-                          Positioned(
-                            right: 0,
-                            bottom: 0,
-                            child: Builder(
-                              builder: (btnContext) => GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTap: () {
-                                  final box =
-                                      btnContext.findRenderObject()
-                                          as RenderBox?;
-                                  final pos = box != null
-                                      ? box.localToGlobal(
-                                          box.size.center(Offset.zero),
-                                        )
-                                      : Offset.zero;
-                                  _showCdMenu(pos);
-                                },
-                                child: SizedBox.square(
-                                  key: ValueKey('cd_more_${v.id}'),
-                                  dimension: KonataAdaptiveTokens.touchTarget,
-                                  child: Align(
-                                    alignment: Alignment.bottomRight,
-                                    child: Container(
-                                      margin: const EdgeInsets.all(6),
-                                      width: 28,
-                                      height: 28,
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withValues(
-                                          alpha: 0.50,
-                                        ),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: const Icon(
-                                        Icons.more_horiz_rounded,
-                                        size: 16,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
                       ],
                     ),
                   ),
@@ -285,7 +244,7 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
               const SizedBox(height: 7),
               EllipsisTextWithTooltip(
                 text: displayTitle,
-                maxLines: 2,
+                maxLines: 1,
                 style: KonataTheme.detailTextStyle(
                   palette: p,
                   color: (widget.onDarkBackdrop || p.isDark)
@@ -297,6 +256,23 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                   fontWeight: FontWeight.w600,
                 ),
               ),
+              if (widget.showRawFileName) ...[
+                const SizedBox(height: 2),
+                EllipsisTextWithTooltip(
+                  text: MediaDisplayFormatter.formatWrappableFileName(
+                    v.fileName,
+                  ),
+                  maxLines: 1,
+                  style: KonataTheme.detailTextStyle(
+                    palette: p,
+                    color: (widget.onDarkBackdrop || p.isDark)
+                        ? Colors.white.withValues(alpha: 0.80)
+                        : p.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ],
               if (subLine.isNotEmpty) ...[
                 const SizedBox(height: 2),
                 EllipsisTextWithTooltip(
@@ -305,9 +281,9 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                   style: KonataTheme.detailTextStyle(
                     palette: p,
                     color: (widget.onDarkBackdrop || p.isDark)
-                        ? Colors.white.withValues(alpha: 0.78)
-                        : p.textSecondary,
-                    fontSize: 11,
+                        ? Colors.white.withValues(alpha: 0.68)
+                        : p.textMuted,
+                    fontSize: 10.8,
                     fontWeight: FontWeight.w400,
                   ),
                 ),

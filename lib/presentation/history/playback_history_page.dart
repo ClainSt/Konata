@@ -9,35 +9,31 @@ import '../../application/playback/playback_preferences_provider.dart';
 import '../../application/providers/artwork_provider.dart';
 import '../../application/providers/library_providers.dart';
 import '../../application/providers/playback_providers.dart';
-import '../../domain/formatting/media_display_formatter.dart';
-import '../../domain/matching/episode_title_formatter.dart';
 import '../../domain/matching/supplementary_subclassifier.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/playback_record.dart';
 import '../audio/mini_audio_bar.dart';
-import '../audio/smart_cover_framing.dart';
 import '../detail/work_detail_page.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../video/embedded_video_page.dart';
 import '../widgets/design_system/adaptive_action_header.dart';
-import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
-import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/design_system/konata_toast.dart';
 import '../widgets/managed_image.dart';
+import 'playback_history_cards.dart';
 
 /// 播放记录分类页签（视频 / 音频）。
 enum PlaybackHistoryCategory { video, audio }
 
 enum _HistoryBatchMode { markCompleted, delete }
 
-/// 播放记录页面（桌面端响应式双列等高网格卡片 + 批量多选标记已看/清理记录）。
+/// 播放记录页面（支持全端音视频五层紧凑卡片、桌面双列等高网格与批量多选管理）。
 class PlaybackHistoryPage extends ConsumerStatefulWidget {
   /// 创建播放记录页面。
   const PlaybackHistoryPage({super.key});
@@ -53,26 +49,6 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
   PlaybackHistoryCategory _activeTab = PlaybackHistoryCategory.video;
   _HistoryBatchMode? _batchMode;
   final Set<String> _selectedIds = <String>{};
-
-  static const double _twoColumnBreakpoint = 900.0;
-  static const double _videoCoverWidth = 112.0;
-  static const double _videoCoverHeight = 160.0;
-  static const double _audioCoverSize = 86.0;
-  static const double _cardPadding = 16.0;
-  static const double _coverTextGap = 16.0;
-  static const double _colGap = 14.0;
-
-  // 统一排版字号与间距常量（渲染与双列等高测量严格同源）
-  static const double _titleFontSize = 20.5;
-  static const double _titleLineHeight = 1.28;
-  static const double _subtitleFontSize = 15.5;
-  static const double _audioDirFontSize = 13.5;
-  static const double _audioDirTopGap = 5.0;
-  static const double _progressFontSize = 14.0;
-  static const double _dateFontSize = 13.5;
-  static const double _progressBarHeight = 6.5;
-  static const double _titleSubtitleGap = 8.0;
-  static const double _progressBarGap = 10.0;
 
   @override
   void dispose() {
@@ -139,19 +115,6 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
           ..addAll(records.map((r) => r.id));
       }
     });
-  }
-
-  String _progressLabel(PlaybackRecord rec, {required bool isAudio}) {
-    if (rec.isCompleted) return isAudio ? '已听完' : '已看完';
-    final verb = isAudio ? '收听至' : '观看至';
-    if (rec.positionSeconds > 0 && rec.durationSeconds > 0) {
-      return '$verb ${PlaybackRecord.formatClock(rec.positionSeconds)} / '
-          '${PlaybackRecord.formatClock(rec.durationSeconds)}';
-    }
-    if (rec.positionSeconds > 0) {
-      return '$verb ${PlaybackRecord.formatClock(rec.positionSeconds)}';
-    }
-    return '刚刚打开';
   }
 
   Future<void> _confirmBatchAction(
@@ -324,7 +287,9 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
         break;
       }
     }
-    targetVariant ??= bundle.cdVariants.isNotEmpty ? bundle.cdVariants.first : null;
+    targetVariant ??= bundle.cdVariants.isNotEmpty
+        ? bundle.cdVariants.first
+        : null;
     if (targetVariant == null) {
       if (context.mounted) {
         showKonataToast(context, '未找到对应 CD 音频文件', isError: true);
@@ -506,39 +471,20 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     return null;
   }
 
-  double _measureCardHeight({
+  double _measureDesktopVideoCardHeight({
     required BuildContext context,
     required WorkLibraryItem? item,
-    required bool isAudio,
     required double titleMaxWidth,
-    required double titleTrailingMinHeight,
     required double epLineHeight,
-    required double extraAudioDirHeight,
     required double progressLineHeight,
     required double dateLineHeight,
-    required double coverHeight,
   }) {
-    if (isAudio) {
-      final workLineH = _measureSingleLineHeight(
-        context,
-        const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
-      );
-      final trackLineH = _measureSingleLineHeight(
-        context,
-        const TextStyle(fontSize: 15.0, fontWeight: FontWeight.w700),
-      );
-      final topPart = math.max(titleTrailingMinHeight, workLineH + 3.0 + trackLineH);
-      final midPart = extraAudioDirHeight > 0 ? extraAudioDirHeight : 0.0;
-      final rightTotal = topPart + midPart + 6.0 + 4.5 + 5.0 + dateLineHeight;
-      return math.max(coverHeight + 24.0 + 2.0, rightTotal + 24.0 + 2.0);
-    }
-    final work = item?.work;
-    final title = work?.title ?? '未知作品';
+    final title = item?.work.title ?? '未知作品';
     final effectiveTitleStyle = DefaultTextStyle.of(context).style.merge(
       const TextStyle(
-        fontSize: _titleFontSize,
+        fontSize: PlaybackHistoryCardMetrics.titleFontSize,
         fontWeight: FontWeight.w700,
-        height: _titleLineHeight,
+        height: PlaybackHistoryCardMetrics.titleLineHeight,
       ),
     );
     final painter = TextPainter(
@@ -548,595 +494,61 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
       locale: Localizations.maybeLocaleOf(context),
     )..layout(maxWidth: math.max(40.0, titleMaxWidth));
 
-    final titleRowHeight = math.max(painter.height, titleTrailingMinHeight);
     final stackedBottomRow = titleMaxWidth < 260.0;
     final bottomRowH = stackedBottomRow
-        ? (_progressBarHeight + 8.0 + dateLineHeight)
-        : math.max(_progressBarHeight, dateLineHeight);
+        ? (PlaybackHistoryCardMetrics.progressBarHeight + 8.0 + dateLineHeight)
+        : math.max(PlaybackHistoryCardMetrics.progressBarHeight, dateLineHeight);
     final rightHeight =
-        titleRowHeight +
-        _titleSubtitleGap +
+        painter.height +
+        PlaybackHistoryCardMetrics.titleSubtitleGap +
         epLineHeight +
         16.0 +
         progressLineHeight +
-        _progressBarGap +
+        PlaybackHistoryCardMetrics.progressBarGap +
         bottomRowH;
     return math.max(
-      coverHeight + _cardPadding * 2 + 2,
-      rightHeight + _cardPadding * 2 + 8,
+      PlaybackHistoryCardMetrics.videoCoverHeight +
+          PlaybackHistoryCardMetrics.cardPadding * 2 +
+          2,
+      rightHeight + PlaybackHistoryCardMetrics.cardPadding * 2 + 8,
     );
   }
 
-  Widget _buildAudioCompactCard({
+  Widget _buildRecordItemCard({
     required BuildContext context,
-    required KonataPalette p,
     required PlaybackRecord rec,
     required WorkLibraryItem? item,
-    required ManagedImageLoader imageLoader,
-    String? audioDirLabel,
-  }) {
-    final work = item?.work;
-    final epLabel = EpisodeTitleFormatter.formatHistorySubtitle(
-      record: rec,
-      work: work,
-      mainEpisodeCount: item?.episodeCount,
-    );
-    final inSelection = _batchMode != null;
-    final selected = inSelection && _selectedIds.contains(rec.id);
-    final isDeleteMode = _batchMode == _HistoryBatchMode.delete;
-    final selectedAccent = isDeleteMode ? p.danger : p.accent;
-    final poster =
-        work?.posterPath ?? work?.bangumiPosterPath ?? work?.posterFallback;
-    final showTouchMore = KonataAdaptiveTokens.isAndroid && !inSelection;
-    final viewportWidth = MediaQuery.sizeOf(context).width;
-    final veryNarrow =
-        KonataAdaptiveTokens.isAndroid && viewportWidth < 380.0;
-    final coverSize = veryNarrow ? 76.0 : (KonataAdaptiveTokens.isAndroid ? 82.0 : _audioCoverSize);
-    final cardPad = veryNarrow ? 10.0 : 12.0;
-    final coverGap = veryNarrow ? 10.0 : 12.0;
-
-    final trailingWidget = inSelection
-        ? Icon(
-            selected
-                ? Icons.check_circle_rounded
-                : Icons.radio_button_unchecked_rounded,
-            size: 22,
-            color: selected ? selectedAccent : p.textMuted,
-          )
-        : (showTouchMore
-              ? Builder(
-                  builder: (btnContext) => GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () {
-                      final box = btnContext.findRenderObject() as RenderBox?;
-                      final anchor = box != null
-                          ? box.localToGlobal(box.size.center(Offset.zero))
-                          : Offset.zero;
-                      _showRowMenu(
-                        context: context,
-                        ref: ref,
-                        globalPos: anchor,
-                        rec: rec,
-                        isAudio: true,
-                      );
-                    },
-                    child: SizedBox.square(
-                      key: ValueKey('history_more_${rec.id}'),
-                      dimension: KonataAdaptiveTokens.touchTarget,
-                      child: Icon(
-                        Icons.more_horiz_rounded,
-                        size: 20,
-                        color: p.textSecondary,
-                      ),
-                    ),
-                  ),
-                )
-              : null);
-
-    final progressStatus = rec.isCompleted
-        ? '已听完'
-        : (rec.positionSeconds > 0 && rec.durationSeconds > 0
-              ? '${PlaybackRecord.formatClock(rec.positionSeconds)} / ${PlaybackRecord.formatClock(rec.durationSeconds)}'
-              : (rec.positionSeconds > 0
-                    ? PlaybackRecord.formatClock(rec.positionSeconds)
-                    : '刚刚打开'));
-
-    final Widget card = KonataSurfaceCard(
-      padding: EdgeInsets.all(cardPad),
-      enableHover: !selected,
-      backgroundColor: selected
-          ? selectedAccent.withValues(alpha: p.isDark ? 0.14 : 0.08)
-          : null,
-      borderColor: selected ? selectedAccent.withValues(alpha: 0.72) : null,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: SizedBox.square(
-              dimension: coverSize,
-              child: _AudioHistoryCover(
-                workId: rec.workId,
-                variantId: rec.variantId,
-                fallbackPoster: poster,
-                imageLoader: imageLoader,
-                size: coverSize,
-              ),
-            ),
-          ),
-          SizedBox(width: coverGap),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            work?.title ?? '未知作品',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: p.accent,
-                              fontSize: 12.2,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            epLabel,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: p.textPrimary,
-                              fontSize: veryNarrow ? 14.0 : 15.0,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (trailingWidget != null) ...[
-                      const SizedBox(width: 4),
-                      trailingWidget,
-                    ],
-                  ],
-                ),
-                if (audioDirLabel != null &&
-                    audioDirLabel.trim().isNotEmpty) ...[
-                  const SizedBox(height: 2),
-                  EllipsisTextWithTooltip(
-                    text: audioDirLabel.trim(),
-                    maxLines: 1,
-                    style: TextStyle(
-                      color: p.textSecondary,
-                      fontSize: 12.0,
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 6),
-                SizedBox(
-                  height: 4.5,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(999),
-                    child: LinearProgressIndicator(
-                      value: rec.isCompleted ? 1.0 : rec.progressRatio,
-                      backgroundColor: p.progressTrack,
-                      valueColor: AlwaysStoppedAnimation(
-                        rec.isCompleted ? p.success : p.progressFill,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 5),
-                MediaQuery.withClampedTextScaling(
-                  maxScaleFactor: 1.15,
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          progressStatus,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: KonataTheme.textStyle(
-                            color: rec.isCompleted ? p.success : p.progressFill,
-                            fontSize: 11.8,
-                            weight: 600,
-                            tabularFigures: true,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        MediaDisplayFormatter.formatDateTimeMinute(
-                          rec.playedAt,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: KonataTheme.textStyle(
-                          color: p.textMuted,
-                          fontSize: 11.5,
-                          weight: 500,
-                          tabularFigures: true,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-
-    return GestureDetector(
-      onSecondaryTapUp: inSelection
-          ? null
-          : (details) => _showRowMenu(
-              context: context,
-              ref: ref,
-              globalPos: details.globalPosition,
-              rec: rec,
-              isAudio: true,
-            ),
-      onLongPressStart: inSelection
-          ? null
-          : (details) => _showRowMenu(
-              context: context,
-              ref: ref,
-              globalPos: details.globalPosition,
-              rec: rec,
-              isAudio: true,
-            ),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () {
-            if (inSelection) {
-              _toggleSelected(rec.id);
-            } else {
-              _openWorkDetail(context, rec, item);
-            }
-          },
-          child: card,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCard({
-    required BuildContext context,
-    required KonataPalette p,
-    required PlaybackRecord rec,
-    required WorkLibraryItem? item,
-    required ManagedImageLoader imageLoader,
     required bool isAudio,
     required bool stretchHeight,
-    String? audioDirLabel,
+    required String? audioDirLabel,
+    required ManagedImageLoader imageLoader,
   }) {
-    if (isAudio) {
-      return _buildAudioCompactCard(
-        context: context,
-        p: p,
-        rec: rec,
-        item: item,
-        imageLoader: imageLoader,
-        audioDirLabel: audioDirLabel,
-      );
-    }
-    final work = item?.work;
-    final epLabel = EpisodeTitleFormatter.formatHistorySubtitle(
-      record: rec,
-      work: work,
-      mainEpisodeCount: item?.episodeCount,
-    );
-    final progressText = _progressLabel(rec, isAudio: isAudio);
     final inSelection = _batchMode != null;
     final selected = inSelection && _selectedIds.contains(rec.id);
     final isDeleteMode = _batchMode == _HistoryBatchMode.delete;
-    final selectedAccent = isDeleteMode ? p.danger : p.accent;
-    final poster =
-        work?.posterPath ?? work?.bangumiPosterPath ?? work?.posterFallback;
-    final showTouchMore = KonataAdaptiveTokens.isAndroid && !inSelection;
-    final viewportWidth = MediaQuery.sizeOf(context).width;
-    final compactCard =
-        KonataAdaptiveTokens.isAndroid &&
-        viewportWidth < KonataAdaptiveTokens.tabletBreakpoint;
-    final veryNarrow = compactCard && viewportWidth < 380.0;
-    final cardPad = veryNarrow ? 10.0 : (compactCard ? 12.0 : _cardPadding);
-    final coverGap = veryNarrow ? 10.0 : (compactCard ? 12.0 : _coverTextGap);
-    final coverWidth = isAudio
-        ? (veryNarrow ? 74.0 : (compactCard ? 92.0 : _audioCoverSize))
-        : (veryNarrow ? 74.0 : (compactCard ? 88.0 : _videoCoverWidth));
-    final coverHeight = isAudio
-        ? (veryNarrow ? 74.0 : (compactCard ? 92.0 : _audioCoverSize))
-        : (veryNarrow ? 106.0 : (compactCard ? 126.0 : _videoCoverHeight));
-    final coverRadius = isAudio ? 12.0 : 10.0;
-
-    final Widget coverWidget = isAudio
-        ? _AudioHistoryCover(
-            workId: rec.workId,
-            variantId: rec.variantId,
-            fallbackPoster: poster,
-            imageLoader: imageLoader,
-            size: coverWidth,
-          )
-        : (poster != null && poster.isNotEmpty
-              ? ManagedImage(
-                  poster,
-                  loader: imageLoader,
-                  owner: work?.id ?? rec.workId,
-                  artwork: ManagedArtwork.poster,
-                  decodeWidth: 280,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => _posterFallback(p, isAudio: false),
-                )
-              : _posterFallback(p, isAudio: false));
-
-    final topBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Text(
-                work?.title ?? '未知作品',
-                softWrap: true,
-                maxLines: veryNarrow ? 2 : null,
-                overflow: veryNarrow ? TextOverflow.ellipsis : null,
-                style: TextStyle(
-                  color: p.textPrimary,
-                  fontSize: veryNarrow
-                      ? 15.5
-                      : (compactCard ? 17.5 : _titleFontSize),
-                  fontWeight: FontWeight.w700,
-                  height: _titleLineHeight,
-                ),
-              ),
-            ),
-            if (inSelection) ...[
-              const SizedBox(width: 8),
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Icon(
-                  selected
-                      ? Icons.check_circle_rounded
-                      : Icons.radio_button_unchecked_rounded,
-                  size: 22,
-                  color: selected ? selectedAccent : p.textMuted,
-                ),
-              ),
-            ] else if (showTouchMore) ...[
-              const SizedBox(width: 4),
-              Builder(
-                builder: (btnContext) => GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () {
-                    final box = btnContext.findRenderObject() as RenderBox?;
-                    final anchor = box != null
-                        ? box.localToGlobal(box.size.center(Offset.zero))
-                        : Offset.zero;
-                    _showRowMenu(
-                      context: context,
-                      ref: ref,
-                      globalPos: anchor,
-                      rec: rec,
-                      isAudio: isAudio,
-                    );
-                  },
-                  child: SizedBox.square(
-                    key: ValueKey('history_more_${rec.id}'),
-                    dimension: KonataAdaptiveTokens.touchTarget,
-                    child: Icon(
-                      Icons.more_horiz_rounded,
-                      size: 20,
-                      color: p.textSecondary,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-        const SizedBox(height: _titleSubtitleGap),
-        EllipsisTextWithTooltip(
-          text: epLabel,
-          maxLines: 1,
-          style: TextStyle(
-            color: p.textSecondary,
-            fontSize: _subtitleFontSize,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        if (isAudio &&
-            audioDirLabel != null &&
-            audioDirLabel.trim().isNotEmpty) ...[
-          const SizedBox(height: _audioDirTopGap),
-          EllipsisTextWithTooltip(
-            text: audioDirLabel.trim(),
-            maxLines: 1,
-            style: TextStyle(
-              color: p.textMuted,
-              fontSize: _audioDirFontSize,
-              fontWeight: FontWeight.w400,
-            ),
-          ),
-        ],
-      ],
-    );
-
-    final bottomBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          progressText,
-          style: KonataTheme.textStyle(
-            color: rec.isCompleted ? p.success : p.progressFill,
-            fontSize: _progressFontSize,
-            weight: 600,
-            tabularFigures: true,
-          ),
-        ),
-        const SizedBox(height: _progressBarGap),
-        LayoutBuilder(
-          builder: (context, barBox) {
-            final progressBar = SizedBox(
-              height: _progressBarHeight,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(999),
-                child: LinearProgressIndicator(
-                  value: rec.isCompleted ? 1.0 : rec.progressRatio,
-                  backgroundColor: p.progressTrack,
-                  valueColor: AlwaysStoppedAnimation(
-                    rec.isCompleted ? p.success : p.progressFill,
-                  ),
-                ),
-              ),
-            );
-            final dateLabel = MediaQuery.withClampedTextScaling(
-              maxScaleFactor: 1.15,
-              child: Text(
-                MediaDisplayFormatter.formatDateTimeMinute(rec.playedAt),
-                maxLines: 1,
-                softWrap: false,
-                overflow: TextOverflow.ellipsis,
-                style: KonataTheme.textStyle(
-                  color: p.textMuted,
-                  fontSize: veryNarrow ? 12.0 : _dateFontSize,
-                  weight: 500,
-                  tabularFigures: true,
-                ),
-              ),
-            );
-            if (barBox.maxWidth < 260.0) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  progressBar,
-                  const SizedBox(height: 6),
-                  Align(alignment: Alignment.centerRight, child: dateLabel),
-                ],
-              );
-            }
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(child: progressBar),
-                const SizedBox(width: 10),
-                Flexible(flex: 0, child: dateLabel),
-              ],
-            );
-          },
-        ),
-      ],
-    );
-
-    final Widget card = KonataSurfaceCard(
-      padding: EdgeInsets.all(cardPad),
-      enableHover: !selected,
-      backgroundColor: selected
-          ? selectedAccent.withValues(alpha: p.isDark ? 0.14 : 0.08)
-          : null,
-      borderColor: selected ? selectedAccent.withValues(alpha: 0.72) : null,
-      child: Row(
-        crossAxisAlignment: stretchHeight
-            ? CrossAxisAlignment.stretch
-            : CrossAxisAlignment.start,
-        children: [
-          Align(
-            alignment: isAudio ? Alignment.center : Alignment.topCenter,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(coverRadius),
-              child: SizedBox(
-                width: coverWidth,
-                height: coverHeight,
-                child: coverWidget,
-              ),
-            ),
-          ),
-          SizedBox(width: coverGap),
-          Expanded(
-            child: stretchHeight
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [topBlock, bottomBlock],
-                  )
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      topBlock,
-                      const SizedBox(height: 16),
-                      bottomBlock,
-                    ],
-                  ),
-          ),
-        ],
-      ),
-    );
-
-    return GestureDetector(
-      onSecondaryTapUp: inSelection
-          ? null
-          : (details) => _showRowMenu(
-              context: context,
-              ref: ref,
-              globalPos: details.globalPosition,
-              rec: rec,
-              isAudio: isAudio,
-            ),
-      onLongPressStart: inSelection
-          ? null
-          : (details) => _showRowMenu(
-              context: context,
-              ref: ref,
-              globalPos: details.globalPosition,
-              rec: rec,
-              isAudio: isAudio,
-            ),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () {
-            if (inSelection) {
-              _toggleSelected(rec.id);
-            } else {
-              _openWorkDetail(context, rec, item);
-            }
-          },
-          child: card,
-        ),
-      ),
-    );
-  }
-
-  Widget _posterFallback(KonataPalette p, {required bool isAudio}) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: p.softFill,
-        border: Border.all(color: p.hairline, width: 1),
-      ),
-      child: Center(
-        child: Icon(
-          isAudio ? Icons.album_outlined : Icons.movie_outlined,
-          size: 30,
-          color: p.textMuted,
-        ),
+    return PlaybackHistoryItemCard(
+      record: rec,
+      workItem: item,
+      imageLoader: imageLoader,
+      isAudio: isAudio,
+      stretchHeight: stretchHeight,
+      inSelection: inSelection,
+      selected: selected,
+      isDeleteMode: isDeleteMode,
+      audioDirLabel: audioDirLabel,
+      onTapCard: () {
+        if (inSelection) {
+          _toggleSelected(rec.id);
+        } else {
+          _openWorkDetail(context, rec, item);
+        }
+      },
+      onShowMenu: (globalPos, targetRec, targetAudio) => _showRowMenu(
+        context: context,
+        ref: ref,
+        globalPos: globalPos,
+        rec: targetRec,
+        isAudio: targetAudio,
       ),
     );
   }
@@ -1170,8 +582,6 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
         .where((r) => _selectedIds.contains(r.id))
         .length;
     final markCompletedLabel = isAudioTab ? '标记为已听' : '标记为已看';
-    final activeCoverWidth = isAudioTab ? _audioCoverSize : _videoCoverWidth;
-    final activeCoverHeight = isAudioTab ? _audioCoverSize : _videoCoverHeight;
 
     return Focus(
       focusNode: _selectionFocusNode,
@@ -1332,6 +742,12 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
 
                   return LayoutBuilder(
                     builder: (context, constraints) {
+                      final mqSize = MediaQuery.sizeOf(context);
+                      final isPortraitTablet =
+                          KonataAdaptiveTokens.isAndroid &&
+                          mqSize.shortestSide >=
+                              KonataAdaptiveTokens.tabletBreakpoint &&
+                          mqSize.height >= mqSize.width;
                       final compactList =
                           KonataAdaptiveTokens.isAndroid &&
                           constraints.maxWidth <
@@ -1340,62 +756,64 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                           ? KonataAdaptiveTokens.horizontalInset
                           : KonataTheme.pageHorizontalPadding;
                       final twoColumns =
-                          constraints.maxWidth >= _twoColumnBreakpoint;
+                          !isPortraitTablet &&
+                          constraints.maxWidth >=
+                              PlaybackHistoryCardMetrics.twoColumnBreakpoint;
                       final rowCount = twoColumns
                           ? (records.length + 1) ~/ 2
                           : records.length;
                       final contentWidth =
                           constraints.maxWidth - listPadH * 2;
                       final cardWidth = twoColumns
-                          ? math.max(120.0, (contentWidth - _colGap) / 2)
+                          ? math.max(
+                              120.0,
+                              (contentWidth -
+                                      PlaybackHistoryCardMetrics.colGap) /
+                                  2,
+                            )
                           : contentWidth;
-                      final trailingWidth = inSelection
-                          ? 30.0
-                          : (KonataAdaptiveTokens.isAndroid ? 52.0 : 0.0);
+                      final trailingWidth =
+                          (inSelection || KonataAdaptiveTokens.isAndroid)
+                          ? 36.0
+                          : 0.0;
                       final titleMaxWidth =
                           cardWidth -
-                          _cardPadding * 2 -
+                          PlaybackHistoryCardMetrics.cardPadding * 2 -
                           2 -
-                          activeCoverWidth -
-                          _coverTextGap -
+                          PlaybackHistoryCardMetrics.videoCoverWidth -
+                          PlaybackHistoryCardMetrics.coverTextGap -
                           trailingWidth;
-                      final epH = twoColumns
+                      final epH = twoColumns && !isAudioTab
                           ? _measureSingleLineHeight(
                               context,
                               const TextStyle(
-                                fontSize: _subtitleFontSize,
+                                fontSize:
+                                    PlaybackHistoryCardMetrics.subtitleFontSize,
                                 fontWeight: FontWeight.w500,
                               ),
                             )
                           : 0.0;
-                      final progH = twoColumns
+                      final progH = twoColumns && !isAudioTab
                           ? _measureSingleLineHeight(
                               context,
                               KonataTheme.textStyle(
                                 color: p.progressFill,
-                                fontSize: _progressFontSize,
+                                fontSize:
+                                    PlaybackHistoryCardMetrics.progressFontSize,
                                 weight: 600,
                                 tabularFigures: true,
                               ),
                             )
                           : 0.0;
-                      final dateH = twoColumns
+                      final dateH = twoColumns && !isAudioTab
                           ? _measureSingleLineHeight(
                               context,
                               KonataTheme.textStyle(
                                 color: p.textMuted,
-                                fontSize: _dateFontSize,
+                                fontSize:
+                                    PlaybackHistoryCardMetrics.dateFontSize,
                                 weight: 500,
                                 tabularFigures: true,
-                              ),
-                            )
-                          : 0.0;
-                      final audioDirLineH = twoColumns && isAudioTab
-                          ? _measureSingleLineHeight(
-                              context,
-                              const TextStyle(
-                                fontSize: _audioDirFontSize,
-                                fontWeight: FontWeight.w400,
                               ),
                             )
                           : 0.0;
@@ -1413,7 +831,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                           ),
                           itemCount: rowCount,
                           separatorBuilder: (_, _) =>
-                              const SizedBox(height: 14),
+                              const SizedBox(height: 10),
                           itemBuilder: (_, rowIndex) {
                             if (!twoColumns) {
                               final rec = records[rowIndex];
@@ -1425,24 +843,23 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                                       cdSummaryCache,
                                     )
                                   : null;
-                              return _buildCard(
+                              return _buildRecordItemCard(
                                 context: context,
-                                p: p,
                                 rec: rec,
                                 item: workItem,
-                                imageLoader: imageLoader,
                                 isAudio: isAudioTab,
                                 stretchHeight: false,
                                 audioDirLabel: dirLabel,
+                                imageLoader: imageLoader,
                               );
                             }
+
                             final leftIndex = rowIndex * 2;
                             final rightIndex = leftIndex + 1;
                             final leftRec = records[leftIndex];
                             final rightRec = rightIndex < records.length
                                 ? records[rightIndex]
                                 : null;
-
                             final leftItem = workById[leftRec.workId];
                             final rightItem = rightRec != null
                                 ? workById[rightRec.workId]
@@ -1463,72 +880,34 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                                   )
                                 : null;
 
-                            final titleTrailingMinHeight = inSelection
-                                ? 24.0
-                                : (KonataAdaptiveTokens.isAndroid
-                                      ? KonataAdaptiveTokens.touchTarget
-                                      : 0.0);
-                            final leftHeight = _measureCardHeight(
-                              context: context,
-                              item: leftItem,
-                              isAudio: isAudioTab,
-                              titleMaxWidth: titleMaxWidth,
-                              titleTrailingMinHeight: titleTrailingMinHeight,
-                              epLineHeight: epH,
-                              extraAudioDirHeight: leftDirLabel != null
-                                  ? (2.0 + audioDirLineH)
-                                  : 0.0,
-                              progressLineHeight: progH,
-                              dateLineHeight: dateH,
-                              coverHeight: activeCoverHeight,
-                            );
-                            final rightHeight = rightRec == null
-                                ? leftHeight
-                                : _measureCardHeight(
-                                    context: context,
-                                    item: rightItem,
-                                    isAudio: isAudioTab,
-                                    titleMaxWidth: titleMaxWidth,
-                                    titleTrailingMinHeight:
-                                        titleTrailingMinHeight,
-                                    epLineHeight: epH,
-                                    extraAudioDirHeight: rightDirLabel != null
-                                        ? (2.0 + audioDirLineH)
-                                        : 0.0,
-                                    progressLineHeight: progH,
-                                    dateLineHeight: dateH,
-                                    coverHeight: activeCoverHeight,
-                                  );
-                            final rowHeight = math.max(leftHeight, rightHeight);
-
                             if (isAudioTab) {
                               return Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Expanded(
-                                    child: _buildCard(
+                                    child: _buildRecordItemCard(
                                       context: context,
-                                      p: p,
                                       rec: leftRec,
                                       item: leftItem,
-                                      imageLoader: imageLoader,
                                       isAudio: true,
                                       stretchHeight: false,
                                       audioDirLabel: leftDirLabel,
+                                      imageLoader: imageLoader,
                                     ),
                                   ),
-                                  const SizedBox(width: _colGap),
+                                  const SizedBox(
+                                    width: PlaybackHistoryCardMetrics.colGap,
+                                  ),
                                   Expanded(
                                     child: rightRec != null
-                                        ? _buildCard(
+                                        ? _buildRecordItemCard(
                                             context: context,
-                                            p: p,
                                             rec: rightRec,
                                             item: rightItem,
-                                            imageLoader: imageLoader,
                                             isAudio: true,
                                             stretchHeight: false,
                                             audioDirLabel: rightDirLabel,
+                                            imageLoader: imageLoader,
                                           )
                                         : const SizedBox.shrink(),
                                   ),
@@ -1536,35 +915,55 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                               );
                             }
 
+                            final leftHeight = _measureDesktopVideoCardHeight(
+                              context: context,
+                              item: leftItem,
+                              titleMaxWidth: titleMaxWidth,
+                              epLineHeight: epH,
+                              progressLineHeight: progH,
+                              dateLineHeight: dateH,
+                            );
+                            final rightHeight = rightRec == null
+                                ? leftHeight
+                                : _measureDesktopVideoCardHeight(
+                                    context: context,
+                                    item: rightItem,
+                                    titleMaxWidth: titleMaxWidth,
+                                    epLineHeight: epH,
+                                    progressLineHeight: progH,
+                                    dateLineHeight: dateH,
+                                  );
+                            final rowHeight = math.max(leftHeight, rightHeight);
+
                             return SizedBox(
                               height: rowHeight,
                               child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
                                   Expanded(
-                                    child: _buildCard(
+                                    child: _buildRecordItemCard(
                                       context: context,
-                                      p: p,
                                       rec: leftRec,
                                       item: leftItem,
-                                      imageLoader: imageLoader,
                                       isAudio: false,
                                       stretchHeight: true,
-                                      audioDirLabel: leftDirLabel,
+                                      audioDirLabel: null,
+                                      imageLoader: imageLoader,
                                     ),
                                   ),
-                                  const SizedBox(width: _colGap),
+                                  const SizedBox(
+                                    width: PlaybackHistoryCardMetrics.colGap,
+                                  ),
                                   Expanded(
                                     child: rightRec != null
-                                        ? _buildCard(
+                                        ? _buildRecordItemCard(
                                             context: context,
-                                            p: p,
                                             rec: rightRec,
                                             item: rightItem,
-                                            imageLoader: imageLoader,
                                             isAudio: false,
                                             stretchHeight: true,
-                                            audioDirLabel: rightDirLabel,
+                                            audioDirLabel: null,
+                                            imageLoader: imageLoader,
                                           )
                                         : const SizedBox.shrink(),
                                   ),
@@ -1590,71 +989,5 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
         ),
       ),
     );
-  }
-}
-
-/// 音频播放记录 `128×128` 专辑封面：优先读取专辑目录 Folder/Cover 或内嵌 CD 封面，无专属图时回退作品封面。
-class _AudioHistoryCover extends ConsumerWidget {
-  const _AudioHistoryCover({
-    required this.workId,
-    required this.variantId,
-    required this.fallbackPoster,
-    required this.imageLoader,
-    required this.size,
-  });
-
-  final String workId;
-  final String variantId;
-  final String? fallbackPoster;
-  final ManagedImageLoader imageLoader;
-  final double size;
-
-  Widget _buildFallback(KonataPalette p) {
-    if (fallbackPoster != null && fallbackPoster!.isNotEmpty) {
-      return ManagedImage(
-        fallbackPoster!,
-        loader: imageLoader,
-        owner: workId,
-        artwork: ManagedArtwork.poster,
-        decodeWidth: 280,
-        fit: BoxFit.cover,
-        alignment: SmartCoverFraming.defaultPosterAlignment,
-        errorBuilder: (_, _, _) => _buildIconPlaceholder(p),
-      );
-    }
-    return _buildIconPlaceholder(p);
-  }
-
-  Widget _buildIconPlaceholder(KonataPalette p) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: p.softFill,
-        border: Border.all(color: p.hairline, width: 1),
-      ),
-      child: Center(
-        child: Icon(Icons.album_outlined, size: 34, color: p.textMuted),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final p = context.palette;
-    final albumBytesAsync = ref.watch(
-      audioRecordAlbumCoverProvider((workId: workId, variantId: variantId)),
-    );
-    final bytes = albumBytesAsync.valueOrNull;
-    if (bytes != null && bytes.isNotEmpty) {
-      return Image.memory(
-        bytes,
-        width: size,
-        height: size,
-        fit: BoxFit.cover,
-        gaplessPlayback: true,
-        filterQuality: FilterQuality.medium,
-        errorBuilder: (_, _, _) => _buildFallback(p),
-      );
-    }
-    return _buildFallback(p);
   }
 }

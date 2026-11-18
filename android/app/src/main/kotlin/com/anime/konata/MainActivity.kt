@@ -56,11 +56,12 @@ class MainActivity : FlutterActivity() {
         private const val REQ_NEXT = 7103
     }
 
-    private var previousOrientation: Int? = null
     private var playbackFullscreen = false
     private var previousBarsBehavior = 0
     private var visibleBars = 0
+    private var originalCutoutMode: Int? = null
     private var audioFocusChannel: MethodChannel? = null
+    private var mediaSessionChannel: MethodChannel? = null
     private var pipChannel: MethodChannel? = null
     private var scrollCaptureChannel: MethodChannel? = null
     private var audioFocusRequest: AudioFocusRequest? = null
@@ -172,6 +173,9 @@ class MainActivity : FlutterActivity() {
         }
         endPlaybackWindow()
         abandonPlaybackAudioFocus()
+        KonataMediaSessionDispatcher.onTransportCommand = null
+        mediaSessionChannel?.setMethodCallHandler(null)
+        mediaSessionChannel = null
         audioFocusChannel?.setMethodCallHandler(null)
         audioFocusChannel = null
         pipChannel?.setMethodCallHandler(null)
@@ -193,9 +197,28 @@ class MainActivity : FlutterActivity() {
                 visibleBars = listOf(WindowInsetsCompat.Type.statusBars(), WindowInsetsCompat.Type.navigationBars())
                     .filter { insets?.isVisible(it) != false }.fold(0, Int::or)
             }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val lp = window.attributes
+                if (originalCutoutMode == null) {
+                    originalCutoutMode = lp.layoutInDisplayCutoutMode
+                }
+                if (lp.layoutInDisplayCutoutMode != WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES) {
+                    lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    window.attributes = lp
+                }
+            }
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             controller.hide(bars)
         } else {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val savedCutout = originalCutoutMode
+                if (savedCutout != null) {
+                    val lp = window.attributes
+                    lp.layoutInDisplayCutoutMode = savedCutout
+                    window.attributes = lp
+                    originalCutoutMode = null
+                }
+            }
             if (!playbackFullscreen) return
             playbackFullscreen = false
             controller.systemBarsBehavior = previousBarsBehavior
@@ -216,8 +239,7 @@ class MainActivity : FlutterActivity() {
     private fun endPlaybackWindow() {
         setPlaybackFullscreen(false)
         setWindowBrightnessOverride(-1.0)
-        requestedOrientation = previousOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        previousOrientation = null
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
@@ -396,6 +418,34 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+        mediaSessionChannel = MethodChannel(messenger, "ccplayer/media_session").also { channel ->
+            KonataMediaSessionDispatcher.onTransportCommand = { command, positionMs ->
+                runOnUiThread {
+                    val payload = HashMap<String, Any?>(2)
+                    payload["command"] = command
+                    if (positionMs != null) {
+                        payload["positionMs"] = positionMs
+                    }
+                    channel.invokeMethod("onMediaAction", payload)
+                }
+            }
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "update" -> {
+                        val args = call.arguments as? Map<*, *>
+                        if (args != null) {
+                            KonataMediaSessionDispatcher.updateFromDart(applicationContext, args)
+                        }
+                        result.success(null)
+                    }
+                    "stop" -> {
+                        KonataMediaSessionDispatcher.stopFromDart(applicationContext)
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
         pipChannel = MethodChannel(messenger, "ccplayer/pip").also { channel ->
             channel.setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -459,8 +509,17 @@ class MainActivity : FlutterActivity() {
         MethodChannel(messenger, "ccplayer/playback_window").setMethodCallHandler { call, result ->
             when (call.method) {
                 "begin" -> {
-                    if (previousOrientation == null) {
-                        previousOrientation = requestedOrientation
+                    result.success(null)
+                }
+                "applyWindowMode" -> {
+                    val args = call.arguments as? Map<*, *>
+                    val landscape = args?.get("landscape") == true
+                    val hideBars = args?.get("hideSystemBars") == true
+                    setPlaybackFullscreen(hideBars)
+                    requestedOrientation = if (landscape) {
+                        ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                    } else {
+                        ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                     }
                     result.success(null)
                 }
@@ -469,9 +528,6 @@ class MainActivity : FlutterActivity() {
                     if (locked == null) {
                         result.error("playback_inactive", "Playback window is unavailable", null)
                     } else {
-                        if (previousOrientation == null) {
-                            previousOrientation = requestedOrientation
-                        }
                         // 锁定精确当前朝向（含反向横竖屏），解锁后恢复横屏传感器方向
                         requestedOrientation = if (locked) ActivityInfo.SCREEN_ORIENTATION_LOCKED
                             else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
@@ -480,15 +536,10 @@ class MainActivity : FlutterActivity() {
                 }
                 "setLandscape" -> {
                     val landscape = call.arguments == true
-                    if (landscape) {
-                        if (previousOrientation == null) {
-                            previousOrientation = requestedOrientation
-                        }
-                        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                    requestedOrientation = if (landscape) {
+                        ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                     } else {
-                        requestedOrientation = previousOrientation
-                            ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                        previousOrientation = null
+                        ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                     }
                     result.success(null)
                 }

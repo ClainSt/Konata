@@ -107,6 +107,8 @@ class DetailHeroInfo extends StatelessWidget {
     this.onDismissReview,
     this.titleFontSize = 34.0,
     this.fullWidthPlayButton = false,
+    this.expandOverviewFullWidth = false,
+    this.trailingPlayAccessory,
     this.overlayLogoHandledSeparately = false,
     this.logoMaxHeight = 80.0,
     this.logoMaxWidth = 340.0,
@@ -139,8 +141,14 @@ class DetailHeroInfo extends StatelessWidget {
   /// 文字主标题字号（桌面默认 `34`，手机竖屏传入较小字号防止超大折行）。
   final double titleFontSize;
 
-  /// 主播放按钮是否撑满容器宽度（手机竖屏网易爆米花风格主按钮）。
+  /// 主播放按钮是否撑满容器宽度。
   final bool fullWidthPlayButton;
+
+  /// 是否取消左半屏限宽使作品简介与标题横向全行通栏显示（平板竖屏启用）。
+  final bool expandOverviewFullWidth;
+
+  /// 可选紧贴主播放按钮右侧同一行排布的附属控件（如系列切换下拉框）。
+  final Widget? trailingPlayAccessory;
 
   /// 是否已将 ClearLogo 叠放在上方头图暗色渐变遮罩内（为 `true` 时文档流内不再占高度）。
   final bool overlayLogoHandledSeparately;
@@ -187,78 +195,110 @@ class DetailHeroInfo extends StatelessWidget {
     final hasHeaderContent =
         hasTitleSection || metaParts.isNotEmpty || hasOverview;
 
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 520),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (renderLogoInFlow)
-            DetailLockedClearLogo(
-              work: work,
-              imageLoader: imageLoader,
-              maxWidth: logoMaxWidth,
-              maxHeight: logoMaxHeight,
-              alignment: Alignment.bottomLeft,
-              errorBuilder: (_, _, _) => showTitleText
-                  ? const SizedBox.shrink()
-                  : _FallbackTitleBlock(
-                      title: work.title,
-                      originalTitle: work.originalTitle,
-                      fontSize: titleFontSize,
+    final Widget contentColumn = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (renderLogoInFlow)
+          DetailLockedClearLogo(
+            work: work,
+            imageLoader: imageLoader,
+            maxWidth: logoMaxWidth,
+            maxHeight: logoMaxHeight,
+            alignment: Alignment.bottomLeft,
+            errorBuilder: (_, _, _) => showTitleText
+                ? const SizedBox.shrink()
+                : _FallbackTitleBlock(
+                    title: work.title,
+                    originalTitle: work.originalTitle,
+                    fontSize: titleFontSize,
+                  ),
+          ),
+        if (renderLogoInFlow && renderTextTitle) const SizedBox(height: 10),
+        if (renderTextTitle)
+          _FallbackTitleBlock(
+            title: work.title,
+            originalTitle: work.originalTitle,
+            fontSize: titleFontSize,
+          ),
+        if (metaParts.isNotEmpty) ...[
+          if (hasTitleSection) const SizedBox(height: 12),
+          Text(
+            metaParts.join(' · '),
+            style: KonataTheme.detailTextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.4,
+              palette: p,
+              color: Colors.white.withValues(alpha: 0.90),
+            ).copyWith(shadows: _kHeroBackdropTextShadows),
+          ),
+        ],
+        if (hasOverview) ...[
+          if (hasTitleSection || metaParts.isNotEmpty)
+            const SizedBox(height: 12),
+          expandOverviewFullWidth
+              ? SizedBox(
+                  width: double.infinity,
+                  child: Theme(
+                    data: KonataTheme.darkTheme(),
+                    child: InlineExpandableSynopsis(
+                      text: work.overview!.trim(),
+                      collapsedMaxLines: 4,
+                      maxExpandedHeight: 240,
                     ),
-            ),
-          if (renderLogoInFlow && renderTextTitle) const SizedBox(height: 10),
-          if (renderTextTitle)
-            _FallbackTitleBlock(
-              title: work.title,
-              originalTitle: work.originalTitle,
-              fontSize: titleFontSize,
-            ),
-          if (metaParts.isNotEmpty) ...[
-            if (hasTitleSection) const SizedBox(height: 12),
-            Text(
-              metaParts.join(' · '),
-              style: KonataTheme.detailTextStyle(
-                fontSize: 13.5,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.4,
-                palette: p,
-                color: Colors.white.withValues(alpha: 0.90),
-              ).copyWith(shadows: _kHeroBackdropTextShadows),
-            ),
-          ],
-          if (hasOverview) ...[
-            if (hasTitleSection || metaParts.isNotEmpty)
-              const SizedBox(height: 12),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 496),
-              child: Theme(
-                data: KonataTheme.darkTheme(),
-                child: InlineExpandableSynopsis(
-                  text: work.overview!.trim(),
-                  collapsedMaxLines: 3,
-                  maxExpandedHeight: 200,
+                  ),
+                )
+              : ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 496),
+                  child: Theme(
+                    data: KonataTheme.darkTheme(),
+                    child: InlineExpandableSynopsis(
+                      text: work.overview!.trim(),
+                      collapsedMaxLines: 3,
+                      maxExpandedHeight: 200,
+                    ),
+                  ),
                 ),
+        ],
+        if (hasHeaderContent) const SizedBox(height: 18),
+        if (work.scrapeStatus == ScrapeStatus.needsReview &&
+            onManualMatch != null &&
+            onDismissReview != null)
+          WorkReviewBanner(
+            reviewReason: work.reviewReason,
+            onManualMatch: onManualMatch!,
+            onDismiss: onDismissReview!,
+          ),
+        if (trailingPlayAccessory != null && !fullWidthPlayButton)
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              FrostedPlayButton(
+                label: buttonLabel,
+                onPressed: onPrimaryPlay,
+                expandWidth: false,
               ),
-            ),
-          ],
-          if (hasHeaderContent) const SizedBox(height: 22),
-          if (work.scrapeStatus == ScrapeStatus.needsReview &&
-              onManualMatch != null &&
-              onDismissReview != null)
-            WorkReviewBanner(
-              reviewReason: work.reviewReason,
-              onManualMatch: onManualMatch!,
-              onDismiss: onDismissReview!,
-            ),
+              trailingPlayAccessory!,
+            ],
+          )
+        else
           FrostedPlayButton(
             label: buttonLabel,
             onPressed: onPrimaryPlay,
             expandWidth: fullWidthPlayButton,
           ),
-        ],
-      ),
+      ],
+    );
+
+    if (expandOverviewFullWidth) {
+      return contentColumn;
+    }
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 520),
+      child: contentColumn,
     );
   }
 }

@@ -29,6 +29,7 @@ import 'package:ccplayer/infrastructure/database/konata_database.dart';
 import 'package:ccplayer/presentation/audio/immersive_audio_page.dart';
 import 'package:ccplayer/presentation/audio/mini_audio_bar.dart';
 import 'package:ccplayer/presentation/detail/detail_bottom_drawer.dart';
+import 'package:ccplayer/presentation/detail/episode_drawer_card.dart';
 import 'package:ccplayer/presentation/history/playback_history_page.dart';
 import 'package:ccplayer/presentation/theme/konata_adaptive_tokens.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
@@ -794,7 +795,10 @@ void main() {
 
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
-      expect(orientationCalls.last, isEmpty);
+      expect(
+        orientationCalls.last,
+        equals([for (final o in DeviceOrientation.values) o.toString()]),
+      );
       expect(windowCalls, contains(('setLandscape', false)));
       debugDefaultTargetPlatformOverride = null;
     });
@@ -1535,12 +1539,9 @@ void main() {
       await tester.pumpAndSettle();
 
       final epMore = find.byKey(const ValueKey('episode_more_ep_1'));
-      expect(epMore, findsOneWidget);
-      final epSize = tester.getSize(epMore);
-      expect(epSize.width, greaterThanOrEqualTo(48.0));
-      expect(epSize.height, greaterThanOrEqualTo(48.0));
+      expect(epMore, findsNothing);
 
-      await tester.tap(epMore);
+      await tester.longPress(find.byType(EpisodeDrawerCard).first);
       await tester.pumpAndSettle();
       expect(find.text('使用内置播放器播放'), findsOneWidget);
       expect(find.text('使用外部播放器播放'), findsNothing);

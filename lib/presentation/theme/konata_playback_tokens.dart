@@ -153,7 +153,7 @@ abstract final class KonataPlaybackTokens {
   static const double capsuleHeight = 62.0;
   static const double capsuleMaxWidth = 900.0;
   static const double capsuleMinWidth = 340.0;
-  static const double capsuleCenterSymmetricBreakpoint = 560.0;
+  static const double capsuleCenterSymmetricBreakpoint = 440.0;
   static const double capsuleRadius = 20.0;
   static const double capsuleBlurSigma = 28.0;
   static const double capsuleBottomOffset = 20.0;
@@ -223,7 +223,7 @@ abstract final class KonataPlaybackTokens {
 
   /// 极简隐身 HUD 定时阈值（播放无操作满 3 秒平滑隐藏并退订进度界面监听）。
   static const Duration cursorIdleFadeDelay = Duration(milliseconds: 3000);
-  static const Duration hudFadeDuration = Duration(milliseconds: 200);
+  static const Duration hudFadeDuration = Duration(milliseconds: 95);
   static const Duration pauseBadgeDisplayDuration = Duration(milliseconds: 800);
   static const Duration wheelVolumeOsdDuration = Duration(milliseconds: 1200);
   static const Duration autoNextEpisodeToastDuration = Duration(

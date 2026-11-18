@@ -762,10 +762,10 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
           controller: ctrl,
           padding: const EdgeInsets.only(right: 16, bottom: 6),
           gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 204,
+            maxCrossAxisExtent: 256,
             mainAxisSpacing: 14,
             crossAxisSpacing: 14,
-            mainAxisExtent: 196,
+            mainAxisExtent: 214,
           ),
           itemCount: list.length,
           itemBuilder: (_, index) {
@@ -785,6 +785,7 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
               variant: v,
               showSeriesSharedBadge: showSharedBadge,
               displayTitleOverride: titleOverride,
+              showRawFileName: widget.showRawVideoFilename,
               directSubdirLabel: showDirectSubdir
                   ? group?.directSubdirShort
                   : null,
@@ -835,10 +836,10 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
         controller: ctrl,
         padding: const EdgeInsets.only(right: 16, bottom: 6),
         gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 204,
+          maxCrossAxisExtent: 256,
           mainAxisSpacing: 14,
           crossAxisSpacing: 14,
-          mainAxisExtent: 196,
+          mainAxisExtent: 214,
         ),
         itemCount: list.length,
         itemBuilder: (_, index) {

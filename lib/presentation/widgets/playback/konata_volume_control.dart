@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../../theme/konata_adaptive_tokens.dart';
 import '../../theme/konata_palette.dart';
 import '../../theme/konata_playback_tokens.dart';
 
@@ -536,40 +537,57 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
     final effective = widget.isMuted ? 0.0 : widget.volume.clamp(0.0, 1.0);
     final primary = p.textPrimary;
 
+    final touch = KonataAdaptiveTokens.isAndroid;
     final pill = Listener(
       onPointerSignal: _handlePointerSignal,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
-        onEnter: (_) {
-          setState(() => _anchorHovered = true);
-          _showPopoverIfPossible();
-        },
-        onExit: (_) {
-          setState(() {
-            _anchorHovered = false;
-            _wheelHoldOpen = false;
-          });
-          _scheduleHideIfIdle();
-        },
+        onEnter: touch
+            ? null
+            : (_) {
+                setState(() => _anchorHovered = true);
+                _showPopoverIfPossible();
+              },
+        onExit: touch
+            ? null
+            : (_) {
+                setState(() {
+                  _anchorHovered = false;
+                  _wheelHoldOpen = false;
+                });
+                _scheduleHideIfIdle();
+              },
         child: GestureDetector(
+          key: const ValueKey('konata_volume_mute_button'),
           behavior: HitTestBehavior.opaque,
           onTap: () {
             widget.onToggleMute();
-            _markVolumeAdjusting();
+            if (!touch) {
+              _markVolumeAdjusting();
+            }
           },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 140),
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: (_anchorHovered || _popoverHovered || _isDragging)
-                  ? KonataPlaybackTokens.softFill(p)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Icon(
-              _resolveVolumeIcon(effective),
-              size: 17,
-              color: primary,
+          onLongPress: touch
+              ? () => _markVolumeAdjusting(holdOpen: true)
+              : null,
+          child: SizedBox(
+            width: touch ? KonataAdaptiveTokens.touchTarget : null,
+            height: touch ? KonataAdaptiveTokens.touchTarget : null,
+            child: Center(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: (_anchorHovered || _popoverHovered || _isDragging)
+                      ? KonataPlaybackTokens.softFill(p)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Icon(
+                  _resolveVolumeIcon(effective),
+                  size: touch ? 19 : 17,
+                  color: primary,
+                ),
+              ),
             ),
           ),
         ),

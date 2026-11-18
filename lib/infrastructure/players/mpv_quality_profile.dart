@@ -627,10 +627,14 @@ class MpvQualityProfile {
     setter.setOption(client, 'config-dir', mpvConfigDir.path);
     setter.setOption(client, 'idle', 'yes');
     setter.setOption(client, 'keep-open', 'no');
+    setter.setOption(client, 'resume-playback', 'no');
+    setter.setOption(client, 'save-position-on-quit', 'no');
     setter.setOption(client, 'loop-file', 'no');
     setter.setOption(client, 'loop-playlist', 'no');
+    setter.setOption(client, 'aid', 'auto');
     setter.setOption(client, 'vid', 'no');
     setter.setOption(client, 'video', 'no');
+    setter.setOption(client, 'sid', 'no');
     setter.setOption(client, 'vo', 'null');
     setter.setOption(client, 'audio-display', 'no');
     setter.setOption(client, 'cover-art-auto', 'no');
@@ -693,6 +697,15 @@ class MpvQualityProfile {
     final setter = MpvSafePropertySetter(logStore: logStore);
     setter.setString(client, 'cache', 'yes');
     setter.setString(client, 'cache-on-disk', 'no');
+    if (isAudio) {
+      // 每次切曲前强制复位音视频与字幕流选择器及区间裁剪属性，防止跨曲目沿用旧轨道编号引发 -16 错误
+      setter.setString(client, 'vid', 'no');
+      setter.setString(client, 'sid', 'no');
+      setter.setString(client, 'aid', 'auto');
+      setter.setString(client, 'end', 'none');
+      setter.setString(client, 'ab-loop-a', 'no');
+      setter.setString(client, 'ab-loop-b', 'no');
+    }
 
     if (isRemoteStream) {
       final maxMiB = isAudio

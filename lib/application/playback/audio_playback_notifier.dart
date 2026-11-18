@@ -470,6 +470,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     this._ref, {
     this.clientFactory,
     this.gatewayFactory = const MediaSourceGatewayFactory(),
+    this.retryDelayBuilder,
     AndroidMediaSessionBridge? mediaSessionBridge,
   }) : _mediaSessionBridge =
            mediaSessionBridge ??
@@ -479,6 +480,9 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
        super(const AudioPlaybackState()) {
     _bindAndroidMediaSessionCallbacks();
   }
+
+  /// 非致命流加载异常的最大静默重试次数。
+  static const int maxSilentRetries = 3;
 
   static const int _propTimePos = 101;
   static const int _propDuration = 102;
@@ -493,6 +497,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   final Ref _ref;
   final LibMpvClient Function()? clientFactory;
   final MediaSourceGatewayFactory gatewayFactory;
+  final Duration Function(int attempt)? retryDelayBuilder;
   final AndroidMediaSessionBridge _mediaSessionBridge;
   final Map<String, Uint8List> _posterNotificationBytesCache = {};
   final Set<String> _loadingPosterNotificationKeys = {};
@@ -642,7 +647,10 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   int _activeCommandedGeneration = 0;
   int _completedGeneration = -1;
   int _currentMpvPlaylistEntryId = 0;
+  int _retiredMpvPlaylistEntryId = 0;
   int _eofHandledMpvEntryId = -1;
+  int _trackRetryCount = 0;
+  int _consecutiveFailedTracks = 0;
 
   double? _pendingSeekRawTargetSeconds;
   DateTime? _pendingSeekGuardUntil;
@@ -718,6 +726,8 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       );
     }
     final initialVol = _ref.read(playbackPreferencesProvider).defaultVolume;
+    _trackRetryCount = 0;
+    _consecutiveFailedTracks = 0;
     state = state.copyWith(
       isActive: true,
       queue: items,
@@ -1287,8 +1297,13 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     AudioQueueItem? previousItemOverride,
     double initialTrackOffsetSeconds = 0.0,
     bool selectLastOnCueExpand = false,
+    bool isRetryAttempt = false,
+    bool preserveErrorToast = false,
   }) async {
     if (index < 0 || index >= state.queue.length || !mounted) return;
+    if (!isRetryAttempt) {
+      _trackRetryCount = 0;
+    }
     final previousItem = previousItemOverride ?? state.currentItem;
     final reconciledIndex = await _reconcileCueWindowForTarget(
       index,
@@ -1305,7 +1320,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     index = reconciledIndex;
     final item = state.queue[index];
     _isTransitioningCueBoundary = false;
-    final clampedInitialOffset = initialTrackOffsetSeconds > 0
+    var clampedInitialOffset = initialTrackOffsetSeconds > 0
         ? initialTrackOffsetSeconds
         : 0.0;
 
@@ -1313,7 +1328,14 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     final cachedRawDuration =
         _rawDurationByPhysicalKey[physicalKey] ??
         (_loadedPhysicalKey == physicalKey ? _rawFileDurationSeconds : 0.0);
+    if (cachedRawDuration > 0 && clampedInitialOffset > 0) {
+      final baseCueStart = item.cueStartSeconds ?? 0.0;
+      if (baseCueStart + clampedInitialOffset >= cachedRawDuration - 0.1) {
+        clampedInitialOffset = 0.0;
+      }
+    }
     final canSeekInsideLoadedCue =
+        !isRetryAttempt &&
         item.isCueTrack &&
         _loadedPhysicalKey == physicalKey &&
         _client != null &&
@@ -1343,7 +1365,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
           ? state.sampleRateAndBitDepthLabel
           : '',
       bitrateLabel: canSeekInsideLoadedCue ? state.bitrateLabel : '',
-      clearError: true,
+      clearError: !preserveErrorToast,
     );
 
     final isRemote =
@@ -1355,8 +1377,13 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       final client = _client!;
 
       if (canSeekInsideLoadedCue) {
-        final start = (item.cueStartSeconds ?? 0.0) + clampedInitialOffset;
+        final cueStart = item.cueStartSeconds ?? 0.0;
+        if (cachedRawDuration > 0 && cueStart >= cachedRawDuration - 0.1) {
+          throw const _CueTrackBoundsException('CUE 分轨起点超出音频文件总时长');
+        }
+        final start = cueStart + clampedInitialOffset;
         _activeCommandedGeneration = generation;
+        _consecutiveFailedTracks = 0;
         _pendingSeekRawTargetSeconds = start;
         _pendingSeekGuardUntil = DateTime.now().add(_cueSeekDebounceWindow);
         client.setPropertyFlag('pause', false);
@@ -1384,13 +1411,26 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
         return;
       }
 
+      if (cachedRawDuration > 0 &&
+          item.cueStartSeconds != null &&
+          item.cueStartSeconds! >= cachedRawDuration - 0.1) {
+        throw const _CueTrackBoundsException('CUE 分轨起点超出音频文件总时长');
+      }
+
       _pendingSeekRawTargetSeconds = null;
       _pendingSeekGuardUntil = null;
       _suppressBufferingUntil = null;
       _pendingRemoteAuxJob = null;
-      await _releaseActiveStreamSession();
-      final mediaTarget = await _resolvePlaybackTarget(item);
-      if (generation != _loadGeneration || !mounted) return;
+
+      // 先注册新曲目流地址，再执行原子 loadfile 替换后异步回收旧流令牌，
+      // 严禁在异步空窗期提前销毁旧流引发 libmpv 读取中断误抛 -16。
+      final resolved = await _resolvePlaybackTarget(item);
+      if (generation != _loadGeneration || !mounted) {
+        if (resolved.streamToken != null) {
+          unawaited(_unregisterStreamToken(resolved.streamToken!));
+        }
+        return;
+      }
 
       MpvQualityProfile.applyRuntimeStreamProfile(
         client,
@@ -1400,6 +1440,11 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
         logStore: _ref.read(diagnosticsLogStoreProvider),
       );
 
+      final previousStreamToken = _activeStreamToken;
+      _activeStreamToken = resolved.streamToken;
+      if (_currentMpvPlaylistEntryId > _retiredMpvPlaylistEntryId) {
+        _retiredMpvPlaylistEntryId = _currentMpvPlaylistEntryId;
+      }
       _loadedPhysicalKey = physicalKey;
       _activeCommandedGeneration = generation;
       _rawFileDurationSeconds = cachedRawDuration;
@@ -1415,9 +1460,14 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
         client.setPropertyString('start', 'none');
       }
       client.setPropertyFlag('pause', false);
-      final cmdRc = client.command(['loadfile', mediaTarget, 'replace']);
+      final cmdRc = client.command(['loadfile', resolved.target, 'replace']);
+      if (previousStreamToken != null &&
+          previousStreamToken != resolved.streamToken) {
+        unawaited(_unregisterStreamToken(previousStreamToken));
+      }
       if (cmdRc < 0) {
         _loadedPhysicalKey = null;
+        client.setPropertyString('start', 'none');
         throw StateError(client.errorString(cmdRc));
       }
       unawaited(
@@ -1435,22 +1485,32 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
         _pendingRemoteAuxJob = (item: item, generation: generation);
       }
     } catch (e) {
+      _client?.setPropertyString('start', 'none');
       if (generation == _loadGeneration && mounted) {
-        final fallbackCover = state.cover is EmptyAudioCover
-            ? _resolvePosterFallback(item.work)
-            : state.cover;
-        final friendly = e is SourceAccessException ? e.message : '音频加载失败：$e';
-        state = state.copyWith(
-          isBuffering: false,
-          isPlaying: false,
-          cover: fallbackCover,
-          errorMessage: friendly,
+        final isDeterministicError =
+            SourceAccessErrorClassifier.isNonTransientError(e) ||
+            e is _CueTrackBoundsException ||
+            e is UnsupportedError;
+        final friendly = switch (e) {
+          SourceAccessException(:final message) => message,
+          _CueTrackBoundsException(:final message) => message,
+          _ => '音频加载失败：$e',
+        };
+        unawaited(
+          _handleTrackLoadFailure(
+            generation: generation,
+            failedItem: item,
+            reasonMessage: friendly,
+            retryable: !isDeterministicError,
+          ),
         );
       }
     }
   }
 
-  Future<String> _resolvePlaybackTarget(AudioQueueItem item) async {
+  Future<({String target, String? streamToken})> _resolvePlaybackTarget(
+    AudioQueueItem item,
+  ) async {
     final source = item.source;
     if (source == null || source.kind == MediaSourceKind.local) {
       if (source != null) {
@@ -1462,9 +1522,9 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
             '本地音频文件不存在或路径已变更（${item.effectiveRelativePath}），请检查磁盘挂载或重新扫描媒体源',
           );
         }
-        return absPath;
+        return (target: absPath, streamToken: null);
       }
-      return item.effectiveRelativePath;
+      return (target: item.effectiveRelativePath, streamToken: null);
     }
 
     final gateway = await gatewayFactory.create(source);
@@ -1481,17 +1541,20 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       ownsGateway: true,
       sourceKind: source.kind,
     );
-    _activeStreamToken = reg.token;
-    return reg.url.toString();
+    return (target: reg.url.toString(), streamToken: reg.token);
+  }
+
+  Future<void> _unregisterStreamToken(String token) async {
+    try {
+      await _ref.read(localStreamBridgeProvider).unregisterSession(token);
+    } catch (_) {}
   }
 
   Future<void> _releaseActiveStreamSession() async {
     final token = _activeStreamToken;
     if (token == null) return;
     _activeStreamToken = null;
-    try {
-      await _ref.read(localStreamBridgeProvider).unregisterSession(token);
-    } catch (_) {}
+    await _unregisterStreamToken(token);
   }
 
   Future<void> _loadAuxiliaryAssets(
@@ -1674,6 +1737,8 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       case MpvFileLoadedEvent():
         // CUE 起始偏移已在 loadfile 前通过 mpv `start` 属性直达起播，加载完成后复位避免切曲串台。
         _client?.setPropertyString('start', 'none');
+        _trackRetryCount = 0;
+        _consecutiveFailedTracks = 0;
         state = state.copyWith(isBuffering: false, isPlaying: true);
         _refreshProbeFromClient();
         final auxJob = _pendingRemoteAuxJob;
@@ -1893,6 +1958,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   void _onNaturalTrackEofReached({int playlistEntryId = 0}) {
     if (!mounted || !state.isActive) return;
     if (playlistEntryId > 0) {
+      if (playlistEntryId <= _retiredMpvPlaylistEntryId) return;
       if (playlistEntryId == _eofHandledMpvEntryId) return;
       if (_currentMpvPlaylistEntryId > 0 &&
           playlistEntryId != _currentMpvPlaylistEntryId) {
@@ -1920,13 +1986,22 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     if (event.reason == MpvEndFileReason.eof) {
       _onNaturalTrackEofReached(playlistEntryId: event.playlistEntryId);
     } else if (event.reason == MpvEndFileReason.error) {
-      if (event.playlistEntryId > 0 &&
-          _currentMpvPlaylistEntryId > 0 &&
-          event.playlistEntryId != _currentMpvPlaylistEntryId) {
+      if (event.playlistEntryId > 0) {
+        if (event.playlistEntryId <= _retiredMpvPlaylistEntryId) {
+          return;
+        }
+        if (_currentMpvPlaylistEntryId > 0 &&
+            event.playlistEntryId != _currentMpvPlaylistEntryId) {
+          return;
+        }
+      }
+      if (_activeCommandedGeneration <= 0 ||
+          _activeCommandedGeneration != _loadGeneration) {
         return;
       }
       _loadedPhysicalKey = null;
       _isTransitioningCueBoundary = false;
+      _client?.setPropertyString('start', 'none');
       final curItem = state.currentItem;
       final bridgeDiag = _ref
           .read(localStreamBridgeProvider)
@@ -1934,18 +2009,95 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
             token: _activeStreamToken,
             relativePath: curItem?.effectiveRelativePath,
           );
-      final fallbackCover = (state.cover is EmptyAudioCover && curItem != null)
-          ? _resolvePosterFallback(curItem.work)
-          : state.cover;
-      state = state.copyWith(
-        isPlaying: false,
-        isBuffering: false,
-        cover: fallbackCover,
-        errorMessage:
-            bridgeDiag ??
-            '音频读取或解码中断 (code: ${event.errorCode})，请确认媒体文件路径未变更且源连接正常',
+      final reasonMessage =
+          bridgeDiag ?? MpvError.describeAudioError(event.errorCode);
+      unawaited(
+        _handleTrackLoadFailure(
+          generation: _activeCommandedGeneration,
+          failedItem: curItem,
+          reasonMessage: reasonMessage,
+          retryable: true,
+        ),
       );
     }
+  }
+
+  /// 处理单曲装填或解复用异常：对偶发错误最多静默重试 3 次，仍失败时自动跳至下一首并提示。
+  Future<void> _handleTrackLoadFailure({
+    required int generation,
+    required AudioQueueItem? failedItem,
+    required String reasonMessage,
+    required bool retryable,
+  }) async {
+    if (!mounted || !state.isActive || generation != _loadGeneration) {
+      return;
+    }
+
+    if (retryable &&
+        _trackRetryCount < maxSilentRetries &&
+        state.currentIndex >= 0 &&
+        state.currentIndex < state.queue.length) {
+      final attempt = ++_trackRetryCount;
+      final delay = retryDelayBuilder != null
+          ? retryDelayBuilder!(attempt)
+          : (Platform.environment.containsKey('FLUTTER_TEST')
+                ? Duration.zero
+                : Duration(milliseconds: 120 * attempt));
+      if (delay > Duration.zero) {
+        await Future<void>.delayed(delay);
+      }
+      if (!mounted || !state.isActive || generation != _loadGeneration) {
+        return;
+      }
+      final retryGen = ++_loadGeneration;
+      await _startTrackAtIndex(
+        state.currentIndex,
+        generation: retryGen,
+        initialTrackOffsetSeconds: 0.0,
+        isRetryAttempt: true,
+      );
+      return;
+    }
+
+    _trackRetryCount = 0;
+    _consecutiveFailedTracks += 1;
+    _loadedPhysicalKey = null;
+    final fallbackCover =
+        (state.cover is EmptyAudioCover && failedItem != null)
+        ? _resolvePosterFallback(failedItem.work)
+        : state.cover;
+
+    final rawNextIdx = state.currentIndex + 1;
+    final canAdvance =
+        state.queue.length > 1 &&
+        _consecutiveFailedTracks < state.queue.length &&
+        (rawNextIdx < state.queue.length ||
+            state.loopMode == AudioLoopMode.loopAll);
+
+    if (canAdvance) {
+      final targetIdx = rawNextIdx % state.queue.length;
+      final titlePrefix = (failedItem != null && failedItem.title.isNotEmpty)
+          ? '「${failedItem.title}」'
+          : '当前曲目';
+      state = state.copyWith(
+        cover: fallbackCover,
+        errorMessage: '$titlePrefix无法播放（$reasonMessage），已跳至下一首',
+      );
+      final nextGen = ++_loadGeneration;
+      await _startTrackAtIndex(
+        targetIdx,
+        generation: nextGen,
+        preserveErrorToast: true,
+      );
+      return;
+    }
+
+    state = state.copyWith(
+      isPlaying: false,
+      isBuffering: false,
+      cover: fallbackCover,
+      errorMessage: reasonMessage,
+    );
   }
 
   Future<void> _advanceOnTrackCompleted() async {
@@ -2322,6 +2474,11 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     ++_loadGeneration;
     _activeCommandedGeneration = 0;
     _completedGeneration = -1;
+    if (_currentMpvPlaylistEntryId > _retiredMpvPlaylistEntryId) {
+      _retiredMpvPlaylistEntryId = _currentMpvPlaylistEntryId;
+    }
+    _trackRetryCount = 0;
+    _consecutiveFailedTracks = 0;
     _loadedPhysicalKey = null;
     _isTransitioningCueBoundary = false;
 
@@ -2448,3 +2605,11 @@ final audioPlaybackProvider =
       });
       return notifier;
     });
+
+class _CueTrackBoundsException implements Exception {
+  const _CueTrackBoundsException(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
+}

@@ -364,11 +364,6 @@ class KonataMediaPlaybackService : Service() {
         snap: KonataMediaSessionDispatcher.Snapshot,
         coverBitmap: Bitmap?,
     ): Notification {
-        val smallIconRes = if (applicationInfo.icon != 0) {
-            applicationInfo.icon
-        } else {
-            android.R.drawable.ic_media_play
-        }
         val prevAction = Notification.Action.Builder(
             Icon.createWithResource(this, android.R.drawable.ic_media_previous),
             "上一首",
@@ -400,7 +395,7 @@ class KonataMediaPlaybackService : Service() {
         }
 
         builder
-            .setSmallIcon(smallIconRes)
+            .setSmallIcon(R.drawable.ic_stat_konata_media)
             .setContentTitle(snap.title)
             .setContentText(snap.artist)
             .setSubText(snap.album.takeIf { it.isNotEmpty() && it != snap.artist })

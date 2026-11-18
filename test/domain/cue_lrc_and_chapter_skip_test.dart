@@ -152,5 +152,128 @@ FILE "Disc1.flac" WAVE
       expect(shortClip.opening, isNull);
       expect(shortClip.ending, isNull);
     });
+
+    test('真机样本回归：《16bit 的感动 ANOTHER LAYER》第 01/02/06 集章节表零误判（冷开场 ~90s + OP ~90s 不误弹跳过 OP）', () {
+      // 真实导出样本 1：第 01 集（1420.92s，101s 冷开场且无前段 OP，片尾 ED 后含 6s 下集卡）
+      const ep01Chapters = [
+        PlaybackChapter(index: 0, title: 'Chapter 01', startSeconds: 0.0),
+        PlaybackChapter(index: 1, title: 'Chapter 02', startSeconds: 101.018),
+        PlaybackChapter(index: 2, title: 'Chapter 03', startSeconds: 503.962),
+        PlaybackChapter(index: 3, title: 'Chapter 04', startSeconds: 1324.907),
+        PlaybackChapter(index: 4, title: 'Chapter 05', startSeconds: 1414.913),
+      ];
+      final ep01Plan = ChapterSkipAnalyzer.analyze(
+        rawChapters: ep01Chapters,
+        totalDurationSeconds: 1420.92,
+        hasNextEpisode: true,
+      );
+      expect(ep01Plan.opening, isNull);
+      expect(ep01Plan.ending?.startSeconds, closeTo(1324.907, 0.001));
+      expect(ep01Plan.ending?.endSeconds, closeTo(1414.913, 0.001));
+      expect(ep01Plan.ending?.kind, equals(SkipActionKind.skipEdToCPart));
+
+      // 真实导出样本 2：第 02 集（1421.09s，Chapter 01 为 89.006s 冷开场正片，Chapter 02 为 90.048s OP）
+      const ep02Chapters = [
+        PlaybackChapter(index: 0, title: 'Chapter 01', startSeconds: 0.0),
+        PlaybackChapter(index: 1, title: 'Chapter 02', startSeconds: 89.006),
+        PlaybackChapter(index: 2, title: 'Chapter 03', startSeconds: 179.054),
+        PlaybackChapter(index: 3, title: 'Chapter 04', startSeconds: 531.072),
+        PlaybackChapter(index: 4, title: 'Chapter 05', startSeconds: 1173.13),
+        PlaybackChapter(index: 5, title: 'Chapter 06', startSeconds: 1263.053),
+        PlaybackChapter(index: 6, title: 'Chapter 07', startSeconds: 1415.08),
+      ];
+      final ep02Plan = ChapterSkipAnalyzer.analyze(
+        rawChapters: ep02Chapters,
+        totalDurationSeconds: 1421.09,
+        hasNextEpisode: true,
+      );
+      // 前段存在两个 ~90s 通用候选，严禁把 0..89.006 冷开场误判为 OP
+      expect(ep02Plan.opening, isNull);
+      expect(ep02Plan.activeWindowAt(12.0), isNull);
+      expect(ep02Plan.ending?.startSeconds, closeTo(1173.13, 0.001));
+      expect(ep02Plan.ending?.endSeconds, closeTo(1263.053, 0.001));
+      expect(ep02Plan.ending?.kind, equals(SkipActionKind.skipEdToCPart));
+
+      // 真实导出样本 3：第 06 集（1421.09s，Chapter 01 为 90.007s 冷开场，Chapter 02 为 90.048s OP）
+      const ep06Chapters = [
+        PlaybackChapter(index: 0, title: 'Chapter 01', startSeconds: 0.0),
+        PlaybackChapter(index: 1, title: 'Chapter 02', startSeconds: 90.007),
+        PlaybackChapter(index: 2, title: 'Chapter 03', startSeconds: 180.055),
+        PlaybackChapter(index: 3, title: 'Chapter 04', startSeconds: 694.068),
+        PlaybackChapter(index: 4, title: 'Chapter 05', startSeconds: 1033.032),
+        PlaybackChapter(index: 5, title: 'Chapter 06', startSeconds: 1123.122),
+        PlaybackChapter(index: 6, title: 'Chapter 07', startSeconds: 1415.08),
+      ];
+      final ep06Plan = ChapterSkipAnalyzer.analyze(
+        rawChapters: ep06Chapters,
+        totalDurationSeconds: 1421.09,
+        hasNextEpisode: true,
+      );
+      expect(ep06Plan.opening, isNull);
+      expect(ep06Plan.activeWindowAt(30.0), isNull);
+      expect(ep06Plan.ending?.startSeconds, closeTo(1033.032, 0.001));
+      expect(ep06Plan.ending?.endSeconds, closeTo(1123.122, 0.001));
+    });
+
+    test('覆盖「只有 OP」「没有章节」「全是通用章节名（碎切/后段双候选）」边界结构', () {
+      // 1. 只有 OP（无冷开场直出 90s OP + 长正片，无 ED）
+      final onlyOpPlan = ChapterSkipAnalyzer.analyze(
+        totalDurationSeconds: 1420.0,
+        rawChapters: const [
+          PlaybackChapter(index: 0, title: 'Chapter 01', startSeconds: 0.0),
+          PlaybackChapter(index: 1, title: 'Chapter 02', startSeconds: 90.0),
+          PlaybackChapter(index: 2, title: 'Chapter 03', startSeconds: 740.0),
+        ],
+      );
+      expect(onlyOpPlan.opening?.startSeconds, closeTo(0.0, 0.001));
+      expect(onlyOpPlan.opening?.endSeconds, closeTo(90.0, 0.001));
+      expect(onlyOpPlan.ending, isNull);
+
+      // 2. 没有章节（空列表或单章贯穿全片）
+      final noChaptersPlan = ChapterSkipAnalyzer.analyze(
+        totalDurationSeconds: 1420.0,
+        rawChapters: const [],
+      );
+      expect(noChaptersPlan.opening, isNull);
+      expect(noChaptersPlan.ending, isNull);
+
+      final singleChapterPlan = ChapterSkipAnalyzer.analyze(
+        totalDurationSeconds: 1420.0,
+        rawChapters: const [
+          PlaybackChapter(index: 0, title: 'Chapter 01', startSeconds: 0.0),
+        ],
+      );
+      expect(singleChapterPlan.opening, isNull);
+      expect(singleChapterPlan.ending, isNull);
+
+      // 3. 全是通用章节名且按 ~90s 碎切或中段含 90s 通用章节：严禁误判 OP/ED
+      final fragmentedGenericPlan = ChapterSkipAnalyzer.analyze(
+        totalDurationSeconds: 1420.0,
+        rawChapters: const [
+          PlaybackChapter(index: 0, title: 'Chapter 01', startSeconds: 0.0),
+          PlaybackChapter(index: 1, title: 'Chapter 02', startSeconds: 90.0),
+          PlaybackChapter(index: 2, title: 'Chapter 03', startSeconds: 500.0),
+          PlaybackChapter(index: 3, title: 'Chapter 04', startSeconds: 590.0),
+          PlaybackChapter(index: 4, title: 'Chapter 05', startSeconds: 1240.0),
+          PlaybackChapter(index: 5, title: 'Chapter 06', startSeconds: 1330.0),
+        ],
+      );
+      expect(fragmentedGenericPlan.opening, isNull);
+      expect(fragmentedGenericPlan.ending, isNull);
+
+      // 4. 后段出现双 90s 通用章节（如 90s ED + 90s C-Part）：ED 存在二义性，放弃推导
+      final ambiguousEdPlan = ChapterSkipAnalyzer.analyze(
+        totalDurationSeconds: 1420.0,
+        rawChapters: const [
+          PlaybackChapter(index: 0, title: 'Chapter 01', startSeconds: 0.0),
+          PlaybackChapter(index: 1, title: 'Chapter 02', startSeconds: 60.0),
+          PlaybackChapter(index: 2, title: 'Chapter 03', startSeconds: 150.0),
+          PlaybackChapter(index: 3, title: 'Chapter 04', startSeconds: 1240.0),
+          PlaybackChapter(index: 4, title: 'Chapter 05', startSeconds: 1330.0),
+        ],
+      );
+      expect(ambiguousEdPlan.opening?.startSeconds, closeTo(60.0, 0.001));
+      expect(ambiguousEdPlan.ending, isNull);
+    });
   });
 }

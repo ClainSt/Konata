@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'playback_probe_stats.dart';
 
 /// 章节识别触发的智能跳过动作类型。
@@ -42,6 +44,26 @@ class DetectedSkipWindow {
   bool containsPosition(double positionSeconds) {
     return positionSeconds >= startSeconds && positionSeconds < endSeconds;
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is DetectedSkipWindow &&
+        other.kind == kind &&
+        (other.startSeconds - startSeconds).abs() < 0.001 &&
+        (other.endSeconds - endSeconds).abs() < 0.001 &&
+        other.label == label &&
+        other.isTier1Named == isTier1Named;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    kind,
+    (startSeconds * 1000).round(),
+    (endSeconds * 1000).round(),
+    label,
+    isTier1Named,
+  );
 }
 
 /// 全片自动计算出的跳过计划。
@@ -72,10 +94,11 @@ class ChapterSkipPlan {
 ///
 /// 识别规则：
 /// - **层级一（显式命名匹配）**：匹配中/英/日章节名中的 OP/Opening/片头 与 ED/Ending/片尾；
-/// - **层级二（时长特征兜底）**：仅当单集总时长 `>= 18 分钟`（1080s）时，对未命名或通用章节名中
-///   时长处于 `85s ~ 96s` 的前段与后段章节自动判定为 OP 与 ED；
+/// - **层级二（保守唯一时长特征兜底）**：仅当单集总时长 `>= 18 分钟`（1080s）、章节结构包含明确正片长章节
+///   且中段无同尺度碎切干扰时，对前段/后段**候选唯一**的 `84.5s ~ 96.5s` 通用章节判定为 OP / ED；
+///   若前段存在多个候选（如 `~90s 冷开场 + ~90s OP`）或后段存在多个候选，严格遵循「宁可不提示，绝不误提示」放弃推导；
 /// - **ED 后置 C-Part 决策**：对比 ED 结束时间与总时长，剩余内容 `> 5s` 跳至 C-Part，
-///   `<= 5s` 直接提示「跳过片尾 · 下一话 ⏭」。
+///   `<= 5s` 直接提示「跳过片尾 · 下一话」。
 class ChapterSkipAnalyzer {
   ChapterSkipAnalyzer._();
 
@@ -85,6 +108,18 @@ class ChapterSkipAnalyzer {
   /// 标准 90 秒 OP/ED 容差窗口。
   static const double minThemeDurationSeconds = 84.5;
   static const double maxThemeDurationSeconds = 96.5;
+
+  /// 层级二要求全片至少存在一段主体正片章节的最小时长（3 分钟，排除固定步长碎切章节）。
+  static const double minMainBodyChapterDurationSeconds = 180.0;
+
+  /// 层级二要求 OP 结束后剩余正片最小时长（5 分钟）。
+  static const double minRemainingAfterOpSeconds = 300.0;
+
+  /// 层级二允许的最大章节总数上限（排除按小节密集切分的章节表）。
+  static const int maxChaptersForDurationHeuristic = 12;
+
+  /// 层级二后段 ED 搜索起始比例（65% 处起算，避开 B-Part 前中段正片）。
+  static const double tier2EdMinStartRatio = 0.65;
 
   /// ED 结束至片尾边界的 C-Part 阈值（5 秒）。
   static const double cPartRemainingThresholdSeconds = 5.0;
@@ -120,11 +155,16 @@ class ChapterSkipAnalyzer {
       rawChapters,
       totalDurationSeconds: totalDurationSeconds,
     );
+    if (chapters.isEmpty) {
+      return const ChapterSkipPlan();
+    }
 
     DetectedSkipWindow? opening;
     DetectedSkipWindow? ending;
+    int? tier1OpeningIndex;
+    int? tier1EndingIndex;
 
-    // 1. 层级一：显式命名匹配
+    // 1. 层级一：显式命名匹配（保持既有显式规则不变）
     for (final ch in chapters) {
       final end = ch.endSeconds;
       if (end == null || end <= ch.startSeconds) continue;
@@ -142,6 +182,7 @@ class ChapterSkipAnalyzer {
           label: '跳过 OP',
           isTier1Named: true,
         );
+        tier1OpeningIndex = ch.index;
         continue;
       }
       if (ending == null &&
@@ -154,47 +195,83 @@ class ChapterSkipAnalyzer {
           hasNextEpisode: hasNextEpisode,
           isTier1Named: true,
         );
+        tier1EndingIndex = ch.index;
       }
     }
 
-    // 2. 层级二：单集 >= 18min 且未显式命名时，匹配 85s ~ 96s 通用章节
-    if (totalDurationSeconds >= minDurationForDurationHeuristicSeconds) {
-      for (final ch in chapters) {
-        final end = ch.endSeconds;
-        if (end == null) continue;
-        final duration = end - ch.startSeconds;
-        if (duration < minThemeDurationSeconds ||
-            duration > maxThemeDurationSeconds) {
-          continue;
-        }
-        if (!_genericChapterRegex.hasMatch(ch.title.trim())) {
-          continue;
+    // 2. 层级二：单集 >= 18min 且结构清晰时，仅在候选严格唯一且无二义性时推导 OP / ED
+    if ((opening == null || ending == null) &&
+        totalDurationSeconds >= minDurationForDurationHeuristicSeconds &&
+        chapters.length >= 2 &&
+        chapters.length <= maxChaptersForDurationHeuristic) {
+      final hasMainBodyChapter = chapters.any((ch) {
+        final dur = ch.durationSeconds;
+        return dur != null && dur >= minMainBodyChapterDurationSeconds;
+      });
+      if (hasMainBodyChapter) {
+        final opMaxStart = math.max(totalDurationSeconds * 0.25, 300.0);
+        final edMinStart = totalDurationSeconds * tier2EdMinStartRatio;
+
+        final opCandidates = <PlaybackChapter>[];
+        final edCandidates = <PlaybackChapter>[];
+        var hasMidSectionThemeSizedGeneric = false;
+
+        for (final ch in chapters) {
+          if (ch.index == tier1OpeningIndex || ch.index == tier1EndingIndex) {
+            continue;
+          }
+          final end = ch.endSeconds;
+          if (end == null || end <= ch.startSeconds) continue;
+          final duration = end - ch.startSeconds;
+          if (duration < minThemeDurationSeconds ||
+              duration > maxThemeDurationSeconds) {
+            continue;
+          }
+          if (!_genericChapterRegex.hasMatch(ch.title.trim())) {
+            continue;
+          }
+
+          if (ch.startSeconds <= opMaxStart) {
+            opCandidates.add(ch);
+          } else if (ch.startSeconds >= edMinStart && ch.startSeconds > 60.0) {
+            edCandidates.add(ch);
+          } else {
+            // 正片中段亦出现 85~96s 通用章节，表明该片按短场景碎切，时长启发式不可信
+            hasMidSectionThemeSizedGeneric = true;
+          }
         }
 
-        final opMaxStart = (totalDurationSeconds * 0.25) > 300.0
-            ? totalDurationSeconds * 0.25
-            : 300.0;
-        if (opening == null && ch.startSeconds <= opMaxStart) {
-          opening = DetectedSkipWindow(
-            kind: SkipActionKind.skipOp,
-            startSeconds: ch.startSeconds,
-            endSeconds: end,
-            label: '跳过 OP',
-            isTier1Named: false,
-          );
-          continue;
-        }
+        if (!hasMidSectionThemeSizedGeneric) {
+          if (opening == null && opCandidates.length == 1) {
+            final opCh = opCandidates.single;
+            final opEnd = opCh.endSeconds!;
+            final isNotLastChapter = opCh.index < chapters.last.index;
+            final hasAmpleRemaining =
+                (totalDurationSeconds - opEnd) >= minRemainingAfterOpSeconds;
+            if (isNotLastChapter && hasAmpleRemaining) {
+              opening = DetectedSkipWindow(
+                kind: SkipActionKind.skipOp,
+                startSeconds: opCh.startSeconds,
+                endSeconds: opEnd,
+                label: '跳过 OP',
+                isTier1Named: false,
+              );
+            }
+          }
 
-        if (ending == null &&
-            ch.startSeconds >= totalDurationSeconds * 0.55 &&
-            ch.startSeconds > 60.0) {
-          ending = _buildEndingWindow(
-            startSeconds: ch.startSeconds,
-            endSeconds: end,
-            totalDurationSeconds: totalDurationSeconds,
-            hasNextEpisode: hasNextEpisode,
-            isTier1Named: false,
-          );
+          if (ending == null && edCandidates.length == 1) {
+            final edCh = edCandidates.single;
+            final edEnd = edCh.endSeconds!;
+            if (edCh.index > 0) {
+              ending = _buildEndingWindow(
+                startSeconds: edCh.startSeconds,
+                endSeconds: edEnd,
+                totalDurationSeconds: totalDurationSeconds,
+                hasNextEpisode: hasNextEpisode,
+                isTier1Named: false,
+              );
+            }
+          }
         }
       }
     }

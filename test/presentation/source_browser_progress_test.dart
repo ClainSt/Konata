@@ -636,7 +636,9 @@ void main() {
       }
     });
 
-    testWidgets('showKonataToast 在窗口正中心展示且不贴近底部边栏', (tester) async {
+    testWidgets('showKonataToast 固定于底部安全区上方水平居中，4 秒自动淡出且支持 × 关闭', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(1280, 720);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -661,12 +663,16 @@ void main() {
 
       final toastFinder = find.text('已完成元数据刷新');
       expect(toastFinder, findsOneWidget);
+      expect(find.byKey(const ValueKey('konata_toast_close')), findsOneWidget);
       final center = tester.getCenter(toastFinder);
-      expect(center.dx, closeTo(640, 20));
-      expect(center.dy, closeTo(360, 20));
+      expect(center.dx, closeTo(640, 40));
+      expect(center.dy, greaterThan(620));
+      expect(center.dy, lessThan(705));
 
-      // 等待自动关闭，避免测试遗留定时器。
-      await tester.pump(const Duration(seconds: 4));
+      // 3 秒时仍可见，满 4 秒后自动淡出关闭。
+      await tester.pump(const Duration(seconds: 3));
+      expect(toastFinder, findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
       await tester.pumpAndSettle();
       expect(toastFinder, findsNothing);
     });

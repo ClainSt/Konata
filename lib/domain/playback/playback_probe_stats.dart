@@ -319,7 +319,13 @@ class PlaybackProbeStats {
   }) {
     if (rawChapters.isEmpty) return const [];
     final sorted = List<PlaybackChapter>.from(rawChapters)
-      ..sort((a, b) => a.index.compareTo(b.index));
+      ..sort((a, b) {
+        final byStart = clampChapterZeroPts(
+          a.startSeconds,
+        ).compareTo(clampChapterZeroPts(b.startSeconds));
+        if (byStart != 0) return byStart;
+        return a.index.compareTo(b.index);
+      });
 
     final normalized = <PlaybackChapter>[];
     for (var i = 0; i < sorted.length; i++) {
@@ -328,16 +334,24 @@ class PlaybackProbeStats {
       double? end = current.endSeconds;
       if (end != null) {
         end = clampChapterZeroPts(end);
-      } else if (i + 1 < sorted.length) {
-        end = clampChapterZeroPts(sorted[i + 1].startSeconds);
-      } else if (totalDurationSeconds != null &&
+        if (end <= start) {
+          end = null;
+        }
+      }
+      if (end == null && i + 1 < sorted.length) {
+        final nextStart = clampChapterZeroPts(sorted[i + 1].startSeconds);
+        if (nextStart > start) {
+          end = nextStart;
+        }
+      } else if (end == null &&
+          totalDurationSeconds != null &&
           totalDurationSeconds.isFinite &&
           totalDurationSeconds > start) {
         end = totalDurationSeconds;
       }
       normalized.add(
         PlaybackChapter(
-          index: current.index,
+          index: i,
           title: current.title,
           startSeconds: start,
           endSeconds: end,

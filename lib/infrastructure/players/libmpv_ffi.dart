@@ -19,8 +19,20 @@ abstract final class MpvError {
   static const int propertyNotFound = -8;
   static const int propertyFormat = -9;
   static const int propertyUnavailable = -10;
+  static const int loadingFailed = -13;
   static const int aoInitFailed = -14;
   static const int voInitFailed = -15;
+  static const int nothingToPlay = -16;
+
+  /// 将 libmpv 结束错误码转译为准确的简体中文音频诊断说明。
+  static String describeAudioError(int errorCode) {
+    return switch (errorCode) {
+      nothingToPlay => '未找到可播放音轨或音频流未被选中 (code: $nothingToPlay)',
+      loadingFailed => '音频流打开或解复用失败 (code: $loadingFailed)',
+      aoInitFailed => '音频输出设备初始化失败 (code: $aoInitFailed)',
+      _ => '音频加载或播放异常 (code: $errorCode)',
+    };
+  }
 }
 
 /// libmpv `mpv_format` 枚举常量。

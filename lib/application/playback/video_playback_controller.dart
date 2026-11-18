@@ -870,6 +870,10 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   void _recomputeChapterSkipPlan() {
     if (state.durationSeconds <= 0 || state.chapters.isEmpty) {
       _skipPlan = const ChapterSkipPlan();
+      if (state.activeSkipWindow != null) {
+        _skipFadeTimer?.cancel();
+        state = state.copyWith(clearSkipWindow: true);
+      }
       return;
     }
     _skipPlan = ChapterSkipAnalyzer.analyze(
@@ -877,6 +881,11 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       totalDurationSeconds: state.durationSeconds,
       hasNextEpisode: hasNextEpisodeAny,
     );
+    final active = _skipPlan.activeWindowAt(state.positionSeconds);
+    if (active == null && state.activeSkipWindow != null) {
+      _skipFadeTimer?.cancel();
+      state = state.copyWith(clearSkipWindow: true);
+    }
   }
 
   void _evaluateChapterSkipWindow(double posSeconds) {

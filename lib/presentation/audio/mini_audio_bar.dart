@@ -22,6 +22,7 @@ import '../video/video_hardware_surface.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_glass_capsule.dart';
+import '../widgets/design_system/konata_toast.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/managed_image.dart';
 import '../widgets/playback/konata_playback_capsule.dart';
@@ -177,8 +178,23 @@ class _GlobalAudioOverlayLayer extends ConsumerWidget {
     // 驱动 Android 画中画自动进入资格与比例实时同步
     ref.watch(androidPipAutoSyncProvider);
 
-    final audio = ref.watch(
-      audioPlaybackProvider.select((s) => (s.isActive, s.errorMessage)),
+    ref.listen<String?>(
+      audioPlaybackProvider.select((s) => s.errorMessage),
+      (prev, next) {
+        final msg = next?.trim() ?? '';
+        if (msg.isNotEmpty && msg != (prev?.trim() ?? '')) {
+          KonataToastController.show(msg, isError: true);
+          Future<void>.microtask(() {
+            if (context.mounted) {
+              ref.read(audioPlaybackProvider.notifier).dismissError();
+            }
+          });
+        }
+      },
+    );
+
+    final audioActive = ref.watch(
+      audioPlaybackProvider.select((s) => s.isActive),
     );
     final videoSession = ref.watch(activeVideoSessionProvider);
     final videoReq = videoSession.request;
@@ -196,7 +212,7 @@ class _GlobalAudioOverlayLayer extends ConsumerWidget {
     final miniVideoSheetOpen = ref.watch(_miniVideoSheetOpenProvider);
     final miniVideoVisible = videoSession.isMinimized;
     final miniAudioVisible =
-        audio.$1 && !videoActiveFlag && !videoSession.isActive && !audioExpanded;
+        audioActive && !videoActiveFlag && !videoSession.isActive && !audioExpanded;
     final anyMiniCapsuleVisible =
         (miniVideoVisible && !miniVideoSheetOpen) || miniAudioVisible;
 
@@ -221,7 +237,17 @@ class _GlobalAudioOverlayLayer extends ConsumerWidget {
           )
         : null;
 
-    final errorMsg = audio.$2?.trim() ?? '';
+    final fullscreenPlayerCoveringShell =
+        audioExpanded || (videoSession.isActive && videoSession.isExpanded);
+    final toastBaseBottomClearance = fullscreenPlayerCoveringShell
+        ? 0.0
+        : (android
+              ? geometry.errorBottomInset
+              : (anyMiniCapsuleVisible
+                    ? KonataPlaybackTokens.miniBarBottomInset +
+                          KonataPlaybackTokens.miniBarHeight +
+                          10.0
+                    : 0.0));
 
     return _OverlayBackInterceptor(
       onBackgrounded: () =>
@@ -328,34 +354,8 @@ class _GlobalAudioOverlayLayer extends ConsumerWidget {
               onCloseSession: () =>
                   ref.read(activeVideoSessionProvider.notifier).closeVideo(),
             ),
-          // 音频路径失效或读取异常全局醒目提示横幅
-          if (errorMsg.isNotEmpty && !videoSession.isActive)
-            Positioned(
-              left: 28,
-              right: 28,
-              top: audioExpanded ? 62 : null,
-              bottom: audioExpanded
-                  ? null
-                  : (android
-                        ? geometry.errorBottomInset
-                        : KonataPlaybackTokens.miniBarBottomInset +
-                              KonataPlaybackTokens.miniBarHeight +
-                              10),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 680),
-                  child: Material(
-                    type: MaterialType.transparency,
-                    child: _AudioErrorBanner(
-                      message: errorMsg,
-                      onDismiss: () => ref
-                          .read(audioPlaybackProvider.notifier)
-                          .dismissError(),
-                    ),
-                  ),
-                ),
-              ),
-            ),
+          // 根视口底部常驻悬浮轻提示（固定在底部安全区上方，4 秒自动淡出，支持 × 关闭，不随滚动或切页漂移）
+          KonataToastViewport(baseBottomClearance: toastBaseBottomClearance),
         ],
       ),
     );
@@ -412,69 +412,6 @@ class _OverlayBackInterceptorState extends State<_OverlayBackInterceptor>
 
   @override
   Widget build(BuildContext context) => widget.child;
-}
-
-class _AudioErrorBanner extends StatelessWidget {
-  const _AudioErrorBanner({required this.message, required this.onDismiss});
-
-  final String message;
-  final VoidCallback onDismiss;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            color: p.dangerBadge.bg.withValues(alpha: p.isDark ? 0.90 : 0.95),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: p.dangerBadge.border, width: 1),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.error_outline_rounded,
-                size: 18,
-                color: p.dangerBadge.fg,
-              ),
-              const SizedBox(width: 10),
-              Flexible(
-                child: Text(
-                  message,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: p.dangerBadge.fg,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    decoration: TextDecoration.none,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              KonataCapsuleIconButton(
-                key: const ValueKey('mini_error_close'),
-                icon: Icons.close_rounded,
-                tooltip: '关闭播放错误提示',
-                size: 16,
-                padding: const EdgeInsets.all(2),
-                fixedSize: KonataAdaptiveTokens.isAndroid
-                    ? KonataAdaptiveTokens.touchTarget
-                    : null,
-                color: p.dangerBadge.fg,
-                onTap: onDismiss,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 /// 全局持久 CD / 无损音乐悬浮毛玻璃迷你底栏（直接复用 [KonataPlaybackCapsule]）。

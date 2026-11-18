@@ -428,15 +428,16 @@ void main() {
           expect(after.dy, greaterThan(before.dy));
         }
         audio.emit(_initial.copyWith(errorMessage: '播放错误'));
-        await tester.pumpAndSettle();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 250));
         final error = tester.getRect(find.text('播放错误'));
         final player = tester.getRect(find.byType(MiniAudioBar));
         expect(error.bottom, lessThanOrEqualTo(player.top));
-        final errorClose = find.byKey(const ValueKey('mini_error_close'));
+        final errorClose = find.byKey(const ValueKey('konata_toast_close'));
         final errorCloseRect = tester.getRect(errorClose);
         expect(errorCloseRect.width, greaterThanOrEqualTo(48));
         expect(errorCloseRect.height, greaterThanOrEqualTo(48));
-        await tester.tapAt(errorCloseRect.topLeft + const Offset(1, 1));
+        await tester.tapAt(errorCloseRect.center);
         await tester.pumpAndSettle();
         expect(find.text('播放错误'), findsNothing);
 

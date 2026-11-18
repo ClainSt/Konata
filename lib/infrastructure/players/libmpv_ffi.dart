@@ -264,6 +264,12 @@ abstract interface class LibMpvClient {
   Future<void> dispose();
 }
 
+/// 支持动态退订已监听属性的 `libmpv` 扩展接口（用于 OSD 隐藏稳态期挂起 `time-pos` 零唤醒）。
+abstract interface class LibMpvUnobservable {
+  /// 取消指定 `replyUserdata` 对应的属性订阅（底层调用 `mpv_unobserve_property`）。
+  int unobserveProperty(int registeredReplyUserdata);
+}
+
 /// 支持无窗口软件渲染抽帧的 `libmpv` 扩展能力接口（供后台缩略图会话使用）。
 abstract interface class LibMpvSoftwareFrameSource {
   /// 将离屏软件渲染尺寸严格钳位并向下对齐至 4 像素边界（防 `repack.c:887` 奇数行/宽断言崩溃）。
@@ -449,6 +455,11 @@ typedef _MpvObservePropertyDart =
       int format,
     );
 
+typedef _MpvUnobservePropertyNative =
+    Int32 Function(Pointer<Void> mpv, Uint64 registeredReplyUserdata);
+typedef _MpvUnobservePropertyDart =
+    int Function(Pointer<Void> mpv, int registeredReplyUserdata);
+
 typedef _MpvCommandNative =
     Int32 Function(Pointer<Void> ctx, Pointer<Pointer<Utf8>> args);
 typedef _MpvCommandDart =
@@ -586,7 +597,8 @@ Uint8List encodeRgb0ToBmp(Uint8List rgb0, int width, int height) {
 }
 
 /// 基于 `dart:ffi` 与 `NativeCallable.listener` 的真实 libmpv 客户端封装。
-class FfiLibMpvClient implements LibMpvClient, LibMpvSoftwareFrameSource {
+class FfiLibMpvClient
+    implements LibMpvClient, LibMpvSoftwareFrameSource, LibMpvUnobservable {
   FfiLibMpvClient._({
     required this._libraryPath,
     required this._library,
@@ -628,6 +640,10 @@ class FfiLibMpvClient implements LibMpvClient, LibMpvSoftwareFrameSource {
     _mpvObserveProperty = _library
         .lookupFunction<_MpvObservePropertyNative, _MpvObservePropertyDart>(
           'mpv_observe_property',
+        );
+    _mpvUnobserveProperty = _library
+        .lookupFunction<_MpvUnobservePropertyNative, _MpvUnobservePropertyDart>(
+          'mpv_unobserve_property',
         );
     _mpvCommand = _library.lookupFunction<_MpvCommandNative, _MpvCommandDart>(
       'mpv_command',
@@ -729,6 +745,7 @@ class FfiLibMpvClient implements LibMpvClient, LibMpvSoftwareFrameSource {
   late final _MpvGetPropertyDart _mpvGetProperty;
   late final _MpvGetPropertyStringDart _mpvGetPropertyString;
   late final _MpvObservePropertyDart _mpvObserveProperty;
+  late final _MpvUnobservePropertyDart _mpvUnobserveProperty;
   late final _MpvCommandDart _mpvCommand;
   late final _MpvCommandAsyncDart _mpvCommandAsync;
   late final _MpvRequestLogMessagesDart _mpvRequestLogMessages;
@@ -1254,6 +1271,12 @@ class FfiLibMpvClient implements LibMpvClient, LibMpvSoftwareFrameSource {
         format,
       );
     });
+  }
+
+  @override
+  int unobserveProperty(int registeredReplyUserdata) {
+    if (_disposed) return -1;
+    return _mpvUnobserveProperty(_handle, registeredReplyUserdata);
   }
 
   @override

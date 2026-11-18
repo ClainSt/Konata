@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.app.PictureInPictureParams
 import android.app.RemoteAction
 import android.content.BroadcastReceiver
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -20,10 +21,12 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.CancellationSignal
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
+import android.provider.MediaStore
 import android.util.Rational
 import android.view.PixelCopy
 import android.view.ScrollCaptureCallback
@@ -35,11 +38,14 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterActivityLaunchConfigs
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterShellArgs
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.StandardMethodCodec
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileInputStream
 import java.io.IOException
 import java.util.function.Consumer
 import kotlin.math.max
@@ -64,6 +70,7 @@ class MainActivity : FlutterActivity() {
     private var mediaSessionChannel: MethodChannel? = null
     private var pipChannel: MethodChannel? = null
     private var scrollCaptureChannel: MethodChannel? = null
+    private var underlaySurfaceHost: AndroidUnderlaySurfaceHost? = null
     private var audioFocusRequest: AudioFocusRequest? = null
     private var pipReceiverRegistered = false
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -100,6 +107,11 @@ class MainActivity : FlutterActivity() {
             val cmd = intent.getStringExtra(EXTRA_PIP_COMMAND) ?: return
             runOnUiThread { pipChannel?.invokeMethod("action", cmd) }
         }
+    }
+
+    override fun getBackgroundMode(): FlutterActivityLaunchConfigs.BackgroundMode {
+        // 开启透明 FlutterSurfaceView，使底层 Underlay 原画表面透出且所有 Flutter 浮层天然覆盖在视频之上。
+        return FlutterActivityLaunchConfigs.BackgroundMode.transparent
     }
 
     override fun getFlutterShellArgs(): FlutterShellArgs {
@@ -182,6 +194,8 @@ class MainActivity : FlutterActivity() {
         pipChannel = null
         scrollCaptureChannel?.setMethodCallHandler(null)
         scrollCaptureChannel = null
+        underlaySurfaceHost?.destroy()
+        underlaySurfaceHost = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 
@@ -504,8 +518,44 @@ class MainActivity : FlutterActivity() {
                 result.error("artwork_unavailable", "Cannot open artwork directory", null)
             }
         }
-        flutterEngine.platformViewsController.registry.registerViewFactory(
-            "ccplayer/android_surface", AndroidVideoSurfaceFactory(messenger))
+        underlaySurfaceHost?.destroy()
+        underlaySurfaceHost = AndroidUnderlaySurfaceHost(this, messenger)
+        MethodChannel(
+            messenger,
+            "ccplayer/media_store",
+            StandardMethodCodec.INSTANCE,
+            messenger.makeBackgroundTaskQueue()
+        ).setMethodCallHandler { call, result ->
+            if (call.method != "saveImageToGallery") {
+                result.notImplemented()
+                return@setMethodCallHandler
+            }
+            val sourcePath = call.argument<String>("sourcePath").orEmpty()
+            val displayName = call.argument<String>("displayName").orEmpty()
+            val albumName = call.argument<String>("albumName").orEmpty().ifBlank { "Konata" }
+            val mimeType = call.argument<String>("mimeType").orEmpty().ifBlank { "image/png" }
+            val sourceFile = File(sourcePath)
+            try {
+                require(sourceFile.isFile && sourceFile.length() > 0L) {
+                    "Screenshot source file unavailable"
+                }
+                val savedUri = publishImageToMediaStore(
+                    sourceFile = sourceFile,
+                    displayName = displayName.ifBlank { sourceFile.name },
+                    albumName = albumName,
+                    mimeType = mimeType
+                )
+                result.success(savedUri)
+            } catch (e: Exception) {
+                result.error("media_store_failed", e.message ?: "Failed to publish image", null)
+            } finally {
+                try {
+                    if (sourceFile.exists()) {
+                        sourceFile.delete()
+                    }
+                } catch (_: Exception) {}
+            }
+        }
         MethodChannel(messenger, "ccplayer/playback_window").setMethodCallHandler { call, result ->
             when (call.method) {
                 "begin" -> {
@@ -872,5 +922,50 @@ class MainActivity : FlutterActivity() {
                 }
             }
         })
+    }
+
+    /// 通过 `MediaStore` `IS_PENDING` 事务机制原子写入系统相册图片目录，异常时自动回滚待定记录。
+    private fun publishImageToMediaStore(
+        sourceFile: File,
+        displayName: String,
+        albumName: String,
+        mimeType: String
+    ): String {
+        val safeAlbum = albumName.replace(Regex("""[\\/:*?"<>|]+"""), "_").trim().ifEmpty { "Konata" }
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, displayName)
+            put(MediaStore.Images.Media.MIME_TYPE, mimeType)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(
+                    MediaStore.Images.Media.RELATIVE_PATH,
+                    "${Environment.DIRECTORY_PICTURES}/$safeAlbum"
+                )
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+        }
+        val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: throw IOException("Cannot create MediaStore gallery entry")
+        try {
+            val out = contentResolver.openOutputStream(uri)
+                ?: throw IOException("Cannot open MediaStore output stream")
+            out.use { output ->
+                FileInputStream(sourceFile).use { input ->
+                    input.copyTo(output, bufferSize = 32768)
+                }
+                output.flush()
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val completeValues = ContentValues().apply {
+                    put(MediaStore.Images.Media.IS_PENDING, 0)
+                }
+                contentResolver.update(uri, completeValues, null, null)
+            }
+            return uri.toString()
+        } catch (e: Exception) {
+            try {
+                contentResolver.delete(uri, null, null)
+            } catch (_: Exception) {}
+            throw e
+        }
     }
 }

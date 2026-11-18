@@ -642,6 +642,7 @@ class _FloatingMiniOverlaySlot extends ConsumerWidget {
             key: GlobalObjectKey(videoReq),
             request: videoReq,
             miniPreview: true,
+            cornerRadius: KonataPlaybackTokens.floatingMiniRadius,
           )
         : null;
 

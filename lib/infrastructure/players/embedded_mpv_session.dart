@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
+import '../../domain/playback/hwdec_safety_policy.dart';
 import '../../domain/playback/playback_probe_stats.dart';
 import '../../domain/playback/subtitle_and_audio_choices.dart';
 import '../../domain/playback/track_preferences.dart';
@@ -42,6 +44,46 @@ class EmbeddedVideoLoadRequest {
   final int startSeconds;
   final int initialWidth;
   final int initialHeight;
+}
+
+/// 原画截图模式（严格经 FFI 参数数组传递给 `screenshot-to-file`）。
+enum ScreenshotCaptureMode {
+  /// 纯净视频帧（不含字幕与任何 UI 浮层）。
+  pureVideo('video', '纯净原画'),
+
+  /// 视频帧叠加原生渲染字幕（不含 UI 浮层）。
+  withSubtitles('subtitles', '含字幕原画');
+
+  const ScreenshotCaptureMode(this.mpvFlag, this.label);
+
+  /// 传递给 `libmpv` `screenshot-to-file` 的模式参数。
+  final String mpvFlag;
+
+  /// 界面展示名称。
+  final String label;
+}
+
+/// 截图落盘或相册事务发布结果。
+class ScreenshotCaptureResult {
+  /// 创建截图结果。
+  const ScreenshotCaptureResult({
+    required this.mode,
+    required this.displayLabel,
+    this.file,
+    this.galleryUri,
+  });
+
+  /// 本次截图模式。
+  final ScreenshotCaptureMode mode;
+
+  /// 面向用户的路径或相册位置展示文案。
+  final String displayLabel;
+
+  /// 桌面端直存作品目录的文件实体（Android 经 MediaStore 发布并清理临时文件后为 null）。
+  final File? file;
+
+  /// Android `MediaStore` 事务入库返回的内容 URI。
+  final String? galleryUri;
 }
 
 /// 内置 `libmpv` 视频底层会话封装（管理 Windows D3D11 共享纹理 / Android Surface、
@@ -142,6 +184,8 @@ class EmbeddedMpvSession {
   bool _hwdecWasEnabled = true;
   bool _hwdecFallbackAttempted = false;
   bool _usingSoftwareFallback = false;
+  bool _positionObserved = true;
+  String _activeAndroidVo = MpvQualityProfile.androidVideoDriver;
   bool _disposed = false;
   bool _videoTrackEnabled = true;
   String? _savedVidBeforeDisable;
@@ -156,6 +200,40 @@ class EmbeddedMpvSession {
   bool get isDisposed => _disposed;
   bool get isInitialized => _client?.isInitialized ?? false;
   bool get isUsingSoftwareFallback => _usingSoftwareFallback;
+  bool get isPositionObservationEnabled => _positionObserved;
+
+  /// 实时读取当前底层精确播放秒数（OSD 隐藏退订期间供低频持久化与唤醒同步使用）。
+  double? readCurrentPositionSeconds() {
+    final client = _client;
+    if (_disposed || client == null || client.isDisposed || !client.isInitialized) {
+      return null;
+    }
+    final pos = client.getPropertyDouble('time-pos');
+    if (pos != null && pos.isFinite) {
+      _lastPositionSeconds = pos;
+      return pos;
+    }
+    return _lastPositionSeconds;
+  }
+
+  /// 控制是否启用 `time-pos` 属性高频订阅（OSD 隐藏稳态或画中画时退订，消除 Flutter 无谓唤醒）。
+  void setPositionObservationEnabled(bool enabled) {
+    if (_positionObserved == enabled) return;
+    _positionObserved = enabled;
+    final client = _client;
+    if (_disposed || client == null || client.isDisposed || !client.isInitialized) {
+      return;
+    }
+    if (enabled) {
+      client.observeProperty(_propTimePos, 'time-pos', MpvFormat.double_);
+      final latest = readCurrentPositionSeconds();
+      if (latest != null) {
+        onPositionChanged?.call(latest);
+      }
+    } else if (client is LibMpvUnobservable) {
+      (client as LibMpvUnobservable).unobserveProperty(_propTimePos);
+    }
+  }
 
   /// 初始化底层 `libmpv`（Windows 创建 D3D11 离屏三缓冲纹理 / Android 绑定原生像素表面）并起播首个视频。
   Future<void> initializeAndLoad({
@@ -265,7 +343,9 @@ class EmbeddedMpvSession {
     );
     client.setPropertyDouble('volume', initialVolume.clamp(0.0, 100.0));
 
-    client.observeProperty(_propTimePos, 'time-pos', MpvFormat.double_);
+    if (_positionObserved) {
+      client.observeProperty(_propTimePos, 'time-pos', MpvFormat.double_);
+    }
     client.observeProperty(_propDuration, 'duration', MpvFormat.double_);
     client.observeProperty(_propPause, 'pause', MpvFormat.flag);
     client.observeProperty(_propCoreIdle, 'core-idle', MpvFormat.flag);
@@ -660,6 +740,7 @@ class EmbeddedMpvSession {
     switch (event) {
       case MpvFileLoadedEvent():
         _fileLoadedForCurrentGen = true;
+        _enforceHwdecSafetyPolicy();
         final pendingSeek = _pendingInitialSeekSeconds;
         _pendingInitialSeekSeconds = null;
         _client?.setPropertyString('start', 'none');
@@ -698,6 +779,7 @@ class EmbeddedMpvSession {
         _emitMediaMetadataSnapshot();
       case MpvVideoReconfigEvent():
         _firstFrameWatchdogTimer?.cancel();
+        _enforceHwdecSafetyPolicy();
         _syncHwdecCurrent();
         _emitMediaMetadataSnapshot();
       case MpvAudioReconfigEvent():
@@ -788,6 +870,55 @@ class EmbeddedMpvSession {
     }
   }
 
+  /// 解码层精准拦截 AVC Hi10P / 非 4:2:0 与 HEVC Rext / >10-bit 流，在首帧花屏前自动回落多线程 SIMD 软解。
+  void _enforceHwdecSafetyPolicy() {
+    final client = _client;
+    if (_disposed ||
+        client == null ||
+        client.isDisposed ||
+        !_hwdecWasEnabled ||
+        _usingSoftwareFallback) {
+      return;
+    }
+    final codec =
+        client.getPropertyString('video-format') ??
+        client.getPropertyString('video-codec') ??
+        '';
+    final profile =
+        client.getPropertyString('video-params/profile') ??
+        client.getPropertyString('video-codec') ??
+        '';
+    final pixfmt = client.getPropertyString('video-params/pixelformat');
+    final hwPixfmt = client.getPropertyString('video-params/hw-pixelformat');
+    final platform = _useAndroidSurfaceSession
+        ? HwdecPlatformKind.android
+        : (Platform.isWindows
+              ? HwdecPlatformKind.windows
+              : HwdecPlatformKind.other);
+    final decision = HwdecSafetyPolicy.evaluate(
+      platform: platform,
+      videoCodec: codec,
+      videoProfile: profile,
+      pixelFormat: pixfmt,
+      hwPixelFormat: hwPixfmt,
+    );
+    if (decision.allowHardwareDecode) {
+      return;
+    }
+    _hwdecFallbackAttempted = true;
+    _usingSoftwareFallback = true;
+    client.setPropertyString('hwdec', 'no');
+    client.setPropertyString('vd-lavc-threads', '0');
+    logStore?.record(
+      'mpv-hwdec-guard',
+      'rule=${decision.matchedRule} codec=$codec profile=$profile pixfmt=$pixfmt hw=$hwPixfmt -> hwdec=no',
+    );
+    onHwdecChanged?.call('no');
+    if (decision.reason != null) {
+      onNotice?.call(decision.reason!);
+    }
+  }
+
   void _emitMediaMetadataSnapshot() {
     final client = _client;
     if (client == null || client.isDisposed || !client.isInitialized) return;
@@ -817,6 +948,7 @@ class EmbeddedMpvSession {
   void _handlePropertyEvent(MpvPropertyChangeEvent e) {
     switch (e.replyUserdata) {
       case _propTimePos:
+        if (!_positionObserved) return;
         final pos = e.doubleValue;
         if (pos != null && pos.isFinite) {
           _lastPositionSeconds = pos;
@@ -1126,10 +1258,34 @@ class EmbeddedMpvSession {
     _emitMediaMetadataSnapshot();
   }
 
+  static const MethodChannel _mediaStoreChannel = MethodChannel(
+    'ccplayer/media_store',
+  );
+
   /// 截取纯净原画 PNG 视频帧（不含 UI/HUD 浮层），保存至作品目录并防重名。
   Future<File?> captureCleanScreenshot({
     required Directory workPhotoDir,
     String? episodeTag,
+    ScreenshotCaptureMode mode = ScreenshotCaptureMode.pureVideo,
+  }) async {
+    final res = await captureScreenshot(
+      workPhotoDir: workPhotoDir,
+      episodeTag: episodeTag,
+      mode: mode,
+    );
+    return res?.file;
+  }
+
+  /// 双模原画截图（支持 `video` 纯净帧与 `subtitles` 含字幕帧）：
+  /// - 统一通过 FFI 参数数组 `["screenshot-to-file", path, mode]` 调用，零字符串转义风险；
+  /// - Android 端通过 `MediaStore` `IS_PENDING` 事务原子写入系统相册并幂等删除临时文件。
+  Future<ScreenshotCaptureResult?> captureScreenshot({
+    required Directory workPhotoDir,
+    String? episodeTag,
+    ScreenshotCaptureMode mode = ScreenshotCaptureMode.pureVideo,
+    String albumName = 'Konata',
+    Future<String?> Function(File tempFile, String displayName, String album)?
+    androidMediaStorePublisher,
   }) async {
     final client = _client;
     if (_disposed || client == null || client.isDisposed) return null;
@@ -1138,15 +1294,72 @@ class EmbeddedMpvSession {
       timestamp: DateTime.now(),
       episodeTag: episodeTag,
     );
-    final rc = client.command(['screenshot-to-file', targetFile.path, 'video']);
+    final rc = client.command([
+      'screenshot-to-file',
+      targetFile.path,
+      mode.mpvFlag,
+    ]);
     if (rc < 0) return null;
+    var ready = false;
     for (var i = 0; i < 10; i++) {
       if (await targetFile.exists() && await targetFile.length() > 0) {
-        return targetFile;
+        ready = true;
+        break;
       }
       await Future<void>.delayed(const Duration(milliseconds: 35));
     }
-    return await targetFile.exists() ? targetFile : null;
+    if (!ready && !await targetFile.exists()) {
+      return null;
+    }
+
+    final useAndroidGallery =
+        Platform.isAndroid || androidMediaStorePublisher != null;
+    if (useAndroidGallery) {
+      final displayName = p.basename(targetFile.path);
+      try {
+        final uri = androidMediaStorePublisher != null
+            ? await androidMediaStorePublisher(
+                targetFile,
+                displayName,
+                albumName,
+              )
+            : await _mediaStoreChannel.invokeMethod<String>(
+                'saveImageToGallery',
+                <String, Object>{
+                  'sourcePath': targetFile.path,
+                  'displayName': displayName,
+                  'albumName': albumName,
+                  'mimeType': 'image/png',
+                },
+              );
+        if (uri != null && uri.isNotEmpty) {
+          return ScreenshotCaptureResult(
+            mode: mode,
+            displayLabel: '系统相册 / Pictures/$albumName/$displayName',
+            galleryUri: uri,
+          );
+        }
+      } catch (e) {
+        logStore?.record(
+          'screenshot-mediastore',
+          'MediaStore publish failed: $e',
+          isError: true,
+        );
+      } finally {
+        try {
+          if (await targetFile.exists()) {
+            await targetFile.delete();
+          }
+        } catch (_) {}
+      }
+      return null;
+    }
+
+    return ScreenshotCaptureResult(
+      mode: mode,
+      displayLabel: targetFile.path,
+      file: targetFile,
+    );
   }
 
   Future<Directory> _resolveScreenshotDir(String workId) async {
@@ -1257,9 +1470,8 @@ class EmbeddedMpvSession {
         _boundAndroidHeight = height;
       }
       if (_videoTrackEnabled &&
-          client.getPropertyString('vo') !=
-              MpvQualityProfile.androidVideoDriver) {
-        client.setPropertyString('vo', MpvQualityProfile.androidVideoDriver);
+          client.getPropertyString('vo') != _activeAndroidVo) {
+        _applyAndroidVo(client);
       }
       return;
     }
@@ -1289,10 +1501,9 @@ class EmbeddedMpvSession {
     _boundAndroidWidth = width;
     _boundAndroidHeight = height;
     _boundAndroidHdrPeak = hdrPeak;
-    _renderBackend.value = MpvQualityProfile.androidVideoDriver;
 
     if (_videoTrackEnabled) {
-      client.setPropertyString('vo', MpvQualityProfile.androidVideoDriver);
+      _applyAndroidVo(client);
       final vid = client.getPropertyString('vid');
       if (vid == 'no') {
         client.setPropertyString('vid', _savedVidBeforeDisable ?? 'auto');
@@ -1301,6 +1512,21 @@ class EmbeddedMpvSession {
         client.command(['seek', '0', 'relative', 'exact']);
       }
     }
+  }
+
+  /// 优先挂载 `vo=gpu-next`（libplacebo 杜比视界/动态 HDR 管线），若底层驱动受限则平滑回落至 `vo=gpu`。
+  void _applyAndroidVo(LibMpvClient client) {
+    final rc = client.setPropertyString(
+      'vo',
+      MpvQualityProfile.androidVideoDriver,
+    );
+    if (rc >= 0) {
+      _activeAndroidVo = MpvQualityProfile.androidVideoDriver;
+    } else {
+      client.setPropertyString('vo', MpvQualityProfile.androidLegacyVideoDriver);
+      _activeAndroidVo = MpvQualityProfile.androidLegacyVideoDriver;
+    }
+    _renderBackend.value = _activeAndroidVo;
   }
 
   void _scheduleFirstFrameWatchdog() {

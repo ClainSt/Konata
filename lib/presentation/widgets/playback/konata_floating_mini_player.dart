@@ -300,63 +300,72 @@ class _KonataFloatingMiniPlayerState
 
     final p = context.palette;
     final miniSize = _resolveCurrentMiniSize(context);
-    final card = RepaintBoundary(
-      child: Material(
-        type: MaterialType.transparency,
-        child: DefaultTextStyle.merge(
-          style: const TextStyle(decoration: TextDecoration.none),
-          child: GestureDetector(
-            dragStartBehavior: DragStartBehavior.down,
-            onPanStart: widget.standalone
-                ? null
-                : (d) => _handlePanStart(d, miniSize),
-            onPanUpdate: widget.standalone
-                ? null
-                : (d) => _handlePanUpdate(d, miniSize),
-            onPanEnd: widget.standalone
-                ? null
-                : (_) => _handlePanEndOrCancel(miniSize),
-            onPanCancel: widget.standalone
-                ? null
-                : () => _handlePanEndOrCancel(miniSize),
-            child: Container(
-              key: const ValueKey('konata_floating_mini_player'),
-              width: miniSize.width,
-              height: miniSize.height,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(
-                  KonataPlaybackTokens.floatingMiniRadius,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: KonataPlaybackTokens.shadowColor(p),
-                    blurRadius: 22,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
+    final isAndroidVideoUnderlay =
+        KonataAdaptiveTokens.isAndroid &&
+        widget.kind == FloatingMiniPlayerKind.video;
+    final bodyChild = widget.kind == FloatingMiniPlayerKind.video
+        ? _buildVideoBody(miniSize)
+        : _buildAudioBody(context, miniSize);
+    final innerCard = Material(
+      type: MaterialType.transparency,
+      child: DefaultTextStyle.merge(
+        style: const TextStyle(decoration: TextDecoration.none),
+        child: GestureDetector(
+          dragStartBehavior: DragStartBehavior.down,
+          onPanStart: widget.standalone
+              ? null
+              : (d) => _handlePanStart(d, miniSize),
+          onPanUpdate: widget.standalone
+              ? null
+              : (d) => _handlePanUpdate(d, miniSize),
+          onPanEnd: widget.standalone
+              ? null
+              : (_) => _handlePanEndOrCancel(miniSize),
+          onPanCancel: widget.standalone
+              ? null
+              : () => _handlePanEndOrCancel(miniSize),
+          child: Container(
+            key: const ValueKey('konata_floating_mini_player'),
+            width: miniSize.width,
+            height: miniSize.height,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(
+                KonataPlaybackTokens.floatingMiniRadius,
               ),
-              foregroundDecoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(
-                  KonataPlaybackTokens.floatingMiniRadius,
+              boxShadow: [
+                BoxShadow(
+                  color: KonataPlaybackTokens.shadowColor(p),
+                  blurRadius: 22,
+                  offset: const Offset(0, 8),
                 ),
-                border: Border.all(
-                  color: KonataPlaybackTokens.glassBorder(p),
-                  width: KonataPlaybackTokens.floatingMiniBorderWidth,
-                ),
+              ],
+            ),
+            foregroundDecoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(
+                KonataPlaybackTokens.floatingMiniRadius,
               ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(
-                  KonataPlaybackTokens.floatingMiniRadius,
-                ),
-                child: widget.kind == FloatingMiniPlayerKind.video
-                    ? _buildVideoBody(miniSize)
-                    : _buildAudioBody(context, miniSize),
+              border: Border.all(
+                color: KonataPlaybackTokens.glassBorder(p),
+                width: KonataPlaybackTokens.floatingMiniBorderWidth,
               ),
             ),
+            child: isAndroidVideoUnderlay
+                ? bodyChild
+                : ClipRRect(
+                    borderRadius: BorderRadius.circular(
+                      KonataPlaybackTokens.floatingMiniRadius,
+                    ),
+                    child: bodyChild,
+                  ),
           ),
         ),
       ),
     );
+    // Android 视频小窗使用根画布 BlendMode.clear 挖空透出底层 Underlay，
+    // 禁止外层套 RepaintBoundary 触发离屏光栅缓存导致透明洞无法击穿宿主背景。
+    final card = isAndroidVideoUnderlay
+        ? innerCard
+        : RepaintBoundary(child: innerCard);
 
     if (widget.standalone) {
       return card;

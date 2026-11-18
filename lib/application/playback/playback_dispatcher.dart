@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
+import '../../composition/platform_composition.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/external_player_config.dart';
 import '../../domain/models/media_source.dart';
@@ -225,6 +226,7 @@ class PlaybackDispatcher {
           source: source,
           cueRelativePath: variant.relativePath,
           gatewayFactory: _ref.read(mediaSourceGatewayFactoryProvider),
+          legacyDecoder: _ref.read(legacyCodePageDecoderProvider),
         );
         if (sheet == null || sheet.tracks.isEmpty) {
           return const LaunchPlaybackResult(

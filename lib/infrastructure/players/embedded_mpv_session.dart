@@ -15,10 +15,11 @@ import '../sources/byte_stream_source_gateway.dart';
 import '../sources/local_source_gateway.dart';
 import '../sources/source_gateway_factory.dart';
 import '../sources/subtitle_matcher.dart';
+import '../sources/work_detail_warmup_service.dart';
 import '../storage/storage_root_provider.dart';
 import '../stream_bridge/local_stream_bridge.dart';
 import 'android/android_video_surface_controller.dart';
-import 'd3d11_video_bridge.dart';
+import 'konata_video_texture_bridge.dart';
 import 'libmpv_ffi.dart';
 import 'mpv_quality_profile.dart';
 import 'playback_probe.dart';
@@ -52,10 +53,11 @@ class EmbeddedMpvSession {
     required this.streamBridge,
     this.logStore,
     this.clientFactory,
-    D3D11VideoBridge? d3d11Bridge,
+    this.d3d11Bridge,
     this.gatewayFactory = const MediaSourceGatewayFactory(),
     this.probeCollector = const PlaybackProbeCollector(),
-  }) : _d3d11Bridge = d3d11Bridge ?? D3D11VideoBridge();
+    this.subtitleDirectoryIndex,
+  });
 
   static const int _propTimePos = 201;
   static const int _propDuration = 202;
@@ -73,9 +75,10 @@ class EmbeddedMpvSession {
   final LocalStreamBridge streamBridge;
   final DiagnosticsLogStore? logStore;
   final LibMpvClient Function()? clientFactory;
-  final D3D11VideoBridge _d3d11Bridge;
+  final KonataVideoTextureBridge? d3d11Bridge;
   final MediaSourceGatewayFactory gatewayFactory;
   final PlaybackProbeCollector probeCollector;
+  final SubtitleDirectoryIndex? subtitleDirectoryIndex;
 
   final ValueNotifier<int?> _textureId = ValueNotifier<int?>(null);
   final ValueNotifier<String> _renderBackend = ValueNotifier<String>('');
@@ -219,8 +222,8 @@ class EmbeddedMpvSession {
     _cachedMpvVersion = client.getPropertyString('mpv-version');
     _cachedFfmpegVersion = client.getPropertyString('ffmpeg-version');
 
-    if (useWindowsD3D11) {
-      final handle = await _d3d11Bridge.createSession(
+    if (useWindowsD3D11 && d3d11Bridge != null) {
+      final handle = await d3d11Bridge!.createSession(
         mpvHandleAddress: client.handleAddress,
         width: request.initialWidth,
         height: request.initialHeight,
@@ -235,7 +238,7 @@ class EmbeddedMpvSession {
       if (handle.isSoftwareFallback) {
         _usingSoftwareFallback = true;
       }
-      _d3d11ChangeSub = _d3d11Bridge.textureChanges.listen((event) {
+      _d3d11ChangeSub = d3d11Bridge!.textureChanges.listen((event) {
         if (_disposed || event.sessionId != _d3d11SessionId) return;
         _textureId.value = event.textureId;
         _renderBackend.value = event.backend;
@@ -533,28 +536,54 @@ class EmbeddedMpvSession {
         final parentRel = SubtitleAndAudioChoices.parentDirOf(
           variant.relativePath,
         );
-        final entries = await sidecarGw.listDirectory(parentRel);
-        if (_disposed || generation != _loadGeneration) return;
+        final cachedSnapshot = subtitleDirectoryIndex?.lookup(
+          source.id,
+          parentRel,
+        );
+        if (cachedSnapshot != null) {
+          siblingPaths.addAll(cachedSnapshot.siblingPaths);
+        } else {
+          final entries = await sidecarGw.listDirectory(parentRel);
+          if (_disposed || generation != _loadGeneration) return;
 
-        for (final entry in entries) {
-          if (!entry.isDirectory) {
-            siblingPaths.add(entry.relativePath);
-          } else {
-            final lowerName = entry.name.toLowerCase();
-            if (lowerName == 'subs' ||
-                lowerName == 'subtitles' ||
-                lowerName == 'audio' ||
-                lowerName == 'sp audio') {
-              try {
-                final subEntries = await sidecarGw.listDirectory(
-                  entry.relativePath,
-                );
-                for (final sub in subEntries) {
-                  if (!sub.isDirectory) siblingPaths.add(sub.relativePath);
-                }
-              } catch (_) {}
+          final discoveredPaths = <String>[];
+          final candidateSubdirs = <String>[];
+          for (final entry in entries) {
+            if (!entry.isDirectory) {
+              discoveredPaths.add(entry.relativePath);
+            } else {
+              final lowerName = entry.name.toLowerCase();
+              if (lowerName == 'subs' ||
+                  lowerName == 'subtitles' ||
+                  lowerName == '字幕' ||
+                  lowerName == 'audio' ||
+                  lowerName == 'sp audio') {
+                candidateSubdirs.add(entry.relativePath);
+              }
             }
           }
+          var scannedSubdirs = 0;
+          for (final subDir in candidateSubdirs) {
+            if (scannedSubdirs >=
+                SubtitleDirectoryIndex.maxAutoSubdirScanCount) {
+              break;
+            }
+            scannedSubdirs += 1;
+            try {
+              final subEntries = await sidecarGw.listDirectory(subDir);
+              for (final sub in subEntries) {
+                if (!sub.isDirectory) discoveredPaths.add(sub.relativePath);
+              }
+            } catch (_) {}
+          }
+          subtitleDirectoryIndex?.put(
+            sourceId: source.id,
+            dirRelativePath: parentRel,
+            siblingPaths: discoveredPaths,
+            hasUnscannedSubdirs: candidateSubdirs.length > scannedSubdirs,
+            scannedSubdirCount: scannedSubdirs,
+          );
+          siblingPaths.addAll(discoveredPaths);
         }
       } catch (_) {}
 
@@ -890,8 +919,11 @@ class EmbeddedMpvSession {
   /// 同步更新运行中的 Windows D3D11 渲染目标分辨率。
   Future<void> resizeD3D11Target(int width, int height) async {
     final id = _d3d11SessionId;
-    if (_disposed || id == null || !Platform.isWindows) return;
-    await _d3d11Bridge.resize(sessionId: id, width: width, height: height);
+    final bridge = d3d11Bridge;
+    if (_disposed || id == null || bridge == null || !Platform.isWindows) {
+      return;
+    }
+    await bridge.resize(sessionId: id, width: width, height: height);
   }
 
   /// 采集当前实时 40+ 项技术探针快照。
@@ -1335,8 +1367,8 @@ class EmbeddedMpvSession {
 
     final d3dId = _d3d11SessionId;
     _d3d11SessionId = null;
-    if (d3dId != null && d3dId > 0) {
-      await _d3d11Bridge.disposeSession(d3dId);
+    if (d3dId != null && d3dId > 0 && d3d11Bridge != null) {
+      await d3d11Bridge!.disposeSession(d3dId);
     }
 
     final androidSurf = _androidSurface;

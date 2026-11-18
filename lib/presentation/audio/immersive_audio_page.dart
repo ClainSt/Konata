@@ -4,13 +4,12 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:window_manager/window_manager.dart';
 
 import '../../application/playback/audio_playback_notifier.dart';
 import '../../application/playback/playback_preferences_provider.dart';
+import '../../composition/platform_composition.dart';
 import '../../domain/playback/cue_and_lrc_parser.dart';
 import '../shell/adaptive_capsule_layout.dart';
-import '../shell/window_controls.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
@@ -1352,7 +1351,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
               ),
               if (isWindows) ...[
                 const SizedBox(width: 8),
-                const WindowControls(),
+                ref.read(konataWindowHostProvider).buildWindowControls(),
               ],
             ],
           ),
@@ -1361,7 +1360,9 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     );
 
     if (isWindows) {
-      headerRow = DragToMoveArea(child: headerRow);
+      headerRow = ref
+          .read(konataWindowHostProvider)
+          .buildDragToMoveArea(child: headerRow);
     }
     return headerRow;
   }

@@ -18,6 +18,7 @@ import 'package:ccplayer/application/playback/video_playback_controller.dart';
 import 'package:ccplayer/application/providers/artwork_provider.dart';
 import 'package:ccplayer/application/providers/library_providers.dart';
 import 'package:ccplayer/application/providers/theme_providers.dart';
+import 'package:ccplayer/composition/windows_composition_root.dart';
 import 'package:ccplayer/domain/models/episode.dart';
 import 'package:ccplayer/domain/models/media_source.dart';
 import 'package:ccplayer/domain/models/media_variant.dart';
@@ -810,7 +811,10 @@ void main() {
         }
 
         final container = ProviderContainer(
-          overrides: [libraryRepositoryProvider.overrideWithValue(repo)],
+          overrides: [
+            ...WindowsCompositionRoot.providerOverrides(),
+            libraryRepositoryProvider.overrideWithValue(repo),
+          ],
         );
         addTearDown(container.dispose);
 

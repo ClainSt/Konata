@@ -16,6 +16,7 @@ import 'package:ccplayer/application/providers/library_providers.dart';
 import 'package:ccplayer/application/providers/scraping_providers.dart';
 import 'package:ccplayer/application/providers/source_actions_provider.dart';
 import 'package:ccplayer/application/providers/theme_providers.dart';
+import 'package:ccplayer/composition/windows_composition_root.dart';
 import 'package:ccplayer/domain/models/episode.dart';
 import 'package:ccplayer/domain/models/media_source.dart';
 import 'package:ccplayer/domain/models/media_variant.dart';
@@ -123,6 +124,7 @@ final Uint8List _transparentPng = Uint8List.fromList([
 Widget _wrapApp(Widget child, {List<Override> overrides = const []}) {
   return ProviderScope(
     overrides: [
+      ...WindowsCompositionRoot.providerOverrides(),
       tmdbImageLoaderProvider.overrideWithValue(
         (_, {targetWidth, imageSize}) async => _transparentPng,
       ),

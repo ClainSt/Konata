@@ -607,7 +607,9 @@ class MockWebDavLoopbackServer {
 
   Future<void> _handle(HttpRequest req) async {
     final res = req.response;
-    final relPath = Uri.decodeComponent(req.uri.path).replaceAll(RegExp(r'^/+'), '');
+    final relPath = Uri.decodeComponent(
+      req.uri.path,
+    ).replaceAll(RegExp(r'^/+|/+$'), '');
     final auth = req.headers.value(HttpHeaders.authorizationHeader);
     final range = req.headers.value(HttpHeaders.rangeHeader);
     final ifRange = req.headers.value(HttpHeaders.ifRangeHeader);

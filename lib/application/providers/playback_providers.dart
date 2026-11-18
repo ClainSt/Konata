@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../composition/platform_composition.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/external_player_config.dart';
 import '../../domain/models/media_source.dart';
@@ -7,9 +8,9 @@ import '../../domain/models/media_variant.dart';
 import '../../domain/models/playback_record.dart';
 import '../../domain/models/work.dart';
 import '../../domain/repositories/external_player_launcher.dart';
-import '../../infrastructure/players/real_external_player_launcher.dart';
 import '../../infrastructure/sources/source_gateway_factory.dart';
 import '../../infrastructure/sources/webdav_source_gateway.dart';
+import '../../infrastructure/sources/work_detail_warmup_service.dart';
 import '../../infrastructure/storage/storage_root_provider.dart';
 import '../../infrastructure/stream_bridge/local_stream_bridge.dart';
 import '../playback/playback_preferences_provider.dart';
@@ -40,14 +41,28 @@ final localStreamBridgeProvider = Provider<LocalStreamBridge>((ref) {
   return bridge;
 });
 
-/// 外部播放器启动器 Provider（Phase 4 接入真实进程拉起与秒级双向进度同步）。
-final externalPlayerLauncherProvider = Provider<ExternalPlayerLauncher>((ref) {
-  final bridge = ref.watch(localStreamBridgeProvider);
+/// 同级字幕与外挂音轨目录内存索引表 Provider（供详情页静默预热与起播 0 ms 查表）。
+final subtitleDirectoryIndexProvider = Provider<SubtitleDirectoryIndex>((ref) {
+  final index = SubtitleDirectoryIndex();
+  ref.onDispose(index.clear);
+  return index;
+});
+
+/// 详情页浏览期静默预热服务 Provider（预热 Keep-Alive、Digest 握手与同级字幕表）。
+final workDetailWarmupServiceProvider = Provider<WorkDetailWarmupService>((ref) {
   final factory = ref.watch(mediaSourceGatewayFactoryProvider);
-  return RealExternalPlayerLauncher(
-    streamBridge: bridge,
+  final index = ref.watch(subtitleDirectoryIndexProvider);
+  final service = WorkDetailWarmupService(
     gatewayFactory: factory,
+    directoryIndex: index,
   );
+  ref.onDispose(service.cancelPending);
+  return service;
+});
+
+/// 外部播放器启动器 Provider（Android 默认为空实现，Windows 组装根覆写为真实进程启动器）。
+final externalPlayerLauncherProvider = Provider<ExternalPlayerLauncher>((ref) {
+  return const UnsupportedExternalPlayerLauncher();
 });
 
 /// 播放动作协调器：记录与实时更新秒级播放历史，并委托外部播放器启动器。

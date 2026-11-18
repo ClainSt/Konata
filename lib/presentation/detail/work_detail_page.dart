@@ -10,6 +10,7 @@ import '../../application/playback/playback_preferences_provider.dart';
 import '../../application/providers/artwork_provider.dart';
 import '../../application/providers/detail_display_preferences_provider.dart';
 import '../../application/providers/library_providers.dart';
+import '../../application/providers/playback_providers.dart';
 import '../../application/providers/scraping_providers.dart';
 import '../../application/providers/work_management_provider.dart';
 import '../../domain/models/episode.dart';
@@ -17,6 +18,7 @@ import '../../domain/models/tmdb_models.dart';
 import '../../domain/models/work.dart';
 import '../../domain/playback/cue_variant_resolver.dart';
 import '../../infrastructure/cache/scan_thumbnail_scheduler.dart';
+import '../../infrastructure/sources/work_detail_warmup_service.dart';
 import '../audio/mini_audio_bar.dart';
 import '../dialogs/work_artwork_picker_dialog.dart';
 import '../sources/tmdb_scrape_guard.dart';
@@ -56,7 +58,9 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
   late String _activeWorkId = widget.workId;
   final Set<String> _scoreBackfillRequested = <String>{};
   final Set<String> _tmdbBackfillRequested = <String>{};
+  final Set<String> _remoteWarmupRequested = <String>{};
   late final ScanThumbnailScheduler _scanScheduler;
+  late final WorkDetailWarmupService _warmupService;
   final ScrollController _portraitScrollCtrl = ScrollController();
   final ScrollController _tabletLandscapeScrollCtrl = ScrollController();
   final GlobalKey<DetailBottomDrawerState> _drawerKey =
@@ -67,6 +71,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
   void initState() {
     super.initState();
     _scanScheduler = ref.read(scanThumbnailSchedulerProvider);
+    _warmupService = ref.read(workDetailWarmupServiceProvider);
   }
 
   @override
@@ -74,6 +79,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.workId != widget.workId) {
       _scanScheduler.cancelAll();
+      _warmupService.cancelPending();
       _activeWorkId = widget.workId;
     }
   }
@@ -81,9 +87,21 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
   @override
   void dispose() {
     _scanScheduler.cancelAll();
+    _warmupService.cancelPending();
     _portraitScrollCtrl.dispose();
     _tabletLandscapeScrollCtrl.dispose();
     super.dispose();
+  }
+
+  void _maybeWarmupRemoteSources(WorkDetailBundle bundle) {
+    if (!_remoteWarmupRequested.add(bundle.work.id)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _warmupService.warmupForVariants(
+        variants: bundle.variants,
+        sourcesById: bundle.sourcesById,
+      );
+    });
   }
 
   void _maybeBackfillBangumiScore(String workId, double? bangumiScore) {
@@ -587,6 +605,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                     final work = bundle.work;
                     _maybeBackfillBangumiScore(work.id, work.bangumiScore);
                     _maybeBackfillTmdbArtwork(work);
+                    _maybeWarmupRemoteSources(bundle);
                     final screenSize = MediaQuery.sizeOf(context);
                     final safePad = MediaQuery.paddingOf(context);
                     final isAndroidPhone =

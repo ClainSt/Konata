@@ -8,7 +8,6 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 import 'package:path/path.dart' as p;
 
-import '../../domain/playback/cue_and_lrc_parser.dart';
 import '../../domain/playback/playback_probe_stats.dart';
 import '../../domain/playback/track_preferences.dart';
 
@@ -1533,55 +1532,4 @@ class FfiLibMpvClient implements LibMpvClient, LibMpvSoftwareFrameSource {
   static double? _asDouble(Object? value) => value is double
       ? value
       : (value is int ? value.toDouble() : null);
-}
-
-typedef _MultiByteToWideCharNative =
-    Int32 Function(
-      Uint32 codePage,
-      Uint32 dwFlags,
-      Pointer<Uint8> lpMultiByteStr,
-      Int32 cbMultiByte,
-      Pointer<Uint16> lpWideCharStr,
-      Int32 cchWideChar,
-    );
-typedef _MultiByteToWideCharDart =
-    int Function(
-      int codePage,
-      int dwFlags,
-      Pointer<Uint8> lpMultiByteStr,
-      int cbMultiByte,
-      Pointer<Uint16> lpWideCharStr,
-      int cchWideChar,
-    );
-
-/// 基于 Windows `kernel32.dll` (`MultiByteToWideChar`) 的高精度 CP932/CP936 解码器，
-/// 为纯领域层 [CueParser] / [LrcParser] 注入完整 Shift-JIS 汉字与 GBK 解码能力。
-class WindowsCodePageDecoder {
-  WindowsCodePageDecoder._();
-
-  static _MultiByteToWideCharDart? _cachedFn;
-
-  /// 将原始字节通过 Windows 代码页解码为 UTF-16 字符串（非 Windows 环境返回 null）。
-  static String? decode(List<int> bytes, LegacyTextEncoding encoding) {
-    if (!Platform.isWindows || bytes.isEmpty) return null;
-    final fn = _cachedFn ??= DynamicLibrary.open('kernel32.dll')
-        .lookupFunction<_MultiByteToWideCharNative, _MultiByteToWideCharDart>(
-          'MultiByteToWideChar',
-        );
-    final codePage = switch (encoding) {
-      LegacyTextEncoding.shiftJis => 932,
-      LegacyTextEncoding.gbk => 936,
-    };
-
-    return using((arena) {
-      final src = arena<Uint8>(bytes.length);
-      src.asTypedList(bytes.length).setAll(0, bytes);
-      final needed = fn(codePage, 0, src, bytes.length, nullptr, 0);
-      if (needed <= 0) return null;
-      final dst = arena<Uint16>(needed);
-      final written = fn(codePage, 0, src, bytes.length, dst, needed);
-      if (written <= 0) return null;
-      return String.fromCharCodes(dst.asTypedList(written));
-    });
-  }
 }

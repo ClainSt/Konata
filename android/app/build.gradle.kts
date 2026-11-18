@@ -128,4 +128,19 @@ kotlin {
 
 flutter {
     source = "../.."
+    target = "lib/main_android.dart"
+}
+
+// 仅对缺省 `lib/main.dart` 自动映射至 Android 专用裁剪入口，绝不覆写显式集成测试入口（如 `integration_test/...`）。
+gradle.projectsEvaluated {
+    tasks.withType<com.flutter.gradle.tasks.FlutterTask>().configureEach {
+        val normalized = targetPath?.replace('\\', '/')?.trim()
+        val isDefaultMain =
+            normalized.isNullOrEmpty() ||
+                normalized == "lib/main.dart" ||
+                normalized.endsWith("/lib/main.dart")
+        if (isDefaultMain) {
+            targetPath = "lib/main_android.dart"
+        }
+    }
 }

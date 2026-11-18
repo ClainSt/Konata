@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/providers/library_providers.dart';
 import '../../application/playback/playback_preferences_provider.dart';
 import '../../application/providers/theme_providers.dart';
+import '../../composition/platform_composition.dart';
 import '../audio/mini_audio_bar.dart';
 import '../history/playback_history_page.dart';
 import '../library/library_page.dart';
@@ -14,7 +15,6 @@ import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_keep_alive_tab_switcher.dart';
-import 'top_nav_bar.dart';
 import 'adaptive_capsule_layout.dart';
 import 'capsule_navigation.dart';
 
@@ -116,6 +116,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       );
     }
     final desktopBottomClearance = ref.watch(miniAudioBottomClearanceProvider);
+    final topNavBuilder = ref.watch(desktopTopNavBarBuilderProvider);
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyK, control: true):
@@ -128,28 +129,32 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
           body: ClipRect(
             child: Column(
               children: [
-                TopNavBar(
-                  activeSection: activeSection,
-                  onSectionChanged: (section) {
-                    ref.read(selectedNavSectionProvider.notifier).state =
-                        section;
-                  },
-                  searchQuery: searchQuery,
-                  onSearchChanged: (value) {
-                    ref.read(librarySearchQueryProvider.notifier).state = value;
-                  },
-                  searchFocusNode: _searchFocusNode,
-                  searchExpanded: _searchExpanded,
-                  onSearchExpandedChanged: (expanded) {
-                    setState(() => _searchExpanded = expanded);
-                  },
-                  onToggleTheme: () {
-                    final brightness = MediaQuery.platformBrightnessOf(context);
-                    ref
-                        .read(themeModeProvider.notifier)
-                        .toggleLightDark(brightness);
-                  },
-                ),
+                if (topNavBuilder != null)
+                  topNavBuilder(
+                    activeSection: activeSection,
+                    onSectionChanged: (section) {
+                      ref.read(selectedNavSectionProvider.notifier).state =
+                          section;
+                    },
+                    searchQuery: searchQuery,
+                    onSearchChanged: (value) {
+                      ref.read(librarySearchQueryProvider.notifier).state =
+                          value;
+                    },
+                    searchFocusNode: _searchFocusNode,
+                    searchExpanded: _searchExpanded,
+                    onSearchExpandedChanged: (expanded) {
+                      setState(() => _searchExpanded = expanded);
+                    },
+                    onToggleTheme: () {
+                      final brightness = MediaQuery.platformBrightnessOf(
+                        context,
+                      );
+                      ref
+                          .read(themeModeProvider.notifier)
+                          .toggleLightDark(brightness);
+                    },
+                  ),
                 Expanded(
                   child: ClipRect(
                     child: KonataKeepAliveTabSwitcher(

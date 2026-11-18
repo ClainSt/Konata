@@ -2,10 +2,9 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:window_manager/window_manager.dart';
 
+import '../../composition/platform_composition.dart';
 import '../../domain/matching/episode_title_formatter.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/external_player_config.dart';
@@ -34,6 +33,7 @@ import '../providers/playback_providers.dart';
 import 'audio_playback_notifier.dart';
 import 'playback_preferences_provider.dart';
 import 'unified_playback_coordinator.dart';
+import 'unified_playback_engine.dart';
 
 /// 启动内置视频播放页面的强类型不可变请求键。
 class VideoLaunchRequest {
@@ -600,13 +600,19 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       final shadersDir = await storageRoot.ensureShadersDir();
       final shaders = await MpvQualityProfile.discoverShaderFiles(shadersDir);
 
+      final engine = _ref.read(unifiedPlaybackEngineProvider);
+      engine.attachNativeInstance();
+      engine.beginPhysicalMedia();
+      engine.recordManualSelection();
       final session = sessionFactory != null
           ? sessionFactory!()
           : EmbeddedMpvSession(
               storageRoot: storageRoot,
               streamBridge: _ref.read(localStreamBridgeProvider),
+              d3d11Bridge: _ref.read(konataVideoBridgeFactoryProvider)(),
               gatewayFactory: _ref.read(mediaSourceGatewayFactoryProvider),
               logStore: _ref.read(diagnosticsLogStoreProvider),
+              subtitleDirectoryIndex: _ref.read(subtitleDirectoryIndexProvider),
             );
       _session = session;
       unawaited(_preloadAdjacentSeriesBundles());
@@ -641,6 +647,9 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
         if (mounted) state = state.copyWith(speed: spd);
       };
       session.onFirstFrameRendered = () {
+        _ref
+            .read(unifiedPlaybackEngineProvider)
+            .recordEffectiveProgress(firstFrameRendered: true);
         if (mounted) {
           final isInitialFrame = !state.hasFirstFrame;
           state = state.copyWith(
@@ -1362,8 +1371,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   Future<void> toggleFullscreen() async {
     final next = !state.isFullscreen;
     if (KonataPlatform.isWindows) {
-      await windowManager.setFullScreen(next);
-      await Window.hideWindowControls();
+      await _ref.read(konataWindowHostProvider).setFullScreen(next);
       if (mounted) {
         state = state.copyWith(isFullscreen: next);
       }
@@ -1521,8 +1529,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     }
 
     if (state.isFullscreen && KonataPlatform.isWindows) {
-      await windowManager.setFullScreen(false);
-      await Window.hideWindowControls();
+      await _ref.read(konataWindowHostProvider).setFullScreen(false);
     } else if (KonataPlatform.isAndroid) {
       await AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
         landscape: false,

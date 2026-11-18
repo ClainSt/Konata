@@ -227,7 +227,7 @@ class WebDavConnectionPool {
 
 /// WebDAV 远程媒体源只读网关（支持 Basic / Digest 质询认证、30x 跨源凭据隔离与字节范围流式读取）。
 class WebDavSourceGateway
-    implements MediaSourceGateway, ByteRangeReadableGateway {
+    implements MediaSourceGateway, ValidatedByteRangeGateway {
   /// 创建 WebDAV 网关。
   WebDavSourceGateway({
     required Uri rootUri,
@@ -684,11 +684,20 @@ class WebDavSourceGateway
     return null;
   }
 
+  static String? _extractStrongEtag(Map<String, String> headers) {
+    final raw = (headers[HttpHeaders.etagHeader] ?? headers['ETag'] ?? '').trim();
+    if (raw.isEmpty || raw.startsWith('W/') || raw.startsWith('w/')) {
+      return null;
+    }
+    return raw;
+  }
+
   @override
-  Future<Stream<List<int>>> openByteRange(
+  Future<ValidatedByteRangeStream> openValidatedByteRange(
     String relativePath, {
     required int start,
     int? endInclusive,
+    String? expectedStrongValidator,
   }) async {
     final uri = _resolveUri(relativePath, asDirectory: false);
     final rangeHeader = endInclusive != null
@@ -698,24 +707,53 @@ class WebDavSourceGateway
         requestTimeout == WebDavGatewayConfig.defaultRequestTimeout
         ? WebDavGatewayConfig.defaultStreamOpenTimeout
         : requestTimeout;
+    final extraHeaders = <String, String>{'Range': rangeHeader};
+    if (expectedStrongValidator != null &&
+        expectedStrongValidator.isNotEmpty &&
+        !expectedStrongValidator.startsWith('W/') &&
+        !expectedStrongValidator.startsWith('w/')) {
+      extraHeaders[HttpHeaders.ifRangeHeader] = expectedStrongValidator;
+    }
 
     // 复用持久 Keep-Alive HTTP 连接池与 Digest 质询认证缓存，消除分段 Seek / 读取的 TLS 与 401 冷启动开销。
     final http.StreamedResponse streamed = await _sendWithDigestRetry(
       (headers) => http.Request('GET', uri)..headers.addAll(headers),
       method: 'GET',
       uri: uri,
-      extraHeaders: {'Range': rangeHeader},
+      extraHeaders: extraHeaders,
       client: _client,
       timeoutOverride: streamTimeout,
     );
 
+    final status = streamed.statusCode;
+    if (status == HttpStatus.unauthorized || status == HttpStatus.forbidden) {
+      await streamed.stream.listen(null).cancel();
+      throw TerminalSourceAuthException(
+        status == HttpStatus.forbidden
+            ? 'WebDAV 拒绝访问该资源 (HTTP 403)'
+            : 'WebDAV 认证失败，请核对账号与密码 (HTTP 401)',
+        statusCode: status,
+      );
+    }
+
+    final strongEtag = _extractStrongEtag(streamed.headers);
+    if (expectedStrongValidator != null &&
+        expectedStrongValidator.isNotEmpty &&
+        (strongEtag == null || strongEtag != expectedStrongValidator)) {
+      await streamed.stream.listen(null).cancel();
+      throw const UpstreamRangeMismatchException('远程文件强验证器已变化，终止断流续传防数据错位');
+    }
+
     // 禁止把上游 200 全文件或错误的 206 范围当作目标字节区间透传：
     // 下游 LocalStreamBridge 会声明精确 Content-Range，错位数据会导致
     // MKV/FLAC 解复用失败，甚至被错误地缓存。
-    final status = streamed.statusCode;
     final rangeValue = streamed.headers[HttpHeaders.contentRangeHeader];
     int? expectedBytes;
+    int? totalLength;
+    int actualEndValue = endInclusive ?? start;
+    var isPartial = false;
     if (status == HttpStatus.partialContent) {
+      isPartial = true;
       final match = rangeValue == null
           ? null
           : RegExp(
@@ -736,16 +774,27 @@ class WebDavSourceGateway
           (expectedEnd != null && actualEnd != expectedEnd) ||
           (total != null && actualEnd >= total)) {
         await streamed.stream.listen(null).cancel();
-        throw HttpException('WebDAV Content-Range 与请求范围不一致', uri: uri);
+        throw UpstreamRangeMismatchException('WebDAV Content-Range 与请求范围不一致');
       }
+      actualEndValue = actualEnd;
+      totalLength = total;
       expectedBytes = actualEnd - start + 1;
-    } else if (status == HttpStatus.ok && start == 0 && endInclusive == null) {
+    } else if (status == HttpStatus.ok &&
+        start == 0 &&
+        endInclusive == null &&
+        (expectedStrongValidator == null || expectedStrongValidator.isEmpty)) {
       // 某些不支持 Range 的服务仅允许从零开始完整读取。
       expectedBytes = int.tryParse(
         streamed.headers[HttpHeaders.contentLengthHeader] ?? '',
       );
+      totalLength = expectedBytes;
     } else {
       await streamed.stream.listen(null).cancel();
+      if (status == HttpStatus.ok) {
+        throw const UpstreamRangeMismatchException(
+          'WebDAV 对 Range 请求返回 200 整包响应，拒绝错位拼接',
+        );
+      }
       throw HttpException('WebDAV Range 读取失败: HTTP $status', uri: uri);
     }
 
@@ -791,7 +840,28 @@ class WebDavSourceGateway
         await upstreamSub?.cancel();
       },
     );
-    return controller.stream;
+    return ValidatedByteRangeStream(
+      stream: controller.stream,
+      start: start,
+      endInclusive: isPartial ? actualEndValue : null,
+      totalLength: totalLength,
+      strongValidator: strongEtag,
+      isPartialContent: isPartial,
+    );
+  }
+
+  @override
+  Future<Stream<List<int>>> openByteRange(
+    String relativePath, {
+    required int start,
+    int? endInclusive,
+  }) async {
+    final validated = await openValidatedByteRange(
+      relativePath,
+      start: start,
+      endInclusive: endInclusive,
+    );
+    return validated.stream;
   }
 
   @override

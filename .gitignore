@@ -63,6 +63,7 @@ android/.kotlin/
 # Portable runtime data & local debug databases
 /userdata/
 /cache/
+/Konata_*/
 /*.db
 /*.db-wal
 /*.db-shm

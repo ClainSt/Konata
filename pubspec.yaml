@@ -50,6 +50,8 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  path_provider_windows:
+    path: packages/path_provider_windows
 
 flutter:
   uses-material-design: true

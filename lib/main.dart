@@ -8,6 +8,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'application/playback/playback_preferences_provider.dart';
 import 'application/providers/theme_providers.dart';
+import 'domain/config/konata_lane_config.dart';
 import 'infrastructure/storage/storage_root_provider.dart';
 import 'presentation/audio/mini_audio_bar.dart';
 import 'presentation/shell/android_scroll_capture_bridge.dart';
@@ -17,16 +18,18 @@ import 'presentation/theme/window_material_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final appWindowTitle = KonataLaneConfig.resolveDesktopWindowTitle();
 
   if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
     await Window.initialize();
     await Window.hideWindowControls();
     await windowManager.ensureInitialized();
     await windowManager.setBackgroundColor(Colors.transparent);
-    const options = WindowOptions(
-      size: Size(1360, 820),
-      minimumSize: Size(960, 620),
+    final options = WindowOptions(
+      size: const Size(1360, 820),
+      minimumSize: const Size(960, 620),
       center: true,
+      title: appWindowTitle,
       titleBarStyle: TitleBarStyle.hidden,
       windowButtonVisibility: false,
       backgroundColor: Colors.transparent,
@@ -38,6 +41,7 @@ Future<void> main() async {
             WidgetsBinding.instance.platformDispatcher.platformBrightness,
         material: KonataWindowMaterial.acrylic,
       );
+      await windowManager.setTitle(appWindowTitle);
       await Window.hideWindowControls();
       await windowManager.show();
       await windowManager.focus();
@@ -104,10 +108,11 @@ class KonataApp extends ConsumerWidget {
     });
 
     final navKey = ref.watch(rootNavigatorKeyProvider);
+    final appTitle = KonataLaneConfig.resolveDesktopWindowTitle();
 
     return MaterialApp(
       navigatorKey: navKey,
-      title: 'Konata',
+      title: appTitle,
       debugShowCheckedModeBanner: false,
       scrollBehavior: const KonataScrollBehavior(),
       locale: const Locale('zh', 'CN'),

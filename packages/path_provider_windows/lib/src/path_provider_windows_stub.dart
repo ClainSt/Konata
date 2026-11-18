@@ -6,8 +6,12 @@ import 'package:path_provider_platform_interface/path_provider_platform_interfac
 ///
 class PathProviderWindows extends PathProviderPlatform {
   String get executablePath => '';
+
+  /// 可选注入的车道覆盖标识，保持与真实实现签名一致。
+  final String? laneOverride;
+
   /// 运行期禁止实例化该占位空桩类。
-  PathProviderWindows() : assert(false);
+  PathProviderWindows({this.laneOverride}) : assert(false);
 
   /// 向全局平台通道注册当前 Windows 路径提供实现。
   static void registerWith() {

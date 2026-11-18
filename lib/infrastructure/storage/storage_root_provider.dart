@@ -4,11 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../domain/config/konata_lane_config.dart';
+
 /// 应用级便携路径常量配置（严禁在业务层硬编码目录名或写死系统 `%TEMP%`）。
 abstract final class StoragePathConfig {
   static const String userdataDirName = 'userdata';
   static const String mpvSubdirName = 'mpv';
   static const String shadersSubdirName = 'shaders';
+  static const String logsSubdirName = 'logs';
   static const String cacheDirName = 'cache';
   static const String tempSubdirName = 'tmp';
   static const String photosDirName = 'photos';
@@ -20,11 +23,12 @@ abstract final class StoragePathConfig {
 /// - **Windows 桌面端（纯绿色便携）**：
 ///   - 开发/测试模式（检测到 `pubspec.yaml`）：定位项目根目录；
 ///   - 发布运行模式：严格定位 `File(Platform.resolvedExecutable).parent`；
+///   - 非主干隔离车道（如 `next`、`maint`）：在基础目录下自动分流至 `Konata_<lane>`；
 ///   - 绝不向 C 盘 `%APPDATA%`、`%LOCALAPPDATA%` 或系统 `%TEMP%` 写入缓存与截图。
 /// - **Android 端**：统一委托 `ApplicationSupportDirectory`，上层代码零平台分支。
 class StorageRootService {
-  /// 创建路径服务（可选注入隔离根目录供 Android 启动或单测使用）。
-  const StorageRootService({this._overrideRoot});
+  /// 创建路径服务（可选注入隔离根目录或测试专用车道覆盖值）。
+  const StorageRootService({this._overrideRoot, this._laneOverride});
 
   /// 按当前运行平台构建根路径服务（Android 预先解析应用私有支持目录，避免同步读取可执行文件 `/system/bin`）。
   static Future<StorageRootService> createForCurrentPlatform() async {
@@ -36,6 +40,7 @@ class StorageRootService {
   }
 
   final Directory? _overrideRoot;
+  final String? _laneOverride;
 
   static final RegExp _invalidPathChars = RegExp(r'[<>:"/\\|?*\x00-\x1F]');
   static final RegExp _safePlainId = RegExp(r'^[A-Za-z0-9_-]{1,32}$');
@@ -44,23 +49,51 @@ class StorageRootService {
   /// 解析当前应用便携根目录（异步版，完整支持 Android `ApplicationSupportDirectory`）。
   Future<Directory> resolveAppRoot() async {
     final override = _overrideRoot;
-    if (override != null) return override;
+    if (override != null) {
+      return _applyOptionalLaneOverride(override);
+    }
 
     if (Platform.isAndroid) {
       return getApplicationSupportDirectory();
     }
-    return resolvePortableDesktopRootSync();
+    return resolvePortableDesktopRootSync(laneOverride: _laneOverride);
   }
 
   /// 同步解析桌面端或测试覆盖根路径（供同步初始化流程使用）。
   Directory resolveAppRootSync() {
     final override = _overrideRoot;
-    if (override != null) return override;
-    return resolvePortableDesktopRootSync();
+    if (override != null) {
+      return _applyOptionalLaneOverride(override);
+    }
+    return resolvePortableDesktopRootSync(laneOverride: _laneOverride);
   }
 
-  /// 计算桌面开发态或打包运行态根路径：开发态取仓库根目录，打包态取可执行文件同级目录。
-  static Directory resolvePortableDesktopRootSync() {
+  Directory _applyOptionalLaneOverride(Directory baseDirectory) {
+    final laneOverride = _laneOverride;
+    if (laneOverride == null) {
+      return baseDirectory;
+    }
+    final isolatedSubdir = KonataLaneConfig.isolatedDirectoryName(laneOverride);
+    if (isolatedSubdir == null) {
+      return baseDirectory;
+    }
+    return Directory(p.join(baseDirectory.path, isolatedSubdir));
+  }
+
+  /// 计算桌面开发态或打包运行态根路径：主干直取基础目录，隔离车道追加 `Konata_<lane>`。
+  static Directory resolvePortableDesktopRootSync({
+    Directory? baseDirectory,
+    String? laneOverride,
+  }) {
+    final base = baseDirectory ?? _detectDesktopBaseDirectorySync();
+    final isolatedSubdir = KonataLaneConfig.isolatedDirectoryName(laneOverride);
+    if (isolatedSubdir == null) {
+      return base;
+    }
+    return Directory(p.join(base.path, isolatedSubdir));
+  }
+
+  static Directory _detectDesktopBaseDirectorySync() {
     final cwd = Directory.current;
     if (File(p.join(cwd.path, 'pubspec.yaml')).existsSync()) {
       return cwd;
@@ -116,6 +149,26 @@ class StorageRootService {
         StoragePathConfig.shadersSubdirName,
       ),
     );
+  }
+
+  /// 同步只读解析运行诊断日志目录 `<Root>/userdata/logs/`（不自动建空目录）。
+  Directory resolveLogsDirSync() {
+    final root = resolveAppRootSync();
+    return Directory(
+      p.join(
+        root.path,
+        StoragePathConfig.userdataDirName,
+        StoragePathConfig.logsSubdirName,
+      ),
+    );
+  }
+
+  /// 解析并按需创建运行诊断日志目录 `<Root>/userdata/logs/`。
+  Future<Directory> ensureLogsDir() async {
+    final userdata = await ensureUserdataDir();
+    final dir = Directory(p.join(userdata.path, StoragePathConfig.logsSubdirName));
+    await dir.create(recursive: true);
+    return dir;
   }
 
   /// 解析并按需创建应用隔离缓存临时目录 `<Root>/cache/tmp/`（替代系统 `%TEMP%`）。

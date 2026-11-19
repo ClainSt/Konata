@@ -37,6 +37,7 @@ class KonataGlassCapsule extends StatelessWidget {
   static final ImageFilter _capsuleBlurFilter = ImageFilter.blur(
     sigmaX: KonataPlaybackTokens.capsuleBlurSigma,
     sigmaY: KonataPlaybackTokens.capsuleBlurSigma,
+    tileMode: TileMode.clamp,
   );
 
   @override

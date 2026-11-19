@@ -217,14 +217,16 @@ abstract final class KonataTheme {
     );
   }
 
-  static final ThemeData _cachedDarkTheme = _buildTheme(KonataPalette.dark);
-  static final ThemeData _cachedLightTheme = _buildTheme(KonataPalette.light);
+  static ThemeData? _cachedDarkTheme;
+  static ThemeData? _cachedLightTheme;
 
-  /// 获取缓存的深色模式主题（避免根应用重建时重复构造整棵 ThemeData）。
-  static ThemeData darkTheme() => _cachedDarkTheme;
+  /// 获取惰性缓存的深色模式主题（避免未切换前重复构造整棵 ThemeData）。
+  static ThemeData darkTheme() =>
+      _cachedDarkTheme ??= _buildTheme(KonataPalette.dark);
 
-  /// 获取缓存的亮色模式主题（避免根应用重建时重复构造整棵 ThemeData）。
-  static ThemeData lightTheme() => _cachedLightTheme;
+  /// 获取惰性缓存的亮色模式主题（避免未切换前重复构造整棵 ThemeData）。
+  static ThemeData lightTheme() =>
+      _cachedLightTheme ??= _buildTheme(KonataPalette.light);
 
   static ThemeData _buildTheme(KonataPalette palette) {
     final brightness = palette.isDark ? Brightness.dark : Brightness.light;

@@ -110,10 +110,13 @@ class KonataBottomClearanceScope extends InheritedWidget {
         ?.bottomClearance;
   }
 
-  /// 优先读取外壳层按真实视口计算的底部避让高度，同时订阅全局 Provider 以响应路由栈新页面。
+  /// 优先读取外壳层按真实视口计算的底部避让高度，未包裹作用域时再订阅全局 Provider。
   static double resolve(BuildContext context, WidgetRef ref) {
-    final watched = ref.watch(miniAudioBottomClearanceProvider);
-    return maybeOf(context) ?? watched;
+    final scoped = maybeOf(context);
+    if (scoped != null) {
+      return scoped;
+    }
+    return ref.watch(miniAudioBottomClearanceProvider);
   }
 
   @override
@@ -509,7 +512,9 @@ class _AudioContentClearance extends ConsumerWidget {
       );
     }
 
-    final miniAnchor = ref.watch(floatingMiniWindowAnchorProvider);
+    final miniAnchor = miniKind != FloatingMiniPlayerKind.none
+        ? ref.watch(floatingMiniWindowAnchorProvider)
+        : null;
     final hidden = ref.watch(capsuleNavigationHiddenProvider);
     final subRoutePushed = ref.watch(subRoutePushedProvider);
     final geometry = AdaptiveCapsuleLayout(
@@ -539,7 +544,10 @@ class _PlaybackSessionCoordinator extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (KonataAdaptiveTokens.isAndroid) {
+    final videoSession = ref.watch(activeVideoSessionProvider);
+    final videoReq = videoSession.request;
+    if (KonataAdaptiveTokens.isAndroid &&
+        (videoReq != null || videoSession.isInPipMode)) {
       ref.watch(androidPipAutoSyncProvider);
     }
 
@@ -558,8 +566,6 @@ class _PlaybackSessionCoordinator extends ConsumerWidget {
       },
     );
 
-    final videoSession = ref.watch(activeVideoSessionProvider);
-    final videoReq = videoSession.request;
     // 保活当前活跃视频控制器，确保在全屏与悬浮小窗切换时绝不触发 autoDispose 重建会话
     if (videoReq != null) {
       ref.watch(videoPlaybackProvider(videoReq).select((s) => s.isClosing));
@@ -634,7 +640,9 @@ class _FloatingMiniOverlaySlot extends ConsumerWidget {
     }
     final videoSession = ref.watch(activeVideoSessionProvider);
     final videoReq = videoSession.request;
-    final miniAnchor = ref.watch(floatingMiniWindowAnchorProvider);
+    final miniAnchor = miniKind != FloatingMiniPlayerKind.none
+        ? ref.watch(floatingMiniWindowAnchorProvider)
+        : null;
     final hidden = ref.watch(capsuleNavigationHiddenProvider);
     final subRoutePushed = ref.watch(subRoutePushedProvider);
     final layout = AdaptiveCapsuleLayout(

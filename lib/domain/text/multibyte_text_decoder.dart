@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:charset/charset.dart' as cs;
-
 import 'big5_cp950_table.dart';
+import 'gbk_cp936_table.dart';
+import 'shift_jis_cp932_table.dart';
 
 /// 传统东亚多字节文本编码类型（全仓唯一，供字幕、CUE 与 LRC 共用）。
 enum LegacyTextEncoding {
@@ -335,19 +335,11 @@ class MultibyteTextDecoder {
   }
 
   static String _decodeShiftJisPureDart(Uint8List bytes) {
-    try {
-      return cs.shiftJis.decode(bytes);
-    } catch (_) {
-      return utf8.decode(bytes, allowMalformed: true);
-    }
+    return ShiftJisCp932Table.decode(bytes);
   }
 
   static String _decodeGbkPureDart(Uint8List bytes) {
-    try {
-      return cs.gbk.decode(bytes);
-    } catch (_) {
-      return utf8.decode(bytes, allowMalformed: true);
-    }
+    return GbkCp936Table.decode(bytes);
   }
 
   /// 纯 Dart 完整 Big5 / CP950 双字节解码（覆盖全部 13,053 标准繁体汉字及全角符号/假名，双端零平台差异）。

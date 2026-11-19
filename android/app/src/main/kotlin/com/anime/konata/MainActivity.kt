@@ -50,6 +50,8 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import java.util.function.Consumer
 import kotlin.math.max
 import kotlin.math.min
@@ -80,6 +82,11 @@ class MainActivity : FlutterActivity() {
     private var noisyReceiverRegistered = false
     private var audioDeviceCallbackRegistered = false
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var lazyIoExecutor: ExecutorService? = null
+
+    private fun ioExecutor(): ExecutorService {
+        return lazyIoExecutor ?: Executors.newSingleThreadExecutor().also { lazyIoExecutor = it }
+    }
 
     private var pipEligible = false
     private var pipIsPlaying = false
@@ -172,17 +179,18 @@ class MainActivity : FlutterActivity() {
         return args
     }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        if (!pipReceiverRegistered) {
-            ContextCompat.registerReceiver(
-                this,
-                pipControlReceiver,
-                IntentFilter(ACTION_PIP_CONTROL),
-                ContextCompat.RECEIVER_NOT_EXPORTED
-            )
-            pipReceiverRegistered = true
-        }
+    private fun ensurePipReceiverRegistered() {
+        if (pipReceiverRegistered) return
+        ContextCompat.registerReceiver(
+            this,
+            pipControlReceiver,
+            IntentFilter(ACTION_PIP_CONTROL),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        pipReceiverRegistered = true
+    }
+
+    private fun ensureAudioRouteMonitoringRegistered() {
         if (!noisyReceiverRegistered) {
             ContextCompat.registerReceiver(
                 this,
@@ -198,6 +206,10 @@ class MainActivity : FlutterActivity() {
                 audioDeviceCallbackRegistered = true
             } catch (_: Exception) {}
         }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
     }
 
     override fun onDestroy() {
@@ -219,6 +231,8 @@ class MainActivity : FlutterActivity() {
             } catch (_: Exception) {}
             audioDeviceCallbackRegistered = false
         }
+        lazyIoExecutor?.shutdownNow()
+        lazyIoExecutor = null
         super.onDestroy()
     }
 
@@ -472,8 +486,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
-        MethodChannel(messenger, "ccplayer/network", StandardMethodCodec.INSTANCE,
-            messenger.makeBackgroundTaskQueue()).setMethodCallHandler { call, result ->
+        MethodChannel(messenger, "ccplayer/network").setMethodCallHandler { call, result ->
             if (call.method == "isMeteredNetwork") {
                 try {
                     val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
@@ -495,28 +508,33 @@ class MainActivity : FlutterActivity() {
                 result.notImplemented()
                 return@setMethodCallHandler
             }
-            try {
-                val uri = java.net.URI(call.arguments as String)
-                require(uri.scheme == "https" || uri.scheme == "http")
-                val routes = java.net.ProxySelector.getDefault()?.select(uri)
-                    ?: listOf(java.net.Proxy.NO_PROXY)
-                val value = routes.map { proxy ->
-                    when (proxy.type()) {
-                        java.net.Proxy.Type.DIRECT -> "DIRECT"
-                        java.net.Proxy.Type.HTTP -> {
-                            val address = proxy.address() as java.net.InetSocketAddress
-                            val host = address.hostString
-                            require(!host.contains(';') && !host.any { it.isWhitespace() })
-                            val literal = if (host.contains(':')) "[$host]" else host
-                            "PROXY $literal:${address.port}"
+            val rawUrl = call.arguments as? String
+            ioExecutor().execute {
+                try {
+                    val uri = java.net.URI(rawUrl ?: "")
+                    require(uri.scheme == "https" || uri.scheme == "http")
+                    val routes = java.net.ProxySelector.getDefault()?.select(uri)
+                        ?: listOf(java.net.Proxy.NO_PROXY)
+                    val value = routes.map { proxy ->
+                        when (proxy.type()) {
+                            java.net.Proxy.Type.DIRECT -> "DIRECT"
+                            java.net.Proxy.Type.HTTP -> {
+                                val address = proxy.address() as java.net.InetSocketAddress
+                                val host = address.hostString
+                                require(!host.contains(';') && !host.any { it.isWhitespace() })
+                                val literal = if (host.contains(':')) "[$host]" else host
+                                "PROXY $literal:${address.port}"
+                            }
+                            else -> throw IOException("Unsupported system proxy")
                         }
-                        else -> throw IOException("Unsupported system proxy")
+                    }.joinToString("; ")
+                    require(value.isNotEmpty())
+                    runOnUiThread { result.success(value) }
+                } catch (_: Exception) {
+                    runOnUiThread {
+                        result.error("proxy_unavailable", "Cannot resolve system proxy", null)
                     }
-                }.joinToString("; ")
-                require(value.isNotEmpty())
-                result.success(value)
-            } catch (_: Exception) {
-                result.error("proxy_unavailable", "Cannot resolve system proxy", null)
+                }
             }
         }
         audioFocusChannel = MethodChannel(messenger, "ccplayer/audio_focus").also { channel ->
@@ -531,7 +549,12 @@ class MainActivity : FlutterActivity() {
         audioRouteChannel = MethodChannel(messenger, "ccplayer/audio_route").also { channel ->
             channel.setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "startMonitoring" -> {
+                        ensureAudioRouteMonitoringRegistered()
+                        result.success(true)
+                    }
                     "negotiateBitPerfectUsb" -> {
+                        ensureAudioRouteMonitoringRegistered()
                         val sampleRate = (call.argument<Number>("sampleRateHz"))?.toInt() ?: 48000
                         val enable = call.argument<Boolean>("enable") ?: true
                         result.success(negotiateAndroidBitPerfectUsb(sampleRate, enable))
@@ -575,6 +598,9 @@ class MainActivity : FlutterActivity() {
                         val args = call.arguments as? Map<*, *>
                         if (args != null) {
                             pipEligible = args["eligible"] == true
+                            if (pipEligible) {
+                                ensurePipReceiverRegistered()
+                            }
                             pipIsPlaying = args["isPlaying"] == true
                             pipCanPrevious = args["canPrevious"] == true
                             pipCanNext = args["canNext"] == true
@@ -628,12 +654,7 @@ class MainActivity : FlutterActivity() {
         }
         underlaySurfaceHost?.destroy()
         underlaySurfaceHost = AndroidUnderlaySurfaceHost(this, messenger)
-        MethodChannel(
-            messenger,
-            "ccplayer/media_store",
-            StandardMethodCodec.INSTANCE,
-            messenger.makeBackgroundTaskQueue()
-        ).setMethodCallHandler { call, result ->
+        MethodChannel(messenger, "ccplayer/media_store").setMethodCallHandler { call, result ->
             if (call.method != "saveImageToGallery") {
                 result.notImplemented()
                 return@setMethodCallHandler
@@ -642,26 +663,30 @@ class MainActivity : FlutterActivity() {
             val displayName = call.argument<String>("displayName").orEmpty()
             val albumName = call.argument<String>("albumName").orEmpty().ifBlank { "Konata" }
             val mimeType = call.argument<String>("mimeType").orEmpty().ifBlank { "image/png" }
-            val sourceFile = File(sourcePath)
-            try {
-                require(sourceFile.isFile && sourceFile.length() > 0L) {
-                    "Screenshot source file unavailable"
-                }
-                val savedUri = publishImageToMediaStore(
-                    sourceFile = sourceFile,
-                    displayName = displayName.ifBlank { sourceFile.name },
-                    albumName = albumName,
-                    mimeType = mimeType
-                )
-                result.success(savedUri)
-            } catch (e: Exception) {
-                result.error("media_store_failed", e.message ?: "Failed to publish image", null)
-            } finally {
+            ioExecutor().execute {
+                val sourceFile = File(sourcePath)
                 try {
-                    if (sourceFile.exists()) {
-                        sourceFile.delete()
+                    require(sourceFile.isFile && sourceFile.length() > 0L) {
+                        "Screenshot source file unavailable"
                     }
-                } catch (_: Exception) {}
+                    val savedUri = publishImageToMediaStore(
+                        sourceFile = sourceFile,
+                        displayName = displayName.ifBlank { sourceFile.name },
+                        albumName = albumName,
+                        mimeType = mimeType
+                    )
+                    runOnUiThread { result.success(savedUri) }
+                } catch (e: Exception) {
+                    runOnUiThread {
+                        result.error("media_store_failed", e.message ?: "Failed to publish image", null)
+                    }
+                } finally {
+                    try {
+                        if (sourceFile.exists()) {
+                            sourceFile.delete()
+                        }
+                    } catch (_: Exception) {}
+                }
             }
         }
         MethodChannel(messenger, "ccplayer/playback_window").setMethodCallHandler { call, result ->

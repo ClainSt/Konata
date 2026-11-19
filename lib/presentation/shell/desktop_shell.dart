@@ -51,9 +51,10 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
   @override
   Widget build(BuildContext context) {
     final activeSection = ref.watch(selectedNavSectionProvider);
-    final searchQuery = ref.watch(librarySearchQueryProvider);
     final miniKind = ref.watch(activeFloatingMiniPlayerKindProvider);
-    final miniAnchor = ref.watch(floatingMiniWindowAnchorProvider);
+    final miniAnchor = miniKind != FloatingMiniPlayerKind.none
+        ? ref.watch(floatingMiniWindowAnchorProvider)
+        : null;
 
     if (KonataAdaptiveTokens.isAndroid) {
       final hidden =
@@ -115,6 +116,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         ),
       );
     }
+    final searchQuery = ref.watch(librarySearchQueryProvider);
     final desktopBottomClearance = ref.watch(miniAudioBottomClearanceProvider);
     final topNavBuilder = ref.watch(desktopTopNavBarBuilderProvider);
     return CallbackShortcuts(
@@ -130,30 +132,32 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
             child: Column(
               children: [
                 if (topNavBuilder != null)
-                  topNavBuilder(
-                    activeSection: activeSection,
-                    onSectionChanged: (section) {
-                      ref.read(selectedNavSectionProvider.notifier).state =
-                          section;
-                    },
-                    searchQuery: searchQuery,
-                    onSearchChanged: (value) {
-                      ref.read(librarySearchQueryProvider.notifier).state =
-                          value;
-                    },
-                    searchFocusNode: _searchFocusNode,
-                    searchExpanded: _searchExpanded,
-                    onSearchExpandedChanged: (expanded) {
-                      setState(() => _searchExpanded = expanded);
-                    },
-                    onToggleTheme: () {
-                      final brightness = MediaQuery.platformBrightnessOf(
-                        context,
-                      );
-                      ref
-                          .read(themeModeProvider.notifier)
-                          .toggleLightDark(brightness);
-                    },
+                  RepaintBoundary(
+                    child: topNavBuilder(
+                      activeSection: activeSection,
+                      onSectionChanged: (section) {
+                        ref.read(selectedNavSectionProvider.notifier).state =
+                            section;
+                      },
+                      searchQuery: searchQuery,
+                      onSearchChanged: (value) {
+                        ref.read(librarySearchQueryProvider.notifier).state =
+                            value;
+                      },
+                      searchFocusNode: _searchFocusNode,
+                      searchExpanded: _searchExpanded,
+                      onSearchExpandedChanged: (expanded) {
+                        setState(() => _searchExpanded = expanded);
+                      },
+                      onToggleTheme: () {
+                        final brightness = MediaQuery.platformBrightnessOf(
+                          context,
+                        );
+                        ref
+                            .read(themeModeProvider.notifier)
+                            .toggleLightDark(brightness);
+                      },
+                    ),
                   ),
                 Expanded(
                   child: ClipRect(

@@ -209,7 +209,9 @@ class _TopNavTabStripState extends State<_TopNavTabStrip>
     if (oldWidget.activeSection != widget.activeSection) {
       _transitionTo(widget.activeSection.index);
     }
-    _scheduleMeasure();
+    if (_tabCenters.any((c) => c == null)) {
+      _scheduleMeasure();
+    }
   }
 
   @override

@@ -18,7 +18,9 @@ class SettingsAppearancePanel extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final p = context.palette;
     final currentMode = ref.watch(themeModeProvider);
-    final currentMaterial = ref.watch(windowMaterialProvider);
+    final currentMaterial = KonataAdaptiveTokens.isWindows
+        ? ref.watch(windowMaterialProvider)
+        : KonataWindowMaterial.acrylic;
 
     final cards = [
       _ThemeOptionCard(

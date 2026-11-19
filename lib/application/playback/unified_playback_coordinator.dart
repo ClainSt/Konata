@@ -413,9 +413,18 @@ class ActiveVideoSessionState {
 
 /// 全局视频会话与原生画中画生命周期编排器。
 class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> {
-  /// 创建全局视频会话编排器。
+  /// 创建全局视频会话编排器（Android 端仅在首次开启视频或恢复画中画时惰性绑定原生通道）。
   ActiveVideoSessionNotifier(this._ref)
-    : super(const ActiveVideoSessionState()) {
+    : super(const ActiveVideoSessionState());
+
+  final Ref _ref;
+  PipRecoveryMode _lastRecoveryMode = PipRecoveryMode.none;
+  bool _coldRestoreAttempted = false;
+  bool _pipCallbacksBound = false;
+
+  void _ensureAndroidPipCallbacksBound() {
+    if (_pipCallbacksBound || !KonataPlatform.isAndroid) return;
+    _pipCallbacksBound = true;
     final pipClient = _ref.read(androidPipChannelClientProvider);
     pipClient.bindCallbacks(
       onPipModeChanged: _handleNativePipModeChanged,
@@ -423,10 +432,6 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
       onPipDismissed: _handleNativePipDismissed,
     );
   }
-
-  final Ref _ref;
-  PipRecoveryMode _lastRecoveryMode = PipRecoveryMode.none;
-  bool _coldRestoreAttempted = false;
 
   /// 最近一次画中画或回前台恢复所命中的双态路径（供诊断与回归测试断言）。
   PipRecoveryMode get lastRecoveryMode => _lastRecoveryMode;
@@ -459,6 +464,7 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
   Future<PipRecoveryMode> recoverPlaybackIfNeeded({
     bool forceColdCheck = false,
   }) async {
+    _ensureAndroidPipCallbacksBound();
     final req = state.request;
     if (req != null) {
       _lastRecoveryMode = PipRecoveryMode.engineAliveRebind;
@@ -536,6 +542,7 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
 
   /// 启动或热切换全局视频会话并展开全屏舞台。
   Future<void> openVideo(VideoLaunchRequest nextRequest) async {
+    _ensureAndroidPipCallbacksBound();
     // 互斥收起全屏音频页并暂停纯音频会话
     _ref.read(immersiveAudioExpandedProvider.notifier).state = false;
     await _ref.read(audioPlaybackProvider.notifier).pauseForVideoSession();

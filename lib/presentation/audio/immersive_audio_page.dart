@@ -22,6 +22,7 @@ import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/playback/konata_cached_artwork_backdrop.dart';
 import '../widgets/playback/konata_playback_capsule.dart';
 import '../widgets/playback/konata_spec_badge.dart';
+import '../widgets/playback/konata_stage_morph_frame.dart';
 import '../widgets/playback/konata_volume_control.dart';
 import 'immersive_audio_sub_widgets.dart';
 
@@ -170,8 +171,10 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     }
   }
 
-  void _collapseToMiniBar() {
+  void _collapseToMiniBar({double releaseVelocityPxPerSec = 0.0}) {
     _closePortraitQueueSheet();
+    ref.read(stageMorphReleaseVelocityProvider.notifier).state =
+        releaseVelocityPxPerSec;
     ref.read(immersiveAudioExpandedProvider.notifier).state = false;
   }
 
@@ -1069,7 +1072,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
             onVerticalDragEnd: (details) {
               final velocity = details.primaryVelocity ?? 0.0;
               if (_pullDownDy > 48.0 || velocity > 420.0) {
-                _collapseToMiniBar();
+                _collapseToMiniBar(releaseVelocityPxPerSec: velocity);
               }
               _pullDownDy = 0.0;
             },
@@ -1125,9 +1128,11 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                             if (d.delta.dy > 0) _pullDownDy += d.delta.dy;
                           },
                           onVerticalDragEnd: (d) {
-                            if (_pullDownDy > 54.0 ||
-                                (d.primaryVelocity ?? 0) > 460.0) {
-                              _collapseToMiniBar();
+                            final velocity = d.primaryVelocity ?? 0.0;
+                            if (_pullDownDy > 54.0 || velocity > 460.0) {
+                              _collapseToMiniBar(
+                                releaseVelocityPxPerSec: velocity,
+                              );
                             }
                             _pullDownDy = 0.0;
                           },

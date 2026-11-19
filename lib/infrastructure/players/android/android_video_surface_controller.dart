@@ -135,7 +135,11 @@ class AndroidVideoSurfaceController {
         'bottomPx': bottomPx,
         'radiusPx': cornerRadiusPx,
       });
-    } catch (_) {}
+    } on MissingPluginException {
+      // 非 Android 原生宿主或单元测试未挂载插件通道时静默跳过。
+    } on PlatformException {
+      // 底层窗口销毁竞态下的瞬态平台异常，由后续表面重绑恢复。
+    }
   }
 
   /// 隐藏底层 Underlay 表面（纯音频模式或退出播放时立即释放系统缓冲）。
@@ -149,7 +153,11 @@ class AndroidVideoSurfaceController {
     _lastRadiusPx = null;
     try {
       await _channel.invokeMethod<void>('hide');
-    } catch (_) {}
+    } on MissingPluginException {
+      // 非原生宿主环境下无需隐藏底层表面。
+    } on PlatformException {
+      // 窗口已销毁时无需重复隐藏。
+    }
   }
 
   /// 主动向原生端查询当前可用表面信息（句柄与宽高均需大于 0）。
@@ -171,7 +179,9 @@ class AndroidVideoSurfaceController {
         hdrPeak: (result['hdrPeak'] as num?)?.toDouble() ?? 0.0,
       );
       return _current;
-    } catch (_) {
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
       return null;
     }
   }
@@ -181,7 +191,11 @@ class AndroidVideoSurfaceController {
     if (wid <= 0) return;
     try {
       await _channel.invokeMethod<void>('release', wid);
-    } catch (_) {}
+    } on MissingPluginException {
+      // 单元测试或非原生宿主环境跳过 JNI 释放。
+    } on PlatformException {
+      // 旧句柄已被系统回收时静默放行。
+    }
   }
 
   /// 隐藏底层表面并释放与当前会话关联的全部 JNI 全局 Surface 引用。
@@ -194,7 +208,11 @@ class AndroidVideoSurfaceController {
     _lastRadiusPx = null;
     try {
       await _channel.invokeMethod<void>('releaseAll');
-    } catch (_) {}
+    } on MissingPluginException {
+      // 单元测试或非原生宿主环境跳过全量释放。
+    } on PlatformException {
+      // 宿主已关闭时静默放行。
+    }
     _current = null;
   }
 

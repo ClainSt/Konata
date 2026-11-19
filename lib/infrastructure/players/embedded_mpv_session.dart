@@ -37,7 +37,7 @@ class EmbeddedVideoLoadRequest {
     required this.workId,
     required this.variant,
     this.source,
-    this.startSeconds = 0,
+    this.startSeconds = 0.0,
     this.initialWidth = 1280,
     this.initialHeight = 720,
   });
@@ -45,7 +45,7 @@ class EmbeddedVideoLoadRequest {
   final String workId;
   final MediaVariant variant;
   final MediaSource? source;
-  final int startSeconds;
+  final double startSeconds;
   final int initialWidth;
   final int initialHeight;
 }
@@ -357,6 +357,7 @@ class EmbeddedMpvSession {
         preferSoftware:
             !qualityConfig.hardwareDecode ||
             qualityConfig.preset == VideoQualityPreset.softwareFallback,
+        renderBackend: qualityConfig.windowsRenderBackend.bridgeKey,
       );
       _d3d11SessionId = handle.sessionId;
       _textureId.value = handle.textureId;
@@ -539,14 +540,14 @@ class EmbeddedMpvSession {
     onApplyAudiophileSafetyChain?.call(client);
 
     if (request.startSeconds > 0) {
-      final startRc = client.setPropertyString(
-        'start',
-        '+${request.startSeconds}',
-      );
+      final formattedStart = request.startSeconds == request.startSeconds.roundToDouble()
+          ? request.startSeconds.toInt().toString()
+          : request.startSeconds.toStringAsFixed(3);
+      final startRc = client.setPropertyString('start', '+$formattedStart');
       if (startRc < 0) {
-        client.setPropertyDouble('start', request.startSeconds.toDouble());
+        client.setPropertyDouble('start', request.startSeconds);
       }
-      _pendingInitialSeekSeconds = request.startSeconds.toDouble();
+      _pendingInitialSeekSeconds = request.startSeconds;
     } else {
       client.setPropertyString('start', 'none');
       _pendingInitialSeekSeconds = null;

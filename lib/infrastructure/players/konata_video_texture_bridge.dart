@@ -1,4 +1,4 @@
-/// 跨平台外接视频纹理桥接句柄（屏蔽桌面 D3D11 实现细节以支撑 Android 入口零桌面残留裁剪）。
+/// 跨平台外接视频纹理桥接句柄（屏蔽桌面 D3D11 / DirectComposition 实现细节以支撑 Android 入口零桌面残留裁剪）。
 class D3D11VideoSessionHandle {
   /// 创建会话句柄对象。
   const D3D11VideoSessionHandle({
@@ -6,16 +6,28 @@ class D3D11VideoSessionHandle {
     required this.textureId,
     required this.backend,
     required this.adapterName,
+    this.surfaceFormat = 'DXGI_FORMAT_R16G16B16A16_FLOAT',
+    this.colorBitDepth = 16,
+    this.dcompActive = false,
   });
 
   /// 原生端会话编号。
   final int sessionId;
 
-  /// Flutter 外接纹理绑定编号。
+  /// Flutter 外接纹理绑定编号（DirectComposition 独立子视觉层模式为 `-1`）。
   final int textureId;
 
-  /// 实际启用的渲染后端名称（如 `d3d11`、`dcomp` 或 `sw`）。
+  /// 实际启用的渲染后端名称（如 `d3d11_fp16`、`d3d11_10bit`、`dcomp_10bit`、`dcomp_fp16` 或 `sw`）。
   final String backend;
+
+  /// 实际使用的 DXGI 表面像素格式名称。
+  final String surfaceFormat;
+
+  /// 实际激活的通道位深（16 / 10 / 8）。
+  final int colorBitDepth;
+
+  /// 当前是否运行于 DirectComposition 独立子视觉层模式。
+  final bool dcompActive;
 
   /// 图形适配器名称或软件渲染说明。
   final String adapterName;
@@ -27,12 +39,18 @@ class D3D11VideoSessionHandle {
   D3D11VideoSessionHandle copyWith({
     int? textureId,
     String? backend,
+    String? surfaceFormat,
+    int? colorBitDepth,
+    bool? dcompActive,
     String? adapterName,
   }) {
     return D3D11VideoSessionHandle(
       sessionId: sessionId,
       textureId: textureId ?? this.textureId,
       backend: backend ?? this.backend,
+      surfaceFormat: surfaceFormat ?? this.surfaceFormat,
+      colorBitDepth: colorBitDepth ?? this.colorBitDepth,
+      dcompActive: dcompActive ?? this.dcompActive,
       adapterName: adapterName ?? this.adapterName,
     );
   }
@@ -47,13 +65,56 @@ class D3D11TextureChangedEvent {
     required this.backend,
     required this.adapterName,
     required this.reason,
+    this.surfaceFormat = '',
+    this.colorBitDepth = 8,
   });
 
   final int sessionId;
   final int textureId;
   final String backend;
+  final String surfaceFormat;
+  final int colorBitDepth;
   final String adapterName;
   final String reason;
+}
+
+/// 原生 Windows GPU 渲染管线实测指标快照（供真机 A/B 对比与诊断叠加层使用）。
+class D3D11SessionMetrics {
+  /// 创建原生渲染指标快照。
+  const D3D11SessionMetrics({
+    required this.renderedFrames,
+    required this.renderP50Us,
+    required this.renderP99Us,
+    required this.renderAvgUs,
+    required this.backend,
+    required this.surfaceFormat,
+    required this.colorBitDepth,
+    required this.dcompActive,
+  });
+
+  /// 累计已渲染视频帧总数。
+  final int renderedFrames;
+
+  /// 单帧原生 GPU 渲染耗时中位数（微秒）。
+  final int renderP50Us;
+
+  /// 单帧原生 GPU 渲染耗时 P99（微秒）。
+  final int renderP99Us;
+
+  /// 单帧原生 GPU 渲染平均耗时（微秒）。
+  final int renderAvgUs;
+
+  /// 实际渲染后端标识。
+  final String backend;
+
+  /// 实际表面像素格式名称。
+  final String surfaceFormat;
+
+  /// 实际激活位深（16 / 10 / 8）。
+  final int colorBitDepth;
+
+  /// 是否启用 DirectComposition 独立子视觉层。
+  final bool dcompActive;
 }
 
 /// 跨平台桌面外接视频纹理桥接抽象契约。
@@ -61,12 +122,13 @@ abstract interface class KonataVideoTextureBridge {
   /// 原生设备丢失重建或后端降级时推送的新纹理通知流。
   Stream<D3D11TextureChangedEvent> get textureChanges;
 
-  /// 为指定原生 `mpv_handle*` 创建渲染会话并注册外部纹理。
+  /// 为指定原生 `mpv_handle*` 创建高色深渲染会话并按需注册外部纹理。
   Future<D3D11VideoSessionHandle> createSession({
     required int mpvHandleAddress,
     int width = 1280,
     int height = 720,
     bool preferSoftware = false,
+    String renderBackend = 'd3d11_fp16',
   });
 
   /// 通知原生渲染目标同步调整分辨率。
@@ -76,10 +138,24 @@ abstract interface class KonataVideoTextureBridge {
     required int height,
   });
 
+  /// 同步 DirectComposition 10-bit 子视觉层的物理像素几何视口与圆角裁剪。
+  Future<void> setViewportRect({
+    required int sessionId,
+    required int leftPx,
+    required int topPx,
+    required int rightPx,
+    required int bottomPx,
+    double cornerRadiusPx = 0.0,
+    bool visible = true,
+  });
+
+  /// 查询指定会话的原生 GPU 单帧渲染耗时统计（P50 / P99 / 平均微秒及格式位深）。
+  Future<D3D11SessionMetrics?> getSessionMetrics(int sessionId);
+
   /// 释放原生渲染上下文并注销外部纹理。
   Future<void> disposeSession(int sessionId);
 
-  /// 查询图形适配器可用性与名称。
+  /// 查询图形适配器可用性、名称及高色深/DirectComposition 能力。
   Future<({bool available, String adapterName})> getAdapterInfo();
 
   /// 关闭通道监听与流控制器。

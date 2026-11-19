@@ -20,6 +20,7 @@ class KonataCapsuleIconButton extends StatefulWidget {
     required this.tooltip,
     required this.color,
     required this.onTap,
+    this.onLongPress,
     this.size = 20,
     this.padding = const EdgeInsets.all(6),
     this.highlighted = false,
@@ -35,6 +36,7 @@ class KonataCapsuleIconButton extends StatefulWidget {
   final String tooltip;
   final Color color;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
   final double size;
   final EdgeInsetsGeometry padding;
   final bool highlighted;
@@ -69,6 +71,9 @@ class _KonataCapsuleIconButtonState extends State<KonataCapsuleIconButton> {
     return Tooltip(
       message: widget.tooltip,
       waitDuration: const Duration(milliseconds: 450),
+      triggerMode: widget.onLongPress != null
+          ? TooltipTriggerMode.manual
+          : null,
       child: MouseRegion(
         cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
         onEnter: (_) => setState(() => _hovered = true),
@@ -82,6 +87,7 @@ class _KonataCapsuleIconButtonState extends State<KonataCapsuleIconButton> {
           onTapUp: enabled ? (_) => setState(() => _pressed = false) : null,
           onTapCancel: () => setState(() => _pressed = false),
           onTap: widget.onTap,
+          onLongPress: widget.onLongPress,
           child: AnimatedScale(
             scale: _pressed ? 0.90 : 1.0,
             duration: const Duration(milliseconds: 100),

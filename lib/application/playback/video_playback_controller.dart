@@ -54,7 +54,7 @@ class VideoLaunchRequest {
     required this.variant,
     required this.bundle,
     this.source,
-    this.startSeconds = 0,
+    this.startSeconds = 0.0,
   });
 
   final Work work;
@@ -62,7 +62,7 @@ class VideoLaunchRequest {
   final MediaVariant variant;
   final WorkDetailBundle bundle;
   final MediaSource? source;
-  final int startSeconds;
+  final double startSeconds;
 
   @override
   bool operator ==(Object other) {
@@ -70,12 +70,16 @@ class VideoLaunchRequest {
         other.work.id == work.id &&
         other.episode.id == episode.id &&
         other.variant.id == variant.id &&
-        other.startSeconds == startSeconds;
+        (other.startSeconds - startSeconds).abs() < 0.0005;
   }
 
   @override
-  int get hashCode =>
-      Object.hash(work.id, episode.id, variant.id, startSeconds);
+  int get hashCode => Object.hash(
+    work.id,
+    episode.id,
+    variant.id,
+    (startSeconds * 1000).round(),
+  );
 }
 
 /// 内置视频播放页面完整不可变视图状态。
@@ -326,6 +330,19 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
 
   /// 跳转并原地回退上一集（支持上一季末集正片对称回退）。
   Future<bool> goToPreviousEpisode() => _goToPreviousEpisodeImpl();
+
+  /// 一键截取原画 PNG 视频帧（支持纯净视频帧与含字幕帧；Windows 存作品目录，Android 事务写入系统相册）。
+  Future<File?> captureCleanScreenshot({
+    ScreenshotCaptureMode mode = ScreenshotCaptureMode.pureVideo,
+  }) async {
+    final res = await captureScreenshot(mode: mode);
+    return res?.file;
+  }
+
+  /// 双模原画截图（返回桌面文件或 Android `MediaStore` 相册 URI）。
+  Future<ScreenshotCaptureResult?> captureScreenshot({
+    ScreenshotCaptureMode mode = ScreenshotCaptureMode.pureVideo,
+  }) => _captureScreenshotImpl(mode: mode);
 
   final WatchedTracker _watchedTracker = WatchedTracker();
   final AudiophileMicroFadeDriver _microFadeDriver =

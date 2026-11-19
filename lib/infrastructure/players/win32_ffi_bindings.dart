@@ -221,18 +221,13 @@ class Win32FfiBindings {
             'SendMessageW',
           );
 
-  static Win32FfiBindings? _cached;
-
-  /// 获取当前平台单例 Win32 FFI 绑定（非 Windows 平台返回 `null`）。
-  static Win32FfiBindings? get instance {
-    if (!Platform.isWindows) {
-      return null;
-    }
-    return _cached ??= Win32FfiBindings._(
-      DynamicLibrary.open('kernel32.dll'),
-      DynamicLibrary.open('user32.dll'),
-    );
-  }
+  /// 当前平台惰性只读 Win32 FFI 绑定（非 Windows 平台返回 `null`）。
+  static final Win32FfiBindings? instance = Platform.isWindows
+      ? Win32FfiBindings._(
+          DynamicLibrary.open('kernel32.dll'),
+          DynamicLibrary.open('user32.dll'),
+        )
+      : null;
 
   /// Win32 `GENERIC_READ | GENERIC_WRITE` 访问权限掩码。
   static const int genericReadWrite = 0x80000000 | 0x40000000;

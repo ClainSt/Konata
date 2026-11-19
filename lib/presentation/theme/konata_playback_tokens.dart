@@ -380,6 +380,14 @@ abstract final class KonataPlaybackTokens {
     milliseconds: 350,
   );
 
+  /// 音量滚轮或拖拽停止后浮层自动收起的空闲延时。
+  static const Duration volumeAdjustIdleAutoHideDelay = Duration(
+    milliseconds: 1500,
+  );
+
+  /// 音量滑块圆点交互缩放过渡时长。
+  static const Duration volumeKnobMotionDuration = Duration(milliseconds: 100);
+
   /// 歌词与当前队列高亮行统一柔光阴影（随明暗主题自动切换对比度）。
   static List<Shadow> lyricGlowShadow(
     KonataPalette p, {

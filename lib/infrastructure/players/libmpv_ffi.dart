@@ -84,11 +84,39 @@ class FfiLibMpvClient
         );
   }
 
-  static bool _androidJavaVmRegistered = false;
+  static final bool _androidJavaVmRegisteredOnce = _registerAndroidJavaVmOnce();
+
+  static bool _registerAndroidJavaVmOnce() {
+    if (!Platform.isAndroid) return false;
+    try {
+      final helperLib = DynamicLibrary.open('libmediakitandroidhelper.so');
+      final getJavaVm = helperLib
+          .lookupFunction<_MediaKitGetJavaVmNative, _MediaKitGetJavaVmDart>(
+            'MediaKitAndroidHelperGetJavaVM',
+          );
+      final jvm = getJavaVm();
+      if (jvm == nullptr) return false;
+
+      DynamicLibrary avCodecLib;
+      try {
+        avCodecLib = DynamicLibrary.open('libavcodec.so');
+      } catch (_) {
+        avCodecLib = DynamicLibrary.open('libmpv.so');
+      }
+      final setJavaVm = avCodecLib
+          .lookupFunction<_AvJniSetJavaVmNative, _AvJniSetJavaVmDart>(
+            'av_jni_set_java_vm',
+          );
+      return setJavaVm(jvm, nullptr) == 0;
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.libmpv_ffi', error: error);
+      return false;
+    }
+  }
 
   /// 将 Android 宿主进程 JavaVM 句柄注册至 FFmpeg/libmpv JNI 上下文，解锁 vo=gpu 表面绑定与 MediaCodec 硬解。
   static void _ensureAndroidJavaVmRegistered(DynamicLibrary mpvLibrary) {
-    if (!Platform.isAndroid || _androidJavaVmRegistered) return;
+    if (!Platform.isAndroid || _androidJavaVmRegisteredOnce) return;
     try {
       final helperLib = DynamicLibrary.open('libmediakitandroidhelper.so');
       final getJavaVm = helperLib
@@ -97,21 +125,11 @@ class FfiLibMpvClient
           );
       final jvm = getJavaVm();
       if (jvm == nullptr) return;
-
-      DynamicLibrary avCodecLib;
-      try {
-        avCodecLib = DynamicLibrary.open('libavcodec.so');
-      } catch (_) {
-        avCodecLib = mpvLibrary;
-      }
-      final setJavaVm = avCodecLib
+      final setJavaVm = mpvLibrary
           .lookupFunction<_AvJniSetJavaVmNative, _AvJniSetJavaVmDart>(
             'av_jni_set_java_vm',
           );
-      final rc = setJavaVm(jvm, nullptr);
-      if (rc == 0) {
-        _androidJavaVmRegistered = true;
-      }
+      setJavaVm(jvm, nullptr);
     } catch (error) {
       developer.log('可恢复异常已记录', name: 'konata.libmpv_ffi', error: error);
     }

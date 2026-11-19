@@ -266,6 +266,7 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
           streamBridge: _streamBridge,
           gatewayFactory: _ref.read(mediaSourceGatewayFactoryProvider),
           logStore: _logStore,
+          clientFactory: () => _engine.createAuxiliaryNativeClient(),
         );
         svc.addListener(_onThumbnailUpdated);
         _thumbnailService = svc;
@@ -768,5 +769,24 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
           ? '连续 ${UnifiedPlaybackEngine.maxConsecutiveBadFiles} 个视频文件加载异常（$effectiveMsg），已熔断停播'
           : effectiveMsg,
     );
+  }
+
+  /// 切换全屏或 Android 横屏全屏模式（Windows 绝不触碰 `flutter_acrylic` 窗体材质防 DWM 黑闪）。
+  Future<void> toggleFullscreen() async {
+    final next = !_state.isFullscreen;
+    if (KonataPlatform.isWindows) {
+      await _ref.read(konataWindowHostProvider).setFullScreen(next);
+      if (mounted) {
+        _state = _state.copyWith(isFullscreen: next);
+      }
+      return;
+    }
+    if (KonataPlatform.isAndroid) {
+      await AndroidPlaybackWindowBridge.setLandscapePreferred(next);
+      await AndroidPlaybackWindowBridge.setSystemBarsHidden(next);
+      if (mounted) {
+        _state = _state.copyWith(isFullscreen: next);
+      }
+    }
   }
 }

@@ -30,16 +30,26 @@ typedef _MultiByteToWideCharDart =
 class WindowsCodePageDecoder {
   WindowsCodePageDecoder._();
 
-  static _MultiByteToWideCharDart? _cachedFn;
+  static final _MultiByteToWideCharDart? _cachedFn = _loadMultiByteToWideChar();
+
+  static _MultiByteToWideCharDart? _loadMultiByteToWideChar() {
+    if (!Platform.isWindows) return null;
+    try {
+      return DynamicLibrary.open('kernel32.dll')
+          .lookupFunction<_MultiByteToWideCharNative, _MultiByteToWideCharDart>(
+            'MultiByteToWideChar',
+          );
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// 将 Shift-JIS (CP932)、GB18030/GBK (CP54936/CP936) 或 Big5 (CP950) 原始字节转换为 Unicode 字符串。
   static String? decode(List<int> bytes, LegacyTextEncoding encoding) {
     if (!Platform.isWindows || bytes.isEmpty) return null;
+    final fn = _cachedFn;
+    if (fn == null) return null;
     try {
-      final fn = _cachedFn ??= DynamicLibrary.open('kernel32.dll')
-          .lookupFunction<_MultiByteToWideCharNative, _MultiByteToWideCharDart>(
-            'MultiByteToWideChar',
-          );
       final primaryCodePage = switch (encoding) {
         LegacyTextEncoding.shiftJis => 932,
         LegacyTextEncoding.gbk => 54936,

@@ -15,11 +15,9 @@ class GbkCp936Table {
   static const int _leadMax = 0xFE;
   static const int _trailCount = 190;
 
-  static Uint16List? _table;
+  static final Uint16List _table = _decodeTable().asUnmodifiableView();
 
-  static Uint16List _ensureTable() {
-    final cached = _table;
-    if (cached != null) return cached;
+  static Uint16List _decodeTable() {
     final bytes = base64Decode(_payloadBase64);
     final bd = ByteData.sublistView(bytes);
     final count = bytes.lengthInBytes >> 1;
@@ -27,7 +25,6 @@ class GbkCp936Table {
     for (var i = 0; i < count; i++) {
       out[i] = bd.getUint16(i << 1, Endian.little);
     }
-    _table = out;
     return out;
   }
 
@@ -37,15 +34,14 @@ class GbkCp936Table {
     if (b2 < 0x40 || b2 > 0xFE || b2 == 0x7F) return 0;
     final trailIdx = b2 < 0x7F ? (b2 - 0x40) : (b2 - 0x41);
     final slot = (b1 - _leadMin) * _trailCount + trailIdx;
-    final table = _ensureTable();
-    if (slot < 0 || slot >= table.length) return 0;
-    return table[slot];
+    if (slot < 0 || slot >= _table.length) return 0;
+    return _table[slot];
   }
 
   /// 解码完整 GBK / CP936 字节流为 Unicode 字符串。
   static String decode(Uint8List bytes) {
     final out = StringBuffer();
-    final table = _ensureTable();
+    final table = _table;
     for (var i = 0; i < bytes.length; i++) {
       final b1 = bytes[i];
       if (b1 < 0x80) {

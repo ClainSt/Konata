@@ -157,8 +157,9 @@ class PlaybackStreamLease {
 /// 4. `ScopedTaskToken`：按四域独立取消异步后台任务，互不牵连。
 class UnifiedPlaybackEngine {
   /// 创建统一播放内核，由内核唯一托管全进程单个活跃底层 `LibMpvClient` 实例。
-  UnifiedPlaybackEngine({LibMpvClient Function()? defaultClientFactory})
-    : _defaultClientFactory = defaultClientFactory ?? FfiLibMpvClient.create;
+  UnifiedPlaybackEngine({
+    LibMpvClient Function({String? preferredLibraryPath})? defaultClientFactory,
+  }) : _defaultClientFactory = defaultClientFactory ?? FfiLibMpvClient.create;
 
   /// 队列连续物理坏文件触发熔断的上限阈值。
   static const int maxConsecutiveBadFiles = 3;
@@ -166,7 +167,13 @@ class UnifiedPlaybackEngine {
   /// 认定音频已证实有效播放推进的最小时长阈值（毫秒）。
   static const int effectiveAudioProgressThresholdMs = 500;
 
-  final LibMpvClient Function() _defaultClientFactory;
+  final LibMpvClient Function({String? preferredLibraryPath})
+  _defaultClientFactory;
+
+  /// 为非主播放舞台的只读一次性探针（版本检测）与后台离屏缩略图服务创建受控辅助实例。
+  LibMpvClient createAuxiliaryNativeClient({String? preferredLibraryPath}) {
+    return _defaultClientFactory(preferredLibraryPath: preferredLibraryPath);
+  }
   Future<void> _clientLeaseChain = Future<void>.value();
   int _liveNativeClientCount = 0;
   Future<void> Function()? _activeNativeClientEvictor;

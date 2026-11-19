@@ -48,9 +48,8 @@ class KonataVolumeControl extends StatefulWidget {
 }
 
 class _KonataVolumeControlState extends State<KonataVolumeControl> {
-  static const Duration _kAdjustIdleAutoHideDelay = Duration(
-    milliseconds: 1500,
-  );
+  static const Duration _kAdjustIdleAutoHideDelay =
+      KonataPlaybackTokens.volumeAdjustIdleAutoHideDelay;
   static const double _kPopoverClearanceBridgeHeight = 24.0;
 
   final LayerLink _layerLink = LayerLink();
@@ -484,9 +483,8 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
                                                             ),
                                                       ),
                                               child: AnimatedContainer(
-                                                duration: const Duration(
-                                                  milliseconds: 100,
-                                                ),
+                                                duration: KonataPlaybackTokens
+                                                    .volumeKnobMotionDuration,
                                                 width: knobSize,
                                                 height: knobSize,
                                                 decoration: BoxDecoration(

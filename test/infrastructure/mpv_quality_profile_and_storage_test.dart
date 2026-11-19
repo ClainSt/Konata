@@ -427,6 +427,7 @@ void main() {
       }
       final probe = await MpvQualityProfile.probeRuntimeVersions(
         preferredLibraryPath: dll.path,
+        clientFactory: FfiLibMpvClient.create,
       );
       expect(probe.isAvailable, isTrue);
       expect(probe.mpvVersion, isNotEmpty);

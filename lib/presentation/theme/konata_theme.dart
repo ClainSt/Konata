@@ -435,15 +435,15 @@ abstract final class KonataTheme {
   );
 
   /// 详情页叠放于背景原画之上的统一双层柔和文字投影（内层贴边轮廓 + 外层环境晕影）。
-  static final List<Shadow> detailTextShadows = [
+  static const List<Shadow> detailTextShadows = <Shadow>[
     Shadow(
-      color: Colors.black.withValues(alpha: 0.65),
-      offset: const Offset(0, 1.5),
+      color: Color(0xA6000000),
+      offset: Offset(0, 1.5),
       blurRadius: 4,
     ),
     Shadow(
-      color: Colors.black.withValues(alpha: 0.45),
-      offset: const Offset(0, 3),
+      color: Color(0x73000000),
+      offset: Offset(0, 3),
       blurRadius: 14,
     ),
   ];

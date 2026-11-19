@@ -23,44 +23,39 @@ abstract final class OpenCcDictionaries {
   /// 标准简转繁词组消歧条目数。
   static const int stPhraseCount = 9823;
 
-  static _OpenCcCompiledBundle? _tsBundle;
-  static _OpenCcCompiledBundle? _stBundle;
+  static final _OpenCcCompiledBundle _tsBundle =
+      _OpenCcCompiledBundle.fromEncoded(
+        charsBase64: _tsCharsBase64,
+        phrasesBase64Parts: const [_tsPhrasesBase64],
+      );
+
+  static final _OpenCcCompiledBundle _stBundle =
+      _OpenCcCompiledBundle.fromEncoded(
+        charsBase64: _stCharsBase64,
+        phrasesBase64Parts: const [
+          _openCcStPhrasesPart1Base64,
+          _openCcStPhrasesPart2Base64,
+        ],
+      );
 
   /// 执行基于标准 OpenCC 词库的最长前向匹配（FMM）繁简转换。
   static String convert(String text, {required bool toSimplified}) {
     if (text.isEmpty) return text;
-    final bundle = toSimplified ? _ensureTsBundle() : _ensureStBundle();
+    final bundle = toSimplified ? _tsBundle : _stBundle;
     return bundle.convert(text);
   }
 
   /// 获取繁转简单字只读映射（供单测核验词库规模与映射方向性）。
-  static Map<int, String> get tsChars => _ensureTsBundle().charMap;
+  static Map<int, String> get tsChars => _tsBundle.charMap;
 
   /// 获取简转繁单字只读映射（供单测核验非简单反转）。
-  static Map<int, String> get stChars => _ensureStBundle().charMap;
+  static Map<int, String> get stChars => _stBundle.charMap;
 
   /// 获取繁转简词组只读映射。
-  static Map<String, String> get tsPhrases => _ensureTsBundle().phraseMap;
+  static Map<String, String> get tsPhrases => _tsBundle.phraseMap;
 
   /// 获取简转繁词组只读映射。
-  static Map<String, String> get stPhrases => _ensureStBundle().phraseMap;
-
-  static _OpenCcCompiledBundle _ensureTsBundle() {
-    return _tsBundle ??= _OpenCcCompiledBundle.fromEncoded(
-      charsBase64: _tsCharsBase64,
-      phrasesBase64Parts: const [_tsPhrasesBase64],
-    );
-  }
-
-  static _OpenCcCompiledBundle _ensureStBundle() {
-    return _stBundle ??= _OpenCcCompiledBundle.fromEncoded(
-      charsBase64: _stCharsBase64,
-      phrasesBase64Parts: const [
-        _openCcStPhrasesPart1Base64,
-        _openCcStPhrasesPart2Base64,
-      ],
-    );
-  }
+  static Map<String, String> get stPhrases => _stBundle.phraseMap;
 
   static const String _tsCharsBase64 =
   '45GuCeORrgrjka8J45GUCuORswnjkYcK45G2CeOQuQrjkpMJ45KTCuOThAnjk4QK45OoCeWIvgrjlIsJ45SLCuOWrgnjlq4K45eyCfCgtb4K45e/CeOXvwrjmIkJ45iJCuOYkwnjmJMK'

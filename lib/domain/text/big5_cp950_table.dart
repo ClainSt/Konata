@@ -18,7 +18,7 @@ abstract final class Big5Cp950Table {
   static const int _leadEnd = 0xFE;
   static const int _trailSpan = 157;
 
-  static Uint16List? _cachedTable;
+  static final Uint16List _cachedTable = _decodeTable().asUnmodifiableView();
 
   /// 按双字节码位 O(1) 查询对应 Unicode BMP 码点；未定义码位返回 `0`。
   static int lookup(int b1, int b2) {
@@ -31,23 +31,19 @@ abstract final class Big5Cp950Table {
     } else {
       return 0;
     }
-    final table = _ensureLoaded();
-    return table[(b1 - _leadStart) * _trailSpan + trailIdx];
+    return _cachedTable[(b1 - _leadStart) * _trailSpan + trailIdx];
   }
 
-  /// 暴露已加载码表以便契约单测核验全量码位覆盖率。
-  static Uint16List ensureTableForVerification() => _ensureLoaded();
+  /// 暴露只读懒加载码表以便契约单测核验全量码位覆盖率。
+  static Uint16List ensureTableForVerification() => _cachedTable;
 
-  static Uint16List _ensureLoaded() {
-    final existing = _cachedTable;
-    if (existing != null) return existing;
+  static Uint16List _decodeTable() {
     final raw = base64Decode(_packedBase64);
     final bd = ByteData.sublistView(raw);
     final table = Uint16List(raw.length >> 1);
     for (var i = 0; i < table.length; i++) {
       table[i] = bd.getUint16(i << 1, Endian.little);
     }
-    _cachedTable = table;
     return table;
   }
 

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../application/playback/audiophile_safety_coordinator.dart';
 import '../../application/playback/playback_preferences_provider.dart';
 import '../../application/playback/shader_discovery_provider.dart';
 import '../../domain/playback/ass_semantic_verifier.dart';
@@ -20,6 +21,7 @@ import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/design_system/konata_switch.dart';
 import '../widgets/design_system/konata_toast.dart';
+import '../widgets/playback/konata_audiophile_unlock_dialog.dart';
 import '../widgets/playback/konata_spec_badge.dart';
 
 /// 播放器设置面板：
@@ -62,6 +64,9 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
     required PlaybackPreferencesNotifier notifier,
   }) async {
     await notifier.setAndroidBitPerfectUsb(enabled);
+    await ref
+        .read(audiophileSafetyCoordinatorProvider)
+        .reapplyAll(ref.read(playbackPreferencesProvider));
     final res = await ref
         .read(androidAudioRouteBridgeProvider)
         .negotiateBitPerfectUsb(enable: enabled);
@@ -108,6 +113,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
     final prefs = ref.watch(playbackPreferencesProvider);
     final shaders = ref.watch(shaderDiscoveryProvider);
     ref.watch(cloudSubsetAuthRevisionProvider);
+    ref.watch(audiophileSafetyRevisionProvider);
     final notifier = ref.read(playbackPreferencesProvider.notifier);
 
     return LayoutBuilder(
@@ -471,7 +477,12 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
               subtitle: 'Windows 直通声卡绕过混音；设备不支持时自动回退共享模式',
               trailing: KonataSwitch(
                 value: q.wasapiExclusive,
-                onChanged: notifier.setWasapiExclusive,
+                onChanged: (v) async {
+                  await notifier.setWasapiExclusive(v);
+                  await ref
+                      .read(audiophileSafetyCoordinatorProvider)
+                      .reapplyAll(ref.read(playbackPreferencesProvider));
+                },
               ),
             ),
             Divider(height: 1, color: p.hairline, indent: 18, endIndent: 18),
@@ -481,7 +492,12 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
               subtitle: '透传 AC3 / DTS / TrueHD 比特流至功放；开启时与所有软件 DSP 严格互斥',
               trailing: KonataSwitch(
                 value: prefs.hdmiSpdifPassthrough,
-                onChanged: notifier.setHdmiSpdifPassthrough,
+                onChanged: (v) async {
+                  await notifier.setHdmiSpdifPassthrough(v);
+                  await ref
+                      .read(audiophileSafetyCoordinatorProvider)
+                      .reapplyAll(ref.read(playbackPreferencesProvider));
+                },
               ),
             ),
           ],
@@ -503,45 +519,76 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
           Divider(height: 1, color: p.hairline, indent: 18, endIndent: 18),
           Padding(
             padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
-            child: Container(
-              key: const ValueKey('settings_audiophile_safety_notice'),
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(
-                horizontal: KonataAdaptiveTokens.horizontalInset,
-                vertical: KonataTheme.radiusControl,
-              ),
-              decoration: BoxDecoration(
-                color: p.softFill,
-                borderRadius: BorderRadius.circular(KonataTheme.radiusControl),
-                border: Border.all(
-                  color: p.hairline,
-                  width: KonataAdaptiveTokens.borderWidth,
-                ),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.shield_outlined,
-                    size: KonataAdaptiveTokens.settingsGap,
-                    color: p.textSecondary,
+            child: Builder(
+              builder: (context) {
+                final safetyState = ref
+                    .read(audiophileSafetyCoordinatorProvider)
+                    .deviceSafetyState;
+                final hdmiOn =
+                    KonataAdaptiveTokens.isWindows &&
+                    prefs.hdmiSpdifPassthrough;
+                return Container(
+                  key: const ValueKey('settings_audiophile_safety_notice'),
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: KonataAdaptiveTokens.horizontalInset,
+                    vertical: KonataTheme.radiusControl,
                   ),
-                  const SizedBox(width: KonataAdaptiveTokens.safeGap),
-                  Expanded(
-                    child: Text(
-                      KonataAdaptiveTokens.isWindows &&
-                              prefs.hdmiSpdifPassthrough
-                          ? '当前已启用 HDMI audio-spdif 比特流透传，软件 DSP 与软限幅已严格互斥清空。'
-                          : '${AudiophileSafetyPolicy.unverifiedFullScaleLockReason}；启播与跳转自动施加 ${AudiophileSafetyPolicy.defaultMicroFadeInMs} ms S 型微淡入与无缝预缓冲。',
-                      style: KonataTheme.captionStyle(
-                        p,
-                        color: p.textSecondary,
-                        height: 1.4,
-                      ),
+                  decoration: BoxDecoration(
+                    color: p.softFill,
+                    borderRadius: BorderRadius.circular(
+                      KonataTheme.radiusControl,
+                    ),
+                    border: Border.all(
+                      color: p.hairline,
+                      width: KonataAdaptiveTokens.borderWidth,
                     ),
                   ),
-                ],
-              ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.shield_outlined,
+                            size: KonataAdaptiveTokens.settingsGap,
+                            color: p.textSecondary,
+                          ),
+                          const SizedBox(width: KonataAdaptiveTokens.safeGap),
+                          Expanded(
+                            child: Text(
+                              hdmiOn
+                                  ? '当前已启用 HDMI audio-spdif 比特流透传，软件 DSP 与软限幅已严格互斥清空。'
+                                  : safetyState.allowFullScaleBypass
+                                  ? '当前外设已于本次会话二次确认解锁满幅逐位直通；重插外设将自动复位安全衰减。'
+                                  : '${AudiophileSafetyPolicy.unverifiedFullScaleLockReason}；启播与跳转自动施加 ${AudiophileSafetyPolicy.defaultMicroFadeInMs} ms S 型微淡入与无缝预缓冲。',
+                              style: KonataTheme.captionStyle(
+                                p,
+                                color: p.textSecondary,
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (!hdmiOn && !safetyState.allowFullScaleBypass) ...[
+                        const SizedBox(height: KonataAdaptiveTokens.safeGap),
+                        KonataPillButton.ghost(
+                          key: const ValueKey(
+                            'settings_audiophile_unlock_button',
+                          ),
+                          label: '当次会话满幅确认',
+                          icon: Icons.verified_user_outlined,
+                          compact: true,
+                          onPressed: () =>
+                              showAudiophileFullScaleUnlockDialog(context, ref),
+                        ),
+                      ],
+                    ],
+                  ),
+                );
+              },
             ),
           ),
           Divider(height: 1, color: p.hairline, indent: 18, endIndent: 18),

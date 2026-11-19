@@ -27,6 +27,9 @@ import 'libmpv_ffi.dart';
 import 'mpv_quality_profile.dart';
 import 'playback_probe.dart';
 
+part 'embedded_mpv_session_sidecars.dart';
+part 'embedded_mpv_session_surface.dart';
+
 /// 单次内置视频装载描述。
 class EmbeddedVideoLoadRequest {
   /// 创建视频装载请求。
@@ -88,7 +91,7 @@ class ScreenshotCaptureResult {
 }
 
 /// 内置 `libmpv` 视频底层会话封装（管理 Windows D3D11 共享纹理 / Android Surface、
-/// 外挂音轨/字幕挂载、硬解容错软解回退、纯视频无损截图及安全串行销毁）。
+/// 统一四维代数事件隔离、共享发烧音频安全链、硬解容错软解回退及安全串行销毁）。
 class EmbeddedMpvSession {
   /// 创建内置视频会话实例。
   EmbeddedMpvSession({
@@ -115,6 +118,8 @@ class EmbeddedMpvSession {
   static const int _propSid = 209;
   static const int _propTrackListCount = 210;
   static const int _propHwdecCurrent = 211;
+  static const int _propAudioDeviceList = 212;
+  static const int _propAudioDevice = 213;
 
   final StorageRootService storageRoot;
   final LocalStreamBridge streamBridge;
@@ -136,7 +141,7 @@ class EmbeddedMpvSession {
   /// Flutter `Texture(textureId: ...)` 响应句柄。
   ValueListenable<int?> get textureIdListenable => _textureId;
 
-  /// 当前实际图形后端名称（`d3d11` / `sw` / `gpu`）。
+  /// 当前实际图形后端名称（`d3d11` / `sw` / `gpu` / `gpu-next`）。
   ValueListenable<String> get renderBackendListenable => _renderBackend;
 
   /// 当前显卡适配器或渲染说明。
@@ -160,6 +165,21 @@ class EmbeddedMpvSession {
   void Function(int reason, int errorCode)? onEndOfFile;
   void Function(String message)? onNotice;
   void Function(String message)? onFatalError;
+
+  /// 统一内核同步钩子：由上层注入以串入 `UnifiedPlaybackEngine` 与 `AudiophileSafetyCoordinator`。
+  String? Function(String leaseToken)? onBindMainStreamLease;
+  void Function(int playlistEntryId)? onPlaylistEntryStarted;
+  bool Function({int? playlistEntryId})? onValidatePhysicalEvent;
+  void Function()? onFileLoaded;
+  void Function(LibMpvClient client)? onApplyAudiophileSafetyChain;
+  void Function(
+    LibMpvClient client, {
+    required double targetVolume,
+    required bool isMuted,
+  })?
+  onTriggerMicroFadeIn;
+  void Function(List<MpvAudioDevice> devices, String? currentDevice)?
+  onAudioDeviceListChanged;
 
   LibMpvClient? _client;
   StreamSubscription<MpvClientEvent>? _eventSub;
@@ -185,6 +205,8 @@ class EmbeddedMpvSession {
   double _lastPositionSeconds = 0.0;
   double? _pendingInitialSeekSeconds;
   double _totalDurationSeconds = 0.0;
+  double _desiredVolume = 100.0;
+  bool _isMuted = false;
   int _loadGeneration = 0;
   bool _fileLoadedForCurrentGen = false;
   bool _hasRestartedFirstFrame = false;
@@ -209,7 +231,7 @@ class EmbeddedMpvSession {
   bool get isUsingSoftwareFallback => _usingSoftwareFallback;
   bool get isPositionObservationEnabled => _positionObserved;
 
-  /// 当前活跃的底层 `libmpv` 客户端实例（供上层字幕内存引擎在受控通道内执行直注与选轨）。
+  /// 当前活跃的底层 `libmpv` 客户端实例（供上层字幕内存引擎与安全音频链统一控制）。
   LibMpvClient? get activeClient =>
       (_disposed || _client == null || _client!.isDisposed) ? null : _client;
 
@@ -219,7 +241,10 @@ class EmbeddedMpvSession {
   /// 实时读取当前底层精确播放秒数（OSD 隐藏退订期间供低频持久化与唤醒同步使用）。
   double? readCurrentPositionSeconds() {
     final client = _client;
-    if (_disposed || client == null || client.isDisposed || !client.isInitialized) {
+    if (_disposed ||
+        client == null ||
+        client.isDisposed ||
+        !client.isInitialized) {
       return null;
     }
     final pos = client.getPropertyDouble('time-pos');
@@ -235,7 +260,10 @@ class EmbeddedMpvSession {
     if (_positionObserved == enabled) return;
     _positionObserved = enabled;
     final client = _client;
-    if (_disposed || client == null || client.isDisposed || !client.isInitialized) {
+    if (_disposed ||
+        client == null ||
+        client.isDisposed ||
+        !client.isInitialized) {
       return;
     }
     if (enabled) {
@@ -249,7 +277,7 @@ class EmbeddedMpvSession {
     }
   }
 
-  /// 初始化底层 `libmpv`（Windows 创建 D3D11 离屏三缓冲纹理 / Android 绑定原生像素表面）并起播首个视频。
+  /// 初始化底层 `libmpv`（Windows 创建 D3D11 共享纹理 / Android 绑定原生像素表面）并起播首个视频。
   Future<void> initializeAndLoad({
     required EmbeddedVideoLoadRequest request,
     required PlaybackQualityConfig qualityConfig,
@@ -262,6 +290,7 @@ class EmbeddedMpvSession {
     _trackMemory = trackMemory;
     _trackPreferences = trackPreferences;
     _lastQualityConfig = qualityConfig;
+    _desiredVolume = initialVolume.clamp(0.0, 100.0);
     _useAndroidSurfaceSession =
         Platform.isAndroid || androidSurfaceSupplier != null;
     final useWindowsD3D11 = Platform.isWindows && !_useAndroidSurfaceSession;
@@ -272,6 +301,9 @@ class EmbeddedMpvSession {
     _defaultSubFontsDir = p.join(mpvDir.path, 'fonts');
     _activeSubFontsDir = _defaultSubFontsDir;
     final workPhotoDir = await _resolveScreenshotDir(request.workId);
+    final verifiedShaders = await MpvQualityProfile.filterExistingShaderPaths(
+      qualityConfig.activeShaderPaths,
+    );
     if (Platform.isAndroid) {
       await AndroidVideoSurfaceController.preparePortableCjkFontSymlinks(
         mpvDir,
@@ -299,6 +331,7 @@ class EmbeddedMpvSession {
       isRemoteStream: isRemote,
       isWindowsOverride: useWindowsD3D11,
       isAndroidOverride: _useAndroidSurfaceSession,
+      verifiedShaderPaths: verifiedShaders,
       logStore: logStore,
     );
 
@@ -357,7 +390,12 @@ class EmbeddedMpvSession {
       onWasapiFallbackNotice: onNotice,
       logStore: logStore,
     );
-    client.setPropertyDouble('volume', initialVolume.clamp(0.0, 100.0));
+    onApplyAudiophileSafetyChain?.call(client);
+    // 存在微淡入斜坡钩子时先以静音起点装载，待首帧/重启动后再平滑拉起目标音量，防止启播瞬间爆音。
+    client.setPropertyDouble(
+      'volume',
+      onTriggerMicroFadeIn != null ? 0.0 : _desiredVolume,
+    );
 
     if (_positionObserved) {
       client.observeProperty(_propTimePos, 'time-pos', MpvFormat.double_);
@@ -380,6 +418,18 @@ class EmbeddedMpvSession {
       'hwdec-current',
       MpvFormat.string,
     );
+    if (useWindowsD3D11) {
+      client.observeProperty(
+        _propAudioDeviceList,
+        'audio-device-list',
+        MpvFormat.string,
+      );
+      client.observeProperty(
+        _propAudioDevice,
+        'audio-device',
+        MpvFormat.string,
+      );
+    }
 
     _eventSub = client.events.listen(_handleMpvEvent);
 
@@ -486,6 +536,7 @@ class EmbeddedMpvSession {
       config: _lastQualityConfig,
       logStore: logStore,
     );
+    onApplyAudiophileSafetyChain?.call(client);
 
     if (request.startSeconds > 0) {
       final startRc = client.setPropertyString(
@@ -504,6 +555,9 @@ class EmbeddedMpvSession {
     client.setPropertyDouble('audio-delay', 0.0);
     client.setPropertyString('vid', _videoTrackEnabled ? 'auto' : 'no');
     _applyAspectModeToClient(client, _aspectMode);
+    if (onTriggerMicroFadeIn != null) {
+      client.setPropertyDouble('volume', 0.0);
+    }
     client.setPropertyFlag('pause', false);
 
     final rc = client.command(['loadfile', resolved.mediaTarget, 'replace']);
@@ -520,295 +574,24 @@ class EmbeddedMpvSession {
           _discoverAndAttachRemoteSidecars(request, generation: generation),
         );
       } else {
-        // 优先让主视频流独占 AList / OpenList / CD2 通道完成首帧建联，待 FileLoaded 后再异步补扫目录与下载外挂字幕。
+        // 优先让主视频流独占远程通道完成首帧建联，待 FileLoaded 后再异步补扫目录与下载外挂字幕。
         _pendingRemoteSidecarJob = (request: request, generation: generation);
       }
-    }
-  }
-
-  Future<
-    ({
-      String mediaTarget,
-      List<String> subtitlePaths,
-      List<String> audioTargets,
-    })
-  >
-  _prepareMediaAndSidecars(EmbeddedVideoLoadRequest request) async {
-    final source = request.source;
-    final variant = request.variant;
-
-    if (source == null || source.kind == MediaSourceKind.local) {
-      if (source == null) {
-        return (
-          mediaTarget: variant.relativePath,
-          subtitlePaths: variant.externalSubtitles,
-          audioTargets: const <String>[],
-        );
-      }
-      final gw = LocalSourceGateway(rootPath: source.location);
-      final mediaAbs = gw.resolveAbsolutePath(variant.relativePath);
-      final candidates = <String>[];
-      try {
-        final parentRel = SubtitleAndAudioChoices.parentDirOf(
-          variant.relativePath,
-        );
-        final entries = await gw.listDirectory(parentRel);
-        for (final entry in entries) {
-          if (!entry.isDirectory) candidates.add(entry.relativePath);
-        }
-        final audioSubRel = parentRel.isEmpty ? 'Audio' : '$parentRel/Audio';
-        try {
-          final subEntries = await gw.listDirectory(audioSubRel);
-          for (final entry in subEntries) {
-            if (!entry.isDirectory) candidates.add(entry.relativePath);
-          }
-        } catch (_) {}
-      } catch (_) {}
-
-      final matchedSubs = SubtitleMatcher.matchForVideo(
-        videoRelativePath: variant.relativePath,
-        allSubtitleRelativePaths: {
-          ...candidates,
-          ...variant.externalSubtitles,
-        }.toList(),
-      );
-      final absSubs = <String>[];
-      for (final rel in {
-        ...matchedSubs.subtitlePaths,
-        ...variant.externalSubtitles,
-      }) {
-        final abs = gw.resolveAbsolutePath(rel);
-        if (await File(abs).exists()) absSubs.add(abs);
-      }
-
-      final matchedAudioRel =
-          SubtitleAndAudioChoices.findMatchingExternalAudioPaths(
-            videoRelativePath: variant.relativePath,
-            candidatePaths: candidates,
-          );
-      final absAudio = <String>[];
-      for (final rel in matchedAudioRel) {
-        final abs = gw.resolveAbsolutePath(rel);
-        if (await File(abs).exists()) absAudio.add(abs);
-      }
-
-      return (
-        mediaTarget: mediaAbs,
-        subtitlePaths: absSubs,
-        audioTargets: absAudio,
-      );
-    }
-
-    // WebDAV / SMB 远程流式透传：仅先注册主媒体流秒速调用 loadfile，目录枚举与外挂字幕/音轨延后至后台异步挂载
-    final mainGw = await gatewayFactory.create(source);
-    if (mainGw is! ByteRangeReadableGateway) {
-      await mainGw.close();
-      throw UnsupportedError('媒体源 ${source.kind.name} 不支持流式透传播放');
-    }
-    final byteGw = mainGw as ByteRangeReadableGateway;
-    final mainReg = await streamBridge.registerSession(
-      gateway: byteGw,
-      relativePath: variant.relativePath,
-      fileName: variant.fileName,
-      knownLength: variant.fileSize > 0 ? variant.fileSize : null,
-      ownsGateway: true,
-    );
-    _activeStreamTokens.add(mainReg.token);
-
-    final cachedSubs = await streamBridge.resolveExistingCachedSubtitles(
-      workId: request.workId,
-      sourceId: source.id,
-      subtitleRelativePaths: variant.externalSubtitles,
-    );
-    return (
-      mediaTarget: mainReg.url.toString(),
-      subtitlePaths: cachedSubs,
-      audioTargets: const <String>[],
-    );
-  }
-
-  Future<void> _discoverAndAttachRemoteSidecars(
-    EmbeddedVideoLoadRequest request, {
-    required int generation,
-  }) async {
-    final source = request.source;
-    final variant = request.variant;
-    if (_disposed ||
-        generation != _loadGeneration ||
-        source == null ||
-        source.kind == MediaSourceKind.local) {
-      return;
-    }
-
-    final sidecarGw = await gatewayFactory.create(source);
-    if (sidecarGw is! ByteRangeReadableGateway) {
-      await sidecarGw.close();
-      return;
-    }
-    final byteGw = sidecarGw as ByteRangeReadableGateway;
-    final stagedAudioTokens = <String>[];
-
-    try {
-      final siblingPaths = <String>[...variant.externalSubtitles];
-      try {
-        final parentRel = SubtitleAndAudioChoices.parentDirOf(
-          variant.relativePath,
-        );
-        final cachedSnapshot = subtitleDirectoryIndex?.lookup(
-          source.id,
-          parentRel,
-        );
-        if (cachedSnapshot != null && !cachedSnapshot.incompleteForSimplified) {
-          siblingPaths.addAll(cachedSnapshot.siblingPaths);
-        } else if (cachedSnapshot != null &&
-            cachedSnapshot.incompleteForSimplified &&
-            cachedSnapshot.unscannedSubdirs.isNotEmpty) {
-          // 已有快照仅在前 4 个子目录命中非简中字幕且仍有未扫目录：续扫剩余子目录，不写假阴性负缓存。
-          final mergedPaths = <String>[...cachedSnapshot.siblingPaths];
-          var extraScanned = 0;
-          for (final subDir in cachedSnapshot.unscannedSubdirs) {
-            if (_disposed || generation != _loadGeneration) return;
-            extraScanned += 1;
-            try {
-              final subEntries = await sidecarGw.listDirectory(subDir);
-              for (final sub in subEntries) {
-                if (!sub.isDirectory) mergedPaths.add(sub.relativePath);
-              }
-            } catch (_) {}
-          }
-          subtitleDirectoryIndex?.put(
-            sourceId: source.id,
-            dirRelativePath: parentRel,
-            siblingPaths: mergedPaths,
-            hasUnscannedSubdirs: false,
-            scannedSubdirCount:
-                cachedSnapshot.scannedSubdirCount + extraScanned,
-            unscannedSubdirs: const [],
-          );
-          siblingPaths.addAll(mergedPaths);
-        } else {
-          final entries = await sidecarGw.listDirectory(parentRel);
-          if (_disposed || generation != _loadGeneration) return;
-
-          final discoveredPaths = <String>[];
-          final candidateSubdirs = <String>[];
-          for (final entry in entries) {
-            if (!entry.isDirectory) {
-              discoveredPaths.add(entry.relativePath);
-            } else {
-              final lowerName = entry.name.toLowerCase();
-              if (lowerName == 'subs' ||
-                  lowerName == 'subtitles' ||
-                  lowerName == '字幕' ||
-                  lowerName == 'audio' ||
-                  lowerName == 'sp audio') {
-                candidateSubdirs.add(entry.relativePath);
-              }
-            }
-          }
-          var scannedSubdirs = 0;
-          for (final subDir in candidateSubdirs) {
-            if (scannedSubdirs >=
-                SubtitleDirectoryIndex.maxAutoSubdirScanCount) {
-              break;
-            }
-            scannedSubdirs += 1;
-            try {
-              final subEntries = await sidecarGw.listDirectory(subDir);
-              for (final sub in subEntries) {
-                if (!sub.isDirectory) discoveredPaths.add(sub.relativePath);
-              }
-            } catch (_) {}
-          }
-          final remainingSubdirs = scannedSubdirs < candidateSubdirs.length
-              ? candidateSubdirs.sublist(scannedSubdirs)
-              : const <String>[];
-          subtitleDirectoryIndex?.put(
-            sourceId: source.id,
-            dirRelativePath: parentRel,
-            siblingPaths: discoveredPaths,
-            hasUnscannedSubdirs: remainingSubdirs.isNotEmpty,
-            scannedSubdirCount: scannedSubdirs,
-            unscannedSubdirs: remainingSubdirs,
-          );
-          siblingPaths.addAll(discoveredPaths);
-        }
-      } catch (_) {}
-
-      if (_disposed || generation != _loadGeneration) return;
-
-      final matchedSubs = SubtitleMatcher.matchForVideo(
-        videoRelativePath: variant.relativePath,
-        allSubtitleRelativePaths: siblingPaths,
-      );
-      final localSubs = await streamBridge.materializeRemoteSubtitles(
-        gateway: byteGw,
-        workId: request.workId,
-        sourceId: source.id,
-        subtitleRelativePaths: {
-          ...matchedSubs.subtitlePaths,
-          ...variant.externalSubtitles,
-        }.toList(),
-      );
-      if (_disposed || generation != _loadGeneration) return;
-
-      final matchedAudioRel =
-          SubtitleAndAudioChoices.findMatchingExternalAudioPaths(
-            videoRelativePath: variant.relativePath,
-            candidatePaths: siblingPaths,
-          );
-      final audioUrls = <String>[];
-      for (final audioRel in matchedAudioRel) {
-        if (_disposed || generation != _loadGeneration) {
-          await _unregisterTokens(stagedAudioTokens);
-          return;
-        }
-        try {
-          final extGw = await gatewayFactory.create(source);
-          if (extGw is! ByteRangeReadableGateway) {
-            await extGw.close();
-            continue;
-          }
-          final reg = await streamBridge.registerSession(
-            gateway: extGw as ByteRangeReadableGateway,
-            relativePath: audioRel,
-            fileName: p.basename(audioRel),
-            ownsGateway: true,
-          );
-          stagedAudioTokens.add(reg.token);
-          audioUrls.add(reg.url.toString());
-        } catch (_) {}
-      }
-
-      if (_disposed || generation != _loadGeneration) {
-        await _unregisterTokens(stagedAudioTokens);
-        return;
-      }
-
-      _activeStreamTokens.addAll(stagedAudioTokens);
-      _pendingExternalSubtitles = localSubs;
-      _pendingExternalAudioPaths = audioUrls;
-      if (_fileLoadedForCurrentGen) {
-        _mountSidecarsAndResolveTracks();
-      }
-    } finally {
-      await sidecarGw.close().catchError((_) {});
-    }
-  }
-
-  Future<void> _unregisterTokens(List<String> tokens) async {
-    for (final token in tokens) {
-      try {
-        await streamBridge.unregisterSession(token);
-      } catch (_) {}
     }
   }
 
   void _handleMpvEvent(MpvClientEvent event) {
     if (_disposed) return;
     switch (event) {
+      case MpvStartFileEvent():
+        onPlaylistEntryStarted?.call(event.playlistEntryId);
+        onBufferingChanged?.call(true);
       case MpvFileLoadedEvent():
+        if (onValidatePhysicalEvent != null && !onValidatePhysicalEvent!()) {
+          return;
+        }
         _fileLoadedForCurrentGen = true;
+        onFileLoaded?.call();
         _enforceHwdecSafetyPolicy();
         final pendingSeek = _pendingInitialSeekSeconds;
         _pendingInitialSeekSeconds = null;
@@ -828,6 +611,14 @@ class EmbeddedMpvSession {
         if (_useAndroidSurfaceSession && _videoTrackEnabled) {
           _scheduleFirstFrameWatchdog();
         }
+        final activeClient = _client;
+        if (activeClient != null && !activeClient.isDisposed) {
+          onTriggerMicroFadeIn?.call(
+            activeClient,
+            targetVolume: _desiredVolume,
+            isMuted: _isMuted,
+          );
+        }
         final sidecarJob = _pendingRemoteSidecarJob;
         if (sidecarJob != null && sidecarJob.generation == _loadGeneration) {
           _pendingRemoteSidecarJob = null;
@@ -839,6 +630,9 @@ class EmbeddedMpvSession {
           );
         }
       case MpvPlaybackRestartEvent():
+        if (onValidatePhysicalEvent != null && !onValidatePhysicalEvent!()) {
+          return;
+        }
         _hasRestartedFirstFrame = true;
         _firstFrameWatchdogTimer?.cancel();
         _suppressBufferingUntil = null;
@@ -859,75 +653,10 @@ class EmbeddedMpvSession {
         _inspectLogForHwdecFailure(event);
       case MpvEndFileEvent():
         _handleEndFile(event);
-      case MpvStartFileEvent():
-        onBufferingChanged?.call(true);
       case MpvSeekEvent():
       case MpvShutdownEvent():
         break;
     }
-  }
-
-  void _mountSidecarsAndResolveTracks() {
-    final client = _client;
-    if (client == null || client.isDisposed) return;
-
-    final existingTracks = client.readTrackList();
-    final mountedNames = <String>{};
-    for (final t in existingTracks) {
-      final f = t.externalFilename;
-      if (f != null && f.isNotEmpty) {
-        mountedNames.add(p.basename(f.split('?').first).toLowerCase());
-      }
-    }
-
-    // 挂载额外扫描到的外挂字幕与 .mka/.flac 外挂音轨
-    final idxStems = _pendingExternalSubtitles
-        .where((s) => SubtitleAndAudioChoices.extensionOf(s) == '.idx')
-        .map((s) => s.replaceAll('\\', '/').toLowerCase())
-        .toSet();
-    for (final sub in _pendingExternalSubtitles) {
-      final base = p.basename(sub.split('?').first).toLowerCase();
-      if (mountedNames.contains(base)) continue;
-      if (SubtitleAndAudioChoices.extensionOf(sub) == '.sub') {
-        final stem = '${sub.substring(0, sub.length - 4)}.idx'
-            .replaceAll('\\', '/')
-            .toLowerCase();
-        if (idxStems.contains(stem)) continue;
-      }
-      client.command(['sub-add', sub, 'auto']);
-      mountedNames.add(base);
-    }
-
-    for (final aud in _pendingExternalAudioPaths) {
-      final base = p.basename(aud.split('?').first).toLowerCase();
-      if (mountedNames.contains(base)) continue;
-      client.command(['audio-add', aud, 'auto']);
-      mountedNames.add(base);
-    }
-
-    // 基于 CrossEpisodeTrackMemory 或默认简中/日语偏好锁定轨道
-    final refreshedTracks = client.readTrackList();
-    final chosenAudio = _trackMemory.resolveAudioTrack(
-      refreshedTracks,
-      fallback: _trackPreferences,
-    );
-    if (chosenAudio != null && !chosenAudio.selected) {
-      client.setPropertyInt64('aid', chosenAudio.id);
-    }
-
-    if (_trackMemory.subtitleDisabled) {
-      client.setPropertyString('sid', 'no');
-    } else {
-      final chosenSub = _trackMemory.resolveSubtitleTrack(
-        refreshedTracks,
-        fallback: _trackPreferences,
-      );
-      if (chosenSub != null && !chosenSub.selected) {
-        client.setPropertyInt64('sid', chosenSub.id);
-      }
-    }
-
-    _emitMediaMetadataSnapshot();
   }
 
   void _syncHwdecCurrent() {
@@ -988,39 +717,11 @@ class EmbeddedMpvSession {
     }
   }
 
-  void _emitMediaMetadataSnapshot() {
-    final client = _client;
-    if (client == null || client.isDisposed || !client.isInitialized) return;
-    final tracks = client.readTrackList();
-    final subs = SubtitleAndAudioChoices.mergeSubtitles(
-      mpvTracks: tracks,
-      discoveredExternalPaths: _pendingExternalSubtitles,
-    );
-    final audios = SubtitleAndAudioChoices.mergeAudioTracks(
-      mpvTracks: tracks,
-      discoveredExternalAudioPaths: _pendingExternalAudioPaths,
-    );
-    final chapters = client.readChapterList(
-      totalDurationSeconds: _totalDurationSeconds > 0
-          ? _totalDurationSeconds
-          : null,
-    );
-    final devices = client.readAudioDeviceList();
-    onMediaMetadataUpdated?.call(
-      subtitles: subs,
-      audioTracks: audios,
-      chapters: chapters,
-      audioDevices: devices,
-    );
-  }
-
   void _handlePropertyEvent(MpvPropertyChangeEvent e) {
     switch (e.replyUserdata) {
       case _propTimePos:
         final pos = e.doubleValue;
         if (pos != null && pos.isFinite) {
-          // 即便处于 OSD 隐藏退订态，也先留存在途到达的最新底层时间戳以防退订瞬间丢失最终落库进度；
-          // 仅在订阅激活时通知上层状态，维持隐藏稳态期 Flutter 0 重绘唤醒。
           _lastPositionSeconds = pos;
           if (_positionObserved) {
             onPositionChanged?.call(pos);
@@ -1060,6 +761,15 @@ class EmbeddedMpvSession {
         _emitMediaMetadataSnapshot();
       case _propHwdecCurrent:
         onHwdecChanged?.call(e.stringValue ?? '');
+      case _propAudioDeviceList:
+      case _propAudioDevice:
+        final client = _client;
+        if (client != null && !client.isDisposed && client.isInitialized) {
+          final devices = client.readAudioDeviceList();
+          final currentDev = client.getPropertyString('audio-device');
+          onAudioDeviceListChanged?.call(devices, currentDev);
+          _emitMediaMetadataSnapshot();
+        }
     }
   }
 
@@ -1090,6 +800,10 @@ class EmbeddedMpvSession {
   }
 
   void _handleEndFile(MpvEndFileEvent event) {
+    if (onValidatePhysicalEvent != null &&
+        !onValidatePhysicalEvent!(playlistEntryId: event.playlistEntryId)) {
+      return;
+    }
     if (event.reason == MpvEndFileReason.error &&
         _hwdecWasEnabled &&
         !_hwdecFallbackAttempted &&
@@ -1120,16 +834,6 @@ class EmbeddedMpvSession {
     onNotice?.call('硬件解码受限，已保留当前进度无缝切回软件解码');
   }
 
-  /// 同步更新运行中的 Windows D3D11 渲染目标分辨率。
-  Future<void> resizeD3D11Target(int width, int height) async {
-    final id = _d3d11SessionId;
-    final bridge = d3d11Bridge;
-    if (_disposed || id == null || bridge == null || !Platform.isWindows) {
-      return;
-    }
-    await bridge.resize(sessionId: id, width: width, height: height);
-  }
-
   /// 采集当前实时 40+ 项技术探针快照。
   PlaybackProbeStats collectProbeStats() {
     final client = _client;
@@ -1147,7 +851,7 @@ class EmbeddedMpvSession {
   /// 读取最新原生轨道并刷新侧栏列表。
   void refreshMetadata() => _emitMediaMetadataSnapshot();
 
-  /// 应用播放/画质/字幕/着色器/音频设备实时更新。
+  /// 应用播放/画质/字幕/着色器/音频设备实时更新（异步校验着色器路径，避免主线程同步盘检）。
   void applyLiveQualityConfig(PlaybackQualityConfig config) {
     _lastQualityConfig = config;
     final client = _client;
@@ -1155,17 +859,42 @@ class EmbeddedMpvSession {
     _usingSoftwareFallback =
         !config.hardwareDecode ||
         config.preset == VideoQualityPreset.softwareFallback;
+    unawaited(_applyLiveQualityAsync(client, config));
+  }
+
+  Future<void> _applyLiveQualityAsync(
+    LibMpvClient client,
+    PlaybackQualityConfig config,
+  ) async {
+    final verifiedShaders = await MpvQualityProfile.filterExistingShaderPaths(
+      config.activeShaderPaths,
+    );
+    if (_disposed || client.isDisposed) return;
     MpvQualityProfile.applyLiveQualityUpdate(
       client,
       config: config,
+      verifiedShaderPaths: verifiedShaders,
       onWasapiFallbackNotice: onNotice,
       logStore: logStore,
     );
+    onApplyAudiophileSafetyChain?.call(client);
     _emitMediaMetadataSnapshot();
   }
 
-  /// 同步播放控制与轨道操作封装。
-  void setPlaying(bool playing) => _client?.setPropertyFlag('pause', !playing);
+  /// 同步播放控制与轨道操作封装（恢复播放时施加 S 型微淡入斜坡防爆音）。
+  void setPlaying(bool playing) {
+    final client = _client;
+    if (_disposed || client == null || client.isDisposed) return;
+    final wasPaused = client.getPropertyFlag('pause') ?? false;
+    if (playing && wasPaused) {
+      onTriggerMicroFadeIn?.call(
+        client,
+        targetVolume: _desiredVolume,
+        isMuted: _isMuted,
+      );
+    }
+    client.setPropertyFlag('pause', !playing);
+  }
 
   /// 绝对时间点 Seek（命中 `demuxer-cache-state/seekable-ranges` 内存环形缓冲时返回 `true` 并抑制缓冲遮罩）。
   bool seekAbsolute(double seconds) {
@@ -1183,6 +912,13 @@ class EmbeddedMpvSession {
       _suppressBufferingUntil = null;
     }
     client.command(['seek', target.toStringAsFixed(3), 'absolute', 'exact']);
+    if (!(client.getPropertyFlag('pause') ?? false)) {
+      onTriggerMicroFadeIn?.call(
+        client,
+        targetVolume: _desiredVolume,
+        isMuted: _isMuted,
+      );
+    }
     return cachedHit;
   }
 
@@ -1205,10 +941,14 @@ class EmbeddedMpvSession {
   }
 
   void setVolume(double volume) {
-    _client?.setPropertyDouble('volume', volume.clamp(0.0, 100.0));
+    _desiredVolume = volume.clamp(0.0, 100.0);
+    _client?.setPropertyDouble('volume', _desiredVolume);
   }
 
-  void setMute(bool muted) => _client?.setPropertyFlag('mute', muted);
+  void setMute(bool muted) {
+    _isMuted = muted;
+    _client?.setPropertyFlag('mute', muted);
+  }
 
   /// 在不重建解码会话的前提下无缝切换视频轨道开关（用于视频小窗切换后台纯音频模式）。
   void setVideoTrackEnabled(bool enabled) {
@@ -1268,400 +1008,6 @@ class EmbeddedMpvSession {
     }
   }
 
-  void setSubtitleDelay(double seconds) {
-    final client = _client;
-    if (_disposed || client == null || client.isDisposed) return;
-    final rc = client.setPropertyDouble('sub-delay', seconds);
-    if (rc < 0) {
-      client.setPropertyString('sub-delay', seconds.toStringAsFixed(2));
-    }
-    if (client.getPropertyFlag('pause') ?? false) {
-      client.command(['seek', '0', 'relative', 'exact']);
-    }
-  }
-
-  void setAudioDelay(double seconds) {
-    final client = _client;
-    if (_disposed || client == null || client.isDisposed) return;
-    final rc = client.setPropertyDouble('audio-delay', seconds);
-    if (rc < 0) {
-      client.setPropertyString('audio-delay', seconds.toStringAsFixed(2));
-    }
-  }
-
-  void selectSubtitle(SubtitleChoice? choice) {
-    final client = _client;
-    if (client == null || client.isDisposed) return;
-    if (choice == null) {
-      client.setPropertyString('sid', 'no');
-    } else if (choice.mpvTrackId != null) {
-      final trackId = choice.mpvTrackId!;
-      final rc = client.setPropertyInt64('sid', trackId);
-      if (rc < 0) {
-        client.setPropertyString('sid', '$trackId');
-      }
-    } else if (choice.externalPath != null && choice.externalPath!.isNotEmpty) {
-      client.command(['sub-add', choice.externalPath!, 'select']);
-    }
-    _emitMediaMetadataSnapshot();
-  }
-
-  void addExternalSubtitleFile(String absolutePath) {
-    final client = _client;
-    if (client == null || client.isDisposed || absolutePath.trim().isEmpty) {
-      return;
-    }
-    client.command(['sub-add', absolutePath.trim(), 'select']);
-    _emitMediaMetadataSnapshot();
-  }
-
-  void selectAudioTrack(AudioTrackChoice choice) {
-    final client = _client;
-    if (client == null || client.isDisposed) return;
-    if (choice.mpvTrackId != null) {
-      final trackId = choice.mpvTrackId!;
-      final rc = client.setPropertyInt64('aid', trackId);
-      if (rc < 0) {
-        client.setPropertyString('aid', '$trackId');
-      }
-    } else if (choice.externalPath != null && choice.externalPath!.isNotEmpty) {
-      client.command(['audio-add', choice.externalPath!, 'select']);
-    }
-    _emitMediaMetadataSnapshot();
-  }
-
-  static const MethodChannel _mediaStoreChannel = MethodChannel(
-    'ccplayer/media_store',
-  );
-
-  /// 截取纯净原画 PNG 视频帧（不含 UI/HUD 浮层），保存至作品目录并防重名。
-  Future<File?> captureCleanScreenshot({
-    required Directory workPhotoDir,
-    String? episodeTag,
-    ScreenshotCaptureMode mode = ScreenshotCaptureMode.pureVideo,
-  }) async {
-    final res = await captureScreenshot(
-      workPhotoDir: workPhotoDir,
-      episodeTag: episodeTag,
-      mode: mode,
-    );
-    return res?.file;
-  }
-
-  /// 双模原画截图（支持 `video` 纯净帧与 `subtitles` 含字幕帧）：
-  /// - 统一通过 FFI 参数数组 `["screenshot-to-file", path, mode]` 调用，零字符串转义风险；
-  /// - Android 端通过 `MediaStore` `IS_PENDING` 事务原子写入系统相册并幂等删除临时文件。
-  Future<ScreenshotCaptureResult?> captureScreenshot({
-    required Directory workPhotoDir,
-    String? episodeTag,
-    ScreenshotCaptureMode mode = ScreenshotCaptureMode.pureVideo,
-    String albumName = 'Konata',
-    Future<String?> Function(File tempFile, String displayName, String album)?
-    androidMediaStorePublisher,
-  }) async {
-    final client = _client;
-    if (_disposed || client == null || client.isDisposed) return null;
-    final targetFile = await storageRoot.allocateWorkScreenshotFile(
-      workPhotoDirectory: workPhotoDir,
-      timestamp: DateTime.now(),
-      episodeTag: episodeTag,
-    );
-    final rc = client.command([
-      'screenshot-to-file',
-      targetFile.path,
-      mode.mpvFlag,
-    ]);
-    if (rc < 0) return null;
-    var ready = false;
-    for (var i = 0; i < 10; i++) {
-      if (await targetFile.exists() && await targetFile.length() > 0) {
-        ready = true;
-        break;
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 35));
-    }
-    if (!ready && !await targetFile.exists()) {
-      return null;
-    }
-
-    final useAndroidGallery =
-        Platform.isAndroid || androidMediaStorePublisher != null;
-    if (useAndroidGallery) {
-      final displayName = p.basename(targetFile.path);
-      try {
-        final uri = androidMediaStorePublisher != null
-            ? await androidMediaStorePublisher(
-                targetFile,
-                displayName,
-                albumName,
-              )
-            : await _mediaStoreChannel.invokeMethod<String>(
-                'saveImageToGallery',
-                <String, Object>{
-                  'sourcePath': targetFile.path,
-                  'displayName': displayName,
-                  'albumName': albumName,
-                  'mimeType': 'image/png',
-                },
-              );
-        if (uri != null && uri.isNotEmpty) {
-          return ScreenshotCaptureResult(
-            mode: mode,
-            displayLabel: '系统相册 / Pictures/$albumName/$displayName',
-            galleryUri: uri,
-          );
-        }
-      } catch (e) {
-        logStore?.record(
-          'screenshot-mediastore',
-          'MediaStore publish failed: $e',
-          isError: true,
-        );
-      } finally {
-        try {
-          if (await targetFile.exists()) {
-            await targetFile.delete();
-          }
-        } catch (_) {}
-      }
-      return null;
-    }
-
-    return ScreenshotCaptureResult(
-      mode: mode,
-      displayLabel: targetFile.path,
-      file: targetFile,
-    );
-  }
-
-  Future<Directory> _resolveScreenshotDir(String workId) async {
-    final photosRoot = await storageRoot.photosRootDir();
-    final safeTag = StorageRootService.encodeWorkIdTag(workId);
-    final fallback = Directory(p.join(photosRoot.path, 'work [$safeTag]'));
-    return fallback;
-  }
-
-  /// Android 画中画退出或回前台时按需重绑当前底层 `Surface`（不重建解码器与播放会话）。
-  Future<void> rebindCurrentAndroidSurface() async {
-    final surf = _androidSurface;
-    if (_disposed ||
-        !_useAndroidSurfaceSession ||
-        !_videoTrackEnabled ||
-        surf == null ||
-        surf.isDisposed) {
-      return;
-    }
-    final desc = await surf.queryCurrent();
-    if (_disposed || desc == null || desc.wid <= 0) return;
-    await _enqueueAndroidSurfaceUpdate(desc, sourceCtrl: surf);
-  }
-
-  /// Android 运行期间动态接入或热重绑硬件视频表面，避免路由或容器变更后丢帧黑屏。
-  Future<void> attachOrRebindAndroidSurface(
-    AndroidVideoSurfaceController ctrl,
-  ) async {
-    if (_disposed || !_useAndroidSurfaceSession || ctrl.isDisposed) return;
-    if (identical(_androidSurface, ctrl)) {
-      final desc = await ctrl.queryCurrent();
-      if (_disposed || desc == null) return;
-      await _enqueueAndroidSurfaceUpdate(desc, sourceCtrl: ctrl);
-      return;
-    }
-
-    await _androidSurfaceSub?.cancel();
-    _androidSurfaceSub = null;
-    final previous = _androidSurface;
-    _bindAndroidSurfaceController(ctrl);
-
-    // 先在串口队列内解绑旧表面的 EGL 与 vo，再释放其全部原生句柄
-    await _enqueueAndroidSurfaceUpdate(null, sourceCtrl: previous);
-    if (previous != null && !previous.isDisposed) {
-      await previous.releaseSurface();
-      await previous.dispose();
-    }
-    if (_disposed || ctrl.isDisposed) return;
-
-    var desc = await ctrl.queryCurrent();
-    if (desc == null || desc.wid <= 0 || desc.width <= 0 || desc.height <= 0) {
-      try {
-        desc = await ctrl.surfaceChanges
-            .where(
-              (e) => e != null && e.wid > 0 && e.width > 0 && e.height > 0,
-            )
-            .cast<AndroidSurfaceDescriptor>()
-            .first
-            .timeout(const Duration(milliseconds: 2500));
-      } on TimeoutException {
-        desc = ctrl.current;
-      }
-    }
-    if (_disposed || desc == null) return;
-    await _enqueueAndroidSurfaceUpdate(desc, sourceCtrl: ctrl);
-  }
-
-  void _bindAndroidSurfaceController(AndroidVideoSurfaceController ctrl) {
-    _androidSurface = ctrl;
-    unawaited(_androidSurfaceSub?.cancel());
-    _androidSurfaceSub = ctrl.surfaceChanges.listen((next) {
-      if (_disposed || _client == null || _client!.isDisposed) return;
-      unawaited(_enqueueAndroidSurfaceUpdate(next, sourceCtrl: ctrl));
-    });
-  }
-
-  Future<void> _enqueueAndroidSurfaceUpdate(
-    AndroidSurfaceDescriptor? desc, {
-    AndroidVideoSurfaceController? sourceCtrl,
-    bool forceRebind = false,
-  }) {
-    final op = _androidSurfaceSerial.then((_) async {
-      await _applyAndroidSurfaceUpdate(
-        desc,
-        sourceCtrl: sourceCtrl,
-        forceRebind: forceRebind,
-      );
-    });
-    _androidSurfaceSerial = op.catchError((Object _, StackTrace _) {});
-    return op;
-  }
-
-  Future<void> _applyAndroidSurfaceUpdate(
-    AndroidSurfaceDescriptor? desc, {
-    AndroidVideoSurfaceController? sourceCtrl,
-    bool forceRebind = false,
-  }) async {
-    final client = _client;
-    if (_disposed ||
-        client == null ||
-        client.isDisposed ||
-        !client.isInitialized) {
-      return;
-    }
-
-    final nextWid = desc?.wid ?? 0;
-    final width = desc?.width ?? 0;
-    final height = desc?.height ?? 0;
-    final hdrPeak = (desc?.hdrPeak ?? 0).round();
-
-    if (nextWid != 0 && (width <= 0 || height <= 0)) {
-      return;
-    }
-
-    // 同一 Surface 仅像素尺寸变化时原地更新 android-surface-size，避免重开 VO 打断硬解
-    if (!forceRebind &&
-        nextWid != 0 &&
-        nextWid == _boundAndroidWid &&
-        hdrPeak == _boundAndroidHdrPeak) {
-      if (width != _boundAndroidWidth || height != _boundAndroidHeight) {
-        client.setPropertyString('android-surface-size', '${width}x$height');
-        _boundAndroidWidth = width;
-        _boundAndroidHeight = height;
-      }
-      if (_videoTrackEnabled &&
-          client.getPropertyString('vo') != _activeAndroidVo) {
-        _applyAndroidVo(client);
-      }
-      return;
-    }
-
-    // 更换或卸载 Surface 前必须先置空 vo=null 与 wid=0 安全释放旧 EGLSurface
-    final previousWid = _boundAndroidWid;
-    client.setPropertyString('vo', 'null');
-    client.setPropertyString('wid', '0');
-    _boundAndroidWid = 0;
-    _boundAndroidWidth = 0;
-    _boundAndroidHeight = 0;
-    _boundAndroidHdrPeak = -1;
-
-    if (previousWid != 0 && previousWid != nextWid) {
-      await (sourceCtrl ?? _androidSurface)?.releaseReference(previousWid);
-      if (_disposed || client.isDisposed || !client.isInitialized) return;
-    }
-
-    if (nextWid <= 0) {
-      return;
-    }
-
-    client.setPropertyString('android-hdr-peak', '$hdrPeak');
-    client.setPropertyString('android-surface-size', '${width}x$height');
-    client.setPropertyString('wid', '$nextWid');
-    _boundAndroidWid = nextWid;
-    _boundAndroidWidth = width;
-    _boundAndroidHeight = height;
-    _boundAndroidHdrPeak = hdrPeak;
-
-    if (_videoTrackEnabled) {
-      _applyAndroidVo(client);
-      final vid = client.getPropertyString('vid');
-      if (vid == 'no') {
-        client.setPropertyString('vid', _savedVidBeforeDisable ?? 'auto');
-      }
-      if (client.getPropertyFlag('pause') ?? false) {
-        client.command(['seek', '0', 'relative', 'exact']);
-      }
-    }
-  }
-
-  /// 优先挂载 `vo=gpu-next`（libplacebo 杜比视界/动态 HDR 管线），若底层驱动受限则平滑回落至 `vo=gpu`。
-  void _applyAndroidVo(LibMpvClient client) {
-    final rc = client.setPropertyString(
-      'vo',
-      MpvQualityProfile.androidVideoDriver,
-    );
-    if (rc >= 0) {
-      _activeAndroidVo = MpvQualityProfile.androidVideoDriver;
-    } else {
-      client.setPropertyString('vo', MpvQualityProfile.androidLegacyVideoDriver);
-      _activeAndroidVo = MpvQualityProfile.androidLegacyVideoDriver;
-    }
-    _renderBackend.value = _activeAndroidVo;
-  }
-
-  void _scheduleFirstFrameWatchdog() {
-    _firstFrameWatchdogTimer?.cancel();
-    final gen = _loadGeneration;
-    _firstFrameWatchdogTimer = Timer(
-      const Duration(milliseconds: 2500),
-      () => unawaited(_verifyFirstFrameRenderedOrRecover(gen)),
-    );
-  }
-
-  Future<void> _verifyFirstFrameRenderedOrRecover(int generation) async {
-    final client = _client;
-    if (_disposed ||
-        generation != _loadGeneration ||
-        !_videoTrackEnabled ||
-        _hasRestartedFirstFrame ||
-        client == null ||
-        client.isDisposed ||
-        !client.isInitialized) {
-      return;
-    }
-    if (!_firstFrameWatchdogReboundOnce) {
-      _firstFrameWatchdogReboundOnce = true;
-      final surf = _androidSurface;
-      if (surf != null && !surf.isDisposed) {
-        final desc = await surf.queryCurrent();
-        if (desc != null &&
-            desc.wid > 0 &&
-            desc.width > 0 &&
-            desc.height > 0 &&
-            !_disposed &&
-            generation == _loadGeneration) {
-          await _enqueueAndroidSurfaceUpdate(
-            desc,
-            sourceCtrl: surf,
-            forceRebind: true,
-          );
-          _scheduleFirstFrameWatchdog();
-          return;
-        }
-      }
-    }
-    if (!_hwdecFallbackAttempted && _hwdecWasEnabled) {
-      _triggerSoftwareDecodeFallback();
-    }
-  }
-
   /// 严格按「停止事件订阅 -> 释放 D3D11/Android 渲染句柄 -> 异步 `mpv_terminate_destroy` -> 注销流网桥」串行释放。
   Future<void> dispose() async {
     if (_disposed) return;
@@ -1687,7 +1033,9 @@ class EmbeddedMpvSession {
     final androidSurf = _androidSurface;
     _androidSurface = null;
     if (androidSurf != null || _useAndroidSurfaceSession) {
-      await _androidSurfaceSerial.catchError((_) {});
+      await _androidSurfaceSerial.catchError((Object e) {
+        logStore?.record('mpv-surface', '销毁期等待表面队列异常：$e', isError: true);
+      });
       final activeClient = _client;
       if (activeClient != null &&
           !activeClient.isDisposed &&

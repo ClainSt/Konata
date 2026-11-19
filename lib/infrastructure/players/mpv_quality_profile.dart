@@ -285,16 +285,32 @@ class MpvQualityProfile {
     };
   }
 
-  /// 拼装有效的 GLSL 着色器列表（过滤磁盘上已不存在的条目，按平台分隔符连接）。
+  /// 异步过滤磁盘上真实存在的 GLSL / HOOK 着色器路径（避免在主线程执行同步磁盘检测）。
+  static Future<List<String>> filterExistingShaderPaths(
+    List<String> shaderPaths,
+  ) async {
+    final valid = <String>[];
+    for (final raw in shaderPaths) {
+      final path = raw.trim();
+      if (path.isEmpty) continue;
+      if (await File(path).exists()) {
+        valid.add(path);
+      }
+    }
+    return valid;
+  }
+
+  /// 拼装有效的 GLSL 着色器列表（已预先异步校验时跳过同步存在性检测，按平台分隔符连接）。
   static String encodeShaderPaths(
     List<String> shaderPaths, {
     required bool isWindows,
+    bool alreadyVerified = false,
   }) {
     final valid = <String>[];
     for (final raw in shaderPaths) {
       final path = raw.trim();
       if (path.isEmpty) continue;
-      if (File(path).existsSync()) {
+      if (alreadyVerified || File(path).existsSync()) {
         valid.add(path);
       }
     }
@@ -311,6 +327,7 @@ class MpvQualityProfile {
     bool isRemoteStream = false,
     bool? isWindowsOverride,
     bool? isAndroidOverride,
+    List<String>? verifiedShaderPaths,
     DiagnosticsLogStore? logStore,
   }) {
     final isWindows = isWindowsOverride ?? Platform.isWindows;
@@ -377,8 +394,9 @@ class MpvQualityProfile {
 
     // 着色器链
     final shaders = encodeShaderPaths(
-      config.activeShaderPaths,
+      verifiedShaderPaths ?? config.activeShaderPaths,
       isWindows: isWindows,
+      alreadyVerified: verifiedShaderPaths != null,
     );
     if (shaders.isNotEmpty) {
       setter.setOption(client, 'glsl-shaders', shaders);
@@ -579,6 +597,7 @@ class MpvQualityProfile {
     required PlaybackQualityConfig config,
     bool? isWindowsOverride,
     bool? isAndroidOverride,
+    List<String>? verifiedShaderPaths,
     void Function(String message)? onWasapiFallbackNotice,
     DiagnosticsLogStore? logStore,
   }) {
@@ -602,8 +621,9 @@ class MpvQualityProfile {
     );
 
     final shaders = encodeShaderPaths(
-      config.activeShaderPaths,
+      verifiedShaderPaths ?? config.activeShaderPaths,
       isWindows: isWindows,
+      alreadyVerified: verifiedShaderPaths != null,
     );
     setter.setString(client, 'glsl-shaders', shaders);
 

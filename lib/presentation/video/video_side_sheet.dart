@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
+import '../../application/playback/audiophile_safety_coordinator.dart';
 import '../../application/playback/playback_preferences_provider.dart';
 import '../../application/playback/video_playback_controller.dart';
 import '../../application/providers/library_providers.dart';
@@ -12,6 +13,7 @@ import '../../domain/matching/episode_title_formatter.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/series_group.dart';
 import '../../domain/models/work.dart';
+import '../../domain/playback/audiophile_safety_policy.dart';
 import '../../domain/playback/playback_formatters.dart';
 import '../../domain/playback/playback_probe_stats.dart';
 import '../../domain/playback/subtitle_content_processor.dart';
@@ -21,6 +23,7 @@ import '../../infrastructure/players/mpv_quality_profile.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
+import '../theme/konata_theme.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_dropdown.dart';
@@ -29,7 +32,10 @@ import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/design_system/konata_switch.dart';
+import '../widgets/playback/konata_audiophile_unlock_dialog.dart';
 import '../widgets/playback/konata_spec_badge.dart';
+
+part 'video_side_sheet_widgets.dart';
 
 /// 右滑侧栏五标签页枚举（覆盖选集、章节、字幕、音轨与画面比例/倍速）。
 enum VideoSideSheetTab {
@@ -787,12 +793,106 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
               subtitle: '绕过系统混音器以比特精确输出源码',
               trailing: KonataSwitch(
                 value: prefs.qualityConfig.wasapiExclusive,
-                onChanged: (v) => controller.updateLiveQuality(
-                  (c) => c.copyWith(wasapiExclusive: v),
-                ),
+                onChanged: (v) async {
+                  await controller.updateLiveQuality(
+                    (c) => c.copyWith(wasapiExclusive: v),
+                  );
+                  await ref
+                      .read(audiophileSafetyCoordinatorProvider)
+                      .reapplyAll(ref.read(playbackPreferencesProvider));
+                },
+              ),
+            ),
+            KonataListTile(
+              key: const ValueKey('video_sheet_hdmi_spdif_switch'),
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              title: 'HDMI 源码直通 (audio-spdif)',
+              subtitle: '透传 AC3 / DTS-HD / TrueHD 比特流，严格互斥清空软 DSP',
+              trailing: KonataSwitch(
+                value: prefs.hdmiSpdifPassthrough,
+                onChanged: (v) async {
+                  await ref
+                      .read(playbackPreferencesProvider.notifier)
+                      .setHdmiSpdifPassthrough(v);
+                  await ref
+                      .read(audiophileSafetyCoordinatorProvider)
+                      .reapplyAll(ref.read(playbackPreferencesProvider));
+                },
               ),
             ),
           ],
+          if (KonataAdaptiveTokens.isAndroid) ...[
+            const SizedBox(height: 12),
+            KonataListTile(
+              key: const ValueKey('video_sheet_android_usb_bit_perfect'),
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              title: 'USB DAC 逐位直通 (Android 14+)',
+              subtitle: '尝试协商原生逐位混音器，未连接兼容外设时保持高精共享通道',
+              trailing: KonataSwitch(
+                value: prefs.androidBitPerfectUsb,
+                onChanged: (v) async {
+                  await ref
+                      .read(playbackPreferencesProvider.notifier)
+                      .setAndroidBitPerfectUsb(v);
+                  await ref
+                      .read(audiophileSafetyCoordinatorProvider)
+                      .reapplyAll(ref.read(playbackPreferencesProvider));
+                },
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          Builder(
+            builder: (context) {
+              ref.watch(audiophileSafetyRevisionProvider);
+              final safety = ref
+                  .read(audiophileSafetyCoordinatorProvider)
+                  .deviceSafetyState;
+              final hdmiOn =
+                  KonataAdaptiveTokens.isWindows && prefs.hdmiSpdifPassthrough;
+              return Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: pPal.softFill,
+                  borderRadius: BorderRadius.circular(
+                    KonataTheme.radiusControl,
+                  ),
+                  border: Border.all(color: pPal.hairline),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      hdmiOn
+                          ? '当前已启用 HDMI audio-spdif 比特流直通，软件 DSP 与限幅器已严格清空。'
+                          : safety.allowFullScaleBypass
+                          ? '当前外设已于本次会话确认解锁满幅逐位直通，拔插外设将自动复位安全衰减。'
+                          : '${AudiophileSafetyPolicy.unverifiedFullScaleLockReason}。',
+                      style: KonataTheme.captionStyle(
+                        pPal,
+                        color: pPal.textSecondary,
+                        height: 1.4,
+                      ),
+                    ),
+                    if (!hdmiOn && !safety.allowFullScaleBypass) ...[
+                      const SizedBox(height: 8),
+                      KonataPillButton.ghost(
+                        key: const ValueKey(
+                          'video_sheet_audiophile_unlock_button',
+                        ),
+                        label: '当次会话满幅确认',
+                        icon: Icons.shield_outlined,
+                        compact: true,
+                        onPressed: () =>
+                            showAudiophileFullScaleUnlockDialog(context, ref),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            },
+          ),
         ],
       ),
     );
@@ -920,434 +1020,6 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
               ),
             ],
         ],
-      ),
-    );
-  }
-}
-
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel(this.pPal, this.text);
-
-  final KonataPalette pPal;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: TextStyle(
-        color: pPal.textPrimary,
-        fontSize: 13.5,
-        fontWeight: FontWeight.w600,
-      ),
-    );
-  }
-}
-
-class _SeriesSeasonSwitcherBar extends StatelessWidget {
-  const _SeriesSeasonSwitcherBar({
-    required this.scrollController,
-    required this.seriesGroup,
-    required this.seriesMembers,
-    required this.browsingWorkId,
-    required this.playingWorkId,
-    required this.onSelectSeason,
-  });
-
-  final ScrollController scrollController;
-  final SeriesGroup? seriesGroup;
-  final List<Work> seriesMembers;
-  final String browsingWorkId;
-  final String playingWorkId;
-  final ValueChanged<String> onSelectSeason;
-
-  @override
-  Widget build(BuildContext context) {
-    final pPal = context.palette;
-    return SizedBox(
-      height: 36,
-      child: ListView.separated(
-        controller: scrollController,
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: seriesMembers.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 6),
-        itemBuilder: (context, index) {
-          final member = seriesMembers[index];
-          final isBrowsing = member.id == browsingWorkId;
-          final isPlaying = member.id == playingWorkId;
-          final label = SeriesSeasonFormatter.formatMemberLabel(
-            member,
-            seriesMembers,
-            seriesGroup: seriesGroup,
-            fallbackOrder: index + 1,
-          );
-          final bg = isBrowsing
-              ? pPal.primaryButtonBg
-              : pPal.softFill.withValues(alpha: 0.72);
-          final fg = isBrowsing ? pPal.primaryButtonFg : pPal.textPrimary;
-          final border = isBrowsing ? pPal.primaryButtonBg : pPal.hairline;
-
-          return Tooltip(
-            message: label,
-            waitDuration: const Duration(milliseconds: 400),
-            child: Material(
-              color: bg,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(999),
-                side: BorderSide(color: border),
-              ),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(999),
-                onTap: () => onSelectSeason(member.id),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 11,
-                    vertical: 6,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (isPlaying) ...[
-                        Icon(
-                          Icons.play_arrow_rounded,
-                          size: 13.5,
-                          color: isBrowsing ? fg : pPal.progressFill,
-                        ),
-                        const SizedBox(width: 3),
-                      ],
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 168),
-                        child: Text(
-                          label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: fg,
-                            fontSize: 12,
-                            fontWeight: isBrowsing
-                                ? FontWeight.w600
-                                : FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _SelectableTrackTile extends StatefulWidget {
-  const _SelectableTrackTile({
-    required this.primaryTitle,
-    required this.selected,
-    required this.onTap,
-    this.badgeLabel,
-    this.customTrailingBadge,
-    this.tooltipMessage,
-    this.leadingIcon,
-  });
-
-  final String primaryTitle;
-  final String? badgeLabel;
-  final Widget? customTrailingBadge;
-  final String? tooltipMessage;
-  final IconData? leadingIcon;
-  final bool selected;
-  final VoidCallback? onTap;
-
-  @override
-  State<_SelectableTrackTile> createState() => _SelectableTrackTileState();
-}
-
-class _SelectableTrackTileState extends State<_SelectableTrackTile> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final pPal = context.palette;
-    final selected = widget.selected;
-    final bgColor = selected
-        ? (pPal.isDark
-              ? Colors.white.withValues(alpha: 0.13)
-              : pPal.textPrimary.withValues(alpha: 0.08))
-        : (_hovered
-              ? pPal.softFill.withValues(alpha: 0.92)
-              : pPal.softFill.withValues(alpha: 0.56));
-    final borderColor = selected
-        ? (pPal.isDark
-              ? Colors.white.withValues(alpha: 0.24)
-              : pPal.textPrimary.withValues(alpha: 0.20))
-        : (_hovered ? pPal.hoverBorder : pPal.hairline);
-
-    Widget content = MouseRegion(
-      cursor: widget.onTap != null
-          ? SystemMouseCursors.click
-          : SystemMouseCursors.basic,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
-          constraints: BoxConstraints(
-            minHeight: KonataAdaptiveTokens.isAndroid
-                ? KonataAdaptiveTokens.touchTarget
-                : 0,
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.circular(11),
-            border: Border.all(color: borderColor, width: 1),
-          ),
-          child: Row(
-            children: [
-              if (widget.leadingIcon != null) ...[
-                Icon(
-                  widget.leadingIcon,
-                  size: 16,
-                  color: selected ? pPal.textPrimary : pPal.textMuted,
-                ),
-                const SizedBox(width: 9),
-              ] else ...[
-                Icon(
-                  selected
-                      ? Icons.radio_button_checked_rounded
-                      : Icons.radio_button_unchecked_rounded,
-                  size: 15,
-                  color: selected
-                      ? pPal.textPrimary
-                      : pPal.textMuted.withValues(alpha: 0.6),
-                ),
-                const SizedBox(width: 8),
-              ],
-              Expanded(
-                child: EllipsisTextWithTooltip(
-                  text: widget.primaryTitle,
-                  style: TextStyle(
-                    color: pPal.textPrimary,
-                    fontSize: 13,
-                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                  ),
-                ),
-              ),
-              if (widget.customTrailingBadge != null) ...[
-                const SizedBox(width: 8),
-                widget.customTrailingBadge!,
-              ] else if (widget.badgeLabel != null &&
-                  widget.badgeLabel!.isNotEmpty) ...[
-                const SizedBox(width: 8),
-                KonataSpecBadge(
-                  label: widget.badgeLabel!,
-                  highlighted: selected,
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-
-    if (widget.tooltipMessage != null &&
-        widget.tooltipMessage!.trim().isNotEmpty) {
-      content = Tooltip(
-        message: widget.tooltipMessage!,
-        waitDuration: const Duration(milliseconds: 350),
-        child: content,
-      );
-    }
-    return content;
-  }
-}
-
-class _SpeedPillButton extends StatefulWidget {
-  const _SpeedPillButton({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  State<_SpeedPillButton> createState() => _SpeedPillButtonState();
-}
-
-class _SpeedPillButtonState extends State<_SpeedPillButton> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final pPal = context.palette;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            minWidth: KonataAdaptiveTokens.isAndroid
-                ? KonataAdaptiveTokens.touchTarget
-                : 0,
-            minHeight: KonataAdaptiveTokens.isAndroid
-                ? KonataAdaptiveTokens.touchTarget
-                : 0,
-          ),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 140),
-            alignment: Alignment.center,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: widget.selected
-                  ? pPal.primaryButtonBg
-                  : (_hovered ? pPal.softFill : Colors.transparent),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: widget.selected ? pPal.primaryButtonBg : pPal.hairline,
-              ),
-            ),
-            child: Text(
-              widget.label,
-              style: TextStyle(
-                color: widget.selected
-                    ? pPal.primaryButtonFg
-                    : pPal.textPrimary,
-                fontSize: 12,
-                fontWeight: widget.selected ? FontWeight.w600 : FontWeight.w400,
-                fontFeatures: KonataPlaybackTokens.tabularNumbers,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DelayStepperRow extends StatelessWidget {
-  const _DelayStepperRow({
-    required this.pPal,
-    required this.label,
-    required this.delaySeconds,
-    required this.onDelta,
-    required this.onReset,
-  });
-
-  final KonataPalette pPal;
-  final String label;
-  final double delaySeconds;
-  final ValueChanged<double> onDelta;
-  final VoidCallback onReset;
-
-  @override
-  Widget build(BuildContext context) {
-    final sign = delaySeconds > 0 ? '+' : '';
-    final btnConstraints = KonataAdaptiveTokens.isAndroid
-        ? const BoxConstraints(
-            minWidth: KonataAdaptiveTokens.touchTarget,
-            minHeight: KonataAdaptiveTokens.touchTarget,
-          )
-        : null;
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: pPal.textSecondary, fontSize: 12.5),
-          ),
-        ),
-        const SizedBox(width: 8),
-        IconButton(
-          constraints: btnConstraints,
-          visualDensity: KonataAdaptiveTokens.isAndroid
-              ? VisualDensity.standard
-              : VisualDensity.compact,
-          tooltip: '-0.1s',
-          onPressed: () => onDelta(-0.1),
-          icon: const Icon(Icons.remove_circle_outline_rounded, size: 18),
-        ),
-        KonataPillButton.ghost(
-          label: '$sign${delaySeconds.toStringAsFixed(1)}s',
-          compact: true,
-          onPressed: onReset,
-        ),
-        IconButton(
-          constraints: btnConstraints,
-          visualDensity: KonataAdaptiveTokens.isAndroid
-              ? VisualDensity.standard
-              : VisualDensity.compact,
-          tooltip: '+0.1s',
-          onPressed: () => onDelta(0.1),
-          icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
-        ),
-      ],
-    );
-  }
-}
-
-class _ChapterListLeaf extends ConsumerWidget {
-  const _ChapterListLeaf({
-    required this.request,
-    required this.chapters,
-    required this.scrollController,
-    required this.onSeekChapter,
-  });
-
-  final VideoLaunchRequest request;
-  final List<PlaybackChapter> chapters;
-  final ScrollController scrollController;
-  final ValueChanged<double> onSeekChapter;
-
-  static int _activeChapterIdx(List<PlaybackChapter> list, double pos) {
-    for (var i = list.length - 1; i >= 0; i--) {
-      if (pos >= list[i].startSeconds - 0.3) return i;
-    }
-    return 0;
-  }
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final activeIdx = ref.watch(
-      videoPlaybackProvider(request).select(
-        (s) => _activeChapterIdx(chapters, s.positionSeconds),
-      ),
-    );
-    return KonataDraggableScrollbar(
-      controller: scrollController,
-      padding: const EdgeInsets.only(right: 4),
-      builder: (_, ctrl) => ListView.separated(
-        controller: ctrl,
-        padding: const EdgeInsets.fromLTRB(16, 0, 20, 20),
-        itemCount: chapters.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 8),
-        itemBuilder: (context, index) {
-          final ch = chapters[index];
-          final title = ch.title.trim().isNotEmpty
-              ? ch.title.trim()
-              : '章节 ${index + 1}';
-          final stamp = PlaybackFormatters.formatMediaDuration(ch.startSeconds);
-          return _SelectableTrackTile(
-            primaryTitle: title,
-            badgeLabel: stamp,
-            leadingIcon: Icons.bookmark_outline_rounded,
-            selected: index == activeIdx,
-            onTap: () => onSeekChapter(ch.startSeconds),
-          );
-        },
       ),
     );
   }

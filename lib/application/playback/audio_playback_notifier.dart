@@ -207,7 +207,6 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
 
   LibMpvClient? _client;
   StreamSubscription<MpvClientEvent>? _eventSub;
-  String? _activeStreamToken;
   ({String physicalFileKey, String target, String streamToken})?
   _prefetchedNextTrack;
   String? _loadedPhysicalKey;
@@ -217,11 +216,9 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   int _completedGeneration = -1;
   int _boundNativeInstanceId = 0;
   int _boundPhysicalEpoch = 0;
-  int _currentMpvPlaylistEntryId = 0;
   int _retiredMpvPlaylistEntryId = 0;
   int _eofHandledMpvEntryId = -1;
   int _trackRetryCount = 0;
-  int _consecutiveFailedTracks = 0;
   double _trackProgressBaselineSeconds = 0.0;
 
   double? _pendingSeekRawTargetSeconds;
@@ -307,7 +304,6 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     }
     final initialVol = _ref.read(playbackPreferencesProvider).defaultVolume;
     _trackRetryCount = 0;
-    _consecutiveFailedTracks = 0;
     _engine.recordManualSelection();
     state = state.copyWith(
       isActive: true,
@@ -349,7 +345,10 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       throw StateError('纯音频引擎初始化失败: ${client.errorString(rc)}');
     }
 
-    _boundNativeInstanceId = _engine.attachNativeInstance();
+    _boundNativeInstanceId = _engine.attachNativeInstance(
+      stage: PlaybackStageKind.audio,
+      client: client,
+    );
     client.setPropertyDouble('volume', state.isMuted ? 0.0 : state.volume);
     client.setPropertyString('keep-open', 'no');
     client.setPropertyString('loop-file', 'no');
@@ -408,29 +407,34 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
 
   Future<void> _ensureAudioFocus() async {
     if (!KonataPlatform.isAndroid) return;
-    await AndroidPlaybackWindowBridge.requestAudioFocus(
-      onLoss: () {
-        if (!mounted || !state.isActive) return;
-        _volumeBeforeDuck = null;
-        if (state.isPlaying) {
-          unawaited(setPlaying(false));
-        }
-      },
-      onDuck: () {
-        if (!mounted || !state.isActive || !state.isPlaying) return;
-        _volumeBeforeDuck ??= state.volume;
-        final ducked = (_volumeBeforeDuck! * 0.25).clamp(0.0, 100.0);
-        _client?.setPropertyDouble('volume', ducked);
-      },
-      onGain: () {
-        if (!mounted || !state.isActive) return;
-        final restore = _volumeBeforeDuck;
-        _volumeBeforeDuck = null;
-        if (restore != null) {
-          _client?.setPropertyDouble('volume', state.isMuted ? 0.0 : restore);
-        }
-      },
-    );
+    await _ref
+        .read(androidAudioFocusServiceProvider)
+        .requestAudioFocus(
+          onLoss: () {
+            if (!mounted || !state.isActive) return;
+            _volumeBeforeDuck = null;
+            if (state.isPlaying) {
+              unawaited(setPlaying(false));
+            }
+          },
+          onDuck: () {
+            if (!mounted || !state.isActive || !state.isPlaying) return;
+            _volumeBeforeDuck ??= state.volume;
+            final ducked = (_volumeBeforeDuck! * 0.25).clamp(0.0, 100.0);
+            _client?.setPropertyDouble('volume', ducked);
+          },
+          onGain: () {
+            if (!mounted || !state.isActive) return;
+            final restore = _volumeBeforeDuck;
+            _volumeBeforeDuck = null;
+            if (restore != null) {
+              _client?.setPropertyDouble(
+                'volume',
+                state.isMuted ? 0.0 : restore,
+              );
+            }
+          },
+        );
   }
 
   /// 显式设置播放状态（若已完播卸载或停在曲末，点击播放自动从头重载起播）。
@@ -461,6 +465,9 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     }
     final c = _client;
     if (c == null || c.isDisposed) return;
+    if (playing) {
+      _rebindAudioSessionIfSuperseded(c);
+    }
     c.setPropertyFlag('pause', !playing);
     state = state.copyWith(
       isPlaying: playing,
@@ -482,10 +489,37 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     }
   }
 
-  /// 视频播放启动时自动暂停当前音乐（保留队列与进度）。
+  /// 当音频会话曾被视频舞台打断暂挂后重新恢复控制权时，通过统一内核原子重绑代数与流租约。
+  void _rebindAudioSessionIfSuperseded(LibMpvClient client) {
+    final alreadyAuthoritative =
+        _engine.activeStage == PlaybackStageKind.audio &&
+        identical(_engine.activeNativeClient, client) &&
+        _engine.nativeInstanceId == _boundNativeInstanceId &&
+        _engine.matchesPhysicalEvent(
+          physicalMediaEpoch: _boundPhysicalEpoch,
+          nativeInstanceId: _boundNativeInstanceId,
+        );
+    if (alreadyAuthoritative) return;
+    _boundPhysicalEpoch = _engine.resumeOrRebindStage(
+      PlaybackStageKind.audio,
+      nativeInstanceId: _boundNativeInstanceId,
+      client: client,
+      fallbackPrefetchStreamLeaseToken: _prefetchedNextTrack?.streamToken,
+    );
+    _applySafetyChainToClient(client);
+    _logStore.record(
+      'AUDIO',
+      '音频会话重获控制权并完成统一内核原子重绑：epoch=$_boundPhysicalEpoch instance=$_boundNativeInstanceId entry=${_engine.currentPlaylistEntryId} trackEpoch=${_engine.logicalTrackEpoch}',
+    );
+  }
+
+  /// 视频播放启动时自动暂停当前音乐（暂挂统一内核音频快照并保留队列与进度）。
   Future<void> pauseForVideoSession() async {
-    if (state.isActive && state.isPlaying) {
-      await setPlaying(false);
+    if (state.isActive) {
+      _engine.suspendStage(PlaybackStageKind.audio);
+      if (state.isPlaying) {
+        await setPlaying(false);
+      }
     }
   }
 
@@ -494,6 +528,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     final item = state.currentItem;
     final c = _client;
     if (item == null || c == null || c.isDisposed) return;
+    _rebindAudioSessionIfSuperseded(c);
     _isTransitioningCueBoundary = false;
 
     final clamped = state.durationSeconds > 0
@@ -553,7 +588,6 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   /// 切换上一首。
   Future<void> previous() async {
     if (state.queue.isEmpty) return;
-    _consecutiveFailedTracks = 0;
     _engine.recordManualSelection();
     if (state.positionSeconds > 4.0) {
       await seekRelativeTrackSeconds(0.0);
@@ -573,7 +607,6 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   /// 切换下一首。
   Future<void> next() async {
     if (state.queue.isEmpty) return;
-    _consecutiveFailedTracks = 0;
     _engine.recordManualSelection();
     final target = (state.currentIndex + 1) % state.queue.length;
     final gen = ++_loadGeneration;
@@ -583,7 +616,6 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   /// 跳转队列中指定索引曲目。
   Future<void> playQueueIndex(int index) async {
     if (index < 0 || index >= state.queue.length) return;
-    _consecutiveFailedTracks = 0;
     _engine.recordManualSelection();
     final gen = ++_loadGeneration;
     await _startTrackAtIndex(index, generation: gen);
@@ -640,11 +672,12 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     ++_loadGeneration;
     _activeCommandedGeneration = 0;
     _completedGeneration = -1;
-    if (_currentMpvPlaylistEntryId > _retiredMpvPlaylistEntryId) {
-      _retiredMpvPlaylistEntryId = _currentMpvPlaylistEntryId;
+    final currentEntry = _engineInstance?.currentPlaylistEntryId ?? 0;
+    if (currentEntry > _retiredMpvPlaylistEntryId) {
+      _retiredMpvPlaylistEntryId = currentEntry;
     }
     _trackRetryCount = 0;
-    _consecutiveFailedTracks = 0;
+    _engineInstance?.recordManualSelection();
     _loadedPhysicalKey = null;
     _isTransitioningCueBoundary = false;
 
@@ -674,7 +707,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     }
     _volumeBeforeDuck = null;
     await _mediaSessionBridge.stopSession();
-    await AndroidPlaybackWindowBridge.abandonAudioFocus();
+    await _ref.read(androidAudioFocusServiceProvider).abandonAudioFocus();
     await _releaseActiveStreamSession();
     _ref.read(immersiveAudioExpandedProvider.notifier).state = false;
     if (mounted) {
@@ -732,7 +765,11 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     }
     unawaited(_eventSub?.cancel());
     _eventSub = null;
-    if (_activeStreamToken != null || _prefetchedNextTrack != null) {
+    final hasTrackedLease =
+        _engineInstance?.mainStreamLease != null ||
+        _engineInstance?.prefetchStreamLease != null ||
+        _prefetchedNextTrack != null;
+    if (hasTrackedLease) {
       unawaited(_releaseActiveStreamSession());
     }
     final c = _client;

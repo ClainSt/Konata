@@ -73,8 +73,8 @@ class KonataApp extends ConsumerWidget {
       supportedLocales: const [Locale('zh', 'CN')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
       themeMode: themeMode,
-      theme: KonataTheme.lightTheme(),
-      darkTheme: KonataTheme.darkTheme(),
+      theme: ref.watch(konataLightThemeProvider),
+      darkTheme: ref.watch(konataDarkThemeProvider),
       builder: (context, child) => AndroidScrollCaptureScope(
         navigatorKey: navKey,
         child: MiniAudioOverlayHost(child: child ?? const SizedBox.shrink()),

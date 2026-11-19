@@ -10,7 +10,7 @@ import '../theme/konata_playback_tokens.dart';
 import '../widgets/design_system/konata_glass_capsule.dart';
 import '../widgets/playback/konata_playback_capsule.dart';
 
-enum _TouchDragKind { none, brightness, volume, seek }
+enum _TouchDragKind { none, brightness, volume, seek, collapse }
 
 /// 视频舞台统一触控手势与屏幕锁定防误触层。
 ///
@@ -42,6 +42,7 @@ class VideoTouchGestureLayer extends StatefulWidget {
     required this.onVolumeChanged,
     required this.onStartSpeedBoost,
     required this.onEndSpeedBoost,
+    this.onCollapseDragEnd,
   });
 
   /// 当前是否处于锁屏防误触状态。
@@ -95,6 +96,9 @@ class VideoTouchGestureLayer extends StatefulWidget {
   /// 长按结束恢复原速回调。
   final VoidCallback onEndSpeedBoost;
 
+  /// 中央非冲突区纵向跟手下拉收起回调，透传真实释放初速度（px/s）。
+  final ValueChanged<double>? onCollapseDragEnd;
+
   @override
   State<VideoTouchGestureLayer> createState() => _VideoTouchGestureLayerState();
 }
@@ -106,6 +110,7 @@ class _VideoTouchGestureLayerState extends State<VideoTouchGestureLayer> {
   double _startVolume = 100.0;
   double _startSeekSeconds = 0.0;
   double? _previewSeekSeconds;
+  double _collapseDragDownPx = 0.0;
 
   PointerDeviceKind _lastTapKind = PointerDeviceKind.touch;
   Offset _lastDoubleTapLocal = Offset.zero;
@@ -175,10 +180,28 @@ class _VideoTouchGestureLayerState extends State<VideoTouchGestureLayer> {
     }
   }
 
-  void _onVerticalDragStart(DragStartDetails details, Size stageSize) {
+  void _onVerticalDragStart(
+    DragStartDetails details,
+    Size stageSize, {
+    required bool allowBrightnessVolume,
+  }) {
     if (widget.screenLocked || widget.gesturesBlocked) return;
     _dragOrigin = details.localPosition;
-    final isLeftSide = details.localPosition.dx < stageSize.width * 0.5;
+    _collapseDragDownPx = 0.0;
+    final ratioX = stageSize.width > 0
+        ? (details.localPosition.dx / stageSize.width).clamp(0.0, 1.0)
+        : 0.5;
+    if (widget.onCollapseDragEnd != null &&
+        ratioX >= 1.0 / 3.0 &&
+        ratioX <= 2.0 / 3.0) {
+      _dragKind = _TouchDragKind.collapse;
+      return;
+    }
+    if (!allowBrightnessVolume) {
+      _dragKind = _TouchDragKind.none;
+      return;
+    }
+    final isLeftSide = ratioX < 0.5;
     _dragKind = isLeftSide ? _TouchDragKind.brightness : _TouchDragKind.volume;
     _startBrightness = widget.brightnessReader();
     _startVolume = widget.volumeReader();
@@ -186,6 +209,18 @@ class _VideoTouchGestureLayerState extends State<VideoTouchGestureLayer> {
 
   void _onVerticalDragUpdate(DragUpdateDetails details, Size stageSize) {
     if (widget.screenLocked || widget.gesturesBlocked) return;
+    if (_dragKind == _TouchDragKind.collapse) {
+      final dy = details.localPosition.dy - _dragOrigin.dy;
+      _collapseDragDownPx = dy > 0 ? dy : 0.0;
+      if (_collapseDragDownPx >= 24.0) {
+        _showCenterPill(
+          icon: Icons.keyboard_arrow_down_rounded,
+          label: _collapseDragDownPx >= 72.0 ? '松手收起小窗' : '下拉收起小窗',
+          autoDismiss: false,
+        );
+      }
+      return;
+    }
     final span = (stageSize.height * 0.72).clamp(120.0, 640.0);
     final deltaRatio = (_dragOrigin.dy - details.localPosition.dy) / span;
 
@@ -220,10 +255,19 @@ class _VideoTouchGestureLayerState extends State<VideoTouchGestureLayer> {
     }
   }
 
-  void _onVerticalDragEnd() {
-    if (_dragKind != _TouchDragKind.none) {
+  void _onVerticalDragEnd(DragEndDetails? details) {
+    final kind = _dragKind;
+    final dragDown = _collapseDragDownPx;
+    _collapseDragDownPx = 0.0;
+    if (kind != _TouchDragKind.none) {
       _dragKind = _TouchDragKind.none;
       _dismissPillSoon();
+    }
+    if (kind == _TouchDragKind.collapse && widget.onCollapseDragEnd != null) {
+      final primaryVelocity = details?.primaryVelocity ?? 0.0;
+      if (dragDown >= 72.0 || primaryVelocity >= 420.0) {
+        widget.onCollapseDragEnd!(primaryVelocity);
+      }
     }
   }
 
@@ -338,23 +382,29 @@ class _VideoTouchGestureLayerState extends State<VideoTouchGestureLayer> {
                         }
                       },
                 onVerticalDragStart:
-                    (!enableTouchDrag ||
+                    ((!enableTouchDrag && widget.onCollapseDragEnd == null) ||
                         widget.screenLocked ||
                         widget.gesturesBlocked)
                     ? null
-                    : (d) => _onVerticalDragStart(d, stageSize),
+                    : (d) => _onVerticalDragStart(
+                        d,
+                        stageSize,
+                        allowBrightnessVolume: enableTouchDrag,
+                      ),
                 onVerticalDragUpdate:
-                    (!enableTouchDrag ||
+                    ((!enableTouchDrag && widget.onCollapseDragEnd == null) ||
                         widget.screenLocked ||
                         widget.gesturesBlocked)
                     ? null
                     : (d) => _onVerticalDragUpdate(d, stageSize),
-                onVerticalDragEnd: (!enableTouchDrag)
-                    ? null
-                    : (_) => _onVerticalDragEnd(),
-                onVerticalDragCancel: (!enableTouchDrag)
+                onVerticalDragEnd:
+                    (!enableTouchDrag && widget.onCollapseDragEnd == null)
                     ? null
                     : _onVerticalDragEnd,
+                onVerticalDragCancel:
+                    (!enableTouchDrag && widget.onCollapseDragEnd == null)
+                    ? null
+                    : () => _onVerticalDragEnd(null),
                 onHorizontalDragStart:
                     (!enableTouchDrag ||
                         widget.screenLocked ||

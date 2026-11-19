@@ -547,6 +547,7 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
     // 换集时严格推进统一内核物理媒体代数；仅用户主动点选时清零连续坏文件熔断计数。
     _boundPhysicalEpoch = _engine.beginPhysicalMedia(
       nativeInstanceId: _boundNativeInstanceId,
+      stage: PlaybackStageKind.video,
     );
     if (!isAutoAdvance) {
       _engine.recordManualSelection();

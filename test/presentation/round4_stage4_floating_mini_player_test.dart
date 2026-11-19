@@ -30,7 +30,6 @@ import 'package:ccplayer/presentation/theme/konata_theme.dart';
 import 'package:ccplayer/presentation/video/embedded_video_page.dart';
 import 'package:ccplayer/presentation/video/video_hardware_surface.dart';
 import 'package:ccplayer/presentation/widgets/design_system/konata_glass_dialog.dart';
-import 'package:ccplayer/presentation/widgets/design_system/konata_toast.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
@@ -306,13 +305,9 @@ void main() {
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
-    KonataToastController.dismiss();
-    konataFloatingMiniWindowRectNotifier.value = null;
   });
 
   tearDown(() {
-    KonataToastController.dismiss();
-    konataFloatingMiniWindowRectNotifier.value = null;
     debugDefaultTargetPlatformOverride = null;
   });
 

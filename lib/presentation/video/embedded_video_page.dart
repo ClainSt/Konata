@@ -20,11 +20,13 @@ import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/design_system/konata_glass_capsule.dart';
+import '../widgets/design_system/konata_glass_menu.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_toast.dart';
 import '../widgets/playback/konata_osd_stroked_text.dart';
 import '../widgets/playback/konata_playback_capsule.dart';
 import '../widgets/playback/konata_spec_badge.dart';
+import '../widgets/playback/konata_stage_morph_frame.dart';
 import '../widgets/playback/konata_volume_control.dart';
 import 'video_cutout_symmetry.dart';
 import 'video_hardware_surface.dart';
@@ -390,8 +392,10 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage>
     _triggerVolumeCapsuleFeedback();
   }
 
-  void _collapseOrExit() {
+  void _collapseOrExit({double releaseVelocityPxPerSec = 0.0}) {
     if (widget.onCollapseToMini != null) {
+      ref.read(stageMorphReleaseVelocityProvider.notifier).state =
+          releaseVelocityPxPerSec;
       widget.onCollapseToMini!();
       return;
     }
@@ -811,6 +815,9 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage>
               onVolumeChanged: controller.setVolume,
               onStartSpeedBoost: controller.startSpeedBoost,
               onEndSpeedBoost: controller.endSpeedBoost,
+              onCollapseDragEnd: widget.onCollapseToMini != null
+                  ? (vel) => _collapseOrExit(releaseVelocityPxPerSec: vel)
+                  : null,
             ),
           ),
 

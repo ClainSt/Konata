@@ -21,7 +21,10 @@ import 'platform_composition.dart';
 /// Windows 桌面窗口宿主实现（收口 `flutter_acrylic` 与 `window_manager` 全部调用）。
 class WindowsKonataWindowHost implements KonataWindowHost {
   /// 创建 Windows 窗口宿主。
-  const WindowsKonataWindowHost();
+  WindowsKonataWindowHost({WindowMaterialController? materialController})
+    : _materialController = materialController ?? WindowMaterialController();
+
+  final WindowMaterialController _materialController;
 
   @override
   Future<void> applyMaterial({
@@ -30,7 +33,7 @@ class WindowsKonataWindowHost implements KonataWindowHost {
     required KonataWindowMaterial material,
     bool force = false,
   }) {
-    return WindowMaterialController.apply(
+    return _materialController.apply(
       themeMode: themeMode,
       platformBrightness: platformBrightness,
       material: material,
@@ -108,11 +111,18 @@ class WindowsCompositionRoot {
   const WindowsCompositionRoot._();
 
   /// 返回 Windows 桌面端所需的全部 Riverpod 能力覆写集合。
-  static List<Override> providerOverrides({StorageRootService? storageRoot}) {
+  static List<Override> providerOverrides({
+    StorageRootService? storageRoot,
+    WindowMaterialController? materialController,
+  }) {
     return <Override>[
       if (storageRoot != null) storageRootProvider.overrideWithValue(storageRoot),
-      konataWindowHostProvider.overrideWithValue(
-        const WindowsKonataWindowHost(),
+      if (materialController != null)
+        windowMaterialControllerProvider.overrideWithValue(materialController),
+      konataWindowHostProvider.overrideWith(
+        (ref) => WindowsKonataWindowHost(
+          materialController: ref.watch(windowMaterialControllerProvider),
+        ),
       ),
       konataVideoBridgeFactoryProvider.overrideWithValue(
         () => D3D11VideoBridge(),
@@ -160,6 +170,7 @@ class WindowsCompositionRoot {
     WidgetsFlutterBinding.ensureInitialized();
     final appWindowTitle = KonataLaneConfig.resolveDesktopWindowTitle();
 
+    final materialController = WindowMaterialController();
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
       await Window.initialize();
       await Window.hideWindowControls();
@@ -175,7 +186,7 @@ class WindowsCompositionRoot {
         backgroundColor: Colors.transparent,
       );
       await windowManager.waitUntilReadyToShow(options, () async {
-        await WindowMaterialController.apply(
+        await materialController.apply(
           themeMode: ThemeMode.dark,
           platformBrightness:
               WidgetsBinding.instance.platformDispatcher.platformBrightness,
@@ -190,7 +201,7 @@ class WindowsCompositionRoot {
 
     runApp(
       ProviderScope(
-        overrides: providerOverrides(),
+        overrides: providerOverrides(materialController: materialController),
         child: const KonataApp(),
       ),
     );

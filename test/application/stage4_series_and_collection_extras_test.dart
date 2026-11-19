@@ -256,7 +256,9 @@ void main() {
               if (decoded is Map) {
                 kw = (decoded['keyword'] ?? '').toString().toLowerCase();
               }
-            } catch (_) {}
+            } on FormatException {
+              kw = '';
+            }
             if (kw.contains('code') || kw.contains('white')) {
               return _jsonResp({
                 'data': [

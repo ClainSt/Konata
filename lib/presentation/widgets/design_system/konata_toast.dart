@@ -3,14 +3,11 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../theme/konata_adaptive_tokens.dart';
 import '../../theme/konata_palette.dart';
 import '../../theme/konata_theme.dart';
-
-/// 悬浮小窗实时屏幕占用矩形通知器（供底部 Toast、详情页与列表统一协同避让）。
-final ValueNotifier<Rect?> konataFloatingMiniWindowRectNotifier =
-    ValueNotifier<Rect?>(null);
 
 /// 单条悬浮轻提示载荷模型。
 @immutable
@@ -36,18 +33,29 @@ class KonataToastData {
   final Duration duration;
 }
 
-/// 全局悬浮轻提示控制器（驱动根视口常驻 [KonataToastViewport]，不随滚动或切页跳位）。
-abstract final class KonataToastController {
-  static final ValueNotifier<KonataToastData?> activeToast =
+/// 由 Riverpod 托管的悬浮轻提示与悬浮小窗矩形协同控制器（零全局可变静态状态）。
+class KonataToastController {
+  /// 当前活跃悬浮轻提示通知器。
+  final ValueNotifier<KonataToastData?> activeToast =
       ValueNotifier<KonataToastData?>(null);
-  static int _nextToastId = 0;
-  static int _mountedViewportCount = 0;
+
+  /// 悬浮小窗实时屏幕占用矩形通知器（供底部 Toast、详情页与列表统一协同避让）。
+  final ValueNotifier<Rect?> floatingMiniWindowRect = ValueNotifier<Rect?>(
+    null,
+  );
+
+  int _nextToastId = 0;
+  int _mountedViewportCount = 0;
+  OverlayEntry? _fallbackToastEntry;
 
   /// 当前是否已挂载根级 [KonataToastViewport]。
-  static bool get hasMountedViewport => _mountedViewportCount > 0;
+  bool get hasMountedViewport => _mountedViewportCount > 0;
+
+  /// 分配下一个递增提示序号。
+  int nextToastId() => ++_nextToastId;
 
   /// 向根级视口投递一条自动消失悬浮提示。
-  static void show(
+  void show(
     String message, {
     bool isError = false,
     Duration duration = KonataAdaptiveTokens.toastAutoDismissDuration,
@@ -56,7 +64,7 @@ abstract final class KonataToastController {
     if (trimmed.isEmpty) return;
     _removeFallbackOverlay();
     activeToast.value = KonataToastData(
-      id: ++_nextToastId,
+      id: nextToastId(),
       message: trimmed,
       isError: isError,
       duration: duration,
@@ -64,7 +72,7 @@ abstract final class KonataToastController {
   }
 
   /// 立即清除当前悬浮提示。
-  static void dismiss() {
+  void dismiss() {
     _removeFallbackOverlay();
     if (activeToast.value != null) {
       activeToast.value = null;
@@ -72,30 +80,60 @@ abstract final class KonataToastController {
   }
 
   /// 登记根级宿主（允许按需懒挂载 [KonataToastViewport] 以消除静息态图层开销）。
-  static void registerHost() {
+  void registerHost() {
     _mountedViewportCount += 1;
     _removeFallbackOverlay();
   }
 
   /// 注销根级宿主。
-  static void unregisterHost() {
+  void unregisterHost() {
     if (_mountedViewportCount > 0) {
       _mountedViewportCount -= 1;
     }
   }
 
-  static void _registerViewport() => registerHost();
+  void _attachFallbackOverlay(OverlayEntry entry) {
+    _removeFallbackOverlay();
+    _fallbackToastEntry = entry;
+  }
 
-  static void _unregisterViewport() => unregisterHost();
+  void _clearFallbackIfIdentical(OverlayEntry entry) {
+    if (identical(_fallbackToastEntry, entry)) {
+      _fallbackToastEntry = null;
+    }
+  }
+
+  void _removeFallbackOverlay() {
+    if (_fallbackToastEntry?.mounted == true) {
+      _fallbackToastEntry!.remove();
+    }
+    _fallbackToastEntry = null;
+  }
+
+  /// 容器销毁时释放全部通知器与兜底浮层。
+  void dispose() {
+    _removeFallbackOverlay();
+    activeToast.dispose();
+    floatingMiniWindowRect.dispose();
+  }
 }
 
-OverlayEntry? _fallbackToastEntry;
+/// 全站唯一悬浮提示控制器 Provider（按 `ProviderScope` 容器生命周期独立隔离）。
+final konataToastControllerProvider = Provider<KonataToastController>((ref) {
+  final controller = KonataToastController();
+  ref.onDispose(controller.dispose);
+  return controller;
+});
 
-void _removeFallbackOverlay() {
-  if (_fallbackToastEntry?.mounted == true) {
-    _fallbackToastEntry!.remove();
+KonataToastController? _maybeResolveToastController(BuildContext context) {
+  try {
+    return ProviderScope.containerOf(
+      context,
+      listen: false,
+    ).read(konataToastControllerProvider);
+  } on StateError {
+    return null;
   }
-  _fallbackToastEntry = null;
 }
 
 /// 弹出全站唯一底部悬浮毛玻璃胶囊提示（固定于底部安全区上方，4 秒自动淡出，支持 `×` 立即关闭，禁止使用 SnackBar）。
@@ -108,21 +146,17 @@ void showKonataToast(
   final trimmed = message.trim();
   if (trimmed.isEmpty) return;
 
-  if (KonataToastController.hasMountedViewport) {
-    KonataToastController.show(
-      trimmed,
-      isError: isError,
-      duration: duration,
-    );
+  final controller = _maybeResolveToastController(context);
+  if (controller != null && controller.hasMountedViewport) {
+    controller.show(trimmed, isError: isError, duration: duration);
     return;
   }
 
   final overlay = Overlay.maybeOf(context, rootOverlay: true);
   if (overlay == null) return;
 
-  _removeFallbackOverlay();
   final data = KonataToastData(
-    id: ++KonataToastController._nextToastId,
+    id: controller?.nextToastId() ?? DateTime.now().microsecondsSinceEpoch,
     message: trimmed,
     isError: isError,
     duration: duration,
@@ -132,17 +166,16 @@ void showKonataToast(
   entry = OverlayEntry(
     builder: (ctx) => KonataToastViewport.standaloneOverlay(
       data: data,
+      controller: controller,
       onDismissed: () {
         if (entry.mounted) {
           entry.remove();
         }
-        if (identical(_fallbackToastEntry, entry)) {
-          _fallbackToastEntry = null;
-        }
+        controller?._clearFallbackIfIdentical(entry);
       },
     ),
   );
-  _fallbackToastEntry = entry;
+  controller?._attachFallbackOverlay(entry);
   overlay.insert(entry);
 }
 
@@ -197,6 +230,7 @@ class KonataToastViewport extends StatefulWidget {
   const KonataToastViewport({
     super.key,
     this.baseBottomClearance = 0.0,
+    this.controller,
   }) : _standaloneData = null,
        _onStandaloneDismissed = null;
 
@@ -205,12 +239,16 @@ class KonataToastViewport extends StatefulWidget {
     super.key,
     required KonataToastData data,
     required VoidCallback onDismissed,
+    this.controller,
   }) : baseBottomClearance = 0.0,
        _standaloneData = data,
        _onStandaloneDismissed = onDismissed;
 
   /// 外部壳层提供的底部导航/常驻避让基准高度。
   final double baseBottomClearance;
+
+  /// 可选显式注入的轻提示控制器（缺省时自动从当前 `ProviderScope` 读取）。
+  final KonataToastController? controller;
   final KonataToastData? _standaloneData;
   final VoidCallback? _onStandaloneDismissed;
 
@@ -226,6 +264,7 @@ class _KonataToastViewportState extends State<KonataToastViewport>
   Timer? _dismissTimer;
   KonataToastData? _currentData;
   bool _closing = false;
+  KonataToastController? _boundToastController;
 
   bool get _isStandalone => widget._standaloneData != null;
 
@@ -245,12 +284,33 @@ class _KonataToastViewportState extends State<KonataToastViewport>
 
     if (_isStandalone) {
       _presentData(widget._standaloneData!);
-    } else {
-      KonataToastController._registerViewport();
-      KonataToastController.activeToast.addListener(_onControllerToastChanged);
-      final existing = KonataToastController.activeToast.value;
-      if (existing != null) {
-        _presentData(existing);
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_isStandalone) {
+      _boundToastController ??=
+          widget.controller ?? _maybeResolveToastController(context);
+      return;
+    }
+    final resolved = widget.controller ?? _maybeResolveToastController(context);
+    if (!identical(_boundToastController, resolved)) {
+      if (_boundToastController != null) {
+        _boundToastController!.activeToast.removeListener(
+          _onControllerToastChanged,
+        );
+        _boundToastController!.unregisterHost();
+      }
+      _boundToastController = resolved;
+      if (resolved != null) {
+        resolved.registerHost();
+        resolved.activeToast.addListener(_onControllerToastChanged);
+        final existing = resolved.activeToast.value;
+        if (existing != null) {
+          _presentData(existing);
+        }
       }
     }
   }
@@ -258,18 +318,19 @@ class _KonataToastViewportState extends State<KonataToastViewport>
   @override
   void dispose() {
     _dismissTimer?.cancel();
-    if (!_isStandalone) {
-      KonataToastController.activeToast.removeListener(
+    if (!_isStandalone && _boundToastController != null) {
+      _boundToastController!.activeToast.removeListener(
         _onControllerToastChanged,
       );
-      KonataToastController._unregisterViewport();
+      _boundToastController!.unregisterHost();
     }
+    _boundToastController = null;
     _controller.dispose();
     super.dispose();
   }
 
   void _onControllerToastChanged() {
-    final next = KonataToastController.activeToast.value;
+    final next = _boundToastController?.activeToast.value;
     if (next == null) {
       if (_currentData != null && !_closing) {
         unawaited(_beginClose(clearController: false));
@@ -306,14 +367,14 @@ class _KonataToastViewportState extends State<KonataToastViewport>
       widget._onStandaloneDismissed?.call();
       return;
     }
+    final bound = _boundToastController;
     if (closingId != null &&
-        KonataToastController.activeToast.value?.id != null &&
-        KonataToastController.activeToast.value!.id != closingId) {
+        bound?.activeToast.value?.id != null &&
+        bound!.activeToast.value!.id != closingId) {
       return;
     }
-    if (clearController &&
-        KonataToastController.activeToast.value?.id == closingId) {
-      KonataToastController.activeToast.value = null;
+    if (clearController && bound?.activeToast.value?.id == closingId) {
+      bound?.activeToast.value = null;
     }
     setState(() {
       _currentData = null;
@@ -336,42 +397,49 @@ class _KonataToastViewportState extends State<KonataToastViewport>
       bottom: math.max(padding.bottom, viewPadding.bottom),
     );
     final isAndroid = KonataAdaptiveTokens.isAndroid;
+    final miniRectListenable = _boundToastController?.floatingMiniWindowRect;
 
-    return ValueListenableBuilder<Rect?>(
-      valueListenable: konataFloatingMiniWindowRectNotifier,
-      builder: (context, miniRect, _) {
-        final bottomOffset = resolveKonataToastBottomOffset(
-          viewportSize: size,
-          safePadding: safePadding,
-          isAndroid: isAndroid,
-          baseBottomClearance: widget.baseBottomClearance,
-          floatingMiniWindowRect: miniRect,
-        );
+    Widget buildPositioned(Rect? miniRect) {
+      final bottomOffset = resolveKonataToastBottomOffset(
+        viewportSize: size,
+        safePadding: safePadding,
+        isAndroid: isAndroid,
+        baseBottomClearance: widget.baseBottomClearance,
+        floatingMiniWindowRect: miniRect,
+      );
 
-        return Positioned(
-          left: safePadding.left + KonataAdaptiveTokens.toastHorizontalMargin,
-          right: safePadding.right + KonataAdaptiveTokens.toastHorizontalMargin,
-          bottom: bottomOffset,
-          child: Align(
-            alignment: Alignment.bottomCenter,
-            heightFactor: 1.0,
-            child: FadeTransition(
-              opacity: _opacity,
-              child: SlideTransition(
-                position: _slide,
-                child: _KonataGlassToastCapsule(
-                  key: const ValueKey('konata_toast_capsule'),
-                  data: data,
-                  isAndroid: isAndroid,
-                  onCloseTap: () => unawaited(
-                    _beginClose(clearController: true),
-                  ),
+      return Positioned(
+        left: safePadding.left + KonataAdaptiveTokens.toastHorizontalMargin,
+        right: safePadding.right + KonataAdaptiveTokens.toastHorizontalMargin,
+        bottom: bottomOffset,
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          heightFactor: 1.0,
+          child: FadeTransition(
+            opacity: _opacity,
+            child: SlideTransition(
+              position: _slide,
+              child: _KonataGlassToastCapsule(
+                key: const ValueKey('konata_toast_capsule'),
+                data: data,
+                isAndroid: isAndroid,
+                onCloseTap: () => unawaited(
+                  _beginClose(clearController: true),
                 ),
               ),
             ),
           ),
-        );
-      },
+        ),
+      );
+    }
+
+    if (miniRectListenable == null) {
+      return buildPositioned(null);
+    }
+
+    return ValueListenableBuilder<Rect?>(
+      valueListenable: miniRectListenable,
+      builder: (context, miniRect, _) => buildPositioned(miniRect),
     );
   }
 }

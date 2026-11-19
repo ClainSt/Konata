@@ -176,20 +176,19 @@ void main() {
     setUp(() async {
       TestWidgetsFlutterBinding.ensureInitialized();
       SharedPreferences.setMockInitialValues({});
-      KonataToastController.dismiss();
-      konataFloatingMiniWindowRectNotifier.value = null;
       tempRoot = await Directory.systemTemp.createTemp('konata_r4_stage2_');
     });
 
     tearDown(() async {
-      KonataToastController.dismiss();
-      konataFloatingMiniWindowRectNotifier.value = null;
       await Future<void>.delayed(const Duration(milliseconds: 25));
       try {
         if (await tempRoot.exists()) {
           await tempRoot.delete(recursive: true);
         }
-      } catch (_) {}
+      } on FileSystemException catch (e) {
+        // Windows 下媒体句柄异步释放时偶发短暂文件占用，记录后继续后续用例清理。
+        debugPrint('清理临时测试目录延迟释放：${e.message}');
+      }
     });
 
     test('19a. MpvError.describeAudioError(-16) 文案准确，且每次装填前复位 aid=auto / vid=no / sid=no', () async {
@@ -514,15 +513,8 @@ void main() {
   });
 
   group('阶段 2 · 公共底部悬浮 Toast 防跳位、避让悬浮小窗与 4 秒自动消失测试', () {
-    setUp(() {
-      KonataToastController.dismiss();
-      konataFloatingMiniWindowRectNotifier.value = null;
-    });
-
     tearDown(() {
       debugDefaultTargetPlatformOverride = null;
-      KonataToastController.dismiss();
-      konataFloatingMiniWindowRectNotifier.value = null;
     });
 
     testWidgets('20. Toast 固定在底部安全区上方，滚动与路由切页零跳位，避开悬浮小窗，4s 自动淡出且支持 × 立即关闭', (
@@ -619,7 +611,10 @@ void main() {
 
         // 3. 悬浮小窗落入底部重叠区时，Toast 自动抬升避开小窗
         const simulatedMiniRect = Rect.fromLTWH(210, 680, 164, 92);
-        konataFloatingMiniWindowRectNotifier.value = simulatedMiniRect;
+        ProviderScope.containerOf(pageContext, listen: false)
+            .read(konataToastControllerProvider)
+            .floatingMiniWindowRect
+            .value = simulatedMiniRect;
         await tester.pump();
         final avoidedRect = tester.getRect(capsuleFinder);
         expect(

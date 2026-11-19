@@ -1,6 +1,56 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../infrastructure/players/libmpv_ffi.dart';
+
+/// 统一播放内核当前托管的活跃舞台类型。
+enum PlaybackStageKind {
+  /// 空闲无活跃物理会话。
+  none,
+
+  /// 音频 / CD 音乐舞台。
+  audio,
+
+  /// 内置视频舞台。
+  video,
+}
+
+/// 暂挂舞台的物理会话快照（用于视频打断暂停音频后，音频恢复播放时原子重绑代数与流租约）。
+@immutable
+class SuspendedPhysicalSession {
+  /// 创建暂挂物理会话快照。
+  const SuspendedPhysicalSession({
+    required this.stage,
+    required this.nativeInstanceId,
+    this.playlistEntryId,
+    this.mainStreamLeaseToken,
+    this.prefetchStreamLeaseToken,
+    this.fileLoaded = false,
+    this.effectiveProgressConfirmed = false,
+  });
+
+  /// 暂挂舞台分类。
+  final PlaybackStageKind stage;
+
+  /// 该舞台关联的底层 libmpv 实例编号。
+  final int nativeInstanceId;
+
+  /// 该舞台暂挂前绑定的 mpv 播放列表项编号。
+  final int? playlistEntryId;
+
+  /// 该舞台暂挂前的主流网桥租约令牌。
+  final String? mainStreamLeaseToken;
+
+  /// 该舞台暂挂前的预取流网桥租约令牌。
+  final String? prefetchStreamLeaseToken;
+
+  /// 暂挂前是否已收到 `FILE_LOADED`。
+  final bool fileLoaded;
+
+  /// 暂挂前是否已证实有效播放推进。
+  final bool effectiveProgressConfirmed;
+}
+
 /// 播放异步任务的四域隔离分类。
 ///
 /// 任一域主动取消或刷新任务代数时，严禁误杀其余域正在进行的后台任务。
@@ -115,6 +165,10 @@ class UnifiedPlaybackEngine {
   int? _currentPlaylistEntryId;
   int _logicalTrackEpoch = 0;
   int _audioOutputEpoch = 0;
+  PlaybackStageKind _activeStage = PlaybackStageKind.none;
+  LibMpvClient? _activeNativeClient;
+  final Map<PlaybackStageKind, SuspendedPhysicalSession> _suspendedSessions =
+      {};
 
   final Map<PlaybackTaskDomain, int> _domainGenerations = {
     for (final domain in PlaybackTaskDomain.values) domain: 0,
@@ -126,6 +180,12 @@ class UnifiedPlaybackEngine {
   bool _fileLoadedInCurrentEpoch = false;
   bool _effectiveProgressConfirmed = false;
   int _consecutiveBadFiles = 0;
+
+  /// 当前由内核托管的活跃播放舞台类型。
+  PlaybackStageKind get activeStage => _activeStage;
+
+  /// 当前由内核托管的活跃底层 libmpv 实例引用。
+  LibMpvClient? get activeNativeClient => _activeNativeClient;
 
   /// 当前物理媒体代数。
   int get physicalMediaEpoch => _physicalMediaEpoch;
@@ -161,11 +221,107 @@ class UnifiedPlaybackEngine {
   bool get isCircuitBreakerTripped =>
       _consecutiveBadFiles >= maxConsecutiveBadFiles;
 
-  /// 登记重建底层原生播放器实例，返回新的实例编号。
-  int attachNativeInstance() {
+  /// 登记重建底层原生播放器实例，返回新的实例编号；若正在切换不同舞台则自动保存原舞台暂挂快照。
+  int attachNativeInstance({
+    PlaybackStageKind stage = PlaybackStageKind.none,
+    LibMpvClient? client,
+  }) {
+    if (_activeStage != PlaybackStageKind.none &&
+        stage != PlaybackStageKind.none &&
+        _activeStage != stage &&
+        _nativeInstanceId > 0) {
+      suspendStage(_activeStage);
+    }
     _nativeInstanceId += 1;
     _currentPlaylistEntryId = null;
+    if (stage != PlaybackStageKind.none) {
+      _activeStage = stage;
+      _suspendedSessions.remove(stage);
+    }
+    if (client != null) {
+      _activeNativeClient = client;
+    }
     return _nativeInstanceId;
+  }
+
+  /// 更新当前活跃舞台持有的底层 `LibMpvClient` 引用。
+  void bindActiveNativeClient(
+    LibMpvClient? client, {
+    required PlaybackStageKind stage,
+  }) {
+    if (_activeStage == stage || _activeStage == PlaybackStageKind.none) {
+      _activeStage = stage;
+      _activeNativeClient = client;
+    }
+  }
+
+  /// 将指定活跃舞台的物理实例、播放列表项与流租约快照暂挂（例如视频拉起时暂停背景音频）。
+  void suspendStage(PlaybackStageKind stage) {
+    if (stage == PlaybackStageKind.none ||
+        _activeStage != stage ||
+        _nativeInstanceId <= 0) {
+      return;
+    }
+    _suspendedSessions[stage] = SuspendedPhysicalSession(
+      stage: stage,
+      nativeInstanceId: _nativeInstanceId,
+      playlistEntryId: _currentPlaylistEntryId,
+      mainStreamLeaseToken: _mainLease?.leaseToken,
+      prefetchStreamLeaseToken: _prefetchLease?.leaseToken,
+      fileLoaded: _fileLoadedInCurrentEpoch,
+      effectiveProgressConfirmed: _effectiveProgressConfirmed,
+    );
+  }
+
+  /// 原子恢复或重绑被其他舞台打断的物理会话，推进权威物理代数并恢复实例编号、播放列表项与流租约。
+  int resumeOrRebindStage(
+    PlaybackStageKind stage, {
+    required int nativeInstanceId,
+    LibMpvClient? client,
+    int? fallbackPlaylistEntryId,
+    String? fallbackMainStreamLeaseToken,
+    String? fallbackPrefetchStreamLeaseToken,
+  }) {
+    if (_activeStage != PlaybackStageKind.none &&
+        _activeStage != stage &&
+        _nativeInstanceId > 0) {
+      suspendStage(_activeStage);
+    }
+    final saved = _suspendedSessions.remove(stage);
+    _activeStage = stage;
+    if (client != null) {
+      _activeNativeClient = client;
+    }
+    _nativeInstanceId = saved?.nativeInstanceId ?? nativeInstanceId;
+    _physicalMediaEpoch += 1;
+    _currentPlaylistEntryId = saved?.playlistEntryId ?? fallbackPlaylistEntryId;
+    _fileLoadedInCurrentEpoch = saved?.fileLoaded ?? true;
+    _effectiveProgressConfirmed = saved?.effectiveProgressConfirmed ?? false;
+
+    final mainToken =
+        saved?.mainStreamLeaseToken ?? fallbackMainStreamLeaseToken;
+    _mainLease = mainToken == null
+        ? null
+        : PlaybackStreamLease(
+            leaseToken: mainToken,
+            kind: PlaybackStreamLeaseKind.main,
+            physicalMediaEpoch: _physicalMediaEpoch,
+            nativeInstanceId: _nativeInstanceId,
+            playlistEntryId: _currentPlaylistEntryId,
+          );
+
+    final prefetchToken =
+        saved?.prefetchStreamLeaseToken ?? fallbackPrefetchStreamLeaseToken;
+    _prefetchLease = prefetchToken == null
+        ? null
+        : PlaybackStreamLease(
+            leaseToken: prefetchToken,
+            kind: PlaybackStreamLeaseKind.prefetch,
+            physicalMediaEpoch: _physicalMediaEpoch,
+            nativeInstanceId: _nativeInstanceId,
+            playlistEntryId: null,
+          );
+    return _physicalMediaEpoch;
   }
 
   /// 开启新的物理媒体装载周期，递增物理与逻辑代数并重置本周期有效进展标记。
@@ -173,9 +329,21 @@ class UnifiedPlaybackEngine {
   /// 若 [preservePrefetchLease] 为真，则保留独立预取租约待无缝晋升。
   int beginPhysicalMedia({
     int? nativeInstanceId,
+    PlaybackStageKind? stage,
     bool preservePrefetchLease = false,
   }) {
-    if (nativeInstanceId != null && nativeInstanceId > _nativeInstanceId) {
+    if (stage != null &&
+        stage != PlaybackStageKind.none &&
+        _activeStage != PlaybackStageKind.none &&
+        _activeStage != stage &&
+        _nativeInstanceId > 0) {
+      suspendStage(_activeStage);
+    }
+    if (stage != null && stage != PlaybackStageKind.none) {
+      _activeStage = stage;
+      _suspendedSessions.remove(stage);
+    }
+    if (nativeInstanceId != null && nativeInstanceId > 0) {
       _nativeInstanceId = nativeInstanceId;
     }
     _physicalMediaEpoch += 1;
@@ -363,15 +531,43 @@ class UnifiedPlaybackEngine {
   }
 
   /// 关闭当前播放会话并递增全部代数，返回需清理的主流与预取流令牌列表。
-  List<String> resetSession() {
-    final tokens = <String>[];
+  ///
+  /// 传入 [stage] 时仅清理该舞台持有的租约，绝不误清其余已暂挂舞台的快照与流租约。
+  List<String> resetSession({PlaybackStageKind? stage}) {
+    final tokens = <String>{};
+    if (stage != null) {
+      final suspended = _suspendedSessions.remove(stage);
+      if (suspended != null) {
+        if (suspended.mainStreamLeaseToken != null) {
+          tokens.add(suspended.mainStreamLeaseToken!);
+        }
+        if (suspended.prefetchStreamLeaseToken != null) {
+          tokens.add(suspended.prefetchStreamLeaseToken!);
+        }
+      }
+      if (_activeStage != PlaybackStageKind.none && _activeStage != stage) {
+        return tokens.toList(growable: false);
+      }
+    } else {
+      for (final suspended in _suspendedSessions.values) {
+        if (suspended.mainStreamLeaseToken != null) {
+          tokens.add(suspended.mainStreamLeaseToken!);
+        }
+        if (suspended.prefetchStreamLeaseToken != null) {
+          tokens.add(suspended.prefetchStreamLeaseToken!);
+        }
+      }
+      _suspendedSessions.clear();
+    }
+
     if (_mainLease != null) tokens.add(_mainLease!.leaseToken);
-    if (_prefetchLease != null &&
-        _prefetchLease!.leaseToken != _mainLease?.leaseToken) {
+    if (_prefetchLease != null) {
       tokens.add(_prefetchLease!.leaseToken);
     }
     _mainLease = null;
     _prefetchLease = null;
+    _activeStage = PlaybackStageKind.none;
+    _activeNativeClient = null;
     _physicalMediaEpoch += 1;
     _logicalTrackEpoch += 1;
     _currentPlaylistEntryId = null;
@@ -380,7 +576,7 @@ class UnifiedPlaybackEngine {
     for (final domain in PlaybackTaskDomain.values) {
       _domainGenerations[domain] = (_domainGenerations[domain] ?? 0) + 1;
     }
-    return tokens;
+    return tokens.toList(growable: false);
   }
 }
 

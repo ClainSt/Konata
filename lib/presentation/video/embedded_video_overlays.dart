@@ -8,74 +8,20 @@ extension _EmbeddedVideoTopOverlays on _EmbeddedVideoPageState {
     VideoPlaybackController controller,
   ) async {
     _onUserActivity();
-    final renderBox = anchorContext.findRenderObject();
-    final overlay = Overlay.of(anchorContext).context.findRenderObject();
-    if (renderBox is! RenderBox || overlay is! RenderBox) {
-      unawaited(
-        controller.captureScreenshot(mode: ScreenshotCaptureMode.withSubtitles),
-      );
-      return;
-    }
-    final topLeft = renderBox.localToGlobal(Offset.zero, ancestor: overlay);
-    final bottomRight = renderBox.localToGlobal(
-      renderBox.size.bottomRight(Offset.zero),
-      ancestor: overlay,
-    );
-    final position = RelativeRect.fromRect(
-      Rect.fromPoints(topLeft, bottomRight),
-      Offset.zero & overlay.size,
-    );
-    final p = anchorContext.palette;
-    final itemHeight = KonataAdaptiveTokens.isAndroid
-        ? KonataAdaptiveTokens.touchTarget
-        : kMinInteractiveDimension;
-    final selected = await showMenu<ScreenshotCaptureMode>(
-      context: anchorContext,
-      position: position,
-      color: p.elevatedSurface,
-      elevation: 10,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(
-          KonataPlaybackTokens.floatingMiniRadius,
-        ),
-        side: BorderSide(color: p.hairline),
-      ),
-      items: [
-        PopupMenuItem<ScreenshotCaptureMode>(
-          key: const ValueKey('video_screenshot_mode_with_subtitles'),
+    final selected = await showKonataGlassMenu<ScreenshotCaptureMode>(
+      anchorContext: anchorContext,
+      items: const [
+        KonataGlassMenuItem<ScreenshotCaptureMode>(
+          key: ValueKey('video_screenshot_mode_with_subtitles'),
           value: ScreenshotCaptureMode.withSubtitles,
-          height: itemHeight,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.subtitles_outlined, size: 18, color: p.textPrimary),
-              const SizedBox(width: 8),
-              Text(
-                '含字幕原画',
-                style: TextStyle(color: p.textPrimary, fontSize: 13),
-              ),
-            ],
-          ),
+          icon: Icons.subtitles_outlined,
+          label: '含字幕原画',
         ),
-        PopupMenuItem<ScreenshotCaptureMode>(
-          key: const ValueKey('video_screenshot_mode_pure_video'),
+        KonataGlassMenuItem<ScreenshotCaptureMode>(
+          key: ValueKey('video_screenshot_mode_pure_video'),
           value: ScreenshotCaptureMode.pureVideo,
-          height: itemHeight,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.photo_camera_outlined,
-                size: 18,
-                color: p.textPrimary,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                '纯净原画',
-                style: TextStyle(color: p.textPrimary, fontSize: 13),
-              ),
-            ],
-          ),
+          icon: Icons.photo_camera_outlined,
+          label: '纯净原画',
         ),
       ],
     );
@@ -101,7 +47,8 @@ extension _EmbeddedVideoTopOverlays on _EmbeddedVideoPageState {
     return LayoutBuilder(
       builder: (context, constraints) {
         final narrowTop = constraints.maxWidth < 540;
-        return KonataGlassCapsule(
+        var topBarDragDownPx = 0.0;
+        final capsule = KonataGlassCapsule(
           key: const ValueKey('android_video_top_capsule'),
           radius: KonataAdaptiveTokens.capsuleRadius,
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -147,32 +94,32 @@ extension _EmbeddedVideoTopOverlays on _EmbeddedVideoPageState {
                   ],
                 ),
               ),
-              if (!narrowTop) ...[
-                Builder(
-                  builder: (btnCtx) => KonataCapsuleIconButton(
-                    key: const ValueKey('video_android_screenshot_button'),
-                    icon: Icons.camera_alt_outlined,
-                    tooltip: '原画截图（轻触选含字幕/纯净，长按直出含字幕）',
-                    color: p.textPrimary,
-                    size: 19,
-                    fixedSize: KonataAdaptiveTokens.touchTarget,
-                    onTap: () => unawaited(
-                      _showScreenshotModeMenu(btnCtx, controller),
-                    ),
-                    onLongPress: () {
-                      _onUserActivity();
-                      _flashCornerStatus(
-                        '正在截取含字幕原画...',
-                        Icons.subtitles_outlined,
-                      );
-                      unawaited(
-                        controller.captureScreenshot(
-                          mode: ScreenshotCaptureMode.withSubtitles,
-                        ),
-                      );
-                    },
+              Builder(
+                builder: (btnCtx) => KonataCapsuleIconButton(
+                  key: const ValueKey('video_android_screenshot_button'),
+                  icon: Icons.camera_alt_outlined,
+                  tooltip: '原画截图（轻触选含字幕/纯净，长按直出含字幕）',
+                  color: p.textPrimary,
+                  size: 19,
+                  fixedSize: KonataAdaptiveTokens.touchTarget,
+                  onTap: () => unawaited(
+                    _showScreenshotModeMenu(btnCtx, controller),
                   ),
+                  onLongPress: () {
+                    _onUserActivity();
+                    _flashCornerStatus(
+                      '正在截取含字幕原画...',
+                      Icons.subtitles_outlined,
+                    );
+                    unawaited(
+                      controller.captureScreenshot(
+                        mode: ScreenshotCaptureMode.withSubtitles,
+                      ),
+                    );
+                  },
                 ),
+              ),
+              if (!narrowTop) ...[
                 KonataCapsuleIconButton(
                   key: const ValueKey('video_toggle_audio_only_button'),
                   icon: Icons.headphones_rounded,
@@ -218,6 +165,26 @@ extension _EmbeddedVideoTopOverlays on _EmbeddedVideoPageState {
                 ),
             ],
           ),
+        );
+        if (widget.onCollapseToMini == null) {
+          return capsule;
+        }
+        return GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onVerticalDragStart: (_) => topBarDragDownPx = 0.0,
+          onVerticalDragUpdate: (d) {
+            if (d.delta.dy > 0) {
+              topBarDragDownPx += d.delta.dy;
+            }
+          },
+          onVerticalDragEnd: (details) {
+            final vel = details.primaryVelocity ?? 0.0;
+            if (topBarDragDownPx >= 56.0 || vel >= 360.0) {
+              _collapseOrExit(releaseVelocityPxPerSec: vel);
+            }
+            topBarDragDownPx = 0.0;
+          },
+          child: capsule,
         );
       },
     );

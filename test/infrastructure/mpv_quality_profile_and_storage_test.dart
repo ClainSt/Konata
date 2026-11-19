@@ -414,8 +414,12 @@ void main() {
           'libmpv-2.dll',
         ),
       );
-      if (!dll.existsSync()) {
-        return;
+      if (Platform.isWindows) {
+        expect(
+          dll.existsSync(),
+          isTrue,
+          reason: 'Windows 仓库必须包含 native/konata-native/windows/libmpv-2.dll 以执行真实探针断言',
+        );
       }
       final probe = await MpvQualityProfile.probeRuntimeVersions(
         preferredLibraryPath: dll.path,

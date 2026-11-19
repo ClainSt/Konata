@@ -341,7 +341,12 @@ ${AssUueFontDecoder.encode(Uint8List.fromList(utf8.encode('NOT_VALID_SFNT_FONT_D
               req.response.statusCode = HttpStatus.ok;
               req.response.write(buildValidSubsettedAss());
               await req.response.close();
-            } catch (_) {}
+            } on SocketException catch (e) {
+              // 客户端主动取消长连接后套接字已断开，属预期取消行为。
+              expect(e.message, isNotNull);
+            } on HttpException catch (e) {
+              expect(e.message, isNotNull);
+            }
           default:
             req.response.statusCode = HttpStatus.notFound;
             await req.response.close();

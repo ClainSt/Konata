@@ -171,6 +171,9 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
       final ({String target, String? streamToken}) resolved;
       String? displacedMainToken;
 
+      final previousMainToken = _engine.mainStreamLease?.leaseToken;
+      final previousEntryId = _engine.currentPlaylistEntryId ?? 0;
+
       if (hitPrefetch) {
         _prefetchedNextTrack = null;
         resolved = (
@@ -190,14 +193,14 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
         }
         _boundPhysicalEpoch = _engine.beginPhysicalMedia(
           nativeInstanceId: _boundNativeInstanceId,
+          stage: PlaybackStageKind.audio,
         );
-        final previousActive = _activeStreamToken;
         if (resolved.streamToken != null) {
           displacedMainToken =
               _engine.bindMainStreamLease(resolved.streamToken!) ??
-              previousActive;
+              previousMainToken;
         } else {
-          displacedMainToken = previousActive;
+          displacedMainToken = previousMainToken;
         }
       }
 
@@ -209,9 +212,8 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
         logStore: _logStore,
       );
 
-      _activeStreamToken = resolved.streamToken;
-      if (_currentMpvPlaylistEntryId > _retiredMpvPlaylistEntryId) {
-        _retiredMpvPlaylistEntryId = _currentMpvPlaylistEntryId;
+      if (previousEntryId > _retiredMpvPlaylistEntryId) {
+        _retiredMpvPlaylistEntryId = previousEntryId;
       }
       _loadedPhysicalKey = physicalKey;
       _activeCommandedGeneration = generation;
@@ -332,8 +334,9 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
   Future<void> _releasePrefetchLeaseIfAny() async {
     final prefetched = _prefetchedNextTrack;
     _prefetchedNextTrack = null;
+    final currentMainToken = _engine.mainStreamLease?.leaseToken;
     final released = _engine.releasePrefetchLease() ?? prefetched?.streamToken;
-    if (released != null && released != _activeStreamToken) {
+    if (released != null && released != currentMainToken) {
       await _unregisterStreamToken(released);
     }
   }
@@ -382,14 +385,11 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
   }
 
   Future<void> _releaseActiveStreamSession() async {
-    final token = _activeStreamToken;
-    _activeStreamToken = null;
     final prefetched = _prefetchedNextTrack;
     _prefetchedNextTrack = null;
     final tokens = <String>{
-      ?token,
       ?prefetched?.streamToken,
-      ..._engine.resetSession(),
+      ..._engine.resetSession(stage: PlaybackStageKind.audio),
     };
     for (final t in tokens) {
       await _unregisterStreamToken(t);
@@ -457,7 +457,6 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
     switch (event) {
       case MpvStartFileEvent(:final playlistEntryId):
         if (playlistEntryId > 0) {
-          _currentMpvPlaylistEntryId = playlistEntryId;
           _engine.bindPlaylistEntryId(playlistEntryId);
         }
       case MpvFileLoadedEvent():
@@ -637,10 +636,10 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
         : math.max(0.0, rawPositionSeconds - cueStart);
     final advancedMs = ((relPos - _trackProgressBaselineSeconds) * 1000)
         .round();
-    if (advancedMs >= UnifiedPlaybackEngine.effectiveAudioProgressThresholdMs) {
-      if (_engine.recordEffectiveProgress(audioAdvancedMs: advancedMs)) {
-        _consecutiveFailedTracks = 0;
-      }
+    if (_engine.fileLoadedInCurrentEpoch &&
+        !_engine.effectiveProgressConfirmed &&
+        advancedMs >= UnifiedPlaybackEngine.effectiveAudioProgressThresholdMs) {
+      _engine.recordEffectiveProgress(audioAdvancedMs: advancedMs);
     }
     final lyricIdx = _state.lrcDocument?.activeIndexAt(relPos) ?? -1;
     _state = _state.copyWith(positionSeconds: relPos, activeLyricIndex: lyricIdx);
@@ -733,7 +732,7 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
     _completedGeneration = _activeCommandedGeneration;
     final handledEntry = playlistEntryId > 0
         ? playlistEntryId
-        : _currentMpvPlaylistEntryId;
+        : (_engine.currentPlaylistEntryId ?? 0);
     if (handledEntry > 0) {
       _eofHandledMpvEntryId = handledEntry;
     }
@@ -766,7 +765,7 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
       _client?.setPropertyString('start', 'none');
       final curItem = _state.currentItem;
       final bridgeDiag = _streamBridge.describeLastError(
-        token: _activeStreamToken,
+        token: _engine.mainStreamLease?.leaseToken,
         relativePath: curItem?.effectiveRelativePath,
       );
       final reasonMessage =
@@ -820,8 +819,8 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
     }
 
     _trackRetryCount = 0;
-    _consecutiveFailedTracks += 1;
-    final circuitBreakerTripped = _engine.recordPhysicalMediaFailure();
+    final circuitBreakerTripped =
+        _engine.recordPhysicalMediaFailure() || _engine.isCircuitBreakerTripped;
     _loadedPhysicalKey = null;
     final fallbackCover =
         (_state.cover is EmptyAudioCover && failedItem != null)
@@ -832,7 +831,7 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
     final canAdvance =
         !circuitBreakerTripped &&
         _state.queue.length > 1 &&
-        _consecutiveFailedTracks < _state.queue.length &&
+        _engine.consecutiveBadFiles < _state.queue.length &&
         (rawNextIdx < _state.queue.length ||
             _state.loopMode == AudioLoopMode.loopAll);
 

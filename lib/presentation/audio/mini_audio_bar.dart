@@ -153,6 +153,7 @@ class _MiniAudioOverlayHostState extends ConsumerState<MiniAudioOverlayHost> {
   NavigatorState? _attachedNavigator;
   KonataRootRouteObserver? _boundObserver;
   GlobalKey<NavigatorState>? _cachedNavKey;
+  KonataToastController? _toastController;
   Timer? _toastDetachTimer;
   bool _mediaEntriesInserted = false;
   bool _toastEntryInserted = false;
@@ -165,9 +166,11 @@ class _MiniAudioOverlayHostState extends ConsumerState<MiniAudioOverlayHost> {
   @override
   void initState() {
     super.initState();
-    KonataToastController.registerHost();
-    KonataToastController.activeToast.addListener(_handleActiveToastChanged);
-    _wantToastEntry = KonataToastController.activeToast.value != null;
+    final toastCtrl = ref.read(konataToastControllerProvider);
+    _toastController = toastCtrl;
+    toastCtrl.registerHost();
+    toastCtrl.activeToast.addListener(_handleActiveToastChanged);
+    _wantToastEntry = toastCtrl.activeToast.value != null;
     KonataModalLayerRegistry.instance.addListener(_handleRouteOrModalChanged);
     if (_wantToastEntry) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -214,8 +217,12 @@ class _MiniAudioOverlayHostState extends ConsumerState<MiniAudioOverlayHost> {
     _toastDetachTimer?.cancel();
     _boundObserver?.removeStackListener(_handleRouteOrModalChanged);
     KonataModalLayerRegistry.instance.removeListener(_handleRouteOrModalChanged);
-    KonataToastController.activeToast.removeListener(_handleActiveToastChanged);
-    KonataToastController.unregisterHost();
+    final toastCtrl = _toastController;
+    _toastController = null;
+    if (toastCtrl != null) {
+      toastCtrl.activeToast.removeListener(_handleActiveToastChanged);
+      toastCtrl.unregisterHost();
+    }
     _removeAllEntries();
     _floatingMiniEntry?.dispose();
     _fullscreenPlayerEntry?.dispose();
@@ -225,7 +232,8 @@ class _MiniAudioOverlayHostState extends ConsumerState<MiniAudioOverlayHost> {
 
   void _handleActiveToastChanged() {
     _toastDetachTimer?.cancel();
-    final hasToast = KonataToastController.activeToast.value != null;
+    final toastCtrl = _toastController;
+    final hasToast = toastCtrl?.activeToast.value != null;
     if (hasToast) {
       _wantToastEntry = true;
       _syncOrSchedule();
@@ -235,7 +243,7 @@ class _MiniAudioOverlayHostState extends ConsumerState<MiniAudioOverlayHost> {
         KonataAdaptiveTokens.toastExitDuration + const Duration(milliseconds: 40),
         () {
           if (!mounted) return;
-          if (KonataToastController.activeToast.value == null) {
+          if (_toastController?.activeToast.value == null) {
             _wantToastEntry = false;
             _syncOrSchedule();
           }
@@ -556,7 +564,7 @@ class _PlaybackSessionCoordinator extends ConsumerWidget {
       (prev, next) {
         final msg = next?.trim() ?? '';
         if (msg.isNotEmpty && msg != (prev?.trim() ?? '')) {
-          KonataToastController.show(msg, isError: true);
+          ref.read(konataToastControllerProvider).show(msg, isError: true);
           Future<void>.microtask(() {
             if (context.mounted) {
               ref.read(audioPlaybackProvider.notifier).dismissError();
@@ -776,7 +784,10 @@ class _FullscreenPlayerOverlaySlotState
   }
 
   Rect _computeTargetMiniRect(FloatingMiniPlayerKind kind) {
-    final cached = konataFloatingMiniWindowRectNotifier.value;
+    final cached = ref
+        .read(konataToastControllerProvider)
+        .floatingMiniWindowRect
+        .value;
     if (cached != null && cached.width > 0 && cached.height > 0) {
       return cached;
     }
@@ -853,7 +864,7 @@ class _FullscreenPlayerOverlaySlotState
 
     final immersiveAudioNavKey = ref.watch(_immersiveAudioNavigatorKeyProvider);
     final originRect =
-        konataFloatingMiniWindowRectNotifier.value ??
+        ref.read(konataToastControllerProvider).floatingMiniWindowRect.value ??
         ref.read(stageMorphOriginRectProvider);
     final effectiveVideoReq = showExpandedVideo
         ? videoReq

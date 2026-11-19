@@ -782,5 +782,171 @@ void main() {
         expect(streamBridge.activeSessionCount, equals(0));
       },
     );
+
+    test(
+      '播音频 -> 点播视频 -> 关闭视频 -> 恢复音频播至 EOF 自动原子重绑代数并切入下一首',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'konata_r3_av_epoch_',
+        );
+        addTearDown(() async {
+          if (tempDir.existsSync()) {
+            await tempDir.delete(recursive: true);
+          }
+        });
+
+        final track1File = File(p.join(tempDir.path, '01_track_one.flac'))
+          ..writeAsBytesSync(const [1, 2, 3, 4]);
+        final track2File = File(p.join(tempDir.path, '02_track_two.flac'))
+          ..writeAsBytesSync(const [5, 6, 7, 8]);
+        final videoFile = File(p.join(tempDir.path, 'ep01.mkv'))
+          ..writeAsBytesSync(const [9, 10, 11, 12]);
+
+        final db = KonataDatabase(NativeDatabase.memory());
+        addTearDown(db.close);
+        final repo = DriftLibraryRepository(db);
+        final storageRoot = StorageRootService(overrideRoot: tempDir);
+        final streamBridge = LocalStreamBridge(storageRoot: storageRoot);
+        addTearDown(streamBridge.dispose);
+
+        final audioClient = _R2FakeMpvClient();
+        final videoClient = _R2FakeMpvClient();
+        final source = MediaSource(
+          id: 'src_av_epoch',
+          label: 'LocalAV',
+          kind: MediaSourceKind.local,
+          location: tempDir.path,
+        );
+        const work = Work(id: 'w_av_epoch', title: 'AV Epoch Regression');
+        await repo.upsertWork(work);
+        final vTrack1 = MediaVariant(
+          id: 'cd_1',
+          workId: work.id,
+          sourceId: source.id,
+          relativePath: p.basename(track1File.path),
+          fileName: p.basename(track1File.path),
+          fileSize: 4,
+        );
+        final vTrack2 = MediaVariant(
+          id: 'cd_2',
+          workId: work.id,
+          sourceId: source.id,
+          relativePath: p.basename(track2File.path),
+          fileName: p.basename(track2File.path),
+          fileSize: 4,
+        );
+        final ep1 = Episode(
+          id: 'ep_1',
+          workId: work.id,
+          category: EpisodeCategory.main,
+          seasonNumber: 1,
+          episodeNumber: 1,
+          title: '第 1 话',
+        );
+        final vVideo = MediaVariant(
+          id: 'vid_1',
+          workId: work.id,
+          episodeId: ep1.id,
+          sourceId: source.id,
+          relativePath: p.basename(videoFile.path),
+          fileName: p.basename(videoFile.path),
+          fileSize: 4,
+        );
+
+        final videoReq = VideoLaunchRequest(
+          work: work,
+          episode: ep1,
+          variant: vVideo,
+          source: source,
+          bundle: WorkDetailBundle(
+            work: work,
+            episodes: [ep1],
+            variants: [vVideo],
+            sourcesById: {source.id: source},
+            latestPlayback: null,
+          ),
+        );
+
+        final container = ProviderContainer(
+          overrides: [
+            storageRootProvider.overrideWithValue(storageRoot),
+            localStreamBridgeProvider.overrideWithValue(streamBridge),
+            libraryRepositoryProvider.overrideWithValue(repo),
+            audioPlaybackProvider.overrideWith(
+              (ref) => AudioPlaybackNotifier(
+                ref,
+                clientFactory: () => audioClient,
+                microFadeStepInterval: const Duration(milliseconds: 5),
+              ),
+            ),
+            videoPlaybackProvider(videoReq).overrideWith(
+              (ref) => VideoPlaybackController(
+                ref,
+                videoReq,
+                sessionFactory: () => EmbeddedMpvSession(
+                  storageRoot: storageRoot,
+                  streamBridge: streamBridge,
+                  clientFactory: () => videoClient,
+                ),
+              ),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final engine = container.read(unifiedPlaybackEngineProvider);
+        final audio = container.read(audioPlaybackProvider.notifier);
+
+        // 1. 起播第 1 首音频（epoch=1, instance=1）。
+        await audio.playCdCollection(
+          work: work,
+          cdVariants: [vTrack1, vTrack2],
+          initialVariant: vTrack1,
+          sourcesById: {source.id: source},
+        );
+        await _pumpUntil(() => audio.state.isPlaying);
+        expect(audio.state.currentIndex, equals(0));
+        expect(engine.activeStage, equals(PlaybackStageKind.audio));
+        final audioEntryId = audioClient.intProps['playlist-entry-id'] ?? 1;
+
+        // 2. 点播视频：触发视频激活通知暂停音频并推进共享内核代数至视频实例。
+        container.read(videoPlaybackActiveProvider.notifier).state = true;
+        await _pumpUntil(() => !audio.state.isPlaying);
+        final videoSub = container.listen(
+          videoPlaybackProvider(videoReq),
+          (_, _) {},
+        );
+        final videoCtrl = container.read(
+          videoPlaybackProvider(videoReq).notifier,
+        );
+        await _pumpUntil(() => !videoCtrl.state.isInitializing);
+        expect(engine.activeStage, equals(PlaybackStageKind.video));
+
+        // 3. 关闭视频会话：共享内核执行 resetSession(stage: video)，保留音频暂挂快照。
+        await videoCtrl.closeAndRelease();
+        videoSub.close();
+        expect(container.read(videoPlaybackActiveProvider), isFalse);
+
+        // 4. 恢复音频播放：仅调用 setPlaying(true) 必须原子重绑统一内核代数与 playlistEntryId。
+        await audio.setPlaying(true);
+        expect(audio.state.isPlaying, isTrue);
+        expect(engine.activeStage, equals(PlaybackStageKind.audio));
+        expect(engine.currentPlaylistEntryId, equals(audioEntryId));
+
+        // 5. 音频播放至自然 EOF：绝不被陈旧代数拦截，必须自动切入第 2 首曲目。
+        audioClient.emitEvent(
+          MpvEndFileEvent(
+            reason: MpvEndFileReason.eof,
+            errorCode: 0,
+            playlistEntryId: audioEntryId,
+          ),
+        );
+        await _pumpUntil(() => audio.state.currentIndex == 1);
+        expect(audio.state.currentIndex, equals(1));
+        expect(audio.state.currentItem?.variant.id, equals(vTrack2.id));
+
+        await audio.stopAndClose();
+      },
+    );
   });
 }

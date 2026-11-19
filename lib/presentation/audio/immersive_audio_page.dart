@@ -18,6 +18,7 @@ import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_glass_capsule.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
+import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/playback/konata_cached_artwork_backdrop.dart';
 import '../widgets/playback/konata_playback_capsule.dart';
@@ -1386,16 +1387,39 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
         behavior: HitTestBehavior.opaque,
         onTap: onTapEmptyArea,
         child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.lyrics_outlined, size: 40, color: p.textMuted),
-              const SizedBox(height: 12),
-              Text(
-                '当前曲目暂无同步歌词',
-                style: TextStyle(color: p.textSecondary, fontSize: 14),
-              ),
-            ],
+          child: Consumer(
+            builder: (ctx, cRef, _) {
+              final needsAmllConfirm = cRef.watch(
+                audioPlaybackProvider.select(
+                  (s) => s.needsMobileAmllLyricConfirmation,
+                ),
+              );
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.lyrics_outlined, size: 40, color: p.textMuted),
+                  const SizedBox(height: 12),
+                  Text(
+                    needsAmllConfirm
+                        ? '当前处于移动计量网络，拉取 AMLL 逐字歌词索引需消耗流量'
+                        : '当前曲目暂无同步歌词',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: p.textSecondary, fontSize: 14),
+                  ),
+                  if (needsAmllConfirm) ...[
+                    const SizedBox(height: 12),
+                    KonataPillButton.primary(
+                      key: const ValueKey('confirm_mobile_amll_lyric_button'),
+                      label: '允许加载 AMLL 歌词',
+                      icon: Icons.cloud_download_outlined,
+                      compact: true,
+                      onPressed: () =>
+                          unawaited(notifier.confirmMobileAmllLyricLookup()),
+                    ),
+                  ],
+                ],
+              );
+            },
           ),
         ),
       );

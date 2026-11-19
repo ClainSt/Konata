@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../../domain/playback/ass_semantic_verifier.dart';
+import '../storage/atomic_file_writer.dart';
 import '../storage/storage_root_provider.dart';
 
 /// 未授权 Origin 访问云端子集化服务时抛出的安全异常。
@@ -64,25 +65,105 @@ class CloudSubsetCancelledException implements Exception {
   String toString() => 'CloudSubsetCancelledException: $reason';
 }
 
-/// 逐 Origin（`scheme + host + port`）云端子集化授权管理器。
+/// 逐 Origin（`scheme + host + port`）云端子集化授权管理器（支持本地持久化落盘防重启丢失）。
 class CloudSubsetAuthorizationStore {
-  final Set<CloudSubsetOrigin> _authorizedOrigins = {};
+  /// 创建逐 Origin 授权仓储；可选注入异步持久化读写回调与变更通知。
+  CloudSubsetAuthorizationStore({
+    this.onLoad,
+    this.onPersist,
+    this.onHydrated,
+  }) {
+    if (onLoad != null) {
+      _hydrationFuture = _hydrateFromStorage();
+    }
+  }
 
-  /// 显式授权指定服务地址对应的 `(scheme, host, port)` Origin。
+  /// 从持久化存储加载已授权 Origin 列表的回调。
+  final Future<List<String>> Function()? onLoad;
+
+  /// 将最新已授权 Origin 列表落盘的回调。
+  final Future<void> Function(List<String> originKeys)? onPersist;
+
+  /// 持久化白名单恢复完成后的通知回调。
+  final void Function()? onHydrated;
+  final Set<CloudSubsetOrigin> _authorizedOrigins = {};
+  final Set<CloudSubsetOrigin> _revokedBeforeHydration = {};
+  Future<void>? _hydrationFuture;
+  Future<void> _persistChain = Future<void>.value();
+
+  /// 当前已授权的规范化 Origin 键只读列表（按字典序排列）。
+  List<String> get authorizedOriginKeys {
+    final keys = _authorizedOrigins.map((o) => o.key).toList()..sort();
+    return List<String>.unmodifiable(keys);
+  }
+
+  /// 等待初始本地持久化白名单恢复完成（未配置持久化时立即返回）。
+  Future<void> ensureHydrated() async {
+    await (_hydrationFuture ?? Future<void>.value());
+  }
+
+  /// 等待最近一次授权变更落盘完成（便于测试验证重启持久性）。
+  Future<void> flushPendingPersistence() => _persistChain;
+
+  Future<void> _hydrateFromStorage() async {
+    final loader = onLoad;
+    if (loader == null) return;
+    try {
+      final stored = await loader();
+      var addedAny = false;
+      for (final raw in stored) {
+        final uri = Uri.tryParse(raw.trim());
+        if (uri == null || !uri.hasScheme || uri.host.isEmpty) continue;
+        final origin = CloudSubsetOrigin.fromUri(uri);
+        if (_revokedBeforeHydration.contains(origin)) continue;
+        if (_authorizedOrigins.add(origin)) {
+          addedAny = true;
+        }
+      }
+      if (addedAny) {
+        onHydrated?.call();
+      }
+    } on Object {
+      // 无插件或存储受限环境下保持空授权集合，严禁默认放行未授权源。
+    }
+  }
+
+  void _schedulePersist() {
+    final persister = onPersist;
+    if (persister == null) return;
+    final snapshot = authorizedOriginKeys;
+    _persistChain = _persistChain.then((_) async {
+      try {
+        await persister(snapshot);
+      } on Object {
+        // 持久化失败不影响内存态本次撤权/授权立即生效。
+      }
+    });
+  }
+
+  /// 显式授权指定服务地址对应的 `(scheme, host, port)` Origin 并异步落盘。
   CloudSubsetOrigin grant(Uri endpointUri) {
     final origin = CloudSubsetOrigin.fromUri(endpointUri);
+    _revokedBeforeHydration.remove(origin);
     _authorizedOrigins.add(origin);
+    _schedulePersist();
     return origin;
   }
 
-  /// 撤销指定服务地址对应 Origin 的授权。
+  /// 撤销指定服务地址对应 Origin 的授权并异步落盘。
   void revoke(Uri endpointUri) {
     final origin = CloudSubsetOrigin.fromUri(endpointUri);
+    _revokedBeforeHydration.add(origin);
     _authorizedOrigins.remove(origin);
+    _schedulePersist();
   }
 
-  /// 清空全部云端授权记录。
-  void clear() => _authorizedOrigins.clear();
+  /// 清空全部云端授权记录并异步落盘。
+  void clear() {
+    _revokedBeforeHydration.addAll(_authorizedOrigins);
+    _authorizedOrigins.clear();
+    _schedulePersist();
+  }
 
   /// 判断目标请求地址的 `(scheme, host, port)` Origin 是否已获得显式授权。
   bool isAuthorized(Uri endpointUri) {
@@ -293,7 +374,7 @@ class FontInAssCloudClient {
       try {
         await partFile.writeAsBytes(utf8.encode(subsettedAss), flush: true);
         _throwIfAborted(cancellation, isTaskAlive, endpointUri);
-        await partFile.rename(cacheFile.path);
+        await AtomicFileWriter.replaceFile(partFile, cacheFile);
       } finally {
         if (await partFile.exists()) {
           await partFile.delete().catchError((_) => partFile);

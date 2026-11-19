@@ -97,6 +97,15 @@ abstract interface class ByteRangeReadableGateway {
   Future<void> close();
 }
 
+/// 支持同时探测文件精确长度与真实源版本验证器（`ETag` / `mtime`）的媒体源网关扩展契约。
+abstract interface class FileValidatorProbeGateway
+    implements ByteRangeReadableGateway {
+  /// 单次往返探测目标文件的字节总长度及真实版本验证器（`ETag` 或 `mtime:...`）。
+  Future<({int? length, String? validator})> probeFileMetadata(
+    String relativePath,
+  );
+}
+
 /// 支持强验证器（强 `ETag` + `If-Range`）一致性断流续传的字节范围网关扩展契约。
 abstract interface class ValidatedByteRangeGateway
     implements ByteRangeReadableGateway {

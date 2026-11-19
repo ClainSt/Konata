@@ -644,7 +644,7 @@ void main() {
               c[0] == 'sub-add' &&
               c[1].startsWith('memory://') &&
               c[1].contains('欢迎来到动画世界') &&
-              c[2] == 'auto',
+              c[2] == 'cached',
         ),
         isTrue,
       );

@@ -31,6 +31,7 @@ import '../../infrastructure/players/mpv_quality_profile.dart';
 import '../../infrastructure/players/mpv_thumbnail_service.dart';
 import '../../infrastructure/storage/storage_root_provider.dart';
 import '../../infrastructure/stream_bridge/local_stream_bridge.dart';
+import '../../infrastructure/subtitles/fontinass_cloud_client.dart';
 import '../providers/diagnostics_providers.dart';
 import '../providers/library_providers.dart';
 import '../providers/platform_capability.dart';
@@ -540,6 +541,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
               gatewayFactory: _ref.read(mediaSourceGatewayFactoryProvider),
               logStore: _logStore,
               subtitleDirectoryIndex: _ref.read(subtitleDirectoryIndexProvider),
+              fontPoolManager: _ref.read(subtitleFontPoolManagerProvider),
             );
       _session = session;
       unawaited(_preloadAdjacentSeriesBundles());
@@ -660,6 +662,8 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
         currentAudioDevice: currentDevice,
       );
     };
+    session.onMountExternalTextSubtitles =
+        _mountDiscoveredExternalTextSubtitles;
 
     session.textureIdListenable.addListener(() {
       if (mounted) {

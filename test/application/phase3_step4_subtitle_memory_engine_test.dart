@@ -718,7 +718,7 @@ Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,這個動畫真好看
       expect(subAddCmd[1], startsWith('memory://'));
       expect(subAddCmd[1], contains('这个动画真好看'));
       expect(subAddCmd[1], contains('0:00:03.00,0:00:05.00'));
-      expect(subAddCmd[2], equals('auto'));
+      expect(subAddCmd[2], equals('cached'));
 
       // 再次提交相同内容与参数的意图：直接命中 SHA-1 内存轨去重，不发第二次 sub-add。
       final subAddCountBefore = fakeClient.recordedCommands.length;
@@ -776,6 +776,7 @@ Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,這個動畫真好看
           client.setOptionString('vo', 'null');
           client.setOptionString('ao', 'null');
           client.setOptionString('pause', 'yes');
+          client.setOptionString('sub-auto', 'fuzzy');
           client.setOptionString('sid', 'no');
           expect(client.initialize(), equals(0));
 

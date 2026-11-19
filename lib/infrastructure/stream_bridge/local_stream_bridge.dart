@@ -9,6 +9,7 @@ import '../../domain/models/media_source.dart';
 import '../sources/byte_stream_source_gateway.dart';
 import '../sources/source_access_error.dart';
 import '../sources/subtitle_matcher.dart';
+import '../storage/atomic_file_writer.dart';
 import '../storage/storage_root_provider.dart';
 import 'http_byte_range.dart';
 import 'remote_window_reader.dart';
@@ -434,18 +435,31 @@ class LocalStreamBridge {
         }
 
         int? probedLen;
+        String? probedValidator;
+        final explicitValidator = validatorsByPath?[relPath]?.trim() ?? '';
         try {
-          probedLen = await gateway.probeFileLength(relPath);
+          if (gateway is FileValidatorProbeGateway) {
+            final meta = await gateway.probeFileMetadata(relPath);
+            probedLen = meta.length;
+            probedValidator = meta.validator?.trim();
+          } else {
+            probedLen = await gateway.probeFileLength(relPath);
+          }
           if (probedLen != null &&
               probedLen > StreamBridgeConfig.maxSubtitleMaterializeBytes) {
             return null;
           }
-        } catch (_) {}
+        } on Object {
+          // 探测失败时继续尝试直接拉取校验，避免禁用 HEAD 的远端源阻断字幕下载。
+        }
 
-        final explicitValidator = validatorsByPath?[relPath]?.trim() ?? '';
         final effectiveValidator = explicitValidator.isNotEmpty
             ? explicitValidator
-            : (probedLen != null && probedLen > 0 ? 'len:$probedLen' : '');
+            : ((probedValidator != null && probedValidator.isNotEmpty)
+                  ? probedValidator
+                  : (probedLen != null && probedLen > 0
+                        ? 'len:$probedLen'
+                        : ''));
         final cacheKey = buildSubtitleCacheKey(
           sourceId: resolvedSourceId,
           relativePath: canonical,
@@ -487,8 +501,21 @@ class LocalStreamBridge {
         final sink = partFile.openWrite();
         var writtenBytes = 0;
         var failed = false;
+        String? streamValidator;
         try {
-          final stream = await gateway.openByteRange(relPath, start: 0);
+          Stream<List<int>> stream;
+          if (gateway is ValidatedByteRangeGateway &&
+              explicitValidator.isEmpty &&
+              (probedValidator == null || probedValidator.isEmpty)) {
+            final validated = await gateway.openValidatedByteRange(
+              relPath,
+              start: 0,
+            );
+            streamValidator = validated.strongValidator?.trim();
+            stream = validated.stream;
+          } else {
+            stream = await gateway.openByteRange(relPath, start: 0);
+          }
           await for (final chunk in stream) {
             if (chunk.isEmpty) continue;
             writtenBytes += chunk.length;
@@ -502,7 +529,7 @@ class LocalStreamBridge {
           if (!failed) {
             await sink.flush();
           }
-        } catch (_) {
+        } on Object {
           failed = true;
         } finally {
           await sink.close();
@@ -521,10 +548,39 @@ class LocalStreamBridge {
           return null;
         }
 
+        var finalValidator = effectiveValidator;
+        var finalCacheKey = cacheKey;
+        var finalDestFile = destFile;
+        if (explicitValidator.isEmpty &&
+            (probedValidator == null || probedValidator.isEmpty) &&
+            streamValidator != null &&
+            streamValidator.isNotEmpty &&
+            streamValidator != effectiveValidator) {
+          finalValidator = streamValidator;
+          finalCacheKey = buildSubtitleCacheKey(
+            sourceId: resolvedSourceId,
+            relativePath: canonical,
+            validator: finalValidator,
+          );
+          final upgradedDir = Directory(
+            p.join(
+              targetDir.path,
+              pathBucket,
+              _subtitleVersionBucket(finalValidator),
+            ),
+          );
+          await upgradedDir.create(recursive: true);
+          finalDestFile = File(p.join(upgradedDir.path, baseName));
+        }
+
         try {
-          // 同卷原子 rename 发布，严禁目标路径出现半包损坏文件。
-          await partFile.rename(destFile.path);
-        } catch (_) {
+          // 同卷安全原子替换发布（兼容 Windows 目标文件已存在与并发覆盖场景）。
+          await AtomicFileWriter.replaceFile(
+            partFile,
+            finalDestFile,
+            expectedLength: writtenBytes,
+          );
+        } on Object {
           if (await partFile.exists()) {
             await partFile.delete().catchError((_) => partFile);
           }
@@ -533,11 +589,11 @@ class LocalStreamBridge {
 
         return MaterializedSubtitleRecord(
           relativePath: relPath,
-          localFilePath: destFile.path,
+          localFilePath: finalDestFile.path,
           sourceSha1: srcDigest.toString(),
           byteLength: writtenBytes,
-          cacheKey: cacheKey,
-          validator: effectiveValidator,
+          cacheKey: finalCacheKey,
+          validator: finalValidator,
         );
       }),
     );

@@ -474,6 +474,23 @@ class MainActivity : FlutterActivity() {
         val messenger = flutterEngine.dartExecutor.binaryMessenger
         MethodChannel(messenger, "ccplayer/network", StandardMethodCodec.INSTANCE,
             messenger.makeBackgroundTaskQueue()).setMethodCallHandler { call, result ->
+            if (call.method == "isMeteredNetwork") {
+                try {
+                    val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+                    if (cm == null) {
+                        result.success(false)
+                        return@setMethodCallHandler
+                    }
+                    val active = cm.activeNetwork
+                    val caps = if (active != null) cm.getNetworkCapabilities(active) else null
+                    val isCellular = caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) == true
+                    val isMetered = cm.isActiveNetworkMetered || isCellular
+                    result.success(isMetered)
+                } catch (_: Exception) {
+                    result.success(false)
+                }
+                return@setMethodCallHandler
+            }
             if (call.method != "proxy") {
                 result.notImplemented()
                 return@setMethodCallHandler

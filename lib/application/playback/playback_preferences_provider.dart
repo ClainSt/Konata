@@ -11,6 +11,7 @@ import '../../infrastructure/players/android/android_audio_route_bridge.dart';
 import '../../infrastructure/players/mpv_quality_profile.dart';
 import '../../infrastructure/storage/storage_root_provider.dart';
 import '../../infrastructure/subtitles/fontinass_cloud_client.dart';
+import '../../infrastructure/subtitles/subtitle_font_pool_manager.dart';
 import 'cloud_subset_coordinator.dart';
 import 'unified_playback_engine.dart';
 
@@ -573,11 +574,42 @@ final embeddedSessionMutexProvider = Provider<EmbeddedSessionMutex>(
   (ref) => EmbeddedSessionMutex(),
 );
 
-/// 云端子集化逐 Origin 授权状态仓储 Provider（由 Riverpod 统一托管生命周期）。
+/// 逐 Origin 云端子集化授权白名单持久化键名。
+const String kCloudSubsetAuthorizedOriginsPrefsKey =
+    'konata.cloud_subset.authorized_origins.v1';
+
+/// 云端子集化逐 Origin 授权状态仓储 Provider（由 Riverpod 统一托管生命周期并持久化至 SharedPreferences）。
 final cloudSubsetAuthorizationStoreProvider =
-    Provider<CloudSubsetAuthorizationStore>(
-      (ref) => CloudSubsetAuthorizationStore(),
-    );
+    Provider<CloudSubsetAuthorizationStore>((ref) {
+      return CloudSubsetAuthorizationStore(
+        onLoad: () async {
+          final prefs = await SharedPreferences.getInstance();
+          return prefs.getStringList(kCloudSubsetAuthorizedOriginsPrefsKey) ??
+              const <String>[];
+        },
+        onPersist: (originKeys) async {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setStringList(
+            kCloudSubsetAuthorizedOriginsPrefsKey,
+            originKeys,
+          );
+        },
+        onHydrated: () {
+          try {
+            ref.read(cloudSubsetAuthRevisionProvider.notifier).state += 1;
+          } on StateError {
+            // 容器已销毁时忽略刷新通知。
+          }
+        },
+      );
+    });
+
+/// 全站唯一字幕字库原位直挂与单级哈希池（3 集合热租约）管理器 Provider。
+final subtitleFontPoolManagerProvider = Provider<SubtitleFontPoolManager>(
+  (ref) => SubtitleFontPoolManager(
+    storageRoot: ref.read(storageRootProvider),
+  ),
+);
 
 /// FontInAss 云端子集化纯净客户端 Provider。
 final fontInAssCloudClientProvider = Provider<FontInAssCloudClient>(

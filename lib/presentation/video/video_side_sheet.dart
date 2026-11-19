@@ -653,6 +653,29 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
               ],
             ),
           ],
+          if (prefs.cloudSubsetEnabled &&
+              controller.hasExternalTextSubtitleSource) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'FontInAss 已授权源云端字体子集化',
+                    style: TextStyle(color: pPal.textMuted, fontSize: 11.5),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                KonataPillButton.ghost(
+                  key: const ValueKey('apply_cloud_subset_button'),
+                  label: '云端字库子集',
+                  icon: Icons.cloud_done_outlined,
+                  compact: true,
+                  onPressed: () =>
+                      unawaited(controller.applyCloudSubsetToActiveSubtitle()),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 12),
           Text(
             '字号：${prefs.qualityConfig.subFontSize}',

@@ -7,6 +7,7 @@ class RemoteEntry {
     required this.isDirectory,
     this.size = 0,
     this.modifiedAt,
+    this.etag,
   });
 
   /// 文件或子目录名称。
@@ -23,6 +24,22 @@ class RemoteEntry {
 
   /// 最后修改时间（若协议提供）。
   final DateTime? modifiedAt;
+
+  /// 协议返回的资源版本标识（如 WebDAV `getetag`）。
+  final String? etag;
+
+  /// 生成用于缓存版本隔离的真实源验证器（优先 `ETag`，其次 `mtime`）。
+  String? get cacheValidator {
+    final rawEtag = etag?.trim();
+    if (rawEtag != null && rawEtag.isNotEmpty) {
+      return rawEtag;
+    }
+    final mtime = modifiedAt;
+    if (mtime != null) {
+      return 'mtime:${mtime.toUtc().microsecondsSinceEpoch}';
+    }
+    return null;
+  }
 }
 
 /// 只读虚拟文件系统抽象接口（隔离 Local / WebDAV / SMB 协议细节）。

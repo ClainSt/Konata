@@ -10,7 +10,10 @@ import 'source_access_error.dart';
 
 /// 本地磁盘媒体源只读网关。
 class LocalSourceGateway
-    implements MediaSourceGateway, ByteRangeReadableGateway {
+    implements
+        MediaSourceGateway,
+        ByteRangeReadableGateway,
+        FileValidatorProbeGateway {
   /// 创建本地磁盘网关，[rootPath] 为媒体源根目录。
   LocalSourceGateway({required String rootPath})
     : _rootDir = Directory(p.normalize(rootPath));
@@ -83,6 +86,19 @@ class LocalSourceGateway
       bytes.addAll(chunk);
     }
     return utf8.decode(bytes, allowMalformed: true);
+  }
+
+  @override
+  Future<({int? length, String? validator})> probeFileMetadata(
+    String relativePath,
+  ) async {
+    final file = File(resolveAbsolutePath(relativePath));
+    if (!await file.exists()) return (length: null, validator: null);
+    final stat = await file.stat();
+    return (
+      length: stat.size,
+      validator: 'mtime:${stat.modified.toUtc().microsecondsSinceEpoch}',
+    );
   }
 
   @override

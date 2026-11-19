@@ -14,6 +14,7 @@ import '../../domain/models/series_group.dart';
 import '../../domain/models/work.dart';
 import '../../domain/playback/playback_formatters.dart';
 import '../../domain/playback/playback_probe_stats.dart';
+import '../../domain/playback/subtitle_content_processor.dart';
 import '../../domain/playback/track_preferences.dart';
 import '../../domain/playback/video_aspect_mode.dart';
 import '../../infrastructure/players/mpv_quality_profile.dart';
@@ -199,6 +200,9 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
           s.availableShaders,
           s.subtitleDelaySeconds,
           s.audioDelaySeconds,
+          s.subtitleOpenCcMode,
+          s.secondarySubtitleTrackId,
+          s.activeSubtitleSubsetState,
           s.speed,
           s.aspectMode,
           s.audioOnlyMode,
@@ -510,11 +514,86 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
             ),
             const SizedBox(height: 6),
           ],
+          if (state.subtitles.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _SectionLabel(pPal, '双语副字幕 (Secondary)'),
+            const SizedBox(height: 6),
+            Builder(
+              builder: (_) {
+                int? selectedSecondaryIdx;
+                if (state.secondarySubtitleTrackId != null) {
+                  final idx = state.subtitles.indexWhere(
+                    (s) => s.mpvTrackId == state.secondarySubtitleTrackId,
+                  );
+                  if (idx >= 0) selectedSecondaryIdx = idx;
+                }
+                return KonataDropdown<int?>(
+                  key: const ValueKey('secondary_subtitle_dropdown'),
+                  dense: true,
+                  value: selectedSecondaryIdx,
+                  options: [
+                    const KonataDropdownOption<int?>(
+                      value: null,
+                      label: '关闭副字幕',
+                    ),
+                    for (var i = 0; i < state.subtitles.length; i++)
+                      KonataDropdownOption<int?>(
+                        value: i,
+                        label:
+                            '${state.subtitles[i].primaryTitle} [${state.subtitles[i].sourceFormatBadge}]',
+                      ),
+                  ],
+                  onChanged: (idx) => unawaited(
+                    controller.selectSecondarySubtitle(
+                      idx == null ? null : state.subtitles[idx],
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: _SectionLabel(pPal, '内存字幕增强 (OpenCC)')),
+                if (state.activeSubtitleSubsetState ==
+                    SubtitleSubsetState.opaqueObfuscatedSubset)
+                  const KonataSpecBadge(
+                    key: ValueKey('subtitle_subset_guard_badge'),
+                    label: '混淆子集已保护',
+                    highlighted: true,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            KonataSegmentedCapsule<SubtitleOpenCcMode>(
+              key: const ValueKey('subtitle_opencc_segmented'),
+              expand: true,
+              compact: true,
+              options: const [
+                KonataSegmentOption(
+                  value: SubtitleOpenCcMode.none,
+                  label: '原文',
+                ),
+                KonataSegmentOption(
+                  value: SubtitleOpenCcMode.toSimplified,
+                  label: '转简体',
+                ),
+                KonataSegmentOption(
+                  value: SubtitleOpenCcMode.toTraditional,
+                  label: '转繁体',
+                ),
+              ],
+              selected: state.subtitleOpenCcMode,
+              onChanged: (mode) =>
+                  unawaited(controller.setSubtitleOpenCcMode(mode)),
+            ),
+          ],
           const SizedBox(height: 14),
           Row(
             children: [
               Expanded(child: _SectionLabel(pPal, '时间轴微调与样式')),
               if (state.subtitleDelaySeconds != 0 ||
+                  state.subtitleOpenCcMode != SubtitleOpenCcMode.none ||
                   prefs.qualityConfig.subFontSize !=
                       PlaybackQualityConfig.defaultSubFontSize ||
                   prefs.qualityConfig.subBottomMargin !=
@@ -543,6 +622,29 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
                 controller.setSubtitleDelay(state.subtitleDelaySeconds + d),
             onReset: () => controller.setSubtitleDelay(0),
           ),
+          if (state.subtitleDelaySeconds.abs() >= 0.01 &&
+              controller.hasExternalTextSubtitleSource) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '离线重映射时间戳并归零延迟',
+                    style: TextStyle(color: pPal.textMuted, fontSize: 11.5),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                KonataPillButton.ghost(
+                  key: const ValueKey('bake_subtitle_timeline_button'),
+                  label: '固化时间轴',
+                  icon: Icons.auto_fix_high_rounded,
+                  compact: true,
+                  onPressed: () =>
+                      unawaited(controller.bakeSubtitleTimelineOffset()),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 12),
           Text(
             '字号：${prefs.qualityConfig.subFontSize}',

@@ -29,30 +29,50 @@ enum VideoQualityPreset {
   final String label;
 }
 
-/// Windows 端内置高色深视频渲染后端模式（支持真机 A/B 实测择优与 `vo=gpu-next` 原生 `libplacebo` 管线）。
-enum WindowsVideoRenderBackend {
-  /// 升级版 `MPV_RENDER_API_TYPE_D3D11`：16-bit 半精度浮点 FBO + GPU IGN 抖动零拷贝共享纹理桥（100% 兼容透光材质）。
-  d3d11Fp16('d3d11_fp16', 'D3D11 16-bit 浮点共享桥'),
+/// 高色深桌面视频渲染后端模式（默认优先真 10-bit/HDR 底层硬件直通，保留兼容纹理回退）。
+///
+/// 使用跨端中性的配置键，避免 Android AOT 产物残留平台专属后端符号。
+enum DesktopVideoOutputMode {
+  /// 默认原生 `vo=gpu-next` (`libplacebo` 10-bit/HDR 翻转交换链 + 底层子窗口挖空直出)。
+  gpuNextUnderlay('gpu_next', '10-bit/HDR 直通 (vo=gpu-next)'),
 
-  /// `MPV_RENDER_API_TYPE_D3D11` 10-bit FBO + GPU 抖动零拷贝共享纹理桥。
-  d3d11TenBit('d3d11_10bit', 'D3D11 10-bit 共享桥'),
+  /// 底层 10-bit 翻转模型交换链视觉层直出。
+  directComposition10Bit('comp_10bit', '10-bit 底层合成交换链'),
 
-  /// Windows DirectComposition 10-bit (`R10G10B10A2`) 翻转模型交换链子视觉层直出。
-  directComposition10Bit('dcomp_10bit', 'DirectComposition 10-bit 子视觉层'),
+  /// 底层 16-bit scRGB HDR 交换链视觉层直出。
+  directCompositionFp16('comp_fp16', '16-bit HDR 底层合成交换链'),
 
-  /// Windows DirectComposition 16-bit scRGB (`R16G16B16A16_FLOAT`) HDR 交换链子视觉层直出。
-  directCompositionFp16('dcomp_fp16', 'DirectComposition 16-bit HDR 子视觉层'),
+  /// 老旧驱动兼容回退：高精内部 FBO 经 IGN 抖动解析至 8-bit 共享纹理。
+  legacyTextureFallback('texture_fallback', '8-bit 兼容共享纹理回退');
 
-  /// 原生 `vo=gpu-next` (`libplacebo` D3D11 10-bit/HDR 色彩管线，用于独立窗口或高色深直出实测)。
-  gpuNextLibplacebo('gpu_next', 'libplacebo (vo=gpu-next) 原生管线');
-
-  const WindowsVideoRenderBackend(this.bridgeKey, this.label);
+  const DesktopVideoOutputMode(this.bridgeKey, this.label);
 
   /// 传递给原生桥接通道的后端标识符。
   final String bridgeKey;
 
   /// 简体中文界面展示名称。
   final String label;
+
+  /// 按持久化键名或枚举名安全解析渲染后端（未知值回落默认真 10-bit 直通）。
+  static DesktopVideoOutputMode parse(Object? raw) {
+    if (raw is String) {
+      for (final mode in values) {
+        if (mode.name == raw || mode.bridgeKey == raw) {
+          return mode;
+        }
+      }
+      if (raw == 'dcomp_10bit') {
+        return DesktopVideoOutputMode.directComposition10Bit;
+      }
+      if (raw == 'dcomp_fp16') {
+        return DesktopVideoOutputMode.directCompositionFp16;
+      }
+      if (raw == 'd3d11_fp16' || raw == 'd3d11Fp16') {
+        return DesktopVideoOutputMode.legacyTextureFallback;
+      }
+    }
+    return DesktopVideoOutputMode.gpuNextUnderlay;
+  }
 }
 
 /// 音视频播放画质、音频后端与缓存持久化配置模型（强类型，严禁跨层 Map）。
@@ -60,7 +80,7 @@ class PlaybackQualityConfig {
   /// 创建画质与音画偏好配置。
   const PlaybackQualityConfig({
     this.preset = VideoQualityPreset.highFidelity,
-    this.windowsRenderBackend = WindowsVideoRenderBackend.d3d11Fp16,
+    this.desktopOutputMode = DesktopVideoOutputMode.gpuNextUnderlay,
     this.hardwareDecode = true,
     this.debandEnabled = false,
     this.demuxerMaxBytesMiB = defaultDemuxerMaxBytesMiB,
@@ -108,7 +128,7 @@ class PlaybackQualityConfig {
   );
 
   final VideoQualityPreset preset;
-  final WindowsVideoRenderBackend windowsRenderBackend;
+  final DesktopVideoOutputMode desktopOutputMode;
   final bool hardwareDecode;
   final bool debandEnabled;
   final int demuxerMaxBytesMiB;
@@ -129,7 +149,7 @@ class PlaybackQualityConfig {
   /// 复制更新局部画质或音频设置。
   PlaybackQualityConfig copyWith({
     VideoQualityPreset? preset,
-    WindowsVideoRenderBackend? windowsRenderBackend,
+    DesktopVideoOutputMode? desktopOutputMode,
     bool? hardwareDecode,
     bool? debandEnabled,
     int? demuxerMaxBytesMiB,
@@ -149,7 +169,7 @@ class PlaybackQualityConfig {
   }) {
     return PlaybackQualityConfig(
       preset: preset ?? this.preset,
-      windowsRenderBackend: windowsRenderBackend ?? this.windowsRenderBackend,
+      desktopOutputMode: desktopOutputMode ?? this.desktopOutputMode,
       hardwareDecode: hardwareDecode ?? this.hardwareDecode,
       debandEnabled: debandEnabled ?? this.debandEnabled,
       demuxerMaxBytesMiB: demuxerMaxBytesMiB ?? this.demuxerMaxBytesMiB,
@@ -358,6 +378,7 @@ class MpvQualityProfile {
     bool isRemoteStream = false,
     bool? isWindowsOverride,
     bool? isAndroidOverride,
+    int? desktopUnderlayHwnd,
     List<String>? verifiedShaderPaths,
     DiagnosticsLogStore? logStore,
   }) {
@@ -375,18 +396,26 @@ class MpvQualityProfile {
     setter.setOption(client, 'osd-level', '0');
 
     // 视频渲染后端与硬件解码策略：
-    // - Windows 支持 `vo=gpu-next` (`libplacebo` D3D11 10-bit/HDR 原生管线) 与
-    //   `vo=libmpv`（配合高色深 `DXGI_FORMAT_R16G16B16A16_FLOAT` 共享桥或 DirectComposition 10-bit 子视觉层）；
+    // - 桌面端优先通过底层子窗口 `wid` 驱动 `vo=gpu-next` (`libplacebo` 10-bit/HDR 翻转交换链)；
+    //   仅当回退至 DirectComposition 或 8-bit 兼容共享纹理桥时启用 `vo=libmpv`；
     // - Android 延迟至有效像素表面就绪后再切换至 `vo=gpu-next`，支持 libplacebo HDR/DoVi。
     if (isWindows) {
-      if (config.windowsRenderBackend ==
-          WindowsVideoRenderBackend.gpuNextLibplacebo) {
+      final useGpuNext =
+          config.desktopOutputMode == DesktopVideoOutputMode.gpuNextUnderlay &&
+          config.hardwareDecode &&
+          config.preset != VideoQualityPreset.softwareFallback;
+      if (useGpuNext) {
+        if (desktopUnderlayHwnd != null && desktopUnderlayHwnd > 0) {
+          setter.setOption(client, 'wid', '$desktopUnderlayHwnd');
+        }
         setter.setOption(client, 'vo', windowsGpuNextDriver);
         setter.setOption(client, 'gpu-api', 'd3d11');
         setter.setOption(client, 'gpu-context', 'd3d11');
         setter.setOption(client, 'd3d11-output-format', 'rgb10_a2');
         setter.setOption(client, 'd3d11-flip', 'yes');
         setter.setOption(client, 'target-colorspace-hint', 'auto');
+        setter.setOption(client, 'keepaspect', 'yes');
+        setter.setOption(client, 'background-color', '#000000');
       } else {
         setter.setOption(client, 'vo', windowsVideoDriver);
         setter.setOption(client, 'gpu-api', 'd3d11');

@@ -6,6 +6,175 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
     'ccplayer/media_store',
   );
 
+  /// 初始化底层 `libmpv` 实例并挂接 Windows 10-bit/HDR 底层直通（`vo=gpu-next` / DirectComposition）或兼容纹理回退。
+  Future<({LibMpvClient client, PlaybackQualityConfig effectiveConfig})>
+  _initializeMpvClientAndDesktopBackend({
+    required EmbeddedVideoLoadRequest request,
+    required PlaybackQualityConfig qualityConfig,
+    required Directory mpvDir,
+    required Directory workPhotoDir,
+    required List<String> verifiedShaders,
+    required bool isRemote,
+    required bool useWindowsD3D11,
+  }) async {
+    var effectiveConfig = qualityConfig;
+    D3D11VideoSessionHandle? preCreatedGpuNextHandle;
+    final wantWindowsGpuNext =
+        useWindowsD3D11 &&
+        d3d11Bridge != null &&
+        qualityConfig.desktopOutputMode ==
+            DesktopVideoOutputMode.gpuNextUnderlay &&
+        qualityConfig.hardwareDecode &&
+        qualityConfig.preset != VideoQualityPreset.softwareFallback;
+
+    if (wantWindowsGpuNext) {
+      try {
+        final handle = await d3d11Bridge!.createSession(
+          mpvHandleAddress: 0,
+          width: request.initialWidth,
+          height: request.initialHeight,
+          preferSoftware: false,
+          renderBackend: DesktopVideoOutputMode.gpuNextUnderlay.bridgeKey,
+        );
+        if (handle.nativeWindowHandle > 0 && handle.backend == 'gpu_next') {
+          preCreatedGpuNextHandle = handle;
+        } else {
+          await d3d11Bridge!.disposeSession(handle.sessionId);
+          effectiveConfig = qualityConfig.copyWith(
+            desktopOutputMode: DesktopVideoOutputMode.directComposition10Bit,
+          );
+        }
+      } catch (e) {
+        logStore?.record(
+          'mpv-windows-render',
+          'gpu_next 底层子窗口创建失败，自动回落至 10-bit 底层合成交换链：$e',
+        );
+        effectiveConfig = qualityConfig.copyWith(
+          desktopOutputMode: DesktopVideoOutputMode.directComposition10Bit,
+        );
+      }
+    }
+
+    var client = clientFactory != null
+        ? clientFactory!()
+        : FfiLibMpvClient.create();
+    _client = client;
+
+    final hwdecValue = MpvQualityProfile.resolveHwdecValue(
+      config: effectiveConfig,
+      isWindows: useWindowsD3D11,
+      isAndroid: _useAndroidSurfaceSession,
+    );
+    _hwdecWasEnabled = hwdecValue != 'no';
+    _usingSoftwareFallback = !_hwdecWasEnabled;
+
+    MpvQualityProfile.applyPreInitVideoOptions(
+      client,
+      config: effectiveConfig,
+      mpvConfigDir: mpvDir,
+      screenshotDir: workPhotoDir,
+      isRemoteStream: isRemote,
+      isWindowsOverride: useWindowsD3D11,
+      isAndroidOverride: _useAndroidSurfaceSession,
+      desktopUnderlayHwnd: preCreatedGpuNextHandle?.nativeWindowHandle,
+      verifiedShaderPaths: verifiedShaders,
+      logStore: logStore,
+    );
+
+    if (useWindowsD3D11) {
+      client.setOptionString('gpu-api', 'd3d11');
+    }
+
+    var initRc = client.initialize();
+    if (initRc < 0 && preCreatedGpuNextHandle != null) {
+      // 老旧显卡或驱动无法初始化 vo=gpu-next 时安全销毁并透明回落至 vo=libmpv 管线。
+      logStore?.record(
+        'mpv-windows-render',
+        'vo=gpu-next 初始化失败 (${client.errorString(initRc)})，回落至 vo=libmpv',
+      );
+      await client.dispose();
+      await d3d11Bridge!.disposeSession(preCreatedGpuNextHandle.sessionId);
+      preCreatedGpuNextHandle = null;
+      effectiveConfig = qualityConfig.copyWith(
+        desktopOutputMode: DesktopVideoOutputMode.directComposition10Bit,
+      );
+      client = clientFactory != null
+          ? clientFactory!()
+          : FfiLibMpvClient.create();
+      _client = client;
+      MpvQualityProfile.applyPreInitVideoOptions(
+        client,
+        config: effectiveConfig,
+        mpvConfigDir: mpvDir,
+        screenshotDir: workPhotoDir,
+        isRemoteStream: isRemote,
+        isWindowsOverride: useWindowsD3D11,
+        isAndroidOverride: _useAndroidSurfaceSession,
+        verifiedShaderPaths: verifiedShaders,
+        logStore: logStore,
+      );
+      client.setOptionString('gpu-api', 'd3d11');
+      initRc = client.initialize();
+    }
+    if (initRc < 0) {
+      if (preCreatedGpuNextHandle != null && d3d11Bridge != null) {
+        await d3d11Bridge!.disposeSession(preCreatedGpuNextHandle.sessionId);
+      }
+      throw StateError('内置播放器初始化失败: ${client.errorString(initRc)}');
+    }
+
+    client.requestLogMessages('warn');
+    _cachedMpvVersion = client.getPropertyString('mpv-version');
+    _cachedFfmpegVersion = client.getPropertyString('ffmpeg-version');
+
+    if (preCreatedGpuNextHandle != null) {
+      _d3d11SessionId = preCreatedGpuNextHandle.sessionId;
+      _usingGpuNextUnderlay = true;
+      _textureId.value = -1;
+      _underlayActive.value = true;
+      _renderBackend.value = preCreatedGpuNextHandle.backend;
+      _adapterName.value = preCreatedGpuNextHandle.adapterName;
+    } else if (useWindowsD3D11 && d3d11Bridge != null) {
+      final handle = await d3d11Bridge!.createSession(
+        mpvHandleAddress: client.handleAddress,
+        width: request.initialWidth,
+        height: request.initialHeight,
+        preferSoftware:
+            !effectiveConfig.hardwareDecode ||
+            effectiveConfig.preset == VideoQualityPreset.softwareFallback,
+        renderBackend: effectiveConfig.desktopOutputMode.bridgeKey,
+      );
+      _d3d11SessionId = handle.sessionId;
+      _usingGpuNextUnderlay = false;
+      _textureId.value = handle.textureId;
+      _underlayActive.value = handle.isUnderlayMode;
+      _renderBackend.value = handle.backend;
+      _adapterName.value = handle.adapterName;
+      if (handle.isSoftwareFallback) {
+        _usingSoftwareFallback = true;
+      }
+      _d3d11ChangeSub = d3d11Bridge!.textureChanges.listen((event) {
+        if (_disposed || event.sessionId != _d3d11SessionId) return;
+        _textureId.value = event.textureId;
+        _underlayActive.value = event.textureId < 0 && event.backend != 'sw';
+        _renderBackend.value = event.backend;
+        _adapterName.value = event.adapterName;
+        if (event.backend == 'sw') {
+          _usingSoftwareFallback = true;
+        }
+        if (event.reason.isNotEmpty) {
+          onNotice?.call(
+            event.backend == 'sw'
+                ? '图形设备已切换为软件兼容渲染 (${event.reason})'
+                : '桌面视频渲染表面已重建',
+          );
+        }
+      });
+    }
+
+    return (client: client, effectiveConfig: effectiveConfig);
+  }
+
   /// 同步更新运行中的 Windows D3D11 渲染目标分辨率。
   Future<void> resizeD3D11Target(int width, int height) async {
     final id = _d3d11SessionId;
@@ -14,6 +183,31 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
       return;
     }
     await bridge.resize(sessionId: id, width: width, height: height);
+  }
+
+  /// 同步 Windows 底层 10-bit/HDR 渲染宿主的物理像素视口矩形、圆角裁剪与显隐状态。
+  Future<void> setWindowsUnderlayViewport({
+    required int leftPx,
+    required int topPx,
+    required int rightPx,
+    required int bottomPx,
+    double cornerRadiusPx = 0.0,
+    bool visible = true,
+  }) async {
+    final id = _d3d11SessionId;
+    final bridge = d3d11Bridge;
+    if (_disposed || id == null || bridge == null || !Platform.isWindows) {
+      return;
+    }
+    await bridge.setViewportRect(
+      sessionId: id,
+      leftPx: leftPx,
+      topPx: topPx,
+      rightPx: rightPx,
+      bottomPx: bottomPx,
+      cornerRadiusPx: cornerRadiusPx,
+      visible: visible,
+    );
   }
 
   /// 截取纯净原画 PNG 视频帧（不含 UI/HUD 浮层），保存至作品目录并防重名。

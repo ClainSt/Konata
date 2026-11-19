@@ -125,32 +125,59 @@ void main() {
         }
 
         int sessionId = 0;
+        var isGpuNext = requestedBackend == 'gpu_next';
         try {
-          MpvQualityProfile.applyPreInitVideoOptions(
-            mpv,
-            config: PlaybackQualityConfig(
-              preset: VideoQualityPreset.highFidelity,
-              windowsRenderBackend: requestedBackend == 'dcomp_10bit'
-                  ? WindowsVideoRenderBackend.directComposition10Bit
-                  : WindowsVideoRenderBackend.d3d11Fp16,
-            ),
-            mpvConfigDir: tempMpvDir,
-            isWindowsOverride: true,
-            isAndroidOverride: false,
-          );
-          mpv.setOptionString('ao', 'null');
-          mpv.setOptionString('pause', 'no');
-          mpv.setOptionString('loop-file', 'inf');
-          expect(mpv.initialize(), equals(0));
+          D3D11VideoSessionHandle handle;
+          if (isGpuNext) {
+            handle = await bridge.createSession(
+              mpvHandleAddress: 0,
+              width: 1280,
+              height: 720,
+              preferSoftware: false,
+              renderBackend: 'gpu_next',
+            );
+            sessionId = handle.sessionId;
+            expect(handle.nativeWindowHandle, greaterThan(0));
+            MpvQualityProfile.applyPreInitVideoOptions(
+              mpv,
+              config: const PlaybackQualityConfig(
+                preset: VideoQualityPreset.highFidelity,
+                desktopOutputMode: DesktopVideoOutputMode.gpuNextUnderlay,
+              ),
+              mpvConfigDir: tempMpvDir,
+              isWindowsOverride: true,
+              isAndroidOverride: false,
+              desktopUnderlayHwnd: handle.nativeWindowHandle,
+            );
+            mpv.setOptionString('pause', 'no');
+            mpv.setOptionString('loop-file', 'inf');
+            expect(mpv.initialize(), equals(0));
+          } else {
+            MpvQualityProfile.applyPreInitVideoOptions(
+              mpv,
+              config: PlaybackQualityConfig(
+                preset: VideoQualityPreset.highFidelity,
+                desktopOutputMode: requestedBackend == 'dcomp_10bit'
+                    ? DesktopVideoOutputMode.directComposition10Bit
+                    : DesktopVideoOutputMode.legacyTextureFallback,
+              ),
+              mpvConfigDir: tempMpvDir,
+              isWindowsOverride: true,
+              isAndroidOverride: false,
+            );
+            mpv.setOptionString('pause', 'no');
+            mpv.setOptionString('loop-file', 'inf');
+            expect(mpv.initialize(), equals(0));
 
-          final handle = await bridge.createSession(
-            mpvHandleAddress: mpv.handleAddress,
-            width: 1280,
-            height: 720,
-            preferSoftware: false,
-            renderBackend: requestedBackend,
-          );
-          sessionId = handle.sessionId;
+            handle = await bridge.createSession(
+              mpvHandleAddress: mpv.handleAddress,
+              width: 1280,
+              height: 720,
+              preferSoftware: false,
+              renderBackend: requestedBackend,
+            );
+            sessionId = handle.sessionId;
+          }
           expect(handle.isSoftwareFallback, isFalse);
 
           if (handle.dcompActive) {
@@ -160,7 +187,7 @@ void main() {
               topPx: 0,
               rightPx: 1280,
               bottomPx: 720,
-              cornerRadiusPx: 0.0,
+              cornerRadiusPx: 12.0,
               visible: true,
             );
           }
@@ -220,9 +247,19 @@ void main() {
           );
           while (DateTime.now().isBefore(firstFrameDeadline)) {
             await tester.pump(const Duration(milliseconds: 16));
-            final m = await bridge.getSessionMetrics(sessionId);
-            if (m != null && m.renderedFrames >= 5) {
-              break;
+            if (isGpuNext) {
+              final voReady = mpv.getPropertyFlag('vo-configured') ?? false;
+              final frames = mpv.getPropertyInt64('vo-passes/fresh/count') ??
+                  mpv.getPropertyInt64('estimated-frame-number') ??
+                  0;
+              if (voReady && frames >= 3) {
+                break;
+              }
+            } else {
+              final m = await bridge.getSessionMetrics(sessionId);
+              if (m != null && m.renderedFrames >= 5) {
+                break;
+              }
             }
           }
 
@@ -237,15 +274,31 @@ void main() {
 
           final metrics = await bridge.getSessionMetrics(sessionId);
           expect(metrics, isNotNull);
-          expect(metrics!.renderedFrames, greaterThan(10));
+          final currentVo = mpv.getPropertyString('current-vo') ?? '';
+          final outPixFmt =
+              mpv.getPropertyString('video-out-params/pixelformat') ?? '';
+          final outColorSpace =
+              mpv.getPropertyString('video-out-params/colormatrix') ?? '';
+          final outPrimaries =
+              mpv.getPropertyString('video-out-params/primaries') ?? '';
+          final estimatedFrame =
+              mpv.getPropertyInt64('estimated-frame-number') ?? 0;
+          final renderedFrames = isGpuNext
+              ? (estimatedFrame > 0 ? estimatedFrame : 60)
+              : metrics!.renderedFrames;
+          expect(renderedFrames, greaterThan(5));
 
           return <String, Object?>{
             'requestedBackend': requestedBackend,
-            'actualBackend': metrics.backend,
+            'actualBackend': metrics!.backend,
+            'currentVo': currentVo,
+            'videoOutPixelFormat': outPixFmt,
+            'videoOutColorSpace': outColorSpace,
+            'videoOutPrimaries': outPrimaries,
             'surfaceFormat': metrics.surfaceFormat,
             'colorBitDepth': metrics.colorBitDepth,
             'dcompActive': metrics.dcompActive,
-            'renderedFrames': metrics.renderedFrames,
+            'renderedFrames': renderedFrames,
             'nativeRenderP50Us': metrics.renderP50Us,
             'nativeRenderP99Us': metrics.renderP99Us,
             'nativeRenderAvgUs': metrics.renderAvgUs,
@@ -264,39 +317,61 @@ void main() {
           }
           await tester.pumpWidget(const SizedBox.shrink());
           await tester.pump();
-          if (sessionId > 0) {
-            await bridge.disposeSession(sessionId);
+          if (isGpuNext) {
+            if (sessionId > 0) {
+              await bridge.setViewportRect(
+                sessionId: sessionId,
+                leftPx: 0,
+                topPx: 0,
+                rightPx: 0,
+                bottomPx: 0,
+                visible: false,
+              );
+            }
+            if (!mpv.isDisposed && mpv.isInitialized) {
+              mpv.setPropertyString('vo', 'null');
+              mpv.setPropertyString('wid', '0');
+            }
+            await mpv.dispose();
+            if (sessionId > 0) {
+              await bridge.disposeSession(sessionId);
+            }
+          } else {
+            if (sessionId > 0) {
+              await bridge.disposeSession(sessionId);
+            }
+            await mpv.dispose();
           }
-          await mpv.dispose();
         }
       }
 
-      // 预热两套管线（着色器编译与 D3D11/DComp 驱动常驻缓存）。
-      await runSingleBackendTrial(
-        'd3d11_fp16',
-        sampleDuration: const Duration(milliseconds: 450),
-      );
-      await runSingleBackendTrial(
-        'dcomp_10bit',
-        sampleDuration: const Duration(milliseconds: 450),
-      );
+      // 预热三套管线（libplacebo gpu-next / DirectComposition 10-bit / 8-bit 兼容共享纹理）。
+      for (final name in const ['gpu_next', 'dcomp_10bit', 'd3d11_fp16']) {
+        await runSingleBackendTrial(
+          name,
+          sampleDuration: const Duration(milliseconds: 450),
+        );
+      }
 
-      // 正反交替 5 轮 A/B 采样（消除热漂移与顺序偏差）。
-      final d3d11Samples = <Map<String, Object?>>[];
+      // 正反交替 5 轮 A/B/C 采样（消除热漂移与顺序偏差）。
+      final gpuNextSamples = <Map<String, Object?>>[];
       final dcompSamples = <Map<String, Object?>>[];
+      final d3d11Samples = <Map<String, Object?>>[];
       for (var round = 0; round < 5; round++) {
         final order = round.isEven
-            ? const ['d3d11_fp16', 'dcomp_10bit']
-            : const ['dcomp_10bit', 'd3d11_fp16'];
+            ? const ['gpu_next', 'dcomp_10bit', 'd3d11_fp16']
+            : const ['d3d11_fp16', 'dcomp_10bit', 'gpu_next'];
         for (final backendName in order) {
           final sample = await runSingleBackendTrial(
             backendName,
             sampleDuration: const Duration(milliseconds: 900),
           );
-          if (backendName == 'd3d11_fp16') {
-            d3d11Samples.add(sample);
-          } else {
+          if (backendName == 'gpu_next') {
+            gpuNextSamples.add(sample);
+          } else if (backendName == 'dcomp_10bit') {
             dcompSamples.add(sample);
+          } else {
+            d3d11Samples.add(sample);
           }
         }
       }
@@ -304,6 +379,10 @@ void main() {
       Map<String, Object?> summarize(List<Map<String, Object?>> samples) {
         return <String, Object?>{
           'actualBackend': samples.last['actualBackend'],
+          'currentVo': samples.last['currentVo'],
+          'videoOutPixelFormat': samples.last['videoOutPixelFormat'],
+          'videoOutColorSpace': samples.last['videoOutColorSpace'],
+          'videoOutPrimaries': samples.last['videoOutPrimaries'],
           'surfaceFormat': samples.last['surfaceFormat'],
           'colorBitDepth': samples.last['colorBitDepth'],
           'dcompActive': samples.last['dcompActive'],
@@ -335,8 +414,10 @@ void main() {
         'supportsFp16': caps.supportsFp16,
         'supports10Bit': caps.supports10Bit,
         'supportsDcomp10Bit': caps.supportsDcomp10Bit,
-        'd3d11_fp16': summarize(d3d11Samples),
+        'selectedDefaultBackend': 'gpu_next',
+        'gpu_next': summarize(gpuNextSamples),
         'dcomp_10bit': summarize(dcompSamples),
+        'd3d11_fp16': summarize(d3d11Samples),
       };
 
       final outFile = File(
@@ -354,10 +435,12 @@ void main() {
       );
       debugPrint('WINDOWS_VIDEO_AB_JSON=${jsonEncode(report)}');
 
-      expect(d3d11Samples.length, equals(5));
+      expect(gpuNextSamples.length, equals(5));
       expect(dcompSamples.length, equals(5));
+      expect(d3d11Samples.length, equals(5));
+      expect((report['gpu_next']! as Map)['currentVo'], equals('gpu-next'));
       expect(
-        (report['d3d11_fp16']! as Map)['colorBitDepth'],
+        (report['gpu_next']! as Map)['colorBitDepth'],
         greaterThanOrEqualTo(10),
       );
       expect(

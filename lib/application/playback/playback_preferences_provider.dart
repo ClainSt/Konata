@@ -260,6 +260,10 @@ class PlaybackPreferencesNotifier
   Future<void> setActiveShaderPaths(List<String> paths) =>
       updateQualityConfig((c) => c.copyWith(activeShaderPaths: List.of(paths)));
 
+  /// 切换高色深桌面视频输出后端（默认原生 10-bit/HDR `vo=gpu-next` 底层直通）。
+  Future<void> setDesktopOutputMode(DesktopVideoOutputMode mode) =>
+      updateQualityConfig((c) => c.copyWith(desktopOutputMode: mode));
+
   /// 更新默认字幕字号。
   Future<void> setSubFontSize(int size) =>
       updateQualityConfig((c) => c.copyWith(subFontSize: size.clamp(24, 96)));
@@ -341,7 +345,9 @@ class PlaybackPreferencesNotifier
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_prefsKey, jsonEncode(_encodeState(state)));
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('保存播放偏好配置失败：$e');
+    }
   }
 
   static Map<String, Object?> _encodeState(PlaybackPreferencesState s) {
@@ -360,6 +366,7 @@ class PlaybackPreferencesNotifier
       'cloudSubsetEnabled': s.cloudSubsetEnabled,
       'cloudSubsetEndpoint': s.cloudSubsetEndpoint,
       'preset': q.preset.name,
+      'desktopOutputMode': q.desktopOutputMode.bridgeKey,
       'hardwareDecode': q.hardwareDecode,
       'debandEnabled': q.debandEnabled,
       'demuxerMaxBytesMiB': q.demuxerMaxBytesMiB,
@@ -452,6 +459,9 @@ class PlaybackPreferencesNotifier
           VideoQualityPreset.values,
           map['preset'],
           VideoQualityPreset.highFidelity,
+        ),
+        desktopOutputMode: DesktopVideoOutputMode.parse(
+          map['desktopOutputMode'] ?? map['windowsRenderBackend'],
         ),
         hardwareDecode: map['hardwareDecode'] is bool
             ? map['hardwareDecode'] as bool

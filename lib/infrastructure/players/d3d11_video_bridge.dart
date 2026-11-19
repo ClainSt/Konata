@@ -58,15 +58,21 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
     return null;
   }
 
-  /// 为指定 `mpv_handle*` 创建高色深离屏共享纹理或 DirectComposition 10-bit 渲染会话。
+  /// 为指定 `mpv_handle*` 创建高色深底层 10-bit/HDR 宿主或兼容共享纹理会话。
   @override
   Future<D3D11VideoSessionHandle> createSession({
     required int mpvHandleAddress,
     int width = 1280,
     int height = 720,
     bool preferSoftware = false,
-    String renderBackend = 'd3d11_fp16',
+    String renderBackend = 'gpu_next',
   }) async {
+    final nativeBackend = switch (renderBackend) {
+      'comp_10bit' => 'dcomp_10bit',
+      'comp_fp16' => 'dcomp_fp16',
+      'texture_fallback' => 'd3d11_fp16',
+      _ => renderBackend,
+    };
     final result = await _channel.invokeMapMethod<String, Object?>(
       'createSession',
       <String, Object?>{
@@ -74,7 +80,7 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
         'width': width,
         'height': height,
         'preferSoftware': preferSoftware,
-        'renderBackend': renderBackend,
+        'renderBackend': nativeBackend,
       },
     );
     if (result == null) {
@@ -83,12 +89,12 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
     return D3D11VideoSessionHandle(
       sessionId: (result['sessionId'] as num?)?.toInt() ?? 0,
       textureId: (result['textureId'] as num?)?.toInt() ?? -1,
-      backend: result['backend']?.toString() ?? 'd3d11_fp16',
+      backend: result['backend']?.toString() ?? 'gpu_next',
       surfaceFormat:
-          result['surfaceFormat']?.toString() ??
-          'DXGI_FORMAT_R16G16B16A16_FLOAT',
-      colorBitDepth: (result['colorBitDepth'] as num?)?.toInt() ?? 16,
+          result['surfaceFormat']?.toString() ?? 'DXGI_FORMAT_R10G10B10A2_UNORM',
+      colorBitDepth: (result['colorBitDepth'] as num?)?.toInt() ?? 10,
       dcompActive: result['dcompActive'] == true,
+      nativeWindowHandle: (result['nativeWindowHandle'] as num?)?.toInt() ?? 0,
       adapterName: result['adapterName']?.toString() ?? '',
     );
   }

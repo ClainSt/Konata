@@ -97,6 +97,7 @@ class VideoPlaybackState {
     required this.currentEpisode,
     required this.currentVariant,
     this.textureId,
+    this.windowsUnderlayActive = false,
     this.renderBackend = '',
     this.adapterName = '',
     this.positionSeconds = 0.0,
@@ -138,6 +139,7 @@ class VideoPlaybackState {
   final Episode currentEpisode;
   final MediaVariant currentVariant;
   final int? textureId;
+  final bool windowsUnderlayActive;
   final String renderBackend;
   final String adapterName;
   final double positionSeconds;
@@ -185,6 +187,7 @@ class VideoPlaybackState {
     Episode? currentEpisode,
     MediaVariant? currentVariant,
     int? textureId,
+    bool? windowsUnderlayActive,
     String? renderBackend,
     String? adapterName,
     double? positionSeconds,
@@ -231,6 +234,8 @@ class VideoPlaybackState {
       currentEpisode: currentEpisode ?? this.currentEpisode,
       currentVariant: currentVariant ?? this.currentVariant,
       textureId: textureId ?? this.textureId,
+      windowsUnderlayActive:
+          windowsUnderlayActive ?? this.windowsUnderlayActive,
       renderBackend: renderBackend ?? this.renderBackend,
       adapterName: adapterName ?? this.adapterName,
       positionSeconds: positionSeconds ?? this.positionSeconds,
@@ -592,6 +597,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
         state = state.copyWith(
           isInitializing: false,
           textureId: session.textureIdListenable.value,
+          windowsUnderlayActive: session.underlayActiveListenable.value,
           renderBackend: session.renderBackendListenable.value,
           adapterName: session.adapterNameListenable.value,
           probeStats: session.collectProbeStats(),
@@ -677,6 +683,13 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     session.textureIdListenable.addListener(() {
       if (mounted) {
         state = state.copyWith(textureId: session.textureIdListenable.value);
+      }
+    });
+    session.underlayActiveListenable.addListener(() {
+      if (mounted) {
+        state = state.copyWith(
+          windowsUnderlayActive: session.underlayActiveListenable.value,
+        );
       }
     });
     session.renderBackendListenable.addListener(() {
@@ -858,7 +871,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     });
   }
 
-  /// 通知 D3D11 桥接同步视频目标渲染分辨率（Windows）。
+  /// 通知 D3D11 桥接同步视频目标渲染分辨率（Windows 兼容共享纹理回退路径）。
   void notifySurfaceViewportSize(
     double logicalWidth,
     double logicalHeight,
@@ -869,6 +882,27 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     final pw = (logicalWidth * devicePixelRatio).round().clamp(64, 7680);
     final ph = (logicalHeight * devicePixelRatio).round().clamp(64, 4320);
     unawaited(session.resizeD3D11Target(pw, ph));
+  }
+
+  /// 帧同步更新 Windows 底层 10-bit/HDR 渲染宿主的物理像素视口矩形、圆角裁剪与显隐状态。
+  Future<void> syncWindowsUnderlayViewport({
+    required int leftPx,
+    required int topPx,
+    required int rightPx,
+    required int bottomPx,
+    double cornerRadiusPx = 0.0,
+    bool visible = true,
+  }) async {
+    final session = _session;
+    if (session == null || !Platform.isWindows) return;
+    await session.setWindowsUnderlayViewport(
+      leftPx: leftPx,
+      topPx: topPx,
+      rightPx: rightPx,
+      bottomPx: bottomPx,
+      cornerRadiusPx: cornerRadiusPx,
+      visible: visible,
+    );
   }
 
   void togglePlayPause() {

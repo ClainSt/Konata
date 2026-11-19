@@ -1,4 +1,4 @@
-/// 跨平台外接视频纹理桥接句柄（屏蔽桌面 D3D11 / DirectComposition 实现细节以支撑 Android 入口零桌面残留裁剪）。
+/// 跨平台外接视频纹理与底层 10-bit 渲染宿主桥接句柄（屏蔽平台渲染细节以支撑 Android 入口零桌面残留裁剪）。
 class D3D11VideoSessionHandle {
   /// 创建会话句柄对象。
   const D3D11VideoSessionHandle({
@@ -6,34 +6,41 @@ class D3D11VideoSessionHandle {
     required this.textureId,
     required this.backend,
     required this.adapterName,
-    this.surfaceFormat = 'DXGI_FORMAT_R16G16B16A16_FLOAT',
-    this.colorBitDepth = 16,
+    this.surfaceFormat = 'DXGI_FORMAT_R10G10B10A2_UNORM',
+    this.colorBitDepth = 10,
     this.dcompActive = false,
+    this.nativeWindowHandle = 0,
   });
 
   /// 原生端会话编号。
   final int sessionId;
 
-  /// Flutter 外接纹理绑定编号（DirectComposition 独立子视觉层模式为 `-1`）。
+  /// Flutter 外接纹理绑定编号（底层 10-bit/HDR 挖空模式为 `-1`）。
   final int textureId;
 
-  /// 实际启用的渲染后端名称（如 `d3d11_fp16`、`d3d11_10bit`、`dcomp_10bit`、`dcomp_fp16` 或 `sw`）。
+  /// 实际启用的渲染后端名称（如 `gpu_next`、`dcomp_10bit`、`dcomp_fp16`、`d3d11_fp16` 或 `sw`）。
   final String backend;
 
-  /// 实际使用的 DXGI 表面像素格式名称。
+  /// 实际使用的像素格式名称。
   final String surfaceFormat;
 
   /// 实际激活的通道位深（16 / 10 / 8）。
   final int colorBitDepth;
 
-  /// 当前是否运行于 DirectComposition 独立子视觉层模式。
+  /// 当前是否运行于底层 10-bit/HDR 视口挖空直出模式。
   final bool dcompActive;
+
+  /// 原生底层子窗口句柄（`gpu_next` 模式下透传至 `libmpv` `wid` 选项）。
+  final int nativeWindowHandle;
 
   /// 图形适配器名称或软件渲染说明。
   final String adapterName;
 
   /// 当前是否运行于软件渲染回退模式。
   bool get isSoftwareFallback => backend == 'sw';
+
+  /// 当前是否运行于底层挖空硬件直出模式（需由上层 `BlendMode.clear` 挖空同步视口）。
+  bool get isUnderlayMode => !isSoftwareFallback && (dcompActive || textureId < 0);
 
   /// 复制并更新热切换后的纹理与后端信息。
   D3D11VideoSessionHandle copyWith({
@@ -42,6 +49,7 @@ class D3D11VideoSessionHandle {
     String? surfaceFormat,
     int? colorBitDepth,
     bool? dcompActive,
+    int? nativeWindowHandle,
     String? adapterName,
   }) {
     return D3D11VideoSessionHandle(
@@ -51,6 +59,7 @@ class D3D11VideoSessionHandle {
       surfaceFormat: surfaceFormat ?? this.surfaceFormat,
       colorBitDepth: colorBitDepth ?? this.colorBitDepth,
       dcompActive: dcompActive ?? this.dcompActive,
+      nativeWindowHandle: nativeWindowHandle ?? this.nativeWindowHandle,
       adapterName: adapterName ?? this.adapterName,
     );
   }
@@ -122,13 +131,13 @@ abstract interface class KonataVideoTextureBridge {
   /// 原生设备丢失重建或后端降级时推送的新纹理通知流。
   Stream<D3D11TextureChangedEvent> get textureChanges;
 
-  /// 为指定原生 `mpv_handle*` 创建高色深渲染会话并按需注册外部纹理。
+  /// 为指定原生 `mpv_handle*`（或 `gpu_next` 预建底层子窗口时为 `0`）创建高色深渲染会话。
   Future<D3D11VideoSessionHandle> createSession({
     required int mpvHandleAddress,
     int width = 1280,
     int height = 720,
     bool preferSoftware = false,
-    String renderBackend = 'd3d11_fp16',
+    String renderBackend = 'gpu_next',
   });
 
   /// 通知原生渲染目标同步调整分辨率。

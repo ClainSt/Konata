@@ -6,7 +6,6 @@ import 'dart:ui';
 import 'package:ccplayer/application/playback/unified_playback_engine.dart';
 import 'package:ccplayer/application/playback/video_playback_controller.dart';
 import 'package:ccplayer/application/providers/library_providers.dart';
-import 'package:ccplayer/application/providers/playback_providers.dart';
 import 'package:ccplayer/composition/platform_composition.dart';
 import 'package:ccplayer/domain/models/episode.dart';
 import 'package:ccplayer/domain/models/media_source.dart';
@@ -15,7 +14,6 @@ import 'package:ccplayer/domain/models/work.dart';
 import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
 import 'package:ccplayer/infrastructure/database/konata_database.dart';
 import 'package:ccplayer/infrastructure/players/d3d11_video_bridge.dart';
-import 'package:ccplayer/infrastructure/players/embedded_mpv_session.dart';
 import 'package:ccplayer/infrastructure/players/libmpv_ffi.dart';
 import 'package:ccplayer/infrastructure/players/windows_mpv_profile_adapter.dart';
 import 'package:ccplayer/infrastructure/storage/storage_root_provider.dart';
@@ -259,8 +257,6 @@ void main() {
       source: source,
     );
 
-    LibMpvClient? liveClient;
-    EmbeddedMpvSession? liveSession;
     ProviderContainer? liveContainer;
 
     final morphKey = GlobalKey<KonataStageMorphFrameState>();
@@ -297,37 +293,15 @@ void main() {
         konataVideoBridgeFactoryProvider.overrideWithValue(() => winBridge),
       if (desktopDelegate != null)
         mpvPlatformProfileDelegateProvider.overrideWithValue(desktopDelegate),
-      videoPlaybackProvider.overrideWith(
-        (ref, req) => VideoPlaybackController(
-          ref,
-          req,
-          sessionFactory: () {
-            final bridgeFactory = ref.read(konataVideoBridgeFactoryProvider);
-            final bridge = bridgeFactory();
-            final delegate = ref.read(mpvPlatformProfileDelegateProvider);
-            final engine = ref.read(unifiedPlaybackEngineProvider);
-            final session = EmbeddedMpvSession(
-              storageRoot: ref.read(storageRootProvider),
-              streamBridge: ref.read(localStreamBridgeProvider),
-              desktopSurfaceBridge: bridge,
-              desktopProfileDelegate: delegate,
-              nativeClientAcquirer: ({onEvicted}) async {
-                final lease = await engine.acquireExclusiveNativeClient(
-                  stage: PlaybackStageKind.video,
-                  factoryOverride: () =>
-                      FfiLibMpvClient.create(preferredLibraryPath: winDll),
-                  onEvicted: onEvicted,
-                );
-                liveClient = lease.client;
-                return lease.client;
-              },
-              nativeClientReleaser: engine.releaseNativeClient,
-            );
-            liveSession = session;
-            return session;
-          },
+      if (Platform.isWindows && winDll != null)
+        unifiedPlaybackEngineProvider.overrideWithValue(
+          UnifiedPlaybackEngine(
+            defaultClientFactory: ({preferredLibraryPath}) =>
+                FfiLibMpvClient.create(
+                  preferredLibraryPath: preferredLibraryPath ?? winDll,
+                ),
+          ),
         ),
-      ),
     ];
 
     Widget buildHost() => ProviderScope(
@@ -343,7 +317,8 @@ void main() {
       ),
     );
 
-    // 1. 冷启动真实 EmbeddedVideoPage，记录冷启动真实首帧耗时（严禁 vo=null/ao=null）。
+    // 1. 冷启动真实 EmbeddedVideoPage（全程走未裁剪的生产 VideoPlaybackController 与 UnifiedPlaybackEngine），
+    // 记录冷启动真实首帧耗时（严禁 vo=null/ao=null）。
     final coldWatch = Stopwatch()..start();
     await tester.pumpWidget(buildHost());
 
@@ -354,7 +329,9 @@ void main() {
         videoPlaybackProvider(launchRequest).notifier,
       );
       final st = liveContainer?.read(videoPlaybackProvider(launchRequest));
-      final c = liveClient;
+      final c = liveContainer
+          ?.read(unifiedPlaybackEngineProvider)
+          .activeNativeClient;
       if (ctrl != null &&
           st != null &&
           st.hasFirstFrame &&
@@ -378,13 +355,31 @@ void main() {
     coldWatch.stop();
     final coldTtffUs = coldWatch.elapsedMicroseconds;
 
+    final engine = liveContainer!.read(unifiedPlaybackEngineProvider);
+    final coldState = liveContainer!.read(videoPlaybackProvider(launchRequest));
     final controller = liveContainer!.read(
       videoPlaybackProvider(launchRequest).notifier,
     );
-    final client = liveClient!;
+    final client = engine.activeNativeClient!;
     addTearDown(() async {
       await controller.closeAndRelease();
     });
+    expect(
+      coldState.hasFirstFrame,
+      isTrue,
+      reason: '冷启动必须在超时窗口内触发真实首帧上屏（hasFirstFrame == true）',
+    );
+    expect(
+      coldTtffUs,
+      lessThan(const Duration(seconds: 12).inMicroseconds),
+      reason:
+          '冷启动首帧耗时不得触碰超时红线（实测 ${(coldTtffUs / 1000).toStringAsFixed(1)} ms）',
+    );
+    expect(
+      engine.liveNativeClientCount,
+      equals(1),
+      reason: '真实视频冷启动后全进程必须仅存活 1 个受统一内核托管的 LibMpvClient',
+    );
 
     // 调低音量避免噪声但保持真实 WASAPI/AAudio 音频硬件链路持续输出。
     controller.setVolume(5.0);
@@ -543,7 +538,7 @@ void main() {
         );
         await tester.pump(const Duration(milliseconds: 32));
         if (!controller.isHudProgressActive &&
-            liveSession?.isPositionObservationEnabled == false) {
+            !controller.isPositionObservationEnabled) {
           break;
         }
       }
@@ -559,7 +554,7 @@ void main() {
         reason: '第 ${round + 1} 轮满 3 秒无操作后 OSD 必须自动隐藏并挂起进度派发',
       );
       expect(
-        liveSession?.isPositionObservationEnabled,
+        controller.isPositionObservationEnabled,
         isFalse,
         reason: '第 ${round + 1} 轮 OSD 隐藏后必须通过 mpv_unobserve_property 退订 time-pos',
       );

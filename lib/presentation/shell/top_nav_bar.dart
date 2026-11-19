@@ -366,7 +366,22 @@ class _TopNavTabStripState extends State<_TopNavTabStrip>
             if (_fromLeft != null && _toLeft != null)
               AnimatedBuilder(
                 animation: _sliderCtrl,
-                builder: (context, _) {
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    key: const ValueKey('top_nav_fluid_indicator'),
+                    decoration: BoxDecoration(
+                      color: p.progressFill,
+                      borderRadius: KonataTheme.borderRadiusPill,
+                      boxShadow: [
+                        BoxShadow(
+                          color: p.progressFill.withValues(alpha: 0.42),
+                          blurRadius: 8,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                builder: (context, indicator) {
                   final edges = _currentEdges();
                   final width = (edges.right - edges.left).clamp(
                     _indicatorRestWidth * 0.5,
@@ -377,21 +392,7 @@ class _TopNavTabStripState extends State<_TopNavTabStrip>
                     bottom: 0,
                     width: width,
                     height: _indicatorHeight,
-                    child: IgnorePointer(
-                      child: DecoratedBox(
-                        key: const ValueKey('top_nav_fluid_indicator'),
-                        decoration: BoxDecoration(
-                          color: p.progressFill,
-                          borderRadius: KonataTheme.borderRadiusPill,
-                          boxShadow: [
-                            BoxShadow(
-                              color: p.progressFill.withValues(alpha: 0.42),
-                              blurRadius: 8,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+                    child: indicator!,
                   );
                 },
               ),
@@ -473,11 +474,9 @@ class _TextNavTabState extends State<_TextNavTab> {
                   final textColor =
                       Color.lerp(inactiveColor, p.textPrimary, t) ??
                       p.textPrimary;
-                  final weight = lerpDouble(
-                    KonataTheme.weightRegularLabel,
-                    KonataTheme.weightActive,
-                    t,
-                  )!;
+                  final weight = t >= 0.5
+                      ? KonataTheme.weightActive
+                      : KonataTheme.weightRegularLabel;
                   final activeStyle = KonataTheme.textStyle(
                     color: textColor,
                     fontSize: KonataTheme.fontSizeBodyMd,
@@ -488,7 +487,7 @@ class _TextNavTabState extends State<_TextNavTab> {
                               color: p.progressFill.withValues(
                                 alpha: (p.isDark ? 0.35 : 0.16) * t,
                               ),
-                              blurRadius: 12 * t,
+                              blurRadius: 12.0,
                             ),
                           ]
                         : null,

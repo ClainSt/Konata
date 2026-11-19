@@ -7,10 +7,10 @@ import '../../theme/konata_theme.dart';
 /// 特性：
 /// - 闲置页面保持挂载以 100% 保留滚动位置与状态，同时自动施加
 ///   `Offstage` + `TickerMode(enabled: false)` + `IgnorePointer` + `ExcludeFocus` 零绘制休眠；
-/// - 切页过渡改由 `SlideTransition` 在原生合成层驱动（0 次逐帧 Widget 重建）；
-///   实底画布模式（传入 `scrimFadeColor`）以零离屏 `saveLayer` 的单次画布遮罩实现数学等价淡入，
-///   彻底消除高分屏全屏离屏纹理拷贝引发的光栅 P99 毛刺；透明桌面材质模式则采用单层 `FadeTransition`；
-/// - 静息态绑定常量动画 `kAlwaysCompleteAnimation` / `_kZeroOffsetAnimation`，彻底跳过离屏层分配。
+/// - 固定各页槽位顺序与稳定子树结构，绝不触发 `GlobalKey` 跨节点重挂；
+/// - 实底画布模式（传入 `scrimFadeColor`）以零离屏 `saveLayer` 的单次同色遮罩叠加
+///   `SlideTransition` 实现数学等价淡入滑入，彻底消除高分屏全屏离屏纹理拷贝引发的光栅 P99 毛刺；
+/// - 透明桌面材质模式仅在进场瞬态施加轻量位移淡入，动画结束后立即解绑动画监听，静息态零额外合成层。
 class KonataKeepAliveTabSwitcher extends StatefulWidget {
   /// 创建保状态方向感页面切换容器。
   const KonataKeepAliveTabSwitcher({
@@ -155,10 +155,7 @@ class _KonataKeepAliveTabSwitcherState
       fit: StackFit.expand,
       children: [
         for (var i = 0; i < _wrappedChildren.length; i++)
-          if (_mountedFlags[i] && i != widget.activeIndex)
-            _buildSlot(i, useScrimFade: useScrimFade),
-        if (_mountedFlags[widget.activeIndex])
-          _buildSlot(widget.activeIndex, useScrimFade: useScrimFade),
+          if (_mountedFlags[i]) _buildSlot(i, useScrimFade: useScrimFade),
         if (useScrimFade && _animating)
           Positioned.fill(
             child: IgnorePointer(
@@ -178,8 +175,30 @@ class _KonataKeepAliveTabSwitcherState
     final isActive = index == widget.activeIndex;
     final animatingIn = isActive && _animating;
 
-    // 保持 Widget 树层级结构在进场与静息态完全一致，防止子页面 State 与
-    // 列表 ScrollPosition 被拆装重建；切页时旧页立即休眠离屏，仅对进场页施加单层原生合成过渡。
+    // 保持固定槽位顺序与一致子树结构，防止子页面状态与滚动位置重建；
+    // 实底画布模式彻底免除透明离屏合成层，透明桌面模式仅在进场瞬态施加轻量位移淡入且终态解绑监听。
+    final Widget content;
+    if (useScrimFade) {
+      content = SlideTransition(
+        position: animatingIn ? _incomingSlide : _kZeroOffsetAnimation,
+        child: _wrappedChildren[index],
+      );
+    } else {
+      content = AnimatedBuilder(
+        animation: animatingIn ? _curved : kAlwaysCompleteAnimation,
+        child: _wrappedChildren[index],
+        builder: (_, child) {
+          final t = animatingIn ? _curved.value.clamp(0.0, 1.0) : 1.0;
+          final dx = animatingIn
+              ? _direction * widget.incomingSlidePixels * (1.0 - t)
+              : 0.0;
+          return Opacity(
+            opacity: t,
+            child: Transform.translate(offset: Offset(dx, 0), child: child),
+          );
+        },
+      );
+    }
     return Offstage(
       key: ValueKey<int>(index),
       offstage: !isActive,
@@ -187,18 +206,7 @@ class _KonataKeepAliveTabSwitcherState
         ignoring: !isActive,
         child: ExcludeFocus(
           excluding: !isActive,
-          child: TickerMode(
-            enabled: isActive,
-            child: FadeTransition(
-              opacity: (!useScrimFade && animatingIn)
-                  ? _curved
-                  : kAlwaysCompleteAnimation,
-              child: SlideTransition(
-                position: animatingIn ? _incomingSlide : _kZeroOffsetAnimation,
-                child: _wrappedChildren[index],
-              ),
-            ),
-          ),
+          child: TickerMode(enabled: isActive, child: content),
         ),
       ),
     );

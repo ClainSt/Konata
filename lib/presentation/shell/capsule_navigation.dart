@@ -31,9 +31,10 @@ class CapsuleNavigation extends StatelessWidget {
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: 1.15,
       child: KonataGlassCapsule(
-        // 平板左侧纵排胶囊处于独立纯色避让带，像素等价预混省去全幅离屏模糊拷贝；
-        // 手机底部横排胶囊悬浮于滚动内容上方，保留实时底层毛玻璃模糊。
-        enableBackdropBlur: !vertical,
+        // 平板左侧纵排胶囊处于独立纯色避让带采用像素等价预混；
+        // 手机底部横排胶囊在 Android OpenGL ES 管线下采用半透烟熏磨砂表面，
+        // 避免根 Stack 触发全屏离屏 FBO 拷贝与大半径高斯模糊导致显存与光栅 P99 飙升。
+        enableBackdropBlur: false,
         solidBackdropColor: vertical ? canvasColor : null,
         child: Padding(
           padding: const EdgeInsets.all(KonataAdaptiveTokens.navigationPadding),

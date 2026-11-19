@@ -187,6 +187,7 @@ class EmbeddedMpvSession {
   void Function(String message)? onFatalError;
 
   /// 统一内核同步钩子：由上层注入以串入 `UnifiedPlaybackEngine` 与 `AudiophileSafetyCoordinator`。
+  void Function(LibMpvClient client)? onNativeClientBound;
   String? Function(String leaseToken)? onBindMainStreamLease;
   void Function(int playlistEntryId)? onPlaylistEntryStarted;
   bool Function({int? playlistEntryId})? onValidatePhysicalEvent;

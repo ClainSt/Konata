@@ -897,6 +897,7 @@ void main() {
                         stage: PlaybackStageKind.video,
                         factoryOverride: () {
                           final c = _R2FakeMpvClient();
+                          c.intProps['video-params/w'] = 1920;
                           createdVideoClients.add(c);
                           return c;
                         },
@@ -941,7 +942,10 @@ void main() {
         final videoCtrl = container.read(
           videoPlaybackProvider(videoReq).notifier,
         );
-        await _pumpUntil(() => !videoCtrl.state.isInitializing);
+        await _pumpUntil(
+          () => !videoCtrl.state.isInitializing && videoCtrl.state.hasFirstFrame,
+        );
+        expect(videoCtrl.state.hasFirstFrame, isTrue);
         expect(engine.activeStage, equals(PlaybackStageKind.video));
         expect(firstAudioClient.isDisposed, isTrue);
         expect(createdVideoClients.length, equals(1));

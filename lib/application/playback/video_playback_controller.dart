@@ -405,6 +405,10 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   /// 当前是否开启高频播放进度向 UI 派发（OSD 隐藏或画中画静默期为 `false`，保持 0 重绘唤醒）。
   bool get isHudProgressActive => _hudProgressActive;
 
+  /// 当前底层 `libmpv` 是否仍保持 `time-pos` 属性订阅（供集成测试与诊断核验静默退订）。
+  bool get isPositionObservationEnabled =>
+      _session?.isPositionObservationEnabled ?? false;
+
   /// 当前真实播放秒数（即使 OSD 隐藏静默期未刷新 `state.positionSeconds` 亦保持精确）。
   double get currentPositionSeconds =>
       _hudProgressActive ? state.positionSeconds : _latestPositionSeconds;
@@ -554,15 +558,6 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       final shadersDir = await storageRoot.ensureShadersDir();
       final shaders = await MpvQualityProfile.discoverShaderFiles(shadersDir);
 
-      if (sessionFactory != null) {
-        _boundNativeInstanceId = _engine.attachNativeInstance(
-          stage: PlaybackStageKind.video,
-        );
-        _boundPhysicalEpoch = _engine.beginPhysicalMedia(
-          nativeInstanceId: _boundNativeInstanceId,
-          stage: PlaybackStageKind.video,
-        );
-      }
       _engine.recordManualSelection();
 
       final session = sessionFactory != null
@@ -594,6 +589,15 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
               subtitleDirectoryIndex: _ref.read(subtitleDirectoryIndexProvider),
               fontPoolManager: _ref.read(subtitleFontPoolManagerProvider),
             );
+      if (sessionFactory != null && session.nativeClientAcquirer == null) {
+        _boundNativeInstanceId = _engine.attachNativeInstance(
+          stage: PlaybackStageKind.video,
+        );
+        _boundPhysicalEpoch = _engine.beginPhysicalMedia(
+          nativeInstanceId: _boundNativeInstanceId,
+          stage: PlaybackStageKind.video,
+        );
+      }
       _session = session;
       unawaited(_preloadAdjacentSeriesBundles());
 
@@ -684,6 +688,17 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   }
 
   void _bindSessionCallbacks(EmbeddedMpvSession session) {
+    session.onNativeClientBound = (client) {
+      if (identical(_engine.activeNativeClient, client) &&
+          _engine.activeStage == PlaybackStageKind.video &&
+          _boundNativeInstanceId != _engine.nativeInstanceId) {
+        _boundNativeInstanceId = _engine.nativeInstanceId;
+        _boundPhysicalEpoch = _engine.beginPhysicalMedia(
+          nativeInstanceId: _boundNativeInstanceId,
+          stage: PlaybackStageKind.video,
+        );
+      }
+    };
     session.onBindMainStreamLease = (token) =>
         _engine.bindMainStreamLease(token);
     session.onPlaylistEntryStarted = (entryId) =>

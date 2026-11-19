@@ -9,7 +9,7 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
   /// 经统一播放内核互斥申请唯一原生 `LibMpvClient`（禁止在会话层私自实例化 `FfiLibMpvClient`）。
   Future<LibMpvClient> _acquireManagedNativeClient() async {
     if (nativeClientAcquirer != null) {
-      return nativeClientAcquirer!(
+      final acquired = await nativeClientAcquirer!(
         onEvicted: () async {
           await _eventSub?.cancel();
           _eventSub = null;
@@ -23,9 +23,13 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
           }
         },
       );
+      onNativeClientBound?.call(acquired);
+      return acquired;
     }
     if (clientFactory != null) {
-      return clientFactory!();
+      final created = clientFactory!();
+      onNativeClientBound?.call(created);
+      return created;
     }
     throw StateError(
       'EmbeddedMpvSession 必须经 UnifiedPlaybackEngine（nativeClientAcquirer）或测试 clientFactory 申请唯一 LibMpvClient',

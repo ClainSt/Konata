@@ -179,8 +179,8 @@ class MainActivity : FlutterActivity() {
         return FlutterActivityLaunchConfigs.BackgroundMode.transparent
     }
 
-    override fun configureFlutterSurfaceView(flutterSurfaceView: FlutterSurfaceView) {
-        super.configureFlutterSurfaceView(flutterSurfaceView)
+    override fun onFlutterSurfaceViewCreated(flutterSurfaceView: FlutterSurfaceView) {
+        super.onFlutterSurfaceViewCreated(flutterSurfaceView)
         // 显式覆写 Flutter 透明模式默认施加的 setZOrderOnTop(true)：
         // 将 Flutter 表面精确锚定在 MediaOverlay 层（严格位于底层索引 0 视频 SurfaceView 之上，
         // 同时保持在窗口 DecorView 顶层浮层与 PixelCopy.request(window, ...) 体系之内）。

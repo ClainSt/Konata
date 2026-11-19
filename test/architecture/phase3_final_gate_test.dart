@@ -239,8 +239,8 @@ void main() {
       if (usesSurface) {
         expect(
           mainActivitySrc,
-          contains('override fun configureFlutterSurfaceView'),
-          reason: '使用 RenderMode.surface 时必须覆写 configureFlutterSurfaceView',
+          contains('override fun onFlutterSurfaceViewCreated'),
+          reason: '使用 RenderMode.surface 时必须覆写 onFlutterSurfaceViewCreated',
         );
         expect(mainActivitySrc, contains('setZOrderOnTop(false)'));
         expect(mainActivitySrc, contains('setZOrderMediaOverlay(true)'));

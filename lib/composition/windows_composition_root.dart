@@ -188,14 +188,9 @@ class WindowsCompositionRoot {
       });
     }
 
-    final storageRoot =
-        (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
-        ? await StorageRootService.createForCurrentPlatform()
-        : null;
-
     runApp(
       ProviderScope(
-        overrides: providerOverrides(storageRoot: storageRoot),
+        overrides: providerOverrides(),
         child: const KonataApp(),
       ),
     );

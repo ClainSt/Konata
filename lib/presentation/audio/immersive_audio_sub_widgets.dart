@@ -12,6 +12,7 @@ import '../../domain/playback/playback_formatters.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
+import '../theme/konata_theme.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/managed_image.dart';
 import '../widgets/playback/konata_playback_capsule.dart';
@@ -70,10 +71,10 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
           };
 
     final activeSize = compact
-        ? 18.0
+        ? KonataPlaybackTokens.lyricCompactActiveFontSize
         : KonataPlaybackTokens.lyricActiveFontSize;
     final inactiveSize = compact
-        ? 14.5
+        ? KonataPlaybackTokens.lyricCompactInactiveFontSize
         : KonataPlaybackTokens.lyricInactiveFontSize;
     final spanLine = activeSpanLine;
     final leadSpans = spanLine == null
@@ -129,23 +130,14 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
       );
     } else {
       primaryBody = AnimatedDefaultTextStyle(
-        duration: const Duration(milliseconds: 160),
+        duration: KonataPlaybackTokens.lyricStyleTransitionDuration,
         curve: Curves.easeOutCubic,
         style: TextStyle(
           color: isActive ? p.textPrimary : p.textSecondary,
           fontSize: isActive ? activeSize : inactiveSize,
           fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
           height: 1.35,
-          shadows: isActive
-              ? [
-                  Shadow(
-                    color: p.isDark
-                        ? Colors.white.withValues(alpha: 0.32)
-                        : Colors.black.withValues(alpha: 0.10),
-                    blurRadius: 16,
-                  ),
-                ]
-              : null,
+          shadows: isActive ? KonataPlaybackTokens.lyricGlowShadow(p) : null,
         ),
         child: Text(line.primaryText),
       );
@@ -236,14 +228,11 @@ class _ActiveSpanWordSweepLeaf extends ConsumerWidget {
             : (isLit ? FontWeight.w700 : FontWeight.w500),
         height: isHarmony ? 1.28 : 1.35,
         shadows: isLit && !isHarmony
-            ? [
-                Shadow(
-                  color: palette.isDark
-                      ? Colors.white.withValues(alpha: 0.36 * progress)
-                      : Colors.black.withValues(alpha: 0.12 * progress),
-                  blurRadius: 14,
-                ),
-              ]
+            ? KonataPlaybackTokens.lyricGlowShadow(
+                palette,
+                intensity: progress,
+                blurRadius: KonataPlaybackTokens.lyricSweepGlowBlurRadius,
+              )
             : null,
       ),
     );
@@ -323,7 +312,7 @@ class ImmersiveTwoLineLyricPreviewLeaf extends ConsumerWidget {
 
     return RepaintBoundary(
       child: SizedBox(
-        height: 42,
+        height: KonataPlaybackTokens.lyricPreviewHeight,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.center,
@@ -334,7 +323,7 @@ class ImmersiveTwoLineLyricPreviewLeaf extends ConsumerWidget {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: p.textPrimary,
-                fontSize: 14,
+                fontSize: KonataPlaybackTokens.lyricPreviewPrimaryFontSize,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -344,7 +333,10 @@ class ImmersiveTwoLineLyricPreviewLeaf extends ConsumerWidget {
                 secondary,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: p.textSecondary, fontSize: 12.5),
+                style: TextStyle(
+                  color: p.textSecondary,
+                  fontSize: KonataPlaybackTokens.lyricPreviewSecondaryFontSize,
+                ),
               ),
             ],
           ],
@@ -467,15 +459,22 @@ class _ImmersiveTouchAudioScrubberLeafState
         children: [
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
-              trackHeight: 3.5,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.5),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+              trackHeight: KonataPlaybackTokens.touchScrubberTrackHeight,
+              thumbShape: const RoundSliderThumbShape(
+                enabledThumbRadius:
+                    KonataPlaybackTokens.touchScrubberThumbRadius,
+              ),
+              overlayShape: const RoundSliderOverlayShape(
+                overlayRadius: KonataPlaybackTokens.touchScrubberOverlayRadius,
+              ),
               activeTrackColor: p.progressFill,
               inactiveTrackColor: p.progressTrack,
               thumbColor: p.textPrimary,
             ),
             child: SizedBox(
-              height: widget.compact ? 26 : 34,
+              height: widget.compact
+                  ? KonataPlaybackTokens.touchScrubberCompactHeight
+                  : KonataPlaybackTokens.touchScrubberHeight,
               child: Slider(
                 value: total > 0 ? (effective / total).clamp(0.0, 1.0) : 0.0,
                 onChangeStart: total > 0
@@ -503,7 +502,7 @@ class _ImmersiveTouchAudioScrubberLeafState
                   posText,
                   style: TextStyle(
                     color: p.textSecondary,
-                    fontSize: 11.5,
+                    fontSize: KonataPlaybackTokens.touchScrubberTimeFontSize,
                     fontFeatures: KonataPlaybackTokens.tabularNumbers,
                   ),
                 ),
@@ -511,7 +510,7 @@ class _ImmersiveTouchAudioScrubberLeafState
                   durText,
                   style: TextStyle(
                     color: p.textSecondary,
-                    fontSize: 11.5,
+                    fontSize: KonataPlaybackTokens.touchScrubberTimeFontSize,
                     fontFeatures: KonataPlaybackTokens.tabularNumbers,
                   ),
                 ),
@@ -607,7 +606,8 @@ class _ImmersiveBorderlessQueueRowState
                                       : (_hovered
                                             ? p.textSecondary
                                             : p.textMuted),
-                                  fontSize: 12.5,
+                                  fontSize:
+                                      KonataPlaybackTokens.queueRowPrefixFontSize,
                                   fontWeight: isExpandedParent
                                       ? FontWeight.w600
                                       : FontWeight.w500,
@@ -623,25 +623,31 @@ class _ImmersiveBorderlessQueueRowState
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       AnimatedDefaultTextStyle(
-                        duration: const Duration(milliseconds: 140),
+                        duration:
+                            KonataPlaybackTokens.queueRowTransitionDuration,
                         curve: Curves.easeOutCubic,
                         style: TextStyle(
                           color: color,
                           fontSize: active
-                              ? (isSubTrack ? 15.0 : 16.0)
-                              : (isSubTrack ? 13.8 : 14.5),
+                              ? (isSubTrack
+                                    ? KonataPlaybackTokens
+                                          .queueSubTrackTitleActiveFontSize
+                                    : KonataPlaybackTokens
+                                          .queueRowTitleActiveFontSize)
+                              : (isSubTrack
+                                    ? KonataPlaybackTokens
+                                          .queueSubTrackTitleInactiveFontSize
+                                    : KonataPlaybackTokens
+                                          .queueRowTitleInactiveFontSize),
                           fontWeight: (active || isExpandedParent)
                               ? FontWeight.w600
                               : FontWeight.w400,
                           shadows: active
-                              ? [
-                                  Shadow(
-                                    color: p.isDark
-                                        ? Colors.white.withValues(alpha: 0.42)
-                                        : Colors.black.withValues(alpha: 0.10),
-                                    blurRadius: 14,
-                                  ),
-                                ]
+                              ? KonataPlaybackTokens.lyricGlowShadow(
+                                  p,
+                                  blurRadius: KonataPlaybackTokens
+                                      .lyricSweepGlowBlurRadius,
+                                )
                               : null,
                         ),
                         child: EllipsisTextWithTooltip(
@@ -659,7 +665,8 @@ class _ImmersiveBorderlessQueueRowState
                             color: (active || isExpandedParent)
                                 ? p.textSecondary
                                 : (_hovered ? p.textSecondary : p.textMuted),
-                            fontSize: 11.5,
+                            fontSize:
+                                KonataPlaybackTokens.queueRowSubtitleFontSize,
                           ),
                         ),
                       ],
@@ -667,14 +674,14 @@ class _ImmersiveBorderlessQueueRowState
                   ),
                 ),
                 if (durationText.isNotEmpty) ...[
-                  const SizedBox(width: 12),
+                  const SizedBox(width: KonataAdaptiveTokens.horizontalInset),
                   Text(
                     durationText,
                     style: TextStyle(
                       color: (active || isExpandedParent)
                           ? p.textPrimary
                           : (_hovered ? p.textSecondary : p.textMuted),
-                      fontSize: 12,
+                      fontSize: KonataPlaybackTokens.queueRowMetaFontSize,
                       fontFeatures: KonataPlaybackTokens.tabularNumbers,
                     ),
                   ),
@@ -715,7 +722,7 @@ class _AnimatedPlayingEqualizerState extends State<_AnimatedPlayingEqualizer>
     super.initState();
     _ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1150),
+      duration: KonataPlaybackTokens.equalizerCycleDuration,
     );
     _syncTicker();
   }
@@ -782,7 +789,9 @@ class _AnimatedPlayingEqualizerState extends State<_AnimatedPlayingEqualizer>
                         height: (15.0 * ratio).clamp(3.2, 15.0),
                         decoration: BoxDecoration(
                           color: widget.color,
-                          borderRadius: BorderRadius.circular(99),
+                          borderRadius: BorderRadius.circular(
+                            KonataTheme.radiusPill,
+                          ),
                         ),
                       );
                     },
@@ -842,7 +851,7 @@ class ImmersiveCoverWithReflection extends ConsumerWidget {
             owner: workId,
             width: size,
             height: size,
-            decodeWidth: 800,
+            decodeWidth: KonataPlaybackTokens.albumCoverDecodeWidth,
             fit: BoxFit.cover,
             alignment: coverAlignment,
             errorBuilder: (_, _, _) => _emptyArt(p, size),
@@ -894,13 +903,13 @@ class ImmersiveCoverWithReflection extends ConsumerWidget {
                     boxShadow: [
                       BoxShadow(
                         color: KonataPlaybackTokens.shadowColor(p),
-                        blurRadius: 34,
-                        offset: const Offset(0, 16),
+                        blurRadius: KonataPlaybackTokens.albumCoverShadowBlur,
+                        offset: KonataPlaybackTokens.albumCoverShadowOffset,
                       ),
                     ],
                     border: Border.all(
                       color: KonataPlaybackTokens.glassBorder(p),
-                      width: 1,
+                      width: KonataAdaptiveTokens.borderWidth,
                     ),
                   ),
                   child: ClipRRect(
@@ -974,7 +983,7 @@ class ImmersiveMicroCover extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final p = context.palette;
     final loader = ref.watch(tmdbImageLoaderProvider);
-    const size = 38.0;
+    const size = KonataPlaybackTokens.microCoverSize;
 
     return SmartCoverAlignmentBuilder(
       cover: cover,
@@ -1004,7 +1013,7 @@ class ImmersiveMicroCover extends ConsumerWidget {
               owner: workId,
               width: size,
               height: size,
-              decodeWidth: 160,
+              decodeWidth: KonataPlaybackTokens.microCoverDecodeWidth,
               fit: BoxFit.cover,
               alignment: coverAlignment,
               errorBuilder: (_, _, _) => _fallback(p, size),
@@ -1014,7 +1023,9 @@ class ImmersiveMicroCover extends ConsumerWidget {
         }
 
         return ClipRRect(
-          borderRadius: BorderRadius.circular(9),
+          borderRadius: BorderRadius.circular(
+            KonataPlaybackTokens.microCoverRadius,
+          ),
           child: SizedBox(width: size, height: size, child: art),
         );
       },
@@ -1027,7 +1038,11 @@ class ImmersiveMicroCover extends ConsumerWidget {
       height: size,
       color: KonataPlaybackTokens.softFill(p),
       alignment: Alignment.center,
-      child: Icon(Icons.music_note_rounded, size: 18, color: p.textSecondary),
+      child: Icon(
+        Icons.music_note_rounded,
+        size: KonataPlaybackTokens.microCoverFallbackIconSize,
+        color: p.textSecondary,
+      ),
     );
   }
 }

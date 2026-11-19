@@ -131,7 +131,8 @@ flutter {
     target = "lib/main_android.dart"
 }
 
-// 仅对缺省 `lib/main.dart` 自动映射至 Android 专用裁剪入口，绝不覆写显式集成测试入口（如 `integration_test/...`）。
+// 对缺省 `lib/main.dart` 与主干实机基准自动映射至 Android 专用裁剪入口，
+// 绝不覆写其他显式传入的专项集成测试入口（如 `integration_test/playback_...`）。
 gradle.projectsEvaluated {
     tasks.withType<com.flutter.gradle.tasks.FlutterTask>().configureEach {
         val normalized = targetPath?.replace('\\', '/')?.trim()
@@ -139,8 +140,14 @@ gradle.projectsEvaluated {
             normalized.isNullOrEmpty() ||
                 normalized == "lib/main.dart" ||
                 normalized.endsWith("/lib/main.dart")
+        val isSharedWorkload =
+            normalized == "integration_test/runtime_workload_test.dart" ||
+                (normalized != null &&
+                    normalized.endsWith("/integration_test/runtime_workload_test.dart"))
         if (isDefaultMain) {
             targetPath = "lib/main_android.dart"
+        } else if (isSharedWorkload) {
+            targetPath = "integration_test/runtime_workload_android_test.dart"
         }
     }
 }

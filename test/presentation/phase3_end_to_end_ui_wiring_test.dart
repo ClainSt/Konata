@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:ccplayer/application/playback/artwork_palette_service.dart';
 import 'package:ccplayer/application/playback/audio_playback_notifier.dart';
 import 'package:ccplayer/application/playback/playback_preferences_provider.dart';
 import 'package:ccplayer/application/playback/unified_playback_engine.dart';
@@ -29,6 +30,7 @@ import 'package:ccplayer/domain/playback/subtitle_content_processor.dart';
 import 'package:ccplayer/domain/playback/track_preferences.dart';
 import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
 import 'package:ccplayer/infrastructure/database/konata_database.dart';
+import 'package:ccplayer/infrastructure/players/android/android_audio_route_bridge.dart';
 import 'package:ccplayer/infrastructure/players/embedded_mpv_session.dart';
 import 'package:ccplayer/infrastructure/players/libmpv_ffi.dart';
 import 'package:ccplayer/infrastructure/storage/storage_root_provider.dart';
@@ -37,6 +39,7 @@ import 'package:ccplayer/presentation/audio/immersive_audio_sub_widgets.dart';
 import 'package:ccplayer/presentation/settings/settings_players_panel.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
 import 'package:ccplayer/presentation/video/video_side_sheet.dart';
+import 'package:ccplayer/presentation/widgets/design_system/konata_switch.dart';
 import 'package:ccplayer/presentation/widgets/design_system/konata_toast.dart';
 
 /// 面向端到端联调测试的轻量模拟 `libmpv` 客户端（完整记录音量斜坡、字幕内存直注与滤镜属性）。
@@ -769,10 +772,14 @@ void main() {
         findsOneWidget,
       );
 
+      // 严禁残留原生 Material Switch，全部统一使用 KonataSwitch。
+      expect(find.byType(Switch), findsNothing);
+      expect(find.byType(KonataSwitch), findsWidgets);
+
       // 开启 FontInAss 云端子集化开关，输入地址并授权 Origin。
       final cloudToggle = find.descendant(
         of: find.byKey(const ValueKey('settings_cloud_subset_toggle')),
-        matching: find.byType(Switch),
+        matching: find.byType(KonataSwitch),
       );
       await tester.ensureVisible(cloudToggle);
       await tester.tap(cloudToggle);
@@ -854,9 +861,96 @@ void main() {
         find.byKey(const ValueKey('settings_audiophile_safety_notice')),
         findsOneWidget,
       );
+      expect(find.byType(Switch), findsNothing);
+      expect(find.byType(KonataSwitch), findsWidgets);
       } finally {
         debugDefaultTargetPlatformOverride = null;
       }
+    });
+
+    test('后台 Isolate 封面主色聚类与 Riverpod LRU 缓存无静态泄漏', () async {
+      // 构造 4x4 高饱和红/蓝/绿像素块，验证 Isolate 聚类返回三色非空色板
+      final rgba = Uint8List(4 * 4 * 4);
+      for (var i = 0; i < 16; i++) {
+        final offset = i * 4;
+        if (i < 8) {
+          rgba[offset] = 220;
+          rgba[offset + 1] = 40;
+          rgba[offset + 2] = 60;
+        } else if (i < 12) {
+          rgba[offset] = 40;
+          rgba[offset + 1] = 110;
+          rgba[offset + 2] = 230;
+        } else {
+          rgba[offset] = 50;
+          rgba[offset + 1] = 210;
+          rgba[offset + 2] = 100;
+        }
+        rgba[offset + 3] = 255;
+      }
+
+      final palette = await extractAuroraPaletteInIsolate(rgba);
+      expect(palette, isNotNull);
+      expect(palette!.length, equals(3));
+
+      final cache = ArtworkPaletteCache(maxEntries: 2);
+      cache.put('k1', palette);
+      cache.put('k2', palette);
+      expect(cache.get('k1'), isNotNull);
+      cache.put('k3', palette);
+      expect(cache.get('k2'), isNull);
+      expect(cache.get('k1'), isNotNull);
+      expect(cache.get('k3'), isNotNull);
+    });
+
+    test('AndroidAudioRouteBridge 可实例化多监听隔离且 dispose 自动清理', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      const channel = MethodChannel('ccplayer/audio_route_unit_test');
+      final bridge = AndroidAudioRouteBridge(
+        channel: channel,
+        isSupported: () => true,
+      );
+
+      final ownerA = Object();
+      final ownerB = Object();
+      final eventsA = <String>[];
+      final eventsB = <String>[];
+
+      bridge.bindRouteListeners(
+        owner: ownerA,
+        onOutputDeviceRemoved: (r) => eventsA.add('rm:$r'),
+        onOutputDeviceAdded: (f) => eventsA.add('add:$f'),
+      );
+      bridge.bindRouteListeners(
+        owner: ownerB,
+        onOutputDeviceRemoved: (r) => eventsB.add('rm:$r'),
+      );
+
+      const codec = StandardMethodCodec();
+      await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .handlePlatformMessage(
+            channel.name,
+            codec.encodeMethodCall(
+              const MethodCall('outputDeviceRemoved', 'bt_disconnect'),
+            ),
+            (_) {},
+          );
+      expect(eventsA, equals(['rm:bt_disconnect']));
+      expect(eventsB, equals(['rm:bt_disconnect']));
+
+      bridge.unbindRouteListeners(owner: ownerB);
+      await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .handlePlatformMessage(
+            channel.name,
+            codec.encodeMethodCall(
+              const MethodCall('outputDeviceAdded', 'usb_dac_01'),
+            ),
+            (_) {},
+          );
+      expect(eventsA, equals(['rm:bt_disconnect', 'add:usb_dac_01']));
+      expect(eventsB, equals(['rm:bt_disconnect']));
+
+      bridge.dispose();
     });
   });
 }

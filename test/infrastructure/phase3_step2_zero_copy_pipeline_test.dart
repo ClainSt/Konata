@@ -562,6 +562,7 @@ void main() {
 
   group('Step 2 · Windows 原生 libmpv HDR/色调映射与退订实证', () {
     test('真实 libmpv-2.dll 接受 bt.2446a / hdr-compute-peak / rgba16hf / unobserve_property', () async {
+      if (!Platform.isWindows) return;
       final dll = File(
         p.join(
           Directory.current.path,
@@ -571,7 +572,11 @@ void main() {
           'libmpv-2.dll',
         ),
       );
-      if (!Platform.isWindows || !dll.existsSync()) return;
+      expect(
+        dll.existsSync(),
+        isTrue,
+        reason: 'Windows 环境必须存在真实 libmpv-2.dll，禁止静默跳过',
+      );
 
       final client = FfiLibMpvClient.create(preferredLibraryPath: dll.path);
       addTearDown(client.dispose);

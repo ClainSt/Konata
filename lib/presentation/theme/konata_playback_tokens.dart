@@ -211,7 +211,13 @@ abstract final class KonataPlaybackTokens {
   static const double floatingMiniOverlayPillSize = 28.0;
   static const double floatingMiniOverlayIconSize = 16.0;
   static const double floatingMiniTransportIconSize = 20.0;
-  static const Duration floatingMiniSnapDuration = Duration(milliseconds: 180);
+  static const double floatingMiniFallbackIconSize = 42.0;
+  static const int floatingMiniCoverDecodeWidth = 320;
+  static const double floatingMiniShadowBlur = 22.0;
+  static const Offset floatingMiniShadowOffset = Offset(0, 8);
+  static const double floatingMiniFlickProjectionSeconds = 0.07;
+  static const Color floatingMiniChromeScrimTop = Color(0x75000000);
+  static const Color floatingMiniChromeScrimMid = Color(0x1F000000);
 
   /// 悬浮小窗松手吸附临界阻尼物理弹簧参数（120Hz 跟手速度继承，落位立即停钟）。
   static final SpringDescription floatingMiniSnapSpring =
@@ -326,14 +332,65 @@ abstract final class KonataPlaybackTokens {
     Colors.transparent,
   ];
   static const double lyricActiveFontSize = 24.0;
+  static const double lyricCompactActiveFontSize = 18.0;
   static const double lyricInactiveFontSize = 18.5;
+  static const double lyricCompactInactiveFontSize = 14.5;
   static const double lyricSecondaryFontSize = 13.5;
+  static const double lyricPreviewPrimaryFontSize = 14.0;
+  static const double lyricPreviewSecondaryFontSize = 12.5;
+  static const double lyricPreviewHeight = 42.0;
   static const double lyricBlurStep1 = 1.6;
   static const double lyricBlurStep2 = 3.2;
   static const double lyricBlurStepFar = 5.0;
+  static const double lyricGlowBlurRadius = 16.0;
+  static const double lyricSweepGlowBlurRadius = 14.0;
+  static const double queueRowTitleActiveFontSize = 16.0;
+  static const double queueRowTitleInactiveFontSize = 14.5;
+  static const double queueSubTrackTitleActiveFontSize = 15.0;
+  static const double queueSubTrackTitleInactiveFontSize = 13.8;
+  static const double queueRowMetaFontSize = 12.0;
+  static const double queueRowSubtitleFontSize = 11.5;
+  static const double queueRowPrefixFontSize = 12.5;
+  static const double touchScrubberTrackHeight = 3.5;
+  static const double touchScrubberThumbRadius = 6.5;
+  static const double touchScrubberOverlayRadius = 16.0;
+  static const double touchScrubberHeight = 34.0;
+  static const double touchScrubberCompactHeight = 26.0;
+  static const double touchScrubberTimeFontSize = 11.5;
+  static const double albumCoverShadowBlur = 34.0;
+  static const Offset albumCoverShadowOffset = Offset(0, 16);
+  static const int albumCoverDecodeWidth = 800;
+  static const double microCoverSize = 38.0;
+  static const double microCoverRadius = 9.0;
+  static const int microCoverDecodeWidth = 160;
+  static const double microCoverFallbackIconSize = 18.0;
+  static const Duration lyricStyleTransitionDuration = Duration(
+    milliseconds: 160,
+  );
+  static const Duration queueRowTransitionDuration = Duration(
+    milliseconds: 140,
+  );
+  static const Duration equalizerCycleDuration = Duration(milliseconds: 1150);
   static const Duration lyricUserScrollResetDelay = Duration(
     milliseconds: 2500,
   );
+
+  /// 歌词与当前队列高亮行统一柔光阴影（随明暗主题自动切换对比度）。
+  static List<Shadow> lyricGlowShadow(
+    KonataPalette p, {
+    double intensity = 1.0,
+    double blurRadius = lyricGlowBlurRadius,
+  }) {
+    final alpha = (p.isDark ? 0.34 : 0.11) * intensity.clamp(0.0, 1.0);
+    return <Shadow>[
+      Shadow(
+        color: (p.isDark ? Colors.white : Colors.black).withValues(
+          alpha: alpha,
+        ),
+        blurRadius: blurRadius,
+      ),
+    ];
+  }
 
   /// 探针浮层与 HUD 等宽数字样式。
   static const List<FontFeature> tabularNumbers = [

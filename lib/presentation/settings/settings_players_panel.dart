@@ -1,17 +1,14 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart' as path;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../application/playback/playback_preferences_provider.dart';
+import '../../application/playback/shader_discovery_provider.dart';
 import '../../domain/playback/ass_semantic_verifier.dart';
 import '../../domain/playback/audiophile_safety_policy.dart';
-import '../../infrastructure/players/android/android_audio_route_bridge.dart';
 import '../../infrastructure/players/mpv_quality_profile.dart';
-import '../../infrastructure/storage/storage_root_provider.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
@@ -21,11 +18,12 @@ import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/design_system/konata_surface_card.dart';
+import '../widgets/design_system/konata_switch.dart';
 import '../widgets/design_system/konata_toast.dart';
 import '../widgets/playback/konata_spec_badge.dart';
 
 /// 播放器设置面板：
-/// 内置 `libmpv` 运行时探针、默认引擎路由、动漫音画精细参数与 `shaders/` 着色器扫描。
+/// 内置 `libmpv` 引擎路由、动漫音画精细参数、可选云端字体子集化与异步 `shaders/` 着色器发现。
 class SettingsPlayersPanel extends ConsumerStatefulWidget {
   /// 创建播放与音画还原设置面板。
   const SettingsPlayersPanel({super.key});
@@ -36,53 +34,27 @@ class SettingsPlayersPanel extends ConsumerStatefulWidget {
 }
 
 class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
-  Directory? _shadersDir;
-  List<File> _shaderFiles = const [];
-  bool _scanningShaders = false;
-  late final TextEditingController _cloudEndpointCtrl;
-  final FocusNode _cloudEndpointFocus = FocusNode();
-
-  @override
-  void initState() {
-    super.initState();
-    _cloudEndpointCtrl = TextEditingController(
-      text: ref.read(playbackPreferencesProvider).cloudSubsetEndpoint,
-    );
-    _loadShadersSync();
-  }
+  TextEditingController? _cloudEndpointCtrl;
+  FocusNode? _cloudEndpointFocus;
 
   @override
   void dispose() {
-    _cloudEndpointCtrl.dispose();
-    _cloudEndpointFocus.dispose();
+    _cloudEndpointCtrl?.dispose();
+    _cloudEndpointFocus?.dispose();
     super.dispose();
   }
 
-  void _loadShadersSync() {
-    try {
-      final dir = ref.read(storageRootProvider).resolveShadersDirSync();
-      final files = MpvQualityProfile.discoverShaderFilesSync(dir);
-      _shadersDir = dir;
-      _shaderFiles = files;
-    } catch (_) {}
-  }
-
-  Future<void> _scanShaders() async {
-    if (_scanningShaders) return;
-    setState(() => _scanningShaders = true);
-    try {
-      final dir = ref.read(storageRootProvider).resolveShadersDirSync();
-      final files = MpvQualityProfile.discoverShaderFilesSync(dir);
-      if (!mounted) return;
-      setState(() {
-        _shadersDir = dir;
-        _shaderFiles = files;
-        _scanningShaders = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _scanningShaders = false);
+  /// 仅当开启云端字幕字体子集化后懒分配输入控制器与焦点节点，减少空载常驻内存。
+  ({TextEditingController controller, FocusNode focusNode})
+  _ensureCloudEndpointInputs(String currentEndpoint) {
+    final ctrl = _cloudEndpointCtrl ??= TextEditingController(
+      text: currentEndpoint,
+    );
+    final focus = _cloudEndpointFocus ??= FocusNode();
+    if (!focus.hasFocus && ctrl.text != currentEndpoint) {
+      ctrl.text = currentEndpoint;
     }
+    return (controller: ctrl, focusNode: focus);
   }
 
   Future<void> _toggleAndroidBitPerfectUsb(
@@ -90,9 +62,9 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
     required PlaybackPreferencesNotifier notifier,
   }) async {
     await notifier.setAndroidBitPerfectUsb(enabled);
-    final res = await AndroidAudioRouteBridge.negotiateBitPerfectUsb(
-      enable: enabled,
-    );
+    final res = await ref
+        .read(androidAudioRouteBridgeProvider)
+        .negotiateBitPerfectUsb(enable: enabled);
     if (!mounted) return;
     if (enabled) {
       if (res.engaged) {
@@ -113,10 +85,11 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
 
   Future<void> _openShadersFolder() async {
     try {
-      final dir =
-          _shadersDir ?? await ref.read(storageRootProvider).ensureShadersDir();
+      final dirPath = await ref
+          .read(shaderDiscoveryProvider.notifier)
+          .ensureDirectoryPath();
       final ok = await launchUrl(
-        Uri.file(dir.path),
+        Uri.file(dirPath),
         mode: LaunchMode.externalApplication,
       );
       if (!ok && mounted) {
@@ -133,30 +106,36 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
   Widget build(BuildContext context) {
     final p = context.palette;
     final prefs = ref.watch(playbackPreferencesProvider);
+    final shaders = ref.watch(shaderDiscoveryProvider);
     ref.watch(cloudSubsetAuthRevisionProvider);
     final notifier = ref.read(playbackPreferencesProvider.notifier);
-    if (!_cloudEndpointFocus.hasFocus &&
-        _cloudEndpointCtrl.text != prefs.cloudSubsetEndpoint) {
-      _cloudEndpointCtrl.text = prefs.cloudSubsetEndpoint;
-    }
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final videoCard = _buildVideoQualityCard(p, prefs, notifier);
-        final audioCard = _buildAudioAndShaderCard(p, prefs, notifier);
+        final audioCard = _buildAudioAndShaderCard(
+          p,
+          prefs,
+          notifier,
+          shaders,
+        );
         if (constraints.maxWidth >= 780) {
           return Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(child: videoCard),
-              const SizedBox(width: 16),
+              const SizedBox(width: KonataAdaptiveTokens.settingsGap),
               Expanded(child: audioCard),
             ],
           );
         }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [videoCard, const SizedBox(height: 16), audioCard],
+          children: [
+            videoCard,
+            const SizedBox(height: KonataAdaptiveTokens.settingsGap),
+            audioCard,
+          ],
         );
       },
     );
@@ -178,14 +157,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  '视频渲染与看番体验',
-                  style: TextStyle(
-                    color: p.textPrimary,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+                Text('视频渲染与看番体验', style: KonataTheme.cardTitleStyle(p)),
                 if (KonataAdaptiveTokens.isWindows) ...[
                   const SizedBox(height: 12),
                   AdaptiveSettingTile(
@@ -210,10 +182,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                   ),
                 ],
                 const SizedBox(height: 12),
-                Text(
-                  '画质与缩放预设',
-                  style: TextStyle(color: p.textSecondary, fontSize: 12.5),
-                ),
+                Text('画质与缩放预设', style: KonataTheme.captionStyle(p)),
                 const SizedBox(height: 6),
                 KonataDropdown<VideoQualityPreset>(
                   dense: true,
@@ -231,7 +200,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
           KonataListTile(
             title: 'GPU 硬件解码',
             subtitle: '自动启用 d3d11va / MediaCodec，遇异常源自动软解兜底',
-            trailing: Switch(
+            trailing: KonataSwitch(
               value: q.hardwareDecode,
               onChanged: notifier.setHardwareDecode,
             ),
@@ -240,7 +209,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
           KonataListTile(
             title: '去色带滤镜 (Deband)',
             subtitle: '消除 8-bit 动画暗部色彩断层，略微增加 GPU 负载',
-            trailing: Switch(
+            trailing: KonataSwitch(
               value: q.debandEnabled,
               onChanged: notifier.setDebandEnabled,
             ),
@@ -249,7 +218,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
           KonataListTile(
             title: '播完自动连播下一话',
             subtitle: '当前正片播放结束后无缝衔接下一话并继承音轨/字幕选择',
-            trailing: Switch(
+            trailing: KonataSwitch(
               value: prefs.autoNextEpisode,
               onChanged: notifier.setAutoNextEpisode,
             ),
@@ -258,7 +227,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
           KonataListTile(
             title: 'OP / ED 章节跳过提示',
             subtitle: '进入 OP/ED 区间时在右下角显示 4 秒一键跳过浮窗',
-            trailing: Switch(
+            trailing: KonataSwitch(
               value: prefs.promptChapterSkip,
               onChanged: notifier.setPromptChapterSkip,
             ),
@@ -267,7 +236,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
           KonataListTile(
             title: '检测到 OP / ED 自动跳过',
             subtitle: '无需手动确认，匹配到可信 OP/ED 章节区间时直接跳过',
-            trailing: Switch(
+            trailing: KonataSwitch(
               value: prefs.autoSkipChapter,
               onChanged: notifier.setAutoSkipChapter,
             ),
@@ -278,7 +247,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
               key: const ValueKey('settings_auto_enter_pip'),
               title: '切入后台自动开启画中画',
               subtitle: '视频正在播放时切换至桌面或其他应用自动进入画中画小窗，暂停或纯音频模式下不触发',
-              trailing: Switch(
+              trailing: KonataSwitch(
                 value: prefs.autoEnterPip,
                 onChanged: notifier.setAutoEnterPip,
               ),
@@ -310,6 +279,9 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
         validOrigin != null &&
         parsedUri != null &&
         ref.read(cloudSubsetAuthorizationStoreProvider).isAuthorized(parsedUri);
+    final cloudInputs = prefs.cloudSubsetEnabled
+        ? _ensureCloudEndpointInputs(prefs.cloudSubsetEndpoint)
+        : null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -318,7 +290,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
           key: const ValueKey('settings_cloud_subset_toggle'),
           title: '云端字幕字体子集化 (FontInAss · 可选)',
           subtitle: '默认关闭；开启并授权指定 Origin 后，可为缺字特效 ASS 按需生成子集字体缓存',
-          trailing: Switch(
+          trailing: KonataSwitch(
             value: prefs.cloudSubsetEnabled,
             onChanged: (enabled) {
               unawaited(notifier.setCloudSubsetEnabled(enabled));
@@ -330,7 +302,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
             },
           ),
         ),
-        if (prefs.cloudSubsetEnabled)
+        if (prefs.cloudSubsetEnabled && cloudInputs != null)
           Padding(
             padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
             child: Column(
@@ -338,8 +310,8 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
               children: [
                 KonataSoftTextField(
                   key: const ValueKey('settings_cloud_subset_endpoint_field'),
-                  controller: _cloudEndpointCtrl,
-                  focusNode: _cloudEndpointFocus,
+                  controller: cloudInputs.controller,
+                  focusNode: cloudInputs.focusNode,
                   dense: true,
                   label: 'FontInAss 服务端点地址',
                   hintText: 'https://fontinass.example.com/subset',
@@ -347,11 +319,11 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                   onChanged: (v) =>
                       unawaited(notifier.setCloudSubsetEndpoint(v)),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: KonataAdaptiveTokens.safeGap),
                 if (validOrigin != null && parsedUri != null)
                   Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                    spacing: KonataAdaptiveTokens.safeGap,
+                    runSpacing: KonataAdaptiveTokens.safeGap,
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       KonataSpecBadge(
@@ -416,14 +388,14 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                 else if (rawEndpoint.isNotEmpty)
                   Text(
                     '请输入合法的 http:// 或 https:// 服务地址',
-                    style: TextStyle(color: p.danger, fontSize: 11.5),
+                    style: KonataTheme.captionStyle(p, color: p.danger),
                   ),
                 const SizedBox(height: 6),
                 Text(
                   '安全约束：授权绑定协议/主机/端口三元组，严禁跟随 3xx 跨源重定向，省略本地文件名且落盘前强制逐事件语义与 SFNT 字形检验。',
-                  style: TextStyle(
+                  style: KonataTheme.captionStyle(
+                    p,
                     color: p.textMuted,
-                    fontSize: 11.5,
                     height: 1.4,
                   ),
                 ),
@@ -438,6 +410,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
     KonataPalette p,
     PlaybackPreferencesState prefs,
     PlaybackPreferencesNotifier notifier,
+    ShaderDiscoveryState shaders,
   ) {
     final q = prefs.qualityConfig;
     return KonataSurfaceCard(
@@ -450,14 +423,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  '无损音频与着色器链路',
-                  style: TextStyle(
-                    color: p.textPrimary,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+                Text('无损音频与着色器链路', style: KonataTheme.cardTitleStyle(p)),
                 if (KonataAdaptiveTokens.isWindows) ...[
                   const SizedBox(height: 12),
                   AdaptiveSettingTile(
@@ -482,10 +448,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                   ),
                 ],
                 const SizedBox(height: 12),
-                Text(
-                  'libsoxr 音频重采样精度',
-                  style: TextStyle(color: p.textSecondary, fontSize: 12.5),
-                ),
+                Text('libsoxr 音频重采样精度', style: KonataTheme.captionStyle(p)),
                 const SizedBox(height: 6),
                 KonataDropdown<int>(
                   dense: true,
@@ -506,7 +469,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
             KonataListTile(
               title: 'WASAPI 音频独占模式',
               subtitle: 'Windows 直通声卡绕过混音；设备不支持时自动回退共享模式',
-              trailing: Switch(
+              trailing: KonataSwitch(
                 value: q.wasapiExclusive,
                 onChanged: notifier.setWasapiExclusive,
               ),
@@ -516,7 +479,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
               key: const ValueKey('settings_hdmi_spdif_switch'),
               title: 'HDMI 源码直通 (audio-spdif)',
               subtitle: '透传 AC3 / DTS / TrueHD 比特流至功放；开启时与所有软件 DSP 严格互斥',
-              trailing: Switch(
+              trailing: KonataSwitch(
                 value: prefs.hdmiSpdifPassthrough,
                 onChanged: notifier.setHdmiSpdifPassthrough,
               ),
@@ -528,7 +491,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
               key: const ValueKey('settings_android_bit_perfect_usb'),
               title: 'USB DAC 逐位直通 (Android 14+)',
               subtitle: '尝试协商原生 MIXER_BEHAVIOR_BIT_PERFECT，未连接兼容外设时自动回退高精 AAudio',
-              trailing: Switch(
+              trailing: KonataSwitch(
                 value: prefs.androidBitPerfectUsb,
                 onChanged: (enabled) => _toggleAndroidBitPerfectUsb(
                   enabled,
@@ -543,30 +506,36 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
             child: Container(
               key: const ValueKey('settings_audiophile_safety_notice'),
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: const EdgeInsets.symmetric(
+                horizontal: KonataAdaptiveTokens.horizontalInset,
+                vertical: KonataTheme.radiusControl,
+              ),
               decoration: BoxDecoration(
                 color: p.softFill,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: p.hairline, width: 1),
+                borderRadius: BorderRadius.circular(KonataTheme.radiusControl),
+                border: Border.all(
+                  color: p.hairline,
+                  width: KonataAdaptiveTokens.borderWidth,
+                ),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Icon(
                     Icons.shield_outlined,
-                    size: 16,
+                    size: KonataAdaptiveTokens.settingsGap,
                     color: p.textSecondary,
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: KonataAdaptiveTokens.safeGap),
                   Expanded(
                     child: Text(
                       KonataAdaptiveTokens.isWindows &&
                               prefs.hdmiSpdifPassthrough
                           ? '当前已启用 HDMI audio-spdif 比特流透传，软件 DSP 与软限幅已严格互斥清空。'
                           : '${AudiophileSafetyPolicy.unverifiedFullScaleLockReason}；启播与跳转自动施加 ${AudiophileSafetyPolicy.defaultMicroFadeInMs} ms S 型微淡入与无缝预缓冲。',
-                      style: TextStyle(
+                      style: KonataTheme.captionStyle(
+                        p,
                         color: p.textSecondary,
-                        fontSize: 11.5,
                         height: 1.4,
                       ),
                     ),
@@ -579,7 +548,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
           KonataListTile(
             title: '倍速播放保持原音调',
             subtitle: '开启 Scaletempo2 音调修正，避免加速观看时人声变调',
-            trailing: Switch(
+            trailing: KonataSwitch(
               value: q.keepPitch,
               onChanged: notifier.setKeepPitch,
             ),
@@ -600,19 +569,12 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                     children: [
                       Text(
                         'GLSL 自定义着色器',
-                        style: TextStyle(
-                          color: p.textPrimary,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
+                        style: KonataTheme.bodyLabelStyle(p),
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '放入 userdata/shaders/ 下的 .glsl/.hook 文件（已识别 ${_shaderFiles.length} 个）',
-                        style: TextStyle(
-                          color: p.textSecondary,
-                          fontSize: 12,
-                        ),
+                        '放入 userdata/shaders/ 下的 .glsl/.hook 文件（已识别 ${shaders.files.length} 个）',
+                        style: KonataTheme.captionStyle(p),
                       ),
                     ],
                   ),
@@ -622,10 +584,16 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       KonataPillButton.ghost(
-                        label: _scanningShaders ? '扫描中' : '刷新',
+                        label: shaders.isScanning ? '扫描中' : '刷新',
                         icon: Icons.refresh_rounded,
                         compact: true,
-                        onPressed: _scanningShaders ? null : _scanShaders,
+                        onPressed: shaders.isScanning
+                            ? null
+                            : () => unawaited(
+                                ref
+                                    .read(shaderDiscoveryProvider.notifier)
+                                    .refresh(),
+                              ),
                       ),
                       if (KonataAdaptiveTokens.isWindows)
                         KonataPillButton.secondary(
@@ -637,15 +605,15 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                     ],
                   ),
                 ),
-                if (_shaderFiles.isNotEmpty) ...[
-                  const SizedBox(height: 10),
+                if (shaders.files.isNotEmpty) ...[
+                  const SizedBox(height: KonataTheme.radiusControl),
                   Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                    spacing: KonataAdaptiveTokens.safeGap,
+                    runSpacing: KonataAdaptiveTokens.safeGap,
                     children: [
-                      for (final file in _shaderFiles)
+                      for (final file in shaders.files)
                         _ShaderTogglePill(
-                          label: path.basename(file.path),
+                          label: file.name,
                           selected: q.activeShaderPaths.contains(file.path),
                           onTap: () => notifier.toggleShaderPath(
                             file.path,
@@ -713,8 +681,11 @@ class _ShaderTogglePillState extends State<_ShaderTogglePill> {
           padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
           decoration: BoxDecoration(
             color: bgColor,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: borderColor, width: 1),
+            borderRadius: BorderRadius.circular(KonataTheme.radiusPill),
+            border: Border.all(
+              color: borderColor,
+              width: KonataAdaptiveTokens.borderWidth,
+            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -730,7 +701,7 @@ class _ShaderTogglePillState extends State<_ShaderTogglePill> {
                   overflow: TextOverflow.ellipsis,
                   style: KonataTheme.textStyle(
                     color: fgColor,
-                    fontSize: 12,
+                    fontSize: KonataTheme.captionStyle(p).fontSize,
                     weight: selected
                         ? KonataTheme.weightActive
                         : KonataTheme.weightRegularLabel,

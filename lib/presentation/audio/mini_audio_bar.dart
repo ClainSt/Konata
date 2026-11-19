@@ -538,7 +538,9 @@ class _PlaybackSessionCoordinator extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    ref.watch(androidPipAutoSyncProvider);
+    if (KonataAdaptiveTokens.isAndroid) {
+      ref.watch(androidPipAutoSyncProvider);
+    }
 
     ref.listen<String?>(
       audioPlaybackProvider.select((s) => s.errorMessage),

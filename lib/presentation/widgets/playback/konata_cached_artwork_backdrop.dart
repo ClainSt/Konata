@@ -5,24 +5,24 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../application/playback/artwork_palette_service.dart';
 import '../../../application/playback/audio_playback_notifier.dart';
+import '../../../application/playback/unified_playback_engine.dart';
 import '../../../application/providers/artwork_provider.dart';
+import '../../../application/providers/diagnostics_providers.dart';
 import '../../theme/konata_palette.dart';
 import '../../theme/konata_playback_tokens.dart';
 
 /// 全端同源的 0 MB 模糊位图显存 GPU 径向流光舞台背景（供全屏音乐页与视频后台纯音频模式复用）。
 ///
 /// 架构特性：
-/// 1. 仅从极小 `24×24` 封面采样提取三色高饱和色板后立即释放图像，全程 **0 MB 离屏模糊位图显存占用**；
-/// 2. 通过 `CustomPainter` + 多源 `ui.Gradient.radial` GPU 径向着色场直接渲染柔和层次光晕；
-/// 3. 切歌时仅执行一次 `800 ms` 有界色板过渡，到位立即停钟（`No Idle Tickers`），播放进度跳动 0 重绘；
-/// 4. 最上层铺满透明度 `0.48 ~ 0.56` 的主题表面遮罩，覆盖系统状态栏与底部安全区。
+/// 1. 仅采样极小 `24×24` 封面 RGBA 像素后立即释放图像，并在后台 `Isolate` 完成三色聚类，全程 **0 MB 离屏模糊位图显存占用**；
+/// 2. 通过 `UnifiedPlaybackEngine` 的 `PlaybackTaskDomain.artworkColor` 分域令牌取消陈旧色板任务，色板 LRU 缓存由 Riverpod 托管；
+/// 3. 通过 `CustomPainter` + 多源 `ui.Gradient.radial` GPU 径向着色场直接渲染柔和层次光晕；
+/// 4. 切歌时仅执行一次 `800 ms` 有界色板过渡，到位立即停钟（`No Idle Tickers`），播放进度跳动 0 重绘。
 class KonataCachedArtworkBackdrop extends ConsumerStatefulWidget {
   /// 创建 0 MB 显存 GPU 径向流光舞台背景。
-  const KonataCachedArtworkBackdrop({
-    super.key,
-    required this.cover,
-  });
+  const KonataCachedArtworkBackdrop({super.key, required this.cover});
 
   /// 当前曲目或作品封面源。
   final AudioCoverSource cover;
@@ -35,8 +35,6 @@ class KonataCachedArtworkBackdrop extends ConsumerStatefulWidget {
 class _KonataCachedArtworkBackdropState
     extends ConsumerState<KonataCachedArtworkBackdrop>
     with SingleTickerProviderStateMixin {
-  static final Map<String, List<Color>> _paletteCache = {};
-  static const int _maxPaletteCacheEntries = 32;
   static const List<Color> _defaultPalette = [
     KonataPlaybackTokens.auroraDefaultGlowA,
     KonataPlaybackTokens.auroraDefaultGlowB,
@@ -47,7 +45,8 @@ class _KonataCachedArtworkBackdropState
   List<Color> _fromColors = _defaultPalette;
   List<Color> _toColors = _defaultPalette;
   String _sampledKey = '';
-  int _sampleEpoch = 0;
+  UnifiedPlaybackEngine? _boundEngine;
+  ScopedTaskToken? _activeColorToken;
 
   @override
   void initState() {
@@ -70,6 +69,13 @@ class _KonataCachedArtworkBackdropState
 
   @override
   void dispose() {
+    final token = _activeColorToken;
+    final engine = _boundEngine;
+    _activeColorToken = null;
+    _boundEngine = null;
+    if (token != null && engine != null && engine.isTaskAlive(token)) {
+      engine.cancelTaskDomain(PlaybackTaskDomain.artworkColor);
+    }
     _colorTransitionCtrl.dispose();
     super.dispose();
   }
@@ -103,14 +109,20 @@ class _KonataCachedArtworkBackdropState
     final key = _coverKey(widget.cover);
     if (key == _sampledKey) return;
     _sampledKey = key;
-    final epoch = ++_sampleEpoch;
+
+    final engine = ref.read(unifiedPlaybackEngineProvider);
+    final logStore = ref.read(diagnosticsLogStoreProvider);
+    _boundEngine = engine;
+    final token = engine.acquireTaskToken(PlaybackTaskDomain.artworkColor);
+    _activeColorToken = token;
 
     if (widget.cover is EmptyAudioCover) {
       _transitionToPalette(_defaultPalette);
       return;
     }
 
-    final cachedPalette = _paletteCache[key];
+    final paletteCache = ref.read(artworkPaletteCacheProvider);
+    final cachedPalette = paletteCache.get(key);
     if (cachedPalette != null) {
       _transitionToPalette(cachedPalette);
       return;
@@ -124,95 +136,58 @@ class _KonataCachedArtworkBackdropState
         try {
           final loader = ref.read(tmdbImageLoaderProvider);
           bytes = await loader(url, targetWidth: 64);
-        } catch (_) {}
+        } catch (e) {
+          logStore.record('ARTWORK', '拉取流光背景封面缩略图失败：$e', isError: true);
+        }
       case EmptyAudioCover():
         return;
     }
-    if (bytes == null || bytes.isEmpty || !mounted || epoch != _sampleEpoch) {
+    if (bytes == null || bytes.isEmpty || !mounted || !engine.isTaskAlive(token)) {
       return;
     }
 
-    final palette = await _extractAuroraPalette(bytes);
-    if (!mounted || epoch != _sampleEpoch || palette == null) return;
-
-    _paletteCache.remove(key);
-    _paletteCache[key] = palette;
-    while (_paletteCache.length > _maxPaletteCacheEntries) {
-      _paletteCache.remove(_paletteCache.keys.first);
+    final rgbaBytes = await _decodeTinyRgba(
+      bytes,
+      (message) => logStore.record('ARTWORK', message, isError: true),
+    );
+    if (rgbaBytes == null || !mounted || !engine.isTaskAlive(token)) {
+      return;
     }
+
+    final palette = await extractAuroraPaletteInIsolate(rgbaBytes);
+    if (!mounted || !engine.isTaskAlive(token) || palette == null) return;
+
+    paletteCache.put(key, palette);
     _transitionToPalette(palette);
   }
 
-  static Future<List<Color>?> _extractAuroraPalette(Uint8List bytes) async {
+  Future<Uint8List?> _decodeTinyRgba(
+    Uint8List bytes,
+    void Function(String message) onError,
+  ) async {
+    ui.Codec? codec;
+    ui.FrameInfo? frame;
     try {
-      final codec = await ui.instantiateImageCodec(
+      codec = await ui.instantiateImageCodec(
         bytes,
         targetWidth: 24,
         targetHeight: 24,
       );
-      final frame = await codec.getNextFrame();
+      frame = await codec.getNextFrame();
       final bd = await frame.image.toByteData(
         format: ui.ImageByteFormat.rawRgba,
       );
-      frame.image.dispose();
-      codec.dispose();
       if (bd == null) return null;
-
-      final data = bd.buffer.asUint8List();
-      final buckets = List<({int count, double r, double g, double b})>.filled(
-        12,
-        (count: 0, r: 0, g: 0, b: 0),
+      return Uint8List.fromList(
+        bd.buffer.asUint8List(bd.offsetInBytes, bd.lengthInBytes),
       );
-      for (var i = 0; i + 3 < data.length; i += 4) {
-        final a = data[i + 3];
-        if (a < 140) continue;
-        final r = data[i];
-        final g = data[i + 1];
-        final b = data[i + 2];
-        final hsv = HSVColor.fromColor(Color.fromARGB(255, r, g, b));
-        if (hsv.saturation < 0.14 || hsv.value < 0.12) continue;
-        final bin = (hsv.hue ~/ 30).clamp(0, 11);
-        final prev = buckets[bin];
-        buckets[bin] = (
-          count: prev.count + 1,
-          r: prev.r + r,
-          g: prev.g + g,
-          b: prev.b + b,
-        );
-      }
-
-      final ranked = <({int count, Color color})>[];
-      for (final b in buckets) {
-        if (b.count == 0) continue;
-        final raw = Color.fromARGB(
-          255,
-          (b.r / b.count).round().clamp(0, 255),
-          (b.g / b.count).round().clamp(0, 255),
-          (b.b / b.count).round().clamp(0, 255),
-        );
-        final hsv = HSVColor.fromColor(raw);
-        final boosted = HSVColor.fromAHSV(
-          1.0,
-          hsv.hue,
-          hsv.saturation.clamp(0.68, 0.88),
-          hsv.value.clamp(0.45, 0.65),
-        ).toColor();
-        ranked.add((count: b.count, color: boosted));
-      }
-      ranked.sort((a, b) => b.count.compareTo(a.count));
-      if (ranked.isEmpty) return null;
-      final c1 = ranked[0].color;
-      final c2 = ranked.length > 1 ? ranked[1].color : _shiftHue(c1, 36);
-      final c3 = ranked.length > 2 ? ranked[2].color : _shiftHue(c1, -42);
-      return [c1, c2, c3];
-    } catch (_) {
+    } catch (e) {
+      onError('解码流光背景采样帧失败：$e');
       return null;
+    } finally {
+      frame?.image.dispose();
+      codec?.dispose();
     }
-  }
-
-  static Color _shiftHue(Color base, double delta) {
-    final hsv = HSVColor.fromColor(base);
-    return hsv.withHue((hsv.hue + delta) % 360.0).toColor();
   }
 
   @override

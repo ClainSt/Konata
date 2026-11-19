@@ -31,52 +31,81 @@ class AndroidBitPerfectNegotiationResult {
 
 /// Android 原生音频路由与外设拔出瞬态静音通道桥接（`ccplayer/audio_route`）。
 ///
-/// 负责：
+/// 采用可实例化对象由 Riverpod Provider 托管生命周期，消除全局可变静态回调与多容器冲突：
 /// 1. 在 Android 14+ (API 34+) 上通过 `AudioManager.getSupportedMixerAttributes` 协商 USB DAC 逐位直通；
 /// 2. 接收底层双通道外设拔出监听（`ACTION_AUDIO_BECOMING_NOISY` + `AudioDeviceCallback.onAudioDevicesRemoved`），
-///    回调播放控制器瞬时静音与暂停防爆音，同时在新外设接入时复位安全衰减门锁。
+///    广播至所有已注册播放控制器实现瞬时静音、暂停防爆音与新外设接入重置安全衰减门锁。
 class AndroidAudioRouteBridge {
-  AndroidAudioRouteBridge._();
+  /// 创建 Android 音频路由通道桥接实例。
+  AndroidAudioRouteBridge({
+    MethodChannel? channel,
+    bool Function()? isSupported,
+  }) : _channel = channel ?? const MethodChannel(_channelName),
+       _isSupported = isSupported ?? (() => Platform.isAndroid);
 
-  static const MethodChannel _channel = MethodChannel('ccplayer/audio_route');
-  static bool _handlerRegistered = false;
-  static void Function(String reason)? _onOutputDeviceRemoved;
-  static void Function(String deviceFingerprint)? _onOutputDeviceAdded;
+  static const String _channelName = 'ccplayer/audio_route';
 
-  /// 绑定外设拔出瞬态静音与新外设接入重置安全衰减的实时监听回调。
-  static void bindRouteListeners({
+  final MethodChannel _channel;
+  final bool Function() _isSupported;
+
+  bool _handlerRegistered = false;
+  final Map<Object, void Function(String reason)> _removedListeners = {};
+  final Map<Object, void Function(String deviceFingerprint)> _addedListeners =
+      {};
+
+  /// 按调用方令牌绑定外设拔出瞬态静音与新外设接入重置安全衰减的实时监听回调。
+  void bindRouteListeners({
+    required Object owner,
     void Function(String reason)? onOutputDeviceRemoved,
     void Function(String deviceFingerprint)? onOutputDeviceAdded,
   }) {
-    _onOutputDeviceRemoved = onOutputDeviceRemoved;
-    _onOutputDeviceAdded = onOutputDeviceAdded;
-    if (!Platform.isAndroid || _handlerRegistered) return;
+    if (onOutputDeviceRemoved != null) {
+      _removedListeners[owner] = onOutputDeviceRemoved;
+    } else {
+      _removedListeners.remove(owner);
+    }
+    if (onOutputDeviceAdded != null) {
+      _addedListeners[owner] = onOutputDeviceAdded;
+    } else {
+      _addedListeners.remove(owner);
+    }
+    if (!_isSupported() || _handlerRegistered) return;
     _handlerRegistered = true;
-    _channel.setMethodCallHandler((call) async {
-      switch (call.method) {
-        case 'outputDeviceRemoved':
-          final reason = (call.arguments as String?) ?? 'device_removed';
-          _onOutputDeviceRemoved?.call(reason);
-        case 'outputDeviceAdded':
-          final fingerprint = (call.arguments as String?) ?? 'external_audio';
-          _onOutputDeviceAdded?.call(fingerprint);
-      }
-      return null;
-    });
+    _channel.setMethodCallHandler(_handlePlatformCall);
   }
 
-  /// 解绑路由事件回调。
-  static void unbindRouteListeners() {
-    _onOutputDeviceRemoved = null;
-    _onOutputDeviceAdded = null;
+  /// 按调用方令牌解绑路由事件回调，不影响其他同时活跃的播放通道。
+  void unbindRouteListeners({required Object owner}) {
+    _removedListeners.remove(owner);
+    _addedListeners.remove(owner);
+  }
+
+  Future<Object?> _handlePlatformCall(MethodCall call) async {
+    switch (call.method) {
+      case 'outputDeviceRemoved':
+        final reason = (call.arguments as String?) ?? 'device_removed';
+        for (final cb in List<void Function(String)>.of(
+          _removedListeners.values,
+        )) {
+          cb(reason);
+        }
+      case 'outputDeviceAdded':
+        final fingerprint = (call.arguments as String?) ?? 'external_audio';
+        for (final cb in List<void Function(String)>.of(
+          _addedListeners.values,
+        )) {
+          cb(fingerprint);
+        }
+    }
+    return null;
   }
 
   /// 在 Android 14+ 上尝试为外接 USB DAC 协商 `MIXER_BEHAVIOR_BIT_PERFECT` 逐位直通。
-  static Future<AndroidBitPerfectNegotiationResult> negotiateBitPerfectUsb({
+  Future<AndroidBitPerfectNegotiationResult> negotiateBitPerfectUsb({
     int preferredSampleRateHz = 48000,
     bool enable = true,
   }) async {
-    if (!Platform.isAndroid) {
+    if (!_isSupported()) {
       return const AndroidBitPerfectNegotiationResult(
         supported: false,
         engaged: false,
@@ -110,6 +139,16 @@ class AndroidAudioRouteBridge {
         engaged: false,
         detail: e.toString(),
       );
+    }
+  }
+
+  /// 释放通道监听并清空全部已注册回调。
+  void dispose() {
+    _removedListeners.clear();
+    _addedListeners.clear();
+    if (_handlerRegistered) {
+      _handlerRegistered = false;
+      _channel.setMethodCallHandler(null);
     }
   }
 }

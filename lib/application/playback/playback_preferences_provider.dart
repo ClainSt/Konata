@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../domain/models/external_player_config.dart';
 import '../../domain/playback/track_preferences.dart';
+import '../../infrastructure/players/android/android_audio_route_bridge.dart';
 import '../../infrastructure/players/mpv_quality_profile.dart';
 import '../../infrastructure/storage/storage_root_provider.dart';
 import '../../infrastructure/subtitles/fontinass_cloud_client.dart';
@@ -596,3 +597,12 @@ final cloudSubsetCoordinatorProvider = Provider<CloudSubsetCoordinator>(
 
 /// 云端子集化 Origin 授权变更轻量刷新版本号（驱动设置页授权徽章即时同步）。
 final cloudSubsetAuthRevisionProvider = StateProvider<int>((ref) => 0);
+
+/// Android 原生音频路由与外设拔出瞬态静音通道桥接 Provider（由 Riverpod 统一托管生命周期）。
+final androidAudioRouteBridgeProvider = Provider<AndroidAudioRouteBridge>((
+  ref,
+) {
+  final bridge = AndroidAudioRouteBridge();
+  ref.onDispose(bridge.dispose);
+  return bridge;
+});

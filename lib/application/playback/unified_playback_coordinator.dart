@@ -789,14 +789,10 @@ final activeVideoSessionProvider =
 /// 计算并实时同步 Android 原生画中画参数（仅订阅低频播放态、尺寸与设置开关，绝不订阅 `positionSeconds`）。
 final androidPipAutoSyncProvider = Provider<AndroidPipSyncPayload>((ref) {
   final session = ref.watch(activeVideoSessionProvider);
-  final autoEnterPref = ref.watch(
-    playbackPreferencesProvider.select((p) => p.autoEnterPip),
-  );
   final req = session.request;
 
-  AndroidPipSyncPayload payload;
   if (req == null) {
-    payload = const AndroidPipSyncPayload(
+    const idlePayload = AndroidPipSyncPayload(
       eligible: false,
       isPlaying: false,
       canPrevious: false,
@@ -804,43 +800,52 @@ final androidPipAutoSyncProvider = Provider<AndroidPipSyncPayload>((ref) {
       aspectNumerator: 16,
       aspectDenominator: 9,
     );
-  } else {
-    final snap = ref.watch(
-      videoPlaybackProvider(req).select(
-        (s) => (
-          isPlaying: s.isPlaying,
-          audioOnly: s.audioOnlyMode,
-          isClosing: s.isClosing,
-          hasError: s.errorMessage != null,
-          videoWidth: s.probeStats.videoWidth,
-          videoHeight: s.probeStats.videoHeight,
-          episodeId: s.currentEpisode.id,
-        ),
-      ),
-    );
-    final ctrl = ref.read(videoPlaybackProvider(req).notifier);
-    final aspect = PipAspectRatioPolicy.clampRational(
-      snap.videoWidth ?? 0,
-      snap.videoHeight ?? 0,
-    );
-    final eligible =
-        KonataPlatform.isAndroid &&
-        autoEnterPref &&
-        (session.isExpanded || session.isInPipMode) &&
-        snap.isPlaying &&
-        !snap.audioOnly &&
-        !snap.isClosing &&
-        !snap.hasError;
-    payload = AndroidPipSyncPayload(
-      eligible: eligible,
-      isPlaying: snap.isPlaying,
-      canPrevious: ctrl.hasPreviousEpisodeAny,
-      canNext: ctrl.hasNextEpisodeAny,
-      aspectNumerator: aspect.numerator,
-      aspectDenominator: aspect.denominator,
-      sourceRect: session.sourceRect,
-    );
+    // 仅在已有同步历史时发送空闲复位，避免冷启动空载期触发偏好读取与平台通道通信
+    final pipClient = ref.read(androidPipChannelClientProvider);
+    if (pipClient.lastSentPayload != null) {
+      unawaited(pipClient.syncState(idlePayload));
+    }
+    return idlePayload;
   }
+
+  final autoEnterPref = ref.watch(
+    playbackPreferencesProvider.select((p) => p.autoEnterPip),
+  );
+  final snap = ref.watch(
+    videoPlaybackProvider(req).select(
+      (s) => (
+        isPlaying: s.isPlaying,
+        audioOnly: s.audioOnlyMode,
+        isClosing: s.isClosing,
+        hasError: s.errorMessage != null,
+        videoWidth: s.probeStats.videoWidth,
+        videoHeight: s.probeStats.videoHeight,
+        episodeId: s.currentEpisode.id,
+      ),
+    ),
+  );
+  final ctrl = ref.read(videoPlaybackProvider(req).notifier);
+  final aspect = PipAspectRatioPolicy.clampRational(
+    snap.videoWidth ?? 0,
+    snap.videoHeight ?? 0,
+  );
+  final eligible =
+      KonataPlatform.isAndroid &&
+      autoEnterPref &&
+      (session.isExpanded || session.isInPipMode) &&
+      snap.isPlaying &&
+      !snap.audioOnly &&
+      !snap.isClosing &&
+      !snap.hasError;
+  final payload = AndroidPipSyncPayload(
+    eligible: eligible,
+    isPlaying: snap.isPlaying,
+    canPrevious: ctrl.hasPreviousEpisodeAny,
+    canNext: ctrl.hasNextEpisodeAny,
+    aspectNumerator: aspect.numerator,
+    aspectDenominator: aspect.denominator,
+    sourceRect: session.sourceRect,
+  );
 
   unawaited(ref.read(androidPipChannelClientProvider).syncState(payload));
   return payload;

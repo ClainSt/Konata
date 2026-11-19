@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
 $source = [Drawing.Image]::FromFile((Join-Path $root 'assets/brand/icons/windows.png'))

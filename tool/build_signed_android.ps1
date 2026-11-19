@@ -1,4 +1,4 @@
-﻿# 仅在签名密钥持有者的交互式 PowerShell 会话中运行。
+# 仅在签名密钥持有者的交互式 PowerShell 会话中运行。
 param(
     [ValidateRange(0, 2147481647)] [int] $BuildNumber = 0,
     [string] $BuildName = '1.0.0'

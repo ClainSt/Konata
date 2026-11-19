@@ -227,13 +227,15 @@ void main() {
       );
     });
 
-    test('discoverShaderFilesSync 仅按排序收集 .glsl / .hook 脚本', () async {
+    test('discoverShaderFiles 异步仅按排序收集 .glsl / .hook 脚本', () async {
       final shadersDir = await storage.ensureShadersDir();
       await File(p.join(shadersDir.path, 'b_sharpen.glsl')).writeAsString('//');
       await File(p.join(shadersDir.path, 'a_anime4k.hook')).writeAsString('//');
       await File(p.join(shadersDir.path, 'readme.txt')).writeAsString('ignore');
 
-      final discovered = MpvQualityProfile.discoverShaderFilesSync(shadersDir);
+      final discovered = await MpvQualityProfile.discoverShaderFiles(
+        shadersDir,
+      );
       expect(
         discovered.map((f) => p.basename(f.path)).toList(),
         equals(['a_anime4k.hook', 'b_sharpen.glsl']),

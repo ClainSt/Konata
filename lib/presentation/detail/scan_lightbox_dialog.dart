@@ -1,22 +1,18 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path/path.dart' as p;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../application/providers/diagnostics_providers.dart';
 import '../../application/providers/library_providers.dart';
+import '../../application/providers/scan_lightbox_loader.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
-import '../../domain/models/network_config.dart';
-import '../../domain/repositories/file_system_gateway.dart';
-import '../../infrastructure/sources/byte_stream_source_gateway.dart';
-import '../../infrastructure/sources/source_gateway_factory.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
@@ -26,7 +22,7 @@ import '../widgets/design_system/konata_toast.dart';
 /// - 每次仅在内存中流式加载当前单张原图，严禁批量预拉与 `%TEMP%` 落盘；
 /// - 切换上/下一张或关闭弹窗时，立即中断在途流并调用 `MemoryImage.evict()` 释放高清位图内存；
 /// - 支持鼠标滚轮以指针为锚点缩放（`1.0x–5.0x`）、拖拽平移、双击还原，以及 `← / → / Esc` 快捷键。
-class ScanLightboxDialog extends StatefulWidget {
+class ScanLightboxDialog extends ConsumerStatefulWidget {
   /// 创建 Scan 画集高清大图浏览弹窗。
   const ScanLightboxDialog({
     super.key,
@@ -41,10 +37,10 @@ class ScanLightboxDialog extends StatefulWidget {
   final MediaVariant initialVariant;
 
   @override
-  State<ScanLightboxDialog> createState() => _ScanLightboxDialogState();
+  ConsumerState<ScanLightboxDialog> createState() => _ScanLightboxDialogState();
 }
 
-class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
+class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
   static const double _minScale = 1.0;
   static const double _maxScale = 5.0;
 
@@ -58,8 +54,8 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
   MemoryImage? _activeImageProvider;
   double _currentScale = 1.0;
 
-  StreamSubscription<List<int>>? _activeStreamSub;
-  MediaSourceGateway? _activeGateway;
+  ScanImageLoadHandle? _activeLoadHandle;
+  void Function(String message)? _logError;
 
   @override
   void initState() {
@@ -92,26 +88,23 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
   }
 
   Future<void> _abortInFlightAndEvict() async {
-    final sub = _activeStreamSub;
-    _activeStreamSub = null;
-    if (sub != null) {
+    final handle = _activeLoadHandle;
+    _activeLoadHandle = null;
+    if (handle != null) {
       try {
-        await sub.cancel();
-      } catch (_) {}
-    }
-    final gw = _activeGateway;
-    _activeGateway = null;
-    if (gw != null) {
-      try {
-        await gw.close();
-      } catch (_) {}
+        await handle.cancel();
+      } catch (e) {
+        _logError?.call('取消扫图加载任务失败：$e');
+      }
     }
     final prev = _activeImageProvider;
     _activeImageProvider = null;
     if (prev != null) {
       try {
         await prev.evict();
-      } catch (_) {}
+      } catch (e) {
+        _logError?.call('回收扫图位图缓存失败：$e');
+      }
     }
   }
 
@@ -131,6 +124,10 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
   Future<void> _loadCurrentScan() async {
     final scans = widget.bundle.scanVariants;
     if (scans.isEmpty) return;
+
+    final loader = ref.read(scanLightboxLoaderProvider);
+    final logStore = ref.read(diagnosticsLogStoreProvider);
+    _logError = (msg) => logStore.record('SCAN', msg, isError: true);
 
     final epoch = ++_loadEpoch;
     await _abortInFlightAndEvict();
@@ -152,94 +149,12 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
     });
 
     try {
-      final gw = await const MediaSourceGatewayFactory().create(source);
-      if (!mounted || epoch != _loadEpoch) {
-        await gw.close();
-        return;
+      final handle = loader.startLoad(variant: current, source: source);
+      _activeLoadHandle = handle;
+      final bytes = await handle.future;
+      if (identical(_activeLoadHandle, handle)) {
+        _activeLoadHandle = null;
       }
-      _activeGateway = gw;
-
-      if (gw is! ByteRangeReadableGateway) {
-        await gw.close();
-        _activeGateway = null;
-        if (mounted && epoch == _loadEpoch) {
-          setState(() {
-            _loading = false;
-            _errorText = '当前媒体源不支持流式读取高清大图';
-          });
-        }
-        return;
-      }
-
-      final byteGw = gw as ByteRangeReadableGateway;
-      final fileLen = await byteGw.probeFileLength(current.relativePath);
-      if (!mounted || epoch != _loadEpoch) {
-        await _abortInFlightAndEvict();
-        return;
-      }
-
-      final endInclusive = (fileLen != null && fileLen > 0)
-          ? (fileLen > TmdbNetworkConfig.maxScanFullImageBytes
-                ? TmdbNetworkConfig.maxScanFullImageBytes - 1
-                : fileLen - 1)
-          : TmdbNetworkConfig.maxScanFullImageBytes - 1;
-      if (endInclusive < 0) {
-        await _abortInFlightAndEvict();
-        if (mounted && epoch == _loadEpoch) {
-          setState(() {
-            _loading = false;
-            _errorText = '当前图像文件为空';
-          });
-        }
-        return;
-      }
-
-      final stream = await byteGw.openByteRange(
-        current.relativePath,
-        start: 0,
-        endInclusive: endInclusive,
-      );
-      if (!mounted || epoch != _loadEpoch) {
-        await _abortInFlightAndEvict();
-        return;
-      }
-
-      final builder = BytesBuilder(copy: false);
-      final done = Completer<Uint8List?>();
-      late final StreamSubscription<List<int>> sub;
-      sub = stream.listen(
-        (chunk) {
-          if (!mounted || epoch != _loadEpoch) {
-            unawaited(sub.cancel());
-            if (!done.isCompleted) done.complete(null);
-            return;
-          }
-          builder.add(chunk);
-          if (builder.length >= TmdbNetworkConfig.maxScanFullImageBytes) {
-            unawaited(sub.cancel());
-            if (!done.isCompleted) done.complete(builder.takeBytes());
-          }
-        },
-        onError: (Object err) {
-          if (!done.isCompleted) done.completeError(err);
-        },
-        onDone: () {
-          if (!done.isCompleted) {
-            done.complete(builder.takeBytes());
-          }
-        },
-        cancelOnError: true,
-      );
-      _activeStreamSub = sub;
-
-      final bytes = await done.future;
-      if (identical(_activeStreamSub, sub)) {
-        _activeStreamSub = null;
-      }
-      if (identical(_activeGateway, gw)) {
-        _activeGateway = null;
-      }
-      await gw.close();
 
       if (!mounted || epoch != _loadEpoch) return;
 
@@ -258,12 +173,14 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
         _errorText = null;
       });
     } catch (err) {
+      logStore.record('SCAN', '加载高清画集失败：$err', isError: true);
       if (!mounted || epoch != _loadEpoch) return;
       await _abortInFlightAndEvict();
       if (!mounted || epoch != _loadEpoch) return;
+      final cleanMsg = err is StateError ? err.message : '加载高清画集失败: $err';
       setState(() {
         _loading = false;
-        _errorText = '加载高清画集失败: $err';
+        _errorText = cleanMsg;
       });
     }
   }
@@ -380,20 +297,17 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
       return;
     }
 
-    final relSegments = current.relativePath
-        .split(RegExp(r'[/\\]+'))
-        .where((s) => s.isNotEmpty)
-        .toList(growable: false);
-    final fullPath = p.normalize(p.joinAll([source.location, ...relSegments]));
-    final file = File(fullPath);
-    if (!await file.exists()) {
+    final existingPath = await ref
+        .read(scanLightboxLoaderProvider)
+        .resolveExistingLocalPath(variant: current, source: source);
+    if (existingPath == null) {
       if (!mounted) return;
       showKonataToast(context, '本地原图文件不存在或不可访问');
       return;
     }
 
     final ok = await launchUrl(
-      Uri.file(file.path),
+      Uri.file(existingPath),
       mode: LaunchMode.externalApplication,
     );
     if (!ok && mounted) {

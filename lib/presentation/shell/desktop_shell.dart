@@ -83,18 +83,20 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
             body: Stack(
               children: [
                 Positioned.fill(
-                  child: Padding(
-                    padding: EdgeInsets.only(left: geometry.leftClearance),
-                    child: SafeArea(
-                      bottom: false,
-                      child: KonataKeepAliveTabSwitcher(
-                        activeIndex: activeSection.index,
-                        children: const [
-                          LibraryPage(),
-                          SourcesPage(),
-                          PlaybackHistoryPage(),
-                          SettingsPage(),
-                        ],
+                  child: RepaintBoundary(
+                    child: Padding(
+                      padding: EdgeInsets.only(left: geometry.leftClearance),
+                      child: SafeArea(
+                        bottom: false,
+                        child: KonataKeepAliveTabSwitcher(
+                          activeIndex: activeSection.index,
+                          children: const [
+                            LibraryPage(),
+                            SourcesPage(),
+                            PlaybackHistoryPage(),
+                            SettingsPage(),
+                          ],
+                        ),
                       ),
                     ),
                   ),

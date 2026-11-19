@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 
 import '../../composition/platform_composition.dart';
 import '../../domain/matching/episode_title_formatter.dart';
@@ -16,6 +17,8 @@ import '../../domain/models/work.dart';
 import '../../domain/playback/chapter_skip_analyzer.dart';
 import '../../domain/playback/playback_probe_stats.dart';
 import '../../domain/playback/subtitle_and_audio_choices.dart';
+import '../../domain/playback/subtitle_content_processor.dart';
+import '../../domain/playback/subtitle_timeline_remapper.dart';
 import '../../domain/playback/track_preferences.dart';
 import '../../domain/playback/video_aspect_mode.dart';
 import '../../domain/playback/watched_tracker.dart';
@@ -105,6 +108,9 @@ class VideoPlaybackState {
     this.availableShaders = const [],
     this.subtitleDelaySeconds = 0.0,
     this.audioDelaySeconds = 0.0,
+    this.subtitleOpenCcMode = SubtitleOpenCcMode.none,
+    this.secondarySubtitleTrackId,
+    this.activeSubtitleSubsetState,
     this.trackMemory = const CrossEpisodeTrackMemory(),
     this.activeSkipWindow,
     this.transientBanner,
@@ -143,6 +149,15 @@ class VideoPlaybackState {
   final List<File> availableShaders;
   final double subtitleDelaySeconds;
   final double audioDelaySeconds;
+
+  /// 当前主字幕的内存直注 OpenCC 繁简转换模式。
+  final SubtitleOpenCcMode subtitleOpenCcMode;
+
+  /// 当前激活的副字幕轨道 ID（双语对照模式，`null` 表示关闭）。
+  final int? secondarySubtitleTrackId;
+
+  /// 当前外挂字幕探测到的字体子集三态分类（用于界面展示混淆子集防乱码保护徽标）。
+  final SubtitleSubsetState? activeSubtitleSubsetState;
   final CrossEpisodeTrackMemory trackMemory;
   final DetectedSkipWindow? activeSkipWindow;
   final String? transientBanner;
@@ -181,6 +196,11 @@ class VideoPlaybackState {
     List<File>? availableShaders,
     double? subtitleDelaySeconds,
     double? audioDelaySeconds,
+    SubtitleOpenCcMode? subtitleOpenCcMode,
+    int? secondarySubtitleTrackId,
+    bool clearSecondarySubtitleTrackId = false,
+    SubtitleSubsetState? activeSubtitleSubsetState,
+    bool clearActiveSubtitleSubsetState = false,
     CrossEpisodeTrackMemory? trackMemory,
     DetectedSkipWindow? activeSkipWindow,
     bool clearSkipWindow = false,
@@ -223,6 +243,13 @@ class VideoPlaybackState {
       availableShaders: availableShaders ?? this.availableShaders,
       subtitleDelaySeconds: subtitleDelaySeconds ?? this.subtitleDelaySeconds,
       audioDelaySeconds: audioDelaySeconds ?? this.audioDelaySeconds,
+      subtitleOpenCcMode: subtitleOpenCcMode ?? this.subtitleOpenCcMode,
+      secondarySubtitleTrackId: clearSecondarySubtitleTrackId
+          ? null
+          : (secondarySubtitleTrackId ?? this.secondarySubtitleTrackId),
+      activeSubtitleSubsetState: clearActiveSubtitleSubsetState
+          ? null
+          : (activeSubtitleSubsetState ?? this.activeSubtitleSubsetState),
       trackMemory: trackMemory ?? this.trackMemory,
       activeSkipWindow: clearSkipWindow
           ? null
@@ -244,7 +271,8 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     this.request, {
     this.sessionFactory,
     this.deferBootstrap = false,
-  }) : super(
+  }) : _sessionMutex = _ref.read(embeddedSessionMutexProvider),
+       super(
          VideoPlaybackState(
            currentWork: request.work,
            currentBundle: request.bundle,
@@ -267,6 +295,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   final VideoLaunchRequest request;
   final EmbeddedMpvSession Function()? sessionFactory;
   final bool deferBootstrap;
+  final EmbeddedSessionMutex _sessionMutex;
 
   final WatchedTracker _watchedTracker = WatchedTracker();
   final Completer<AndroidVideoSurfaceController>? _androidSurfaceCompleter =
@@ -296,6 +325,9 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   double? _speedBeforeBoost;
   double? _volumeBeforeDuck;
   int _thumbnailGeneration = 0;
+  String? _activeExternalSubtitleSourcePath;
+  int? _activeOriginalSubtitleTrackId;
+  String? _activeExternalSubtitleTitle;
 
   /// 当前正在播放的活跃作品实体（支持同系列跨季原地热切换）。
   Work get activeWork => state.currentWork ?? request.work;
@@ -1144,6 +1176,9 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
             : 0);
 
     _latestPositionSeconds = resumePos.toDouble();
+    _activeExternalSubtitleSourcePath = null;
+    _activeOriginalSubtitleTrackId = null;
+    _activeExternalSubtitleTitle = null;
     state = state.copyWith(
       currentWork: resolvedBundle.work,
       currentBundle: resolvedBundle,
@@ -1156,6 +1191,9 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       durationSeconds: 0.0,
       subtitleDelaySeconds: 0.0,
       audioDelaySeconds: 0.0,
+      subtitleOpenCcMode: SubtitleOpenCcMode.none,
+      clearSecondarySubtitleTrackId: true,
+      clearActiveSubtitleSubsetState: true,
       chapters: const [],
       clearSkipWindow: true,
       clearError: true,
@@ -1414,9 +1452,219 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     return result;
   }
 
+  static bool _isTextSubtitlePath(String? rawPath) {
+    if (rawPath == null) return false;
+    final trimmed = rawPath.trim();
+    if (trimmed.isEmpty || trimmed.startsWith('memory://')) return false;
+    final ext = p.extension(trimmed.split('?').first).toLowerCase();
+    return ext == '.ass' || ext == '.ssa' || ext == '.srt' || ext == '.vtt';
+  }
+
+  SubtitleChoice? get _selectedSubtitleChoice {
+    for (final s in state.subtitles) {
+      if (s.selected) return s;
+    }
+    return null;
+  }
+
+  String? _resolveActiveExternalTextSubtitlePath() {
+    final cached = _activeExternalSubtitleSourcePath;
+    if (_isTextSubtitlePath(cached)) {
+      return cached!.trim();
+    }
+    final active = _selectedSubtitleChoice;
+    if (active != null && _isTextSubtitlePath(active.externalPath)) {
+      return active.externalPath!.trim();
+    }
+    return null;
+  }
+
+  /// 当前激活主字幕是否具备可进行内存直注繁简转换或离线时间轴固化的外挂文本源。
+  bool get hasExternalTextSubtitleSource =>
+      _resolveActiveExternalTextSubtitlePath() != null;
+
+  String _buildMemoryTrackTitle(
+    String sourcePath, {
+    required SubtitleOpenCcMode mode,
+    bool remapped = false,
+  }) {
+    final base = (_activeExternalSubtitleTitle ?? p.basename(sourcePath)).trim();
+    final suffix = <String>[
+      if (mode == SubtitleOpenCcMode.toSimplified) '简',
+      if (mode == SubtitleOpenCcMode.toTraditional) '繁',
+      if (remapped) '调轴',
+    ];
+    return suffix.isEmpty ? base : '$base [${suffix.join('·')}]';
+  }
+
+  /// 通过内存直注无副作用字幕引擎切换主字幕 OpenCC 繁简模式（受三态子集保护门禁约束）。
+  Future<SubtitleMemoryApplyResult?> setSubtitleOpenCcMode(
+    SubtitleOpenCcMode mode,
+  ) async {
+    final sourcePath = _resolveActiveExternalTextSubtitlePath();
+    if (sourcePath == null || !File(sourcePath).existsSync()) {
+      if (mode == SubtitleOpenCcMode.none &&
+          _activeOriginalSubtitleTrackId != null) {
+        final restored = await applyMemorySubtitleIntent(
+          AuthoritativeSubtitleIntent(
+            primary: SubtitleSlotRequest.existingTrack(
+              _activeOriginalSubtitleTrackId!,
+            ),
+            instantSubDelaySeconds: state.subtitleDelaySeconds,
+          ),
+        );
+        if (mounted && restored.applied) {
+          state = state.copyWith(
+            subtitleOpenCcMode: SubtitleOpenCcMode.none,
+            clearActiveSubtitleSubsetState: true,
+          );
+        }
+        return restored;
+      }
+      showTransientBanner('当前内封或图形字幕暂不支持内存繁简转换，请选择外挂文本字幕');
+      return null;
+    }
+
+    _activeExternalSubtitleSourcePath = sourcePath;
+    final result = await applyMemorySubtitleIntent(
+      AuthoritativeSubtitleIntent(
+        primary: SubtitleSlotRequest.memory(
+          localFilePath: sourcePath,
+          fileName: p.basename(sourcePath),
+          displayTitle: _buildMemoryTrackTitle(sourcePath, mode: mode),
+          openCcMode: mode,
+        ),
+        instantSubDelaySeconds: state.subtitleDelaySeconds,
+      ),
+    );
+    if (!mounted || !result.applied) return result;
+
+    state = state.copyWith(
+      subtitleOpenCcMode: mode,
+      activeSubtitleSubsetState: result.primarySubsetState,
+      clearActiveSubtitleSubsetState: result.primarySubsetState == null,
+    );
+    if (result.primaryOpenCcSkipReason == 'opaque_obfuscated_subset_protected') {
+      showTransientBanner('检测到混淆子集字体，已自动保护原文防乱码');
+    } else if (mode == SubtitleOpenCcMode.toSimplified) {
+      showTransientBanner('已通过内存直注切换为简体字幕');
+    } else if (mode == SubtitleOpenCcMode.toTraditional) {
+      showTransientBanner('已通过内存直注切换为繁体字幕');
+    } else {
+      showTransientBanner('已恢复字幕原文');
+    }
+    return result;
+  }
+
+  /// 将当前字幕延迟或倍率偏移离线重映射至内存直注轨道，并原子归零瞬时 `sub-delay`。
+  Future<SubtitleMemoryApplyResult?> bakeSubtitleTimelineOffset({
+    double rateScale = 1.0,
+  }) async {
+    final transform = SubtitleTimelineTransform(
+      rateScale: rateScale,
+      offsetSeconds: state.subtitleDelaySeconds,
+      isPausedAlignment: !state.isPlaying,
+    );
+    if (transform.isIdentity) {
+      showTransientBanner('当前字幕延迟为 0，无需固化时间轴');
+      return null;
+    }
+    final sourcePath = _resolveActiveExternalTextSubtitlePath();
+    if (sourcePath == null || !File(sourcePath).existsSync()) {
+      showTransientBanner('仅外挂文本字幕支持离线时间轴固化');
+      return null;
+    }
+
+    _activeExternalSubtitleSourcePath = sourcePath;
+    final result = await applyMemorySubtitleIntent(
+      AuthoritativeSubtitleIntent(
+        primary: SubtitleSlotRequest.memory(
+          localFilePath: sourcePath,
+          fileName: p.basename(sourcePath),
+          displayTitle: _buildMemoryTrackTitle(
+            sourcePath,
+            mode: state.subtitleOpenCcMode,
+            remapped: true,
+          ),
+          openCcMode: state.subtitleOpenCcMode,
+          timelineTransform: transform,
+        ),
+      ),
+    );
+    if (mounted && result.applied) {
+      state = state.copyWith(
+        activeSubtitleSubsetState: result.primarySubsetState,
+        clearActiveSubtitleSubsetState: result.primarySubsetState == null,
+      );
+      showTransientBanner('已通过内存直注固化字幕时间轴并归零延迟');
+    }
+    return result;
+  }
+
+  /// 经单一串行权威通道独立挂载或关闭双语副字幕（`secondary-sid`），绝不干扰当前主字幕槽位。
+  Future<SubtitleMemoryApplyResult> selectSecondarySubtitle(
+    SubtitleChoice? choice,
+  ) async {
+    final currentPrimary = _selectedSubtitleChoice;
+    final primarySlot = currentPrimary?.mpvTrackId != null
+        ? SubtitleSlotRequest.existingTrack(currentPrimary!.mpvTrackId!)
+        : null;
+
+    SubtitleSlotRequest? secondarySlot;
+    if (choice != null) {
+      if (choice.mpvTrackId != null) {
+        secondarySlot = SubtitleSlotRequest.existingTrack(
+          choice.mpvTrackId!,
+          displayTitle: choice.primaryTitle,
+        );
+      } else if (_isTextSubtitlePath(choice.externalPath) &&
+          File(choice.externalPath!.trim()).existsSync()) {
+        final filePath = choice.externalPath!.trim();
+        secondarySlot = SubtitleSlotRequest.memory(
+          localFilePath: filePath,
+          fileName: p.basename(filePath),
+          displayTitle: choice.primaryTitle,
+        );
+      }
+    }
+
+    final result = await applyMemorySubtitleIntent(
+      AuthoritativeSubtitleIntent(
+        primary: primarySlot,
+        secondary: secondarySlot,
+        updateSecondary: true,
+      ),
+    );
+    if (mounted && result.applied) {
+      state = state.copyWith(
+        secondarySubtitleTrackId: result.secondaryTrackId,
+        clearSecondarySubtitleTrackId: result.secondaryTrackId == null,
+      );
+      showTransientBanner(
+        result.secondaryTrackId == null
+            ? '已关闭双语副字幕'
+            : '已启用双语副字幕：${choice?.primaryTitle ?? ''}',
+      );
+    }
+    return result;
+  }
+
   void selectSubtitle(SubtitleChoice? choice) {
     _subtitleMemoryEngine?.invalidatePendingIntents();
     _session?.selectSubtitle(choice);
+    if (choice == null) {
+      _activeExternalSubtitleSourcePath = null;
+      _activeOriginalSubtitleTrackId = null;
+      _activeExternalSubtitleTitle = null;
+    } else if (_isTextSubtitlePath(choice.externalPath)) {
+      _activeExternalSubtitleSourcePath = choice.externalPath!.trim();
+      _activeOriginalSubtitleTrackId = choice.mpvTrackId;
+      _activeExternalSubtitleTitle = choice.primaryTitle;
+    } else {
+      _activeExternalSubtitleSourcePath = null;
+      _activeOriginalSubtitleTrackId = choice.mpvTrackId;
+      _activeExternalSubtitleTitle = null;
+    }
     final nextMemory = state.trackMemory.rememberSubtitle(
       choice == null || choice.mpvTrackId == null
           ? (choice == null
@@ -1440,7 +1688,11 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
               externalFilename: choice.externalPath,
             ),
     );
-    state = state.copyWith(trackMemory: nextMemory);
+    state = state.copyWith(
+      trackMemory: nextMemory,
+      subtitleOpenCcMode: SubtitleOpenCcMode.none,
+      clearActiveSubtitleSubsetState: true,
+    );
   }
 
   void addExternalSubtitleFile(String path) {
@@ -1492,9 +1744,12 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     _session?.applyLiveQualityConfig(nextConfig);
   }
 
-  /// 一键重置字幕延迟、字号、底部边距与 ASS 样式覆写模式为标准默认值。
+  /// 一键重置字幕延迟、OpenCC 繁简模式、字号、底部边距与 ASS 样式覆写模式为标准默认值。
   Future<void> resetSubtitleAdjustments() async {
     setSubtitleDelay(0);
+    if (state.subtitleOpenCcMode != SubtitleOpenCcMode.none) {
+      await setSubtitleOpenCcMode(SubtitleOpenCcMode.none);
+    }
     await updateLiveQuality(
       (c) => c.copyWith(
         subFontSize: PlaybackQualityConfig.defaultSubFontSize,
@@ -1753,8 +2008,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       final sessionToDispose = _session;
       _session = null;
       if (sessionToDispose != null) {
-        final mutex = _ref.read(embeddedSessionMutexProvider);
-        unawaited(mutex.runExclusive(() => sessionToDispose.dispose()));
+        unawaited(_sessionMutex.runExclusive(() => sessionToDispose.dispose()));
       }
       Future.microtask(() {
         try {

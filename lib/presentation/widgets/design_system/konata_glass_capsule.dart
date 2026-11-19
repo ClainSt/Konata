@@ -29,10 +29,16 @@ class KonataGlassCapsule extends StatelessWidget {
   /// 是否启用底层高斯模糊采样（在硬件视频层前景可关闭以避免透明覆盖层帧缓冲重影）。
   final bool enableBackdropBlur;
 
+  static final ImageFilter _capsuleBlurFilter = ImageFilter.blur(
+    sigmaX: KonataPlaybackTokens.capsuleBlurSigma,
+    sigmaY: KonataPlaybackTokens.capsuleBlurSigma,
+  );
+
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
     final effectiveRadius = radius ?? KonataAdaptiveTokens.capsuleRadius;
+    final borderRadius = BorderRadius.circular(effectiveRadius);
     final body = padding != null
         ? Padding(padding: padding!, child: child)
         : child;
@@ -41,7 +47,7 @@ class KonataGlassCapsule extends StatelessWidget {
         color: enableBackdropBlur
             ? KonataPlaybackTokens.glassSurface(p)
             : (p.isDark ? const Color(0xCC161618) : p.surface),
-        borderRadius: BorderRadius.circular(effectiveRadius),
+        borderRadius: borderRadius,
         border: Border.all(
           color: KonataPlaybackTokens.glassBorder(p),
           width: KonataAdaptiveTokens.borderWidth,
@@ -50,15 +56,9 @@ class KonataGlassCapsule extends StatelessWidget {
       child: body,
     );
     return ClipRRect(
-      borderRadius: BorderRadius.circular(effectiveRadius),
+      borderRadius: borderRadius,
       child: enableBackdropBlur
-          ? BackdropFilter(
-              filter: ImageFilter.blur(
-                sigmaX: KonataPlaybackTokens.capsuleBlurSigma,
-                sigmaY: KonataPlaybackTokens.capsuleBlurSigma,
-              ),
-              child: decorated,
-            )
+          ? BackdropFilter(filter: _capsuleBlurFilter, child: decorated)
           : decorated,
     );
   }

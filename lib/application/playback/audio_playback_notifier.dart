@@ -56,21 +56,11 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     this.retryDelayBuilder,
     this.microFadeStepInterval = const Duration(milliseconds: 25),
     AndroidMediaSessionBridge? mediaSessionBridge,
-  }) : _mediaSessionBridge =
-           mediaSessionBridge ??
-           AndroidMediaSessionBridge(
-             isSupported: () => KonataPlatform.isAndroid,
-           ),
-       _engine = _ref.read(unifiedPlaybackEngineProvider),
-       _safetyCoordinator = _ref.read(audiophileSafetyCoordinatorProvider),
-       _streamBridge = _ref.read(localStreamBridgeProvider),
-       _logStore = _ref.read(diagnosticsLogStoreProvider),
+  }) : _mediaSessionBridgeOverride = mediaSessionBridge,
        _microFadeDriver = AudiophileMicroFadeDriver(
          stepInterval: microFadeStepInterval,
        ),
-       super(const AudioPlaybackState()) {
-    _bindAndroidMediaSessionCallbacks();
-  }
+       super(const AudioPlaybackState());
 
   /// 非致命流加载异常的最大静默重试次数。
   static const int maxSilentRetries = 3;
@@ -100,12 +90,64 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
 
   /// S 型微淡入斜坡的离散步进周期（默认 25 ms，约 6 步完成 150 ms 后即停钟）。
   final Duration microFadeStepInterval;
-  final AndroidMediaSessionBridge _mediaSessionBridge;
-  final UnifiedPlaybackEngine _engine;
-  final AudiophileSafetyCoordinator _safetyCoordinator;
-  final LocalStreamBridge _streamBridge;
-  final DiagnosticsLogStore _logStore;
+  final AndroidMediaSessionBridge? _mediaSessionBridgeOverride;
   final AudiophileMicroFadeDriver _microFadeDriver;
+
+  AndroidMediaSessionBridge? _mediaSessionBridgeInstance;
+  UnifiedPlaybackEngine? _engineInstance;
+  AudiophileSafetyCoordinator? _safetyCoordinatorInstance;
+  LocalStreamBridge? _streamBridgeInstance;
+  DiagnosticsLogStore? _logStoreInstance;
+  bool _runtimeListenersBound = false;
+  final List<ProviderSubscription<Object?>> _runtimeSubscriptions = [];
+
+  /// 惰性初始化统一播放代数引擎（空载未播音频时不提前构造）。
+  UnifiedPlaybackEngine get _engine {
+    final existing = _engineInstance;
+    if (existing != null) return existing;
+    final created = _ref.read(unifiedPlaybackEngineProvider);
+    _engineInstance = created;
+    return created;
+  }
+
+  /// 惰性初始化发烧音频安全协调器（避免空载冷启动提前绑定平台音频通道）。
+  AudiophileSafetyCoordinator get _safetyCoordinator {
+    final existing = _safetyCoordinatorInstance;
+    if (existing != null) return existing;
+    final created = _ref.read(audiophileSafetyCoordinatorProvider);
+    _safetyCoordinatorInstance = created;
+    return created;
+  }
+
+  /// 惰性初始化本地流网桥。
+  LocalStreamBridge get _streamBridge {
+    final existing = _streamBridgeInstance;
+    if (existing != null) return existing;
+    final created = _ref.read(localStreamBridgeProvider);
+    _streamBridgeInstance = created;
+    return created;
+  }
+
+  /// 惰性初始化诊断日志存储。
+  DiagnosticsLogStore get _logStore {
+    final existing = _logStoreInstance;
+    if (existing != null) return existing;
+    final created = _ref.read(diagnosticsLogStoreProvider);
+    _logStoreInstance = created;
+    return created;
+  }
+
+  /// 惰性初始化 Android 媒体会话通信桥（桌面与空载未播态零通道绑定）。
+  AndroidMediaSessionBridge get _mediaSessionBridge {
+    final existing = _mediaSessionBridgeInstance;
+    if (existing != null) return existing;
+    final created =
+        _mediaSessionBridgeOverride ??
+        AndroidMediaSessionBridge(isSupported: () => KonataPlatform.isAndroid);
+    _mediaSessionBridgeInstance = created;
+    _bindAndroidMediaSessionCallbacks();
+    return created;
+  }
 
   final Map<String, Uint8List> _posterNotificationBytesCache = {};
   final Set<String> _loadingPosterNotificationKeys = {};
@@ -113,10 +155,54 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   /// 暴露媒体会话通信桥实例供集成与单元测试观测。
   AndroidMediaSessionBridge get mediaSessionBridge => _mediaSessionBridge;
 
+  void _ensureRuntimeListenersBound() {
+    if (_runtimeListenersBound || !mounted) return;
+    _runtimeListenersBound = true;
+    _runtimeSubscriptions.add(
+      _ref.listen<bool>(videoPlaybackActiveProvider, (_, isVideoActive) {
+        if (isVideoActive) {
+          unawaited(pauseForVideoSession());
+        }
+      }),
+    );
+    _runtimeSubscriptions.add(
+      _ref.listen<(bool, bool, bool)>(
+        playbackPreferencesProvider.select(
+          (p) => (
+            p.hdmiSpdifPassthrough,
+            p.qualityConfig.wasapiExclusive,
+            p.androidBitPerfectUsb,
+          ),
+        ),
+        (_, _) {
+          unawaited(
+            _safetyCoordinator.reapplyAll(
+              _ref.read(playbackPreferencesProvider),
+            ),
+          );
+        },
+      ),
+    );
+    _runtimeSubscriptions.add(
+      _ref.listen<AsyncValue<List<WorkLibraryItem>>>(libraryItemsProvider, (
+        _,
+        next,
+      ) {
+        final items = next.valueOrNull;
+        if (items != null) {
+          syncUpdatedWorks([for (final e in items) e.work]);
+        }
+      }),
+    );
+  }
+
   @override
   set state(AudioPlaybackState value) {
+    final wasActive = super.state.isActive;
     super.state = value;
-    _syncAndroidMediaSession();
+    if (value.isActive || wasActive || _mediaSessionBridgeInstance != null) {
+      _syncAndroidMediaSession();
+    }
   }
 
   LibMpvClient? _client;
@@ -188,6 +274,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     required Map<String, MediaSource> sourcesById,
     int? initialCueTrackNumber,
   }) async {
+    _ensureRuntimeListenersBound();
     final generation = ++_loadGeneration;
     final built = await _buildQueueItems(
       work: work,
@@ -632,13 +719,22 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   void dispose() {
     ++_loadGeneration;
     _cancelMicroFade();
-    _engine.cancelTaskDomain(PlaybackTaskDomain.lyricLookup);
-    _safetyCoordinator.detachSession(this);
-    unawaited(_mediaSessionBridge.stopSession());
-    _mediaSessionBridge.dispose();
+    for (final sub in _runtimeSubscriptions) {
+      sub.close();
+    }
+    _runtimeSubscriptions.clear();
+    _engineInstance?.cancelTaskDomain(PlaybackTaskDomain.lyricLookup);
+    _safetyCoordinatorInstance?.detachSession(this);
+    final mediaBridge = _mediaSessionBridgeInstance;
+    if (mediaBridge != null) {
+      unawaited(mediaBridge.stopSession());
+      mediaBridge.dispose();
+    }
     unawaited(_eventSub?.cancel());
     _eventSub = null;
-    unawaited(_releaseActiveStreamSession());
+    if (_activeStreamToken != null || _prefetchedNextTrack != null) {
+      unawaited(_releaseActiveStreamSession());
+    }
     final c = _client;
     _client = null;
     if (c != null && !c.isDisposed) {
@@ -648,44 +744,13 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   }
 }
 
-/// 全局持久 CD 纯音频播放器 Provider。
+/// 全局持久 CD 纯音频播放器 Provider（静息冷启动零偏好/数据库/音频通道提前装配）。
 final audioPlaybackProvider =
     StateNotifierProvider<AudioPlaybackNotifier, AudioPlaybackState>((ref) {
-      final notifier = AudioPlaybackNotifier(
+      return AudioPlaybackNotifier(
         ref,
         gatewayFactory: ref.read(mediaSourceGatewayFactoryProvider),
       );
-      ref.listen<bool>(videoPlaybackActiveProvider, (_, isVideoActive) {
-        if (isVideoActive) {
-          unawaited(notifier.pauseForVideoSession());
-        }
-      });
-      ref.listen<(bool, bool, bool)>(
-        playbackPreferencesProvider.select(
-          (p) => (
-            p.hdmiSpdifPassthrough,
-            p.qualityConfig.wasapiExclusive,
-            p.androidBitPerfectUsb,
-          ),
-        ),
-        (_, _) {
-          unawaited(
-            ref
-                .read(audiophileSafetyCoordinatorProvider)
-                .reapplyAll(ref.read(playbackPreferencesProvider)),
-          );
-        },
-      );
-      ref.listen<AsyncValue<List<WorkLibraryItem>>>(libraryItemsProvider, (
-        _,
-        next,
-      ) {
-        final items = next.valueOrNull;
-        if (items != null) {
-          notifier.syncUpdatedWorks([for (final e in items) e.work]);
-        }
-      });
-      return notifier;
     });
 
 class _CueTrackBoundsException implements Exception {

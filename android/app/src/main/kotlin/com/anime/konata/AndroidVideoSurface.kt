@@ -40,7 +40,7 @@ class AndroidUnderlaySurfaceHost(
         const val CHANNEL_NAME = "ccplayer/android_underlay_surface"
     }
 
-    private val view = SurfaceView(activity)
+    private var surfaceView: SurfaceView? = null
     private val channel = MethodChannel(messenger, CHANNEL_NAME)
     private val main = Handler(Looper.getMainLooper())
     private val references = mutableListOf<Long>()
@@ -50,51 +50,56 @@ class AndroidUnderlaySurfaceHost(
     private var format = PixelFormat.UNKNOWN
     private var copying = false
     private var attachedToRoot = false
+    private var displayListenerRegistered = false
     private var disposed = false
     private var lastLeft = Int.MIN_VALUE
     private var lastTop = Int.MIN_VALUE
     private var lastWidth = -1
     private var lastHeight = -1
     private var lastRadiusPx = -1f
-    private val displays = activity.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+    private var displays: DisplayManager? = null
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(id: Int) = Unit
         override fun onDisplayRemoved(id: Int) = refreshDisplay()
         override fun onDisplayChanged(id: Int) = refreshDisplay()
     }
     private var lastHdrPeak = -1
-    private val helper = Class.forName("com.alexmercerind.mediakitandroidhelper.MediaKitAndroidHelper")
-    private val retain = helper.getDeclaredMethod("newGlobalObjectRef", Any::class.java).apply { isAccessible = true }
-    private val release = helper.getDeclaredMethod("deleteGlobalObjectRef", Long::class.javaPrimitiveType).apply { isAccessible = true }
+    private val helperClass by lazy {
+        Class.forName("com.alexmercerind.mediakitandroidhelper.MediaKitAndroidHelper")
+    }
+    private val retain by lazy {
+        helperClass.getDeclaredMethod("newGlobalObjectRef", Any::class.java).apply {
+            isAccessible = true
+        }
+    }
+    private val release by lazy {
+        helperClass.getDeclaredMethod("deleteGlobalObjectRef", Long::class.javaPrimitiveType).apply {
+            isAccessible = true
+        }
+    }
 
     init {
-        // 严格保持默认窗口底层 Z 序，位于 `BackgroundMode.transparent` 的上层 Flutter 画布之后。
-        view.setZOrderOnTop(false)
-        view.setZOrderMediaOverlay(false)
-        view.visibility = View.GONE
-        view.holder.addCallback(this)
-        displays.registerDisplayListener(displayListener, main)
-
+        // 严格惰性初始化：空载浏览期不创建 SurfaceView、不加载 mediakitandroidhelper 原生库、不注册显示监听。
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "show" -> {
-                    ensureAttachedToRoot()
+                    val v = ensureAttachedToRoot()
                     val args = call.arguments as? Map<*, *>
-                    if (args != null) {
-                        applyRectFromArgs(args)
+                    if (v != null && args != null) {
+                        applyRectFromArgs(v, args)
                     }
-                    if (view.visibility != View.VISIBLE) {
-                        view.visibility = View.VISIBLE
+                    if (v != null && v.visibility != View.VISIBLE) {
+                        v.visibility = View.VISIBLE
                     }
                     result.success(if (current == 0L) null else state())
                 }
                 "setRect" -> {
-                    ensureAttachedToRoot()
+                    val v = ensureAttachedToRoot()
                     val args = call.arguments as? Map<*, *>
-                    if (args != null) {
-                        applyRectFromArgs(args)
-                        if (view.visibility != View.VISIBLE) {
-                            view.visibility = View.VISIBLE
+                    if (v != null && args != null) {
+                        applyRectFromArgs(v, args)
+                        if (v.visibility != View.VISIBLE) {
+                            v.visibility = View.VISIBLE
                         }
                     }
                     result.success(null)
@@ -137,19 +142,39 @@ class AndroidUnderlaySurfaceHost(
         }
     }
 
-    private fun ensureAttachedToRoot() {
-        if (disposed || attachedToRoot) return
-        val contentRoot = activity.findViewById<ViewGroup>(android.R.id.content) ?: return
-        val lp = FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            Gravity.TOP or Gravity.START
-        )
-        contentRoot.addView(view, 0, lp)
-        attachedToRoot = true
+    private fun ensureAttachedToRoot(): SurfaceView? {
+        if (disposed) return null
+        val existing = surfaceView
+        if (existing != null && attachedToRoot) return existing
+        val contentRoot = activity.findViewById<ViewGroup>(android.R.id.content) ?: return null
+        val created = existing ?: SurfaceView(activity).also { sv ->
+            // 严格保持默认窗口底层 Z 序，位于 `BackgroundMode.transparent` 的上层 Flutter 画布之后。
+            sv.setZOrderOnTop(false)
+            sv.setZOrderMediaOverlay(false)
+            sv.visibility = View.GONE
+            sv.holder.addCallback(this)
+            surfaceView = sv
+        }
+        if (!displayListenerRegistered) {
+            val dm = displays ?: (activity.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager).also {
+                displays = it
+            }
+            dm.registerDisplayListener(displayListener, main)
+            displayListenerRegistered = true
+        }
+        if (!attachedToRoot) {
+            val lp = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                Gravity.TOP or Gravity.START
+            )
+            contentRoot.addView(created, 0, lp)
+            attachedToRoot = true
+        }
+        return created
     }
 
-    private fun applyRectFromArgs(args: Map<*, *>) {
+    private fun applyRectFromArgs(view: SurfaceView, args: Map<*, *>) {
         val leftPx = (args["leftPx"] as? Number)?.toInt() ?: 0
         val topPx = (args["topPx"] as? Number)?.toInt() ?: 0
         val rightPx = (args["rightPx"] as? Number)?.toInt() ?: 0
@@ -191,10 +216,13 @@ class AndroidUnderlaySurfaceHost(
     }
 
     private fun hideView() {
-        if (view.visibility != View.GONE) {
-            view.visibility = View.GONE
+        val view = surfaceView
+        if (view != null) {
+            if (view.visibility != View.GONE) {
+                view.visibility = View.GONE
+            }
+            view.clipToOutline = false
         }
-        view.clipToOutline = false
         lastLeft = Int.MIN_VALUE
         lastTop = Int.MIN_VALUE
         lastWidth = -1
@@ -203,13 +231,15 @@ class AndroidUnderlaySurfaceHost(
     }
 
     private fun releaseAllReferences() {
-        references.forEach { release.invoke(null, it) }
-        references.clear()
+        if (references.isNotEmpty()) {
+            references.forEach { release.invoke(null, it) }
+            references.clear()
+        }
         current = 0L
     }
 
     private fun hdrPeak(): Int {
-        val display = view.display ?: activity.window?.decorView?.display
+        val display = surfaceView?.display ?: activity.window?.decorView?.display
         val caps = display?.hdrCapabilities ?: return 0
         if (!caps.supportedHdrTypes.contains(Display.HdrCapabilities.HDR_TYPE_HDR10)) return 0
         val peak = caps.desiredMaxLuminance
@@ -227,7 +257,7 @@ class AndroidUnderlaySurfaceHost(
 
     private fun state(): Map<String, Any> {
         lastHdrPeak = hdrPeak()
-        val displayId = view.display?.displayId ?: activity.window?.decorView?.display?.displayId ?: -1
+        val displayId = surfaceView?.display?.displayId ?: activity.window?.decorView?.display?.displayId ?: -1
         return mapOf(
             "wid" to current,
             "width" to width,
@@ -272,17 +302,25 @@ class AndroidUnderlaySurfaceHost(
     fun destroy() {
         if (disposed) return
         disposed = true
-        displays.unregisterDisplayListener(displayListener)
-        view.holder.removeCallback(this)
-        hideView()
-        (view.parent as? ViewGroup)?.removeView(view)
+        if (displayListenerRegistered) {
+            displays?.unregisterDisplayListener(displayListener)
+            displayListenerRegistered = false
+        }
+        val view = surfaceView
+        if (view != null) {
+            view.holder.removeCallback(this)
+            hideView()
+            (view.parent as? ViewGroup)?.removeView(view)
+            surfaceView = null
+        }
         attachedToRoot = false
         releaseAllReferences()
         channel.setMethodCallHandler(null)
     }
 
     private fun capture(result: MethodChannel.Result, fullFrame: Boolean, pq: Boolean, packed10: Boolean) {
-        if (disposed || copying || current == 0L || width !in 1..8192 || height <= 0 ||
+        val view = surfaceView
+        if (disposed || copying || view == null || current == 0L || width !in 1..8192 || height <= 0 ||
             width.toLong() * height > 16777216
         ) {
             result.error("surface_unavailable", "Native surface is unavailable", null)

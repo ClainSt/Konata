@@ -493,6 +493,13 @@ LazyDatabase _openConnection() {
     final supportDir = await getApplicationSupportDirectory();
     await supportDir.create(recursive: true);
     final file = File(p.join(supportDir.path, 'konata_v2.sqlite'));
-    return NativeDatabase.createInBackground(file);
+    // 直接通过 sqlite3 FFI 访问本地元数据库，消除常驻后台 Drift Isolate 堆拷贝、跨 Isolate 序列化与 WAL 共享内存开销。
+    return NativeDatabase(
+      file,
+      setup: (rawDb) {
+        rawDb.execute('PRAGMA synchronous = NORMAL;');
+        rawDb.execute('PRAGMA cache_size = -128;');
+      },
+    );
   });
 }

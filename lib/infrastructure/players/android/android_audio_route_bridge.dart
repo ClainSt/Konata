@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -72,6 +73,12 @@ class AndroidAudioRouteBridge {
     if (!_isSupported() || _handlerRegistered) return;
     _handlerRegistered = true;
     _channel.setMethodCallHandler(_handlePlatformCall);
+    // 按需唤醒原生外设拔出广播与 AudioDeviceCallback（空载冷启动期零 AudioManager IPC）。
+    unawaited(
+      _channel
+          .invokeMethod<Object?>('startMonitoring')
+          .catchError((Object _) => null),
+    );
   }
 
   /// 按调用方令牌解绑路由事件回调，不影响其他同时活跃的播放通道。

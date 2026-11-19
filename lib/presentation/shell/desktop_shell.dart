@@ -92,11 +92,13 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
               children: [
                 Positioned.fill(
                   left: geometry.leftClearance,
-                  child: SafeArea(
-                    bottom: false,
-                    child: _ShellTabBodySlot(
-                      pages: _mainPages,
-                      scrimFadeColor: canvasColor,
+                  child: RepaintBoundary(
+                    child: SafeArea(
+                      bottom: false,
+                      child: _ShellTabBodySlot(
+                        pages: _mainPages,
+                        scrimFadeColor: canvasColor,
+                      ),
                     ),
                   ),
                 ),
@@ -124,27 +126,27 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         bottomClearance: desktopBottomClearance,
         child: Scaffold(
           backgroundColor: Colors.transparent,
-          body: ClipRect(
-            child: Column(
-              children: [
-                if (topNavBuilder != null)
-                  RepaintBoundary(
-                    child: _DesktopTopNavSlot(
-                      topNavBuilder: topNavBuilder,
-                      searchFocusNode: _searchFocusNode,
-                      searchExpanded: _searchExpanded,
-                      onSearchExpandedChanged: (expanded) {
-                        setState(() => _searchExpanded = expanded);
-                      },
-                    ),
+          body: Column(
+            children: [
+              if (topNavBuilder != null)
+                RepaintBoundary(
+                  child: _DesktopTopNavSlot(
+                    topNavBuilder: topNavBuilder,
+                    searchFocusNode: _searchFocusNode,
+                    searchExpanded: _searchExpanded,
+                    onSearchExpandedChanged: (expanded) {
+                      setState(() => _searchExpanded = expanded);
+                    },
                   ),
-                const Expanded(
+                ),
+              const Expanded(
+                child: RepaintBoundary(
                   child: ClipRect(
                     child: _ShellTabBodySlot(pages: _mainPages),
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),

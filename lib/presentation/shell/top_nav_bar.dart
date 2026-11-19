@@ -481,11 +481,11 @@ class _TextNavTabState extends State<_TextNavTab> {
                     color: textColor,
                     fontSize: KonataTheme.fontSizeBodyMd,
                     weight: weight,
-                    shadows: t > 0.02
+                    shadows: t >= 0.85
                         ? [
                             Shadow(
                               color: p.progressFill.withValues(
-                                alpha: (p.isDark ? 0.35 : 0.16) * t,
+                                alpha: p.isDark ? 0.35 : 0.16,
                               ),
                               blurRadius: 12.0,
                             ),

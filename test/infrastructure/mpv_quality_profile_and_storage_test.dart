@@ -547,5 +547,36 @@ void main() {
         expect(resizeLog, equals(['android-surface-size=2712x1220']));
       },
     );
+
+    test('移动端视频与纯音频前置选项回退原生高精度重采样器，禁止强制启用缺失的 soxr', () {
+      final mpvDir = Directory(p.join(tempRoot.path, 'userdata', 'mpv_android'))
+        ..createSync(recursive: true);
+      const config = PlaybackQualityConfig(audioResamplerPrecision: 28);
+
+      final videoClient = _FakeLibMpvClient();
+      MpvQualityProfile.applyPreInitVideoOptions(
+        videoClient,
+        config: config,
+        mpvConfigDir: mpvDir,
+        isWindowsOverride: false,
+        isAndroidOverride: true,
+      );
+      expect(
+        videoClient.options['audio-swresample-o'],
+        equals('resampler=swr,filter_size=32,phase_shift=10,cutoff=0.97'),
+      );
+
+      final audioClient = _FakeLibMpvClient();
+      MpvQualityProfile.applyPreInitAudioOptions(
+        audioClient,
+        config: config,
+        mpvConfigDir: mpvDir,
+        isWindowsOverride: false,
+      );
+      expect(
+        audioClient.options['audio-swresample-o'],
+        equals('resampler=swr,filter_size=32,phase_shift=10,cutoff=0.97'),
+      );
+    });
   });
 }

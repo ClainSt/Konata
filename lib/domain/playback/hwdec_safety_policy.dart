@@ -97,11 +97,14 @@ class HwdecSafetyPolicy {
     ]);
 
     // 1. H.264 / AVC：全端拦截 Hi10P（10-bit）及 4:2:2 / 4:4:4 番剧非标硬解，避免 MediaCodec 绿屏与花屏。
+    // 注意：严禁使用裸 `contains('10')`，否则会把 H.264 规范全称 "MPEG-4 part 10" 误判为 10-bit！
     if (codec == 'h264') {
       final isHi10Profile =
           profile.contains('high 10') ||
+          profile.contains('high10') ||
           profile.contains('hi10') ||
-          profile.contains('10');
+          profile.contains('10-bit') ||
+          profile.contains('10bit');
       final isHigh422Profile =
           profile.contains('4:2:2') || profile.contains('422');
       final isHigh444Profile =

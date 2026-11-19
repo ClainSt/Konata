@@ -284,9 +284,12 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
   }
 
   void _onThumbnailUpdated() {
-    if (mounted) {
-      _thumbnailRevision.value += 1;
+    if (!mounted) return;
+    if (!_hudProgressActive) {
+      _pendingThumbnailRevisionFlush = true;
+      return;
     }
+    _thumbnailRevision.value += 1;
   }
 
   Future<void> _releaseThumbnailService({required bool disposeNotifier}) async {
@@ -709,6 +712,11 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
       editableSupplementaryItems: cachedBundle.editableSupplementaryItems,
     );
     _bundleCacheByWorkId[work.id] = updatedBundle;
+    if (!isFinal && !_hudProgressActive) {
+      _pendingPersistedBundleWorkId = work.id;
+      return;
+    }
+    _pendingPersistedBundleWorkId = null;
     if (mounted && activeWork.id == work.id) {
       _state = _state.copyWith(currentBundle: updatedBundle);
     }
@@ -717,5 +725,48 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
       _ref.invalidate(playbackHistoryProvider);
       _ref.invalidate(workDetailBundleProvider(work.id));
     }
+  }
+
+  /// 处理底层播放会话致命错误（区分本地文件缺失、网桥诊断与连续坏文件熔断）。
+  Future<void> _handleFatalSessionError(String msg) async {
+    if (!mounted || _state.isClosing) return;
+    final currentVariant = _state.currentVariant;
+    final currentSource =
+        activeBundle.sourcesById[currentVariant.sourceId] ?? request.source;
+    final bridgeDiag = _streamBridge.describeLastError(
+      relativePath: currentVariant.relativePath,
+    );
+    var effectiveMsg = bridgeDiag ?? msg;
+    if (bridgeDiag == null &&
+        currentSource != null &&
+        currentSource.kind == MediaSourceKind.local) {
+      final rootClean = currentSource.location.replaceAll(
+        RegExp(r'[\\/]+$'),
+        '',
+      );
+      final relClean = currentVariant.relativePath
+          .replaceAll('\\', '/')
+          .replaceAll(RegExp(r'^/+'), '')
+          .split('/')
+          .join(Platform.pathSeparator);
+      final localPath = relClean.isEmpty
+          ? currentSource.location
+          : '$rootClean${Platform.pathSeparator}$relClean';
+      if (!await File(localPath).exists()) {
+        effectiveMsg =
+            '本地视频文件不存在或路径已变更（${currentVariant.relativePath}），请检查磁盘挂载或重新扫描媒体源';
+      }
+    }
+    if (!mounted || _state.isClosing) return;
+    final tripped = _engine.recordPhysicalMediaFailure();
+    _logStore.record('VIDEO', '视频播放致命错误：$effectiveMsg', isError: true);
+    _state = _state.copyWith(
+      isInitializing: false,
+      isBuffering: false,
+      isPlaying: false,
+      errorMessage: tripped
+          ? '连续 ${UnifiedPlaybackEngine.maxConsecutiveBadFiles} 个视频文件加载异常（$effectiveMsg），已熔断停播'
+          : effectiveMsg,
+    );
   }
 }

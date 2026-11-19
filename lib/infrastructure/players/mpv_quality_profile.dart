@@ -364,6 +364,20 @@ class MpvQualityProfile {
     return 'auto-safe';
   }
 
+  /// 解析当前平台可用的音频重采样器参数。
+  ///
+  /// 桌面端内置动态库支持高精度重采样后端；移动端未编入对应组件，必须回退为
+  /// 原生高精度重采样参数，防止不同采样率与多声道混缩时静音失败。
+  static String resolveAudioResamplerOptions({
+    required PlaybackQualityConfig config,
+    required bool isWindows,
+  }) {
+    if (isWindows) {
+      return 'resampler=soxr,precision=${config.audioResamplerPrecision}';
+    }
+    return 'resampler=swr,filter_size=32,phase_shift=10,cutoff=0.97';
+  }
+
   /// 解析当前画质预设对应的上下采样滤波器三元组。
   static ({String scale, String cscale, String dscale}) resolveScalers(
     VideoQualityPreset preset,
@@ -540,11 +554,11 @@ class MpvQualityProfile {
       );
     }
 
-    // 高保真音频后端与 libsoxr 28-bit 重采样
+    // 高保真音频后端与跨平台自适应高精度重采样
     setter.setOption(
       client,
       'audio-swresample-o',
-      'resampler=soxr,precision=${config.audioResamplerPrecision}',
+      resolveAudioResamplerOptions(config: config, isWindows: isWindows),
     );
     setter.setOption(
       client,
@@ -563,9 +577,10 @@ class MpvQualityProfile {
       desktopDelegate.applyDesktopAudioExclusivePreInit(client, setter, config);
     }
 
-    // 字幕与外挂音轨策略
+    // 字幕统一交由上层 SubtitleMemoryEngine（Big5/GBK/Shift-JIS 自动探测归一 + memory:// cached）接管，
+    // 禁止 libmpv 旁路直载未归一本地外挂文本字幕导致编码乱码或抢选轨。
     final subParams = resolveSubtitleParameters(config);
-    setter.setOption(client, 'sub-auto', 'fuzzy');
+    setter.setOption(client, 'sub-auto', 'no');
     setter.setOption(client, 'audio-file-auto', 'fuzzy');
     if (isAndroid) {
       setter.setOption(client, 'sub-font-provider', 'none');
@@ -788,7 +803,7 @@ class MpvQualityProfile {
     setter.setOption(
       client,
       'audio-swresample-o',
-      'resampler=soxr,precision=${config.audioResamplerPrecision}',
+      resolveAudioResamplerOptions(config: config, isWindows: isWindows),
     );
     setter.setOption(
       client,

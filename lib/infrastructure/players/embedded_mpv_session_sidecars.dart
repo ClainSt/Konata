@@ -524,10 +524,16 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
 
     final existingTracks = client.readTrackList();
     final mountedNames = <String>{};
+    final rawAutoLoadedSubIdsByBase = <String, List<int>>{};
     for (final t in existingTracks) {
       final f = t.externalFilename;
       if (f != null && f.isNotEmpty) {
-        mountedNames.add(p.basename(f.split('?').first).toLowerCase());
+        final base = p.basename(f.split('?').first).toLowerCase();
+        mountedNames.add(base);
+        if (t.type == MpvTrackType.subtitle &&
+            !f.startsWith('memory://')) {
+          rawAutoLoadedSubIdsByBase.putIfAbsent(base, () => <int>[]).add(t.id);
+        }
       }
     }
 
@@ -539,6 +545,17 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
     final pendingTextSubs = <String>[];
     for (final sub in _pendingExternalSubtitles) {
       final base = p.basename(sub.split('?').first).toLowerCase();
+      if (_isTextSubtitlePath(sub) && onMountExternalTextSubtitles != null) {
+        // 若底层曾通过旧配置自动直载过未经编码归一的本地磁盘文本字幕，先移除裸轨再交由内存引擎统一归一。
+        final staleIds = rawAutoLoadedSubIdsByBase.remove(base);
+        if (staleIds != null) {
+          for (final id in staleIds) {
+            client.command(['sub-remove', '$id']);
+          }
+        }
+        pendingTextSubs.add(sub);
+        continue;
+      }
       if (mountedNames.contains(base)) continue;
       if (SubtitleAndAudioChoices.extensionOf(sub) == '.sub') {
         final stem = '${sub.substring(0, sub.length - 4)}.idx'
@@ -546,12 +563,8 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
             .toLowerCase();
         if (idxStems.contains(stem)) continue;
       }
-      if (_isTextSubtitlePath(sub) && onMountExternalTextSubtitles != null) {
-        pendingTextSubs.add(sub);
-      } else {
-        client.command(['sub-add', sub, 'cached']);
-        mountedNames.add(base);
-      }
+      client.command(['sub-add', sub, 'cached']);
+      mountedNames.add(base);
     }
 
     for (final aud in _pendingExternalAudioPaths) {

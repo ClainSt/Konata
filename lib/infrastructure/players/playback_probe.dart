@@ -45,7 +45,10 @@ class PlaybackProbeCollector {
       videoCodec:
           client.getPropertyString('video-codec') ??
           (client.getPropertyString('video-format') ?? ''),
-      videoProfile: client.getPropertyString('video-params/profile') ?? '',
+      videoProfile:
+          client.getPropertyString('current-tracks/video/codec-profile') ??
+          client.getPropertyString('video-params/profile') ??
+          '',
       videoPixelFormat:
           client.getPropertyString('video-params/pixelformat') ?? '',
       videoHwPixelFormat:

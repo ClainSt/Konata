@@ -164,9 +164,7 @@ class _ThemeOptionCard extends StatelessWidget {
       onTap: onTap,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
-        child: AnimatedContainer(
-          duration: KonataTheme.motionStandard,
-          padding: const EdgeInsets.all(12),
+        child: DecoratedBox(
           decoration: BoxDecoration(
             color: p.softFill,
             borderRadius: KonataTheme.borderRadiusCard,
@@ -175,76 +173,84 @@ class _ThemeOptionCard extends StatelessWidget {
               width: selected ? 1.5 : 1,
             ),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ClipRRect(
-                borderRadius: KonataTheme.borderRadiusSm,
-                child: SizedBox(
-                  height: 62,
-                  width: double.infinity,
-                  child: isSplitPreview
-                      ? Row(
-                          children: [
-                            Expanded(child: Container(color: previewBg)),
-                            Expanded(child: Container(color: previewCard)),
-                          ],
-                        )
-                      : Container(
-                          color: previewBg,
-                          padding: const EdgeInsets.all(8),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClipRRect(
+                  borderRadius: KonataTheme.borderRadiusSm,
+                  child: SizedBox(
+                    height: 62,
+                    width: double.infinity,
+                    child: isSplitPreview
+                        ? Row(
                             children: [
-                              Container(
-                                width: 38,
-                                height: 8,
-                                decoration: BoxDecoration(
-                                  color: previewPill,
-                                  borderRadius: KonataTheme.borderRadiusPill,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Expanded(
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: previewCard,
-                                    borderRadius: KonataTheme.borderRadiusChipSm,
-                                  ),
-                                ),
-                              ),
+                              Expanded(child: ColoredBox(color: previewBg)),
+                              Expanded(child: ColoredBox(color: previewCard)),
                             ],
+                          )
+                        : DecoratedBox(
+                            decoration: BoxDecoration(color: previewBg),
+                            child: Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      color: previewPill,
+                                      borderRadius: KonataTheme.borderRadiusPill,
+                                    ),
+                                    child: const SizedBox(width: 38, height: 8),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Expanded(
+                                    child: DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        color: previewCard,
+                                        borderRadius: KonataTheme.borderRadiusChipSm,
+                                      ),
+                                      child: const SizedBox.expand(),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
-                        ),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        color: p.textPrimary,
-                        fontSize: KonataTheme.fontSizeBody,
-                        fontWeight: FontWeight.w600,
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          color: p.textPrimary,
+                          fontSize: KonataTheme.fontSizeBody,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
+                    if (selected)
+                      Icon(
+                        Icons.check_circle_rounded,
+                        size: 16,
+                        color: p.textPrimary,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    color: p.textMuted,
+                    fontSize: KonataTheme.fontSizeCaptionSm,
                   ),
-                  if (selected)
-                    Icon(
-                      Icons.check_circle_rounded,
-                      size: 16,
-                      color: p.textPrimary,
-                    ),
-                ],
-              ),
-              const SizedBox(height: 2),
-              Text(
-                subtitle,
-                style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeCaptionSm),
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
         ),
       ),

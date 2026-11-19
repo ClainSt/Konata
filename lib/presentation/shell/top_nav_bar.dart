@@ -419,6 +419,10 @@ class _TextNavTab extends StatefulWidget {
 
 class _TextNavTabState extends State<_TextNavTab> {
   static const double _weightReserve = 700.0;
+  static final TextStyle _boldReserveStyle = KonataTheme.textStyle(
+    fontSize: KonataTheme.fontSizeBodyMd,
+    weight: _weightReserve,
+  );
 
   bool _hovered = false;
   bool _pressed = false;
@@ -444,92 +448,89 @@ class _TextNavTabState extends State<_TextNavTab> {
           scale: _pressed ? 0.96 : 1.0,
           duration: KonataTheme.capsuleSlideDuration,
           curve: Curves.easeOutCubic,
-          child: AnimatedContainer(
-            duration: KonataTheme.motionStandard,
-            curve: Curves.easeOutCubic,
-            padding: const EdgeInsets.fromLTRB(
-              KonataTheme.topNavTabHorizontalPadding,
-              6,
-              KonataTheme.topNavTabHorizontalPadding,
-              10,
-            ),
+          child: DecoratedBox(
             decoration: BoxDecoration(
               color: (!widget.selected && _hovered)
                   ? p.secondaryButtonBg
                   : Colors.transparent,
               borderRadius: KonataTheme.borderRadiusControl,
             ),
-            child: TweenAnimationBuilder<double>(
-              duration: KonataTheme.standardTransition,
-              curve: Curves.easeOutCubic,
-              tween: Tween<double>(end: widget.selected ? 1.0 : 0.0),
-              builder: (context, t, _) {
-                final inactiveColor = _hovered
-                    ? p.textPrimary.withValues(alpha: 0.85)
-                    : p.textSecondary;
-                final textColor =
-                    Color.lerp(inactiveColor, p.textPrimary, t) ??
-                    p.textPrimary;
-                final weight = lerpDouble(
-                  KonataTheme.weightRegularLabel,
-                  KonataTheme.weightActive,
-                  t,
-                )!;
-                final boldReserveStyle = KonataTheme.textStyle(
-                  fontSize: KonataTheme.fontSizeBodyMd,
-                  weight: _weightReserve,
-                );
-                final activeStyle = KonataTheme.textStyle(
-                  color: textColor,
-                  fontSize: KonataTheme.fontSizeBodyMd,
-                  weight: weight,
-                  shadows: t > 0.02
-                      ? [
-                          Shadow(
-                            color: p.progressFill.withValues(
-                              alpha: (p.isDark ? 0.35 : 0.16) * t,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                KonataTheme.topNavTabHorizontalPadding,
+                6,
+                KonataTheme.topNavTabHorizontalPadding,
+                10,
+              ),
+              child: TweenAnimationBuilder<double>(
+                duration: KonataTheme.standardTransition,
+                curve: Curves.easeOutCubic,
+                tween: Tween<double>(end: widget.selected ? 1.0 : 0.0),
+                builder: (context, t, reserveChild) {
+                  final inactiveColor = _hovered
+                      ? p.textPrimary.withValues(alpha: 0.85)
+                      : p.textSecondary;
+                  final textColor =
+                      Color.lerp(inactiveColor, p.textPrimary, t) ??
+                      p.textPrimary;
+                  final weight = lerpDouble(
+                    KonataTheme.weightRegularLabel,
+                    KonataTheme.weightActive,
+                    t,
+                  )!;
+                  final activeStyle = KonataTheme.textStyle(
+                    color: textColor,
+                    fontSize: KonataTheme.fontSizeBodyMd,
+                    weight: weight,
+                    shadows: t > 0.02
+                        ? [
+                            Shadow(
+                              color: p.progressFill.withValues(
+                                alpha: (p.isDark ? 0.35 : 0.16) * t,
+                              ),
+                              blurRadius: 12 * t,
                             ),
-                            blurRadius: 12 * t,
-                          ),
-                        ]
-                      : null,
-                );
+                          ]
+                        : null,
+                  );
 
-                return Stack(
-                  alignment: Alignment.center,
-                  clipBehavior: Clip.none,
-                  children: [
-                    // 隐形 w700 RichText 锁死固有宽度，杜绝可变字重插值引起相邻标签微抖
-                    IgnorePointer(
-                      child: ExcludeSemantics(
-                        child: Opacity(
-                          opacity: 0,
-                          child: RichText(
-                            softWrap: false,
-                            maxLines: 1,
-                            overflow: TextOverflow.visible,
-                            textScaler: MediaQuery.textScalerOf(context),
-                            locale: Localizations.maybeLocaleOf(context),
-                            text: TextSpan(
-                              text: widget.label,
-                              style: DefaultTextStyle.of(
-                                context,
-                              ).style.merge(boldReserveStyle),
-                            ),
-                          ),
+                  return Stack(
+                    alignment: Alignment.center,
+                    clipBehavior: Clip.none,
+                    children: [
+                      reserveChild!,
+                      Text(
+                        widget.label,
+                        style: activeStyle,
+                        softWrap: false,
+                        maxLines: 1,
+                        overflow: TextOverflow.visible,
+                      ),
+                    ],
+                  );
+                },
+                // 隐形 w700 RichText 锁死固有宽度，杜绝可变字重插值引起相邻标签微抖，通过 child 复用避免逐帧重建
+                child: IgnorePointer(
+                  child: ExcludeSemantics(
+                    child: Opacity(
+                      opacity: 0,
+                      child: RichText(
+                        softWrap: false,
+                        maxLines: 1,
+                        overflow: TextOverflow.visible,
+                        textScaler: MediaQuery.textScalerOf(context),
+                        locale: Localizations.maybeLocaleOf(context),
+                        text: TextSpan(
+                          text: widget.label,
+                          style: DefaultTextStyle.of(
+                            context,
+                          ).style.merge(_boldReserveStyle),
                         ),
                       ),
                     ),
-                    Text(
-                      widget.label,
-                      style: activeStyle,
-                      softWrap: false,
-                      maxLines: 1,
-                      overflow: TextOverflow.visible,
-                    ),
-                  ],
-                );
-              },
+                  ),
+                ),
+              ),
             ),
           ),
         ),

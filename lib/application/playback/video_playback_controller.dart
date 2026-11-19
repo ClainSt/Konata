@@ -373,6 +373,9 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   ChapterSkipPlan _skipPlan = const ChapterSkipPlan();
   DetectedSkipWindow? _dismissedSkipWindow;
   bool _hudProgressActive = true;
+  bool _pendingThumbnailRevisionFlush = false;
+  bool _pendingMetadataUiRefresh = false;
+  String? _pendingPersistedBundleWorkId;
   double _latestPositionSeconds = 0.0;
   bool _persistDirty = false;
   bool _closedCleanly = false;
@@ -422,6 +425,24 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       _latestPositionSeconds = latest;
       if ((latest - state.positionSeconds).abs() > 0.01) {
         state = state.copyWith(positionSeconds: latest);
+      }
+      if (_pendingThumbnailRevisionFlush) {
+        _pendingThumbnailRevisionFlush = false;
+        _thumbnailRevision.value += 1;
+      }
+      if (_pendingMetadataUiRefresh) {
+        _pendingMetadataUiRefresh = false;
+        _session?.refreshMetadata();
+      }
+      final pendingWorkId = _pendingPersistedBundleWorkId;
+      if (pendingWorkId != null) {
+        _pendingPersistedBundleWorkId = null;
+        final cached = _bundleCacheByWorkId[pendingWorkId];
+        if (cached != null && activeWork.id == pendingWorkId) {
+          state = state.copyWith(currentBundle: cached);
+        }
+        _ref.invalidate(playbackHistoryProvider);
+        _ref.invalidate(workDetailBundleProvider(pendingWorkId));
       }
       _evaluateChapterSkipWindow(latest);
     } else {
@@ -716,75 +737,40 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     session.onDurationChanged = _handleDurationChanged;
     session.onPlayingChanged = _handlePlayingChanged;
     session.onBufferingChanged = (buf) {
-      if (mounted) state = state.copyWith(isBuffering: buf);
+      if (mounted && state.isBuffering != buf) {
+        state = state.copyWith(isBuffering: buf);
+      }
     };
     session.onSpeedChanged = (spd) {
-      if (mounted) state = state.copyWith(speed: spd);
+      if (mounted && (state.speed - spd).abs() > 0.0001) {
+        state = state.copyWith(speed: spd);
+      }
     };
     session.onFirstFrameRendered = () {
       _engine.recordEffectiveProgress(firstFrameRendered: true);
-      if (mounted) {
-        final isInitialFrame = !state.hasFirstFrame;
+      if (!mounted) return;
+      final isInitialFrame = !state.hasFirstFrame;
+      if (isInitialFrame || _hudProgressActive || state.probeOverlayVisible) {
         state = state.copyWith(
           hasFirstFrame: true,
           probeStats: session.collectProbeStats(),
         );
-        if (isInitialFrame) {
-          _scheduleThumbnailWarmup();
-        }
       }
+      if (isInitialFrame) _scheduleThumbnailWarmup();
     };
-    session.onHwdecChanged = (_) {
-      if (mounted) {
-        state = state.copyWith(probeStats: session.collectProbeStats());
+    session.onHwdecChanged = (hw) {
+      if (!mounted) return;
+      if (!_hudProgressActive &&
+          !state.probeOverlayVisible &&
+          state.probeStats.hwdecCurrent == hw) {
+        return;
       }
+      state = state.copyWith(probeStats: session.collectProbeStats());
     };
     session.onMediaMetadataUpdated = _handleMetadataUpdated;
     session.onEndOfFile = _handleEndOfFile;
     session.onNotice = showTransientBanner;
     session.onFatalError = (msg) => unawaited(_handleFatalSessionError(msg));
-  }
-
-  Future<void> _handleFatalSessionError(String msg) async {
-    if (!mounted || state.isClosing) return;
-    final currentVariant = state.currentVariant;
-    final currentSource =
-        activeBundle.sourcesById[currentVariant.sourceId] ?? request.source;
-    final bridgeDiag = _streamBridge.describeLastError(
-      relativePath: currentVariant.relativePath,
-    );
-    var effectiveMsg = bridgeDiag ?? msg;
-    if (bridgeDiag == null &&
-        currentSource != null &&
-        currentSource.kind == MediaSourceKind.local) {
-      final rootClean = currentSource.location.replaceAll(
-        RegExp(r'[\\/]+$'),
-        '',
-      );
-      final relClean = currentVariant.relativePath
-          .replaceAll('\\', '/')
-          .replaceAll(RegExp(r'^/+'), '')
-          .split('/')
-          .join(Platform.pathSeparator);
-      final localPath = relClean.isEmpty
-          ? currentSource.location
-          : '$rootClean${Platform.pathSeparator}$relClean';
-      if (!await File(localPath).exists()) {
-        effectiveMsg =
-            '本地视频文件不存在或路径已变更（${currentVariant.relativePath}），请检查磁盘挂载或重新扫描媒体源';
-      }
-    }
-    if (!mounted || state.isClosing) return;
-    final tripped = _engine.recordPhysicalMediaFailure();
-    _logStore.record('VIDEO', '视频播放致命错误：$effectiveMsg', isError: true);
-    state = state.copyWith(
-      isInitializing: false,
-      isBuffering: false,
-      isPlaying: false,
-      errorMessage: tripped
-          ? '连续 ${UnifiedPlaybackEngine.maxConsecutiveBadFiles} 个视频文件加载异常（$effectiveMsg），已熔断停播'
-          : effectiveMsg,
-    );
   }
 
   void _handlePositionChanged(double posSeconds) {
@@ -805,6 +791,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
 
   void _handleDurationChanged(double durSeconds) {
     if (!mounted) return;
+    if ((state.durationSeconds - durSeconds).abs() < 0.01) return;
     state = state.copyWith(durationSeconds: durSeconds);
     _recomputeChapterSkipPlan();
     _thumbnailService?.updateChapters(
@@ -815,7 +802,9 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
 
   void _handlePlayingChanged(bool playing) {
     if (!mounted) return;
-    state = state.copyWith(isPlaying: playing);
+    if (state.isPlaying != playing) {
+      state = state.copyWith(isPlaying: playing);
+    }
     if (!_hudProgressActive) {
       if (playing) {
         _scheduleNextChapterSkipWake();
@@ -838,6 +827,21 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   }) {
     if (!mounted) return;
     final stats = _session?.collectProbeStats() ?? state.probeStats;
+    final silentHidden =
+        !_hudProgressActive &&
+        !state.probeOverlayVisible &&
+        !state.sideSheetOpen;
+    if (silentHidden &&
+        subtitles.length == state.subtitles.length &&
+        audioTracks.length == state.audioTracks.length &&
+        chapters.length == state.chapters.length &&
+        stats.videoWidth == state.probeStats.videoWidth &&
+        stats.videoHeight == state.probeStats.videoHeight &&
+        stats.hwdecCurrent == state.probeStats.hwdecCurrent) {
+      _pendingMetadataUiRefresh = true;
+      return;
+    }
+    _pendingMetadataUiRefresh = false;
     state = state.copyWith(
       subtitles: subtitles,
       audioTracks: audioTracks,

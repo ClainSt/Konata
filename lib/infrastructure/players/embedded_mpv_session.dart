@@ -1017,11 +1017,14 @@ class EmbeddedMpvSession {
   void _handlePropertyEvent(MpvPropertyChangeEvent e) {
     switch (e.replyUserdata) {
       case _propTimePos:
-        if (!_positionObserved) return;
         final pos = e.doubleValue;
         if (pos != null && pos.isFinite) {
+          // 即便处于 OSD 隐藏退订态，也先留存在途到达的最新底层时间戳以防退订瞬间丢失最终落库进度；
+          // 仅在订阅激活时通知上层状态，维持隐藏稳态期 Flutter 0 重绘唤醒。
           _lastPositionSeconds = pos;
-          onPositionChanged?.call(pos);
+          if (_positionObserved) {
+            onPositionChanged?.call(pos);
+          }
         }
       case _propDuration:
         final dur = e.doubleValue;

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -7,6 +8,7 @@ import 'package:path/path.dart' as p;
 
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
+import '../../domain/playback/ass_uue_font_decoder.dart';
 import '../../domain/playback/hwdec_safety_policy.dart';
 import '../../domain/playback/playback_probe_stats.dart';
 import '../../domain/playback/subtitle_and_audio_choices.dart';
@@ -180,6 +182,27 @@ class EmbeddedMpvSession {
   onTriggerMicroFadeIn;
   void Function(List<MpvAudioDevice> devices, String? currentDevice)?
   onAudioDeviceListChanged;
+
+  /// 外挂文本字幕发现回调：交由上层 `SubtitleMemoryEngine` 单一串行通道完成编码归一与 `cached` 挂载选轨。
+  Future<void> Function(
+    List<String> textSubtitlePaths,
+    CrossEpisodeTrackMemory trackMemory,
+    TrackPreferences trackPreferences,
+  )?
+  onMountExternalTextSubtitles;
+
+  /// 当前已生效的 `sub-fonts-dir` 目录路径（用于单测验证字库直挂与哈希池切换）。
+  String get activeSubFontsDir => _activeSubFontsDir;
+
+  /// 实时更新底层 `libmpv` 的 `sub-fonts-dir` 属性（供 `Fonts.zip`、ASS `[Fonts]` 与远程字库入池联动）。
+  void applySubFontsDir(String dirPath) {
+    final trimmed = dirPath.trim();
+    if (trimmed.isEmpty || trimmed == _activeSubFontsDir) return;
+    final client = _client;
+    if (_disposed || client == null || client.isDisposed) return;
+    client.setPropertyString('sub-fonts-dir', trimmed);
+    _activeSubFontsDir = trimmed;
+  }
 
   LibMpvClient? _client;
   StreamSubscription<MpvClientEvent>? _eventSub;
@@ -509,9 +532,9 @@ class EmbeddedMpvSession {
 
     final isRemote =
         request.source != null && request.source!.kind != MediaSourceKind.local;
-    // 本地媒体同级 Fonts/ 原位只读直挂 sub-fonts-dir（0 拷贝、跨集 0 ms 复用）。
+    // 本地媒体优先同级 Fonts/ 原位只读直挂，其次同级 Fonts.zip 解包入单级哈希池。
     if (!isRemote) {
-      final siblingFonts = await _fontPoolManager.resolveInPlaceSiblingFontsDir(
+      final resolvedFontDir = await _resolveLocalFontPackDir(
         resolved.mediaTarget,
       );
       if (_disposed || generation != _loadGeneration) {
@@ -519,15 +542,12 @@ class EmbeddedMpvSession {
         await _unregisterTokens(previousTokens);
         return;
       }
-      final targetFontsDir = siblingFonts?.directoryPath ?? _defaultSubFontsDir;
-      if (targetFontsDir.isNotEmpty && targetFontsDir != _activeSubFontsDir) {
-        client.setPropertyString('sub-fonts-dir', targetFontsDir);
-        _activeSubFontsDir = targetFontsDir;
+      final targetFontsDir = resolvedFontDir ?? _defaultSubFontsDir;
+      if (targetFontsDir.isNotEmpty) {
+        applySubFontsDir(targetFontsDir);
       }
-    } else if (_defaultSubFontsDir.isNotEmpty &&
-        _activeSubFontsDir != _defaultSubFontsDir) {
-      client.setPropertyString('sub-fonts-dir', _defaultSubFontsDir);
-      _activeSubFontsDir = _defaultSubFontsDir;
+    } else if (_defaultSubFontsDir.isNotEmpty) {
+      applySubFontsDir(_defaultSubFontsDir);
     }
 
     MpvQualityProfile.applyRuntimeStreamProfile(

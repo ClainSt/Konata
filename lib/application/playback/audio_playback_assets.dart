@@ -163,12 +163,74 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
     }
   }
 
+  /// 用户在移动计量网络下确认后，继续拉取 AMLL 逐字歌词索引并更新当前曲目歌词。
+  Future<void> confirmMobileAmllLyricLookup() async {
+    _mobileAmllLyricConfirmed = true;
+    final current = _state.currentItem;
+    if (!mounted || current == null) return;
+    _state = _state.copyWith(needsMobileAmllLyricConfirmation: false);
+    await _runFourTierLyricLookup(
+      current,
+      generation: _loadGeneration,
+      localLrc: _state.lrcDocument,
+      localActiveSpans: _state.activeSpanLines,
+    );
+  }
+
+  Future<void> _runFourTierLyricLookup(
+    AudioQueueItem item, {
+    required int generation,
+    LrcDocument? localLrc,
+    List<ActiveSpanLyricLine> localActiveSpans = const [],
+  }) async {
+    final coordinator = _ref.read(lyricLookupCoordinatorProvider);
+    final durationSec = _state.durationSeconds > 0
+        ? _state.durationSeconds
+        : (item.resolvedDuration > Duration.zero
+              ? item.resolvedDuration.inMilliseconds / 1000.0
+              : null);
+    final outcome = await coordinator.lookupForTrack(
+      trackTitle: item.title,
+      fileName: item.effectiveFileName,
+      artist: item.performer,
+      durationSeconds: durationSec,
+      localLrc: localLrc,
+      localActiveSpans: localActiveSpans,
+      mobileAmllConfirmed: _mobileAmllLyricConfirmed,
+    );
+    if (generation != _loadGeneration || !mounted || outcome.staleAborted) {
+      return;
+    }
+    if (outcome.needsMobileAmllConfirmation) {
+      _state = _state.copyWith(needsMobileAmllLyricConfirmation: true);
+      return;
+    }
+    final resolvedLrc = outcome.lrcDocument;
+    if (resolvedLrc == null || resolvedLrc.lines.isEmpty) {
+      if (_state.needsMobileAmllLyricConfirmation) {
+        _state = _state.copyWith(needsMobileAmllLyricConfirmation: false);
+      }
+      return;
+    }
+    final activeIdx = resolvedLrc.activeIndexAt(_state.positionSeconds);
+    _state = _state.copyWith(
+      lrcDocument: resolvedLrc,
+      activeSpanLines: outcome.activeSpanLines,
+      activeLyricIndex: activeIdx,
+      activeLyricTier: outcome.matchedTier,
+      needsMobileAmllLyricConfirmation: false,
+    );
+  }
+
   Future<void> _loadAuxiliaryAssets(
     AudioQueueItem item, {
     required int generation,
   }) async {
     final source = item.source;
-    if (source == null) return;
+    if (source == null) {
+      await _runFourTierLyricLookup(item, generation: generation);
+      return;
+    }
     final albumKey = item.albumCacheKey;
     final physicalKey = item.physicalFileKey;
     final dirRelRaw = p.posix.dirname(
@@ -256,7 +318,13 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
         activeSpanLines: aux.activeSpanLines,
         clearLrcDocument: lrc == null,
         activeLyricIndex: activeLyric,
+        activeLyricTier: lrc != null ? LyricLookupTier.localSidecar : null,
       );
+
+      // 本地同级未命中歌词时，自动进入四级开源歌词检索协调器（含伴奏短路、版本消歧与移动网络 AMLL 保护）。
+      if (lrc == null || lrc.lines.isEmpty) {
+        await _runFourTierLyricLookup(item, generation: generation);
+      }
     } catch (e) {
       _logStore.record('AUDIO', '加载曲目附属封面/歌词异常：$e');
       if (generation == _loadGeneration &&

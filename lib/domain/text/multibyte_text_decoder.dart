@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:charset/charset.dart' as cs;
 
+import 'big5_cp950_table.dart';
+
 /// 传统东亚多字节文本编码类型（全仓唯一，供字幕、CUE 与 LRC 共用）。
 enum LegacyTextEncoding {
   /// 日文 Shift-JIS / CP932。
@@ -126,7 +128,9 @@ class MultibyteTextDecoder {
         text: strictUtf8,
         charset: DetectedTextCharset.utf8,
       );
-    } catch (_) {}
+    } on FormatException {
+      // 非合法 UTF-8 字节流，进入多字节传统代码页文法判定分支。
+    }
 
     // 4. 基于多字节文法得分区分 CP932 (Shift-JIS) / GB18030 (GBK) / Big5。
     final legacy = detectLegacyEncoding(bytes);
@@ -223,8 +227,14 @@ class MultibyteTextDecoder {
         continue;
       }
 
-      // 4. Big5 高频低尾字节特征区：首字节 0xA4..0xC6 / 0xC9..0xF9 + 尾字节 0x40..0x7E
+      // 4. Big5 高频低尾字节特征区：首字节 0xA1..0xC6 / 0xC9..0xF9 + 尾字节 0x40..0x7E
       //    （GB2312 常用汉字尾字节均 >= 0xA1，几乎不落入低尾区）。
+      if (b >= 0xA1 && b <= 0xA3 && b2 >= 0x40 && b2 <= 0x7E) {
+        big5Exclusive += 4;
+        big5Score += 4;
+        i++;
+        continue;
+      }
       if (b >= 0xA4 && b <= 0xC6 && b2 >= 0x40 && b2 <= 0x7E) {
         big5Exclusive += 5;
         big5Score += 5;
@@ -340,7 +350,7 @@ class MultibyteTextDecoder {
     }
   }
 
-  /// 纯 Dart Big5 兜底解码（当未注入平台 CP950 桥接时解码 ASCII 及常用繁体番剧字幕词汇）。
+  /// 纯 Dart 完整 Big5 / CP950 双字节解码（覆盖全部 13,053 标准繁体汉字及全角符号/假名，双端零平台差异）。
   static String _decodeBig5PureDart(Uint8List bytes) {
     final out = StringBuffer();
     for (var i = 0; i < bytes.length; i++) {
@@ -353,10 +363,9 @@ class MultibyteTextDecoder {
         final b2 = bytes[i + 1];
         if ((b1 >= 0x81 && b1 <= 0xFE) &&
             ((b2 >= 0x40 && b2 <= 0x7E) || (b2 >= 0xA1 && b2 <= 0xFE))) {
-          final code = (b1 << 8) | b2;
-          final mapped = _commonBig5Table[code];
-          if (mapped != null) {
-            out.write(mapped);
+          final codePoint = Big5Cp950Table.lookup(b1, b2);
+          if (codePoint > 0) {
+            out.writeCharCode(codePoint);
           } else {
             out.writeCharCode(0xFFFD);
           }
@@ -368,34 +377,4 @@ class MultibyteTextDecoder {
     }
     return out.toString();
   }
-
-  /// 常见 Big5 字幕高频双字节码位表（覆盖无平台 CP950 时的标点与繁体字幕测试/兜底场景）。
-  static const Map<int, String> _commonBig5Table = <int, String>{
-    0xA140: '　',
-    0xA141: '，',
-    0xA142: '、',
-    0xA143: '。',
-    0xA147: '：',
-    0xA148: '？',
-    0xA149: '！',
-    0xA175: '「',
-    0xA176: '」',
-    0xA4A4: '中',
-    0xA4E5: '文',
-    0xA672: '字',
-    0xB9F5: '幕',
-    0xC163: '繁',
-    0xC5E9: '體',
-    0xB4FA: '測',
-    0xB8D5: '試',
-    0xB2C4: '第',
-    0xA440: '一',
-    0xB8DC: '話',
-    0xA9E8: '和',
-    0xB0EA: '國',
-    0xB67D: '開',
-    0xA96C: '始',
-    0xB5B2: '結',
-    0xA7F4: '束',
-  };
 }

@@ -11,7 +11,10 @@ import 'source_access_error.dart';
 
 /// SMB / CIFS 局域网共享媒体源只读网关（含断线自动重连一次与安全分片流式读取）。
 class SmbSourceGateway
-    implements MediaSourceGateway, ByteRangeReadableGateway {
+    implements
+        MediaSourceGateway,
+        ByteRangeReadableGateway,
+        FileValidatorProbeGateway {
   /// 创建 SMB 网关，[rootUri] 形如 `smb://192.168.1.2/Anime`。
   SmbSourceGateway({
     required this._rootUri,
@@ -135,6 +138,12 @@ class SmbSourceGateway
             name: name,
             isDirectory: isDir,
             size: isDir ? 0 : file.size,
+            modifiedAt: file.lastModified > 0
+                ? DateTime.fromMillisecondsSinceEpoch(
+                    file.lastModified,
+                    isUtc: true,
+                  )
+                : null,
           ),
         );
       }
@@ -168,6 +177,22 @@ class SmbSourceGateway
         }
       }
       return utf8.decode(bytes, allowMalformed: true);
+    });
+  }
+
+  @override
+  Future<({int? length, String? validator})> probeFileMetadata(
+    String relativePath,
+  ) {
+    return _runSerialized((client) async {
+      final file = await client.file(_resolveSmbPath(relativePath));
+      if (!file.isExists || file.isDirectory()) {
+        return (length: null, validator: null);
+      }
+      final validator = file.lastModified > 0
+          ? 'mtime:${file.lastModified}'
+          : null;
+      return (length: file.size, validator: validator);
     });
   }
 

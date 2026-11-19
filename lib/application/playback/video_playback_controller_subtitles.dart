@@ -1,17 +1,107 @@
 part of 'video_playback_controller.dart';
 
-/// `VideoPlaybackController` 内存字幕增强引擎、双语副字幕与音画实时配置扩展。
+/// `VideoPlaybackController` 内存字幕增强引擎、字库入池联动、云端子集化与音画实时配置扩展。
 extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
   SubtitleMemoryEngine _ensureSubtitleMemoryEngine() {
     return _subtitleMemoryEngine ??= SubtitleMemoryEngine(
       clientSupplier: () => _session?.activeClient,
       playbackEngine: _engine,
       legacyCodePageDecoder: _ref.read(legacyCodePageDecoderProvider),
+      cloudSubsetTransform: _tryCloudSubsetAssContent,
+      onAssContentPrepared: _ingestAssEmbeddedFontsIfPresent,
       onTrackStateChanged: () => _session?.refreshMetadata(),
     );
   }
 
-  /// 经单一串行权威通道执行内存级无副作用字幕挂载（多编码归一 / OpenCC / 离线调轴）。
+  Future<Uri?> _resolveAuthorizedCloudSubsetEndpoint() async {
+    final prefs = _ref.read(playbackPreferencesProvider);
+    if (!prefs.cloudSubsetEnabled) return null;
+    final raw = prefs.cloudSubsetEndpoint.trim();
+    if (raw.isEmpty) return null;
+    final uri = Uri.tryParse(raw);
+    if (uri == null ||
+        !(uri.scheme == 'http' || uri.scheme == 'https') ||
+        uri.host.isEmpty) {
+      return null;
+    }
+    final authStore = _ref.read(cloudSubsetAuthorizationStoreProvider);
+    await authStore.ensureHydrated();
+    if (!authStore.isAuthorized(uri)) return null;
+    return uri;
+  }
+
+  Future<String?> _tryCloudSubsetAssContent(String originalAssContent) async {
+    if (originalAssContent.contains('[Fonts]')) {
+      return null;
+    }
+    final endpointUri = await _resolveAuthorizedCloudSubsetEndpoint();
+    if (endpointUri == null) return null;
+    try {
+      final result = await _ref
+          .read(cloudSubsetCoordinatorProvider)
+          .runCloudSubset(
+            endpointUri: endpointUri,
+            originalAssContent: originalAssContent,
+          );
+      _logStore.record(
+        'mpv-cloud-subset',
+        '云端字体子集化命中 ${result.origin.key}（缓存复用=${result.fromLocalCache}）',
+      );
+      return result.subsettedAssContent;
+    } on CloudSubsetCancelledException {
+      return null;
+    } on Object catch (e) {
+      _logStore.record('mpv-cloud-subset', '云端字体子集化降级回退本地正文：$e');
+      return null;
+    }
+  }
+
+  Future<void> _ingestAssEmbeddedFontsIfPresent(String assContent) async {
+    try {
+      final pool = _ref.read(subtitleFontPoolManagerProvider);
+      final resolved = await pool.ingestAssEmbeddedFonts(assContent);
+      if (resolved != null && mounted && !(_state.isClosing)) {
+        _session?.applySubFontsDir(resolved.directoryPath);
+        _logStore.record(
+          'mpv-fonts',
+          'ASS [Fonts] 内嵌字库入池成功（${resolved.fontCount} 个字体，复用=${resolved.reusedFromLease}）',
+        );
+      }
+    } on Object catch (e) {
+      _logStore.record('mpv-fonts', '提取 ASS [Fonts] 字体忽略：$e');
+    }
+  }
+
+  /// 起播自动发现的外挂文本字幕统一经单一串行 `SubtitleMemoryEngine` 通道编码归一与 `cached` 挂载选轨。
+  Future<void> _mountDiscoveredExternalTextSubtitles(
+    List<String> textSubtitlePaths,
+    CrossEpisodeTrackMemory trackMemory,
+    TrackPreferences trackPreferences,
+  ) async {
+    if (!mounted || _state.isClosing || textSubtitlePaths.isEmpty) return;
+    final endpoint = await _resolveAuthorizedCloudSubsetEndpoint();
+    final result = await _ensureSubtitleMemoryEngine()
+        .mountDiscoveredExternalSubtitles(
+          textSubtitlePaths: textSubtitlePaths,
+          trackMemory: trackMemory,
+          trackPreferences: trackPreferences,
+          enableCloudSubsetForSelected: endpoint != null,
+        );
+    if (!mounted || !result.applied) return;
+    final primaryId = result.primaryTrackId;
+    if (primaryId != null) {
+      final srcPath = _ensureSubtitleMemoryEngine().lookupSourcePathForTrackId(
+        primaryId,
+      );
+      if (srcPath != null && _isTextSubtitlePath(srcPath)) {
+        _activeExternalSubtitleSourcePath = srcPath;
+        _activeOriginalSubtitleTrackId = primaryId;
+        _activeExternalSubtitleTitle = p.basename(srcPath);
+      }
+    }
+  }
+
+  /// 经单一串行权威通道执行内存级无副作用字幕挂载（多编码归一 / 云端子集 / OpenCC / 离线调轴）。
   Future<SubtitleMemoryApplyResult> applyMemorySubtitleIntent(
     AuthoritativeSubtitleIntent intent,
   ) async {
@@ -43,8 +133,18 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
       return cached!.trim();
     }
     final active = _selectedSubtitleChoice;
-    if (active != null && _isTextSubtitlePath(active.externalPath)) {
-      return active.externalPath!.trim();
+    if (active != null) {
+      if (_isTextSubtitlePath(active.externalPath)) {
+        return active.externalPath!.trim();
+      }
+      if (active.mpvTrackId != null) {
+        final mapped = _subtitleMemoryEngine?.lookupSourcePathForTrackId(
+          active.mpvTrackId!,
+        );
+        if (_isTextSubtitlePath(mapped)) {
+          return mapped!.trim();
+        }
+      }
     }
     return null;
   }
@@ -57,14 +157,53 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
     String sourcePath, {
     required SubtitleOpenCcMode mode,
     bool remapped = false,
+    bool cloudSubset = false,
   }) {
     final base = (_activeExternalSubtitleTitle ?? p.basename(sourcePath)).trim();
     final suffix = <String>[
       if (mode == SubtitleOpenCcMode.toSimplified) '简',
       if (mode == SubtitleOpenCcMode.toTraditional) '繁',
       if (remapped) '调轴',
+      if (cloudSubset) '子集',
     ];
     return suffix.isEmpty ? base : '$base [${suffix.join('·')}]';
+  }
+
+  /// 对当前激活外挂 ASS 字幕手动触发一次已授权云端字体子集化并直注内存轨道。
+  Future<SubtitleMemoryApplyResult?> applyCloudSubsetToActiveSubtitle() async {
+    final endpoint = await _resolveAuthorizedCloudSubsetEndpoint();
+    if (endpoint == null) {
+      showTransientBanner('请先在设置中启用并授权云端子集化服务 Origin');
+      return null;
+    }
+    final sourcePath = _resolveActiveExternalTextSubtitlePath();
+    final sourceExists = sourcePath != null && await File(sourcePath).exists();
+    if (!sourceExists) {
+      showTransientBanner('当前字幕并非本地外挂 ASS 文本源');
+      return null;
+    }
+    final result = await applyMemorySubtitleIntent(
+      AuthoritativeSubtitleIntent(
+        primary: SubtitleSlotRequest.memory(
+          localFilePath: sourcePath,
+          fileName: p.basename(sourcePath),
+          displayTitle: _buildMemoryTrackTitle(
+            sourcePath,
+            mode: _state.subtitleOpenCcMode,
+            cloudSubset: true,
+          ),
+          openCcMode: _state.subtitleOpenCcMode,
+          enableCloudSubset: true,
+        ),
+        instantSubDelaySeconds: _state.subtitleDelaySeconds,
+      ),
+    );
+    if (mounted && result.applied) {
+      showTransientBanner(
+        result.cloudSubsetApplied ? '已应用经语义核验的云端子集化字库' : '当前字幕已含字体或云端子集化未生效',
+      );
+    }
+    return result;
   }
 
   /// 通过内存直注无副作用字幕引擎切换主字幕 OpenCC 繁简模式（受三态子集保护门禁约束）。
@@ -104,6 +243,7 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
           fileName: p.basename(sourcePath),
           displayTitle: _buildMemoryTrackTitle(sourcePath, mode: mode),
           openCcMode: mode,
+          enableCloudSubset: true,
         ),
         instantSubDelaySeconds: _state.subtitleDelaySeconds,
       ),
@@ -161,6 +301,7 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
           ),
           openCcMode: _state.subtitleOpenCcMode,
           timelineTransform: transform,
+          enableCloudSubset: true,
         ),
       ),
     );
@@ -223,22 +364,71 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
     return result;
   }
 
+  /// 经单一串行权威通道切换当前主字幕（所有外挂文本字幕一律经 `SubtitleMemoryEngine` 编码归一与 `cached` 挂载）。
   void selectSubtitle(SubtitleChoice? choice) {
-    _subtitleMemoryEngine?.invalidatePendingIntents();
-    _session?.selectSubtitle(choice);
     if (choice == null) {
       _activeExternalSubtitleSourcePath = null;
       _activeOriginalSubtitleTrackId = null;
       _activeExternalSubtitleTitle = null;
+      unawaited(
+        applyMemorySubtitleIntent(const AuthoritativeSubtitleIntent.disable()),
+      );
     } else if (_isTextSubtitlePath(choice.externalPath)) {
-      _activeExternalSubtitleSourcePath = choice.externalPath!.trim();
+      final path = choice.externalPath!.trim();
+      _activeExternalSubtitleSourcePath = path;
       _activeOriginalSubtitleTrackId = choice.mpvTrackId;
       _activeExternalSubtitleTitle = choice.primaryTitle;
-    } else {
-      _activeExternalSubtitleSourcePath = null;
+      final existingMountedId =
+          choice.mpvTrackId ??
+          _ensureSubtitleMemoryEngine().lookupTrackIdForSourcePath(path);
+      final slot = existingMountedId != null
+          ? SubtitleSlotRequest.existingTrack(
+              existingMountedId,
+              displayTitle: choice.primaryTitle,
+            )
+          : SubtitleSlotRequest.memory(
+              localFilePath: path,
+              fileName: p.basename(path),
+              displayTitle: choice.primaryTitle,
+              enableCloudSubset: true,
+            );
+      unawaited(
+        applyMemorySubtitleIntent(
+          AuthoritativeSubtitleIntent(
+            primary: slot,
+            instantSubDelaySeconds: _state.subtitleDelaySeconds,
+          ),
+        ),
+      );
+    } else if (choice.mpvTrackId != null) {
+      final mappedSource = _subtitleMemoryEngine?.lookupSourcePathForTrackId(
+        choice.mpvTrackId!,
+      );
+      _activeExternalSubtitleSourcePath = mappedSource;
       _activeOriginalSubtitleTrackId = choice.mpvTrackId;
+      _activeExternalSubtitleTitle = mappedSource != null
+          ? choice.primaryTitle
+          : null;
+      unawaited(
+        applyMemorySubtitleIntent(
+          AuthoritativeSubtitleIntent(
+            primary: SubtitleSlotRequest.existingTrack(
+              choice.mpvTrackId!,
+              displayTitle: choice.primaryTitle,
+            ),
+            instantSubDelaySeconds: _state.subtitleDelaySeconds,
+          ),
+        ),
+      );
+    } else {
+      // 仅对二进制图形外挂字幕（.sup / .idx）走原生文件挂载兜底。
+      _activeExternalSubtitleSourcePath = null;
+      _activeOriginalSubtitleTrackId = null;
       _activeExternalSubtitleTitle = null;
+      _subtitleMemoryEngine?.invalidatePendingIntents();
+      _session?.selectSubtitle(choice);
     }
+
     final nextMemory = _state.trackMemory.rememberSubtitle(
       choice == null || choice.mpvTrackId == null
           ? (choice == null
@@ -269,10 +459,32 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
     );
   }
 
+  /// 手动加载外挂字幕文件（所有文本字幕统一经单一串行 `SubtitleMemoryEngine` 编码归一、字库入池与 `memory://` 直注）。
   void addExternalSubtitleFile(String path) {
+    final trimmed = path.trim();
+    if (trimmed.isEmpty) return;
+    if (_isTextSubtitlePath(trimmed)) {
+      _activeExternalSubtitleSourcePath = trimmed;
+      _activeExternalSubtitleTitle = p.basename(trimmed);
+      unawaited(
+        applyMemorySubtitleIntent(
+          AuthoritativeSubtitleIntent(
+            primary: SubtitleSlotRequest.memory(
+              localFilePath: trimmed,
+              fileName: p.basename(trimmed),
+              displayTitle: p.basename(trimmed),
+              enableCloudSubset: true,
+            ),
+            instantSubDelaySeconds: _state.subtitleDelaySeconds,
+          ),
+        ),
+      );
+      showTransientBanner('已通过内存直注加载外挂字幕');
+      return;
+    }
     _subtitleMemoryEngine?.invalidatePendingIntents();
-    _session?.addExternalSubtitleFile(path);
-    showTransientBanner('已加载外挂字幕');
+    _session?.addExternalSubtitleFile(trimmed);
+    showTransientBanner('已加载图形外挂字幕');
   }
 
   void selectAudioTrack(AudioTrackChoice choice) {
@@ -292,11 +504,15 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
   }
 
   void setSubtitleDelay(double delaySeconds) {
-    _subtitleMemoryEngine?.invalidatePendingIntents();
     final clamped = double.parse(
       delaySeconds.clamp(-60.0, 60.0).toStringAsFixed(2),
     );
-    _session?.setSubtitleDelay(clamped);
+    if (_session?.activeClient != null) {
+      _ensureSubtitleMemoryEngine().setInstantSubtitleDelay(clamped);
+    } else {
+      _subtitleMemoryEngine?.invalidatePendingIntents();
+      _session?.setSubtitleDelay(clamped);
+    }
     _state = _state.copyWith(subtitleDelaySeconds: clamped);
   }
 

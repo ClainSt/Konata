@@ -236,6 +236,8 @@ class AudioPlaybackState {
     this.lrcDocument,
     this.activeSpanLines = const [],
     this.activeLyricIndex = -1,
+    this.activeLyricTier,
+    this.needsMobileAmllLyricConfirmation = false,
     this.audioCodecLabel = '',
     this.sampleRateAndBitDepthLabel = '',
     this.bitrateLabel = '',
@@ -258,6 +260,12 @@ class AudioPlaybackState {
   /// 主唱与和声并行逐字扫光歌词行（仅当当前 LRC 含逐字时间标签或 `bg:` 和声层时非空）。
   final List<ActiveSpanLyricLine> activeSpanLines;
   final int activeLyricIndex;
+
+  /// 当前生效歌词命中的四级来源层级（本地 / LRCLIB / AMLL / 社区兜底）。
+  final LyricLookupTier? activeLyricTier;
+
+  /// 移动计量网络下是否正等待用户确认拉取 AMLL 逐字歌词索引。
+  final bool needsMobileAmllLyricConfirmation;
   final String audioCodecLabel;
   final String sampleRateAndBitDepthLabel;
   final String bitrateLabel;
@@ -408,6 +416,9 @@ class AudioPlaybackState {
     List<ActiveSpanLyricLine>? activeSpanLines,
     bool clearLrcDocument = false,
     int? activeLyricIndex,
+    LyricLookupTier? activeLyricTier,
+    bool clearActiveLyricTier = false,
+    bool? needsMobileAmllLyricConfirmation,
     String? audioCodecLabel,
     String? sampleRateAndBitDepthLabel,
     String? bitrateLabel,
@@ -431,6 +442,13 @@ class AudioPlaybackState {
           ? const []
           : (activeSpanLines ?? this.activeSpanLines),
       activeLyricIndex: activeLyricIndex ?? this.activeLyricIndex,
+      activeLyricTier: (clearLrcDocument || clearActiveLyricTier)
+          ? null
+          : (activeLyricTier ?? this.activeLyricTier),
+      needsMobileAmllLyricConfirmation: clearLrcDocument
+          ? (needsMobileAmllLyricConfirmation ?? false)
+          : (needsMobileAmllLyricConfirmation ??
+                this.needsMobileAmllLyricConfirmation),
       audioCodecLabel: audioCodecLabel ?? this.audioCodecLabel,
       sampleRateAndBitDepthLabel:
           sampleRateAndBitDepthLabel ?? this.sampleRateAndBitDepthLabel,

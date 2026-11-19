@@ -227,7 +227,10 @@ class WebDavConnectionPool {
 
 /// WebDAV 远程媒体源只读网关（支持 Basic / Digest 质询认证、30x 跨源凭据隔离与字节范围流式读取）。
 class WebDavSourceGateway
-    implements MediaSourceGateway, ValidatedByteRangeGateway {
+    implements
+        MediaSourceGateway,
+        ValidatedByteRangeGateway,
+        FileValidatorProbeGateway {
   /// 创建 WebDAV 网关。
   WebDavSourceGateway({
     required Uri rootUri,
@@ -277,6 +280,7 @@ class WebDavSourceGateway
     <D:resourcetype/>
     <D:getcontentlength/>
     <D:getlastmodified/>
+    <D:getetag/>
   </D:prop>
 </D:propfind>''';
 
@@ -574,8 +578,17 @@ class WebDavSourceGateway
       if (modifiedText != null && modifiedText.isNotEmpty) {
         try {
           modifiedAt = HttpDate.parse(modifiedText);
-        } catch (_) {}
+        } on HttpException {
+          modifiedAt = null;
+        }
       }
+
+      final etagText = prop
+          .findElements('getetag', namespaceUri: '*')
+          .firstOrNull
+          ?.innerText
+          .trim();
+      final etag = (etagText != null && etagText.isNotEmpty) ? etagText : null;
 
       var relPath = hrefPath;
       if (relPath.startsWith(rootPrefix)) {
@@ -594,6 +607,7 @@ class WebDavSourceGateway
           isDirectory: isDir,
           size: isDir ? 0 : size,
           modifiedAt: modifiedAt,
+          etag: etag,
         ),
       );
     }
@@ -636,13 +650,38 @@ class WebDavSourceGateway
     return utf8.decode(bytes, allowMalformed: true);
   }
 
+  static String? _extractCacheValidator(Map<String, String> headers) {
+    final rawEtag = (headers[HttpHeaders.etagHeader] ?? headers['ETag'] ?? '')
+        .trim();
+    if (rawEtag.isNotEmpty) {
+      return rawEtag;
+    }
+    final rawModified =
+        (headers[HttpHeaders.lastModifiedHeader] ??
+                headers['Last-Modified'] ??
+                '')
+            .trim();
+    if (rawModified.isNotEmpty) {
+      try {
+        final parsed = HttpDate.parse(rawModified);
+        return 'mtime:${parsed.toUtc().microsecondsSinceEpoch}';
+      } on HttpException {
+        return 'mtime:$rawModified';
+      }
+    }
+    return null;
+  }
+
   @override
-  Future<int?> probeFileLength(String relativePath) async {
+  Future<({int? length, String? validator})> probeFileMetadata(
+    String relativePath,
+  ) async {
     final uri = _resolveUri(relativePath, asDirectory: false);
     final headTimeout =
         requestTimeout < WebDavGatewayConfig.defaultHeadProbeTimeout
         ? requestTimeout
         : WebDavGatewayConfig.defaultHeadProbeTimeout;
+    String? headValidator;
     try {
       final streamed = await _sendWithDigestRetry(
         (headers) => http.Request('HEAD', uri)..headers.addAll(headers),
@@ -651,37 +690,56 @@ class WebDavSourceGateway
         timeoutOverride: headTimeout,
       );
       await streamed.stream.drain<void>();
-      if (streamed.statusCode == 404) return null;
+      if (streamed.statusCode == 404) {
+        return (length: null, validator: null);
+      }
       if (streamed.statusCode >= 200 && streamed.statusCode < 300) {
+        headValidator = _extractCacheValidator(streamed.headers);
         final lenStr = streamed.headers[HttpHeaders.contentLengthHeader];
         final parsed = lenStr != null ? int.tryParse(lenStr) : null;
-        if (parsed != null && parsed > 0) return parsed;
+        if (parsed != null && parsed > 0) {
+          return (length: parsed, validator: headValidator);
+        }
       }
     } catch (_) {
       // 兼容禁用 HEAD、对 HEAD 超时或主动断连的 WebDAV 驱动，立即回退 bytes=0-0。
     }
 
-    // 兼容部分禁用 HEAD 或未返回 Content-Length 的 WebDAV 服务：回退至 bytes=0-0 探测 Content-Range 总长度。
+    // 兼容部分禁用 HEAD 或未返回 Content-Length 的 WebDAV 服务：回退至 bytes=0-0 探测总长度与验证器。
     final probeResp = await _sendWithDigestRetry(
       (headers) => http.Request('GET', uri)..headers.addAll(headers),
       method: 'GET',
       uri: uri,
       extraHeaders: const {'Range': 'bytes=0-0'},
     );
-    // Range 探针可能遭服务端忽略并返回整部媒体；只使用响应头，不拉取正文。
     await probeResp.stream.listen(null).cancel();
-    if (probeResp.statusCode == 404) return null;
+    if (probeResp.statusCode == 404) {
+      return (length: null, validator: null);
+    }
+    final validator =
+        _extractCacheValidator(probeResp.headers) ?? headValidator;
     final contentRange = probeResp.headers[HttpHeaders.contentRangeHeader];
     if (contentRange != null) {
       final match = RegExp(r'/\s*(\d+)\s*$').firstMatch(contentRange);
       final total = match != null ? int.tryParse(match.group(1)!) : null;
-      if (total != null && total > 0) return total;
+      if (total != null && total > 0) {
+        return (length: total, validator: validator);
+      }
     }
     if (probeResp.statusCode == HttpStatus.ok) {
       final lenStr = probeResp.headers[HttpHeaders.contentLengthHeader];
-      return lenStr != null ? int.tryParse(lenStr) : null;
+      return (
+        length: lenStr != null ? int.tryParse(lenStr) : null,
+        validator: validator,
+      );
     }
-    return null;
+    return (length: null, validator: validator);
+  }
+
+  @override
+  Future<int?> probeFileLength(String relativePath) async {
+    final meta = await probeFileMetadata(relativePath);
+    return meta.length;
   }
 
   static String? _extractStrongEtag(Map<String, String> headers) {

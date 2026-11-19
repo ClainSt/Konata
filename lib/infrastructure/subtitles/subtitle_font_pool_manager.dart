@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../../domain/playback/ass_uue_font_decoder.dart';
+import '../storage/atomic_file_writer.dart';
 import '../storage/storage_root_provider.dart';
 
 /// 字体集合解析来源模式。
@@ -88,20 +89,26 @@ class SubtitleFontPoolManager {
       ];
 
       const directNames = ['Fonts', 'fonts', 'Font', 'font'];
-      for (final parent in searchParents) {
-        if (!await parent.exists()) continue;
-        for (final name in directNames) {
-          final candidate = Directory(p.join(parent.path, name));
-          if (!await candidate.exists()) continue;
-          final validCount = await _countValidFontsInDirectory(candidate);
-          if (validCount > 0) {
-            return ResolvedSubtitleFontSet(
-              directoryPath: candidate.path,
-              kind: FontSetResolutionKind.inPlaceSiblingDirectory,
-              fontCount: validCount,
-              reusedFromLease: true,
-            );
-          }
+      final candidates = <Directory>[
+        for (final parent in searchParents)
+          for (final name in directNames) Directory(p.join(parent.path, name)),
+      ];
+      final existsList = await Future.wait(
+        candidates.map((dir) => dir.exists()),
+      );
+      final seenPaths = <String>{};
+      for (var i = 0; i < candidates.length; i++) {
+        if (!existsList[i]) continue;
+        final candidate = candidates[i];
+        if (!seenPaths.add(candidate.path.toLowerCase())) continue;
+        final validCount = await _countValidFontsInDirectory(candidate);
+        if (validCount > 0) {
+          return ResolvedSubtitleFontSet(
+            directoryPath: candidate.path,
+            kind: FontSetResolutionKind.inPlaceSiblingDirectory,
+            fontCount: validCount,
+            reusedFromLease: true,
+          );
         }
       }
     } catch (_) {
@@ -278,7 +285,11 @@ class SubtitleFontPoolManager {
         );
         try {
           await partFile.writeAsBytes(entry.value, flush: true);
-          await partFile.rename(destFile.path);
+          await AtomicFileWriter.replaceFile(
+            partFile,
+            destFile,
+            expectedLength: entry.value.length,
+          );
         } finally {
           if (await partFile.exists()) {
             await partFile.delete().catchError((_) => partFile);

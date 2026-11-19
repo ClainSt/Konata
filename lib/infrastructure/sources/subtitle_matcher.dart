@@ -2,6 +2,7 @@ import 'package:path/path.dart' as p;
 
 import '../../domain/models/episode.dart';
 import '../../domain/parsing/bdrip_parser.dart';
+import '../../domain/playback/subtitle_and_audio_choices.dart';
 
 /// 单个视频的外挂字幕匹配结果。
 class MatchedSubtitleSet {
@@ -38,11 +39,6 @@ class SubtitleMatcher {
 
   static final RegExp _trailingLangSuffix = RegExp(
     r'(?:[\s._\-]+(?:chs|cht|sc|tc|gb|big5|jpn?|jap|eng?|jpsc|jptc|chs&jpn|cht&jpn|sc&jp|tc&jp|zh[-_]?(?:cn|tw|hk|hans|hant)|default|forced))+\s*$',
-    caseSensitive: false,
-  );
-
-  static final RegExp _subDirSuffix = RegExp(
-    r'/(?:subs?|subtitles?|字幕)$',
     caseSensitive: false,
   );
 
@@ -171,10 +167,7 @@ class SubtitleMatcher {
   }
 
   static String _logicalParentDir(String dir) {
-    if (_subDirSuffix.hasMatch(dir)) {
-      return dir.replaceFirst(_subDirSuffix, '');
-    }
-    return dir;
+    return SubtitleAndAudioChoices.logicalParentDirOfSubtitleDir(dir);
   }
 
   static String _dirname(String posixPath) {

@@ -8,7 +8,7 @@ import '../../domain/playback/subtitle_and_audio_choices.dart';
 import '../sources/source_gateway_factory.dart';
 import '../sources/subtitle_matcher.dart';
 
-/// 单个目录（含字幕/音轨子目录）内存索引快照，记录按语种维度的扫描完备性。
+/// 单个目录（含字幕/音轨子目录）内存索引快照，记录按语种维度的扫描完备性与源验证器。
 class SubtitleDirectorySnapshot {
   /// 创建目录索引快照。
   const SubtitleDirectorySnapshot({
@@ -18,6 +18,7 @@ class SubtitleDirectorySnapshot {
     required this.incompleteForSimplified,
     this.scannedSubdirCount = 0,
     this.unscannedSubdirs = const [],
+    this.validatorsByPath = const {},
   });
 
   /// 同级及已扫描子目录下的全部文件相对路径。
@@ -37,6 +38,9 @@ class SubtitleDirectorySnapshot {
 
   /// 尚未深入扫描的剩余候选子目录相对路径列表（供需要简中字幕时按需续扫）。
   final List<String> unscannedSubdirs;
+
+  /// 各相对路径对应的真实源版本验证器（优先 `ETag`，其次 `mtime:...`）。
+  final Map<String, String> validatorsByPath;
 }
 
 /// 同级字幕与外挂音轨目录内存表（LRU + TTL 5 分钟，供详情页静默预热与起播 0 ms 查表）。
@@ -72,7 +76,7 @@ class SubtitleDirectoryIndex {
       _entries.remove(key);
       return null;
     }
-    // 命中时移至尾部维护 LRU 热点顺序
+    // 命中时移至尾部维护 LRU 热点顺序。
     _entries.remove(key);
     _entries[key] = entry;
     return entry;
@@ -86,6 +90,7 @@ class SubtitleDirectoryIndex {
     required bool hasUnscannedSubdirs,
     required int scannedSubdirCount,
     List<String> unscannedSubdirs = const [],
+    Map<String, String> validatorsByPath = const {},
   }) {
     final hasSimplifiedSub = siblingPaths.any(_isLikelySimplifiedSubtitlePath);
     final effectiveHasUnscanned =
@@ -98,6 +103,7 @@ class SubtitleDirectoryIndex {
       incompleteForSimplified: incompleteForSimplified,
       scannedSubdirCount: scannedSubdirCount,
       unscannedSubdirs: List<String>.unmodifiable(unscannedSubdirs),
+      validatorsByPath: Map<String, String>.unmodifiable(validatorsByPath),
     );
     final key = _buildKey(sourceId, dirRelativePath);
     _entries.remove(key);
@@ -153,17 +159,7 @@ class WorkDetailWarmupService {
   final Map<String, Future<SubtitleDirectorySnapshot?>> _inflight = {};
   int _generation = 0;
 
-  static const Set<String> _preferredSubdirNames = {
-    'subs',
-    'sub',
-    'subtitles',
-    'subtitle',
-    '字幕',
-    'audio',
-    'sp audio',
-  };
-
-  /// 递增预热代数，取消过时详情页残留的后续排队任务。
+  /// 递增预热代数，取消过时详情页残留的后续排队与在途循环任务。
   void cancelPending() {
     _generation += 1;
   }
@@ -184,7 +180,7 @@ class WorkDetailWarmupService {
       );
       final key = '${source.id}::$parentDir';
       targets.putIfAbsent(key, () => (source: source, parentDir: parentDir));
-      // 详情页静默预热最多预热 2 个主目录，避免多版本跨源风暴
+      // 详情页静默预热最多预热 2 个主目录，避免多版本跨源风暴。
       if (targets.length >= 2) break;
     }
 
@@ -194,27 +190,37 @@ class WorkDetailWarmupService {
         await warmupDirectory(
           source: target.source,
           dirRelativePath: target.parentDir,
+          expectedGeneration: gen,
         );
-      } catch (_) {
-        // 静默预热失败严禁弹出干扰提示，点播时正常走主流程兜底
+      } on Object {
+        // 静默预热失败严禁弹出干扰提示，点播时正常走主流程兜底。
       }
     }
   }
 
-  /// 预热单个远程目录并将同级文件与最多 4 个字幕/音轨子目录写入内存索引表。
+  /// 预热单个远程目录并将同级文件、真实源验证器与最多 4 个字幕/音轨子目录写入内存索引表。
   Future<SubtitleDirectorySnapshot?> warmupDirectory({
     required MediaSource source,
     required String dirRelativePath,
+    int? expectedGeneration,
   }) {
+    final gen = expectedGeneration ?? _generation;
+    if (gen != _generation) {
+      return Future<SubtitleDirectorySnapshot?>.value(null);
+    }
     final cached = directoryIndex.lookup(source.id, dirRelativePath);
     if (cached != null) {
       return Future<SubtitleDirectorySnapshot?>.value(cached);
     }
-    final dedupKey = '${source.id}::$dirRelativePath';
+    final dedupKey = '${source.id}::$dirRelativePath::$gen';
     final inflight = _inflight[dedupKey];
     if (inflight != null) return inflight;
 
-    final task = _runWarmup(source, dirRelativePath).whenComplete(() {
+    final task = _runWarmup(
+      source,
+      dirRelativePath,
+      generation: gen,
+    ).whenComplete(() {
       _inflight.remove(dedupKey);
     });
     _inflight[dedupKey] = task;
@@ -223,41 +229,58 @@ class WorkDetailWarmupService {
 
   Future<SubtitleDirectorySnapshot?> _runWarmup(
     MediaSource source,
-    String dirRelativePath,
-  ) async {
+    String dirRelativePath, {
+    required int generation,
+  }) async {
+    if (generation != _generation) return null;
     final gw = await gatewayFactory.create(source);
     try {
+      if (generation != _generation) return null;
       final entries = await gw.listDirectory(dirRelativePath);
+      if (generation != _generation) return null;
+
       final siblingPaths = <String>[];
       final candidateSubdirs = <String>[];
+      final validatorsByPath = <String, String>{};
 
       for (final entry in entries) {
         if (!entry.isDirectory) {
           siblingPaths.add(entry.relativePath);
+          final validator = entry.cacheValidator;
+          if (validator != null) {
+            validatorsByPath[entry.relativePath] = validator;
+          }
           continue;
         }
-        final lowerName = entry.name.trim().toLowerCase();
-        if (_preferredSubdirNames.contains(lowerName) ||
-            lowerName.contains('sub') ||
-            lowerName.contains('字幕')) {
+        if (SubtitleAndAudioChoices.isSidecarSubdirName(entry.name)) {
           candidateSubdirs.add(entry.relativePath);
         }
       }
 
       var scanned = 0;
       for (final subDir in candidateSubdirs) {
+        if (generation != _generation) return null;
         if (scanned >= SubtitleDirectoryIndex.maxAutoSubdirScanCount) break;
         scanned += 1;
         try {
           final subEntries = await gw.listDirectory(subDir);
+          if (generation != _generation) return null;
           for (final sub in subEntries) {
             if (!sub.isDirectory) {
               siblingPaths.add(sub.relativePath);
+              final validator = sub.cacheValidator;
+              if (validator != null) {
+                validatorsByPath[sub.relativePath] = validator;
+              }
             }
           }
-        } catch (_) {}
+        } on Object {
+          // 单个子目录受限或不存在时继续扫描其余子目录，若已切页则立即退出。
+          if (generation != _generation) return null;
+        }
       }
 
+      if (generation != _generation) return null;
       final unscanned = scanned < candidateSubdirs.length
           ? candidateSubdirs.sublist(scanned)
           : const <String>[];
@@ -268,6 +291,7 @@ class WorkDetailWarmupService {
         hasUnscannedSubdirs: unscanned.isNotEmpty,
         scannedSubdirCount: scanned,
         unscannedSubdirs: unscanned,
+        validatorsByPath: validatorsByPath,
       );
     } finally {
       await gw.close();

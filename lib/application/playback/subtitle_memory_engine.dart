@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:path/path.dart' as p;
 
 import '../../domain/playback/subtitle_content_processor.dart';
 import '../../domain/playback/subtitle_timeline_remapper.dart';
@@ -24,7 +25,8 @@ class SubtitleSlotRequest {
        fileName = null,
        openCcMode = SubtitleOpenCcMode.none,
        forceOverrideSubsetGuard = false,
-       timelineTransform = SubtitleTimelineTransform.identity;
+       timelineTransform = SubtitleTimelineTransform.identity,
+       enableCloudSubset = false;
 
   /// 创建基于本地文件或异步原始字节加载器的内存直注字幕槽位请求。
   const SubtitleSlotRequest.memory({
@@ -35,6 +37,7 @@ class SubtitleSlotRequest {
     this.openCcMode = SubtitleOpenCcMode.none,
     this.forceOverrideSubsetGuard = false,
     this.timelineTransform = SubtitleTimelineTransform.identity,
+    this.enableCloudSubset = false,
   }) : existingTrackId = null;
 
   /// 已挂载在 `libmpv` 中的轨道 ID（若设置则直接选轨，不重复注入）。
@@ -60,6 +63,9 @@ class SubtitleSlotRequest {
 
   /// 离线分段线性时间轴重映射参数（非恒等变换时自动同步归零 `sub-delay`）。
   final SubtitleTimelineTransform timelineTransform;
+
+  /// 是否允许在启用且已授权时对 ASS/SSA 字幕触发可选云端字体子集化。
+  final bool enableCloudSubset;
 
   /// 是否包含非恒等时间轴离线重映射。
   bool get hasTimelineRemap => !timelineTransform.isIdentity;
@@ -109,6 +115,7 @@ class SubtitleMemoryApplyResult {
     this.primaryOpenCcSkipReason,
     this.usedCachedMemoryTrack = false,
     this.zeroedInstantSubDelay = false,
+    this.cloudSubsetApplied = false,
     this.elapsedMicros = 0,
   });
 
@@ -142,6 +149,9 @@ class SubtitleMemoryApplyResult {
   /// 本次挂载重映射轨时是否同步归零了瞬时 `sub-delay`。
   final bool zeroedInstantSubDelay;
 
+  /// 本次是否成功应用了经语义校验的云端字体子集化正文。
+  final bool cloudSubsetApplied;
+
   /// 端到端处理与内存挂载耗时（微秒）。
   final int elapsedMicros;
 }
@@ -149,6 +159,7 @@ class SubtitleMemoryApplyResult {
 class _PreparedMemorySlot {
   const _PreparedMemorySlot({
     this.existingTrackId,
+    this.sourceFilePath,
     this.processedContent,
     this.contentSha1,
     this.decodedCharset,
@@ -156,9 +167,11 @@ class _PreparedMemorySlot {
     this.openCcSkipReason,
     this.displayTitle,
     this.hasTimelineRemap = false,
+    this.cloudSubsetApplied = false,
   });
 
   final int? existingTrackId;
+  final String? sourceFilePath;
   final String? processedContent;
   final String? contentSha1;
   final DetectedTextCharset? decodedCharset;
@@ -166,22 +179,25 @@ class _PreparedMemorySlot {
   final String? openCcSkipReason;
   final String? displayTitle;
   final bool hasTimelineRemap;
+  final bool cloudSubsetApplied;
 }
 
 /// 内存级无副作用字幕引擎（`memory://` 零落盘直注 + 单一串行权威意图通道）。
 ///
 /// 核心并发与无副作用不变量：
 /// 1. 使用全仓唯一 `MultibyteTextDecoder` 在内存统一归一为 UTF-8，绝不修改 `libmpv` 全局 `sub-codepage`；
-/// 2. 通过 `sub-add memory://<content> auto <title>` 静默载入 `track-list`（零 `sid` 抢轨副作用），
-///    并按处理后内容 SHA-1 去重复用已挂载内存轨，全过程零临时磁盘文件；
-/// 3. 所有选轨、关闭、改延迟与离线调轴共享单调递增意图代数与单一串行提交通道；
-///    任一异步加载边界后若意图过时或物理媒体代数已推进，立即中止并保证对 `libmpv` **0 写回**。
+/// 2. 统一通过 `sub-add memory://<content> cached <title>` 静默入轨并由权威通道显式绑定 `sid`/`secondary-sid`，
+///    彻底杜绝 `sub-auto=fuzzy` 下的自动抢选轨副作用，并按内容 SHA-1 去重复用，全过程零临时磁盘文件；
+/// 3. 起播自动外挂字幕、侧栏选轨、手动加字幕、OpenCC、云端子集化与离线调轴共享单调递增意图代数与单一串行提交通道；
+///    任一异步边界后若意图过时或物理媒体代数已推进，立即中止并保证对 `libmpv` **0 写回**。
 class SubtitleMemoryEngine {
   /// 创建内存级字幕引擎实例。
   SubtitleMemoryEngine({
     required this.clientSupplier,
     UnifiedPlaybackEngine? playbackEngine,
     this.legacyCodePageDecoder,
+    this.cloudSubsetTransform,
+    this.onAssContentPrepared,
     this.onTrackStateChanged,
   }) : _playbackEngine = playbackEngine,
        _activePhysicalEpoch = playbackEngine?.physicalMediaEpoch ?? 0;
@@ -192,6 +208,13 @@ class SubtitleMemoryEngine {
 
   /// 可选平台代码页桥接（Windows 组装根注入 `WindowsCodePageDecoder.decode`）。
   final LegacyCodePageDecoder? legacyCodePageDecoder;
+
+  /// 可选云端 ASS 字体子集化处理回调（由上层串联 `CloudSubsetCoordinator.runCloudSubset`）。
+  final Future<String?> Function(String originalAssContent)?
+  cloudSubsetTransform;
+
+  /// ASS 正文解码或云端子集化就绪后的回调（用于提取 `[Fonts]` UUE 字体入池并刷新 `sub-fonts-dir`）。
+  final Future<void> Function(String assContent)? onAssContentPrepared;
 
   /// 选轨或延迟原子提交完成后触发的通知回调（供会话刷新 UI 轨道快照）。
   final void Function()? onTrackStateChanged;
@@ -204,11 +227,23 @@ class SubtitleMemoryEngine {
   /// 当前物理媒体周期内已通过 `memory://` 静默挂载的轨道去重映射（`contentSha1 -> trackId`）。
   final Map<String, int> _mountedMemoryTracksBySha1 = {};
 
+  /// 当前物理媒体周期内已挂载的外部字幕源路径与底层 `trackId` 的映射表（便于原轨复用与反查源路径）。
+  final Map<String, int> _mountedTrackIdBySourcePath = {};
+  final Map<int, String> _sourcePathByMountedTrackId = {};
+
   /// 当前最新权威意图版本（用于诊断与测试）。
   int get latestIntentVersion => _latestIntentVersion;
 
   /// 当前已挂载去重的内存轨道数量。
   int get mountedMemoryTrackCount => _mountedMemoryTracksBySha1.length;
+
+  /// 根据已挂载的 `memory://` 轨道 ID 反查原始外挂字幕文件路径（供 OpenCC / 调轴 / 云端子集回溯）。
+  String? lookupSourcePathForTrackId(int trackId) =>
+      _sourcePathByMountedTrackId[trackId];
+
+  /// 根据原始外挂字幕文件路径查询当前物理周期已挂载的轨道 ID。
+  int? lookupTrackIdForSourcePath(String filePath) =>
+      _mountedTrackIdBySourcePath[_normalizePathKey(filePath)];
 
   /// 推进意图代数，令一切尚未提交的在途异步字幕加载/转换任务立即失效（0 写回）。
   int invalidatePendingIntents() {
@@ -224,6 +259,8 @@ class SubtitleMemoryEngine {
         (_playbackEngine?.physicalMediaEpoch ?? (_activePhysicalEpoch + 1));
     _latestIntentVersion += 1;
     _mountedMemoryTracksBySha1.clear();
+    _mountedTrackIdBySourcePath.clear();
+    _sourcePathByMountedTrackId.clear();
   }
 
   /// 同步更新瞬时 `sub-delay` 并同步推进权威意图代数，防止在途异步选轨覆盖新延迟。
@@ -234,6 +271,149 @@ class SubtitleMemoryEngine {
     if (client == null) return;
     _writeSubDelay(client, seconds);
     onTrackStateChanged?.call();
+  }
+
+  /// 经单一串行权威通道静默批量挂载起播发现的外挂文本字幕（`cached`），并按偏好原子选轨。
+  Future<SubtitleMemoryApplyResult> mountDiscoveredExternalSubtitles({
+    required List<String> textSubtitlePaths,
+    required CrossEpisodeTrackMemory trackMemory,
+    required TrackPreferences trackPreferences,
+    bool enableCloudSubsetForSelected = false,
+  }) async {
+    final stopwatch = Stopwatch()..start();
+    if (_disposed) {
+      return SubtitleMemoryApplyResult(
+        applied: false,
+        staleAborted: true,
+        elapsedMicros: stopwatch.elapsedMicroseconds,
+      );
+    }
+
+    final targetVersion = ++_latestIntentVersion;
+    final targetEpoch = _currentPhysicalEpoch();
+    final taskToken = _playbackEngine?.acquireTaskToken(
+      PlaybackTaskDomain.rawSubtitleFetch,
+    );
+
+    bool isStillCurrent() {
+      if (_disposed) return false;
+      if (targetVersion != _latestIntentVersion) return false;
+      if (targetEpoch != _currentPhysicalEpoch()) return false;
+      if (taskToken != null &&
+          !(_playbackEngine?.isTaskAlive(taskToken) ?? false)) {
+        return false;
+      }
+      return true;
+    }
+
+    // 1. 异步解码所有外挂文本字幕至 UTF-8（彻底杜绝 GBK/Big5/Shift-JIS 裸路径直传乱码）。
+    final preparedSlots = <_PreparedMemorySlot>[];
+    for (final rawPath in textSubtitlePaths) {
+      if (!isStillCurrent()) {
+        return SubtitleMemoryApplyResult(
+          applied: false,
+          staleAborted: true,
+          elapsedMicros: stopwatch.elapsedMicroseconds,
+        );
+      }
+      final trimmed = rawPath.trim();
+      if (trimmed.isEmpty) continue;
+      try {
+        final slot = await _prepareSlot(
+          SubtitleSlotRequest.memory(
+            localFilePath: trimmed,
+            fileName: p.basename(trimmed),
+            displayTitle: p.basename(trimmed),
+            enableCloudSubset: enableCloudSubsetForSelected,
+          ),
+        );
+        preparedSlots.add(slot);
+      } on Object {
+        // 单个外挂字幕读取失败不影响其余可用字幕挂载。
+      }
+    }
+
+    if (!isStillCurrent()) {
+      return SubtitleMemoryApplyResult(
+        applied: false,
+        staleAborted: true,
+        elapsedMicros: stopwatch.elapsedMicroseconds,
+      );
+    }
+
+    // 2. 入串行权威提交锁：静默 `cached` 挂载全部文本轨并显式解析写入最终 `sid`。
+    final completer = Completer<SubtitleMemoryApplyResult>();
+    final op = _serialCommitChain.then((_) {
+      if (!isStillCurrent()) {
+        completer.complete(
+          SubtitleMemoryApplyResult(
+            applied: false,
+            staleAborted: true,
+            elapsedMicros: stopwatch.elapsedMicroseconds,
+          ),
+        );
+        return;
+      }
+      final client = _activeUsableClient();
+      if (client == null) {
+        completer.complete(
+          SubtitleMemoryApplyResult(
+            applied: false,
+            staleAborted: true,
+            elapsedMicros: stopwatch.elapsedMicroseconds,
+          ),
+        );
+        return;
+      }
+
+      for (final slot in preparedSlots) {
+        _ensureMountedTrack(client, slot);
+      }
+
+      if (!isStillCurrent()) {
+        completer.complete(
+          SubtitleMemoryApplyResult(
+            applied: false,
+            staleAborted: true,
+            elapsedMicros: stopwatch.elapsedMicroseconds,
+          ),
+        );
+        return;
+      }
+
+      int? selectedTrackId;
+      if (trackMemory.subtitleDisabled) {
+        client.setPropertyString('sid', 'no');
+      } else {
+        final refreshed = client.readTrackList();
+        final chosenSub = trackMemory.resolveSubtitleTrack(
+          refreshed,
+          fallback: trackPreferences,
+        );
+        if (chosenSub != null) {
+          selectedTrackId = chosenSub.id;
+          if (!chosenSub.selected) {
+            final rc = client.setPropertyInt64('sid', chosenSub.id);
+            if (rc < 0) {
+              client.setPropertyString('sid', '${chosenSub.id}');
+            }
+          }
+        }
+      }
+
+      onTrackStateChanged?.call();
+      stopwatch.stop();
+      completer.complete(
+        SubtitleMemoryApplyResult(
+          applied: true,
+          staleAborted: false,
+          primaryTrackId: selectedTrackId,
+          elapsedMicros: stopwatch.elapsedMicroseconds,
+        ),
+      );
+    });
+    _serialCommitChain = op.catchError((Object _, StackTrace _) {});
+    return completer.future;
   }
 
   /// 通过单一串行权威通道提交字幕意图（支持主/副双槽、`memory://` 直注与离线调轴）。
@@ -259,13 +439,14 @@ class SubtitleMemoryEngine {
       if (_disposed) return false;
       if (targetVersion != _latestIntentVersion) return false;
       if (targetEpoch != _currentPhysicalEpoch()) return false;
-      if (taskToken != null && !(_playbackEngine?.isTaskAlive(taskToken) ?? false)) {
+      if (taskToken != null &&
+          !(_playbackEngine?.isTaskAlive(taskToken) ?? false)) {
         return false;
       }
       return true;
     }
 
-    // 1. 异步阶段在串行提交锁外并发准备字节解码、OpenCC 片段转换与离线调轴，避免阻塞较新意图抢占代数。
+    // 1. 异步阶段在串行提交锁外并发准备字节解码、云端子集化、OpenCC 片段转换与离线调轴，避免阻塞较新意图抢占代数。
     _PreparedMemorySlot? preparedPrimary;
     _PreparedMemorySlot? preparedSecondary;
     try {
@@ -289,7 +470,7 @@ class SubtitleMemoryEngine {
           elapsedMicros: stopwatch.elapsedMicroseconds,
         );
       }
-    } catch (_) {
+    } on Object {
       return SubtitleMemoryApplyResult(
         applied: false,
         staleAborted: !isStillCurrent(),
@@ -414,6 +595,7 @@ class SubtitleMemoryEngine {
           primaryOpenCcSkipReason: preparedPrimary?.openCcSkipReason,
           usedCachedMemoryTrack: usedCached,
           zeroedInstantSubDelay: zeroedDelay,
+          cloudSubsetApplied: preparedPrimary?.cloudSubsetApplied ?? false,
           elapsedMicros: stopwatch.elapsedMicroseconds,
         ),
       );
@@ -427,6 +609,8 @@ class SubtitleMemoryEngine {
     _disposed = true;
     _latestIntentVersion += 1;
     _mountedMemoryTracksBySha1.clear();
+    _mountedTrackIdBySourcePath.clear();
+    _sourcePathByMountedTrackId.clear();
   }
 
   int _currentPhysicalEpoch() {
@@ -435,11 +619,17 @@ class SubtitleMemoryEngine {
 
   LibMpvClient? _activeUsableClient() {
     final client = clientSupplier();
-    if (_disposed || client == null || client.isDisposed || !client.isInitialized) {
+    if (_disposed ||
+        client == null ||
+        client.isDisposed ||
+        !client.isInitialized) {
       return null;
     }
     return client;
   }
+
+  static String _normalizePathKey(String rawPath) =>
+      rawPath.trim().replaceAll('\\', '/').toLowerCase();
 
   Future<_PreparedMemorySlot> _prepareSlot(SubtitleSlotRequest request) async {
     if (request.existingTrackId != null) {
@@ -450,11 +640,11 @@ class SubtitleMemoryEngine {
     }
 
     Uint8List rawBytes;
+    final trimmedLocalPath = request.localFilePath?.trim();
     if (request.loadBytes != null) {
       rawBytes = await request.loadBytes!();
-    } else if (request.localFilePath != null &&
-        request.localFilePath!.trim().isNotEmpty) {
-      rawBytes = await File(request.localFilePath!.trim()).readAsBytes();
+    } else if (trimmedLocalPath != null && trimmedLocalPath.isNotEmpty) {
+      rawBytes = await File(trimmedLocalPath).readAsBytes();
     } else {
       throw StateError('字幕槽位既未指定轨道 ID，也未提供字节加载源');
     }
@@ -463,19 +653,47 @@ class SubtitleMemoryEngine {
       rawBytes,
       legacyDecoder: legacyCodePageDecoder,
     );
+    var workingText = decoded.text;
+    var cloudApplied = false;
+
+    final detectedFormat = SubtitleTimelineRemapper.detectFormat(
+      workingText,
+      fileName: request.fileName ?? trimmedLocalPath,
+    );
+
+    // 若启用云端子集化且目标源已授权，仅对未含 [Fonts] 的 ASS/SSA 正文发起按域云端子集化。
+    if (request.enableCloudSubset &&
+        detectedFormat == SubtitleTextFormat.ass &&
+        cloudSubsetTransform != null) {
+      final subsetted = await cloudSubsetTransform!(workingText);
+      if (subsetted != null && subsetted.isNotEmpty) {
+        workingText = subsetted;
+        cloudApplied = true;
+      }
+    }
+
+    // 检测到 ASS 内嵌 `[Fonts]` UUE 块时，自动提取校验并入单级哈希池刷新 `sub-fonts-dir`。
+    if (detectedFormat == SubtitleTextFormat.ass &&
+        onAssContentPrepared != null &&
+        workingText.contains('[Fonts]')) {
+      await onAssContentPrepared!(workingText);
+    }
+
     final processed = SubtitleContentProcessor.process(
-      content: decoded.text,
+      content: workingText,
       mode: request.openCcMode,
       forceOverrideSubsetGuard: request.forceOverrideSubsetGuard,
     );
     final remapped = SubtitleTimelineRemapper.remap(
       content: processed.content,
       transform: request.timelineTransform,
-      fileName: request.fileName ?? request.localFilePath,
+      format: detectedFormat,
+      fileName: request.fileName ?? trimmedLocalPath,
     );
     final contentSha1 = sha1.convert(utf8.encode(remapped)).toString();
 
     return _PreparedMemorySlot(
+      sourceFilePath: trimmedLocalPath,
       processedContent: remapped,
       contentSha1: contentSha1,
       decodedCharset: decoded.charset,
@@ -483,6 +701,7 @@ class SubtitleMemoryEngine {
       openCcSkipReason: processed.skipReason,
       displayTitle: request.displayTitle ?? request.fileName,
       hasTimelineRemap: request.hasTimelineRemap,
+      cloudSubsetApplied: cloudApplied,
     );
   }
 
@@ -506,19 +725,25 @@ class SubtitleMemoryEngine {
     // 命中当前物理周期已挂载且仍在 track-list 中的同内容内存轨，直接去重复用。
     final cachedId = _mountedMemoryTracksBySha1[contentSha1];
     if (cachedId != null && existingSubIds.contains(cachedId)) {
+      if (slot.sourceFilePath != null && slot.sourceFilePath!.isNotEmpty) {
+        _mountedTrackIdBySourcePath[_normalizePathKey(slot.sourceFilePath!)] =
+            cachedId;
+        _sourcePathByMountedTrackId[cachedId] = slot.sourceFilePath!;
+      }
       return (trackId: cachedId, reused: true);
     }
 
-    final title = (slot.displayTitle != null && slot.displayTitle!.trim().isNotEmpty)
+    final title =
+        (slot.displayTitle != null && slot.displayTitle!.trim().isNotEmpty)
         ? slot.displayTitle!.trim()
         : 'KonataMem_${contentSha1.substring(0, 8)}';
 
-    // 经 Step 0 实证：libmpv 0.42.0 中 `sub-add memory://... auto` 在 sid=no 与已有 sid 下均 0 抢轨，
-    // 搭配 Dart 侧 contentSha1 去重表既消灭落盘碎片，又确保权威通道独占选轨权。
+    // 统一使用 `cached` 静默载入 `track-list`，即使开启 `sub-auto=fuzzy` 亦绝不自动抢选 `sid`，
+    // 由单一串行权威意图通道显式提交最终 `sid` / `secondary-sid`。
     final rc = client.command([
       'sub-add',
       'memory://$content',
-      'auto',
+      'cached',
       title,
     ]);
     if (rc < 0) return null;
@@ -541,6 +766,11 @@ class SubtitleMemoryEngine {
     }
     if (mountedId == null) return null;
     _mountedMemoryTracksBySha1[contentSha1] = mountedId;
+    if (slot.sourceFilePath != null && slot.sourceFilePath!.isNotEmpty) {
+      _mountedTrackIdBySourcePath[_normalizePathKey(slot.sourceFilePath!)] =
+          mountedId;
+      _sourcePathByMountedTrackId[mountedId] = slot.sourceFilePath!;
+    }
     return (trackId: mountedId, reused: false);
   }
 

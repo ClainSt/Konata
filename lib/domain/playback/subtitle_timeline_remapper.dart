@@ -63,6 +63,11 @@ class SubtitleTimelineTransform {
     if (originalMs <= 0) return 0;
     return math.max(0, (originalMs * rateScale).round());
   }
+
+  /// 将允许取负值的相对毫秒时间戳（如 ASS `\fade` 的 `t1`）按斜率 $k$ 保号缩放。
+  int scaleSignedMs(int originalMs) {
+    return (originalMs * rateScale).round();
+  }
 }
 
 /// 离线分段线性字幕时间轴重映射引擎（纯领域算法，支持 ASS / SRT / WebVTT）。
@@ -147,6 +152,27 @@ class SubtitleTimelineRemapper {
     };
   }
 
+  static ({int startIdx, int endIdx, int textIdx}) _parseAssEventsFormat(
+    String formatLine,
+  ) {
+    final colonIdx = formatLine.indexOf(':');
+    if (colonIdx < 0) {
+      return (startIdx: 1, endIdx: 2, textIdx: 9);
+    }
+    final cols = formatLine
+        .substring(colonIdx + 1)
+        .split(',')
+        .map((c) => c.trim().toLowerCase())
+        .toList(growable: false);
+    final startIdx = cols.indexOf('start');
+    final endIdx = cols.indexOf('end');
+    final textIdx = cols.indexOf('text');
+    if (startIdx < 0 || endIdx < 0 || textIdx < 0) {
+      return (startIdx: 1, endIdx: 2, textIdx: 9);
+    }
+    return (startIdx: startIdx, endIdx: endIdx, textIdx: textIdx);
+  }
+
   static String _remapAss(
     String content,
     SubtitleTimelineTransform transform,
@@ -155,8 +181,27 @@ class SubtitleTimelineRemapper {
     final lines = content.split(RegExp(r'\r?\n'));
     final scaleChanged = (transform.rateScale - 1.0).abs() >= 1e-9;
     final out = <String>[];
+    var inEventsSection = false;
+    var startIdx = 1;
+    var endIdx = 2;
+    var textIdx = 9;
 
     for (final line in lines) {
+      final trimmed = line.trim();
+      if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        inEventsSection = trimmed.toLowerCase() == '[events]';
+        out.add(line);
+        continue;
+      }
+      if (inEventsSection && trimmed.toLowerCase().startsWith('format:')) {
+        final layout = _parseAssEventsFormat(trimmed);
+        startIdx = layout.startIdx;
+        endIdx = layout.endIdx;
+        textIdx = layout.textIdx;
+        out.add(line);
+        continue;
+      }
+
       final isDialogue = line.startsWith('Dialogue:');
       final isComment = line.startsWith('Comment:');
       if (!isDialogue && !isComment) {
@@ -167,47 +212,63 @@ class SubtitleTimelineRemapper {
       final header = line.substring(0, colonIdx + 1);
       final rest = line.substring(colonIdx + 1);
 
-      // 解析前 9 个逗号切分字段（Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text）。
+      // 按 `[Events] Format:` 动态列序切分字段，保留 Text 列内所有逗号。
+      final requiredCommas = math.max(textIdx, math.max(startIdx, endIdx));
       final commaPositions = <int>[];
       for (var i = 0; i < rest.length; i++) {
         if (rest.codeUnitAt(i) == 0x2C) {
           commaPositions.add(i);
-          if (commaPositions.length == 9) break;
+          if (commaPositions.length == requiredCommas) break;
         }
       }
-      if (commaPositions.length < 9) {
+      if (commaPositions.length < requiredCommas) {
         out.add(line);
         continue;
       }
 
-      final startRaw = rest.substring(commaPositions[0] + 1, commaPositions[1]).trim();
-      final endRaw = rest.substring(commaPositions[1] + 1, commaPositions[2]).trim();
-      final startSec = _parseAssTimeSeconds(startRaw);
-      final endSec = _parseAssTimeSeconds(endRaw);
+      // 拆分为 `requiredCommas + 1` 段原始切片（含最后一段完整 Text）。
+      final fields = <String>[];
+      var segStart = 0;
+      for (final commaPos in commaPositions) {
+        fields.add(rest.substring(segStart, commaPos));
+        segStart = commaPos + 1;
+      }
+      fields.add(rest.substring(segStart));
+
+      final startSec = _parseAssTimeSeconds(fields[startIdx].trim());
+      final endSec = _parseAssTimeSeconds(fields[endIdx].trim());
       if (startSec == null || endSec == null) {
         out.add(line);
         continue;
       }
 
+      final unclampedStart =
+          transform.rateScale * startSec + transform.effectiveOffsetSeconds;
       final mappedStart = transform.mapSeconds(startSec);
       final mappedEnd = math.max(mappedStart, transform.mapSeconds(endSec));
-      final formattedStart = _formatAssTimeSeconds(mappedStart);
-      final formattedEnd = _formatAssTimeSeconds(mappedEnd);
+      final clippedHeadMs = (unclampedStart < 0.0 && mappedEnd > 0.0)
+          ? (-unclampedStart * 1000.0).round()
+          : 0;
+      final mappedDurationMs = math.max(
+        0,
+        ((mappedEnd - mappedStart) * 1000.0).round(),
+      );
 
-      final textRaw = rest.substring(commaPositions[8] + 1);
-      final remappedText = scaleChanged
-          ? _remapAssInlineEffects(textRaw, transform)
-          : textRaw;
+      final startLeadingSpace = fields[startIdx].startsWith(' ') ? ' ' : '';
+      final endLeadingSpace = fields[endIdx].startsWith(' ') ? ' ' : '';
+      fields[startIdx] = '$startLeadingSpace${_formatAssTimeSeconds(mappedStart)}';
+      fields[endIdx] = '$endLeadingSpace${_formatAssTimeSeconds(mappedEnd)}';
 
-      final rebuilt = StringBuffer()
-        ..write(header)
-        ..write(rest.substring(0, commaPositions[0] + 1))
-        ..write(formattedStart)
-        ..write(',')
-        ..write(formattedEnd)
-        ..write(rest.substring(commaPositions[2], commaPositions[8] + 1))
-        ..write(remappedText);
-      out.add(rebuilt.toString());
+      if (scaleChanged || clippedHeadMs > 0) {
+        fields[textIdx] = _remapAssInlineEffects(
+          fields[textIdx],
+          transform,
+          clippedHeadMs: clippedHeadMs,
+          mappedDurationMs: mappedDurationMs,
+        );
+      }
+
+      out.add('$header${fields.join(',')}');
     }
 
     return out.join(usesCrlf ? '\r\n' : '\n');
@@ -215,45 +276,62 @@ class SubtitleTimelineRemapper {
 
   static String _remapAssInlineEffects(
     String text,
-    SubtitleTimelineTransform transform,
-  ) {
-    // 卡拉 OK 厘秒采用跨整行累计边界差分，保证多音节总漂移严格 <= 5 ms。
+    SubtitleTimelineTransform transform, {
+    int clippedHeadMs = 0,
+    int? mappedDurationMs,
+  }) {
+    // 卡拉 OK 厘秒采用跨整行累计边界差分，并同步扣除跨零点截断的头部厘秒。
+    final clippedHeadCs = (clippedHeadMs / 10.0).round();
     var cumulativeOriginalCs = 0;
     var cumulativeMappedCs = 0;
 
     return text.replaceAllMapped(_assOverrideBlockRegex, (blockMatch) {
       var inner = blockMatch.group(1)!;
 
-      // 1. \fade(a1,a2,a3,t1,t2,t3,t4)：仅缩放后 4 个毫秒时间参数，保留前 3 个 Alpha 参数。
+      // 1. \fade(a1,a2,a3,t1,t2,t3,t4)：仅变换后 4 个毫秒时间参数，严格保留前 3 个 Alpha 参数及合法负 t1。
       inner = inner.replaceAllMapped(_fade7Regex, (m) {
         final a1 = m.group(1)!;
         final a2 = m.group(2)!;
         final a3 = m.group(3)!;
-        final t1 = transform.scaleDurationMs(int.parse(m.group(4)!));
-        final t2 = transform.scaleDurationMs(int.parse(m.group(5)!));
-        final t3 = transform.scaleDurationMs(int.parse(m.group(6)!));
-        final t4 = transform.scaleDurationMs(int.parse(m.group(7)!));
+        final t1 = transform.scaleSignedMs(int.parse(m.group(4)!)) - clippedHeadMs;
+        final t2 = transform.scaleSignedMs(int.parse(m.group(5)!)) - clippedHeadMs;
+        final t3 = transform.scaleSignedMs(int.parse(m.group(6)!)) - clippedHeadMs;
+        final t4 = transform.scaleSignedMs(int.parse(m.group(7)!)) - clippedHeadMs;
         return '\\fade($a1,$a2,$a3,$t1,$t2,$t3,$t4)';
       });
 
-      // 2. \fad(t1,t2)：缩放两个毫秒渐变时长。
+      // 2. \fad(t1,t2)：缩放渐入/渐出毫秒并在头部跨零截断时同步裁剪渐入时长 t1。
       inner = inner.replaceAllMapped(_fad2Regex, (m) {
-        final t1 = transform.scaleDurationMs(int.parse(m.group(1)!));
-        final t2 = transform.scaleDurationMs(int.parse(m.group(2)!));
+        final scaledT1 = transform.scaleDurationMs(int.parse(m.group(1)!));
+        final scaledT2 = transform.scaleDurationMs(int.parse(m.group(2)!));
+        final t1 = math.max(0, scaledT1 - clippedHeadMs);
+        final t2 = (clippedHeadMs > 0 && mappedDurationMs != null)
+            ? math.min(scaledT2, mappedDurationMs)
+            : scaledT2;
         return '\\fad($t1,$t2)';
       });
 
-      // 3. \move(x1,y1,x2,y2,t1,t2)：保留坐标，仅缩放起止时间。
+      // 3. \move(x1,y1,x2,y2,t1,t2)：保留坐标，缩放起止时间并扣除头部跨零截断偏移。
       inner = inner.replaceAllMapped(_move6Regex, (m) {
-        final t1 = transform.scaleDurationMs(int.parse(m.group(5)!));
-        final t2 = transform.scaleDurationMs(int.parse(m.group(6)!));
+        final t1 = math.max(
+          0,
+          transform.scaleDurationMs(int.parse(m.group(5)!)) - clippedHeadMs,
+        );
+        final t2 = math.max(
+          0,
+          transform.scaleDurationMs(int.parse(m.group(6)!)) - clippedHeadMs,
+        );
         return '\\move(${m.group(1)!.trim()},${m.group(2)!.trim()},${m.group(3)!.trim()},${m.group(4)!.trim()},$t1,$t2)';
       });
 
-      // 4. \t([t1,t2,[accel,]]modifiers)：支持嵌套括号并严格保留 accel 参数不变。
-      inner = _remapAssTransformTags(inner, transform);
+      // 4. \t([t1,t2,[accel,]]modifiers)：支持嵌套括号，保留 accel 原值并扣除头部跨零截断偏移。
+      inner = _remapAssTransformTags(
+        inner,
+        transform,
+        clippedHeadMs: clippedHeadMs,
+      );
 
-      // 5. 卡拉 OK \k / \kf / \ko / \K 厘秒累计边界差分。
+      // 5. 卡拉 OK \k / \kf / \ko / \K 厘秒累计边界差分（同步扣除头部跨零截断厘秒）。
       inner = inner.replaceAllMapped(_karaokeRegex, (m) {
         final tag = m.group(1)!;
         final origCs = int.parse(m.group(2)!);
@@ -261,8 +339,10 @@ class SubtitleTimelineRemapper {
           return '\\$tag$origCs';
         }
         cumulativeOriginalCs += origCs;
-        final nextMappedCumulative =
-            (cumulativeOriginalCs * transform.rateScale).round();
+        final nextMappedCumulative = math.max(
+          0,
+          (cumulativeOriginalCs * transform.rateScale).round() - clippedHeadCs,
+        );
         final deltaCs = math.max(0, nextMappedCumulative - cumulativeMappedCs);
         cumulativeMappedCs = nextMappedCumulative;
         return '\\$tag$deltaCs';
@@ -274,8 +354,9 @@ class SubtitleTimelineRemapper {
 
   static String _remapAssTransformTags(
     String inner,
-    SubtitleTimelineTransform transform,
-  ) {
+    SubtitleTimelineTransform transform, {
+    int clippedHeadMs = 0,
+  }) {
     final out = StringBuffer();
     var i = 0;
     while (i < inner.length) {
@@ -294,7 +375,9 @@ class SubtitleTimelineRemapper {
         }
         if (depth == 0) {
           final argsStr = inner.substring(i + 3, j - 1);
-          out.write('\\t(${_remapSingleTransformArgs(argsStr, transform)})');
+          out.write(
+            '\\t(${_remapSingleTransformArgs(argsStr, transform, clippedHeadMs: clippedHeadMs)})',
+          );
           i = j;
           continue;
         }
@@ -307,8 +390,9 @@ class SubtitleTimelineRemapper {
 
   static String _remapSingleTransformArgs(
     String argsStr,
-    SubtitleTimelineTransform transform,
-  ) {
+    SubtitleTimelineTransform transform, {
+    int clippedHeadMs = 0,
+  }) {
     final parts = _splitTopLevelCommas(argsStr);
     if (parts.length < 3) {
       return argsStr;
@@ -318,8 +402,8 @@ class SubtitleTimelineRemapper {
     if (t1 == null || t2 == null) {
       return argsStr;
     }
-    final s1 = transform.scaleDurationMs(t1);
-    final s2 = transform.scaleDurationMs(t2);
+    final s1 = math.max(0, transform.scaleDurationMs(t1) - clippedHeadMs);
+    final s2 = math.max(0, transform.scaleDurationMs(t2) - clippedHeadMs);
     if (parts.length == 3) {
       return '$s1,$s2,${parts[2].trim()}';
     }

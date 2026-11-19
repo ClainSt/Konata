@@ -23,6 +23,7 @@ import '../../infrastructure/players/android/android_media_session_bridge.dart';
 import '../../infrastructure/players/audio_art_extractor.dart';
 import '../../infrastructure/players/libmpv_ffi.dart';
 import '../../infrastructure/players/mpv_quality_profile.dart';
+import '../../infrastructure/players/online_lyric_lookup_service.dart';
 import '../../infrastructure/sources/byte_stream_source_gateway.dart';
 import '../../infrastructure/sources/local_source_gateway.dart';
 import '../../infrastructure/sources/source_access_error.dart';
@@ -35,6 +36,7 @@ import '../providers/library_providers.dart';
 import '../providers/platform_capability.dart';
 import '../providers/playback_providers.dart';
 import 'audiophile_safety_coordinator.dart';
+import 'lyric_lookup_coordinator.dart';
 import 'playback_preferences_provider.dart';
 import 'unified_playback_coordinator.dart';
 import 'unified_playback_engine.dart';
@@ -162,6 +164,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   String _rawAudioFormat = '';
   double _rawFileDurationSeconds = 0.0;
   double? _volumeBeforeDuck;
+  bool _mobileAmllLyricConfirmed = false;
 
   /// 判断文件名是否为受支持的音频物理轨。
   static bool isPlayableAudioFile(String fileName) =>
@@ -629,6 +632,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   void dispose() {
     ++_loadGeneration;
     _cancelMicroFade();
+    _engine.cancelTaskDomain(PlaybackTaskDomain.lyricLookup);
     _safetyCoordinator.detachSession(this);
     unawaited(_mediaSessionBridge.stopSession());
     _mediaSessionBridge.dispose();

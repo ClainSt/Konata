@@ -859,4 +859,55 @@ class SubtitleAndAudioChoices {
     final dot = normalized.lastIndexOf('.');
     return dot > 0 ? normalized.substring(0, dot) : normalized;
   }
+
+  static const Set<String> _subtitleSubdirExactNames = {
+    'sub',
+    'subs',
+    'subtitle',
+    'subtitles',
+    '字幕',
+  };
+
+  static const Set<String> _audioSidecarSubdirExactNames = {
+    'audio',
+    'sp audio',
+    'mka',
+  };
+
+  static final RegExp _subtitleSubdirTokenRegex = RegExp(
+    r'^(?:subs?|subtitles?)(?:[\s._\-]?\d+|[\s._\-](?:chs|cht|sc|tc|jp|jpn|eng|zh|bilingual|all|extra))?$',
+    caseSensitive: false,
+  );
+
+  /// 全仓唯一外挂字幕子目录判定（如 `Subs`、`Subtitles`、`Subs5_CHS`、`简体字幕`）。
+  static bool isSubtitleSubdirName(String rawName) {
+    final lower = rawName.trim().toLowerCase();
+    if (lower.isEmpty) return false;
+    if (_subtitleSubdirExactNames.contains(lower)) return true;
+    if (lower.contains('字幕')) return true;
+    return _subtitleSubdirTokenRegex.hasMatch(lower);
+  }
+
+  /// 全仓唯一外挂音轨子目录判定（如 `Audio`、`SP Audio`）。
+  static bool isAudioSidecarSubdirName(String rawName) {
+    final lower = rawName.trim().toLowerCase();
+    return _audioSidecarSubdirExactNames.contains(lower);
+  }
+
+  /// 全仓唯一媒体附属子目录判定（涵盖外挂字幕子目录与外挂音轨子目录）。
+  static bool isSidecarSubdirName(String rawName) {
+    return isSubtitleSubdirName(rawName) || isAudioSidecarSubdirName(rawName);
+  }
+
+  /// 若目录尾段为字幕子目录（如 `Anime/S1/Subs`），返回其逻辑父目录（`Anime/S1`）；否则原样返回。
+  static String logicalParentDirOfSubtitleDir(String posixDir) {
+    final normalized = posixDir
+        .replaceAll('\\', '/')
+        .replaceAll(RegExp(r'^/+|/+$'), '');
+    if (normalized.isEmpty) return '';
+    final slash = normalized.lastIndexOf('/');
+    final tail = slash < 0 ? normalized : normalized.substring(slash + 1);
+    if (!isSubtitleSubdirName(tail)) return normalized;
+    return slash < 0 ? '' : normalized.substring(0, slash);
+  }
 }

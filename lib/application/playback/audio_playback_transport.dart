@@ -31,6 +31,7 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
     bool preserveErrorToast = false,
   }) async {
     if (index < 0 || index >= _state.queue.length || !mounted) return;
+    _ref.read(lyricLookupCoordinatorProvider).cancelPendingLookups();
     if (!isRetryAttempt) {
       _trackRetryCount = 0;
     }

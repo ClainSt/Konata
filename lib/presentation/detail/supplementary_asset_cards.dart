@@ -13,6 +13,7 @@ import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
+import '../widgets/playback/konata_stage_morph_frame.dart';
 
 export 'scan_lightbox_dialog.dart';
 
@@ -131,8 +132,10 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
     if (!mounted || action == null) return;
     switch (action) {
       case 'default':
+        captureStageMorphOriginRect(context);
         widget.onTap();
       case 'immersive':
+        captureStageMorphOriginRect(context);
         widget.onPlayImmersive?.call();
       case 'external':
         widget.onPlayExternal?.call();
@@ -163,7 +166,10 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
         child: GestureDetector(
-          onTap: widget.onTap,
+          onTap: () {
+            captureStageMorphOriginRect(context);
+            widget.onTap();
+          },
           onSecondaryTapUp: (details) => _showCdMenu(details.globalPosition),
           onLongPressStart: (details) => _showCdMenu(details.globalPosition),
           child: SizedBox(
@@ -433,7 +439,10 @@ class _ScanDrawerCardState extends ConsumerState<ScanDrawerCard> {
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
         child: GestureDetector(
-          onTap: widget.onTap,
+          onTap: () {
+            captureStageMorphOriginRect(context);
+            widget.onTap();
+          },
           child: SizedBox(
             width: widget.cardWidth,
             child: Column(

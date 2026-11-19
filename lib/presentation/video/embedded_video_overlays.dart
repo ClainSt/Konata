@@ -2,6 +2,88 @@ part of 'embedded_video_page.dart';
 
 /// `EmbeddedVideoPage` 顶部播控条扩展（隔离桌面顶栏与 Android 悬浮胶囊，保持主页面精简）。
 extension _EmbeddedVideoTopOverlays on _EmbeddedVideoPageState {
+  /// 弹出双模原画截图毛玻璃菜单（含字幕原画 / 纯净原画），供触屏与右键统一调用。
+  Future<void> _showScreenshotModeMenu(
+    BuildContext anchorContext,
+    VideoPlaybackController controller,
+  ) async {
+    _onUserActivity();
+    final renderBox = anchorContext.findRenderObject();
+    final overlay = Overlay.of(anchorContext).context.findRenderObject();
+    if (renderBox is! RenderBox || overlay is! RenderBox) {
+      unawaited(
+        controller.captureScreenshot(mode: ScreenshotCaptureMode.withSubtitles),
+      );
+      return;
+    }
+    final topLeft = renderBox.localToGlobal(Offset.zero, ancestor: overlay);
+    final bottomRight = renderBox.localToGlobal(
+      renderBox.size.bottomRight(Offset.zero),
+      ancestor: overlay,
+    );
+    final position = RelativeRect.fromRect(
+      Rect.fromPoints(topLeft, bottomRight),
+      Offset.zero & overlay.size,
+    );
+    final p = anchorContext.palette;
+    final itemHeight = KonataAdaptiveTokens.isAndroid
+        ? KonataAdaptiveTokens.touchTarget
+        : kMinInteractiveDimension;
+    final selected = await showMenu<ScreenshotCaptureMode>(
+      context: anchorContext,
+      position: position,
+      color: p.elevatedSurface,
+      elevation: 10,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(
+          KonataPlaybackTokens.floatingMiniRadius,
+        ),
+        side: BorderSide(color: p.hairline),
+      ),
+      items: [
+        PopupMenuItem<ScreenshotCaptureMode>(
+          key: const ValueKey('video_screenshot_mode_with_subtitles'),
+          value: ScreenshotCaptureMode.withSubtitles,
+          height: itemHeight,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.subtitles_outlined, size: 18, color: p.textPrimary),
+              const SizedBox(width: 8),
+              Text(
+                '含字幕原画',
+                style: TextStyle(color: p.textPrimary, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+        PopupMenuItem<ScreenshotCaptureMode>(
+          key: const ValueKey('video_screenshot_mode_pure_video'),
+          value: ScreenshotCaptureMode.pureVideo,
+          height: itemHeight,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.photo_camera_outlined,
+                size: 18,
+                color: p.textPrimary,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '纯净原画',
+                style: TextStyle(color: p.textPrimary, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+    if (selected == null || !mounted) return;
+    _flashCornerStatus('正在截取${selected.label}...', Icons.camera_alt_outlined);
+    unawaited(controller.captureScreenshot(mode: selected));
+  }
+
   Widget _buildAndroidFloatingTopCapsule({
     required dynamic snap,
     required VideoPlaybackController controller,
@@ -66,17 +148,29 @@ extension _EmbeddedVideoTopOverlays on _EmbeddedVideoPageState {
                 ),
               ),
               if (!narrowTop) ...[
-                KonataCapsuleIconButton(
-                  key: const ValueKey('video_android_screenshot_button'),
-                  icon: Icons.camera_alt_outlined,
-                  tooltip: '原画截图',
-                  color: p.textPrimary,
-                  size: 19,
-                  fixedSize: KonataAdaptiveTokens.touchTarget,
-                  onTap: () => unawaited(
-                    controller.captureScreenshot(
-                      mode: ScreenshotCaptureMode.pureVideo,
+                Builder(
+                  builder: (btnCtx) => KonataCapsuleIconButton(
+                    key: const ValueKey('video_android_screenshot_button'),
+                    icon: Icons.camera_alt_outlined,
+                    tooltip: '原画截图（轻触选含字幕/纯净，长按直出含字幕）',
+                    color: p.textPrimary,
+                    size: 19,
+                    fixedSize: KonataAdaptiveTokens.touchTarget,
+                    onTap: () => unawaited(
+                      _showScreenshotModeMenu(btnCtx, controller),
                     ),
+                    onLongPress: () {
+                      _onUserActivity();
+                      _flashCornerStatus(
+                        '正在截取含字幕原画...',
+                        Icons.subtitles_outlined,
+                      );
+                      unawaited(
+                        controller.captureScreenshot(
+                          mode: ScreenshotCaptureMode.withSubtitles,
+                        ),
+                      );
+                    },
                   ),
                 ),
                 KonataCapsuleIconButton(

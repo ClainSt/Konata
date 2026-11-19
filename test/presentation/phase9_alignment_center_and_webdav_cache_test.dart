@@ -155,6 +155,7 @@ class _Phase9FakeD3D11VideoBridge implements D3D11VideoBridge {
     int width = 1280,
     int height = 720,
     bool preferSoftware = false,
+    String renderBackend = 'd3d11_fp16',
   }) async {
     return const D3D11VideoSessionHandle(
       sessionId: 1,
@@ -172,11 +173,43 @@ class _Phase9FakeD3D11VideoBridge implements D3D11VideoBridge {
   }) async {}
 
   @override
+  Future<void> setViewportRect({
+    required int sessionId,
+    required int leftPx,
+    required int topPx,
+    required int rightPx,
+    required int bottomPx,
+    double cornerRadiusPx = 0.0,
+    bool visible = true,
+  }) async {}
+
+  @override
+  Future<D3D11SessionMetrics?> getSessionMetrics(int sessionId) async => null;
+
+  @override
   Future<void> disposeSession(int sessionId) async {}
 
   @override
   Future<({bool available, String adapterName})> getAdapterInfo() async =>
       (available: true, adapterName: 'Test-SW');
+
+  @override
+  Future<
+    ({
+      bool available,
+      String adapterName,
+      bool supportsFp16,
+      bool supports10Bit,
+      bool supportsDcomp10Bit,
+    })
+  >
+  getDetailedAdapterCapabilities() async => (
+    available: true,
+    adapterName: 'Test-SW',
+    supportsFp16: false,
+    supports10Bit: false,
+    supportsDcomp10Bit: false,
+  );
 
   @override
   Future<void> dispose() async {}

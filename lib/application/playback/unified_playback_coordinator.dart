@@ -518,7 +518,7 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
           variant: variant,
           bundle: bundle,
           source: source,
-          startSeconds: snapshot.positionSeconds.floor(),
+          startSeconds: snapshot.positionSeconds,
         ),
       );
       if (snapshot.audioOnly && state.request != null) {

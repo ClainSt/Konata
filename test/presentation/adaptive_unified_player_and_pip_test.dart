@@ -160,7 +160,7 @@ class _TrackingVideoController extends VideoPlaybackController {
   }
 }
 
-VideoLaunchRequest _buildVideoRequest({int startSeconds = 0}) {
+VideoLaunchRequest _buildVideoRequest({double startSeconds = 0.0}) {
   const work = Work(
     id: 'w_unified_1',
     title: '孤独摇滚！',
@@ -792,9 +792,9 @@ void main() {
       );
       expect(windowCalls, contains(('setLandscape', true)));
 
-      // 校验视频表面全幅铺满视口，不存在白底分栏
+      // 校验真实 Android Underlay 挖空表面全幅铺满视口，不存在白底分栏
       final stageSize = tester.getSize(
-        find.byKey(const ValueKey('android_hardware_surface_placeholder')),
+        find.byKey(const ValueKey('android_underlay_cutout_surface')),
       );
       expect(stageSize.width, equals(390.0));
       expect(stageSize.height, equals(844.0));

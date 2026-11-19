@@ -466,7 +466,7 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
     Episode episode, {
     WorkDetailBundle? targetBundle,
     MediaVariant? specificVariant,
-    int? startSeconds,
+    double? startSeconds,
     bool isAutoAdvance = false,
     bool isCrossSeason = false,
   }) async {
@@ -513,10 +513,10 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
     final resumePos =
         startSeconds ??
         ((saved != null && !saved.isCompleted && saved.positionSeconds > 5)
-            ? saved.positionSeconds
-            : 0);
+            ? saved.positionSeconds.toDouble()
+            : 0.0);
 
-    _latestPositionSeconds = resumePos.toDouble();
+    _latestPositionSeconds = resumePos;
     _activeExternalSubtitleSourcePath = null;
     _activeOriginalSubtitleTrackId = null;
     _activeExternalSubtitleTitle = null;
@@ -582,16 +582,8 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
     }
   }
 
-  /// 一键截取原画 PNG 视频帧（支持纯净视频帧与含字幕帧；Windows 存作品目录，Android 事务写入系统相册）。
-  Future<File?> captureCleanScreenshot({
-    ScreenshotCaptureMode mode = ScreenshotCaptureMode.pureVideo,
-  }) async {
-    final res = await captureScreenshot(mode: mode);
-    return res?.file;
-  }
-
-  /// 双模原画截图（返回桌面文件或 Android `MediaStore` 相册 URI）。
-  Future<ScreenshotCaptureResult?> captureScreenshot({
+  /// 双模原画截图内部实现（返回桌面文件或 Android `MediaStore` 相册 URI）。
+  Future<ScreenshotCaptureResult?> _captureScreenshotImpl({
     ScreenshotCaptureMode mode = ScreenshotCaptureMode.pureVideo,
   }) async {
     final session = _session;

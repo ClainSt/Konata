@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/playback/audio_playback_notifier.dart';
@@ -47,14 +48,10 @@ class _KonataHardwareVideoSurfaceState
   Size? _lastReportedSurfaceSize;
   double? _lastReportedDpr;
 
-  bool get _isWidgetTest => WidgetsBinding.instance.runtimeType
-      .toString()
-      .contains('TestWidgetsFlutterBinding');
-
   @override
   void initState() {
     super.initState();
-    if (KonataAdaptiveTokens.isAndroid && !_isWidgetTest) {
+    if (KonataAdaptiveTokens.isAndroid) {
       final ctrl = AndroidVideoSurfaceController();
       _androidUnderlayController = ctrl;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -110,20 +107,13 @@ class _KonataHardwareVideoSurfaceState
 
     Widget rawSurface;
     if (KonataAdaptiveTokens.isAndroid) {
-      if (_isWidgetTest || _androidUnderlayController == null) {
-        rawSurface = const ColoredBox(
-          key: ValueKey('android_hardware_surface_placeholder'),
-          color: KonataPlaybackTokens.cinemaPureBlack,
-        );
-      } else {
-        final dpr = MediaQuery.devicePixelRatioOf(context);
-        rawSurface = _AndroidUnderlayCutout(
-          key: const ValueKey('android_underlay_cutout_surface'),
-          controller: _androidUnderlayController!,
-          devicePixelRatio: dpr,
-          cornerRadius: widget.cornerRadius,
-        );
-      }
+      final dpr = MediaQuery.devicePixelRatioOf(context);
+      rawSurface = _AndroidUnderlayCutout(
+        key: const ValueKey('android_underlay_cutout_surface'),
+        controller: _androidUnderlayController!,
+        devicePixelRatio: dpr,
+        cornerRadius: widget.cornerRadius,
+      );
     } else {
       final texId = snap.texId;
       if (texId == null || texId < 0) {
@@ -264,9 +254,16 @@ class _RenderAndroidUnderlayCutout extends RenderBox {
   double _devicePixelRatio;
   double _cornerRadius;
 
+  ({int leftPx, int topPx, int rightPx, int bottomPx, double radiusPx})?
+  _lastScheduledRect;
+  ({int leftPx, int topPx, int rightPx, int bottomPx, double radiusPx})?
+  _pendingRect;
+  bool _postFrameSyncScheduled = false;
+
   set controller(AndroidVideoSurfaceController value) {
     if (identical(_controller, value)) return;
     _controller = value;
+    _lastScheduledRect = null;
     markNeedsPaint();
   }
 
@@ -292,6 +289,55 @@ class _RenderAndroidUnderlayCutout extends RenderBox {
   bool hitTestSelf(Offset position) => true;
 
   @override
+  void detach() {
+    _pendingRect = null;
+    _lastScheduledRect = null;
+    super.detach();
+  }
+
+  bool _isSameRect(
+    ({int leftPx, int topPx, int rightPx, int bottomPx, double radiusPx})? a,
+    ({int leftPx, int topPx, int rightPx, int bottomPx, double radiusPx}) b,
+  ) {
+    if (a == null) return false;
+    return a.leftPx == b.leftPx &&
+        a.topPx == b.topPx &&
+        a.rightPx == b.rightPx &&
+        a.bottomPx == b.bottomPx &&
+        (a.radiusPx - b.radiusPx).abs() <= 0.25;
+  }
+
+  void _scheduleFrameSyncedViewportDispatch(
+    ({int leftPx, int topPx, int rightPx, int bottomPx, double radiusPx}) next,
+  ) {
+    if (_isSameRect(_lastScheduledRect, next)) return;
+    _lastScheduledRect = next;
+    _pendingRect = next;
+    if (_postFrameSyncScheduled) return;
+    _postFrameSyncScheduled = true;
+    // 严禁在 paint() 阶段直接触发异步平台通道调用；统一合并至当前帧结束回调去重下发。
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _postFrameSyncScheduled = false;
+      if (!attached || _controller.isDisposed) {
+        _pendingRect = null;
+        return;
+      }
+      final rect = _pendingRect;
+      _pendingRect = null;
+      if (rect == null) return;
+      unawaited(
+        _controller.syncViewportRect(
+          leftPx: rect.leftPx,
+          topPx: rect.topPx,
+          rightPx: rect.rightPx,
+          bottomPx: rect.bottomPx,
+          cornerRadiusPx: rect.radiusPx,
+        ),
+      );
+    });
+  }
+
+  @override
   void paint(PaintingContext context, Offset offset) {
     if (size.isEmpty) return;
     final rect = offset & size;
@@ -313,15 +359,13 @@ class _RenderAndroidUnderlayCutout extends RenderBox {
         .round();
     final radiusPx = _cornerRadius * _devicePixelRatio;
     if (rightPx > leftPx && bottomPx > topPx) {
-      unawaited(
-        _controller.syncViewportRect(
-          leftPx: leftPx,
-          topPx: topPx,
-          rightPx: rightPx,
-          bottomPx: bottomPx,
-          cornerRadiusPx: radiusPx,
-        ),
-      );
+      _scheduleFrameSyncedViewportDispatch((
+        leftPx: leftPx,
+        topPx: topPx,
+        rightPx: rightPx,
+        bottomPx: bottomPx,
+        radiusPx: radiusPx,
+      ));
     }
   }
 }

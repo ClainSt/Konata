@@ -311,7 +311,7 @@ void main() {
       expect(mode, equals(PipRecoveryMode.coldSnapshotRestore));
       final restoredSession = coldContainer.read(activeVideoSessionProvider);
       expect(restoredSession.request, isNotNull);
-      expect(restoredSession.request!.startSeconds, equals(327));
+      expect(restoredSession.request!.startSeconds, closeTo(327.6, 0.001));
       expect(restoredSession.isExpanded, isTrue);
       expect(store.stored, isNull);
       await coldNotifier.closeVideo();

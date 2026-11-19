@@ -122,7 +122,7 @@ class PlaybackDispatcher {
           variant: variant,
           bundle: bundle,
           source: source,
-          startSeconds: startSeconds,
+          startSeconds: startSeconds.toDouble(),
         );
         return OpenBuiltinVideoDecision(request);
       }

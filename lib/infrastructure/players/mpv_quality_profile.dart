@@ -29,11 +29,38 @@ enum VideoQualityPreset {
   final String label;
 }
 
+/// Windows 端内置高色深视频渲染后端模式（支持真机 A/B 实测择优与 `vo=gpu-next` 原生 `libplacebo` 管线）。
+enum WindowsVideoRenderBackend {
+  /// 升级版 `MPV_RENDER_API_TYPE_D3D11`：16-bit 半精度浮点 FBO + GPU IGN 抖动零拷贝共享纹理桥（100% 兼容透光材质）。
+  d3d11Fp16('d3d11_fp16', 'D3D11 16-bit 浮点共享桥'),
+
+  /// `MPV_RENDER_API_TYPE_D3D11` 10-bit FBO + GPU 抖动零拷贝共享纹理桥。
+  d3d11TenBit('d3d11_10bit', 'D3D11 10-bit 共享桥'),
+
+  /// Windows DirectComposition 10-bit (`R10G10B10A2`) 翻转模型交换链子视觉层直出。
+  directComposition10Bit('dcomp_10bit', 'DirectComposition 10-bit 子视觉层'),
+
+  /// Windows DirectComposition 16-bit scRGB (`R16G16B16A16_FLOAT`) HDR 交换链子视觉层直出。
+  directCompositionFp16('dcomp_fp16', 'DirectComposition 16-bit HDR 子视觉层'),
+
+  /// 原生 `vo=gpu-next` (`libplacebo` D3D11 10-bit/HDR 色彩管线，用于独立窗口或高色深直出实测)。
+  gpuNextLibplacebo('gpu_next', 'libplacebo (vo=gpu-next) 原生管线');
+
+  const WindowsVideoRenderBackend(this.bridgeKey, this.label);
+
+  /// 传递给原生桥接通道的后端标识符。
+  final String bridgeKey;
+
+  /// 简体中文界面展示名称。
+  final String label;
+}
+
 /// 音视频播放画质、音频后端与缓存持久化配置模型（强类型，严禁跨层 Map）。
 class PlaybackQualityConfig {
   /// 创建画质与音画偏好配置。
   const PlaybackQualityConfig({
     this.preset = VideoQualityPreset.highFidelity,
+    this.windowsRenderBackend = WindowsVideoRenderBackend.d3d11Fp16,
     this.hardwareDecode = true,
     this.debandEnabled = false,
     this.demuxerMaxBytesMiB = defaultDemuxerMaxBytesMiB,
@@ -81,6 +108,7 @@ class PlaybackQualityConfig {
   );
 
   final VideoQualityPreset preset;
+  final WindowsVideoRenderBackend windowsRenderBackend;
   final bool hardwareDecode;
   final bool debandEnabled;
   final int demuxerMaxBytesMiB;
@@ -101,6 +129,7 @@ class PlaybackQualityConfig {
   /// 复制更新局部画质或音频设置。
   PlaybackQualityConfig copyWith({
     VideoQualityPreset? preset,
+    WindowsVideoRenderBackend? windowsRenderBackend,
     bool? hardwareDecode,
     bool? debandEnabled,
     int? demuxerMaxBytesMiB,
@@ -120,6 +149,7 @@ class PlaybackQualityConfig {
   }) {
     return PlaybackQualityConfig(
       preset: preset ?? this.preset,
+      windowsRenderBackend: windowsRenderBackend ?? this.windowsRenderBackend,
       hardwareDecode: hardwareDecode ?? this.hardwareDecode,
       debandEnabled: debandEnabled ?? this.debandEnabled,
       demuxerMaxBytesMiB: demuxerMaxBytesMiB ?? this.demuxerMaxBytesMiB,
@@ -225,6 +255,7 @@ class MpvQualityProfile {
   MpvQualityProfile._();
 
   static const String windowsVideoDriver = 'libmpv';
+  static const String windowsGpuNextDriver = 'gpu-next';
   static const String androidVideoDriver = 'gpu-next';
   static const String androidLegacyVideoDriver = 'gpu';
   static const String windowsAudioDriver = 'wasapi';
@@ -343,9 +374,24 @@ class MpvQualityProfile {
     setter.setOption(client, 'osc', 'no');
     setter.setOption(client, 'osd-level', '0');
 
-    // 视频渲染后端与硬件解码策略（Android 延迟至有效像素表面就绪后再切换至 vo=gpu-next，支持 libplacebo HDR/DoVi）
+    // 视频渲染后端与硬件解码策略：
+    // - Windows 支持 `vo=gpu-next` (`libplacebo` D3D11 10-bit/HDR 原生管线) 与
+    //   `vo=libmpv`（配合高色深 `DXGI_FORMAT_R16G16B16A16_FLOAT` 共享桥或 DirectComposition 10-bit 子视觉层）；
+    // - Android 延迟至有效像素表面就绪后再切换至 `vo=gpu-next`，支持 libplacebo HDR/DoVi。
     if (isWindows) {
-      setter.setOption(client, 'vo', windowsVideoDriver);
+      if (config.windowsRenderBackend ==
+          WindowsVideoRenderBackend.gpuNextLibplacebo) {
+        setter.setOption(client, 'vo', windowsGpuNextDriver);
+        setter.setOption(client, 'gpu-api', 'd3d11');
+        setter.setOption(client, 'gpu-context', 'd3d11');
+        setter.setOption(client, 'd3d11-output-format', 'rgb10_a2');
+        setter.setOption(client, 'd3d11-flip', 'yes');
+        setter.setOption(client, 'target-colorspace-hint', 'auto');
+      } else {
+        setter.setOption(client, 'vo', windowsVideoDriver);
+        setter.setOption(client, 'gpu-api', 'd3d11');
+        setter.setOption(client, 'target-colorspace-hint', 'auto');
+      }
     } else if (isAndroid) {
       setter.setOption(client, 'vo', 'null');
       setter.setOption(client, 'gpu-context', 'android');

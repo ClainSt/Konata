@@ -12,6 +12,7 @@ import '../theme/konata_theme.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/managed_image.dart';
 import '../widgets/playback/konata_spec_badge.dart';
+import '../widgets/playback/konata_stage_morph_frame.dart';
 
 const List<Shadow> _kDrawerOverlayTextShadows = [
   Shadow(color: Color(0xA6000000), blurRadius: 8, offset: Offset(0, 1.5)),
@@ -155,6 +156,7 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
     if (!mounted || action == null) return;
     switch (action) {
       case 'builtin':
+        captureStageMorphOriginRect(context);
         widget.onPlayBuiltin?.call();
       case 'external':
         widget.onPlayExternal?.call();
@@ -268,7 +270,10 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
         child: GestureDetector(
-          onTap: widget.onTap,
+          onTap: () {
+            captureStageMorphOriginRect(context);
+            widget.onTap();
+          },
           onSecondaryTapUp: (details) =>
               _showEpisodeMenu(details.globalPosition),
           onLongPressStart: (details) =>

@@ -6,11 +6,12 @@ import 'konata_video_texture_bridge.dart';
 
 export 'konata_video_texture_bridge.dart'
     show
+        D3D11SessionMetrics,
         D3D11TextureChangedEvent,
         D3D11VideoSessionHandle,
         KonataVideoTextureBridge;
 
-/// `"konata/d3d11_video"` MethodChannel 的 Windows D3D11 桥接实现。
+/// `"konata/d3d11_video"` MethodChannel 的 Windows 高色深 D3D11 / DirectComposition 桥接实现。
 class D3D11VideoBridge implements KonataVideoTextureBridge {
   /// 构造 D3D11 桥接客户端。
   D3D11VideoBridge({MethodChannel? channel})
@@ -36,6 +37,8 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
       final sessionId = (raw['sessionId'] as num?)?.toInt() ?? 0;
       final textureId = (raw['textureId'] as num?)?.toInt() ?? -1;
       final backend = raw['backend']?.toString() ?? 'sw';
+      final surfaceFormat = raw['surfaceFormat']?.toString() ?? '';
+      final colorBitDepth = (raw['colorBitDepth'] as num?)?.toInt() ?? 8;
       final adapterName = raw['adapterName']?.toString() ?? '';
       final reason = raw['reason']?.toString() ?? '';
       if (!_changesController.isClosed) {
@@ -44,6 +47,8 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
             sessionId: sessionId,
             textureId: textureId,
             backend: backend,
+            surfaceFormat: surfaceFormat,
+            colorBitDepth: colorBitDepth,
             adapterName: adapterName,
             reason: reason,
           ),
@@ -53,13 +58,14 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
     return null;
   }
 
-  /// 为指定 `mpv_handle*` 创建离屏三缓冲渲染会话并注册 Flutter 外接纹理。
+  /// 为指定 `mpv_handle*` 创建高色深离屏共享纹理或 DirectComposition 10-bit 渲染会话。
   @override
   Future<D3D11VideoSessionHandle> createSession({
     required int mpvHandleAddress,
     int width = 1280,
     int height = 720,
     bool preferSoftware = false,
+    String renderBackend = 'd3d11_fp16',
   }) async {
     final result = await _channel.invokeMapMethod<String, Object?>(
       'createSession',
@@ -68,6 +74,7 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
         'width': width,
         'height': height,
         'preferSoftware': preferSoftware,
+        'renderBackend': renderBackend,
       },
     );
     if (result == null) {
@@ -76,7 +83,12 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
     return D3D11VideoSessionHandle(
       sessionId: (result['sessionId'] as num?)?.toInt() ?? 0,
       textureId: (result['textureId'] as num?)?.toInt() ?? -1,
-      backend: result['backend']?.toString() ?? 'd3d11',
+      backend: result['backend']?.toString() ?? 'd3d11_fp16',
+      surfaceFormat:
+          result['surfaceFormat']?.toString() ??
+          'DXGI_FORMAT_R16G16B16A16_FLOAT',
+      colorBitDepth: (result['colorBitDepth'] as num?)?.toInt() ?? 16,
+      dcompActive: result['dcompActive'] == true,
       adapterName: result['adapterName']?.toString() ?? '',
     );
   }
@@ -96,6 +108,62 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
     });
   }
 
+  /// 同步 DirectComposition 10-bit 子视觉层的物理像素几何视口与圆角裁剪。
+  @override
+  Future<void> setViewportRect({
+    required int sessionId,
+    required int leftPx,
+    required int topPx,
+    required int rightPx,
+    required int bottomPx,
+    double cornerRadiusPx = 0.0,
+    bool visible = true,
+  }) async {
+    if (sessionId <= 0) return;
+    try {
+      await _channel.invokeMethod<void>('setViewportRect', <String, Object?>{
+        'sessionId': sessionId,
+        'leftPx': leftPx,
+        'topPx': topPx,
+        'rightPx': rightPx,
+        'bottomPx': bottomPx,
+        'cornerRadiusPx': cornerRadiusPx,
+        'visible': visible,
+      });
+    } on MissingPluginException {
+      // 非桌面宿主环境跳过 DirectComposition 视口同步。
+    } on PlatformException {
+      // 会话已释放时的瞬态通道异常静默放行。
+    }
+  }
+
+  /// 查询指定渲染会话的原生 GPU 单帧渲染耗时统计。
+  @override
+  Future<D3D11SessionMetrics?> getSessionMetrics(int sessionId) async {
+    if (sessionId <= 0) return null;
+    try {
+      final result = await _channel.invokeMapMethod<String, Object?>(
+        'getSessionMetrics',
+        <String, Object?>{'sessionId': sessionId},
+      );
+      if (result == null) return null;
+      return D3D11SessionMetrics(
+        renderedFrames: (result['renderedFrames'] as num?)?.toInt() ?? 0,
+        renderP50Us: (result['renderP50Us'] as num?)?.toInt() ?? 0,
+        renderP99Us: (result['renderP99Us'] as num?)?.toInt() ?? 0,
+        renderAvgUs: (result['renderAvgUs'] as num?)?.toInt() ?? 0,
+        backend: result['backend']?.toString() ?? '',
+        surfaceFormat: result['surfaceFormat']?.toString() ?? '',
+        colorBitDepth: (result['colorBitDepth'] as num?)?.toInt() ?? 8,
+        dcompActive: result['dcompActive'] == true,
+      );
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+  }
+
   /// 释放原生渲染上下文并注销纹理。
   @override
   Future<void> disposeSession(int sessionId) async {
@@ -104,7 +172,11 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
       await _channel.invokeMethod<void>('disposeSession', <String, Object?>{
         'sessionId': sessionId,
       });
-    } catch (_) {}
+    } on MissingPluginException {
+      // 非桌面宿主环境跳过释放。
+    } on PlatformException {
+      // 桥接器已关闭或会话已被销毁。
+    }
   }
 
   /// 查询当前 Windows 适配器可用性与显卡名称。
@@ -121,8 +193,60 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
         available: result['available'] == true,
         adapterName: result['adapterName']?.toString() ?? '',
       );
-    } catch (_) {
+    } on MissingPluginException {
       return (available: false, adapterName: '');
+    } on PlatformException {
+      return (available: false, adapterName: '');
+    }
+  }
+
+  /// 查询当前 Windows 适配器完整高色深与 DirectComposition 10-bit 硬件能力。
+  Future<
+    ({
+      bool available,
+      String adapterName,
+      bool supportsFp16,
+      bool supports10Bit,
+      bool supportsDcomp10Bit,
+    })
+  >
+  getDetailedAdapterCapabilities() async {
+    try {
+      final result = await _channel.invokeMapMethod<String, Object?>(
+        'getAdapterInfo',
+      );
+      if (result == null) {
+        return (
+          available: false,
+          adapterName: '',
+          supportsFp16: false,
+          supports10Bit: false,
+          supportsDcomp10Bit: false,
+        );
+      }
+      return (
+        available: result['available'] == true,
+        adapterName: result['adapterName']?.toString() ?? '',
+        supportsFp16: result['supportsFp16'] == true,
+        supports10Bit: result['supports10Bit'] == true,
+        supportsDcomp10Bit: result['supportsDcomp10Bit'] == true,
+      );
+    } on MissingPluginException {
+      return (
+        available: false,
+        adapterName: '',
+        supportsFp16: false,
+        supports10Bit: false,
+        supportsDcomp10Bit: false,
+      );
+    } on PlatformException {
+      return (
+        available: false,
+        adapterName: '',
+        supportsFp16: false,
+        supports10Bit: false,
+        supportsDcomp10Bit: false,
+      );
     }
   }
 

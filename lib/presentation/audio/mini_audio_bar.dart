@@ -1,8 +1,6 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/physics.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,12 +17,21 @@ import '../video/embedded_video_page.dart';
 import '../video/video_hardware_surface.dart';
 import '../widgets/design_system/konata_toast.dart';
 import '../widgets/playback/konata_floating_mini_player.dart';
+import '../widgets/playback/konata_stage_morph_frame.dart';
 import 'immersive_audio_page.dart';
 
 export '../shell/adaptive_capsule_layout.dart'
     show FloatingMiniPlayerKind, floatingMiniWindowAnchorProvider;
 export '../widgets/playback/konata_floating_mini_player.dart'
     show KonataFloatingMiniPlayer;
+export '../widgets/playback/konata_stage_morph_frame.dart'
+    show
+        KonataStageMorphFrame,
+        KonataStageMorphFrameState,
+        captureStageMorphOriginRect,
+        stageMorphOriginRectProvider,
+        stageMorphReleaseVelocityProvider,
+        stageMorphReverseVideoActiveProvider;
 
 final _immersiveAudioNavigatorKeyProvider = Provider<GlobalKey<NavigatorState>>(
   (ref) => GlobalKey<NavigatorState>(debugLabel: 'immersive_audio_nav'),
@@ -293,21 +300,15 @@ class _MiniAudioOverlayHostState extends ConsumerState<MiniAudioOverlayHost> {
 
   void _removeMediaEntries() {
     if (_mediaEntriesInserted) {
-      try {
-        _floatingMiniEntry?.remove();
-      } catch (_) {}
-      try {
-        _fullscreenPlayerEntry?.remove();
-      } catch (_) {}
+      _floatingMiniEntry?.remove();
+      _fullscreenPlayerEntry?.remove();
       _mediaEntriesInserted = false;
     }
   }
 
   void _removeToastEntry() {
     if (_toastEntryInserted) {
-      try {
-        _toastEntry?.remove();
-      } catch (_) {}
+      _toastEntry?.remove();
       _toastEntryInserted = false;
     }
   }
@@ -625,6 +626,12 @@ class _FloatingMiniOverlaySlot extends ConsumerWidget {
     if (miniKind == FloatingMiniPlayerKind.none) {
       return const SizedBox.shrink();
     }
+    // 视频全屏舞台正在执行反向弹簧收起过渡时，暂由全屏槽位独占 GlobalObjectKey，
+    // 待反向弹簧到达终态当帧原子移交，确保零帧跳变且零会话重建。
+    if (miniKind == FloatingMiniPlayerKind.video &&
+        ref.watch(stageMorphReverseVideoActiveProvider)) {
+      return const SizedBox.shrink();
+    }
     final videoSession = ref.watch(activeVideoSessionProvider);
     final videoReq = videoSession.request;
     final miniAnchor = ref.watch(floatingMiniWindowAnchorProvider);
@@ -664,187 +671,255 @@ class _FloatingMiniOverlaySlot extends ConsumerWidget {
   }
 }
 
-/// 全屏沉浸音频页与全屏内置视频页挂载槽位（与悬浮小窗共享同一 `Overlay`，支持 `GlobalObjectKey` 无损迁移）。
-class _FullscreenPlayerOverlaySlot extends ConsumerWidget {
+/// 全屏沉浸音频页与全屏内置视频页挂载槽位（双向 `SpringSimulation` 形变过渡 + `GlobalObjectKey` 原子无损移交）。
+class _FullscreenPlayerOverlaySlot extends ConsumerStatefulWidget {
   const _FullscreenPlayerOverlaySlot();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final videoSession = ref.watch(activeVideoSessionProvider);
-    final videoReq = videoSession.request;
-    final audioExpanded = ref.watch(immersiveAudioExpandedProvider);
-
-    final showImmersiveAudio = audioExpanded && !videoSession.isActive;
-    final showExpandedVideo =
-        videoSession.isActive && videoSession.isExpanded && videoReq != null;
-
-    if (!showImmersiveAudio && !showExpandedVideo) {
-      return const SizedBox.shrink();
-    }
-
-    final immersiveAudioNavKey = ref.watch(_immersiveAudioNavigatorKeyProvider);
-    final originRect = konataFloatingMiniWindowRectNotifier.value;
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        if (showImmersiveAudio)
-          _SpringViewportMorphFrame(
-            key: const ValueKey('spring_morph_audio_fullscreen'),
-            originRect: originRect,
-            allowClipRadius: true,
-            child: HeroControllerScope.none(
-              child: Navigator(
-                key: immersiveAudioNavKey,
-                onGenerateRoute: (_) => PageRouteBuilder<void>(
-                  pageBuilder: (_, _, _) => const ImmersiveAudioPage(
-                    key: ValueKey('immersive_audio'),
-                  ),
-                  transitionDuration: Duration.zero,
-                  reverseTransitionDuration: Duration.zero,
-                ),
-              ),
-            ),
-          ),
-        if (showExpandedVideo)
-          _SpringViewportMorphFrame(
-            key: ValueKey('spring_morph_video_${videoReq.hashCode}'),
-            originRect: videoSession.isInPipMode ? null : originRect,
-            allowClipRadius: !KonataAdaptiveTokens.isAndroid,
-            child: EmbeddedVideoPage(
-              key: ValueKey('global_embedded_video_${videoReq.hashCode}'),
-              request: videoReq,
-              sharedVideoSurface: KonataHardwareVideoSurface(
-                key: GlobalObjectKey(videoReq),
-                request: videoReq,
-                miniPreview: false,
-              ),
-              inPipMode: videoSession.isInPipMode,
-              onCollapseToMini: () => unawaited(
-                ref.read(activeVideoSessionProvider.notifier).collapseToMini(),
-              ),
-              onCloseSession: () =>
-                  ref.read(activeVideoSessionProvider.notifier).closeVideo(),
-            ),
-          ),
-      ],
-    );
-  }
+  ConsumerState<_FullscreenPlayerOverlaySlot> createState() =>
+      _FullscreenPlayerOverlaySlotState();
 }
 
-/// 悬浮小窗与全屏舞台之间的临界阻尼 `SpringSimulation` 视口矩形与圆角连续形变容器。
-///
-/// 过渡到达终态后立即停钟并直通返回 `child`（零闲置 Ticker、零稳态包装开销）。
-class _SpringViewportMorphFrame extends StatefulWidget {
-  const _SpringViewportMorphFrame({
-    super.key,
-    required this.originRect,
-    required this.allowClipRadius,
-    required this.child,
-  });
+class _FullscreenPlayerOverlaySlotState
+    extends ConsumerState<_FullscreenPlayerOverlaySlot> {
+  ProviderSubscription<ActiveVideoSessionState>? _videoSub;
+  ProviderSubscription<bool>? _audioSub;
 
-  final Rect? originRect;
-  final bool allowClipRadius;
-  final Widget child;
+  bool _collapsingAudio = false;
+  Rect? _collapsingAudioTargetRect;
+  double _collapsingAudioVelocityPx = 0.0;
 
-  @override
-  State<_SpringViewportMorphFrame> createState() =>
-      _SpringViewportMorphFrameState();
-}
-
-class _SpringViewportMorphFrameState extends State<_SpringViewportMorphFrame>
-    with SingleTickerProviderStateMixin {
-  AnimationController? _controller;
-  Rect? _startRect;
-  bool _morphing = false;
+  VideoLaunchRequest? _collapsingVideoReq;
+  Rect? _collapsingVideoTargetRect;
+  double _collapsingVideoVelocityPx = 0.0;
 
   @override
   void initState() {
     super.initState();
-    _startRect = widget.originRect;
-  }
+    _videoSub = ref.listenManual<ActiveVideoSessionState>(
+      activeVideoSessionProvider,
+      (prev, next) {
+        if (!mounted) return;
+        final wasExpanded =
+            prev != null &&
+            prev.isActive &&
+            prev.isExpanded &&
+            prev.request != null &&
+            !prev.isInPipMode;
+        final nowMinimized =
+            next.isActive &&
+            !next.isExpanded &&
+            !next.isInPipMode &&
+            next.request != null;
+        final disableAnim = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_controller != null || _startRect == null) return;
-    final disableAnimations = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-    if (disableAnimations) {
-      _startRect = null;
-      return;
-    }
-    final ctrl = AnimationController.unbounded(vsync: this)
-      ..addStatusListener(_onStatusChanged);
-    _controller = ctrl;
-    _morphing = true;
-    final sim = SpringSimulation(
-      KonataPlaybackTokens.stageMorphSpring,
-      0.0,
-      1.0,
-      0.0,
-      tolerance: const Tolerance(distance: 1e-3, velocity: 1e-3),
+        if (wasExpanded && nowMinimized && !disableAnim) {
+          final targetRect = _computeTargetMiniRect(FloatingMiniPlayerKind.video);
+          final releaseVel = ref.read(stageMorphReleaseVelocityProvider);
+          ref.read(stageMorphReleaseVelocityProvider.notifier).state = 0.0;
+          ref.read(stageMorphReverseVideoActiveProvider.notifier).state = true;
+          setState(() {
+            _collapsingVideoReq = next.request;
+            _collapsingVideoTargetRect = targetRect;
+            _collapsingVideoVelocityPx = releaseVel;
+          });
+        } else if (next.isExpanded || !next.isActive || next.isInPipMode) {
+          if (_collapsingVideoReq != null ||
+              ref.read(stageMorphReverseVideoActiveProvider)) {
+            ref.read(stageMorphReverseVideoActiveProvider.notifier).state = false;
+            setState(() {
+              _collapsingVideoReq = null;
+              _collapsingVideoTargetRect = null;
+              _collapsingVideoVelocityPx = 0.0;
+            });
+          }
+        }
+      },
     );
-    ctrl.animateWith(sim);
+
+    _audioSub = ref.listenManual<bool>(
+      immersiveAudioExpandedProvider,
+      (prev, next) {
+        if (!mounted) return;
+        final audioActive = ref.read(audioPlaybackProvider).isActive;
+        final videoActive = ref.read(activeVideoSessionProvider).isActive;
+        final disableAnim = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+
+        if (prev == true && !next && audioActive && !videoActive && !disableAnim) {
+          final targetRect = _computeTargetMiniRect(FloatingMiniPlayerKind.audio);
+          final releaseVel = ref.read(stageMorphReleaseVelocityProvider);
+          ref.read(stageMorphReleaseVelocityProvider.notifier).state = 0.0;
+          setState(() {
+            _collapsingAudio = true;
+            _collapsingAudioTargetRect = targetRect;
+            _collapsingAudioVelocityPx = releaseVel;
+          });
+        } else if (next || !audioActive || videoActive) {
+          if (_collapsingAudio) {
+            setState(() {
+              _collapsingAudio = false;
+              _collapsingAudioTargetRect = null;
+              _collapsingAudioVelocityPx = 0.0;
+            });
+          }
+        }
+      },
+    );
   }
 
-  void _onStatusChanged(AnimationStatus status) {
-    if (status == AnimationStatus.completed ||
-        status == AnimationStatus.dismissed) {
-      _controller?.stop();
-      if (mounted && _morphing) {
-        setState(() {
-          _morphing = false;
-          _startRect = null;
-        });
-      }
+  Rect _computeTargetMiniRect(FloatingMiniPlayerKind kind) {
+    final cached = konataFloatingMiniWindowRectNotifier.value;
+    if (cached != null && cached.width > 0 && cached.height > 0) {
+      return cached;
     }
+    final size = MediaQuery.maybeSizeOf(context) ?? const Size(1280, 720);
+    final safe = AdaptiveCapsuleLayout.effectiveSafeInsetsOf(context);
+    final anchor = ref.read(floatingMiniWindowAnchorProvider);
+    final hidden = ref.read(capsuleNavigationHiddenProvider);
+    final subRoutePushed = ref.read(subRoutePushedProvider);
+    final layout = AdaptiveCapsuleLayout(
+      size: size,
+      safe: safe,
+      android: KonataAdaptiveTokens.isAndroid,
+      navigationVisible: !hidden && !subRoutePushed,
+      desktopTopBarVisible: !subRoutePushed,
+      miniKind: kind,
+      normalizedMiniAnchor: anchor,
+    );
+    return layout.floatingMiniWindowRect ??
+        Rect.fromLTWH(
+          size.width - KonataPlaybackTokens.floatingMiniVideoWidth - 16,
+          size.height - KonataPlaybackTokens.floatingMiniVideoHeight - 16,
+          KonataPlaybackTokens.floatingMiniVideoWidth,
+          KonataPlaybackTokens.floatingMiniVideoHeight,
+        );
+  }
+
+  void _finishAudioCollapseMorph() {
+    if (!mounted) return;
+    setState(() {
+      _collapsingAudio = false;
+      _collapsingAudioTargetRect = null;
+      _collapsingAudioVelocityPx = 0.0;
+    });
+  }
+
+  void _finishVideoCollapseMorph() {
+    if (!mounted) return;
+    // 在同一渲染帧同步清除反向标记并卸载全屏外壳，确保 GlobalObjectKey 无缝移交至悬浮小窗。
+    ref.read(stageMorphReverseVideoActiveProvider.notifier).state = false;
+    setState(() {
+      _collapsingVideoReq = null;
+      _collapsingVideoTargetRect = null;
+      _collapsingVideoVelocityPx = 0.0;
+    });
   }
 
   @override
   void dispose() {
-    _controller
-      ?..removeStatusListener(_onStatusChanged)
-      ..dispose();
+    _videoSub?.close();
+    _audioSub?.close();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final ctrl = _controller;
-    final startRect = _startRect;
-    if (!_morphing || ctrl == null || startRect == null) {
-      return widget.child;
+    final videoSession = ref.watch(activeVideoSessionProvider);
+    final videoReq = videoSession.request;
+    final audioExpanded = ref.watch(immersiveAudioExpandedProvider);
+
+    final showImmersiveAudio = audioExpanded && !videoSession.isActive;
+    final showAudioCollapsing = _collapsingAudio && !showImmersiveAudio;
+    final showExpandedVideo =
+        videoSession.isActive && videoSession.isExpanded && videoReq != null;
+    final activeCollapseVideoReq =
+        (!showExpandedVideo && videoSession.isActive) ? _collapsingVideoReq : null;
+    final showVideoCollapsing = activeCollapseVideoReq != null;
+
+    if (!showImmersiveAudio &&
+        !showAudioCollapsing &&
+        !showExpandedVideo &&
+        !showVideoCollapsing) {
+      return const SizedBox.shrink();
     }
-    final fullSize = MediaQuery.sizeOf(context);
-    if (fullSize.width <= 0 || fullSize.height <= 0) {
-      return widget.child;
-    }
-    final endRect = Offset.zero & fullSize;
-    return AnimatedBuilder(
-      animation: ctrl,
-      child: widget.child,
-      builder: (_, child) {
-        final t = ctrl.value.clamp(0.0, 1.0);
-        final rect = Rect.lerp(startRect, endRect, t) ?? endRect;
-        final sx = (rect.width / endRect.width).clamp(0.05, 1.0);
-        final sy = (rect.height / endRect.height).clamp(0.05, 1.0);
-        final radius =
-            lerpDouble(KonataPlaybackTokens.floatingMiniRadius, 0.0, t) ?? 0.0;
-        final matrix = Matrix4.identity()
-          ..translateByDouble(rect.left, rect.top, 0.0, 1.0)
-          ..scaleByDouble(sx, sy, 1.0, 1.0);
-        // 保持子页面按全屏终态尺寸一次布局，仅由 GPU 合成矩阵连续缩放平移，彻底消除形变帧溢出与逐帧重排。
-        final clipped = (widget.allowClipRadius && radius > 0.5)
-            ? ClipRRect(
-                borderRadius: BorderRadius.circular(radius / sx),
-                child: child,
-              )
-            : child!;
-        return Transform(
-          alignment: Alignment.topLeft,
-          transform: matrix,
-          child: clipped,
-        );
-      },
+
+    final immersiveAudioNavKey = ref.watch(_immersiveAudioNavigatorKeyProvider);
+    final originRect =
+        konataFloatingMiniWindowRectNotifier.value ??
+        ref.read(stageMorphOriginRectProvider);
+    final effectiveVideoReq = showExpandedVideo
+        ? videoReq
+        : activeCollapseVideoReq;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (showImmersiveAudio || showAudioCollapsing)
+          KonataStageMorphFrame(
+            key: const ValueKey('spring_morph_audio_fullscreen'),
+            originRect: showAudioCollapsing
+                ? _collapsingAudioTargetRect
+                : originRect,
+            isCollapsing: showAudioCollapsing,
+            releaseVelocityPxPerSec: showAudioCollapsing
+                ? _collapsingAudioVelocityPx
+                : 0.0,
+            onCollapseCompleted: _finishAudioCollapseMorph,
+            allowClipRadius: true,
+            child: IgnorePointer(
+              ignoring: showAudioCollapsing,
+              child: HeroControllerScope.none(
+                child: Navigator(
+                  key: immersiveAudioNavKey,
+                  onGenerateRoute: (_) => PageRouteBuilder<void>(
+                    pageBuilder: (_, _, _) => const ImmersiveAudioPage(
+                      key: ValueKey('immersive_audio'),
+                    ),
+                    transitionDuration: Duration.zero,
+                    reverseTransitionDuration: Duration.zero,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        if (effectiveVideoReq != null)
+          KonataStageMorphFrame(
+            key: ValueKey('spring_morph_video_${effectiveVideoReq.hashCode}'),
+            originRect: videoSession.isInPipMode
+                ? null
+                : (showVideoCollapsing
+                      ? _collapsingVideoTargetRect
+                      : originRect),
+            isCollapsing: showVideoCollapsing,
+            releaseVelocityPxPerSec: showVideoCollapsing
+                ? _collapsingVideoVelocityPx
+                : 0.0,
+            onCollapseCompleted: _finishVideoCollapseMorph,
+            allowClipRadius: !KonataAdaptiveTokens.isAndroid,
+            child: IgnorePointer(
+              ignoring: showVideoCollapsing,
+              child: EmbeddedVideoPage(
+                key: ValueKey(
+                  'global_embedded_video_${effectiveVideoReq.hashCode}',
+                ),
+                request: effectiveVideoReq,
+                sharedVideoSurface: KonataHardwareVideoSurface(
+                  key: GlobalObjectKey(effectiveVideoReq),
+                  request: effectiveVideoReq,
+                  miniPreview: showVideoCollapsing,
+                ),
+                inPipMode: videoSession.isInPipMode,
+                onCollapseToMini: () => unawaited(
+                  ref
+                      .read(activeVideoSessionProvider.notifier)
+                      .collapseToMini(),
+                ),
+                onCloseSession: () =>
+                    ref.read(activeVideoSessionProvider.notifier).closeVideo(),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

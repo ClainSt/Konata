@@ -8,6 +8,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../domain/models/external_player_config.dart';
 import '../../domain/playback/track_preferences.dart';
 import '../../infrastructure/players/mpv_quality_profile.dart';
+import '../../infrastructure/storage/storage_root_provider.dart';
+import '../../infrastructure/subtitles/fontinass_cloud_client.dart';
+import 'cloud_subset_coordinator.dart';
+import 'unified_playback_engine.dart';
 
 /// 全局默认音视频播放引擎路由偏好。
 enum PreferredPlaybackEngine {
@@ -36,6 +40,10 @@ class PlaybackPreferencesState {
     this.autoSkipChapter = false,
     this.autoEnterPip = true,
     this.defaultVolume = 100.0,
+    this.hdmiSpdifPassthrough = false,
+    this.androidBitPerfectUsb = false,
+    this.cloudSubsetEnabled = false,
+    this.cloudSubsetEndpoint = '',
   });
 
   /// 默认视频（正片 / 特典）播放引擎。
@@ -65,6 +73,18 @@ class PlaybackPreferencesState {
   /// 内置播放器默认初始音量（`0 ~ 100`）。
   final double defaultVolume;
 
+  /// Windows HDMI `audio-spdif` 比特流源码直通（开启时与一切软件 DSP 严格互斥）。
+  final bool hdmiSpdifPassthrough;
+
+  /// Android 14+ 原生 `MIXER_BEHAVIOR_BIT_PERFECT` USB DAC 逐位直通偏好。
+  final bool androidBitPerfectUsb;
+
+  /// 是否启用可选 FontInAss 云端字幕字体子集化（默认关闭，且需逐 Origin 授权）。
+  final bool cloudSubsetEnabled;
+
+  /// 可选 FontInAss 云端字幕字体子集化服务端点地址。
+  final String cloudSubsetEndpoint;
+
   /// 复制并修改局部偏好字段。
   PlaybackPreferencesState copyWith({
     PreferredPlaybackEngine? defaultVideoEngine,
@@ -76,6 +96,10 @@ class PlaybackPreferencesState {
     bool? autoSkipChapter,
     bool? autoEnterPip,
     double? defaultVolume,
+    bool? hdmiSpdifPassthrough,
+    bool? androidBitPerfectUsb,
+    bool? cloudSubsetEnabled,
+    String? cloudSubsetEndpoint,
   }) {
     return PlaybackPreferencesState(
       defaultVideoEngine: defaultVideoEngine ?? this.defaultVideoEngine,
@@ -88,6 +112,10 @@ class PlaybackPreferencesState {
       autoSkipChapter: autoSkipChapter ?? this.autoSkipChapter,
       autoEnterPip: autoEnterPip ?? this.autoEnterPip,
       defaultVolume: defaultVolume ?? this.defaultVolume,
+      hdmiSpdifPassthrough: hdmiSpdifPassthrough ?? this.hdmiSpdifPassthrough,
+      androidBitPerfectUsb: androidBitPerfectUsb ?? this.androidBitPerfectUsb,
+      cloudSubsetEnabled: cloudSubsetEnabled ?? this.cloudSubsetEnabled,
+      cloudSubsetEndpoint: cloudSubsetEndpoint ?? this.cloudSubsetEndpoint,
     );
   }
 
@@ -102,7 +130,11 @@ class PlaybackPreferencesState {
         other.promptChapterSkip == promptChapterSkip &&
         other.autoSkipChapter == autoSkipChapter &&
         other.autoEnterPip == autoEnterPip &&
-        other.defaultVolume == defaultVolume;
+        other.defaultVolume == defaultVolume &&
+        other.hdmiSpdifPassthrough == hdmiSpdifPassthrough &&
+        other.androidBitPerfectUsb == androidBitPerfectUsb &&
+        other.cloudSubsetEnabled == cloudSubsetEnabled &&
+        other.cloudSubsetEndpoint == cloudSubsetEndpoint;
   }
 
   @override
@@ -116,6 +148,10 @@ class PlaybackPreferencesState {
     autoSkipChapter,
     autoEnterPip,
     defaultVolume,
+    hdmiSpdifPassthrough,
+    androidBitPerfectUsb,
+    cloudSubsetEnabled,
+    cloudSubsetEndpoint,
   );
 }
 
@@ -274,6 +310,30 @@ class PlaybackPreferencesNotifier
     await _persist();
   }
 
+  /// 切换 Windows HDMI `audio-spdif` 比特流源码直通（开启时自动与软件 DSP 严格互斥）。
+  Future<void> setHdmiSpdifPassthrough(bool value) async {
+    state = state.copyWith(hdmiSpdifPassthrough: value);
+    await _persist();
+  }
+
+  /// 切换 Android 14+ USB DAC `MIXER_BEHAVIOR_BIT_PERFECT` 逐位直通偏好。
+  Future<void> setAndroidBitPerfectUsb(bool value) async {
+    state = state.copyWith(androidBitPerfectUsb: value);
+    await _persist();
+  }
+
+  /// 切换可选 FontInAss 云端字幕字体子集化总开关。
+  Future<void> setCloudSubsetEnabled(bool value) async {
+    state = state.copyWith(cloudSubsetEnabled: value);
+    await _persist();
+  }
+
+  /// 更新可选 FontInAss 云端字幕字体子集化服务端点地址。
+  Future<void> setCloudSubsetEndpoint(String endpoint) async {
+    state = state.copyWith(cloudSubsetEndpoint: endpoint.trim());
+    await _persist();
+  }
+
   Future<void> _persist() async {
     if (!enablePersistence) return;
     try {
@@ -293,6 +353,10 @@ class PlaybackPreferencesNotifier
       'autoSkipChapter': s.autoSkipChapter,
       'autoEnterPip': s.autoEnterPip,
       'defaultVolume': s.defaultVolume,
+      'hdmiSpdifPassthrough': s.hdmiSpdifPassthrough,
+      'androidBitPerfectUsb': s.androidBitPerfectUsb,
+      'cloudSubsetEnabled': s.cloudSubsetEnabled,
+      'cloudSubsetEndpoint': s.cloudSubsetEndpoint,
       'preset': q.preset.name,
       'hardwareDecode': q.hardwareDecode,
       'debandEnabled': q.debandEnabled,
@@ -369,6 +433,18 @@ class PlaybackPreferencesNotifier
           ? map['autoEnterPip'] as bool
           : true,
       defaultVolume: parseDouble(map['defaultVolume'], 100.0, 0.0, 100.0),
+      hdmiSpdifPassthrough: map['hdmiSpdifPassthrough'] is bool
+          ? map['hdmiSpdifPassthrough'] as bool
+          : false,
+      androidBitPerfectUsb: map['androidBitPerfectUsb'] is bool
+          ? map['androidBitPerfectUsb'] as bool
+          : false,
+      cloudSubsetEnabled: map['cloudSubsetEnabled'] is bool
+          ? map['cloudSubsetEnabled'] as bool
+          : false,
+      cloudSubsetEndpoint: map['cloudSubsetEndpoint'] is String
+          ? (map['cloudSubsetEndpoint'] as String).trim()
+          : '',
       qualityConfig: PlaybackQualityConfig(
         preset: parseEnum(
           VideoQualityPreset.values,
@@ -495,3 +571,28 @@ class EmbeddedSessionMutex {
 final embeddedSessionMutexProvider = Provider<EmbeddedSessionMutex>(
   (ref) => EmbeddedSessionMutex(),
 );
+
+/// 云端子集化逐 Origin 授权状态仓储 Provider（由 Riverpod 统一托管生命周期）。
+final cloudSubsetAuthorizationStoreProvider =
+    Provider<CloudSubsetAuthorizationStore>(
+      (ref) => CloudSubsetAuthorizationStore(),
+    );
+
+/// FontInAss 云端子集化纯净客户端 Provider。
+final fontInAssCloudClientProvider = Provider<FontInAssCloudClient>(
+  (ref) => FontInAssCloudClient(
+    authorizationStore: ref.read(cloudSubsetAuthorizationStoreProvider),
+    storageRoot: ref.read(storageRootProvider),
+  ),
+);
+
+/// 云端子集化按域编排协调器 Provider（仅取消 `PlaybackTaskDomain.cloudSubset` 分域）。
+final cloudSubsetCoordinatorProvider = Provider<CloudSubsetCoordinator>(
+  (ref) => CloudSubsetCoordinator(
+    playbackEngine: ref.read(unifiedPlaybackEngineProvider),
+    cloudClient: ref.read(fontInAssCloudClientProvider),
+  ),
+);
+
+/// 云端子集化 Origin 授权变更轻量刷新版本号（驱动设置页授权徽章即时同步）。
+final cloudSubsetAuthRevisionProvider = StateProvider<int>((ref) => 0);

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/playback/audio_playback_notifier.dart';
 import '../../application/providers/artwork_provider.dart';
 import '../../domain/playback/cue_and_lrc_parser.dart';
+import '../../domain/playback/lyric_version_matcher.dart';
 import '../../domain/playback/playback_formatters.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
@@ -26,6 +27,7 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
     required this.compact,
     required this.userScrolling,
     required this.onSeekLine,
+    this.activeSpanLine,
   });
 
   final int index;
@@ -33,6 +35,9 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
   final bool compact;
   final bool userScrolling;
   final VoidCallback onSeekLine;
+
+  /// 可选主唱/和声并行逐字扫光片段行（仅高亮当前行挂载局部进度叶子，非当前行零订阅）。
+  final ActiveSpanLyricLine? activeSpanLine;
 
   static int _distanceBucket(int lineIdx, int activeIdx) {
     if (activeIdx < 0) return 0;
@@ -70,6 +75,81 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
     final inactiveSize = compact
         ? 14.5
         : KonataPlaybackTokens.lyricInactiveFontSize;
+    final spanLine = activeSpanLine;
+    final leadSpans = spanLine == null
+        ? const <TimedLyricSpan>[]
+        : spanLine.spans.where((s) => !s.isHarmony).toList(growable: false);
+    final harmonySpans = spanLine == null
+        ? const <TimedLyricSpan>[]
+        : spanLine.spans.where((s) => s.isHarmony).toList(growable: false);
+    final hasSpanData = leadSpans.isNotEmpty || harmonySpans.isNotEmpty;
+    final filteredSecondary = harmonySpans.isEmpty
+        ? line.secondaryLines
+        : line.secondaryLines
+              .where((s) => !s.trimLeft().startsWith('bg:'))
+              .toList(growable: false);
+
+    final Widget primaryBody;
+    if (hasSpanData && isActive) {
+      primaryBody = _ActiveSpanWordSweepLeaf(
+        leadSpans: leadSpans,
+        harmonySpans: harmonySpans,
+        activeFontSize: activeSize,
+        palette: p,
+      );
+    } else if (hasSpanData) {
+      final inactiveLeadText = leadSpans.map((s) => s.text).join();
+      final inactiveHarmonyText = harmonySpans.map((s) => s.text).join();
+      primaryBody = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (inactiveLeadText.isNotEmpty)
+            Text(
+              inactiveLeadText,
+              style: TextStyle(
+                color: p.textSecondary,
+                fontSize: inactiveSize,
+                fontWeight: FontWeight.w400,
+                height: 1.35,
+              ),
+            ),
+          if (inactiveHarmonyText.isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Text(
+              inactiveHarmonyText,
+              style: TextStyle(
+                color: p.textMuted,
+                fontSize: KonataPlaybackTokens.lyricSecondaryFontSize,
+                height: 1.25,
+              ),
+            ),
+          ],
+        ],
+      );
+    } else {
+      primaryBody = AnimatedDefaultTextStyle(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOutCubic,
+        style: TextStyle(
+          color: isActive ? p.textPrimary : p.textSecondary,
+          fontSize: isActive ? activeSize : inactiveSize,
+          fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
+          height: 1.35,
+          shadows: isActive
+              ? [
+                  Shadow(
+                    color: p.isDark
+                        ? Colors.white.withValues(alpha: 0.32)
+                        : Colors.black.withValues(alpha: 0.10),
+                    blurRadius: 16,
+                  ),
+                ]
+              : null,
+        ),
+        child: Text(line.primaryText),
+      );
+    }
 
     final rowContent = GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -89,28 +169,8 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              AnimatedDefaultTextStyle(
-                duration: const Duration(milliseconds: 160),
-                curve: Curves.easeOutCubic,
-                style: TextStyle(
-                  color: isActive ? p.textPrimary : p.textSecondary,
-                  fontSize: isActive ? activeSize : inactiveSize,
-                  fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
-                  height: 1.35,
-                  shadows: isActive
-                      ? [
-                          Shadow(
-                            color: p.isDark
-                                ? Colors.white.withValues(alpha: 0.32)
-                                : Colors.black.withValues(alpha: 0.10),
-                            blurRadius: 16,
-                          ),
-                        ]
-                      : null,
-                ),
-                child: Text(line.primaryText),
-              ),
-              for (final sec in line.secondaryLines) ...[
+              primaryBody,
+              for (final sec in filteredSecondary) ...[
                 const SizedBox(height: 4),
                 Text(
                   sec,
@@ -137,6 +197,100 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
               child: rowContent,
             )
           : rowContent,
+    );
+  }
+}
+
+/// 仅挂载于当前激活歌词行的逐字主唱与并行和声扫光叶子（独立订阅播放秒数，零父级重建）。
+class _ActiveSpanWordSweepLeaf extends ConsumerWidget {
+  const _ActiveSpanWordSweepLeaf({
+    required this.leadSpans,
+    required this.harmonySpans,
+    required this.activeFontSize,
+    required this.palette,
+  });
+
+  final List<TimedLyricSpan> leadSpans;
+  final List<TimedLyricSpan> harmonySpans;
+  final double activeFontSize;
+  final KonataPalette palette;
+
+  TextSpan _buildSweepSpan(
+    TimedLyricSpan span, {
+    required double positionSeconds,
+    required double fontSize,
+    required bool isHarmony,
+  }) {
+    final progress = span.sweepProgressAt(positionSeconds);
+    final baseColor = isHarmony ? palette.textMuted : palette.textSecondary;
+    final litColor = isHarmony ? palette.textSecondary : palette.textPrimary;
+    final blended = Color.lerp(baseColor, litColor, progress) ?? litColor;
+    final isLit = progress > 0.05;
+    return TextSpan(
+      text: span.text,
+      style: TextStyle(
+        color: blended,
+        fontSize: fontSize,
+        fontWeight: isHarmony
+            ? (isLit ? FontWeight.w500 : FontWeight.w400)
+            : (isLit ? FontWeight.w700 : FontWeight.w500),
+        height: isHarmony ? 1.28 : 1.35,
+        shadows: isLit && !isHarmony
+            ? [
+                Shadow(
+                  color: palette.isDark
+                      ? Colors.white.withValues(alpha: 0.36 * progress)
+                      : Colors.black.withValues(alpha: 0.12 * progress),
+                  blurRadius: 14,
+                ),
+              ]
+            : null,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final pos = ref.watch(
+      audioPlaybackProvider.select((s) => s.positionSeconds),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (leadSpans.isNotEmpty)
+          Text.rich(
+            key: const ValueKey('active_lead_spans'),
+            TextSpan(
+              children: [
+                for (final span in leadSpans)
+                  _buildSweepSpan(
+                    span,
+                    positionSeconds: pos,
+                    fontSize: activeFontSize,
+                    isHarmony: false,
+                  ),
+              ],
+            ),
+          ),
+        if (harmonySpans.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text.rich(
+            key: const ValueKey('active_harmony_spans'),
+            TextSpan(
+              children: [
+                for (final span in harmonySpans)
+                  _buildSweepSpan(
+                    span,
+                    positionSeconds: pos,
+                    fontSize: KonataPlaybackTokens.lyricSecondaryFontSize,
+                    isHarmony: true,
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

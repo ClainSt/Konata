@@ -15,6 +15,7 @@ import '../../domain/matching/supplementary_subclassifier.dart';
 import '../../domain/playback/audiophile_safety_policy.dart';
 import '../../domain/playback/cue_and_lrc_parser.dart';
 import '../../domain/playback/cue_variant_resolver.dart';
+import '../../domain/playback/lyric_version_matcher.dart';
 import '../../domain/playback/playback_formatters.dart';
 import '../../domain/repositories/file_system_gateway.dart';
 import '../../infrastructure/players/android/android_audio_route_bridge.dart';
@@ -270,6 +271,7 @@ class AudioPlaybackState {
     this.loopMode = AudioLoopMode.loopAll,
     this.cover = const EmptyAudioCover(),
     this.lrcDocument,
+    this.activeSpanLines = const [],
     this.activeLyricIndex = -1,
     this.audioCodecLabel = '',
     this.sampleRateAndBitDepthLabel = '',
@@ -289,6 +291,9 @@ class AudioPlaybackState {
   final AudioLoopMode loopMode;
   final AudioCoverSource cover;
   final LrcDocument? lrcDocument;
+
+  /// 主唱与和声并行逐字扫光歌词行（仅当当前 LRC 含逐字时间标签或 `bg:` 和声层时非空）。
+  final List<ActiveSpanLyricLine> activeSpanLines;
   final int activeLyricIndex;
   final String audioCodecLabel;
   final String sampleRateAndBitDepthLabel;
@@ -437,6 +442,7 @@ class AudioPlaybackState {
     AudioLoopMode? loopMode,
     AudioCoverSource? cover,
     LrcDocument? lrcDocument,
+    List<ActiveSpanLyricLine>? activeSpanLines,
     bool clearLrcDocument = false,
     int? activeLyricIndex,
     String? audioCodecLabel,
@@ -458,6 +464,9 @@ class AudioPlaybackState {
       loopMode: loopMode ?? this.loopMode,
       cover: cover ?? this.cover,
       lrcDocument: clearLrcDocument ? null : (lrcDocument ?? this.lrcDocument),
+      activeSpanLines: clearLrcDocument
+          ? const []
+          : (activeSpanLines ?? this.activeSpanLines),
       activeLyricIndex: activeLyricIndex ?? this.activeLyricIndex,
       audioCodecLabel: audioCodecLabel ?? this.audioCodecLabel,
       sampleRateAndBitDepthLabel:
@@ -475,6 +484,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     this.clientFactory,
     this.gatewayFactory = const MediaSourceGatewayFactory(),
     this.retryDelayBuilder,
+    this.microFadeStepInterval = const Duration(milliseconds: 25),
     AndroidMediaSessionBridge? mediaSessionBridge,
   }) : _mediaSessionBridge =
            mediaSessionBridge ??
@@ -502,6 +512,9 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   final LibMpvClient Function()? clientFactory;
   final MediaSourceGatewayFactory gatewayFactory;
   final Duration Function(int attempt)? retryDelayBuilder;
+
+  /// S 型微淡入斜坡的离散步进周期（默认 25 ms，约 6 步完成 150 ms 后即停钟）。
+  final Duration microFadeStepInterval;
   final AndroidMediaSessionBridge _mediaSessionBridge;
   final Map<String, Uint8List> _posterNotificationBytesCache = {};
   final Set<String> _loadingPosterNotificationKeys = {};
@@ -1219,23 +1232,18 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     client.setPropertyString('loop-file', 'no');
     client.setPropertyString('loop-playlist', 'no');
     client.setPropertyFlag('mute', state.isMuted);
-    final qualityConfig = _ref.read(playbackPreferencesProvider).qualityConfig;
-    final safetyPlan = AudiophileSafetyPolicy.buildPlan(
-      requestedMode: qualityConfig.wasapiExclusive
-          ? AudioOutputRouteMode.wasapiExclusive
-          : AudioOutputRouteMode.sharedResampled,
-      safetyState: _deviceSafetyState,
-    );
-    MpvQualityProfile.applyAudiophileSafetyChain(
-      client,
-      plan: safetyPlan,
-      logStore: _ref.read(diagnosticsLogStoreProvider),
-    );
+    _applySafetyChainToClient(client);
     AndroidAudioRouteBridge.bindRouteListeners(
       onOutputDeviceRemoved: (_) => _handleAudioDeviceRemovedTransientMute(),
       onOutputDeviceAdded: (fingerprint) {
         _deviceSafetyState = _deviceSafetyState.onDeviceChanged(fingerprint);
         _engine.advanceAudioOutputRoute();
+        final activeClient = _client;
+        if (activeClient != null &&
+            !activeClient.isDisposed &&
+            activeClient.isInitialized) {
+          _applySafetyChainToClient(activeClient);
+        }
       },
     );
     client.requestLogMessages('warn');
@@ -1431,6 +1439,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
             positionSeconds: clampedInitialOffset,
             activeLyricIndex: lyricIdx,
           );
+          _startMicroFadeInRamp(client);
         }
         unawaited(
           _persistAudioProgress(
@@ -1680,6 +1689,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       state = state.copyWith(
         cover: resolvedCover,
         lrcDocument: lrc,
+        activeSpanLines: aux.activeSpanLines,
         clearLrcDocument: lrc == null,
         activeLyricIndex: activeLyric,
       );
@@ -1775,6 +1785,9 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
         _trackRetryCount = 0;
         _engine.recordFileLoaded();
         state = state.copyWith(isBuffering: false, isPlaying: true);
+        if (_client != null && !_client!.isDisposed) {
+          _startMicroFadeInRamp(_client!);
+        }
         _refreshProbeFromClient();
         final auxJob = _pendingRemoteAuxJob;
         if (auxJob != null && auxJob.generation == _loadGeneration) {
@@ -2268,9 +2281,9 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
 
   /// 显式设置播放状态（若已完播卸载或停在曲末，点击播放自动从头重载起播）。
   Future<void> setPlaying(bool playing) async {
+    final wasPlaying = state.isPlaying;
     if (playing) {
       _volumeBeforeDuck = null;
-      _client?.setPropertyDouble('volume', state.isMuted ? 0.0 : state.volume);
       await _ensureAudioFocus();
       if (state.isActive &&
           state.currentIndex >= 0 &&
@@ -2289,6 +2302,8 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
           return;
         }
       }
+    } else {
+      _cancelMicroFade();
     }
     final c = _client;
     if (c == null || c.isDisposed) return;
@@ -2297,6 +2312,9 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       isPlaying: playing,
       isBuffering: playing ? state.isBuffering : false,
     );
+    if (playing && !wasPlaying) {
+      _startMicroFadeInRamp(c);
+    }
     final item = state.currentItem;
     if (!playing && item != null) {
       unawaited(
@@ -2358,6 +2376,9 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     _pendingSeekRawTargetSeconds = rawTarget;
     _pendingSeekGuardUntil = DateTime.now().add(_cueSeekDebounceWindow);
     c.command(['seek', rawTarget.toStringAsFixed(3), 'absolute', 'exact']);
+    if (state.isPlaying) {
+      _startMicroFadeInRamp(c);
+    }
     final lyricIdx = state.lrcDocument?.activeIndexAt(clamped) ?? -1;
     state = state.copyWith(
       positionSeconds: clamped,
@@ -2416,6 +2437,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
 
   /// 调整音量（0 ~ 100）。
   void setVolume(double volume) {
+    _cancelMicroFade();
     final clamped = volume.clamp(0.0, 100.0);
     _client?.setPropertyDouble('volume', clamped);
     if (clamped > 0 && state.isMuted) {
@@ -2431,6 +2453,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
 
   /// 切换静音。
   void toggleMute() {
+    _cancelMicroFade();
     final nextMuted = !state.isMuted;
     _client?.setPropertyFlag('mute', nextMuted);
     state = state.copyWith(isMuted: nextMuted);
@@ -2531,6 +2554,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
 
   /// 停止音频播放、释放本地流并关闭迷你栏与沉浸页。
   Future<void> stopAndClose() async {
+    _cancelMicroFade();
     final closingItem = state.currentItem;
     final closingPos = state.positionSeconds;
     final closingDur = state.durationSeconds;
@@ -2636,6 +2660,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   @override
   void dispose() {
     ++_loadGeneration;
+    _cancelMicroFade();
     unawaited(_mediaSessionBridge.stopSession());
     _mediaSessionBridge.dispose();
     unawaited(_eventSub?.cancel());
@@ -2651,9 +2676,134 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   }
 
   AudioDeviceSafetyState _deviceSafetyState = const AudioDeviceSafetyState();
+  AudioSafetyChainPlan _activeSafetyPlan = AudiophileSafetyPolicy.buildPlan(
+    requestedMode: AudioOutputRouteMode.sharedResampled,
+    safetyState: const AudioDeviceSafetyState(),
+  );
+  Timer? _microFadeTimer;
+
+  /// 当前生效的发烧音频输出与防炸耳滤镜链计划。
+  AudioSafetyChainPlan get activeSafetyPlan => _activeSafetyPlan;
+
+  /// S 型微淡入斜坡计时器当前是否仍在推进（用于测试验证终态即停钟零空转）。
+  bool get isMicroFadeActive => _microFadeTimer?.isActive ?? false;
+
+  /// 根据当前播放偏好与平台实时重编译并应用音频输出安全链路（含 Android 14+ USB 逐位协商）。
+  Future<void> reapplyAudiophileSafetyChain() async {
+    final prefs = _ref.read(playbackPreferencesProvider);
+    final client = _client;
+    if (client != null && !client.isDisposed && client.isInitialized) {
+      _applySafetyChainToClient(client);
+      return;
+    }
+    _activeSafetyPlan = AudiophileSafetyPolicy.buildPlan(
+      requestedMode: _resolveEffectiveRouteMode(prefs),
+      safetyState: _deviceSafetyState,
+    );
+    if (KonataPlatform.isAndroid) {
+      await AndroidAudioRouteBridge.negotiateBitPerfectUsb(
+        preferredSampleRateHz: _rawSampleRateHz ?? 48000,
+        enable: prefs.androidBitPerfectUsb,
+      );
+    }
+  }
+
+  AudioOutputRouteMode _resolveEffectiveRouteMode(
+    PlaybackPreferencesState prefs,
+  ) {
+    if (KonataPlatform.isWindows) {
+      if (prefs.hdmiSpdifPassthrough) {
+        return AudioOutputRouteMode.hdmiSpdifPassthrough;
+      }
+      if (prefs.qualityConfig.wasapiExclusive) {
+        return AudioOutputRouteMode.wasapiExclusive;
+      }
+      return AudioOutputRouteMode.sharedResampled;
+    }
+    if (KonataPlatform.isAndroid && prefs.androidBitPerfectUsb) {
+      return AudioOutputRouteMode.androidBitPerfectUsb;
+    }
+    return AudioOutputRouteMode.sharedResampled;
+  }
+
+  void _applySafetyChainToClient(LibMpvClient client) {
+    final prefs = _ref.read(playbackPreferencesProvider);
+    final plan = AudiophileSafetyPolicy.buildPlan(
+      requestedMode: _resolveEffectiveRouteMode(prefs),
+      safetyState: _deviceSafetyState,
+    );
+    _activeSafetyPlan = plan;
+    MpvQualityProfile.applyAudiophileSafetyChain(
+      client,
+      plan: plan,
+      logStore: _ref.read(diagnosticsLogStoreProvider),
+    );
+    if (KonataPlatform.isAndroid) {
+      unawaited(
+        AndroidAudioRouteBridge.negotiateBitPerfectUsb(
+          preferredSampleRateHz: _rawSampleRateHz ?? 48000,
+          enable: prefs.androidBitPerfectUsb,
+        ),
+      );
+    }
+  }
+
+  void _cancelMicroFade() {
+    _microFadeTimer?.cancel();
+    _microFadeTimer = null;
+  }
+
+  /// 在非逐位直通路径启播、恢复与跳转时施加 150ms 有界 S 型微淡入斜坡，到达终态立即停钟。
+  void _startMicroFadeInRamp(LibMpvClient client) {
+    _cancelMicroFade();
+    if (!mounted || client.isDisposed || state.isMuted || state.volume <= 0.0) {
+      return;
+    }
+    final durationMs = _activeSafetyPlan.microFadeInDurationMs;
+    final targetVolume = state.volume;
+    if (durationMs <= 0) {
+      client.setPropertyDouble('volume', targetVolume);
+      return;
+    }
+
+    final stepMs = microFadeStepInterval.inMilliseconds <= 0
+        ? 25
+        : microFadeStepInterval.inMilliseconds;
+    final totalSteps = math.max(1, (durationMs / stepMs).ceil());
+    client.setPropertyDouble('volume', 0.0);
+    var currentStep = 0;
+    _microFadeTimer = Timer.periodic(Duration(milliseconds: stepMs), (timer) {
+      if (!mounted ||
+          client.isDisposed ||
+          state.isMuted ||
+          !state.isPlaying) {
+        timer.cancel();
+        if (identical(_microFadeTimer, timer)) {
+          _microFadeTimer = null;
+        }
+        return;
+      }
+      currentStep += 1;
+      final elapsedMs = (currentStep * stepMs).toDouble();
+      if (currentStep >= totalSteps || elapsedMs >= durationMs) {
+        client.setPropertyDouble('volume', state.volume);
+        timer.cancel();
+        if (identical(_microFadeTimer, timer)) {
+          _microFadeTimer = null;
+        }
+        return;
+      }
+      final gain = AudiophileSafetyPolicy.sCurveFadeGain(
+        elapsedMs: elapsedMs,
+        durationMs: durationMs,
+      );
+      client.setPropertyDouble('volume', state.volume * gain);
+    });
+  }
 
   /// 外设热拔出双通道瞬态静音：仅推进音频输出路由代数，绝不中断底层正在读取的网桥媒体流。
   void _handleAudioDeviceRemovedTransientMute() {
+    _cancelMicroFade();
     _engine.advanceAudioOutputRoute();
     _deviceSafetyState = _deviceSafetyState.onDeviceChanged('builtin_fallback');
     final client = _client;
@@ -2679,6 +2829,18 @@ final audioPlaybackProvider =
           unawaited(notifier.pauseForVideoSession());
         }
       });
+      ref.listen<(bool, bool, bool)>(
+        playbackPreferencesProvider.select(
+          (p) => (
+            p.hdmiSpdifPassthrough,
+            p.qualityConfig.wasapiExclusive,
+            p.androidBitPerfectUsb,
+          ),
+        ),
+        (_, _) {
+          unawaited(notifier.reapplyAudiophileSafetyChain());
+        },
+      );
       ref.listen<AsyncValue<List<WorkLibraryItem>>>(libraryItemsProvider, (
         _,
         next,

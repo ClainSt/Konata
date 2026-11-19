@@ -7,7 +7,9 @@ import 'title_normalizer_tables.dart';
 class TitleNormalizer {
   const TitleNormalizer._();
 
-  static final Map<int, int> _tradToSimp = _buildTradToSimpMap();
+  static final Map<int, int> _tradToSimp = Map<int, int>.unmodifiable(
+    _buildTradToSimpMap(),
+  );
   static final RegExp _kanaPattern = RegExp(r'[\u3040-\u30ff\uff65-\uff9f]');
 
   static Map<int, int> _buildTradToSimpMap() {

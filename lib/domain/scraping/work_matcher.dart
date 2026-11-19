@@ -458,7 +458,7 @@ abstract final class WorkMatcher {
     return false;
   }
 
-  static final List<String> _canonCjkArcSuffixes = () {
+  static final List<String> _canonCjkArcSuffixes = List<String>.unmodifiable(() {
     final out = <String>{
       for (final (_, queryArc, cjkNorms) in _romajiArcBridges) ...[
         _canonCjk(queryArc),
@@ -466,15 +466,15 @@ abstract final class WorkMatcher {
       ],
     }.toList()..sort((a, b) => b.length.compareTo(a.length));
     return out;
-  }();
+  }());
 
-  static final List<String> _allArcSuffixes = () {
+  static final List<String> _allArcSuffixes = List<String>.unmodifiable(() {
     final out = <String>{
       ..._canonCjkArcSuffixes,
       for (final (romaji, _, _) in _romajiArcBridges) romaji,
     }.toList()..sort((a, b) => b.length.compareTo(a.length));
     return out;
-  }();
+  }());
 
   static String? _extractTrailingCanonArc(String normOrCanon) {
     final canon = _canonCjk(normOrCanon);

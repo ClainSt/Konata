@@ -33,7 +33,9 @@ class TitleNormalizer {
   static const String _halfwidthBaseHiragana =
       'をぁぃぅぇぉゃゅょっーあいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわん';
 
-  static final Map<int, int> _tradToSimp = _buildTradToSimpMap();
+  static final Map<int, int> _tradToSimp = Map<int, int>.unmodifiable(
+    _buildTradToSimpMap(),
+  );
 
   static Map<int, int> _buildTradToSimpMap() {
     final tradRunes = _traditionalChars.runes.toList(growable: false);

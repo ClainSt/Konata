@@ -1079,31 +1079,13 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     }
   }
 
+  /// 打开或收起右滑播控侧栏并在展开时刷新轨道元数据。
   void setSideSheetOpen(bool open) {
     if (state.sideSheetOpen == open) return;
     if (open) {
       _session?.refreshMetadata();
     }
     state = state.copyWith(sideSheetOpen: open);
-  }
-
-  /// 切换全屏或 Android 横屏全屏模式（Windows 绝不触碰 `flutter_acrylic` 窗体材质防 DWM 黑闪）。
-  Future<void> toggleFullscreen() async {
-    final next = !state.isFullscreen;
-    if (KonataPlatform.isWindows) {
-      await _ref.read(konataWindowHostProvider).setFullScreen(next);
-      if (mounted) {
-        state = state.copyWith(isFullscreen: next);
-      }
-      return;
-    }
-    if (KonataPlatform.isAndroid) {
-      await AndroidPlaybackWindowBridge.setLandscapePreferred(next);
-      await AndroidPlaybackWindowBridge.setSystemBarsHidden(next);
-      if (mounted) {
-        state = state.copyWith(isFullscreen: next);
-      }
-    }
   }
 
   /// 安全保存进度、退出全屏并在串行互斥锁内彻底释放底层硬件资源（允许多次幂等调用）。

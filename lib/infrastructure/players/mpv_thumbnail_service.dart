@@ -231,9 +231,14 @@ class MpvThumbnailService extends ChangeNotifier {
       mediaTarget = reg.url.toString();
     }
 
+    final factory = clientFactory;
+    if (factory == null) {
+      logStore?.record('mpv-thumb', '未注入缩略图客户端工厂，跳过预热');
+      return;
+    }
     LibMpvClient client;
     try {
-      client = clientFactory != null ? clientFactory!() : FfiLibMpvClient.create();
+      client = factory();
     } catch (e) {
       logStore?.record('mpv-thumb', '创建缩略图实例失败: $e', isError: true);
       return;

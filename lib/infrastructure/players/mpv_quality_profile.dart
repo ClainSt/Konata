@@ -1004,6 +1004,7 @@ class MpvQualityProfile {
   /// 实时探测当前内嵌 `libmpv` 与 `FFmpeg` 版本号（无窗口开销，供设置中心实时展示）。
   static Future<MpvRuntimeVersions> probeRuntimeVersions({
     String? preferredLibraryPath,
+    LibMpvClient Function({String? preferredLibraryPath})? clientFactory,
   }) async {
     if (preferredLibraryPath == null &&
         Platform.environment.containsKey('FLUTTER_TEST')) {
@@ -1012,11 +1013,15 @@ class MpvQualityProfile {
         errorMessage: 'flutter_test environment',
       );
     }
-    FfiLibMpvClient? client;
-    try {
-      client = FfiLibMpvClient.create(
-        preferredLibraryPath: preferredLibraryPath,
+    if (clientFactory == null) {
+      return const MpvRuntimeVersions(
+        isAvailable: false,
+        errorMessage: '未注入统一播放内核客户端工厂',
       );
+    }
+    LibMpvClient? client;
+    try {
+      client = clientFactory(preferredLibraryPath: preferredLibraryPath);
       client.setOptionString('vo', 'null');
       client.setOptionString('ao', 'null');
       client.setOptionString('vid', 'no');

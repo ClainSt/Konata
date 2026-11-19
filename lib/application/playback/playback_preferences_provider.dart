@@ -561,7 +561,10 @@ final playbackPreferencesProvider =
 
 /// 内嵌 `libmpv` 与 `FFmpeg` 运行时实时探测结果 Provider。
 final mpvRuntimeVersionsProvider = FutureProvider<MpvRuntimeVersions>((ref) {
-  return MpvQualityProfile.probeRuntimeVersions();
+  final engine = ref.read(unifiedPlaybackEngineProvider);
+  return MpvQualityProfile.probeRuntimeVersions(
+    clientFactory: engine.createAuxiliaryNativeClient,
+  );
 });
 
 /// 内置视频页活跃状态标记（`true` 时自动收起全局迷你音频底栏并协调音视频互斥）。

@@ -463,19 +463,19 @@ class _TrackSemanticExtractor {
     return '';
   }
 
-  static final List<RegExp> _bilingualScPatterns = [
+  static final List<RegExp> _bilingualScPatterns = List<RegExp>.unmodifiable([
     RegExp(
       r'(?:^|[._\-\s\[\]()/])(jpsc|scjp|chs[&+_\-]?jpn?|jpn?[&+_\-]?chs|sc[&+_\-]?jpn?|jpn?[&+_\-]?sc|zh-hans-jp)(?=$|[._\-\s\[\]()/])',
     ),
     RegExp(r'简日双语|簡日雙語|简日'),
-  ];
+  ]);
 
-  static final List<RegExp> _bilingualTcPatterns = [
+  static final List<RegExp> _bilingualTcPatterns = List<RegExp>.unmodifiable([
     RegExp(
       r'(?:^|[._\-\s\[\]()/])(jptc|tcjp|cht[&+_\-]?jpn?|jpn?[&+_\-]?cht|tc[&+_\-]?jpn?|jpn?[&+_\-]?tc|zh-hant-jp)(?=$|[._\-\s\[\]()/])',
     ),
     RegExp(r'繁日双语|繁日雙語|繁日'),
-  ];
+  ]);
 
   static bool _matchesAnyPattern(String text, List<RegExp> patterns) {
     for (final p in patterns) {

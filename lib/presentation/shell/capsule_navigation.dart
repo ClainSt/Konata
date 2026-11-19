@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
+import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_glass_capsule.dart';
 import '../widgets/playback/konata_playback_capsule.dart';
 
@@ -23,9 +24,17 @@ class CapsuleNavigation extends StatelessWidget {
       (Icons.history_rounded, '播放记录'),
       (Icons.settings_outlined, '设置'),
     ];
+    final p = context.palette;
+    final canvasColor = p.isDark
+        ? KonataTheme.cinemaObsidian
+        : KonataTheme.themePreviewLightCanvas;
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: 1.15,
       child: KonataGlassCapsule(
+        // 平板左侧纵排胶囊处于独立纯色避让带，像素等价预混省去全幅离屏模糊拷贝；
+        // 手机底部横排胶囊悬浮于滚动内容上方，保留实时底层毛玻璃模糊。
+        enableBackdropBlur: !vertical,
+        solidBackdropColor: vertical ? canvasColor : null,
         child: Padding(
           padding: const EdgeInsets.all(KonataAdaptiveTokens.navigationPadding),
           child: Flex(
@@ -42,7 +51,7 @@ class CapsuleNavigation extends StatelessWidget {
                     tooltip: items[i].$2,
                     fixedSize: KonataAdaptiveTokens.touchTarget,
                     highlighted: selectedIndex == i,
-                    color: context.palette.textPrimary,
+                    color: p.textPrimary,
                     onTap: () => onSelected(i),
                   ),
                 ),

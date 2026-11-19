@@ -357,11 +357,10 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
     final previous = _androidSurface;
     _bindAndroidSurfaceController(ctrl);
 
-    // 先在串口队列内解绑旧表面的 EGL 与 vo，再释放其全部原生句柄
-    await _enqueueAndroidSurfaceUpdate(null, sourceCtrl: previous);
+    // 底层 SurfaceView 在整个进程内为单例宿主：热重绑仅分离旧控制器事件流，
+    // 严禁调用 releaseAll 误杀新控制器正在使用的同一原生表面句柄与 JNI 全局引用。
     if (previous != null && !previous.isDisposed) {
-      await previous.releaseSurface();
-      await previous.dispose();
+      await previous.detachWithoutClearingChannel();
     }
     if (_disposed || ctrl.isDisposed) return;
 
@@ -502,11 +501,13 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
     _renderBackend.value = _activeAndroidVo;
   }
 
-  void _scheduleFirstFrameWatchdog() {
+  void _scheduleFirstFrameWatchdog({
+    Duration delay = const Duration(milliseconds: 2500),
+  }) {
     _firstFrameWatchdogTimer?.cancel();
     final gen = _loadGeneration;
     _firstFrameWatchdogTimer = Timer(
-      const Duration(milliseconds: 2500),
+      delay,
       () => unawaited(_verifyFirstFrameRenderedOrRecover(gen)),
     );
   }
@@ -520,6 +521,14 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
         client == null ||
         client.isDisposed ||
         !client.isInitialized) {
+      return;
+    }
+    // 像素表面句柄有效但解码器持续未产出首帧像素格式，说明硬件解码器卡死，直接切软解。
+    if (_boundAndroidWid > 0 &&
+        !_hasDecodedVideoFrame() &&
+        !_hwdecFallbackAttempted &&
+        _hwdecWasEnabled) {
+      _triggerSoftwareDecodeFallback();
       return;
     }
     if (!_firstFrameWatchdogReboundOnce) {

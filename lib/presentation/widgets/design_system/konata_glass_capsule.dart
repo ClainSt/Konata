@@ -16,6 +16,7 @@ class KonataGlassCapsule extends StatelessWidget {
     this.radius,
     this.padding,
     this.enableBackdropBlur = true,
+    this.solidBackdropColor,
   });
 
   /// 子内容。
@@ -27,8 +28,11 @@ class KonataGlassCapsule extends StatelessWidget {
   /// 可选内部边距。
   final EdgeInsetsGeometry? padding;
 
-  /// 是否启用底层高斯模糊采样（在硬件视频层前景可关闭以避免透明覆盖层帧缓冲重影）。
+  /// 是否启用底层高斯模糊采样（在硬件视频层前景或纯色底画布避让区可关闭以省去离屏全幅拷贝）。
   final bool enableBackdropBlur;
+
+  /// 当底层为纯单色画布且关闭 `BackdropFilter` 时，以 `Color.alphaBlend` 预混出像素级等价毛玻璃底色。
+  final Color? solidBackdropColor;
 
   static final ImageFilter _capsuleBlurFilter = ImageFilter.blur(
     sigmaX: KonataPlaybackTokens.capsuleBlurSigma,
@@ -43,11 +47,17 @@ class KonataGlassCapsule extends StatelessWidget {
     final body = padding != null
         ? Padding(padding: padding!, child: child)
         : child;
+    final surfaceColor = enableBackdropBlur
+        ? KonataPlaybackTokens.glassSurface(p)
+        : (solidBackdropColor != null
+              ? Color.alphaBlend(
+                  KonataPlaybackTokens.glassSurface(p),
+                  solidBackdropColor!,
+                )
+              : KonataTheme.capsuleDarkSurface(p));
     final decorated = DecoratedBox(
       decoration: BoxDecoration(
-        color: enableBackdropBlur
-            ? KonataPlaybackTokens.glassSurface(p)
-            : KonataTheme.capsuleDarkSurface(p),
+        color: surfaceColor,
         borderRadius: borderRadius,
         border: Border.all(
           color: KonataPlaybackTokens.glassBorder(p),
@@ -56,11 +66,12 @@ class KonataGlassCapsule extends StatelessWidget {
       ),
       child: body,
     );
+    if (!enableBackdropBlur) {
+      return ClipRRect(borderRadius: borderRadius, child: decorated);
+    }
     return ClipRRect(
       borderRadius: borderRadius,
-      child: enableBackdropBlur
-          ? BackdropFilter(filter: _capsuleBlurFilter, child: decorated)
-          : decorated,
+      child: BackdropFilter(filter: _capsuleBlurFilter, child: decorated),
     );
   }
 }

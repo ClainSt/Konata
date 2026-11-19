@@ -244,6 +244,15 @@ class AndroidVideoSurfaceController {
     }
   }
 
+  /// 热重绑交接给新控制器时仅关闭自身事件流，保留单例原生通道处理器不被误清零。
+  Future<void> detachWithoutClearingChannel() async {
+    if (_disposed) return;
+    _disposed = true;
+    if (!_surfaceChanges.isClosed) {
+      await _surfaceChanges.close();
+    }
+  }
+
   /// 注销通道监听器。
   Future<void> dispose() async {
     if (_disposed) return;

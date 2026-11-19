@@ -44,6 +44,7 @@ class AndroidUnderlaySurfaceHost(
     private val channel = MethodChannel(messenger, CHANNEL_NAME)
     private val main = Handler(Looper.getMainLooper())
     private val references = mutableListOf<Long>()
+    private val pendingRetiredReferences = mutableSetOf<Long>()
     private var current = 0L
     private var width = 0
     private var height = 0
@@ -91,6 +92,10 @@ class AndroidUnderlaySurfaceHost(
                     if (v != null && v.visibility != View.VISIBLE) {
                         v.visibility = View.VISIBLE
                     }
+                    val retained = ensureValidSurfaceRetained()
+                    if (retained) {
+                        channel.invokeMethod("changed", state())
+                    }
                     result.success(if (current == 0L) null else state())
                 }
                 "setRect" -> {
@@ -108,7 +113,10 @@ class AndroidUnderlaySurfaceHost(
                     hideView()
                     result.success(null)
                 }
-                "current" -> result.success(if (current == 0L) null else state())
+                "current" -> {
+                    ensureValidSurfaceRetained()
+                    result.success(if (current == 0L) null else state())
+                }
                 "capturePrecision" -> capture(
                     result,
                     false,
@@ -124,17 +132,17 @@ class AndroidUnderlaySurfaceHost(
                 "release" -> {
                     val reference = (call.arguments as? Number)?.toLong()
                     if (reference != null) {
-                        if (references.remove(reference)) {
-                            release.invoke(null, reference)
+                        if (reference != current && references.contains(reference)) {
+                            scheduleRetiredRelease(reference)
                         }
                     } else {
-                        releaseAllReferences()
+                        retireAllReferencesDeferred()
                     }
                     result.success(null)
                 }
                 "releaseAll" -> {
                     hideView()
-                    releaseAllReferences()
+                    retireAllReferencesDeferred()
                     result.success(null)
                 }
                 else -> result.notImplemented()
@@ -230,12 +238,56 @@ class AndroidUnderlaySurfaceHost(
         lastRadiusPx = -1f
     }
 
+    /// 延迟 500ms 释放已退役的 JNI 全局引用，确保 libmpv 后台渲染线程完成解绑后再回收，杜绝跨线程悬垂崩溃。
+    private fun scheduleRetiredRelease(reference: Long) {
+        references.remove(reference)
+        if (!pendingRetiredReferences.add(reference)) return
+        main.postDelayed({
+            if (pendingRetiredReferences.remove(reference)) {
+                release.invoke(null, reference)
+            }
+        }, 500L)
+    }
+
+    private fun retireAllReferencesDeferred() {
+        current = 0L
+        if (references.isNotEmpty()) {
+            val snapshot = references.toList()
+            references.clear()
+            snapshot.forEach { scheduleRetiredRelease(it) }
+        }
+    }
+
     private fun releaseAllReferences() {
         if (references.isNotEmpty()) {
             references.forEach { release.invoke(null, it) }
             references.clear()
         }
+        if (pendingRetiredReferences.isNotEmpty()) {
+            pendingRetiredReferences.forEach { release.invoke(null, it) }
+            pendingRetiredReferences.clear()
+        }
         current = 0L
+    }
+
+    /// 处理极速关闭后立即重开视频时的竞态：若底层 `SurfaceView` 在 GONE->VISIBLE 间尚未销毁，
+    /// 直接复取有效 `Surface` 全局引用，避免 `surfaceCreated` 不再重复回调导致黑屏或 `wid=0`。
+    private fun ensureValidSurfaceRetained(): Boolean {
+        if (disposed || current != 0L) return false
+        val v = surfaceView ?: return false
+        if (v.visibility != View.VISIBLE) return false
+        val holder = v.holder
+        val surface = holder.surface ?: return false
+        if (!surface.isValid) return false
+        val frame = holder.surfaceFrame
+        val w = if (frame.width() > 0) frame.width() else v.width
+        val h = if (frame.height() > 0) frame.height() else v.height
+        if (w <= 0 || h <= 0) return false
+        current = retain.invoke(null, surface) as Long
+        references.add(current)
+        this.width = w
+        this.height = h
+        return true
     }
 
     private fun hdrPeak(): Int {
@@ -271,8 +323,10 @@ class AndroidUnderlaySurfaceHost(
 
     override fun surfaceCreated(holder: SurfaceHolder) {
         if (disposed) return
-        current = retain.invoke(null, holder.surface) as Long
-        references.add(current)
+        if (current == 0L) {
+            current = retain.invoke(null, holder.surface) as Long
+            references.add(current)
+        }
         val frame = holder.surfaceFrame
         if (frame.width() > 0 && frame.height() > 0) {
             this.width = frame.width()

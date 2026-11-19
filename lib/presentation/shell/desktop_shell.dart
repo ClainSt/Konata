@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../application/providers/library_providers.dart';
 import '../../application/playback/playback_preferences_provider.dart';
+import '../../application/providers/library_providers.dart';
 import '../../application/providers/theme_providers.dart';
 import '../../composition/platform_composition.dart';
 import '../audio/mini_audio_bar.dart';
@@ -18,9 +18,9 @@ import '../widgets/design_system/konata_keep_alive_tab_switcher.dart';
 import 'adaptive_capsule_layout.dart';
 import 'capsule_navigation.dart';
 
-/// Konata 桌面端透明流光无框主壳层（透出 Windows 11 原生 DWM Acrylic/Mica 背景）。
+/// Konata 桌面端与移动端共用的自适应主壳层（切页状态隔离至叶子节点，避免整壳重建）。
 class DesktopShell extends ConsumerStatefulWidget {
-  /// 创建桌面端主壳层。
+  /// 创建主壳层。
   const DesktopShell({super.key});
 
   @override
@@ -28,6 +28,13 @@ class DesktopShell extends ConsumerStatefulWidget {
 }
 
 class _DesktopShellState extends ConsumerState<DesktopShell> {
+  static const List<Widget> _mainPages = <Widget>[
+    LibraryPage(),
+    SourcesPage(),
+    PlaybackHistoryPage(),
+    SettingsPage(),
+  ];
+
   final FocusNode _searchFocusNode = FocusNode();
   bool _searchExpanded = false;
 
@@ -50,13 +57,16 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
 
   @override
   Widget build(BuildContext context) {
-    final activeSection = ref.watch(selectedNavSectionProvider);
-    final miniKind = ref.watch(activeFloatingMiniPlayerKindProvider);
-    final miniAnchor = miniKind != FloatingMiniPlayerKind.none
-        ? ref.watch(floatingMiniWindowAnchorProvider)
-        : null;
+    final shortcuts = <ShortcutActivator, VoidCallback>{
+      const SingleActivator(LogicalKeyboardKey.keyK, control: true):
+          _activateSearch,
+    };
 
     if (KonataAdaptiveTokens.isAndroid) {
+      final miniKind = ref.watch(activeFloatingMiniPlayerKindProvider);
+      final miniAnchor = miniKind != FloatingMiniPlayerKind.none
+          ? ref.watch(floatingMiniWindowAnchorProvider)
+          : null;
       final hidden =
           ref.watch(capsuleNavigationHiddenProvider) ||
           ref.watch(immersiveAudioExpandedProvider) ||
@@ -69,47 +79,34 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         miniKind: miniKind,
         normalizedMiniAnchor: miniAnchor,
       );
+      final canvasColor = context.palette.isDark
+          ? KonataTheme.cinemaObsidian
+          : KonataTheme.themePreviewLightCanvas;
       return CallbackShortcuts(
-        bindings: {
-          const SingleActivator(LogicalKeyboardKey.keyK, control: true):
-              _activateSearch,
-        },
+        bindings: shortcuts,
         child: KonataBottomClearanceScope(
           bottomClearance: geometry.bottomClearance,
           child: Scaffold(
-            backgroundColor: context.palette.isDark
-                ? KonataTheme.cinemaObsidian
-                : KonataTheme.themePreviewLightCanvas,
+            backgroundColor: canvasColor,
             body: Stack(
               children: [
                 Positioned.fill(
-                  child: RepaintBoundary(
-                    child: Padding(
-                      padding: EdgeInsets.only(left: geometry.leftClearance),
-                      child: SafeArea(
-                        bottom: false,
-                        child: KonataKeepAliveTabSwitcher(
-                          activeIndex: activeSection.index,
-                          children: const [
-                            LibraryPage(),
-                            SourcesPage(),
-                            PlaybackHistoryPage(),
-                            SettingsPage(),
-                          ],
-                        ),
-                      ),
+                  left: geometry.leftClearance,
+                  child: SafeArea(
+                    bottom: false,
+                    child: _ShellTabBodySlot(
+                      pages: _mainPages,
+                      scrimFadeColor: canvasColor,
                     ),
                   ),
                 ),
                 if (!hidden)
                   Positioned.fromRect(
                     rect: geometry.navigationRect,
-                    child: CapsuleNavigation(
-                      vertical: geometry.verticalNavigation,
-                      selectedIndex: activeSection.index,
-                      onSelected: (index) =>
-                          ref.read(selectedNavSectionProvider.notifier).state =
-                              KonataNavSection.values[index],
+                    child: RepaintBoundary(
+                      child: _AndroidCapsuleNavSlot(
+                        vertical: geometry.verticalNavigation,
+                      ),
                     ),
                   ),
               ],
@@ -118,14 +115,11 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         ),
       );
     }
-    final searchQuery = ref.watch(librarySearchQueryProvider);
+
     final desktopBottomClearance = ref.watch(miniAudioBottomClearanceProvider);
     final topNavBuilder = ref.watch(desktopTopNavBarBuilderProvider);
     return CallbackShortcuts(
-      bindings: {
-        const SingleActivator(LogicalKeyboardKey.keyK, control: true):
-            _activateSearch,
-      },
+      bindings: shortcuts,
       child: KonataBottomClearanceScope(
         bottomClearance: desktopBottomClearance,
         child: Scaffold(
@@ -135,43 +129,18 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
               children: [
                 if (topNavBuilder != null)
                   RepaintBoundary(
-                    child: topNavBuilder(
-                      activeSection: activeSection,
-                      onSectionChanged: (section) {
-                        ref.read(selectedNavSectionProvider.notifier).state =
-                            section;
-                      },
-                      searchQuery: searchQuery,
-                      onSearchChanged: (value) {
-                        ref.read(librarySearchQueryProvider.notifier).state =
-                            value;
-                      },
+                    child: _DesktopTopNavSlot(
+                      topNavBuilder: topNavBuilder,
                       searchFocusNode: _searchFocusNode,
                       searchExpanded: _searchExpanded,
                       onSearchExpandedChanged: (expanded) {
                         setState(() => _searchExpanded = expanded);
                       },
-                      onToggleTheme: () {
-                        final brightness = MediaQuery.platformBrightnessOf(
-                          context,
-                        );
-                        ref
-                            .read(themeModeProvider.notifier)
-                            .toggleLightDark(brightness);
-                      },
                     ),
                   ),
-                Expanded(
+                const Expanded(
                   child: ClipRect(
-                    child: KonataKeepAliveTabSwitcher(
-                      activeIndex: activeSection.index,
-                      children: const [
-                        LibraryPage(),
-                        SourcesPage(),
-                        PlaybackHistoryPage(),
-                        SettingsPage(),
-                      ],
-                    ),
+                    child: _ShellTabBodySlot(pages: _mainPages),
                   ),
                 ),
               ],
@@ -179,6 +148,81 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// 仅订阅主导航选中索引的页面切换槽位，切页零触发外层壳体与几何重算。
+class _ShellTabBodySlot extends ConsumerWidget {
+  const _ShellTabBodySlot({required this.pages, this.scrimFadeColor});
+
+  final List<Widget> pages;
+  final Color? scrimFadeColor;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final activeIndex = ref.watch(selectedNavSectionProvider).index;
+    return KonataKeepAliveTabSwitcher(
+      activeIndex: activeIndex,
+      scrimFadeColor: scrimFadeColor,
+      children: pages,
+    );
+  }
+}
+
+/// Android 胶囊导航叶子订阅槽位，独立隔离于外层壳体。
+class _AndroidCapsuleNavSlot extends ConsumerWidget {
+  const _AndroidCapsuleNavSlot({required this.vertical});
+
+  final bool vertical;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final activeIndex = ref.watch(selectedNavSectionProvider).index;
+    return CapsuleNavigation(
+      vertical: vertical,
+      selectedIndex: activeIndex,
+      onSelected: (index) =>
+          ref.read(selectedNavSectionProvider.notifier).state =
+              KonataNavSection.values[index],
+    );
+  }
+}
+
+/// Windows 顶部导航栏叶子订阅槽位，避免搜索词或切页触发壳层整树重建。
+class _DesktopTopNavSlot extends ConsumerWidget {
+  const _DesktopTopNavSlot({
+    required this.topNavBuilder,
+    required this.searchFocusNode,
+    required this.searchExpanded,
+    required this.onSearchExpandedChanged,
+  });
+
+  final DesktopTopNavBarBuilder topNavBuilder;
+  final FocusNode searchFocusNode;
+  final bool searchExpanded;
+  final ValueChanged<bool> onSearchExpandedChanged;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final activeSection = ref.watch(selectedNavSectionProvider);
+    final searchQuery = ref.watch(librarySearchQueryProvider);
+    return topNavBuilder(
+      activeSection: activeSection,
+      onSectionChanged: (section) {
+        ref.read(selectedNavSectionProvider.notifier).state = section;
+      },
+      searchQuery: searchQuery,
+      onSearchChanged: (value) {
+        ref.read(librarySearchQueryProvider.notifier).state = value;
+      },
+      searchFocusNode: searchFocusNode,
+      searchExpanded: searchExpanded,
+      onSearchExpandedChanged: onSearchExpandedChanged,
+      onToggleTheme: () {
+        final brightness = MediaQuery.platformBrightnessOf(context);
+        ref.read(themeModeProvider.notifier).toggleLightDark(brightness);
+      },
     );
   }
 }

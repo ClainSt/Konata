@@ -220,6 +220,15 @@ void main() {
       );
       expect(h264Main8.allowHardwareDecode, isTrue);
 
+      // 严防将 H.264 规范全称 "MPEG-4 part 10" 误判为 Hi10P 10-bit 而关闭 8-bit 硬解。
+      final h264Part10Desc = HwdecSafetyPolicy.evaluate(
+        platform: HwdecPlatformKind.windows,
+        videoCodec: 'h264 (H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10)',
+        videoProfile: 'h264 (H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10)',
+        pixelFormat: 'yuv420p',
+      );
+      expect(h264Part10Desc.allowHardwareDecode, isTrue);
+
       final hevc12Win = HwdecSafetyPolicy.evaluate(
         platform: HwdecPlatformKind.windows,
         videoCodec: 'hevc',
@@ -288,6 +297,70 @@ void main() {
       expect(client.stringProps['vd-lavc-threads'], equals('0'));
       expect(session.isUsingSoftwareFallback, isTrue);
       expect(notices.any((m) => m.contains('Hi10P')), isTrue);
+      expect(
+        client.commands.any((cmd) => cmd.length == 1 && cmd.first == 'video-reload'),
+        isTrue,
+      );
+    });
+
+    test('移动端在未解码出像素格式前通过轨道档位识别 HEVC Rext 并触发 video-reload 软解', () async {
+      final tempDir = await Directory.systemTemp.createTemp('konata_step2_rext_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      final storage = StorageRootService(overrideRoot: tempDir);
+      final bridge = LocalStreamBridge(storageRoot: storage);
+      addTearDown(bridge.dispose);
+
+      // 模拟真实 MediaCodec 尚未输出首帧（video-params/pixelformat 缺失）但解复用轨道已上报 Rext 档位。
+      final client = _Step2FakeMpvClient()
+        ..stringProps['current-tracks/video/codec'] = 'hevc'
+        ..stringProps['current-tracks/video/codec-profile'] = 'Rext';
+      final notices = <String>[];
+
+      final session = EmbeddedMpvSession(
+        storageRoot: storage,
+        streamBridge: bridge,
+        clientFactory: () => client,
+      )..onNotice = notices.add;
+      addTearDown(session.dispose);
+
+      const variant = MediaVariant(
+        id: 'v_rext',
+        workId: 'w_rext',
+        sourceId: 's_rext',
+        relativePath: 'g06_main12.mkv',
+        fileName: 'g06_main12.mkv',
+        fileSize: 4096,
+      );
+
+      await session.initializeAndLoad(
+        request: const EmbeddedVideoLoadRequest(
+          workId: 'w_rext',
+          variant: variant,
+        ),
+        qualityConfig: const PlaybackQualityConfig(),
+        androidSurfaceSupplier: () async => _Step2FakeAndroidSurface(
+          const AndroidSurfaceDescriptor(
+            wid: 89,
+            width: 3840,
+            height: 2160,
+            hdrPeak: 1000,
+          ),
+        ),
+      );
+
+      client.emitEvent(const MpvFileLoadedEvent());
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(client.stringProps['hwdec'], equals('no'));
+      expect(client.stringProps['vd-lavc-threads'], equals('0'));
+      expect(session.isUsingSoftwareFallback, isTrue);
+      expect(
+        client.commands.any((cmd) => cmd.length == 1 && cmd.first == 'video-reload'),
+        isTrue,
+      );
+      expect(notices.any((m) => m.contains('Rext')), isTrue);
     });
   });
 

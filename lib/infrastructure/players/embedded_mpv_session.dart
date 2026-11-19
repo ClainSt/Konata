@@ -459,6 +459,18 @@ class EmbeddedMpvSession {
     _firstFrameWatchdogReboundOnce = false;
     _firstFrameWatchdogTimer?.cancel();
     _hwdecFallbackAttempted = false;
+    if (_hwdecWasEnabled && _usingSoftwareFallback) {
+      _usingSoftwareFallback = false;
+      client.setPropertyString(
+        'hwdec',
+        MpvQualityProfile.resolveHwdecValue(
+          config: _lastQualityConfig,
+          isWindows: Platform.isWindows,
+          isAndroid: _useAndroidSurfaceSession,
+          desktopDelegate: desktopProfileDelegate,
+        ),
+      );
+    }
     _lastPositionSeconds = request.startSeconds > 0
         ? request.startSeconds.toDouble()
         : 0.0;
@@ -612,16 +624,31 @@ class EmbeddedMpvSession {
             )) {
           return;
         }
-        _hasRestartedFirstFrame = true;
-        _firstFrameWatchdogTimer?.cancel();
-        _suppressBufferingUntil = null;
-        onFirstFrameRendered?.call();
-        onBufferingChanged?.call(false);
+        if (_hasDecodedVideoFrame()) {
+          _hasRestartedFirstFrame = true;
+          _firstFrameWatchdogTimer?.cancel();
+          _suppressBufferingUntil = null;
+          onFirstFrameRendered?.call();
+          onBufferingChanged?.call(false);
+        } else if (_hwdecWasEnabled && !_hwdecFallbackAttempted) {
+          // 音频已起播但硬件解码尚未产出任何像素帧，缩短看门狗以便迅速回落软解。
+          _scheduleFirstFrameWatchdog(
+            delay: const Duration(milliseconds: 450),
+          );
+        }
         _syncHwdecCurrent();
         _emitMediaMetadataSnapshot();
       case MpvVideoReconfigEvent():
-        _firstFrameWatchdogTimer?.cancel();
         _enforceHwdecSafetyPolicy();
+        if (_hasDecodedVideoFrame()) {
+          _firstFrameWatchdogTimer?.cancel();
+          if (!_hasRestartedFirstFrame && _fileLoadedForCurrentGen) {
+            _hasRestartedFirstFrame = true;
+            _suppressBufferingUntil = null;
+            onFirstFrameRendered?.call();
+            onBufferingChanged?.call(false);
+          }
+        }
         _syncHwdecCurrent();
         _emitMediaMetadataSnapshot();
       case MpvAudioReconfigEvent():
@@ -658,15 +685,19 @@ class EmbeddedMpvSession {
       return;
     }
     final codec =
+        client.getPropertyString('current-tracks/video/codec') ??
         client.getPropertyString('video-format') ??
         client.getPropertyString('video-codec') ??
         '';
     final profile =
-        client.getPropertyString('video-params/profile') ??
-        client.getPropertyString('video-codec') ??
-        '';
-    final pixfmt = client.getPropertyString('video-params/pixelformat');
-    final hwPixfmt = client.getPropertyString('video-params/hw-pixelformat');
+        client.getPropertyString('current-tracks/video/codec-profile') ??
+        client.getPropertyString('video-params/profile');
+    final pixfmt =
+        client.getPropertyString('video-params/pixelformat') ??
+        client.getPropertyString('video-dec-params/pixelformat');
+    final hwPixfmt =
+        client.getPropertyString('video-params/hw-pixelformat') ??
+        client.getPropertyString('video-dec-params/hw-pixelformat');
     final platform = _useAndroidSurfaceSession
         ? HwdecPlatformKind.android
         : (Platform.isWindows
@@ -686,6 +717,11 @@ class EmbeddedMpvSession {
     _usingSoftwareFallback = true;
     client.setPropertyString('hwdec', 'no');
     client.setPropertyString('vd-lavc-threads', '0');
+    if (_useAndroidSurfaceSession) {
+      // 移动端硬件解码器对 HEVC Rext/Main12 等伪支持流可能已卡死首帧，
+      // 主动重载视频轨即可立即销毁硬解实例并无缝切入多线程软解。
+      client.command(['video-reload']);
+    }
     logStore?.record(
       'mpv-hwdec-guard',
       'rule=${decision.matchedRule} codec=$codec profile=$profile pixfmt=$pixfmt hw=$hwPixfmt -> hwdec=no',
@@ -778,12 +814,33 @@ class EmbeddedMpvSession {
     }
   }
 
+  bool _hasDecodedVideoFrame() {
+    if (!_useAndroidSurfaceSession || !_videoTrackEnabled) {
+      return true;
+    }
+    final client = _client;
+    if (client == null || client.isDisposed) return false;
+    final pixfmt =
+        client.getPropertyString('video-out-params/pixelformat') ??
+        client.getPropertyString('video-params/pixelformat') ??
+        '';
+    final width =
+        client.getPropertyInt64('video-out-params/w') ??
+        client.getPropertyInt64('video-params/w') ??
+        0;
+    return pixfmt.isNotEmpty && width > 0;
+  }
+
   void _handleEndFile(MpvEndFileEvent event) {
     if (onValidatePhysicalEvent != null &&
         !onValidatePhysicalEvent!(playlistEntryId: event.playlistEntryId)) {
       return;
     }
-    if (event.reason == MpvEndFileReason.error &&
+    final isSilentHwdecDrop =
+        _useAndroidSurfaceSession &&
+        _videoTrackEnabled &&
+        event.reason == MpvEndFileReason.eof;
+    if ((event.reason == MpvEndFileReason.error || isSilentHwdecDrop) &&
         _hwdecWasEnabled &&
         !_hwdecFallbackAttempted &&
         !_hasRestartedFirstFrame) {
@@ -804,9 +861,17 @@ class EmbeddedMpvSession {
     }
     _hwdecFallbackAttempted = true;
     _usingSoftwareFallback = true;
+    _firstFrameWatchdogTimer?.cancel();
     client.setPropertyString('hwdec', 'no');
-    if (_lastPositionSeconds > 0.5) {
+    client.setPropertyString('vd-lavc-threads', '0');
+    final canPreservePos =
+        _lastPositionSeconds > 0.5 &&
+        (_totalDurationSeconds <= 0 ||
+            _lastPositionSeconds < _totalDurationSeconds - 1.0);
+    if (canPreservePos) {
       client.setPropertyDouble('start', _lastPositionSeconds);
+    } else {
+      client.setPropertyString('start', 'none');
     }
     client.setPropertyFlag('pause', false);
     client.command(['loadfile', _currentMediaTarget, 'replace']);
@@ -1044,10 +1109,6 @@ class EmbeddedMpvSession {
       _boundAndroidHeight = 0;
       _boundAndroidHdrPeak = -1;
     }
-    if (androidSurf != null) {
-      await androidSurf.releaseSurface();
-      await androidSurf.dispose();
-    }
 
     final client = _client;
     _client = null;
@@ -1057,6 +1118,12 @@ class EmbeddedMpvSession {
         client.setPropertyString('wid', '0');
       }
       await client.dispose();
+    }
+
+    // 必须待 libmpv 原生线程完全终止后再释放 Android 底层表面与 JNI 全局引用，杜绝跨线程悬垂访问。
+    if (androidSurf != null) {
+      await androidSurf.releaseSurface();
+      await androidSurf.dispose();
     }
 
     if (wasGpuNextUnderlay &&

@@ -2,13 +2,15 @@ import 'package:flutter/material.dart';
 
 import '../../theme/konata_theme.dart';
 
-/// 顶栏四主页面共用的「首次访问懒加载 + 常驻保活 + 方向感轻量切换」容器。
+/// 顶栏四主页面共用的「首次访问懒加载 + 常驻保活 + 引擎原生合成层轻量切换」容器。
 ///
 /// 特性：
 /// - 闲置页面保持挂载以 100% 保留滚动位置与状态，同时自动施加
 ///   `Offstage` + `TickerMode(enabled: false)` + `IgnorePointer` + `ExcludeFocus` 零绘制休眠；
-/// - 切换页签时按方向执行 `220ms` `Curves.easeOutCubic` 滑入淡入与微移淡出，
-///   支持中途连点无缝接力，静息态不挂载动画监听与额外离屏合成层。
+/// - 切页过渡改由 `SlideTransition` 在原生合成层驱动（0 次逐帧 Widget 重建）；
+///   实底画布模式（传入 `scrimFadeColor`）以零离屏 `saveLayer` 的单次画布遮罩实现数学等价淡入，
+///   彻底消除高分屏全屏离屏纹理拷贝引发的光栅 P99 毛刺；透明桌面材质模式则采用单层 `FadeTransition`；
+/// - 静息态绑定常量动画 `kAlwaysCompleteAnimation` / `_kZeroOffsetAnimation`，彻底跳过离屏层分配。
 class KonataKeepAliveTabSwitcher extends StatefulWidget {
   /// 创建保状态方向感页面切换容器。
   const KonataKeepAliveTabSwitcher({
@@ -18,6 +20,7 @@ class KonataKeepAliveTabSwitcher extends StatefulWidget {
     this.duration = KonataTheme.tabSwitchDuration,
     this.incomingSlidePixels = 16.0,
     this.outgoingSlidePixels = 10.0,
+    this.scrimFadeColor,
   });
 
   /// 当前激活页面索引。
@@ -32,8 +35,11 @@ class KonataKeepAliveTabSwitcher extends StatefulWidget {
   /// 新页面滑入起始水平像素偏移量。
   final double incomingSlidePixels;
 
-  /// 旧页面淡出终止水平像素偏移量。
+  /// 旧页面淡出终止水平像素偏移量（保留参数以兼容外部契约）。
   final double outgoingSlidePixels;
+
+  /// 可选实底画布淡入遮罩色；非空时用零 `saveLayer` 顶层同色遮罩等价替代 `FadeTransition`。
+  final Color? scrimFadeColor;
 
   @override
   State<KonataKeepAliveTabSwitcher> createState() =>
@@ -43,11 +49,15 @@ class KonataKeepAliveTabSwitcher extends StatefulWidget {
 class _KonataKeepAliveTabSwitcherState
     extends State<KonataKeepAliveTabSwitcher>
     with SingleTickerProviderStateMixin {
+  static const AlwaysStoppedAnimation<Offset> _kZeroOffsetAnimation =
+      AlwaysStoppedAnimation<Offset>(Offset.zero);
+
   late final AnimationController _animCtrl;
-  late final Animation<double> _curved;
+  late final CurvedAnimation _curved;
+  late Animation<Offset> _incomingSlide;
   late List<bool> _mountedFlags;
   late List<Widget> _wrappedChildren;
-  int? _leavingIndex;
+  bool _animating = false;
   double _direction = 1.0;
 
   @override
@@ -63,15 +73,27 @@ class _KonataKeepAliveTabSwitcherState
       parent: _animCtrl,
       curve: Curves.easeOutCubic,
     );
-    _animCtrl.addStatusListener((status) {
-      if (status == AnimationStatus.completed && _leavingIndex != null) {
-        if (mounted) {
-          setState(() => _leavingIndex = null);
-        } else {
-          _leavingIndex = null;
-        }
+    _incomingSlide = _buildIncomingSlide(_direction);
+    _animCtrl.addStatusListener(_handleAnimationStatus);
+  }
+
+  Animation<Offset> _buildIncomingSlide(double direction) {
+    // 使用轻量分数位移近似 16px 水平滑入，完全跳过逐帧 Widget build。
+    final fractionalDx = (widget.incomingSlidePixels / 800.0).clamp(0.01, 0.04);
+    return Tween<Offset>(
+      begin: Offset(direction * fractionalDx, 0.0),
+      end: Offset.zero,
+    ).animate(_curved);
+  }
+
+  void _handleAnimationStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed && _animating) {
+      if (mounted) {
+        setState(() => _animating = false);
+      } else {
+        _animating = false;
       }
-    });
+    }
   }
 
   void _initChildrenCache() {
@@ -104,12 +126,13 @@ class _KonataKeepAliveTabSwitcherState
     if (oldWidget.activeIndex != widget.activeIndex) {
       _mountedFlags[widget.activeIndex] = true;
       _direction = widget.activeIndex >= oldWidget.activeIndex ? 1.0 : -1.0;
+      _incomingSlide = _buildIncomingSlide(_direction);
       final disableAnim = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
       if (disableAnim || widget.duration == Duration.zero) {
-        _leavingIndex = null;
+        _animating = false;
         _animCtrl.value = 1.0;
       } else {
-        _leavingIndex = oldWidget.activeIndex;
+        _animating = true;
         _animCtrl.duration = widget.duration;
         _animCtrl.forward(from: 0.0);
       }
@@ -118,64 +141,90 @@ class _KonataKeepAliveTabSwitcherState
 
   @override
   void dispose() {
+    _animCtrl.removeStatusListener(_handleAnimationStatus);
+    _curved.dispose();
     _animCtrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final scrimColor = widget.scrimFadeColor;
+    final useScrimFade = scrimColor != null;
     return Stack(
       fit: StackFit.expand,
       children: [
         for (var i = 0; i < _wrappedChildren.length; i++)
-          if (_mountedFlags[i]) _buildSlot(i),
+          if (_mountedFlags[i] && i != widget.activeIndex)
+            _buildSlot(i, useScrimFade: useScrimFade),
+        if (_mountedFlags[widget.activeIndex])
+          _buildSlot(widget.activeIndex, useScrimFade: useScrimFade),
+        if (useScrimFade && _animating)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: CustomPaint(
+                painter: _ScrimFadePainter(
+                  animation: _curved,
+                  color: scrimColor,
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }
 
-  Widget _buildSlot(int index) {
+  Widget _buildSlot(int index, {required bool useScrimFade}) {
     final isActive = index == widget.activeIndex;
-    final isLeaving = index == _leavingIndex;
-    final visible = isActive || isLeaving;
-    final animating = visible && _leavingIndex != null;
+    final animatingIn = isActive && _animating;
 
-    // 保持 Widget 树层级结构在进场、退场与静息态完全一致，防止 Opacity/Transform
-    // 增删拆装子树导致子页面 State 与列表 ScrollPosition 被意外销毁重建。
+    // 保持 Widget 树层级结构在进场与静息态完全一致，防止子页面 State 与
+    // 列表 ScrollPosition 被拆装重建；切页时旧页立即休眠离屏，仅对进场页施加单层原生合成过渡。
     return Offstage(
-      offstage: !visible,
+      key: ValueKey<int>(index),
+      offstage: !isActive,
       child: IgnorePointer(
         ignoring: !isActive,
         child: ExcludeFocus(
           excluding: !isActive,
           child: TickerMode(
             enabled: isActive,
-            child: AnimatedBuilder(
-              animation: animating ? _curved : kAlwaysCompleteAnimation,
-              child: _wrappedChildren[index],
-              builder: (_, child) {
-                var opacity = 1.0;
-                var dx = 0.0;
-                if (isActive && _leavingIndex != null) {
-                  final t = _curved.value.clamp(0.0, 1.0);
-                  opacity = t;
-                  dx = _direction * widget.incomingSlidePixels * (1.0 - t);
-                } else if (isLeaving) {
-                  final t = _curved.value.clamp(0.0, 1.0);
-                  opacity = 1.0 - t;
-                  dx = -_direction * widget.outgoingSlidePixels * t;
-                }
-                return Opacity(
-                  opacity: opacity,
-                  child: Transform.translate(
-                    offset: Offset(dx, 0),
-                    child: child,
-                  ),
-                );
-              },
+            child: FadeTransition(
+              opacity: (!useScrimFade && animatingIn)
+                  ? _curved
+                  : kAlwaysCompleteAnimation,
+              child: SlideTransition(
+                position: animatingIn ? _incomingSlide : _kZeroOffsetAnimation,
+                child: _wrappedChildren[index],
+              ),
             ),
           ),
         ),
       ),
     );
+  }
+}
+
+/// 实底画布等价淡入绘制器：以单次矩形混色替代全屏 `OpacityLayer`，0 次 Widget 重建且 0 离屏纹理。
+class _ScrimFadePainter extends CustomPainter {
+  _ScrimFadePainter({required this.animation, required this.color})
+    : super(repaint: animation);
+
+  final Animation<double> animation;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final alpha = (1.0 - animation.value).clamp(0.0, 1.0);
+    if (alpha <= 0.001) return;
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()..color = color.withValues(alpha: alpha),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_ScrimFadePainter oldDelegate) {
+    return oldDelegate.color != color || oldDelegate.animation != animation;
   }
 }

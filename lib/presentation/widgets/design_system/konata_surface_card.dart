@@ -2,22 +2,22 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../theme/konata_adaptive_tokens.dart';
 import '../../theme/konata_palette.dart';
-import 'adaptive_responsive_row.dart';
 import '../../theme/konata_theme.dart';
-
-final ValueNotifier<Object?> _activeHoveredTileToken = ValueNotifier<Object?>(
-  null,
-);
+import 'adaptive_responsive_row.dart';
 
 /// 全站统一圆角 `12px` 半透明微光卡片容器，直接透出底层系统 DWM 光影。
+///
+/// 静态卡片（`enableHover == false`）直接渲染轻量 `DecoratedBox` + `Padding`，
+/// 避免为全站静态设置项与信息卡片分配多余的 `AnimationController` 与 Ticker。
 class KonataSurfaceCard extends StatefulWidget {
   /// 创建微光描边卡片容器。
   const KonataSurfaceCard({
     super.key,
     required this.child,
     this.padding = const EdgeInsets.all(18),
-    this.radius = 12,
+    this.radius = KonataTheme.radiusCard,
     this.enableHover = false,
     this.backgroundColor,
     this.borderColor,
@@ -51,27 +51,38 @@ class _KonataSurfaceCardState extends State<KonataSurfaceCard> {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final radius = widget.radius == KonataTheme.radiusCard
+        ? KonataTheme.borderRadiusCard
+        : BorderRadius.circular(widget.radius);
+
+    if (!widget.enableHover) {
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          color: widget.backgroundColor ?? p.surface,
+          borderRadius: radius,
+          border: Border.all(
+            color: widget.borderColor ?? p.hairline,
+            width: 1,
+          ),
+        ),
+        child: Padding(padding: widget.padding, child: widget.child),
+      );
+    }
+
     final box = AnimatedContainer(
       duration: KonataTheme.motionMicro,
       padding: widget.padding,
       decoration: BoxDecoration(
-        color:
-            widget.backgroundColor ??
-            (widget.enableHover && _hovered ? p.surfaceHover : p.surface),
-        borderRadius: BorderRadius.circular(widget.radius),
+        color: widget.backgroundColor ?? (_hovered ? p.surfaceHover : p.surface),
+        borderRadius: radius,
         border: Border.all(
-          color:
-              widget.borderColor ??
-              (widget.enableHover && _hovered ? p.hoverBorder : p.hairline),
+          color: widget.borderColor ?? (_hovered ? p.hoverBorder : p.hairline),
           width: 1,
         ),
       ),
       child: widget.child,
     );
 
-    if (!widget.enableHover) {
-      return box;
-    }
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
@@ -124,156 +135,170 @@ class KonataListTile extends StatefulWidget {
 }
 
 class _KonataListTileState extends State<KonataListTile> {
-  final Object _token = Object();
-
-  @override
-  void dispose() {
-    if (identical(_activeHoveredTileToken.value, _token)) {
-      _activeHoveredTileToken.value = null;
-    }
-    super.dispose();
-  }
+  bool _hovered = false;
 
   void _setHovered(bool hovered) {
-    if (widget.onTap == null) {
-      if (identical(_activeHoveredTileToken.value, _token)) {
-        _activeHoveredTileToken.value = null;
-      }
-      return;
+    if (_hovered == hovered || !mounted) return;
+    setState(() => _hovered = hovered);
+  }
+
+  Widget _buildContent(BuildContext context, KonataPalette p) {
+    final titleBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          widget.title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: p.textPrimary,
+            fontSize: KonataTheme.fontSizeSubtitle,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        if (widget.subtitle != null && widget.subtitle!.isNotEmpty) ...[
+          const SizedBox(height: 3),
+          Text(
+            widget.subtitle!,
+            maxLines: 4,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: p.textSecondary,
+              fontSize: KonataTheme.fontSizeBodyXs,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ],
+    );
+
+    if (widget.trailing == null) {
+      return Row(
+        children: [
+          if (widget.leading != null) ...[
+            widget.leading!,
+            const SizedBox(width: 14),
+          ],
+          Expanded(child: titleBlock),
+        ],
+      );
     }
-    if (hovered) {
-      if (!identical(_activeHoveredTileToken.value, _token)) {
-        _activeHoveredTileToken.value = _token;
+
+    final leadingRow = Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        if (widget.leading != null) ...[
+          widget.leading!,
+          const SizedBox(width: 14),
+        ],
+        Expanded(child: titleBlock),
+      ],
+    );
+
+    final scale = (MediaQuery.textScalerOf(context).scale(14.0) / 14.0).clamp(
+      1.0,
+      1.45,
+    );
+    final hasSubtitle = widget.subtitle != null && widget.subtitle!.isNotEmpty;
+    var minLead = widget.leading != null ? 176.0 : 140.0;
+    if (!hasSubtitle) {
+      final titlePainter = TextPainter(
+        text: TextSpan(
+          text: widget.title,
+          style: DefaultTextStyle.of(context).style.merge(
+            const TextStyle(
+              fontSize: KonataTheme.fontSizeSubtitle,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        maxLines: 1,
+        textDirection: Directionality.maybeOf(context) ?? TextDirection.ltr,
+        textScaler: MediaQuery.textScalerOf(context),
+      )..layout();
+      final iconSpace = widget.leading != null ? 40.0 : 4.0;
+      final singleLineNeeded = (titlePainter.width + iconSpace) / scale;
+      if (singleLineNeeded < minLead) {
+        minLead = math.max(88.0, singleLineNeeded);
       }
-    } else if (identical(_activeHoveredTileToken.value, _token)) {
-      _activeHoveredTileToken.value = null;
     }
+
+    return AdaptiveResponsiveRow(
+      leading: leadingRow,
+      trailing: widget.trailing!,
+      estimatedTrailingWidth: widget.estimatedTrailingWidth,
+      minLeadingWidth: minLead,
+      expandTrailingWhenStacked: widget.expandTrailingWhenStacked,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
     final clickable = widget.onTap != null;
-    final hoverFill = KonataTheme.surfaceCardSubtleBorder(p);
-    final idleFill = hoverFill.withValues(alpha: 0.0);
+    final content = Padding(
+      padding: widget.padding,
+      child: _buildContent(context, p),
+    );
 
+    // 不可点击行或触屏 Android 直接跳过鼠标悬停监听与动画控制器，降低列表重建与内存开销。
+    if (!clickable) {
+      return content;
+    }
+    if (KonataAdaptiveTokens.isAndroid) {
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: content,
+      );
+    }
+
+    final hoverFill = KonataTheme.surfaceCardSubtleBorder(p);
     return MouseRegion(
-      cursor: clickable ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => _setHovered(true),
-      onHover: (_) => _setHovered(true),
       onExit: (_) => _setHovered(false),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
-        child: ValueListenableBuilder<Object?>(
-          valueListenable: _activeHoveredTileToken,
-          builder: (context, activeToken, child) {
-            final isHovered = clickable && identical(activeToken, _token);
-            return AnimatedContainer(
-              duration: KonataTheme.motionSnap,
-              curve: Curves.easeOut,
-              padding: widget.padding,
-              decoration: BoxDecoration(
-                color: isHovered ? hoverFill : idleFill,
-                borderRadius: KonataTheme.borderRadiusCard,
-              ),
-              child: child,
-            );
-          },
-          child: Builder(
-            builder: (context) {
-              final titleBlock = Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    widget.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: p.textPrimary,
-                      fontSize: KonataTheme.fontSizeSubtitle,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (widget.subtitle != null &&
-                      widget.subtitle!.isNotEmpty) ...[
-                    const SizedBox(height: 3),
-                    Text(
-                      widget.subtitle!,
-                      maxLines: 4,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: p.textSecondary,
-                        fontSize: KonataTheme.fontSizeBodyXs,
-                        height: 1.4,
-                      ),
-                    ),
-                  ],
-                ],
-              );
-
-              if (widget.trailing == null) {
-                return Row(
-                  children: [
-                    if (widget.leading != null) ...[
-                      widget.leading!,
-                      const SizedBox(width: 14),
-                    ],
-                    Expanded(child: titleBlock),
-                  ],
-                );
-              }
-
-              final leadingRow = Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  if (widget.leading != null) ...[
-                    widget.leading!,
-                    const SizedBox(width: 14),
-                  ],
-                  Expanded(child: titleBlock),
-                ],
-              );
-
-              final scale = (MediaQuery.textScalerOf(context).scale(14.0) / 14.0)
-                  .clamp(1.0, 1.45);
-              final hasSubtitle =
-                  widget.subtitle != null && widget.subtitle!.isNotEmpty;
-              var minLead = widget.leading != null ? 176.0 : 140.0;
-              if (!hasSubtitle) {
-                final titlePainter = TextPainter(
-                  text: TextSpan(
-                    text: widget.title,
-                    style: DefaultTextStyle.of(context).style.merge(
-                      const TextStyle(
-                        fontSize: KonataTheme.fontSizeSubtitle,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  maxLines: 1,
-                  textDirection:
-                      Directionality.maybeOf(context) ?? TextDirection.ltr,
-                  textScaler: MediaQuery.textScalerOf(context),
-                )..layout();
-                final iconSpace = widget.leading != null ? 40.0 : 4.0;
-                final singleLineNeeded =
-                    (titlePainter.width + iconSpace) / scale;
-                if (singleLineNeeded < minLead) {
-                  minLead = math.max(88.0, singleLineNeeded);
-                }
-              }
-
-              return AdaptiveResponsiveRow(
-                leading: leadingRow,
-                trailing: widget.trailing!,
-                estimatedTrailingWidth: widget.estimatedTrailingWidth,
-                minLeadingWidth: minLead,
-                expandTrailingWhenStacked: widget.expandTrailingWhenStacked,
-              );
-            },
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: _hovered ? hoverFill : Colors.transparent,
+            borderRadius: KonataTheme.borderRadiusCard,
           ),
+          child: content,
+        ),
+      ),
+    );
+  }
+}
+
+/// 表单/列表分组区标题。
+class KonataSectionLabel extends StatelessWidget {
+  /// 创建分组标题。
+  const KonataSectionLabel({
+    super.key,
+    required this.text,
+    this.padding = const EdgeInsets.only(bottom: 8),
+  });
+
+  /// 标题文本。
+  final String text;
+
+  /// 外边距。
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Padding(
+      padding: padding,
+      child: Text(
+        text,
+        style: KonataTheme.captionStyle(
+          p,
+          fontSize: KonataTheme.fontSizeCaption,
         ),
       ),
     );

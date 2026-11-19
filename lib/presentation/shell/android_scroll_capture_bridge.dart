@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -20,12 +21,10 @@ class ScrollCaptureExclusionInsets extends InheritedWidget {
   /// 当前视图底部悬浮避让高度（逻辑像素）。
   final double bottomInset;
 
-  /// 读取最近的避让值（默认 0）。
+  /// 读取最近的避让值（默认 0，无订阅副作用，可在帧末回调内安全调用）。
   static double bottomOf(BuildContext context) {
     return context
-            .dependOnInheritedWidgetOfExactType<
-              ScrollCaptureExclusionInsets
-            >()
+            .getInheritedWidgetOfExactType<ScrollCaptureExclusionInsets>()
             ?.bottomInset ??
         0.0;
   }
@@ -74,6 +73,7 @@ class _AndroidScrollCaptureScopeState extends State<AndroidScrollCaptureScope>
     with WidgetsBindingObserver {
   static const MethodChannel _channel = MethodChannel('ccplayer/scroll_capture');
 
+  Timer? _syncDebounceTimer;
   bool _syncScheduled = false;
   Rect? _lastSyncedPhysicalBounds;
   double? _lastSyncedDpr;
@@ -110,6 +110,8 @@ class _AndroidScrollCaptureScopeState extends State<AndroidScrollCaptureScope>
 
   @override
   void dispose() {
+    _syncDebounceTimer?.cancel();
+    _syncDebounceTimer = null;
     WidgetsBinding.instance.removeObserver(this);
     if (KonataAdaptiveTokens.isAndroid) {
       _channel.setMethodCallHandler(null);
@@ -135,12 +137,16 @@ class _AndroidScrollCaptureScopeState extends State<AndroidScrollCaptureScope>
   }
 
   void _scheduleSyncMetrics() {
-    if (_syncScheduled || !mounted) return;
-    _syncScheduled = true;
-    SchedulerBinding.instance.addPostFrameCallback((_) {
-      _syncScheduled = false;
-      if (!mounted) return;
-      _syncMetricsNow();
+    if (!mounted) return;
+    _syncDebounceTimer?.cancel();
+    _syncDebounceTimer = Timer(KonataTheme.windowMetricsDebounce, () {
+      if (!mounted || _syncScheduled) return;
+      _syncScheduled = true;
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        _syncScheduled = false;
+        if (!mounted) return;
+        _syncMetricsNow();
+      });
     });
   }
 
@@ -177,7 +183,13 @@ class _AndroidScrollCaptureScopeState extends State<AndroidScrollCaptureScope>
             'rightPx': physicalRect.right.round(),
             'bottomPx': physicalRect.bottom.round(),
           })
-          .catchError((Object _) {}),
+          .catchError((Object error) {
+            developer.log(
+              '更新系统滚动长截屏目标区域忽略',
+              name: 'konata.scroll_capture',
+              error: error,
+            );
+          }),
     );
   }
 

@@ -70,6 +70,7 @@ class KonataStageMorphFrame extends StatefulWidget {
 /// 双向舞台形变状态（暴露只读进度与初速度供组件回归测试精准校验）。
 class KonataStageMorphFrameState extends State<KonataStageMorphFrame>
     with SingleTickerProviderStateMixin {
+  final GlobalKey _stableChildKey = GlobalKey();
   AnimationController? _controller;
   Rect? _anchorRect;
   bool _morphing = false;
@@ -231,19 +232,23 @@ class KonataStageMorphFrameState extends State<KonataStageMorphFrame>
 
   @override
   Widget build(BuildContext context) {
+    final stableChild = KeyedSubtree(
+      key: _stableChildKey,
+      child: widget.child,
+    );
     final ctrl = _controller;
     final anchorRect = _anchorRect;
     if (!_morphing || ctrl == null || anchorRect == null) {
-      return widget.child;
+      return stableChild;
     }
     final fullSize = MediaQuery.sizeOf(context);
     if (fullSize.width <= 0 || fullSize.height <= 0) {
-      return widget.child;
+      return stableChild;
     }
     final endRect = Offset.zero & fullSize;
     return AnimatedBuilder(
       animation: ctrl,
-      child: widget.child,
+      child: stableChild,
       builder: (_, child) {
         final t = ctrl.value.clamp(0.0, 1.0);
         final rect = Rect.lerp(anchorRect, endRect, t) ?? endRect;

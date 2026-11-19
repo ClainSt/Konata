@@ -744,16 +744,19 @@ Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,這個動畫真好看
     test(
       'Windows 真机 libmpv-2.dll 内存直注实证：sub-add memory://... 毫秒级生效且零磁盘临时文件',
       () async {
+        if (!Platform.isWindows) return;
         final dllPath = p.join(
           Directory.current.path,
+          'native',
+          'konata-native',
           'windows',
-          'third_party',
-          'libmpv',
           'libmpv-2.dll',
         );
-        if (!Platform.isWindows || !await File(dllPath).exists()) {
-          return;
-        }
+        expect(
+          File(dllPath).existsSync(),
+          isTrue,
+          reason: 'Windows 环境必须存在真实 libmpv-2.dll，禁止静默跳过',
+        );
         final tempDir = await Directory.systemTemp.createTemp('konata_mpv_mem_');
         final wavFile = File(p.join(tempDir.path, 'probe.wav'));
         await wavFile.writeAsBytes(

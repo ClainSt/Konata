@@ -45,18 +45,19 @@ class KonataApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeProvider);
-    final windowMaterial = ref.watch(windowMaterialProvider);
     final windowHost = ref.watch(konataWindowHostProvider);
-    final platformBrightness = MediaQuery.platformBrightnessOf(context);
-
-    // 联动同步亮/暗主题与窗口材质至平台宿主（Android 端为空操作）
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      windowHost.applyMaterial(
-        themeMode: themeMode,
-        platformBrightness: platformBrightness,
-        material: windowMaterial,
-      );
-    });
+    if (windowHost is! NoopKonataWindowHost) {
+      final windowMaterial = ref.watch(windowMaterialProvider);
+      final platformBrightness = MediaQuery.platformBrightnessOf(context);
+      // 仅在桌面宿主启用时联动同步亮/暗主题与窗口材质，Android 零额外监听与帧回调开销。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        windowHost.applyMaterial(
+          themeMode: themeMode,
+          platformBrightness: platformBrightness,
+          material: windowMaterial,
+        );
+      });
+    }
 
     final navKey = ref.watch(rootNavigatorKeyProvider);
     final routeObserver = ref.watch(rootRouteObserverProvider);

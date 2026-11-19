@@ -90,6 +90,7 @@ class KonataListTile extends StatefulWidget {
     this.trailing,
     this.estimatedTrailingWidth = 68.0,
     this.expandTrailingWhenStacked = false,
+    this.padding = const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
     this.onTap,
   });
 
@@ -110,6 +111,9 @@ class KonataListTile extends StatefulWidget {
 
   /// 自动换位至纵向堆叠时右侧控件是否横向撑满。
   final bool expandTrailingWhenStacked;
+
+  /// 列表行内边距（支持在侧栏中按需收紧）。
+  final EdgeInsetsGeometry padding;
 
   /// 点击整行回调。
   final VoidCallback? onTap;
@@ -169,7 +173,7 @@ class _KonataListTileState extends State<KonataListTile> {
             return AnimatedContainer(
               duration: const Duration(milliseconds: 70),
               curve: Curves.easeOut,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              padding: widget.padding,
               decoration: BoxDecoration(
                 color: isHovered ? hoverFill : idleFill,
                 borderRadius: BorderRadius.circular(12),

@@ -127,7 +127,11 @@ void main() {
           'libmpv-2.dll',
         ),
       );
-      if (!dll.existsSync()) return;
+      expect(
+        dll.existsSync(),
+        isTrue,
+        reason: 'Windows 环境必须存在真实 libmpv-2.dll，禁止静默跳过',
+      );
 
       final tmpDir = await Directory.systemTemp.createTemp('konata_step0_');
       addTearDown(() async {
@@ -278,7 +282,11 @@ void main() {
           'libmpv-2.dll',
         ),
       );
-      if (!dll.existsSync()) return;
+      expect(
+        dll.existsSync(),
+        isTrue,
+        reason: 'Windows 环境必须存在真实 libmpv-2.dll，禁止静默跳过',
+      );
 
       final client = FfiLibMpvClient.create(preferredLibraryPath: dll.path);
       addTearDown(() async {

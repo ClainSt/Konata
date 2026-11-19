@@ -11,6 +11,7 @@ import '../../domain/models/network_config.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_surface_card.dart';
+import '../widgets/design_system/konata_switch.dart';
 import '../widgets/design_system/konata_toast.dart';
 
 /// 关于页面板（真实 Konata 头像、版本 1.0.0、调试日志、异常导出、GitHub Octocat 与 TMDB 声明）。
@@ -121,7 +122,7 @@ class SettingsAboutPanel extends ConsumerWidget {
                     color: p.textSecondary,
                   ),
                 ),
-                trailing: Switch(
+                trailing: KonataSwitch(
                   value: verboseEnabled,
                   onChanged: (value) => ref
                       .read(verboseLoggingProvider.notifier)

@@ -27,6 +27,8 @@ import '../widgets/design_system/konata_dropdown.dart';
 import '../widgets/design_system/konata_glass_side_sheet.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
+import '../widgets/design_system/konata_surface_card.dart';
+import '../widgets/design_system/konata_switch.dart';
 import '../widgets/playback/konata_spec_badge.dart';
 
 /// 右滑侧栏五标签页枚举（覆盖选集、章节、字幕、音轨与画面比例/倍速）。
@@ -779,19 +781,15 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
           ),
           if (KonataAdaptiveTokens.isWindows) ...[
             const SizedBox(height: 12),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(
-                'WASAPI 独占直通',
-                style: TextStyle(color: pPal.textPrimary, fontSize: 13.5),
-              ),
-              subtitle: Text(
-                '绕过系统混音器以比特精确输出源码',
-                style: TextStyle(color: pPal.textMuted, fontSize: 11.5),
-              ),
-              value: prefs.qualityConfig.wasapiExclusive,
-              onChanged: (v) => controller.updateLiveQuality(
-                (c) => c.copyWith(wasapiExclusive: v),
+            KonataListTile(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              title: 'WASAPI 独占直通',
+              subtitle: '绕过系统混音器以比特精确输出源码',
+              trailing: KonataSwitch(
+                value: prefs.qualityConfig.wasapiExclusive,
+                onChanged: (v) => controller.updateLiveQuality(
+                  (c) => c.copyWith(wasapiExclusive: v),
+                ),
               ),
             ),
           ],
@@ -828,34 +826,26 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
             ),
           ),
           const SizedBox(height: 8),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(
-              '硬件视频解码',
-              style: TextStyle(color: pPal.textPrimary, fontSize: 13.5),
-            ),
-            subtitle: Text(
-              '优先使用 D3D11VA / MediaCodec（异常自动切换软解）',
-              style: TextStyle(color: pPal.textMuted, fontSize: 11.5),
-            ),
-            value: prefs.qualityConfig.hardwareDecode,
-            onChanged: (v) => controller.updateLiveQuality(
-              (c) => c.copyWith(hardwareDecode: v),
+          KonataListTile(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            title: '硬件视频解码',
+            subtitle: '优先使用 D3D11VA / MediaCodec（异常自动切换软解）',
+            trailing: KonataSwitch(
+              value: prefs.qualityConfig.hardwareDecode,
+              onChanged: (v) => controller.updateLiveQuality(
+                (c) => c.copyWith(hardwareDecode: v),
+              ),
             ),
           ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(
-              '去色带滤镜 (Deband)',
-              style: TextStyle(color: pPal.textPrimary, fontSize: 13.5),
-            ),
-            subtitle: Text(
-              '平滑低码率动漫暗场渐变色块',
-              style: TextStyle(color: pPal.textMuted, fontSize: 11.5),
-            ),
-            value: prefs.qualityConfig.debandEnabled,
-            onChanged: (v) => controller.updateLiveQuality(
-              (c) => c.copyWith(debandEnabled: v),
+          KonataListTile(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            title: '去色带滤镜 (Deband)',
+            subtitle: '平滑低码率动漫暗场渐变色块',
+            trailing: KonataSwitch(
+              value: prefs.qualityConfig.debandEnabled,
+              onChanged: (v) => controller.updateLiveQuality(
+                (c) => c.copyWith(debandEnabled: v),
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -889,18 +879,14 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
             ],
           ),
           const SizedBox(height: 12),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(
-              '后台纯音频模式',
-              style: TextStyle(color: pPal.textPrimary, fontSize: 13.5),
+          KonataListTile(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            title: '后台纯音频模式',
+            subtitle: '暂停视频画面渲染，仅保留音轨低功耗连续播放',
+            trailing: KonataSwitch(
+              value: state.audioOnlyMode,
+              onChanged: controller.setAudioOnlyMode,
             ),
-            subtitle: Text(
-              '暂停视频画面渲染，仅保留音轨低功耗连续播放',
-              style: TextStyle(color: pPal.textMuted, fontSize: 11.5),
-            ),
-            value: state.audioOnlyMode,
-            onChanged: controller.setAudioOnlyMode,
           ),
           const SizedBox(height: 16),
           _SectionLabel(pPal, 'GLSL 着色器链'),

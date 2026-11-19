@@ -59,8 +59,16 @@ abstract final class KonataTheme {
   static const Duration tabSwitchDuration = Duration(milliseconds: 100);
   static const Duration settingsAutoSaveDebounce = Duration(milliseconds: 300);
 
-  /// 弹窗视口安全边界留白。
+  /// 弹窗视口安全边界留白与通用组件圆角/开关几何令牌。
   static const double dialogViewportMargin = 12.0;
+  static const double radiusControl = 10.0;
+  static const double radiusCard = 12.0;
+  static const double radiusPill = 999.0;
+  static const double switchTrackWidth = 44.0;
+  static const double switchTrackHeight = 24.0;
+  static const double switchThumbSize = 18.0;
+  static const double switchThumbPadding = 3.0;
+  static const double switchOutlineWidth = 1.4;
 
   /// 全局收敛可变字重 Token（去重粗体压迫感）。
   static const double weightH1 = 600.0;
@@ -209,11 +217,14 @@ abstract final class KonataTheme {
     );
   }
 
-  /// 构建深色模式主题。
-  static ThemeData darkTheme() => _buildTheme(KonataPalette.dark);
+  static final ThemeData _cachedDarkTheme = _buildTheme(KonataPalette.dark);
+  static final ThemeData _cachedLightTheme = _buildTheme(KonataPalette.light);
 
-  /// 构建亮色模式主题。
-  static ThemeData lightTheme() => _buildTheme(KonataPalette.light);
+  /// 获取缓存的深色模式主题（避免根应用重建时重复构造整棵 ThemeData）。
+  static ThemeData darkTheme() => _cachedDarkTheme;
+
+  /// 获取缓存的亮色模式主题（避免根应用重建时重复构造整棵 ThemeData）。
+  static ThemeData lightTheme() => _cachedLightTheme;
 
   static ThemeData _buildTheme(KonataPalette palette) {
     final brightness = palette.isDark ? Brightness.dark : Brightness.light;

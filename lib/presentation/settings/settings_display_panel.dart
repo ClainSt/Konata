@@ -5,6 +5,7 @@ import '../../application/providers/detail_display_preferences_provider.dart';
 import '../theme/konata_palette.dart';
 import '../widgets/design_system/konata_dropdown.dart';
 import '../widgets/design_system/konata_surface_card.dart';
+import '../widgets/design_system/konata_switch.dart';
 import 'settings_photos_storage_card.dart';
 
 /// 详情页主视觉标题区可选展示元素。
@@ -91,7 +92,7 @@ class SettingsDisplayPanel extends ConsumerWidget {
                   size: 20,
                   color: p.textSecondary,
                 ),
-                trailing: Switch(
+                trailing: KonataSwitch(
                   value: prefs.showOverview,
                   onChanged: notifier.setShowOverview,
                 ),
@@ -104,7 +105,7 @@ class SettingsDisplayPanel extends ConsumerWidget {
                   size: 20,
                   color: p.textSecondary,
                 ),
-                trailing: Switch(
+                trailing: KonataSwitch(
                   value: prefs.showRawVideoFilename,
                   onChanged: notifier.setShowRawVideoFilename,
                 ),
@@ -117,7 +118,7 @@ class SettingsDisplayPanel extends ConsumerWidget {
                   size: 20,
                   color: p.textSecondary,
                 ),
-                trailing: Switch(
+                trailing: KonataSwitch(
                   value: prefs.showCdTab,
                   onChanged: notifier.setShowCdTab,
                 ),
@@ -130,7 +131,7 @@ class SettingsDisplayPanel extends ConsumerWidget {
                   size: 20,
                   color: p.textSecondary,
                 ),
-                trailing: Switch(
+                trailing: KonataSwitch(
                   value: prefs.showScanTab,
                   onChanged: notifier.setShowScanTab,
                 ),

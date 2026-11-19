@@ -298,7 +298,9 @@ class _KonataFloatingMiniPlayerState
     _isDragging = false;
     final velocity = details?.velocity.pixelsPerSecond ?? Offset.zero;
     // 继承轻扫惯性趋势（最多投影 70ms），使顺手一甩自然吸附目标边缘。
-    final projectedOffset = _liveOffsetNotifier.value + velocity * 0.07;
+    final projectedOffset =
+        _liveOffsetNotifier.value +
+        velocity * KonataPlaybackTokens.floatingMiniFlickProjectionSeconds;
     final clampedProjected = layout.clampMiniWindowOffset(
       projectedOffset,
       miniSize,
@@ -373,8 +375,8 @@ class _KonataFloatingMiniPlayerState
               boxShadow: [
                 BoxShadow(
                   color: KonataPlaybackTokens.shadowColor(p),
-                  blurRadius: 22,
-                  offset: const Offset(0, 8),
+                  blurRadius: KonataPlaybackTokens.floatingMiniShadowBlur,
+                  offset: KonataPlaybackTokens.floatingMiniShadowOffset,
                 ),
               ],
             ),
@@ -577,9 +579,9 @@ class _FloatingMiniTransientChromeOverlay extends StatelessWidget {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     stops: const [0.0, 0.45, 1.0],
-                    colors: [
-                      Colors.black.withValues(alpha: 0.46),
-                      Colors.black.withValues(alpha: 0.12),
+                    colors: const [
+                      KonataPlaybackTokens.floatingMiniChromeScrimTop,
+                      KonataPlaybackTokens.floatingMiniChromeScrimMid,
                       Colors.transparent,
                     ],
                   ),
@@ -785,7 +787,7 @@ class _FloatingAudioCoverLeaf extends ConsumerWidget {
                   owner: workId,
                   width: size,
                   height: size,
-                  decodeWidth: 320,
+                  decodeWidth: KonataPlaybackTokens.floatingMiniCoverDecodeWidth,
                   fit: BoxFit.cover,
                   alignment: coverAlignment,
                   errorBuilder: (_, _, _) => _fallbackCover(p),
@@ -805,7 +807,7 @@ class _FloatingAudioCoverLeaf extends ConsumerWidget {
       child: Center(
         child: Icon(
           Icons.album_rounded,
-          size: 42,
+          size: KonataPlaybackTokens.floatingMiniFallbackIconSize,
           color: p.textSecondary,
         ),
       ),

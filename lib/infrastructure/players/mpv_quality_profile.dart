@@ -856,21 +856,6 @@ class MpvQualityProfile {
     return files;
   }
 
-  /// 同步只读扫描 `<Root>/userdata/shaders/` 下可用的 `.glsl` / `.hook` 着色器脚本。
-  static List<File> discoverShaderFilesSync(Directory shadersDir) {
-    if (!shadersDir.existsSync()) return const [];
-    final files = <File>[];
-    for (final entity in shadersDir.listSync(followLinks: false)) {
-      if (entity is! File) continue;
-      final ext = p.extension(entity.path).toLowerCase();
-      if (ext == '.glsl' || ext == '.hook') {
-        files.add(entity);
-      }
-    }
-    files.sort((a, b) => a.path.toLowerCase().compareTo(b.path.toLowerCase()));
-    return files;
-  }
-
   /// 实时探测当前内嵌 `libmpv` 与 `FFmpeg` 版本号（无窗口开销，供设置中心实时展示）。
   static Future<MpvRuntimeVersions> probeRuntimeVersions({
     String? preferredLibraryPath,

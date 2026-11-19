@@ -516,6 +516,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   /// S 型微淡入斜坡的离散步进周期（默认 25 ms，约 6 步完成 150 ms 后即停钟）。
   final Duration microFadeStepInterval;
   final AndroidMediaSessionBridge _mediaSessionBridge;
+  AndroidAudioRouteBridge? _boundRouteBridge;
   final Map<String, Uint8List> _posterNotificationBytesCache = {};
   final Set<String> _loadingPosterNotificationKeys = {};
 
@@ -1233,7 +1234,10 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     client.setPropertyString('loop-playlist', 'no');
     client.setPropertyFlag('mute', state.isMuted);
     _applySafetyChainToClient(client);
-    AndroidAudioRouteBridge.bindRouteListeners(
+    final routeBridge = _ref.read(androidAudioRouteBridgeProvider);
+    _boundRouteBridge = routeBridge;
+    routeBridge.bindRouteListeners(
+      owner: this,
       onOutputDeviceRemoved: (_) => _handleAudioDeviceRemovedTransientMute(),
       onOutputDeviceAdded: (fingerprint) {
         _deviceSafetyState = _deviceSafetyState.onDeviceChanged(fingerprint);
@@ -2666,7 +2670,8 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     unawaited(_eventSub?.cancel());
     _eventSub = null;
     unawaited(_releaseActiveStreamSession());
-    AndroidAudioRouteBridge.unbindRouteListeners();
+    _boundRouteBridge?.unbindRouteListeners(owner: this);
+    _boundRouteBridge = null;
     final c = _client;
     _client = null;
     if (c != null && !c.isDisposed) {
@@ -2701,10 +2706,12 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       safetyState: _deviceSafetyState,
     );
     if (KonataPlatform.isAndroid) {
-      await AndroidAudioRouteBridge.negotiateBitPerfectUsb(
-        preferredSampleRateHz: _rawSampleRateHz ?? 48000,
-        enable: prefs.androidBitPerfectUsb,
-      );
+      await _ref
+          .read(androidAudioRouteBridgeProvider)
+          .negotiateBitPerfectUsb(
+            preferredSampleRateHz: _rawSampleRateHz ?? 48000,
+            enable: prefs.androidBitPerfectUsb,
+          );
     }
   }
 
@@ -2740,10 +2747,12 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     );
     if (KonataPlatform.isAndroid) {
       unawaited(
-        AndroidAudioRouteBridge.negotiateBitPerfectUsb(
-          preferredSampleRateHz: _rawSampleRateHz ?? 48000,
-          enable: prefs.androidBitPerfectUsb,
-        ),
+        _ref
+            .read(androidAudioRouteBridgeProvider)
+            .negotiateBitPerfectUsb(
+              preferredSampleRateHz: _rawSampleRateHz ?? 48000,
+              enable: prefs.androidBitPerfectUsb,
+            ),
       );
     }
   }

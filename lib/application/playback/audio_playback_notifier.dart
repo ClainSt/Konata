@@ -12,10 +12,12 @@ import '../../domain/models/media_variant.dart';
 import '../../domain/models/playback_record.dart';
 import '../../domain/models/work.dart';
 import '../../domain/matching/supplementary_subclassifier.dart';
+import '../../domain/playback/audiophile_safety_policy.dart';
 import '../../domain/playback/cue_and_lrc_parser.dart';
 import '../../domain/playback/cue_variant_resolver.dart';
 import '../../domain/playback/playback_formatters.dart';
 import '../../domain/repositories/file_system_gateway.dart';
+import '../../infrastructure/players/android/android_audio_route_bridge.dart';
 import '../../infrastructure/players/android/android_media_session_bridge.dart';
 import '../../infrastructure/players/audio_art_extractor.dart';
 import '../../infrastructure/players/libmpv_ffi.dart';
@@ -1217,6 +1219,25 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     client.setPropertyString('loop-file', 'no');
     client.setPropertyString('loop-playlist', 'no');
     client.setPropertyFlag('mute', state.isMuted);
+    final qualityConfig = _ref.read(playbackPreferencesProvider).qualityConfig;
+    final safetyPlan = AudiophileSafetyPolicy.buildPlan(
+      requestedMode: qualityConfig.wasapiExclusive
+          ? AudioOutputRouteMode.wasapiExclusive
+          : AudioOutputRouteMode.sharedResampled,
+      safetyState: _deviceSafetyState,
+    );
+    MpvQualityProfile.applyAudiophileSafetyChain(
+      client,
+      plan: safetyPlan,
+      logStore: _ref.read(diagnosticsLogStoreProvider),
+    );
+    AndroidAudioRouteBridge.bindRouteListeners(
+      onOutputDeviceRemoved: (_) => _handleAudioDeviceRemovedTransientMute(),
+      onOutputDeviceAdded: (fingerprint) {
+        _deviceSafetyState = _deviceSafetyState.onDeviceChanged(fingerprint);
+        _engine.advanceAudioOutputRoute();
+      },
+    );
     client.requestLogMessages('warn');
     client.observeProperty(_propTimePos, 'time-pos', MpvFormat.double_);
     client.observeProperty(_propDuration, 'duration', MpvFormat.double_);
@@ -1392,6 +1413,10 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
         _activeCommandedGeneration = generation;
         _trackProgressBaselineSeconds = clampedInitialOffset;
         _engine.advanceLogicalTrack();
+        MpvQualityProfile.resetAudioRangeAndLoopProperties(
+          client,
+          logStore: _ref.read(diagnosticsLogStoreProvider),
+        );
         _pendingSeekRawTargetSeconds = start;
         _pendingSeekGuardUntil = DateTime.now().add(_cueSeekDebounceWindow);
         client.setPropertyFlag('pause', false);
@@ -1869,7 +1894,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     final cueEnd = item.cueEndSeconds;
 
     if (cueEnd != null &&
-        rawPositionSeconds >= cueEnd - 0.08 &&
+        rawPositionSeconds >= cueEnd &&
         !_isTransitioningCueBoundary) {
       if (!state.isPlaying) {
         return;
@@ -2539,6 +2564,10 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     }
     final c = _client;
     if (c != null && !c.isDisposed) {
+      MpvQualityProfile.resetAudioRangeAndLoopProperties(
+        c,
+        logStore: _ref.read(diagnosticsLogStoreProvider),
+      );
       c.command(['stop']);
     }
     _volumeBeforeDuck = null;
@@ -2612,12 +2641,29 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     unawaited(_eventSub?.cancel());
     _eventSub = null;
     unawaited(_releaseActiveStreamSession());
+    AndroidAudioRouteBridge.unbindRouteListeners();
     final c = _client;
     _client = null;
     if (c != null && !c.isDisposed) {
       unawaited(c.dispose());
     }
     super.dispose();
+  }
+
+  AudioDeviceSafetyState _deviceSafetyState = const AudioDeviceSafetyState();
+
+  /// 外设热拔出双通道瞬态静音：仅推进音频输出路由代数，绝不中断底层正在读取的网桥媒体流。
+  void _handleAudioDeviceRemovedTransientMute() {
+    _engine.advanceAudioOutputRoute();
+    _deviceSafetyState = _deviceSafetyState.onDeviceChanged('builtin_fallback');
+    final client = _client;
+    if (client != null && !client.isDisposed && client.isInitialized) {
+      client.setPropertyFlag('mute', true);
+      client.setPropertyFlag('pause', true);
+    }
+    if (mounted) {
+      state = state.copyWith(isPlaying: false, isMuted: true);
+    }
   }
 }
 

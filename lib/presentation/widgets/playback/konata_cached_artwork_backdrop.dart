@@ -9,16 +9,16 @@ import '../../../application/playback/audio_playback_notifier.dart';
 import '../../../application/providers/artwork_provider.dart';
 import '../../theme/konata_palette.dart';
 import '../../theme/konata_playback_tokens.dart';
-import '../managed_image.dart';
 
-/// 全端同源的静态缓存三层封面背景（供全屏音乐页与视频后台纯音频模式复用）。
+/// 全端同源的 0 MB 模糊位图显存 GPU 径向流光舞台背景（供全屏音乐页与视频后台纯音频模式复用）。
 ///
-/// 三层合成结构：
-/// 1. 封面高饱和采样主色底布；
-/// 2. 切歌时离屏烘焙并按曲目缓存的静态高模糊封面纹理（避免逐帧实时模糊开销）；
-/// 3. 透明度 `0.48 ~ 0.56`（严格处于 `0.4 ~ 0.6` 区间）的主题表面遮罩，铺满系统安全区。
+/// 架构特性：
+/// 1. 仅从极小 `24×24` 封面采样提取三色高饱和色板后立即释放图像，全程 **0 MB 离屏模糊位图显存占用**；
+/// 2. 通过 `CustomPainter` + 多源 `ui.Gradient.radial` GPU 径向着色场直接渲染柔和层次光晕；
+/// 3. 切歌时仅执行一次 `800 ms` 有界色板过渡，到位立即停钟（`No Idle Tickers`），播放进度跳动 0 重绘；
+/// 4. 最上层铺满透明度 `0.48 ~ 0.56` 的主题表面遮罩，覆盖系统状态栏与底部安全区。
 class KonataCachedArtworkBackdrop extends ConsumerStatefulWidget {
-  /// 创建静态缓存三层封面背景。
+  /// 创建 0 MB 显存 GPU 径向流光舞台背景。
   const KonataCachedArtworkBackdrop({
     super.key,
     required this.cover,
@@ -33,33 +33,45 @@ class KonataCachedArtworkBackdrop extends ConsumerStatefulWidget {
 }
 
 class _KonataCachedArtworkBackdropState
-    extends ConsumerState<KonataCachedArtworkBackdrop> {
+    extends ConsumerState<KonataCachedArtworkBackdrop>
+    with SingleTickerProviderStateMixin {
   static final Map<String, List<Color>> _paletteCache = {};
-  static final Map<String, ui.Image> _blurredImageCache = {};
   static const int _maxPaletteCacheEntries = 32;
-  static const int _maxBlurredImageCacheEntries = 12;
-
-  List<Color> _glowColors = const [
+  static const List<Color> _defaultPalette = [
     KonataPlaybackTokens.auroraDefaultGlowA,
     KonataPlaybackTokens.auroraDefaultGlowB,
     KonataPlaybackTokens.auroraDefaultGlowC,
   ];
-  ui.Image? _bakedBlurredImage;
+
+  late final AnimationController _colorTransitionCtrl;
+  List<Color> _fromColors = _defaultPalette;
+  List<Color> _toColors = _defaultPalette;
   String _sampledKey = '';
   int _sampleEpoch = 0;
 
   @override
   void initState() {
     super.initState();
-    _scheduleSampleAndBake();
+    _colorTransitionCtrl = AnimationController(
+      vsync: this,
+      duration: KonataPlaybackTokens.auroraColorTransitionDuration,
+      value: 1.0,
+    );
+    _scheduleSamplePalette();
   }
 
   @override
   void didUpdateWidget(covariant KonataCachedArtworkBackdrop oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (_coverKey(oldWidget.cover) != _coverKey(widget.cover)) {
-      _scheduleSampleAndBake();
+      _scheduleSamplePalette();
     }
+  }
+
+  @override
+  void dispose() {
+    _colorTransitionCtrl.dispose();
+    super.dispose();
   }
 
   String _coverKey(AudioCoverSource cover) {
@@ -71,39 +83,37 @@ class _KonataCachedArtworkBackdropState
     };
   }
 
-  Future<void> _scheduleSampleAndBake() async {
+  List<Color> _currentInterpolatedColors() {
+    final t = Curves.easeOutCubic.transform(_colorTransitionCtrl.value);
+    return List<Color>.generate(3, (i) {
+      return Color.lerp(_fromColors[i], _toColors[i], t) ?? _toColors[i];
+    }, growable: false);
+  }
+
+  void _transitionToPalette(List<Color> nextColors) {
+    if (!mounted) return;
+    if (listEquals(_toColors, nextColors)) return;
+    _fromColors = _currentInterpolatedColors();
+    _toColors = List<Color>.unmodifiable(nextColors);
+    // 有限 800ms 有界过渡，到达 1.0 后 AnimationController 自动停止 Ticker。
+    _colorTransitionCtrl.forward(from: 0.0);
+  }
+
+  Future<void> _scheduleSamplePalette() async {
     final key = _coverKey(widget.cover);
     if (key == _sampledKey) return;
     _sampledKey = key;
     final epoch = ++_sampleEpoch;
 
     if (widget.cover is EmptyAudioCover) {
-      if (mounted) {
-        setState(() {
-          _bakedBlurredImage = null;
-          _glowColors = const [
-            KonataPlaybackTokens.auroraDefaultGlowA,
-            KonataPlaybackTokens.auroraDefaultGlowB,
-            KonataPlaybackTokens.auroraDefaultGlowC,
-          ];
-        });
-      }
+      _transitionToPalette(_defaultPalette);
       return;
     }
 
     final cachedPalette = _paletteCache[key];
-    final cachedBlurred = _blurredImageCache[key];
-    if (cachedPalette != null && cachedBlurred != null) {
-      if (mounted) {
-        setState(() {
-          _glowColors = cachedPalette;
-          _bakedBlurredImage = cachedBlurred;
-        });
-      }
+    if (cachedPalette != null) {
+      _transitionToPalette(cachedPalette);
       return;
-    }
-    if (cachedPalette != null && mounted) {
-      setState(() => _glowColors = cachedPalette);
     }
 
     Uint8List? bytes;
@@ -113,7 +123,7 @@ class _KonataCachedArtworkBackdropState
       case ManagedPosterAudioCover(:final url):
         try {
           final loader = ref.read(tmdbImageLoaderProvider);
-          bytes = await loader(url, targetWidth: 160);
+          bytes = await loader(url, targetWidth: 64);
         } catch (_) {}
       case EmptyAudioCover():
         return;
@@ -122,81 +132,15 @@ class _KonataCachedArtworkBackdropState
       return;
     }
 
-    final palette = cachedPalette ?? await _extractAuroraPalette(bytes);
-    if (!mounted || epoch != _sampleEpoch) return;
-    if (palette != null && cachedPalette == null) {
-      _paletteCache.remove(key);
-      _paletteCache[key] = palette;
-      while (_paletteCache.length > _maxPaletteCacheEntries) {
-        _paletteCache.remove(_paletteCache.keys.first);
-      }
+    final palette = await _extractAuroraPalette(bytes);
+    if (!mounted || epoch != _sampleEpoch || palette == null) return;
+
+    _paletteCache.remove(key);
+    _paletteCache[key] = palette;
+    while (_paletteCache.length > _maxPaletteCacheEntries) {
+      _paletteCache.remove(_paletteCache.keys.first);
     }
-
-    final baked = cachedBlurred ?? await _bakeStaticBlurredCover(bytes);
-    if (!mounted || epoch != _sampleEpoch) {
-      baked?.dispose();
-      return;
-    }
-    if (baked != null && cachedBlurred == null) {
-      _blurredImageCache.remove(key)?.dispose();
-      _blurredImageCache[key] = baked;
-      while (_blurredImageCache.length > _maxBlurredImageCacheEntries) {
-        final oldestKey = _blurredImageCache.keys.first;
-        final evicted = _blurredImageCache.remove(oldestKey);
-        evicted?.dispose();
-      }
-    }
-
-    setState(() {
-      if (palette != null) _glowColors = palette;
-      _bakedBlurredImage = baked;
-    });
-  }
-
-  static Future<ui.Image?> _bakeStaticBlurredCover(Uint8List bytes) async {
-    try {
-      const targetDim = 160;
-      final codec = await ui.instantiateImageCodec(
-        bytes,
-        targetWidth: targetDim,
-        targetHeight: targetDim,
-      );
-      final frame = await codec.getNextFrame();
-      final srcImage = frame.image;
-
-      const outDim = 192;
-      final recorder = ui.PictureRecorder();
-      final canvas = Canvas(
-        recorder,
-        Rect.fromLTWH(0, 0, outDim.toDouble(), outDim.toDouble()),
-      );
-      final paint = Paint()
-        ..filterQuality = FilterQuality.low
-        ..colorFilter = ColorFilter.matrix(_saturationBoostMatrix(1.36))
-        ..imageFilter = ui.ImageFilter.blur(
-          sigmaX: 22.0,
-          sigmaY: 22.0,
-          tileMode: TileMode.clamp,
-        );
-      // 适度外扩绘制消除高斯模糊边缘采样衰减
-      final srcRect = Rect.fromLTWH(
-        0,
-        0,
-        srcImage.width.toDouble(),
-        srcImage.height.toDouble(),
-      );
-      const dstRect = Rect.fromLTWH(-24, -24, outDim + 48.0, outDim + 48.0);
-      canvas.drawImageRect(srcImage, srcRect, dstRect, paint);
-
-      final picture = recorder.endRecording();
-      final baked = await picture.toImage(outDim, outDim);
-      picture.dispose();
-      srcImage.dispose();
-      codec.dispose();
-      return baked;
-    } catch (_) {
-      return null;
-    }
+    _transitionToPalette(palette);
   }
 
   static Future<List<Color>?> _extractAuroraPalette(Uint8List bytes) async {
@@ -271,144 +215,116 @@ class _KonataCachedArtworkBackdropState
     return hsv.withHue((hsv.hue + delta) % 360.0).toColor();
   }
 
-  static List<double> _saturationBoostMatrix(double saturation) {
-    const lumR = 0.2126;
-    const lumG = 0.7152;
-    const lumB = 0.0722;
-    final inv = 1.0 - saturation;
-    final r = lumR * inv;
-    final g = lumG * inv;
-    final b = lumB * inv;
-    return [
-      r + saturation,
-      g,
-      b,
-      0,
-      0,
-      r,
-      g + saturation,
-      b,
-      0,
-      0,
-      r,
-      g,
-      b + saturation,
-      0,
-      0,
-      0,
-      0,
-      0,
-      1,
-      0,
-    ];
-  }
-
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final c1 = _glowColors[0];
-    final c2 = _glowColors[1];
-    final c3 = _glowColors[2];
-    final scrimBase = KonataPlaybackTokens.detailScrimBase(p);
-    final scrimAlpha = p.isDark
-        ? KonataPlaybackTokens.auroraScrimDarkAlpha
-        : KonataPlaybackTokens.auroraScrimLightAlpha;
-
-    Widget? blurredCoverLayer;
-    if (_bakedBlurredImage != null) {
-      blurredCoverLayer = Opacity(
-        opacity: 0.76,
-        child: RawImage(
-          image: _bakedBlurredImage,
-          fit: BoxFit.cover,
-          width: double.infinity,
-          height: double.infinity,
-          filterQuality: FilterQuality.medium,
-        ),
-      );
-    } else {
-      final loader = ref.watch(tmdbImageLoaderProvider);
-      Widget? fallbackArt;
-      switch (widget.cover) {
-        case MemoryAudioCover(:final bytes):
-          fallbackArt = Image.memory(
-            bytes,
-            fit: BoxFit.cover,
-            width: double.infinity,
-            height: double.infinity,
-            gaplessPlayback: true,
-          );
-        case ManagedPosterAudioCover(:final url, :final workId, :final revision):
-          fallbackArt = ManagedImage(
-            url,
-            key: ValueKey('imm_bg_${workId}_${url}_$revision'),
-            loader: loader,
-            owner: workId,
-            fit: BoxFit.cover,
-            decodeWidth: 256,
-            width: double.infinity,
-            height: double.infinity,
-            errorBuilder: (_, _, _) => const SizedBox.shrink(),
-          );
-        case EmptyAudioCover():
-          fallbackArt = null;
-      }
-      if (fallbackArt != null) {
-        blurredCoverLayer = Transform.scale(
-          scale: 1.24,
-          child: Opacity(
-            opacity: 0.72,
-            child: ImageFiltered(
-              imageFilter: ui.ImageFilter.blur(
-                sigmaX: KonataPlaybackTokens.auroraBlurSigma,
-                sigmaY: KonataPlaybackTokens.auroraBlurSigma,
-              ),
-              child: fallbackArt,
-            ),
-          ),
-        );
-      }
-    }
+    final canvasBase = KonataPlaybackTokens.auroraCanvas(p);
+    final scrimColor = KonataPlaybackTokens.detailScrimBase(p).withValues(
+      alpha: p.isDark
+          ? KonataPlaybackTokens.auroraScrimDarkAlpha
+          : KonataPlaybackTokens.auroraScrimLightAlpha,
+    );
 
     return RepaintBoundary(
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          // 第一层：封面主色采样底布
-          ColoredBox(color: KonataPlaybackTokens.auroraCanvas(p)),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: const Alignment(-0.55, -0.35),
-                radius: 1.05,
-                colors: [c1.withValues(alpha: 0.80), Colors.transparent],
-              ),
+      child: AnimatedBuilder(
+        animation: _colorTransitionCtrl,
+        builder: (context, _) {
+          final colors = _currentInterpolatedColors();
+          return CustomPaint(
+            painter: _AuroraRadialFieldPainter(
+              baseColor: canvasBase,
+              glowA: colors[0],
+              glowB: colors[1],
+              glowC: colors[2],
+              scrimColor: scrimColor,
             ),
-          ),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: const Alignment(0.60, 0.20),
-                radius: 1.0,
-                colors: [c2.withValues(alpha: 0.66), Colors.transparent],
-              ),
-            ),
-          ),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: const Alignment(-0.20, 0.75),
-                radius: 0.95,
-                colors: [c3.withValues(alpha: 0.58), Colors.transparent],
-              ),
-            ),
-          ),
-          // 第二层：切歌静态缓存的高模糊封面
-          ?blurredCoverLayer,
-          // 第三层：0.4 ~ 0.6 区间透明度表面遮罩（全幅覆盖含系统状态栏与手势安全区）
-          ColoredBox(color: scrimBase.withValues(alpha: scrimAlpha)),
-        ],
+            child: const SizedBox.expand(),
+          );
+        },
       ),
     );
+  }
+}
+
+/// 纯 GPU 多源 `ui.Gradient.radial` 径向流光着色场画师（零位图分配、零显存滞留）。
+class _AuroraRadialFieldPainter extends CustomPainter {
+  const _AuroraRadialFieldPainter({
+    required this.baseColor,
+    required this.glowA,
+    required this.glowB,
+    required this.glowC,
+    required this.scrimColor,
+  });
+
+  final Color baseColor;
+  final Color glowA;
+  final Color glowB;
+  final Color glowC;
+  final Color scrimColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final rect = Offset.zero & size;
+    final maxDim = size.longestSide;
+
+    // 1. 主题底布
+    canvas.drawRect(rect, Paint()..color = baseColor);
+
+    // 2. 四源 GPU 径向着色场（左上主色、右中次色、左下辅色与中心柔光弥散）
+    final blendMid = Color.lerp(glowA, glowB, 0.5) ?? glowA;
+    final sources = <({Offset center, double radius, Color color, double alpha})>[
+      (
+        center: Offset(size.width * 0.22, size.height * 0.28),
+        radius: maxDim * 0.78,
+        color: glowA,
+        alpha: 0.82,
+      ),
+      (
+        center: Offset(size.width * 0.80, size.height * 0.56),
+        radius: maxDim * 0.74,
+        color: glowB,
+        alpha: 0.70,
+      ),
+      (
+        center: Offset(size.width * 0.36, size.height * 0.86),
+        radius: maxDim * 0.70,
+        color: glowC,
+        alpha: 0.62,
+      ),
+      (
+        center: Offset(size.width * 0.58, size.height * 0.22),
+        radius: maxDim * 0.60,
+        color: blendMid,
+        alpha: 0.42,
+      ),
+    ];
+
+    for (final src in sources) {
+      final paint = Paint()
+        ..shader = ui.Gradient.radial(
+          src.center,
+          src.radius,
+          [
+            src.color.withValues(alpha: src.alpha),
+            src.color.withValues(alpha: src.alpha * 0.36),
+            Colors.transparent,
+          ],
+          const [0.0, 0.48, 1.0],
+        );
+      canvas.drawRect(rect, paint);
+    }
+
+    // 3. 主题表面遮罩（0.48 / 0.56 保障前景文字与封面高对比度）
+    canvas.drawRect(rect, Paint()..color = scrimColor);
+  }
+
+  @override
+  bool shouldRepaint(covariant _AuroraRadialFieldPainter oldDelegate) {
+    return oldDelegate.baseColor != baseColor ||
+        oldDelegate.glowA != glowA ||
+        oldDelegate.glowB != glowB ||
+        oldDelegate.glowC != glowC ||
+        oldDelegate.scrimColor != scrimColor;
   }
 }

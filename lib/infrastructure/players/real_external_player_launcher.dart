@@ -59,6 +59,7 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
     ExternalPlayerConfig? player,
     MediaSource? source,
     int startSeconds = 0,
+    double? exactStartSeconds,
     int? mainEpisodeCount,
     PlaybackProgressCallback? onProgressUpdate,
   }) async {
@@ -177,6 +178,7 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
       displayTitle: displayTitle,
       pipePath: pipePath,
       startSeconds: startSeconds,
+      exactStartSeconds: exactStartSeconds,
       subtitlePaths: localSubtitlePaths,
     );
 
@@ -302,6 +304,7 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
     required String displayTitle,
     required String pipePath,
     required int startSeconds,
+    double? exactStartSeconds,
     required List<String> subtitlePaths,
   }) {
     if (protocolKind == ExternalPlayerKind.mpv) {
@@ -310,6 +313,7 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
         pipePath: pipePath,
         displayTitle: displayTitle,
         startSeconds: startSeconds,
+        exactStartSeconds: exactStartSeconds,
         subtitlePaths: subtitlePaths,
         argumentsTemplate: player.argumentsTemplate,
       );

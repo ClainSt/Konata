@@ -17,11 +17,12 @@ abstract final class CueVariantResolver {
     required List<MediaVariant> audioVariantsInDir,
     required MediaVariant fallbackInitial,
   }) {
-    final fileReference = cueTrack.fileName.trim().replaceAll('\\', '/');
-    if (fileReference.startsWith('/') ||
-        fileReference.split('/').contains('..')) {
+    final rawFileRef = cueTrack.fileName.trim();
+    if (rawFileRef.isNotEmpty &&
+        !CueTrack.isSafeRelativeFileReference(rawFileRef)) {
       return null;
     }
+    final fileReference = rawFileRef.replaceAll('\\', '/');
     final declared = p.posix.basename(fileReference).toLowerCase();
     if (declared.isNotEmpty) {
       for (final candidate in audioVariantsInDir) {

@@ -165,23 +165,33 @@ class MpvIpcTracker {
     return r'\\.\pipe\konata_mpv_' + safe;
   }
 
-  /// 生成携带断点定位 `--start=+N`、干净显示标题与外挂字幕的 MPV 启动参数（选项严格前置）。
+  /// 生成携带高精度断点定位 `--start=+N.NNN`、干净显示标题与外挂字幕的 MPV 启动参数（选项严格前置）。
   static List<String> buildLaunchArguments({
     required String targetUrlOrPath,
     required String pipePath,
     String? displayTitle,
     int startSeconds = 0,
+    double? exactStartSeconds,
     List<String> subtitlePaths = const [],
     String argumentsTemplate = '{url}',
   }) {
     final cleanTitle = displayTitle?.trim();
+    String? startArg;
+    if (exactStartSeconds != null && exactStartSeconds > 0) {
+      final hasFraction = (exactStartSeconds - exactStartSeconds.truncate()).abs() > 1e-4;
+      startArg = hasFraction
+          ? '--start=+${exactStartSeconds.toStringAsFixed(3)}'
+          : '--start=+${exactStartSeconds.round()}';
+    } else if (startSeconds > 0) {
+      startArg = '--start=+$startSeconds';
+    }
     final options = <String>[
       '--input-ipc-server=$pipePath',
       if (cleanTitle != null && cleanTitle.isNotEmpty) ...[
         '--force-media-title=$cleanTitle',
         '--title=$cleanTitle',
       ],
-      if (startSeconds > 0) '--start=+$startSeconds',
+      ?startArg,
       if (subtitlePaths.isNotEmpty) '--sub-files=${subtitlePaths.join(';')}',
     ];
 

@@ -296,13 +296,14 @@ class PlaybackCoordinator {
     _ref.invalidate(playbackHistoryProvider);
   }
 
-  /// 调用外部播放器播放附属 CD 无损/音频音轨，并同步写入 `cd::` 独立音频记录（不污染正片续播历史）。
+  /// 调用外部播放器播放附属 CD 无损/音频音轨，并同步写入 `cd::` 独立音频记录（支持精确 CUE 扇区秒数）。
   Future<LaunchPlaybackResult> playCdVariant({
     required Work work,
     required MediaVariant variant,
     MediaSource? source,
     ExternalPlayerConfig? player,
     int startSeconds = 0,
+    double? exactStartSeconds,
   }) async {
     final repo = _ref.read(libraryRepositoryProvider);
     final allPlayers = await repo.getExternalPlayers();
@@ -326,11 +327,17 @@ class PlaybackCoordinator {
 
     final effectiveStart = startSeconds > 0
         ? startSeconds
-        : ((prevRecord != null &&
-                  !prevRecord.isCompleted &&
-                  prevRecord.positionSeconds > 5)
-              ? prevRecord.positionSeconds
-              : 0);
+        : (exactStartSeconds != null && exactStartSeconds > 0
+              ? exactStartSeconds.floor()
+              : ((prevRecord != null &&
+                        !prevRecord.isCompleted &&
+                        prevRecord.positionSeconds > 5)
+                    ? prevRecord.positionSeconds
+                    : 0));
+    final effectiveExactStart =
+        (exactStartSeconds != null && exactStartSeconds > 0)
+        ? exactStartSeconds
+        : null;
     final initialPosition = effectiveStart > 0
         ? effectiveStart
         : (prevRecord?.positionSeconds ?? 0);
@@ -370,6 +377,7 @@ class PlaybackCoordinator {
       player: effectivePlayer,
       source: resolvedSource,
       startSeconds: effectiveStart,
+      exactStartSeconds: effectiveExactStart,
       onProgressUpdate:
           (posSeconds, durSeconds, {required bool isFinal}) async {
             final completed = PlaybackRecord.computeCompleted(

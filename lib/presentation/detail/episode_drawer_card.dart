@@ -196,7 +196,7 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
 
     final useDarkOverlayStyle = widget.onDarkBackdrop || p.isDark;
     final effectiveMetaPalette = useDarkOverlayStyle ? KonataPalette.dark : p;
-    final titleColor = useDarkOverlayStyle ? Colors.white : p.textPrimary;
+    final titleColor = useDarkOverlayStyle ? KonataTheme.pureWhite : p.textPrimary;
     final fileNameColor = useDarkOverlayStyle
         ? KonataTheme.overlayWhiteTextSub
         : p.textSecondary;
@@ -292,7 +292,7 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                   border: Border.all(color: frameBorderColor, width: 1),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(
+                      color: KonataTheme.pureBlack.withValues(
                         alpha: useDarkOverlayStyle ? 0.28 : 0.12,
                       ),
                       blurRadius: 14,
@@ -348,7 +348,7 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                                     const Icon(
                                       Icons.check_rounded,
                                       size: 11,
-                                      color: Colors.white,
+                                      color: KonataTheme.pureWhite,
                                     ),
                                     const SizedBox(width: 3),
                                   ],
@@ -359,7 +359,7 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                                             playback.positionSeconds,
                                           ),
                                     style: const TextStyle(
-                                      color: Colors.white,
+                                      color: KonataTheme.pureWhite,
                                       fontSize: KonataTheme.fontSizeBadge,
                                       fontWeight: FontWeight.w600,
                                     ),

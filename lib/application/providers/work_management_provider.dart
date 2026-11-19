@@ -111,10 +111,10 @@ final workManagementProvider = Provider<WorkManagementActions>((ref) {
 /// 面向 UI 层的强类型作品管理协调器（隔离 DB、TMDB 与文件缓存细节）。
 class WorkManagementActions {
   /// 创建作品管理协调器。
-  const WorkManagementActions(this._ref);
+  WorkManagementActions(this._ref);
 
   final Ref _ref;
-  static final Set<String> _bangumiScoreBackfillInFlight = <String>{};
+  final Set<String> _bangumiScoreBackfillInFlight = <String>{};
 
   /// 静默补齐既有作品缺失的 Bangumi 评分与关联 Bangumi ID（不阻塞 UI，失败安全忽略）。
   Future<void> ensureWorkBangumiScore(String workId) async {
@@ -128,7 +128,12 @@ class WorkManagementActions {
     try {
       final config = await _ref.read(tmdbNetworkConfigProvider.future);
       final scheduler = _ref.read(priorityHttpSchedulerProvider);
-      final client = TmdbHttpClient(config: config, scheduler: scheduler);
+      final cooldown = _ref.read(domainCooldownRegistryProvider);
+      final client = TmdbHttpClient(
+        config: config,
+        scheduler: scheduler,
+        cooldownRegistry: cooldown,
+      );
       final bgm = BangumiService(httpClient: client);
 
       var targetBangumiId = existing.bangumiId;
@@ -391,7 +396,12 @@ class WorkManagementActions {
 
     final config = await _ref.read(tmdbNetworkConfigProvider.future);
     final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final client = TmdbHttpClient(config: config, scheduler: scheduler);
+    final cooldown = _ref.read(domainCooldownRegistryProvider);
+    final client = TmdbHttpClient(
+      config: config,
+      scheduler: scheduler,
+      cooldownRegistry: cooldown,
+    );
 
     if (work.bangumiPosterPath == null && work.bangumiId != null) {
       try {

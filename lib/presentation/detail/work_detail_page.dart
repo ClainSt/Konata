@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -720,7 +719,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                           '作品简介',
                                           style: KonataTheme.detailTextStyle(
                                             palette: p,
-                                            color: Colors.white.withValues(
+                                            color: KonataTheme.pureWhite.withValues(
                                               alpha: 0.92,
                                             ),
                                             fontSize: KonataTheme.fontSizeTitleSm,
@@ -862,7 +861,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                           '作品简介',
                                           style: KonataTheme.detailTextStyle(
                                             palette: p,
-                                            color: Colors.white.withValues(
+                                            color: KonataTheme.pureWhite.withValues(
                                               alpha: 0.92,
                                             ),
                                             fontSize: KonataTheme.fontSizeTitleSm,
@@ -965,10 +964,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                 ),
                               if (!hasBackdrop && bgPath.isNotEmpty)
                                 BackdropFilter(
-                                  filter: ImageFilter.blur(
-                                    sigmaX: 28,
-                                    sigmaY: 28,
-                                  ),
+                                  filter: KonataTheme.blurFilterCapsule,
                                   child: Container(
                                     color: KonataTheme.scrimBlackMedium,
                                   ),
@@ -1000,16 +996,16 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                           : const [0.0, 0.18],
                                       colors: isDrawerExpanded
                                           ? [
-                                              Colors.black.withValues(
+                                              KonataTheme.pureBlack.withValues(
                                                 alpha: 0.78,
                                               ),
-                                              Colors.black.withValues(
+                                              KonataTheme.pureBlack.withValues(
                                                 alpha: 0.42,
                                               ),
                                               Colors.transparent,
                                             ]
                                           : [
-                                              Colors.black.withValues(
+                                              KonataTheme.pureBlack.withValues(
                                                 alpha: 0.30,
                                               ),
                                               Colors.transparent,

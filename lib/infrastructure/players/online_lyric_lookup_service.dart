@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import '../../domain/playback/lyric_version_matcher.dart';
+import 'dart:developer' as developer;
 
 /// 四级开源歌词检索集中配置常量（集中收口默认端点、超时与响应体积上限）。
 abstract final class OpenLyricLookupConfig {
@@ -466,9 +467,10 @@ class OnlineLyricLookupService {
             ),
           );
         }
-      } on FormatException {
-        // 忽略索引中单行格式异常记录。
-      }
+      } on FormatException catch (error) {
+  // 忽略索引中单行格式异常记录。
+  developer.log('可恢复异常已记录', name: 'konata.online_lyric_lookup_service', error: error);
+}
     }
     _cachedAmllIndex = rows;
     _amllIndexLoadedAt = now;

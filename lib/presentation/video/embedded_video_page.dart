@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -109,6 +108,8 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage>
   bool? _lastHudProgressActive;
   Timer? _idleTimer;
   Timer? _lockPeekTimer;
+  Timer? _portraitRotationWaitTimer;
+  bool _portraitRotationWaitExpired = false;
 
   final ValueNotifier<({String text, IconData icon, bool centered})?>
       _statusCueNotifier = ValueNotifier(null);
@@ -168,6 +169,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage>
     WidgetsBinding.instance.removeObserver(this);
     _idleTimer?.cancel();
     _lockPeekTimer?.cancel();
+    _portraitRotationWaitTimer?.cancel();
     _cornerBadgeTimer?.cancel();
     _cancelRightHoldSpeedBoost(deferNotify: true);
     _statusCueNotifier.dispose();
@@ -728,16 +730,29 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage>
       if (mounted) _reportStageSourceRect();
     });
 
-    final isWidgetTest = WidgetsBinding.instance.runtimeType
-        .toString()
-        .contains('TestWidgetsFlutterBinding');
-    final awaitingLandscapeRotation =
+    final isPortraitViewport = size.width < size.height;
+    final needsRotationWait =
         isAndroid &&
-        !isWidgetTest &&
         !snap.audioOnlyMode &&
         !widget.inPipMode &&
         !isPipDimensions &&
-        size.width < size.height;
+        isPortraitViewport;
+    if (!needsRotationWait) {
+      _portraitRotationWaitTimer?.cancel();
+      _portraitRotationWaitTimer = null;
+    } else if (!_portraitRotationWaitExpired &&
+        _portraitRotationWaitTimer == null) {
+      _portraitRotationWaitTimer = Timer(
+        KonataPlaybackTokens.portraitRotationFallbackTimeout,
+        () {
+          _portraitRotationWaitTimer = null;
+          if (!mounted || _portraitRotationWaitExpired) return;
+          setState(() => _portraitRotationWaitExpired = true);
+        },
+      );
+    }
+    final awaitingLandscapeRotation =
+        needsRotationWait && !_portraitRotationWaitExpired;
     final showHud =
         !awaitingLandscapeRotation &&
         !_screenLocked &&
@@ -1014,6 +1029,8 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage>
                             );
                           },
                           onOpenSideSheet: _openSideSheet,
+                          onShowScreenshotMenu: (btnCtx) =>
+                              _showScreenshotModeMenu(btnCtx, controller),
                           onVolumePopupActiveChanged:
                               _handleVolumePopupActiveChanged,
                         ),

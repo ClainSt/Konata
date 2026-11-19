@@ -4,9 +4,33 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/playback/audio_playback_notifier.dart';
 import '../widgets/managed_image.dart';
+
+/// 封面智能框选对齐锚点 LRU 缓存（由 Riverpod 托管，消除静态全局状态）。
+class SmartCoverAlignmentCache {
+  static const int _maxCacheEntries = 64;
+  final Map<String, Alignment> _entries = <String, Alignment>{};
+
+  /// 同步读取已缓存的对齐锚点。
+  Alignment? peek(String key) => _entries[key];
+
+  /// 写入对齐锚点并在超出容量时按 FIFO 淘汰最早条目。
+  void put(String key, Alignment alignment) {
+    _entries.remove(key);
+    _entries[key] = alignment;
+    while (_entries.length > _maxCacheEntries) {
+      _entries.remove(_entries.keys.first);
+    }
+  }
+}
+
+/// 音频封面智能框选缓存 Provider。
+final smartCoverAlignmentCacheProvider = Provider<SmartCoverAlignmentCache>(
+  (ref) => SmartCoverAlignmentCache(),
+);
 
 /// 音频封面智能主体框选算法（离线毫秒级边缘梯度 + 面部暖肤色显著度 + 防切头惩罚）。
 ///
@@ -14,9 +38,6 @@ import '../widgets/managed_image.dart';
 abstract final class SmartCoverFraming {
   /// 竖版作品海报在采样完成前的黄金上偏保护锚点（优先完整保留上方角色头部与面部）。
   static const Alignment defaultPosterAlignment = Alignment(0.0, -0.72);
-
-  static final Map<String, Alignment> _alignmentCache = <String, Alignment>{};
-  static const int _maxCacheEntries = 64;
 
   /// 生成封面唯一缓存键。
   static String cacheKeyFor(AudioCoverSource cover) {
@@ -29,24 +50,14 @@ abstract final class SmartCoverFraming {
     };
   }
 
-  /// 同步读取已缓存的对齐锚点（命中时切歌或展开全屏页 0 延迟无跳变）。
-  static Alignment? peekCached(String key) => _alignmentCache[key];
-
-  static void _putCache(String key, Alignment alignment) {
-    _alignmentCache.remove(key);
-    _alignmentCache[key] = alignment;
-    while (_alignmentCache.length > _maxCacheEntries) {
-      _alignmentCache.remove(_alignmentCache.keys.first);
-    }
-  }
-
   /// 对封面字节进行快速低分辨率显著度分析，计算最佳 `1:1` 正方形取景对齐锚点。
   static Future<Alignment> computeAndCache(
     String key,
     Uint8List bytes, {
     required bool isPosterFallback,
+    SmartCoverAlignmentCache? cache,
   }) async {
-    final existing = _alignmentCache[key];
+    final existing = cache?.peek(key);
     if (existing != null) return existing;
 
     final fallback = isPosterFallback
@@ -71,7 +82,7 @@ abstract final class SmartCoverFraming {
       final aspect = w / h;
       // 本身接近 1:1 的标准专辑封面无需偏移，直接正中对齐
       if (aspect >= 0.91 && aspect <= 1.10) {
-        _putCache(key, Alignment.center);
+        cache?.put(key, Alignment.center);
         return Alignment.center;
       }
 
@@ -84,7 +95,7 @@ abstract final class SmartCoverFraming {
       final Alignment resolved = aspect < 0.91
           ? _solveVerticalWindow(rgba, w, h)
           : _solveHorizontalWindow(rgba, w, h);
-      _putCache(key, resolved);
+      cache?.put(key, resolved);
       return resolved;
     } catch (_) {
       return fallback;
@@ -231,7 +242,7 @@ abstract final class SmartCoverFraming {
 }
 
 /// 响应式封面智能框选对齐构建器（供全屏流光大封面、镜像倒影与迷你栏缩略图统一复用）。
-class SmartCoverAlignmentBuilder extends StatefulWidget {
+class SmartCoverAlignmentBuilder extends ConsumerStatefulWidget {
   /// 创建智能框选对齐构建器。
   const SmartCoverAlignmentBuilder({
     super.key,
@@ -250,12 +261,12 @@ class SmartCoverAlignmentBuilder extends StatefulWidget {
   final Widget Function(BuildContext context, Alignment alignment) builder;
 
   @override
-  State<SmartCoverAlignmentBuilder> createState() =>
+  ConsumerState<SmartCoverAlignmentBuilder> createState() =>
       _SmartCoverAlignmentBuilderState();
 }
 
 class _SmartCoverAlignmentBuilderState
-    extends State<SmartCoverAlignmentBuilder> {
+    extends ConsumerState<SmartCoverAlignmentBuilder> {
   late String _activeKey;
   late Alignment _alignment;
   int _epoch = 0;
@@ -276,9 +287,10 @@ class _SmartCoverAlignmentBuilderState
   }
 
   void _syncCover({required bool initial}) {
+    final cache = ref.read(smartCoverAlignmentCacheProvider);
     final key = SmartCoverFraming.cacheKeyFor(widget.cover);
     _activeKey = key;
-    final cached = SmartCoverFraming.peekCached(key);
+    final cached = cache.peek(key);
     final nextInitial =
         cached ??
         (widget.cover is ManagedPosterAudioCover
@@ -290,11 +302,15 @@ class _SmartCoverAlignmentBuilderState
       setState(() => _alignment = nextInitial);
     }
     if (cached == null && widget.cover is! EmptyAudioCover) {
-      unawaited(_resolveAsync(key, ++_epoch));
+      unawaited(_resolveAsync(key, ++_epoch, cache));
     }
   }
 
-  Future<void> _resolveAsync(String key, int epoch) async {
+  Future<void> _resolveAsync(
+    String key,
+    int epoch,
+    SmartCoverAlignmentCache cache,
+  ) async {
     Uint8List? bytes;
     var isPoster = false;
     switch (widget.cover) {
@@ -317,6 +333,7 @@ class _SmartCoverAlignmentBuilderState
       key,
       bytes,
       isPosterFallback: isPoster,
+      cache: cache,
     );
     if (!mounted || epoch != _epoch || key != _activeKey) return;
     if ((computed.x - _alignment.x).abs() > 0.01 ||

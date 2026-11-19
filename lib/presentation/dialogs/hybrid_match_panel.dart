@@ -390,7 +390,7 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
           child: Text(
             done ? '✓' : '$index',
             style: TextStyle(
-              color: done ? Colors.white : p.textSecondary,
+              color: done ? KonataTheme.pureWhite : p.textSecondary,
               fontSize: KonataTheme.fontSizeBadge,
               fontWeight: FontWeight.w700,
             ),

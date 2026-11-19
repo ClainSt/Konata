@@ -809,8 +809,8 @@ void main() {
         final streamBridge = LocalStreamBridge(storageRoot: storageRoot);
         addTearDown(streamBridge.dispose);
 
-        final audioClient = _R2FakeMpvClient();
-        final videoClient = _R2FakeMpvClient();
+        final createdAudioClients = <_R2FakeMpvClient>[];
+        final createdVideoClients = <_R2FakeMpvClient>[];
         final source = MediaSource(
           id: 'src_av_epoch',
           label: 'LocalAV',
@@ -875,7 +875,11 @@ void main() {
             audioPlaybackProvider.overrideWith(
               (ref) => AudioPlaybackNotifier(
                 ref,
-                clientFactory: () => audioClient,
+                clientFactory: () {
+                  final c = _R2FakeMpvClient();
+                  createdAudioClients.add(c);
+                  return c;
+                },
                 microFadeStepInterval: const Duration(milliseconds: 5),
               ),
             ),
@@ -883,11 +887,26 @@ void main() {
               (ref) => VideoPlaybackController(
                 ref,
                 videoReq,
-                sessionFactory: () => EmbeddedMpvSession(
-                  storageRoot: storageRoot,
-                  streamBridge: streamBridge,
-                  clientFactory: () => videoClient,
-                ),
+                sessionFactory: () {
+                  final eng = ref.read(unifiedPlaybackEngineProvider);
+                  return EmbeddedMpvSession(
+                    storageRoot: storageRoot,
+                    streamBridge: streamBridge,
+                    nativeClientAcquirer: ({onEvicted}) async {
+                      final r = await eng.acquireExclusiveNativeClient(
+                        stage: PlaybackStageKind.video,
+                        factoryOverride: () {
+                          final c = _R2FakeMpvClient();
+                          createdVideoClients.add(c);
+                          return c;
+                        },
+                        onEvicted: onEvicted,
+                      );
+                      return r.client;
+                    },
+                    nativeClientReleaser: eng.releaseNativeClient,
+                  );
+                },
               ),
             ),
           ],
@@ -897,7 +916,7 @@ void main() {
         final engine = container.read(unifiedPlaybackEngineProvider);
         final audio = container.read(audioPlaybackProvider.notifier);
 
-        // 1. 起播第 1 首音频（epoch=1, instance=1）。
+        // 1. 起播第 1 首音频：内核仅持有 1 个纯音频原生句柄（vid=no）。
         await audio.playCdCollection(
           work: work,
           cdVariants: [vTrack1, vTrack2],
@@ -907,9 +926,12 @@ void main() {
         await _pumpUntil(() => audio.state.isPlaying);
         expect(audio.state.currentIndex, equals(0));
         expect(engine.activeStage, equals(PlaybackStageKind.audio));
-        final audioEntryId = audioClient.intProps['playlist-entry-id'] ?? 1;
+        expect(engine.liveNativeClientCount, equals(1));
+        expect(createdAudioClients.length, equals(1));
+        final firstAudioClient = createdAudioClients.first;
+        expect(firstAudioClient.isDisposed, isFalse);
 
-        // 2. 点播视频：触发视频激活通知暂停音频并推进共享内核代数至视频实例。
+        // 2. 点播视频：内核先驱逐并释放音频原生句柄，再互斥分配唯一视频句柄，进程内始终 <= 1 实例。
         container.read(videoPlaybackActiveProvider.notifier).state = true;
         await _pumpUntil(() => !audio.state.isPlaying);
         final videoSub = container.listen(
@@ -921,24 +943,37 @@ void main() {
         );
         await _pumpUntil(() => !videoCtrl.state.isInitializing);
         expect(engine.activeStage, equals(PlaybackStageKind.video));
+        expect(firstAudioClient.isDisposed, isTrue);
+        expect(createdVideoClients.length, equals(1));
+        expect(createdVideoClients.first.isDisposed, isFalse);
+        expect(engine.liveNativeClientCount, equals(1));
 
-        // 3. 关闭视频会话：共享内核执行 resetSession(stage: video)，保留音频暂挂快照。
+        // 3. 关闭视频会话：视频原生句柄释放归零，音频队列与进度保持存活。
         await videoCtrl.closeAndRelease();
         videoSub.close();
         expect(container.read(videoPlaybackActiveProvider), isFalse);
+        expect(createdVideoClients.first.isDisposed, isTrue);
+        expect(engine.liveNativeClientCount, equals(0));
 
-        // 4. 恢复音频播放：仅调用 setPlaying(true) 必须原子重绑统一内核代数与 playlistEntryId。
+        // 4. 恢复音频播放：通过统一内核重新申请唯一纯音频句柄并恢复续播。
         await audio.setPlaying(true);
+        await _pumpUntil(() => audio.state.isPlaying);
         expect(audio.state.isPlaying, isTrue);
         expect(engine.activeStage, equals(PlaybackStageKind.audio));
-        expect(engine.currentPlaylistEntryId, equals(audioEntryId));
+        expect(engine.liveNativeClientCount, equals(1));
+        expect(createdAudioClients.length, equals(2));
+        final resumedAudioClient = createdAudioClients.last;
+        expect(resumedAudioClient.isDisposed, isFalse);
+        final resumedEntryId =
+            resumedAudioClient.intProps['playlist-entry-id'] ?? 1;
+        expect(engine.currentPlaylistEntryId, equals(resumedEntryId));
 
         // 5. 音频播放至自然 EOF：绝不被陈旧代数拦截，必须自动切入第 2 首曲目。
-        audioClient.emitEvent(
+        resumedAudioClient.emitEvent(
           MpvEndFileEvent(
             reason: MpvEndFileReason.eof,
             errorCode: 0,
-            playlistEntryId: audioEntryId,
+            playlistEntryId: resumedEntryId,
           ),
         );
         await _pumpUntil(() => audio.state.currentIndex == 1);
@@ -946,6 +981,8 @@ void main() {
         expect(audio.state.currentItem?.variant.id, equals(vTrack2.id));
 
         await audio.stopAndClose();
+        expect(resumedAudioClient.isDisposed, isTrue);
+        expect(engine.liveNativeClientCount, equals(0));
       },
     );
   });

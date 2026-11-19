@@ -12,6 +12,7 @@ import '../../application/providers/library_providers.dart';
 import '../../composition/platform_composition.dart';
 import '../../domain/matching/episode_title_formatter.dart';
 import '../../domain/models/episode.dart';
+import '../../domain/models/media_extensions.dart';
 import '../../domain/models/series_group.dart';
 import '../../domain/models/work.dart';
 import '../../domain/playback/audiophile_safety_policy.dart';
@@ -20,6 +21,8 @@ import '../../domain/playback/playback_probe_stats.dart';
 import '../../domain/playback/subtitle_content_processor.dart';
 import '../../domain/playback/track_preferences.dart';
 import '../../domain/playback/video_aspect_mode.dart';
+import '../../infrastructure/players/embedded_mpv_session.dart'
+    show ScreenshotCaptureMode;
 import '../../infrastructure/players/mpv_quality_profile.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
@@ -185,7 +188,7 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
     final result = await FilePicker.pickFiles(
       dialogTitle: '选择外挂字幕文件',
       type: FileType.custom,
-      allowedExtensions: const ['ass', 'ssa', 'srt', 'vtt', 'sup', 'idx', 'sub'],
+      allowedExtensions: KonataMediaExtensions.subtitleExtensionsNoDot,
     );
     final path = result.isEmpty ? null : result.first.path;
     if (path != null && path.trim().isNotEmpty) {
@@ -1011,6 +1014,41 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
               value: state.audioOnlyMode,
               onChanged: controller.setAudioOnlyMode,
             ),
+          ),
+          const SizedBox(height: 14),
+          _SectionLabel(pPal, '原画截图'),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              KonataPillButton.ghost(
+                key: const ValueKey('video_sheet_screenshot_pure_button'),
+                label: KonataAdaptiveTokens.isAndroid
+                    ? '纯净原画'
+                    : '纯净原画帧 (S)',
+                icon: Icons.photo_camera_outlined,
+                compact: true,
+                onPressed: () => unawaited(
+                  controller.captureScreenshot(
+                    mode: ScreenshotCaptureMode.pureVideo,
+                  ),
+                ),
+              ),
+              KonataPillButton.ghost(
+                key: const ValueKey('video_sheet_screenshot_subtitled_button'),
+                label: KonataAdaptiveTokens.isAndroid
+                    ? '带字幕合成'
+                    : '带字幕合成帧 (Shift+S)',
+                icon: Icons.subtitles_outlined,
+                compact: true,
+                onPressed: () => unawaited(
+                  controller.captureScreenshot(
+                    mode: ScreenshotCaptureMode.withSubtitles,
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           _SectionLabel(pPal, 'GLSL 着色器链'),

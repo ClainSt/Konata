@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -271,10 +270,7 @@ class _KonataFollowFingerSheetSurfaceState
         top: Radius.circular(widget.topRadius),
       ),
       child: BackdropFilter(
-        filter: ImageFilter.blur(
-          sigmaX: widget.blurSigma,
-          sigmaY: widget.blurSigma,
-        ),
+        filter: KonataTheme.blurFilterOf(widget.blurSigma),
         child: Container(
           height: widget.height,
           decoration: BoxDecoration(
@@ -473,7 +469,7 @@ class KonataGlassDialog extends StatelessWidget {
           child: ClipRRect(
             borderRadius: KonataTheme.borderRadiusDialog,
             child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 44, sigmaY: 44),
+              filter: KonataTheme.blurFilterSheet,
               child: Container(
                 width: effectiveWidth,
                 height: effectiveHeight,

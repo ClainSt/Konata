@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
@@ -144,7 +143,7 @@ class _DetailOpsCapsuleState extends State<DetailOpsCapsule> {
     return ClipRRect(
       borderRadius: KonataTheme.borderRadiusPill,
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+        filter: KonataTheme.blurFilterMedium,
         child: Container(
           padding: compactPad
               ? EdgeInsets.symmetric(
@@ -314,7 +313,7 @@ class _DetailGearMenuOverlayState extends State<DetailGearMenuOverlay> {
             child: ClipRRect(
               borderRadius: KonataTheme.borderRadiusSheet,
               child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+                filter: KonataTheme.blurFilterCapsule,
                 child: Container(
                   key: const ValueKey('detail_gear_menu_container'),
                   width: 218,
@@ -577,7 +576,7 @@ class _DetailDrawerTabChipState extends State<DetailDrawerTabChip> {
           ? KonataPlaybackTokens.activePillBg(p)
           : p.primaryButtonBg;
       borderColor = KonataTheme.activeControlBorder(p);
-      textColor = p.isDark ? Colors.white : p.primaryButtonFg;
+      textColor = p.isDark ? KonataTheme.pureWhite : p.primaryButtonFg;
     } else if (_hovered) {
       bgColor = KonataTheme.subtleControlFill(p);
       borderColor = Colors.transparent;

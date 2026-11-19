@@ -136,11 +136,13 @@ class AndroidVideoSurfaceController {
         'bottomPx': bottomPx,
         'radiusPx': cornerRadiusPx,
       });
-    } on MissingPluginException {
-      // 非 Android 原生宿主或单元测试未挂载插件通道时静默跳过。
-    } on PlatformException {
-      // 底层窗口销毁竞态下的瞬态平台异常，由后续表面重绑恢复。
-    }
+    } on MissingPluginException catch (error) {
+  // 非 Android 原生宿主或单元测试未挂载插件通道时静默跳过。
+  developer.log('可恢复异常已记录', name: 'konata.android_video_surface_controller', error: error);
+} on PlatformException catch (error) {
+  // 底层窗口销毁竞态下的瞬态平台异常，由后续表面重绑恢复。
+  developer.log('可恢复异常已记录', name: 'konata.android_video_surface_controller', error: error);
+}
   }
 
   /// 隐藏底层 Underlay 表面（纯音频模式或退出播放时立即释放系统缓冲）。
@@ -154,11 +156,13 @@ class AndroidVideoSurfaceController {
     _lastRadiusPx = null;
     try {
       await _channel.invokeMethod<void>('hide');
-    } on MissingPluginException {
-      // 非原生宿主环境下无需隐藏底层表面。
-    } on PlatformException {
-      // 窗口已销毁时无需重复隐藏。
-    }
+    } on MissingPluginException catch (error) {
+  // 非原生宿主环境下无需隐藏底层表面。
+  developer.log('可恢复异常已记录', name: 'konata.android_video_surface_controller', error: error);
+} on PlatformException catch (error) {
+  // 窗口已销毁时无需重复隐藏。
+  developer.log('可恢复异常已记录', name: 'konata.android_video_surface_controller', error: error);
+}
   }
 
   /// 主动向原生端查询当前可用表面信息（句柄与宽高均需大于 0）。
@@ -192,11 +196,13 @@ class AndroidVideoSurfaceController {
     if (wid <= 0) return;
     try {
       await _channel.invokeMethod<void>('release', wid);
-    } on MissingPluginException {
-      // 单元测试或非原生宿主环境跳过 JNI 释放。
-    } on PlatformException {
-      // 旧句柄已被系统回收时静默放行。
-    }
+    } on MissingPluginException catch (error) {
+  // 单元测试或非原生宿主环境跳过 JNI 释放。
+  developer.log('可恢复异常已记录', name: 'konata.android_video_surface_controller', error: error);
+} on PlatformException catch (error) {
+  // 旧句柄已被系统回收时静默放行。
+  developer.log('可恢复异常已记录', name: 'konata.android_video_surface_controller', error: error);
+}
   }
 
   /// 隐藏底层表面并释放与当前会话关联的全部 JNI 全局 Surface 引用。
@@ -209,11 +215,13 @@ class AndroidVideoSurfaceController {
     _lastRadiusPx = null;
     try {
       await _channel.invokeMethod<void>('releaseAll');
-    } on MissingPluginException {
-      // 单元测试或非原生宿主环境跳过全量释放。
-    } on PlatformException {
-      // 宿主已关闭时静默放行。
-    }
+    } on MissingPluginException catch (error) {
+  // 单元测试或非原生宿主环境跳过全量释放。
+  developer.log('可恢复异常已记录', name: 'konata.android_video_surface_controller', error: error);
+} on PlatformException catch (error) {
+  // 宿主已关闭时静默放行。
+  developer.log('可恢复异常已记录', name: 'konata.android_video_surface_controller', error: error);
+}
     _current = null;
   }
 

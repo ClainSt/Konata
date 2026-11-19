@@ -72,7 +72,7 @@ class _TopHoverPreviewBubble extends StatelessWidget {
           child: ClipRRect(
             borderRadius: KonataTheme.borderRadiusPill,
             child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+              filter: KonataTheme.blurFilterControl,
               child: Container(
                 constraints: BoxConstraints(maxWidth: maxWidth),
                 padding: const EdgeInsets.symmetric(
@@ -124,7 +124,7 @@ class _TopHoverPreviewBubble extends StatelessWidget {
         child: ClipRRect(
           borderRadius: KonataTheme.borderRadiusPanel,
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+            filter: KonataTheme.blurFilterMedium,
             child: Container(
               constraints: BoxConstraints(maxWidth: maxWidth),
               padding: const EdgeInsets.all(6),

@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
@@ -156,10 +155,7 @@ class _KonataGlassMenuOverlay<T> extends StatelessWidget {
               child: ClipRRect(
                 borderRadius: radius,
                 child: BackdropFilter(
-                  filter: ImageFilter.blur(
-                    sigmaX: KonataPlaybackTokens.capsuleBlurSigma,
-                    sigmaY: KonataPlaybackTokens.capsuleBlurSigma,
-                  ),
+                  filter: KonataTheme.blurFilterCapsule,
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       color: KonataPlaybackTokens.popoverSurface(p),

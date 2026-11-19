@@ -809,7 +809,7 @@ void main() {
               'observerNav=${identical(observer.navigator, nav)}, '
               'pages=${observer.pageRoutes.length}, '
               'modals=${observer.modalRoutes.length}, '
-              'reg=${nav == null ? -1 : KonataModalLayerRegistry.instance.routesFor(nav).length}';
+              'reg=${nav == null ? -1 : container.read(konataModalLayerRegistryProvider).routesFor(nav).length}';
 
           // 打开模态层期间，悬浮小窗位于 ModalBarrier 之下，hitTestable 必须为空！
           expect(

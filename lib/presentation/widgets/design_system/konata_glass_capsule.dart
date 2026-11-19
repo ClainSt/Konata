@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../../theme/konata_adaptive_tokens.dart';
@@ -34,12 +32,6 @@ class KonataGlassCapsule extends StatelessWidget {
   /// 当底层为纯单色画布且关闭 `BackdropFilter` 时，以 `Color.alphaBlend` 预混出像素级等价毛玻璃底色。
   final Color? solidBackdropColor;
 
-  static final ImageFilter _capsuleBlurFilter = ImageFilter.blur(
-    sigmaX: KonataPlaybackTokens.capsuleBlurSigma,
-    sigmaY: KonataPlaybackTokens.capsuleBlurSigma,
-    tileMode: TileMode.clamp,
-  );
-
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
@@ -72,7 +64,10 @@ class KonataGlassCapsule extends StatelessWidget {
     }
     return ClipRRect(
       borderRadius: borderRadius,
-      child: BackdropFilter(filter: _capsuleBlurFilter, child: decorated),
+      child: BackdropFilter(
+        filter: KonataTheme.blurFilterCapsule,
+        child: decorated,
+      ),
     );
   }
 }

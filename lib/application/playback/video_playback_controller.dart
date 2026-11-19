@@ -554,13 +554,15 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       final shadersDir = await storageRoot.ensureShadersDir();
       final shaders = await MpvQualityProfile.discoverShaderFiles(shadersDir);
 
-      _boundNativeInstanceId = _engine.attachNativeInstance(
-        stage: PlaybackStageKind.video,
-      );
-      _boundPhysicalEpoch = _engine.beginPhysicalMedia(
-        nativeInstanceId: _boundNativeInstanceId,
-        stage: PlaybackStageKind.video,
-      );
+      if (sessionFactory != null) {
+        _boundNativeInstanceId = _engine.attachNativeInstance(
+          stage: PlaybackStageKind.video,
+        );
+        _boundPhysicalEpoch = _engine.beginPhysicalMedia(
+          nativeInstanceId: _boundNativeInstanceId,
+          stage: PlaybackStageKind.video,
+        );
+      }
       _engine.recordManualSelection();
 
       final session = sessionFactory != null
@@ -568,6 +570,19 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
           : EmbeddedMpvSession(
               storageRoot: storageRoot,
               streamBridge: _streamBridge,
+              nativeClientAcquirer: ({onEvicted}) async {
+                final acquired = await _engine.acquireExclusiveNativeClient(
+                  stage: PlaybackStageKind.video,
+                  onEvicted: onEvicted,
+                );
+                _boundNativeInstanceId = acquired.nativeInstanceId;
+                _boundPhysicalEpoch = _engine.beginPhysicalMedia(
+                  nativeInstanceId: _boundNativeInstanceId,
+                  stage: PlaybackStageKind.video,
+                );
+                return acquired.client;
+              },
+              nativeClientReleaser: _engine.releaseNativeClient,
               desktopSurfaceBridge: _ref.read(
                 konataVideoBridgeFactoryProvider,
               )(),

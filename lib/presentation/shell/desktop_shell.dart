@@ -140,10 +140,8 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
                   ),
                 ),
               const Expanded(
-                child: RepaintBoundary(
-                  child: ClipRect(
-                    child: _ShellTabBodySlot(pages: _mainPages),
-                  ),
+                child: ClipRect(
+                  child: _ShellTabBodySlot(pages: _mainPages),
                 ),
               ),
             ],

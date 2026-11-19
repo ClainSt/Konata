@@ -12,6 +12,7 @@ import '../../domain/playback/track_preferences.dart';
 import '../../domain/text/multibyte_text_decoder.dart';
 import '../../infrastructure/players/libmpv_ffi.dart';
 import 'unified_playback_engine.dart';
+import 'dart:developer' as developer;
 
 /// 单个字幕槽位（主字幕或副字幕）的权威挂载目标描述。
 class SubtitleSlotRequest {
@@ -328,9 +329,10 @@ class SubtitleMemoryEngine {
           ),
         );
         preparedSlots.add(slot);
-      } on Object {
-        // 单个外挂字幕读取失败不影响其余可用字幕挂载。
-      }
+      } on Object catch (error) {
+  // 单个外挂字幕读取失败不影响其余可用字幕挂载。
+  developer.log('可恢复异常已记录', name: 'konata.subtitle_memory_engine', error: error);
+}
     }
 
     if (!isStillCurrent()) {

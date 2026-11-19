@@ -1,4 +1,3 @@
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
@@ -375,7 +374,7 @@ class _FrostedPlayButtonState extends State<FrostedPlayButton> {
           child: ClipRRect(
             borderRadius: BorderRadius.circular(radius),
             child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+              filter: KonataTheme.blurFilterOverlay,
               child: AnimatedContainer(
                 duration: KonataTheme.motionFast,
                 curve: Curves.easeOutCubic,
@@ -451,7 +450,7 @@ class _FallbackTitleBlock extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: KonataTheme.detailTextStyle(
             palette: p,
-            color: Colors.white,
+            color: KonataTheme.pureWhite,
             fontSize: fontSize,
             fontWeight: FontWeight.w700,
             letterSpacing: 0.5,

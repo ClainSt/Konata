@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -497,10 +496,7 @@ class _KonataGlassToastCapsule extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(KonataAdaptiveTokens.capsuleRadius),
         child: BackdropFilter(
-          filter: ImageFilter.blur(
-            sigmaX: KonataAdaptiveTokens.toastBlurSigma,
-            sigmaY: KonataAdaptiveTokens.toastBlurSigma,
-          ),
+          filter: KonataTheme.blurFilterControl,
           child: ConstrainedBox(
             constraints: const BoxConstraints(
               maxWidth: KonataAdaptiveTokens.toastMaxWidth,

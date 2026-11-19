@@ -19,6 +19,9 @@ abstract final class KonataMediaExtensions {
     '.mpg',
     '.mpeg',
     '.vob',
+    '.ogm',
+    '.rmvb',
+    '.iso',
   };
 
   /// 全站支持的可直接播放音频文件扩展名（不含 `.cue` 分轨清单）。
@@ -110,10 +113,76 @@ abstract final class KonataMediaExtensions {
     '.avif',
   };
 
+  /// 全站唯一权威片源介质标签词表（小写归一化，覆盖新旧番蓝光/DVD/激光影碟/电视/流媒体压制源）。
+  static const Set<String> sourceTags = {
+    'bd-remux',
+    'bdremux',
+    'remux',
+    'bdrip',
+    'brrip',
+    'blu-ray',
+    'bluray',
+    'bdmv',
+    'bd',
+    'uhdrip',
+    'uhd',
+    'web-dl',
+    'webdl',
+    'webrip',
+    'web',
+    'hdtvrip',
+    'hdtv',
+    'dvdrip',
+    'dvd',
+    'ldrip',
+    'ld',
+    'tvrip',
+  };
+
+  /// 无歧义复合片源介质标签子集（不含短词 `bd`/`web`/`dvd`/`ld`/`uhd`，供无括号场景串清洗安全匹配）。
+  static const Set<String> explicitSourceTags = {
+    'bd-remux',
+    'bdremux',
+    'remux',
+    'bdrip',
+    'brrip',
+    'blu-ray',
+    'bluray',
+    'bdmv',
+    'uhdrip',
+    'web-dl',
+    'webdl',
+    'webrip',
+    'hdtvrip',
+    'hdtv',
+    'dvdrip',
+    'ldrip',
+    'tvrip',
+  };
+
+  /// 由 [sourceTags] 派生的完整片源标签正则分组（长词优先并兼容连字符写法）。
+  static final String sourceTagAlternation = _buildAlternation(sourceTags);
+
+  /// 由 [explicitSourceTags] 派生的无歧义片源标签正则分组（供无括号场景串去噪）。
+  static final String explicitSourceTagAlternation = _buildAlternation(
+    explicitSourceTags,
+  );
+
+  /// 供 `FilePicker` 使用的无前导点字幕扩展名列表。
+  static final List<String> subtitleExtensionsNoDot = List<String>.unmodifiable(
+    subtitle.map((ext) => ext.substring(1)),
+  );
+
   /// 由 [video] 权威集合派生出的视频扩展名正则分组（不含首点）。
   static final String videoExtensionAlternation = video
       .map((ext) => ext.substring(1))
       .join('|');
+
+  static String _buildAlternation(Set<String> tokens) {
+    final sorted = tokens.toList()
+      ..sort((a, b) => b.length.compareTo(a.length));
+    return sorted.map(RegExp.escape).join('|');
+  }
 
   /// 由 [video] 权威集合派生的视频末尾后缀正则模式（如 `\.(?:mkv|mp4|...)$`）。
   static final String videoExtensionSuffixPattern =
@@ -177,6 +246,9 @@ abstract final class KonataMediaExtensions {
       '.flv' => 'video/x-flv',
       '.wmv' => 'video/x-ms-wmv',
       '.mpg' || '.mpeg' || '.vob' => 'video/mpeg',
+      '.ogm' => 'video/ogg',
+      '.rmvb' => 'application/vnd.rn-realmedia-vbr',
+      '.iso' => 'application/x-iso9660-image',
       '.ts' || '.m2ts' => 'video/mp2t',
       '.flac' => 'audio/flac',
       '.wav' => 'audio/wav',

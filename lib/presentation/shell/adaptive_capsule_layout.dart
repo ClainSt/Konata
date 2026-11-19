@@ -29,18 +29,18 @@ enum FloatingMiniPlayerKind {
 /// 悬浮小窗松手吸附后的归一化停靠锚点（`null` 表示默认右下角合法锚点；拖拽过程不写此状态以避免整页重建）。
 final floatingMiniWindowAnchorProvider = StateProvider<Offset?>((ref) => null);
 
-/// 模态路由层级注册表（兼容未显式挂载 `KonataRootRouteObserver` 的独立组件测试场景）。
+/// 模态路由层级注册表（由 Riverpod 托管生命周期，兼容未显式挂载 `KonataRootRouteObserver` 的组件测试场景）。
 class KonataModalLayerRegistry extends ChangeNotifier {
-  KonataModalLayerRegistry._();
-
-  /// 全局单例注册表。
-  static final KonataModalLayerRegistry instance = KonataModalLayerRegistry._();
+  /// 创建模态路由层级注册表。
+  KonataModalLayerRegistry();
 
   final LinkedHashSet<OverlayRoute<dynamic>> _modalRoutes =
       LinkedHashSet<OverlayRoute<dynamic>>();
+  bool _disposed = false;
 
   /// 当前已登记且仍处于挂载态的模态路由列表。
   List<OverlayRoute<dynamic>> routesFor(NavigatorState navigator) {
+    if (_disposed) return const [];
     return _modalRoutes
         .where((r) => r.navigator == navigator && r.overlayEntries.isNotEmpty)
         .toList(growable: false);
@@ -48,10 +48,12 @@ class KonataModalLayerRegistry extends ChangeNotifier {
 
   /// 登记一个活跃模态路由，并在其进退场动画状态跃迁与彻底结束时同步层级。
   void registerRoute(OverlayRoute<dynamic> route) {
+    if (_disposed) return;
     if (_modalRoutes.add(route)) {
       notifyListeners();
       if (route is TransitionRoute<dynamic>) {
         void onAnimStatus(AnimationStatus status) {
+          if (_disposed) return;
           if (status == AnimationStatus.dismissed) {
             route.animation?.removeStatusListener(onAnimStatus);
             unregisterRoute(route);
@@ -76,11 +78,41 @@ class KonataModalLayerRegistry extends ChangeNotifier {
 
   /// 注销一个已结束的模态路由。
   void unregisterRoute(OverlayRoute<dynamic> route) {
+    if (_disposed) return;
     if (_modalRoutes.remove(route)) {
       notifyListeners();
     }
   }
+
+  @override
+  void addListener(VoidCallback listener) {
+    if (_disposed) return;
+    super.addListener(listener);
+  }
+
+  @override
+  void removeListener(VoidCallback listener) {
+    if (_disposed) return;
+    super.removeListener(listener);
+  }
+
+  @override
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _modalRoutes.clear();
+    super.dispose();
+  }
 }
+
+/// 全局模态路由层级注册表 Provider。
+final konataModalLayerRegistryProvider = Provider<KonataModalLayerRegistry>((
+  ref,
+) {
+  final registry = KonataModalLayerRegistry();
+  ref.onDispose(registry.dispose);
+  return registry;
+});
 
 /// 在弹窗、底部抽屉与弹出菜单根节点自动向 [KonataModalLayerRegistry] 登记所属 `ModalRoute` 的轻量作用域。
 class KonataModalRouteScope extends StatefulWidget {
@@ -96,6 +128,7 @@ class KonataModalRouteScope extends StatefulWidget {
 
 class _KonataModalRouteScopeState extends State<KonataModalRouteScope> {
   ModalRoute<dynamic>? _registeredRoute;
+  KonataModalLayerRegistry? _registry;
 
   @override
   void didChangeDependencies() {
@@ -104,17 +137,30 @@ class _KonataModalRouteScopeState extends State<KonataModalRouteScope> {
     if (modalRoute != null &&
         modalRoute is! PageRoute &&
         !identical(modalRoute, _registeredRoute)) {
+      KonataModalLayerRegistry? registry;
+      try {
+        registry = ProviderScope.containerOf(
+          context,
+          listen: false,
+        ).read(konataModalLayerRegistryProvider);
+      } on StateError {
+        // 无 ProviderScope 的独立纯 Widget 单测场景下跳过全局模态层登记。
+        registry = null;
+      }
       _registeredRoute = modalRoute;
-      KonataModalLayerRegistry.instance.registerRoute(modalRoute);
+      _registry = registry;
+      registry?.registerRoute(modalRoute);
     }
   }
 
   @override
   void dispose() {
     final route = _registeredRoute;
+    final registry = _registry;
     _registeredRoute = null;
+    _registry = null;
     if (route != null && !route.isActive) {
-      KonataModalLayerRegistry.instance.unregisterRoute(route);
+      registry?.unregisterRoute(route);
     }
     super.dispose();
   }

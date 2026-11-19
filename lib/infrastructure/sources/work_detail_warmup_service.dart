@@ -7,6 +7,7 @@ import '../../domain/models/media_variant.dart';
 import '../../domain/playback/subtitle_and_audio_choices.dart';
 import '../sources/source_gateway_factory.dart';
 import '../sources/subtitle_matcher.dart';
+import 'dart:developer' as developer;
 
 /// 单个目录（含字幕/音轨子目录）内存索引快照，记录按语种维度的扫描完备性与源验证器。
 class SubtitleDirectorySnapshot {
@@ -192,9 +193,10 @@ class WorkDetailWarmupService {
           dirRelativePath: target.parentDir,
           expectedGeneration: gen,
         );
-      } on Object {
-        // 静默预热失败严禁弹出干扰提示，点播时正常走主流程兜底。
-      }
+      } on Object catch (error) {
+  // 静默预热失败严禁弹出干扰提示，点播时正常走主流程兜底。
+  developer.log('可恢复异常已记录', name: 'konata.work_detail_warmup_service', error: error);
+}
     }
   }
 

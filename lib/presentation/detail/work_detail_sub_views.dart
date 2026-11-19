@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -102,7 +101,7 @@ class DetailPortraitHeroHeader extends StatelessWidget {
                     alignment: SmartCoverFraming.defaultPosterAlignment,
                   ),
                   BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+                    filter: KonataTheme.blurFilterMedium,
                     child: ColoredBox(
                       color: KonataTheme.scrimBlackLight,
                     ),
@@ -294,7 +293,7 @@ class DetailLandscapeHeroBanner extends StatelessWidget {
                       alignment: SmartCoverFraming.defaultPosterAlignment,
                     ),
                     BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+                      filter: KonataTheme.blurFilterMedium,
                       child: ColoredBox(
                         color: KonataTheme.scrimBlackMedium,
                       ),
@@ -375,7 +374,7 @@ class DetailLandscapeHeroBanner extends StatelessWidget {
                         fontSize: KonataTheme.fontSizeH2,
                         fontWeight: FontWeight.w700,
                         palette: p,
-                        color: Colors.white,
+                        color: KonataTheme.pureWhite,
                       ),
                     ),
                   )
@@ -392,7 +391,7 @@ class DetailLandscapeHeroBanner extends StatelessWidget {
                         fontSize: KonataTheme.fontSizeH2,
                         fontWeight: FontWeight.w700,
                         palette: p,
-                        color: Colors.white,
+                        color: KonataTheme.pureWhite,
                       ),
                     ),
                   ),
@@ -453,7 +452,7 @@ class WorkDetailBackCircle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final iconColor = forceLightIcons ? Colors.white : p.textPrimary;
+    final iconColor = forceLightIcons ? KonataTheme.pureWhite : p.textPrimary;
     final bgColor = forceLightIcons
         ? KonataTheme.scrimBlackSubtle
         : p.surface;
@@ -484,7 +483,7 @@ class WorkDetailBackCircle extends StatelessWidget {
           height: btnSize,
           child: ClipOval(
             child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+              filter: KonataTheme.blurFilterControl,
               child: Material(
                 color: bgColor,
                 shape: CircleBorder(side: BorderSide(color: borderColor)),

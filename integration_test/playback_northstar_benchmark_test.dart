@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
+import 'package:ccplayer/application/playback/unified_playback_engine.dart';
 import 'package:ccplayer/application/playback/video_playback_controller.dart';
 import 'package:ccplayer/application/providers/library_providers.dart';
 import 'package:ccplayer/application/providers/playback_providers.dart';
@@ -134,12 +135,19 @@ class _LiveStageNorthstarHost extends StatelessWidget {
       home: Consumer(
         builder: (context, ref, _) {
           onContainerReady(ProviderScope.containerOf(context));
+          final usesUnderlay =
+              Platform.isAndroid ||
+              ref.watch(
+                videoPlaybackProvider(request).select(
+                  (s) => s.windowsUnderlayActive && !s.audioOnlyMode,
+                ),
+              );
           return Scaffold(
             backgroundColor: Colors.transparent,
             body: KonataStageMorphFrame(
               key: frameKey,
               originRect: originRect,
-              allowClipRadius: !Platform.isAndroid,
+              allowClipRadius: !usesUnderlay,
               isCollapsing: isCollapsing,
               releaseVelocityPxPerSec: releaseVelocityPxPerSec,
               onCollapseCompleted: onCollapseCompleted,
@@ -297,16 +305,23 @@ void main() {
             final bridgeFactory = ref.read(konataVideoBridgeFactoryProvider);
             final bridge = bridgeFactory();
             final delegate = ref.read(mpvPlatformProfileDelegateProvider);
+            final engine = ref.read(unifiedPlaybackEngineProvider);
             final session = EmbeddedMpvSession(
               storageRoot: ref.read(storageRootProvider),
               streamBridge: ref.read(localStreamBridgeProvider),
               desktopSurfaceBridge: bridge,
               desktopProfileDelegate: delegate,
-              clientFactory: () {
-                final c = FfiLibMpvClient.create(preferredLibraryPath: winDll);
-                liveClient = c;
-                return c;
+              nativeClientAcquirer: ({onEvicted}) async {
+                final lease = await engine.acquireExclusiveNativeClient(
+                  stage: PlaybackStageKind.video,
+                  factoryOverride: () =>
+                      FfiLibMpvClient.create(preferredLibraryPath: winDll),
+                  onEvicted: onEvicted,
+                );
+                liveClient = lease.client;
+                return lease.client;
               },
+              nativeClientReleaser: engine.releaseNativeClient,
             );
             liveSession = session;
             return session;
@@ -426,8 +441,47 @@ void main() {
       }
     }
 
+    Future<({int recoveryUs, double actualSeconds})> measureSeekRecovery(
+      double targetSeconds,
+    ) async {
+      final restarted = Completer<void>();
+      final sub = client.events.listen((e) {
+        if (e is MpvPlaybackRestartEvent && !restarted.isCompleted) {
+          restarted.complete();
+        }
+      });
+      try {
+        if (!liveContainer!.read(videoPlaybackProvider(launchRequest)).isPlaying) {
+          controller.togglePlayPause();
+        }
+        final frameBefore = client.getPropertyInt64('estimated-frame-number') ?? 0;
+        final w = Stopwatch()..start();
+        controller.seekAbsolute(targetSeconds);
+        await restarted.future.timeout(const Duration(seconds: 8));
+        var actualPos = client.getPropertyDouble('time-pos') ?? targetSeconds;
+        for (var i = 0; i < 60; i++) {
+          final seeking = client.getPropertyFlag('seeking') ?? false;
+          final voReady = client.getPropertyFlag('vo-configured') ?? true;
+          final frameNow = client.getPropertyInt64('estimated-frame-number') ?? 0;
+          actualPos = client.getPropertyDouble('time-pos') ?? actualPos;
+          if (!seeking &&
+              voReady &&
+              (frameNow != frameBefore || (actualPos - targetSeconds).abs() <= 0.75)) {
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        w.stop();
+        await tester.pump(const Duration(milliseconds: 30));
+        return (recoveryUs: w.elapsedMicroseconds, actualSeconds: actualPos);
+      } finally {
+        await sub.cancel();
+      }
+    }
+
     await switchEpisodeAndMeasureTtff(ep2);
     await switchEpisodeAndMeasureTtff(ep1);
+    await measureSeekRecovery(1.6);
 
     // 预热一轮真实视频舞台 + 毛玻璃 HUD 双向 120Hz 弹簧形变。
     collapseCompleted = false;
@@ -457,13 +511,22 @@ void main() {
         await switchEpisodeAndMeasureTtff(ep1);
       }
 
-      // 切回 8 秒 HEVC Main10 后仅当进度已偏后时才归零，并确保处于连续播放态，避免多余异步 seek 事件干扰稳态窗口。
-      if ((client.getPropertyDouble('time-pos') ?? 0.0) > 2.5) {
-        controller.seekAbsolute(0.0);
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 200)),
-        );
-      }
+      // 柱 1.5：真硬件渲染下的精确跳转恢复耗时（下发 seek 至目标新帧输出完成）。
+      final seekTargetSec = round.isEven ? 2.1 : 1.5;
+      final seekRes = await measureSeekRecovery(seekTargetSec);
+      expect(
+        seekRes.recoveryUs,
+        greaterThan(0),
+        reason: '第 ${round + 1} 轮真硬件 seek 恢复耗时必须大于 0',
+      );
+      expect(
+        (seekRes.actualSeconds - seekTargetSec).abs(),
+        lessThanOrEqualTo(1.2),
+        reason:
+            '第 ${round + 1} 轮跳转目标 ${seekTargetSec}s 与落点 ${seekRes.actualSeconds.toStringAsFixed(2)}s 偏差过大',
+      );
+
+      // 确保处于连续播放态进入稳态零帧观测窗口（2.1s 起点在 8s 稳态流内不触发回环）。
       if (!liveContainer!.read(videoPlaybackProvider(launchRequest)).isPlaying) {
         controller.togglePlayPause();
       }
@@ -606,6 +669,11 @@ void main() {
         'order': reverseOrder ? 'reverse_BA' : 'forward_AB',
         'warm_hevc10_ttff_us': warmHevcTtffUs,
         'warm_h264_8bit_ttff_us': warmAvcTtffUs,
+        'seek_target_seconds': seekTargetSec,
+        'seek_actual_seconds': double.parse(
+          seekRes.actualSeconds.toStringAsFixed(3),
+        ),
+        'seek_recovery_us': seekRes.recoveryUs,
         'current_vo': roundVo,
         'current_ao': roundAo,
         'hwdec_current': roundHwdec,
@@ -630,6 +698,9 @@ void main() {
     final hevcTtffs = [for (final r in rounds) r['warm_hevc10_ttff_us']! as int];
     final avcTtffs = [
       for (final r in rounds) r['warm_h264_8bit_ttff_us']! as int,
+    ];
+    final seekRecoveries = [
+      for (final r in rounds) r['seek_recovery_us']! as int,
     ];
     final morphBuildP99s = [
       for (final r in rounds) r['spring_morph_build_p99_us']! as int,
@@ -666,6 +737,8 @@ void main() {
         'cold_ttff_us': coldTtffUs,
         'warm_hevc10_ttff_median_us': _medianInt(hevcTtffs),
         'warm_h264_8bit_ttff_median_us': _medianInt(avcTtffs),
+        'seek_recovery_median_us': _medianInt(seekRecoveries),
+        'seek_recovery_p99_us': _p99Int(seekRecoveries),
         'steady_osd_hidden_total_flutter_frames': steadyFramesTotal,
         'steady_osd_hidden_zero_frame_rate': steadyFramesTotal == 0 ? 1.0 : 0.0,
         'spring_morph_build_p99_median_us': _medianInt(morphBuildP99s),

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'big5_cp950_table.dart';
 import 'gbk_cp936_table.dart';
 import 'shift_jis_cp932_table.dart';
+import 'dart:developer' as developer;
 
 /// 传统东亚多字节文本编码类型（全仓唯一，供字幕、CUE 与 LRC 共用）。
 enum LegacyTextEncoding {
@@ -128,9 +129,10 @@ class MultibyteTextDecoder {
         text: strictUtf8,
         charset: DetectedTextCharset.utf8,
       );
-    } on FormatException {
-      // 非合法 UTF-8 字节流，进入多字节传统代码页文法判定分支。
-    }
+    } on FormatException catch (error) {
+  // 非合法 UTF-8 字节流，进入多字节传统代码页文法判定分支。
+  developer.log('可恢复异常已记录', name: 'konata.multibyte_text_decoder', error: error);
+}
 
     // 4. 基于多字节文法得分区分 CP932 (Shift-JIS) / GB18030 (GBK) / Big5。
     final legacy = detectLegacyEncoding(bytes);

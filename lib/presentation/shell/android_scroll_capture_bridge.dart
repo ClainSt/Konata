@@ -96,7 +96,8 @@ class _AndroidScrollCaptureScopeState extends State<AndroidScrollCaptureScope>
   @override
   void didUpdateWidget(covariant AndroidScrollCaptureScope oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (KonataAdaptiveTokens.isAndroid) {
+    if (KonataAdaptiveTokens.isAndroid &&
+        oldWidget.navigatorKey != widget.navigatorKey) {
       _scheduleSyncMetrics();
     }
   }
@@ -139,7 +140,7 @@ class _AndroidScrollCaptureScopeState extends State<AndroidScrollCaptureScope>
   void _scheduleSyncMetrics() {
     if (!mounted) return;
     _syncDebounceTimer?.cancel();
-    _syncDebounceTimer = Timer(KonataTheme.windowMetricsDebounce, () {
+    _syncDebounceTimer = Timer(KonataTheme.scrollCaptureMetricsDebounce, () {
       if (!mounted || _syncScheduled) return;
       _syncScheduled = true;
       SchedulerBinding.instance.addPostFrameCallback((_) {
@@ -362,8 +363,10 @@ class _AndroidScrollCaptureScopeState extends State<AndroidScrollCaptureScope>
       return widget.child;
     }
     return NotificationListener<ScrollMetricsNotification>(
-      onNotification: (_) {
-        _scheduleSyncMetrics();
+      onNotification: (notification) {
+        if (notification.metrics.axis == Axis.vertical) {
+          _scheduleSyncMetrics();
+        }
         return false;
       },
       child: widget.child,

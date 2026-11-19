@@ -131,15 +131,28 @@ typedef _SendMessageWNative =
 typedef Win32SendMessageWDart =
     int Function(int hWnd, int msg, int wParam, int lParam);
 
-/// 供 `EnumWindows` 静态回调函数在同步遍历期间临时收集符合条件的窗口句柄。
-final List<int> _collectedEnumWindows = <int>[];
-int _targetFilterPid = 0;
+/// `EnumWindows` 单次遍历的原生局部上下文结构体（经 `lParam` 指针传入回调，零全局可变静态状态）。
+final class _Win32EnumWindowsContext extends Struct {
+  @Uint32()
+  external int targetPid;
+
+  @Int32()
+  external int count;
+
+  @Int32()
+  external int capacity;
+
+  external Pointer<IntPtr> handles;
+}
 
 bool _isPotPlayerMainWindowClass(String cls) {
   return cls == 'PotPlayer64' || cls == 'PotPlayer';
 }
 
 int _win32EnumWindowsCallback(int hWnd, int lParam) {
+  if (lParam == 0) {
+    return 0;
+  }
   final bindings = Win32FfiBindings.instance;
   if (bindings == null) {
     return 0;
@@ -150,13 +163,16 @@ int _win32EnumWindowsCallback(int hWnd, int lParam) {
     return 1;
   }
 
-  if (_targetFilterPid > 0) {
-    final pid = bindings.getWindowProcessId(hWnd);
-    if (pid == _targetFilterPid) {
-      _collectedEnumWindows.add(hWnd);
-    }
-  } else {
-    _collectedEnumWindows.add(hWnd);
+  final ctxPtr = Pointer<_Win32EnumWindowsContext>.fromAddress(lParam);
+  final targetPid = ctxPtr.ref.targetPid;
+  if (targetPid > 0 && bindings.getWindowProcessId(hWnd) != targetPid) {
+    return 1;
+  }
+
+  final count = ctxPtr.ref.count;
+  if (count < ctxPtr.ref.capacity) {
+    ctxPtr.ref.handles[count] = hWnd;
+    ctxPtr.ref.count = count + 1;
   }
   return 1;
 }
@@ -269,22 +285,38 @@ class Win32FfiBindings {
 
   /// 枚举指定 PID（或回退全局）下全部真实的 `PotPlayer64` / `PotPlayer` 顶层主窗口句柄。
   List<int> findPotPlayerWindows({required int targetPid}) {
-    _collectedEnumWindows.clear();
-    if (targetPid > 0) {
-      _targetFilterPid = targetPid;
-      enumWindows(_enumPtr, 0);
-      if (_collectedEnumWindows.isNotEmpty) {
-        final matched = List<int>.of(_collectedEnumWindows);
-        _collectedEnumWindows.clear();
-        return matched;
-      }
-    }
+    const maxHandles = 64;
+    final handlesBuf = calloc<IntPtr>(maxHandles);
+    final ctx = calloc<_Win32EnumWindowsContext>();
+    try {
+      ctx.ref.capacity = maxHandles;
+      ctx.ref.handles = handlesBuf;
 
-    _targetFilterPid = 0;
-    enumWindows(_enumPtr, 0);
-    final fallback = List<int>.of(_collectedEnumWindows);
-    _collectedEnumWindows.clear();
-    return fallback;
+      if (targetPid > 0) {
+        ctx.ref.targetPid = targetPid;
+        ctx.ref.count = 0;
+        enumWindows(_enumPtr, ctx.address);
+        if (ctx.ref.count > 0) {
+          return List<int>.generate(
+            ctx.ref.count,
+            (i) => handlesBuf[i],
+            growable: false,
+          );
+        }
+      }
+
+      ctx.ref.targetPid = 0;
+      ctx.ref.count = 0;
+      enumWindows(_enumPtr, ctx.address);
+      return List<int>.generate(
+        ctx.ref.count,
+        (i) => handlesBuf[i],
+        growable: false,
+      );
+    } finally {
+      calloc.free(ctx);
+      calloc.free(handlesBuf);
+    }
   }
 
   /// 定位指定 PID（或回退匹配 PotPlayer 主窗口类）对应的首个 PotPlayer 主窗口句柄。

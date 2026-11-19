@@ -1,4 +1,3 @@
-import 'dart:ui';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -925,7 +924,7 @@ class _FrostedNavCapsule extends StatelessWidget {
     return ClipRRect(
       borderRadius: KonataTheme.borderRadiusPill,
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+        filter: KonataTheme.blurFilterMedium,
         child: Container(
           padding: padding,
           decoration: BoxDecoration(

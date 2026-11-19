@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:developer' as developer;
 
 /// 跨平台（含 Windows 既有目标文件安全覆盖）同卷原子替换落盘工具（全仓唯一）。
 ///
@@ -52,9 +53,10 @@ abstract final class AtomicFileWriter {
               await backupFile.exists()) {
             try {
               await backupFile.rename(targetFile.path);
-            } on FileSystemException {
-              // 极罕见竞争下由外层重试处理。
-            }
+            } on FileSystemException catch (error) {
+  // 极罕见竞争下由外层重试处理。
+  developer.log('可恢复异常已记录', name: 'konata.atomic_file_writer', error: error);
+}
           }
         }
       }

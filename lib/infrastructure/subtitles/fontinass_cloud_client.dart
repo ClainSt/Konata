@@ -124,9 +124,10 @@ class CloudSubsetAuthorizationStore {
       if (addedAny) {
         onHydrated?.call();
       }
-    } on Object {
-      // 无插件或存储受限环境下保持空授权集合，严禁默认放行未授权源。
-    }
+    } on Object catch (error) {
+  // 无插件或存储受限环境下保持空授权集合，严禁默认放行未授权源。
+  developer.log('可恢复异常已记录', name: 'konata.fontinass_cloud_client', error: error);
+}
   }
 
   void _schedulePersist() {
@@ -136,9 +137,10 @@ class CloudSubsetAuthorizationStore {
     _persistChain = _persistChain.then((_) async {
       try {
         await persister(snapshot);
-      } on Object {
-        // 持久化失败不影响内存态本次撤权/授权立即生效。
-      }
+      } on Object catch (error) {
+  // 持久化失败不影响内存态本次撤权/授权立即生效。
+  developer.log('可恢复异常已记录', name: 'konata.fontinass_cloud_client', error: error);
+}
     });
   }
 

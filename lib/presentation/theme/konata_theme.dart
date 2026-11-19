@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'konata_palette.dart';
 
@@ -64,6 +65,7 @@ abstract final class KonataTheme {
   static const double radiusControl = 10.0;
   static const double radiusCard = 12.0;
   static const double radiusPill = 999.0;
+  static const double fontSizeBodySm = 13.0;
   static const double switchTrackWidth = 44.0;
   static const double switchTrackHeight = 24.0;
   static const double switchThumbSize = 18.0;
@@ -217,16 +219,11 @@ abstract final class KonataTheme {
     );
   }
 
-  static ThemeData? _cachedDarkTheme;
-  static ThemeData? _cachedLightTheme;
+  /// 构建深色模式主题（生产应用通过 [konataDarkThemeProvider] 由 Riverpod 缓存复用）。
+  static ThemeData darkTheme() => _buildTheme(KonataPalette.dark);
 
-  /// 获取惰性缓存的深色模式主题（避免未切换前重复构造整棵 ThemeData）。
-  static ThemeData darkTheme() =>
-      _cachedDarkTheme ??= _buildTheme(KonataPalette.dark);
-
-  /// 获取惰性缓存的亮色模式主题（避免未切换前重复构造整棵 ThemeData）。
-  static ThemeData lightTheme() =>
-      _cachedLightTheme ??= _buildTheme(KonataPalette.light);
+  /// 构建亮色模式主题（生产应用通过 [konataLightThemeProvider] 由 Riverpod 缓存复用）。
+  static ThemeData lightTheme() => _buildTheme(KonataPalette.light);
 
   static ThemeData _buildTheme(KonataPalette palette) {
     final brightness = palette.isDark ? Brightness.dark : Brightness.light;
@@ -429,3 +426,13 @@ abstract final class KonataTheme {
     );
   }
 }
+
+/// 由 Riverpod 托管的深色模式全局主题 Provider（消除全局静态缓存，按容器生命周期隔离）。
+final konataDarkThemeProvider = Provider<ThemeData>(
+  (ref) => KonataTheme.darkTheme(),
+);
+
+/// 由 Riverpod 托管的亮色模式全局主题 Provider（消除全局静态缓存，按容器生命周期隔离）。
+final konataLightThemeProvider = Provider<ThemeData>(
+  (ref) => KonataTheme.lightTheme(),
+);

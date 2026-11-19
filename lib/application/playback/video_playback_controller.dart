@@ -465,30 +465,32 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   /// 向 Android 系统请求 `AUDIOFOCUS_GAIN` 并挂载失焦暂停 / 闪避降音监听。
   Future<void> ensureAudioFocus() async {
     if (!KonataPlatform.isAndroid) return;
-    await AndroidPlaybackWindowBridge.requestAudioFocus(
-      onLoss: () {
-        if (!mounted || state.isClosing) return;
-        _volumeBeforeDuck = null;
-        if (state.isPlaying) {
-          _session?.setPlaying(false);
-          state = state.copyWith(isPlaying: false);
-        }
-      },
-      onDuck: () {
-        if (!mounted || state.isClosing || !state.isPlaying) return;
-        _volumeBeforeDuck ??= state.volume;
-        final ducked = (_volumeBeforeDuck! * 0.25).clamp(0.0, 100.0);
-        _session?.setVolume(ducked);
-      },
-      onGain: () {
-        if (!mounted || state.isClosing) return;
-        final restore = _volumeBeforeDuck;
-        _volumeBeforeDuck = null;
-        if (restore != null) {
-          _session?.setVolume(restore);
-        }
-      },
-    );
+    await _ref
+        .read(androidAudioFocusServiceProvider)
+        .requestAudioFocus(
+          onLoss: () {
+            if (!mounted || state.isClosing) return;
+            _volumeBeforeDuck = null;
+            if (state.isPlaying) {
+              _session?.setPlaying(false);
+              state = state.copyWith(isPlaying: false);
+            }
+          },
+          onDuck: () {
+            if (!mounted || state.isClosing || !state.isPlaying) return;
+            _volumeBeforeDuck ??= state.volume;
+            final ducked = (_volumeBeforeDuck! * 0.25).clamp(0.0, 100.0);
+            _session?.setVolume(ducked);
+          },
+          onGain: () {
+            if (!mounted || state.isClosing) return;
+            final restore = _volumeBeforeDuck;
+            _volumeBeforeDuck = null;
+            if (restore != null) {
+              _session?.setVolume(restore);
+            }
+          },
+        );
   }
 
   /// 系统后台或关闭画中画时由生命周期协调器触发的精确暂停。
@@ -526,9 +528,12 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       final shadersDir = await storageRoot.ensureShadersDir();
       final shaders = await MpvQualityProfile.discoverShaderFiles(shadersDir);
 
-      _boundNativeInstanceId = _engine.attachNativeInstance();
+      _boundNativeInstanceId = _engine.attachNativeInstance(
+        stage: PlaybackStageKind.video,
+      );
       _boundPhysicalEpoch = _engine.beginPhysicalMedia(
         nativeInstanceId: _boundNativeInstanceId,
+        stage: PlaybackStageKind.video,
       );
       _engine.recordManualSelection();
 
@@ -580,6 +585,10 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
               : null,
         );
         if (!mounted) return;
+        _engine.bindActiveNativeClient(
+          session.activeClient,
+          stage: PlaybackStageKind.video,
+        );
         state = state.copyWith(
           isInitializing: false,
           textureId: session.textureIdListenable.value,
@@ -1067,7 +1076,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
         hideSystemBars: false,
       );
       await AndroidPlaybackWindowBridge.endWindow();
-      await AndroidPlaybackWindowBridge.abandonAudioFocus();
+      await _ref.read(androidAudioFocusServiceProvider).abandonAudioFocus();
     }
 
     await _persistProgress(isFinal: true);
@@ -1077,7 +1086,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     if (sessionToDispose != null) {
       await _sessionMutex.runExclusive(() => sessionToDispose.dispose());
     }
-    final leasedTokens = _engine.resetSession();
+    final leasedTokens = _engine.resetSession(stage: PlaybackStageKind.video);
     for (final token in leasedTokens) {
       unawaited(
         _streamBridge.unregisterSession(token).catchError((Object e) {
@@ -1112,7 +1121,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       if (sessionToDispose != null) {
         unawaited(_sessionMutex.runExclusive(() => sessionToDispose.dispose()));
       }
-      final leasedTokens = _engine.resetSession();
+      final leasedTokens = _engine.resetSession(stage: PlaybackStageKind.video);
       for (final token in leasedTokens) {
         unawaited(
           _streamBridge.unregisterSession(token).catchError((Object e) {

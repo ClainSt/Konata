@@ -1349,11 +1349,13 @@ void main() {
       var duckCount = 0;
       var lossCount = 0;
       var gainCount = 0;
-      await AndroidPlaybackWindowBridge.requestAudioFocus(
-        onDuck: () => duckCount++,
-        onLoss: () => lossCount++,
-        onGain: () => gainCount++,
-      );
+      await container
+          .read(androidAudioFocusServiceProvider)
+          .requestAudioFocus(
+            onDuck: () => duckCount++,
+            onLoss: () => lossCount++,
+            onGain: () => gainCount++,
+          );
       expect(audioFocusMethods, contains('request'));
 
       await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

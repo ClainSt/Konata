@@ -69,24 +69,19 @@ class UnifiedPlaybackControlSnapshot {
   bool get isActive => kind != UnifiedMediaKind.none;
 }
 
-/// Android 播放窗口与音频焦点原生通道封装。
-class AndroidPlaybackWindowBridge {
-  const AndroidPlaybackWindowBridge._();
-
-  static const MethodChannel _windowChannel = MethodChannel(
-    'ccplayer/playback_window',
-  );
+/// Android 音频焦点原生通道服务（由 Riverpod 托管，消除全局静态可变回调）。
+class AndroidAudioFocusService {
   static const MethodChannel _audioFocusChannel = MethodChannel(
     'ccplayer/audio_focus',
   );
 
-  static VoidCallback? _onAudioFocusLoss;
-  static VoidCallback? _onAudioFocusDuck;
-  static VoidCallback? _onAudioFocusGain;
-  static bool _focusHandlerBound = false;
+  VoidCallback? _onAudioFocusLoss;
+  VoidCallback? _onAudioFocusDuck;
+  VoidCallback? _onAudioFocusGain;
+  bool _focusHandlerBound = false;
 
   /// 绑定音频焦点变更回调并在 Android 端请求播放音频焦点（`AUDIOFOCUS_GAIN`）。
-  static Future<void> requestAudioFocus({
+  Future<void> requestAudioFocus({
     VoidCallback? onLoss,
     VoidCallback? onDuck,
     VoidCallback? onGain,
@@ -120,19 +115,52 @@ class AndroidPlaybackWindowBridge {
     }
     try {
       await _audioFocusChannel.invokeMethod<bool>('request');
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Android 请求音频焦点忽略：$e');
+    }
   }
 
-  /// 释放 Android 音频焦点。
-  static Future<void> abandonAudioFocus() async {
+  /// 释放 Android 音频焦点并清空挂接回调。
+  Future<void> abandonAudioFocus() async {
     _onAudioFocusLoss = null;
     _onAudioFocusDuck = null;
     _onAudioFocusGain = null;
     if (!KonataPlatform.isAndroid) return;
     try {
       await _audioFocusChannel.invokeMethod<void>('abandon');
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Android 释放音频焦点忽略：$e');
+    }
   }
+
+  /// 释放服务时解绑通道监听并清空回调。
+  void dispose() {
+    _onAudioFocusLoss = null;
+    _onAudioFocusDuck = null;
+    _onAudioFocusGain = null;
+    if (_focusHandlerBound) {
+      _focusHandlerBound = false;
+      _audioFocusChannel.setMethodCallHandler(null);
+    }
+  }
+}
+
+/// Android 音频焦点服务 Provider（由 Riverpod 托管生命周期，零静态可变状态）。
+final androidAudioFocusServiceProvider = Provider<AndroidAudioFocusService>((
+  ref,
+) {
+  final svc = AndroidAudioFocusService();
+  ref.onDispose(svc.dispose);
+  return svc;
+});
+
+/// Android 播放窗口控制原生通道无状态封装。
+class AndroidPlaybackWindowBridge {
+  const AndroidPlaybackWindowBridge._();
+
+  static const MethodChannel _windowChannel = MethodChannel(
+    'ccplayer/playback_window',
+  );
 
   /// 统一协同 `SystemChrome` 与原生窗口方向控制，视频播放强制横屏、退出或收起时立即释放全向旋转。
   static Future<void> applyVideoOrientationAndWindow({
@@ -695,7 +723,7 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
         SystemChrome.setPreferredOrientations(DeviceOrientation.values),
       );
     }
-    await AndroidPlaybackWindowBridge.abandonAudioFocus();
+    await _ref.read(androidAudioFocusServiceProvider).abandonAudioFocus();
   }
 
   /// 宿主应用回到前台时恢复音频焦点，并按引擎存活 / 快照冷重建双态恢复画面。
@@ -723,7 +751,7 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
     if (!mounted || req == null) return;
     state = state.copyWith(isInPipMode: false);
     _ref.read(videoPlaybackProvider(req).notifier).setPlayingPausedByLifecycle();
-    unawaited(AndroidPlaybackWindowBridge.abandonAudioFocus());
+    unawaited(_ref.read(androidAudioFocusServiceProvider).abandonAudioFocus());
   }
 
   /// 主动请求进入 Android 系统画中画。

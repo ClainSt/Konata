@@ -233,6 +233,7 @@ class AudiophileSafetyCoordinator {
   Future<AudioSafetyChainPlan> reapplyAll(
     PlaybackPreferencesState fallbackPrefs,
   ) async {
+    _engine.advanceAudioOutputRoute();
     AudioSafetyChainPlan latestPlan = compilePlan(fallbackPrefs);
     for (final entry in List<_AttachedAudioSession>.of(_sessions.values)) {
       final prefs = entry.prefsProvider();
@@ -248,6 +249,10 @@ class AudiophileSafetyCoordinator {
       }
       entry.onPlanApplied?.call(latestPlan);
     }
+    _logStore.record(
+      'AUDIOPHILE',
+      '音频安全链路热更新完成：routeEpoch=${_engine.audioOutputEpoch} stage=${_engine.activeStage.name} mode=${latestPlan.routeMode.name}',
+    );
     if (_sessions.isEmpty && KonataPlatform.isAndroid) {
       await _androidRouteBridge.negotiateBitPerfectUsb(
         enable: fallbackPrefs.androidBitPerfectUsb,

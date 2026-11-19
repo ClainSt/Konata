@@ -231,6 +231,7 @@ class EmbeddedMpvSession {
   double _desiredVolume = 100.0;
   bool _isMuted = false;
   int _loadGeneration = 0;
+  int? _activePlaylistEntryId;
   bool _fileLoadedForCurrentGen = false;
   bool _hasRestartedFirstFrame = false;
   bool _hwdecWasEnabled = true;
@@ -504,6 +505,7 @@ class EmbeddedMpvSession {
     }
 
     final generation = ++_loadGeneration;
+    _activePlaylistEntryId = null;
     _pendingRemoteSidecarJob = null;
     _fileLoadedForCurrentGen = false;
     _hasRestartedFirstFrame = false;
@@ -605,10 +607,16 @@ class EmbeddedMpvSession {
     if (_disposed) return;
     switch (event) {
       case MpvStartFileEvent():
+        _activePlaylistEntryId = event.playlistEntryId > 0
+            ? event.playlistEntryId
+            : null;
         onPlaylistEntryStarted?.call(event.playlistEntryId);
         onBufferingChanged?.call(true);
       case MpvFileLoadedEvent():
-        if (onValidatePhysicalEvent != null && !onValidatePhysicalEvent!()) {
+        if (onValidatePhysicalEvent != null &&
+            !onValidatePhysicalEvent!(
+              playlistEntryId: _activePlaylistEntryId,
+            )) {
           return;
         }
         _fileLoadedForCurrentGen = true;
@@ -651,7 +659,10 @@ class EmbeddedMpvSession {
           );
         }
       case MpvPlaybackRestartEvent():
-        if (onValidatePhysicalEvent != null && !onValidatePhysicalEvent!()) {
+        if (onValidatePhysicalEvent != null &&
+            !onValidatePhysicalEvent!(
+              playlistEntryId: _activePlaylistEntryId,
+            )) {
           return;
         }
         _hasRestartedFirstFrame = true;

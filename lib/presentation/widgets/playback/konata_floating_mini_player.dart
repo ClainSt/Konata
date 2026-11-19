@@ -82,10 +82,12 @@ class _KonataFloatingMiniPlayerState
   bool _isDragging = false;
   Offset _dragRawOffset = Offset.zero;
   Rect? _lastPublishedRect;
+  KonataToastController? _toastController;
 
   @override
   void initState() {
     super.initState();
+    _toastController = ref.read(konataToastControllerProvider);
     _snapController = AnimationController.unbounded(vsync: this)
       ..addListener(_handleSnapTick)
       ..addStatusListener(_handleSnapStatusChanged);
@@ -116,14 +118,18 @@ class _KonataFloatingMiniPlayerState
       ..dispose();
     _chromeVisibleNotifier.dispose();
     _liveOffsetNotifier.dispose();
-    if (_lastPublishedRect != null &&
-        konataFloatingMiniWindowRectNotifier.value == _lastPublishedRect) {
+    final rectNotifier = _toastController?.floatingMiniWindowRect;
+    final lastPublished = _lastPublishedRect;
+    if (lastPublished != null &&
+        rectNotifier != null &&
+        rectNotifier.value == lastPublished) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (konataFloatingMiniWindowRectNotifier.value == _lastPublishedRect) {
-          konataFloatingMiniWindowRectNotifier.value = null;
+        if (rectNotifier.value == lastPublished) {
+          rectNotifier.value = null;
         }
       });
     }
+    _toastController = null;
     super.dispose();
   }
 
@@ -139,15 +145,17 @@ class _KonataFloatingMiniPlayerState
   void _publishMiniRect(Rect? rect) {
     if (_rectNearEqual(_lastPublishedRect, rect)) return;
     _lastPublishedRect = rect;
+    final rectNotifier = _toastController?.floatingMiniWindowRect;
+    if (rectNotifier == null) return;
     if (WidgetsBinding.instance.schedulerPhase ==
         SchedulerPhase.persistentCallbacks) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          konataFloatingMiniWindowRectNotifier.value = rect;
+          rectNotifier.value = rect;
         }
       });
     } else {
-      konataFloatingMiniWindowRectNotifier.value = rect;
+      rectNotifier.value = rect;
     }
   }
 
@@ -287,7 +295,7 @@ class _KonataFloatingMiniPlayerState
     _dragRawOffset += details.delta;
     final clamped = layout.clampMiniWindowOffset(_dragRawOffset, miniSize);
     _liveOffsetNotifier.value = clamped;
-    if (KonataToastController.activeToast.value != null) {
+    if (_toastController?.activeToast.value != null) {
       _publishMiniRect(clamped & miniSize);
     }
   }

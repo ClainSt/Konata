@@ -14,10 +14,10 @@ import '../widgets/playback/konata_cached_artwork_backdrop.dart';
 
 /// 硬件视频渲染表面组件（视频模式零拷贝直出硬件画面；纯音频模式切换背景舞台）。
 ///
-/// 跨端渲染路径：
-/// - Android：通过根窗口底层（Underlay）`SurfaceView` + 上层透明 Flutter 画布 `BlendMode.clear` 视口挖空直出，
-///   彻底消除 `PlatformView` 跨线程同步栅栏与弹窗遮挡竞态；
-/// - Windows：通过 D3D11 三缓冲 DXGI 共享纹理（`rgba16hf` 内部管线）零拷贝合成，100% 兼容窗口亚克力/云母透光材质；
+/// 跨端同构底层挖空渲染路径：
+/// - Android：通过根窗口底层（Underlay）`SurfaceView` + 上层透明 Flutter 画布 `BlendMode.clear` 视口挖空直出；
+/// - Windows：优先通过底层 10-bit/HDR 子窗口（`vo=gpu-next`）或非顶置 DirectComposition 10-bit 交换链 +
+///   上层透明 Flutter 画布 `BlendMode.clear` 视口挖空直出，老旧驱动回退至 8-bit 兼容共享纹理；
 /// - 通过同一 `GlobalObjectKey` 在全屏舞台与悬浮小窗间平滑迁移，绝不重建解码会话。
 class KonataHardwareVideoSurface extends ConsumerStatefulWidget {
   /// 创建硬件视频渲染表面。
@@ -45,8 +45,10 @@ class KonataHardwareVideoSurface extends ConsumerStatefulWidget {
 class _KonataHardwareVideoSurfaceState
     extends ConsumerState<KonataHardwareVideoSurface> {
   AndroidVideoSurfaceController? _androidUnderlayController;
+  VideoPlaybackController? _cachedVideoController;
   Size? _lastReportedSurfaceSize;
   double? _lastReportedDpr;
+  bool _windowsUnderlayVisible = false;
 
   @override
   void initState() {
@@ -71,6 +73,23 @@ class _KonataHardwareVideoSurfaceState
     if (ctrl != null) {
       unawaited(ctrl.hideViewport());
     }
+    final videoCtrl = _cachedVideoController;
+    _cachedVideoController = null;
+    if (_windowsUnderlayVisible &&
+        KonataAdaptiveTokens.isWindows &&
+        videoCtrl != null &&
+        videoCtrl.mounted) {
+      _windowsUnderlayVisible = false;
+      unawaited(
+        videoCtrl.syncWindowsUnderlayViewport(
+          leftPx: 0,
+          topPx: 0,
+          rightPx: 0,
+          bottomPx: 0,
+          visible: false,
+        ),
+      );
+    }
     super.dispose();
   }
 
@@ -80,6 +99,7 @@ class _KonataHardwareVideoSurfaceState
       videoPlaybackProvider(widget.request).select(
         (s) => (
           texId: s.textureId,
+          windowsUnderlay: s.windowsUnderlayActive,
           audioOnly: s.audioOnlyMode,
           aspectMode: s.aspectMode,
           videoW: s.probeStats.videoWidth,
@@ -89,11 +109,28 @@ class _KonataHardwareVideoSurfaceState
       ),
     );
     final controller = ref.read(videoPlaybackProvider(widget.request).notifier);
+    _cachedVideoController = controller;
 
     if (snap.audioOnly) {
       if (_androidUnderlayController != null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           unawaited(_androidUnderlayController?.hideViewport());
+        });
+      }
+      if (_windowsUnderlayVisible && KonataAdaptiveTokens.isWindows) {
+        _windowsUnderlayVisible = false;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            unawaited(
+              controller.syncWindowsUnderlayViewport(
+                leftPx: 0,
+                topPx: 0,
+                rightPx: 0,
+                bottomPx: 0,
+                visible: false,
+              ),
+            );
+          }
         });
       }
       final work = snap.work ?? widget.request.work;
@@ -105,14 +142,57 @@ class _KonataHardwareVideoSurfaceState
       return KonataCachedArtworkBackdrop(cover: cover);
     }
 
+    final isUnderlayCutout =
+        KonataAdaptiveTokens.isAndroid || snap.windowsUnderlay;
     Widget rawSurface;
     if (KonataAdaptiveTokens.isAndroid) {
       final dpr = MediaQuery.devicePixelRatioOf(context);
-      rawSurface = _AndroidUnderlayCutout(
+      final androidCtrl = _androidUnderlayController!;
+      rawSurface = _UnderlayCutout(
         key: const ValueKey('android_underlay_cutout_surface'),
-        controller: _androidUnderlayController!,
         devicePixelRatio: dpr,
         cornerRadius: widget.cornerRadius,
+        identityToken: androidCtrl,
+        isDisposedReader: () => androidCtrl.isDisposed,
+        onSyncViewportRect:
+            ({
+              required leftPx,
+              required topPx,
+              required rightPx,
+              required bottomPx,
+              required cornerRadiusPx,
+            }) => androidCtrl.syncViewportRect(
+              leftPx: leftPx,
+              topPx: topPx,
+              rightPx: rightPx,
+              bottomPx: bottomPx,
+              cornerRadiusPx: cornerRadiusPx,
+            ),
+      );
+    } else if (snap.windowsUnderlay) {
+      _windowsUnderlayVisible = true;
+      final dpr = MediaQuery.devicePixelRatioOf(context);
+      rawSurface = _UnderlayCutout(
+        key: const ValueKey('windows_underlay_cutout_surface'),
+        devicePixelRatio: dpr,
+        cornerRadius: widget.cornerRadius,
+        identityToken: controller,
+        isDisposedReader: () => !controller.mounted,
+        onSyncViewportRect:
+            ({
+              required leftPx,
+              required topPx,
+              required rightPx,
+              required bottomPx,
+              required cornerRadiusPx,
+            }) => controller.syncWindowsUnderlayViewport(
+              leftPx: leftPx,
+              topPx: topPx,
+              rightPx: rightPx,
+              bottomPx: bottomPx,
+              cornerRadiusPx: cornerRadiusPx,
+              visible: true,
+            ),
       );
     } else {
       final texId = snap.texId;
@@ -157,7 +237,7 @@ class _KonataHardwareVideoSurfaceState
       snap.videoH ?? 0,
     );
 
-    if (KonataAdaptiveTokens.isAndroid && widget.miniPreview) {
+    if (isUnderlayCutout && widget.miniPreview) {
       return fitted;
     }
 
@@ -202,57 +282,79 @@ class _KonataHardwareVideoSurfaceState
   }
 }
 
-/// Android 根窗口底层（Underlay）透明挖空渲染对象。
+typedef _UnderlayViewportSyncCallback = Future<void> Function({
+  required int leftPx,
+  required int topPx,
+  required int rightPx,
+  required int bottomPx,
+  required double cornerRadiusPx,
+});
+
+/// 跨端同构底层（Underlay）透明挖空渲染对象（统一驱动 Android `SurfaceView` 与 Windows 10-bit/HDR 底层视口）。
 ///
 /// 在绘制阶段直接以 `BlendMode.clear` 挖空目标矩形（支持圆角），
-/// 并实时同步当前物理像素几何坐标至原生底层 `SurfaceView`，避免拖拽与形变期间产生任何帧滞后。
-class _AndroidUnderlayCutout extends LeafRenderObjectWidget {
-  const _AndroidUnderlayCutout({
+/// 并严格合并至当前帧结束回调去重下发物理像素几何坐标至原生底层渲染宿主。
+class _UnderlayCutout extends LeafRenderObjectWidget {
+  const _UnderlayCutout({
     super.key,
-    required this.controller,
     required this.devicePixelRatio,
     required this.cornerRadius,
+    required this.identityToken,
+    required this.isDisposedReader,
+    required this.onSyncViewportRect,
   });
 
-  final AndroidVideoSurfaceController controller;
   final double devicePixelRatio;
   final double cornerRadius;
+  final Object identityToken;
+  final bool Function() isDisposedReader;
+  final _UnderlayViewportSyncCallback onSyncViewportRect;
 
   @override
   RenderObject createRenderObject(BuildContext context) {
-    return _RenderAndroidUnderlayCutout(
-      controller,
+    return _RenderUnderlayCutout(
       devicePixelRatio,
       cornerRadius,
+      identityToken,
+      isDisposedReader,
+      onSyncViewportRect,
     );
   }
 
   @override
   void updateRenderObject(
     BuildContext context,
-    covariant _RenderAndroidUnderlayCutout renderObject,
+    covariant _RenderUnderlayCutout renderObject,
   ) {
     renderObject
-      ..controller = controller
       ..devicePixelRatio = devicePixelRatio
-      ..cornerRadius = cornerRadius;
+      ..cornerRadius = cornerRadius
+      ..updateTarget(
+        identityToken: identityToken,
+        isDisposedReader: isDisposedReader,
+        onSyncViewportRect: onSyncViewportRect,
+      );
   }
 }
 
-class _RenderAndroidUnderlayCutout extends RenderBox {
-  _RenderAndroidUnderlayCutout(
-    this._controller,
+class _RenderUnderlayCutout extends RenderBox {
+  _RenderUnderlayCutout(
     this._devicePixelRatio,
     this._cornerRadius,
+    this._identityToken,
+    this._isDisposedReader,
+    this._onSyncViewportRect,
   );
 
   static final Paint _clearPaint = Paint()
     ..blendMode = BlendMode.clear
     ..isAntiAlias = true;
 
-  AndroidVideoSurfaceController _controller;
   double _devicePixelRatio;
   double _cornerRadius;
+  Object _identityToken;
+  bool Function() _isDisposedReader;
+  _UnderlayViewportSyncCallback _onSyncViewportRect;
 
   ({int leftPx, int topPx, int rightPx, int bottomPx, double radiusPx})?
   _lastScheduledRect;
@@ -260,9 +362,15 @@ class _RenderAndroidUnderlayCutout extends RenderBox {
   _pendingRect;
   bool _postFrameSyncScheduled = false;
 
-  set controller(AndroidVideoSurfaceController value) {
-    if (identical(_controller, value)) return;
-    _controller = value;
+  void updateTarget({
+    required Object identityToken,
+    required bool Function() isDisposedReader,
+    required _UnderlayViewportSyncCallback onSyncViewportRect,
+  }) {
+    _isDisposedReader = isDisposedReader;
+    _onSyncViewportRect = onSyncViewportRect;
+    if (identical(_identityToken, identityToken)) return;
+    _identityToken = identityToken;
     _lastScheduledRect = null;
     markNeedsPaint();
   }
@@ -318,7 +426,7 @@ class _RenderAndroidUnderlayCutout extends RenderBox {
     // 严禁在 paint() 阶段直接触发异步平台通道调用；统一合并至当前帧结束回调去重下发。
     SchedulerBinding.instance.addPostFrameCallback((_) {
       _postFrameSyncScheduled = false;
-      if (!attached || _controller.isDisposed) {
+      if (!attached || _isDisposedReader()) {
         _pendingRect = null;
         return;
       }
@@ -326,7 +434,7 @@ class _RenderAndroidUnderlayCutout extends RenderBox {
       _pendingRect = null;
       if (rect == null) return;
       unawaited(
-        _controller.syncViewportRect(
+        _onSyncViewportRect(
           leftPx: rect.leftPx,
           topPx: rect.topPx,
           rightPx: rect.rightPx,

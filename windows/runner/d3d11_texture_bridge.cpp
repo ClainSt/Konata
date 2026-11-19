@@ -186,6 +186,7 @@ void EnsureDcompHostWindowClassRegistered() {
     wc.cbSize = sizeof(WNDCLASSEXW);
     wc.lpfnWndProc = DefWindowProcW;
     wc.hInstance = GetModuleHandleW(nullptr);
+    wc.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
     wc.lpszClassName = kDcompHostClassName;
     RegisterClassExW(&wc);
   });
@@ -460,9 +461,10 @@ class D3D11TextureBridge::RenderSession
     : public std::enable_shared_from_this<RenderSession> {
  public:
   enum class BackendMode {
-    kD3D11HighBitDepth,
+    kGpuNextUnderlay,
     kDirectComposition10Bit,
     kDirectCompositionFp16,
+    kD3D11HighBitDepth,
     kSoftware,
   };
 
@@ -508,6 +510,24 @@ class D3D11TextureBridge::RenderSession
   bool Initialize(bool prefer_software,
                   const std::string& requested_backend,
                   std::string* error_message) {
+    if (!prefer_software && requested_backend == "gpu_next") {
+      if (InitializeGpuNextUnderlayBackend()) {
+        return true;
+      }
+      if (mpv_ == nullptr) {
+        if (error_message != nullptr) {
+          error_message->assign("无法创建 Windows gpu-next 10-bit 底层子窗口");
+        }
+        return false;
+      }
+    }
+    if (mpv_ == nullptr || !symbols_.IsValid()) {
+      if (error_message != nullptr) {
+        error_message->assign("非 gpu_next 后端需要有效的 mpv 句柄与渲染符号");
+      }
+      return false;
+    }
+
     bool initialized = false;
     if (!prefer_software) {
       if (requested_backend == "dcomp_10bit") {
@@ -535,6 +555,11 @@ class D3D11TextureBridge::RenderSession
   }
 
   void Resize(size_t width, size_t height) {
+    if (backend_mode_ == BackendMode::kGpuNextUnderlay) {
+      target_width_ = width;
+      target_height_ = height;
+      return;
+    }
     {
       std::lock_guard<std::mutex> lock(render_mutex_);
       if (stop_requested_) {
@@ -551,45 +576,76 @@ class D3D11TextureBridge::RenderSession
     render_cv_.notify_one();
   }
 
-  // 在 Win32 主线程同步 DirectComposition 10-bit 子视觉层的几何视口、圆角裁剪与显隐状态。
+  // 在 Win32 主线程同步底层 10-bit 渲染宿主（gpu-next 子窗口或 DirectComposition 底层视觉层）的视口几何、圆角裁剪与显隐。
   void SetViewportRectOnUiThread(int left_px,
                                  int top_px,
                                  int right_px,
                                  int bottom_px,
                                  float corner_radius_px,
                                  bool visible) {
-    if (dcomp_hwnd_ == nullptr || !IsWindow(dcomp_hwnd_)) {
-      return;
-    }
     const int w = std::max<int>(static_cast<int>(kMinSurfaceExtent),
                                 right_px - left_px);
     const int h = std::max<int>(static_cast<int>(kMinSurfaceExtent),
                                 bottom_px - top_px);
-    if (!visible) {
-      ShowWindow(dcomp_hwnd_, SW_HIDE);
+    if (backend_mode_ == BackendMode::kGpuNextUnderlay) {
+      if (dcomp_hwnd_ == nullptr || !IsWindow(dcomp_hwnd_)) {
+        return;
+      }
+      if (!visible || right_px - left_px <= 2 || bottom_px - top_px <= 2) {
+        ShowWindow(dcomp_hwnd_, SW_HIDE);
+        return;
+      }
+      // 严守底层 Z 序（HWND_BOTTOM），确保 Flutter 透明画布、弹窗与亚克力浮层始终位于视频上方。
+      SetWindowPos(dcomp_hwnd_, HWND_BOTTOM, left_px, top_px, w, h,
+                   SWP_NOACTIVATE | SWP_SHOWWINDOW);
+      const int radius_int = static_cast<int>(std::max(0.0f, corner_radius_px));
+      if (radius_int > 0) {
+        HRGN region = CreateRoundRectRgn(0, 0, w + 1, h + 1, radius_int * 2,
+                                         radius_int * 2);
+        if (region != nullptr) {
+          if (!SetWindowRgn(dcomp_hwnd_, region, TRUE)) {
+            DeleteObject(region);
+          }
+        }
+      } else {
+        SetWindowRgn(dcomp_hwnd_, nullptr, TRUE);
+      }
+      target_width_ = static_cast<size_t>(w);
+      target_height_ = static_cast<size_t>(h);
       return;
     }
-    SetWindowPos(dcomp_hwnd_, HWND_TOP, left_px, top_px, w, h,
-                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+
+    if (!IsDirectCompositionMode()) {
+      return;
+    }
     {
       std::lock_guard<std::mutex> lock(dcomp_mutex_);
-      if (dcomp_clip_ && dcomp_visual_ && dcomp_device_) {
-        dcomp_clip_->SetLeft(0.0f);
-        dcomp_clip_->SetTop(0.0f);
-        dcomp_clip_->SetRight(static_cast<float>(w));
-        dcomp_clip_->SetBottom(static_cast<float>(h));
-        const float r = std::max(0.0f, corner_radius_px);
-        dcomp_clip_->SetTopLeftRadiusX(r);
-        dcomp_clip_->SetTopLeftRadiusY(r);
-        dcomp_clip_->SetTopRightRadiusX(r);
-        dcomp_clip_->SetTopRightRadiusY(r);
-        dcomp_clip_->SetBottomLeftRadiusX(r);
-        dcomp_clip_->SetBottomLeftRadiusY(r);
-        dcomp_clip_->SetBottomRightRadiusX(r);
-        dcomp_clip_->SetBottomRightRadiusY(r);
-        dcomp_visual_->SetClip(dcomp_clip_.Get());
-        dcomp_device_->Commit();
+      if (!dcomp_device_ || !dcomp_target_ || !dcomp_visual_ || !dcomp_clip_) {
+        return;
       }
+      if (!visible || right_px - left_px <= 2 || bottom_px - top_px <= 2) {
+        dcomp_target_->SetRoot(nullptr);
+        dcomp_device_->Commit();
+        return;
+      }
+      dcomp_visual_->SetOffsetX(static_cast<float>(left_px));
+      dcomp_visual_->SetOffsetY(static_cast<float>(top_px));
+      dcomp_clip_->SetLeft(0.0f);
+      dcomp_clip_->SetTop(0.0f);
+      dcomp_clip_->SetRight(static_cast<float>(w));
+      dcomp_clip_->SetBottom(static_cast<float>(h));
+      const float r = std::max(0.0f, corner_radius_px);
+      dcomp_clip_->SetTopLeftRadiusX(r);
+      dcomp_clip_->SetTopLeftRadiusY(r);
+      dcomp_clip_->SetTopRightRadiusX(r);
+      dcomp_clip_->SetTopRightRadiusY(r);
+      dcomp_clip_->SetBottomLeftRadiusX(r);
+      dcomp_clip_->SetBottomLeftRadiusY(r);
+      dcomp_clip_->SetBottomRightRadiusX(r);
+      dcomp_clip_->SetBottomRightRadiusY(r);
+      dcomp_visual_->SetClip(dcomp_clip_.Get());
+      dcomp_target_->SetRoot(dcomp_visual_.Get());
+      dcomp_device_->Commit();
     }
     Resize(static_cast<size_t>(w), static_cast<size_t>(h));
   }
@@ -653,6 +709,9 @@ class D3D11TextureBridge::RenderSession
 
   int64_t session_id() const { return session_id_; }
   int64_t texture_id() const { return texture_id_; }
+  int64_t native_window_handle() const {
+    return reinterpret_cast<int64_t>(dcomp_hwnd_);
+  }
   std::string adapter_name() const { return adapter_name_; }
   int64_t color_bit_depth() const { return BitDepthForDxgi(active_fbo_format_); }
   std::string surface_format() const {
@@ -664,6 +723,8 @@ class D3D11TextureBridge::RenderSession
       return "sw";
     }
     switch (backend_mode_) {
+      case BackendMode::kGpuNextUnderlay:
+        return "gpu_next";
       case BackendMode::kDirectComposition10Bit:
         return "dcomp_10bit";
       case BackendMode::kDirectCompositionFp16:
@@ -684,7 +745,8 @@ class D3D11TextureBridge::RenderSession
 
   bool IsDirectCompositionMode() const {
     return !is_software_ &&
-           (backend_mode_ == BackendMode::kDirectComposition10Bit ||
+           (backend_mode_ == BackendMode::kGpuNextUnderlay ||
+            backend_mode_ == BackendMode::kDirectComposition10Bit ||
             backend_mode_ == BackendMode::kDirectCompositionFp16);
   }
 
@@ -856,6 +918,46 @@ class D3D11TextureBridge::RenderSession
     return texture_id_ >= 0;
   }
 
+  // 创建挂接于主窗口最底层（HWND_BOTTOM）的原生子窗口供 vo=gpu-next (libplacebo) 直接创建 10-bit/HDR 翻转交换链。
+  bool InitializeGpuNextUnderlayBackend() {
+    if (parent_window_ == nullptr || !IsWindow(parent_window_)) {
+      return false;
+    }
+    Microsoft::WRL::ComPtr<ID3D11Device> probe_dev;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> probe_ctx;
+    std::string probed_adapter;
+    if (CreateD3D11Device(engine_, &probe_dev, &probe_ctx, &probed_adapter)) {
+      adapter_name_ = probed_adapter;
+      probe_ctx.Reset();
+      probe_dev.Reset();
+    } else {
+      adapter_name_ = "D3D11 libplacebo";
+    }
+
+    EnsureDcompHostWindowClassRegistered();
+    HWND host_hwnd = CreateWindowExW(
+        WS_EX_TRANSPARENT | WS_EX_NOPARENTNOTIFY, kDcompHostClassName, L"",
+        WS_CHILD | WS_DISABLED, 0, 0, static_cast<int>(target_width_),
+        static_cast<int>(target_height_), parent_window_, nullptr,
+        GetModuleHandleW(nullptr), nullptr);
+    if (host_hwnd == nullptr) {
+      return false;
+    }
+    // 初始置于最底层并保持隐藏，待上层 Flutter BlendMode.clear 挖空同步真实像素矩形后立即显现。
+    SetWindowPos(host_hwnd, HWND_BOTTOM, 0, 0, static_cast<int>(target_width_),
+                 static_cast<int>(target_height_),
+                 SWP_NOACTIVATE | SWP_HIDEWINDOW);
+
+    dcomp_hwnd_ = host_hwnd;
+    active_fbo_format_ = DXGI_FORMAT_R10G10B10A2_UNORM;
+    backend_mode_ = BackendMode::kGpuNextUnderlay;
+    texture_id_ = -1;
+    is_software_ = false;
+    return true;
+  }
+
+  // 直接将 10-bit/HDR DirectComposition 翻转模型交换链挂载至顶层宿主窗口非顶置目标（topmost=FALSE），
+  // 由 DWM 物理保证视频永远位于 Flutter 透明子窗口之下，彻底杜绝穿模与遮挡浮层。
   bool InitializeDirectCompositionBackend(bool prefer_fp16) {
     FnDCompositionCreateDevice create_dcomp = ResolveDCompositionCreateDevice();
     if (create_dcomp == nullptr || parent_window_ == nullptr ||
@@ -891,21 +993,9 @@ class D3D11TextureBridge::RenderSession
       return false;
     }
 
-    EnsureDcompHostWindowClassRegistered();
-    HWND host_hwnd = CreateWindowExW(
-        WS_EX_NOREDIRECTIONBITMAP | WS_EX_TRANSPARENT | WS_EX_NOPARENTNOTIFY,
-        kDcompHostClassName, L"", WS_CHILD | WS_DISABLED | WS_CLIPSIBLINGS, 0,
-        0, static_cast<int>(target_width_), static_cast<int>(target_height_),
-        parent_window_, nullptr, GetModuleHandleW(nullptr), nullptr);
-    if (host_hwnd == nullptr) {
-      ReleaseD3D11ResourcesLocked();
-      return false;
-    }
-
     Microsoft::WRL::ComPtr<IDCompositionDevice> dcomp_dev;
     if (FAILED(create_dcomp(dxgi_device.Get(), IID_PPV_ARGS(&dcomp_dev))) ||
         !dcomp_dev) {
-      DestroyWindow(host_hwnd);
       ReleaseD3D11ResourcesLocked();
       return false;
     }
@@ -913,11 +1003,11 @@ class D3D11TextureBridge::RenderSession
     Microsoft::WRL::ComPtr<IDCompositionTarget> dcomp_target;
     Microsoft::WRL::ComPtr<IDCompositionVisual> dcomp_visual;
     Microsoft::WRL::ComPtr<IDCompositionRectangleClip> dcomp_clip;
-    if (FAILED(dcomp_dev->CreateTargetForHwnd(host_hwnd, FALSE,
+    // topmost = FALSE：DWM 将此视觉树合成于顶层窗口背景材质之上、所有子窗口（含 FLUTTERVIEW）之下。
+    if (FAILED(dcomp_dev->CreateTargetForHwnd(parent_window_, FALSE,
                                               &dcomp_target)) ||
         FAILED(dcomp_dev->CreateVisual(&dcomp_visual)) ||
         FAILED(dcomp_dev->CreateRectangleClip(&dcomp_clip))) {
-      DestroyWindow(host_hwnd);
       ReleaseD3D11ResourcesLocked();
       return false;
     }
@@ -940,7 +1030,6 @@ class D3D11TextureBridge::RenderSession
     if (FAILED(dxgi_factory->CreateSwapChainForComposition(
             device_.Get(), &sc_desc, nullptr, &swap_chain)) ||
         !swap_chain) {
-      DestroyWindow(host_hwnd);
       ReleaseD3D11ResourcesLocked();
       return false;
     }
@@ -961,9 +1050,8 @@ class D3D11TextureBridge::RenderSession
     }
 
     if (FAILED(dcomp_visual->SetContent(swap_chain.Get())) ||
-        FAILED(dcomp_target->SetRoot(dcomp_visual.Get())) ||
+        FAILED(dcomp_target->SetRoot(nullptr)) ||
         FAILED(dcomp_dev->Commit())) {
-      DestroyWindow(host_hwnd);
       ReleaseD3D11ResourcesLocked();
       return false;
     }
@@ -981,12 +1069,11 @@ class D3D11TextureBridge::RenderSession
 
     mpv_render_context* ctx = nullptr;
     if (symbols_.create(&ctx, mpv_, params) < 0 || ctx == nullptr) {
-      DestroyWindow(host_hwnd);
       ReleaseD3D11ResourcesLocked();
       return false;
     }
 
-    dcomp_hwnd_ = host_hwnd;
+    dcomp_hwnd_ = nullptr;
     dcomp_device_ = std::move(dcomp_dev);
     dcomp_target_ = std::move(dcomp_target);
     dcomp_visual_ = std::move(dcomp_visual);
@@ -1729,24 +1816,28 @@ void D3D11TextureBridge::HandleCreateSession(
     return;
   }
 
-  const int64_t mpv_ptr_val = ReadInt64Arg(args, "mpvHandle", 0);
-  if (mpv_ptr_val == 0) {
-    result->Error("INVALID_MPV_HANDLE", "mpvHandle 必须为非零有效句柄");
-    return;
-  }
-
-  MpvRenderSymbols symbols{};
-  if (!LoadMpvRenderSymbols(&symbols)) {
-    result->Error("LIBMPV_LOAD_FAILED",
-                  "无法从 libmpv-2.dll 解析 mpv_render_context 符号");
-    return;
-  }
-
   const size_t width = ClampExtent(ReadInt64Arg(args, "width", 1280));
   const size_t height = ClampExtent(ReadInt64Arg(args, "height", 720));
   const bool prefer_software = ReadBoolArg(args, "preferSoftware", false);
   const std::string requested_backend =
-      ReadStringArg(args, "renderBackend", "d3d11_fp16");
+      ReadStringArg(args, "renderBackend", "gpu_next");
+
+  const int64_t mpv_ptr_val = ReadInt64Arg(args, "mpvHandle", 0);
+  const bool is_gpu_next_underlay =
+      !prefer_software && requested_backend == "gpu_next";
+
+  MpvRenderSymbols symbols{};
+  if (!is_gpu_next_underlay) {
+    if (mpv_ptr_val == 0) {
+      result->Error("INVALID_MPV_HANDLE", "mpvHandle 必须为非零有效句柄");
+      return;
+    }
+    if (!LoadMpvRenderSymbols(&symbols)) {
+      result->Error("LIBMPV_LOAD_FAILED",
+                    "无法从 libmpv-2.dll 解析 mpv_render_context 符号");
+      return;
+    }
+  }
 
   int64_t session_id = 0;
   {
@@ -1799,6 +1890,8 @@ void D3D11TextureBridge::HandleCreateSession(
       flutter::EncodableValue(session->color_bit_depth());
   payload[flutter::EncodableValue("dcompActive")] =
       flutter::EncodableValue(session->IsDirectCompositionMode());
+  payload[flutter::EncodableValue("nativeWindowHandle")] =
+      flutter::EncodableValue(session->native_window_handle());
   payload[flutter::EncodableValue("adapterName")] =
       flutter::EncodableValue(session->adapter_name());
   result->Success(flutter::EncodableValue(payload));

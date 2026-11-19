@@ -45,6 +45,35 @@ class _R3FakeVideoController extends VideoPlaybackController {
   }
 
   final List<ScreenshotCaptureMode> capturedModes = <ScreenshotCaptureMode>[];
+  final List<({int leftPx, int topPx, int rightPx, int bottomPx, double radiusPx, bool visible})>
+  windowsUnderlayCalls = [];
+
+  @override
+  Future<void> syncWindowsUnderlayViewport({
+    required int leftPx,
+    required int topPx,
+    required int rightPx,
+    required int bottomPx,
+    double cornerRadiusPx = 0.0,
+    bool visible = true,
+  }) async {
+    windowsUnderlayCalls.add((
+      leftPx: leftPx,
+      topPx: topPx,
+      rightPx: rightPx,
+      bottomPx: bottomPx,
+      radiusPx: cornerRadiusPx,
+      visible: visible,
+    ));
+  }
+
+  void enableWindowsUnderlay() {
+    state = state.copyWith(
+      textureId: -1,
+      windowsUnderlayActive: true,
+      renderBackend: 'gpu_next',
+    );
+  }
 
   @override
   Future<ScreenshotCaptureResult?> captureScreenshot({
@@ -562,17 +591,19 @@ void main() {
           }
         });
 
-        // 1. 验证 gpuNextLibplacebo 与 d3d11Fp16 两种配置生成的精确参数集。
+        // 1. 验证 gpuNextUnderlay 与 legacyTextureFallback 两种配置生成的精确参数集。
         final gpuNextRecorder = _R3RecordingOptionClient();
         MpvQualityProfile.applyPreInitVideoOptions(
           gpuNextRecorder,
           config: const PlaybackQualityConfig(
-            windowsRenderBackend: WindowsVideoRenderBackend.gpuNextLibplacebo,
+            desktopOutputMode: DesktopVideoOutputMode.gpuNextUnderlay,
           ),
           mpvConfigDir: tempDir,
           isWindowsOverride: true,
           isAndroidOverride: false,
+          desktopUnderlayHwnd: 0x123456,
         );
+        expect(gpuNextRecorder.options['wid'], equals('${0x123456}'));
         expect(gpuNextRecorder.options['vo'], equals('gpu-next'));
         expect(gpuNextRecorder.options['gpu-api'], equals('d3d11'));
         expect(gpuNextRecorder.options['gpu-context'], equals('d3d11'));
@@ -588,7 +619,7 @@ void main() {
         MpvQualityProfile.applyPreInitVideoOptions(
           fp16Recorder,
           config: const PlaybackQualityConfig(
-            windowsRenderBackend: WindowsVideoRenderBackend.d3d11Fp16,
+            desktopOutputMode: DesktopVideoOutputMode.legacyTextureFallback,
           ),
           mpvConfigDir: tempDir,
           isWindowsOverride: true,
@@ -640,6 +671,160 @@ void main() {
           } finally {
             await mpv.dispose();
           }
+        }
+      },
+    );
+
+    testWidgets(
+      '[#5] Windows 底层 10-bit 挖空表面（textureId == -1）走 BlendMode.clear 挖空与帧同步 setViewportRect 绝不画黑框，且输出模式持久落盘',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+        try {
+          tester.view.physicalSize = const Size(1280, 720);
+          tester.view.devicePixelRatio = 1.0;
+          addTearDown(tester.view.reset);
+
+          final req = _buildR3Request();
+          late _R3FakeVideoController fakeCtrl;
+          await tester.pumpWidget(
+            ProviderScope(
+              overrides: [
+                videoPlaybackProvider(req).overrideWith((ref) {
+                  fakeCtrl = _R3FakeVideoController(ref, req)
+                    ..enableWindowsUnderlay();
+                  return fakeCtrl;
+                }),
+              ],
+              child: MaterialApp(
+                theme: KonataTheme.darkTheme(),
+                home: Scaffold(
+                  backgroundColor: Colors.transparent,
+                  body: KonataHardwareVideoSurface(
+                    request: req,
+                    cornerRadius: 12.0,
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const ValueKey('windows_underlay_cutout_surface')),
+            findsOneWidget,
+          );
+          expect(fakeCtrl.windowsUnderlayCalls, isNotEmpty);
+          final lastCall = fakeCtrl.windowsUnderlayCalls.last;
+          expect(lastCall.visible, isTrue);
+          expect(lastCall.rightPx - lastCall.leftPx, equals(1280));
+          expect(lastCall.bottomPx - lastCall.topPx, equals(720));
+          expect(lastCall.radiusPx, closeTo(12.0, 0.5));
+
+          // 验证输出后端偏好经 SharedPreferences 持久化重载不丢失。
+          await tester.runAsync(() async {
+            final prefsNotifier = PlaybackPreferencesNotifier(
+              enablePersistence: true,
+            );
+            await prefsNotifier.setDesktopOutputMode(
+              DesktopVideoOutputMode.directComposition10Bit,
+            );
+            final reloaded = PlaybackPreferencesNotifier(
+              enablePersistence: true,
+            );
+            await Future<void>.delayed(const Duration(milliseconds: 40));
+            expect(
+              reloaded.state.qualityConfig.desktopOutputMode,
+              equals(DesktopVideoOutputMode.directComposition10Bit),
+            );
+            prefsNotifier.dispose();
+            reloaded.dispose();
+          });
+
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpAndSettle();
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
+
+    testWidgets(
+      '[#7 & #8] 手机竖屏（width < 540dp）保留毛玻璃双模截图入口，且全屏视频中央下拉收起继承真实释放初速度',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        try {
+          tester.view.physicalSize = const Size(390, 844);
+          tester.view.devicePixelRatio = 1.0;
+          addTearDown(tester.view.reset);
+
+          final req = _buildR3Request();
+          late _R3FakeVideoController fakeCtrl;
+          var collapsedCount = 0;
+          final container = ProviderContainer(
+            overrides: [
+              videoPlaybackProvider(req).overrideWith((ref) {
+                fakeCtrl = _R3FakeVideoController(ref, req);
+                return fakeCtrl;
+              }),
+            ],
+          );
+          addTearDown(container.dispose);
+
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: MaterialApp(
+                theme: KonataTheme.darkTheme(),
+                locale: const Locale('zh', 'CN'),
+                supportedLocales: const [Locale('zh', 'CN')],
+                localizationsDelegates: const [
+                  GlobalMaterialLocalizations.delegate,
+                  GlobalWidgetsLocalizations.delegate,
+                  GlobalCupertinoLocalizations.delegate,
+                ],
+                home: EmbeddedVideoPage(
+                  request: req,
+                  onCollapseToMini: () => collapsedCount += 1,
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          // 1. 手机竖屏 390dp < 540dp 必须保留截图按钮，点击弹出全站统一毛玻璃菜单而非原生 showMenu。
+          final shotBtn = find.byKey(
+            const ValueKey('video_android_screenshot_button'),
+          );
+          expect(shotBtn, findsOneWidget);
+          await tester.tap(shotBtn);
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(const ValueKey('video_screenshot_mode_pure_video')),
+            findsOneWidget,
+          );
+          await tester.tap(
+            find.byKey(const ValueKey('video_screenshot_mode_pure_video')),
+          );
+          await tester.pumpAndSettle();
+          expect(fakeCtrl.capturedModes, equals([ScreenshotCaptureMode.pureVideo]));
+
+          // 2. 全屏视频中央非冲突区快速下拉收起，必须将真实释放初速度写入 stageMorphReleaseVelocityProvider。
+          await tester.flingFrom(
+            const Offset(195, 360),
+            const Offset(0, 220),
+            1200,
+          );
+          await tester.pumpAndSettle();
+          expect(collapsedCount, equals(1));
+          expect(
+            container.read(stageMorphReleaseVelocityProvider),
+            greaterThan(0.0),
+          );
+
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpAndSettle();
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
         }
       },
     );

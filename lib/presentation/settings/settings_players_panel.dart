@@ -199,6 +199,21 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                   ],
                   onChanged: notifier.setPreset,
                 ),
+                if (KonataAdaptiveTokens.isWindows) ...[
+                  const SizedBox(height: 12),
+                  Text('桌面高色深输出管线', style: KonataTheme.captionStyle(p)),
+                  const SizedBox(height: 6),
+                  KonataDropdown<DesktopVideoOutputMode>(
+                    key: const ValueKey('settings_desktop_video_output_mode'),
+                    dense: true,
+                    value: q.desktopOutputMode,
+                    options: [
+                      for (final mode in DesktopVideoOutputMode.values)
+                        KonataDropdownOption(value: mode, label: mode.label),
+                    ],
+                    onChanged: notifier.setDesktopOutputMode,
+                  ),
+                ],
               ],
             ),
           ),

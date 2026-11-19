@@ -137,13 +137,17 @@ class EmbeddedMpvSession {
   String _activeSubFontsDir = '';
 
   final ValueNotifier<int?> _textureId = ValueNotifier<int?>(null);
+  final ValueNotifier<bool> _underlayActive = ValueNotifier<bool>(false);
   final ValueNotifier<String> _renderBackend = ValueNotifier<String>('');
   final ValueNotifier<String> _adapterName = ValueNotifier<String>('');
 
   /// Flutter `Texture(textureId: ...)` 响应句柄。
   ValueListenable<int?> get textureIdListenable => _textureId;
 
-  /// 当前实际图形后端名称（`d3d11` / `sw` / `gpu` / `gpu-next`）。
+  /// 桌面端是否激活底层 10-bit/HDR 视口挖空直出模式（`vo=gpu-next` 或 DirectComposition）。
+  ValueListenable<bool> get underlayActiveListenable => _underlayActive;
+
+  /// 当前实际图形后端名称（`gpu_next` / `dcomp_10bit` / `d3d11_fp16` / `sw` / `gpu-next`）。
   ValueListenable<String> get renderBackendListenable => _renderBackend;
 
   /// 当前显卡适配器或渲染说明。
@@ -219,6 +223,7 @@ class EmbeddedMpvSession {
   bool _firstFrameWatchdogReboundOnce = false;
 
   int? _d3d11SessionId;
+  bool _usingGpuNextUnderlay = false;
   final List<String> _activeStreamTokens = [];
   List<String> _pendingExternalSubtitles = const [];
   List<String> _pendingExternalAudioPaths = const [];
@@ -334,83 +339,21 @@ class EmbeddedMpvSession {
       );
     }
 
-    final client = clientFactory != null
-        ? clientFactory!()
-        : FfiLibMpvClient.create();
-    _client = client;
-
-    final hwdecValue = MpvQualityProfile.resolveHwdecValue(
-      config: qualityConfig,
-      isWindows: useWindowsD3D11,
-      isAndroid: _useAndroidSurfaceSession,
+    final initResult = await _initializeMpvClientAndDesktopBackend(
+      request: request,
+      qualityConfig: qualityConfig,
+      mpvDir: mpvDir,
+      workPhotoDir: workPhotoDir,
+      verifiedShaders: verifiedShaders,
+      isRemote: isRemote,
+      useWindowsD3D11: useWindowsD3D11,
     );
-    _hwdecWasEnabled = hwdecValue != 'no';
-    _usingSoftwareFallback = !_hwdecWasEnabled;
-
-    MpvQualityProfile.applyPreInitVideoOptions(
-      client,
-      config: qualityConfig,
-      mpvConfigDir: mpvDir,
-      screenshotDir: workPhotoDir,
-      isRemoteStream: isRemote,
-      isWindowsOverride: useWindowsD3D11,
-      isAndroidOverride: _useAndroidSurfaceSession,
-      verifiedShaderPaths: verifiedShaders,
-      logStore: logStore,
-    );
-
-    if (useWindowsD3D11) {
-      client.setOptionString('gpu-api', 'd3d11');
-    }
-
-    final initRc = client.initialize();
-    if (initRc < 0) {
-      throw StateError('内置播放器初始化失败: ${client.errorString(initRc)}');
-    }
-
-    // 请求 warn 级别日志以便及时捕捉硬解回退信号
-    client.requestLogMessages('warn');
-    _cachedMpvVersion = client.getPropertyString('mpv-version');
-    _cachedFfmpegVersion = client.getPropertyString('ffmpeg-version');
-
-    if (useWindowsD3D11 && d3d11Bridge != null) {
-      final handle = await d3d11Bridge!.createSession(
-        mpvHandleAddress: client.handleAddress,
-        width: request.initialWidth,
-        height: request.initialHeight,
-        preferSoftware:
-            !qualityConfig.hardwareDecode ||
-            qualityConfig.preset == VideoQualityPreset.softwareFallback,
-        renderBackend: qualityConfig.windowsRenderBackend.bridgeKey,
-      );
-      _d3d11SessionId = handle.sessionId;
-      _textureId.value = handle.textureId;
-      _renderBackend.value = handle.backend;
-      _adapterName.value = handle.adapterName;
-      if (handle.isSoftwareFallback) {
-        _usingSoftwareFallback = true;
-      }
-      _d3d11ChangeSub = d3d11Bridge!.textureChanges.listen((event) {
-        if (_disposed || event.sessionId != _d3d11SessionId) return;
-        _textureId.value = event.textureId;
-        _renderBackend.value = event.backend;
-        _adapterName.value = event.adapterName;
-        if (event.backend == 'sw') {
-          _usingSoftwareFallback = true;
-        }
-        if (event.reason.isNotEmpty) {
-          onNotice?.call(
-            event.backend == 'sw'
-                ? '图形设备已切换为软件兼容渲染 (${event.reason})'
-                : 'D3D11 渲染表面已重建',
-          );
-        }
-      });
-    }
+    final client = initResult.client;
+    final effectiveQualityConfig = initResult.effectiveConfig;
 
     MpvQualityProfile.applyPostInitVideoProperties(
       client,
-      config: qualityConfig,
+      config: effectiveQualityConfig,
       isWindowsOverride: useWindowsD3D11,
       onWasapiFallbackNotice: onNotice,
       logStore: logStore,
@@ -1058,8 +1001,22 @@ class EmbeddedMpvSession {
 
     final d3dId = _d3d11SessionId;
     _d3d11SessionId = null;
+    final wasGpuNextUnderlay = _usingGpuNextUnderlay;
+    _usingGpuNextUnderlay = false;
     if (d3dId != null && d3dId > 0 && d3d11Bridge != null) {
-      await d3d11Bridge!.disposeSession(d3dId);
+      if (wasGpuNextUnderlay) {
+        // vo=gpu-next 持有底层子窗口交换链，须先隐藏视口并关闭 libmpv，再销毁子窗口句柄。
+        await d3d11Bridge!.setViewportRect(
+          sessionId: d3dId,
+          leftPx: 0,
+          topPx: 0,
+          rightPx: 0,
+          bottomPx: 0,
+          visible: false,
+        );
+      } else {
+        await d3d11Bridge!.disposeSession(d3dId);
+      }
     }
 
     final androidSurf = _androidSurface;
@@ -1088,7 +1045,18 @@ class EmbeddedMpvSession {
     final client = _client;
     _client = null;
     if (client != null && !client.isDisposed) {
+      if (wasGpuNextUnderlay && client.isInitialized) {
+        client.setPropertyString('vo', 'null');
+        client.setPropertyString('wid', '0');
+      }
       await client.dispose();
+    }
+
+    if (wasGpuNextUnderlay &&
+        d3dId != null &&
+        d3dId > 0 &&
+        d3d11Bridge != null) {
+      await d3d11Bridge!.disposeSession(d3dId);
     }
 
     final tokens = List<String>.from(_activeStreamTokens);
@@ -1096,6 +1064,7 @@ class EmbeddedMpvSession {
     await _unregisterTokens(tokens);
 
     _textureId.dispose();
+    _underlayActive.dispose();
     _renderBackend.dispose();
     _adapterName.dispose();
   }

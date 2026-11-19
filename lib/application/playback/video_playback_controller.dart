@@ -1619,8 +1619,9 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     final ep = state.currentEpisode;
     final variant = state.currentVariant;
     final durDouble = state.durationSeconds;
-    final posDouble =
-        _session?.readCurrentPositionSeconds() ?? currentPositionSeconds;
+    final posDouble = _hudProgressActive
+        ? currentPositionSeconds
+        : (_session?.readCurrentPositionSeconds() ?? currentPositionSeconds);
     _latestPositionSeconds = posDouble;
     final durSeconds = durDouble > 0 ? durDouble.round() : 0;
     final persistedPos = _watchedTracker.resolvePersistedPositionSeconds(

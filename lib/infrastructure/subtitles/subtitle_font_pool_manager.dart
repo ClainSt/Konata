@@ -64,8 +64,6 @@ class SubtitleFontPoolManager {
   /// 单个压缩包允许的最大条目数上限。
   static const int maxZipEntries = 256;
 
-  static const Set<String> _siblingFontDirNames = {'fonts', 'font'};
-
   final StorageRootService _storageRoot;
 
   /// 内存热租约序列表（按最近访问顺序排列，尾部为最新访问，便于 0 ms 跨集复用与 LRU 驱逐）。
@@ -75,33 +73,39 @@ class SubtitleFontPoolManager {
   /// 当前活跃在内存中的热租约集合哈希列表（按最旧到最新排列）。
   List<String> get activeLeaseHashes => List<String>.unmodifiable(_leaseOrder);
 
-  /// 优先原位只读检测本地视频同级或上级目录的 `Fonts/` 目录（0 拷贝直挂，不改动刮削目录扫描规则）。
+  /// 优先原位只读检测本地视频同级或上级目录的 `Fonts/` 目录（O(1) 精准探测，0 拷贝直挂，不改动刮削目录扫描规则）。
   Future<ResolvedSubtitleFontSet?> resolveInPlaceSiblingFontsDir(
     String localVideoAbsolutePath,
   ) async {
-    if (localVideoAbsolutePath.trim().isEmpty) return null;
-    final videoDir = Directory(p.dirname(localVideoAbsolutePath));
-    final searchParents = <Directory>[
-      videoDir,
-      if (videoDir.parent.path != videoDir.path) videoDir.parent,
-    ];
+    final trimmed = localVideoAbsolutePath.trim();
+    if (trimmed.isEmpty || !p.isAbsolute(trimmed)) return null;
+    try {
+      final videoDir = Directory(p.dirname(trimmed));
+      if (!await videoDir.exists()) return null;
+      final searchParents = <Directory>[
+        videoDir,
+        if (videoDir.parent.path != videoDir.path) videoDir.parent,
+      ];
 
-    for (final parent in searchParents) {
-      if (!await parent.exists()) continue;
-      await for (final entity in parent.list(followLinks: false)) {
-        if (entity is! Directory) continue;
-        final lowerName = p.basename(entity.path).toLowerCase();
-        if (!_siblingFontDirNames.contains(lowerName)) continue;
-        final validCount = await _countValidFontsInDirectory(entity);
-        if (validCount > 0) {
-          return ResolvedSubtitleFontSet(
-            directoryPath: entity.path,
-            kind: FontSetResolutionKind.inPlaceSiblingDirectory,
-            fontCount: validCount,
-            reusedFromLease: true,
-          );
+      const directNames = ['Fonts', 'fonts', 'Font', 'font'];
+      for (final parent in searchParents) {
+        if (!await parent.exists()) continue;
+        for (final name in directNames) {
+          final candidate = Directory(p.join(parent.path, name));
+          if (!await candidate.exists()) continue;
+          final validCount = await _countValidFontsInDirectory(candidate);
+          if (validCount > 0) {
+            return ResolvedSubtitleFontSet(
+              directoryPath: candidate.path,
+              kind: FontSetResolutionKind.inPlaceSiblingDirectory,
+              fontCount: validCount,
+              reusedFromLease: true,
+            );
+          }
         }
       }
+    } catch (_) {
+      return null;
     }
     return null;
   }

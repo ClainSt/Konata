@@ -104,7 +104,7 @@ class DetailPortraitHeroHeader extends StatelessWidget {
                   BackdropFilter(
                     filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
                     child: ColoredBox(
-                      color: Colors.black.withValues(alpha: 0.28),
+                      color: KonataTheme.scrimBlackLight,
                     ),
                   ),
                 ],
@@ -120,7 +120,7 @@ class DetailPortraitHeroHeader extends StatelessWidget {
                   end: Alignment.bottomCenter,
                   stops: const [0.0, 0.24, 0.58, 0.86, 1.0],
                   colors: [
-                    Colors.black.withValues(alpha: 0.28),
+                    KonataTheme.scrimBlackLight,
                     Colors.transparent,
                     Colors.transparent,
                     KonataTheme.cinemaObsidian.withValues(alpha: 0.72),
@@ -296,7 +296,7 @@ class DetailLandscapeHeroBanner extends StatelessWidget {
                     BackdropFilter(
                       filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
                       child: ColoredBox(
-                        color: Colors.black.withValues(alpha: 0.34),
+                        color: KonataTheme.scrimBlackMedium,
                       ),
                     ),
                   ],
@@ -372,7 +372,7 @@ class DetailLandscapeHeroBanner extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: KonataTheme.detailTextStyle(
-                        fontSize: 21,
+                        fontSize: KonataTheme.fontSizeH2,
                         fontWeight: FontWeight.w700,
                         palette: p,
                         color: Colors.white,
@@ -389,7 +389,7 @@ class DetailLandscapeHeroBanner extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: KonataTheme.detailTextStyle(
-                        fontSize: 21,
+                        fontSize: KonataTheme.fontSizeH2,
                         fontWeight: FontWeight.w700,
                         palette: p,
                         color: Colors.white,
@@ -403,10 +403,10 @@ class DetailLandscapeHeroBanner extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: KonataTheme.detailTextStyle(
-                      fontSize: 12.8,
+                      fontSize: KonataTheme.fontSizeBodySm,
                       fontWeight: FontWeight.w600,
                       palette: p,
-                      color: Colors.white.withValues(alpha: 0.90),
+                      color: KonataTheme.overlayWhiteTextHigh,
                     ),
                   ),
                 ],
@@ -455,10 +455,10 @@ class WorkDetailBackCircle extends StatelessWidget {
     final p = context.palette;
     final iconColor = forceLightIcons ? Colors.white : p.textPrimary;
     final bgColor = forceLightIcons
-        ? Colors.black.withValues(alpha: 0.30)
+        ? KonataTheme.scrimBlackSubtle
         : p.surface;
     final borderColor = forceLightIcons
-        ? Colors.white.withValues(alpha: 0.22)
+        ? KonataTheme.overlayWhiteBorderStrong
         : p.hairline;
     final btnSize = KonataAdaptiveTokens.isAndroid
         ? KonataAdaptiveTokens.touchTarget
@@ -491,7 +491,7 @@ class WorkDetailBackCircle extends StatelessWidget {
                 child: InkWell(
                   customBorder: const CircleBorder(),
                   hoverColor: forceLightIcons
-                      ? Colors.white.withValues(alpha: 0.14)
+                      ? KonataTheme.overlayWhiteDim
                       : p.surfaceHover,
                   onTap: onBack,
                   child: Center(
@@ -615,7 +615,7 @@ class MissingWorkFallbackView extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: KonataTheme.captionStyle(
                   p,
-                  fontSize: 13,
+                  fontSize: KonataTheme.fontSizeBodySm,
                   color: p.textSecondary,
                 ),
               ),

@@ -22,6 +22,7 @@ import 'manual_match_dialog.dart';
 import 'series_manage_dialog.dart';
 import 'supplementary_scope_panel.dart';
 import 'work_merge_target_dialog.dart';
+import '../theme/konata_theme.dart';
 
 enum _ManualEditSection { metadata, episodes, supplementary }
 
@@ -456,7 +457,7 @@ class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
               widget.bundle.work.metadataLocked
                   ? '当前元数据已人工锁定，点击「重新抓取 TMDB 数据」或重扫不会覆盖这里的标题、年份与简介。'
                   : '仅当你修改了这里的标题、年份或简介并保存时，才会开启元数据锁定。',
-              style: TextStyle(color: p.textMuted, fontSize: 12),
+              style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeCaption),
             ),
             trailing: (widget.bundle.work.metadataLocked &&
                     widget.bundle.work.tmdbId != null)

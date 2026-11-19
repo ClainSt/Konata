@@ -6,10 +6,10 @@ import 'konata_video_texture_bridge.dart';
 
 export 'konata_video_texture_bridge.dart'
     show
-        D3D11SessionMetrics,
-        D3D11TextureChangedEvent,
-        D3D11VideoSessionHandle,
-        KonataVideoTextureBridge;
+        KonataVideoTextureBridge,
+        NativeSessionMetrics,
+        NativeTextureChangedEvent,
+        NativeVideoSessionHandle;
 
 /// `"konata/d3d11_video"` MethodChannel 的 Windows 高色深 D3D11 / DirectComposition 桥接实现。
 class D3D11VideoBridge implements KonataVideoTextureBridge {
@@ -23,12 +23,12 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
   static const String channelName = 'konata/d3d11_video';
 
   final MethodChannel _channel;
-  final StreamController<D3D11TextureChangedEvent> _changesController =
-      StreamController<D3D11TextureChangedEvent>.broadcast();
+  final StreamController<NativeTextureChangedEvent> _changesController =
+      StreamController<NativeTextureChangedEvent>.broadcast();
 
   /// 原生设备丢失降级时触发的新纹理 ID 推送流。
   @override
-  Stream<D3D11TextureChangedEvent> get textureChanges =>
+  Stream<NativeTextureChangedEvent> get textureChanges =>
       _changesController.stream;
 
   Future<dynamic> _handleNativeCall(MethodCall call) async {
@@ -43,7 +43,7 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
       final reason = raw['reason']?.toString() ?? '';
       if (!_changesController.isClosed) {
         _changesController.add(
-          D3D11TextureChangedEvent(
+          NativeTextureChangedEvent(
             sessionId: sessionId,
             textureId: textureId,
             backend: backend,
@@ -60,7 +60,7 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
 
   /// 为指定 `mpv_handle*` 创建高色深底层 10-bit/HDR 宿主或兼容共享纹理会话。
   @override
-  Future<D3D11VideoSessionHandle> createSession({
+  Future<NativeVideoSessionHandle> createSession({
     required int mpvHandleAddress,
     int width = 1280,
     int height = 720,
@@ -86,14 +86,14 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
     if (result == null) {
       throw StateError('konata/d3d11_video createSession returned null');
     }
-    return D3D11VideoSessionHandle(
+    return NativeVideoSessionHandle(
       sessionId: (result['sessionId'] as num?)?.toInt() ?? 0,
       textureId: (result['textureId'] as num?)?.toInt() ?? -1,
       backend: result['backend']?.toString() ?? 'gpu_next',
       surfaceFormat:
           result['surfaceFormat']?.toString() ?? 'DXGI_FORMAT_R10G10B10A2_UNORM',
       colorBitDepth: (result['colorBitDepth'] as num?)?.toInt() ?? 10,
-      dcompActive: result['dcompActive'] == true,
+      underlaySwapChainActive: result['dcompActive'] == true,
       nativeWindowHandle: (result['nativeWindowHandle'] as num?)?.toInt() ?? 0,
       adapterName: result['adapterName']?.toString() ?? '',
     );
@@ -145,7 +145,7 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
 
   /// 查询指定渲染会话的原生 GPU 单帧渲染耗时统计。
   @override
-  Future<D3D11SessionMetrics?> getSessionMetrics(int sessionId) async {
+  Future<NativeSessionMetrics?> getSessionMetrics(int sessionId) async {
     if (sessionId <= 0) return null;
     try {
       final result = await _channel.invokeMapMethod<String, Object?>(
@@ -153,7 +153,7 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
         <String, Object?>{'sessionId': sessionId},
       );
       if (result == null) return null;
-      return D3D11SessionMetrics(
+      return NativeSessionMetrics(
         renderedFrames: (result['renderedFrames'] as num?)?.toInt() ?? 0,
         renderP50Us: (result['renderP50Us'] as num?)?.toInt() ?? 0,
         renderP99Us: (result['renderP99Us'] as num?)?.toInt() ?? 0,
@@ -161,7 +161,7 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
         backend: result['backend']?.toString() ?? '',
         surfaceFormat: result['surfaceFormat']?.toString() ?? '',
         colorBitDepth: (result['colorBitDepth'] as num?)?.toInt() ?? 8,
-        dcompActive: result['dcompActive'] == true,
+        underlaySwapChainActive: result['dcompActive'] == true,
       );
     } on MissingPluginException {
       return null;

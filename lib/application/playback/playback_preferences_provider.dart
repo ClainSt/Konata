@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../domain/models/external_player_config.dart';
+import '../../composition/platform_composition.dart';
 import '../../domain/playback/track_preferences.dart';
 import '../../infrastructure/players/android/android_audio_route_bridge.dart';
 import '../../infrastructure/players/mpv_quality_profile.dart';
@@ -17,11 +18,11 @@ import 'unified_playback_engine.dart';
 
 /// 全局默认音视频播放引擎路由偏好。
 enum PreferredPlaybackEngine {
-  /// 默认使用内置高保真 `libmpv`（D3D11 共享纹理 / Android Surface / 纯音频 `vid=no`）。
+  /// 默认使用内置高保真 `libmpv`（底层高色深表面 / 纯音频 `vid=no`）。
   builtinLibmpv('内置高保真引擎 (libmpv)'),
 
-  /// 默认拉起已配置的外部播放器（MPV / PotPlayer / 自定义）。
-  externalPlayer('外部播放器');
+  /// 默认拉起桌面已配置的外部程序接力。
+  desktopRelay('外部播放器');
 
   const PreferredPlaybackEngine(this.label);
 
@@ -35,14 +36,14 @@ class PlaybackPreferencesState {
   const PlaybackPreferencesState({
     this.defaultVideoEngine = PreferredPlaybackEngine.builtinLibmpv,
     this.defaultAudioEngine = PreferredPlaybackEngine.builtinLibmpv,
-    this.preferredExternalVideoKind = ExternalPlayerKind.mpv,
+    this.preferredRelayKindKey = 'mpv',
     this.qualityConfig = const PlaybackQualityConfig(),
     this.autoNextEpisode = true,
     this.promptChapterSkip = true,
     this.autoSkipChapter = false,
     this.autoEnterPip = true,
     this.defaultVolume = 100.0,
-    this.hdmiSpdifPassthrough = false,
+    this.bitstreamPassthrough = false,
     this.androidBitPerfectUsb = false,
     this.cloudSubsetEnabled = false,
     this.cloudSubsetEndpoint = '',
@@ -54,8 +55,8 @@ class PlaybackPreferencesState {
   /// 默认 CD 音频播放引擎。
   final PreferredPlaybackEngine defaultAudioEngine;
 
-  /// 当使用外部视频播放器时的首选程序（MPV / PotPlayer）。
-  final ExternalPlayerKind preferredExternalVideoKind;
+  /// 当使用桌面外部接力时的首选目标类型键名（默认 `mpv`）。
+  final String preferredRelayKindKey;
 
   /// 内置 `libmpv` 画质、音频与字幕配置参数。
   final PlaybackQualityConfig qualityConfig;
@@ -75,8 +76,8 @@ class PlaybackPreferencesState {
   /// 内置播放器默认初始音量（`0 ~ 100`）。
   final double defaultVolume;
 
-  /// Windows HDMI `audio-spdif` 比特流源码直通（开启时与一切软件 DSP 严格互斥）。
-  final bool hdmiSpdifPassthrough;
+  /// 桌面端 `audio-spdif` 比特流源码直通（开启时与一切软件 DSP 严格互斥）。
+  final bool bitstreamPassthrough;
 
   /// Android 14+ 原生 `MIXER_BEHAVIOR_BIT_PERFECT` USB DAC 逐位直通偏好。
   final bool androidBitPerfectUsb;
@@ -91,14 +92,14 @@ class PlaybackPreferencesState {
   PlaybackPreferencesState copyWith({
     PreferredPlaybackEngine? defaultVideoEngine,
     PreferredPlaybackEngine? defaultAudioEngine,
-    ExternalPlayerKind? preferredExternalVideoKind,
+    String? preferredRelayKindKey,
     PlaybackQualityConfig? qualityConfig,
     bool? autoNextEpisode,
     bool? promptChapterSkip,
     bool? autoSkipChapter,
     bool? autoEnterPip,
     double? defaultVolume,
-    bool? hdmiSpdifPassthrough,
+    bool? bitstreamPassthrough,
     bool? androidBitPerfectUsb,
     bool? cloudSubsetEnabled,
     String? cloudSubsetEndpoint,
@@ -106,15 +107,15 @@ class PlaybackPreferencesState {
     return PlaybackPreferencesState(
       defaultVideoEngine: defaultVideoEngine ?? this.defaultVideoEngine,
       defaultAudioEngine: defaultAudioEngine ?? this.defaultAudioEngine,
-      preferredExternalVideoKind:
-          preferredExternalVideoKind ?? this.preferredExternalVideoKind,
+      preferredRelayKindKey:
+          preferredRelayKindKey ?? this.preferredRelayKindKey,
       qualityConfig: qualityConfig ?? this.qualityConfig,
       autoNextEpisode: autoNextEpisode ?? this.autoNextEpisode,
       promptChapterSkip: promptChapterSkip ?? this.promptChapterSkip,
       autoSkipChapter: autoSkipChapter ?? this.autoSkipChapter,
       autoEnterPip: autoEnterPip ?? this.autoEnterPip,
       defaultVolume: defaultVolume ?? this.defaultVolume,
-      hdmiSpdifPassthrough: hdmiSpdifPassthrough ?? this.hdmiSpdifPassthrough,
+      bitstreamPassthrough: bitstreamPassthrough ?? this.bitstreamPassthrough,
       androidBitPerfectUsb: androidBitPerfectUsb ?? this.androidBitPerfectUsb,
       cloudSubsetEnabled: cloudSubsetEnabled ?? this.cloudSubsetEnabled,
       cloudSubsetEndpoint: cloudSubsetEndpoint ?? this.cloudSubsetEndpoint,
@@ -126,14 +127,14 @@ class PlaybackPreferencesState {
     return other is PlaybackPreferencesState &&
         other.defaultVideoEngine == defaultVideoEngine &&
         other.defaultAudioEngine == defaultAudioEngine &&
-        other.preferredExternalVideoKind == preferredExternalVideoKind &&
+        other.preferredRelayKindKey == preferredRelayKindKey &&
         other.qualityConfig == qualityConfig &&
         other.autoNextEpisode == autoNextEpisode &&
         other.promptChapterSkip == promptChapterSkip &&
         other.autoSkipChapter == autoSkipChapter &&
         other.autoEnterPip == autoEnterPip &&
         other.defaultVolume == defaultVolume &&
-        other.hdmiSpdifPassthrough == hdmiSpdifPassthrough &&
+        other.bitstreamPassthrough == bitstreamPassthrough &&
         other.androidBitPerfectUsb == androidBitPerfectUsb &&
         other.cloudSubsetEnabled == cloudSubsetEnabled &&
         other.cloudSubsetEndpoint == cloudSubsetEndpoint;
@@ -143,14 +144,14 @@ class PlaybackPreferencesState {
   int get hashCode => Object.hash(
     defaultVideoEngine,
     defaultAudioEngine,
-    preferredExternalVideoKind,
+    preferredRelayKindKey,
     qualityConfig,
     autoNextEpisode,
     promptChapterSkip,
     autoSkipChapter,
     autoEnterPip,
     defaultVolume,
-    hdmiSpdifPassthrough,
+    bitstreamPassthrough,
     androidBitPerfectUsb,
     cloudSubsetEnabled,
     cloudSubsetEndpoint,
@@ -161,8 +162,10 @@ class PlaybackPreferencesState {
 class PlaybackPreferencesNotifier
     extends StateNotifier<PlaybackPreferencesState> {
   /// 创建播放偏好管理器。
-  PlaybackPreferencesNotifier({this.enablePersistence = true})
-    : super(const PlaybackPreferencesState()) {
+  PlaybackPreferencesNotifier({
+    this.enablePersistence = true,
+    this.desktopDelegate,
+  }) : super(const PlaybackPreferencesState()) {
     if (enablePersistence) {
       unawaited(_loadFromPrefs());
     }
@@ -173,6 +176,9 @@ class PlaybackPreferencesNotifier
   /// 是否启用本地 SharedPreferences 持久化（单测可置 false）。
   final bool enablePersistence;
 
+  /// 可选桌面平台参数委托（用于兼容旧桌面配置键迁移，Android 端为 `null`）。
+  final MpvPlatformProfileDelegate? desktopDelegate;
+
   Future<void> _loadFromPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -180,9 +186,14 @@ class PlaybackPreferencesNotifier
       if (raw == null || raw.isEmpty || !mounted) return;
       final decoded = jsonDecode(raw);
       if (decoded is! Map<Object?, Object?>) return;
-      state = _decodeState(decoded);
-    } catch (_) {
+      state = _decodeState(decoded, delegate: desktopDelegate);
+    } catch (error) {
       // 无插件单测环境下保持默认值安全运行。
+      developer.log(
+        '可恢复异常已记录',
+        name: 'konata.playback_preferences_provider',
+        error: error,
+      );
     }
   }
 
@@ -198,13 +209,11 @@ class PlaybackPreferencesNotifier
     await _persist();
   }
 
-  /// 切换首选外部视频播放器（MPV / PotPlayer）。
-  Future<void> setPreferredExternalVideoKind(ExternalPlayerKind kind) async {
-    if (kind != ExternalPlayerKind.mpv &&
-        kind != ExternalPlayerKind.potplayer) {
-      return;
-    }
-    state = state.copyWith(preferredExternalVideoKind: kind);
+  /// 切换首选桌面视频接力目标类型键名。
+  Future<void> setPreferredRelayKindKey(String kindKey) async {
+    final trimmed = kindKey.trim();
+    if (trimmed.isEmpty) return;
+    state = state.copyWith(preferredRelayKindKey: trimmed);
     await _persist();
   }
 
@@ -228,9 +237,9 @@ class PlaybackPreferencesNotifier
   Future<void> setDebandEnabled(bool value) =>
       updateQualityConfig((c) => c.copyWith(debandEnabled: value));
 
-  /// 切换 WASAPI 独占模式。
-  Future<void> setWasapiExclusive(bool value) =>
-      updateQualityConfig((c) => c.copyWith(wasapiExclusive: value));
+  /// 切换音频独占直通模式。
+  Future<void> setExclusiveAudioOutput(bool value) =>
+      updateQualityConfig((c) => c.copyWith(exclusiveAudioOutput: value));
 
   /// 更新 `soxr` 音频重采样精度（`16 ~ 33`）。
   Future<void> setAudioResamplerPrecision(int precision) => updateQualityConfig(
@@ -260,9 +269,9 @@ class PlaybackPreferencesNotifier
   Future<void> setActiveShaderPaths(List<String> paths) =>
       updateQualityConfig((c) => c.copyWith(activeShaderPaths: List.of(paths)));
 
-  /// 切换高色深桌面视频输出后端（默认原生 10-bit/HDR `vo=gpu-next` 底层直通）。
-  Future<void> setDesktopOutputMode(DesktopVideoOutputMode mode) =>
-      updateQualityConfig((c) => c.copyWith(desktopOutputMode: mode));
+  /// 切换高色深桌面视频输出管线模式（默认原生 10-bit/HDR `vo=gpu-next` 底层直通）。
+  Future<void> setOutputPipelineMode(VideoOutputPipelineMode mode) =>
+      updateQualityConfig((c) => c.copyWith(outputPipelineMode: mode));
 
   /// 更新默认字幕字号。
   Future<void> setSubFontSize(int size) =>
@@ -316,9 +325,9 @@ class PlaybackPreferencesNotifier
     await _persist();
   }
 
-  /// 切换 Windows HDMI `audio-spdif` 比特流源码直通（开启时自动与软件 DSP 严格互斥）。
-  Future<void> setHdmiSpdifPassthrough(bool value) async {
-    state = state.copyWith(hdmiSpdifPassthrough: value);
+  /// 切换比特流源码直通（开启时自动与软件 DSP 严格互斥）。
+  Future<void> setBitstreamPassthrough(bool value) async {
+    state = state.copyWith(bitstreamPassthrough: value);
     await _persist();
   }
 
@@ -355,25 +364,25 @@ class PlaybackPreferencesNotifier
     return {
       'defaultVideoEngine': s.defaultVideoEngine.name,
       'defaultAudioEngine': s.defaultAudioEngine.name,
-      'preferredExternalVideoKind': s.preferredExternalVideoKind.name,
+      'preferredRelayKindKey': s.preferredRelayKindKey,
       'autoNextEpisode': s.autoNextEpisode,
       'promptChapterSkip': s.promptChapterSkip,
       'autoSkipChapter': s.autoSkipChapter,
       'autoEnterPip': s.autoEnterPip,
       'defaultVolume': s.defaultVolume,
-      'hdmiSpdifPassthrough': s.hdmiSpdifPassthrough,
+      'bitstreamPassthrough': s.bitstreamPassthrough,
       'androidBitPerfectUsb': s.androidBitPerfectUsb,
       'cloudSubsetEnabled': s.cloudSubsetEnabled,
       'cloudSubsetEndpoint': s.cloudSubsetEndpoint,
       'preset': q.preset.name,
-      'desktopOutputMode': q.desktopOutputMode.bridgeKey,
+      'outputPipelineMode': q.outputPipelineMode.bridgeKey,
       'hardwareDecode': q.hardwareDecode,
       'debandEnabled': q.debandEnabled,
       'demuxerMaxBytesMiB': q.demuxerMaxBytesMiB,
       'demuxerMaxBackBytesMiB': q.demuxerMaxBackBytesMiB,
       'cacheSecs': q.cacheSecs,
       'audioResamplerPrecision': q.audioResamplerPrecision,
-      'wasapiExclusive': q.wasapiExclusive,
+      'exclusiveAudioOutput': q.exclusiveAudioOutput,
       'audioDevice': q.audioDevice,
       'activeShaderPaths': q.activeShaderPaths,
       'defaultSpeed': q.defaultSpeed,
@@ -386,7 +395,12 @@ class PlaybackPreferencesNotifier
     };
   }
 
-  static PlaybackPreferencesState _decodeState(Map<Object?, Object?> map) {
+  static PlaybackPreferencesState _decodeState(
+    Map<Object?, Object?> rawMap, {
+    MpvPlatformProfileDelegate? delegate,
+  }) {
+    final map = delegate?.normalizeLegacyPreferenceMap(rawMap) ?? rawMap;
+
     T parseEnum<T extends Enum>(List<T> values, Object? raw, T fallback) {
       if (raw is! String) return fallback;
       for (final item in values) {
@@ -413,6 +427,7 @@ class PlaybackPreferencesNotifier
               .toList()
         : const <String>[];
 
+    final relayKind = map['preferredRelayKindKey'];
     return PlaybackPreferencesState(
       defaultVideoEngine: parseEnum(
         PreferredPlaybackEngine.values,
@@ -424,11 +439,9 @@ class PlaybackPreferencesNotifier
         map['defaultAudioEngine'],
         PreferredPlaybackEngine.builtinLibmpv,
       ),
-      preferredExternalVideoKind: parseEnum(
-        const [ExternalPlayerKind.mpv, ExternalPlayerKind.potplayer],
-        map['preferredExternalVideoKind'],
-        ExternalPlayerKind.mpv,
-      ),
+      preferredRelayKindKey: relayKind is String && relayKind.trim().isNotEmpty
+          ? relayKind.trim()
+          : 'mpv',
       autoNextEpisode: map['autoNextEpisode'] is bool
           ? map['autoNextEpisode'] as bool
           : true,
@@ -442,8 +455,8 @@ class PlaybackPreferencesNotifier
           ? map['autoEnterPip'] as bool
           : true,
       defaultVolume: parseDouble(map['defaultVolume'], 100.0, 0.0, 100.0),
-      hdmiSpdifPassthrough: map['hdmiSpdifPassthrough'] is bool
-          ? map['hdmiSpdifPassthrough'] as bool
+      bitstreamPassthrough: map['bitstreamPassthrough'] is bool
+          ? map['bitstreamPassthrough'] as bool
           : false,
       androidBitPerfectUsb: map['androidBitPerfectUsb'] is bool
           ? map['androidBitPerfectUsb'] as bool
@@ -460,8 +473,9 @@ class PlaybackPreferencesNotifier
           map['preset'],
           VideoQualityPreset.highFidelity,
         ),
-        desktopOutputMode: DesktopVideoOutputMode.parse(
-          map['desktopOutputMode'] ?? map['windowsRenderBackend'],
+        outputPipelineMode: VideoOutputPipelineMode.parse(
+          map['outputPipelineMode'],
+          delegate: delegate,
         ),
         hardwareDecode: map['hardwareDecode'] is bool
             ? map['hardwareDecode'] as bool
@@ -493,8 +507,8 @@ class PlaybackPreferencesNotifier
           16,
           33,
         ),
-        wasapiExclusive: map['wasapiExclusive'] is bool
-            ? map['wasapiExclusive'] as bool
+        exclusiveAudioOutput: map['exclusiveAudioOutput'] is bool
+            ? map['exclusiveAudioOutput'] as bool
             : false,
         audioDevice:
             map['audioDevice'] is String &&
@@ -539,7 +553,11 @@ final playbackPreferencesProvider =
     StateNotifierProvider<
       PlaybackPreferencesNotifier,
       PlaybackPreferencesState
-    >((ref) => PlaybackPreferencesNotifier());
+    >(
+      (ref) => PlaybackPreferencesNotifier(
+        desktopDelegate: ref.watch(mpvPlatformProfileDelegateProvider),
+      ),
+    );
 
 /// 内嵌 `libmpv` 与 `FFmpeg` 运行时实时探测结果 Provider。
 final mpvRuntimeVersionsProvider = FutureProvider<MpvRuntimeVersions>((ref) {

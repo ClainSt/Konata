@@ -610,9 +610,9 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
     return res;
   }
 
-  /// 一键热接力至外部播放器：携带精确当前秒数退出内置播放页并在外部播放器续播回写。
-  Future<LaunchPlaybackResult> relayToExternalPlayer([
-    ExternalPlayerConfig? targetPlayer,
+  /// 一键热接力至桌面接力程序：携带精确当前秒数退出内置播放页并在外部程序续播回写。
+  Future<LaunchPlaybackResult> relayToDesktopPlayer([
+    String? targetId,
   ]) async {
     final relayPos =
         (_session?.readCurrentPositionSeconds() ?? currentPositionSeconds)
@@ -633,7 +633,7 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
           variant: variant,
           sourceType: src?.kind ?? MediaSourceKind.local,
           source: src,
-          player: targetPlayer,
+          targetId: targetId,
           startSeconds: relayPos,
           mainEpisodeCount: orderedMainEpisodes.length,
         );

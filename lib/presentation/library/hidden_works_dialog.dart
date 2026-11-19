@@ -98,7 +98,7 @@ class _HiddenWorksDialogState extends ConsumerState<HiddenWorksDialog> {
               child: Center(
                 child: Text(
                   '读取已隐藏作品失败: $err',
-                  style: TextStyle(color: p.danger, fontSize: 13),
+                  style: TextStyle(color: p.danger, fontSize: KonataTheme.fontSizeBodySm),
                 ),
               ),
             ),
@@ -123,7 +123,7 @@ class _HiddenWorksDialogState extends ConsumerState<HiddenWorksDialog> {
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: p.textPrimary,
-                            fontSize: 14,
+                            fontSize: KonataTheme.fontSizeBodyMd,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -133,7 +133,7 @@ class _HiddenWorksDialogState extends ConsumerState<HiddenWorksDialog> {
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: p.textSecondary,
-                            fontSize: 12.5,
+                            fontSize: KonataTheme.fontSizeBodyXs,
                           ),
                         ),
                       ],
@@ -231,7 +231,7 @@ class _HiddenWorkRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         ClipRRect(
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: KonataTheme.borderRadiusChip,
           child: SizedBox(
             width: 46,
             height: 66,
@@ -259,7 +259,7 @@ class _HiddenWorkRow extends StatelessWidget {
                 maxLines: 1,
                 style: TextStyle(
                   color: p.textPrimary,
-                  fontSize: 13.8,
+                  fontSize: KonataTheme.fontSizeBodyMd,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -279,7 +279,7 @@ class _HiddenWorkRow extends StatelessWidget {
                       maxLines: 1,
                       style: TextStyle(
                         color: p.textSecondary,
-                        fontSize: 12,
+                        fontSize: KonataTheme.fontSizeCaption,
                       ),
                     ),
                   ),

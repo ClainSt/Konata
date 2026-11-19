@@ -60,7 +60,7 @@ class _InlineExpandableSynopsisState extends State<InlineExpandableSynopsis> {
     final p = context.palette;
     final bodyStyle = widget.style ??
         KonataTheme.detailTextStyle(
-          fontSize: 14.5,
+          fontSize: KonataTheme.fontSizeSubtitle,
           fontWeight: FontWeight.w500,
           height: 1.65,
           letterSpacing: 0.35,
@@ -156,7 +156,7 @@ class _InlineExpandableSynopsisState extends State<InlineExpandableSynopsis> {
             behavior: HitTestBehavior.opaque,
             onTap: _toggle,
             child: AnimatedSize(
-              duration: const Duration(milliseconds: 200),
+              duration: KonataTheme.motionNormal,
               curve: Curves.easeOutCubic,
               alignment: Alignment.topLeft,
               child: content,

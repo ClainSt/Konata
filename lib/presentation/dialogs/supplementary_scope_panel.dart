@@ -13,6 +13,7 @@ import '../widgets/design_system/konata_dropdown.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
+import '../theme/konata_theme.dart';
 
 /// 附属资源（特典 / CD / Scan）作用域草稿行状态。
 class SupplementaryScopeDraft {
@@ -155,7 +156,7 @@ class _SupplementaryScopePanelState extends State<SupplementaryScopePanel> {
         child: Text(
           '当前作品暂未检测到特典、CD 或 Scan 附属条目。',
           textAlign: TextAlign.center,
-          style: TextStyle(color: p.textSecondary, fontSize: 13),
+          style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodySm),
         ),
       );
     }
@@ -166,7 +167,7 @@ class _SupplementaryScopePanelState extends State<SupplementaryScopePanel> {
           children: [
             Text(
               '当前作品尚未编入多部作品系列，无法区分「全系列共享」与「单作独享」。',
-              style: TextStyle(color: p.textSecondary, fontSize: 13),
+              style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodySm),
             ),
             const SizedBox(height: 12),
             KonataPillButton.secondary(
@@ -281,7 +282,7 @@ class _SupplementaryScopePanelState extends State<SupplementaryScopePanel> {
               ? Center(
                   child: Text(
                     '暂无匹配的附属目录资源',
-                    style: TextStyle(color: p.textSecondary, fontSize: 13),
+                    style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodySm),
                   ),
                 )
               : KonataDraggableScrollbar(
@@ -313,7 +314,7 @@ class _SupplementaryScopePanelState extends State<SupplementaryScopePanel> {
                       return Container(
                         decoration: BoxDecoration(
                           color: p.softFill,
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: KonataTheme.borderRadiusControl,
                           border: Border.all(color: p.hairline),
                         ),
                         child: Column(
@@ -331,7 +332,7 @@ class _SupplementaryScopePanelState extends State<SupplementaryScopePanel> {
                                 leading: Row(
                                   children: [
                                     InkWell(
-                                      borderRadius: BorderRadius.circular(6),
+                                      borderRadius: KonataTheme.borderRadiusChip,
                                       onTap: () => setState(() {
                                         if (!_expandedGroups.remove(groupKey)) {
                                           _expandedGroups.add(groupKey);
@@ -367,7 +368,7 @@ class _SupplementaryScopePanelState extends State<SupplementaryScopePanel> {
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: InkWell(
-                                        borderRadius: BorderRadius.circular(6),
+                                        borderRadius: KonataTheme.borderRadiusChip,
                                         onTap: () => setState(() {
                                           if (!_expandedGroups.remove(
                                             groupKey,
@@ -389,7 +390,7 @@ class _SupplementaryScopePanelState extends State<SupplementaryScopePanel> {
                                                 maxLines: 1,
                                                 style: TextStyle(
                                                   color: p.textPrimary,
-                                                  fontSize: 12.6,
+                                                  fontSize: KonataTheme.fontSizeBodyXs,
                                                   fontWeight: FontWeight.w600,
                                                 ),
                                               ),
@@ -400,7 +401,7 @@ class _SupplementaryScopePanelState extends State<SupplementaryScopePanel> {
                                                 overflow: TextOverflow.ellipsis,
                                                 style: TextStyle(
                                                   color: p.textMuted,
-                                                  fontSize: 11,
+                                                  fontSize: KonataTheme.fontSizeCaptionXs,
                                                 ),
                                               ),
                                             ],
@@ -457,7 +458,7 @@ class _SupplementaryScopePanelState extends State<SupplementaryScopePanel> {
                                             maxLines: 1,
                                             style: TextStyle(
                                               color: p.textSecondary,
-                                              fontSize: 11.8,
+                                              fontSize: KonataTheme.fontSizeCaption,
                                             ),
                                           ),
                                           trailing: SizedBox(
@@ -522,14 +523,14 @@ class _KindMiniTag extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: p.accent.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(5),
+        borderRadius: KonataTheme.borderRadiusChipSm,
         border: Border.all(color: p.accent.withValues(alpha: 0.35)),
       ),
       child: Text(
         label,
         style: TextStyle(
           color: p.accent,
-          fontSize: 10.5,
+          fontSize: KonataTheme.fontSizeBadge,
           fontWeight: FontWeight.w600,
         ),
       ),

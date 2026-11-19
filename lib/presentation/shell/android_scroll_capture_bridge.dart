@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/konata_adaptive_tokens.dart';
+import '../theme/konata_theme.dart';
 
 /// 声明顶部/底部悬浮遮挡（如浮窗胶囊导航与迷你播控条），用于收窄长截屏采样窗口以免切片重复出现浮层。
 class ScrollCaptureExclusionInsets extends InheritedWidget {
@@ -226,7 +227,7 @@ class _AndroidScrollCaptureScopeState extends State<AndroidScrollCaptureScope>
     // 等待引擎完成新偏移排版与光栅化，确保下一帧 PixelCopy 采到真实新像素
     SchedulerBinding.instance.scheduleFrame();
     await SchedulerBinding.instance.endOfFrame;
-    await Future<void>.delayed(const Duration(milliseconds: 24));
+    await Future<void>.delayed(KonataTheme.scrollCaptureSettleDelay);
     if (!mounted || !state.mounted) {
       return const <String, Object>{'ok': false};
     }

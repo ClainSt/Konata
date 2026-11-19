@@ -116,8 +116,7 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
     if (rawPath == null) return false;
     final trimmed = rawPath.trim();
     if (trimmed.isEmpty || trimmed.startsWith('memory://')) return false;
-    final ext = p.extension(trimmed.split('?').first).toLowerCase();
-    return ext == '.ass' || ext == '.ssa' || ext == '.srt' || ext == '.vtt';
+    return KonataMediaExtensions.isTextSubtitleFile(trimmed.split('?').first);
   }
 
   SubtitleChoice? get _selectedSubtitleChoice {

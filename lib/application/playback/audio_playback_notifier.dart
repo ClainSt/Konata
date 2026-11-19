@@ -169,8 +169,8 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       _ref.listen<(bool, bool, bool)>(
         playbackPreferencesProvider.select(
           (p) => (
-            p.hdmiSpdifPassthrough,
-            p.qualityConfig.wasapiExclusive,
+            p.bitstreamPassthrough,
+            p.qualityConfig.exclusiveAudioOutput,
             p.androidBitPerfectUsb,
           ),
         ),
@@ -336,6 +336,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       config: prefs.qualityConfig,
       mpvConfigDir: mpvDir,
       isRemoteStream: isRemoteStream,
+      desktopDelegate: _ref.read(mpvPlatformProfileDelegateProvider),
       logStore: _logStore,
     );
     client.setOptionString('keep-open', 'no');

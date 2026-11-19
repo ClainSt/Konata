@@ -314,7 +314,7 @@ class _WorkArtworkPickerDialogState
             _buildCandidateHeaderText(isPoster),
             style: TextStyle(
               color: p.textSecondary,
-              fontSize: 12.5,
+              fontSize: KonataTheme.fontSizeBodyXs,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -397,7 +397,7 @@ class _WorkArtworkPickerDialogState
       child: AspectRatio(
         aspectRatio: isPoster ? 2 / 3 : 16 / 9,
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: KonataTheme.borderRadiusCard,
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -472,9 +472,7 @@ class _ArtworkGridTileState extends ConsumerState<_ArtworkGridTile> {
         ? p.accent
         : (_hovered
               ? p.accent.withValues(alpha: 0.55)
-              : (p.isDark
-                    ? Colors.white.withValues(alpha: 0.16)
-                    : const Color(0x260F172A)));
+              : KonataTheme.darkInkBorder(p));
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -483,10 +481,10 @@ class _ArtworkGridTileState extends ConsumerState<_ArtworkGridTile> {
       child: GestureDetector(
         onTap: widget.onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
+          duration: KonataTheme.motionFast,
           curve: Curves.easeOutCubic,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: KonataTheme.borderRadiusCard,
             boxShadow: selected
                 ? [
                     BoxShadow(
@@ -499,14 +497,14 @@ class _ArtworkGridTileState extends ConsumerState<_ArtworkGridTile> {
           ),
           // 使用 foregroundDecoration 将高亮选中边框直接绘制在海报最顶层，杜绝被图像裁剪覆盖
           foregroundDecoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: KonataTheme.borderRadiusCard,
             border: Border.all(
               color: borderColor,
               width: selected ? 3.5 : (_hovered ? 1.8 : 1.0),
             ),
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: KonataTheme.borderRadiusCard,
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -533,14 +531,14 @@ class _ArtworkGridTileState extends ConsumerState<_ArtworkGridTile> {
                       ),
                       decoration: BoxDecoration(
                         color: p.accent,
-                        borderRadius: BorderRadius.circular(999),
+                        borderRadius: KonataTheme.borderRadiusPill,
                         border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.85),
+                          color: KonataTheme.overlayWhiteTextMid,
                           width: 1,
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.32),
+                            color: KonataTheme.scrimBlackSubtle,
                             blurRadius: 6,
                             offset: const Offset(0, 2),
                           ),
@@ -559,7 +557,7 @@ class _ArtworkGridTileState extends ConsumerState<_ArtworkGridTile> {
                             isCurrentSaved ? '当前' : '已选',
                             style: const TextStyle(
                               color: Colors.white,
-                              fontSize: 10.5,
+                              fontSize: KonataTheme.fontSizeBadge,
                               fontWeight: FontWeight.w700,
                               height: 1.1,
                             ),
@@ -574,7 +572,7 @@ class _ArtworkGridTileState extends ConsumerState<_ArtworkGridTile> {
                     right: 6,
                     child: _OverlayMiniBadge(
                       text: '当前',
-                      backgroundColor: Colors.black.withValues(alpha: 0.72),
+                      backgroundColor: KonataTheme.scrimBlackDeep,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -614,7 +612,7 @@ class _ArtworkGridTileState extends ConsumerState<_ArtworkGridTile> {
         backgroundColor: KonataTheme.bangumiPink,
         textColor: Colors.white,
         fontWeight: FontWeight.w700,
-        borderColor: Colors.white.withValues(alpha: 0.28),
+        borderColor: KonataTheme.overlayWhiteStroke,
       );
     }
     if (displayLabel.startsWith('TMDB')) {
@@ -629,7 +627,7 @@ class _ArtworkGridTileState extends ConsumerState<_ArtworkGridTile> {
     }
     return _OverlayMiniBadge(
       text: displayLabel,
-      backgroundColor: Colors.black.withValues(alpha: 0.68),
+      backgroundColor: KonataTheme.scrimBlackDense,
     );
   }
 }
@@ -663,14 +661,14 @@ class _OverlayMiniBadge extends StatelessWidget {
 
   factory _OverlayMiniBadge.resolution(String text) => _OverlayMiniBadge(
     text: text,
-    backgroundColor: Colors.white.withValues(alpha: 0.94),
+    backgroundColor: KonataTheme.overlayWhiteTextStrong,
     textColor: KonataTheme.resolutionBadgeTextDark,
-    borderColor: Colors.black.withValues(alpha: 0.08),
+    borderColor: KonataTheme.scrimBlackHairline,
     fontWeight: FontWeight.w700,
     tabularFigures: true,
     shadows: [
       BoxShadow(
-        color: Colors.black.withValues(alpha: 0.20),
+        color: KonataTheme.scrimBlackSoft,
         blurRadius: 6,
         offset: const Offset(0, 2),
       ),
@@ -694,7 +692,7 @@ class _OverlayMiniBadge extends StatelessWidget {
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
         color: textGradient != null ? Colors.white : textColor,
-        fontSize: 10,
+        fontSize: KonataTheme.fontSizeMicro,
         fontWeight: fontWeight,
         fontFeatures: tabularFigures
             ? const [FontFeature.tabularFigures()]
@@ -706,9 +704,9 @@ class _OverlayMiniBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 6.5, vertical: 2.5),
       decoration: BoxDecoration(
         color: backgroundColor,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: KonataTheme.borderRadiusChip,
         border: Border.all(
-          color: borderColor ?? Colors.white.withValues(alpha: 0.22),
+          color: borderColor ?? KonataTheme.overlayWhiteBorderStrong,
           width: 0.8,
         ),
         boxShadow: shadows,

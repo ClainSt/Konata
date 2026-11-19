@@ -1,6 +1,7 @@
 import 'package:path/path.dart' as p;
 
 import '../../domain/models/episode.dart';
+import '../../domain/models/media_extensions.dart';
 import '../../domain/parsing/bdrip_parser.dart';
 import '../../domain/playback/subtitle_and_audio_choices.dart';
 
@@ -23,14 +24,8 @@ class MatchedSubtitleSet {
 class SubtitleMatcher {
   const SubtitleMatcher._();
 
-  /// 支持挂载的外挂字幕扩展名集合（小写含点）。
-  static const Set<String> supportedExtensions = {
-    '.ass',
-    '.ssa',
-    '.srt',
-    '.sup',
-    '.vtt',
-  };
+  /// 支持挂载的外挂字幕扩展名集合（统一引用领域权威常量表）。
+  static const Set<String> supportedExtensions = KonataMediaExtensions.subtitle;
 
   static final RegExp _trailingLangBracket = RegExp(
     r'[\s._\-]*[\[(【](?:chs|cht|sc|tc|gb|big5|jpn?|eng?|jpsc|jptc|zh[-_]?(?:cn|tw|hk|hans|hant)|chs&jpn|cht&jpn|sc&jp|tc&jp|bilingual|简日|繁日|简体|繁体|双语|雙語|default|forced)[\])】]\s*$',

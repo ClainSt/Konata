@@ -267,7 +267,7 @@ class _LibraryHeaderBar extends StatelessWidget {
         : '$totalCount 部';
     final countTextStyle = KonataTheme.textStyle(
       color: p.textSecondary,
-      fontSize: 13,
+      fontSize: KonataTheme.fontSizeBodySm,
       weight: KonataTheme.weightActive,
     );
     final countBadge = (totalCount > 0 || hasQuery)
@@ -276,7 +276,7 @@ class _LibraryHeaderBar extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
               color: p.softFill,
-              borderRadius: BorderRadius.circular(999),
+              borderRadius: KonataTheme.borderRadiusPill,
               border: Border.all(color: p.hairline, width: 1),
             ),
             child: Text(countText, style: countTextStyle),
@@ -353,7 +353,7 @@ class _LibraryHeaderBar extends StatelessWidget {
             ? KonataAdaptiveTokens.horizontalInset
             : KonataTheme.pageHorizontalPadding;
         final h1Style = compact
-            ? KonataTheme.h1Style(p).copyWith(fontSize: 22)
+            ? KonataTheme.h1Style(p).copyWith(fontSize: KonataTheme.fontSizeDisplaySm)
             : KonataTheme.h1Style(p);
         final searchExpanded = searchOpen || hasQuery;
 
@@ -447,7 +447,7 @@ class _LibraryHeaderBar extends StatelessWidget {
                       context,
                       '待复核 · $reviewCount',
                       const TextStyle(
-                        fontSize: 12.5,
+                        fontSize: KonataTheme.fontSizeBodyXs,
                         fontWeight: FontWeight.w500,
                       ),
                       clampScaleFactor: 1.15,
@@ -602,7 +602,7 @@ class _HiddenWorksHeaderButtonState extends State<_HiddenWorksHeaderButton> {
 
     return Tooltip(
       message: tooltip,
-      waitDuration: const Duration(milliseconds: 350),
+      waitDuration: KonataTheme.tooltipWaitDuration,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hovered = true),
@@ -667,14 +667,14 @@ class _ReviewHeaderPillState extends State<_ReviewHeaderPill> {
             widthFactor: 1,
             heightFactor: 1,
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
+              duration: KonataTheme.motionFast,
               padding: EdgeInsets.symmetric(
                 horizontal: KonataAdaptiveTokens.isAndroid ? 10 : 13,
                 vertical: 7,
               ),
               decoration: BoxDecoration(
                 color: _hovered ? p.surfaceHover : p.surface,
-                borderRadius: BorderRadius.circular(999),
+                borderRadius: KonataTheme.borderRadiusPill,
                 border: Border.all(
                   color: _hovered ? p.hoverBorder : p.hairline,
                   width: 1,
@@ -698,7 +698,7 @@ class _ReviewHeaderPillState extends State<_ReviewHeaderPill> {
                     hasPending ? '待复核 · ${widget.count}' : '待复核',
                     style: TextStyle(
                       color: hasPending ? p.textPrimary : p.textMuted,
-                      fontSize: 12.5,
+                      fontSize: KonataTheme.fontSizeBodyXs,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -741,7 +741,7 @@ class _EmptyLibraryState extends StatelessWidget {
             textAlign: TextAlign.center,
             style: TextStyle(
               color: p.textPrimary,
-              fontSize: 15,
+              fontSize: KonataTheme.fontSizeTitleSm,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -750,7 +750,7 @@ class _EmptyLibraryState extends StatelessWidget {
             Text(
               '可尝试按日文原名、压制组或 TMDB ID 检索',
               textAlign: TextAlign.center,
-              style: TextStyle(color: p.textSecondary, fontSize: 12.5),
+              style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodyXs),
             ),
           ] else ...[
             const SizedBox(height: 18),

@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import '../../domain/formatting/network_error_sanitizer.dart';
 import '../../domain/matching/directory_grouper.dart';
 import '../../domain/models/tmdb_models.dart';
@@ -174,9 +175,10 @@ class ScrapeCandidateFetcher {
             priority: RequestPriority.background,
           );
           if (full != null) rawById[id] = full;
-        } catch (_) {
-          // 保留粗搜基础条目信息。
-        }
+        } catch (error) {
+      // 保留粗搜基础条目信息。
+      developer.log('可恢复异常已记录', name: 'konata.scrape_candidate_fetcher', error: error);
+    }
       }),
     );
 
@@ -209,9 +211,10 @@ class ScrapeCandidateFetcher {
             if (minSort != null && rawById[id] != null) {
               rawById[id] = rawById[id]!.copyWith(firstEpisodeSort: minSort);
             }
-          } catch (_) {
-            // 部分测试桩或网络故障未提供 episodes 接口时静默跳过。
-          }
+          } catch (error) {
+      // 部分测试桩或网络故障未提供 episodes 接口时静默跳过。
+      developer.log('可恢复异常已记录', name: 'konata.scrape_candidate_fetcher', error: error);
+    }
         }),
       );
     }

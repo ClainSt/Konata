@@ -18,6 +18,7 @@ import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/design_system/konata_toast.dart';
 import '../widgets/managed_image.dart';
 import 'review_reason_labels.dart';
+import '../theme/konata_theme.dart';
 
 /// 待复核作品共用展示与快速处置卡片（复用于媒体库右侧抽屉与扫描进度弹窗）。
 class ReviewWorkItemCard extends ConsumerStatefulWidget {
@@ -64,7 +65,7 @@ class _ReviewWorkItemCardState extends ConsumerState<ReviewWorkItemCard> {
                         maxLines: 1,
                         style: TextStyle(
                           color: p.textPrimary,
-                          fontSize: 14,
+                          fontSize: KonataTheme.fontSizeBodyMd,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -88,14 +89,14 @@ class _ReviewWorkItemCardState extends ConsumerState<ReviewWorkItemCard> {
                   const SizedBox(height: 3),
                   Tooltip(
                     message: folderSummary,
-                    waitDuration: const Duration(milliseconds: 350),
+                    waitDuration: KonataTheme.tooltipWaitDuration,
                     child: Text(
                       folderSummary,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: p.textMuted,
-                        fontSize: 11.4,
+                        fontSize: KonataTheme.fontSizeCaptionSm,
                         fontFamily: 'Consolas',
                         height: 1.35,
                       ),
@@ -105,7 +106,7 @@ class _ReviewWorkItemCardState extends ConsumerState<ReviewWorkItemCard> {
                 const SizedBox(height: 3),
                 Text(
                   '${item.variants.length} 个文件${work.year != null ? ' · ${work.year}' : ''}',
-                  style: TextStyle(color: p.textSecondary, fontSize: 12),
+                  style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeCaption),
                 ),
               ],
             ),
@@ -118,7 +119,7 @@ class _ReviewWorkItemCardState extends ConsumerState<ReviewWorkItemCard> {
               padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
               decoration: BoxDecoration(
                 color: p.warningBadge.bg,
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: KonataTheme.borderRadiusChip,
                 border: Border.all(color: p.warningBadge.border),
               ),
               child: Text(
@@ -128,7 +129,7 @@ class _ReviewWorkItemCardState extends ConsumerState<ReviewWorkItemCard> {
                     : '未搜索到匹配词条，请手动检索或指定 TMDB ID',
                 style: TextStyle(
                   color: p.warningBadge.fg,
-                  fontSize: 11.2,
+                  fontSize: KonataTheme.fontSizeCaptionXs,
                   fontWeight: FontWeight.w600,
                   height: 1.35,
                 ),
@@ -220,7 +221,7 @@ class _ReviewWorkItemCardState extends ConsumerState<ReviewWorkItemCard> {
                     ),
                     trailing: AnimatedRotation(
                       turns: _expanded ? 0.5 : 0.0,
-                      duration: const Duration(milliseconds: 180),
+                      duration: KonataTheme.motionMedium,
                       curve: Curves.easeOutCubic,
                       child: Icon(
                         Icons.keyboard_arrow_down_rounded,
@@ -268,7 +269,7 @@ class _ReviewWorkItemCardState extends ConsumerState<ReviewWorkItemCard> {
             },
           ),
           AnimatedSize(
-            duration: const Duration(milliseconds: 200),
+            duration: KonataTheme.motionNormal,
             curve: Curves.easeOutCubic,
             alignment: Alignment.topCenter,
             child: candidatesAsync.when(
@@ -279,7 +280,7 @@ class _ReviewWorkItemCardState extends ConsumerState<ReviewWorkItemCard> {
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
                       '暂无自动候选，请点击上方「手动搜索」或输入 TMDB ID。',
-                      style: TextStyle(color: p.textMuted, fontSize: 12),
+                      style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeCaption),
                     ),
                   );
                 }
@@ -367,7 +368,7 @@ class _ReviewCandidateRow extends StatelessWidget {
             width: 56,
             height: 80,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(7),
+              borderRadius: KonataTheme.borderRadiusBadge,
               border: Border.all(color: p.posterBorder, width: 1),
             ),
             clipBehavior: Clip.antiAlias,
@@ -407,7 +408,7 @@ class _ReviewCandidateRow extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: p.textPrimary,
-                        fontSize: 13.5,
+                        fontSize: KonataTheme.fontSizeBody,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -417,7 +418,7 @@ class _ReviewCandidateRow extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: p.textSecondary,
-                        fontSize: 11.5,
+                        fontSize: KonataTheme.fontSizeCaptionSm,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -428,7 +429,7 @@ class _ReviewCandidateRow extends StatelessWidget {
                       ),
                       decoration: BoxDecoration(
                         color: p.accentBadge.bg,
-                        borderRadius: BorderRadius.circular(999),
+                        borderRadius: KonataTheme.borderRadiusPill,
                         border: Border.all(
                           color: p.accentBadge.border,
                           width: 1,
@@ -440,7 +441,7 @@ class _ReviewCandidateRow extends StatelessWidget {
                         softWrap: false,
                         style: TextStyle(
                           color: p.accentBadge.fg,
-                          fontSize: 10.5,
+                          fontSize: KonataTheme.fontSizeBadge,
                           fontWeight: FontWeight.w600,
                           height: 1.15,
                         ),
@@ -453,7 +454,7 @@ class _ReviewCandidateRow extends StatelessWidget {
                       ),
                       decoration: BoxDecoration(
                         color: scoreBadge.bg,
-                        borderRadius: BorderRadius.circular(999),
+                        borderRadius: KonataTheme.borderRadiusPill,
                         border: Border.all(color: scoreBadge.border, width: 1),
                       ),
                       child: Text(
@@ -462,7 +463,7 @@ class _ReviewCandidateRow extends StatelessWidget {
                         softWrap: false,
                         style: TextStyle(
                           color: scoreBadge.fg,
-                          fontSize: 10.5,
+                          fontSize: KonataTheme.fontSizeBadge,
                           fontWeight: FontWeight.w600,
                           height: 1.15,
                         ),
@@ -478,7 +479,7 @@ class _ReviewCandidateRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: p.textMuted,
-                    fontSize: 11.5,
+                    fontSize: KonataTheme.fontSizeCaptionSm,
                   ),
                 ),
                 if (labels.isNotEmpty) ...[
@@ -495,7 +496,7 @@ class _ReviewCandidateRow extends StatelessWidget {
                           ),
                           decoration: BoxDecoration(
                             color: p.softFill,
-                            borderRadius: BorderRadius.circular(5),
+                            borderRadius: KonataTheme.borderRadiusChipSm,
                             border: Border.all(color: p.hairline, width: 0.8),
                           ),
                           child: Text(
@@ -504,7 +505,7 @@ class _ReviewCandidateRow extends StatelessWidget {
                             softWrap: false,
                             style: TextStyle(
                               color: p.textSecondary,
-                              fontSize: 10.5,
+                              fontSize: KonataTheme.fontSizeBadge,
                             ),
                           ),
                         ),

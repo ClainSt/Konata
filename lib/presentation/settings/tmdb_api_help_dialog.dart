@@ -9,6 +9,7 @@ import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/design_system/konata_toast.dart';
+import '../theme/konata_theme.dart';
 
 /// TMDB API 获取分步中文教程毛玻璃弹窗。
 ///
@@ -97,7 +98,7 @@ class TmdbApiHelpDialog extends StatelessWidget {
                     _summaryTemplate,
                     style: TextStyle(
                       color: p.textSecondary,
-                      fontSize: 12.5,
+                      fontSize: KonataTheme.fontSizeBodyXs,
                       height: 1.5,
                     ),
                   ),
@@ -127,7 +128,7 @@ class TmdbApiHelpDialog extends StatelessWidget {
               '   两种凭证任意复制一种直接粘贴到 Konata 密钥输入框即可，系统会自动识别认证方式。',
               style: TextStyle(
                 color: p.textSecondary,
-                fontSize: 12.5,
+                fontSize: KonataTheme.fontSizeBodyXs,
                 height: 1.55,
               ),
             ),

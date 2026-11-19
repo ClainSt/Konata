@@ -1,9 +1,9 @@
+import 'dart:developer' as developer;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/matching/directory_grouper.dart';
 import '../../domain/matching/supplementary_subclassifier.dart';
 import '../../domain/models/episode.dart';
-import '../../domain/models/external_player_config.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/playback_record.dart';
@@ -187,8 +187,9 @@ final libraryItemsProvider = FutureProvider<List<WorkLibraryItem>>((ref) async {
         ref.invalidate(workDetailBundleProvider);
         works = await repo.getAllWorks();
       }
-    } catch (_) {
+    } catch (error) {
       // 无网络或裁剪 mock 仓储下静默跳过自愈，不影响首屏加载。
+      developer.log('可恢复异常已记录', name: 'konata.library_providers', error: error);
     }
   }
   final items = <WorkLibraryItem>[];
@@ -733,13 +734,6 @@ final mediaSourcesProvider = FutureProvider<List<MediaSource>>((ref) {
 /// 全局播放历史时间轴 Provider。
 final playbackHistoryProvider = FutureProvider<List<PlaybackRecord>>((ref) {
   return ref.watch(libraryRepositoryProvider).getPlaybackHistory();
-});
-
-/// 外部播放器配置列表 Provider。
-final externalPlayersProvider = FutureProvider<List<ExternalPlayerConfig>>((
-  ref,
-) {
-  return ref.watch(libraryRepositoryProvider).getExternalPlayers();
 });
 
 /// 全站 `photos/` 图片存储全局汇总与按作品明细快照 Provider。

@@ -21,6 +21,7 @@ import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/managed_image.dart';
 import 'hybrid_match_panel.dart';
+import '../theme/konata_theme.dart';
 
 enum _ManualMatchMode { tmdb, hybrid, bangumiOnly }
 
@@ -175,7 +176,7 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
               '检测到当前作品存在人工锁定的元数据、封面/背景或文件映射。切换到新 TMDB 条目后，是否重置这些锁定并重新自动映射剧集？',
               style: TextStyle(
                 color: context.palette.textSecondary,
-                fontSize: 13.5,
+                fontSize: KonataTheme.fontSizeBody,
                 height: 1.5,
               ),
             ),
@@ -373,14 +374,14 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
                         ),
                         decoration: BoxDecoration(
                           color: p.softFill,
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: KonataTheme.borderRadiusSm,
                           border: Border.all(color: p.hairline),
                         ),
                         child: Text(
                           '已选源文件：${widget.splitVariants.first.fileName}${widget.splitVariants.length > 1 ? ' 等 ${widget.splitVariants.length} 个视频' : ''}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: p.textSecondary, fontSize: 12),
+                          style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeCaption),
                         ),
                       ),
                     SingleChildScrollView(
@@ -545,7 +546,7 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
                                     '同时将 [tmdbid=xxx] 写入本地作品目录名（永久防错）',
                                     style: TextStyle(
                                       color: p.textSecondary,
-                                      fontSize: 12.5,
+                                      fontSize: KonataTheme.fontSizeBodyXs,
                                     ),
                                   ),
                                 ),
@@ -558,7 +559,7 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
                           padding: const EdgeInsets.only(bottom: 8),
                           child: Text(
                             _errorText!,
-                            style: TextStyle(color: p.danger, fontSize: 12),
+                            style: TextStyle(color: p.danger, fontSize: KonataTheme.fontSizeCaption),
                           ),
                         ),
                       SizedBox(height: landscapeCompactInput ? 4 : 10),
@@ -595,7 +596,7 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
                                         '搜索 TMDB 词条或直接填入 TMDB ID 创建独立作品',
                                         style: TextStyle(
                                           color: p.textMuted,
-                                          fontSize: 12.5,
+                                          fontSize: KonataTheme.fontSizeBodyXs,
                                         ),
                                       ),
                                     )
@@ -607,7 +608,7 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
                                               '输入关键词搜索或直接填入 TMDB ID 进行强制锁定',
                                               style: TextStyle(
                                                 color: p.textMuted,
-                                                fontSize: 12.5,
+                                                fontSize: KonataTheme.fontSizeBodyXs,
                                               ),
                                             ),
                                           );
@@ -720,7 +721,7 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
         ),
         if (_errorText != null) ...[
           const SizedBox(height: 8),
-          Text(_errorText!, style: TextStyle(color: p.danger, fontSize: 12)),
+          Text(_errorText!, style: TextStyle(color: p.danger, fontSize: KonataTheme.fontSizeCaption)),
         ],
         SizedBox(height: landscapeCompactInput ? 4 : 10),
         Expanded(
@@ -728,7 +729,7 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
               ? Center(
                   child: Text(
                     '仅绑定 Bangumi 条目（使用 Bangumi 官方封面、简介与评分）',
-                    style: TextStyle(color: p.textMuted, fontSize: 12.5),
+                    style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeBodyXs),
                   ),
                 )
               : KonataDraggableScrollbar(
@@ -787,7 +788,7 @@ class _MatchResultTile extends StatelessWidget {
       child: Row(
         children: [
           ClipRRect(
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: KonataTheme.borderRadiusChip,
             child: SizedBox(
               width: 42,
               height: 60,
@@ -811,7 +812,7 @@ class _MatchResultTile extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: p.textPrimary,
-                    fontSize: 13.5,
+                    fontSize: KonataTheme.fontSizeBody,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -820,7 +821,7 @@ class _MatchResultTile extends StatelessWidget {
                   subtitle,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: p.textSecondary, fontSize: 12),
+                  style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeCaption),
                 ),
               ],
             ),

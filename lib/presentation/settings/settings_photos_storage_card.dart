@@ -16,6 +16,7 @@ import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/design_system/konata_toast.dart';
 import 'photo_custom_cleanup_dialog.dart';
+import '../theme/konata_theme.dart';
 
 /// 外观与显示页底部的统一 `photos/` 图片存储管理卡片：
 /// 展示根目录路径、五类图片分项占用统计，并支持打开存储目录与按「作品 × 分类」自定义清理。
@@ -121,7 +122,7 @@ class SettingsPhotosStorageCard extends ConsumerWidget {
                   ),
                   decoration: BoxDecoration(
                     color: p.softFill,
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: KonataTheme.borderRadiusControl,
                     border: Border.all(color: p.hairline),
                   ),
                   child: AdaptiveResponsiveRow(
@@ -143,7 +144,7 @@ class SettingsPhotosStorageCard extends ConsumerWidget {
                             maxLines: 1,
                             style: TextStyle(
                               color: p.textPrimary,
-                              fontSize: 12.5,
+                              fontSize: KonataTheme.fontSizeBodyXs,
                               fontFamily: 'Consolas',
                             ),
                           ),
@@ -156,7 +157,7 @@ class SettingsPhotosStorageCard extends ConsumerWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: p.textSecondary,
-                        fontSize: 12,
+                        fontSize: KonataTheme.fontSizeCaption,
                         fontWeight: FontWeight.w600,
                         fontFeatures: KonataPlaybackTokens.tabularNumbers,
                       ),
@@ -189,7 +190,7 @@ class SettingsPhotosStorageCard extends ConsumerWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: p.textMuted,
-                      fontSize: 12,
+                      fontSize: KonataTheme.fontSizeCaption,
                       fontFeatures: KonataPlaybackTokens.tabularNumbers,
                     ),
                   ),
@@ -243,7 +244,7 @@ class _CategoryStatChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
       decoration: BoxDecoration(
         color: p.softFill,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: KonataTheme.borderRadiusControl,
         border: Border.all(color: p.hairline),
       ),
       child: Column(
@@ -254,7 +255,7 @@ class _CategoryStatChip extends StatelessWidget {
             label,
             style: TextStyle(
               color: p.textSecondary,
-              fontSize: 11.5,
+              fontSize: KonataTheme.fontSizeCaptionSm,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -263,7 +264,7 @@ class _CategoryStatChip extends StatelessWidget {
             '${MediaDisplayFormatter.formatBytes(bytes, emptyFallback: '0 B')} · $files 张',
             style: TextStyle(
               color: p.textPrimary,
-              fontSize: 12.5,
+              fontSize: KonataTheme.fontSizeBodyXs,
               fontWeight: FontWeight.w600,
               fontFeatures: KonataPlaybackTokens.tabularNumbers,
             ),

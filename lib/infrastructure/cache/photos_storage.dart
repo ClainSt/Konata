@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:developer' as developer;
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/painting.dart';
@@ -800,8 +801,9 @@ class PhotosStorage {
   static Future<void> _evictFileImageCache(File file) async {
     try {
       await FileImage(file).evict();
-    } catch (_) {
+    } catch (error) {
       // 纯 Dart 非 UI 单元测试环境下 PaintingBinding 未初始化，安全忽略。
+      developer.log('可恢复异常已记录', name: 'konata.photos_storage', error: error);
     }
   }
 
@@ -877,9 +879,10 @@ class PhotosStorage {
         await dst.parent.create(recursive: true);
         await src.rename(dst.path);
         return;
-      } catch (_) {
-        // Windows 目录下若句柄短暂未释放则回退逐文件合并。
-      }
+      } catch (error) {
+      // Windows 目录下若句柄短暂未释放则回退逐文件合并。
+      developer.log('可恢复异常已记录', name: 'konata.photos_storage', error: error);
+    }
     }
     await dst.create(recursive: true);
     await for (final entity in src.list(recursive: true, followLinks: false)) {
@@ -893,8 +896,9 @@ class PhotosStorage {
     }
     try {
       await src.delete(recursive: true);
-    } catch (_) {
+    } catch (error) {
       // 忽略残留只读占位失败。
+      developer.log('可恢复异常已记录', name: 'konata.photos_storage', error: error);
     }
   }
 

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../theme/konata_palette.dart';
 import 'adaptive_responsive_row.dart';
+import '../../theme/konata_theme.dart';
 
 final ValueNotifier<Object?> _activeHoveredTileToken = ValueNotifier<Object?>(
   null,
@@ -51,7 +52,7 @@ class _KonataSurfaceCardState extends State<KonataSurfaceCard> {
   Widget build(BuildContext context) {
     final p = context.palette;
     final box = AnimatedContainer(
-      duration: const Duration(milliseconds: 110),
+      duration: KonataTheme.motionMicro,
       padding: widget.padding,
       decoration: BoxDecoration(
         color:
@@ -153,9 +154,7 @@ class _KonataListTileState extends State<KonataListTile> {
   Widget build(BuildContext context) {
     final p = context.palette;
     final clickable = widget.onTap != null;
-    final hoverFill = p.isDark
-        ? Colors.white.withValues(alpha: 0.07)
-        : Colors.black.withValues(alpha: 0.045);
+    final hoverFill = KonataTheme.surfaceCardSubtleBorder(p);
     final idleFill = hoverFill.withValues(alpha: 0.0);
 
     return MouseRegion(
@@ -171,12 +170,12 @@ class _KonataListTileState extends State<KonataListTile> {
           builder: (context, activeToken, child) {
             final isHovered = clickable && identical(activeToken, _token);
             return AnimatedContainer(
-              duration: const Duration(milliseconds: 70),
+              duration: KonataTheme.motionSnap,
               curve: Curves.easeOut,
               padding: widget.padding,
               decoration: BoxDecoration(
                 color: isHovered ? hoverFill : idleFill,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: KonataTheme.borderRadiusCard,
               ),
               child: child,
             );
@@ -193,7 +192,7 @@ class _KonataListTileState extends State<KonataListTile> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: p.textPrimary,
-                      fontSize: 14.5,
+                      fontSize: KonataTheme.fontSizeSubtitle,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -206,7 +205,7 @@ class _KonataListTileState extends State<KonataListTile> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: p.textSecondary,
-                        fontSize: 12.5,
+                        fontSize: KonataTheme.fontSizeBodyXs,
                         height: 1.4,
                       ),
                     ),
@@ -248,7 +247,7 @@ class _KonataListTileState extends State<KonataListTile> {
                     text: widget.title,
                     style: DefaultTextStyle.of(context).style.merge(
                       const TextStyle(
-                        fontSize: 14.5,
+                        fontSize: KonataTheme.fontSizeSubtitle,
                         fontWeight: FontWeight.w600,
                       ),
                     ),

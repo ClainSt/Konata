@@ -178,10 +178,10 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
+                duration: KonataTheme.motionFast,
                 curve: Curves.easeOutCubic,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: KonataTheme.borderRadiusCard,
                   border: Border.all(
                     color: _hovered
                         ? KonataPlaybackTokens.activeGlassBorder(p)
@@ -197,7 +197,7 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                   ],
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(11),
+                  borderRadius: KonataTheme.borderRadiusTile,
                   child: AspectRatio(
                     aspectRatio: 16 / 9,
                     child: Stack(
@@ -256,9 +256,9 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                   color: (widget.onDarkBackdrop || p.isDark)
                       ? (_hovered
                             ? Colors.white
-                            : Colors.white.withValues(alpha: 0.94))
+                            : KonataTheme.overlayWhiteTextStrong)
                       : p.textPrimary,
-                  fontSize: 12.5,
+                  fontSize: KonataTheme.fontSizeBodyXs,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -272,9 +272,9 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                   style: KonataTheme.detailTextStyle(
                     palette: p,
                     color: (widget.onDarkBackdrop || p.isDark)
-                        ? Colors.white.withValues(alpha: 0.80)
+                        ? KonataTheme.overlayWhiteTextSub
                         : p.textSecondary,
-                    fontSize: 11,
+                    fontSize: KonataTheme.fontSizeCaptionXs,
                     fontWeight: FontWeight.w400,
                   ),
                 ),
@@ -287,9 +287,9 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                   style: KonataTheme.detailTextStyle(
                     palette: p,
                     color: (widget.onDarkBackdrop || p.isDark)
-                        ? Colors.white.withValues(alpha: 0.68)
+                        ? KonataTheme.overlayWhiteTextMuted
                         : p.textMuted,
-                    fontSize: 10.8,
+                    fontSize: KonataTheme.fontSizeCaptionXs,
                     fontWeight: FontWeight.w400,
                   ),
                 ),
@@ -449,10 +449,10 @@ class _ScanDrawerCardState extends ConsumerState<ScanDrawerCard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
+                duration: KonataTheme.motionFast,
                 curve: Curves.easeOutCubic,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: KonataTheme.borderRadiusCard,
                   border: Border.all(
                     color: _hovered
                         ? KonataPlaybackTokens.activeGlassBorder(p)
@@ -468,14 +468,14 @@ class _ScanDrawerCardState extends ConsumerState<ScanDrawerCard> {
                   ],
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(11),
+                  borderRadius: KonataTheme.borderRadiusTile,
                   child: AspectRatio(
                     aspectRatio: 16 / 9,
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
                         Container(
-                          color: Colors.black.withValues(alpha: 0.42),
+                          color: KonataTheme.scrimBlackModerate,
                           child: (thumbBytes != null && thumbBytes.isNotEmpty)
                               ? Image.memory(
                                   thumbBytes,
@@ -514,9 +514,9 @@ class _ScanDrawerCardState extends ConsumerState<ScanDrawerCard> {
                   color: (widget.onDarkBackdrop || p.isDark)
                       ? (_hovered
                             ? Colors.white
-                            : Colors.white.withValues(alpha: 0.94))
+                            : KonataTheme.overlayWhiteTextStrong)
                       : p.textPrimary,
-                  fontSize: 12.5,
+                  fontSize: KonataTheme.fontSizeBodyXs,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -528,9 +528,9 @@ class _ScanDrawerCardState extends ConsumerState<ScanDrawerCard> {
                   style: KonataTheme.detailTextStyle(
                     palette: p,
                     color: (widget.onDarkBackdrop || p.isDark)
-                        ? Colors.white.withValues(alpha: 0.78)
+                        ? KonataTheme.overlayWhiteTextSub
                         : p.textSecondary,
-                    fontSize: 11,
+                    fontSize: KonataTheme.fontSizeCaptionXs,
                     fontWeight: FontWeight.w400,
                   ),
                 ),
@@ -576,13 +576,13 @@ class _MiniTag extends StatelessWidget {
           color: KonataPlaybackTokens.glassBorder(p),
           width: 0.8,
         ),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: KonataTheme.borderRadiusChip,
       ),
       child: Text(
         label,
         style: TextStyle(
           color: p.textPrimary,
-          fontSize: 10.5,
+          fontSize: KonataTheme.fontSizeBadge,
           fontWeight: FontWeight.w600,
         ),
       ),

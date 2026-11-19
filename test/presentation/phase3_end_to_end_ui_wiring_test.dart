@@ -354,7 +354,7 @@ void main() {
       // 开启 Windows HDMI audio-spdif 直通后必须立即清空所有软件 DSP 与限幅滤镜。
       await container
           .read(playbackPreferencesProvider.notifier)
-          .setHdmiSpdifPassthrough(true);
+          .setBitstreamPassthrough(true);
       await notifier.reapplyAudiophileSafetyChain();
       expect(fakeClient.stringProps['af'], isEmpty);
       expect(

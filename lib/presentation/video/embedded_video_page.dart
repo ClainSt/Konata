@@ -33,6 +33,7 @@ import 'video_hardware_surface.dart';
 import 'video_probe_overlay.dart';
 import 'video_side_sheet.dart';
 import 'video_touch_gesture_layer.dart';
+import '../theme/konata_theme.dart';
 
 part 'embedded_video_overlays.dart';
 
@@ -81,8 +82,8 @@ class EmbeddedVideoPage extends ConsumerStatefulWidget {
     }
     await navigator.push<void>(
       PageRouteBuilder<void>(
-        transitionDuration: const Duration(milliseconds: 75),
-        reverseTransitionDuration: const Duration(milliseconds: 65),
+        transitionDuration: KonataTheme.motionSnap,
+        reverseTransitionDuration: KonataTheme.motionSnap,
         pageBuilder: (context, animation, secondaryAnimation) =>
             EmbeddedVideoPage(request: request),
         transitionsBuilder: (context, animation, secondaryAnimation, child) =>
@@ -420,7 +421,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage>
     if (_exiting || !KonataAdaptiveTokens.isWindows) return;
     _exiting = true;
     final controller = ref.read(videoPlaybackProvider(widget.request).notifier);
-    final res = await controller.relayToExternalPlayer();
+    final res = await controller.relayToDesktopPlayer();
     if (widget.onCloseSession != null) {
       await widget.onCloseSession!();
     } else if (mounted) {
@@ -882,7 +883,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage>
                 child: Center(
                   child: KonataOsdStrokedText(
                     snap.transientBanner!,
-                    fontSize: 14.5,
+                    fontSize: KonataTheme.fontSizeSubtitle,
                     fontWeight: FontWeight.w600,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,

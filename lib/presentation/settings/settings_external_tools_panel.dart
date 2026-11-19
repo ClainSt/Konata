@@ -5,8 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/playback/playback_preferences_provider.dart';
-import '../../application/providers/library_providers.dart';
-import '../../application/providers/source_actions_provider.dart';
+import '../../application/providers/desktop_external_tools_providers.dart';
 import '../../domain/models/external_player_config.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
@@ -36,7 +35,7 @@ class _SettingsExternalToolsPanelState
   bool _initialized = false;
   bool _hasPendingSave = false;
   Timer? _autoSaveTimer;
-  KonataActionsCoordinator? _actions;
+  DesktopExternalToolsActions? _actions;
 
   @override
   void dispose() {
@@ -102,7 +101,7 @@ class _SettingsExternalToolsPanelState
     unawaited(
       ref
           .read(playbackPreferencesProvider.notifier)
-          .setPreferredExternalVideoKind(next),
+          .setPreferredRelayKindKey(next.name),
     );
     _hasPendingSave = true;
     unawaited(_flushAutoSave());
@@ -125,7 +124,8 @@ class _SettingsExternalToolsPanelState
       return;
     }
     final coordinator =
-        _actions ?? (mounted ? ref.read(konataActionsProvider) : null);
+        _actions ??
+        (mounted ? ref.read(desktopExternalToolsActionsProvider) : null);
     if (coordinator == null) {
       return;
     }
@@ -154,11 +154,14 @@ class _SettingsExternalToolsPanelState
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final playersAsync = ref.watch(externalPlayersProvider);
-    final prefKind = ref.watch(
-      playbackPreferencesProvider.select((s) => s.preferredExternalVideoKind),
+    final playersAsync = ref.watch(desktopExternalPlayersProvider);
+    final prefKindKey = ref.watch(
+      playbackPreferencesProvider.select((s) => s.preferredRelayKindKey),
     );
-    _actions = ref.read(konataActionsProvider);
+    final prefKind = prefKindKey == ExternalPlayerKind.potplayer.name
+        ? ExternalPlayerKind.potplayer
+        : ExternalPlayerKind.mpv;
+    _actions = ref.read(desktopExternalToolsActionsProvider);
 
     playersAsync.whenData((players) {
       if (!_initialized) {
@@ -216,7 +219,7 @@ class _SettingsExternalToolsPanelState
                           '外部视频播放器与热接力',
                           style: TextStyle(
                             color: p.textPrimary,
-                            fontSize: 15,
+                            fontSize: KonataTheme.fontSizeTitleSm,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -225,7 +228,7 @@ class _SettingsExternalToolsPanelState
                           '可在右键菜单、多版本选播或内置播放器顶栏中一键热切换拉起并延续当前秒级进度',
                           style: TextStyle(
                             color: p.textSecondary,
-                            fontSize: 12.5,
+                            fontSize: KonataTheme.fontSizeBodyXs,
                           ),
                         ),
                       ],
@@ -289,14 +292,14 @@ class _SettingsExternalToolsPanelState
                 '外部音频与画册查看程序',
                 style: TextStyle(
                   color: p.textPrimary,
-                  fontSize: 15,
+                  fontSize: KonataTheme.fontSizeTitleSm,
                   fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
                 '可指定 foobar2000 / Honeyview 等外部程序用于特定 CD 音轨或高清扫图浏览',
-                style: TextStyle(color: p.textSecondary, fontSize: 12.5),
+                style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodyXs),
               ),
               const SizedBox(height: 16),
               _ExternalPathFieldRow(

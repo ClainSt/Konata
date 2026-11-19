@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -45,8 +46,9 @@ class ThemeModeNotifier extends StateNotifier<ThemeMode> {
         'system' => ThemeMode.system,
         _ => ThemeMode.dark,
       };
-    } catch (_) {
+    } catch (error) {
       // 测试环境或首次启动读取异常时维持默认深色模式
+      developer.log('可恢复异常已记录', name: 'konata.theme_providers', error: error);
     }
   }
 
@@ -56,7 +58,9 @@ class ThemeModeNotifier extends StateNotifier<ThemeMode> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_kThemeModePrefKey, mode.name);
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.theme_providers', error: error);
+    }
   }
 
   /// 在亮色与暗色之间一键快捷切换。
@@ -86,7 +90,9 @@ class WindowMaterialNotifier extends StateNotifier<KonataWindowMaterial> {
         'tabbed' => KonataWindowMaterial.tabbed,
         _ => KonataWindowMaterial.acrylic,
       };
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.theme_providers', error: error);
+    }
   }
 
   /// 切换并持久化窗口材质。
@@ -95,7 +101,9 @@ class WindowMaterialNotifier extends StateNotifier<KonataWindowMaterial> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_kWindowMaterialPrefKey, material.name);
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.theme_providers', error: error);
+    }
   }
 }
 

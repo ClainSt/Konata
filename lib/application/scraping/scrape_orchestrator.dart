@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import '../../domain/formatting/network_error_sanitizer.dart';
 import '../../domain/matching/directory_grouper.dart';
 import '../../domain/matching/episode_remapper.dart';
@@ -905,9 +906,10 @@ class ScrapeOrchestrator {
                   updated.bangumiPosterPath ?? bgmDetail.posterUrl,
             );
           }
-        } catch (_) {
-          // Bangumi 评分补全失败不阻断 TMDB 重绑定流程。
-        }
+        } catch (error) {
+      // Bangumi 评分补全失败不阻断 TMDB 重绑定流程。
+      developer.log('可恢复异常已记录', name: 'konata.scrape_orchestrator', error: error);
+    }
       }
       await _repository.upsertWork(updated);
       await _photosStorage?.renameWorkFolderIfNeeded(updated.id, updated.title);
@@ -1146,7 +1148,9 @@ class ScrapeOrchestrator {
         if (bgmDetail != null) {
           bgmById[bgmDetail.id] = bgmDetail;
         }
-      } catch (_) {}
+      } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.scrape_orchestrator', error: error);
+    }
     }
     final searchedBgm = await _candidateFetcher.fetchBangumiCandidates(
       folder,

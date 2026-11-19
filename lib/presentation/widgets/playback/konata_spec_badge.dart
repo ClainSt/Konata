@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../theme/konata_palette.dart';
 import '../../theme/konata_playback_tokens.dart';
+import '../../theme/konata_theme.dart';
 
 /// 实时音画规格胶囊徽标（如 `HEVC · 10bit · 1080p`、`FLAC · 24-bit · 96 kHz`、`WASAPI 独占`）。
 class KonataSpecBadge extends StatelessWidget {
@@ -47,7 +48,7 @@ class KonataSpecBadge extends StatelessWidget {
       bgColor = KonataPlaybackTokens.softFill(p);
       borderColor = p.isDark
           ? KonataPlaybackTokens.glassBorder(p)
-          : const Color(0x260F172A);
+          : KonataTheme.darkInkBorder(p);
       textColor = p.isDark ? p.textSecondary : p.textPrimary;
     }
 
@@ -117,10 +118,8 @@ class EpisodeCategoryBadge extends StatelessWidget {
       textColor = accentBadge.fg;
     } else {
       label = '特典';
-      bgColor = p.isDark ? const Color(0x991C2029) : const Color(0x160F172A);
-      borderColor = p.isDark
-          ? const Color(0x42FFFFFF)
-          : const Color(0x3D0F172A);
+      bgColor = KonataTheme.specNeutralBadgeBg(p);
+      borderColor = KonataTheme.specNeutralBadgeBorder(p);
       textColor = p.textPrimary;
     }
 
@@ -141,7 +140,7 @@ class EpisodeCategoryBadge extends StatelessWidget {
           softWrap: false,
           style: TextStyle(
             color: textColor,
-            fontSize: 10.5,
+            fontSize: KonataTheme.fontSizeBadge,
             fontWeight: FontWeight.w600,
             letterSpacing: 0.15,
             height: 1.1,

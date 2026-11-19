@@ -4,6 +4,7 @@ import '../../domain/models/media_source.dart';
 import '../theme/konata_palette.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
+import '../theme/konata_theme.dart';
 
 /// 删除媒体源毛玻璃二次确认弹窗：明确提示绝不删物理文件，仅清空关联索引与安全凭据。
 Future<bool> showDeleteSourceConfirmDialog(
@@ -37,7 +38,7 @@ Future<bool> showDeleteSourceConfirmDialog(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: p.softFill,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: KonataTheme.borderRadiusControl,
                 border: Border.all(color: p.hairline),
               ),
               child: Row(
@@ -53,7 +54,7 @@ Future<bool> showDeleteSourceConfirmDialog(
                     child: Text(
                       '安全承诺：移除操作仅清除 Konata 数据库中的该媒体源配置、刮削索引记录与已保存登录密码，绝对不会删除磁盘或远程服务器上的任何原始视频与字幕文件。',
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: KonataTheme.fontSizeBodySm,
                         height: 1.5,
                         color: p.textSecondary,
                       ),
@@ -67,7 +68,7 @@ Future<bool> showDeleteSourceConfirmDialog(
               '目标地址：${source.location}',
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12, color: p.textMuted),
+              style: TextStyle(fontSize: KonataTheme.fontSizeCaption, color: p.textMuted),
             ),
           ],
         ),

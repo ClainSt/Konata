@@ -5,6 +5,7 @@ import '../../domain/formatting/network_error_sanitizer.dart';
 import '../theme/konata_palette.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_surface_card.dart';
+import '../theme/konata_theme.dart';
 
 /// 媒体源页面顶部的后台扫描与刮削实时进度条横幅。
 class ScrapeProgressBanner extends StatelessWidget {
@@ -62,7 +63,7 @@ class ScrapeProgressBanner extends StatelessWidget {
                       phaseLabel,
                       style: TextStyle(
                         color: p.textPrimary,
-                        fontSize: 13.5,
+                        fontSize: KonataTheme.fontSizeBody,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -74,7 +75,7 @@ class ScrapeProgressBanner extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: p.textSecondary,
-                          fontSize: 12,
+                          fontSize: KonataTheme.fontSizeCaption,
                         ),
                       ),
                     ],
@@ -105,7 +106,7 @@ class ScrapeProgressBanner extends StatelessWidget {
           if (progress.isRunning) ...[
             const SizedBox(height: 10),
             ClipRRect(
-              borderRadius: BorderRadius.circular(999),
+              borderRadius: KonataTheme.borderRadiusPill,
               child: LinearProgressIndicator(
                 value: progress.totalWorks > 0 ? progress.fraction : null,
                 minHeight: 4,
@@ -145,7 +146,7 @@ class _BannerDismissButtonState extends State<_BannerDismissButton> {
           behavior: HitTestBehavior.opaque,
           onTap: widget.onPressed,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 140),
+            duration: KonataTheme.motionFast,
             width: 28,
             height: 28,
             decoration: BoxDecoration(

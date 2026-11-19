@@ -6,7 +6,6 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../domain/models/episode.dart';
-import '../../domain/models/external_player_config.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/work.dart';
@@ -265,32 +264,6 @@ class MediaVariants extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
-/// 外部播放器与查看器配置表。
-@DataClassName('ExternalPlayerRow')
-class ExternalPlayers extends Table {
-  /// 配置主键。
-  TextColumn get id => text()();
-
-  /// 显示名称（如 `MPV`、`PotPlayer`）。
-  TextColumn get name => text()();
-
-  /// 外部程序类型。
-  TextColumn get kind => textEnum<ExternalPlayerKind>()();
-
-  /// 可执行文件路径。
-  TextColumn get executablePath => text()();
-
-  /// 启动参数模板。
-  TextColumn get argumentsTemplate =>
-      text().withDefault(const Constant('{url}'))();
-
-  /// 是否默认。
-  BoolColumn get isDefault => boolean().withDefault(const Constant(false))();
-
-  @override
-  Set<Column<Object>> get primaryKey => {id};
-}
-
 /// 待复核 Top-5 候选摘要表。
 @DataClassName('ScrapeCandidateRow')
 class ScrapeCandidates extends Table {
@@ -411,7 +384,6 @@ class SeriesGroups extends Table {
     Works,
     Episodes,
     MediaVariants,
-    ExternalPlayers,
     ScrapeCandidates,
     PlaybackRecords,
     IgnoredFolders,

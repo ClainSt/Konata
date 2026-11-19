@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -126,7 +127,9 @@ class SharedPrefsPipRecoveryStore implements PipRecoveryStore {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(storageKey, snapshot.encodeJson());
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.pip_recovery_store', error: error);
+    }
   }
 
   @override
@@ -146,7 +149,9 @@ class SharedPrefsPipRecoveryStore implements PipRecoveryStore {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(storageKey);
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.pip_recovery_store', error: error);
+    }
   }
 }
 

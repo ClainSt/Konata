@@ -8,6 +8,7 @@ import '../../infrastructure/cache/local_artwork_cropper.dart';
 import '../theme/konata_palette.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
+import '../theme/konata_theme.dart';
 
 /// 本地图片固定比例（海报 2:3 / 背景 16:9）可视化框选裁切弹窗。
 ///
@@ -145,7 +146,7 @@ class _ArtworkCropDialogState extends State<ArtworkCropDialog> {
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
           color: p.softFill,
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: KonataTheme.borderRadiusPill,
           border: Border.all(color: p.hairline),
         ),
         child: Row(
@@ -157,7 +158,7 @@ class _ArtworkCropDialogState extends State<ArtworkCropDialog> {
               '锁定比例 $ratioLabel',
               style: TextStyle(
                 color: p.textSecondary,
-                fontSize: 11.5,
+                fontSize: KonataTheme.fontSizeCaptionSm,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -189,11 +190,13 @@ class _ArtworkCropDialogState extends State<ArtworkCropDialog> {
         children: [
           Expanded(
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: KonataTheme.borderRadiusPanel,
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: p.isDark ? 0.45 : 0.72),
-                  borderRadius: BorderRadius.circular(14),
+                  color: p.isDark
+                      ? KonataTheme.scrimBlackStrong
+                      : KonataTheme.scrimBlackDeep,
+                  borderRadius: KonataTheme.borderRadiusPanel,
                   border: Border.all(color: p.hairline),
                 ),
                 child: LayoutBuilder(
@@ -361,7 +364,7 @@ class _ArtworkCropDialogState extends State<ArtworkCropDialog> {
                       '拖拽选框移动位置 · 拖拽四角锚点等比缩放',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: p.textSecondary, fontSize: 12),
+                      style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeCaption),
                     ),
                   ),
                 ],
@@ -370,7 +373,7 @@ class _ArtworkCropDialogState extends State<ArtworkCropDialog> {
                 '原图 ${widget.source.width}×${widget.source.height} · 裁切 ${px.width}×${px.height}',
                 style: TextStyle(
                   color: p.textPrimary,
-                  fontSize: 12,
+                  fontSize: KonataTheme.fontSizeCaption,
                   fontWeight: FontWeight.w600,
                   fontFeatures: const [FontFeature.tabularFigures()],
                 ),
@@ -403,12 +406,12 @@ class _ArtworkCropOverlayPainter extends CustomPainter {
       ..addRect(cropRect);
     canvas.drawPath(
       maskPath,
-      Paint()..color = Colors.black.withValues(alpha: 0.58),
+      Paint()..color = KonataTheme.scrimBlackHeavy,
     );
 
     // 2. 九宫格构图辅助线
     final gridPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.28)
+      ..color = KonataTheme.overlayWhiteStroke
       ..strokeWidth = 0.85;
     final thirdW = cropRect.width / 3.0;
     final thirdH = cropRect.height / 3.0;
@@ -431,7 +434,7 @@ class _ArtworkCropOverlayPainter extends CustomPainter {
     canvas.drawRect(
       cropRect,
       Paint()
-        ..color = Colors.white.withValues(alpha: 0.94)
+        ..color = KonataTheme.overlayWhiteTextStrong
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5,
     );

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../theme/konata_adaptive_tokens.dart';
 
 import '../../theme/konata_palette.dart';
+import '../../theme/konata_theme.dart';
 
 /// 胶囊按钮视觉变体。
 enum KonataPillVariant {
@@ -151,16 +152,16 @@ class _KonataPillButtonState extends State<KonataPillButton> {
                   : const EdgeInsets.symmetric(horizontal: 18, vertical: 10)));
 
     Widget visualPill = AnimatedOpacity(
-      duration: const Duration(milliseconds: 140),
+      duration: KonataTheme.motionFast,
       opacity: enabled ? 1.0 : 0.45,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
+        duration: KonataTheme.motionFast,
         curve: Curves.easeOutCubic,
         height: widget.height,
         padding: padding,
         decoration: BoxDecoration(
           color: bgColor,
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: KonataTheme.borderRadiusPill,
           border: borderColor == null
               ? null
               : Border.all(color: borderColor, width: 1),
@@ -258,7 +259,7 @@ class KonataQuickFillRow extends StatelessWidget {
         runSpacing: 6,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Text('快捷填入：', style: TextStyle(color: p.textMuted, fontSize: 11.5)),
+          Text('快捷填入：', style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeCaptionSm)),
           for (final term in terms)
             KonataPillButton.secondary(
               label: term,

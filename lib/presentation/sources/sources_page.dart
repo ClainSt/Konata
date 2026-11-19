@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -117,8 +118,9 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
     }
     try {
       await notifier.scanSource(source, scanRootsOverride: scanRootsOverride);
-    } catch (_) {
+    } catch (error) {
       // 错误详情已同步写入 ScrapeProgress，通过进度卡片与弹窗展示。
+      developer.log('可恢复异常已记录', name: 'konata.sources_page', error: error);
     }
   }
 
@@ -200,7 +202,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
                       const SizedBox(height: 12),
                       Text(
                         '尚未配置任何媒体源',
-                        style: KonataTheme.cardTitleStyle(p, fontSize: 16),
+                        style: KonataTheme.cardTitleStyle(p, fontSize: KonataTheme.fontSizeTitle),
                       ),
                     ],
                   ),
@@ -242,7 +244,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
                                 '尚未配置任何媒体源',
                                 style: KonataTheme.cardTitleStyle(
                                   p,
-                                  fontSize: 16,
+                                  fontSize: KonataTheme.fontSizeTitle,
                                 ),
                               ),
                             ],
@@ -369,13 +371,13 @@ class _SourceCard extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(
                     color: p.softFill,
-                    borderRadius: BorderRadius.circular(999),
+                    borderRadius: KonataTheme.borderRadiusPill,
                   ),
                   child: Text(
                     kindLabel,
                     style: TextStyle(
                       color: p.textSecondary,
-                      fontSize: 12,
+                      fontSize: KonataTheme.fontSizeCaption,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -391,7 +393,7 @@ class _SourceCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: p.textPrimary,
-                          fontSize: 15,
+                          fontSize: KonataTheme.fontSizeTitleSm,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -400,7 +402,7 @@ class _SourceCard extends StatelessWidget {
                         source.location,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: p.textSecondary, fontSize: 12.5),
+                        style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodyXs),
                       ),
                     ],
                   ),

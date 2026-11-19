@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:isolate';
+import 'dart:developer' as developer;
 
 import 'package:ffi/ffi.dart';
 
@@ -40,7 +41,9 @@ class PlayerTrackingIsolateHandle {
     _disposed = true;
     try {
       _controlPortGetter()?.send('stop');
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.player_tracking_isolates', error: error);
+    }
     await Future<void>.delayed(const Duration(milliseconds: 80));
     await _subscription.cancel();
     _receivePort.close();

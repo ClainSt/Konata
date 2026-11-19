@@ -539,8 +539,8 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
                       '该分类下暂无内容',
                       style: KonataTheme.detailTextStyle(
                         palette: context.palette,
-                        color: Colors.white.withValues(alpha: 0.82),
-                        fontSize: 13.5,
+                        color: KonataTheme.overlayWhiteTextMid,
+                        fontSize: KonataTheme.fontSizeBody,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -592,7 +592,7 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
                 : leftTabCapsule,
           ),
           AnimatedSize(
-            duration: const Duration(milliseconds: 110),
+            duration: KonataTheme.motionMicro,
             curve: Curves.easeOutCubic,
             alignment: Alignment.topCenter,
             child: !isExpanded
@@ -623,8 +623,8 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
                                   '该分类下暂无内容',
                                   style: KonataTheme.detailTextStyle(
                                     palette: context.palette,
-                                    color: Colors.white.withValues(alpha: 0.82),
-                                    fontSize: 13.5,
+                                    color: KonataTheme.overlayWhiteTextMid,
+                                    fontSize: KonataTheme.fontSizeBody,
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
@@ -680,7 +680,7 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
         ),
         // 无框悬浮剧集卡片行：直接悬浮在底部渐暗背景之上，彻底取消深黑大底框
         AnimatedSize(
-          duration: const Duration(milliseconds: 110),
+          duration: KonataTheme.motionMicro,
           curve: Curves.easeOutCubic,
           alignment: Alignment.topCenter,
           child: !isExpanded
@@ -710,8 +710,8 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
                                   '该分类下暂无内容',
                                   style: KonataTheme.detailTextStyle(
                                     palette: context.palette,
-                                    color: Colors.white.withValues(alpha: 0.82),
-                                    fontSize: 13.5,
+                                    color: KonataTheme.overlayWhiteTextMid,
+                                    fontSize: KonataTheme.fontSizeBody,
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
@@ -923,14 +923,14 @@ class _FrostedNavCapsule extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     return ClipRRect(
-      borderRadius: BorderRadius.circular(999),
+      borderRadius: KonataTheme.borderRadiusPill,
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
         child: Container(
           padding: padding,
           decoration: BoxDecoration(
             color: KonataPlaybackTokens.glassSurface(p),
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: KonataTheme.borderRadiusPill,
             border: Border.all(
               color: KonataPlaybackTokens.glassBorder(p),
               width: 1,

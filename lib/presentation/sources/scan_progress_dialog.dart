@@ -15,6 +15,7 @@ import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 import 'scan_progress_tabs.dart';
+import '../theme/konata_theme.dart';
 
 enum _ProgressTab { folders, review }
 
@@ -105,7 +106,7 @@ class _ScanProgressDialogState extends ConsumerState<ScanProgressDialog> {
                     : '全库作用域',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: p.textSecondary, fontSize: 12),
+                style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeCaption),
               ),
             ],
           );
@@ -204,7 +205,7 @@ class _ScanProgressDialogState extends ConsumerState<ScanProgressDialog> {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: p.textPrimary,
-                fontSize: 14,
+                fontSize: KonataTheme.fontSizeBodyMd,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -213,13 +214,13 @@ class _ScanProgressDialogState extends ConsumerState<ScanProgressDialog> {
                     progress.currentItemName,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: p.textSecondary, fontSize: 12.5),
+                    style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodyXs),
                   )
                 : const SizedBox.shrink(),
           ),
           const SizedBox(height: 10),
           ClipRRect(
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: KonataTheme.borderRadiusPill,
             child: LinearProgressIndicator(
               value: barValue,
               minHeight: 5,
@@ -246,7 +247,7 @@ class _ScanProgressDialogState extends ConsumerState<ScanProgressDialog> {
               ),
               if (progress.reviewWorks > 0)
                 InkWell(
-                  borderRadius: BorderRadius.circular(999),
+                  borderRadius: KonataTheme.borderRadiusPill,
                   onTap: () =>
                       setState(() => _activeTab = _ProgressTab.review),
                   child: ScanProgressStatChip(
@@ -267,7 +268,7 @@ class _ScanProgressDialogState extends ConsumerState<ScanProgressDialog> {
               NetworkErrorSanitizer.toUserMessage(progress.errorMessage!),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: p.danger, fontSize: 12),
+              style: TextStyle(color: p.danger, fontSize: KonataTheme.fontSizeCaption),
             ),
           ],
         ],

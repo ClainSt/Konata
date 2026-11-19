@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:ui';
+import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
@@ -70,7 +71,7 @@ class _WindowControlsState extends State<WindowControls>
     }
     unawaited(_syncMaximizedState());
     _metricsSyncTimer?.cancel();
-    _metricsSyncTimer = Timer(const Duration(milliseconds: 90), () {
+    _metricsSyncTimer = Timer(KonataTheme.windowMetricsDebounce, () {
       if (mounted) {
         unawaited(_syncMaximizedState());
       }
@@ -83,8 +84,9 @@ class _WindowControlsState extends State<WindowControls>
       if (mounted && maximized != _isMaximized) {
         setState(() => _isMaximized = maximized);
       }
-    } catch (_) {
+    } catch (error) {
       // 测试环境无 window_manager 宿主通道时安全忽略
+      developer.log('可恢复异常已记录', name: 'konata.window_controls', error: error);
     }
   }
 
@@ -94,8 +96,9 @@ class _WindowControlsState extends State<WindowControls>
     }
     try {
       await Window.hideWindowControls();
-    } catch (_) {
+    } catch (error) {
       // 测试环境无原生窗口上下文时安全忽略
+      developer.log('可恢复异常已记录', name: 'konata.window_controls', error: error);
     }
   }
 
@@ -165,7 +168,7 @@ class _WindowControlsState extends State<WindowControls>
         ? Colors.white
         : (showPill ? p.textPrimary : p.textSecondary);
     final hoverBg = widget.forceLightIcons
-        ? Colors.white.withValues(alpha: 0.14)
+        ? KonataTheme.overlayWhiteDim
         : (showPill ? p.secondaryButtonHoverBg : p.secondaryButtonBg);
 
     final controlsRow = Row(
@@ -226,15 +229,15 @@ class _WindowControlsState extends State<WindowControls>
     }
 
     final pillBg = widget.forceLightIcons
-        ? Colors.black.withValues(alpha: 0.30)
+        ? KonataTheme.scrimBlackSubtle
         : p.surface;
     final pillBorder = widget.forceLightIcons
-        ? Colors.white.withValues(alpha: 0.22)
+        ? KonataTheme.overlayWhiteBorderStrong
         : p.hairline;
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: KonataTheme.borderRadiusPill,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(
@@ -246,14 +249,14 @@ class _WindowControlsState extends State<WindowControls>
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: KonataTheme.borderRadiusPill,
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
             decoration: BoxDecoration(
               color: pillBg,
-              borderRadius: BorderRadius.circular(999),
+              borderRadius: KonataTheme.borderRadiusPill,
               border: Border.all(color: pillBorder),
             ),
             child: controlsRow,
@@ -316,7 +319,7 @@ class _WindowControlButtonState extends State<_WindowControlButton> {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: bg,
-                borderRadius: BorderRadius.circular(999),
+                borderRadius: KonataTheme.borderRadiusPill,
               ),
               child: Center(
                 child: Icon(

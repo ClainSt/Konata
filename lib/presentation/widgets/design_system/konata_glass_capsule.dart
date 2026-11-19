@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../theme/konata_adaptive_tokens.dart';
 import '../../theme/konata_palette.dart';
 import '../../theme/konata_playback_tokens.dart';
+import '../../theme/konata_theme.dart';
 
 /// 跨端共用的圆角毛玻璃表面，保持桌面播控的材质与描边。
 class KonataGlassCapsule extends StatelessWidget {
@@ -46,7 +47,7 @@ class KonataGlassCapsule extends StatelessWidget {
       decoration: BoxDecoration(
         color: enableBackdropBlur
             ? KonataPlaybackTokens.glassSurface(p)
-            : (p.isDark ? const Color(0xCC161618) : p.surface),
+            : KonataTheme.capsuleDarkSurface(p),
         borderRadius: borderRadius,
         border: Border.all(
           color: KonataPlaybackTokens.glassBorder(p),

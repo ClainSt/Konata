@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -10,10 +11,10 @@ import '../../application/providers/work_management_provider.dart';
 import '../../domain/matching/episode_title_formatter.dart';
 import '../../domain/matching/playback_resume_resolver.dart';
 import '../../domain/models/episode.dart';
-import '../../domain/models/external_player_config.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/playback_record.dart';
+import '../../domain/models/relay_target_descriptor.dart';
 import '../../domain/models/work.dart';
 import '../dialogs/delete_work_dialog.dart';
 import '../dialogs/manual_match_dialog.dart';
@@ -39,7 +40,7 @@ class DetailActionHandlers {
     required BuildContext context,
     required WidgetRef ref,
     required WorkDetailBundle bundle,
-    required List<ExternalPlayerConfig> players,
+    required List<RelayTargetDescriptor> players,
   }) async {
     final plan = PlaybackResumeResolver.resolve(
       episodes: bundle.episodes,
@@ -68,10 +69,10 @@ class DetailActionHandlers {
     required WidgetRef ref,
     required WorkDetailBundle bundle,
     required Episode episode,
-    required List<ExternalPlayerConfig> players,
+    required List<RelayTargetDescriptor> players,
     int? startSeconds,
     PreferredPlaybackEngine? overrideEngine,
-    ExternalPlayerConfig? explicitPlayer,
+    String? explicitTargetId,
   }) async {
     final variants = bundle.variantsForEpisode(episode.id);
     if (variants.isEmpty) {
@@ -92,7 +93,9 @@ class DetailActionHandlers {
             break;
           }
         }
-      } catch (_) {}
+      } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.detail_action_handlers', error: error);
+    }
       if (!context.mounted) {
         return;
       }
@@ -109,7 +112,7 @@ class DetailActionHandlers {
         bundle: bundle,
         episode: episode,
         variant: variants.first,
-        player: explicitPlayer,
+        targetId: explicitTargetId,
         overrideEngine: overrideEngine,
         startSeconds: effectiveStart,
       );
@@ -123,26 +126,27 @@ class DetailActionHandlers {
         sourcesById: bundle.sourcesById,
         players: players,
         initialEngine: overrideEngine,
-        initialPlayer:
-            explicitPlayer ??
+        initialTargetId:
+            explicitTargetId ??
             players
                 .where(
                   (p) =>
-                      p.kind ==
+                      p.kindKey ==
                           ref
                               .read(playbackPreferencesProvider)
-                              .preferredExternalVideoKind &&
-                      p.executablePath.trim().isNotEmpty,
+                              .preferredRelayKindKey &&
+                      p.configured,
                 )
-                .firstOrNull,
-        onPlay: (variant, pickedEngine, player) {
+                .firstOrNull
+                ?.id,
+        onPlay: (variant, pickedEngine, pickedTargetId) {
           launchVariant(
             context: context,
             ref: ref,
             bundle: bundle,
             episode: episode,
             variant: variant,
-            player: player,
+            targetId: pickedTargetId,
             overrideEngine: pickedEngine,
             startSeconds: effectiveStart,
           );
@@ -151,14 +155,14 @@ class DetailActionHandlers {
     );
   }
 
-  /// 通过统一播放分发器拉起内置高保真内核或外部播放器并回写进度。
+  /// 通过统一播放分发器拉起内置高保真内核或桌面接力程序并回写进度。
   static Future<void> launchVariant({
     required BuildContext context,
     required WidgetRef ref,
     required WorkDetailBundle bundle,
     required Episode episode,
     required MediaVariant variant,
-    required ExternalPlayerConfig? player,
+    required String? targetId,
     PreferredPlaybackEngine? overrideEngine,
     int startSeconds = 0,
   }) async {
@@ -171,7 +175,7 @@ class DetailActionHandlers {
           variant: variant,
           startSeconds: startSeconds,
           overrideEngine: overrideEngine,
-          explicitPlayer: player,
+          explicitTargetId: targetId,
         );
     switch (decision) {
       case OpenBuiltinVideoDecision(:final request):
@@ -442,14 +446,14 @@ class DetailActionHandlers {
     );
   }
 
-  /// 通过统一播放分发器播放附属音乐 CD 音轨（支持默认/内置流光页/外部播放器）。
+  /// 通过统一播放分发器播放附属音乐 CD 音轨（支持默认/内置流光页/桌面接力程序）。
   static Future<void> playCdAsset({
     required BuildContext context,
     required WidgetRef ref,
     required WorkDetailBundle bundle,
     required MediaVariant variant,
     PreferredPlaybackEngine? overrideEngine,
-    ExternalPlayerConfig? explicitPlayer,
+    String? explicitTargetId,
     bool expandImmersive = false,
   }) async {
     final res = await ref
@@ -460,7 +464,7 @@ class DetailActionHandlers {
           cdPlaylist: bundle.cdVariants,
           sourcesById: bundle.sourcesById,
           overrideEngine: overrideEngine,
-          explicitPlayer: explicitPlayer,
+          explicitTargetId: explicitTargetId,
           expandImmersive: expandImmersive,
         );
     if (context.mounted && res.message.isNotEmpty) {
@@ -488,7 +492,9 @@ class DetailActionHandlers {
           showKonataToast(context, res.message, isError: true);
         }
       }
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.detail_action_handlers', error: error);
+    }
     if (!context.mounted) return;
     return showKonataGlassDialog<void>(
       context: context,

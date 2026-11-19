@@ -5,6 +5,7 @@ import 'package:ccplayer/domain/models/media_variant.dart';
 import 'package:ccplayer/domain/models/work.dart';
 import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
 import 'package:ccplayer/infrastructure/database/konata_database.dart';
+import 'package:ccplayer/infrastructure/players/desktop_external_player_store.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -83,7 +84,8 @@ void main() {
       argumentsTemplate: '--fs "{url}"',
       isDefault: true,
     );
-    await repo.upsertExternalPlayer(mpv);
+    final playerStore = DesktopExternalPlayerStore(db);
+    await playerStore.upsertExternalPlayer(mpv);
 
     final loadedSource = (await repo.getMediaSources()).single;
     expect(loadedSource.kind, MediaSourceKind.local);
@@ -109,7 +111,7 @@ void main() {
     expect(loadedVariant.audioCodec, 'FLAC');
     expect(loadedVariant.externalSubtitles, ['86/[VCB-Studio] 86 [01].sc.ass']);
 
-    final loadedPlayers = await repo.getExternalPlayers();
+    final loadedPlayers = await playerStore.getExternalPlayers();
     expect(loadedPlayers.single.kind, ExternalPlayerKind.mpv);
     expect(loadedPlayers.single.isDefault, isTrue);
   });

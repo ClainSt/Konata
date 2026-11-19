@@ -14,6 +14,7 @@ import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
 import 'episode_slot_picker_popover.dart';
+import '../theme/konata_theme.dart';
 
 enum _MappingCategoryFilter { all, main, extra }
 
@@ -388,7 +389,7 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                   padding: const EdgeInsets.only(bottom: 6),
                   child: Text(
                     '提示：点击季集胶囊可直观挑选分集；按住 Shift 点击复选框可连续区间多选并开启批量修正工具栏。',
-                    style: TextStyle(color: p.textMuted, fontSize: 11.4),
+                    style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeCaptionSm),
                   ),
                 ),
               ),
@@ -397,7 +398,7 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
               ? Center(
                   child: Text(
                     '当前筛选条件下暂无视频文件',
-                    style: TextStyle(color: p.textSecondary, fontSize: 13),
+                    style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodySm),
                   ),
                 )
               : KonataDraggableScrollbar(
@@ -517,7 +518,7 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                                   maxLines: 1,
                                   style: TextStyle(
                                     color: p.textPrimary,
-                                    fontSize: 12.6,
+                                    fontSize: KonataTheme.fontSizeBodyXs,
                                   ),
                                 ),
                               ),
@@ -574,7 +575,7 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: p.accent.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: KonataTheme.borderRadiusControl,
         border: Border.all(color: p.accent.withValues(alpha: 0.35)),
       ),
       child: Column(
@@ -589,7 +590,7 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                 '已选 $selectedCount 项',
                 style: TextStyle(
                   color: p.accent,
-                  fontSize: 12.2,
+                  fontSize: KonataTheme.fontSizeCaption,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -664,7 +665,7 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
               children: [
                 Text(
                   '批量重排季/起始集：',
-                  style: TextStyle(color: p.textSecondary, fontSize: 11.8),
+                  style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeCaption),
                 ),
                 SizedBox(
                   width: 78,

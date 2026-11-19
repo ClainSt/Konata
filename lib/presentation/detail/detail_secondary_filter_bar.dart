@@ -170,11 +170,11 @@ class _SecondaryFilterChipState extends State<_SecondaryFilterChip> {
     );
 
     final pill = ClipRRect(
-      borderRadius: BorderRadius.circular(999),
+      borderRadius: KonataTheme.borderRadiusPill,
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
+          duration: KonataTheme.motionStandard,
           curve: Curves.easeOutCubic,
           constraints: BoxConstraints(maxWidth: widget.compact ? 210 : 280),
           padding: EdgeInsets.symmetric(
@@ -183,7 +183,7 @@ class _SecondaryFilterChipState extends State<_SecondaryFilterChip> {
           ),
           decoration: BoxDecoration(
             color: bgColor,
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: KonataTheme.borderRadiusPill,
             border: Border.all(
               color: borderColor,
               width: widget.selected ? 1.0 : 0.85,

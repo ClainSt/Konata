@@ -2,10 +2,8 @@ part of 'embedded_mpv_session.dart';
 
 /// `EmbeddedMpvSession` 外挂字幕/音轨发现、远程字库入池、流令牌租约登记与轨道选择扩展。
 extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
-  static bool _isTextSubtitlePath(String rawPath) {
-    final ext = SubtitleAndAudioChoices.extensionOf(rawPath.split('?').first);
-    return ext == '.ass' || ext == '.ssa' || ext == '.srt' || ext == '.vtt';
-  }
+  static bool _isTextSubtitlePath(String rawPath) =>
+      KonataMediaExtensions.isTextSubtitleFile(rawPath.split('?').first);
 
   static bool _isFontsZipName(String fileName) {
     final lower = fileName.trim().toLowerCase();

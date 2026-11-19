@@ -256,7 +256,7 @@ class _EpisodeSlotPickerButtonState extends State<EpisodeSlotPickerButton> {
       child: Tooltip(
         message: '点击从当前作品分集列表中可视选择槽位',
         child: InkWell(
-          borderRadius: BorderRadius.circular(7),
+          borderRadius: KonataTheme.borderRadiusBadge,
           onTap: widget.enabled ? _toggle : null,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
@@ -264,7 +264,7 @@ class _EpisodeSlotPickerButtonState extends State<EpisodeSlotPickerButton> {
               color: isMain
                   ? p.accent.withValues(alpha: 0.14)
                   : p.warning.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(7),
+              borderRadius: KonataTheme.borderRadiusBadge,
               border: Border.all(
                 color: isMain
                     ? p.accent.withValues(alpha: 0.40)
@@ -278,7 +278,7 @@ class _EpisodeSlotPickerButtonState extends State<EpisodeSlotPickerButton> {
                   code,
                   style: TextStyle(
                     color: isMain ? p.accent : p.warning,
-                    fontSize: 11.2,
+                    fontSize: KonataTheme.fontSizeCaptionXs,
                     fontFamily: 'Consolas',
                     fontWeight: FontWeight.w700,
                   ),
@@ -360,7 +360,7 @@ class _SlotPopoverOverlayState extends State<_SlotPopoverOverlay> {
           child: Material(
             color: Colors.transparent,
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: KonataTheme.borderRadiusPanel,
               child: BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
                 child: Container(
@@ -369,7 +369,7 @@ class _SlotPopoverOverlayState extends State<_SlotPopoverOverlay> {
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   decoration: BoxDecoration(
                     color: bgColor,
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: KonataTheme.borderRadiusPanel,
                     border: Border.all(
                       color: Colors.white.withValues(
                         alpha: p.isDark ? 0.18 : 0.72,
@@ -395,7 +395,7 @@ class _SlotPopoverOverlayState extends State<_SlotPopoverOverlay> {
                           '快速点击指定目标剧集槽位',
                           style: TextStyle(
                             color: p.textMuted,
-                            fontSize: 11.2,
+                            fontSize: KonataTheme.fontSizeCaptionXs,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -446,7 +446,7 @@ class _SlotPopoverOverlayState extends State<_SlotPopoverOverlay> {
                                     hoverColor: Colors.transparent,
                                     highlightColor: Colors.transparent,
                                     splashColor: Colors.transparent,
-                                    borderRadius: BorderRadius.circular(8),
+                                    borderRadius: KonataTheme.borderRadiusSm,
                                     onTap: () => widget.onPick(opt),
                                     child: Container(
                                       margin: const EdgeInsets.symmetric(
@@ -462,7 +462,7 @@ class _SlotPopoverOverlayState extends State<_SlotPopoverOverlay> {
                                             : (isHovered
                                                   ? p.softFill
                                                   : Colors.transparent),
-                                        borderRadius: BorderRadius.circular(8),
+                                        borderRadius: KonataTheme.borderRadiusSm,
                                       ),
                                       child: Row(
                                         children: [
@@ -474,7 +474,7 @@ class _SlotPopoverOverlayState extends State<_SlotPopoverOverlay> {
                                                 color: isCurrent
                                                     ? p.accent
                                                     : p.textPrimary,
-                                                fontSize: 12.2,
+                                                fontSize: KonataTheme.fontSizeCaption,
                                                 fontWeight: isCurrent
                                                     ? FontWeight.w600
                                                     : FontWeight.w500,
@@ -569,17 +569,17 @@ class _InlineNumberStepperBoxState extends State<InlineNumberStepperBox> {
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
         decoration: BoxDecoration(
           color: p.softFill,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: KonataTheme.borderRadiusSm,
           border: Border.all(color: p.hairline),
         ),
         child: Row(
           children: [
             Text(
               widget.label,
-              style: TextStyle(color: p.textMuted, fontSize: 10.5),
+              style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeBadge),
             ),
             InkWell(
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: KonataTheme.borderRadiusXs,
               onTap: widget.enabled && widget.value > 0
                   ? () => widget.onChanged(widget.value - 1)
                   : null,
@@ -600,7 +600,7 @@ class _InlineNumberStepperBoxState extends State<InlineNumberStepperBox> {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: p.textPrimary,
-                  fontSize: 11.8,
+                  fontSize: KonataTheme.fontSizeCaption,
                   fontWeight: FontWeight.w600,
                 ),
                 decoration: const InputDecoration(
@@ -617,7 +617,7 @@ class _InlineNumberStepperBoxState extends State<InlineNumberStepperBox> {
               ),
             ),
             InkWell(
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: KonataTheme.borderRadiusXs,
               onTap: widget.enabled
                   ? () => widget.onChanged(widget.value + 1)
                   : null,

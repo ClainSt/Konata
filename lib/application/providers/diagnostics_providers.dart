@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -26,7 +27,9 @@ class VerboseLoggingNotifier extends StateNotifier<bool> {
       if (!mounted) return;
       state = enabled;
       _store.setVerbose(enabled);
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.diagnostics_providers', error: error);
+    }
   }
 
   /// 设置详细调试日志开关并持久化。
@@ -36,7 +39,9 @@ class VerboseLoggingNotifier extends StateNotifier<bool> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_kVerboseLoggingKey, enabled);
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.diagnostics_providers', error: error);
+    }
   }
 
   /// 导出最近异常日志 TXT 到指定路径。

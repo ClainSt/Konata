@@ -186,7 +186,7 @@ class _SeriesSwitcherDropdownState extends State<SeriesSwitcherDropdown> {
                   const SizedBox(width: 3),
                   AnimatedRotation(
                     turns: isOpen ? 0.5 : 0.0,
-                    duration: const Duration(milliseconds: 180),
+                    duration: KonataTheme.motionMedium,
                     curve: Curves.easeOutCubic,
                     child: Icon(
                       Icons.keyboard_arrow_down_rounded,
@@ -276,7 +276,7 @@ class _SeriesMenuOverlayState extends State<_SeriesMenuOverlay> {
           child: Material(
             color: Colors.transparent,
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: KonataTheme.borderRadiusSheet,
               child: BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
                 child: Container(
@@ -290,7 +290,7 @@ class _SeriesMenuOverlayState extends State<_SeriesMenuOverlay> {
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   decoration: BoxDecoration(
                     color: KonataPlaybackTokens.popoverSurface(p),
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: KonataTheme.borderRadiusSheet,
                     border: Border.all(
                       color: KonataPlaybackTokens.glassBorder(p),
                       width: 1,
@@ -317,7 +317,7 @@ class _SeriesMenuOverlayState extends State<_SeriesMenuOverlay> {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: p.textMuted,
-                              fontSize: 11,
+                              fontSize: KonataTheme.fontSizeCaptionXs,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -377,7 +377,7 @@ class _SeriesMenuOverlayState extends State<_SeriesMenuOverlay> {
                                     hoverColor: Colors.transparent,
                                     highlightColor: Colors.transparent,
                                     splashColor: Colors.transparent,
-                                    borderRadius: BorderRadius.circular(9),
+                                    borderRadius: KonataTheme.borderRadiusThumb,
                                     onTap: () => widget.onPick(member.id),
                                     child: Container(
                                       constraints:
@@ -400,7 +400,7 @@ class _SeriesMenuOverlayState extends State<_SeriesMenuOverlay> {
                                             : (hovered
                                                   ? p.softFill
                                                   : Colors.transparent),
-                                        borderRadius: BorderRadius.circular(9),
+                                        borderRadius: KonataTheme.borderRadiusThumb,
                                       ),
                                       child: Row(
                                         children: [
@@ -418,7 +418,7 @@ class _SeriesMenuOverlayState extends State<_SeriesMenuOverlay> {
                                                     color: selected
                                                         ? p.accent
                                                         : p.textPrimary,
-                                                    fontSize: 13,
+                                                    fontSize: KonataTheme.fontSizeBodySm,
                                                     fontWeight: selected
                                                         ? FontWeight.w700
                                                         : FontWeight.w500,
@@ -432,7 +432,7 @@ class _SeriesMenuOverlayState extends State<_SeriesMenuOverlay> {
                                                         TextOverflow.ellipsis,
                                                     style: TextStyle(
                                                       color: p.textMuted,
-                                                      fontSize: 11,
+                                                      fontSize: KonataTheme.fontSizeCaptionXs,
                                                     ),
                                                   ),
                                               ],

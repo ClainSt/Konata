@@ -343,7 +343,7 @@ class _SourceFilesReviewDialogState
                         height: 36,
                         dense: true,
                         prefixIcon: Icons.search_rounded,
-                        borderRadius: BorderRadius.circular(999),
+                        borderRadius: KonataTheme.borderRadiusPill,
                         hintText: '过滤文件名或子目录路径...',
                         onChanged: (value) => setState(() => _query = value),
                       ),
@@ -379,7 +379,7 @@ class _SourceFilesReviewDialogState
                           allVariants.isEmpty
                               ? '当前条目下没有关联源文件'
                               : '未找到匹配 “$_query” 的源文件',
-                          style: TextStyle(color: p.textSecondary, fontSize: 13),
+                          style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodySm),
                         ),
                       )
                     : KonataDraggableScrollbar(
@@ -425,7 +425,7 @@ class _SourceFilesReviewDialogState
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       decoration: BoxDecoration(
         color: p.softFill,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: KonataTheme.borderRadiusControl,
         border: Border.all(color: p.hairline),
       ),
       child: Row(
@@ -436,14 +436,14 @@ class _SourceFilesReviewDialogState
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
                 color: p.accent.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(999),
+                borderRadius: KonataTheme.borderRadiusPill,
                 border: Border.all(color: p.accent.withValues(alpha: 0.35)),
               ),
               child: Text(
                 source.label,
                 style: TextStyle(
                   color: p.accent,
-                  fontSize: 11.2,
+                  fontSize: KonataTheme.fontSizeCaptionXs,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -455,7 +455,7 @@ class _SourceFilesReviewDialogState
               commonDir.isEmpty ? '媒体源根目录' : commonDir,
               style: TextStyle(
                 color: p.textSecondary,
-                fontSize: 11.8,
+                fontSize: KonataTheme.fontSizeCaption,
                 fontFamily: 'Consolas',
               ),
             ),
@@ -463,7 +463,7 @@ class _SourceFilesReviewDialogState
           const SizedBox(width: 10),
           Text(
             '共 $totalCount 个文件',
-            style: TextStyle(color: p.textMuted, fontSize: 11.5),
+            style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeCaptionSm),
           ),
         ],
       ),
@@ -497,13 +497,13 @@ class _SourceFileRow extends StatelessWidget {
 
     return InkWell(
       onTap: selectable ? onToggle : null,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: KonataTheme.borderRadiusSm,
       child: Container(
         height: 46,
         padding: const EdgeInsets.symmetric(horizontal: 10),
         decoration: BoxDecoration(
           color: selected ? p.accent.withValues(alpha: 0.14) : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: KonataTheme.borderRadiusSm,
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
@@ -530,7 +530,7 @@ class _SourceFileRow extends StatelessWidget {
                           ),
                           decoration: BoxDecoration(
                             color: p.accentBadge.bg,
-                            borderRadius: BorderRadius.circular(5),
+                            borderRadius: KonataTheme.borderRadiusChipSm,
                             border: Border.all(color: p.accentBadge.border),
                           ),
                           child: Text(
@@ -539,7 +539,7 @@ class _SourceFileRow extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: p.accentBadge.fg,
-                              fontSize: 11,
+                              fontSize: KonataTheme.fontSizeCaptionXs,
                               fontWeight: FontWeight.w600,
                               fontFamily: 'Consolas',
                               height: 1.15,
@@ -555,7 +555,7 @@ class _SourceFileRow extends StatelessWidget {
                     maxLines: 1,
                     style: TextStyle(
                       color: selectable ? p.textPrimary : p.textSecondary,
-                      fontSize: 12.8,
+                      fontSize: KonataTheme.fontSizeBodySm,
                       fontWeight: FontWeight.w500,
                       height: 1.25,
                     ),
@@ -568,14 +568,14 @@ class _SourceFileRow extends StatelessWidget {
                           ),
                           decoration: BoxDecoration(
                             color: p.softFill,
-                            borderRadius: BorderRadius.circular(999),
+                            borderRadius: KonataTheme.borderRadiusPill,
                             border: Border.all(color: p.hairline),
                           ),
                           child: Text(
                             kindLabel,
                             maxLines: 1,
                             softWrap: false,
-                            style: TextStyle(color: p.textMuted, fontSize: 10.5),
+                            style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeBadge),
                           ),
                         )
                       : null;
@@ -589,7 +589,7 @@ class _SourceFileRow extends StatelessWidget {
                     softWrap: false,
                     style: KonataTheme.textStyle(
                       color: p.textMuted,
-                      fontSize: 11.8,
+                      fontSize: KonataTheme.fontSizeCaption,
                       weight: 500,
                       tabularFigures: true,
                     ),
@@ -656,13 +656,13 @@ class _SourceZeroPaddingCheckbox extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 140),
+      duration: KonataTheme.motionFast,
       width: 18,
       height: 18,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: checked ? p.accent : Colors.transparent,
-        borderRadius: BorderRadius.circular(5),
+        borderRadius: KonataTheme.borderRadiusChipSm,
         border: Border.all(
           color: checked
               ? p.accent

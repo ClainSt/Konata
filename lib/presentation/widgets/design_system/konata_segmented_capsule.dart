@@ -166,12 +166,8 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
 
     final trackBg = KonataPlaybackTokens.softFill(p);
     final trackBorder = KonataPlaybackTokens.segmentedTrackBorder(p);
-    final thumbBg = p.isDark
-        ? Colors.white.withValues(alpha: 0.18)
-        : Colors.white.withValues(alpha: 0.96);
-    final thumbBorder = p.isDark
-        ? Colors.white.withValues(alpha: 0.16)
-        : Colors.black.withValues(alpha: 0.08);
+    final thumbBg = KonataTheme.segmentedThumbSurface(p);
+    final thumbBorder = KonataTheme.segmentedThumbBorder(p);
 
     final selectedIndex = widget.options.indexWhere(
       (o) => o.value == widget.selected,
@@ -200,7 +196,7 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
       padding: EdgeInsets.all(trackPadding),
       decoration: BoxDecoration(
         color: trackBg,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: KonataTheme.borderRadiusPill,
         border: Border.all(color: trackBorder, width: 1),
       ),
       child: widget.expand
@@ -362,11 +358,11 @@ class _SlidingThumbBox extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: bgColor,
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: KonataTheme.borderRadiusPill,
           border: Border.all(color: borderColor, width: 1),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.24 : 0.08),
+              color: KonataTheme.segmentedThumbShadow(isDark),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -423,7 +419,7 @@ class _SegmentChip<T> extends StatelessWidget {
           decoration: fallbackBoxColor != null
               ? BoxDecoration(
                   color: fallbackBoxColor,
-                  borderRadius: BorderRadius.circular(999),
+                  borderRadius: KonataTheme.borderRadiusPill,
                   border: Border.all(
                     color: fallbackBorderColor ?? Colors.transparent,
                     width: 1,

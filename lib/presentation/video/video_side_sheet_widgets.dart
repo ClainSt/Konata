@@ -12,7 +12,7 @@ class _SectionLabel extends StatelessWidget {
       text,
       style: TextStyle(
         color: pPal.textPrimary,
-        fontSize: 13.5,
+        fontSize: KonataTheme.fontSizeBody,
         fontWeight: FontWeight.w600,
       ),
     );
@@ -65,7 +65,7 @@ class _SeriesSeasonSwitcherBar extends StatelessWidget {
 
           return Tooltip(
             message: label,
-            waitDuration: const Duration(milliseconds: 400),
+            waitDuration: KonataTheme.tooltipWaitDuration,
             child: Material(
               color: bg,
               shape: RoundedRectangleBorder(
@@ -99,7 +99,7 @@ class _SeriesSeasonSwitcherBar extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: fg,
-                            fontSize: 12,
+                            fontSize: KonataTheme.fontSizeCaption,
                             fontWeight: isBrowsing
                                 ? FontWeight.w600
                                 : FontWeight.w500,
@@ -150,14 +150,14 @@ class _SelectableTrackTileState extends State<_SelectableTrackTile> {
     final selected = widget.selected;
     final bgColor = selected
         ? (pPal.isDark
-              ? Colors.white.withValues(alpha: 0.13)
+              ? KonataTheme.overlayWhiteMuted
               : pPal.textPrimary.withValues(alpha: 0.08))
         : (_hovered
               ? pPal.softFill.withValues(alpha: 0.92)
               : pPal.softFill.withValues(alpha: 0.56));
     final borderColor = selected
         ? (pPal.isDark
-              ? Colors.white.withValues(alpha: 0.24)
+              ? KonataTheme.overlayWhiteBorderHover
               : pPal.textPrimary.withValues(alpha: 0.20))
         : (_hovered ? pPal.hoverBorder : pPal.hairline);
 
@@ -180,7 +180,7 @@ class _SelectableTrackTileState extends State<_SelectableTrackTile> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             color: bgColor,
-            borderRadius: BorderRadius.circular(11),
+            borderRadius: KonataTheme.borderRadiusTile,
             border: Border.all(
               color: borderColor,
               width: KonataAdaptiveTokens.borderWidth,
@@ -212,7 +212,7 @@ class _SelectableTrackTileState extends State<_SelectableTrackTile> {
                   text: widget.primaryTitle,
                   style: TextStyle(
                     color: pPal.textPrimary,
-                    fontSize: 13,
+                    fontSize: KonataTheme.fontSizeBodySm,
                     fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                   ),
                 ),
@@ -238,7 +238,7 @@ class _SelectableTrackTileState extends State<_SelectableTrackTile> {
         widget.tooltipMessage!.trim().isNotEmpty) {
       content = Tooltip(
         message: widget.tooltipMessage!,
-        waitDuration: const Duration(milliseconds: 350),
+        waitDuration: KonataTheme.tooltipWaitDuration,
         child: content,
       );
     }
@@ -302,7 +302,7 @@ class _SpeedPillButtonState extends State<_SpeedPillButton> {
                 color: widget.selected
                     ? pPal.primaryButtonFg
                     : pPal.textPrimary,
-                fontSize: 12,
+                fontSize: KonataTheme.fontSizeCaption,
                 fontWeight: widget.selected ? FontWeight.w600 : FontWeight.w400,
                 fontFeatures: KonataPlaybackTokens.tabularNumbers,
               ),
@@ -345,7 +345,7 @@ class _DelayStepperRow extends StatelessWidget {
             label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: pPal.textSecondary, fontSize: 12.5),
+            style: TextStyle(color: pPal.textSecondary, fontSize: KonataTheme.fontSizeBodyXs),
           ),
         ),
         const SizedBox(width: 8),

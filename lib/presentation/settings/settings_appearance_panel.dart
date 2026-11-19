@@ -67,7 +67,7 @@ class SettingsAppearancePanel extends ConsumerWidget {
                 '主题模式',
                 style: TextStyle(
                   color: p.textPrimary,
-                  fontSize: 15,
+                  fontSize: KonataTheme.fontSizeTitleSm,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -165,11 +165,11 @@ class _ThemeOptionCard extends StatelessWidget {
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
+          duration: KonataTheme.motionStandard,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: p.softFill,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: KonataTheme.borderRadiusCard,
             border: Border.all(
               color: selected ? p.textPrimary : p.hairline,
               width: selected ? 1.5 : 1,
@@ -179,7 +179,7 @@ class _ThemeOptionCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               ClipRRect(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: KonataTheme.borderRadiusSm,
                 child: SizedBox(
                   height: 62,
                   width: double.infinity,
@@ -201,7 +201,7 @@ class _ThemeOptionCard extends StatelessWidget {
                                 height: 8,
                                 decoration: BoxDecoration(
                                   color: previewPill,
-                                  borderRadius: BorderRadius.circular(999),
+                                  borderRadius: KonataTheme.borderRadiusPill,
                                 ),
                               ),
                               const SizedBox(height: 8),
@@ -209,7 +209,7 @@ class _ThemeOptionCard extends StatelessWidget {
                                 child: Container(
                                   decoration: BoxDecoration(
                                     color: previewCard,
-                                    borderRadius: BorderRadius.circular(5),
+                                    borderRadius: KonataTheme.borderRadiusChipSm,
                                   ),
                                 ),
                               ),
@@ -226,7 +226,7 @@ class _ThemeOptionCard extends StatelessWidget {
                       label,
                       style: TextStyle(
                         color: p.textPrimary,
-                        fontSize: 13.5,
+                        fontSize: KonataTheme.fontSizeBody,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -242,7 +242,7 @@ class _ThemeOptionCard extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 subtitle,
-                style: TextStyle(color: p.textMuted, fontSize: 11.5),
+                style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeCaptionSm),
               ),
             ],
           ),

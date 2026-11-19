@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../theme/konata_adaptive_tokens.dart';
 import '../../theme/konata_palette.dart';
 import '../../theme/konata_playback_tokens.dart';
+import '../../theme/konata_theme.dart';
 
 /// 音视频播控胶囊共用的紧凑音量控件与悬浮竖向音量胶囊。
 class KonataVolumeControl extends StatefulWidget {
@@ -304,7 +305,7 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
                   children: [
                     DecoratedBox(
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(999),
+                        borderRadius: KonataTheme.borderRadiusPill,
                         boxShadow: [
                           BoxShadow(
                             color: KonataPlaybackTokens.shadowColor(p),
@@ -314,20 +315,20 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
                         ],
                       ),
                       child: ClipRRect(
-                        borderRadius: BorderRadius.circular(999),
+                        borderRadius: KonataTheme.borderRadiusPill,
                         child: BackdropFilter(
                           filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
                           child: DecoratedBox(
                             decoration: BoxDecoration(
                               color: bgColor,
-                              borderRadius: BorderRadius.circular(999),
+                              borderRadius: KonataTheme.borderRadiusPill,
                               border: Border.all(color: borderColor, width: 1),
                             ),
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 AnimatedSize(
-                                  duration: const Duration(milliseconds: 150),
+                                  duration: KonataTheme.motionFast,
                                   curve: Curves.easeOutCubic,
                                   child: _showVolumeNumber
                                       ? Padding(
@@ -348,7 +349,7 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
                                               softWrap: false,
                                               style: TextStyle(
                                                 color: p.textPrimary,
-                                                fontSize: 11.0,
+                                                fontSize: KonataTheme.fontSizeCaptionXs,
                                                 fontWeight: FontWeight.w700,
                                                 fontFeatures:
                                                     KonataPlaybackTokens
@@ -458,7 +459,7 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
                                               decoration: BoxDecoration(
                                                 color: trackColor,
                                                 borderRadius:
-                                                    BorderRadius.circular(999),
+                                                    KonataTheme.borderRadiusPill,
                                               ),
                                             ),
                                             Container(
@@ -468,7 +469,7 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
                                               decoration: BoxDecoration(
                                                 color: activeColor,
                                                 borderRadius:
-                                                    BorderRadius.circular(999),
+                                                    KonataTheme.borderRadiusPill,
                                               ),
                                             ),
                                             Positioned(
@@ -574,13 +575,13 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
             height: touch ? KonataAdaptiveTokens.touchTarget : null,
             child: Center(
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 120),
+                duration: KonataTheme.motionMicro,
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
                   color: (_anchorHovered || _popoverHovered || _isDragging)
                       ? KonataPlaybackTokens.softFill(p)
                       : Colors.transparent,
-                  borderRadius: BorderRadius.circular(999),
+                  borderRadius: KonataTheme.borderRadiusPill,
                 ),
                 child: Icon(
                   _resolveVolumeIcon(effective),

@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/models/episode.dart';
@@ -88,9 +89,10 @@ Future<Work> executeHybridBind(
         if (full != null) {
           subject = full;
         }
-      } catch (_) {
-        // 保留已选基础候选项，不阻断绑定。
-      }
+      } catch (error) {
+      // 保留已选基础候选项，不阻断绑定。
+      developer.log('可恢复异常已记录', name: 'konata.work_split_and_series_actions', error: error);
+    }
     }
 
     final tmdbDetail = request.tmdbDetail;
@@ -193,7 +195,9 @@ Future<Work> executeBangumiOnlyBind(
         if (full != null) {
           subject = full;
         }
-      } catch (_) {}
+      } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.work_split_and_series_actions', error: error);
+    }
     }
 
     var bgmEpisodes = const <BangumiEpisodeEntry>[];
@@ -203,7 +207,9 @@ Future<Work> executeBangumiOnlyBind(
         type: null,
         priority: RequestPriority.interactive,
       );
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.work_split_and_series_actions', error: error);
+    }
 
     var updated = existing.copyWith(
       bangumiId: subject.id,
@@ -379,9 +385,10 @@ Future<String?> _lookupHighConfidenceTmdbBackdrop({
       }
       return bd;
     }
-  } catch (_) {
-    // 静默兜底失败绝不影响 Bangumi 独立绑定主流程。
-  }
+  } catch (error) {
+      // 静默兜底失败绝不影响 Bangumi 独立绑定主流程。
+      developer.log('可恢复异常已记录', name: 'konata.work_split_and_series_actions', error: error);
+    }
   return null;
 }
 

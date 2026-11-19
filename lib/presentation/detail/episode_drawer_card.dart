@@ -15,7 +15,7 @@ import '../widgets/playback/konata_spec_badge.dart';
 import '../widgets/playback/konata_stage_morph_frame.dart';
 
 const List<Shadow> _kDrawerOverlayTextShadows = [
-  Shadow(color: Color(0xA6000000), blurRadius: 8, offset: Offset(0, 1.5)),
+  KonataTheme.episodeCardTextShadow,
 ];
 
 /// 详情页底部抽屉与完整列表共用的单集卡片（展示 16:9 剧照、进度条、集数标题、多版本徽章与文件名）。
@@ -198,14 +198,15 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
     final effectiveMetaPalette = useDarkOverlayStyle ? KonataPalette.dark : p;
     final titleColor = useDarkOverlayStyle ? Colors.white : p.textPrimary;
     final fileNameColor = useDarkOverlayStyle
-        ? Colors.white.withValues(alpha: 0.80)
+        ? KonataTheme.overlayWhiteTextSub
         : p.textSecondary;
     final metaShadows = widget.onDarkBackdrop
         ? _kDrawerOverlayTextShadows
         : const <Shadow>[];
-    final frameBorderColor = useDarkOverlayStyle
-        ? Colors.white.withValues(alpha: _hovered ? 0.36 : 0.16)
-        : const Color(0xFF0F172A).withValues(alpha: _hovered ? 0.28 : 0.12);
+    final frameBorderColor = KonataTheme.episodeCardOutline(
+      useDarkOverlayStyle ? KonataPalette.dark : p,
+      hovered: _hovered,
+    );
 
     Widget metaSection = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -284,10 +285,10 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
               AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
+                duration: KonataTheme.motionFast,
                 curve: Curves.easeOutCubic,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: KonataTheme.borderRadiusCard,
                   border: Border.all(color: frameBorderColor, width: 1),
                   boxShadow: [
                     BoxShadow(
@@ -300,7 +301,7 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                   ],
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(11),
+                  borderRadius: KonataTheme.borderRadiusTile,
                   child: AspectRatio(
                     aspectRatio: 16 / 9,
                     child: Stack(
@@ -317,12 +318,12 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                                 fit: BoxFit.cover,
                               )
                             : Container(
-                                color: Colors.black.withValues(alpha: 0.35),
+                                color: KonataTheme.scrimBlackMedium,
                                 alignment: Alignment.center,
                                 child: Icon(
                                   Icons.play_circle_outline_rounded,
                                   size: 32,
-                                  color: Colors.white.withValues(alpha: 0.72),
+                                  color: KonataTheme.overlayWhiteTextDim,
                                 ),
                               ),
                         if (hasProgressBadge)
@@ -337,8 +338,8 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                               decoration: BoxDecoration(
                                 color: playback.isCompleted
                                     ? p.success.withValues(alpha: 0.90)
-                                    : Colors.black.withValues(alpha: 0.65),
-                                borderRadius: BorderRadius.circular(6),
+                                    : KonataTheme.scrimBlackDense,
+                                borderRadius: KonataTheme.borderRadiusChip,
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
@@ -359,7 +360,7 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                                           ),
                                     style: const TextStyle(
                                       color: Colors.white,
-                                      fontSize: 10.5,
+                                      fontSize: KonataTheme.fontSizeBadge,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
@@ -374,7 +375,7 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                             bottom: 0,
                             height: 3,
                             child: Container(
-                              color: Colors.black.withValues(alpha: 0.48),
+                              color: KonataTheme.scrimBlackStrong,
                               alignment: Alignment.centerLeft,
                               child: FractionallySizedBox(
                                 widthFactor: progressRatio,
@@ -418,14 +419,14 @@ class _FrostedMiniBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: tintColor,
-        borderRadius: BorderRadius.circular(5),
+        borderRadius: KonataTheme.borderRadiusChipSm,
         border: Border.all(color: borderColor, width: 0.8),
       ),
       child: Text(
         label,
         style: TextStyle(
           color: fgColor,
-          fontSize: 10,
+          fontSize: KonataTheme.fontSizeMicro,
           fontWeight: FontWeight.w600,
         ),
       ),

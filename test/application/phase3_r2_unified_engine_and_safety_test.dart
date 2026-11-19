@@ -580,7 +580,7 @@ void main() {
         // 2. 开启 HDMI audio-spdif 互斥旁路：视频端立即写入 audio-spdif 并清空软 DSP 滤镜 af。
         await container
             .read(playbackPreferencesProvider.notifier)
-            .setHdmiSpdifPassthrough(true);
+            .setBitstreamPassthrough(true);
         await coordinator.reapplyAll(
           container.read(playbackPreferencesProvider),
         );
@@ -590,10 +590,10 @@ void main() {
         // 关闭 HDMI 旁路并开启独占直通以验证满幅二次确认门锁。
         await container
             .read(playbackPreferencesProvider.notifier)
-            .setHdmiSpdifPassthrough(false);
+            .setBitstreamPassthrough(false);
         await container
             .read(playbackPreferencesProvider.notifier)
-            .updateQualityConfig((c) => c.copyWith(wasapiExclusive: true));
+            .updateQualityConfig((c) => c.copyWith(exclusiveAudioOutput: true));
         await coordinator.reapplyAll(
           container.read(playbackPreferencesProvider),
         );

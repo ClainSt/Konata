@@ -14,6 +14,7 @@ import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/managed_image.dart';
+import '../theme/konata_theme.dart';
 
 /// Bangumi 独立条目 × TMDB 母系列指定季/集 双源混合匹配面板。
 class HybridMatchPanel extends ConsumerStatefulWidget {
@@ -289,7 +290,7 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (_errorText != null) ...[
-          Text(_errorText!, style: TextStyle(color: p.danger, fontSize: 12)),
+          Text(_errorText!, style: TextStyle(color: p.danger, fontSize: KonataTheme.fontSizeCaption)),
           const SizedBox(height: 6),
         ],
         Expanded(
@@ -339,7 +340,7 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
                 : '请依次选定 Bangumi 独立条目与 TMDB 母系列季/集',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: p.textSecondary, fontSize: 12),
+            style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeCaption),
           ),
           trailing: KonataPillButton.primary(
             label: widget.disabled ? '绑定中...' : '确认混合绑定并锁定',
@@ -390,7 +391,7 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
             done ? '✓' : '$index',
             style: TextStyle(
               color: done ? Colors.white : p.textSecondary,
-              fontSize: 10.5,
+              fontSize: KonataTheme.fontSizeBadge,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -401,7 +402,7 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
             title,
             style: TextStyle(
               color: p.textPrimary,
-              fontSize: 12.2,
+              fontSize: KonataTheme.fontSizeCaption,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -499,7 +500,7 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: p.textPrimary,
-                    fontSize: 13,
+                    fontSize: KonataTheme.fontSizeBodySm,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -508,7 +509,7 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
                   '${bgm.year ?? '未知年份'} · $scoreText${_loadingBgmDetail ? ' · 补全详情中...' : ''}',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: p.textSecondary, fontSize: 11.5),
+                  style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeCaptionSm),
                 ),
               ],
             ),
@@ -632,7 +633,7 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: p.textPrimary,
-                        fontSize: 13,
+                        fontSize: KonataTheme.fontSizeBodySm,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -641,7 +642,7 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
                       '${detail.mediaType == TmdbMediaType.tv ? 'TMDB 母系列' : 'TMDB 电影'} · #${detail.tmdbId}（自动共享该系列背景图池）',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: p.textSecondary, fontSize: 11.3),
+                      style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeCaptionSm),
                     ),
                   ],
                 ),
@@ -668,7 +669,7 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
                 children: [
                   Text(
                     'TMDB 季：',
-                    style: TextStyle(color: p.textSecondary, fontSize: 12),
+                    style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeCaption),
                   ),
                   Expanded(
                     child: KonataDropdown<int>(
@@ -733,7 +734,7 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
                       final ep = episodes[index];
                       final picked = ep.episodeNumber == _startEpisodeNumber;
                       return InkWell(
-                        borderRadius: BorderRadius.circular(6),
+                        borderRadius: KonataTheme.borderRadiusChip,
                         onTap: () => setState(() {
                           _startEpisodeNumber = ep.episodeNumber;
                           _episodeNumCtrl.text = ep.episodeNumber.toString();
@@ -747,7 +748,7 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
                             color: picked
                                 ? p.accent.withValues(alpha: 0.16)
                                 : p.softFill,
-                            borderRadius: BorderRadius.circular(6),
+                            borderRadius: KonataTheme.borderRadiusChip,
                             border: Border.all(
                               color: picked
                                   ? p.accent.withValues(alpha: 0.45)
@@ -760,7 +761,7 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
                                 'S${ep.seasonNumber.toString().padLeft(2, '0')}E${ep.episodeNumber.toString().padLeft(2, '0')}',
                                 style: TextStyle(
                                   color: picked ? p.accent : p.textSecondary,
-                                  fontSize: 11.2,
+                                  fontSize: KonataTheme.fontSizeCaptionXs,
                                   fontFamily: 'Consolas',
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -773,7 +774,7 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     color: p.textPrimary,
-                                    fontSize: 12,
+                                    fontSize: KonataTheme.fontSizeCaption,
                                   ),
                                 ),
                               ),
@@ -788,7 +789,7 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
             else
               Text(
                 'TMDB 该季暂未返回分集目录，可直接填入对应集号进行绑定',
-                style: TextStyle(color: p.textMuted, fontSize: 11.5),
+                style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeCaptionSm),
               ),
           ],
         ],
@@ -807,7 +808,7 @@ class _SmallCover extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     return ClipRRect(
-      borderRadius: BorderRadius.circular(5),
+      borderRadius: KonataTheme.borderRadiusChipSm,
       child: SizedBox(
         width: 34,
         height: 48,
@@ -856,7 +857,7 @@ class _CandidatePickCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: p.textPrimary,
-                    fontSize: 12.8,
+                    fontSize: KonataTheme.fontSizeBodySm,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -865,7 +866,7 @@ class _CandidatePickCard extends StatelessWidget {
                   subtitle,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: p.textSecondary, fontSize: 11.4),
+                  style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeCaptionSm),
                 ),
               ],
             ),

@@ -32,20 +32,20 @@ enum VideoQualityPreset {
 /// 高色深桌面视频渲染后端模式（默认优先真 10-bit/HDR 底层硬件直通，保留兼容纹理回退）。
 ///
 /// 使用跨端中性的配置键，避免 Android AOT 产物残留平台专属后端符号。
-enum DesktopVideoOutputMode {
+enum VideoOutputPipelineMode {
   /// 默认原生 `vo=gpu-next` (`libplacebo` 10-bit/HDR 翻转交换链 + 底层子窗口挖空直出)。
   gpuNextUnderlay('gpu_next', '10-bit/HDR 直通 (vo=gpu-next)'),
 
   /// 底层 10-bit 翻转模型交换链视觉层直出。
-  directComposition10Bit('comp_10bit', '10-bit 底层合成交换链'),
+  layered10Bit('comp_10bit', '10-bit 底层合成交换链'),
 
   /// 底层 16-bit scRGB HDR 交换链视觉层直出。
-  directCompositionFp16('comp_fp16', '16-bit HDR 底层合成交换链'),
+  layeredFp16('comp_fp16', '16-bit HDR 底层合成交换链'),
 
   /// 老旧驱动兼容回退：高精内部 FBO 经 IGN 抖动解析至 8-bit 共享纹理。
   legacyTextureFallback('texture_fallback', '8-bit 兼容共享纹理回退');
 
-  const DesktopVideoOutputMode(this.bridgeKey, this.label);
+  const VideoOutputPipelineMode(this.bridgeKey, this.label);
 
   /// 传递给原生桥接通道的后端标识符。
   final String bridgeKey;
@@ -54,25 +54,77 @@ enum DesktopVideoOutputMode {
   final String label;
 
   /// 按持久化键名或枚举名安全解析渲染后端（未知值回落默认真 10-bit 直通）。
-  static DesktopVideoOutputMode parse(Object? raw) {
+  static VideoOutputPipelineMode parse(
+    Object? raw, {
+    MpvPlatformProfileDelegate? delegate,
+  }) {
     if (raw is String) {
+      final normalized = delegate?.normalizeLegacyOutputModeKey(raw) ?? raw;
       for (final mode in values) {
-        if (mode.name == raw || mode.bridgeKey == raw) {
+        if (mode.name == normalized || mode.bridgeKey == normalized) {
           return mode;
         }
       }
-      if (raw == 'dcomp_10bit') {
-        return DesktopVideoOutputMode.directComposition10Bit;
-      }
-      if (raw == 'dcomp_fp16') {
-        return DesktopVideoOutputMode.directCompositionFp16;
-      }
-      if (raw == 'd3d11_fp16' || raw == 'd3d11Fp16') {
-        return DesktopVideoOutputMode.legacyTextureFallback;
-      }
     }
-    return DesktopVideoOutputMode.gpuNextUnderlay;
+    return VideoOutputPipelineMode.gpuNextUnderlay;
   }
+}
+
+/// 桌面端专属 `libmpv` 驱动与后端参数委托（仅桌面组装根实现并注入，Android 端为 `null`）。
+abstract interface class MpvPlatformProfileDelegate {
+  /// 桌面端兼容外接纹理渲染驱动标识。
+  String get desktopVideoDriver;
+
+  /// 桌面端高色深直通渲染驱动标识。
+  String get desktopGpuNextDriver;
+
+  /// 桌面端默认音频输出驱动标识。
+  String get desktopAudioDriver;
+
+  /// 桌面端默认硬件解码管线列表。
+  String get desktopHwdecValue;
+
+  /// 将历史持久化后端键名规整为中立跨端键名。
+  String normalizeLegacyOutputModeKey(String raw);
+
+  /// 将桌面历史播放偏好 JSON 键无损迁移至跨端中立键名。
+  Map<Object?, Object?> normalizeLegacyPreferenceMap(
+    Map<Object?, Object?> raw,
+  );
+
+  /// 识别桌面端硬件解码异常告警日志。
+  bool isDesktopHardwareDecodeWarning(String lowerCaseMessage);
+
+  /// 写入桌面端视频初始化前置渲染管线选项。
+  void applyDesktopVideoPreInitOptions(
+    LibMpvClient client,
+    MpvSafePropertySetter setter, {
+    required PlaybackQualityConfig config,
+    int? desktopUnderlayHwnd,
+  });
+
+  /// 写入桌面端初始化前置音频独占参数。
+  void applyDesktopAudioExclusivePreInit(
+    LibMpvClient client,
+    MpvSafePropertySetter setter,
+    PlaybackQualityConfig config,
+  );
+
+  /// 初始化完成后同步桌面端音频独占状态并处理回退提示。
+  void applyDesktopAudioExclusivePostInit(
+    LibMpvClient client,
+    MpvSafePropertySetter setter,
+    PlaybackQualityConfig config, {
+    void Function(String message)? onNotice,
+  });
+
+  /// 播放期间热切换桌面端音频独占模式并处理回退提示。
+  void applyDesktopAudioExclusiveLive(
+    LibMpvClient client,
+    MpvSafePropertySetter setter,
+    PlaybackQualityConfig config, {
+    void Function(String message)? onNotice,
+  });
 }
 
 /// 音视频播放画质、音频后端与缓存持久化配置模型（强类型，严禁跨层 Map）。
@@ -80,14 +132,14 @@ class PlaybackQualityConfig {
   /// 创建画质与音画偏好配置。
   const PlaybackQualityConfig({
     this.preset = VideoQualityPreset.highFidelity,
-    this.desktopOutputMode = DesktopVideoOutputMode.gpuNextUnderlay,
+    this.outputPipelineMode = VideoOutputPipelineMode.gpuNextUnderlay,
     this.hardwareDecode = true,
     this.debandEnabled = false,
     this.demuxerMaxBytesMiB = defaultDemuxerMaxBytesMiB,
     this.demuxerMaxBackBytesMiB = defaultDemuxerMaxBackBytesMiB,
     this.cacheSecs = defaultCacheSecs,
     this.audioResamplerPrecision = defaultSoxrPrecision,
-    this.wasapiExclusive = false,
+    this.exclusiveAudioOutput = false,
     this.audioDevice = defaultAudioDevice,
     this.activeShaderPaths = const [],
     this.defaultSpeed = 1.0,
@@ -128,14 +180,14 @@ class PlaybackQualityConfig {
   );
 
   final VideoQualityPreset preset;
-  final DesktopVideoOutputMode desktopOutputMode;
+  final VideoOutputPipelineMode outputPipelineMode;
   final bool hardwareDecode;
   final bool debandEnabled;
   final int demuxerMaxBytesMiB;
   final int demuxerMaxBackBytesMiB;
   final int cacheSecs;
   final int audioResamplerPrecision;
-  final bool wasapiExclusive;
+  final bool exclusiveAudioOutput;
   final String audioDevice;
   final List<String> activeShaderPaths;
   final double defaultSpeed;
@@ -149,14 +201,14 @@ class PlaybackQualityConfig {
   /// 复制更新局部画质或音频设置。
   PlaybackQualityConfig copyWith({
     VideoQualityPreset? preset,
-    DesktopVideoOutputMode? desktopOutputMode,
+    VideoOutputPipelineMode? outputPipelineMode,
     bool? hardwareDecode,
     bool? debandEnabled,
     int? demuxerMaxBytesMiB,
     int? demuxerMaxBackBytesMiB,
     int? cacheSecs,
     int? audioResamplerPrecision,
-    bool? wasapiExclusive,
+    bool? exclusiveAudioOutput,
     String? audioDevice,
     List<String>? activeShaderPaths,
     double? defaultSpeed,
@@ -169,7 +221,7 @@ class PlaybackQualityConfig {
   }) {
     return PlaybackQualityConfig(
       preset: preset ?? this.preset,
-      desktopOutputMode: desktopOutputMode ?? this.desktopOutputMode,
+      outputPipelineMode: outputPipelineMode ?? this.outputPipelineMode,
       hardwareDecode: hardwareDecode ?? this.hardwareDecode,
       debandEnabled: debandEnabled ?? this.debandEnabled,
       demuxerMaxBytesMiB: demuxerMaxBytesMiB ?? this.demuxerMaxBytesMiB,
@@ -178,7 +230,7 @@ class PlaybackQualityConfig {
       cacheSecs: cacheSecs ?? this.cacheSecs,
       audioResamplerPrecision:
           audioResamplerPrecision ?? this.audioResamplerPrecision,
-      wasapiExclusive: wasapiExclusive ?? this.wasapiExclusive,
+      exclusiveAudioOutput: exclusiveAudioOutput ?? this.exclusiveAudioOutput,
       audioDevice: audioDevice ?? this.audioDevice,
       activeShaderPaths: activeShaderPaths ?? this.activeShaderPaths,
       defaultSpeed: defaultSpeed ?? this.defaultSpeed,
@@ -274,11 +326,9 @@ class MpvSafePropertySetter {
 class MpvQualityProfile {
   MpvQualityProfile._();
 
-  static const String windowsVideoDriver = 'libmpv';
-  static const String windowsGpuNextDriver = 'gpu-next';
+  static const String genericVideoDriver = 'libmpv';
   static const String androidVideoDriver = 'gpu-next';
   static const String androidLegacyVideoDriver = 'gpu';
-  static const String windowsAudioDriver = 'wasapi';
   static const String androidAudioDriver = 'aaudio,audiotrack,opensles';
 
   /// WebDAV / HTTP 本地流网桥回环重连与大封面/高码率头部加速探测参数。
@@ -298,13 +348,14 @@ class MpvQualityProfile {
     required PlaybackQualityConfig config,
     required bool isWindows,
     required bool isAndroid,
+    MpvPlatformProfileDelegate? desktopDelegate,
   }) {
     if (!config.hardwareDecode ||
         config.preset == VideoQualityPreset.softwareFallback) {
       return 'no';
     }
-    if (isWindows) {
-      return 'd3d11va,d3d11va-copy,auto-safe';
+    if (isWindows && desktopDelegate != null) {
+      return desktopDelegate.desktopHwdecValue;
     }
     if (isAndroid) {
       // Android 优先尝试零拷贝硬解并在需要时自动回退至兼容拷贝路径
@@ -379,6 +430,7 @@ class MpvQualityProfile {
     bool? isWindowsOverride,
     bool? isAndroidOverride,
     int? desktopUnderlayHwnd,
+    MpvPlatformProfileDelegate? desktopDelegate,
     List<String>? verifiedShaderPaths,
     DiagnosticsLogStore? logStore,
   }) {
@@ -396,31 +448,15 @@ class MpvQualityProfile {
     setter.setOption(client, 'osd-level', '0');
 
     // 视频渲染后端与硬件解码策略：
-    // - 桌面端优先通过底层子窗口 `wid` 驱动 `vo=gpu-next` (`libplacebo` 10-bit/HDR 翻转交换链)；
-    //   仅当回退至 DirectComposition 或 8-bit 兼容共享纹理桥时启用 `vo=libmpv`；
+    // - 桌面端交由平台参数委托注入底层 10-bit/HDR 翻转交换链或兼容外接纹理参数；
     // - Android 延迟至有效像素表面就绪后再切换至 `vo=gpu-next`，支持 libplacebo HDR/DoVi。
-    if (isWindows) {
-      final useGpuNext =
-          config.desktopOutputMode == DesktopVideoOutputMode.gpuNextUnderlay &&
-          config.hardwareDecode &&
-          config.preset != VideoQualityPreset.softwareFallback;
-      if (useGpuNext) {
-        if (desktopUnderlayHwnd != null && desktopUnderlayHwnd > 0) {
-          setter.setOption(client, 'wid', '$desktopUnderlayHwnd');
-        }
-        setter.setOption(client, 'vo', windowsGpuNextDriver);
-        setter.setOption(client, 'gpu-api', 'd3d11');
-        setter.setOption(client, 'gpu-context', 'd3d11');
-        setter.setOption(client, 'd3d11-output-format', 'rgb10_a2');
-        setter.setOption(client, 'd3d11-flip', 'yes');
-        setter.setOption(client, 'target-colorspace-hint', 'auto');
-        setter.setOption(client, 'keepaspect', 'yes');
-        setter.setOption(client, 'background-color', '#000000');
-      } else {
-        setter.setOption(client, 'vo', windowsVideoDriver);
-        setter.setOption(client, 'gpu-api', 'd3d11');
-        setter.setOption(client, 'target-colorspace-hint', 'auto');
-      }
+    if (isWindows && desktopDelegate != null) {
+      desktopDelegate.applyDesktopVideoPreInitOptions(
+        client,
+        setter,
+        config: config,
+        desktopUnderlayHwnd: desktopUnderlayHwnd,
+      );
     } else if (isAndroid) {
       setter.setOption(client, 'vo', 'null');
       setter.setOption(client, 'gpu-context', 'android');
@@ -429,7 +465,7 @@ class MpvQualityProfile {
       setter.setOption(client, 'egl-output-format', 'rgb10_a2');
       setter.setOption(client, 'target-colorspace-hint', 'auto');
     } else {
-      setter.setOption(client, 'vo', windowsVideoDriver);
+      setter.setOption(client, 'vo', genericVideoDriver);
     }
     setter.setOption(
       client,
@@ -438,6 +474,7 @@ class MpvQualityProfile {
         config: config,
         isWindows: isWindows,
         isAndroid: isAndroid,
+        desktopDelegate: desktopDelegate,
       ),
     );
     setter.setOption(
@@ -449,10 +486,6 @@ class MpvQualityProfile {
     setter.setOption(client, 'vd-lavc-threads', '0');
 
     // 高精色彩管理、libplacebo 动态 HDR 色调映射与抖动
-    // （Windows D3D11 使用 rgba16hf 保持 16-bit 浮点内部精度与亚克力透光兼容，Android 保持 GLES 自适应）
-    if (isWindows) {
-      setter.setOption(client, 'fbo-format', 'rgba16hf');
-    }
     setter.setOption(client, 'tone-mapping', 'bt.2446a');
     setter.setOption(client, 'hdr-compute-peak', 'yes');
     setter.setOption(client, 'gamut-mapping-mode', 'perceptual');
@@ -518,16 +551,16 @@ class MpvQualityProfile {
       'gapless-audio',
       AudiophileSafetyPolicy.unifiedGaplessMode,
     );
-    setter.setOption(
-      client,
-      'ao',
-      isWindows ? windowsAudioDriver : androidAudioDriver,
-    );
+    if (isWindows && desktopDelegate != null) {
+      setter.setOption(client, 'ao', desktopDelegate.desktopAudioDriver);
+    } else if (isAndroid) {
+      setter.setOption(client, 'ao', androidAudioDriver);
+    }
     if (config.audioDevice.trim().isNotEmpty && config.audioDevice != 'auto') {
       setter.setOption(client, 'audio-device', config.audioDevice);
     }
-    if (isWindows && config.wasapiExclusive) {
-      setter.setOption(client, 'audio-exclusive', 'yes');
+    if (isWindows && desktopDelegate != null) {
+      desktopDelegate.applyDesktopAudioExclusivePreInit(client, setter, config);
     }
 
     // 字幕与外挂音轨策略
@@ -574,12 +607,13 @@ class MpvQualityProfile {
     setter.setOption(client, 'screenshot-sw', 'no');
   }
 
-  /// 初始化完成后同步动态运行态属性（含 WASAPI 独占失败自动退回共享模式提示）。
+  /// 初始化完成后同步动态运行态属性（含桌面音频独占失败自动退回共享模式提示）。
   static void applyPostInitVideoProperties(
     LibMpvClient client, {
     required PlaybackQualityConfig config,
     bool? isWindowsOverride,
-    void Function(String message)? onWasapiFallbackNotice,
+    MpvPlatformProfileDelegate? desktopDelegate,
+    void Function(String message)? onExclusiveFallbackNotice,
     DiagnosticsLogStore? logStore,
   }) {
     final isWindows = isWindowsOverride ?? Platform.isWindows;
@@ -589,12 +623,13 @@ class MpvQualityProfile {
     setter.setBool(client, 'audio-pitch-correction', config.keepPitch);
     _applySubtitleRuntimeProperties(client, config: config, setter: setter);
 
-    if (isWindows && config.wasapiExclusive) {
-      final ok = setter.setBool(client, 'audio-exclusive', true);
-      if (!ok) {
-        setter.setBool(client, 'audio-exclusive', false);
-        onWasapiFallbackNotice?.call('WASAPI 独占模式初始化受限，已自动回退至共享混音输出');
-      }
+    if (isWindows && desktopDelegate != null) {
+      desktopDelegate.applyDesktopAudioExclusivePostInit(
+        client,
+        setter,
+        config,
+        onNotice: onExclusiveFallbackNotice,
+      );
     }
   }
 
@@ -672,8 +707,9 @@ class MpvQualityProfile {
     required PlaybackQualityConfig config,
     bool? isWindowsOverride,
     bool? isAndroidOverride,
+    MpvPlatformProfileDelegate? desktopDelegate,
     List<String>? verifiedShaderPaths,
-    void Function(String message)? onWasapiFallbackNotice,
+    void Function(String message)? onExclusiveFallbackNotice,
     DiagnosticsLogStore? logStore,
   }) {
     final isWindows = isWindowsOverride ?? Platform.isWindows;
@@ -692,6 +728,7 @@ class MpvQualityProfile {
         config: config,
         isWindows: isWindows,
         isAndroid: isAndroid,
+        desktopDelegate: desktopDelegate,
       ),
     );
 
@@ -707,16 +744,13 @@ class MpvQualityProfile {
     if (config.audioDevice.trim().isNotEmpty) {
       setter.setString(client, 'audio-device', config.audioDevice);
     }
-    if (isWindows) {
-      final exclusiveOk = setter.setBool(
+    if (isWindows && desktopDelegate != null) {
+      desktopDelegate.applyDesktopAudioExclusiveLive(
         client,
-        'audio-exclusive',
-        config.wasapiExclusive,
+        setter,
+        config,
+        onNotice: onExclusiveFallbackNotice,
       );
-      if (config.wasapiExclusive && !exclusiveOk) {
-        setter.setBool(client, 'audio-exclusive', false);
-        onWasapiFallbackNotice?.call('当前音频设备不支持 WASAPI 独占模式，已自动切回共享模式');
-      }
     }
   }
 
@@ -727,6 +761,7 @@ class MpvQualityProfile {
     required Directory mpvConfigDir,
     bool isRemoteStream = false,
     bool? isWindowsOverride,
+    MpvPlatformProfileDelegate? desktopDelegate,
     DiagnosticsLogStore? logStore,
   }) {
     final isWindows = isWindowsOverride ?? Platform.isWindows;
@@ -760,16 +795,16 @@ class MpvQualityProfile {
       'gapless-audio',
       AudiophileSafetyPolicy.unifiedGaplessMode,
     );
-    setter.setOption(
-      client,
-      'ao',
-      isWindows ? windowsAudioDriver : androidAudioDriver,
-    );
+    if (isWindows && desktopDelegate != null) {
+      setter.setOption(client, 'ao', desktopDelegate.desktopAudioDriver);
+    } else if (!isWindows) {
+      setter.setOption(client, 'ao', androidAudioDriver);
+    }
     if (config.audioDevice.trim().isNotEmpty && config.audioDevice != 'auto') {
       setter.setOption(client, 'audio-device', config.audioDevice);
     }
-    if (isWindows && config.wasapiExclusive) {
-      setter.setOption(client, 'audio-exclusive', 'yes');
+    if (isWindows && desktopDelegate != null) {
+      desktopDelegate.applyDesktopAudioExclusivePreInit(client, setter, config);
     }
     setter.setOption(client, 'cache', 'yes');
     setter.setOption(client, 'cache-on-disk', 'no');

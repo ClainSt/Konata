@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:developer' as developer;
 
 /// 外部音频进度持久化回调签名。
 typedef FoobarPersistCallback =
@@ -227,7 +228,9 @@ class FoobarBeefwebTracker {
       req.write(jsonEncode(<String, Object>{'position': positionSeconds}));
       final resp = await req.close().timeout(const Duration(milliseconds: 800));
       await resp.drain<void>().timeout(const Duration(milliseconds: 800));
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.foobar_beefweb_tracker', error: error);
+    }
   }
 
   static bool _matchesTarget({
@@ -253,7 +256,9 @@ class FoobarBeefwebTracker {
     var s = input.trim();
     try {
       s = Uri.decodeFull(s);
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.foobar_beefweb_tracker', error: error);
+    }
     return s.replaceAll('\\', '/').toLowerCase();
   }
 

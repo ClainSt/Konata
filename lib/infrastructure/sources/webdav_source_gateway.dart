@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:developer' as developer;
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
@@ -701,8 +702,9 @@ class WebDavSourceGateway
           return (length: parsed, validator: headValidator);
         }
       }
-    } catch (_) {
+    } catch (error) {
       // 兼容禁用 HEAD、对 HEAD 超时或主动断连的 WebDAV 驱动，立即回退 bytes=0-0。
+      developer.log('可恢复异常已记录', name: 'konata.webdav_source_gateway', error: error);
     }
 
     // 兼容部分禁用 HEAD 或未返回 Content-Length 的 WebDAV 服务：回退至 bytes=0-0 探测总长度与验证器。

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -58,7 +59,9 @@ class AndroidMediaSessionBridge {
       ServicesBinding.instance;
       _handlerBound = true;
       _channel.setMethodCallHandler(_handleNativeCall);
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.android_media_session_bridge', error: error);
+    }
   }
 
   Future<Object?> _handleNativeCall(MethodCall call) async {
@@ -169,7 +172,9 @@ class AndroidMediaSessionBridge {
 
     try {
       await _channel.invokeMethod<void>('update', payload);
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.android_media_session_bridge', error: error);
+    }
   }
 
   /// 停止并移除系统通知栏媒体卡片。
@@ -185,7 +190,9 @@ class AndroidMediaSessionBridge {
     if (!_isSupported()) return;
     try {
       await _channel.invokeMethod<void>('stop');
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.android_media_session_bridge', error: error);
+    }
   }
 
   /// 释放通道回调引用。
@@ -193,7 +200,9 @@ class AndroidMediaSessionBridge {
     if (_handlerBound) {
       try {
         _channel.setMethodCallHandler(null);
-      } catch (_) {}
+      } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.android_media_session_bridge', error: error);
+    }
       _handlerBound = false;
     }
     _onPlay = null;

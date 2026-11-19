@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/konata_palette.dart';
+import '../../theme/konata_theme.dart';
 
 /// 仅在单/多行文本真实发生省略截断时挂载全名悬停 Tooltip 的通用文本组件。
 class EllipsisTextWithTooltip extends StatelessWidget {
@@ -13,7 +14,7 @@ class EllipsisTextWithTooltip extends StatelessWidget {
     this.textAlign = TextAlign.start,
     this.tooltipMessage,
     this.strutStyle,
-    this.waitDuration = const Duration(milliseconds: 350),
+    this.waitDuration = KonataTheme.tooltipWaitDuration,
   });
 
   /// 要展示的文本内容。
@@ -75,27 +76,21 @@ class EllipsisTextWithTooltip extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           constraints: const BoxConstraints(maxWidth: 420),
           textStyle: TextStyle(
-            color: p.isDark
-                ? Colors.white.withValues(alpha: 0.94)
-                : p.textPrimary,
-            fontSize: 12.2,
+            color: KonataTheme.tooltipTextColor(p),
+            fontSize: KonataTheme.fontSizeCaption,
             fontWeight: FontWeight.w500,
             height: 1.35,
           ),
           decoration: BoxDecoration(
-            color: p.isDark
-                ? const Color(0xEC1B2029)
-                : const Color(0xF6FFFFFF),
-            borderRadius: BorderRadius.circular(8),
+            color: KonataTheme.tooltipSurface(p),
+            borderRadius: KonataTheme.borderRadiusSm,
             border: Border.all(
-              color: p.isDark
-                  ? Colors.white.withValues(alpha: 0.16)
-                  : Colors.black.withValues(alpha: 0.10),
+              color: KonataTheme.tooltipBorder(p),
               width: 1,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: p.isDark ? 0.36 : 0.12),
+                color: KonataTheme.tooltipShadow(p),
                 blurRadius: 16,
                 offset: const Offset(0, 6),
               ),

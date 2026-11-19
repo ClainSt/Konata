@@ -12,6 +12,7 @@ import 'package:ccplayer/infrastructure/players/android/android_video_surface_co
 import 'package:ccplayer/infrastructure/players/embedded_mpv_session.dart';
 import 'package:ccplayer/infrastructure/players/libmpv_ffi.dart';
 import 'package:ccplayer/infrastructure/players/mpv_quality_profile.dart';
+import 'package:ccplayer/infrastructure/players/windows_mpv_profile_adapter.dart';
 import 'package:ccplayer/infrastructure/storage/storage_root_provider.dart';
 import 'package:ccplayer/infrastructure/stream_bridge/local_stream_bridge.dart';
 
@@ -268,9 +269,10 @@ void main() {
 
       final config = PlaybackQualityConfig(
         preset: VideoQualityPreset.highFidelity,
+        outputPipelineMode: VideoOutputPipelineMode.legacyTextureFallback,
         hardwareDecode: true,
         debandEnabled: true,
-        wasapiExclusive: true,
+        exclusiveAudioOutput: true,
         audioResamplerPrecision: 28,
         activeShaderPaths: [
           shaderFile.path,
@@ -285,6 +287,7 @@ void main() {
         screenshotDir: tempRoot,
         isWindowsOverride: true,
         isAndroidOverride: false,
+        desktopDelegate: const WindowsMpvProfileDelegate(),
         logStore: logStore,
       );
 
@@ -306,7 +309,8 @@ void main() {
         client,
         config: config,
         isWindowsOverride: true,
-        onWasapiFallbackNotice: notices.add,
+        desktopDelegate: const WindowsMpvProfileDelegate(),
+        onExclusiveFallbackNotice: notices.add,
         logStore: logStore,
       );
       expect(notices, hasLength(1));

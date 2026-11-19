@@ -3,31 +3,12 @@ import '../models/external_player_config.dart';
 import '../models/media_source.dart';
 import '../models/media_variant.dart';
 import '../models/work.dart';
+import 'desktop_relay_service.dart';
 
-/// 外部播放器进度回调签名。
-typedef PlaybackProgressCallback =
-    Future<void> Function(
-      int positionSeconds,
-      int durationSeconds, {
-      required bool isFinal,
-    });
+export 'desktop_relay_service.dart'
+    show LaunchPlaybackResult, PlaybackProgressCallback;
 
-/// 外部播放器启动请求结果。
-class LaunchPlaybackResult {
-  /// 创建启动结果。
-  const LaunchPlaybackResult({
-    required this.launched,
-    required this.message,
-  });
-
-  /// 是否已实际拉起外部播放器进程。
-  final bool launched;
-
-  /// 面向用户的中文状态反馈信息。
-  final String message;
-}
-
-/// 外部播放器启动器抽象接口（Phase 4 接入本地 HTTP Range 流网桥与秒级进度追踪）。
+/// 桌面外部播放器启动器抽象接口（仅 Windows 组装根与桌面测试使用）。
 abstract interface class ExternalPlayerLauncher {
   /// 使用指定（或自动探测的默认）外部播放器启动播放（支持精确到 `1/75 s` 扇区的 [exactStartSeconds]）。
   Future<LaunchPlaybackResult> launch({

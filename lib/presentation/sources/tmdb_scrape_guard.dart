@@ -7,6 +7,7 @@ import '../settings/settings_page.dart';
 import '../theme/konata_palette.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
+import '../theme/konata_theme.dart';
 
 /// 刮削前置校验：检查是否已配置 TMDB API 密钥。
 ///
@@ -52,7 +53,7 @@ Future<bool> ensureTmdbConfiguredForScrape(
       child: Text(
         '尚未配置 TMDB API 密钥（API Key 或 Read Access Token），'
         '无法请求 TMDB 检索剧照、条目简介与分集信息。请前往「设置 -> 刮削与网络」完成配置。',
-        style: TextStyle(color: p.textSecondary, fontSize: 13.5, height: 1.55),
+        style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBody, height: 1.55),
       ),
     ),
   );

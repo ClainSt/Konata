@@ -1,5 +1,4 @@
 import '../models/episode.dart';
-import '../models/external_player_config.dart';
 import '../models/media_source.dart';
 import '../models/media_variant.dart';
 import '../models/playback_record.dart';
@@ -41,12 +40,6 @@ abstract interface class LibraryRepository {
 
   /// 查询指定媒体源下全部已入库的物理文件版本。
   Future<List<MediaVariant>> getVariantsBySource(String sourceId);
-
-  /// 新增或更新外部播放器/查看器配置。
-  Future<void> upsertExternalPlayer(ExternalPlayerConfig config);
-
-  /// 获取全部外部播放器配置。
-  Future<List<ExternalPlayerConfig>> getExternalPlayers();
 
   /// 保存作品的 Top-5 待复核候选摘要（覆盖旧候选）。
   Future<void> saveScrapeCandidates(

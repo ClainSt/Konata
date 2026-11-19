@@ -372,7 +372,7 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
           elevation: 0,
           insetPadding: EdgeInsets.all(inset),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: KonataTheme.borderRadiusCapsule,
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
               child: Container(
@@ -382,9 +382,9 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
                   color: KonataTheme.lightboxDarkSurface.withValues(
                     alpha: 0.82,
                   ),
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: KonataTheme.borderRadiusCapsule,
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.16),
+                    color: KonataTheme.overlayWhiteBorder,
                   ),
                 ),
                 child: Column(
@@ -417,8 +417,8 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: KonataTheme.detailTextStyle(
-                                    color: Colors.white.withValues(alpha: 0.65),
-                                    fontSize: 11.5,
+                                    color: KonataTheme.overlayWhiteTextMuted,
+                                    fontSize: KonataTheme.fontSizeCaptionSm,
                                     fontWeight: FontWeight.w400,
                                   ),
                                 ),
@@ -433,17 +433,17 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
                                 vertical: 4,
                               ),
                               decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.08),
-                                borderRadius: BorderRadius.circular(8),
+                                color: KonataTheme.overlayWhiteSubtle,
+                                borderRadius: KonataTheme.borderRadiusSm,
                                 border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.12),
+                                  color: KonataTheme.overlayWhiteMuted,
                                 ),
                               ),
                               child: Text(
                                 '${(_currentScale * 100).round()}%',
                                 style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 11.5,
+                                  fontSize: KonataTheme.fontSizeCaptionSm,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
@@ -535,7 +535,7 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
           child: Text(
             _errorText!,
             textAlign: TextAlign.center,
-            style: TextStyle(color: p.danger, fontSize: 13.5),
+            style: TextStyle(color: p.danger, fontSize: KonataTheme.fontSizeBody),
           ),
         ),
       );
@@ -545,7 +545,7 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
       return Center(
         child: Text(
           '无法读取当前画集图像内容',
-          style: TextStyle(color: Colors.white.withValues(alpha: 0.72)),
+          style: TextStyle(color: KonataTheme.overlayWhiteTextDim),
         ),
       );
     }
@@ -579,7 +579,7 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
                     errorBuilder: (_, _, _) => Text(
                       '图像解码失败或格式不受支持',
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.72),
+                        color: KonataTheme.overlayWhiteTextDim,
                       ),
                     ),
                   ),

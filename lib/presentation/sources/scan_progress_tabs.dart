@@ -5,6 +5,7 @@ import '../../application/scraping/scrape_progress.dart';
 import '../library/review_work_item_card.dart';
 import '../theme/konata_palette.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
+import '../theme/konata_theme.dart';
 
 /// 扫描进度弹窗内复用的数据统计胶囊。
 class ScanProgressStatChip extends StatelessWidget {
@@ -24,7 +25,7 @@ class ScanProgressStatChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: badge?.bg ?? p.softFill,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: KonataTheme.borderRadiusPill,
         border: Border.all(
           color: badge?.border ?? p.hairline,
           width: 1,
@@ -34,7 +35,7 @@ class ScanProgressStatChip extends StatelessWidget {
         label,
         style: TextStyle(
           color: badge?.fg ?? p.textSecondary,
-          fontSize: 11.5,
+          fontSize: KonataTheme.fontSizeCaptionSm,
           fontWeight: FontWeight.w600,
           fontFeatures: const [FontFeature.tabularFigures()],
         ),
@@ -65,7 +66,7 @@ class ScanVisitedFoldersPane extends StatelessWidget {
       return Center(
         child: Text(
           progress.isRunning ? '正在连接媒体源并读取目录...' : '暂无目录遍历记录',
-          style: TextStyle(color: p.textSecondary, fontSize: 13),
+          style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodySm),
         ),
       );
     }
@@ -78,7 +79,7 @@ class ScanVisitedFoldersPane extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
               color: p.softFill,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: KonataTheme.borderRadiusControl,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -87,7 +88,7 @@ class ScanVisitedFoldersPane extends StatelessWidget {
                   '已勾选扫描作用域 (${progress.selectedRoots.length})',
                   style: TextStyle(
                     color: p.textPrimary,
-                    fontSize: 12,
+                    fontSize: KonataTheme.fontSizeCaption,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -112,7 +113,7 @@ class ScanVisitedFoldersPane extends StatelessWidget {
               ? Center(
                   child: Text(
                     '目录枚举等待中...',
-                    style: TextStyle(color: p.textSecondary, fontSize: 13),
+                    style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodySm),
                   ),
                 )
               : KonataDraggableScrollbar(
@@ -149,7 +150,7 @@ class ScanVisitedFoldersPane extends StatelessWidget {
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                   color: p.textPrimary,
-                                  fontSize: 12.5,
+                                  fontSize: KonataTheme.fontSizeBodyXs,
                                   fontFamily: 'Consolas',
                                 ),
                               ),
@@ -159,7 +160,7 @@ class ScanVisitedFoldersPane extends StatelessWidget {
                               '$count 视频',
                               style: TextStyle(
                                 color: count > 0 ? p.textSecondary : p.textMuted,
-                                fontSize: 11.5,
+                                fontSize: KonataTheme.fontSizeCaptionSm,
                                 fontFeatures: const [
                                   FontFeature.tabularFigures(),
                                 ],
@@ -192,7 +193,7 @@ class ScanPendingReviewPane extends StatelessWidget {
       return Center(
         child: Text(
           '当前媒体源下暂无需要人工复核的作品',
-          style: TextStyle(color: p.textSecondary, fontSize: 13),
+          style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodySm),
         ),
       );
     }

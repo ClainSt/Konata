@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:developer' as developer;
 
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
@@ -198,7 +199,9 @@ class CloudSubsetCancellationHandle {
     for (final fn in snapshot) {
       try {
         fn();
-      } catch (_) {}
+      } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.fontinass_cloud_client', error: error);
+    }
     }
   }
 }

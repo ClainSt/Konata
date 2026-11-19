@@ -17,6 +17,7 @@ import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/design_system/konata_toast.dart';
 import '../widgets/managed_image.dart';
+import '../theme/konata_theme.dart';
 
 /// 并入已有作品时的视频分类归属模式。
 enum MergeVideoCategoryMode {
@@ -217,7 +218,7 @@ class _WorkMergeTargetDialogState extends ConsumerState<WorkMergeTargetDialog> {
                             '归入方式：',
                             style: TextStyle(
                               color: p.textSecondary,
-                              fontSize: 12,
+                              fontSize: KonataTheme.fontSizeCaption,
                             ),
                           ),
                           const SizedBox(width: 6),
@@ -268,7 +269,7 @@ class _WorkMergeTargetDialogState extends ConsumerState<WorkMergeTargetDialog> {
                         confirmedAsync.isLoading
                             ? '正在加载媒体库条目...'
                             : '未找到匹配的已入库作品',
-                        style: TextStyle(color: p.textSecondary, fontSize: 13),
+                        style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodySm),
                       ),
                     )
                   : KonataDraggableScrollbar(
@@ -289,13 +290,13 @@ class _WorkMergeTargetDialogState extends ConsumerState<WorkMergeTargetDialog> {
                                     ? 'S${work.matchedSeason.toString().padLeft(2, '0')}'
                                     : 'TV');
                           return InkWell(
-                            borderRadius: BorderRadius.circular(10),
+                            borderRadius: KonataTheme.borderRadiusControl,
                             onTap: _submitting
                                 ? null
                                 : () =>
                                       setState(() => _selectedTargetId = work.id),
                             child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 140),
+                              duration: KonataTheme.motionFast,
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 10,
                                 vertical: 8,
@@ -304,7 +305,7 @@ class _WorkMergeTargetDialogState extends ConsumerState<WorkMergeTargetDialog> {
                                 color: selected
                                     ? p.accent.withValues(alpha: 0.16)
                                     : p.softFill,
-                                borderRadius: BorderRadius.circular(10),
+                                borderRadius: KonataTheme.borderRadiusControl,
                                 border: Border.all(
                                   color: selected
                                       ? p.accent.withValues(alpha: 0.65)
@@ -314,7 +315,7 @@ class _WorkMergeTargetDialogState extends ConsumerState<WorkMergeTargetDialog> {
                               child: Row(
                                 children: [
                                   ClipRRect(
-                                    borderRadius: BorderRadius.circular(5),
+                                    borderRadius: KonataTheme.borderRadiusChipSm,
                                     child: SizedBox(
                                       width: 34,
                                       height: 48,
@@ -340,7 +341,7 @@ class _WorkMergeTargetDialogState extends ConsumerState<WorkMergeTargetDialog> {
                                           maxLines: 1,
                                           style: TextStyle(
                                             color: p.textPrimary,
-                                            fontSize: 13,
+                                            fontSize: KonataTheme.fontSizeBodySm,
                                             fontWeight: FontWeight.w600,
                                           ),
                                         ),
@@ -360,7 +361,7 @@ class _WorkMergeTargetDialogState extends ConsumerState<WorkMergeTargetDialog> {
                                           overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
                                             color: p.textSecondary,
-                                            fontSize: 11.4,
+                                            fontSize: KonataTheme.fontSizeCaptionSm,
                                           ),
                                         ),
                                       ],

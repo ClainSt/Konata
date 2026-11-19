@@ -4,6 +4,7 @@ import '../../domain/playback/playback_formatters.dart';
 import '../../domain/playback/playback_probe_stats.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../widgets/playback/konata_osd_stroked_text.dart';
+import '../theme/konata_theme.dart';
 
 /// 播放器左上角原生 `mpv` 纯文字描边技术探针浮层（Tab 键或顶栏按钮开关，展示 40+ 项核心指标）。
 ///
@@ -105,7 +106,7 @@ class VideoProbeOverlay extends StatelessWidget {
           children: [
             KonataOsdStrokedText(
               'Player · $backendLabel${adapterName.isNotEmpty ? ' · $adapterName' : ''}',
-              fontSize: 12.5,
+              fontSize: KonataTheme.fontSizeBodyXs,
               fontWeight: FontWeight.w600,
               color: KonataPlaybackTokens.osdProbeValueColor,
               maxLines: 1,
@@ -172,7 +173,7 @@ class _ProbeSectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return KonataOsdStrokedText(
       '$title:',
-      fontSize: 11.5,
+      fontSize: KonataTheme.fontSizeCaptionSm,
       fontWeight: FontWeight.w600,
       color: KonataPlaybackTokens.osdProbeLabelColor,
       height: 1.28,
@@ -198,7 +199,7 @@ class _ProbeIndentedRow extends StatelessWidget {
             width: 72,
             child: KonataOsdStrokedText(
               label,
-              fontSize: 11.0,
+              fontSize: KonataTheme.fontSizeCaptionXs,
               fontWeight: FontWeight.w500,
               color: KonataPlaybackTokens.osdProbeLabelColor,
               height: 1.28,
@@ -207,7 +208,7 @@ class _ProbeIndentedRow extends StatelessWidget {
           Expanded(
             child: KonataOsdStrokedText(
               normalized,
-              fontSize: 11.0,
+              fontSize: KonataTheme.fontSizeCaptionXs,
               fontWeight: FontWeight.w500,
               color: KonataPlaybackTokens.osdProbeValueColor,
               maxLines: 2,

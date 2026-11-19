@@ -193,7 +193,7 @@ class _AdaptiveActionHeaderState extends State<AdaptiveActionHeader> {
             ],
             for (final action in drawerActions)
               InkWell(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: KonataTheme.borderRadiusCard,
                 onTap: action.onPressed == null
                     ? null
                     : () {
@@ -228,7 +228,7 @@ class _AdaptiveActionHeaderState extends State<AdaptiveActionHeader> {
                               color: action.onPressed == null
                                   ? p.textMuted
                                   : p.textPrimary,
-                              fontSize: 14.5,
+                              fontSize: KonataTheme.fontSizeSubtitle,
                               fontWeight: action.highlighted
                                   ? FontWeight.w600
                                   : FontWeight.w500,

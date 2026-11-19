@@ -14,6 +14,7 @@ import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 import 'source_selected_scope_panel.dart';
+import '../theme/konata_theme.dart';
 
 enum _FolderPickerViewMode { browse, selectedManage }
 
@@ -339,7 +340,7 @@ class _SourceFolderPickerDialogState
       type: MaterialType.transparency,
       child: InkWell(
         key: const ValueKey('source_selected_scope_entry'),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: KonataTheme.borderRadiusCard,
         onTap: _busy
             ? null
             : () => setState(
@@ -352,7 +353,7 @@ class _SourceFolderPickerDialogState
             color: selectedCount > 0
                 ? p.accent.withValues(alpha: 0.10)
                 : p.softFill,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: KonataTheme.borderRadiusCard,
             border: Border.all(
               color: selectedCount > 0
                   ? p.accent.withValues(alpha: 0.36)
@@ -374,7 +375,7 @@ class _SourceFolderPickerDialogState
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: p.textPrimary,
-                    fontSize: 13,
+                    fontSize: KonataTheme.fontSizeBodySm,
                     fontWeight: FontWeight.w600,
                     fontFeatures: const [FontFeature.tabularFigures()],
                   ),
@@ -473,7 +474,7 @@ class _SourceFolderPickerDialogState
                 for (var i = 0; i < crumbs.length; i++) ...[
                   Text(
                     '/',
-                    style: TextStyle(color: p.textMuted, fontSize: 12),
+                    style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeCaption),
                   ),
                   _crumbButton(
                     p: p,
@@ -497,7 +498,7 @@ class _SourceFolderPickerDialogState
               : '匹配 $visibleCount / ${_entries.length}',
           style: TextStyle(
             color: p.textSecondary,
-            fontSize: 12,
+            fontSize: KonataTheme.fontSizeCaption,
             fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
@@ -536,7 +537,7 @@ class _SourceFolderPickerDialogState
   }) {
     return InkWell(
       key: key,
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: KonataTheme.borderRadiusChip,
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
@@ -544,7 +545,7 @@ class _SourceFolderPickerDialogState
           label,
           style: TextStyle(
             color: active ? p.textPrimary : p.textSecondary,
-            fontSize: 12.5,
+            fontSize: KonataTheme.fontSizeBodyXs,
             fontWeight: active ? FontWeight.w600 : FontWeight.w500,
           ),
         ),
@@ -566,7 +567,7 @@ class _SourceFolderPickerDialogState
               Text(
                 _error!,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: p.danger, fontSize: 13),
+                style: TextStyle(color: p.danger, fontSize: KonataTheme.fontSizeBodySm),
               ),
               const SizedBox(height: 10),
               KonataPillButton.secondary(
@@ -583,7 +584,7 @@ class _SourceFolderPickerDialogState
       return Center(
         child: Text(
           _searchQuery.isNotEmpty ? '没有匹配当前筛选条件的条目' : '该目录为空',
-          style: TextStyle(color: p.textSecondary, fontSize: 13),
+          style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodySm),
         ),
       );
     }

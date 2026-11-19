@@ -9,7 +9,7 @@ import 'package:ccplayer/application/playback/audio_playback_notifier.dart';
 import 'package:ccplayer/application/playback/playback_dispatcher.dart';
 import 'package:ccplayer/application/playback/playback_preferences_provider.dart';
 import 'package:ccplayer/application/providers/library_providers.dart';
-import 'package:ccplayer/application/providers/playback_providers.dart';
+import 'package:ccplayer/composition/platform_composition.dart';
 import 'package:ccplayer/domain/models/episode.dart';
 import 'package:ccplayer/domain/models/external_player_config.dart';
 import 'package:ccplayer/domain/models/media_source.dart';
@@ -20,8 +20,10 @@ import 'package:ccplayer/domain/playback/track_preferences.dart';
 import 'package:ccplayer/domain/repositories/external_player_launcher.dart';
 import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
 import 'package:ccplayer/infrastructure/database/konata_database.dart';
+import 'package:ccplayer/infrastructure/players/desktop_external_player_store.dart';
 import 'package:ccplayer/infrastructure/players/libmpv_ffi.dart';
 import 'package:ccplayer/infrastructure/players/mpv_quality_profile.dart';
+import 'package:ccplayer/infrastructure/players/windows_desktop_relay_gateway.dart';
 import 'package:ccplayer/infrastructure/storage/storage_root_provider.dart';
 
 class _SpyExternalLauncher implements ExternalPlayerLauncher {
@@ -234,7 +236,12 @@ void main() {
             StorageRootService(overrideRoot: tempRoot),
           ),
           libraryRepositoryProvider.overrideWithValue(repo),
-          externalPlayerLauncherProvider.overrideWithValue(spyLauncher),
+          desktopRelayGatewayProvider.overrideWithValue(
+            WindowsDesktopRelayGateway(
+              store: DesktopExternalPlayerStore(db),
+              launcher: spyLauncher,
+            ),
+          ),
           playbackPreferencesProvider.overrideWith(
             (_) => PlaybackPreferencesNotifier(enablePersistence: false),
           ),
@@ -305,13 +312,14 @@ void main() {
         kind: ExternalPlayerKind.potplayer,
         executablePath: r'C:\PotPlayerMini64.exe',
       );
+      await DesktopExternalPlayerStore(db).upsertExternalPlayer(customExt);
       final decision = await container
           .read(playbackDispatcherProvider)
           .dispatchVideoVariant(
             bundle: bundle,
             episode: ep1,
             variant: videoVar,
-            explicitPlayer: customExt,
+            explicitTargetId: customExt.id,
           );
 
       expect(decision, isA<LaunchedExternalVideoDecision>());
@@ -337,7 +345,7 @@ void main() {
         variant: cdVar,
         cdPlaylist: const [cdVar],
         sourcesById: const {'s1': source},
-        overrideEngine: PreferredPlaybackEngine.externalPlayer,
+        overrideEngine: PreferredPlaybackEngine.desktopRelay,
       );
       expect(spyLauncher.callCount, equals(1));
     });

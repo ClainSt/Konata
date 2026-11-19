@@ -1,5 +1,6 @@
 import 'package:path/path.dart' as p;
 
+import '../models/media_extensions.dart';
 import '../models/media_variant.dart';
 import 'cue_and_lrc_parser.dart';
 
@@ -104,32 +105,15 @@ abstract final class CueVariantResolver {
   }
 
   /// 判断文件名是否为 `.cue` 分轨清单文件。
-  static bool isCueSheetFile(String name) {
-    return p.extension(name.trim()).toLowerCase() == '.cue';
-  }
+  static bool isCueSheetFile(String name) =>
+      KonataMediaExtensions.isCueSheetFile(name);
 
   /// 判断音频文件名词干是否属于无具体语义的泛化抓轨镜像名（如 `CDImage`）。
   static bool isGenericDiscImageStem(String stem) {
     return _genericDiscImageStemRegex.hasMatch(stem.trim());
   }
 
-  /// 统一用于 CD 队列和 CUE 物理媒体匹配的音频扩展名。
-  static bool isPlayableAudioFile(String name) {
-    final ext = p.extension(name.trim()).toLowerCase();
-    return const {
-      '.flac',
-      '.ape',
-      '.wav',
-      '.wv',
-      '.tak',
-      '.alac',
-      '.m4a',
-      '.aac',
-      '.mp3',
-      '.ogg',
-      '.opus',
-      '.dsf',
-      '.dff',
-    }.contains(ext);
-  }
+  /// 统一用于 CD 队列和 CUE 物理媒体匹配的音频扩展名（引用领域单一权威白名单）。
+  static bool isPlayableAudioFile(String name) =>
+      KonataMediaExtensions.isPlayableAudioFile(name);
 }

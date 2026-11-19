@@ -1,3 +1,4 @@
+import '../models/media_extensions.dart';
 import 'track_preferences.dart';
 
 /// 面向播放器界面与切换菜单的标准化字幕候选项（内嵌与外挂去重统一 + 智能语义提炼）。
@@ -625,36 +626,16 @@ class _TrackSemanticExtractor {
 class SubtitleAndAudioChoices {
   SubtitleAndAudioChoices._();
 
-  /// 支持的外挂字幕扩展名集合。
-  static const Set<String> subtitleExtensions = {
-    '.ass',
-    '.ssa',
-    '.srt',
-    '.vtt',
-    '.sub',
-    '.idx',
-    '.sup',
-  };
+  /// 支持的外挂字幕扩展名集合（统一引用领域权威常量表）。
+  static const Set<String> subtitleExtensions = KonataMediaExtensions.subtitle;
 
   /// 支持挂载为外部音轨的扩展名集合（传递给 `audio-files-append`）。
-  static const Set<String> externalAudioExtensions = {
-    '.mka',
-    '.flac',
-    '.aac',
-    '.wav',
-    '.ac3',
-    '.dts',
-    '.opus',
-  };
+  static const Set<String> externalAudioExtensions =
+      KonataMediaExtensions.externalAudio;
 
   /// 提取小写文件扩展名（含点号，如 `.ass`）。
-  static String extensionOf(String pathOrName) {
-    final normalized = pathOrName.replaceAll('\\', '/');
-    final fileName = normalized.split('/').last;
-    final dot = fileName.lastIndexOf('.');
-    if (dot <= 0 || dot == fileName.length - 1) return '';
-    return fileName.substring(dot).toLowerCase();
-  }
+  static String extensionOf(String pathOrName) =>
+      KonataMediaExtensions.extensionOf(pathOrName);
 
   /// 提取不含目录与最终扩展名的文件名。
   static String stemOf(String pathOrName) {

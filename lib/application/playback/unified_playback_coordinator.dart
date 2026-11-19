@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -177,7 +178,9 @@ class AndroidPlaybackWindowBridge {
               ]
             : DeviceOrientation.values,
       );
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.unified_playback_coordinator', error: error);
+    }
     await Future.wait(<Future<void>>[
       setLandscapePreferred(landscape),
       setSystemBarsHidden(hideSystemBars),
@@ -189,7 +192,9 @@ class AndroidPlaybackWindowBridge {
     if (!KonataPlatform.isAndroid) return;
     try {
       await _windowChannel.invokeMethod<void>('begin');
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.unified_playback_coordinator', error: error);
+    }
   }
 
   /// 退出 Android 播放窗口系统栏隐藏与方向覆写。
@@ -197,13 +202,19 @@ class AndroidPlaybackWindowBridge {
     if (!KonataPlatform.isAndroid) return;
     try {
       await SystemChrome.setPreferredOrientations(DeviceOrientation.values);
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.unified_playback_coordinator', error: error);
+    }
     try {
       await _windowChannel.invokeMethod<void>('setBrightness', -1.0);
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.unified_playback_coordinator', error: error);
+    }
     try {
       await _windowChannel.invokeMethod<void>('end');
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.unified_playback_coordinator', error: error);
+    }
   }
 
   /// 切换系统状态栏与导航手势栏沉浸式隐藏。
@@ -211,7 +222,9 @@ class AndroidPlaybackWindowBridge {
     if (!KonataPlatform.isAndroid) return;
     try {
       await _windowChannel.invokeMethod<void>('fullscreen', hidden);
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.unified_playback_coordinator', error: error);
+    }
   }
 
   /// 切换一键横屏或恢复传感器自由方向。
@@ -219,7 +232,9 @@ class AndroidPlaybackWindowBridge {
     if (!KonataPlatform.isAndroid) return;
     try {
       await _windowChannel.invokeMethod<void>('setLandscape', landscape);
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.unified_playback_coordinator', error: error);
+    }
   }
 
   /// 锁定或解锁当前物理屏幕方向。
@@ -227,7 +242,9 @@ class AndroidPlaybackWindowBridge {
     if (!KonataPlatform.isAndroid) return;
     try {
       await _windowChannel.invokeMethod<bool>('orientationLocked', locked);
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.unified_playback_coordinator', error: error);
+    }
   }
 
   /// 设置当前播放窗口亮度（`0.0 ~ 1.0`，负数恢复系统亮度）。
@@ -235,7 +252,9 @@ class AndroidPlaybackWindowBridge {
     if (!KonataPlatform.isAndroid) return;
     try {
       await _windowChannel.invokeMethod<void>('setBrightness', brightness);
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.unified_playback_coordinator', error: error);
+    }
   }
 }
 
@@ -351,7 +370,9 @@ class AndroidPipChannelClient {
         }
         return null;
       });
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.unified_playback_coordinator', error: error);
+    }
   }
 
   /// 解绑通道监听。
@@ -359,7 +380,9 @@ class AndroidPipChannelClient {
     try {
       ServicesBinding.instance;
       _channel.setMethodCallHandler(null);
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.unified_playback_coordinator', error: error);
+    }
   }
 
   /// 实时向原生 Activity 同步自动进入开关、宽高比、源矩形与控制按钮状态。
@@ -369,7 +392,9 @@ class AndroidPipChannelClient {
     if (!KonataPlatform.isAndroid) return;
     try {
       await _channel.invokeMethod<void>('syncState', payload.toChannelMap());
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.unified_playback_coordinator', error: error);
+    }
   }
 
   /// 主动请求立即进入系统画中画小窗。

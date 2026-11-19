@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
+import 'dart:developer' as developer;
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
@@ -290,7 +291,9 @@ class MpvThumbnailService extends ChangeNotifier {
 
     try {
       await _fileLoadedCompleter!.future.timeout(const Duration(seconds: 10));
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.mpv_thumbnail_service', error: error);
+    }
 
     if (_disposed || gen != _generation || _client == null) return;
     _isWarmedUp = true;
@@ -466,7 +469,9 @@ class MpvThumbnailService extends ChangeNotifier {
         await _renderReadyCompleter!.future.timeout(
           const Duration(milliseconds: 90),
         );
-      } catch (_) {}
+      } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.mpv_thumbnail_service', error: error);
+    }
       frameSource.pollSoftwareFrameReady();
     }
 
@@ -518,7 +523,9 @@ class MpvThumbnailService extends ChangeNotifier {
     if (token != null) {
       try {
         await streamBridge.unregisterSession(token);
-      } catch (_) {}
+      } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.mpv_thumbnail_service', error: error);
+    }
     }
   }
 

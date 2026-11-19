@@ -1,3 +1,5 @@
+import '../models/media_extensions.dart';
+
 /// 扫描器与重整校准共用的保守文件名/目录分类器；
 /// 外部刮削源 ID 为可选项，始终以本地媒体语义判定为先。
 abstract final class CloudMediaFileClassifier {
@@ -85,8 +87,33 @@ abstract final class CloudMediaFileClassifier {
     caseSensitive: false,
   );
 
-  static final _videoExtensionSuffix =
-      r'\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts)$';
+  static final String _videoExtensionSuffix =
+      KonataMediaExtensions.videoExtensionSuffixPattern;
+
+  static final RegExp _trailingSpacedVideoExtension = RegExp(
+    r'\s+(' '${KonataMediaExtensions.videoExtensionSuffixPattern}' r')',
+    caseSensitive: false,
+  );
+
+  static final RegExp _adjacentLocalizedEpisodeRegex = RegExp(
+    r'[^\x00-\x7f]\s*(\d{1,4})'
+    r'(?=\s*(?:[\[(（]|' '${KonataMediaExtensions.videoExtensionSuffixPattern}' r'|$))',
+    caseSensitive: false,
+  );
+
+  static final RegExp _leadingEpisodeRegex = RegExp(
+    r'^[ ._-]*(\d{1,4})(?!\.\d)(?:[ ._-]*[a-z])?'
+    r'(?=\s*(?:' '${KonataMediaExtensions.videoExtensionSuffixPattern}' r'|[-–—_]))',
+    caseSensitive: false,
+  );
+
+  static final RegExp _looseTailEpisodeRegex = RegExp(
+    r'^\s*[._-]*\s*(?:[\[(（【]|' '${KonataMediaExtensions.videoExtensionSuffixPattern}' r'|'
+    r'(?:\d{3,4}p|bd|web|dvd|ld|tv|hdtv|hevc|avc|[xh][ ._-]?26[45]|flac|aac|'
+    r'opus|ac3|eac3|dts|dtshd|truehd|alac|end|fin|final|premiere|'
+    r'early[\s._-]*screening|screening)\b)',
+    caseSensitive: false,
+  );
 
   static final _crc32Bracket = RegExp(
     r'[\[(（【［]\s*[0-9a-fA-F]{8}\s*[\])）】］]',
@@ -111,21 +138,21 @@ abstract final class CloudMediaFileClassifier {
     r'\d{3,4}x\d{3,4}[pi]?|\d{3,4}[pi]|[248]k|'
     r'\d+(?:\.\d+)?fps|vfr|cfr|'
     r'[xh]\.?26[45]|hevc|avc|av1|vp9|xvid|divx|mpeg[24]?|'
-    r'yuv\d{3}p(?:\d{1,2})?|rgb\d*|hdr(?:10(?:\+)?)?|dovi|'
-    r'(?:ma|hi)\d{1,2}p|\d{1,2}-?bit'
+    r'yuv\d{3}p(?:\d{1,2})?|yuv444p10|rgb\d*|hdr(?:10(?:\+)?)?|dovi|'
+    r'(?:main|ma|hi)\d{1,2}p?|main12|\d{1,2}-?bit'
     r')$',
     caseSensitive: false,
   );
 
   static final _auxTechToken = RegExp(
     r'^(?:'
-    r'bd|bdmv|bdrip|bluray|blu|ray|dvd|dvdrip|web|webrip|webdl|'
+    r'bd|bdmv|bdrip|bluray|blu|ray|dvd|dvdrip|ld|ldrip|hdtv|web|webrip|webdl|'
     r'tvrip|uhd|fhd|hd|sd|remux|raw|raws|hdr|sdr|dv|nvenc|rip|dl|'
-    r'\d*x?(?:flac|aac|opus|ac3|eac3|ddp?|dd|dts|hdma|ma|truehd|'
-    r'lpcm|pcm|mp3|vorbis|alac|atmos)(?:x?\d+(?:\.\d+)?)?|'
+    r'\d*x?(?:flac|aac|opus|ac3|eac3|ec3|ddp?|dd|dts|dtshd|hdma|ma|truehd|'
+    r'lpcm|pcm|mp3|vorbis|alac|atmos|wv|wavpack)(?:x?\d+(?:\.\d+)?)?|'
     r'audio|dual|multi|lossless|\d+(?:\.\d+)?ch(?:x\d+)?|(?:2\.0|5\.1|7\.1)(?:x\d+)?|'
     r'chs|cht|chi|zh|cn|jp|jpn|jap|en|eng|sub|subs|softsub|hardsub|'
-    r'gb|big5|(?:ass|ssa|srt|pgs|sup)(?:x\d+)?|vobsub|mkv|mp4|v\d+|'
+    r'gb|big5|(?:ass|ssa|srt|pgs|sup|idx)(?:x\d+)?|vobsub|mkv|mp4|v\d+|'
     r'[0-9a-f]{8}'
     r')$',
     caseSensitive: false,
@@ -148,13 +175,7 @@ abstract final class CloudMediaFileClassifier {
     result = result.replaceAll(_standaloneResolution, ' ');
     return result
         .replaceAll(RegExp(r'\s+'), ' ')
-        .replaceAllMapped(
-          RegExp(
-            r'\s+(\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts))$',
-            caseSensitive: false,
-          ),
-          (m) => m.group(1)!,
-        )
+        .replaceAllMapped(_trailingSpacedVideoExtension, (m) => m.group(1)!)
         .trim();
   }
 
@@ -266,8 +287,7 @@ abstract final class CloudMediaFileClassifier {
       _opEdExtra.hasMatch(stripTechnicalNoise(name));
 
   /// 判断视频是否携带强特典标记（如无字幕主题曲、预告、宣传片、菜单、预览及特典目录），
-  /// 以区分仅带弱备注标识的正片文件。
-  /// as `[Special]`, `Recap`, or `総集編`.
+  /// 以区分仅带弱备注标识（如特别篇、总集篇）的正片文件。
   static bool isStrongSupplementary(String directory, String name) {
     if (isSupplementaryDirectory(directory)) return true;
     if (_releaseSample.hasMatch(name)) return true;
@@ -468,10 +488,7 @@ abstract final class CloudMediaFileClassifier {
   static int? episodeNumberFromName(String name) {
     final normalized = _normalizeName(stripTechnicalNoise(name));
     final normalizedStem = normalized.replaceFirst(
-      RegExp(
-        r'\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts)$',
-        caseSensitive: false,
-      ),
+      KonataMediaExtensions.trailingVideoExtensionRegex,
       '',
     );
     if (RegExp(r'^\s*\d+\s*[/／]\s*\d+\s*$').hasMatch(normalizedStem)) {
@@ -555,18 +572,11 @@ abstract final class CloudMediaFileClassifier {
     final parenthesized = _number(match?.group(1));
     if (parenthesized != null) return parenthesized;
 
-    match = RegExp(
-      r'[^\x00-\x7f]\s*(\d{1,4})'
-      r'(?=\s*(?:[\[(（]|\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts)$|$))',
-    ).firstMatch(searchable);
+    match = _adjacentLocalizedEpisodeRegex.firstMatch(searchable);
     final adjacentLocalized = _number(match?.group(1));
     if (adjacentLocalized != null) return adjacentLocalized;
 
-    match = RegExp(
-      r'^[ ._-]*(\d{1,4})(?!\.\d)(?:[ ._-]*[a-z])?'
-      r'(?=\s*(?:\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts)$|[-–—_]))',
-      caseSensitive: false,
-    ).firstMatch(searchable);
+    match = _leadingEpisodeRegex.firstMatch(searchable);
     final leading = _number(match?.group(1));
     if (leading != null) return leading;
     return _looseEpisodeNumber(searchable);
@@ -654,10 +664,7 @@ abstract final class CloudMediaFileClassifier {
   ) {
     if ((videoCount ?? 0) < 2) return false;
     final stem = name.replaceFirst(
-      RegExp(
-        r'\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts)$',
-        caseSensitive: false,
-      ),
+      KonataMediaExtensions.trailingVideoExtensionRegex,
       '',
     );
     final nameYears = RegExp(
@@ -674,8 +681,9 @@ abstract final class CloudMediaFileClassifier {
       final content = bracket.group(1)!.trim();
       if (content.isEmpty ||
           RegExp(
-            r'^(?:\d{3,4}p|[248]k|[xh][ ._-]?26[45]|hevc|avc|av1|ma10p|'
-            r'flac|aac|opus|ac3|eac3|dts|10bit|hi10p|web|bd|dvd)',
+            r'^(?:\d{3,4}p|[248]k|[xh][ ._-]?26[45]|hevc|avc|av1|ma10p|main12|'
+            r'yuv444p10|flac|alac|aac|opus|ac3|eac3|dts|dtshd|truehd|10bit|'
+            r'hi10p|web|bd|dvd|ldrip|hdtv)',
             caseSensitive: false,
           ).hasMatch(content)) {
         continue;
@@ -709,10 +717,7 @@ abstract final class CloudMediaFileClassifier {
 
   static int? _looseEpisodeNumber(String name) {
     final stem = name.replaceFirst(
-      RegExp(
-        r'\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts)$',
-        caseSensitive: false,
-      ),
+      KonataMediaExtensions.trailingVideoExtensionRegex,
       '',
     );
     if (RegExp(r'^\s*\d+\s*[/／]\d+\s*$').hasMatch(stem)) return null;
@@ -739,13 +744,7 @@ abstract final class CloudMediaFileClassifier {
         continue;
       }
       final tail = name.substring(match.end);
-      if (RegExp(
-        r'^\s*[._-]*\s*(?:[\[(（【]|\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts)$|'
-        r'(?:\d{3,4}p|bd|web|dvd|tv|hevc|avc|[xh][ ._-]?26[45]|flac|aac|'
-        r'opus|ac3|dts|end|fin|final|premiere|early[\s._-]*screening|'
-        r'screening)\b)',
-        caseSensitive: false,
-      ).hasMatch(tail)) {
+      if (_looseTailEpisodeRegex.hasMatch(tail)) {
         candidates.add(value);
       }
     }

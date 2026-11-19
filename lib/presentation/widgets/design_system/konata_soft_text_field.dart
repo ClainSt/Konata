@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../theme/konata_palette.dart';
 import 'konata_glass_dialog.dart';
+import '../../theme/konata_theme.dart';
 
 /// 无外框圆角 `10px` 柔光填充输入框（彻底消除生硬矩形 `OutlineInputBorder`）。
 class KonataSoftTextField extends StatefulWidget {
@@ -63,7 +64,7 @@ class KonataSoftTextField extends StatefulWidget {
   /// 可选固定高度（用于与同排操作按钮严格等高对齐）。
   final double? height;
 
-  /// 可选圆角覆盖（默认 `BorderRadius.circular(10)`）。
+  /// 可选圆角覆盖（默认 `KonataTheme.borderRadiusControl`）。
   final BorderRadiusGeometry? borderRadius;
 
   @override
@@ -117,7 +118,7 @@ class _KonataSoftTextFieldState extends State<KonataSoftTextField> {
         ? null
         : (widget.hintText ?? (compactIme ? widget.label : null));
     final field = AnimatedContainer(
-      duration: const Duration(milliseconds: 160),
+      duration: KonataTheme.motionStandard,
       curve: Curves.easeOutCubic,
       height: widget.height,
       alignment: widget.height != null ? Alignment.center : null,
@@ -127,7 +128,7 @@ class _KonataSoftTextFieldState extends State<KonataSoftTextField> {
       ),
       decoration: BoxDecoration(
         color: p.softFill,
-        borderRadius: widget.borderRadius ?? BorderRadius.circular(10),
+        borderRadius: widget.borderRadius ?? KonataTheme.borderRadiusControl,
         border: Border.all(
           color: _focused ? p.hoverBorder : Colors.transparent,
           width: 1,
@@ -149,10 +150,10 @@ class _KonataSoftTextFieldState extends State<KonataSoftTextField> {
               keyboardType: widget.keyboardType,
               onChanged: widget.onChanged,
               onSubmitted: widget.onSubmitted,
-              style: TextStyle(color: p.textPrimary, fontSize: 13.5),
+              style: TextStyle(color: p.textPrimary, fontSize: KonataTheme.fontSizeBody),
               decoration: InputDecoration(
                 hintText: effectiveHint,
-                hintStyle: TextStyle(color: p.textMuted, fontSize: 13),
+                hintStyle: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeBodySm),
                 border: InputBorder.none,
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
@@ -184,7 +185,7 @@ class _KonataSoftTextFieldState extends State<KonataSoftTextField> {
                 widget.label!,
                 style: TextStyle(
                   color: p.textSecondary,
-                  fontSize: 12.5,
+                  fontSize: KonataTheme.fontSizeBodyXs,
                   fontWeight: FontWeight.w500,
                 ),
               ),

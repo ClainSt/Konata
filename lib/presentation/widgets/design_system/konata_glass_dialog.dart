@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../shell/adaptive_capsule_layout.dart';
 import '../../theme/konata_adaptive_tokens.dart';
 import '../../theme/konata_palette.dart';
+import '../../theme/konata_theme.dart';
 import 'konata_draggable_dialog.dart';
 
 /// 全站统一悬浮毛玻璃弹窗呼出入口（默认加深外部遮罩以突出前景弹窗并抑制底层穿透）。
@@ -19,7 +20,7 @@ Future<T?> showKonataGlassDialog<T>({
   return showDialog<T>(
     context: context,
     barrierDismissible: barrierDismissible,
-    barrierColor: Colors.black.withValues(alpha: isDark ? 0.45 : 0.35),
+    barrierColor: KonataTheme.glassDialogBarrier(isDark),
     builder: builder,
   );
 }
@@ -37,7 +38,7 @@ Future<T?> showKonataGlassBottomSheet<T>({
     isScrollControlled: true,
     enableDrag: false,
     backgroundColor: Colors.transparent,
-    barrierColor: Colors.black.withValues(alpha: isDark ? 0.48 : 0.34),
+    barrierColor: KonataTheme.glassModalBarrier(isDark),
     builder: (sheetCtx) {
       final p = sheetCtx.palette;
       final maxH = MediaQuery.sizeOf(sheetCtx).height * 0.78;
@@ -55,7 +56,7 @@ Future<T?> showKonataGlassBottomSheet<T>({
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: p.textPrimary,
-                    fontSize: 16,
+                    fontSize: KonataTheme.fontSizeTitle,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -165,7 +166,7 @@ class _KonataFollowFingerSheetSurfaceState
     super.initState();
     _reboundController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 160),
+      duration: KonataTheme.motionStandard,
     )..addListener(() {
         final t = Curves.easeOutCubic.transform(_reboundController.value);
         _dragOffset.value = _reboundStartOffset * (1.0 - t);
@@ -245,7 +246,7 @@ class _KonataFollowFingerSheetSurfaceState
                       height: 4,
                       decoration: BoxDecoration(
                         color: p.textMuted.withValues(alpha: 0.48),
-                        borderRadius: BorderRadius.circular(999),
+                        borderRadius: KonataTheme.borderRadiusPill,
                       ),
                     ),
                   ),
@@ -442,13 +443,9 @@ class KonataGlassDialog extends StatelessWidget {
         ? math.min(maxHeight!, availableH)
         : (KonataAdaptiveTokens.isAndroid ? availableH : null);
 
-    final glassBg = p.isDark
-        ? const Color(0xFF1F232D).withValues(alpha: 0.90)
-        : const Color(0xFFFDFDFE).withValues(alpha: 0.94);
-    final glassBorder = p.isDark
-        ? Colors.white.withValues(alpha: 0.18)
-        : Colors.white.withValues(alpha: 0.95);
-    final shadowColor = Colors.black.withValues(alpha: p.isDark ? 0.38 : 0.14);
+    final glassBg = KonataTheme.glassDialogSurface(p);
+    final glassBorder = KonataTheme.glassDialogBorder(p);
+    final shadowColor = KonataTheme.glassDialogShadow(p);
 
     Widget body = child;
     if (effectiveHeight == null &&
@@ -464,7 +461,7 @@ class KonataGlassDialog extends StatelessWidget {
         viewportMargin: outerMargin,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: KonataTheme.borderRadiusDialog,
             boxShadow: [
               BoxShadow(
                 color: shadowColor,
@@ -474,7 +471,7 @@ class KonataGlassDialog extends StatelessWidget {
             ],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: KonataTheme.borderRadiusDialog,
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 44, sigmaY: 44),
               child: Container(
@@ -493,7 +490,7 @@ class KonataGlassDialog extends StatelessWidget {
                           : EdgeInsets.all(compact ? 16 : 22)),
                 decoration: BoxDecoration(
                   color: glassBg,
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: KonataTheme.borderRadiusDialog,
                   border: Border.all(color: glassBorder, width: 1),
                 ),
                 // 使用 Offstage 而非条件增删节点，保持主体槽位深度恒定，防止软键盘切换时输入框卸载丢焦点。
@@ -642,7 +639,7 @@ class _KonataGlassCloseButtonState extends State<KonataGlassCloseButton> {
             height: touchSize,
             child: Center(
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 140),
+                duration: KonataTheme.motionFast,
                 width: 30,
                 height: 30,
                 decoration: BoxDecoration(

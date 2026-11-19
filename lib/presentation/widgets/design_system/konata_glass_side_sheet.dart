@@ -7,6 +7,7 @@ import '../../shell/adaptive_capsule_layout.dart';
 import '../../theme/konata_adaptive_tokens.dart';
 import '../../theme/konata_palette.dart';
 import 'konata_glass_dialog.dart';
+import '../../theme/konata_theme.dart';
 
 /// 悬浮内嵌圆角毛玻璃侧栏（桌面距顶 56px 避开窗口控制键，触屏自适应安全区与矮屏高度）。
 class KonataGlassSideSheet extends StatefulWidget {
@@ -52,7 +53,7 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 220),
+      duration: KonataTheme.navSliderDuration,
     );
     _slideAnimation = Tween<Offset>(
       begin: const Offset(1.06, 0),
@@ -124,15 +125,9 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
         ? math.max(8.0, safe.bottom + 8.0)
         : math.max(safe.bottom + 12.0, widget.bottomInset);
 
-    final barrierColor = p.isDark
-        ? Colors.black.withValues(alpha: 0.44)
-        : Colors.black.withValues(alpha: 0.35);
-    final panelColor = p.isDark
-        ? const Color(0xFF1F232D).withValues(alpha: 0.90)
-        : const Color(0xFFFDFDFE).withValues(alpha: 0.94);
-    final borderColor = p.isDark
-        ? Colors.white.withValues(alpha: 0.18)
-        : Colors.white.withValues(alpha: 0.95);
+    final barrierColor = KonataTheme.glassSideSheetBarrier(p.isDark);
+    final panelColor = KonataTheme.glassDialogSurface(p);
+    final borderColor = KonataTheme.glassDialogBorder(p);
 
     final sheetStack = Stack(
       children: [
@@ -160,7 +155,7 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
               position: _slideAnimation,
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: KonataTheme.borderRadiusDialog,
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withValues(
@@ -172,13 +167,13 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
                   ],
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: KonataTheme.borderRadiusDialog,
                   child: BackdropFilter(
                     filter: ImageFilter.blur(sigmaX: 44, sigmaY: 44),
                     child: Container(
                       decoration: BoxDecoration(
                         color: panelColor,
-                        borderRadius: BorderRadius.circular(18),
+                        borderRadius: KonataTheme.borderRadiusDialog,
                         border: Border.all(color: borderColor, width: 1),
                       ),
                       child: Material(

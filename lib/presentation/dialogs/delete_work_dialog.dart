@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme/konata_palette.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
+import '../theme/konata_theme.dart';
 
 /// 删除作品结果选项。
 class DeleteWorkConfirmResult {
@@ -73,7 +74,7 @@ class _DeleteWorkDialogState extends State<DeleteWorkDialog> {
             '确定要将「${widget.workTitle}」从媒体库索引中删除吗？',
             style: TextStyle(
               color: p.textPrimary,
-              fontSize: 14,
+              fontSize: KonataTheme.fontSizeBodyMd,
               fontWeight: FontWeight.w500,
               height: 1.45,
             ),
@@ -81,11 +82,11 @@ class _DeleteWorkDialogState extends State<DeleteWorkDialog> {
           const SizedBox(height: 8),
           Text(
             '此操作仅清除 Konata 数据库记录，绝对不会删除硬盘上的任何原始视频或字幕文件。',
-            style: TextStyle(color: p.textSecondary, fontSize: 12.5, height: 1.45),
+            style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodyXs, height: 1.45),
           ),
           const SizedBox(height: 14),
           InkWell(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: KonataTheme.borderRadiusControl,
             onTap: () => setState(() => _addToIgnore = !_addToIgnore),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
@@ -104,7 +105,7 @@ class _DeleteWorkDialogState extends State<DeleteWorkDialog> {
                   Expanded(
                     child: Text(
                       '同时将该作品目录加入忽略名单（防止重扫自动复活）',
-                      style: TextStyle(color: p.textPrimary, fontSize: 12.5),
+                      style: TextStyle(color: p.textPrimary, fontSize: KonataTheme.fontSizeBodyXs),
                     ),
                   ),
                 ],

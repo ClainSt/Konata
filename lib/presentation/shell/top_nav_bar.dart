@@ -382,7 +382,7 @@ class _TopNavTabStripState extends State<_TopNavTabStrip>
                         key: const ValueKey('top_nav_fluid_indicator'),
                         decoration: BoxDecoration(
                           color: p.progressFill,
-                          borderRadius: BorderRadius.circular(999),
+                          borderRadius: KonataTheme.borderRadiusPill,
                           boxShadow: [
                             BoxShadow(
                               color: p.progressFill.withValues(alpha: 0.42),
@@ -442,10 +442,10 @@ class _TextNavTabState extends State<_TextNavTab> {
         onTap: widget.onTap,
         child: AnimatedScale(
           scale: _pressed ? 0.96 : 1.0,
-          duration: const Duration(milliseconds: 100),
+          duration: KonataTheme.capsuleSlideDuration,
           curve: Curves.easeOutCubic,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
+            duration: KonataTheme.motionStandard,
             curve: Curves.easeOutCubic,
             padding: const EdgeInsets.fromLTRB(
               KonataTheme.topNavTabHorizontalPadding,
@@ -457,7 +457,7 @@ class _TextNavTabState extends State<_TextNavTab> {
               color: (!widget.selected && _hovered)
                   ? p.secondaryButtonBg
                   : Colors.transparent,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: KonataTheme.borderRadiusControl,
             ),
             child: TweenAnimationBuilder<double>(
               duration: KonataTheme.standardTransition,
@@ -476,12 +476,12 @@ class _TextNavTabState extends State<_TextNavTab> {
                   t,
                 )!;
                 final boldReserveStyle = KonataTheme.textStyle(
-                  fontSize: 14,
+                  fontSize: KonataTheme.fontSizeBodyMd,
                   weight: _weightReserve,
                 );
                 final activeStyle = KonataTheme.textStyle(
                   color: textColor,
-                  fontSize: 14,
+                  fontSize: KonataTheme.fontSizeBodyMd,
                   weight: weight,
                   shadows: t > 0.02
                       ? [
@@ -560,13 +560,13 @@ class _ExpandableSearchBox extends StatelessWidget {
     final p = context.palette;
 
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
+      duration: KonataTheme.navSliderDuration,
       curve: Curves.easeOutCubic,
       width: expanded ? 236 : 32,
       height: 32,
       decoration: BoxDecoration(
         color: expanded ? p.softFill : Colors.transparent,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: KonataTheme.borderRadiusSheet,
       ),
       child: expanded
           ? ClipRect(
@@ -600,7 +600,7 @@ class _ExpandableSearchBox extends StatelessWidget {
                             onChanged: onChanged,
                             style: TextStyle(
                               color: p.textPrimary,
-                              fontSize: 12.5,
+                              fontSize: KonataTheme.fontSizeBodyXs,
                             ),
                             decoration: const InputDecoration(
                               border: InputBorder.none,
@@ -684,7 +684,7 @@ class _TopNavIconButtonState extends State<_TopNavIconButton> {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: _hovered ? widget.hoverBg : Colors.transparent,
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: KonataTheme.borderRadiusSm,
               ),
               child: Center(
                 child: Icon(

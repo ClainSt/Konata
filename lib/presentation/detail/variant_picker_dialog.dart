@@ -4,9 +4,9 @@ import '../../application/playback/playback_preferences_provider.dart';
 import '../../domain/formatting/media_display_formatter.dart';
 import '../../domain/matching/episode_title_formatter.dart';
 import '../../domain/models/episode.dart';
-import '../../domain/models/external_player_config.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
+import '../../domain/models/relay_target_descriptor.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
@@ -26,7 +26,7 @@ class VariantPickerDialog extends StatefulWidget {
     required this.players,
     required this.onPlay,
     this.initialEngine,
-    this.initialPlayer,
+    this.initialTargetId,
   });
 
   /// 目标剧集。
@@ -38,20 +38,20 @@ class VariantPickerDialog extends StatefulWidget {
   /// 媒体源字典。
   final Map<String, MediaSource> sourcesById;
 
-  /// 已配置的外部播放器列表。
-  final List<ExternalPlayerConfig> players;
+  /// 已配置的桌面接力目标列表。
+  final List<RelayTargetDescriptor> players;
 
   /// 预设引擎（空则默认跟随全局设置）。
   final PreferredPlaybackEngine? initialEngine;
 
-  /// 预设外部播放器。
-  final ExternalPlayerConfig? initialPlayer;
+  /// 预设桌面接力目标 ID。
+  final String? initialTargetId;
 
   /// 确认播放回调。
   final void Function(
     MediaVariant variant,
     PreferredPlaybackEngine? engineOverride,
-    ExternalPlayerConfig? player,
+    String? targetId,
   )
   onPlay;
 
@@ -69,11 +69,11 @@ class _VariantPickerDialogState extends State<VariantPickerDialog> {
   @override
   void initState() {
     super.initState();
-    if (widget.initialPlayer != null) {
-      _selectedTargetId = widget.initialPlayer!.id;
+    if (widget.initialTargetId != null && widget.initialTargetId!.isNotEmpty) {
+      _selectedTargetId = widget.initialTargetId!;
     } else if (widget.initialEngine == PreferredPlaybackEngine.builtinLibmpv) {
       _selectedTargetId = _optionBuiltin;
-    } else if (widget.initialEngine == PreferredPlaybackEngine.externalPlayer &&
+    } else if (widget.initialEngine == PreferredPlaybackEngine.desktopRelay &&
         widget.players.isNotEmpty) {
       final def = widget.players.firstWhere(
         (p) => p.isDefault,
@@ -85,7 +85,7 @@ class _VariantPickerDialogState extends State<VariantPickerDialog> {
     }
   }
 
-  (PreferredPlaybackEngine?, ExternalPlayerConfig?) _resolveSelection() {
+  (PreferredPlaybackEngine?, String?) _resolveSelection() {
     if (_selectedTargetId == _optionFollowDefault) {
       return (null, null);
     }
@@ -94,7 +94,7 @@ class _VariantPickerDialogState extends State<VariantPickerDialog> {
     }
     for (final pl in widget.players) {
       if (pl.id == _selectedTargetId) {
-        return (PreferredPlaybackEngine.externalPlayer, pl);
+        return (PreferredPlaybackEngine.desktopRelay, pl.id);
       }
     }
     return (null, null);
@@ -236,7 +236,7 @@ class _VariantPickerDialogState extends State<VariantPickerDialog> {
                     style: TextStyle(
                       fontFamily: 'Consolas',
                       color: p.textSecondary,
-                      fontSize: 11.5,
+                      fontSize: KonataTheme.fontSizeCaptionSm,
                     ),
                   ),
                   if (v.relativePath.isNotEmpty &&
@@ -249,7 +249,7 @@ class _VariantPickerDialogState extends State<VariantPickerDialog> {
                       style: TextStyle(
                         fontFamily: 'Consolas',
                         color: p.textMuted,
-                        fontSize: 10.5,
+                        fontSize: KonataTheme.fontSizeBadge,
                       ),
                     ),
                   ],
@@ -276,13 +276,13 @@ class _ColorPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: KonataTheme.borderRadiusPill,
       ),
       child: Text(
         label,
         style: TextStyle(
           color: color,
-          fontSize: 11.5,
+          fontSize: KonataTheme.fontSizeCaptionSm,
           fontWeight: FontWeight.w600,
         ),
       ),

@@ -183,7 +183,7 @@ class AdaptiveSettingTile extends StatelessWidget {
             subtitle!,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: p.textMuted, fontSize: 12),
+            style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeCaption),
           ),
         ],
       ],

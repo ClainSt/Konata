@@ -9,6 +9,7 @@ import '../../application/playback/audiophile_safety_coordinator.dart';
 import '../../application/playback/playback_preferences_provider.dart';
 import '../../application/playback/video_playback_controller.dart';
 import '../../application/providers/library_providers.dart';
+import '../../composition/platform_composition.dart';
 import '../../domain/matching/episode_title_formatter.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/series_group.dart';
@@ -120,7 +121,7 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
         Scrollable.ensureVisible(
           ctx,
           alignment: 0.35,
-          duration: const Duration(milliseconds: 220),
+          duration: KonataTheme.navSliderDuration,
           curve: Curves.easeOutCubic,
         );
         return;
@@ -136,7 +137,7 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
             Scrollable.ensureVisible(
               nextCtx,
               alignment: 0.35,
-              duration: const Duration(milliseconds: 180),
+              duration: KonataTheme.motionMedium,
               curve: Curves.easeOutCubic,
             );
           }
@@ -321,7 +322,7 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
       return Center(
         child: Text(
           '当前视频未内嵌章节标记',
-          style: TextStyle(color: pPal.textMuted, fontSize: 12.5),
+          style: TextStyle(color: pPal.textMuted, fontSize: KonataTheme.fontSizeBodyXs),
         ),
       );
     }
@@ -386,7 +387,7 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
       listBody = Center(
         child: Text(
           '当前季暂无可播放剧集',
-          style: TextStyle(color: pPal.textMuted, fontSize: 12.5),
+          style: TextStyle(color: pPal.textMuted, fontSize: KonataTheme.fontSizeBodyXs),
         ),
       );
     } else {
@@ -491,7 +492,7 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: pPal.textPrimary,
-                    fontSize: 13.5,
+                    fontSize: KonataTheme.fontSizeBody,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -638,7 +639,7 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
                 Expanded(
                   child: Text(
                     '离线重映射时间戳并归零延迟',
-                    style: TextStyle(color: pPal.textMuted, fontSize: 11.5),
+                    style: TextStyle(color: pPal.textMuted, fontSize: KonataTheme.fontSizeCaptionSm),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -661,7 +662,7 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
                 Expanded(
                   child: Text(
                     'FontInAss 已授权源云端字体子集化',
-                    style: TextStyle(color: pPal.textMuted, fontSize: 11.5),
+                    style: TextStyle(color: pPal.textMuted, fontSize: KonataTheme.fontSizeCaptionSm),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -679,7 +680,7 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
           const SizedBox(height: 12),
           Text(
             '字号：${prefs.qualityConfig.subFontSize}',
-            style: TextStyle(color: pPal.textSecondary, fontSize: 12.5),
+            style: TextStyle(color: pPal.textSecondary, fontSize: KonataTheme.fontSizeBodyXs),
           ),
           Slider(
             value: prefs.qualityConfig.subFontSize.toDouble().clamp(24, 96),
@@ -698,7 +699,7 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
           ),
           Text(
             '底部边距：${prefs.qualityConfig.subBottomMargin}px',
-            style: TextStyle(color: pPal.textSecondary, fontSize: 12.5),
+            style: TextStyle(color: pPal.textSecondary, fontSize: KonataTheme.fontSizeBodyXs),
           ),
           Slider(
             value: prefs.qualityConfig.subBottomMargin.toDouble().clamp(0, 120),
@@ -715,7 +716,7 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
           const SizedBox(height: 8),
           Text(
             'ASS 样式覆写模式',
-            style: TextStyle(color: pPal.textSecondary, fontSize: 12.5),
+            style: TextStyle(color: pPal.textSecondary, fontSize: KonataTheme.fontSizeBodyXs),
           ),
           const SizedBox(height: 6),
           KonataDropdown<SubtitleAssOverrideMode>(
@@ -776,7 +777,7 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
           if (state.audioTracks.isEmpty)
             Text(
               '未检测到可选音轨',
-              style: TextStyle(color: pPal.textMuted, fontSize: 12.5),
+              style: TextStyle(color: pPal.textMuted, fontSize: KonataTheme.fontSizeBodyXs),
             )
           else
             for (final aud in state.audioTracks) ...[
@@ -812,13 +813,13 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
             const SizedBox(height: 12),
             KonataListTile(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              title: 'WASAPI 独占直通',
+              title: ref.watch(platformExclusiveAudioSheetTitleProvider),
               subtitle: '绕过系统混音器以比特精确输出源码',
               trailing: KonataSwitch(
-                value: prefs.qualityConfig.wasapiExclusive,
+                value: prefs.qualityConfig.exclusiveAudioOutput,
                 onChanged: (v) async {
                   await controller.updateLiveQuality(
-                    (c) => c.copyWith(wasapiExclusive: v),
+                    (c) => c.copyWith(exclusiveAudioOutput: v),
                   );
                   await ref
                       .read(audiophileSafetyCoordinatorProvider)
@@ -829,14 +830,14 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
             KonataListTile(
               key: const ValueKey('video_sheet_hdmi_spdif_switch'),
               padding: const EdgeInsets.symmetric(vertical: 8),
-              title: 'HDMI 源码直通 (audio-spdif)',
+              title: ref.watch(platformBitstreamTitleProvider),
               subtitle: '透传 AC3 / DTS-HD / TrueHD 比特流，严格互斥清空软 DSP',
               trailing: KonataSwitch(
-                value: prefs.hdmiSpdifPassthrough,
+                value: prefs.bitstreamPassthrough,
                 onChanged: (v) async {
                   await ref
                       .read(playbackPreferencesProvider.notifier)
-                      .setHdmiSpdifPassthrough(v);
+                      .setBitstreamPassthrough(v);
                   await ref
                       .read(audiophileSafetyCoordinatorProvider)
                       .reapplyAll(ref.read(playbackPreferencesProvider));
@@ -872,7 +873,7 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
                   .read(audiophileSafetyCoordinatorProvider)
                   .deviceSafetyState;
               final hdmiOn =
-                  KonataAdaptiveTokens.isWindows && prefs.hdmiSpdifPassthrough;
+                  KonataAdaptiveTokens.isWindows && prefs.bitstreamPassthrough;
               return Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(10),
@@ -952,7 +953,7 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
           KonataListTile(
             padding: const EdgeInsets.symmetric(vertical: 8),
             title: '硬件视频解码',
-            subtitle: '优先使用 D3D11VA / MediaCodec（异常自动切换软解）',
+            subtitle: ref.watch(platformHwdecSubtitleProvider),
             trailing: KonataSwitch(
               value: prefs.qualityConfig.hardwareDecode,
               onChanged: (v) => controller.updateLiveQuality(
@@ -1017,7 +1018,7 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
           if (state.availableShaders.isEmpty)
             Text(
               '请将 .glsl / .hook 着色器脚本放入 userdata/mpv/shaders/ 目录后即可在此实时勾选叠加。',
-              style: TextStyle(color: pPal.textMuted, fontSize: 12, height: 1.45),
+              style: TextStyle(color: pPal.textMuted, fontSize: KonataTheme.fontSizeCaption, height: 1.45),
             )
           else
             for (final file in state.availableShaders) ...[
@@ -1026,7 +1027,7 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
                 dense: true,
                 title: Text(
                   p.basename(file.path),
-                  style: TextStyle(color: pPal.textPrimary, fontSize: 12.5),
+                  style: TextStyle(color: pPal.textPrimary, fontSize: KonataTheme.fontSizeBodyXs),
                 ),
                 value: prefs.qualityConfig.activeShaderPaths.contains(file.path),
                 onChanged: (checked) {

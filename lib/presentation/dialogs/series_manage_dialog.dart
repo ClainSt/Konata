@@ -16,6 +16,7 @@ import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/design_system/konata_toast.dart';
+import '../theme/konata_theme.dart';
 
 enum _SeriesManagePane { members, candidates }
 
@@ -372,7 +373,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                               '并入已有系列',
                               style: TextStyle(
                                 color: p.textSecondary,
-                                fontSize: 11.5,
+                                fontSize: KonataTheme.fontSizeCaptionSm,
                               ),
                             ),
                             const SizedBox(height: 5),
@@ -428,7 +429,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                               '并入已有系列',
                               style: TextStyle(
                                 color: p.textSecondary,
-                                fontSize: 11.5,
+                                fontSize: KonataTheme.fontSizeCaptionSm,
                               ),
                             ),
                             const SizedBox(height: 5),
@@ -478,7 +479,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
             padding: EdgeInsets.all(landscapeCompactInput ? 6 : 10),
             decoration: BoxDecoration(
               color: p.softFill,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: KonataTheme.borderRadiusCard,
               border: Border.all(color: p.hairline),
             ),
             child: Column(
@@ -500,13 +501,13 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                             '系列成员与排序 (${_members.length})',
                             style: TextStyle(
                               color: p.textPrimary,
-                              fontSize: 12.5,
+                              fontSize: KonataTheme.fontSizeBodyXs,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                           Text(
                             '海报墙仍各自独立展示',
-                            style: TextStyle(color: p.textMuted, fontSize: 11),
+                            style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeCaptionXs),
                           ),
                         ],
                       ),
@@ -520,7 +521,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                           child: Text(
                             '当前编组已清空，保存后将解除系列关联；也可切换到库内作品列表重新添加。',
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: p.textMuted, fontSize: 12),
+                            style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeCaption),
                           ),
                         )
                       : KonataDraggableScrollbar(
@@ -546,7 +547,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
             padding: EdgeInsets.all(landscapeCompactInput ? 6 : 10),
             decoration: BoxDecoration(
               color: p.softFill,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: KonataTheme.borderRadiusCard,
               border: Border.all(color: p.hairline),
             ),
             child: Column(
@@ -575,7 +576,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                       ? Center(
                           child: Text(
                             query.isEmpty ? '暂无更多可加入的已入库作品' : '未找到匹配的库内作品',
-                            style: TextStyle(color: p.textMuted, fontSize: 12),
+                            style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeCaption),
                           ),
                         )
                       : KonataDraggableScrollbar(
@@ -589,7 +590,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                             itemBuilder: (_, idx) {
                               final w = candidates[idx];
                               return InkWell(
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: KonataTheme.borderRadiusSm,
                                 onTap: _saving ? null : () => _addMember(w),
                                 child: Padding(
                                   padding: const EdgeInsets.symmetric(
@@ -609,7 +610,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                                               overflow: TextOverflow.ellipsis,
                                               style: TextStyle(
                                                 color: p.textPrimary,
-                                                fontSize: 12.5,
+                                                fontSize: KonataTheme.fontSizeBodyXs,
                                                 fontWeight: FontWeight.w500,
                                               ),
                                             ),
@@ -618,7 +619,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                                                 '${w.year}',
                                                 style: TextStyle(
                                                   color: p.textMuted,
-                                                  fontSize: 11,
+                                                  fontSize: KonataTheme.fontSizeCaptionXs,
                                                 ),
                                               ),
                                           ],
@@ -785,13 +786,13 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                 color: isCurrent
                     ? p.accent.withValues(alpha: 0.22)
                     : p.softFill,
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: KonataTheme.borderRadiusChip,
               ),
               child: Text(
                 '${index + 1}',
                 style: TextStyle(
                   color: isCurrent ? p.accent : p.textSecondary,
-                  fontSize: 11.5,
+                  fontSize: KonataTheme.fontSizeCaptionSm,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -807,7 +808,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: p.textPrimary,
-                      fontSize: 12.5,
+                      fontSize: KonataTheme.fontSizeBodyXs,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -816,7 +817,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                       '${draft.work.year}${isCurrent ? ' · 当前条目' : ''}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: p.textMuted, fontSize: 10.5),
+                      style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeBadge),
                     ),
                 ],
               ),
@@ -831,11 +832,11 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                 controller: draft.labelCtrl,
                 focusNode: draft.labelFocusNode,
                 enabled: !_saving,
-                style: TextStyle(color: p.textPrimary, fontSize: 12),
+                style: TextStyle(color: p.textPrimary, fontSize: KonataTheme.fontSizeCaption),
                 decoration: InputDecoration(
                   isDense: true,
                   hintText: '如 第 1 季 / Code: White',
-                  hintStyle: TextStyle(color: p.textMuted, fontSize: 11.5),
+                  hintStyle: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeCaptionSm),
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 10,
                     vertical: 7,
@@ -843,11 +844,11 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                   filled: true,
                   fillColor: p.elevatedSurface.withValues(alpha: 0.72),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: KonataTheme.borderRadiusSm,
                     borderSide: BorderSide(color: p.hairline),
                   ),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: KonataTheme.borderRadiusSm,
                     borderSide: BorderSide(color: p.hairline),
                   ),
                 ),
@@ -895,7 +896,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
             children: [
               for (final preset in SeriesLabelPresets.presets) ...[
                 InkWell(
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: KonataTheme.borderRadiusChip,
                   onTap: _saving
                       ? null
                       : () => setState(() => draft.labelCtrl.text = preset),
@@ -908,7 +909,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                       color: draft.labelCtrl.text.trim() == preset
                           ? p.accent.withValues(alpha: 0.18)
                           : p.softFill,
-                      borderRadius: BorderRadius.circular(6),
+                      borderRadius: KonataTheme.borderRadiusChip,
                       border: Border.all(
                         color: draft.labelCtrl.text.trim() == preset
                             ? p.accent.withValues(alpha: 0.55)
@@ -921,7 +922,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                         color: draft.labelCtrl.text.trim() == preset
                             ? p.accent
                             : p.textSecondary,
-                        fontSize: 10.5,
+                        fontSize: KonataTheme.fontSizeBadge,
                         fontWeight: FontWeight.w500,
                       ),
                     ),

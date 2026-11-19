@@ -13,6 +13,7 @@ import '../../application/providers/library_providers.dart';
 import '../../application/providers/playback_providers.dart';
 import '../../application/providers/scraping_providers.dart';
 import '../../application/providers/work_management_provider.dart';
+import '../../composition/platform_composition.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/tmdb_models.dart';
 import '../../domain/models/work.dart';
@@ -353,7 +354,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
               bundle: bundle,
               episode: ep,
               players: typedPlayers.cast(),
-              overrideEngine: PreferredPlaybackEngine.externalPlayer,
+              overrideEngine: PreferredPlaybackEngine.desktopRelay,
             )
           : null,
       onEpisodeMarkCompleted: (ep) => DetailActionHandlers.markEpisodeCompleted(
@@ -421,7 +422,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
               ref: ref,
               bundle: bundle,
               variant: variant,
-              overrideEngine: PreferredPlaybackEngine.externalPlayer,
+              overrideEngine: PreferredPlaybackEngine.desktopRelay,
             )
           : null,
       onScanTap: (variant) => DetailActionHandlers.openScanViewer(
@@ -543,7 +544,8 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
       });
     }
 
-    final players = ref.watch(externalPlayersProvider).valueOrNull ?? const [];
+    final players =
+        ref.watch(desktopVideoRelayTargetsProvider).valueOrNull ?? const [];
     final imageLoader = ref.watch(tmdbImageLoaderProvider);
     final isDrawerExpanded = ref.watch(detailDrawerExpandedProvider);
     final displayPrefs = ref.watch(detailDisplayPreferencesProvider);
@@ -721,7 +723,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                             color: Colors.white.withValues(
                                               alpha: 0.92,
                                             ),
-                                            fontSize: 15,
+                                            fontSize: KonataTheme.fontSizeTitleSm,
                                             fontWeight: FontWeight.w700,
                                           ),
                                         ),
@@ -863,7 +865,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                             color: Colors.white.withValues(
                                               alpha: 0.92,
                                             ),
-                                            fontSize: 15,
+                                            fontSize: KonataTheme.fontSizeTitleSm,
                                             fontWeight: FontWeight.w700,
                                           ),
                                         ),
@@ -968,7 +970,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                     sigmaY: 28,
                                   ),
                                   child: Container(
-                                    color: Colors.black.withValues(alpha: 0.36),
+                                    color: KonataTheme.scrimBlackMedium,
                                   ),
                                 ),
                               IgnorePointer(
@@ -979,8 +981,8 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                       radius: 0.82,
                                       stops: const [0.0, 0.52, 1.0],
                                       colors: [
-                                        Colors.black.withValues(alpha: 0.44),
-                                        Colors.black.withValues(alpha: 0.16),
+                                        KonataTheme.scrimBlackModerate,
+                                        KonataTheme.scrimBlackFaint,
                                         Colors.transparent,
                                       ],
                                     ),

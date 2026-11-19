@@ -419,14 +419,14 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
             context: context,
             ref: ref,
             rec: rec,
-            overrideEngine: PreferredPlaybackEngine.externalPlayer,
+            overrideEngine: PreferredPlaybackEngine.desktopRelay,
           );
         } else {
           await _resumeRecord(
             context: context,
             ref: ref,
             rec: rec,
-            overrideEngine: PreferredPlaybackEngine.externalPlayer,
+            overrideEngine: PreferredPlaybackEngine.desktopRelay,
           );
         }
       case 'complete':
@@ -610,7 +610,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                       '已选 $selectedCount / ${records.length}',
                       style: TextStyle(
                         color: p.textSecondary,
-                        fontSize: 13,
+                        fontSize: KonataTheme.fontSizeBodySm,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -671,12 +671,12 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                           const SizedBox(height: 12),
                           Text(
                             emptyTitle,
-                            style: KonataTheme.cardTitleStyle(p, fontSize: 18),
+                            style: KonataTheme.cardTitleStyle(p, fontSize: KonataTheme.fontSizeTitleLg),
                           ),
                           const SizedBox(height: 6),
                           Text(
                             emptySubtitle,
-                            style: KonataTheme.captionStyle(p, fontSize: 14),
+                            style: KonataTheme.captionStyle(p, fontSize: KonataTheme.fontSizeBodyMd),
                           ),
                         ],
                       ),

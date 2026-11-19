@@ -17,7 +17,7 @@ import 'inline_expandable_synopsis.dart';
 import 'work_review_banner.dart';
 
 const List<Shadow> _kHeroBackdropTextShadows = [
-  Shadow(color: Color(0x8C000000), blurRadius: 12, offset: Offset(0, 2)),
+  KonataTheme.heroCardTextShadow,
 ];
 
 /// 严格锁死最大高度与最大宽度的透明背景标题徽标（ClearLogo）组件。
@@ -64,7 +64,7 @@ class DetailLockedClearLogo extends StatelessWidget {
       decoration: BoxDecoration(
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.38),
+            color: KonataTheme.scrimBlackMedium,
             blurRadius: 24,
             spreadRadius: -8,
             offset: const Offset(0, 5),
@@ -226,11 +226,11 @@ class DetailHeroInfo extends StatelessWidget {
           Text(
             metaParts.join(' · '),
             style: KonataTheme.detailTextStyle(
-              fontSize: 13.5,
+              fontSize: KonataTheme.fontSizeBody,
               fontWeight: FontWeight.w600,
               letterSpacing: 0.4,
               palette: p,
-              color: Colors.white.withValues(alpha: 0.90),
+              color: KonataTheme.overlayWhiteTextHigh,
             ).copyWith(shadows: _kHeroBackdropTextShadows),
           ),
         ],
@@ -377,7 +377,7 @@ class _FrostedPlayButtonState extends State<FrostedPlayButton> {
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 140),
+                duration: KonataTheme.motionFast,
                 curve: Curves.easeOutCubic,
                 width: widget.expandWidth ? double.infinity : null,
                 height: capsuleHeight,
@@ -404,7 +404,7 @@ class _FrostedPlayButtonState extends State<FrostedPlayButton> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: KonataTheme.detailTextStyle(
-                          fontSize: 14.5,
+                          fontSize: KonataTheme.fontSizeSubtitle,
                           fontWeight: FontWeight.w600,
                           letterSpacing: 0.4,
                           palette: p,
@@ -466,8 +466,8 @@ class _FallbackTitleBlock extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: KonataTheme.detailTextStyle(
               palette: p,
-              color: Colors.white.withValues(alpha: 0.84),
-              fontSize: 14,
+              color: KonataTheme.overlayWhiteTextMid,
+              fontSize: KonataTheme.fontSizeBodyMd,
               fontWeight: FontWeight.w500,
               letterSpacing: 0.3,
             ).copyWith(shadows: _kHeroBackdropTextShadows),

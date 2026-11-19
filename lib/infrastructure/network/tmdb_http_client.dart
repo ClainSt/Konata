@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:developer' as developer;
 
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -493,8 +494,9 @@ class TmdbHttpClient {
           statusSummary: '官方返回 HTTP ${resp.statusCode}',
         );
       }
-    } catch (_) {
+    } catch (error) {
       // 官方网络错误或超时，继续探测备用地址
+      developer.log('可恢复异常已记录', name: 'konata.tmdb_http_client', error: error);
     } finally {
       sw.stop();
     }
@@ -582,8 +584,9 @@ class TmdbHttpClient {
           expiresAt: now.add(const Duration(seconds: 30)),
         );
       }
-    } catch (_) {
+    } catch (error) {
       // 单元测试或后台无引擎绑定环境回退至环境变量探测。
+      developer.log('可恢复异常已记录', name: 'konata.tmdb_http_client', error: error);
     }
   }
 
@@ -663,9 +666,10 @@ class TmdbHttpClient {
               return addr;
             }
           }
-        } catch (_) {
-          // 单个公共 DoH 节点不可达时继续尝试备选节点。
-        }
+        } catch (error) {
+      // 单个公共 DoH 节点不可达时继续尝试备选节点。
+      developer.log('可恢复异常已记录', name: 'konata.tmdb_http_client', error: error);
+    }
       }
     } finally {
       dohClient.close(force: true);

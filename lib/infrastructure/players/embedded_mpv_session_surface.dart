@@ -6,7 +6,7 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
     'ccplayer/media_store',
   );
 
-  /// 初始化底层 `libmpv` 实例并挂接 Windows 10-bit/HDR 底层直通（`vo=gpu-next` / DirectComposition）或兼容纹理回退。
+  /// 初始化底层 `libmpv` 实例并挂接桌面 10-bit/HDR 底层直通（`vo=gpu-next` / 分层交换链）或兼容纹理回退。
   Future<({LibMpvClient client, PlaybackQualityConfig effectiveConfig})>
   _initializeMpvClientAndDesktopBackend({
     required EmbeddedVideoLoadRequest request,
@@ -15,42 +15,42 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
     required Directory workPhotoDir,
     required List<String> verifiedShaders,
     required bool isRemote,
-    required bool useWindowsD3D11,
+    required bool useDesktopSurface,
   }) async {
     var effectiveConfig = qualityConfig;
-    D3D11VideoSessionHandle? preCreatedGpuNextHandle;
-    final wantWindowsGpuNext =
-        useWindowsD3D11 &&
-        d3d11Bridge != null &&
-        qualityConfig.desktopOutputMode ==
-            DesktopVideoOutputMode.gpuNextUnderlay &&
+    NativeVideoSessionHandle? preCreatedGpuNextHandle;
+    final wantDesktopGpuNext =
+        useDesktopSurface &&
+        desktopSurfaceBridge != null &&
+        qualityConfig.outputPipelineMode ==
+            VideoOutputPipelineMode.gpuNextUnderlay &&
         qualityConfig.hardwareDecode &&
         qualityConfig.preset != VideoQualityPreset.softwareFallback;
 
-    if (wantWindowsGpuNext) {
+    if (wantDesktopGpuNext) {
       try {
-        final handle = await d3d11Bridge!.createSession(
+        final handle = await desktopSurfaceBridge!.createSession(
           mpvHandleAddress: 0,
           width: request.initialWidth,
           height: request.initialHeight,
           preferSoftware: false,
-          renderBackend: DesktopVideoOutputMode.gpuNextUnderlay.bridgeKey,
+          renderBackend: VideoOutputPipelineMode.gpuNextUnderlay.bridgeKey,
         );
         if (handle.nativeWindowHandle > 0 && handle.backend == 'gpu_next') {
           preCreatedGpuNextHandle = handle;
         } else {
-          await d3d11Bridge!.disposeSession(handle.sessionId);
+          await desktopSurfaceBridge!.disposeSession(handle.sessionId);
           effectiveConfig = qualityConfig.copyWith(
-            desktopOutputMode: DesktopVideoOutputMode.directComposition10Bit,
+            outputPipelineMode: VideoOutputPipelineMode.layered10Bit,
           );
         }
       } catch (e) {
         logStore?.record(
-          'mpv-windows-render',
+          'mpv-desktop-render',
           'gpu_next 底层子窗口创建失败，自动回落至 10-bit 底层合成交换链：$e',
         );
         effectiveConfig = qualityConfig.copyWith(
-          desktopOutputMode: DesktopVideoOutputMode.directComposition10Bit,
+          outputPipelineMode: VideoOutputPipelineMode.layered10Bit,
         );
       }
     }
@@ -62,8 +62,9 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
 
     final hwdecValue = MpvQualityProfile.resolveHwdecValue(
       config: effectiveConfig,
-      isWindows: useWindowsD3D11,
+      isWindows: useDesktopSurface,
       isAndroid: _useAndroidSurfaceSession,
+      desktopDelegate: desktopProfileDelegate,
     );
     _hwdecWasEnabled = hwdecValue != 'no';
     _usingSoftwareFallback = !_hwdecWasEnabled;
@@ -74,29 +75,28 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
       mpvConfigDir: mpvDir,
       screenshotDir: workPhotoDir,
       isRemoteStream: isRemote,
-      isWindowsOverride: useWindowsD3D11,
+      isWindowsOverride: useDesktopSurface,
       isAndroidOverride: _useAndroidSurfaceSession,
       desktopUnderlayHwnd: preCreatedGpuNextHandle?.nativeWindowHandle,
+      desktopDelegate: desktopProfileDelegate,
       verifiedShaderPaths: verifiedShaders,
       logStore: logStore,
     );
-
-    if (useWindowsD3D11) {
-      client.setOptionString('gpu-api', 'd3d11');
-    }
 
     var initRc = client.initialize();
     if (initRc < 0 && preCreatedGpuNextHandle != null) {
       // 老旧显卡或驱动无法初始化 vo=gpu-next 时安全销毁并透明回落至 vo=libmpv 管线。
       logStore?.record(
-        'mpv-windows-render',
+        'mpv-desktop-render',
         'vo=gpu-next 初始化失败 (${client.errorString(initRc)})，回落至 vo=libmpv',
       );
       await client.dispose();
-      await d3d11Bridge!.disposeSession(preCreatedGpuNextHandle.sessionId);
+      await desktopSurfaceBridge!.disposeSession(
+        preCreatedGpuNextHandle.sessionId,
+      );
       preCreatedGpuNextHandle = null;
       effectiveConfig = qualityConfig.copyWith(
-        desktopOutputMode: DesktopVideoOutputMode.directComposition10Bit,
+        outputPipelineMode: VideoOutputPipelineMode.layered10Bit,
       );
       client = clientFactory != null
           ? clientFactory!()
@@ -108,17 +108,19 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
         mpvConfigDir: mpvDir,
         screenshotDir: workPhotoDir,
         isRemoteStream: isRemote,
-        isWindowsOverride: useWindowsD3D11,
+        isWindowsOverride: useDesktopSurface,
         isAndroidOverride: _useAndroidSurfaceSession,
+        desktopDelegate: desktopProfileDelegate,
         verifiedShaderPaths: verifiedShaders,
         logStore: logStore,
       );
-      client.setOptionString('gpu-api', 'd3d11');
       initRc = client.initialize();
     }
     if (initRc < 0) {
-      if (preCreatedGpuNextHandle != null && d3d11Bridge != null) {
-        await d3d11Bridge!.disposeSession(preCreatedGpuNextHandle.sessionId);
+      if (preCreatedGpuNextHandle != null && desktopSurfaceBridge != null) {
+        await desktopSurfaceBridge!.disposeSession(
+          preCreatedGpuNextHandle.sessionId,
+        );
       }
       throw StateError('内置播放器初始化失败: ${client.errorString(initRc)}');
     }
@@ -128,23 +130,23 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
     _cachedFfmpegVersion = client.getPropertyString('ffmpeg-version');
 
     if (preCreatedGpuNextHandle != null) {
-      _d3d11SessionId = preCreatedGpuNextHandle.sessionId;
+      _desktopSurfaceSessionId = preCreatedGpuNextHandle.sessionId;
       _usingGpuNextUnderlay = true;
       _textureId.value = -1;
       _underlayActive.value = true;
       _renderBackend.value = preCreatedGpuNextHandle.backend;
       _adapterName.value = preCreatedGpuNextHandle.adapterName;
-    } else if (useWindowsD3D11 && d3d11Bridge != null) {
-      final handle = await d3d11Bridge!.createSession(
+    } else if (useDesktopSurface && desktopSurfaceBridge != null) {
+      final handle = await desktopSurfaceBridge!.createSession(
         mpvHandleAddress: client.handleAddress,
         width: request.initialWidth,
         height: request.initialHeight,
         preferSoftware:
             !effectiveConfig.hardwareDecode ||
             effectiveConfig.preset == VideoQualityPreset.softwareFallback,
-        renderBackend: effectiveConfig.desktopOutputMode.bridgeKey,
+        renderBackend: effectiveConfig.outputPipelineMode.bridgeKey,
       );
-      _d3d11SessionId = handle.sessionId;
+      _desktopSurfaceSessionId = handle.sessionId;
       _usingGpuNextUnderlay = false;
       _textureId.value = handle.textureId;
       _underlayActive.value = handle.isUnderlayMode;
@@ -153,8 +155,10 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
       if (handle.isSoftwareFallback) {
         _usingSoftwareFallback = true;
       }
-      _d3d11ChangeSub = d3d11Bridge!.textureChanges.listen((event) {
-        if (_disposed || event.sessionId != _d3d11SessionId) return;
+      _desktopSurfaceChangeSub = desktopSurfaceBridge!.textureChanges.listen((
+        event,
+      ) {
+        if (_disposed || event.sessionId != _desktopSurfaceSessionId) return;
         _textureId.value = event.textureId;
         _underlayActive.value = event.textureId < 0 && event.backend != 'sw';
         _renderBackend.value = event.backend;
@@ -175,17 +179,17 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
     return (client: client, effectiveConfig: effectiveConfig);
   }
 
-  /// 同步更新运行中的 Windows D3D11 渲染目标分辨率。
-  Future<void> resizeD3D11Target(int width, int height) async {
-    final id = _d3d11SessionId;
-    final bridge = d3d11Bridge;
+  /// 同步更新运行中的桌面端渲染目标分辨率。
+  Future<void> resizeDesktopSurfaceTarget(int width, int height) async {
+    final id = _desktopSurfaceSessionId;
+    final bridge = desktopSurfaceBridge;
     if (_disposed || id == null || bridge == null || !Platform.isWindows) {
       return;
     }
     await bridge.resize(sessionId: id, width: width, height: height);
   }
 
-  /// 同步 Windows 底层 10-bit/HDR 渲染宿主的物理像素视口矩形、圆角裁剪与显隐状态。
+  /// 同步桌面端底层 10-bit/HDR 渲染宿主的物理像素视口矩形、圆角裁剪与显隐状态。
   Future<void> setWindowsUnderlayViewport({
     required int leftPx,
     required int topPx,
@@ -194,8 +198,8 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
     double cornerRadiusPx = 0.0,
     bool visible = true,
   }) async {
-    final id = _d3d11SessionId;
-    final bridge = d3d11Bridge;
+    final id = _desktopSurfaceSessionId;
+    final bridge = desktopSurfaceBridge;
     if (_disposed || id == null || bridge == null || !Platform.isWindows) {
       return;
     }

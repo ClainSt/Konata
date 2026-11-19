@@ -175,11 +175,11 @@ class AudiophileSafetyCoordinator {
   /// 根据当前平台与用户偏好解析目标音频输出路由模式。
   AudioOutputRouteMode resolveRouteMode(PlaybackPreferencesState prefs) {
     if (KonataPlatform.isWindows) {
-      if (prefs.hdmiSpdifPassthrough) {
-        return AudioOutputRouteMode.hdmiSpdifPassthrough;
+      if (prefs.bitstreamPassthrough) {
+        return AudioOutputRouteMode.bitstreamPassthrough;
       }
-      if (prefs.qualityConfig.wasapiExclusive) {
-        return AudioOutputRouteMode.wasapiExclusive;
+      if (prefs.qualityConfig.exclusiveAudioOutput) {
+        return AudioOutputRouteMode.exclusiveAudioOutput;
       }
       return AudioOutputRouteMode.sharedResampled;
     }

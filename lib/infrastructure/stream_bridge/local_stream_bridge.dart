@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:developer' as developer;
 
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
+import '../../domain/models/media_extensions.dart';
 import '../../domain/models/media_source.dart';
 import '../sources/byte_stream_source_gateway.dart';
 import '../sources/source_access_error.dart';
@@ -255,7 +257,9 @@ class LocalStreamBridge {
     if (session != null && session.ownsGateway) {
       try {
         await session.gateway.close();
-      } catch (_) {}
+      } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.local_stream_bridge', error: error);
+    }
     }
   }
 
@@ -760,7 +764,9 @@ class LocalStreamBridge {
           response.statusCode = HttpStatus.badGateway;
         }
         await response.close();
-      } catch (_) {}
+      } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.local_stream_bridge', error: error);
+    }
     } finally {
       if (trackedSession != null) {
         trackedSession.activeStreams = (trackedSession.activeStreams - 1).clamp(
@@ -797,7 +803,9 @@ class LocalStreamBridge {
     final socket = await response.detachSocket(writeHeaders: true);
     try {
       socket.setOption(SocketOption.tcpNoDelay, true);
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.local_stream_bridge', error: error);
+    }
 
     final disconnected = Completer<bool>();
     void markDisconnected() {
@@ -855,59 +863,33 @@ class LocalStreamBridge {
     } finally {
       try {
         await iterator.cancel();
-      } catch (_) {}
+      } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.local_stream_bridge', error: error);
+    }
       try {
         await peerSub?.cancel();
-      } catch (_) {}
+      } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.local_stream_bridge', error: error);
+    }
       if (completedNormally) {
         try {
           await socket.flush();
           await socket.close();
-        } catch (_) {}
+        } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.local_stream_bridge', error: error);
+    }
       } else {
         try {
           socket.destroy();
-        } catch (_) {}
+        } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.local_stream_bridge', error: error);
+    }
       }
     }
   }
 
-  String _guessMimeType(String fileName) {
-    switch (p.posix.extension(fileName).toLowerCase()) {
-      case '.mkv':
-        return 'video/x-matroska';
-      case '.mp4':
-      case '.m4v':
-        return 'video/mp4';
-      case '.webm':
-        return 'video/webm';
-      case '.avi':
-        return 'video/x-msvideo';
-      case '.ts':
-      case '.m2ts':
-        return 'video/mp2t';
-      case '.flac':
-        return 'audio/flac';
-      case '.wav':
-        return 'audio/wav';
-      case '.mp3':
-        return 'audio/mpeg';
-      case '.m4a':
-      case '.aac':
-      case '.alac':
-        return 'audio/mp4';
-      case '.ogg':
-      case '.opus':
-        return 'audio/ogg';
-      case '.mka':
-        return 'audio/x-matroska';
-      case '.tak':
-      case '.tta':
-        return 'application/octet-stream';
-      default:
-        return 'application/octet-stream';
-    }
-  }
+  String _guessMimeType(String fileName) =>
+      KonataMediaExtensions.mimeTypeFor(fileName);
 
   /// 关闭回环流服务并清理所有会话与定时器。
   Future<void> dispose() async {

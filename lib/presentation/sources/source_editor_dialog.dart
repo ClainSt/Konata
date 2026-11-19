@@ -9,6 +9,7 @@ import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
+import '../theme/konata_theme.dart';
 
 /// 添加或编辑媒体源毛玻璃弹窗（支持本地磁盘、WebDAV、SMB 三类源与连通测试）。
 class SourceEditorDialog extends StatefulWidget {
@@ -354,7 +355,7 @@ class _SourceEditorDialogState extends State<SourceEditorDialog> {
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     color: p.textSecondary,
-                                    fontSize: 12.5,
+                                    fontSize: KonataTheme.fontSizeBodyXs,
                                   ),
                                 ),
                               ),
@@ -377,7 +378,7 @@ class _SourceEditorDialogState extends State<SourceEditorDialog> {
                 color: (_testSuccess ? p.success : p.danger).withValues(
                   alpha: 0.12,
                 ),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: KonataTheme.borderRadiusSm,
                 border: Border.all(
                   color: (_testSuccess ? p.success : p.danger).withValues(
                     alpha: 0.4,
@@ -399,7 +400,7 @@ class _SourceEditorDialogState extends State<SourceEditorDialog> {
                       _testFeedback!,
                       style: TextStyle(
                         color: _testSuccess ? p.success : p.danger,
-                        fontSize: 12.2,
+                        fontSize: KonataTheme.fontSizeCaption,
                       ),
                     ),
                   ),
@@ -411,7 +412,7 @@ class _SourceEditorDialogState extends State<SourceEditorDialog> {
             const SizedBox(height: 10),
             Text(
               _errorText!,
-              style: TextStyle(color: p.danger, fontSize: 12.5),
+              style: TextStyle(color: p.danger, fontSize: KonataTheme.fontSizeBodyXs),
             ),
           ],
         ],

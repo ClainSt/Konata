@@ -19,6 +19,7 @@ import '../widgets/design_system/konata_toast.dart';
 import '../widgets/playback/konata_floating_mini_player.dart';
 import '../widgets/playback/konata_stage_morph_frame.dart';
 import 'immersive_audio_page.dart';
+import '../theme/konata_theme.dart';
 
 export '../shell/adaptive_capsule_layout.dart'
     show FloatingMiniPlayerKind, floatingMiniWindowAnchorProvider;
@@ -240,7 +241,7 @@ class _MiniAudioOverlayHostState extends ConsumerState<MiniAudioOverlayHost> {
     } else if (_toastEntryInserted) {
       // 预留退场淡出动画完成后再从 Overlay 移除，静息态回到 0 额外图层
       _toastDetachTimer = Timer(
-        KonataAdaptiveTokens.toastExitDuration + const Duration(milliseconds: 40),
+        KonataAdaptiveTokens.toastExitDuration + KonataTheme.toastRemovalGraceDelay,
         () {
           if (!mounted) return;
           if (_toastController?.activeToast.value == null) {

@@ -75,7 +75,7 @@ extension _EmbeddedVideoTopOverlays on _EmbeddedVideoPageState {
                         text: '${controller.activeWork.title} · $epTitle',
                         style: TextStyle(
                           color: p.textPrimary,
-                          fontSize: 14,
+                          fontSize: KonataTheme.fontSizeBodyMd,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -259,7 +259,7 @@ extension _EmbeddedVideoTopOverlays on _EmbeddedVideoPageState {
                     text: '${controller.activeWork.title} · $epTitle',
                     style: TextStyle(
                       color: p.textPrimary,
-                      fontSize: 14.5,
+                      fontSize: KonataTheme.fontSizeSubtitle,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -484,7 +484,7 @@ class _VideoBottomHudLeaf extends ConsumerWidget {
                       '${speed.toStringAsFixed(2).replaceFirst(RegExp(r'\.?0+$'), '')}x',
                       style: TextStyle(
                         color: p.textPrimary,
-                        fontSize: 11.5,
+                        fontSize: KonataTheme.fontSizeCaptionSm,
                         fontWeight: FontWeight.w600,
                         fontFeatures: KonataPlaybackTokens.tabularNumbers,
                       ),
@@ -597,14 +597,14 @@ class _MiniCornerStatusPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     return ClipRRect(
-      borderRadius: BorderRadius.circular(999),
+      borderRadius: KonataTheme.borderRadiusPill,
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
           decoration: BoxDecoration(
             color: KonataPlaybackTokens.glassSurface(p),
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: KonataTheme.borderRadiusPill,
             border: Border.all(color: KonataPlaybackTokens.glassBorder(p)),
           ),
           child: Row(
@@ -616,7 +616,7 @@ class _MiniCornerStatusPill extends StatelessWidget {
                 label,
                 style: TextStyle(
                   color: p.textPrimary,
-                  fontSize: 12.5,
+                  fontSize: KonataTheme.fontSizeBodyXs,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -638,18 +638,18 @@ class _SkipChapterCapsule extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     return ClipRRect(
-      borderRadius: BorderRadius.circular(999),
+      borderRadius: KonataTheme.borderRadiusPill,
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
         child: Material(
           color: KonataPlaybackTokens.glassSurface(p),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: KonataTheme.borderRadiusPill,
             side: BorderSide(color: KonataPlaybackTokens.glassBorder(p)),
           ),
           child: InkWell(
             onTap: onTap,
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: KonataTheme.borderRadiusPill,
             child: ConstrainedBox(
               constraints: BoxConstraints(
                 minHeight: KonataAdaptiveTokens.isAndroid
@@ -674,7 +674,7 @@ class _SkipChapterCapsule extends StatelessWidget {
                       label,
                       style: TextStyle(
                         color: p.textPrimary,
-                        fontSize: 13,
+                        fontSize: KonataTheme.fontSizeBodySm,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -706,7 +706,7 @@ class _ErrorFallbackCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     return ClipRRect(
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: KonataTheme.borderRadiusDialog,
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
         child: Container(
@@ -714,7 +714,7 @@ class _ErrorFallbackCard extends StatelessWidget {
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
             color: KonataPlaybackTokens.glassSurface(p),
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: KonataTheme.borderRadiusDialog,
             border: Border.all(color: KonataPlaybackTokens.glassBorder(p)),
           ),
           child: Column(
@@ -725,7 +725,7 @@ class _ErrorFallbackCard extends StatelessWidget {
               Text(
                 message,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: p.textPrimary, fontSize: 13.5),
+                style: TextStyle(color: p.textPrimary, fontSize: KonataTheme.fontSizeBody),
               ),
               const SizedBox(height: 18),
               Wrap(

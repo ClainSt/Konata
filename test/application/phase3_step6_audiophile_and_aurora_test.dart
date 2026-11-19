@@ -251,7 +251,7 @@ FILE "\\\\evil-host\\share\\x.flac" WAVE
 
       // 4. HDMI audio-spdif 与任何软 DSP 严格互斥。
       final spdifPlan = AudiophileSafetyPolicy.buildPlan(
-        requestedMode: AudioOutputRouteMode.hdmiSpdifPassthrough,
+        requestedMode: AudioOutputRouteMode.bitstreamPassthrough,
         safetyState: unverified,
         upstreamDspFilters: const ['equalizer=f=100:g=4'],
       );

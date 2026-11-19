@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../../domain/formatting/media_display_formatter.dart';
+import '../../domain/models/media_extensions.dart';
 import '../../domain/repositories/file_system_gateway.dart';
 import '../theme/konata_palette.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_surface_card.dart';
+import '../theme/konata_theme.dart';
 
 /// 媒体源浏览器单行条目组件（目录带勾选与钻取，文件带类型图标与大小）。
 class SourceBrowserEntryRow extends StatelessWidget {
@@ -64,7 +66,7 @@ class SourceBrowserEntryRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: p.textPrimary,
-                    fontSize: 13.5,
+                    fontSize: KonataTheme.fontSizeBody,
                     fontWeight: checked ? FontWeight.w600 : FontWeight.w400,
                   ),
                 ),
@@ -94,7 +96,7 @@ class SourceBrowserEntryRow extends StatelessWidget {
               entry.name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: p.textSecondary, fontSize: 13),
+              style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodySm),
             ),
           ),
           if (sizeText.isNotEmpty) ...[
@@ -103,7 +105,7 @@ class SourceBrowserEntryRow extends StatelessWidget {
               sizeText,
               style: TextStyle(
                 color: p.textMuted,
-                fontSize: 11.5,
+                fontSize: KonataTheme.fontSizeCaptionSm,
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
@@ -134,7 +136,7 @@ void showSourceBrowserHelpDialog(BuildContext context) {
         '2. 勾选子目录后点击「扫描所选目录 (N)」仅针对已选目录执行文件遍历与刮削，不会误删同源下未扫描文件夹的已有作品。\n'
         '3. 未勾选任何目录时，点击「扫描全库」将遍历整个媒体源根目录。\n'
         '4. 同时选中父目录与子目录时，后台扫描器会自动去重。',
-        style: TextStyle(color: p.textSecondary, fontSize: 13, height: 1.55),
+        style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodySm, height: 1.55),
       ),
     ),
   );
@@ -298,7 +300,7 @@ class _SourceSelectedScopePanelState extends State<SourceSelectedScopePanel> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: p.textPrimary,
-                      fontSize: 13.5,
+                      fontSize: KonataTheme.fontSizeBody,
                       fontWeight: FontWeight.w700,
                       fontFeatures: const [FontFeature.tabularFigures()],
                     ),
@@ -326,7 +328,7 @@ class _SourceSelectedScopePanelState extends State<SourceSelectedScopePanel> {
                           '已选目录 · ${widget.selectedPaths.length}',
                           style: TextStyle(
                             color: p.textPrimary,
-                            fontSize: 13.0,
+                            fontSize: KonataTheme.fontSizeBodySm,
                             fontWeight: FontWeight.w700,
                             fontFeatures: const [FontFeature.tabularFigures()],
                           ),
@@ -365,7 +367,7 @@ class _SourceSelectedScopePanelState extends State<SourceSelectedScopePanel> {
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: p.textPrimary,
-                              fontSize: 12.5,
+                              fontSize: KonataTheme.fontSizeBodyXs,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -396,7 +398,7 @@ class _SourceSelectedScopePanelState extends State<SourceSelectedScopePanel> {
                         final segments = path.split('/');
                         final name = segments.isEmpty ? path : segments.last;
                         return InkWell(
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: KonataTheme.borderRadiusControl,
                           onTap: widget.busy ? null : () => _toggleChecked(path),
                           child: Container(
                             width: double.infinity,
@@ -408,7 +410,7 @@ class _SourceSelectedScopePanelState extends State<SourceSelectedScopePanel> {
                               color: checked
                                   ? p.accent.withValues(alpha: 0.14)
                                   : p.softFill,
-                              borderRadius: BorderRadius.circular(10),
+                              borderRadius: KonataTheme.borderRadiusControl,
                               border: Border.all(
                                 color: checked
                                     ? p.accent.withValues(alpha: 0.45)
@@ -442,7 +444,7 @@ class _SourceSelectedScopePanelState extends State<SourceSelectedScopePanel> {
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
                                           color: p.textPrimary,
-                                          fontSize: 13,
+                                          fontSize: KonataTheme.fontSizeBodySm,
                                           fontWeight: FontWeight.w600,
                                         ),
                                       ),
@@ -453,7 +455,7 @@ class _SourceSelectedScopePanelState extends State<SourceSelectedScopePanel> {
                                           overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
                                             color: p.textMuted,
-                                            fontSize: 11.5,
+                                            fontSize: KonataTheme.fontSizeCaptionSm,
                                             fontFamily: 'Consolas',
                                           ),
                                         ),
@@ -474,52 +476,28 @@ class _SourceSelectedScopePanelState extends State<SourceSelectedScopePanel> {
   }
 }
 
-/// 媒体源浏览器条目展示辅助工具（文件类型识别与大小格式化）。
+/// 媒体源浏览器条目展示辅助工具（文件类型识别与大小格式化，复用领域层权威扩展名白名单）。
 abstract final class SourceBrowserFormatters {
-  static const Set<String> _videoExts = {
-    '.mkv',
-    '.mp4',
-    '.m2ts',
-    '.avi',
-    '.ts',
-    '.webm',
-  };
-  static const Set<String> _subtitleExts = {
-    '.ass',
-    '.ssa',
-    '.srt',
-    '.sup',
-    '.vtt',
-  };
-  static const Set<String> _audioExts = {
-    '.flac',
-    '.cue',
-    '.mp3',
-    '.m4a',
-    '.wav',
-    '.aac',
-    '.ogg',
-    '.opus',
-  };
-
   /// 根据文件名返回语义化图标。
   static IconData iconForFile(String fileName) {
-    final lower = fileName.toLowerCase();
-    final dot = lower.lastIndexOf('.');
-    final ext = dot == -1 ? '' : lower.substring(dot);
-    if (_videoExts.contains(ext)) return Icons.movie_outlined;
-    if (_subtitleExts.contains(ext)) return Icons.subtitles_outlined;
-    if (_audioExts.contains(ext)) return Icons.music_note_outlined;
+    final ext = KonataMediaExtensions.extensionOf(fileName);
+    if (KonataMediaExtensions.video.contains(ext)) return Icons.movie_outlined;
+    if (KonataMediaExtensions.subtitle.contains(ext)) {
+      return Icons.subtitles_outlined;
+    }
+    if (KonataMediaExtensions.scannableAudio.contains(ext)) {
+      return Icons.music_note_outlined;
+    }
+    if (KonataMediaExtensions.scanImage.contains(ext)) {
+      return Icons.image_outlined;
+    }
     if (ext == '.nfo') return Icons.description_outlined;
     return Icons.insert_drive_file_outlined;
   }
 
   /// 是否为视频文件（用于高亮图标颜色）。
-  static bool isVideoFile(String fileName) {
-    final lower = fileName.toLowerCase();
-    final dot = lower.lastIndexOf('.');
-    return dot != -1 && _videoExts.contains(lower.substring(dot));
-  }
+  static bool isVideoFile(String fileName) =>
+      KonataMediaExtensions.isVideoFile(fileName);
 
   /// 格式化字节数为人类可读大小。
   static String formatBytes(int? bytes) =>

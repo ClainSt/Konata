@@ -146,18 +146,18 @@ Widget _wrapPhase9App(
 
 class _Phase9FakeD3D11VideoBridge implements D3D11VideoBridge {
   @override
-  Stream<D3D11TextureChangedEvent> get textureChanges =>
-      const Stream<D3D11TextureChangedEvent>.empty();
+  Stream<NativeTextureChangedEvent> get textureChanges =>
+      const Stream<NativeTextureChangedEvent>.empty();
 
   @override
-  Future<D3D11VideoSessionHandle> createSession({
+  Future<NativeVideoSessionHandle> createSession({
     required int mpvHandleAddress,
     int width = 1280,
     int height = 720,
     bool preferSoftware = false,
     String renderBackend = 'd3d11_fp16',
   }) async {
-    return const D3D11VideoSessionHandle(
+    return const NativeVideoSessionHandle(
       sessionId: 1,
       textureId: 1,
       backend: 'sw',
@@ -184,7 +184,7 @@ class _Phase9FakeD3D11VideoBridge implements D3D11VideoBridge {
   }) async {}
 
   @override
-  Future<D3D11SessionMetrics?> getSessionMetrics(int sessionId) async => null;
+  Future<NativeSessionMetrics?> getSessionMetrics(int sessionId) async => null;
 
   @override
   Future<void> disposeSession(int sessionId) async {}
@@ -1066,7 +1066,7 @@ void main() {
         final session = EmbeddedMpvSession(
           storageRoot: storageRoot,
           streamBridge: bridge,
-          d3d11Bridge: _Phase9FakeD3D11VideoBridge(),
+          desktopSurfaceBridge: _Phase9FakeD3D11VideoBridge(),
           clientFactory: () => fakeClient,
         );
         addTearDown(session.dispose);

@@ -8,6 +8,7 @@ import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
+import '../theme/konata_theme.dart';
 
 /// 详情页公共高透运维胶囊（展开态在齿轮左侧展示「完整列表」与可选「收起」图标，齿轮固定最右侧并弹出管理菜单）。
 class DetailOpsCapsule extends StatefulWidget {
@@ -141,7 +142,7 @@ class _DetailOpsCapsuleState extends State<DetailOpsCapsule> {
     final p = context.palette;
     final compactPad = KonataAdaptiveTokens.isAndroid;
     return ClipRRect(
-      borderRadius: BorderRadius.circular(999),
+      borderRadius: KonataTheme.borderRadiusPill,
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
         child: Container(
@@ -155,14 +156,14 @@ class _DetailOpsCapsuleState extends State<DetailOpsCapsule> {
                     : const EdgeInsets.all(4)),
           decoration: BoxDecoration(
             color: KonataPlaybackTokens.glassSurface(p),
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: KonataTheme.borderRadiusPill,
             border: Border.all(
               color: KonataPlaybackTokens.glassBorder(p),
               width: 1,
             ),
           ),
           child: AnimatedSize(
-            duration: const Duration(milliseconds: 200),
+            duration: KonataTheme.motionNormal,
             curve: Curves.easeOutCubic,
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -311,7 +312,7 @@ class _DetailGearMenuOverlayState extends State<DetailGearMenuOverlay> {
           child: Material(
             color: Colors.transparent,
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: KonataTheme.borderRadiusSheet,
               child: BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
                 child: Container(
@@ -321,7 +322,7 @@ class _DetailGearMenuOverlayState extends State<DetailGearMenuOverlay> {
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   decoration: BoxDecoration(
                     color: KonataPlaybackTokens.popoverSurface(p),
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: KonataTheme.borderRadiusSheet,
                     border: Border.all(
                       color: KonataPlaybackTokens.glassBorder(p),
                     ),
@@ -451,7 +452,7 @@ class _MenuRow extends StatelessWidget {
                   label,
                   style: TextStyle(
                     color: fg,
-                    fontSize: 13,
+                    fontSize: KonataTheme.fontSizeBodySm,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -501,14 +502,14 @@ class DetailDrawerHeaderButton extends StatelessWidget {
     return Tooltip(
       message: tooltip,
       child: InkWell(
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: KonataTheme.borderRadiusPill,
         onTap: enabled ? onPressed : null,
         child: SizedBox(
           width: hitSize,
           height: hitSize,
           child: Center(
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 140),
+              duration: KonataTheme.motionFast,
               width: circleSize,
               height: circleSize,
               decoration: BoxDecoration(
@@ -575,10 +576,10 @@ class _DetailDrawerTabChipState extends State<DetailDrawerTabChip> {
       bgColor = p.isDark
           ? KonataPlaybackTokens.activePillBg(p)
           : p.primaryButtonBg;
-      borderColor = p.isDark ? const Color(0x42FFFFFF) : p.primaryButtonBg;
+      borderColor = KonataTheme.activeControlBorder(p);
       textColor = p.isDark ? Colors.white : p.primaryButtonFg;
     } else if (_hovered) {
-      bgColor = p.isDark ? const Color(0x1FFFFFFF) : const Color(0x140F172A);
+      bgColor = KonataTheme.subtleControlFill(p);
       borderColor = Colors.transparent;
       textColor = p.textPrimary;
     } else {
@@ -593,7 +594,7 @@ class _DetailDrawerTabChipState extends State<DetailDrawerTabChip> {
             MediaQuery.sizeOf(context).shortestSide <
                 KonataAdaptiveTokens.tabletBreakpoint);
     final visualPill = AnimatedContainer(
-      duration: const Duration(milliseconds: 150),
+      duration: KonataTheme.motionFast,
       curve: Curves.easeOutCubic,
       padding: EdgeInsets.symmetric(
         horizontal: effectiveCompact ? 10 : 14,
@@ -601,7 +602,7 @@ class _DetailDrawerTabChipState extends State<DetailDrawerTabChip> {
       ),
       decoration: BoxDecoration(
         color: bgColor,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: KonataTheme.borderRadiusPill,
         border: Border.all(color: borderColor, width: 1),
       ),
       child: Text(

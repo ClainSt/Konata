@@ -220,7 +220,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: p.textPrimary,
-                    fontSize: 15,
+                    fontSize: KonataTheme.fontSizeTitleSm,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -268,7 +268,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: p.textPrimary,
-                    fontSize: 15,
+                    fontSize: KonataTheme.fontSizeTitleSm,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -337,7 +337,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: p.textPrimary,
-                    fontSize: 15,
+                    fontSize: KonataTheme.fontSizeTitleSm,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -402,7 +402,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
             '网络代理',
             style: TextStyle(
               color: p.textPrimary,
-              fontSize: 14.5,
+              fontSize: KonataTheme.fontSizeSubtitle,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -482,14 +482,14 @@ class _EndpointBackupField extends StatelessWidget {
           title,
           style: TextStyle(
             color: p.textPrimary,
-            fontSize: 13.5,
+            fontSize: KonataTheme.fontSizeBody,
             fontWeight: FontWeight.w600,
           ),
         ),
         const SizedBox(height: 2),
         Text(
           officialSubtitle,
-          style: TextStyle(color: p.textMuted, fontSize: 11.8),
+          style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeCaption),
         ),
         const SizedBox(height: 8),
         KonataSoftTextField(
@@ -522,7 +522,7 @@ class _EndpointBackupField extends StatelessWidget {
                     color: report!.reachable
                         ? (report!.usedBackup ? p.warning : p.success)
                         : p.danger,
-                    fontSize: 12.2,
+                    fontSize: KonataTheme.fontSizeCaption,
                   ),
                 )
               : const SizedBox.shrink(),

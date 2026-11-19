@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:developer' as developer;
 
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -235,9 +236,10 @@ class AndroidVideoSurfaceController {
       if (!await link.exists() && !await File(linkPath).exists()) {
         try {
           await link.create(source.path);
-        } catch (_) {
-          // 部分 ROM 限制沙箱外符号链接时静默忽略，由 libmpv 默认字体兜底。
-        }
+        } catch (error) {
+      // 部分 ROM 限制沙箱外符号链接时静默忽略，由 libmpv 默认字体兜底。
+      developer.log('可恢复异常已记录', name: 'konata.android_video_surface_controller', error: error);
+    }
       }
     }
   }

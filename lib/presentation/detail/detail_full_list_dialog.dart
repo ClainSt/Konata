@@ -88,7 +88,7 @@ class DetailFullListDialog extends ConsumerStatefulWidget {
   }) {
     return showDialog<void>(
       context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.45),
+      barrierColor: KonataTheme.scrimBlackStrong,
       builder: (ctx) => DetailFullListDialog(
         bundle: bundle,
         imageLoader: imageLoader,
@@ -442,7 +442,7 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
       },
       child: KonataDraggableDialog(
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: KonataTheme.borderRadiusCapsule,
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
             child: Container(
@@ -450,7 +450,7 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
               height: dialogHeight,
               decoration: BoxDecoration(
                 color: KonataPlaybackTokens.popoverSurface(p),
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: KonataTheme.borderRadiusCapsule,
                 border: Border.all(
                   color: KonataPlaybackTokens.glassBorder(p),
                   width: 1,
@@ -493,7 +493,7 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
                               : 34,
                           child: KonataSearchField(
                             controller: _searchController,
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: KonataTheme.borderRadiusCard,
                             onChanged: (v) {
                               if (_query == v) return;
                               setState(() => _query = v);
@@ -535,7 +535,7 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
                           : 36,
                       child: KonataSearchField(
                         controller: _searchController,
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: KonataTheme.borderRadiusCard,
                         onChanged: (v) {
                           if (_query == v) return;
                           setState(() => _query = v);
@@ -550,14 +550,10 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
                     child: Container(
                       padding: const EdgeInsets.all(3),
                       decoration: BoxDecoration(
-                        color: p.isDark
-                            ? const Color(0x18FFFFFF)
-                            : const Color(0x0D0F172A),
-                        borderRadius: BorderRadius.circular(999),
+                        color: KonataTheme.subtleOutlineBorder(p),
+                        borderRadius: KonataTheme.borderRadiusPill,
                         border: Border.all(
-                          color: p.isDark
-                              ? const Color(0x22FFFFFF)
-                              : const Color(0x1A0F172A),
+                          color: KonataTheme.subtleControlBorder(p),
                         ),
                       ),
                       child: Row(
@@ -884,7 +880,7 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
         style: KonataTheme.detailTextStyle(
           palette: p,
           color: p.textSecondary,
-          fontSize: 13.5,
+          fontSize: KonataTheme.fontSizeBody,
           fontWeight: FontWeight.w500,
         ),
       ),

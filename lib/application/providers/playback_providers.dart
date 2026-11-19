@@ -2,12 +2,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../composition/platform_composition.dart';
 import '../../domain/models/episode.dart';
-import '../../domain/models/external_player_config.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/playback_record.dart';
 import '../../domain/models/work.dart';
-import '../../domain/repositories/external_player_launcher.dart';
+import '../../domain/repositories/desktop_relay_service.dart';
 import '../../infrastructure/sources/source_gateway_factory.dart';
 import '../../infrastructure/sources/webdav_source_gateway.dart';
 import '../../infrastructure/sources/work_detail_warmup_service.dart';
@@ -60,29 +59,32 @@ final workDetailWarmupServiceProvider = Provider<WorkDetailWarmupService>((ref) 
   return service;
 });
 
-/// 外部播放器启动器 Provider（Android 默认为空实现，Windows 组装根覆写为真实进程启动器）。
-final externalPlayerLauncherProvider = Provider<ExternalPlayerLauncher>((ref) {
-  return const UnsupportedExternalPlayerLauncher();
-});
-
-/// 播放动作协调器：记录与实时更新秒级播放历史，并委托外部播放器启动器。
+/// 播放动作协调器：记录与实时更新秒级播放历史，并委托可选桌面接力网关。
 class PlaybackCoordinator {
   /// 创建播放协调器。
   const PlaybackCoordinator(this._ref);
 
   final Ref _ref;
 
-  /// 启动外部播放器播放指定变体，并绑定秒级双向进度回写。
+  /// 启动桌面接力播放指定变体，并绑定秒级双向进度回写。
   Future<LaunchPlaybackResult> playVariant({
     required Work work,
     required Episode episode,
     required MediaVariant variant,
     required MediaSourceKind sourceType,
     MediaSource? source,
-    ExternalPlayerConfig? player,
+    String? targetId,
     int startSeconds = 0,
     int? mainEpisodeCount,
   }) async {
+    final gateway = _ref.read(desktopRelayGatewayProvider);
+    if (gateway == null) {
+      return const LaunchPlaybackResult(
+        launched: false,
+        message: '当前平台仅支持内置播放器',
+      );
+    }
+
     final repo = _ref.read(libraryRepositoryProvider);
     final existingRecords = await repo.getPlaybacksByWork(work.id);
     PlaybackRecord? prevRecord;
@@ -93,9 +95,6 @@ class PlaybackCoordinator {
       }
     }
 
-    final effectivePlayer =
-        player ??
-        await _pickDefaultVideoPlayer(await repo.getExternalPlayers());
     final effectiveStart = startSeconds > 0
         ? startSeconds
         : ((prevRecord != null &&
@@ -121,13 +120,16 @@ class PlaybackCoordinator {
       }
     }
 
-    final launcher = _ref.read(externalPlayerLauncherProvider);
-    final launchRes = await launcher.launch(
+    final preferredKindKey = _ref
+        .read(playbackPreferencesProvider)
+        .preferredRelayKindKey;
+    final launchRes = await gateway.launchVideo(
       work: work,
       episode: episode,
       variant: variant,
-      player: effectivePlayer,
       source: resolvedSource,
+      targetId: targetId,
+      preferredKindKey: preferredKindKey,
       startSeconds: effectiveStart,
       mainEpisodeCount: mainEpisodeCount,
       onProgressUpdate:
@@ -296,19 +298,24 @@ class PlaybackCoordinator {
     _ref.invalidate(playbackHistoryProvider);
   }
 
-  /// 调用外部播放器播放附属 CD 无损/音频音轨，并同步写入 `cd::` 独立音频记录（支持精确 CUE 扇区秒数）。
+  /// 调用桌面接力程序播放附属 CD 无损/音频音轨，并同步写入 `cd::` 独立音频记录（支持精确 CUE 扇区秒数）。
   Future<LaunchPlaybackResult> playCdVariant({
     required Work work,
     required MediaVariant variant,
     MediaSource? source,
-    ExternalPlayerConfig? player,
+    String? targetId,
     int startSeconds = 0,
     double? exactStartSeconds,
   }) async {
-    final repo = _ref.read(libraryRepositoryProvider);
-    final allPlayers = await repo.getExternalPlayers();
-    final effectivePlayer = player ?? await _pickDefaultAudioPlayer(allPlayers);
+    final gateway = _ref.read(desktopRelayGatewayProvider);
+    if (gateway == null) {
+      return const LaunchPlaybackResult(
+        launched: false,
+        message: '当前平台仅支持内置播放器',
+      );
+    }
 
+    final repo = _ref.read(libraryRepositoryProvider);
     final existingRecords = await repo.getPlaybacksByWork(work.id);
     final defaultEpisodeId =
         '${PlaybackRecord.audioEpisodePrefix}${variant.id}';
@@ -369,13 +376,12 @@ class PlaybackCoordinator {
       category: EpisodeCategory.extra,
       title: trackTitle,
     );
-    final launcher = _ref.read(externalPlayerLauncherProvider);
-    final launchRes = await launcher.launch(
+    final launchRes = await gateway.launchAudio(
       work: work,
       episode: tempEpisode,
       variant: variant,
-      player: effectivePlayer,
       source: resolvedSource,
+      targetId: targetId,
       startSeconds: effectiveStart,
       exactStartSeconds: effectiveExactStart,
       onProgressUpdate:
@@ -426,26 +432,18 @@ class PlaybackCoordinator {
     return launchRes;
   }
 
-  /// 若已配置外部看图程序且扫图位于本地磁盘则拉起外部程序，否则返回 `null` 回退内置预览。
+  /// 若已配置桌面看图程序且扫图位于本地磁盘则拉起外部程序，否则返回 `null` 回退内置预览。
   Future<LaunchPlaybackResult?> openExternalScan({
     required Work work,
     required MediaVariant variant,
     MediaSource? source,
   }) async {
-    final repo = _ref.read(libraryRepositoryProvider);
-    final players = await repo.getExternalPlayers();
-    ExternalPlayerConfig? viewer;
-    for (final p in players) {
-      if (p.kind == ExternalPlayerKind.imageViewer &&
-          p.executablePath.trim().isNotEmpty) {
-        viewer = p;
-        break;
-      }
-    }
-    if (viewer == null) return null;
+    final gateway = _ref.read(desktopRelayGatewayProvider);
+    if (gateway == null) return null;
 
     MediaSource? resolvedSource = source;
     if (resolvedSource == null) {
+      final repo = _ref.read(libraryRepositoryProvider);
       final allSources = await repo.getMediaSources();
       for (final s in allSources) {
         if (s.id == variant.sourceId) {
@@ -454,64 +452,11 @@ class PlaybackCoordinator {
         }
       }
     }
-    if (resolvedSource == null ||
-        resolvedSource.kind != MediaSourceKind.local) {
-      return null;
-    }
-
-    final tempEpisode = Episode(
-      id: 'scan::${variant.id}',
-      workId: work.id,
-      seasonNumber: 0,
-      category: EpisodeCategory.extra,
-      title: variant.fileName,
+    return gateway.openLocalScan(
+      work: work,
+      variant: variant,
+      source: resolvedSource,
     );
-    return _ref
-        .read(externalPlayerLauncherProvider)
-        .launch(
-          work: work,
-          episode: tempEpisode,
-          variant: variant,
-          player: viewer,
-          source: resolvedSource,
-        );
-  }
-
-  Future<ExternalPlayerConfig?> _pickDefaultAudioPlayer(
-    List<ExternalPlayerConfig> players,
-  ) async {
-    for (final p in players) {
-      if (p.kind == ExternalPlayerKind.audioPlayer &&
-          p.executablePath.trim().isNotEmpty) {
-        return p;
-      }
-    }
-    return _pickDefaultVideoPlayer(players);
-  }
-
-  Future<ExternalPlayerConfig?> _pickDefaultVideoPlayer(
-    List<ExternalPlayerConfig> players,
-  ) async {
-    final videoPlayers = players
-        .where(
-          (p) =>
-              (p.kind == ExternalPlayerKind.mpv ||
-                  p.kind == ExternalPlayerKind.potplayer ||
-                  p.kind == ExternalPlayerKind.custom) &&
-              p.executablePath.trim().isNotEmpty,
-        )
-        .toList();
-    if (videoPlayers.isEmpty) return null;
-    final preferredKind = _ref
-        .read(playbackPreferencesProvider)
-        .preferredExternalVideoKind;
-    for (final p in videoPlayers) {
-      if (p.kind == preferredKind) return p;
-    }
-    for (final p in videoPlayers) {
-      if (p.isDefault) return p;
-    }
-    return videoPlayers.first;
   }
 
   void _invalidateWorkAndHistory(String workId) {

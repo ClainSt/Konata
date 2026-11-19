@@ -3,13 +3,12 @@ import 'package:path/path.dart' as p;
 
 import '../../composition/platform_composition.dart';
 import '../../domain/models/episode.dart';
-import '../../domain/models/external_player_config.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/work.dart';
 import '../../domain/playback/cue_variant_resolver.dart';
+import '../../domain/repositories/desktop_relay_service.dart';
 import '../../infrastructure/players/audio_art_extractor.dart';
-import '../../domain/repositories/external_player_launcher.dart';
 import '../providers/library_providers.dart';
 import '../providers/platform_capability.dart';
 import '../providers/playback_providers.dart';
@@ -32,61 +31,22 @@ final class OpenBuiltinVideoDecision extends VideoDispatchDecision {
   final VideoLaunchRequest request;
 }
 
-/// 分发决策：已交由外部播放器或已产生回退外部播放器的执行结果。
+/// 分发决策：已交由桌面接力程序或已产生回退接力的执行结果。
 final class LaunchedExternalVideoDecision extends VideoDispatchDecision {
-  /// 创建外部播放器执行结果决策。
+  /// 创建桌面接力执行结果决策。
   const LaunchedExternalVideoDecision(this.result);
 
-  /// 外部播放器拉起结果。
+  /// 桌面接力拉起结果。
   final LaunchPlaybackResult result;
 }
 
 /// 全局统一音视频播放分发器：
-/// 根据全局偏好或单次右键覆写，路由至内置高保真 `libmpv`（D3D11/Surface/音频）或外部播放器。
+/// 根据全局偏好或单次右键覆写，路由至内置高保真 `libmpv` 或桌面接力程序。
 class PlaybackDispatcher {
   /// 创建统一播放分发器。
   const PlaybackDispatcher(this._ref);
 
   final Ref _ref;
-
-  Future<ExternalPlayerConfig?> _resolvePreferredVideoPlayer(
-    ExternalPlayerKind preferredKind,
-  ) async {
-    List<ExternalPlayerConfig> players =
-        _ref.read(externalPlayersProvider).valueOrNull ?? const [];
-    if (players.isEmpty) {
-      try {
-        players = await _ref
-            .read(externalPlayersProvider.future)
-            .timeout(const Duration(milliseconds: 120));
-      } catch (_) {
-        players = const [];
-      }
-    }
-    final configured = players
-        .where(
-          (p) =>
-              (p.kind == ExternalPlayerKind.mpv ||
-                  p.kind == ExternalPlayerKind.potplayer ||
-                  p.kind == ExternalPlayerKind.custom) &&
-              p.executablePath.trim().isNotEmpty,
-        )
-        .toList(growable: false);
-    if (configured.isEmpty) {
-      return null;
-    }
-    for (final p in configured) {
-      if (p.kind == preferredKind) {
-        return p;
-      }
-    }
-    for (final p in configured) {
-      if (p.isDefault) {
-        return p;
-      }
-    }
-    return configured.first;
-  }
 
   /// 分发播放指定剧集物理变体（无 Flutter UI / Navigator 依赖）。
   Future<VideoDispatchDecision> dispatchVideoVariant({
@@ -95,7 +55,7 @@ class PlaybackDispatcher {
     required MediaVariant variant,
     int startSeconds = 0,
     PreferredPlaybackEngine? overrideEngine,
-    ExternalPlayerConfig? explicitPlayer,
+    String? explicitTargetId,
   }) async {
     final source = bundle.sourcesById[variant.sourceId];
     final sourceType = source?.kind ?? MediaSourceKind.local;
@@ -106,8 +66,8 @@ class PlaybackDispatcher {
     final prefs = _ref.read(playbackPreferencesProvider);
     final effectiveEngine = KonataPlatform.isAndroid
         ? PreferredPlaybackEngine.builtinLibmpv
-        : (explicitPlayer != null
-              ? PreferredPlaybackEngine.externalPlayer
+        : (explicitTargetId != null
+              ? PreferredPlaybackEngine.desktopRelay
               : (overrideEngine ?? prefs.defaultVideoEngine));
 
     if (effectiveEngine == PreferredPlaybackEngine.builtinLibmpv) {
@@ -126,10 +86,7 @@ class PlaybackDispatcher {
         );
         return OpenBuiltinVideoDecision(request);
       }
-      final fallbackPlayer =
-          explicitPlayer ??
-          await _resolvePreferredVideoPlayer(prefs.preferredExternalVideoKind);
-      // 内嵌 libmpv 不可用时优雅降级至外部播放器
+      // 内嵌 libmpv 不可用时优雅降级至桌面接力程序
       final fallbackResult = await _ref
           .read(playbackCoordinatorProvider)
           .playVariant(
@@ -138,7 +95,7 @@ class PlaybackDispatcher {
             variant: variant,
             sourceType: sourceType,
             source: source,
-            player: fallbackPlayer,
+            targetId: explicitTargetId,
             startSeconds: startSeconds,
             mainEpisodeCount: mainEpisodeCount,
           );
@@ -150,9 +107,6 @@ class PlaybackDispatcher {
       );
     }
 
-    final resolvedPlayer =
-        explicitPlayer ??
-        await _resolvePreferredVideoPlayer(prefs.preferredExternalVideoKind);
     final extResult = await _ref
         .read(playbackCoordinatorProvider)
         .playVariant(
@@ -161,7 +115,7 @@ class PlaybackDispatcher {
           variant: variant,
           sourceType: sourceType,
           source: source,
-          player: resolvedPlayer,
+          targetId: explicitTargetId,
           startSeconds: startSeconds,
           mainEpisodeCount: mainEpisodeCount,
         );
@@ -175,7 +129,7 @@ class PlaybackDispatcher {
     required List<MediaVariant> cdPlaylist,
     required Map<String, MediaSource> sourcesById,
     PreferredPlaybackEngine? overrideEngine,
-    ExternalPlayerConfig? explicitPlayer,
+    String? explicitTargetId,
     bool expandImmersive = false,
     int? initialCueTrackNumber,
   }) async {
@@ -183,8 +137,8 @@ class PlaybackDispatcher {
     final prefs = _ref.read(playbackPreferencesProvider);
     final effectiveEngine = KonataPlatform.isAndroid
         ? PreferredPlaybackEngine.builtinLibmpv
-        : (explicitPlayer != null
-              ? PreferredPlaybackEngine.externalPlayer
+        : (explicitTargetId != null
+              ? PreferredPlaybackEngine.desktopRelay
               : (overrideEngine ?? prefs.defaultAudioEngine));
 
     if (effectiveEngine == PreferredPlaybackEngine.builtinLibmpv) {
@@ -210,8 +164,8 @@ class PlaybackDispatcher {
       }
     }
 
-    // 外部播放器收到独立 CUE 的 HTTP 地址无法解析相对 FILE 引用。
-    // 与内置音频共用 CUE 目标解析，将物理音轨的地址交给外部播放器。
+    // 外部程序收到独立 CUE 的 HTTP 地址无法解析相对 FILE 引用，
+    // 与内置音频共用 CUE 目标解析，将物理音轨地址交给桌面接力网关。
     var targetVariant = variant;
     var cueStartSeconds = 0;
     double? cueExactStartSeconds;
@@ -271,7 +225,7 @@ class PlaybackDispatcher {
       }
     }
 
-    // 拉起外部音频播放器前互斥暂停内置迷你音频播放器
+    // 拉起桌面接力音频程序前互斥暂停内置迷你音频播放器
     await _ref.read(audioPlaybackProvider.notifier).pauseForVideoSession();
 
     return _ref
@@ -280,13 +234,13 @@ class PlaybackDispatcher {
           work: work,
           variant: targetVariant,
           source: source,
-          player: explicitPlayer,
+          targetId: explicitTargetId,
           startSeconds: cueStartSeconds,
           exactStartSeconds: cueExactStartSeconds,
         );
   }
 
-  /// 若已配置外部图片查看器且媒体源为本地文件则优先拉起，否则返回 `null` 交由内置预览处理。
+  /// 若已配置桌面看图程序且媒体源为本地文件则优先拉起，否则返回 `null` 交由内置预览处理。
   Future<LaunchPlaybackResult?> tryOpenExternalScan({
     required Work work,
     required MediaVariant variant,

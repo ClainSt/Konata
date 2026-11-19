@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import '../../domain/models/series_group.dart';
 import '../../domain/models/work.dart';
 import '../../domain/repositories/library_repository.dart';
@@ -254,9 +255,10 @@ class SeriesAutoLinker {
               uf.unionAll([...sourceIndices, ...targetIndices]);
             }
           }
-        } catch (_) {
-          // Bangumi 关联查询失败（如离线测试或接口抖动）时不阻断主流程。
-        }
+        } catch (error) {
+      // Bangumi 关联查询失败（如离线测试或接口抖动）时不阻断主流程。
+      developer.log('可恢复异常已记录', name: 'konata.series_auto_linker', error: error);
+    }
       }
     }
 
@@ -536,9 +538,10 @@ class SeriesAutoLinker {
               movieLogoPaths.add(detail.logoPath!.trim());
             }
           }
-        } catch (_) {
-          // 离线或接口异常时不阻断本地编组修复。
-        }
+        } catch (error) {
+      // 离线或接口异常时不阻断本地编组修复。
+      developer.log('可恢复异常已记录', name: 'konata.series_auto_linker', error: error);
+    }
       }
     }
 
@@ -600,9 +603,10 @@ class SeriesAutoLinker {
               break;
             }
           }
-        } catch (_) {
-          // 离线态直接清除错误 ClearLogo，由详情页文字标题稳妥接管。
-        }
+        } catch (error) {
+      // 离线态直接清除错误 ClearLogo，由详情页文字标题稳妥接管。
+      developer.log('可恢复异常已记录', name: 'konata.series_auto_linker', error: error);
+    }
       }
 
       working[i] = replacementLogo != null

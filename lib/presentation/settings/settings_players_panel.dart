@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../application/playback/audiophile_safety_coordinator.dart';
 import '../../application/playback/playback_preferences_provider.dart';
 import '../../application/playback/shader_discovery_provider.dart';
+import '../../composition/platform_composition.dart';
 import '../../domain/playback/ass_semantic_verifier.dart';
 import '../../domain/playback/audiophile_safety_policy.dart';
 import '../../infrastructure/players/mpv_quality_profile.dart';
@@ -179,7 +180,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                           label: '内置播放器',
                         ),
                         KonataSegmentOption(
-                          value: PreferredPlaybackEngine.externalPlayer,
+                          value: PreferredPlaybackEngine.desktopRelay,
                           label: '外部播放器',
                         ),
                       ],
@@ -203,15 +204,15 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                   const SizedBox(height: 12),
                   Text('桌面高色深输出管线', style: KonataTheme.captionStyle(p)),
                   const SizedBox(height: 6),
-                  KonataDropdown<DesktopVideoOutputMode>(
+                  KonataDropdown<VideoOutputPipelineMode>(
                     key: const ValueKey('settings_desktop_video_output_mode'),
                     dense: true,
-                    value: q.desktopOutputMode,
+                    value: q.outputPipelineMode,
                     options: [
-                      for (final mode in DesktopVideoOutputMode.values)
+                      for (final mode in VideoOutputPipelineMode.values)
                         KonataDropdownOption(value: mode, label: mode.label),
                     ],
-                    onChanged: notifier.setDesktopOutputMode,
+                    onChanged: notifier.setOutputPipelineMode,
                   ),
                 ],
               ],
@@ -220,7 +221,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
           Divider(height: 1, color: p.hairline, indent: 18, endIndent: 18),
           KonataListTile(
             title: 'GPU 硬件解码',
-            subtitle: '自动启用 d3d11va / MediaCodec，遇异常源自动软解兜底',
+            subtitle: ref.watch(platformHwdecSubtitleProvider),
             trailing: KonataSwitch(
               value: q.hardwareDecode,
               onChanged: notifier.setHardwareDecode,
@@ -460,7 +461,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                           label: '内置流光音频',
                         ),
                         KonataSegmentOption(
-                          value: PreferredPlaybackEngine.externalPlayer,
+                          value: PreferredPlaybackEngine.desktopRelay,
                           label: '外部播放器',
                         ),
                       ],
@@ -488,12 +489,12 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
           if (KonataAdaptiveTokens.isWindows) ...[
             Divider(height: 1, color: p.hairline, indent: 18, endIndent: 18),
             KonataListTile(
-              title: 'WASAPI 音频独占模式',
-              subtitle: 'Windows 直通声卡绕过混音；设备不支持时自动回退共享模式',
+              title: ref.watch(platformExclusiveAudioTitleProvider),
+              subtitle: '桌面直通声卡绕过混音；设备不支持时自动回退共享模式',
               trailing: KonataSwitch(
-                value: q.wasapiExclusive,
+                value: q.exclusiveAudioOutput,
                 onChanged: (v) async {
-                  await notifier.setWasapiExclusive(v);
+                  await notifier.setExclusiveAudioOutput(v);
                   await ref
                       .read(audiophileSafetyCoordinatorProvider)
                       .reapplyAll(ref.read(playbackPreferencesProvider));
@@ -503,12 +504,12 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
             Divider(height: 1, color: p.hairline, indent: 18, endIndent: 18),
             KonataListTile(
               key: const ValueKey('settings_hdmi_spdif_switch'),
-              title: 'HDMI 源码直通 (audio-spdif)',
+              title: ref.watch(platformBitstreamTitleProvider),
               subtitle: '透传 AC3 / DTS / TrueHD 比特流至功放；开启时与所有软件 DSP 严格互斥',
               trailing: KonataSwitch(
-                value: prefs.hdmiSpdifPassthrough,
+                value: prefs.bitstreamPassthrough,
                 onChanged: (v) async {
-                  await notifier.setHdmiSpdifPassthrough(v);
+                  await notifier.setBitstreamPassthrough(v);
                   await ref
                       .read(audiophileSafetyCoordinatorProvider)
                       .reapplyAll(ref.read(playbackPreferencesProvider));
@@ -541,7 +542,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                     .deviceSafetyState;
                 final hdmiOn =
                     KonataAdaptiveTokens.isWindows &&
-                    prefs.hdmiSpdifPassthrough;
+                    prefs.bitstreamPassthrough;
                 return Container(
                   key: const ValueKey('settings_audiophile_safety_notice'),
                   width: double.infinity,

@@ -2,14 +2,14 @@ import 'dart:math' as math;
 
 /// 发烧音频输出路由模式。
 enum AudioOutputRouteMode {
-  /// 共享混音输出（Windows WASAPI 共享 + libsoxr 28-bit 高精重采样 / Android AAudio）。
+  /// 共享混音输出（桌面共享 + libsoxr 28-bit 高精重采样 / Android AAudio）。
   sharedResampled,
 
-  /// Windows WASAPI Exclusive 独占源格式直通。
-  wasapiExclusive,
+  /// 桌面端音频独占源格式直通。
+  exclusiveAudioOutput,
 
-  /// HDMI 源码直通（`audio-spdif`，与任何软件 DSP 严格互斥）。
-  hdmiSpdifPassthrough,
+  /// 比特流源码直通（`audio-spdif`，与任何软件 DSP 严格互斥）。
+  bitstreamPassthrough,
 
   /// Android 14+ 原生 `MIXER_BEHAVIOR_BIT_PERFECT` USB DAC 逐位直通。
   androidBitPerfectUsb,
@@ -170,10 +170,10 @@ class AudiophileSafetyPolicy {
       maxMicroFadeInMs,
     );
 
-    // 1. HDMI 比特流透传：与软件 DSP 严格互斥，严禁串联任何重采样或软滤镜。
-    if (requestedMode == AudioOutputRouteMode.hdmiSpdifPassthrough) {
+    // 1. 比特流源码透传：与软件 DSP 严格互斥，严禁串联任何重采样或软滤镜。
+    if (requestedMode == AudioOutputRouteMode.bitstreamPassthrough) {
       return const AudioSafetyChainPlan(
-        routeMode: AudioOutputRouteMode.hdmiSpdifPassthrough,
+        routeMode: AudioOutputRouteMode.bitstreamPassthrough,
         gaplessAudioMode: unifiedGaplessMode,
         prefetchPlaylist: true,
         audioFilterString: '',
@@ -183,11 +183,11 @@ class AudiophileSafetyPolicy {
       );
     }
 
-    // 2. 逐位直通请求（WASAPI Exclusive 或 Android 14+ BIT_PERFECT）：
+    // 2. 逐位直通请求（桌面独占直通或 Android 14+ BIT_PERFECT）：
     //    仅当后端已通过物理硬件电平仪实证且当前外设本会话已显式确认解锁，方允许满幅零 DSP 直通；
     //    否则保持末级 -12 dBFS 安全上限并给出清晰待验锁定说明。
     final isBitPerfectRequested =
-        requestedMode == AudioOutputRouteMode.wasapiExclusive ||
+        requestedMode == AudioOutputRouteMode.exclusiveAudioOutput ||
         requestedMode == AudioOutputRouteMode.androidBitPerfectUsb;
     if (isBitPerfectRequested && safetyState.allowFullScaleBypass) {
       return AudioSafetyChainPlan(

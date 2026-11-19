@@ -50,7 +50,7 @@ class SettingsAboutPanel extends ConsumerWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: backgroundColor ?? p.softFill,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: KonataTheme.borderRadiusControl,
           border: Border.all(color: p.hairline, width: 1),
         ),
         child: Center(child: child),
@@ -70,7 +70,7 @@ class SettingsAboutPanel extends ConsumerWidget {
           child: Row(
             children: [
               ClipRRect(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: KonataTheme.borderRadiusCard,
                 child: Image.asset(
                   'assets/icons/konata_icon.png',
                   width: 48,
@@ -89,7 +89,7 @@ class SettingsAboutPanel extends ConsumerWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: p.textPrimary,
-                        fontSize: 18,
+                        fontSize: KonataTheme.fontSizeTitleLg,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -98,7 +98,7 @@ class SettingsAboutPanel extends ConsumerWidget {
                       '版本 1.0.0',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: p.textSecondary, fontSize: 13),
+                      style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodySm),
                     ),
                   ],
                 ),
@@ -182,7 +182,7 @@ class SettingsAboutPanel extends ConsumerWidget {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: KonataTheme.tmdbCyan,
-                      fontSize: 10.5,
+                      fontSize: KonataTheme.fontSizeBadge,
                       height: 1.0,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.4,

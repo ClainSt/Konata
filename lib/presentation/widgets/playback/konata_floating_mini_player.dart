@@ -118,15 +118,14 @@ class _KonataFloatingMiniPlayerState
       ..dispose();
     _chromeVisibleNotifier.dispose();
     _liveOffsetNotifier.dispose();
-    final rectNotifier = _toastController?.floatingMiniWindowRect;
+    final toastCtrl = _toastController;
     final lastPublished = _lastPublishedRect;
     if (lastPublished != null &&
-        rectNotifier != null &&
-        rectNotifier.value == lastPublished) {
+        toastCtrl != null &&
+        !toastCtrl.isDisposed &&
+        toastCtrl.floatingMiniWindowRect.value == lastPublished) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (rectNotifier.value == lastPublished) {
-          rectNotifier.value = null;
-        }
+        toastCtrl.clearFloatingMiniWindowRectIfMatches(lastPublished);
       });
     }
     _toastController = null;
@@ -145,17 +144,17 @@ class _KonataFloatingMiniPlayerState
   void _publishMiniRect(Rect? rect) {
     if (_rectNearEqual(_lastPublishedRect, rect)) return;
     _lastPublishedRect = rect;
-    final rectNotifier = _toastController?.floatingMiniWindowRect;
-    if (rectNotifier == null) return;
+    final toastCtrl = _toastController;
+    if (toastCtrl == null || toastCtrl.isDisposed) return;
     if (WidgetsBinding.instance.schedulerPhase ==
         SchedulerPhase.persistentCallbacks) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          rectNotifier.value = rect;
+          toastCtrl.publishFloatingMiniWindowRect(rect);
         }
       });
     } else {
-      rectNotifier.value = rect;
+      toastCtrl.publishFloatingMiniWindowRect(rect);
     }
   }
 

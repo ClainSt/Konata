@@ -61,14 +61,14 @@ class ReviewDialog extends ConsumerWidget {
               padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
               decoration: BoxDecoration(
                 color: p.warningBadge.bg,
-                borderRadius: BorderRadius.circular(999),
+                borderRadius: KonataTheme.borderRadiusPill,
                 border: Border.all(color: p.warningBadge.border, width: 1),
               ),
               child: Text(
                 '$pendingCount 项',
                 style: TextStyle(
                   color: p.warningBadge.fg,
-                  fontSize: 11.5,
+                  fontSize: KonataTheme.fontSizeCaptionSm,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -93,7 +93,7 @@ class ReviewDialog extends ConsumerWidget {
                       '当前没有待复核的作品',
                       style: TextStyle(
                         color: p.textSecondary,
-                        fontSize: 14,
+                        fontSize: KonataTheme.fontSizeBodyMd,
                         fontWeight: FontWeight.w500,
                       ),
                     ),

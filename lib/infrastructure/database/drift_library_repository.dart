@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 
 import '../../domain/models/episode.dart';
-import '../../domain/models/external_player_config.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/playback_record.dart';
@@ -228,38 +227,6 @@ class DriftLibraryRepository implements LibraryRepository {
     assetScope: row.assetScope,
     scopeLocked: row.scopeLocked,
   );
-
-  @override
-  Future<void> upsertExternalPlayer(ExternalPlayerConfig config) async {
-    await _db
-        .into(_db.externalPlayers)
-        .insertOnConflictUpdate(
-          ExternalPlayersCompanion(
-            id: Value(config.id),
-            name: Value(config.name),
-            kind: Value(config.kind),
-            executablePath: Value(config.executablePath),
-            argumentsTemplate: Value(config.argumentsTemplate),
-            isDefault: Value(config.isDefault),
-          ),
-        );
-  }
-
-  @override
-  Future<List<ExternalPlayerConfig>> getExternalPlayers() async {
-    final rows = await _db.select(_db.externalPlayers).get();
-    return [
-      for (final row in rows)
-        ExternalPlayerConfig(
-          id: row.id,
-          name: row.name,
-          kind: row.kind,
-          executablePath: row.executablePath,
-          argumentsTemplate: row.argumentsTemplate,
-          isDefault: row.isDefault,
-        ),
-    ];
-  }
 
   @override
   Future<void> saveScrapeCandidates(

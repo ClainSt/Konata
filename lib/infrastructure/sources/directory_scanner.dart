@@ -2,6 +2,7 @@ import 'package:path/path.dart' as p;
 
 import '../../domain/matching/directory_grouper.dart';
 import '../../domain/matching/supplementary_folder_rules.dart';
+import '../../domain/models/media_extensions.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/repositories/file_system_gateway.dart';
 import 'subtitle_matcher.dart';
@@ -59,46 +60,13 @@ class DirectoryScanner {
     '.@__thumb',
   };
 
-  static const Set<String> _videoExts = {
-    '.mkv',
-    '.mp4',
-    '.m2ts',
-    '.avi',
-    '.ts',
-    '.webm',
-  };
+  static const Set<String> _videoExts = KonataMediaExtensions.video;
 
-  static const Set<String> _subtitleExts = {
-    '.ass',
-    '.ssa',
-    '.srt',
-    '.sup',
-    '.vtt',
-  };
+  static const Set<String> _subtitleExts = KonataMediaExtensions.subtitle;
 
-  static const Set<String> _audioExts = {
-    '.cue',
-    '.flac',
-    '.ape',
-    '.wav',
-    '.tta',
-    '.tak',
-    '.m4a',
-    '.aac',
-    '.ogg',
-    '.opus',
-    '.mka',
-    '.mp3',
-  };
+  static const Set<String> _audioExts = KonataMediaExtensions.scannableAudio;
 
-  static const Set<String> _scanImageExts = {
-    '.jpg',
-    '.jpeg',
-    '.png',
-    '.webp',
-    '.bmp',
-    '.avif',
-  };
+  static const Set<String> _scanImageExts = KonataMediaExtensions.scanImage;
 
   static final RegExp _cdDirRegex = RegExp(
     r'(?:^|[\s._\-\[\]()])(?:cd|cds|ost|soundtrack|music|radio|drama|disc\s*\d+)(?=$|[\s._\-\[\]()0-9])',

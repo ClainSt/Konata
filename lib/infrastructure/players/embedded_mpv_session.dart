@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
+import '../../domain/models/media_extensions.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/playback/ass_uue_font_decoder.dart';
@@ -101,7 +102,8 @@ class EmbeddedMpvSession {
     required this.streamBridge,
     this.logStore,
     this.clientFactory,
-    this.d3d11Bridge,
+    this.desktopSurfaceBridge,
+    this.desktopProfileDelegate,
     this.gatewayFactory = const MediaSourceGatewayFactory(),
     this.probeCollector = const PlaybackProbeCollector(),
     this.subtitleDirectoryIndex,
@@ -127,7 +129,8 @@ class EmbeddedMpvSession {
   final LocalStreamBridge streamBridge;
   final DiagnosticsLogStore? logStore;
   final LibMpvClient Function()? clientFactory;
-  final KonataVideoTextureBridge? d3d11Bridge;
+  final KonataVideoTextureBridge? desktopSurfaceBridge;
+  final MpvPlatformProfileDelegate? desktopProfileDelegate;
   final MediaSourceGatewayFactory gatewayFactory;
   final PlaybackProbeCollector probeCollector;
   final SubtitleDirectoryIndex? subtitleDirectoryIndex;
@@ -210,7 +213,7 @@ class EmbeddedMpvSession {
 
   LibMpvClient? _client;
   StreamSubscription<MpvClientEvent>? _eventSub;
-  StreamSubscription<D3D11TextureChangedEvent>? _d3d11ChangeSub;
+  StreamSubscription<NativeTextureChangedEvent>? _desktopSurfaceChangeSub;
   StreamSubscription<AndroidSurfaceDescriptor?>? _androidSurfaceSub;
   AndroidVideoSurfaceController? _androidSurface;
   Future<void> _androidSurfaceSerial = Future<void>.value();
@@ -222,7 +225,7 @@ class EmbeddedMpvSession {
   Timer? _firstFrameWatchdogTimer;
   bool _firstFrameWatchdogReboundOnce = false;
 
-  int? _d3d11SessionId;
+  int? _desktopSurfaceSessionId;
   bool _usingGpuNextUnderlay = false;
   final List<String> _activeStreamTokens = [];
   List<String> _pendingExternalSubtitles = const [];
@@ -322,7 +325,7 @@ class EmbeddedMpvSession {
     _desiredVolume = initialVolume.clamp(0.0, 100.0);
     _useAndroidSurfaceSession =
         Platform.isAndroid || androidSurfaceSupplier != null;
-    final useWindowsD3D11 = Platform.isWindows && !_useAndroidSurfaceSession;
+    final useDesktopSurface = Platform.isWindows && !_useAndroidSurfaceSession;
     final isRemote =
         request.source != null && request.source!.kind != MediaSourceKind.local;
 
@@ -346,7 +349,7 @@ class EmbeddedMpvSession {
       workPhotoDir: workPhotoDir,
       verifiedShaders: verifiedShaders,
       isRemote: isRemote,
-      useWindowsD3D11: useWindowsD3D11,
+      useDesktopSurface: useDesktopSurface,
     );
     final client = initResult.client;
     final effectiveQualityConfig = initResult.effectiveConfig;
@@ -354,8 +357,9 @@ class EmbeddedMpvSession {
     MpvQualityProfile.applyPostInitVideoProperties(
       client,
       config: effectiveQualityConfig,
-      isWindowsOverride: useWindowsD3D11,
-      onWasapiFallbackNotice: onNotice,
+      isWindowsOverride: useDesktopSurface,
+      desktopDelegate: desktopProfileDelegate,
+      onExclusiveFallbackNotice: onNotice,
       logStore: logStore,
     );
     onApplyAudiophileSafetyChain?.call(client);
@@ -386,7 +390,7 @@ class EmbeddedMpvSession {
       'hwdec-current',
       MpvFormat.string,
     );
-    if (useWindowsD3D11) {
+    if (useDesktopSurface) {
       client.observeProperty(
         _propAudioDeviceList,
         'audio-device-list',
@@ -759,16 +763,16 @@ class EmbeddedMpvSession {
 
     if (!_hwdecWasEnabled || _hwdecFallbackAttempted) return;
     final msg = '${event.prefix} ${event.text}'.toLowerCase();
+    final isDesktopHwdecWarn =
+        desktopProfileDelegate?.isDesktopHardwareDecodeWarning(msg) ?? false;
     final isFatalHwdecError =
         level == 'fatal' &&
         (msg.contains('hwdec') ||
-            msg.contains('d3d11va') ||
-            msg.contains('dxva2') ||
+            isDesktopHwdecWarn ||
             msg.contains('mediacodec') ||
             msg.contains('hardware decoding'));
     final isExplicitUnrecoverable =
-        msg.contains('hardware decoding failed') ||
-        msg.contains('failed to create direct3d');
+        msg.contains('hardware decoding failed') || isDesktopHwdecWarn;
     if (isFatalHwdecError || isExplicitUnrecoverable) {
       _triggerSoftwareDecodeFallback();
     }
@@ -848,8 +852,9 @@ class EmbeddedMpvSession {
     MpvQualityProfile.applyLiveQualityUpdate(
       client,
       config: config,
+      desktopDelegate: desktopProfileDelegate,
       verifiedShaderPaths: verifiedShaders,
-      onWasapiFallbackNotice: onNotice,
+      onExclusiveFallbackNotice: onNotice,
       logStore: logStore,
     );
     onApplyAudiophileSafetyChain?.call(client);
@@ -994,20 +999,22 @@ class EmbeddedMpvSession {
 
     await _eventSub?.cancel();
     _eventSub = null;
-    await _d3d11ChangeSub?.cancel();
-    _d3d11ChangeSub = null;
+    await _desktopSurfaceChangeSub?.cancel();
+    _desktopSurfaceChangeSub = null;
     await _androidSurfaceSub?.cancel();
     _androidSurfaceSub = null;
 
-    final d3dId = _d3d11SessionId;
-    _d3d11SessionId = null;
+    final surfaceSessionId = _desktopSurfaceSessionId;
+    _desktopSurfaceSessionId = null;
     final wasGpuNextUnderlay = _usingGpuNextUnderlay;
     _usingGpuNextUnderlay = false;
-    if (d3dId != null && d3dId > 0 && d3d11Bridge != null) {
+    if (surfaceSessionId != null &&
+        surfaceSessionId > 0 &&
+        desktopSurfaceBridge != null) {
       if (wasGpuNextUnderlay) {
         // vo=gpu-next 持有底层子窗口交换链，须先隐藏视口并关闭 libmpv，再销毁子窗口句柄。
-        await d3d11Bridge!.setViewportRect(
-          sessionId: d3dId,
+        await desktopSurfaceBridge!.setViewportRect(
+          sessionId: surfaceSessionId,
           leftPx: 0,
           topPx: 0,
           rightPx: 0,
@@ -1015,7 +1022,7 @@ class EmbeddedMpvSession {
           visible: false,
         );
       } else {
-        await d3d11Bridge!.disposeSession(d3dId);
+        await desktopSurfaceBridge!.disposeSession(surfaceSessionId);
       }
     }
 
@@ -1053,10 +1060,10 @@ class EmbeddedMpvSession {
     }
 
     if (wasGpuNextUnderlay &&
-        d3dId != null &&
-        d3dId > 0 &&
-        d3d11Bridge != null) {
-      await d3d11Bridge!.disposeSession(d3dId);
+        surfaceSessionId != null &&
+        surfaceSessionId > 0 &&
+        desktopSurfaceBridge != null) {
+      await desktopSurfaceBridge!.disposeSession(surfaceSessionId);
     }
 
     final tokens = List<String>.from(_activeStreamTokens);

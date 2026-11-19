@@ -4,6 +4,7 @@ import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'dart:developer' as developer;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -172,8 +173,9 @@ class ScanThumbnailScheduler {
         }
         return;
       }
-    } catch (_) {
+    } catch (error) {
       // 忽略读缓存瞬态错误，继续走流式生成路径。
+      developer.log('可恢复异常已记录', name: 'konata.scan_thumbnail_scheduler', error: error);
     }
 
     if (job.cancelled || _disposed) {
@@ -477,8 +479,9 @@ class ScanThumbnailScheduler {
     if (closeFn == null) return;
     try {
       await closeFn();
-    } catch (_) {
+    } catch (error) {
       // 忽略已断开网关的重复关闭异常。
+      developer.log('可恢复异常已记录', name: 'konata.scan_thumbnail_scheduler', error: error);
     }
   }
 

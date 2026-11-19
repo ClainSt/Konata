@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/models/episode.dart';
@@ -188,8 +189,9 @@ class WorkManagementActions {
         );
         _invalidateWork(workId);
       }
-    } catch (_) {
+    } catch (error) {
       // 静默补全失败时保持无评分状态，不弹出报错干扰阅读。
+      developer.log('可恢复异常已记录', name: 'konata.work_management_provider', error: error);
     } finally {
       _bangumiScoreBackfillInFlight.remove(workId);
     }
@@ -403,9 +405,10 @@ class WorkManagementActions {
           sourceLabel: 'Bangumi',
           isBangumi: true,
         );
-      } catch (_) {
-        // Bangumi 在线获取失败时不阻塞 TMDB 候选图集展示。
-      }
+      } catch (error) {
+      // Bangumi 在线获取失败时不阻塞 TMDB 候选图集展示。
+      developer.log('可恢复异常已记录', name: 'konata.work_management_provider', error: error);
+    }
     }
 
     // 2. 拉取 TMDB 分季封面、系列主封面及候选图集（透传 /images 原生宽高）

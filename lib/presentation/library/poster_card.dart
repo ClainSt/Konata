@@ -4,6 +4,7 @@ import '../../application/providers/library_providers.dart';
 import '../theme/konata_palette.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/managed_image.dart';
+import '../theme/konata_theme.dart';
 
 /// 高密度海报墙单卡组件（圆角 10px + 悬停 1.03x 微缩放，零实时 BackdropFilter）。
 class PosterCard extends StatefulWidget {
@@ -53,11 +54,11 @@ class _PosterCardState extends State<PosterCard> {
             Expanded(
               child: AnimatedScale(
                 scale: _hovered ? 1.03 : 1.0,
-                duration: const Duration(milliseconds: 180),
+                duration: KonataTheme.motionMedium,
                 curve: Curves.easeOutCubic,
                 child: Container(
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: KonataTheme.borderRadiusControl,
                     color: p.surface,
                   ),
                   clipBehavior: Clip.antiAlias,
@@ -81,7 +82,7 @@ class _PosterCardState extends State<PosterCard> {
                         child: IgnorePointer(
                           child: DecoratedBox(
                             decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(10),
+                              borderRadius: KonataTheme.borderRadiusControl,
                               border: Border.all(
                                 color: _hovered ? p.hoverBorder : p.posterBorder,
                                 width: 1,
@@ -101,14 +102,14 @@ class _PosterCardState extends State<PosterCard> {
                             ),
                             decoration: BoxDecoration(
                               color: p.glassOverlay,
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: KonataTheme.borderRadiusChip,
                               border: Border.all(color: p.posterBorder),
                             ),
                             child: Text(
                               '${widget.item.maxEpisodeVariantCount}版本',
                               style: TextStyle(
                                 color: p.textPrimary,
-                                fontSize: 10.5,
+                                fontSize: KonataTheme.fontSizeBadge,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -127,7 +128,7 @@ class _PosterCardState extends State<PosterCard> {
                 maxLines: 1,
                 style: TextStyle(
                   color: p.textPrimary,
-                  fontSize: 13.5,
+                  fontSize: KonataTheme.fontSizeBody,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -139,7 +140,7 @@ class _PosterCardState extends State<PosterCard> {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: p.textSecondary,
-                fontSize: 11.5,
+                fontSize: KonataTheme.fontSizeCaptionSm,
               ),
             ),
           ],
@@ -177,7 +178,7 @@ class _PosterFallback extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: p.textSecondary,
-              fontSize: 12,
+              fontSize: KonataTheme.fontSizeCaption,
             ),
           ),
         ],

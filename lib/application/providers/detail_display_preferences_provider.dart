@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -100,8 +101,9 @@ class DetailDisplayPreferencesNotifier
         showCdTab: prefs.getBool(_keyShowCdTab) ?? true,
         showScanTab: prefs.getBool(_keyShowScanTab) ?? true,
       );
-    } catch (_) {
+    } catch (error) {
       // 无 SharedPreferences 插件环境的纯单元测试保持默认配置即可。
+      developer.log('可恢复异常已记录', name: 'konata.detail_display_preferences_provider', error: error);
     }
   }
 
@@ -145,8 +147,9 @@ class DetailDisplayPreferencesNotifier
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(key, value);
-    } catch (_) {
+    } catch (error) {
       // 忽略测试环境插件未注册异常。
+      developer.log('可恢复异常已记录', name: 'konata.detail_display_preferences_provider', error: error);
     }
   }
 }

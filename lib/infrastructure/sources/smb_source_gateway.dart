@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:developer' as developer;
 
 import 'package:smb_connect/smb_connect.dart';
 
@@ -59,7 +60,9 @@ class SmbSourceGateway
     if (old != null) {
       try {
         await old.close();
-      } catch (_) {}
+      } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.smb_source_gateway', error: error);
+    }
     }
   }
 

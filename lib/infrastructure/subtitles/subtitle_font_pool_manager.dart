@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:developer' as developer;
 
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
@@ -218,9 +219,10 @@ class SubtitleFontPoolManager {
             scored.add((file: entity, priority: priority));
           }
         }
-      } catch (_) {
-        // 个别系统字体目录受限无权限时静默跳过，继续实证扫描其余路径。
-      }
+      } catch (error) {
+      // 个别系统字体目录受限无权限时静默跳过，继续实证扫描其余路径。
+      developer.log('可恢复异常已记录', name: 'konata.subtitle_font_pool_manager', error: error);
+    }
     }
 
     scored.sort((a, b) => b.priority.compareTo(a.priority));
@@ -509,7 +511,9 @@ class SubtitleFontPoolManager {
           count += 1;
         }
       }
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.subtitle_font_pool_manager', error: error);
+    }
     return count;
   }
 

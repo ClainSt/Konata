@@ -9,6 +9,7 @@ import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../widgets/design_system/konata_glass_capsule.dart';
 import '../widgets/playback/konata_playback_capsule.dart';
+import '../theme/konata_theme.dart';
 
 enum _TouchDragKind { none, brightness, volume, seek, collapse }
 
@@ -142,7 +143,7 @@ class _VideoTouchGestureLayerState extends State<VideoTouchGestureLayer> {
       _pillVisible = true;
     });
     if (autoDismiss) {
-      _pillFadeTimer = Timer(const Duration(milliseconds: 900), () {
+      _pillFadeTimer = Timer(KonataTheme.gesturePillSlowFadeDelay, () {
         if (mounted) {
           setState(() => _pillVisible = false);
         }
@@ -152,7 +153,7 @@ class _VideoTouchGestureLayerState extends State<VideoTouchGestureLayer> {
 
   void _dismissPillSoon() {
     _pillFadeTimer?.cancel();
-    _pillFadeTimer = Timer(const Duration(milliseconds: 520), () {
+    _pillFadeTimer = Timer(KonataTheme.gesturePillFastFadeDelay, () {
       if (mounted) {
         setState(() => _pillVisible = false);
       }
@@ -458,7 +459,7 @@ class _VideoTouchGestureLayerState extends State<VideoTouchGestureLayer> {
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     color: p.textPrimary,
-                                    fontSize: 13.5,
+                                    fontSize: KonataTheme.fontSizeBody,
                                     fontWeight: FontWeight.w600,
                                     fontFeatures:
                                         KonataPlaybackTokens.tabularNumbers,
@@ -470,7 +471,7 @@ class _VideoTouchGestureLayerState extends State<VideoTouchGestureLayer> {
                           if (_pillProgress != null) ...[
                             const SizedBox(height: 8),
                             ClipRRect(
-                              borderRadius: BorderRadius.circular(999),
+                              borderRadius: KonataTheme.borderRadiusPill,
                               child: SizedBox(
                                 width: 124,
                                 height: 3.5,

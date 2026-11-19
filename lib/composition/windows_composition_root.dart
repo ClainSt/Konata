@@ -1,15 +1,19 @@
+import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../application/providers/desktop_external_tools_providers.dart';
 import '../application/providers/playback_providers.dart';
 import '../application/providers/theme_providers.dart';
 import '../domain/config/konata_lane_config.dart';
 import '../infrastructure/players/d3d11_video_bridge.dart';
 import '../infrastructure/players/real_external_player_launcher.dart';
 import '../infrastructure/players/windows_code_page_decoder.dart';
+import '../infrastructure/players/windows_desktop_relay_gateway.dart';
+import '../infrastructure/players/windows_mpv_profile_adapter.dart';
 import '../infrastructure/storage/storage_root_provider.dart';
 import '../presentation/app/konata_app.dart';
 import '../presentation/settings/settings_external_tools_panel.dart';
@@ -46,7 +50,9 @@ class WindowsKonataWindowHost implements KonataWindowHost {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) return;
     try {
       await Window.hideWindowControls();
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.windows_composition_root', error: error);
+    }
   }
 
   @override
@@ -65,7 +71,9 @@ class WindowsKonataWindowHost implements KonataWindowHost {
     try {
       await windowManager.setFullScreen(fullScreen);
       await Window.hideWindowControls();
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.windows_composition_root', error: error);
+    }
   }
 
   @override
@@ -73,7 +81,9 @@ class WindowsKonataWindowHost implements KonataWindowHost {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) return;
     try {
       await windowManager.startDragging();
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.windows_composition_root', error: error);
+    }
   }
 
   @override
@@ -86,7 +96,9 @@ class WindowsKonataWindowHost implements KonataWindowHost {
         await windowManager.maximize();
       }
       await Window.hideWindowControls();
-    } catch (_) {}
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.windows_composition_root', error: error);
+    }
   }
 
   @override
@@ -127,6 +139,29 @@ class WindowsCompositionRoot {
       konataVideoBridgeFactoryProvider.overrideWithValue(
         () => D3D11VideoBridge(),
       ),
+      mpvPlatformProfileDelegateProvider.overrideWithValue(
+        const WindowsMpvProfileDelegate(),
+      ),
+      desktopRelayGatewayProvider.overrideWith((ref) {
+        final store = ref.watch(desktopExternalPlayerStoreProvider);
+        final bridge = ref.watch(localStreamBridgeProvider);
+        final factory = ref.watch(mediaSourceGatewayFactoryProvider);
+        final launcher = RealExternalPlayerLauncher(
+          streamBridge: bridge,
+          gatewayFactory: factory,
+        );
+        return WindowsDesktopRelayGateway(store: store, launcher: launcher);
+      }),
+      platformHwdecSubtitleProvider.overrideWithValue(
+        '自动启用 D3D11VA 硬件加速，遇异常源自动软解兜底',
+      ),
+      platformExclusiveAudioTitleProvider.overrideWithValue(
+        'WASAPI 音频独占模式',
+      ),
+      platformExclusiveAudioSheetTitleProvider.overrideWithValue(
+        'WASAPI 独占直通',
+      ),
+      platformBitstreamTitleProvider.overrideWithValue('HDMI / S/PDIF 源码透传'),
       desktopExternalToolsPanelBuilderProvider.overrideWithValue(
         (_) => const SettingsExternalToolsPanel(),
       ),
@@ -151,14 +186,6 @@ class WindowsCompositionRoot {
           onToggleTheme: onToggleTheme,
         ),
       ),
-      externalPlayerLauncherProvider.overrideWith((ref) {
-        final bridge = ref.watch(localStreamBridgeProvider);
-        final factory = ref.watch(mediaSourceGatewayFactoryProvider);
-        return RealExternalPlayerLauncher(
-          streamBridge: bridge,
-          gatewayFactory: factory,
-        );
-      }),
       legacyCodePageDecoderProvider.overrideWithValue(
         WindowsCodePageDecoder.decode,
       ),

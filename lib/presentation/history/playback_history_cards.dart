@@ -460,7 +460,7 @@ class PlaybackHistoryItemCard extends StatelessWidget {
                           SizedBox(
                             height: progressBarHeight,
                             child: ClipRRect(
-                              borderRadius: BorderRadius.circular(999),
+                              borderRadius: KonataTheme.borderRadiusPill,
                               child: LinearProgressIndicator(
                                 value: record.isCompleted
                                     ? 1.0

@@ -24,6 +24,7 @@ import 'package:ccplayer/infrastructure/players/android/android_video_surface_co
 import 'package:ccplayer/infrastructure/players/embedded_mpv_session.dart';
 import 'package:ccplayer/infrastructure/players/libmpv_ffi.dart';
 import 'package:ccplayer/infrastructure/players/mpv_quality_profile.dart';
+import 'package:ccplayer/infrastructure/players/windows_mpv_profile_adapter.dart';
 import 'package:ccplayer/presentation/audio/immersive_audio_page.dart';
 import 'package:ccplayer/presentation/audio/mini_audio_bar.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
@@ -596,12 +597,13 @@ void main() {
         MpvQualityProfile.applyPreInitVideoOptions(
           gpuNextRecorder,
           config: const PlaybackQualityConfig(
-            desktopOutputMode: DesktopVideoOutputMode.gpuNextUnderlay,
+            outputPipelineMode: VideoOutputPipelineMode.gpuNextUnderlay,
           ),
           mpvConfigDir: tempDir,
           isWindowsOverride: true,
           isAndroidOverride: false,
           desktopUnderlayHwnd: 0x123456,
+          desktopDelegate: const WindowsMpvProfileDelegate(),
         );
         expect(gpuNextRecorder.options['wid'], equals('${0x123456}'));
         expect(gpuNextRecorder.options['vo'], equals('gpu-next'));
@@ -619,11 +621,12 @@ void main() {
         MpvQualityProfile.applyPreInitVideoOptions(
           fp16Recorder,
           config: const PlaybackQualityConfig(
-            desktopOutputMode: DesktopVideoOutputMode.legacyTextureFallback,
+            outputPipelineMode: VideoOutputPipelineMode.legacyTextureFallback,
           ),
           mpvConfigDir: tempDir,
           isWindowsOverride: true,
           isAndroidOverride: false,
+          desktopDelegate: const WindowsMpvProfileDelegate(),
         );
         expect(fp16Recorder.options['vo'], equals('libmpv'));
         expect(fp16Recorder.options['fbo-format'], equals('rgba16hf'));
@@ -724,17 +727,19 @@ void main() {
           await tester.runAsync(() async {
             final prefsNotifier = PlaybackPreferencesNotifier(
               enablePersistence: true,
+              desktopDelegate: const WindowsMpvProfileDelegate(),
             );
-            await prefsNotifier.setDesktopOutputMode(
-              DesktopVideoOutputMode.directComposition10Bit,
+            await prefsNotifier.setOutputPipelineMode(
+              VideoOutputPipelineMode.layered10Bit,
             );
             final reloaded = PlaybackPreferencesNotifier(
               enablePersistence: true,
+              desktopDelegate: const WindowsMpvProfileDelegate(),
             );
             await Future<void>.delayed(const Duration(milliseconds: 40));
             expect(
-              reloaded.state.qualityConfig.desktopOutputMode,
-              equals(DesktopVideoOutputMode.directComposition10Bit),
+              reloaded.state.qualityConfig.outputPipelineMode,
+              equals(VideoOutputPipelineMode.layered10Bit),
             );
             prefsNotifier.dispose();
             reloaded.dispose();

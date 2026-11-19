@@ -52,20 +52,234 @@ abstract final class KonataTheme {
   static const double pageHeaderHeight = 44.0;
   static const double pageHeaderBottomSpacing = 16.0;
 
-  /// 全局动画时序与曲线 Token。
+  /// 全局动画时序与交互节流 Token。
   static const Duration standardTransition = Duration(milliseconds: 95);
   static const Duration capsuleSlideDuration = Duration(milliseconds: 100);
   static const Duration panelSwitchDuration = Duration(milliseconds: 85);
   static const Duration navSliderDuration = Duration(milliseconds: 220);
   static const Duration tabSwitchDuration = Duration(milliseconds: 100);
   static const Duration settingsAutoSaveDebounce = Duration(milliseconds: 300);
+  static const Duration motionSnap = Duration(milliseconds: 70);
+  static const Duration motionMicro = Duration(milliseconds: 110);
+  static const Duration motionFast = Duration(milliseconds: 140);
+  static const Duration motionStandard = Duration(milliseconds: 160);
+  static const Duration motionMedium = Duration(milliseconds: 180);
+  static const Duration motionNormal = Duration(milliseconds: 200);
+  static const Duration motionEmphasis = Duration(milliseconds: 260);
+  static const Duration tooltipWaitDuration = Duration(milliseconds: 350);
+  static const Duration tooltipSlowWaitDuration = Duration(milliseconds: 450);
+  static const Duration gesturePillFastFadeDelay = Duration(milliseconds: 520);
+  static const Duration gesturePillSlowFadeDelay = Duration(milliseconds: 900);
+  static const Duration scrollCaptureSettleDelay = Duration(milliseconds: 24);
+  static const Duration toastRemovalGraceDelay = Duration(milliseconds: 40);
+  static const Duration windowMetricsDebounce = Duration(milliseconds: 90);
 
-  /// 弹窗视口安全边界留白与通用组件圆角/开关几何令牌。
+  /// 弹窗视口安全边界留白与通用组件圆角/字号/开关几何令牌。
   static const double dialogViewportMargin = 12.0;
+  static const double radiusHairline = 1.0;
+  static const double radiusXs = 4.0;
+  static const double radiusChipSm = 5.0;
+  static const double radiusChip = 6.0;
+  static const double radiusBadge = 7.0;
+  static const double radiusSm = 8.0;
+  static const double radiusThumb = 9.0;
   static const double radiusControl = 10.0;
+  static const double radiusTile = 11.0;
   static const double radiusCard = 12.0;
+  static const double radiusPanel = 14.0;
+  static const double radiusSheet = 16.0;
+  static const double radiusDialog = 18.0;
+  static const double radiusCapsule = 20.0;
   static const double radiusPill = 999.0;
+
+  static const BorderRadius borderRadiusHairline = BorderRadius.all(
+    Radius.circular(radiusHairline),
+  );
+  static const BorderRadius borderRadiusXs = BorderRadius.all(
+    Radius.circular(radiusXs),
+  );
+  static const BorderRadius borderRadiusChipSm = BorderRadius.all(
+    Radius.circular(radiusChipSm),
+  );
+  static const BorderRadius borderRadiusChip = BorderRadius.all(
+    Radius.circular(radiusChip),
+  );
+  static const BorderRadius borderRadiusBadge = BorderRadius.all(
+    Radius.circular(radiusBadge),
+  );
+  static const BorderRadius borderRadiusSm = BorderRadius.all(
+    Radius.circular(radiusSm),
+  );
+  static const BorderRadius borderRadiusThumb = BorderRadius.all(
+    Radius.circular(radiusThumb),
+  );
+  static const BorderRadius borderRadiusControl = BorderRadius.all(
+    Radius.circular(radiusControl),
+  );
+  static const BorderRadius borderRadiusTile = BorderRadius.all(
+    Radius.circular(radiusTile),
+  );
+  static const BorderRadius borderRadiusCard = BorderRadius.all(
+    Radius.circular(radiusCard),
+  );
+  static const BorderRadius borderRadiusPanel = BorderRadius.all(
+    Radius.circular(radiusPanel),
+  );
+  static const BorderRadius borderRadiusSheet = BorderRadius.all(
+    Radius.circular(radiusSheet),
+  );
+  static const BorderRadius borderRadiusDialog = BorderRadius.all(
+    Radius.circular(radiusDialog),
+  );
+  static const BorderRadius borderRadiusCapsule = BorderRadius.all(
+    Radius.circular(radiusCapsule),
+  );
+  static const BorderRadius borderRadiusPill = BorderRadius.all(
+    Radius.circular(radiusPill),
+  );
+
+  /// 全站标准排版字号阶梯。
+  static const double fontSizeMicro = 10.0;
+  static const double fontSizeBadge = 10.5;
+  static const double fontSizeCaptionXs = 11.0;
+  static const double fontSizeCaptionSm = 11.5;
+  static const double fontSizeCaption = 12.0;
+  static const double fontSizeBodyXs = 12.5;
   static const double fontSizeBodySm = 13.0;
+  static const double fontSizeBody = 13.5;
+  static const double fontSizeBodyMd = 14.0;
+  static const double fontSizeSubtitle = 14.5;
+  static const double fontSizeTitleSm = 15.0;
+  static const double fontSizeTitle = 16.0;
+  static const double fontSizeTitleLg = 18.0;
+  static const double fontSizeH2 = 20.0;
+  static const double fontSizeDisplaySm = 22.0;
+
+  /// 通用深浅玻璃浮层、遮罩与暗底纯白光学阶梯令牌。
+  static const Color overlayWhiteSubtle = Color(0x14FFFFFF);
+  static const Color overlayWhiteMuted = Color(0x21FFFFFF);
+  static const Color overlayWhiteDim = Color(0x24FFFFFF);
+  static const Color overlayWhiteBorder = Color(0x29FFFFFF);
+  static const Color overlayWhiteBorderStrong = Color(0x38FFFFFF);
+  static const Color overlayWhiteBorderHover = Color(0x3DFFFFFF);
+  static const Color overlayWhiteStroke = Color(0x47FFFFFF);
+  static const Color overlayWhiteTextMuted = Color(0xADFFFFFF);
+  static const Color overlayWhiteTextDim = Color(0xB8FFFFFF);
+  static const Color overlayWhiteTextSub = Color(0xCCFFFFFF);
+  static const Color overlayWhiteTextMid = Color(0xD6FFFFFF);
+  static const Color overlayWhiteTextHigh = Color(0xE6FFFFFF);
+  static const Color overlayWhiteTextStrong = Color(0xF0FFFFFF);
+  static const Color overlayWhiteTextPeak = Color(0xF5FFFFFF);
+  static const Color scrimBlackHairline = Color(0x14000000);
+  static const Color scrimBlackFaint = Color(0x29000000);
+  static const Color scrimBlackSoft = Color(0x33000000);
+  static const Color scrimBlackLight = Color(0x47000000);
+  static const Color scrimBlackSubtle = Color(0x4D000000);
+  static const Color scrimBlackMedium = Color(0x5C000000);
+  static const Color scrimBlackModerate = Color(0x6B000000);
+  static const Color scrimBlackStrong = Color(0x7A000000);
+  static const Color scrimBlackHeavy = Color(0x94000000);
+  static const Color scrimBlackDense = Color(0xAD000000);
+  static const Color scrimBlackDeep = Color(0xB8000000);
+  static const Color scrimBlackOpaque = Color(0xE6000000);
+
+  /// 详情页主卡片与剧集卡片投影。
+  static const Shadow heroCardTextShadow = Shadow(
+    color: Color(0x8C000000),
+    blurRadius: 12,
+    offset: Offset(0, 2),
+  );
+  static const Shadow episodeCardTextShadow = Shadow(
+    color: Color(0xA6000000),
+    blurRadius: 8,
+    offset: Offset(0, 1.5),
+  );
+
+  /// 解析毛玻璃弹窗与侧边抽屉的高对比度表面色。
+  static Color glassDialogSurface(KonataPalette p) => p.isDark
+      ? const Color(0xE61F232D)
+      : const Color(0xF0FDFDFE);
+
+  /// 解析毛玻璃弹窗与侧边抽屉的微光外框色。
+  static Color glassDialogBorder(KonataPalette p) =>
+      p.isDark ? const Color(0x2EFFFFFF) : const Color(0xF2FFFFFF);
+
+  /// 解析毛玻璃弹窗外围柔和阴影色。
+  static Color glassDialogShadow(KonataPalette p) =>
+      p.isDark ? const Color(0x61000000) : const Color(0x24000000);
+
+  /// 解析毛玻璃弹窗标准背景暗罩色。
+  static Color glassDialogBarrier(bool isDark) =>
+      isDark ? const Color(0x73000000) : const Color(0x59000000);
+
+  /// 解析强模态毛玻璃浮层（如居中确认框、音频选单）背景暗罩色。
+  static Color glassModalBarrier(bool isDark) =>
+      isDark ? const Color(0x7A000000) : const Color(0x57000000);
+
+  /// 解析右侧毛玻璃滑入抽屉背景暗罩色。
+  static Color glassSideSheetBarrier(bool isDark) =>
+      isDark ? const Color(0x70000000) : const Color(0x59000000);
+
+  /// 解析单行溢出悬浮 Tooltip 背景色。
+  static Color tooltipSurface(KonataPalette p) =>
+      p.isDark ? const Color(0xEC1B2029) : const Color(0xF6FFFFFF);
+
+  /// 解析单行溢出悬浮 Tooltip 前景文字色。
+  static Color tooltipTextColor(KonataPalette p) =>
+      p.isDark ? overlayWhiteTextStrong : p.textPrimary;
+
+  /// 解析单行溢出悬浮 Tooltip 细边描边色。
+  static Color tooltipBorder(KonataPalette p) =>
+      p.isDark ? overlayWhiteBorder : const Color(0x1A000000);
+
+  /// 解析单行溢出悬浮 Tooltip 柔和投影色。
+  static Color tooltipShadow(KonataPalette p) =>
+      p.isDark ? scrimBlackMedium : const Color(0x1F000000);
+
+  /// 解析分段胶囊选中滑块填充色。
+  static Color segmentedThumbSurface(KonataPalette p) =>
+      p.isDark ? const Color(0x2EFFFFFF) : overlayWhiteTextPeak;
+
+  /// 解析分段胶囊选中滑块细边描边色。
+  static Color segmentedThumbBorder(KonataPalette p) =>
+      p.isDark ? overlayWhiteBorder : scrimBlackHairline;
+
+  /// 解析分段胶囊选中滑块柔和投影色。
+  static Color segmentedThumbShadow(bool isDark) =>
+      isDark ? const Color(0x3D000000) : scrimBlackHairline;
+
+  /// 解析通用表面卡片极轻柔外框色。
+  static Color surfaceCardSubtleBorder(KonataPalette p) =>
+      p.isDark ? const Color(0x12FFFFFF) : const Color(0x0C000000);
+
+  /// 解析深色半透烟熏毛玻璃胶囊底色（浅色回退至 `p.surface`）。
+  static Color capsuleDarkSurface(KonataPalette p) =>
+      p.isDark ? const Color(0xCC161618) : p.surface;
+
+  /// 解析规格角标中性底色与描边色。
+  static Color specNeutralBadgeBg(KonataPalette p) =>
+      p.isDark ? const Color(0x991C2029) : const Color(0x160F172A);
+  static Color specNeutralBadgeBorder(KonataPalette p) =>
+      p.isDark ? const Color(0x42FFFFFF) : const Color(0x3D0F172A);
+
+  /// 解析通用次级控件柔边、悬停填充与轻描边色。
+  static Color subtleOutlineBorder(KonataPalette p) =>
+      p.isDark ? const Color(0x18FFFFFF) : const Color(0x0D0F172A);
+  static Color subtleControlBorder(KonataPalette p) =>
+      p.isDark ? const Color(0x22FFFFFF) : const Color(0x1A0F172A);
+  static Color subtleControlFill(KonataPalette p) =>
+      p.isDark ? const Color(0x1FFFFFFF) : const Color(0x140F172A);
+  static Color activeControlBorder(KonataPalette p) =>
+      p.isDark ? const Color(0x42FFFFFF) : p.primaryButtonBg;
+  static Color darkInkBorder(KonataPalette p) =>
+      p.isDark ? overlayWhiteBorder : const Color(0x260F172A);
+  static Color episodeCardOutline(
+    KonataPalette p, {
+    required bool hovered,
+  }) => p.isDark
+      ? (hovered ? const Color(0x5CFFFFFF) : overlayWhiteBorder)
+      : detailLightSlatePrimary.withValues(alpha: hovered ? 0.28 : 0.12);
+
   static const double switchTrackWidth = 44.0;
   static const double switchTrackHeight = 24.0;
   static const double switchThumbSize = 18.0;

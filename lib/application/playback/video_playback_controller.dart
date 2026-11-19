@@ -8,7 +8,7 @@ import 'package:path/path.dart' as p;
 import '../../composition/platform_composition.dart';
 import '../../domain/matching/episode_title_formatter.dart';
 import '../../domain/models/episode.dart';
-import '../../domain/models/external_player_config.dart';
+import '../../domain/models/media_extensions.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/playback_record.dart';
@@ -22,7 +22,7 @@ import '../../domain/playback/subtitle_timeline_remapper.dart';
 import '../../domain/playback/track_preferences.dart';
 import '../../domain/playback/video_aspect_mode.dart';
 import '../../domain/playback/watched_tracker.dart';
-import '../../domain/repositories/external_player_launcher.dart';
+import '../../domain/repositories/desktop_relay_service.dart';
 import '../../infrastructure/logging/diagnostics_log_store.dart';
 import '../../infrastructure/players/android/android_video_surface_controller.dart';
 import '../../infrastructure/players/embedded_mpv_session.dart';
@@ -547,7 +547,12 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
           : EmbeddedMpvSession(
               storageRoot: storageRoot,
               streamBridge: _streamBridge,
-              d3d11Bridge: _ref.read(konataVideoBridgeFactoryProvider)(),
+              desktopSurfaceBridge: _ref.read(
+                konataVideoBridgeFactoryProvider,
+              )(),
+              desktopProfileDelegate: _ref.read(
+                mpvPlatformProfileDelegateProvider,
+              ),
               gatewayFactory: _ref.read(mediaSourceGatewayFactoryProvider),
               logStore: _logStore,
               subtitleDirectoryIndex: _ref.read(subtitleDirectoryIndexProvider),
@@ -881,7 +886,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     if (session == null || !Platform.isWindows) return;
     final pw = (logicalWidth * devicePixelRatio).round().clamp(64, 7680);
     final ph = (logicalHeight * devicePixelRatio).round().clamp(64, 4320);
-    unawaited(session.resizeD3D11Target(pw, ph));
+    unawaited(session.resizeDesktopSurfaceTarget(pw, ph));
   }
 
   /// 帧同步更新 Windows 底层 10-bit/HDR 渲染宿主的物理像素视口矩形、圆角裁剪与显隐状态。

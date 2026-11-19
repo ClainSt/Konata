@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path/path.dart' as p;
 
+import 'package:ccplayer/infrastructure/players/windows_mpv_profile_adapter.dart';
 import 'package:ccplayer/infrastructure/players/d3d11_video_bridge.dart';
 import 'package:ccplayer/infrastructure/players/libmpv_ffi.dart';
 import 'package:ccplayer/infrastructure/players/mpv_quality_profile.dart';
@@ -127,7 +128,7 @@ void main() {
         int sessionId = 0;
         var isGpuNext = requestedBackend == 'gpu_next';
         try {
-          D3D11VideoSessionHandle handle;
+          NativeVideoSessionHandle handle;
           if (isGpuNext) {
             handle = await bridge.createSession(
               mpvHandleAddress: 0,
@@ -142,12 +143,13 @@ void main() {
               mpv,
               config: const PlaybackQualityConfig(
                 preset: VideoQualityPreset.highFidelity,
-                desktopOutputMode: DesktopVideoOutputMode.gpuNextUnderlay,
+                outputPipelineMode: VideoOutputPipelineMode.gpuNextUnderlay,
               ),
               mpvConfigDir: tempMpvDir,
               isWindowsOverride: true,
               isAndroidOverride: false,
               desktopUnderlayHwnd: handle.nativeWindowHandle,
+              desktopDelegate: const WindowsMpvProfileDelegate(),
             );
             mpv.setOptionString('pause', 'no');
             mpv.setOptionString('loop-file', 'inf');
@@ -157,13 +159,14 @@ void main() {
               mpv,
               config: PlaybackQualityConfig(
                 preset: VideoQualityPreset.highFidelity,
-                desktopOutputMode: requestedBackend == 'dcomp_10bit'
-                    ? DesktopVideoOutputMode.directComposition10Bit
-                    : DesktopVideoOutputMode.legacyTextureFallback,
+                outputPipelineMode: requestedBackend == 'dcomp_10bit'
+                    ? VideoOutputPipelineMode.layered10Bit
+                    : VideoOutputPipelineMode.legacyTextureFallback,
               ),
               mpvConfigDir: tempMpvDir,
               isWindowsOverride: true,
               isAndroidOverride: false,
+              desktopDelegate: const WindowsMpvProfileDelegate(),
             );
             mpv.setOptionString('pause', 'no');
             mpv.setOptionString('loop-file', 'inf');
@@ -180,7 +183,7 @@ void main() {
           }
           expect(handle.isSoftwareFallback, isFalse);
 
-          if (handle.dcompActive) {
+          if (handle.underlaySwapChainActive) {
             await bridge.setViewportRect(
               sessionId: sessionId,
               leftPx: 0,
@@ -297,7 +300,7 @@ void main() {
             'videoOutPrimaries': outPrimaries,
             'surfaceFormat': metrics.surfaceFormat,
             'colorBitDepth': metrics.colorBitDepth,
-            'dcompActive': metrics.dcompActive,
+            'dcompActive': metrics.underlaySwapChainActive,
             'renderedFrames': renderedFrames,
             'nativeRenderP50Us': metrics.renderP50Us,
             'nativeRenderP99Us': metrics.renderP99Us,

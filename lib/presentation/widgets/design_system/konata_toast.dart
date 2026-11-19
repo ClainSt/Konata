@@ -47,6 +47,26 @@ class KonataToastController {
   int _nextToastId = 0;
   int _mountedViewportCount = 0;
   OverlayEntry? _fallbackToastEntry;
+  bool _disposed = false;
+
+  /// 当前控制器是否已被容器释放。
+  bool get isDisposed => _disposed;
+
+  /// 安全写入悬浮小窗实时屏幕矩形（容器释放后静默忽略，防止跨帧竞态）。
+  void publishFloatingMiniWindowRect(Rect? rect) {
+    if (_disposed) return;
+    if (floatingMiniWindowRect.value != rect) {
+      floatingMiniWindowRect.value = rect;
+    }
+  }
+
+  /// 仅当当前记录矩形仍等于 [expected] 且控制器未释放时清零。
+  void clearFloatingMiniWindowRectIfMatches(Rect expected) {
+    if (_disposed) return;
+    if (floatingMiniWindowRect.value == expected) {
+      floatingMiniWindowRect.value = null;
+    }
+  }
 
   /// 当前是否已挂载根级 [KonataToastViewport]。
   bool get hasMountedViewport => _mountedViewportCount > 0;
@@ -112,6 +132,8 @@ class KonataToastController {
 
   /// 容器销毁时释放全部通知器与兜底浮层。
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     _removeFallbackOverlay();
     activeToast.dispose();
     floatingMiniWindowRect.dispose();
@@ -526,7 +548,7 @@ class _KonataGlassToastCapsule extends StatelessWidget {
                             fontFamilyFallback:
                                 KonataTheme.uiFontFamilyFallback,
                             color: fgColor,
-                            fontSize: 13.0,
+                            fontSize: KonataTheme.fontSizeBodySm,
                             fontWeight: FontWeight.w600,
                             decoration: TextDecoration.none,
                           ),

@@ -39,7 +39,7 @@ class WorkReviewBanner extends StatelessWidget {
         color: p.isDark
             ? KonataTheme.reviewBannerDarkBg.withValues(alpha: 0.80)
             : KonataPlaybackTokens.glassSurface(p),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: KonataTheme.borderRadiusCard,
         border: Border.all(
           color: p.warning.withValues(alpha: 0.55),
         ),
@@ -71,7 +71,7 @@ class WorkReviewBanner extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: KonataTheme.fontSizeBodySm,
                       fontWeight: FontWeight.w600,
                       color: p.textPrimary,
                     ),
@@ -82,7 +82,7 @@ class WorkReviewBanner extends StatelessWidget {
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: KonataTheme.fontSizeCaption,
                       color: p.textSecondary,
                     ),
                   ),

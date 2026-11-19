@@ -147,7 +147,7 @@ class _PhotoCustomCleanupDialogState
         error: (err, _) => Center(
           child: Text(
             '读取本地图片目录失败: $err',
-            style: TextStyle(color: p.danger, fontSize: 13),
+            style: TextStyle(color: p.danger, fontSize: KonataTheme.fontSizeBodySm),
           ),
         ),
         data: (snapshot) {
@@ -194,7 +194,7 @@ class _PhotoCustomCleanupDialogState
                     '1. 选择要清理的图片类别',
                     style: TextStyle(
                       color: p.textPrimary,
-                      fontSize: 13.5,
+                      fontSize: KonataTheme.fontSizeBody,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -313,7 +313,7 @@ class _PhotoCustomCleanupDialogState
                   ),
                   decoration: BoxDecoration(
                     color: p.warningBadge.bg,
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: KonataTheme.borderRadiusControl,
                     border: Border.all(color: p.warningBadge.border, width: 1),
                   ),
                   child: Row(
@@ -329,7 +329,7 @@ class _PhotoCustomCleanupDialogState
                           '已包含海报/背景/徽标：清理后对应作品需刷新元数据或重新刮削方可恢复本地缓存',
                           style: TextStyle(
                             color: p.warningBadge.fg,
-                            fontSize: 12,
+                            fontSize: KonataTheme.fontSizeCaption,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -356,7 +356,7 @@ class _PhotoCustomCleanupDialogState
                         '2. 选择目标作品',
                         style: TextStyle(
                           color: p.textPrimary,
-                          fontSize: 13.5,
+                          fontSize: KonataTheme.fontSizeBody,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -364,7 +364,7 @@ class _PhotoCustomCleanupDialogState
                         '已选 ${_selectedWorkDirKeys.length} / ${entries.length} 部作品',
                         style: TextStyle(
                           color: p.textSecondary,
-                          fontSize: 12.5,
+                          fontSize: KonataTheme.fontSizeBodyXs,
                           fontFeatures: KonataPlaybackTokens.tabularNumbers,
                         ),
                       ),
@@ -440,13 +440,13 @@ class _PhotoCustomCleanupDialogState
                     ? Center(
                         child: Text(
                           entries.isEmpty ? '当前媒体库与磁盘目录均暂无记录' : '没有匹配的作品',
-                          style: TextStyle(color: p.textMuted, fontSize: 13),
+                          style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeBodySm),
                         ),
                       )
                     : Container(
                         decoration: BoxDecoration(
                           color: p.surface,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: KonataTheme.borderRadiusCard,
                           border: Border.all(color: p.hairline, width: 1),
                         ),
                         child: KonataDraggableScrollbar(
@@ -502,7 +502,7 @@ class _PhotoCustomCleanupDialogState
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: estimatedFiles > 0 ? p.textPrimary : p.textSecondary,
-                    fontSize: 13,
+                    fontSize: KonataTheme.fontSizeBodySm,
                     fontWeight: FontWeight.w600,
                     fontFeatures: KonataPlaybackTokens.tabularNumbers,
                   ),
@@ -582,11 +582,11 @@ class _CleanupCategoryChipState extends State<_CleanupCategoryChip> {
       child: GestureDetector(
         onTap: widget.onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
+          duration: KonataTheme.motionFast,
           padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
           decoration: BoxDecoration(
             color: bg,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: KonataTheme.borderRadiusControl,
             border: Border.all(color: border, width: 1),
           ),
           child: Row(
@@ -610,7 +610,7 @@ class _CleanupCategoryChipState extends State<_CleanupCategoryChip> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: titleColor,
-                        fontSize: 12,
+                        fontSize: KonataTheme.fontSizeCaption,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -621,7 +621,7 @@ class _CleanupCategoryChipState extends State<_CleanupCategoryChip> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: subColor,
-                        fontSize: 10.5,
+                        fontSize: KonataTheme.fontSizeBadge,
                         fontFeatures: KonataPlaybackTokens.tabularNumbers,
                       ),
                     ),
@@ -679,11 +679,11 @@ class _WorkPhotoCleanupRowState extends State<_WorkPhotoCleanupRow> {
         behavior: HitTestBehavior.opaque,
         onTap: widget.onToggle,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
+          duration: KonataTheme.motionMicro,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
           decoration: BoxDecoration(
             color: bg,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: KonataTheme.borderRadiusControl,
             border: Border.all(
               color: checked ? p.hairline : Colors.transparent,
               width: 1,
@@ -701,7 +701,7 @@ class _WorkPhotoCleanupRowState extends State<_WorkPhotoCleanupRow> {
               ),
               const SizedBox(width: 8),
               ClipRRect(
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: KonataTheme.borderRadiusChip,
                 child: SizedBox(
                   width: 34,
                   height: 51,
@@ -743,7 +743,7 @@ class _WorkPhotoCleanupRowState extends State<_WorkPhotoCleanupRow> {
                             maxLines: 1,
                             style: TextStyle(
                               color: p.textPrimary,
-                              fontSize: 13.5,
+                              fontSize: KonataTheme.fontSizeBody,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -757,7 +757,7 @@ class _WorkPhotoCleanupRowState extends State<_WorkPhotoCleanupRow> {
                             ),
                             decoration: BoxDecoration(
                               color: p.warningBadge.bg,
-                              borderRadius: BorderRadius.circular(999),
+                              borderRadius: KonataTheme.borderRadiusPill,
                               border: Border.all(
                                 color: p.warningBadge.border,
                                 width: 1,
@@ -767,7 +767,7 @@ class _WorkPhotoCleanupRowState extends State<_WorkPhotoCleanupRow> {
                               '残留目录',
                               style: TextStyle(
                                 color: p.warningBadge.fg,
-                                fontSize: 10.5,
+                                fontSize: KonataTheme.fontSizeBadge,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -781,7 +781,7 @@ class _WorkPhotoCleanupRowState extends State<_WorkPhotoCleanupRow> {
                       maxLines: 1,
                       style: TextStyle(
                         color: p.textMuted,
-                        fontSize: 11.5,
+                        fontSize: KonataTheme.fontSizeCaptionSm,
                       ),
                     ),
                   ],
@@ -801,7 +801,7 @@ class _WorkPhotoCleanupRowState extends State<_WorkPhotoCleanupRow> {
                       color: widget.hitStat.files > 0
                           ? p.textPrimary
                           : p.textMuted,
-                      fontSize: 12.5,
+                      fontSize: KonataTheme.fontSizeBodyXs,
                       fontWeight: FontWeight.w600,
                       fontFeatures: KonataPlaybackTokens.tabularNumbers,
                     ),
@@ -811,7 +811,7 @@ class _WorkPhotoCleanupRowState extends State<_WorkPhotoCleanupRow> {
                     '${widget.hitStat.files} 张',
                     style: TextStyle(
                       color: p.textSecondary,
-                      fontSize: 11,
+                      fontSize: KonataTheme.fontSizeCaptionXs,
                       fontFeatures: KonataPlaybackTokens.tabularNumbers,
                     ),
                   ),

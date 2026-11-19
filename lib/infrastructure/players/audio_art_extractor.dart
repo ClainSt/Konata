@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/playback/cue_and_lrc_parser.dart';
+import '../../domain/playback/lyric_version_matcher.dart';
 import '../../domain/repositories/file_system_gateway.dart';
 import '../sources/byte_stream_source_gateway.dart';
 import '../sources/source_gateway_factory.dart';
@@ -216,6 +217,7 @@ class AudioAssetExtractor {
       Uint8List? embeddedCover,
       Uint8List? folderCover,
       LrcDocument? lrc,
+      List<ActiveSpanLyricLine> activeSpanLines,
       List<RemoteEntry>? siblings,
     })
   >
@@ -234,6 +236,7 @@ class AudioAssetExtractor {
       Uint8List? embeddedCover;
       Uint8List? folderCover;
       LrcDocument? lrc;
+      var activeSpanLines = const <ActiveSpanLyricLine>[];
       List<RemoteEntry>? siblings = cachedSiblings;
 
       if (gateway is ByteRangeReadableGateway) {
@@ -300,10 +303,16 @@ class AudioAssetExtractor {
               maxBytes: 512 * 1024,
             );
             if (lrcBytes != null) {
-              lrc = LrcParser.parseBytes(
+              final lrcText = MultibyteTextDecoder.decodeBytes(
                 lrcBytes,
                 legacyDecoder: legacyDecoder,
               );
+              lrc = LrcParser.parseText(lrcText);
+              if (lrcText.contains('<') || lrcText.contains('bg:')) {
+                activeSpanLines = LyricVersionMatcher.parseActiveSpanLines(
+                  lrcText,
+                );
+              }
             }
           }
 
@@ -324,6 +333,7 @@ class AudioAssetExtractor {
         embeddedCover: embeddedCover,
         folderCover: folderCover,
         lrc: lrc,
+        activeSpanLines: activeSpanLines,
         siblings: siblings,
       );
     } finally {

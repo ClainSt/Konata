@@ -325,6 +325,25 @@ class LyricVersionMatcher {
     return lines;
   }
 
+  /// 按起始时间戳匹配最接近的增强歌词行（用于将普通 LRC 行对齐至 Active Span Set 逐字和声数据）。
+  static ActiveSpanLyricLine? matchLineForTimestamp(
+    List<ActiveSpanLyricLine> lines,
+    double startSeconds, {
+    double toleranceSeconds = 0.08,
+  }) {
+    if (lines.isEmpty) return null;
+    ActiveSpanLyricLine? best;
+    var bestDelta = toleranceSeconds;
+    for (final candidate in lines) {
+      final delta = (candidate.startSeconds - startSeconds).abs();
+      if (delta <= bestDelta) {
+        bestDelta = delta;
+        best = candidate;
+      }
+    }
+    return best;
+  }
+
   static List<TimedLyricSpan> _parseWordSpans(
     String body, {
     required double lineStart,

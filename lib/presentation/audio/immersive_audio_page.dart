@@ -9,6 +9,7 @@ import '../../application/playback/audio_playback_notifier.dart';
 import '../../application/playback/playback_preferences_provider.dart';
 import '../../composition/platform_composition.dart';
 import '../../domain/playback/cue_and_lrc_parser.dart';
+import '../../domain/playback/lyric_version_matcher.dart';
 import '../shell/adaptive_capsule_layout.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
@@ -356,6 +357,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
         (s) => (
           item: s.currentItem,
           lrc: s.lrcDocument,
+          activeSpanLines: s.activeSpanLines,
           cover: s.cover,
           isPlaying: s.isPlaying,
           loopMode: s.loopMode,
@@ -1431,11 +1433,17 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
             itemCount: lrc.lines.length,
             itemBuilder: (context, index) {
               final line = lrc.lines[index];
+              final spanLines = ref.read(audioPlaybackProvider).activeSpanLines;
+              final activeSpanLine = LyricVersionMatcher.matchLineForTimestamp(
+                spanLines,
+                line.startSeconds,
+              );
               return KeyedSubtree(
                 key: _lyricKeys[index],
                 child: ImmersiveLyricLineLeaf(
                   index: index,
                   line: line,
+                  activeSpanLine: activeSpanLine,
                   compact: compact,
                   userScrolling: _isUserScrollingLyrics,
                   onSeekLine: () {

@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -844,10 +843,7 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                             return capsuleSurface;
                           }
                           return BackdropFilter(
-                            filter: ImageFilter.blur(
-                              sigmaX: KonataPlaybackTokens.capsuleBlurSigma,
-                              sigmaY: KonataPlaybackTokens.capsuleBlurSigma,
-                            ),
+                            filter: KonataTheme.blurFilterCapsule,
                             child: capsuleSurface,
                           );
                         },

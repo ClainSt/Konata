@@ -442,11 +442,11 @@ class _ArtworkCropOverlayPainter extends CustomPainter {
     // 4. 四角 L 型加粗锚点与圆点手柄
     const bracketLen = 16.0;
     final bracketPaint = Paint()
-      ..color = Colors.white
+      ..color = KonataTheme.pureWhite
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
       ..strokeWidth = 3.0;
-    final dotFill = Paint()..color = Colors.white;
+    final dotFill = Paint()..color = KonataTheme.pureWhite;
     final dotBorder = Paint()
       ..color = accentColor
       ..style = PaintingStyle.stroke

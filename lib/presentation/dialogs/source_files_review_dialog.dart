@@ -671,7 +671,7 @@ class _SourceZeroPaddingCheckbox extends StatelessWidget {
         ),
       ),
       child: checked
-          ? const Icon(Icons.check_rounded, size: 13, color: Colors.white)
+          ? const Icon(Icons.check_rounded, size: 13, color: KonataTheme.pureWhite)
           : null,
     );
   }

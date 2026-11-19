@@ -6,6 +6,32 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
     'ccplayer/media_store',
   );
 
+  /// 经统一播放内核互斥申请唯一原生 `LibMpvClient`（禁止在会话层私自实例化 `FfiLibMpvClient`）。
+  Future<LibMpvClient> _acquireManagedNativeClient() async {
+    if (nativeClientAcquirer != null) {
+      return nativeClientAcquirer!(
+        onEvicted: () async {
+          await _eventSub?.cancel();
+          _eventSub = null;
+          final active = _client;
+          _client = null;
+          if (active != null && !active.isDisposed && active.isInitialized) {
+            if (_usingGpuNextUnderlay || _useAndroidSurfaceSession) {
+              active.setPropertyString('vo', 'null');
+              active.setPropertyString('wid', '0');
+            }
+          }
+        },
+      );
+    }
+    if (clientFactory != null) {
+      return clientFactory!();
+    }
+    throw StateError(
+      'EmbeddedMpvSession 必须经 UnifiedPlaybackEngine（nativeClientAcquirer）或测试 clientFactory 申请唯一 LibMpvClient',
+    );
+  }
+
   /// 初始化底层 `libmpv` 实例并挂接桌面 10-bit/HDR 底层直通（`vo=gpu-next` / 分层交换链）或兼容纹理回退。
   Future<({LibMpvClient client, PlaybackQualityConfig effectiveConfig})>
   _initializeMpvClientAndDesktopBackend({
@@ -55,9 +81,7 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
       }
     }
 
-    var client = clientFactory != null
-        ? clientFactory!()
-        : FfiLibMpvClient.create();
+    var client = await _acquireManagedNativeClient();
     _client = client;
 
     final hwdecValue = MpvQualityProfile.resolveHwdecValue(
@@ -90,7 +114,11 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
         'mpv-desktop-render',
         'vo=gpu-next 初始化失败 (${client.errorString(initRc)})，回落至 vo=libmpv',
       );
-      await client.dispose();
+      if (nativeClientReleaser != null) {
+        await nativeClientReleaser!(client);
+      } else {
+        await client.dispose();
+      }
       await desktopSurfaceBridge!.disposeSession(
         preCreatedGpuNextHandle.sessionId,
       );
@@ -98,9 +126,7 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
       effectiveConfig = qualityConfig.copyWith(
         outputPipelineMode: VideoOutputPipelineMode.layered10Bit,
       );
-      client = clientFactory != null
-          ? clientFactory!()
-          : FfiLibMpvClient.create();
+      client = await _acquireManagedNativeClient();
       _client = client;
       MpvQualityProfile.applyPreInitVideoOptions(
         client,
@@ -117,6 +143,12 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
       initRc = client.initialize();
     }
     if (initRc < 0) {
+      if (nativeClientReleaser != null) {
+        await nativeClientReleaser!(client);
+      } else {
+        await client.dispose();
+      }
+      _client = null;
       if (preCreatedGpuNextHandle != null && desktopSurfaceBridge != null) {
         await desktopSurfaceBridge!.disposeSession(
           preCreatedGpuNextHandle.sessionId,

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -374,7 +373,7 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
           child: ClipRRect(
             borderRadius: KonataTheme.borderRadiusCapsule,
             child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+              filter: KonataTheme.blurFilterLightbox,
               child: Container(
                 width: dialogWidth,
                 height: dialogHeight,
@@ -407,7 +406,7 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: KonataTheme.detailTextStyle(
-                                    color: Colors.white,
+                                    color: KonataTheme.pureWhite,
                                     fontSize: compact ? 13 : 14,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -442,7 +441,7 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
                               child: Text(
                                 '${(_currentScale * 100).round()}%',
                                 style: const TextStyle(
-                                  color: Colors.white,
+                                  color: KonataTheme.pureWhite,
                                   fontSize: KonataTheme.fontSizeCaptionSm,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -457,7 +456,7 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
                                 : null,
                             icon: const Icon(
                               Icons.fit_screen_rounded,
-                              color: Colors.white,
+                              color: KonataTheme.pureWhite,
                               size: 19,
                             ),
                           ),
@@ -470,7 +469,7 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
                               ),
                               icon: const Icon(
                                 Icons.open_in_new_rounded,
-                                color: Colors.white,
+                                color: KonataTheme.pureWhite,
                                 size: 19,
                               ),
                             ),
@@ -483,7 +482,7 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
                                   : null,
                               icon: const Icon(
                                 Icons.chevron_left_rounded,
-                                color: Colors.white,
+                                color: KonataTheme.pureWhite,
                               ),
                             ),
                             IconButton(
@@ -494,7 +493,7 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
                                   : null,
                               icon: const Icon(
                                 Icons.chevron_right_rounded,
-                                color: Colors.white,
+                                color: KonataTheme.pureWhite,
                               ),
                             ),
                           ],
@@ -504,7 +503,7 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
                             onPressed: () => Navigator.of(context).pop(),
                             icon: const Icon(
                               Icons.close_rounded,
-                              color: Colors.white,
+                              color: KonataTheme.pureWhite,
                             ),
                           ),
                         ],

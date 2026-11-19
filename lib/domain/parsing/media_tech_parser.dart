@@ -1,3 +1,5 @@
+import '../models/media_extensions.dart';
+
 /// 从文件名与发布串中解析出的视音频技术规格。
 class ParsedMediaTechSpecs {
   /// 构造技术规格模型。
@@ -63,7 +65,9 @@ class MediaTechParser {
   );
 
   static final RegExp _sourceTagRegex = RegExp(
-    r'(?:^|[\s._\-\[\(【（/／+])(BD-?REMUX|REMUX|BDRip|Blu-?Ray|BD|WEB-?DL|WEBRip|WEB|HDTVRip|HDTV|DVDRip|TVRIP|DVD)(?=$|[\s._\-\]\)】）/／+])',
+    r'(?:^|[\s._\-\[\(【（/／+])('
+    '${KonataMediaExtensions.sourceTagAlternation}'
+    r')(?=$|[\s._\-\]\)】）/／+])',
     caseSensitive: false,
   );
 
@@ -76,7 +80,11 @@ class MediaTechParser {
   );
 
   static final RegExp _techTokenStripper = RegExp(
-    r'(?<=^|[\s._\-\[\(【（/／+])(?:4K|UHD|2160p|1440p|1080p|720p|576p|480p|\d{3,4}x\d{3,4}p?|AV1|HEVC|H\.?265|x\.?265(?:p10)?|AVC|H\.?264|x\.?264(?:p10)?|VP9|MPEG-?2|12\s*-?\s*bit|10\s*-?\s*bit|8\s*-?\s*bit|\d+bpp|Ma10p|Ma12p|Hi10P?|yuv\d{3}p\d*(?:le|be)?|\d*(?:DTS-?HD(?:\s*MA|\s*HR)?|DTS|TrueHD(?:x\d)?|Atmos|LPCM|PCM|FLAC(?:x\d)?|OPUS(?:x\d)?|DDP?(?:5\.1|2\.0|\+)?|E-?AC-?3|AC-?3(?:x\d)?|AAC(?:x\d)?|ALAC|ALS)|\d+Audio|(?:7\.1|5\.1|2\.0)(?:x\d|ch)?|\d+(?:\.\d+)?fps|Dolby[\s._-]?Vision|DoVi|DV|HDR10\+|HDR10|HDR|HLG|BD-?REMUX|REMUX|BDRip|Blu-?Ray|BD|WEB-?DL|WEBRip|WEB|HDTVRip|HDTV|DVDRip|TVRIP|DVD|REPACK|PROPER|Multi-?Sub|Dual[\s._-]?Audio|MSub|日本語字幕|简繁日内封|简繁内封|简体内封|繁体内封|简繁外挂|内封字幕|字幕|CATCHPLAY|CHS|CHT|CHI|JPN|ENG|SC|TC|JPSC|JPTC|GB|BIG5|ASS(?:x\d)?|SSA(?:x\d)?|SRT(?:x\d)?|SUP(?:x\d)?|PGS(?:x\d)?|MP4|MKV|Chap|rev|v[2-9])(?=$|[\s._\-\]\)】）/／+])',
+    r'(?<=^|[\s._\-\[\(【（/／+])(?:4K|UHD|2160p|1440p|1080p|720p|576p|480p|\d{3,4}x\d{3,4}p?|AV1|HEVC|H\.?265|x\.?265(?:p10)?|AVC|H\.?264|x\.?264(?:p10)?|VP9|MPEG-?2|12\s*-?\s*bit|10\s*-?\s*bit|8\s*-?\s*bit|\d+bpp|Ma10p|Ma12p|Hi10P?|yuv\d{3}p\d*(?:le|be)?|\d*(?:DTS-?HD(?:\s*MA|\s*HR)?|DTS|TrueHD(?:x\d)?|Atmos|LPCM|PCM|FLAC(?:x\d)?|OPUS(?:x\d)?|DDP?(?:5\.1|2\.0|\+)?|E-?AC-?3|AC-?3(?:x\d)?|AAC(?:x\d)?|ALAC|ALS)|\d+Audio|(?:7\.1|5\.1|2\.0)(?:x\d|ch)?|\d+(?:\.\d+)?fps|Dolby[\s._-]?Vision|DoVi|DV|HDR10\+|HDR10|HDR|HLG|'
+    '${KonataMediaExtensions.sourceTagAlternation}|'
+    r'REPACK|PROPER|Multi-?Sub|Dual[\s._-]?Audio|MSub|日本語字幕|简繁日内封|简繁内封|简体内封|繁体内封|简繁外挂|内封字幕|字幕|CATCHPLAY|CHS|CHT|CHI|JPN|ENG|SC|TC|JPSC|JPTC|GB|BIG5|ASS(?:x\d)?|SSA(?:x\d)?|SRT(?:x\d)?|SUP(?:x\d)?|PGS(?:x\d)?|'
+    '${KonataMediaExtensions.videoExtensionAlternation}|'
+    r'Chap|rev|v[2-9])(?=$|[\s._\-\]\)】）/／+])',
     caseSensitive: false,
   );
 
@@ -192,8 +200,12 @@ class MediaTechParser {
     final m = _sourceTagRegex.firstMatch(text);
     if (m == null) return null;
     final raw = m.group(1)!.toUpperCase();
-    if (raw == 'BLU-RAY' || raw == 'BLURAY' || raw == 'BD') return 'BDRip';
+    if (raw == 'BLU-RAY' || raw == 'BLURAY' || raw == 'BD' || raw == 'BDMV') {
+      return 'BDRip';
+    }
     if (raw == 'WEBDL') return 'WEB-DL';
+    if (raw == 'LDRIP' || raw == 'LD') return 'LDRip';
+    if (raw == 'BDREMUX' || raw == 'BD-REMUX') return 'REMUX';
     return raw;
   }
 }

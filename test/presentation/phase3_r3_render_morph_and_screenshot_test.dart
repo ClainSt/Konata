@@ -27,9 +27,12 @@ import 'package:ccplayer/infrastructure/players/mpv_quality_profile.dart';
 import 'package:ccplayer/infrastructure/players/windows_mpv_profile_adapter.dart';
 import 'package:ccplayer/presentation/audio/immersive_audio_page.dart';
 import 'package:ccplayer/presentation/audio/mini_audio_bar.dart';
+import 'package:ccplayer/presentation/shell/adaptive_capsule_layout.dart';
+import 'package:ccplayer/presentation/theme/konata_playback_tokens.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
 import 'package:ccplayer/presentation/video/embedded_video_page.dart';
 import 'package:ccplayer/presentation/video/video_hardware_surface.dart';
+import 'package:ccplayer/presentation/video/video_side_sheet.dart';
 
 class _R3FakeVideoController extends VideoPlaybackController {
   _R3FakeVideoController(super.ref, super.request)
@@ -794,9 +797,19 @@ void main() {
               ),
             ),
           );
+
+          // 1. 手机竖屏 390dp < 540dp：首帧进入有界旋转等待，超时自动挂载全部 HUD 与双模毛玻璃截图入口。
+          await tester.pump();
+          expect(
+            find.byKey(const ValueKey('video_android_screenshot_button')),
+            findsNothing,
+          );
+          await tester.pump(
+            KonataPlaybackTokens.portraitRotationFallbackTimeout +
+                const Duration(milliseconds: 20),
+          );
           await tester.pumpAndSettle();
 
-          // 1. 手机竖屏 390dp < 540dp 必须保留截图按钮，点击弹出全站统一毛玻璃菜单而非原生 showMenu。
           final shotBtn = find.byKey(
             const ValueKey('video_android_screenshot_button'),
           );
@@ -824,6 +837,269 @@ void main() {
           expect(
             container.read(stageMorphReleaseVelocityProvider),
             greaterThan(0.0),
+          );
+
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpAndSettle();
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
+
+    testWidgets(
+      '[#7] Windows 底栏相机按钮与视频侧栏均提供双模原画截图入口（纯净 S / 带字幕 Shift+S）',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+        try {
+          SharedPreferences.setMockInitialValues({});
+          tester.view.physicalSize = const Size(1280, 720);
+          tester.view.devicePixelRatio = 1.0;
+          addTearDown(tester.view.reset);
+
+          final req = _buildR3Request();
+          late _R3FakeVideoController fakeCtrl;
+
+          await tester.pumpWidget(
+            ProviderScope(
+              overrides: [
+                videoPlaybackProvider(req).overrideWith((ref) {
+                  fakeCtrl = _R3FakeVideoController(ref, req);
+                  return fakeCtrl;
+                }),
+              ],
+              child: MaterialApp(
+                theme: KonataTheme.darkTheme(),
+                locale: const Locale('zh', 'CN'),
+                supportedLocales: const [Locale('zh', 'CN')],
+                localizationsDelegates: const [
+                  GlobalMaterialLocalizations.delegate,
+                  GlobalWidgetsLocalizations.delegate,
+                  GlobalCupertinoLocalizations.delegate,
+                ],
+                home: EmbeddedVideoPage(request: req),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          // 1. 点击桌面底栏相机按钮，弹出双模截图菜单并分别验证纯净原画帧与带字幕合成帧。
+          final desktopBtn = find.byKey(
+            const ValueKey('video_desktop_screenshot_button'),
+          );
+          expect(desktopBtn, findsOneWidget);
+          await tester.tap(desktopBtn);
+          await tester.pumpAndSettle();
+          expect(find.text('纯净原画帧 (S)'), findsOneWidget);
+          expect(find.text('带字幕合成帧 (Shift+S)'), findsOneWidget);
+          await tester.tap(
+            find.byKey(const ValueKey('video_screenshot_mode_with_subtitles')),
+          );
+          await tester.pumpAndSettle();
+          expect(
+            fakeCtrl.capturedModes,
+            equals([ScreenshotCaptureMode.withSubtitles]),
+          );
+
+          await tester.tap(desktopBtn);
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find.byKey(const ValueKey('video_screenshot_mode_pure_video')),
+          );
+          await tester.pumpAndSettle();
+          expect(
+            fakeCtrl.capturedModes,
+            equals([
+              ScreenshotCaptureMode.withSubtitles,
+              ScreenshotCaptureMode.pureVideo,
+            ]),
+          );
+
+          // 2. 验证视频侧栏画面标签页提供显式双模原画截图按钮。
+          await tester.pumpWidget(
+            ProviderScope(
+              overrides: [
+                videoPlaybackProvider(req).overrideWith((ref) => fakeCtrl),
+              ],
+              child: MaterialApp(
+                theme: KonataTheme.darkTheme(),
+                locale: const Locale('zh', 'CN'),
+                supportedLocales: const [Locale('zh', 'CN')],
+                localizationsDelegates: const [
+                  GlobalMaterialLocalizations.delegate,
+                  GlobalWidgetsLocalizations.delegate,
+                  GlobalCupertinoLocalizations.delegate,
+                ],
+                home: Scaffold(
+                  body: VideoSideSheet(
+                    request: req,
+                    initialTab: VideoSideSheetTab.video,
+                    onClose: () {},
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          final sheetPureBtn = find.byKey(
+            const ValueKey('video_sheet_screenshot_pure_button'),
+          );
+          final sheetSubBtn = find.byKey(
+            const ValueKey('video_sheet_screenshot_subtitled_button'),
+          );
+          await tester.scrollUntilVisible(sheetSubBtn, 160);
+          await tester.pumpAndSettle();
+          expect(sheetPureBtn, findsOneWidget);
+          expect(sheetSubBtn, findsOneWidget);
+          await tester.tap(sheetPureBtn);
+          await tester.tap(sheetSubBtn);
+          await tester.pumpAndSettle();
+          expect(
+            fakeCtrl.capturedModes,
+            equals([
+              ScreenshotCaptureMode.withSubtitles,
+              ScreenshotCaptureMode.pureVideo,
+              ScreenshotCaptureMode.pureVideo,
+              ScreenshotCaptureMode.withSubtitles,
+            ]),
+          );
+
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpAndSettle();
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
+
+    testWidgets(
+      '[#5] Windows 底层子窗口（gpu_next / DComp）悬浮视频小窗免除 ClipRRect 与外层 RepaintBoundary 挖空阻断',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+        try {
+          tester.view.physicalSize = const Size(1280, 720);
+          tester.view.devicePixelRatio = 1.0;
+          addTearDown(tester.view.reset);
+
+          final req = _buildR3Request();
+          final layout = AdaptiveCapsuleLayout(
+            size: const Size(1280, 720),
+            safe: EdgeInsets.zero,
+            android: false,
+            miniKind: FloatingMiniPlayerKind.video,
+          );
+
+          // 1. windowsUnderlayActive == true 时，小窗禁止包裹 ClipRRect 与外层 RepaintBoundary。
+          await tester.pumpWidget(
+            ProviderScope(
+              overrides: [
+                videoPlaybackProvider(req).overrideWith((ref) {
+                  final ctrl = _R3FakeVideoController(ref, req);
+                  ctrl.state = ctrl.state.copyWith(
+                    windowsUnderlayActive: true,
+                    renderBackend: 'gpu_next',
+                  );
+                  return ctrl;
+                }),
+              ],
+              child: MaterialApp(
+                theme: KonataTheme.darkTheme(),
+                home: Scaffold(
+                  backgroundColor: Colors.transparent,
+                  body: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      KonataFloatingMiniPlayer(
+                        kind: FloatingMiniPlayerKind.video,
+                        layout: layout,
+                        videoRequest: req,
+                        sharedVideoSurface: KonataHardwareVideoSurface(
+                          key: GlobalObjectKey(req),
+                          request: req,
+                          miniPreview: true,
+                          cornerRadius: KonataPlaybackTokens.floatingMiniRadius,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pump();
+
+          final miniFinder = find.byKey(
+            const ValueKey('konata_floating_mini_player'),
+          );
+          expect(miniFinder, findsOneWidget);
+          expect(
+            find.byKey(const ValueKey('windows_underlay_cutout_surface')),
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(of: miniFinder, matching: find.byType(ClipRRect)),
+            findsNothing,
+          );
+          expect(
+            find.descendant(
+              of: find.byType(KonataFloatingMiniPlayer),
+              matching: find.ancestor(
+                of: miniFinder,
+                matching: find.byType(RepaintBoundary),
+              ),
+            ),
+            findsNothing,
+          );
+
+          // 2. 兼容共享纹理回退路径（windowsUnderlayActive == false）仍保留圆角裁剪与重绘边界隔离。
+          await tester.pumpWidget(
+            ProviderScope(
+              key: const ValueKey('fallback_texture_scope'),
+              overrides: [
+                videoPlaybackProvider(req).overrideWith((ref) {
+                  final ctrl = _R3FakeVideoController(ref, req);
+                  ctrl.state = ctrl.state.copyWith(
+                    windowsUnderlayActive: false,
+                    renderBackend: 'd3d11_fp16',
+                  );
+                  return ctrl;
+                }),
+              ],
+              child: MaterialApp(
+                theme: KonataTheme.darkTheme(),
+                home: Scaffold(
+                  backgroundColor: Colors.transparent,
+                  body: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      KonataFloatingMiniPlayer(
+                        kind: FloatingMiniPlayerKind.video,
+                        layout: layout,
+                        videoRequest: req,
+                        sharedVideoSurface: const SizedBox.expand(),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pump();
+
+          expect(
+            find.descendant(of: miniFinder, matching: find.byType(ClipRRect)),
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(
+              of: find.byType(KonataFloatingMiniPlayer),
+              matching: find.ancestor(
+                of: miniFinder,
+                matching: find.byType(RepaintBoundary),
+              ),
+            ),
+            findsOneWidget,
           );
 
           await tester.pumpWidget(const SizedBox.shrink());

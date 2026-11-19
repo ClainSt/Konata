@@ -121,7 +121,12 @@ class KonataActionsCoordinator {
       throw StateError('尚未配置 TMDB API 密钥，请先前往「设置 -> 刮削与网络」填写密钥');
     }
     final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final client = TmdbHttpClient(config: config, scheduler: scheduler);
+    final cooldown = _ref.read(domainCooldownRegistryProvider);
+    final client = TmdbHttpClient(
+      config: config,
+      scheduler: scheduler,
+      cooldownRegistry: cooldown,
+    );
     final tmdb = TmdbService(httpClient: client);
     try {
       return await tmdb.searchAnime(
@@ -140,7 +145,12 @@ class KonataActionsCoordinator {
   ) async {
     final config = await _ref.read(tmdbNetworkConfigProvider.future);
     final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final client = TmdbHttpClient(config: config, scheduler: scheduler);
+    final cooldown = _ref.read(domainCooldownRegistryProvider);
+    final client = TmdbHttpClient(
+      config: config,
+      scheduler: scheduler,
+      cooldownRegistry: cooldown,
+    );
     final bgm = BangumiService(httpClient: client);
     try {
       return await bgm.searchSubjectsProgressive(
@@ -158,7 +168,12 @@ class KonataActionsCoordinator {
   ) async {
     final config = await _ref.read(tmdbNetworkConfigProvider.future);
     final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final client = TmdbHttpClient(config: config, scheduler: scheduler);
+    final cooldown = _ref.read(domainCooldownRegistryProvider);
+    final client = TmdbHttpClient(
+      config: config,
+      scheduler: scheduler,
+      cooldownRegistry: cooldown,
+    );
     final bgm = BangumiService(httpClient: client);
     try {
       return await bgm.getSubjectDetail(
@@ -177,7 +192,12 @@ class KonataActionsCoordinator {
   ) async {
     final config = await _ref.read(tmdbNetworkConfigProvider.future);
     final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final client = TmdbHttpClient(config: config, scheduler: scheduler);
+    final cooldown = _ref.read(domainCooldownRegistryProvider);
+    final client = TmdbHttpClient(
+      config: config,
+      scheduler: scheduler,
+      cooldownRegistry: cooldown,
+    );
     final tmdb = TmdbService(httpClient: client);
     try {
       return await tmdb.getWorkDetail(
@@ -198,7 +218,12 @@ class KonataActionsCoordinator {
   ) async {
     final config = await _ref.read(tmdbNetworkConfigProvider.future);
     final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final client = TmdbHttpClient(config: config, scheduler: scheduler);
+    final cooldown = _ref.read(domainCooldownRegistryProvider);
+    final client = TmdbHttpClient(
+      config: config,
+      scheduler: scheduler,
+      cooldownRegistry: cooldown,
+    );
     final tmdb = TmdbService(httpClient: client);
     try {
       return await tmdb.getSeasonDetail(
@@ -214,7 +239,7 @@ class KonataActionsCoordinator {
   /// 保存网络与凭证配置并重置域名冷却状态，立即刷新生效。
   Future<void> saveNetworkConfig(TmdbNetworkConfig config) async {
     await _ref.read(networkConfigRepositoryProvider).save(config);
-    DomainCooldownRegistry.shared.clearAll();
+    _ref.read(domainCooldownRegistryProvider).clearAll();
     _ref.invalidate(tmdbNetworkConfigProvider);
   }
 
@@ -227,7 +252,12 @@ class KonataActionsCoordinator {
     TmdbNetworkConfig config,
   ) async {
     final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final client = TmdbHttpClient(config: config, scheduler: scheduler);
+    final cooldown = _ref.read(domainCooldownRegistryProvider);
+    final client = TmdbHttpClient(
+      config: config,
+      scheduler: scheduler,
+      cooldownRegistry: cooldown,
+    );
     try {
       return await client.testTmdbApiConnectivity();
     } finally {
@@ -240,7 +270,12 @@ class KonataActionsCoordinator {
     TmdbNetworkConfig config,
   ) async {
     final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final client = TmdbHttpClient(config: config, scheduler: scheduler);
+    final cooldown = _ref.read(domainCooldownRegistryProvider);
+    final client = TmdbHttpClient(
+      config: config,
+      scheduler: scheduler,
+      cooldownRegistry: cooldown,
+    );
     try {
       return await client.testTmdbImageConnectivity();
     } finally {
@@ -253,7 +288,12 @@ class KonataActionsCoordinator {
     TmdbNetworkConfig config,
   ) async {
     final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final client = TmdbHttpClient(config: config, scheduler: scheduler);
+    final cooldown = _ref.read(domainCooldownRegistryProvider);
+    final client = TmdbHttpClient(
+      config: config,
+      scheduler: scheduler,
+      cooldownRegistry: cooldown,
+    );
     try {
       return await client.testBangumiApiConnectivity();
     } finally {
@@ -266,7 +306,12 @@ class KonataActionsCoordinator {
     TmdbNetworkConfig config,
   ) async {
     final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final client = TmdbHttpClient(config: config, scheduler: scheduler);
+    final cooldown = _ref.read(domainCooldownRegistryProvider);
+    final client = TmdbHttpClient(
+      config: config,
+      scheduler: scheduler,
+      cooldownRegistry: cooldown,
+    );
     try {
       return await client.testBangumiImageConnectivity();
     } finally {

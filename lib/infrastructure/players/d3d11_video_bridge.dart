@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 
 import 'konata_video_texture_bridge.dart';
+import 'dart:developer' as developer;
 
 export 'konata_video_texture_bridge.dart'
     show
@@ -136,11 +137,13 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
         'cornerRadiusPx': cornerRadiusPx,
         'visible': visible,
       });
-    } on MissingPluginException {
-      // 非桌面宿主环境跳过 DirectComposition 视口同步。
-    } on PlatformException {
-      // 会话已释放时的瞬态通道异常静默放行。
-    }
+    } on MissingPluginException catch (error) {
+  // 非桌面宿主环境跳过 DirectComposition 视口同步。
+  developer.log('可恢复异常已记录', name: 'konata.d3d11_video_bridge', error: error);
+} on PlatformException catch (error) {
+  // 会话已释放时的瞬态通道异常静默放行。
+  developer.log('可恢复异常已记录', name: 'konata.d3d11_video_bridge', error: error);
+}
   }
 
   /// 查询指定渲染会话的原生 GPU 单帧渲染耗时统计。
@@ -178,11 +181,13 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
       await _channel.invokeMethod<void>('disposeSession', <String, Object?>{
         'sessionId': sessionId,
       });
-    } on MissingPluginException {
-      // 非桌面宿主环境跳过释放。
-    } on PlatformException {
-      // 桥接器已关闭或会话已被销毁。
-    }
+    } on MissingPluginException catch (error) {
+  // 非桌面宿主环境跳过释放。
+  developer.log('可恢复异常已记录', name: 'konata.d3d11_video_bridge', error: error);
+} on PlatformException catch (error) {
+  // 桥接器已关闭或会话已被销毁。
+  developer.log('可恢复异常已记录', name: 'konata.d3d11_video_bridge', error: error);
+}
   }
 
   /// 查询当前 Windows 适配器可用性与显卡名称。

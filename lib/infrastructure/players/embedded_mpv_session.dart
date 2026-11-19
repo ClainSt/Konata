@@ -93,6 +93,13 @@ class ScreenshotCaptureResult {
   final String? galleryUri;
 }
 
+/// 经上层统一播放内核互斥申请唯一底层 `LibMpvClient` 句柄的回调签名。
+typedef NativeMpvClientAcquirer =
+    Future<LibMpvClient> Function({Future<void> Function()? onEvicted});
+
+/// 经上层统一播放内核安全释放底层 `LibMpvClient` 句柄的回调签名。
+typedef NativeMpvClientReleaser = Future<void> Function(LibMpvClient client);
+
 /// 内置 `libmpv` 视频底层会话封装（管理 Windows D3D11 共享纹理 / Android Surface、
 /// 统一四维代数事件隔离、共享发烧音频安全链、硬解容错软解回退及安全串行销毁）。
 class EmbeddedMpvSession {
@@ -102,6 +109,8 @@ class EmbeddedMpvSession {
     required this.streamBridge,
     this.logStore,
     this.clientFactory,
+    this.nativeClientAcquirer,
+    this.nativeClientReleaser,
     this.desktopSurfaceBridge,
     this.desktopProfileDelegate,
     this.gatewayFactory = const MediaSourceGatewayFactory(),
@@ -129,6 +138,8 @@ class EmbeddedMpvSession {
   final LocalStreamBridge streamBridge;
   final DiagnosticsLogStore? logStore;
   final LibMpvClient Function()? clientFactory;
+  final NativeMpvClientAcquirer? nativeClientAcquirer;
+  final NativeMpvClientReleaser? nativeClientReleaser;
   final KonataVideoTextureBridge? desktopSurfaceBridge;
   final MpvPlatformProfileDelegate? desktopProfileDelegate;
   final MediaSourceGatewayFactory gatewayFactory;
@@ -1117,7 +1128,11 @@ class EmbeddedMpvSession {
         client.setPropertyString('vo', 'null');
         client.setPropertyString('wid', '0');
       }
-      await client.dispose();
+      if (nativeClientReleaser != null) {
+        await nativeClientReleaser!(client);
+      } else {
+        await client.dispose();
+      }
     }
 
     // 必须待 libmpv 原生线程完全终止后再释放 Android 底层表面与 JNI 全局引用，杜绝跨线程悬垂访问。

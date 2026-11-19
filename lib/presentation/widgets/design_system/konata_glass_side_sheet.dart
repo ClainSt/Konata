@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
@@ -158,7 +157,7 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
                   borderRadius: KonataTheme.borderRadiusDialog,
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(
+                      color: KonataTheme.pureBlack.withValues(
                         alpha: p.isDark ? 0.38 : 0.14,
                       ),
                       blurRadius: 32,
@@ -169,7 +168,7 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
                 child: ClipRRect(
                   borderRadius: KonataTheme.borderRadiusDialog,
                   child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 44, sigmaY: 44),
+                    filter: KonataTheme.blurFilterSheet,
                     child: Container(
                       decoration: BoxDecoration(
                         color: panelColor,

@@ -4,57 +4,10 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../domain/models/managed_artwork.dart';
 import '../../domain/models/tmdb_models.dart';
 
-/// 图片艺术类型。
-enum ManagedArtwork {
-  /// 作品竖版海报。
-  poster,
-
-  /// 单集横版剧照。
-  still,
-
-  /// 详情页背景图。
-  backdrop,
-
-  /// 作品官方透明标题 Logo。
-  logo,
-}
-
-/// 异步图片字节加载器签名（保持兼容既有调用方；扩展所有者与图片类型请用 [bindManagedArtworkLoader]）。
-typedef ManagedImageLoader =
-    Future<Uint8List> Function(
-      String url, {
-      int? targetWidth,
-      TmdbImageSize? imageSize,
-    });
-
-/// 携带所属作品 ID 与图片分类语义的扩展图片字节加载器签名。
-typedef ManagedArtworkLoader =
-    Future<Uint8List> Function(
-      String url, {
-      int? targetWidth,
-      TmdbImageSize? imageSize,
-      String? ownerWorkId,
-      ManagedArtwork? artwork,
-    });
-
-final Expando<ManagedArtworkLoader> _managedArtworkLoaderExpando =
-    Expando<ManagedArtworkLoader>('konataManagedArtworkLoader');
-
-/// 将支持 `ownerWorkId` 与 `artwork` 分区缓存的扩展加载器包装为标准 [ManagedImageLoader]。
-ManagedImageLoader bindManagedArtworkLoader(ManagedArtworkLoader extended) {
-  Future<Uint8List> wrapper(
-    String url, {
-    int? targetWidth,
-    TmdbImageSize? imageSize,
-  }) {
-    return extended(url, targetWidth: targetWidth, imageSize: imageSize);
-  }
-
-  _managedArtworkLoaderExpando[wrapper] = extended;
-  return wrapper;
-}
+export '../../domain/models/managed_artwork.dart';
 
 /// 图片缓存唯一键。
 typedef ManagedImageKey = ({
@@ -131,16 +84,16 @@ class ManagedImageProvider extends ImageProvider<ManagedImageKey> {
     ImageDecoderCallback decode,
   ) async {
     try {
-      final extended = _managedArtworkLoaderExpando[key.loader];
-      final bytes = extended != null
-          ? await extended(
+      final loader = key.loader;
+      final bytes = loader is ManagedArtworkLoader
+          ? await loader(
               key.url,
               targetWidth: key.targetWidth,
               imageSize: key.imageSize,
               ownerWorkId: key.owner,
               artwork: key.artwork,
             )
-          : await key.loader(
+          : await loader(
               key.url,
               targetWidth: key.targetWidth,
               imageSize: key.imageSize,

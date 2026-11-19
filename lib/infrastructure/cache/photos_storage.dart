@@ -219,9 +219,6 @@ class PhotosStorage {
   }) : _instanceOverrideRoot = overrideRoot,
        _storageRoot = storageRoot ?? const StorageRootService();
 
-  /// 仅供单元测试注入临时隔离根目录。
-  static Directory? debugOverrideRoot;
-
   final Directory? _instanceOverrideRoot;
   final StorageRootService _storageRoot;
   final Map<String, String> _knownTitleByWorkId = <String, String>{};
@@ -232,7 +229,7 @@ class PhotosStorage {
 
   /// 解析当前运行环境对应的 `photos/` 根目录路径。
   Directory resolveRootDirectory() {
-    final override = _instanceOverrideRoot ?? debugOverrideRoot;
+    final override = _instanceOverrideRoot;
     if (override != null) return override;
     return _storageRoot.photosRootDirSync();
   }

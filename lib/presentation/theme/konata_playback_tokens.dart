@@ -375,6 +375,11 @@ abstract final class KonataPlaybackTokens {
     milliseconds: 2500,
   );
 
+  /// Android 进入视频页等待自动旋转至横屏的最大有界宽限时长（超时或锁定竖屏/分屏时自动恢复全部 HUD）。
+  static const Duration portraitRotationFallbackTimeout = Duration(
+    milliseconds: 350,
+  );
+
   /// 歌词与当前队列高亮行统一柔光阴影（随明暗主题自动切换对比度）。
   static List<Shadow> lyricGlowShadow(
     KonataPalette p, {

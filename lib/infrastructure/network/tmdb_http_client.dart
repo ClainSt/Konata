@@ -17,9 +17,6 @@ class DomainCooldownRegistry {
   /// 创建独立域名冷却注册表。
   DomainCooldownRegistry({this.cooldownDuration = const Duration(minutes: 10)});
 
-  /// 全应用共享默认冷却注册表（10 分钟冷却窗口）。
-  static final DomainCooldownRegistry shared = DomainCooldownRegistry();
-
   /// 官方域名不可达后的跳过冷却时长。
   final Duration cooldownDuration;
 
@@ -72,7 +69,7 @@ class TmdbHttpClient {
     DateTime Function()? nowProvider,
   }) : _scheduler = scheduler ?? PriorityHttpScheduler(),
        _injectedClient = httpClient,
-       _cooldown = cooldownRegistry ?? DomainCooldownRegistry.shared,
+       _cooldown = cooldownRegistry ?? DomainCooldownRegistry(),
        _now = nowProvider ?? DateTime.now;
 
   TmdbNetworkConfig _config;

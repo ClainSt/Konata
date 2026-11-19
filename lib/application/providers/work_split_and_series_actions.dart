@@ -71,7 +71,12 @@ Future<Work> executeHybridBind(
   } else {
     final config = await ref.read(tmdbNetworkConfigProvider.future);
     final scheduler = ref.read(priorityHttpSchedulerProvider);
-    ownedClient = TmdbHttpClient(config: config, scheduler: scheduler);
+    final cooldown = ref.read(domainCooldownRegistryProvider);
+    ownedClient = TmdbHttpClient(
+      config: config,
+      scheduler: scheduler,
+      cooldownRegistry: cooldown,
+    );
     bgm = bangumiServiceOverride ?? BangumiService(httpClient: ownedClient);
     tmdb = tmdbServiceOverride ?? TmdbService(httpClient: ownedClient);
   }
@@ -177,7 +182,12 @@ Future<Work> executeBangumiOnlyBind(
   } else {
     final config = await ref.read(tmdbNetworkConfigProvider.future);
     final scheduler = ref.read(priorityHttpSchedulerProvider);
-    ownedClient = TmdbHttpClient(config: config, scheduler: scheduler);
+    final cooldown = ref.read(domainCooldownRegistryProvider);
+    ownedClient = TmdbHttpClient(
+      config: config,
+      scheduler: scheduler,
+      cooldownRegistry: cooldown,
+    );
     bgm = BangumiService(httpClient: ownedClient);
     tmdb ??= TmdbService(httpClient: ownedClient);
   }

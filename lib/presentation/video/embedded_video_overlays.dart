@@ -2,28 +2,44 @@ part of 'embedded_video_page.dart';
 
 /// `EmbeddedVideoPage` 顶部播控条扩展（隔离桌面顶栏与 Android 悬浮胶囊，保持主页面精简）。
 extension _EmbeddedVideoTopOverlays on _EmbeddedVideoPageState {
-  /// 弹出双模原画截图毛玻璃菜单（含字幕原画 / 纯净原画），供触屏与右键统一调用。
+  /// 弹出双模原画截图毛玻璃菜单（纯净原画帧 / 带字幕合成帧），供桌面底栏与触屏顶栏统一调用。
   Future<void> _showScreenshotModeMenu(
     BuildContext anchorContext,
     VideoPlaybackController controller,
   ) async {
     _onUserActivity();
+    final isAndroid = KonataAdaptiveTokens.isAndroid;
     final selected = await showKonataGlassMenu<ScreenshotCaptureMode>(
       anchorContext: anchorContext,
-      items: const [
-        KonataGlassMenuItem<ScreenshotCaptureMode>(
-          key: ValueKey('video_screenshot_mode_with_subtitles'),
-          value: ScreenshotCaptureMode.withSubtitles,
-          icon: Icons.subtitles_outlined,
-          label: '含字幕原画',
-        ),
-        KonataGlassMenuItem<ScreenshotCaptureMode>(
-          key: ValueKey('video_screenshot_mode_pure_video'),
-          value: ScreenshotCaptureMode.pureVideo,
-          icon: Icons.photo_camera_outlined,
-          label: '纯净原画',
-        ),
-      ],
+      items: isAndroid
+          ? const [
+              KonataGlassMenuItem<ScreenshotCaptureMode>(
+                key: ValueKey('video_screenshot_mode_with_subtitles'),
+                value: ScreenshotCaptureMode.withSubtitles,
+                icon: Icons.subtitles_outlined,
+                label: '含字幕原画',
+              ),
+              KonataGlassMenuItem<ScreenshotCaptureMode>(
+                key: ValueKey('video_screenshot_mode_pure_video'),
+                value: ScreenshotCaptureMode.pureVideo,
+                icon: Icons.photo_camera_outlined,
+                label: '纯净原画',
+              ),
+            ]
+          : const [
+              KonataGlassMenuItem<ScreenshotCaptureMode>(
+                key: ValueKey('video_screenshot_mode_pure_video'),
+                value: ScreenshotCaptureMode.pureVideo,
+                icon: Icons.photo_camera_outlined,
+                label: '纯净原画帧 (S)',
+              ),
+              KonataGlassMenuItem<ScreenshotCaptureMode>(
+                key: ValueKey('video_screenshot_mode_with_subtitles'),
+                value: ScreenshotCaptureMode.withSubtitles,
+                icon: Icons.subtitles_outlined,
+                label: '带字幕合成帧 (Shift+S)',
+              ),
+            ],
     );
     if (selected == null || !mounted) return;
     _flashCornerStatus('正在截取${selected.label}...', Icons.camera_alt_outlined);
@@ -334,7 +350,7 @@ extension _EmbeddedVideoTopOverlays on _EmbeddedVideoPageState {
     if (!p.isDark) {
       bar = ClipRect(
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+          filter: KonataTheme.blurFilterOverlay,
           child: bar,
         ),
       );
@@ -364,6 +380,7 @@ class _VideoBottomHudLeaf extends ConsumerWidget {
     required this.externalVolumePulse,
     required this.onTogglePlayPause,
     required this.onOpenSideSheet,
+    required this.onShowScreenshotMenu,
     required this.onVolumePopupActiveChanged,
   });
 
@@ -381,6 +398,7 @@ class _VideoBottomHudLeaf extends ConsumerWidget {
   final int externalVolumePulse;
   final VoidCallback onTogglePlayPause;
   final ValueChanged<VideoSideSheetTab> onOpenSideSheet;
+  final Future<void> Function(BuildContext anchorContext) onShowScreenshotMenu;
   final ValueChanged<bool> onVolumePopupActiveChanged;
 
   @override
@@ -462,12 +480,15 @@ class _VideoBottomHudLeaf extends ConsumerWidget {
                 onTap: () => onOpenSideSheet(VideoSideSheetTab.audio),
               ),
             if (!isAndroid)
-              KonataCapsuleIconButton(
-                icon: Icons.camera_alt_outlined,
-                tooltip: '纯净原画截图 (S)',
-                color: p.textPrimary,
-                size: 18,
-                onTap: () => unawaited(controller.captureCleanScreenshot()),
+              Builder(
+                builder: (btnCtx) => KonataCapsuleIconButton(
+                  key: const ValueKey('video_desktop_screenshot_button'),
+                  icon: Icons.camera_alt_outlined,
+                  tooltip: '原画截图（纯净 S / 带字幕 Shift+S）',
+                  color: p.textPrimary,
+                  size: 18,
+                  onTap: () => unawaited(onShowScreenshotMenu(btnCtx)),
+                ),
               ),
             if (speedChanged && !isAndroid)
               MouseRegion(
@@ -599,7 +620,7 @@ class _MiniCornerStatusPill extends StatelessWidget {
     return ClipRRect(
       borderRadius: KonataTheme.borderRadiusPill,
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        filter: KonataTheme.blurFilterControl,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
           decoration: BoxDecoration(
@@ -640,7 +661,7 @@ class _SkipChapterCapsule extends StatelessWidget {
     return ClipRRect(
       borderRadius: KonataTheme.borderRadiusPill,
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+        filter: KonataTheme.blurFilterOverlay,
         child: Material(
           color: KonataPlaybackTokens.glassSurface(p),
           shape: RoundedRectangleBorder(
@@ -708,7 +729,7 @@ class _ErrorFallbackCard extends StatelessWidget {
     return ClipRRect(
       borderRadius: KonataTheme.borderRadiusDialog,
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+        filter: KonataTheme.blurFilterOverlay,
         child: Container(
           constraints: const BoxConstraints(maxWidth: 420),
           padding: const EdgeInsets.all(24),

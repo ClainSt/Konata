@@ -453,9 +453,10 @@ class LocalStreamBridge {
               probedLen > StreamBridgeConfig.maxSubtitleMaterializeBytes) {
             return null;
           }
-        } on Object {
-          // 探测失败时继续尝试直接拉取校验，避免禁用 HEAD 的远端源阻断字幕下载。
-        }
+        } on Object catch (error) {
+  // 探测失败时继续尝试直接拉取校验，避免禁用 HEAD 的远端源阻断字幕下载。
+  developer.log('可恢复异常已记录', name: 'konata.local_stream_bridge', error: error);
+}
 
         final effectiveValidator = explicitValidator.isNotEmpty
             ? explicitValidator
@@ -856,11 +857,13 @@ class LocalStreamBridge {
         }
         nextMove = iterator.moveNext();
       }
-    } on SocketException {
-      // 播放器触发 Seek 或关闭时主动断开连接，属正常现象。
-    } on HttpException {
-      // 客户端连接中断。
-    } finally {
+    } on SocketException catch (error) {
+  // 播放器触发 Seek 或关闭时主动断开连接，属正常现象。
+  developer.log('可恢复异常已记录', name: 'konata.local_stream_bridge', error: error);
+} on HttpException catch (error) {
+  // 客户端连接中断。
+  developer.log('可恢复异常已记录', name: 'konata.local_stream_bridge', error: error);
+} finally {
       try {
         await iterator.cancel();
       } catch (error) {

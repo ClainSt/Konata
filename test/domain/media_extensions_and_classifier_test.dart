@@ -2,9 +2,11 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ccplayer/domain/models/media_extensions.dart';
 import 'package:ccplayer/domain/models/media_variant.dart';
+import 'package:ccplayer/domain/parsing/media_tech_parser.dart';
 import 'package:ccplayer/domain/playback/cue_variant_resolver.dart';
 import 'package:ccplayer/domain/playback/subtitle_and_audio_choices.dart';
 import 'package:ccplayer/domain/scraping/cloud_media_file_classifier.dart';
+import 'package:ccplayer/domain/scraping/personal_filename_parser.dart';
 import 'package:ccplayer/infrastructure/sources/directory_scanner.dart';
 import 'package:ccplayer/infrastructure/sources/subtitle_matcher.dart';
 import 'package:ccplayer/domain/repositories/file_system_gateway.dart';
@@ -49,6 +51,9 @@ void main() {
         '.mpg',
         '.mpeg',
         '.vob',
+        '.ogm',
+        '.rmvb',
+        '.iso',
       ];
       for (final ext in expectedVideos) {
         expect(KonataMediaExtensions.video.contains(ext), isTrue, reason: ext);
@@ -287,6 +292,27 @@ void main() {
       expect(
         CloudMediaFileClassifier.stripTechnicalNoise(sample3),
         equals('[Group] Cinema Movie.mpg'),
+      );
+      expect(
+        KonataMediaExtensions.sourceTags,
+        containsAll(['bdrip', 'dvdrip', 'ldrip', 'tvrip', 'hdtv', 'webrip', 'web-dl']),
+      );
+      expect(
+        MediaTechParser.parse(
+          '[Group] Classic Show 01 [LDRip][720x480].ogm',
+        ).mediaSourceTag,
+        equals('LDRip'),
+      );
+      expect(
+        PersonalFilenameParser.stripUnbracketedTechTokens(
+          'Classic Show 01 LDRip 720p x264',
+        ).toLowerCase(),
+        isNot(contains('ldrip')),
+      );
+      expect(KonataMediaExtensions.isVideoFile('Disc1.iso'), isTrue);
+      expect(
+        KonataMediaExtensions.subtitleExtensionsNoDot,
+        containsAll(['ass', 'ssa', 'srt', 'vtt', 'sup', 'idx', 'sub']),
       );
     });
   });

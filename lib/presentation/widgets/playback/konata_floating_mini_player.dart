@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -19,6 +18,7 @@ import '../../theme/konata_palette.dart';
 import '../../theme/konata_playback_tokens.dart';
 import '../design_system/konata_toast.dart';
 import '../managed_image.dart';
+import '../../theme/konata_theme.dart';
 
 /// 全端统一可拖拽音视频悬浮小窗组件（替代旧版底部宽条播放胶囊）。
 ///
@@ -347,9 +347,18 @@ class _KonataFloatingMiniPlayerState
 
     final p = context.palette;
     final miniSize = _resolveCurrentMiniSize(context);
-    final isAndroidVideoUnderlay =
-        KonataAdaptiveTokens.isAndroid &&
-        widget.kind == FloatingMiniPlayerKind.video;
+    final windowsVideoUnderlay =
+        !KonataAdaptiveTokens.isAndroid &&
+        widget.kind == FloatingMiniPlayerKind.video &&
+        widget.videoRequest != null &&
+        ref.watch(
+          videoPlaybackProvider(
+            widget.videoRequest!,
+          ).select((s) => s.windowsUnderlayActive && !s.audioOnlyMode),
+        );
+    final usesCanvasHolePunchUnderlay =
+        widget.kind == FloatingMiniPlayerKind.video &&
+        (KonataAdaptiveTokens.isAndroid || windowsVideoUnderlay);
     final bodyChild = widget.kind == FloatingMiniPlayerKind.video
         ? _buildVideoBody(miniSize)
         : _buildAudioBody(context, miniSize);
@@ -396,7 +405,7 @@ class _KonataFloatingMiniPlayerState
                 width: KonataPlaybackTokens.floatingMiniBorderWidth,
               ),
             ),
-            child: isAndroidVideoUnderlay
+            child: usesCanvasHolePunchUnderlay
                 ? bodyChild
                 : ClipRRect(
                     borderRadius: BorderRadius.circular(
@@ -408,9 +417,10 @@ class _KonataFloatingMiniPlayerState
         ),
       ),
     );
-    // Android 视频小窗使用根画布 BlendMode.clear 挖空透出底层 Underlay，
-    // 禁止外层套 RepaintBoundary 触发离屏光栅缓存导致透明洞无法击穿宿主背景。
-    final card = isAndroidVideoUnderlay
+    // 跨端底层视频挖空（Android Underlay 与 Windows gpu-next / DComp 底层子窗口）
+    // 均依赖根画布 BlendMode.clear 透出硬件表面，禁止外层套 ClipRRect 或 RepaintBoundary
+    // 触发离屏光栅缓存阻断透明洞击穿宿主背景；圆角由前景边框与原生区域裁剪同步保证。
+    final card = usesCanvasHolePunchUnderlay
         ? innerCard
         : RepaintBoundary(child: innerCard);
 
@@ -508,10 +518,7 @@ class _KonataFloatingMiniPlayerState
           height: controlsHeight,
           child: ClipRect(
             child: BackdropFilter(
-              filter: ImageFilter.blur(
-                sigmaX: KonataPlaybackTokens.floatingMiniAudioStripBlurSigma,
-                sigmaY: KonataPlaybackTokens.floatingMiniAudioStripBlurSigma,
-              ),
+              filter: KonataTheme.blurFilterControl,
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   color: KonataPlaybackTokens.glassSurface(p),

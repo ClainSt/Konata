@@ -34,6 +34,11 @@ final priorityHttpSchedulerProvider = Provider<PriorityHttpScheduler>((ref) {
   return PriorityHttpScheduler();
 });
 
+/// 全应用共享的不可达官方域名冷却注册表 Provider（10 分钟冷却窗口，由 Riverpod 托管生命周期）。
+final domainCooldownRegistryProvider = Provider<DomainCooldownRegistry>(
+  (ref) => DomainCooldownRegistry(),
+);
+
 /// 海报与剧照本地磁盘缓存异步 Provider（直连统一 `photos/` 目录，零系统用户缓存写入）。
 final artworkCacheProvider = FutureProvider<ArtworkCache>((ref) async {
   final photos = ref.watch(photosStorageProvider);
@@ -49,14 +54,19 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
 
   final Ref _ref;
   bool _cancelRequested = false;
-  static final Set<String> _autoBackfillInFlight = <String>{};
+  final Set<String> _autoBackfillInFlight = <String>{};
 
   Future<ScrapeOrchestrator> _buildOrchestrator() async {
     final config = await _ref.read(tmdbNetworkConfigProvider.future);
     final scheduler = _ref.read(priorityHttpSchedulerProvider);
+    final cooldown = _ref.read(domainCooldownRegistryProvider);
     final cache = await _ref.read(artworkCacheProvider.future);
     final repository = _ref.read(libraryRepositoryProvider);
-    final httpClient = TmdbHttpClient(config: config, scheduler: scheduler);
+    final httpClient = TmdbHttpClient(
+      config: config,
+      scheduler: scheduler,
+      cooldownRegistry: cooldown,
+    );
     final tmdbService = TmdbService(
       httpClient: httpClient,
       artworkCache: cache,

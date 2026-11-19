@@ -57,9 +57,6 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     this.microFadeStepInterval = const Duration(milliseconds: 25),
     AndroidMediaSessionBridge? mediaSessionBridge,
   }) : _mediaSessionBridgeOverride = mediaSessionBridge,
-       _microFadeDriver = AudiophileMicroFadeDriver(
-         stepInterval: microFadeStepInterval,
-       ),
        super(const AudioPlaybackState());
 
   /// 非致命流加载异常的最大静默重试次数。
@@ -91,7 +88,13 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   /// S 型微淡入斜坡的离散步进周期（默认 25 ms，约 6 步完成 150 ms 后即停钟）。
   final Duration microFadeStepInterval;
   final AndroidMediaSessionBridge? _mediaSessionBridgeOverride;
-  final AudiophileMicroFadeDriver _microFadeDriver;
+  AudiophileMicroFadeDriver? _microFadeDriverInstance;
+
+  /// 惰性初始化微淡入驱动器（空载冷启动期零对象分配）。
+  AudiophileMicroFadeDriver get _microFadeDriver =>
+      _microFadeDriverInstance ??= AudiophileMicroFadeDriver(
+        stepInterval: microFadeStepInterval,
+      );
 
   AndroidMediaSessionBridge? _mediaSessionBridgeInstance;
   UnifiedPlaybackEngine? _engineInstance;
@@ -261,7 +264,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   AudioSafetyChainPlan get activeSafetyPlan => _safetyCoordinator.activePlan;
 
   /// S 型微淡入斜坡计时器当前是否仍在推进（用于测试验证终态即停钟零空转）。
-  bool get isMicroFadeActive => _microFadeDriver.isActive;
+  bool get isMicroFadeActive => _microFadeDriverInstance?.isActive ?? false;
 
   /// 以指定曲目（支持单轨物理音频与 `.cue` 按需动态拆轨）开启 CD 播放队列。
   Future<void> playCdCollection({
@@ -324,9 +327,12 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     if (_client != null && !_client!.isDisposed && _client!.isInitialized) {
       return;
     }
-    final client = clientFactory != null
-        ? clientFactory!()
-        : FfiLibMpvClient.create();
+    final acquired = await _engine.acquireExclusiveNativeClient(
+      stage: PlaybackStageKind.audio,
+      factoryOverride: clientFactory,
+      onEvicted: _evictAudioClientForStageSwitch,
+    );
+    final client = acquired.client;
     final storageRoot = _ref.read(storageRootProvider);
     final mpvDir = await storageRoot.ensureMpvConfigDir();
     final prefs = _ref.read(playbackPreferencesProvider);
@@ -342,14 +348,11 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     client.setOptionString('keep-open', 'no');
     final rc = client.initialize();
     if (rc < 0) {
-      await client.dispose();
+      await _engine.releaseNativeClient(client);
       throw StateError('纯音频引擎初始化失败: ${client.errorString(rc)}');
     }
 
-    _boundNativeInstanceId = _engine.attachNativeInstance(
-      stage: PlaybackStageKind.audio,
-      client: client,
-    );
+    _boundNativeInstanceId = acquired.nativeInstanceId;
     client.setPropertyDouble('volume', state.isMuted ? 0.0 : state.volume);
     client.setPropertyString('keep-open', 'no');
     client.setPropertyString('loop-file', 'no');
@@ -514,13 +517,48 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     );
   }
 
-  /// 视频播放启动时自动暂停当前音乐（暂挂统一内核音频快照并保留队列与进度）。
+  /// 当视频舞台互斥接管全局唯一底层句柄时，保存音频进度并安全释放本舞台持有的原生句柄。
+  ///
+  /// 队列、当前曲目与精确播放偏移均保留在内存状态中；待视频关闭后重新点击播放时自动
+  /// 经 `UnifiedPlaybackEngine` 重新申请唯一句柄并从断点无缝续播。
+  Future<void> _evictAudioClientForStageSwitch() async {
+    _cancelMicroFade();
+    final item = state.currentItem;
+    final savedPos = state.positionSeconds;
+    final savedDur = state.durationSeconds;
+    await _eventSub?.cancel();
+    _eventSub = null;
+    final c = _client;
+    _client = null;
+    _loadedPhysicalKey = null;
+    if (c != null && !c.isDisposed) {
+      await c.dispose();
+    }
+    if (mounted && state.isActive && (state.isPlaying || state.isBuffering)) {
+      state = state.copyWith(isPlaying: false, isBuffering: false);
+    }
+    if (item != null) {
+      unawaited(
+        _persistAudioProgress(
+          item,
+          positionSeconds: savedPos,
+          durationSeconds: savedDur,
+          force: true,
+        ),
+      );
+    }
+  }
+
+  /// 视频播放启动时自动暂停当前音乐（暂挂统一内核快照并释放唯一原生句柄交由视频舞台接管）。
   Future<void> pauseForVideoSession() async {
-    if (state.isActive) {
-      _engine.suspendStage(PlaybackStageKind.audio);
-      if (state.isPlaying) {
-        await setPlaying(false);
-      }
+    if (!state.isActive) return;
+    _engine.suspendStage(PlaybackStageKind.audio);
+    final c = _client;
+    if (c != null) {
+      await _evictAudioClientForStageSwitch();
+      await _engine.releaseNativeClient(c);
+    } else if (state.isPlaying) {
+      await setPlaying(false);
     }
   }
 
@@ -698,13 +736,17 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
         force: true,
       );
     }
+    await _eventSub?.cancel();
+    _eventSub = null;
     final c = _client;
+    _client = null;
     if (c != null && !c.isDisposed) {
       MpvQualityProfile.resetAudioRangeAndLoopProperties(
         c,
         logStore: _logStore,
       );
       c.command(['stop']);
+      await _engine.releaseNativeClient(c);
     }
     _volumeBeforeDuck = null;
     await _mediaSessionBridge.stopSession();
@@ -730,7 +772,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     );
   }
 
-  void _cancelMicroFade() => _microFadeDriver.cancel();
+  void _cancelMicroFade() => _microFadeDriverInstance?.cancel();
 
   void _startMicroFadeInRamp(LibMpvClient client) {
     _microFadeDriver.start(
@@ -776,7 +818,12 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     final c = _client;
     _client = null;
     if (c != null && !c.isDisposed) {
-      unawaited(c.dispose());
+      final eng = _engineInstance;
+      if (eng != null) {
+        unawaited(eng.releaseNativeClient(c));
+      } else {
+        unawaited(c.dispose());
+      }
     }
     super.dispose();
   }

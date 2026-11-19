@@ -38,7 +38,7 @@ class SettingsAppearancePanel extends ConsumerWidget {
         subtitle: '画册米白',
         selected: currentMode == ThemeMode.light,
         previewBg: KonataTheme.themePreviewLightCanvas,
-        previewCard: Colors.white,
+        previewCard: KonataTheme.pureWhite,
         previewPill: KonataPalette.light.primaryButtonBg,
         onTap: () =>
             ref.read(themeModeProvider.notifier).setThemeMode(ThemeMode.light),

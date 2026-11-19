@@ -32,6 +32,7 @@ import 'package:ccplayer/presentation/detail/detail_bottom_drawer.dart';
 import 'package:ccplayer/presentation/detail/episode_drawer_card.dart';
 import 'package:ccplayer/presentation/history/playback_history_page.dart';
 import 'package:ccplayer/presentation/theme/konata_adaptive_tokens.dart';
+import 'package:ccplayer/presentation/theme/konata_playback_tokens.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
 import 'package:ccplayer/presentation/video/embedded_video_page.dart';
 import 'package:ccplayer/presentation/video/video_side_sheet.dart';
@@ -551,6 +552,11 @@ void main() {
       await tester.pumpAndSettle();
 
       await container.read(activeVideoSessionProvider.notifier).openVideo(req);
+      await tester.pumpAndSettle();
+      await tester.pump(
+        KonataPlaybackTokens.portraitRotationFallbackTimeout +
+            const Duration(milliseconds: 20),
+      );
       await tester.pumpAndSettle();
       expect(find.byType(EmbeddedVideoPage), findsOneWidget);
       expect(constructCount, equals(1));

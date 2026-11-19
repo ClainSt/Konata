@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -182,10 +181,7 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
     return RepaintBoundary(
       child: blurSigma > 0.05
           ? ImageFiltered(
-              imageFilter: ui.ImageFilter.blur(
-                sigmaX: blurSigma,
-                sigmaY: blurSigma,
-              ),
+              imageFilter: KonataTheme.blurFilterOf(blurSigma),
               child: rowContent,
             )
           : rowContent,

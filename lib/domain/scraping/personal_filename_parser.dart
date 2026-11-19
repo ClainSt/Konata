@@ -1,4 +1,5 @@
 import 'package:path/path.dart' as p;
+import '../models/media_extensions.dart';
 import 'cloud_media_file_classifier.dart';
 import '../parsing/release_groups.dart';
 
@@ -219,11 +220,12 @@ class PersonalFilenameParser {
   static final _technicalPart = RegExp(
     r'^(?:\d{3,4}[pi]|\d{3,5}x\d{3,5}|[248]k|(?:ma|hi)?\d{1,2}p|'
     r'(?:x|h)\.?26[45]|hevc|avc|av1|vp9|mpeg[24]|'
-    r'(?:aac|flac|opus|ac3|eac3|dts(?:-?hd)?|truehd|lpcm|mp3|ass|ssa|srt|sup|pgs)(?:x\d+)?|'
-    r'\d\.\d(?:ch)?|\dch|yuv(?:420|422|444)p?\d*|10bit|8bit|hdr10\+?|hdr|dv|sdr|'
-    r'bd(?:rip|remux)?|blu-?ray|uhd(?:rip)?|web-?dl|webrip|dvd(?:rip)?|tvrip|hdtv|remux|'
+    r'(?:aac|flac|opus|ac3|eac3|dts(?:-?hd)?|truehd|alac|lpcm|mp3|ass|ssa|srt|sup|pgs)(?:x\d+)?|'
+    r'\d\.\d(?:ch)?|\dch|yuv(?:420|422|444)p?\d*|12bit|10bit|8bit|hdr10\+?|hdr|dv|sdr|'
+    '${KonataMediaExtensions.sourceTagAlternation}|'
     r'jpsc|jptc|jpchs|jpcht|chs|cht|sc|tc|gb|big5|jap|jpn|eng|dual[-_]?audio|multi[-_]?subs?|'
-    r'mp4|mkv|avi|m2ts|[0-9a-f]{8})$',
+    '${KonataMediaExtensions.videoExtensionAlternation}|'
+    r'[0-9a-f]{8})$',
     caseSensitive: false,
   );
 
@@ -246,11 +248,12 @@ class PersonalFilenameParser {
   /// 剥离场景发布文件名中未加括号的技术参数与附着于其后的 `-ReleaseGroup` 后缀，
   /// 如 `... 2010 1080p BluRay x264 10bit FLAC-Shiniori`。
   static String stripUnbracketedTechTokens(String input) {
+    final explicitSources = KonataMediaExtensions.explicitSourceTagAlternation;
     final hasTechCue = RegExp(
       r'(?<![a-z0-9])(?:'
       r'(?:2160|1440|1080|720|576|480)[pi]|'
-      r'bluray|blu-?ray|bdrip|remux|web[ ._-]?dl|webrip|dvdrip|hdtv|'
-      r'[xh]\.?26[45]|hevc|avc|10bit|hi10p|ma10p|ddp?(?:\d+(?:\.\d+)?)?|ac3|eac3'
+      '$explicitSources|web[ ._-]?dl|'
+      r'[xh]\.?26[45]|hevc|avc|10bit|12bit|hi10p|ma10p|main12|ddp?(?:\d+(?:\.\d+)?)?|ac3|eac3'
       r')(?![a-z0-9])',
       caseSensitive: false,
     ).hasMatch(input);
@@ -259,9 +262,9 @@ class PersonalFilenameParser {
     var s = input.replaceFirst(
       RegExp(
         r'(?<=(?:2160|1440|1080|720|576|480)[pi]|'
-        r'bluray|blu-?ray|bdrip|remux|web[ ._-]?dl|webrip|dvdrip|hdtv|'
-        r'[xh]\.?26[45]|hevc|avc|av1|10bit|8bit|hi10p|ma10p|'
-        r'flac|aac|ddp?(?:\d+(?:\.\d+)?)?|ac3|eac3|dts(?:-?hd)?|opus|truehd)'
+        '$explicitSources|web[ ._-]?dl|'
+        r'[xh]\.?26[45]|hevc|avc|av1|10bit|12bit|8bit|hi10p|ma10p|main12|'
+        r'flac|aac|alac|ddp?(?:\d+(?:\.\d+)?)?|ac3|eac3|dts(?:-?hd)?|opus|truehd)'
         r'-[a-z0-9][a-z0-9._-]{1,24}$',
         caseSensitive: false,
       ),
@@ -271,10 +274,10 @@ class PersonalFilenameParser {
       RegExp(
         r'(?<![a-z0-9])(?:'
         r'(?:2160|1440|1080|720|576|480)[pi]|(?:1920|1280)x(?:1080|720)|[248]k|'
-        r'bluray|blu-?ray|bdrip|brrip|remux|web[ ._-]?dl|webrip|dvdrip|hdtv|'
+        '$explicitSources|web[ ._-]?dl|'
         r'[xh]\.?26[45]|hevc|avc|av1|vp9|'
-        r'10bit|8bit|hi10p|ma10p|hdr10\+?|hdr|sdr|dv|yuv\d{3}p?\d*|'
-        r'flac|aac|ddp?\d*(?:\.\d+)?|ac3|eac3|dts(?:-?hd)?|opus|truehd|lpcm|mp3|'
+        r'10bit|12bit|8bit|hi10p|ma10p|main12|hdr10\+?|hdr|sdr|dv|yuv\d{3}p?\d*|'
+        r'flac|aac|alac|ddp?\d*(?:\.\d+)?|ac3|eac3|dts(?:-?hd)?|opus|truehd|lpcm|mp3|'
         r'(?:2\.0|5\.1|7\.1)(?:ch)?'
         r')(?![a-z0-9])',
         caseSensitive: false,

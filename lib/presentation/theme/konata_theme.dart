@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -73,6 +75,9 @@ abstract final class KonataTheme {
   static const Duration scrollCaptureSettleDelay = Duration(milliseconds: 24);
   static const Duration toastRemovalGraceDelay = Duration(milliseconds: 40);
   static const Duration windowMetricsDebounce = Duration(milliseconds: 90);
+  static const Duration scrollCaptureMetricsDebounce = Duration(
+    milliseconds: 240,
+  );
 
   /// 弹窗视口安全边界留白与通用组件圆角/字号/开关几何令牌。
   static const double dialogViewportMargin = 12.0;
@@ -156,6 +161,8 @@ abstract final class KonataTheme {
   static const double fontSizeDisplaySm = 22.0;
 
   /// 通用深浅玻璃浮层、遮罩与暗底纯白光学阶梯令牌。
+  static const Color pureWhite = Color(0xFFFFFFFF);
+  static const Color pureBlack = Color(0xFF000000);
   static const Color overlayWhiteSubtle = Color(0x14FFFFFF);
   static const Color overlayWhiteMuted = Color(0x21FFFFFF);
   static const Color overlayWhiteDim = Color(0x24FFFFFF);
@@ -182,6 +189,50 @@ abstract final class KonataTheme {
   static const Color scrimBlackDense = Color(0xAD000000);
   static const Color scrimBlackDeep = Color(0xB8000000);
   static const Color scrimBlackOpaque = Color(0xE6000000);
+
+  /// 全站统一毛玻璃与模糊滤镜令牌（开启边缘钳制避免离屏采样扩张）。
+  static final ui.ImageFilter blurFilterSubtle = ui.ImageFilter.blur(
+    sigmaX: 14.0,
+    sigmaY: 14.0,
+    tileMode: ui.TileMode.clamp,
+  );
+  static final ui.ImageFilter blurFilterControl = ui.ImageFilter.blur(
+    sigmaX: 20.0,
+    sigmaY: 20.0,
+    tileMode: ui.TileMode.clamp,
+  );
+  static final ui.ImageFilter blurFilterMedium = ui.ImageFilter.blur(
+    sigmaX: 22.0,
+    sigmaY: 22.0,
+    tileMode: ui.TileMode.clamp,
+  );
+  static final ui.ImageFilter blurFilterOverlay = ui.ImageFilter.blur(
+    sigmaX: 24.0,
+    sigmaY: 24.0,
+    tileMode: ui.TileMode.clamp,
+  );
+  static final ui.ImageFilter blurFilterCapsule = ui.ImageFilter.blur(
+    sigmaX: 28.0,
+    sigmaY: 28.0,
+    tileMode: ui.TileMode.clamp,
+  );
+  static final ui.ImageFilter blurFilterLightbox = ui.ImageFilter.blur(
+    sigmaX: 30.0,
+    sigmaY: 30.0,
+    tileMode: ui.TileMode.clamp,
+  );
+  static final ui.ImageFilter blurFilterSheet = ui.ImageFilter.blur(
+    sigmaX: 44.0,
+    sigmaY: 44.0,
+    tileMode: ui.TileMode.clamp,
+  );
+
+  /// 按动态模糊半径构造统一钳制毛玻璃滤镜（供逐行歌词失焦与动态背景模糊复用）。
+  static ui.ImageFilter blurFilterOf(double sigma) => ui.ImageFilter.blur(
+    sigmaX: sigma,
+    sigmaY: sigma,
+    tileMode: ui.TileMode.clamp,
+  );
 
   /// 详情页主卡片与剧集卡片投影。
   static const Shadow heroCardTextShadow = Shadow(

@@ -4,14 +4,31 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter_acrylic/flutter_acrylic.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path/path.dart' as p;
 
-import 'package:ccplayer/infrastructure/players/windows_mpv_profile_adapter.dart';
+import 'package:ccplayer/application/playback/video_playback_controller.dart';
+import 'package:ccplayer/application/providers/library_providers.dart';
+import 'package:ccplayer/application/providers/theme_providers.dart';
+import 'package:ccplayer/domain/models/episode.dart';
+import 'package:ccplayer/domain/models/media_source.dart';
+import 'package:ccplayer/domain/models/media_variant.dart';
+import 'package:ccplayer/domain/models/work.dart';
+import 'package:ccplayer/domain/playback/playback_probe_stats.dart';
 import 'package:ccplayer/infrastructure/players/d3d11_video_bridge.dart';
 import 'package:ccplayer/infrastructure/players/libmpv_ffi.dart';
 import 'package:ccplayer/infrastructure/players/mpv_quality_profile.dart';
+import 'package:ccplayer/infrastructure/players/windows_mpv_profile_adapter.dart';
+import 'package:ccplayer/presentation/shell/adaptive_capsule_layout.dart';
+import 'package:ccplayer/presentation/theme/konata_playback_tokens.dart';
+import 'package:ccplayer/presentation/theme/konata_theme.dart';
+import 'package:ccplayer/presentation/theme/window_material_controller.dart';
+import 'package:ccplayer/presentation/video/video_hardware_surface.dart';
+import 'package:ccplayer/presentation/widgets/design_system/konata_glass_dialog.dart';
+import 'package:ccplayer/presentation/widgets/playback/konata_floating_mini_player.dart';
 
 /// 生成真实 10-bit (`yuv420p10le` / `C420p10`) 60fps YUV4MPEG2 测试视频流，
 /// 用于在无外部媒体依赖的前提下端到端压测 10-bit 上传、EWA Lanczos 缩放与高色深 GPU 管线。
@@ -75,6 +92,70 @@ int _p99Int(List<int> values) {
   final sorted = List<int>.of(values)..sort();
   final idx = ((sorted.length - 1) * 99) ~/ 100;
   return sorted[idx];
+}
+
+/// 绑定真实 `D3D11VideoBridge` 底层子窗口视口同步的 Windows 悬浮小窗共存验证控制器。
+class _WindowsUnderlayCoexistenceController extends VideoPlaybackController {
+  _WindowsUnderlayCoexistenceController(
+    super.ref,
+    super.request, {
+    required this.bridge,
+    required this.sessionId,
+  }) : super(deferBootstrap: true) {
+    state = VideoPlaybackState(
+      isInitializing: false,
+      isBuffering: false,
+      hasFirstFrame: true,
+      isPlaying: true,
+      windowsUnderlayActive: true,
+      renderBackend: 'gpu_next',
+      currentWork: request.work,
+      currentBundle: request.bundle,
+      currentEpisode: request.episode,
+      currentVariant: request.variant,
+      durationSeconds: 120.0,
+      positionSeconds: 12.0,
+      probeStats: const PlaybackProbeStats(
+        videoWidth: 1280,
+        videoHeight: 720,
+      ),
+    );
+  }
+
+  final D3D11VideoBridge bridge;
+  final int sessionId;
+  int syncedViewportCount = 0;
+  ({int leftPx, int topPx, int rightPx, int bottomPx, double radiusPx, bool visible})?
+  lastSyncedViewport;
+
+  @override
+  Future<void> syncWindowsUnderlayViewport({
+    required int leftPx,
+    required int topPx,
+    required int rightPx,
+    required int bottomPx,
+    double cornerRadiusPx = 0.0,
+    bool visible = true,
+  }) async {
+    syncedViewportCount += 1;
+    lastSyncedViewport = (
+      leftPx: leftPx,
+      topPx: topPx,
+      rightPx: rightPx,
+      bottomPx: bottomPx,
+      radiusPx: cornerRadiusPx,
+      visible: visible,
+    );
+    await bridge.setViewportRect(
+      sessionId: sessionId,
+      leftPx: leftPx,
+      topPx: topPx,
+      rightPx: rightPx,
+      bottomPx: bottomPx,
+      cornerRadiusPx: cornerRadiusPx,
+      visible: visible,
+    );
+  }
 }
 
 void main() {
@@ -411,6 +492,267 @@ void main() {
         };
       }
 
+      // 共存实测：flutter_acrylic 透光窗口材质 + Windows gpu-next 悬浮视频小窗根画布挖空 + 毛玻璃弹窗覆盖。
+      Future<Map<String, Object?>> runAcrylicMiniAndGlassDialogCoexistence() async {
+        await Window.initialize();
+        final materialCtrl = WindowMaterialController();
+        await materialCtrl.apply(
+          themeMode: ThemeMode.dark,
+          platformBrightness: Brightness.dark,
+          material: KonataWindowMaterial.acrylic,
+          force: true,
+        );
+
+        final mpv = FfiLibMpvClient.create(preferredLibraryPath: dllPath);
+        int sessionId = 0;
+        try {
+          final handle = await bridge.createSession(
+            mpvHandleAddress: 0,
+            width: 1280,
+            height: 720,
+            preferSoftware: false,
+            renderBackend: 'gpu_next',
+          );
+          sessionId = handle.sessionId;
+          expect(handle.nativeWindowHandle, greaterThan(0));
+          MpvQualityProfile.applyPreInitVideoOptions(
+            mpv,
+            config: const PlaybackQualityConfig(
+              preset: VideoQualityPreset.highFidelity,
+              outputPipelineMode: VideoOutputPipelineMode.gpuNextUnderlay,
+            ),
+            mpvConfigDir: tempMpvDir,
+            isWindowsOverride: true,
+            isAndroidOverride: false,
+            desktopUnderlayHwnd: handle.nativeWindowHandle,
+            desktopDelegate: const WindowsMpvProfileDelegate(),
+          );
+          mpv.setOptionString('pause', 'no');
+          mpv.setOptionString('loop-file', 'inf');
+          expect(mpv.initialize(), equals(0));
+          expect(
+            mpv.command(['loadfile', tenBitFixture.path, 'replace']),
+            greaterThanOrEqualTo(0),
+          );
+
+          const work = Work(id: 'win_ab_work', title: 'Windows 10-bit 共存实测');
+          const episode = Episode(
+            id: 'win_ab_ep1',
+            workId: 'win_ab_work',
+            seasonNumber: 1,
+            episodeNumber: 1,
+            category: EpisodeCategory.main,
+            title: 'EP01',
+          );
+          final src = MediaSource(
+            id: 'local_ab',
+            label: '本地测试源',
+            kind: MediaSourceKind.local,
+            location: tempMpvDir.path,
+          );
+          final variant = MediaVariant(
+            id: 'win_ab_var1',
+            workId: 'win_ab_work',
+            episodeId: 'win_ab_ep1',
+            sourceId: 'local_ab',
+            relativePath: p.basename(tenBitFixture.path),
+            fileName: p.basename(tenBitFixture.path),
+            fileSize: tenBitFixture.lengthSync(),
+          );
+          final bundle = WorkDetailBundle(
+            work: work,
+            episodes: const [episode],
+            variants: [variant],
+            sourcesById: {'local_ab': src},
+            latestPlayback: null,
+          );
+          final req = VideoLaunchRequest(
+            work: work,
+            bundle: bundle,
+            episode: episode,
+            variant: variant,
+          );
+
+          late _WindowsUnderlayCoexistenceController coexistenceCtrl;
+          var dialogActionTapped = false;
+
+          await tester.pumpWidget(
+            ProviderScope(
+              overrides: [
+                videoPlaybackProvider(req).overrideWith((ref) {
+                  coexistenceCtrl = _WindowsUnderlayCoexistenceController(
+                    ref,
+                    req,
+                    bridge: bridge,
+                    sessionId: sessionId,
+                  );
+                  return coexistenceCtrl;
+                }),
+              ],
+              child: MaterialApp(
+                theme: KonataTheme.darkTheme(),
+                home: Builder(
+                  builder: (context) {
+                    final layout = AdaptiveCapsuleLayout(
+                      size: MediaQuery.sizeOf(context),
+                      safe: EdgeInsets.zero,
+                      android: false,
+                      miniKind: FloatingMiniPlayerKind.video,
+                    );
+                    return Scaffold(
+                      backgroundColor: Colors.transparent,
+                      body: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          KonataFloatingMiniPlayer(
+                            kind: FloatingMiniPlayerKind.video,
+                            layout: layout,
+                            videoRequest: req,
+                            sharedVideoSurface: KonataHardwareVideoSurface(
+                              key: GlobalObjectKey(req),
+                              request: req,
+                              miniPreview: true,
+                              cornerRadius:
+                                  KonataPlaybackTokens.floatingMiniRadius,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          );
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 250));
+
+          final miniFinder = find.byKey(
+            const ValueKey('konata_floating_mini_player'),
+          );
+          expect(miniFinder, findsOneWidget);
+          expect(
+            find.byKey(const ValueKey('windows_underlay_cutout_surface')),
+            findsOneWidget,
+          );
+
+          // 确认 Windows 底层子窗口模式下小窗未被 ClipRRect 或外层 RepaintBoundary 阻断挖空。
+          final clipInsideMini = find.descendant(
+            of: miniFinder,
+            matching: find.byType(ClipRRect),
+          );
+          expect(clipInsideMini, findsNothing);
+
+          final repaintAncestorsBetweenMiniAndPlayer = find.descendant(
+            of: find.byType(KonataFloatingMiniPlayer),
+            matching: find.ancestor(
+              of: miniFinder,
+              matching: find.byType(RepaintBoundary),
+            ),
+          );
+          expect(repaintAncestorsBetweenMiniAndPlayer, findsNothing);
+
+          expect(coexistenceCtrl.syncedViewportCount, greaterThanOrEqualTo(1));
+          final synced = coexistenceCtrl.lastSyncedViewport;
+          expect(synced, isNotNull);
+          expect(synced!.visible, isTrue);
+          expect(synced.rightPx - synced.leftPx, greaterThan(120));
+          expect(synced.bottomPx - synced.topPx, greaterThan(60));
+          expect(synced.radiusPx, greaterThan(0.0));
+
+          // 弹出毛玻璃弹窗验证覆盖层级、BackdropFilter 渲染与点击拦截。
+          final dialogHostContext = tester.element(find.byType(Scaffold));
+          final dialogFuture = showKonataGlassDialog<void>(
+            context: dialogHostContext,
+            builder: (dialogCtx) => KonataGlassDialog(
+              title: '毛玻璃覆盖共存验证',
+              width: 420,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  key: const ValueKey('coexistence_glass_dialog_confirm'),
+                  onPressed: () {
+                    dialogActionTapped = true;
+                    Navigator.of(dialogCtx).pop();
+                  },
+                  child: const Text('确认覆盖'),
+                ),
+              ),
+            ),
+          );
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
+
+          expect(find.byType(KonataGlassDialog), findsOneWidget);
+          expect(
+            find.descendant(
+              of: find.byType(KonataGlassDialog),
+              matching: find.byType(BackdropFilter),
+            ),
+            findsWidgets,
+          );
+
+          // 持续泵帧确认共存状态下 gpu-next 持续稳定出帧。
+          final deadline = DateTime.now().add(const Duration(seconds: 3));
+          var framesWhileCoexisting = 0;
+          while (DateTime.now().isBefore(deadline)) {
+            await tester.pump(const Duration(milliseconds: 24));
+            final voReady = mpv.getPropertyFlag('vo-configured') ?? false;
+            final est = mpv.getPropertyInt64('estimated-frame-number') ?? 0;
+            if (voReady && est >= 5) {
+              framesWhileCoexisting = est;
+              break;
+            }
+          }
+          expect(framesWhileCoexisting, greaterThanOrEqualTo(5));
+
+          await tester.tap(
+            find.byKey(const ValueKey('coexistence_glass_dialog_confirm')),
+          );
+          await tester.pumpAndSettle();
+          await dialogFuture;
+          expect(dialogActionTapped, isTrue);
+
+          return <String, Object?>{
+            'acrylicApplied': true,
+            'miniWindowHolePunchUnblocked': true,
+            'miniWindowNoClipRRect': true,
+            'miniWindowNoOuterRepaintBoundary': true,
+            'syncedViewportCount': coexistenceCtrl.syncedViewportCount,
+            'syncedViewportWidthPx': synced.rightPx - synced.leftPx,
+            'syncedViewportHeightPx': synced.bottomPx - synced.topPx,
+            'syncedCornerRadiusPx': synced.radiusPx,
+            'glassDialogOverlayHitTested': dialogActionTapped,
+            'framesWhileCoexisting': framesWhileCoexisting,
+            'currentVo': mpv.getPropertyString('current-vo') ?? '',
+          };
+        } finally {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pump();
+          if (sessionId > 0) {
+            await bridge.setViewportRect(
+              sessionId: sessionId,
+              leftPx: 0,
+              topPx: 0,
+              rightPx: 0,
+              bottomPx: 0,
+              visible: false,
+            );
+          }
+          if (!mpv.isDisposed && mpv.isInitialized) {
+            mpv.setPropertyString('vo', 'null');
+            mpv.setPropertyString('wid', '0');
+          }
+          await mpv.dispose();
+          if (sessionId > 0) {
+            await bridge.disposeSession(sessionId);
+          }
+        }
+      }
+
+      final coexistenceVerification =
+          await runAcrylicMiniAndGlassDialogCoexistence();
+
       final report = <String, Object?>{
         'timestamp': DateTime.now().toIso8601String(),
         'adapterName': caps.adapterName,
@@ -421,6 +763,7 @@ void main() {
         'gpu_next': summarize(gpuNextSamples),
         'dcomp_10bit': summarize(dcompSamples),
         'd3d11_fp16': summarize(d3d11Samples),
+        'coexistenceVerification': coexistenceVerification,
       };
 
       final outFile = File(
@@ -450,6 +793,9 @@ void main() {
         (report['dcomp_10bit']! as Map)['colorBitDepth'],
         greaterThanOrEqualTo(10),
       );
+      expect(coexistenceVerification['acrylicApplied'], isTrue);
+      expect(coexistenceVerification['miniWindowHolePunchUnblocked'], isTrue);
+      expect(coexistenceVerification['glassDialogOverlayHitTested'], isTrue);
     },
   );
 }

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
@@ -165,7 +164,7 @@ class _WindowControlsState extends State<WindowControls>
     final p = context.palette;
     final showPill = widget.forceLightIcons || widget.showGlassPill;
     final iconColor = widget.forceLightIcons
-        ? Colors.white
+        ? KonataTheme.pureWhite
         : (showPill ? p.textPrimary : p.textSecondary);
     final hoverBg = widget.forceLightIcons
         ? KonataTheme.overlayWhiteDim
@@ -240,7 +239,7 @@ class _WindowControlsState extends State<WindowControls>
         borderRadius: KonataTheme.borderRadiusPill,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(
+            color: KonataTheme.pureBlack.withValues(
               alpha: widget.forceLightIcons ? 0.22 : 0.12,
             ),
             blurRadius: 12,
@@ -251,7 +250,7 @@ class _WindowControlsState extends State<WindowControls>
       child: ClipRRect(
         borderRadius: KonataTheme.borderRadiusPill,
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          filter: KonataTheme.blurFilterControl,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
             decoration: BoxDecoration(
@@ -326,7 +325,7 @@ class _WindowControlButtonState extends State<_WindowControlButton> {
                   widget.icon,
                   size: widget.iconSize,
                   color: _hovered && widget.isClose
-                      ? Colors.white
+                      ? KonataTheme.pureWhite
                       : widget.iconColor,
                 ),
               ),

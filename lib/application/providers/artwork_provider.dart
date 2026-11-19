@@ -4,21 +4,54 @@ import 'dart:ui' as ui;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as path_util;
 
+import '../../domain/models/managed_artwork.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/tmdb_models.dart';
 import '../../infrastructure/cache/photos_storage.dart';
+import '../../infrastructure/cache/scan_thumbnail_scheduler.dart';
 import '../../infrastructure/network/priority_http_scheduler.dart';
 import '../../infrastructure/network/tmdb_http_client.dart';
 import '../../infrastructure/network/tmdb_service.dart';
 import '../../infrastructure/players/audio_art_extractor.dart';
-import '../../presentation/widgets/managed_image.dart';
 import 'library_providers.dart';
 import 'playback_providers.dart';
 import 'scraping_providers.dart';
 
-final Map<String, (int, int)> _originalDimensionCache = {};
-final Map<String, Uint8List> _audioAlbumCoverMemoryCache = {};
+/// 图片尺寸与专辑封面内存 LRU 缓存容器（由 Riverpod 托管，消除顶层可变静态表）。
+class ArtworkMemoryCaches {
+  final Map<String, (int, int)> originalDimensions = {};
+  final Map<String, Uint8List> audioAlbumCovers = {};
+
+  /// 缓存图片原始像素尺寸，超限时按 FIFO 淘汰最早条目。
+  void putOriginalDimensions(String key, (int, int) dims) {
+    if (originalDimensions.length >= 512) {
+      originalDimensions.remove(originalDimensions.keys.first);
+    }
+    originalDimensions[key] = dims;
+  }
+
+  /// 缓存音频专辑封面字节，超限时按 FIFO 淘汰最早条目。
+  void putAudioAlbumCover(String key, Uint8List bytes) {
+    if (audioAlbumCovers.length >= 64) {
+      audioAlbumCovers.remove(audioAlbumCovers.keys.first);
+    }
+    audioAlbumCovers[key] = bytes;
+  }
+}
+
+/// 图片与专辑封面内存缓存 Provider。
+final artworkMemoryCachesProvider = Provider<ArtworkMemoryCaches>(
+  (ref) => ArtworkMemoryCaches(),
+);
+
+/// 全局 Scan 微缩图隔离与串行调度器 Provider（位于应用编排层，严守单向依赖）。
+final scanThumbnailSchedulerProvider = Provider<ScanThumbnailScheduler>((ref) {
+  final photos = ref.watch(photosStorageProvider);
+  final scheduler = ScanThumbnailScheduler(photosStorage: photos);
+  ref.onDispose(scheduler.dispose);
+  return scheduler;
+});
 
 /// 从已获取的原始图片字节流直接读取文件头真实像素宽高（不解码整张位图）。
 Future<(int, int)?> decodeImageDimensionsFromBytes(Uint8List bytes) async {
@@ -48,17 +81,15 @@ final artworkOriginalDimensionsProvider =
     FutureProvider.family<(int, int)?, String>((ref, pathOrUrl) async {
       final clean = pathOrUrl.trim();
       if (clean.isEmpty) return null;
-      final cached = _originalDimensionCache[clean];
+      final caches = ref.read(artworkMemoryCachesProvider);
+      final cached = caches.originalDimensions[clean];
       if (cached != null) return cached;
 
       final loader = ref.read(tmdbImageLoaderProvider);
       final bytes = await loader(clean, imageSize: TmdbImageSize.original);
       final dims = await decodeImageDimensionsFromBytes(bytes);
       if (dims != null) {
-        if (_originalDimensionCache.length >= 512) {
-          _originalDimensionCache.remove(_originalDimensionCache.keys.first);
-        }
-        _originalDimensionCache[clean] = dims;
+        caches.putOriginalDimensions(clean, dims);
       }
       return dims;
     });
@@ -86,8 +117,13 @@ final tmdbImageLoaderProvider = Provider<ManagedImageLoader>((ref) {
     }
     final config = await ref.read(tmdbNetworkConfigProvider.future);
     final scheduler = ref.read(priorityHttpSchedulerProvider);
+    final cooldown = ref.read(domainCooldownRegistryProvider);
     final cache = await ref.read(artworkCacheProvider.future);
-    final client = TmdbHttpClient(config: config, scheduler: scheduler);
+    final client = TmdbHttpClient(
+      config: config,
+      scheduler: scheduler,
+      cooldownRegistry: cooldown,
+    );
     final tmdb = TmdbService(httpClient: client, artworkCache: cache);
     return tmdb.fetchImageBytes(
       pathOrUrl,
@@ -129,7 +165,8 @@ final audioRecordAlbumCoverProvider = FutureProvider.autoDispose
         variant.relativePath.replaceAll('\\', '/'),
       );
       final cacheKey = '${source.id}::${dir == '.' ? '' : dir}::${variant.id}';
-      final cached = _audioAlbumCoverMemoryCache[cacheKey];
+      final caches = ref.read(artworkMemoryCachesProvider);
+      final cached = caches.audioAlbumCovers[cacheKey];
       if (cached != null) return cached;
 
       final gatewayFactory = ref.read(mediaSourceGatewayFactoryProvider);
@@ -139,12 +176,7 @@ final audioRecordAlbumCoverProvider = FutureProvider.autoDispose
         gatewayFactory: gatewayFactory,
       );
       if (bytes != null && bytes.isNotEmpty) {
-        if (_audioAlbumCoverMemoryCache.length >= 64) {
-          _audioAlbumCoverMemoryCache.remove(
-            _audioAlbumCoverMemoryCache.keys.first,
-          );
-        }
-        _audioAlbumCoverMemoryCache[cacheKey] = bytes;
+        caches.putAudioAlbumCover(cacheKey, bytes);
         return bytes;
       }
       return null;

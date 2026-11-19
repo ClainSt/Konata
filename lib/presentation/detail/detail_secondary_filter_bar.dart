@@ -1,4 +1,3 @@
-import 'dart:ui';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -172,7 +171,7 @@ class _SecondaryFilterChipState extends State<_SecondaryFilterChip> {
     final pill = ClipRRect(
       borderRadius: KonataTheme.borderRadiusPill,
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+        filter: KonataTheme.blurFilterSubtle,
         child: AnimatedContainer(
           duration: KonataTheme.motionStandard,
           curve: Curves.easeOutCubic,

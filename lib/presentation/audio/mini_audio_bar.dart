@@ -155,6 +155,7 @@ class _MiniAudioOverlayHostState extends ConsumerState<MiniAudioOverlayHost> {
   KonataRootRouteObserver? _boundObserver;
   GlobalKey<NavigatorState>? _cachedNavKey;
   KonataToastController? _toastController;
+  KonataModalLayerRegistry? _modalRegistry;
   Timer? _toastDetachTimer;
   bool _mediaEntriesInserted = false;
   bool _toastEntryInserted = false;
@@ -172,7 +173,9 @@ class _MiniAudioOverlayHostState extends ConsumerState<MiniAudioOverlayHost> {
     toastCtrl.registerHost();
     toastCtrl.activeToast.addListener(_handleActiveToastChanged);
     _wantToastEntry = toastCtrl.activeToast.value != null;
-    KonataModalLayerRegistry.instance.addListener(_handleRouteOrModalChanged);
+    final modalRegistry = ref.read(konataModalLayerRegistryProvider);
+    _modalRegistry = modalRegistry;
+    modalRegistry.addListener(_handleRouteOrModalChanged);
     if (_wantToastEntry) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _syncOverlayEntries();
@@ -217,7 +220,8 @@ class _MiniAudioOverlayHostState extends ConsumerState<MiniAudioOverlayHost> {
   void dispose() {
     _toastDetachTimer?.cancel();
     _boundObserver?.removeStackListener(_handleRouteOrModalChanged);
-    KonataModalLayerRegistry.instance.removeListener(_handleRouteOrModalChanged);
+    _modalRegistry?.removeListener(_handleRouteOrModalChanged);
+    _modalRegistry = null;
     final toastCtrl = _toastController;
     _toastController = null;
     if (toastCtrl != null) {
@@ -400,7 +404,8 @@ class _MiniAudioOverlayHostState extends ConsumerState<MiniAudioOverlayHost> {
     final observer = _boundObserver;
     final observerAttached =
         observer != null && identical(observer.navigator, nav);
-    final registryModals = KonataModalLayerRegistry.instance.routesFor(nav);
+    final registryModals =
+        _modalRegistry?.routesFor(nav) ?? const <OverlayRoute<dynamic>>[];
 
     if (observerAttached) {
       final ordered = <OverlayEntry>[];
@@ -514,7 +519,9 @@ class _AudioContentClearance extends ConsumerWidget {
     final miniKind = ref.watch(activeFloatingMiniPlayerKindProvider);
     final android = KonataAdaptiveTokens.isAndroid;
     if (!android) {
-      final desktopClearance = ref.watch(miniAudioBottomClearanceProvider);
+      final desktopClearance = miniKind == FloatingMiniPlayerKind.none
+          ? 0.0
+          : ref.watch(miniAudioBottomClearanceProvider);
       return KonataBottomClearanceScope(
         bottomClearance: desktopClearance,
         child: child,
@@ -582,7 +589,6 @@ class _PlaybackSessionCoordinator extends ConsumerWidget {
 
     final audioExpanded = ref.watch(immersiveAudioExpandedProvider);
     final subRoutePushed = ref.watch(subRoutePushedProvider);
-    final immersiveAudioNavKey = ref.watch(_immersiveAudioNavigatorKeyProvider);
     final shouldHandleSystemBack =
         (videoSession.isActive &&
             videoSession.isExpanded &&
@@ -611,7 +617,7 @@ class _PlaybackSessionCoordinator extends ConsumerWidget {
           return true;
         }
         if (audioExpanded) {
-          final audioNav = immersiveAudioNavKey.currentState;
+          final audioNav = ref.read(_immersiveAudioNavigatorKeyProvider).currentState;
           if (audioNav != null && audioNav.canPop()) {
             await audioNav.maybePop();
             return true;
@@ -870,6 +876,16 @@ class _FullscreenPlayerOverlaySlotState
     final effectiveVideoReq = showExpandedVideo
         ? videoReq
         : activeCollapseVideoReq;
+    final windowsVideoUnderlay =
+        !KonataAdaptiveTokens.isAndroid &&
+        effectiveVideoReq != null &&
+        ref.watch(
+          videoPlaybackProvider(
+            effectiveVideoReq,
+          ).select((s) => s.windowsUnderlayActive && !s.audioOnlyMode),
+        );
+    final usesVideoCanvasHolePunch =
+        KonataAdaptiveTokens.isAndroid || windowsVideoUnderlay;
 
     return Stack(
       fit: StackFit.expand,
@@ -915,7 +931,7 @@ class _FullscreenPlayerOverlaySlotState
                 ? _collapsingVideoVelocityPx
                 : 0.0,
             onCollapseCompleted: _finishVideoCollapseMorph,
-            allowClipRadius: !KonataAdaptiveTokens.isAndroid,
+            allowClipRadius: !usesVideoCanvasHolePunch,
             child: IgnorePointer(
               ignoring: showVideoCollapsing,
               child: EmbeddedVideoPage(
@@ -1004,7 +1020,9 @@ class _OverlayBackInterceptorState extends State<_OverlayBackInterceptor>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _syncAndroidBackRegistration();
+    if (widget.handlesSystemBack) {
+      _syncAndroidBackRegistration();
+    }
   }
 
   @override

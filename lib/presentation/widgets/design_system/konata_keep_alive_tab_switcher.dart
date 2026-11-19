@@ -184,19 +184,12 @@ class _KonataKeepAliveTabSwitcherState
         child: _wrappedChildren[index],
       );
     } else {
-      content = AnimatedBuilder(
-        animation: animatingIn ? _curved : kAlwaysCompleteAnimation,
-        child: _wrappedChildren[index],
-        builder: (_, child) {
-          final t = animatingIn ? _curved.value.clamp(0.0, 1.0) : 1.0;
-          final dx = animatingIn
-              ? _direction * widget.incomingSlidePixels * (1.0 - t)
-              : 0.0;
-          return Opacity(
-            opacity: t,
-            child: Transform.translate(offset: Offset(dx, 0), child: child),
-          );
-        },
+      content = FadeTransition(
+        opacity: animatingIn ? _curved : kAlwaysCompleteAnimation,
+        child: SlideTransition(
+          position: animatingIn ? _incomingSlide : _kZeroOffsetAnimation,
+          child: _wrappedChildren[index],
+        ),
       );
     }
     return Offstage(

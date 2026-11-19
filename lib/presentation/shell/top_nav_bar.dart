@@ -474,20 +474,22 @@ class _TextNavTabState extends State<_TextNavTab> {
                   final textColor =
                       Color.lerp(inactiveColor, p.textPrimary, t) ??
                       p.textPrimary;
-                  final weight = t >= 0.5
-                      ? KonataTheme.weightActive
-                      : KonataTheme.weightRegularLabel;
+                  final weight = lerpDouble(
+                    KonataTheme.weightRegularLabel,
+                    KonataTheme.weightActive,
+                    t,
+                  )!;
                   final activeStyle = KonataTheme.textStyle(
                     color: textColor,
                     fontSize: KonataTheme.fontSizeBodyMd,
                     weight: weight,
-                    shadows: t >= 0.85
+                    shadows: t > 0.02
                         ? [
                             Shadow(
                               color: p.progressFill.withValues(
-                                alpha: p.isDark ? 0.35 : 0.16,
+                                alpha: (p.isDark ? 0.35 : 0.16) * t,
                               ),
-                              blurRadius: 12.0,
+                              blurRadius: 12.0 * t,
                             ),
                           ]
                         : null,

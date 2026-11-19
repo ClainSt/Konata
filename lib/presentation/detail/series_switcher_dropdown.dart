@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
@@ -135,7 +134,7 @@ class _SeriesSwitcherDropdownState extends State<SeriesSwitcherDropdown> {
     final pill = ClipRRect(
       borderRadius: BorderRadius.circular(radius),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+        filter: KonataTheme.blurFilterMedium,
         child: Material(
           color: isOpen
               ? KonataPlaybackTokens.activePillBg(p)
@@ -278,7 +277,7 @@ class _SeriesMenuOverlayState extends State<_SeriesMenuOverlay> {
             child: ClipRRect(
               borderRadius: KonataTheme.borderRadiusSheet,
               child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+                filter: KonataTheme.blurFilterCapsule,
                 child: Container(
                   width: 280,
                   constraints: BoxConstraints(

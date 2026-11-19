@@ -638,8 +638,8 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
             end: Alignment.bottomCenter,
             colors: [
               Colors.transparent,
-              Colors.white,
-              Colors.white,
+              KonataTheme.pureWhite,
+              KonataTheme.pureWhite,
               Colors.transparent,
             ],
             stops: [0.0, 0.06, 0.93, 1.0],
@@ -698,8 +698,8 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
           end: Alignment.bottomCenter,
           colors: [
             Colors.transparent,
-            Colors.white,
-            Colors.white,
+            KonataTheme.pureWhite,
+            KonataTheme.pureWhite,
             Colors.transparent,
           ],
           stops: [0.0, 0.04, 0.95, 1.0],

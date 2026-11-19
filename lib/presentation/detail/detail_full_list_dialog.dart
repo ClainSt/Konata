@@ -1,10 +1,10 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../application/providers/artwork_provider.dart';
 import '../../application/providers/library_providers.dart';
 import '../../domain/matching/episode_title_formatter.dart';
 import '../../domain/matching/supplementary_subclassifier.dart';
@@ -444,7 +444,7 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
         child: ClipRRect(
           borderRadius: KonataTheme.borderRadiusCapsule,
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+            filter: KonataTheme.blurFilterCapsule,
             child: Container(
               width: dialogWidth,
               height: dialogHeight,

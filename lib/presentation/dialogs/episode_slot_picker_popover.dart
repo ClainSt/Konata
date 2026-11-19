@@ -1,4 +1,3 @@
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
@@ -362,7 +361,7 @@ class _SlotPopoverOverlayState extends State<_SlotPopoverOverlay> {
             child: ClipRRect(
               borderRadius: KonataTheme.borderRadiusPanel,
               child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+                filter: KonataTheme.blurFilterCapsule,
                 child: Container(
                   width: 296,
                   constraints: const BoxConstraints(maxHeight: 280),
@@ -371,13 +370,13 @@ class _SlotPopoverOverlayState extends State<_SlotPopoverOverlay> {
                     color: bgColor,
                     borderRadius: KonataTheme.borderRadiusPanel,
                     border: Border.all(
-                      color: Colors.white.withValues(
+                      color: KonataTheme.pureWhite.withValues(
                         alpha: p.isDark ? 0.18 : 0.72,
                       ),
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(
+                        color: KonataTheme.pureBlack.withValues(
                           alpha: p.isDark ? 0.42 : 0.16,
                         ),
                         blurRadius: 24,

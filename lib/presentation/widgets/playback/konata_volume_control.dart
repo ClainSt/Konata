@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -317,7 +316,7 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
                       child: ClipRRect(
                         borderRadius: KonataTheme.borderRadiusPill,
                         child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+                          filter: KonataTheme.blurFilterCapsule,
                           child: DecoratedBox(
                             decoration: BoxDecoration(
                               color: bgColor,
@@ -495,7 +494,7 @@ class _KonataVolumeControlState extends State<KonataVolumeControl> {
                                                   shape: BoxShape.circle,
                                                   boxShadow: [
                                                     BoxShadow(
-                                                      color: Colors.black
+                                                      color: KonataTheme.pureBlack
                                                           .withValues(
                                                             alpha: 0.28,
                                                           ),

@@ -146,14 +146,15 @@ abstract final class CloudMediaFileClassifier {
 
   static final _auxTechToken = RegExp(
     r'^(?:'
-    r'bd|bdmv|bdrip|bluray|blu|ray|dvd|dvdrip|ld|ldrip|hdtv|web|webrip|webdl|'
-    r'tvrip|uhd|fhd|hd|sd|remux|raw|raws|hdr|sdr|dv|nvenc|rip|dl|'
+    '${KonataMediaExtensions.sourceTagAlternation}|'
+    r'blu|ray|fhd|hd|sd|raw|raws|hdr|sdr|dv|nvenc|rip|dl|'
     r'\d*x?(?:flac|aac|opus|ac3|eac3|ec3|ddp?|dd|dts|dtshd|hdma|ma|truehd|'
     r'lpcm|pcm|mp3|vorbis|alac|atmos|wv|wavpack)(?:x?\d+(?:\.\d+)?)?|'
     r'audio|dual|multi|lossless|\d+(?:\.\d+)?ch(?:x\d+)?|(?:2\.0|5\.1|7\.1)(?:x\d+)?|'
     r'chs|cht|chi|zh|cn|jp|jpn|jap|en|eng|sub|subs|softsub|hardsub|'
-    r'gb|big5|(?:ass|ssa|srt|pgs|sup|idx)(?:x\d+)?|vobsub|mkv|mp4|v\d+|'
-    r'[0-9a-f]{8}'
+    r'gb|big5|(?:ass|ssa|srt|pgs|sup|idx)(?:x\d+)?|vobsub|'
+    '${KonataMediaExtensions.videoExtensionAlternation}|'
+    r'v\d+|[0-9a-f]{8}'
     r')$',
     caseSensitive: false,
   );

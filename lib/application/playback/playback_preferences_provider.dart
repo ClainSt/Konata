@@ -625,9 +625,10 @@ final cloudSubsetAuthorizationStoreProvider =
         onHydrated: () {
           try {
             ref.read(cloudSubsetAuthRevisionProvider.notifier).state += 1;
-          } on StateError {
-            // 容器已销毁时忽略刷新通知。
-          }
+          } on StateError catch (error) {
+  // 容器已销毁时忽略刷新通知。
+  developer.log('可恢复异常已记录', name: 'konata.playback_preferences_provider', error: error);
+}
         },
       );
     });

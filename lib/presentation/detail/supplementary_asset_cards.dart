@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../application/providers/artwork_provider.dart';
 import '../../domain/formatting/media_display_formatter.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
@@ -255,7 +256,7 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                   palette: p,
                   color: (widget.onDarkBackdrop || p.isDark)
                       ? (_hovered
-                            ? Colors.white
+                            ? KonataTheme.pureWhite
                             : KonataTheme.overlayWhiteTextStrong)
                       : p.textPrimary,
                   fontSize: KonataTheme.fontSizeBodyXs,
@@ -513,7 +514,7 @@ class _ScanDrawerCardState extends ConsumerState<ScanDrawerCard> {
                   palette: p,
                   color: (widget.onDarkBackdrop || p.isDark)
                       ? (_hovered
-                            ? Colors.white
+                            ? KonataTheme.pureWhite
                             : KonataTheme.overlayWhiteTextStrong)
                       : p.textPrimary,
                   fontSize: KonataTheme.fontSizeBodyXs,

@@ -198,7 +198,7 @@ class _FrostedDropdownOverlayState<T> extends State<_FrostedDropdownOverlay<T>>
                     child: ClipRRect(
                       borderRadius: KonataTheme.borderRadiusPanel,
                       child: BackdropFilter(
-                        filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+                        filter: KonataTheme.blurFilterCapsule,
                         child: Container(
                           width: widget.width,
                           constraints: BoxConstraints(
@@ -211,7 +211,7 @@ class _FrostedDropdownOverlayState<T> extends State<_FrostedDropdownOverlay<T>>
                             border: Border.all(color: panelBorder, width: 1),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withValues(
+                                color: KonataTheme.pureBlack.withValues(
                                   alpha: p.isDark ? 0.42 : 0.14,
                                 ),
                                 blurRadius: 24,

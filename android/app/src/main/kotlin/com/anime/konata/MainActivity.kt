@@ -12,6 +12,7 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.drawable.Icon
 import android.media.AudioAttributes
@@ -42,6 +43,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.android.FlutterActivityLaunchConfigs
+import io.flutter.embedding.android.FlutterSurfaceView
 import io.flutter.embedding.android.RenderMode
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterShellArgs
@@ -168,13 +170,23 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun getRenderMode(): RenderMode {
-        // 显式锁定表面直出模式，防止透明背景触发隐式离屏纹理拷贝并消除额外全屏显存占用。
+        // 显式锁定表面直出模式，消除离屏 TextureView 双拷贝与额外全屏显存占用。
         return RenderMode.surface
     }
 
     override fun getBackgroundMode(): FlutterActivityLaunchConfigs.BackgroundMode {
-        // 开启透明 FlutterSurfaceView，使底层 Underlay 原画表面透出且所有 Flutter 浮层天然覆盖在视频之上。
+        // 开启透明通道以支撑底层 Underlay 原画表面透出与跨页悬浮视频小窗零拷贝直出。
         return FlutterActivityLaunchConfigs.BackgroundMode.transparent
+    }
+
+    override fun configureFlutterSurfaceView(flutterSurfaceView: FlutterSurfaceView) {
+        super.configureFlutterSurfaceView(flutterSurfaceView)
+        // 显式覆写 Flutter 透明模式默认施加的 setZOrderOnTop(true)：
+        // 将 Flutter 表面精确锚定在 MediaOverlay 层（严格位于底层索引 0 视频 SurfaceView 之上，
+        // 同时保持在窗口 DecorView 顶层浮层与 PixelCopy.request(window, ...) 体系之内）。
+        flutterSurfaceView.setZOrderOnTop(false)
+        flutterSurfaceView.setZOrderMediaOverlay(true)
+        flutterSurfaceView.holder.setFormat(PixelFormat.TRANSLUCENT)
     }
 
     override fun getFlutterShellArgs(): FlutterShellArgs {

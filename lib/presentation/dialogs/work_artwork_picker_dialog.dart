@@ -550,13 +550,13 @@ class _ArtworkGridTileState extends ConsumerState<_ArtworkGridTile> {
                           const Icon(
                             Icons.check_rounded,
                             size: 12,
-                            color: Colors.white,
+                            color: KonataTheme.pureWhite,
                           ),
                           const SizedBox(width: 2.5),
                           Text(
                             isCurrentSaved ? '当前' : '已选',
                             style: const TextStyle(
-                              color: Colors.white,
+                              color: KonataTheme.pureWhite,
                               fontSize: KonataTheme.fontSizeBadge,
                               fontWeight: FontWeight.w700,
                               height: 1.1,
@@ -610,7 +610,7 @@ class _ArtworkGridTileState extends ConsumerState<_ArtworkGridTile> {
       return _OverlayMiniBadge(
         text: displayLabel,
         backgroundColor: KonataTheme.bangumiPink,
-        textColor: Colors.white,
+        textColor: KonataTheme.pureWhite,
         fontWeight: FontWeight.w700,
         borderColor: KonataTheme.overlayWhiteStroke,
       );
@@ -619,7 +619,7 @@ class _ArtworkGridTileState extends ConsumerState<_ArtworkGridTile> {
       return _OverlayMiniBadge(
         text: displayLabel,
         backgroundColor: KonataTheme.tmdbNavy,
-        textColor: Colors.white,
+        textColor: KonataTheme.pureWhite,
         textGradient: KonataTheme.tmdbBrandGradient,
         fontWeight: FontWeight.w700,
         borderColor: KonataTheme.tmdbCyan.withValues(alpha: 0.28),
@@ -651,7 +651,7 @@ class _OverlayMiniBadge extends StatelessWidget {
   const _OverlayMiniBadge({
     required this.text,
     required this.backgroundColor,
-    this.textColor = Colors.white,
+    this.textColor = KonataTheme.pureWhite,
     this.textGradient,
     this.borderColor,
     this.fontWeight = FontWeight.w600,
@@ -691,7 +691,7 @@ class _OverlayMiniBadge extends StatelessWidget {
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
-        color: textGradient != null ? Colors.white : textColor,
+        color: textGradient != null ? KonataTheme.pureWhite : textColor,
         fontSize: KonataTheme.fontSizeMicro,
         fontWeight: fontWeight,
         fontFeatures: tabularFigures

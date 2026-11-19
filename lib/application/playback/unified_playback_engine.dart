@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -154,11 +156,20 @@ class PlaybackStreamLease {
 /// 3. `audioOutputEpoch`：隔离音频输出设备切换与 `ao-reload`，推进时不误杀底层媒体流；
 /// 4. `ScopedTaskToken`：按四域独立取消异步后台任务，互不牵连。
 class UnifiedPlaybackEngine {
+  /// 创建统一播放内核，由内核唯一托管全进程单个活跃底层 `LibMpvClient` 实例。
+  UnifiedPlaybackEngine({LibMpvClient Function()? defaultClientFactory})
+    : _defaultClientFactory = defaultClientFactory ?? FfiLibMpvClient.create;
+
   /// 队列连续物理坏文件触发熔断的上限阈值。
   static const int maxConsecutiveBadFiles = 3;
 
   /// 认定音频已证实有效播放推进的最小时长阈值（毫秒）。
   static const int effectiveAudioProgressThresholdMs = 500;
+
+  final LibMpvClient Function() _defaultClientFactory;
+  Future<void> _clientLeaseChain = Future<void>.value();
+  int _liveNativeClientCount = 0;
+  Future<void> Function()? _activeNativeClientEvictor;
 
   int _physicalMediaEpoch = 0;
   int _nativeInstanceId = 0;
@@ -181,11 +192,81 @@ class UnifiedPlaybackEngine {
   bool _effectiveProgressConfirmed = false;
   int _consecutiveBadFiles = 0;
 
+  /// 当前进程内由内核托管的活跃底层 `LibMpvClient` 活体计数（严格保证 `<= 1`）。
+  int get liveNativeClientCount => _liveNativeClientCount;
+
   /// 当前由内核托管的活跃播放舞台类型。
   PlaybackStageKind get activeStage => _activeStage;
 
   /// 当前由内核托管的活跃底层 libmpv 实例引用。
   LibMpvClient? get activeNativeClient => _activeNativeClient;
+
+  /// 互斥申请全进程唯一的底层 `LibMpvClient` 句柄。
+  ///
+  /// 若当前存在其他舞台或旧实例存活，先严格串行执行驱逐回调并完整释放旧原生句柄，
+  /// 确保任意时刻进程内存与 FFI 层最多仅存在 1 个 `LibMpvClient` 实例。
+  Future<({LibMpvClient client, int nativeInstanceId})>
+  acquireExclusiveNativeClient({
+    required PlaybackStageKind stage,
+    LibMpvClient Function()? factoryOverride,
+    Future<void> Function()? onEvicted,
+  }) {
+    final completer = Completer<({LibMpvClient client, int nativeInstanceId})>();
+    _clientLeaseChain = _clientLeaseChain.catchError((Object _) {}).then((_) async {
+      try {
+        final existing = _activeNativeClient;
+        final existingEvictor = _activeNativeClientEvictor;
+        if (existing != null) {
+          if (_activeStage != PlaybackStageKind.none &&
+              stage != PlaybackStageKind.none &&
+              _activeStage != stage &&
+              _nativeInstanceId > 0) {
+            suspendStage(_activeStage);
+          }
+          _activeNativeClient = null;
+          _activeNativeClientEvictor = null;
+          if (existingEvictor != null) {
+            await existingEvictor();
+          }
+          if (!existing.isDisposed) {
+            await existing.dispose();
+          }
+          _liveNativeClientCount = 0;
+        }
+        final created = (factoryOverride ?? _defaultClientFactory)();
+        _activeNativeClient = created;
+        _activeNativeClientEvictor = onEvicted;
+        _liveNativeClientCount = 1;
+        final instanceId = attachNativeInstance(stage: stage, client: created);
+        completer.complete((client: created, nativeInstanceId: instanceId));
+      } catch (e, st) {
+        completer.completeError(e, st);
+      }
+    });
+    return completer.future;
+  }
+
+  /// 通过统一内核安全回收并注销指定的底层 `LibMpvClient` 句柄。
+  Future<void> releaseNativeClient(LibMpvClient? client) {
+    if (client == null) return Future<void>.value();
+    final completer = Completer<void>();
+    _clientLeaseChain = _clientLeaseChain.catchError((Object _) {}).then((_) async {
+      try {
+        if (identical(_activeNativeClient, client)) {
+          _activeNativeClient = null;
+          _activeNativeClientEvictor = null;
+          _liveNativeClientCount = 0;
+        }
+        if (!client.isDisposed) {
+          await client.dispose();
+        }
+        completer.complete();
+      } catch (e, st) {
+        completer.completeError(e, st);
+      }
+    });
+    return completer.future;
+  }
 
   /// 当前物理媒体代数。
   int get physicalMediaEpoch => _physicalMediaEpoch;

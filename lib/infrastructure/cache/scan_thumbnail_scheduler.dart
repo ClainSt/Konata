@@ -6,9 +6,6 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'dart:developer' as developer;
 
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-
-import '../../application/providers/library_providers.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../sources/byte_stream_source_gateway.dart';
@@ -516,11 +513,3 @@ class ScanThumbnailScheduler {
     return (stream: stream, close: gw.close);
   }
 }
-
-/// 全局 Scan 微缩图隔离与串行调度器 Provider。
-final scanThumbnailSchedulerProvider = Provider<ScanThumbnailScheduler>((ref) {
-  final photos = ref.watch(photosStorageProvider);
-  final scheduler = ScanThumbnailScheduler(photosStorage: photos);
-  ref.onDispose(scheduler.dispose);
-  return scheduler;
-});

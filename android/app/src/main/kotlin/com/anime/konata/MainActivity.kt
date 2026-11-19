@@ -15,8 +15,11 @@ import android.graphics.Canvas
 import android.graphics.Rect
 import android.graphics.drawable.Icon
 import android.media.AudioAttributes
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.media.AudioMixerAttributes
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -67,12 +70,15 @@ class MainActivity : FlutterActivity() {
     private var visibleBars = 0
     private var originalCutoutMode: Int? = null
     private var audioFocusChannel: MethodChannel? = null
+    private var audioRouteChannel: MethodChannel? = null
     private var mediaSessionChannel: MethodChannel? = null
     private var pipChannel: MethodChannel? = null
     private var scrollCaptureChannel: MethodChannel? = null
     private var underlaySurfaceHost: AndroidUnderlaySurfaceHost? = null
     private var audioFocusRequest: AudioFocusRequest? = null
     private var pipReceiverRegistered = false
+    private var noisyReceiverRegistered = false
+    private var audioDeviceCallbackRegistered = false
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var pipEligible = false
@@ -109,6 +115,50 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    /// 通道一：监听系统 `ACTION_AUDIO_BECOMING_NOISY` 外设拔出防爆音广播。
+    private val becomingNoisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != AudioManager.ACTION_AUDIO_BECOMING_NOISY) return
+            runOnUiThread {
+                audioRouteChannel?.invokeMethod("outputDeviceRemoved", "becoming_noisy")
+            }
+        }
+    }
+
+    /// 通道二：监听系统 `AudioDeviceCallback` 外接耳机/USB DAC/蓝牙设备插拔事件。
+    private val audioDeviceCallback = object : AudioDeviceCallback() {
+        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
+            val removedExternal = removedDevices.any { isExternalAudioOutput(it) }
+            if (removedExternal) {
+                runOnUiThread {
+                    audioRouteChannel?.invokeMethod("outputDeviceRemoved", "device_callback_removed")
+                }
+            }
+        }
+
+        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
+            val external = addedDevices.firstOrNull { isExternalAudioOutput(it) } ?: return
+            val fingerprint = "android_${external.type}_${external.id}"
+            runOnUiThread {
+                audioRouteChannel?.invokeMethod("outputDeviceAdded", fingerprint)
+            }
+        }
+    }
+
+    private fun isExternalAudioOutput(info: AudioDeviceInfo): Boolean {
+        if (!info.isSink) return false
+        return when (info.type) {
+            AudioDeviceInfo.TYPE_WIRED_HEADSET,
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+            AudioDeviceInfo.TYPE_USB_DEVICE,
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+            AudioDeviceInfo.TYPE_BLE_HEADSET,
+            AudioDeviceInfo.TYPE_HDMI -> true
+            else -> false
+        }
+    }
+
     override fun getBackgroundMode(): FlutterActivityLaunchConfigs.BackgroundMode {
         // 开启透明 FlutterSurfaceView，使底层 Underlay 原画表面透出且所有 Flutter 浮层天然覆盖在视频之上。
         return FlutterActivityLaunchConfigs.BackgroundMode.transparent
@@ -133,6 +183,21 @@ class MainActivity : FlutterActivity() {
             )
             pipReceiverRegistered = true
         }
+        if (!noisyReceiverRegistered) {
+            ContextCompat.registerReceiver(
+                this,
+                becomingNoisyReceiver,
+                IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+            noisyReceiverRegistered = true
+        }
+        if (!audioDeviceCallbackRegistered) {
+            try {
+                audioManager.registerAudioDeviceCallback(audioDeviceCallback, mainHandler)
+                audioDeviceCallbackRegistered = true
+            } catch (_: Exception) {}
+        }
     }
 
     override fun onDestroy() {
@@ -141,6 +206,18 @@ class MainActivity : FlutterActivity() {
                 unregisterReceiver(pipControlReceiver)
             } catch (_: Exception) {}
             pipReceiverRegistered = false
+        }
+        if (noisyReceiverRegistered) {
+            try {
+                unregisterReceiver(becomingNoisyReceiver)
+            } catch (_: Exception) {}
+            noisyReceiverRegistered = false
+        }
+        if (audioDeviceCallbackRegistered) {
+            try {
+                audioManager.unregisterAudioDeviceCallback(audioDeviceCallback)
+            } catch (_: Exception) {}
+            audioDeviceCallbackRegistered = false
         }
         super.onDestroy()
     }
@@ -190,6 +267,8 @@ class MainActivity : FlutterActivity() {
         mediaSessionChannel = null
         audioFocusChannel?.setMethodCallHandler(null)
         audioFocusChannel = null
+        audioRouteChannel?.setMethodCallHandler(null)
+        audioRouteChannel = null
         pipChannel?.setMethodCallHandler(null)
         pipChannel = null
         scrollCaptureChannel?.setMethodCallHandler(null)
@@ -428,6 +507,18 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "request" -> result.success(requestPlaybackAudioFocus())
                     "abandon" -> { abandonPlaybackAudioFocus(); result.success(null) }
+                    else -> result.notImplemented()
+                }
+            }
+        }
+        audioRouteChannel = MethodChannel(messenger, "ccplayer/audio_route").also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "negotiateBitPerfectUsb" -> {
+                        val sampleRate = (call.argument<Number>("sampleRateHz"))?.toInt() ?: 48000
+                        val enable = call.argument<Boolean>("enable") ?: true
+                        result.success(negotiateAndroidBitPerfectUsb(sampleRate, enable))
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -967,5 +1058,77 @@ class MainActivity : FlutterActivity() {
             } catch (_: Exception) {}
             throw e
         }
+    }
+
+    /// Android 14+ 原生 `MIXER_BEHAVIOR_BIT_PERFECT` USB DAC 混音器逐位直通协商。
+    private fun negotiateAndroidBitPerfectUsb(
+        preferredSampleRateHz: Int,
+        enable: Boolean
+    ): Map<String, Any> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            return mapOf(
+                "supported" to false,
+                "engaged" to false,
+                "detail" to "需要 Android 14 (API 34) 及以上系统以支持原生 USB 逐位直通"
+            )
+        }
+        val mediaAttrs = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+            .build()
+        val usbDevice = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            .firstOrNull {
+                it.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
+                    it.type == AudioDeviceInfo.TYPE_USB_HEADSET
+            }
+            ?: return mapOf(
+                "supported" to false,
+                "engaged" to false,
+                "detail" to "当前未连接外接 USB DAC 音频设备"
+            )
+
+        if (!enable) {
+            try {
+                audioManager.clearPreferredMixerAttributes(mediaAttrs, usbDevice)
+            } catch (_: Exception) {}
+            return mapOf(
+                "supported" to true,
+                "engaged" to false,
+                "deviceName" to (usbDevice.productName?.toString() ?: "USB DAC"),
+                "detail" to "已恢复系统默认混音路由"
+            )
+        }
+
+        val supported = try {
+            audioManager.getSupportedMixerAttributes(usbDevice)
+        } catch (_: Exception) {
+            emptyList()
+        }
+        val bitPerfectList = supported.filter {
+            it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT
+        }
+        if (bitPerfectList.isEmpty()) {
+            return mapOf(
+                "supported" to false,
+                "engaged" to false,
+                "deviceName" to (usbDevice.productName?.toString() ?: "USB DAC"),
+                "detail" to "该 USB 设备未向系统宣告 MIXER_BEHAVIOR_BIT_PERFECT 能力"
+            )
+        }
+        val chosen = bitPerfectList.firstOrNull {
+            it.format.sampleRate == preferredSampleRateHz
+        } ?: bitPerfectList.first()
+        val ok = try {
+            audioManager.setPreferredMixerAttributes(mediaAttrs, usbDevice, chosen)
+        } catch (_: Exception) {
+            false
+        }
+        return mapOf(
+            "supported" to true,
+            "engaged" to ok,
+            "deviceName" to (usbDevice.productName?.toString() ?: "USB DAC"),
+            "sampleRateHz" to chosen.format.sampleRate,
+            "detail" to if (ok) "已协商 Android 14+ 原生 USB 逐位直通" else "系统拒绝设置逐位混音器属性"
+        )
     }
 }

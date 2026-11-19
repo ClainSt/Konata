@@ -28,6 +28,7 @@ class _SpyExternalLauncher implements ExternalPlayerLauncher {
   int callCount = 0;
   ExternalPlayerConfig? lastPlayer;
   int? lastStartSeconds;
+  double? lastExactStartSeconds;
 
   @override
   Future<LaunchPlaybackResult> launch({
@@ -37,12 +38,14 @@ class _SpyExternalLauncher implements ExternalPlayerLauncher {
     ExternalPlayerConfig? player,
     MediaSource? source,
     int startSeconds = 0,
+    double? exactStartSeconds,
     int? mainEpisodeCount,
     PlaybackProgressCallback? onProgressUpdate,
   }) async {
     callCount += 1;
     lastPlayer = player;
     lastStartSeconds = startSeconds;
+    lastExactStartSeconds = exactStartSeconds;
     return const LaunchPlaybackResult(launched: true, message: '外部拉起成功');
   }
 }

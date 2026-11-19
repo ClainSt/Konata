@@ -214,6 +214,7 @@ class PlaybackDispatcher {
     // 与内置音频共用 CUE 目标解析，将物理音轨的地址交给外部播放器。
     var targetVariant = variant;
     var cueStartSeconds = 0;
+    double? cueExactStartSeconds;
     if (AudioPlaybackNotifier.isCueSheetFile(variant.fileName)) {
       if (source == null) {
         return const LaunchPlaybackResult(
@@ -260,7 +261,8 @@ class PlaybackDispatcher {
           );
         }
         targetVariant = resolved;
-        cueStartSeconds = track.startSeconds.round();
+        cueExactStartSeconds = track.startSeconds;
+        cueStartSeconds = track.startSeconds.floor();
       } catch (error) {
         return LaunchPlaybackResult(
           launched: false,
@@ -280,6 +282,7 @@ class PlaybackDispatcher {
           source: source,
           player: explicitPlayer,
           startSeconds: cueStartSeconds,
+          exactStartSeconds: cueExactStartSeconds,
         );
   }
 

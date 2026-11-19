@@ -111,6 +111,7 @@ class UnsupportedExternalPlayerLauncher implements ExternalPlayerLauncher {
     ExternalPlayerConfig? player,
     MediaSource? source,
     int startSeconds = 0,
+    double? exactStartSeconds,
     int? mainEpisodeCount,
     PlaybackProgressCallback? onProgressUpdate,
   }) async {

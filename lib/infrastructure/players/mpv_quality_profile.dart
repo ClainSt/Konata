@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:path/path.dart' as p;
 
+import '../../domain/playback/audiophile_safety_policy.dart';
 import '../../domain/playback/hwdec_safety_policy.dart';
 import '../../domain/playback/track_preferences.dart';
 import '../logging/diagnostics_log_store.dart';
@@ -419,7 +420,11 @@ class MpvQualityProfile {
       'audio-swresample-o',
       'resampler=soxr,precision=${config.audioResamplerPrecision}',
     );
-    setter.setOption(client, 'gapless-audio', 'yes');
+    setter.setOption(
+      client,
+      'gapless-audio',
+      AudiophileSafetyPolicy.unifiedGaplessMode,
+    );
     setter.setOption(
       client,
       'ao',
@@ -655,7 +660,11 @@ class MpvQualityProfile {
       'audio-swresample-o',
       'resampler=soxr,precision=${config.audioResamplerPrecision}',
     );
-    setter.setOption(client, 'gapless-audio', 'yes');
+    setter.setOption(
+      client,
+      'gapless-audio',
+      AudiophileSafetyPolicy.unifiedGaplessMode,
+    );
     setter.setOption(
       client,
       'ao',
@@ -695,6 +704,36 @@ class MpvQualityProfile {
     }
   }
 
+  /// 原子清零单曲区间裁剪与循环端点属性（每次换曲、CUE 跨轨与停播必调，防止残留截断下一曲）。
+  static void resetAudioRangeAndLoopProperties(
+    LibMpvClient client, {
+    DiagnosticsLogStore? logStore,
+  }) {
+    final setter = MpvSafePropertySetter(logStore: logStore);
+    setter.setString(client, 'end', 'none');
+    setter.setString(client, 'ab-loop-a', 'no');
+    setter.setString(client, 'ab-loop-b', 'no');
+  }
+
+  /// 向运行中的 `libmpv` 实例下发发烧输出路由与末级 `-12 dBFS` 防炸耳滤镜链计划。
+  ///
+  /// 严格保持 HDMI `audio-spdif` 比特流透传与软件 DSP（`af`）绝对互斥。
+  static void applyAudiophileSafetyChain(
+    LibMpvClient client, {
+    required AudioSafetyChainPlan plan,
+    DiagnosticsLogStore? logStore,
+  }) {
+    final setter = MpvSafePropertySetter(logStore: logStore);
+    setter.setString(client, 'gapless-audio', plan.gaplessAudioMode);
+    if (plan.audioSpdifCodecs.isNotEmpty) {
+      setter.setString(client, 'af', '');
+      setter.setString(client, 'audio-spdif', plan.audioSpdifCodecs);
+      return;
+    }
+    setter.setString(client, 'audio-spdif', '');
+    setter.setString(client, 'af', plan.audioFilterString);
+  }
+
   /// 在保活会话热切换媒体前同步更新远程/本地流探测与双向内存环形缓存属性。
   static void applyRuntimeStreamProfile(
     LibMpvClient client, {
@@ -711,9 +750,7 @@ class MpvQualityProfile {
       setter.setString(client, 'vid', 'no');
       setter.setString(client, 'sid', 'no');
       setter.setString(client, 'aid', 'auto');
-      setter.setString(client, 'end', 'none');
-      setter.setString(client, 'ab-loop-a', 'no');
-      setter.setString(client, 'ab-loop-b', 'no');
+      resetAudioRangeAndLoopProperties(client, logStore: logStore);
     }
 
     if (isRemoteStream) {

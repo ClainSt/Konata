@@ -29,7 +29,7 @@ class LaunchPlaybackResult {
 
 /// 外部播放器启动器抽象接口（Phase 4 接入本地 HTTP Range 流网桥与秒级进度追踪）。
 abstract interface class ExternalPlayerLauncher {
-  /// 使用指定（或自动探测的默认）外部播放器启动播放。
+  /// 使用指定（或自动探测的默认）外部播放器启动播放（支持精确到 `1/75 s` 扇区的 [exactStartSeconds]）。
   Future<LaunchPlaybackResult> launch({
     required Work work,
     required Episode episode,
@@ -37,6 +37,7 @@ abstract interface class ExternalPlayerLauncher {
     ExternalPlayerConfig? player,
     MediaSource? source,
     int startSeconds = 0,
+    double? exactStartSeconds,
     int? mainEpisodeCount,
     PlaybackProgressCallback? onProgressUpdate,
   });

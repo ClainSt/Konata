@@ -10,18 +10,29 @@ export '../text/multibyte_text_decoder.dart'
         LegacyTextEncoding,
         MultibyteTextDecoder;
 
-/// CUE 虚拟音轨实体（带 `[startSeconds, endSeconds]` 精确切片区间）。
+/// CUE 虚拟音轨实体（全程保留整数光盘扇区 `1/75 s`，消除浮点累计漂移与整秒截断）。
 class CueTrack {
-  /// 创建 CUE 分轨条目。
+  /// CD-DA 标准每秒光盘扇区帧数（75 帧/秒）。
+  static const int sectorsPerSecond = 75;
+
+  /// 创建 CUE 分轨条目（支持编译期常量构造，优先保留精确整数光盘扇区）。
   const CueTrack({
     required this.trackNumber,
     required this.title,
     this.performer = '',
     this.fileName = '',
-    required this.startSeconds,
-    this.endSeconds,
-    this.pregapIndex00Seconds,
-  });
+    int? startSectorFrames,
+    int? endSectorFrames,
+    int? pregapIndex00SectorFrames,
+    double startSeconds = 0.0,
+    double? endSeconds,
+    double? pregapIndex00Seconds,
+  }) : _sectorStart = startSectorFrames,
+       _sectorEnd = endSectorFrames,
+       _sectorPregap = pregapIndex00SectorFrames,
+       _fallbackStartSeconds = startSeconds,
+       _fallbackEndSeconds = endSeconds,
+       _fallbackPregapSeconds = pregapIndex00Seconds;
 
   /// 音轨编号（1..99）。
   final int trackNumber;
@@ -35,20 +46,67 @@ class CueTrack {
   /// 对应的物理音频文件名（`FILE "..."` 声明）。
   final String fileName;
 
-  /// `INDEX 01` 起始秒数。
-  final double startSeconds;
+  final int? _sectorStart;
+  final int? _sectorEnd;
+  final int? _sectorPregap;
+  final double _fallbackStartSeconds;
+  final double? _fallbackEndSeconds;
+  final double? _fallbackPregapSeconds;
 
-  /// 下一曲 `INDEX 01` 起始时间或音频总时长推算的结束秒数（若可确定）。
-  final double? endSeconds;
+  /// `INDEX 01` 精确整数光盘扇区偏移（1 扇区 = `1/75 s`）。
+  int get startSectorFrames =>
+      _sectorStart ?? (_fallbackStartSeconds * sectorsPerSecond).round();
 
-  /// 可选 `INDEX 00` 间奏前隙起始秒数。
-  final double? pregapIndex00Seconds;
+  /// 精确整数结束光盘扇区（来自下一曲 `INDEX 00/01` 或总时长换算）。
+  int? get endSectorFrames =>
+      _sectorEnd ??
+      (_fallbackEndSeconds != null
+          ? (_fallbackEndSeconds * sectorsPerSecond).round()
+          : null);
+
+  /// 可选 `INDEX 00` 间奏前隙精确整数扇区。
+  int? get pregapIndex00SectorFrames =>
+      _sectorPregap ??
+      (_fallbackPregapSeconds != null
+          ? (_fallbackPregapSeconds * sectorsPerSecond).round()
+          : null);
+
+  /// `INDEX 01` 精确起始秒数（由整数扇区直接相除得出）。
+  double get startSeconds =>
+      _sectorStart != null ? _sectorStart / sectorsPerSecond : _fallbackStartSeconds;
+
+  /// 精确结束秒数（由整数扇区直接相除，或来自显式音频总时长）。
+  double? get endSeconds =>
+      _sectorEnd != null ? _sectorEnd / sectorsPerSecond : _fallbackEndSeconds;
+
+  /// 可选 `INDEX 00` 间奏前隙精确秒数。
+  double? get pregapIndex00Seconds => _sectorPregap != null
+      ? _sectorPregap / sectorsPerSecond
+      : _fallbackPregapSeconds;
 
   /// 当前分轨时长（秒）。
   double? get durationSeconds {
-    if (endSeconds == null) return null;
-    final diff = endSeconds! - startSeconds;
+    final end = endSeconds;
+    if (end == null) return null;
+    final diff = end - startSeconds;
     return diff > 0 ? diff : 0.0;
+  }
+
+  /// 校验 CUE `FILE` 声明路径是否安全停留在授权源目录内（严禁绝对路径、盘符、UNC 或 `..` 穿越）。
+  static bool isSafeRelativeFileReference(String rawFileName) {
+    final trimmed = rawFileName.trim();
+    if (trimmed.isEmpty) return false;
+    if (trimmed.startsWith('/') ||
+        trimmed.startsWith('\\') ||
+        trimmed.contains(':') ||
+        trimmed.contains('\x00')) {
+      return false;
+    }
+    final normalized = trimmed.replaceAll('\\', '/');
+    for (final segment in normalized.split('/')) {
+      if (segment == '..') return false;
+    }
+    return true;
   }
 }
 
@@ -59,6 +117,7 @@ class CueSheet {
     this.title = '',
     this.performer = '',
     required this.tracks,
+    this.rejectedUnsafeFileCount = 0,
   });
 
   /// 专辑标题。
@@ -67,8 +126,11 @@ class CueSheet {
   /// 专辑艺术家。
   final String performer;
 
-  /// 分轨列表（已按轨号与起始时间规范化）。
+  /// 分轨列表（已按轨号与精确整数扇区规范化）。
   final List<CueTrack> tracks;
+
+  /// 解析期间被安全拦截的越权 `FILE` 路径声明数量。
+  final int rejectedUnsafeFileCount;
 }
 
 /// 同时间戳聚合的多行歌词条目（支持日文原文 + 罗马音 + 中文翻译多语种同步展示）。
@@ -210,23 +272,27 @@ class CueParser {
     return parseText(text, totalDurationSeconds: totalDurationSeconds);
   }
 
-  /// 从已解码文本解析 CUE 清单，并计算各分轨 `[startSeconds, endSeconds]` 区间。
+  /// 从已解码文本解析 CUE 清单，全程保留整数光盘扇区（`1/75 s`）并拦截越权 `FILE` 路径。
   static CueSheet parseText(String content, {double? totalDurationSeconds}) {
     var albumTitle = '';
     var albumPerformer = '';
     var currentFile = '';
+    var currentFileSafe = true;
+    var rejectedUnsafeFileCount = 0;
 
     int? currentTrackNum;
     var currentTrackTitle = '';
     var currentTrackPerformer = '';
     var currentTrackFile = '';
-    double? currentIndex00;
-    double? currentIndex01;
+    var currentTrackFileSafe = true;
+    int? currentIndex00Sectors;
+    int? currentIndex01Sectors;
 
     final rawTracks = <_PendingCueTrack>[];
 
     void flushCurrentTrack() {
-      if (currentTrackNum == null || currentIndex01 == null) return;
+      if (currentTrackNum == null || currentIndex01Sectors == null) return;
+      if (!currentTrackFileSafe) return;
       rawTracks.add(
         _PendingCueTrack(
           trackNumber: currentTrackNum,
@@ -237,8 +303,8 @@ class CueParser {
               ? currentTrackPerformer.trim()
               : albumPerformer.trim(),
           fileName: currentTrackFile,
-          startSeconds: currentIndex01,
-          pregapIndex00Seconds: currentIndex00,
+          startSectorFrames: currentIndex01Sectors,
+          pregapIndex00SectorFrames: currentIndex00Sectors,
         ),
       );
     }
@@ -249,7 +315,15 @@ class CueParser {
 
       final fileMatch = _fileRegex.firstMatch(line);
       if (fileMatch != null) {
-        currentFile = (fileMatch.group(1) ?? fileMatch.group(2) ?? '').trim();
+        final declared = (fileMatch.group(1) ?? fileMatch.group(2) ?? '').trim();
+        if (CueTrack.isSafeRelativeFileReference(declared)) {
+          currentFile = declared;
+          currentFileSafe = true;
+        } else {
+          currentFile = '';
+          currentFileSafe = false;
+          rejectedUnsafeFileCount += 1;
+        }
         continue;
       }
 
@@ -260,8 +334,9 @@ class CueParser {
         currentTrackTitle = '';
         currentTrackPerformer = '';
         currentTrackFile = currentFile;
-        currentIndex00 = null;
-        currentIndex01 = null;
+        currentTrackFileSafe = currentFileSafe;
+        currentIndex00Sectors = null;
+        currentIndex01Sectors = null;
         continue;
       }
 
@@ -294,11 +369,12 @@ class CueParser {
         final mm = int.tryParse(indexMatch.group(2) ?? '0') ?? 0;
         final ss = int.tryParse(indexMatch.group(3) ?? '0') ?? 0;
         final ff = int.tryParse(indexMatch.group(4) ?? '0') ?? 0;
-        final seconds = mm * 60.0 + ss + (ff / 75.0);
+        final sectorFrames =
+            (mm * 60 + ss) * CueTrack.sectorsPerSecond + ff;
         if (idxNum == 0) {
-          currentIndex00 = seconds;
+          currentIndex00Sectors = sectorFrames;
         } else if (idxNum == 1) {
-          currentIndex01 = seconds;
+          currentIndex01Sectors = sectorFrames;
         }
       }
     }
@@ -307,17 +383,19 @@ class CueParser {
     final tracks = <CueTrack>[];
     for (var i = 0; i < rawTracks.length; i++) {
       final item = rawTracks[i];
-      double? endSeconds;
+      int? endSectors;
+      double? explicitEndSeconds;
       if (i + 1 < rawTracks.length && rawTracks[i + 1].fileName == item.fileName) {
-        endSeconds = rawTracks[i + 1].pregapIndex00Seconds ??
-            rawTracks[i + 1].startSeconds;
+        endSectors =
+            rawTracks[i + 1].pregapIndex00SectorFrames ??
+            rawTracks[i + 1].startSectorFrames;
+        if (endSectors < item.startSectorFrames) {
+          endSectors = item.startSectorFrames;
+        }
       } else if (totalDurationSeconds != null &&
           totalDurationSeconds.isFinite &&
           totalDurationSeconds > item.startSeconds) {
-        endSeconds = totalDurationSeconds;
-      }
-      if (endSeconds != null && endSeconds < item.startSeconds) {
-        endSeconds = item.startSeconds;
+        explicitEndSeconds = totalDurationSeconds;
       }
       tracks.add(
         CueTrack(
@@ -325,9 +403,10 @@ class CueParser {
           title: item.title,
           performer: item.performer,
           fileName: item.fileName,
-          startSeconds: item.startSeconds,
-          endSeconds: endSeconds,
-          pregapIndex00Seconds: item.pregapIndex00Seconds,
+          startSectorFrames: item.startSectorFrames,
+          endSectorFrames: endSectors,
+          pregapIndex00SectorFrames: item.pregapIndex00SectorFrames,
+          endSeconds: explicitEndSeconds,
         ),
       );
     }
@@ -336,6 +415,7 @@ class CueParser {
       title: albumTitle.trim(),
       performer: albumPerformer.trim(),
       tracks: tracks,
+      rejectedUnsafeFileCount: rejectedUnsafeFileCount,
     );
   }
 }
@@ -346,16 +426,18 @@ class _PendingCueTrack {
     required this.title,
     required this.performer,
     required this.fileName,
-    required this.startSeconds,
-    this.pregapIndex00Seconds,
+    required this.startSectorFrames,
+    this.pregapIndex00SectorFrames,
   });
 
   final int trackNumber;
   final String title;
   final String performer;
   final String fileName;
-  final double startSeconds;
-  final double? pregapIndex00Seconds;
+  final int startSectorFrames;
+  final int? pregapIndex00SectorFrames;
+
+  double get startSeconds => startSectorFrames / CueTrack.sectorsPerSecond;
 }
 
 /// 纯 Dart LRC 同步歌词解析器（支持多时间戳复用与同时间戳多语种多行聚合）。

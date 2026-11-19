@@ -334,7 +334,7 @@ void main() {
       expect(audioClient.options['loop-file'], equals('no'));
       expect(audioClient.options['loop-playlist'], equals('no'));
       expect(audioClient.options['cache-pause'], equals('no'));
-      expect(audioClient.options['gapless-audio'], equals('yes'));
+      expect(audioClient.options['gapless-audio'], equals('weak'));
     });
 
     test('MpvSafePropertySetter 拦截兼容性错误码不抛异常且写入日志', () {

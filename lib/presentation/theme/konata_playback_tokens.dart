@@ -267,9 +267,14 @@ abstract final class KonataPlaybackTokens {
     milliseconds: 3000,
   );
 
-  /// 全屏音频与后台纯音频静态三层模糊背景遮罩透明度（严格位于 0.4 ~ 0.6 红线区间）。
+  /// 全屏音频与后台纯音频 GPU 径向流光着色场遮罩透明度（严格位于 0.4 ~ 0.6 红线区间）。
   static const double auroraScrimDarkAlpha = 0.48;
   static const double auroraScrimLightAlpha = 0.56;
+
+  /// 全屏音频流光背景切歌有界色彩过渡时长（800 ms，到位立即停钟）。
+  static const Duration auroraColorTransitionDuration = Duration(
+    milliseconds: 800,
+  );
 
   /// 平板端双栏全屏音频左栏封面最大边长（位于 360 ~ 420dp 区间）。
   static const double tabletAlbumCoverMaxSize = 396.0;

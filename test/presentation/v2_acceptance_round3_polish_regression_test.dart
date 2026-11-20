@@ -656,6 +656,10 @@ void main() {
           findsOneWidget,
         );
         expect(
+          find.byKey(const ValueKey('lyric_timeline_dashed_line')),
+          findsOneWidget,
+        );
+        expect(
           find.byKey(const ValueKey('lyric_timeline_seek_play_button')),
           findsOneWidget,
         );

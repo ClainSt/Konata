@@ -467,6 +467,65 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
             : 36.0;
         final listPadLeft = compact ? 48.0 : 54.0;
         final listPadRight = isAndroid ? 50.0 : 42.0;
+        final viewportW = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : 480.0;
+        final middleTrackWidth = math.max(
+          0.0,
+          viewportW -
+              KonataPlaybackTokens.lyricScrubTimeWidth -
+              playButtonSize,
+        );
+        // 测量焦点句实际文本宽度，将中央虚线精确避开歌词文本区域，绝不穿过或遮挡任何文字。
+        var textExcludeLeft = 0.0;
+        var textExcludeRight = 0.0;
+        if (scrubLine != null && middleTrackWidth > 16.0) {
+          final isFocusActive = scrubIdx == _lastActiveLyricIndex;
+          final fontSize = isFocusActive
+              ? (compact
+                    ? KonataPlaybackTokens.lyricCompactActiveFontSize
+                    : KonataPlaybackTokens.lyricActiveFontSize)
+              : (compact
+                    ? KonataPlaybackTokens.lyricCompactInactiveFontSize
+                    : KonataPlaybackTokens.lyricInactiveFontSize);
+          final textMaxW = math.max(
+            0.0,
+            viewportW - listPadLeft - listPadRight - 16.0,
+          );
+          final painter = TextPainter(
+            text: TextSpan(
+              text: scrubLine.primaryText,
+              style: TextStyle(
+                fontSize: fontSize,
+                fontWeight: isFocusActive ? FontWeight.w700 : FontWeight.w600,
+              ),
+            ),
+            textDirection: Directionality.of(context),
+            textScaler: MediaQuery.textScalerOf(context),
+          )..layout(maxWidth: textMaxW);
+          final measuredW = math.min(painter.width, textMaxW);
+          painter.dispose();
+          final textRegionStart =
+              (listPadLeft + 8.0) - KonataPlaybackTokens.lyricScrubTimeWidth;
+          final textRegionWidth = textMaxW;
+          if (centerAligned) {
+            final centerX = textRegionStart + textRegionWidth * 0.5;
+            textExcludeLeft = (centerX - measuredW * 0.5 - 10.0).clamp(
+              0.0,
+              middleTrackWidth,
+            );
+            textExcludeRight = (centerX + measuredW * 0.5 + 10.0).clamp(
+              0.0,
+              middleTrackWidth,
+            );
+          } else {
+            textExcludeLeft = math.max(0.0, textRegionStart - 8.0);
+            textExcludeRight = (textRegionStart + measuredW + 12.0).clamp(
+              0.0,
+              middleTrackWidth,
+            );
+          }
+        }
 
         return SizedBox(
           key: _lyricViewportKey,
@@ -480,7 +539,7 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
                     if (event is PointerScrollEvent) {
                       _onUserLyricScrollActivity(
                         lrc,
-                        anchorRatio,
+                        anchorY,
                         activeDrag: true,
                       );
                     }
@@ -502,7 +561,7 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
                               !_programmaticLyricScroll) {
                             _onUserLyricScrollActivity(
                               lrc,
-                              anchorRatio,
+                              anchorY,
                               activeDrag: true,
                             );
                           }
@@ -510,7 +569,7 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
                           if (notification.direction != ScrollDirection.idle) {
                             _onUserLyricScrollActivity(
                               lrc,
-                              anchorRatio,
+                              anchorY,
                               activeDrag: true,
                             );
                           }
@@ -520,13 +579,13 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
                                   _isUserScrollingLyrics)) {
                             _onUserLyricScrollActivity(
                               lrc,
-                              anchorRatio,
+                              anchorY,
                               activeDrag: true,
                             );
                           }
                         } else if (notification is ScrollEndNotification) {
                           if (_isUserScrollingLyrics) {
-                            _onUserLyricScrollEnded(lrc, anchorRatio);
+                            _onUserLyricScrollEnded(lrc, anchorY);
                           }
                         }
                         return false;
@@ -595,7 +654,7 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
                   ),
                 ),
               ),
-              // 中央时间轴定位层：滚动中呈现左侧时间戳 + 细横线 + 右侧播放键；停顿后亮起柔光定位条，点击定位条或播放键即可跳转。
+              // 中央时间轴虚线定位层：去大框背景，仅在歌词文字外的空白区间绘制轻盈虚线，绝不遮挡歌词文字。
               if (scrubLine != null)
                 Positioned(
                   key: const ValueKey('lyric_timeline_scrub_guide'),
@@ -606,87 +665,78 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
                     math.max(0.0, viewportH - guideH),
                   ),
                   height: guideH,
-                  child: AnimatedContainer(
-                    duration: KonataTheme.motionFast,
-                    curve: Curves.easeOutCubic,
-                    decoration: BoxDecoration(
-                      color: scrubSettled
-                          ? p.textPrimary.withValues(
-                              alpha: p.isDark ? 0.11 : 0.08,
-                            )
-                          : Colors.transparent,
-                      borderRadius: KonataTheme.borderRadiusCard,
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        IgnorePointer(
-                          child: SizedBox(
-                            width: KonataPlaybackTokens.lyricScrubTimeWidth,
-                            child: Text(
-                              PlaybackFormatters.formatMediaDuration(
-                                scrubLine.startSeconds,
-                              ),
-                              key: const ValueKey(
-                                'lyric_timeline_scrub_timestamp',
-                              ),
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: p.textSecondary.withValues(alpha: 0.9),
-                                fontSize: KonataTheme.fontSizeCaption,
-                                fontWeight: FontWeight.w500,
-                                fontFeatures:
-                                    KonataPlaybackTokens.tabularNumbers,
-                              ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      IgnorePointer(
+                        child: SizedBox(
+                          width: KonataPlaybackTokens.lyricScrubTimeWidth,
+                          child: Text(
+                            PlaybackFormatters.formatMediaDuration(
+                              scrubLine.startSeconds,
                             ),
-                          ),
-                        ),
-                        Expanded(
-                          child: scrubSettled
-                              ? GestureDetector(
-                                  key: const ValueKey(
-                                    'lyric_timeline_seek_band',
-                                  ),
-                                  behavior: HitTestBehavior.translucent,
-                                  onTap: () => _commitScrubSeek(lrc, notifier),
-                                  child: const SizedBox.expand(),
-                                )
-                              : IgnorePointer(
-                                  child: Center(
-                                    child: Container(
-                                      height: 0.8,
-                                      margin: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                      ),
-                                      color: p.textPrimary.withValues(
-                                        alpha: p.isDark ? 0.18 : 0.15,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                        ),
-                        MouseRegion(
-                          cursor: SystemMouseCursors.click,
-                          child: GestureDetector(
                             key: const ValueKey(
-                              'lyric_timeline_seek_play_button',
+                              'lyric_timeline_scrub_timestamp',
                             ),
-                            behavior: HitTestBehavior.opaque,
-                            onTap: () => _commitScrubSeek(lrc, notifier),
-                            child: SizedBox.square(
-                              dimension: playButtonSize,
-                              child: Center(
-                                child: Icon(
-                                  Icons.play_arrow_rounded,
-                                  size: 20,
-                                  color: p.textPrimary.withValues(alpha: 0.9),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: p.textSecondary.withValues(alpha: 0.9),
+                              fontSize: KonataTheme.fontSizeCaption,
+                              fontWeight: FontWeight.w500,
+                              fontFeatures: KonataPlaybackTokens.tabularNumbers,
+                            ),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            IgnorePointer(
+                              child: CustomPaint(
+                                key: const ValueKey(
+                                  'lyric_timeline_dashed_line',
                                 ),
+                                painter: _LyricScrubDashedLinePainter(
+                                  color: p.textPrimary.withValues(
+                                    alpha: p.isDark ? 0.28 : 0.24,
+                                  ),
+                                  excludeLeft: textExcludeLeft,
+                                  excludeRight: textExcludeRight,
+                                ),
+                              ),
+                            ),
+                            if (scrubSettled)
+                              GestureDetector(
+                                key: const ValueKey('lyric_timeline_seek_band'),
+                                behavior: HitTestBehavior.translucent,
+                                onTap: () => _commitScrubSeek(lrc, notifier),
+                                child: const SizedBox.expand(),
+                              ),
+                          ],
+                        ),
+                      ),
+                      MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: GestureDetector(
+                          key: const ValueKey(
+                            'lyric_timeline_seek_play_button',
+                          ),
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => _commitScrubSeek(lrc, notifier),
+                          child: SizedBox.square(
+                            dimension: playButtonSize,
+                            child: Center(
+                              child: Icon(
+                                Icons.play_arrow_rounded,
+                                size: 20,
+                                color: p.textPrimary.withValues(alpha: 0.9),
                               ),
                             ),
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
             ],
@@ -740,5 +790,63 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
         ),
       ),
     );
+  }
+}
+
+/// 歌词拖拽定位中央虚线绘制器：自动跳过当前焦点句文本占用区间 `[excludeLeft, excludeRight]`，
+/// 仅在两侧空白处绘出轻盈虚线，保证歌词清晰无遮挡。
+class _LyricScrubDashedLinePainter extends CustomPainter {
+  const _LyricScrubDashedLinePainter({
+    required this.color,
+    required this.excludeLeft,
+    required this.excludeRight,
+  });
+
+  final Color color;
+  final double excludeLeft;
+  final double excludeRight;
+
+  static const double _dashWidth = 4.5;
+  static const double _dashGap = 4.0;
+
+  void _drawDashedSpan(
+    Canvas canvas,
+    Paint paint,
+    double y,
+    double startX,
+    double endX,
+  ) {
+    if (endX - startX < _dashWidth) return;
+    var x = startX;
+    while (x < endX) {
+      final segEnd = math.min(x + _dashWidth, endX);
+      canvas.drawLine(Offset(x, y), Offset(segEnd, y), paint);
+      x += _dashWidth + _dashGap;
+    }
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+    final y = size.height * 0.5;
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1.0
+      ..strokeCap = StrokeCap.round;
+
+    const edgeInset = 4.0;
+    final maxX = size.width - edgeInset;
+    final exLeft = excludeLeft.clamp(edgeInset, maxX);
+    final exRight = excludeRight.clamp(exLeft, maxX);
+
+    _drawDashedSpan(canvas, paint, y, edgeInset, exLeft);
+    _drawDashedSpan(canvas, paint, y, exRight, maxX);
+  }
+
+  @override
+  bool shouldRepaint(covariant _LyricScrubDashedLinePainter oldDelegate) {
+    return oldDelegate.color != color ||
+        (oldDelegate.excludeLeft - excludeLeft).abs() > 0.5 ||
+        (oldDelegate.excludeRight - excludeRight).abs() > 0.5;
   }
 }

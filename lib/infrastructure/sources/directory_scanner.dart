@@ -6,6 +6,7 @@ import '../../domain/models/media_extensions.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/playback/subtitle_and_audio_choices.dart';
 import '../../domain/repositories/file_system_gateway.dart';
+import 'source_access_error.dart';
 import 'subtitle_matcher.dart';
 
 /// 目录扫描结果。
@@ -65,6 +66,15 @@ class DirectoryScanner {
     '.@__thumb',
   };
 
+  /// 扫描收尾纯计算阶段单个时间片上限（约半帧），超出即让出事件循环。
+  static const Duration _yieldSlice = Duration(milliseconds: 8);
+
+  /// 单个目录列举遇瞬时故障时的重试退避间隔（次数即列表长度）。
+  static const List<Duration> _listRetryDelays = [
+    Duration(milliseconds: 500),
+    Duration(milliseconds: 1500),
+  ];
+
   static const Set<String> _videoExts = KonataMediaExtensions.video;
 
   static const Set<String> _subtitleExts = KonataMediaExtensions.subtitle;
@@ -118,7 +128,7 @@ class DirectoryScanner {
       onFolderVisited?.call(normalizedCurrent, 0, false);
       onProgress?.call(normalizedCurrent, scannedDirectories, rawFiles.length);
 
-      final entries = await gateway.listDirectory(normalizedCurrent);
+      final entries = await _listWithRetry(gateway, normalizedCurrent);
       var dirVideoCount = 0;
       for (final entry in entries) {
         if (entry.isDirectory) {
@@ -172,33 +182,38 @@ class DirectoryScanner {
       );
     }
 
-    // 字幕只可能挂到同一逻辑目录（含 `Subs/` 子目录折叠）的视频上，按逻辑目录预建索引，避免全库逐视频遍历的平方级开销。
-    final subtitlePathsByLogicalDir = <String, List<String>>{};
+    // 字幕只可能挂到同一逻辑目录（含 `Subs/` 子目录折叠）的视频上：按逻辑目录分桶并逐条预处理一次，
+    // 避免全库逐视频遍历，以及同目录内每个视频重复剥离语言后缀、重复解析字幕文件名。
+    final subtitlesByLogicalDir = <String, List<PreparedSubtitle>>{};
     for (final entry in subtitlesByFolder.entries) {
       final logicalDir = SubtitleAndAudioChoices.logicalParentDirOfSubtitleDir(
         entry.key,
       );
-      final bucket = subtitlePathsByLogicalDir.putIfAbsent(
-        logicalDir,
-        () => <String>[],
-      );
-      for (final sub in entry.value) {
-        bucket.add(sub.relativePath);
-      }
+      subtitlesByLogicalDir
+          .putIfAbsent(logicalDir, () => <PreparedSubtitle>[])
+          .addAll(
+            SubtitleMatcher.prepare(entry.value.map((s) => s.relativePath)),
+          );
     }
 
+    // 汇总阶段为纯计算：按时间片主动让出事件循环，大目录扫描收尾时界面不卡顿。
+    final slice = Stopwatch()..start();
     final outputs = <ScannedFileInput>[];
     for (final entry in rawFiles) {
+      if (slice.elapsed >= _yieldSlice) {
+        await Future<void>.delayed(Duration.zero);
+        slice.reset();
+      }
       final folder = _parentPosixDir(entry.relativePath);
       final ext = p.posix.extension(entry.name.toLowerCase());
       final kind = _classifyAssetKind(folder, ext);
       if (kind == null) continue;
 
       final subtitleMatch = kind == AssetKind.video
-          ? SubtitleMatcher.matchForVideo(
+          ? SubtitleMatcher.matchPrepared(
               videoRelativePath: entry.relativePath,
-              allSubtitleRelativePaths:
-                  subtitlePathsByLogicalDir[folder] ?? const <String>[],
+              subtitles:
+                  subtitlesByLogicalDir[folder] ?? const <PreparedSubtitle>[],
             )
           : null;
 
@@ -220,6 +235,25 @@ class DirectoryScanner {
       scannedDirectories: scannedDirectories,
       folderVideoCounts: Map.unmodifiable(folderVideoCounts),
     );
+  }
+
+  /// 列目录遇瞬时故障（网盘挂载回源偶发 5xx、超时、连接抖动）时按退避间隔重试；
+  /// 认证、权限、路径等确定性错误立即抛出，重试耗尽后仍抛出最后一次异常，整次扫描照常失败。
+  static Future<List<RemoteEntry>> _listWithRetry(
+    MediaSourceGateway gateway,
+    String relativePath,
+  ) async {
+    for (var attempt = 0; ; attempt++) {
+      try {
+        return await gateway.listDirectory(relativePath);
+      } catch (error) {
+        if (attempt >= _listRetryDelays.length ||
+            SourceAccessErrorClassifier.isNonTransientError(error)) {
+          rethrow;
+        }
+        await Future<void>.delayed(_listRetryDelays[attempt]);
+      }
+    }
   }
 
   /// 规范化勾选目录，并剔除被祖先目录覆盖的重复子目录。

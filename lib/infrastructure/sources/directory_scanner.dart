@@ -128,7 +128,15 @@ class DirectoryScanner {
       onFolderVisited?.call(normalizedCurrent, 0, false);
       onProgress?.call(normalizedCurrent, scannedDirectories, rawFiles.length);
 
-      final entries = await _listWithRetry(gateway, normalizedCurrent);
+      final entries = await _listWithRetry(
+        gateway,
+        normalizedCurrent,
+        isCancelled: isCancelled,
+      );
+      if (isCancelled?.call() ?? false) {
+        cancelled = true;
+        break;
+      }
       var dirVideoCount = 0;
       for (final entry in entries) {
         if (entry.isDirectory) {
@@ -238,20 +246,27 @@ class DirectoryScanner {
   }
 
   /// 列目录遇瞬时故障（网盘挂载回源偶发 5xx、超时、连接抖动）时按退避间隔重试；
-  /// 认证、权限、路径等确定性错误立即抛出，重试耗尽后仍抛出最后一次异常，整次扫描照常失败。
+  /// 认证、权限、路径等确定性错误立即抛出，重试耗尽后仍抛出最后一次异常，整次扫描照常失败；退避前若已取消扫描则立即中断。
   static Future<List<RemoteEntry>> _listWithRetry(
     MediaSourceGateway gateway,
-    String relativePath,
-  ) async {
+    String relativePath, {
+    bool Function()? isCancelled,
+  }) async {
     for (var attempt = 0; ; attempt++) {
       try {
         return await gateway.listDirectory(relativePath);
       } catch (error) {
+        if (isCancelled?.call() ?? false) {
+          return const <RemoteEntry>[];
+        }
         if (attempt >= _listRetryDelays.length ||
             SourceAccessErrorClassifier.isNonTransientError(error)) {
           rethrow;
         }
         await Future<void>.delayed(_listRetryDelays[attempt]);
+        if (isCancelled?.call() ?? false) {
+          return const <RemoteEntry>[];
+        }
       }
     }
   }

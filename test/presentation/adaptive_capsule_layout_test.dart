@@ -5,6 +5,7 @@ import 'package:ccplayer/domain/models/work.dart';
 import 'package:ccplayer/presentation/audio/mini_audio_bar.dart';
 import 'package:ccplayer/presentation/shell/adaptive_capsule_layout.dart';
 import 'package:ccplayer/presentation/shell/capsule_navigation.dart';
+import 'package:ccplayer/presentation/theme/konata_adaptive_tokens.dart';
 import 'package:ccplayer/presentation/theme/konata_playback_tokens.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
 import 'package:ccplayer/presentation/widgets/design_system/adaptive_action_header.dart';
@@ -323,7 +324,11 @@ void main() {
         miniKind: FloatingMiniPlayerKind.video,
       );
       expect(layout.tablet, isTrue);
-      expect(layout.navigationRect.left, 0);
+      expect(
+        layout.navigationRect.left,
+        safe.left + KonataAdaptiveTokens.tabletNavEdgeGap,
+      );
+      expect(layout.navigationRect.width, greaterThan(56.0));
       expect(layout.navigationRect.height, lessThan(size.height));
       expect(
         layout.navigationRect.center.dy,

@@ -167,12 +167,12 @@ abstract final class KonataPlaybackTokens {
   static const double capsuleBottomOffset = 20.0;
   static const EdgeInsets capsulePadding = EdgeInsets.fromLTRB(20, 10, 20, 6);
 
-  /// 胶囊内部顶沿发光全圆角细滑轨几何参数（常态 2.5px，悬停/拖拽 5.0px，命中高度 18px 防抖）。
+  /// 胶囊内部顶沿发光全圆角细滑轨几何参数（常态 2.5px 零缝贴边，悬停/拖拽 5.0px，命中高度 18px 防抖）。
   static const double capsuleProgressRestHeight = 2.5;
   static const double capsuleProgressHoverHeight = 5.0;
   static const double capsuleProgressHitHeight = 18.0;
   static const double capsuleProgressHorizontalInset = 28.0;
-  static const double capsuleProgressTopInset = 1.5;
+  static const double capsuleProgressTopInset = 0.0;
   static const double capsuleHoverBubbleBottomOffset = 72.0;
 
   /// 全屏音乐页独立「曲目列表 / 同步歌词」紧凑圆角方块按钮规范。
@@ -438,8 +438,17 @@ abstract final class KonataPlaybackTokens {
   );
   static const Duration equalizerCycleDuration = Duration(milliseconds: 1150);
   static const Duration lyricUserScrollResetDelay = Duration(
-    milliseconds: 2500,
+    seconds: 5,
   );
+  static const Duration lyricScrollIdleSettleDelay = Duration(
+    milliseconds: 140,
+  );
+  static const Duration lyricProgrammaticScrollSettleDelay = Duration(
+    milliseconds: 320,
+  );
+  static const double lyricScrubGuideHeight = 60.0;
+  static const double lyricScrubCompactGuideHeight = 50.0;
+  static const double lyricScrubTimeWidth = 46.0;
 
   /// Android 进入视频页等待自动旋转至横屏的最大有界宽限时长（超时或锁定竖屏/分屏时自动恢复全部 HUD）。
   static const Duration portraitRotationFallbackTimeout = Duration(

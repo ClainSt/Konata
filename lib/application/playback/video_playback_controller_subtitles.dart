@@ -72,6 +72,11 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
     }
   }
 
+  Map<int, String> _readMountedSubtitleSourcePaths() {
+    return _subtitleMemoryEngine?.mountedSourcePathsSnapshot ??
+        const <int, String>{};
+  }
+
   /// 起播自动发现的外挂文本字幕统一经单一串行 `SubtitleMemoryEngine` 通道编码归一与 `cached` 挂载选轨。
   Future<void> _mountDiscoveredExternalTextSubtitles(
     List<String> textSubtitlePaths,
@@ -383,12 +388,12 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
       final slot = existingMountedId != null
           ? SubtitleSlotRequest.existingTrack(
               existingMountedId,
-              displayTitle: choice.primaryTitle,
+              displayTitle: p.basename(path),
             )
           : SubtitleSlotRequest.memory(
               localFilePath: path,
               fileName: p.basename(path),
-              displayTitle: choice.primaryTitle,
+              displayTitle: p.basename(path),
               enableCloudSubset: true,
             );
       unawaited(

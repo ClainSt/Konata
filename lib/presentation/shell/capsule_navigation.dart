@@ -38,12 +38,18 @@ class CapsuleNavigation extends StatelessWidget {
         solidBackdropColor: vertical ? canvasColor : null,
         showShadow: true,
         child: Padding(
-          padding: const EdgeInsets.all(KonataAdaptiveTokens.navigationPadding),
+          padding: EdgeInsets.all(
+            vertical
+                ? KonataAdaptiveTokens.tabletNavPadding
+                : KonataAdaptiveTokens.navigationPadding,
+          ),
           child: Flex(
             direction: vertical ? Axis.vertical : Axis.horizontal,
             mainAxisSize: MainAxisSize.min,
             children: [
-              for (var i = 0; i < items.length; i++)
+              for (var i = 0; i < items.length; i++) ...[
+                if (vertical && i > 0)
+                  const SizedBox(height: KonataAdaptiveTokens.tabletNavItemGap),
                 Semantics(
                   selected: selectedIndex == i,
                   button: true,
@@ -51,12 +57,18 @@ class CapsuleNavigation extends StatelessWidget {
                   child: KonataCapsuleIconButton(
                     icon: items[i].$1,
                     tooltip: items[i].$2,
-                    fixedSize: KonataAdaptiveTokens.touchTarget,
+                    size: vertical
+                        ? KonataAdaptiveTokens.tabletNavIconSize
+                        : KonataAdaptiveTokens.iconSize,
+                    fixedSize: vertical
+                        ? KonataAdaptiveTokens.tabletNavItemSize
+                        : KonataAdaptiveTokens.touchTarget,
                     highlighted: selectedIndex == i,
                     color: p.textPrimary,
                     onTap: () => onSelected(i),
                   ),
                 ),
+              ],
             ],
           ),
         ),

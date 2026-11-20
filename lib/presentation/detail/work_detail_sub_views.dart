@@ -149,10 +149,10 @@ class DetailPortraitHeroHeader extends StatelessWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   stops: usePhoneVerticalPosterHero
-                      ? const [0.0, 0.22, 0.54, 0.84, 1.0]
-                      : const [0.0, 0.24, 0.58, 0.86, 1.0],
+                      ? const [0.0, 0.14, 0.54, 0.84, 1.0]
+                      : const [0.0, 0.16, 0.58, 0.86, 1.0],
                   colors: [
-                    KonataTheme.scrimBlackLight,
+                    KonataTheme.cinemaObsidian.withValues(alpha: 0.24),
                     Colors.transparent,
                     Colors.transparent,
                     KonataTheme.cinemaObsidian.withValues(
@@ -254,12 +254,15 @@ class DetailLandscapeHeroBanner extends StatelessWidget {
     );
     final buttonLabel = resumePlan?.buttonLabel ?? '开始播放';
 
-    final heroH = math
-        .max(216.0, screenSize.height * 0.68)
-        .clamp(216.0, 320.0);
+    final topSafe = safe.top;
+    final heroH =
+        math
+            .max(216.0, screenSize.height * 0.68)
+            .clamp(216.0, 320.0) +
+        topSafe * 0.5;
     final artWidth = math.min(screenSize.width * 0.86, heroH * 16 / 9 * 1.24);
     final leftInset = math.max(16.0, safe.left + 12.0);
-    const topBackInset = 7.0;
+    final topBackInset = topSafe + 8.0;
 
     return SizedBox(
       key: const ValueKey('detail_phone_landscape_hero'),

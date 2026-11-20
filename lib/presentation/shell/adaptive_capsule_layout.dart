@@ -454,14 +454,19 @@ class AdaptiveCapsuleLayout {
   bool get verticalNavigation => tablet;
 
   /// 导航胶囊短边厚度。
-  double get navigationThickness =>
-      KonataAdaptiveTokens.touchTarget +
-      KonataAdaptiveTokens.navigationPadding * 2;
+  double get navigationThickness => verticalNavigation
+      ? (KonataAdaptiveTokens.tabletNavItemSize +
+            KonataAdaptiveTokens.tabletNavPadding * 2)
+      : (KonataAdaptiveTokens.touchTarget +
+            KonataAdaptiveTokens.navigationPadding * 2);
 
   /// 导航胶囊长边长度。
-  double get navigationLength =>
-      KonataAdaptiveTokens.touchTarget * 4 +
-      KonataAdaptiveTokens.navigationPadding * 2;
+  double get navigationLength => verticalNavigation
+      ? (KonataAdaptiveTokens.tabletNavItemSize * 4 +
+            KonataAdaptiveTokens.tabletNavItemGap * 3 +
+            KonataAdaptiveTokens.tabletNavPadding * 2)
+      : (KonataAdaptiveTokens.touchTarget * 4 +
+            KonataAdaptiveTokens.navigationPadding * 2);
 
   /// 手机一级主页面是否启用「底部导航胶囊 + 右侧 56dp 圆形音频圆钮」同行水平居中并排协同。
   bool get inlinePhoneAudioPaired =>
@@ -478,14 +483,16 @@ class AdaptiveCapsuleLayout {
 
   /// 左侧工作区避让宽度。
   double get leftClearance => verticalNavigation && navigationVisible
-      ? navigationThickness + KonataAdaptiveTokens.safeGap
+      ? (KonataAdaptiveTokens.tabletNavEdgeGap +
+            navigationThickness +
+            KonataAdaptiveTokens.safeGap)
       : 0;
 
   /// 主导航胶囊在屏幕中的定位矩形。
   Rect get navigationRect {
     if (verticalNavigation) {
       return Rect.fromLTWH(
-        safe.left,
+        safe.left + KonataAdaptiveTokens.tabletNavEdgeGap,
         safe.top + (size.height - safe.vertical - navigationLength) / 2,
         navigationThickness,
         navigationLength,

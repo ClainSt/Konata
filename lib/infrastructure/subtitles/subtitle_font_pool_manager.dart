@@ -208,7 +208,7 @@ class SubtitleFontPoolManager {
     for (final root in roots) {
       if (!await root.exists()) continue;
       try {
-        await for (final entity in root.list(followLinks: false)) {
+        await for (final entity in root.list(followLinks: true)) {
           if (entity is! File) continue;
           final baseName = p.basename(entity.path);
           if (!AssUueFontDecoder.isSupportedFontFileName(baseName)) continue;
@@ -480,12 +480,18 @@ class SubtitleFontPoolManager {
     if (lower.contains('notoserifcjk') || lower.contains('sourcehanserif')) {
       return 90;
     }
-    if (lower.contains('notosanssc') || lower.contains('notosansjp')) {
+    if (lower.contains('notosanssc') ||
+        lower.contains('notosanstc') ||
+        lower.contains('notosanshk') ||
+        lower.contains('notosansjp')) {
       return 85;
     }
     if (lower.contains('msyh') ||
         lower.contains('yahei') ||
         lower.contains('misans') ||
+        lower.contains('opposans') ||
+        lower.contains('vivosans') ||
+        lower.contains('honorsans') ||
         lower.contains('pingfang') ||
         lower.contains('harmonyos')) {
       return 80;

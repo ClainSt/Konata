@@ -514,7 +514,7 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            padding: EdgeInsets.fromLTRB(16, 2, 16, showSecondaryBar ? 0 : 6),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -531,16 +531,13 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
             ),
           ),
           if (showSecondaryBar)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: DetailSecondaryFilterBar(
-                items: secondaryItems,
-                totalCount: currentRawCount,
-                selectedKey: activeSecondaryKey,
-                horizontalPadding: 16,
-                compact: true,
-                onSelected: (k) => _selectSecondaryKey(currentTab, k),
-              ),
+            DetailSecondaryFilterBar(
+              items: secondaryItems,
+              totalCount: currentRawCount,
+              selectedKey: activeSecondaryKey,
+              horizontalPadding: 16,
+              compact: true,
+              onSelected: (k) => _selectSecondaryKey(currentTab, k),
             ),
           SizedBox(
             height: landscapeRailH,
@@ -615,19 +612,16 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const SizedBox(height: 10),
+                      SizedBox(height: showSecondaryBar ? 2 : 10),
                       if (showSecondaryBar)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: DetailSecondaryFilterBar(
-                            items: secondaryItems,
-                            totalCount: currentRawCount,
-                            selectedKey: activeSecondaryKey,
-                            horizontalPadding: sectionPadH,
-                            compact: !isTabletViewport,
-                            onSelected: (k) =>
-                                _selectSecondaryKey(currentTab, k),
-                          ),
+                        DetailSecondaryFilterBar(
+                          items: secondaryItems,
+                          totalCount: currentRawCount,
+                          selectedKey: activeSecondaryKey,
+                          horizontalPadding: sectionPadH,
+                          compact: !isTabletViewport,
+                          onSelected: (k) =>
+                              _selectSecondaryKey(currentTab, k),
                         ),
                       SizedBox(
                         height: portraitRailH,

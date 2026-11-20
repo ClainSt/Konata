@@ -380,11 +380,11 @@ void main() {
           lessThanOrEqualTo(1.0),
         );
 
-        // 14：手机横屏头图顶边从状态栏下沿 (28dp) 起绘
+        // 14：手机横屏头图边到边贴顶延伸至状态栏背后，消除顶部黑边
         final phoneLandscapeHeroRect = tester.getRect(
           find.byKey(const ValueKey('detail_phone_landscape_hero')),
         );
-        expect(phoneLandscapeHeroRect.top, closeTo(28.0, 0.5));
+        expect(phoneLandscapeHeroRect.top, closeTo(0.0, 0.5));
 
         // 13(顺带)：滚动到底后「作品简介」完整位于底部避让线之上
         await tester.drag(

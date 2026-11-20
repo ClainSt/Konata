@@ -246,6 +246,10 @@ class SubtitleMemoryEngine {
   int? lookupTrackIdForSourcePath(String filePath) =>
       _mountedTrackIdBySourcePath[_normalizePathKey(filePath)];
 
+  /// 返回当前物理周期已挂载内存字幕轨 ID 到真实原始字幕路径的只读快照（供轨道合并去重与组名提炼）。
+  Map<int, String> get mountedSourcePathsSnapshot =>
+      Map<int, String>.unmodifiable(_sourcePathByMountedTrackId);
+
   /// 推进意图代数，令一切尚未提交的在途异步字幕加载/转换任务立即失效（0 写回）。
   int invalidatePendingIntents() {
     _latestIntentVersion += 1;

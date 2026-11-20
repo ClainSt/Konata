@@ -300,9 +300,9 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
             !landscapeCompact &&
             shortViewport &&
             panelConstraints.maxWidth >= 560;
-        final dropdownW = inlineFilterInSearchRow
-            ? math.min(144.0, panelConstraints.maxWidth * 0.28)
-            : math.min(156.0, panelConstraints.maxWidth * 0.42);
+        final controlHeight = KonataAdaptiveTokens.isAndroid
+            ? KonataAdaptiveTokens.touchTarget
+            : 32.0;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -346,6 +346,7 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                     controller: _searchCtrl,
                     focusNode: _searchFocusNode,
                     dense: true,
+                    height: controlHeight,
                     hintText: '搜索文件名...',
                     prefixIcon: Icons.search_rounded,
                     onChanged: (v) => setState(() {
@@ -355,9 +356,10 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                SizedBox(
-                  width: dropdownW,
+                Expanded(
+                  key: const ValueKey('file_mapping_folder_slot'),
                   child: KonataDropdown<String>(
+                    key: const ValueKey('file_mapping_folder_dropdown'),
                     dense: true,
                     hintText: '按目录全选',
                     value: null,
@@ -388,7 +390,7 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                 child: Padding(
                   padding: const EdgeInsets.only(bottom: 6),
                   child: Text(
-                    '提示：点击季集胶囊可直观挑选分集；按住 Shift 点击复选框可连续区间多选并开启批量修正工具栏。',
+                    '提示：右侧下拉可直接指定 TMDB 正片/特别篇集数，特典默认按原识别结果保留；按住 Shift 点击复选框可区间多选批量处理。',
                     style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeCaptionSm),
                   ),
                 ),
@@ -414,147 +416,57 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                       final isSelected = widget.selectedVariantIds.contains(
                         row.variant.id,
                       );
-                      final slotControls = <Widget>[
-                        EpisodeSlotPickerButton(
-                          row: row,
-                          referenceEpisodes: widget.referenceEpisodes,
-                          defaultMainSeason: widget.defaultMainSeason,
-                          enabled: !widget.saving,
-                          onPicked: (cat, season, epNum, extraType) {
-                            setState(() {
-                              row.category = cat;
-                              row.seasonNumber = season;
-                              row.episodeNumber = epNum;
-                              if (extraType != null) {
-                                row.extraType = extraType;
-                              }
-                            });
-                            widget.onChanged();
-                          },
-                        ),
-                        MediaQuery.withClampedTextScaling(
-                          maxScaleFactor: 1.15,
-                          child: KonataSegmentedCapsule<EpisodeCategory>(
-                            compact: true,
-                            selected: row.category,
-                            options: const [
-                              KonataSegmentOption(
-                                value: EpisodeCategory.main,
-                                label: '正片',
-                              ),
-                              KonataSegmentOption(
-                                value: EpisodeCategory.extra,
-                                label: '特典',
-                              ),
-                            ],
-                            onChanged: (cat) {
-                              setState(() {
-                                row.category = cat;
-                                if (cat == EpisodeCategory.main &&
-                                    row.seasonNumber <= 0) {
-                                  row.seasonNumber =
-                                      widget.defaultMainSeason <= 0
-                                      ? 1
-                                      : widget.defaultMainSeason;
-                                } else if (cat == EpisodeCategory.extra) {
-                                  row.seasonNumber = 0;
-                                }
-                              });
-                              widget.onChanged();
-                            },
-                          ),
-                        ),
-                        SizedBox(
-                          width: 72,
-                          child: InlineNumberStepperBox(
-                            label: '季',
-                            value: row.seasonNumber,
-                            enabled:
-                                !widget.saving &&
-                                row.category == EpisodeCategory.main,
-                            onChanged: (val) {
-                              setState(() => row.seasonNumber = val);
-                              widget.onChanged();
-                            },
-                          ),
-                        ),
-                        SizedBox(
-                          width: 72,
-                          child: InlineNumberStepperBox(
-                            label: '集',
-                            value: row.episodeNumber,
-                            enabled: !widget.saving,
-                            onChanged: (val) {
-                              setState(() => row.episodeNumber = val);
-                              widget.onChanged();
-                            },
-                          ),
-                        ),
-                      ];
-
-                      return LayoutBuilder(
-                        builder: (context, rowConstraints) {
-                          final fileHead = Row(
-                            children: [
-                              SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: Checkbox(
-                                  value: isSelected,
-                                  onChanged: widget.saving
-                                      ? null
-                                      : (checked) => _handleCheckboxTap(
-                                          visibleRows,
-                                          index,
-                                          checked,
-                                        ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: EllipsisTextWithTooltip(
-                                  text: row.variant.fileName,
-                                  tooltipMessage: row.variant.relativePath,
-                                  maxLines: 1,
-                                  style: TextStyle(
-                                    color: p.textPrimary,
-                                    fontSize: KonataTheme.fontSizeBodyXs,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          );
-                          if (rowConstraints.maxWidth >= 560) {
-                            return Row(
-                              children: [
-                                Expanded(child: fileHead),
-                                const SizedBox(width: 8),
-                                ...[
-                                  for (var i = 0; i < slotControls.length; i++) ...[
-                                    if (i > 0) const SizedBox(width: 6),
-                                    slotControls[i],
-                                  ],
-                                ],
-                              ],
-                            );
-                          }
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              fileHead,
-                              const SizedBox(height: 6),
-                              Padding(
-                                padding: const EdgeInsets.only(left: 32),
-                                child: Wrap(
-                                  spacing: 6,
-                                  runSpacing: 6,
-                                  crossAxisAlignment: WrapCrossAlignment.center,
-                                  children: slotControls,
-                                ),
-                              ),
-                            ],
-                          );
+                      final slotPicker = EpisodeSlotPickerButton(
+                        row: row,
+                        referenceEpisodes: widget.referenceEpisodes,
+                        defaultMainSeason: widget.defaultMainSeason,
+                        enabled: !widget.saving,
+                        onPicked: (cat, season, epNum, extraType, isSpecial) {
+                          setState(() {
+                            row.category = cat;
+                            row.seasonNumber = season;
+                            row.episodeNumber = epNum;
+                            row.isTmdbSpecial = isSpecial;
+                            if (extraType != null) {
+                              row.extraType = extraType;
+                            }
+                          });
+                          widget.onChanged();
                         },
+                      );
+
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: Checkbox(
+                              value: isSelected,
+                              onChanged: widget.saving
+                                  ? null
+                                  : (checked) => _handleCheckboxTap(
+                                      visibleRows,
+                                      index,
+                                      checked,
+                                    ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: EllipsisTextWithTooltip(
+                              text: row.variant.fileName,
+                              tooltipMessage: row.variant.relativePath,
+                              maxLines: 1,
+                              style: TextStyle(
+                                color: p.textPrimary,
+                                fontSize: KonataTheme.fontSizeBodyXs,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          slotPicker,
+                        ],
                       );
                     },
                   ),

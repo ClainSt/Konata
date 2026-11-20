@@ -12,6 +12,7 @@ import '../../../application/playback/playback_preferences_provider.dart';
 import '../../../application/playback/unified_playback_coordinator.dart';
 import '../../../application/playback/video_playback_controller.dart';
 import '../../../application/providers/artwork_provider.dart';
+import '../../../domain/playback/playback_formatters.dart';
 import '../../audio/smart_cover_framing.dart';
 import '../../shell/adaptive_capsule_layout.dart';
 import '../../theme/konata_adaptive_tokens.dart';
@@ -947,6 +948,32 @@ class _KonataFloatingMiniPlayerState
   }) {
     final p = context.palette;
     final req = widget.videoRequest!;
+    final overlayLayer = Stack(
+      fit: StackFit.expand,
+      children: [
+        _FloatingMiniTransientChromeOverlay(
+          visibleListenable: _chromeVisibleNotifier,
+          videoRequest: req,
+          onExpand: _handleExpandToFullscreen,
+          onTuck: () => _handleTuckToEdge(),
+          onClose: _handleStopAndClose,
+        ),
+        if (!KonataAdaptiveTokens.isAndroid)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: RepaintBoundary(
+              child: _FloatingVideoProgressLeaf(
+                request: req,
+                chromeVisibleListenable: _chromeVisibleNotifier,
+                onScrubActivity: _revealChromeWithTimer,
+              ),
+            ),
+          ),
+      ],
+    );
+
     final bodyChild = SizedBox(
       width: miniSize.width,
       height: miniSize.height,
@@ -968,20 +995,17 @@ class _KonataFloatingMiniPlayerState
                   widget.sharedVideoSurface ??
                   const ColoredBox(color: KonataPlaybackTokens.cinemaPureBlack),
             ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: RepaintBoundary(
-                child: _FloatingVideoProgressLeaf(request: req),
-              ),
-            ),
-            _FloatingMiniTransientChromeOverlay(
-              visibleListenable: _chromeVisibleNotifier,
-              videoRequest: req,
-              onExpand: _handleExpandToFullscreen,
-              onTuck: () => _handleTuckToEdge(),
-              onClose: _handleStopAndClose,
+            // 底层挖空直出模式下仅对上层浮层做圆角裁切，既防止方形外溢角又不阻断 BlendMode.clear；
+            // 共享纹理回退模式下外层已有唯一 ClipRRect，不再重复套叠。
+            Positioned.fill(
+              child: usesCanvasHolePunchUnderlay
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(
+                        KonataPlaybackTokens.floatingMiniRadius,
+                      ),
+                      child: overlayLayer,
+                    )
+                  : overlayLayer,
             ),
           ],
         ),

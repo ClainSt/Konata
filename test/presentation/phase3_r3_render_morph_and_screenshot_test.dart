@@ -1033,12 +1033,19 @@ void main() {
             const ValueKey('konata_floating_mini_player'),
           );
           expect(miniFinder, findsOneWidget);
-          expect(
-            find.byKey(const ValueKey('windows_underlay_cutout_surface')),
-            findsOneWidget,
+          final cutoutFinder = find.byKey(
+            const ValueKey('windows_underlay_cutout_surface'),
           );
+          expect(cutoutFinder, findsOneWidget);
+          // 底层挖空表面自身绝不被 ClipRRect 包裹，确保 BlendMode.clear 透明直透；仅同级上层浮层做圆角裁切
           expect(
-            find.descendant(of: miniFinder, matching: find.byType(ClipRRect)),
+            find.descendant(
+              of: miniFinder,
+              matching: find.ancestor(
+                of: cutoutFinder,
+                matching: find.byType(ClipRRect),
+              ),
+            ),
             findsNothing,
           );
           expect(

@@ -256,6 +256,7 @@ class _KonataHardwareVideoSurfaceState
       snap.aspectMode,
       snap.videoW ?? 0,
       snap.videoH ?? 0,
+      isUnderlayCutout: isUnderlayCutout,
     );
 
     if (isUnderlayCutout && widget.miniPreview) {
@@ -272,8 +273,14 @@ class _KonataHardwareVideoSurfaceState
     Widget child,
     VideoAspectMode mode,
     int videoWidth,
-    int videoHeight,
-  ) {
+    int videoHeight, {
+    required bool isUnderlayCutout,
+  }) {
+    // 底层硬件表面（Android SurfaceView / Windows gpu_next）由 libmpv 原生执行 panscan / keepaspect /
+    // video-aspect-override；禁止再套 FittedBox 缩放以免导致底层物理矩形越界错位或双倍裁切。
+    if (isUnderlayCutout) {
+      return SizedBox.expand(child: child);
+    }
     if (mode == VideoAspectMode.stretch) {
       return SizedBox.expand(child: child);
     }
@@ -480,12 +487,11 @@ class _RenderUnderlayCutout extends RenderBox {
     }
 
     final globalTopLeft = localToGlobal(Offset.zero);
+    final globalBottomRight = localToGlobal(size.bottomRight(Offset.zero));
     final leftPx = (globalTopLeft.dx * _devicePixelRatio).round();
     final topPx = (globalTopLeft.dy * _devicePixelRatio).round();
-    final rightPx = ((globalTopLeft.dx + size.width) * _devicePixelRatio)
-        .round();
-    final bottomPx = ((globalTopLeft.dy + size.height) * _devicePixelRatio)
-        .round();
+    final rightPx = (globalBottomRight.dx * _devicePixelRatio).round();
+    final bottomPx = (globalBottomRight.dy * _devicePixelRatio).round();
     final radiusPx = _cornerRadius * _devicePixelRatio;
     if (rightPx > leftPx && bottomPx > topPx) {
       _scheduleFrameSyncedViewportDispatch((

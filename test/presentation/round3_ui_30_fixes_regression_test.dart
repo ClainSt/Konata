@@ -817,7 +817,7 @@ void main() {
         final backdropRect = tester.getRect(
           find.byKey(const ValueKey('detail_portrait_hero_header')),
         );
-        expect(backdropRect.top, closeTo(44.0, 0.5));
+        expect(backdropRect.top, closeTo(0.0, 0.5));
         final playRect = tester.getRect(find.text('开始播放'));
         expect(playRect.width, lessThan(220.0));
         expect(find.byKey(const ValueKey('episode_more_ep_f_1')), findsNothing);
@@ -882,7 +882,7 @@ void main() {
         final tabletBgRect = tester.getRect(
           find.byKey(const ValueKey('detail_portrait_hero_header')),
         );
-        expect(tabletBgRect.top, closeTo(36.0, 0.5));
+        expect(tabletBgRect.top, closeTo(0.0, 0.5));
         final overviewRect = tester.getRect(
           find.textContaining('打倒魔王之后勇者一行人'),
         );
@@ -1161,19 +1161,19 @@ void main() {
           findsNothing,
         );
 
-        // 2. 手机横屏：顶部单行垂直居中对齐，左栏带倒影且仅保留当前单曲名称（不展示专辑副标题）
+        // 2. 手机横屏：与平板/桌面同源底部居中光学长胶囊，左栏带倒影且不展示专辑副标题
         tester.view.physicalSize = const Size(844, 390);
         await tester.pumpAndSettle();
 
-        final collapseRect = tester.getRect(
+        expect(
           find.byKey(const ValueKey('immersive_collapse_button')),
+          findsOneWidget,
         );
-        final workTitleRect = tester.getRect(find.text('孤独摇滚！'));
-        final segLyricRect = tester.getRect(find.text('歌词'));
-        final badgeRect = tester.getRect(find.text('FLAC · 48kHz/24bit'));
-        expect((collapseRect.center.dy - workTitleRect.center.dy).abs(), lessThan(4));
-        expect((collapseRect.center.dy - segLyricRect.center.dy).abs(), lessThan(4));
-        expect((collapseRect.center.dy - badgeRect.center.dy).abs(), lessThan(4));
+        final landscapeDockRect = tester.getRect(
+          find.byType(KonataPlaybackCapsule),
+        );
+        expect((landscapeDockRect.center.dx - 422.0).abs(), lessThanOrEqualTo(1.5));
+        expect(find.text('FLAC · 48kHz/24bit'), findsOneWidget);
         expect(find.text('青春コンプレックス'), findsWidgets);
         expect(find.text('結束バンド'), findsNothing);
         expect(

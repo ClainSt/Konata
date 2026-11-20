@@ -711,8 +711,6 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              if (safePad.top > 0)
-                                SizedBox(height: safePad.top),
                               landscapeHero,
                               Padding(
                                 padding: EdgeInsets.symmetric(
@@ -780,8 +778,6 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              if (safePad.top > 0)
-                                SizedBox(height: safePad.top),
                               DetailPortraitHeroHeader(
                                 work: work,
                                 imageLoader: imageLoader,

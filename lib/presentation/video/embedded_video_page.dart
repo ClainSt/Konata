@@ -12,6 +12,7 @@ import '../../application/playback/video_playback_controller.dart';
 import '../../application/providers/diagnostics_providers.dart';
 import '../../composition/platform_composition.dart';
 import '../../domain/playback/playback_formatters.dart';
+import '../../domain/playback/video_aspect_mode.dart';
 import '../../infrastructure/logging/diagnostics_log_store.dart';
 import '../../infrastructure/players/embedded_mpv_session.dart';
 import '../theme/konata_adaptive_tokens.dart';
@@ -682,6 +683,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage>
           isMuted: s.isMuted,
           isFullscreen: s.isFullscreen,
           audioOnlyMode: s.audioOnlyMode,
+          aspectMode: s.aspectMode,
           probeOverlayVisible: s.probeOverlayVisible,
           sideSheetOpen: s.sideSheetOpen,
           probeStats: s.probeStats,
@@ -763,7 +765,12 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage>
         : KonataPlaybackTokens.hudFadeDuration;
     final epTitle = controller.currentEpisodeTitle;
 
-    final symmetricCutoutPadding = (isAndroid && !snap.audioOnlyMode)
+    // 裁切铺满 / 拉伸填满模式下突破挖孔对称黑边约束，令画面真正全屏边到边铺满（与 Windows 一致）。
+    final fillFullViewport =
+        snap.aspectMode == VideoAspectMode.cover ||
+        snap.aspectMode == VideoAspectMode.stretch;
+    final symmetricCutoutPadding =
+        (isAndroid && !snap.audioOnlyMode && !fillFullViewport)
         ? VideoCutoutSymmetry.resolveSymmetricCutoutPadding(
             viewportSize: size,
             viewPadding: viewPadding,

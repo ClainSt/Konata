@@ -225,30 +225,131 @@ class AndroidVideoSurfaceController {
     _current = null;
   }
 
-  /// 为 Android 端便携 `mpv` 配置目录准备 `fonts/` 子目录及经运行时实证的系统 CJK 字体符号链接，
-  /// 保障 ASS/SSA 番剧外挂字幕不因缺失字体方框乱码。
+  static const String _bundledFallbackCjkFontAsset =
+      'assets/fonts/NotoSansCJKsc-VF.ttf';
+
+  /// 为 Android 端便携 `mpv` 配置目录准备 `fonts/` 与 `subfont.ttf` 兜底字体：
+  ///
+  /// `libmpv` 在 Android 开启 `sub-font-provider=none` 时，若缺少 `<config-dir>/subfont.ttf`
+  /// 且字幕指定了未随包提供的字幕组字体，`libass` 将无法命中默认字体导致整条字幕完全空白。
+  /// 此处先链接/复制系统已核验 CJK 字体，若系统目录受限或无可用字体，则自动解压内置 `NotoSansCJKsc-VF.ttf` 兜底。
   static Future<void> preparePortableCjkFontSymlinks(
-    Directory mpvConfigDir,
-  ) async {
-    if (!Platform.isAndroid) return;
+    Directory mpvConfigDir, {
+    bool? isAndroidOverride,
+    List<Directory>? systemFontRootsOverride,
+    Future<ByteData> Function(String assetKey)? assetLoaderOverride,
+  }) async {
+    final isAndroid = isAndroidOverride ?? Platform.isAndroid;
+    if (!isAndroid) return;
     final fontsDir = Directory(p.join(mpvConfigDir.path, 'fonts'));
     if (!await fontsDir.exists()) {
       await fontsDir.create(recursive: true);
     }
 
     final verifiedFonts =
-        await SubtitleFontPoolManager.discoverVerifiedSystemCjkFonts();
+        await SubtitleFontPoolManager.discoverVerifiedSystemCjkFonts(
+          searchRootsOverride: systemFontRootsOverride,
+        );
+
+    File? preferredDefaultFont;
     for (final source in verifiedFonts) {
-      final linkPath = p.join(fontsDir.path, p.basename(source.path));
-      final link = Link(linkPath);
-      if (!await link.exists() && !await File(linkPath).exists()) {
-        try {
-          await link.create(source.path);
-        } catch (error) {
-      // 部分 ROM 限制沙箱外符号链接时静默忽略，由 libmpv 默认字体兜底。
-      developer.log('可恢复异常已记录', name: 'konata.android_video_surface_controller', error: error);
-    }
+      final ext = p.extension(source.path).toLowerCase();
+      if (preferredDefaultFont == null ||
+          ((ext == '.ttf' || ext == '.otf') &&
+              p.extension(preferredDefaultFont.path).toLowerCase() == '.ttc')) {
+        preferredDefaultFont = source;
       }
+      final targetPath = p.join(fontsDir.path, p.basename(source.path));
+      await _linkOrCopyReadableFont(
+        source: source,
+        targetPath: targetPath,
+        allowCopyFallback: source == preferredDefaultFont,
+      );
+    }
+
+    // 确保 `<config-dir>/subfont.ttf` 存在且内核可读，作为 libass `ASS_FONTPROVIDER_NONE` 终极默认字体。
+    final subfontPath = p.join(mpvConfigDir.path, 'subfont.ttf');
+    var subfontReady = await _isReadableNonEmptyFont(subfontPath);
+    if (!subfontReady && preferredDefaultFont != null) {
+      subfontReady = await _linkOrCopyReadableFont(
+        source: preferredDefaultFont,
+        targetPath: subfontPath,
+        allowCopyFallback: true,
+      );
+    }
+    if (!subfontReady) {
+      try {
+        final loader = assetLoaderOverride ?? rootBundle.load;
+        final data = await loader(_bundledFallbackCjkFontAsset);
+        final bytes = data.buffer.asUint8List(
+          data.offsetInBytes,
+          data.lengthInBytes,
+        );
+        if (bytes.length > 1024) {
+          final subfontFile = File(subfontPath);
+          await subfontFile.writeAsBytes(bytes, flush: true);
+          final dirCopyPath = p.join(fontsDir.path, 'KonataFallbackCJK.ttf');
+          if (!await _isReadableNonEmptyFont(dirCopyPath)) {
+            await File(dirCopyPath).writeAsBytes(bytes, flush: true);
+          }
+        }
+      } catch (error) {
+        developer.log(
+          '内置 CJK 兜底字体写入失败',
+          name: 'konata.android_video_surface_controller',
+          error: error,
+        );
+      }
+    }
+  }
+
+  static Future<bool> _isReadableNonEmptyFont(String path) async {
+    try {
+      final f = File(path);
+      if (!await f.exists()) return false;
+      return await f.length() > 1024;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> _linkOrCopyReadableFont({
+    required File source,
+    required String targetPath,
+    bool allowCopyFallback = false,
+  }) async {
+    if (await _isReadableNonEmptyFont(targetPath)) {
+      return true;
+    }
+    try {
+      final existingLink = Link(targetPath);
+      if (await existingLink.exists()) {
+        await existingLink.delete();
+      }
+      await existingLink.create(source.path);
+      if (await _isReadableNonEmptyFont(targetPath)) {
+        return true;
+      }
+    } catch (error) {
+      developer.log(
+        '符号链接系统字体受限，按需降级拷贝',
+        name: 'konata.android_video_surface_controller',
+        error: error,
+      );
+    }
+    if (!allowCopyFallback) {
+      return false;
+    }
+    try {
+      await source.copy(targetPath);
+      return await _isReadableNonEmptyFont(targetPath);
+    } catch (error) {
+      developer.log(
+        '拷贝系统兜底字体失败',
+        name: 'konata.android_video_surface_controller',
+        error: error,
+      );
+      return false;
     }
   }
 

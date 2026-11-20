@@ -168,7 +168,7 @@ void main() {
         findsOneWidget,
       );
       final heroRect = tester.getRect(heroFinder);
-      expect(heroRect.top, closeTo(44.0, 0.5));
+      expect(heroRect.top, closeTo(0.0, 0.5));
       expect(heroRect.height, greaterThan(360.0));
       expect(heroRect.height, lessThanOrEqualTo(460.0));
 

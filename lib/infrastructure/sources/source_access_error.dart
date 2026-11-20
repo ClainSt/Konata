@@ -64,9 +64,9 @@ class SourceAccessErrorClassifier {
   static String toChineseMessage(Object error, MediaSourceKind sourceKind) =>
       classify(error, sourceKind).message;
 
-  /// 判断该异常是否属于应放弃重试的确定性认证/权限/参数错误。
+  /// 判断该异常是否属于应放弃重试的确定性认证/权限/证书/参数错误。
   static bool isNonTransientError(Object error) {
-    if (error is ArgumentError) return true;
+    if (error is ArgumentError || error is CertificateException) return true;
     final kind = _detectKind(error);
     return kind == SourceAccessProblemKind.authentication ||
         kind == SourceAccessProblemKind.permission ||

@@ -6,6 +6,22 @@ else()
   get_filename_component(KONATA_NATIVE_ROOT
     "${CMAKE_SOURCE_DIR}/../native/konata-native" ABSOLUTE)
 endif()
+# 首次检出仓库时自动从头文件归档解包 mpv C 头文件，随后由清单统一校验字节大小与 SHA-256。
+if(EXISTS "${KONATA_NATIVE_ROOT}/windows-headers.zip")
+  set(KONATA_HEADERS_READY TRUE)
+  foreach(KONATA_HDR client.h render.h render_d3d11.h render_gl.h stream_cb.h)
+    if(NOT EXISTS "${KONATA_NATIVE_ROOT}/windows/include/mpv/${KONATA_HDR}")
+      set(KONATA_HEADERS_READY FALSE)
+    endif()
+  endforeach()
+  if(NOT KONATA_HEADERS_READY)
+    file(MAKE_DIRECTORY "${KONATA_NATIVE_ROOT}/windows/include")
+    file(ARCHIVE_EXTRACT
+      INPUT "${KONATA_NATIVE_ROOT}/windows-headers.zip"
+      DESTINATION "${KONATA_NATIVE_ROOT}/windows/include"
+    )
+  endif()
+endif()
 set(KONATA_MANIFEST "${KONATA_NATIVE_ROOT}/windows-manifest.json")
 if(NOT EXISTS "${KONATA_MANIFEST}")
   message(FATAL_ERROR "Missing pinned Konata Windows native build: ${KONATA_MANIFEST}")

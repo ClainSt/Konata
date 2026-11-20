@@ -23,6 +23,7 @@ class ImmersiveKaraokeSweepText extends StatefulWidget {
     required this.windowStartSeconds,
     required this.windowEndSeconds,
     this.spans = const <TimedLyricSpan>[],
+    this.textAlign = TextAlign.start,
   });
 
   /// 完整显示文本（自动换行，永不截断）。
@@ -46,6 +47,9 @@ class ImmersiveKaraokeSweepText extends StatefulWidget {
   /// 可选逐字时间片段列表；非空时按逐字片段精确映射像素进度，空时按视觉总行宽均匀连续铺满。
   final List<TimedLyricSpan> spans;
 
+  /// 歌词文本水平对齐方式（与底层 `Text` 保持严格像素一致）。
+  final TextAlign textAlign;
+
   @override
   State<ImmersiveKaraokeSweepText> createState() =>
       _ImmersiveKaraokeSweepTextState();
@@ -59,6 +63,7 @@ class _ImmersiveKaraokeSweepTextState extends State<ImmersiveKaraokeSweepText> {
   double _laidOutMaxWidth = -1;
   TextScaler? _laidOutScaler;
   TextDirection? _laidOutDirection;
+  TextAlign? _laidOutAlign;
 
   @override
   void dispose() {
@@ -79,12 +84,14 @@ class _ImmersiveKaraokeSweepTextState extends State<ImmersiveKaraokeSweepText> {
         _laidOutStyle == resolvedLitStyle &&
         (_laidOutMaxWidth - safeWidth).abs() < 0.25 &&
         _laidOutScaler == textScaler &&
-        _laidOutDirection == textDirection) {
+        _laidOutDirection == textDirection &&
+        _laidOutAlign == widget.textAlign) {
       return;
     }
     _cachedPainter?.dispose();
     final painter = TextPainter(
       text: TextSpan(text: widget.text, style: resolvedLitStyle),
+      textAlign: widget.textAlign,
       textDirection: textDirection,
       textScaler: textScaler,
     )..layout(maxWidth: safeWidth);
@@ -95,6 +102,7 @@ class _ImmersiveKaraokeSweepTextState extends State<ImmersiveKaraokeSweepText> {
     _laidOutMaxWidth = safeWidth;
     _laidOutScaler = textScaler;
     _laidOutDirection = textDirection;
+    _laidOutAlign = widget.textAlign;
   }
 
   @override
@@ -124,6 +132,7 @@ class _ImmersiveKaraokeSweepTextState extends State<ImmersiveKaraokeSweepText> {
           ),
           child: Text(
             widget.text,
+            textAlign: widget.textAlign,
             softWrap: true,
             style: resolvedBase,
           ),
@@ -283,8 +292,8 @@ class _KaraokeSweepForegroundPainter extends CustomPainter {
           KonataPlaybackTokens.lyricKaraokeFeatherMaxPx,
           math.max(6.0, m.width * 0.12),
         );
-        final gradStart = sweepX - feather;
-        final gradEnd = sweepX + feather * 0.25;
+        final gradStart = sweepX - feather * 0.35;
+        final gradEnd = sweepX + feather * 0.55;
 
         canvas.saveLayer(bandRect, Paint());
         canvas.clipRect(bandRect);

@@ -613,9 +613,12 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
     final client = _client;
     if (client == null || client.isDisposed || !client.isInitialized) return;
     final tracks = client.readTrackList();
+    final mountedSourcePaths =
+        mountedSubtitleSourcePathsReader?.call() ?? const <int, String>{};
     final subs = SubtitleAndAudioChoices.mergeSubtitles(
       mpvTracks: tracks,
       discoveredExternalPaths: _pendingExternalSubtitles,
+      mountedSourcePathsByTrackId: mountedSourcePaths,
     );
     final audios = SubtitleAndAudioChoices.mergeAudioTracks(
       mpvTracks: tracks,

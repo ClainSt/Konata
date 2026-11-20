@@ -161,6 +161,11 @@ class AndroidUnderlaySurfaceHost(
             sv.setZOrderMediaOverlay(false)
             sv.visibility = View.GONE
             sv.holder.addCallback(this)
+            sv.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+                if (lastRadiusPx > 0.5f) {
+                    v.invalidateOutline()
+                }
+            }
             surfaceView = sv
         }
         if (!displayListenerRegistered) {
@@ -191,7 +196,8 @@ class AndroidUnderlaySurfaceHost(
 
         val targetW = max(1, rightPx - leftPx)
         val targetH = max(1, bottomPx - topPx)
-        if (leftPx != lastLeft || topPx != lastTop || targetW != lastWidth || targetH != lastHeight) {
+        val sizeChanged = targetW != lastWidth || targetH != lastHeight
+        if (leftPx != lastLeft || topPx != lastTop || sizeChanged) {
             lastLeft = leftPx
             lastTop = topPx
             lastWidth = targetW
@@ -206,12 +212,17 @@ class AndroidUnderlaySurfaceHost(
             view.layoutParams = lp
         }
 
-        if (abs(radiusPx - lastRadiusPx) > 0.25f) {
+        val radiusChanged = abs(radiusPx - lastRadiusPx) > 0.25f
+        if (radiusChanged || (sizeChanged && radiusPx > 0.5f)) {
             lastRadiusPx = radiusPx
             if (radiusPx > 0.5f) {
                 view.outlineProvider = object : ViewOutlineProvider() {
                     override fun getOutline(target: View, outline: Outline) {
-                        outline.setRoundRect(0, 0, target.width, target.height, radiusPx)
+                        val w = if (target.width > 0) target.width else lastWidth
+                        val h = if (target.height > 0) target.height else lastHeight
+                        if (w > 0 && h > 0) {
+                            outline.setRoundRect(0, 0, w, h, radiusPx)
+                        }
                     }
                 }
                 view.clipToOutline = true
@@ -220,6 +231,13 @@ class AndroidUnderlaySurfaceHost(
                 view.outlineProvider = ViewOutlineProvider.BACKGROUND
             }
             view.invalidateOutline()
+            if (radiusPx > 0.5f) {
+                view.post {
+                    if (!disposed) {
+                        view.invalidateOutline()
+                    }
+                }
+            }
         }
     }
 

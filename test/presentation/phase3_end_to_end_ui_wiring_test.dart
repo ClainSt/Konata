@@ -389,7 +389,6 @@ void main() {
                 ),
                 compact: false,
                 userScrolling: false,
-                onSeekLine: () {},
               ),
               ImmersiveLyricLineLeaf(
                 index: 1,
@@ -400,7 +399,6 @@ void main() {
                 ),
                 compact: false,
                 userScrolling: false,
-                onSeekLine: () {},
               ),
             ],
           ),

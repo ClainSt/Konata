@@ -580,10 +580,6 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                         ),
                       ],
                     ),
-                    foregroundDecoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(effectiveRadius),
-                      border: Border.all(color: borderColor, width: 1),
-                    ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(effectiveRadius),
                       child: Builder(
@@ -601,6 +597,18 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                             ),
                             child: Stack(
                               children: [
+                                // 0. 胶囊外轮廓描边（有活跃进度条时让出顶沿平直段，使进度条与胶囊边缘浑然一体无双线夹缝）
+                                Positioned.fill(
+                                  child: IgnorePointer(
+                                    child: CustomPaint(
+                                      painter: _PlaybackCapsuleBorderPainter(
+                                        borderColor: borderColor,
+                                        omitTopRailSpan: total > 0,
+                                        railHorizontalInset: inset,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                                 // 1. 响应式三区对称枢轴主控内容区（锁死上一话/播放暂停/下一话严格位于胶囊 50.0% 绝对正中心）
                                 Padding(
                                   padding: touch

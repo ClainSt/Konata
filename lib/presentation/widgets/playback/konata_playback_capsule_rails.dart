@@ -321,9 +321,11 @@ class _InsetTopProgressRail extends StatelessWidget {
                     duration: KonataTheme.motionFast,
                     curve: Curves.easeOutCubic,
                     height: visualHeight,
-                    decoration: ShapeDecoration(
+                    decoration: BoxDecoration(
                       color: inactiveColor,
-                      shape: const StadiumBorder(),
+                      borderRadius: BorderRadius.vertical(
+                        bottom: Radius.circular(visualHeight),
+                      ),
                     ),
                     clipBehavior: Clip.antiAlias,
                     child: Align(
@@ -332,10 +334,14 @@ class _InsetTopProgressRail extends StatelessWidget {
                         widthFactor: progressRatio,
                         heightFactor: 1.0,
                         child: DecoratedBox(
-                          decoration: ShapeDecoration(
+                          decoration: BoxDecoration(
                             color: activeColor,
-                            shape: const StadiumBorder(),
-                            shadows: [
+                            borderRadius: BorderRadius.only(
+                              bottomLeft: Radius.circular(visualHeight),
+                              bottomRight: Radius.circular(visualHeight),
+                              topRight: Radius.circular(visualHeight * 0.5),
+                            ),
+                            boxShadow: [
                               BoxShadow(
                                 color: activeColor.withValues(
                                   alpha: isDark ? 0.56 : 0.22,
@@ -353,9 +359,11 @@ class _InsetTopProgressRail extends StatelessWidget {
                 if (hovered && !thumbOverlapsMarker)
                   Positioned(
                     left: thumbLeft,
-                    top:
-                        KonataPlaybackTokens.capsuleProgressTopInset +
-                        (visualHeight - thumbSize) / 2,
+                    top: math.max(
+                      0.5,
+                      KonataPlaybackTokens.capsuleProgressTopInset +
+                          (visualHeight - thumbSize) / 2,
+                    ),
                     child: IgnorePointer(
                       child: Container(
                         width: thumbSize,
@@ -394,6 +402,73 @@ class _InsetTopProgressRail extends StatelessWidget {
         );
       },
     );
+  }
+}
+
+/// 播控胶囊外轮廓描边画笔：有活跃顶沿进度条时让出顶边直轨段，使进度条直接融为胶囊顶沿边缘，消除上方白线。
+class _PlaybackCapsuleBorderPainter extends CustomPainter {
+  const _PlaybackCapsuleBorderPainter({
+    required this.borderColor,
+    required this.omitTopRailSpan,
+    required this.railHorizontalInset,
+  });
+
+  final Color borderColor;
+  final bool omitTopRailSpan;
+  final double railHorizontalInset;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    const strokeWidth = 1.0;
+    const half = strokeWidth * 0.5;
+    final r = (size.height - strokeWidth) * 0.5;
+    if (r <= 0) return;
+
+    final paint = Paint()
+      ..color = borderColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..isAntiAlias = true;
+
+    if (!omitTopRailSpan || size.width <= railHorizontalInset * 2 + 2) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            half,
+            half,
+            size.width - strokeWidth,
+            size.height - strokeWidth,
+          ),
+          Radius.circular(r),
+        ),
+        paint,
+      );
+      return;
+    }
+
+    final rightArcRect = Rect.fromLTWH(
+      size.width - half - r * 2,
+      half,
+      r * 2,
+      r * 2,
+    );
+    final leftArcRect = Rect.fromLTWH(half, half, r * 2, r * 2);
+
+    // 仅描边右半圆 + 底边 + 左半圆，顶边由贴边进度滑轨无缝承接。
+    final path = Path()
+      ..moveTo(size.width - half - r, half)
+      ..arcTo(rightArcRect, -math.pi / 2, math.pi, false)
+      ..lineTo(half + r, size.height - half)
+      ..arcTo(leftArcRect, math.pi / 2, math.pi, false);
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _PlaybackCapsuleBorderPainter oldDelegate) {
+    return oldDelegate.borderColor != borderColor ||
+        oldDelegate.omitTopRailSpan != omitTopRailSpan ||
+        oldDelegate.railHorizontalInset != railHorizontalInset;
   }
 }
 

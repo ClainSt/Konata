@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/library_providers.dart';
 import '../../application/providers/work_management_provider.dart';
+import '../../domain/matching/episode_title_formatter.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/work.dart';
@@ -72,12 +73,26 @@ class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
 
     _rows = videos.map((v) {
       final ep = v.episodeId != null ? epById[v.episodeId!] : null;
+      final isExtra = ep?.category == EpisodeCategory.extra;
+      final recognizedLabel = isExtra && ep != null
+          ? EpisodeTitleFormatter.formatCardTitle(episode: ep)
+          : '';
+      final isTmdbSpecial =
+          isExtra &&
+          ep != null &&
+          ep.seasonNumber == 0 &&
+          (ep.extraType == null || ep.extraType == ExtraKind.sp) &&
+          (ep.episodeNumber ?? 0) > 0 &&
+          ((ep.stillPath?.trim().isNotEmpty ?? false) ||
+              (ep.overview?.trim().isNotEmpty ?? false));
       return EditableFileMappingRow(
         variant: v,
         category: ep?.category ?? EpisodeCategory.main,
         seasonNumber: ep?.seasonNumber ?? (work.matchedSeason ?? 1),
-        episodeNumber: ep?.episodeNumber ?? 1,
+        episodeNumber: ep?.episodeNumber ?? (isExtra ? 0 : 1),
         extraType: ep?.extraType ?? ExtraKind.sp,
+        recognizedExtraLabel: recognizedLabel,
+        isTmdbSpecial: isTmdbSpecial,
       );
     }).toList();
 

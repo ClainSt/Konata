@@ -735,6 +735,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     };
     session.onMountExternalTextSubtitles =
         _mountDiscoveredExternalTextSubtitles;
+    session.mountedSubtitleSourcePathsReader = _readMountedSubtitleSourcePaths;
 
     session.textureIdListenable.addListener(() {
       if (mounted) {

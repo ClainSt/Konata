@@ -74,10 +74,10 @@ class _DetailSecondaryFilterBarState extends State<DetailSecondaryFilterBar> {
 
   @override
   Widget build(BuildContext context) {
-    final screenW = MediaQuery.sizeOf(context).width;
+    final screenSize = MediaQuery.sizeOf(context);
     final isPhone =
         KonataAdaptiveTokens.isAndroid &&
-        screenW < KonataAdaptiveTokens.tabletBreakpoint;
+        screenSize.shortestSide < KonataAdaptiveTokens.tabletBreakpoint;
     final effectiveCompact = widget.compact || isPhone;
     final barHeight = KonataAdaptiveTokens.isAndroid
         ? KonataAdaptiveTokens.touchTarget
@@ -105,6 +105,8 @@ class _DetailSecondaryFilterBarState extends State<DetailSecondaryFilterBar> {
             child: ListView(
               controller: _scrollController,
               scrollDirection: Axis.horizontal,
+              // 显式归零内边距，防止横屏刘海安全区在外部已避让后被 ListView 二次重复注入导致左侧错位。
+              padding: EdgeInsets.zero,
               children: [
                 _SecondaryFilterChip(
                   label: '全部',
@@ -175,10 +177,15 @@ class _SecondaryFilterChipState extends State<_SecondaryFilterChip> {
         child: AnimatedContainer(
           duration: KonataTheme.motionStandard,
           curve: Curves.easeOutCubic,
-          constraints: BoxConstraints(maxWidth: widget.compact ? 210 : 280),
+          constraints: BoxConstraints(
+            minWidth: KonataAdaptiveTokens.isAndroid
+                ? KonataAdaptiveTokens.touchTarget
+                : 0,
+            maxWidth: widget.compact ? 210 : 280,
+          ),
           padding: EdgeInsets.symmetric(
             horizontal: widget.compact ? 11 : 13,
-            vertical: widget.compact ? 4.5 : 6,
+            vertical: widget.compact ? 5.5 : 6,
           ),
           decoration: BoxDecoration(
             color: bgColor,
@@ -188,14 +195,18 @@ class _SecondaryFilterChipState extends State<_SecondaryFilterChip> {
               width: widget.selected ? 1.0 : 0.85,
             ),
           ),
-          child: EllipsisTextWithTooltip(
-            text: widget.label,
-            maxLines: 1,
-            style: KonataTheme.detailTextStyle(
-              palette: p,
-              color: textColor,
-              fontSize: widget.compact ? 11.5 : 12,
-              fontWeight: widget.selected ? FontWeight.w600 : FontWeight.w500,
+          child: Center(
+            widthFactor: 1.0,
+            heightFactor: 1.0,
+            child: EllipsisTextWithTooltip(
+              text: widget.label,
+              maxLines: 1,
+              style: KonataTheme.detailTextStyle(
+                palette: p,
+                color: textColor,
+                fontSize: widget.compact ? 11.5 : 12,
+                fontWeight: widget.selected ? FontWeight.w600 : FontWeight.w500,
+              ),
             ),
           ),
         ),

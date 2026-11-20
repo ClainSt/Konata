@@ -159,36 +159,32 @@ void main() {
           ),
         );
 
-        // 1. 手机横屏（844x390）：左栏五键从左到右等间距，播放暂停在正中第 3 位
+        // 1. 手机横屏（844x390）：与平板同源底部居中光学长胶囊，五键从左到右等距对称（循环/上一项/播放暂停/下一项/歌词队列切换）
         tester.view.devicePixelRatio = 1.0;
         tester.view.physicalSize = const Size(844, 390);
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
 
+        expect(find.byType(KonataPlaybackCapsule), findsOneWidget);
+        final phoneCapsuleCenter = tester
+            .getCenter(find.byType(KonataPlaybackCapsule))
+            .dx;
         final phoneXs = <double>[
           tester
-              .getCenter(
-                find.byKey(const ValueKey('short_phone_audio_loop_button')),
-              )
+              .getCenter(find.byKey(const ValueKey('konata_audio_loop_button')))
               .dx,
+          tester.getCenter(find.byTooltip('上一项')).dx,
           tester
               .getCenter(
-                find.byKey(const ValueKey('short_phone_audio_prev_button')),
+                find.byKey(const ValueKey('konata_capsule_play_pause_button')),
               )
               .dx,
+          tester.getCenter(find.byTooltip('下一项')).dx,
           tester
               .getCenter(
-                find.byKey(
-                  const ValueKey('short_phone_audio_play_pause_button'),
-                ),
+                find.byKey(const ValueKey('immersive_toggle_pane_button')),
               )
               .dx,
-          tester
-              .getCenter(
-                find.byKey(const ValueKey('short_phone_audio_next_button')),
-              )
-              .dx,
-          tester.getCenter(find.byType(KonataVolumeControl)).dx,
         ];
 
         for (var i = 0; i < phoneXs.length - 1; i++) {
@@ -198,12 +194,7 @@ void main() {
         for (var i = 1; i < phoneXs.length - 1; i++) {
           expect(phoneXs[i + 1] - phoneXs[i], closeTo(phoneStep, 0.5));
         }
-        final rowCenter = tester
-            .getCenter(
-              find.byKey(const ValueKey('short_phone_audio_five_controls')),
-            )
-            .dx;
-        expect(phoneXs[2], closeTo(rowCenter, 0.5));
+        expect(phoneXs[2], closeTo(phoneCapsuleCenter, 0.5));
 
         // 2. 平板横屏（1280x800）与平板竖屏（800x1280）：五键等距对称（循环/上一项/播放暂停/下一项/歌词队列切换），右侧为规格徽章与音量
         for (final tabletSize in const [Size(1280, 800), Size(800, 1280)]) {

@@ -210,6 +210,9 @@ class EmbeddedMpvSession {
   )?
   onMountExternalTextSubtitles;
 
+  /// 读取已挂载 `memory://` 内存字幕轨道 ID 到真实原始文件路径映射的回调（供轨道合并去重与组名提炼）。
+  Map<int, String> Function()? mountedSubtitleSourcePathsReader;
+
   /// 当前已生效的 `sub-fonts-dir` 目录路径（用于单测验证字库直挂与哈希池切换）。
   String get activeSubFontsDir => _activeSubFontsDir;
 

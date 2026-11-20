@@ -1,8 +1,8 @@
-
 import 'package:flutter/material.dart';
 
 import '../../domain/models/episode.dart';
 import '../../domain/models/media_variant.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
@@ -17,10 +17,13 @@ class EditableFileMappingRow {
     required this.seasonNumber,
     required this.episodeNumber,
     required this.extraType,
+    this.recognizedExtraLabel = '',
+    this.isTmdbSpecial = false,
   }) : initialCategory = category,
        initialSeasonNumber = seasonNumber,
        initialEpisodeNumber = episodeNumber,
-       initialExtraType = extraType;
+       initialExtraType = extraType,
+       initialIsTmdbSpecial = isTmdbSpecial;
 
   /// 物理视频变体。
   final MediaVariant variant;
@@ -31,11 +34,17 @@ class EditableFileMappingRow {
   /// 初始季号。
   final int initialSeasonNumber;
 
-  /// 初始集号。
+  /// 初始集号（未编号普通特典可为 0）。
   final int initialEpisodeNumber;
 
   /// 初始特典子类。
   final ExtraKind initialExtraType;
+
+  /// 初始是否已对齐至 TMDB Season 0 特别篇。
+  final bool initialIsTmdbSpecial;
+
+  /// 自动识别出的特典可读标签（如 `PV01`、`NCOP1`、`CM02`），普通特典默认原样展示。
+  final String recognizedExtraLabel;
 
   /// 当前分类。
   EpisodeCategory category;
@@ -49,36 +58,55 @@ class EditableFileMappingRow {
   /// 当前特典子类。
   ExtraKind extraType;
 
+  /// 当前是否显式对齐为 TMDB 特别篇（Season 0）。
+  bool isTmdbSpecial;
+
+  /// 面向非特别篇特典的简洁识别展示文案（优先使用真实识别标题，如 `PV01`、`NCOP1`）。
+  String get displayRecognizedExtra {
+    final trimmed = recognizedExtraLabel.trim();
+    if (trimmed.isNotEmpty) return trimmed;
+    final kindUpper = extraType.name.toUpperCase();
+    if (episodeNumber > 0) {
+      return '$kindUpper${episodeNumber.toString().padLeft(2, '0')}';
+    }
+    return kindUpper;
+  }
+
   /// 相对于初始状态是否发生变更。
   bool get isModified =>
       category != initialCategory ||
       seasonNumber != initialSeasonNumber ||
       episodeNumber != initialEpisodeNumber ||
-      extraType != initialExtraType;
+      extraType != initialExtraType ||
+      isTmdbSpecial != initialIsTmdbSpecial;
 }
 
-/// 可视化选集浮层中的单个目标剧集/特典槽位项。
+/// 可视化选集下拉浮层中的单个目标槽位项。
 class _SlotOption {
   const _SlotOption({
     required this.category,
     required this.seasonNumber,
     required this.episodeNumber,
     this.extraType,
-    required this.code,
+    required this.isTmdbSpecial,
     required this.label,
+    required this.groupHeader,
   });
 
   final EpisodeCategory category;
   final int seasonNumber;
   final int episodeNumber;
   final ExtraKind? extraType;
-  final String code;
+  final bool isTmdbSpecial;
   final String label;
+  final String groupHeader;
 }
 
-/// 点击单行季/集胶囊弹出的高透毛玻璃可视化选集浮层控件。
+/// 点击单行归属下拉框弹出的高透毛玻璃可视化选集浮层控件。
+///
+/// 仅提供三类清晰归属：TMDB 对应正片第几集、TMDB 对应特别篇第几集，以及保持原识别特典（如 `PV01`）。
 class EpisodeSlotPickerButton extends StatefulWidget {
-  /// 创建可视化选集胶囊按钮。
+  /// 创建可视化选集下拉按钮。
   const EpisodeSlotPickerButton({
     super.key,
     required this.row,
@@ -106,7 +134,9 @@ class EpisodeSlotPickerButton extends StatefulWidget {
     int seasonNumber,
     int episodeNumber,
     ExtraKind? extraType,
-  ) onPicked;
+    bool isTmdbSpecial,
+  )
+  onPicked;
 
   @override
   State<EpisodeSlotPickerButton> createState() =>
@@ -130,7 +160,7 @@ class _EpisodeSlotPickerButtonState extends State<EpisodeSlotPickerButton> {
 
   List<_SlotOption> _buildOptions() {
     final mainByKey = <int, Episode>{};
-    final specialByKey = <String, Episode>{};
+    final tmdbSpecialByNum = <int, Episode>{};
     var maxMainEp = 0;
 
     for (final ep in widget.referenceEpisodes) {
@@ -138,9 +168,10 @@ class _EpisodeSlotPickerButtonState extends State<EpisodeSlotPickerButton> {
       if (ep.category == EpisodeCategory.main && num > 0) {
         mainByKey.putIfAbsent(num, () => ep);
         if (num > maxMainEp) maxMainEp = num;
-      } else if (ep.category == EpisodeCategory.extra && num > 0) {
-        final key = '${ep.extraType?.name ?? 'sp'}:$num';
-        specialByKey.putIfAbsent(key, () => ep);
+      } else if (ep.category == EpisodeCategory.extra &&
+          num > 0 &&
+          (ep.extraType == null || ep.extraType == ExtraKind.sp)) {
+        tmdbSpecialByNum.putIfAbsent(num, () => ep);
       }
     }
 
@@ -148,60 +179,98 @@ class _EpisodeSlotPickerButtonState extends State<EpisodeSlotPickerButton> {
     final mainLimit = maxMainEp > 12 ? maxMainEp : 12;
     final options = <_SlotOption>[];
 
+    // 1. 保持识别特典（原样 PV01 / NCOP1 等，不强行编入 S00E01）
+    final keepExtraLabel = widget.row.displayRecognizedExtra;
+    options.add(
+      _SlotOption(
+        category: EpisodeCategory.extra,
+        seasonNumber: 0,
+        episodeNumber: widget.row.initialCategory == EpisodeCategory.extra
+            ? widget.row.initialEpisodeNumber
+            : 0,
+        extraType: widget.row.initialCategory == EpisodeCategory.extra
+            ? widget.row.initialExtraType
+            : ExtraKind.sp,
+        isTmdbSpecial: false,
+        groupHeader: '特典（按原识别保留）',
+        label: '特典 · $keepExtraLabel',
+      ),
+    );
+
+    // 2. TMDB 正片分集
     for (var i = 1; i <= mainLimit; i++) {
       final ep = mainByKey[i];
       final eStr = i.toString().padLeft(2, '0');
-      final title = (ep?.title?.trim().isNotEmpty ?? false)
-          ? ep!.title!.trim()
-          : '第 $i 话';
+      final rawTitle = ep?.title?.trim() ?? '';
+      final suffix = rawTitle.isNotEmpty ? ' · $rawTitle' : '';
       options.add(
         _SlotOption(
           category: EpisodeCategory.main,
           seasonNumber: ep?.seasonNumber ?? season,
           episodeNumber: i,
-          code: 'E$eStr',
-          label: 'E$eStr · $title',
+          isTmdbSpecial: false,
+          groupHeader: 'TMDB 正片分集',
+          label: '正片 · 第 $eStr 集$suffix',
         ),
       );
     }
 
-    final specials = specialByKey.values.toList()
+    // 3. TMDB 特别篇（Season 0）
+    final specials = tmdbSpecialByNum.values.toList()
       ..sort((a, b) => (a.episodeNumber ?? 0).compareTo(b.episodeNumber ?? 0));
     if (specials.isNotEmpty) {
       for (final sp in specials) {
         final num = sp.episodeNumber ?? 1;
-        final kind = sp.extraType ?? ExtraKind.sp;
-        final code = 'S00E${num.toString().padLeft(2, '0')}';
-        final title = (sp.title?.trim().isNotEmpty ?? false)
-            ? sp.title!.trim()
-            : '${kind.name.toUpperCase()} $num';
+        final eStr = num.toString().padLeft(2, '0');
+        final rawTitle = sp.title?.trim() ?? '';
+        final suffix = rawTitle.isNotEmpty ? ' · $rawTitle' : '';
         options.add(
           _SlotOption(
             category: EpisodeCategory.extra,
             seasonNumber: 0,
             episodeNumber: num,
-            extraType: kind,
-            code: code,
-            label: '$code · $title',
+            extraType: ExtraKind.sp,
+            isTmdbSpecial: true,
+            groupHeader: 'TMDB 特别篇 (Season 0)',
+            label: '特别篇 · 第 $eStr 集$suffix',
           ),
         );
       }
     } else {
       for (var i = 1; i <= 4; i++) {
-        final code = 'S00E${i.toString().padLeft(2, '0')}';
+        final eStr = i.toString().padLeft(2, '0');
         options.add(
           _SlotOption(
             category: EpisodeCategory.extra,
             seasonNumber: 0,
             episodeNumber: i,
             extraType: ExtraKind.sp,
-            code: code,
-            label: '$code · 特典映像 $i',
+            isTmdbSpecial: true,
+            groupHeader: 'TMDB 特别篇 (Season 0)',
+            label: '特别篇 · 第 $eStr 集',
           ),
         );
       }
     }
     return options;
+  }
+
+  String _formatClosedLabel(EditableFileMappingRow r) {
+    if (r.category == EpisodeCategory.main) {
+      final eStr = (r.episodeNumber > 0 ? r.episodeNumber : 1)
+          .toString()
+          .padLeft(2, '0');
+      if (r.seasonNumber > 1) {
+        final sStr = r.seasonNumber.toString().padLeft(2, '0');
+        return '正片 · S${sStr}E$eStr';
+      }
+      return '正片 · 第 $eStr 集';
+    }
+    if (r.isTmdbSpecial && r.episodeNumber > 0) {
+      final eStr = r.episodeNumber.toString().padLeft(2, '0');
+      return '特别篇 · 第 $eStr 集';
+    }
+    return r.displayRecognizedExtra;
   }
 
   void _toggle() {
@@ -215,8 +284,8 @@ class _EpisodeSlotPickerButtonState extends State<EpisodeSlotPickerButton> {
     if (box == null || !box.hasSize) return;
     final pos = box.localToGlobal(Offset.zero);
     final screen = MediaQuery.sizeOf(context);
-    final openUpward = pos.dy + box.size.height + 286 > screen.height - 16 &&
-        pos.dy > 260;
+    final openUpward =
+        pos.dy + box.size.height + 300 > screen.height - 16 && pos.dy > 260;
 
     final options = _buildOptions();
     final overlay = Overlay.of(context, rootOverlay: true);
@@ -234,6 +303,7 @@ class _EpisodeSlotPickerButtonState extends State<EpisodeSlotPickerButton> {
             opt.seasonNumber,
             opt.episodeNumber,
             opt.extraType,
+            opt.isTmdbSpecial,
           );
         },
       ),
@@ -246,47 +316,58 @@ class _EpisodeSlotPickerButtonState extends State<EpisodeSlotPickerButton> {
     final p = context.palette;
     final r = widget.row;
     final isMain = r.category == EpisodeCategory.main;
-    final code = isMain
-        ? 'S${r.seasonNumber.toString().padLeft(2, '0')}E${r.episodeNumber.toString().padLeft(2, '0')}'
-        : 'S00E${r.episodeNumber.toString().padLeft(2, '0')}·${r.extraType.name.toUpperCase()}';
+    final isSpecial = !isMain && r.isTmdbSpecial;
+    final label = _formatClosedLabel(r);
+    final tintColor = isMain
+        ? p.accent
+        : (isSpecial ? p.warning : p.textSecondary);
+    final bgColor = isMain
+        ? p.accent.withValues(alpha: 0.14)
+        : (isSpecial ? p.warning.withValues(alpha: 0.14) : p.softFill);
+    final borderColor = isMain
+        ? p.accent.withValues(alpha: 0.38)
+        : (isSpecial ? p.warning.withValues(alpha: 0.40) : p.hairline);
+    final minHeight = KonataAdaptiveTokens.isAndroid ? 36.0 : 30.0;
 
     return CompositedTransformTarget(
       link: _link,
       child: Tooltip(
-        message: '点击从当前作品分集列表中可视选择槽位',
+        message: '下拉选择对应 TMDB 正片/特别篇集数，或保持当前特典识别结果',
         child: InkWell(
-          borderRadius: KonataTheme.borderRadiusBadge,
+          borderRadius: KonataTheme.borderRadiusControl,
           onTap: widget.enabled ? _toggle : null,
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            constraints: BoxConstraints(
+              minWidth: 124,
+              maxWidth: 168,
+              minHeight: minHeight,
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: isMain
-                  ? p.accent.withValues(alpha: 0.14)
-                  : p.warning.withValues(alpha: 0.14),
-              borderRadius: KonataTheme.borderRadiusBadge,
-              border: Border.all(
-                color: isMain
-                    ? p.accent.withValues(alpha: 0.40)
-                    : p.warning.withValues(alpha: 0.42),
-              ),
+              color: bgColor,
+              borderRadius: KonataTheme.borderRadiusControl,
+              border: Border.all(color: borderColor),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  code,
-                  style: TextStyle(
-                    color: isMain ? p.accent : p.warning,
-                    fontSize: KonataTheme.fontSizeCaptionXs,
-                    fontFamily: 'Consolas',
-                    fontWeight: FontWeight.w700,
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: tintColor,
+                      fontSize: KonataTheme.fontSizeCaption,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
-                const SizedBox(width: 2),
+                const SizedBox(width: 4),
                 Icon(
-                  Icons.unfold_more_rounded,
-                  size: 13,
-                  color: isMain ? p.accent : p.warning,
+                  Icons.keyboard_arrow_down_rounded,
+                  size: 16,
+                  color: tintColor,
                 ),
               ],
             ),
@@ -328,6 +409,18 @@ class _SlotPopoverOverlayState extends State<_SlotPopoverOverlay> {
     super.dispose();
   }
 
+  bool _isCurrentOption(_SlotOption opt) {
+    final r = widget.currentRow;
+    if (opt.category != r.category) return false;
+    if (opt.category == EpisodeCategory.main) {
+      return opt.seasonNumber == r.seasonNumber &&
+          opt.episodeNumber == r.episodeNumber;
+    }
+    if (opt.isTmdbSpecial != r.isTmdbSpecial) return false;
+    if (!opt.isTmdbSpecial) return true;
+    return opt.episodeNumber == r.episodeNumber;
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
@@ -363,8 +456,8 @@ class _SlotPopoverOverlayState extends State<_SlotPopoverOverlay> {
               child: BackdropFilter(
                 filter: KonataTheme.blurFilterCapsule,
                 child: Container(
-                  width: 296,
-                  constraints: const BoxConstraints(maxHeight: 280),
+                  width: 304,
+                  constraints: const BoxConstraints(maxHeight: 296),
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   decoration: BoxDecoration(
                     color: bgColor,
@@ -391,7 +484,7 @@ class _SlotPopoverOverlayState extends State<_SlotPopoverOverlay> {
                       Padding(
                         padding: const EdgeInsets.fromLTRB(12, 2, 12, 6),
                         child: Text(
-                          '快速点击指定目标剧集槽位',
+                          '指定对应 TMDB 正片 / 特别篇，或保留原识别特典',
                           style: TextStyle(
                             color: p.textMuted,
                             fontSize: KonataTheme.fontSizeCaptionXs,
@@ -415,81 +508,108 @@ class _SlotPopoverOverlayState extends State<_SlotPopoverOverlay> {
                               itemCount: widget.options.length,
                               itemBuilder: (_, index) {
                                 final opt = widget.options[index];
-                                final isCurrent =
-                                    opt.category ==
-                                        widget.currentRow.category &&
-                                    opt.episodeNumber ==
-                                        widget.currentRow.episodeNumber &&
-                                    (opt.category == EpisodeCategory.extra ||
-                                        opt.seasonNumber ==
-                                            widget.currentRow.seasonNumber);
+                                final showGroupHeader =
+                                    index == 0 ||
+                                    widget.options[index - 1].groupHeader !=
+                                        opt.groupHeader;
+                                final isCurrent = _isCurrentOption(opt);
                                 final isHovered =
                                     !isCurrent && _hoveredIndex == index;
-                                return MouseRegion(
-                                  cursor: SystemMouseCursors.click,
-                                  onEnter: (_) {
-                                    final next = isCurrent ? null : index;
-                                    if (_hoveredIndex != next) {
-                                      setState(() => _hoveredIndex = next);
-                                    }
-                                  },
-                                  onExit: (_) {
-                                    if (_hoveredIndex == index) {
-                                      setState(() => _hoveredIndex = null);
-                                    }
-                                  },
-                                  child: InkWell(
-                                    autofocus: false,
-                                    canRequestFocus: false,
-                                    focusColor: Colors.transparent,
-                                    hoverColor: Colors.transparent,
-                                    highlightColor: Colors.transparent,
-                                    splashColor: Colors.transparent,
-                                    borderRadius: KonataTheme.borderRadiusSm,
-                                    onTap: () => widget.onPick(opt),
-                                    child: Container(
-                                      margin: const EdgeInsets.symmetric(
-                                        vertical: 1.5,
-                                      ),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 6.5,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: isCurrent
-                                            ? p.accent.withValues(alpha: 0.16)
-                                            : (isHovered
-                                                  ? p.softFill
-                                                  : Colors.transparent),
-                                        borderRadius: KonataTheme.borderRadiusSm,
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          Expanded(
-                                            child: EllipsisTextWithTooltip(
-                                              text: opt.label,
-                                              maxLines: 1,
-                                              style: TextStyle(
-                                                color: isCurrent
-                                                    ? p.accent
-                                                    : p.textPrimary,
-                                                fontSize: KonataTheme.fontSizeCaption,
-                                                fontWeight: isCurrent
-                                                    ? FontWeight.w600
-                                                    : FontWeight.w500,
-                                              ),
-                                            ),
+                                return Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (showGroupHeader)
+                                      Padding(
+                                        padding: EdgeInsets.fromLTRB(
+                                          10,
+                                          index == 0 ? 2 : 8,
+                                          10,
+                                          3,
+                                        ),
+                                        child: Text(
+                                          opt.groupHeader,
+                                          style: TextStyle(
+                                            color: p.textMuted,
+                                            fontSize:
+                                                KonataTheme.fontSizeCaptionXs,
+                                            fontWeight: FontWeight.w600,
                                           ),
-                                          if (isCurrent)
-                                            Icon(
-                                              Icons.check_rounded,
-                                              size: 15,
-                                              color: p.accent,
-                                            ),
-                                        ],
+                                        ),
+                                      ),
+                                    MouseRegion(
+                                      cursor: SystemMouseCursors.click,
+                                      onEnter: (_) {
+                                        final next = isCurrent ? null : index;
+                                        if (_hoveredIndex != next) {
+                                          setState(() => _hoveredIndex = next);
+                                        }
+                                      },
+                                      onExit: (_) {
+                                        if (_hoveredIndex == index) {
+                                          setState(() => _hoveredIndex = null);
+                                        }
+                                      },
+                                      child: InkWell(
+                                        autofocus: false,
+                                        canRequestFocus: false,
+                                        focusColor: Colors.transparent,
+                                        hoverColor: Colors.transparent,
+                                        highlightColor: Colors.transparent,
+                                        splashColor: Colors.transparent,
+                                        borderRadius:
+                                            KonataTheme.borderRadiusSm,
+                                        onTap: () => widget.onPick(opt),
+                                        child: Container(
+                                          margin: const EdgeInsets.symmetric(
+                                            vertical: 1.5,
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 6.5,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: isCurrent
+                                                ? p.accent.withValues(
+                                                    alpha: 0.16,
+                                                  )
+                                                : (isHovered
+                                                      ? p.softFill
+                                                      : Colors.transparent),
+                                            borderRadius:
+                                                KonataTheme.borderRadiusSm,
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              Expanded(
+                                                child: EllipsisTextWithTooltip(
+                                                  text: opt.label,
+                                                  maxLines: 1,
+                                                  style: TextStyle(
+                                                    color: isCurrent
+                                                        ? p.accent
+                                                        : p.textPrimary,
+                                                    fontSize: KonataTheme
+                                                        .fontSizeCaption,
+                                                    fontWeight: isCurrent
+                                                        ? FontWeight.w600
+                                                        : FontWeight.w500,
+                                                  ),
+                                                ),
+                                              ),
+                                              if (isCurrent)
+                                                Icon(
+                                                  Icons.check_rounded,
+                                                  size: 15,
+                                                  color: p.accent,
+                                                ),
+                                            ],
+                                          ),
+                                        ),
                                       ),
                                     ),
-                                  ),
+                                  ],
                                 );
                               },
                             ),
@@ -504,134 +624,6 @@ class _SlotPopoverOverlayState extends State<_SlotPopoverOverlay> {
           ),
         ),
       ],
-    );
-  }
-}
-
-/// 支持键盘直输与 `+/-` 按钮快速步进的紧凑数字输入框。
-class InlineNumberStepperBox extends StatefulWidget {
-  /// 创建可键盘输入与步进微调的紧凑数字盒。
-  const InlineNumberStepperBox({
-    super.key,
-    required this.label,
-    required this.value,
-    required this.enabled,
-    required this.onChanged,
-  });
-
-  /// 字段前标（如 `季`、`集`）。
-  final String label;
-
-  /// 当前数值。
-  final int value;
-
-  /// 是否启用交互。
-  final bool enabled;
-
-  /// 数值变更回调。
-  final ValueChanged<int> onChanged;
-
-  @override
-  State<InlineNumberStepperBox> createState() => _InlineNumberStepperBoxState();
-}
-
-class _InlineNumberStepperBoxState extends State<InlineNumberStepperBox> {
-  late final TextEditingController _ctrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = TextEditingController(text: widget.value.toString());
-  }
-
-  @override
-  void didUpdateWidget(covariant InlineNumberStepperBox oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.value != widget.value &&
-        int.tryParse(_ctrl.text.trim()) != widget.value) {
-      _ctrl.text = widget.value.toString();
-    }
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    return Opacity(
-      opacity: widget.enabled ? 1 : 0.45,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-        decoration: BoxDecoration(
-          color: p.softFill,
-          borderRadius: KonataTheme.borderRadiusSm,
-          border: Border.all(color: p.hairline),
-        ),
-        child: Row(
-          children: [
-            Text(
-              widget.label,
-              style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeBadge),
-            ),
-            InkWell(
-              borderRadius: KonataTheme.borderRadiusXs,
-              onTap: widget.enabled && widget.value > 0
-                  ? () => widget.onChanged(widget.value - 1)
-                  : null,
-              child: Padding(
-                padding: const EdgeInsets.all(2),
-                child: Icon(
-                  Icons.remove_rounded,
-                  size: 12,
-                  color: p.textSecondary,
-                ),
-              ),
-            ),
-            Expanded(
-              child: TextField(
-                enabled: widget.enabled,
-                controller: _ctrl,
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: p.textPrimary,
-                  fontSize: KonataTheme.fontSizeCaption,
-                  fontWeight: FontWeight.w600,
-                ),
-                decoration: const InputDecoration(
-                  isDense: true,
-                  contentPadding: EdgeInsets.symmetric(vertical: 2),
-                  border: InputBorder.none,
-                ),
-                onChanged: (v) {
-                  final parsed = int.tryParse(v.trim());
-                  if (parsed != null && parsed >= 0) {
-                    widget.onChanged(parsed);
-                  }
-                },
-              ),
-            ),
-            InkWell(
-              borderRadius: KonataTheme.borderRadiusXs,
-              onTap: widget.enabled
-                  ? () => widget.onChanged(widget.value + 1)
-                  : null,
-              child: Padding(
-                padding: const EdgeInsets.all(2),
-                child: Icon(
-                  Icons.add_rounded,
-                  size: 12,
-                  color: p.textSecondary,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

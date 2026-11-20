@@ -387,8 +387,12 @@ void main() {
             findsOneWidget,
           );
           expect(find.text('かき鳴らせ 青春コンプレックス'), findsWidgets);
-          await tester.tap(
+          expect(
             find.byKey(const ValueKey('portrait_back_to_cover')),
+            findsNothing,
+          );
+          await tester.tap(
+            find.byKey(const ValueKey('portrait_lyrics_stage')),
           );
           await tester.pumpAndSettle();
           expect(
@@ -1538,7 +1542,8 @@ void main() {
 
       await tester.longPress(find.byType(EpisodeDrawerCard).first);
       await tester.pumpAndSettle();
-      expect(find.text('使用内置播放器播放'), findsOneWidget);
+      expect(find.text('播放'), findsOneWidget);
+      expect(find.text('使用内置播放器播放'), findsNothing);
       expect(find.text('使用外部播放器播放'), findsNothing);
 
       await tester.tapAt(const Offset(10, 10));

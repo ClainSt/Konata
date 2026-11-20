@@ -109,12 +109,12 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
           PopupMenuItem<String>(
             value: 'builtin',
             height: itemHeight,
-            child: const Row(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.smart_display_outlined, size: 17),
-                SizedBox(width: 8),
-                Text('使用内置播放器播放'),
+                const Icon(Icons.smart_display_outlined, size: 17),
+                const SizedBox(width: 8),
+                Text(KonataAdaptiveTokens.isAndroid ? '播放' : '使用内置播放器播放'),
               ],
             ),
           ),

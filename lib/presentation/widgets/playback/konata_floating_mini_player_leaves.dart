@@ -74,7 +74,12 @@ class _FloatingMiniTransientChromeOverlay extends StatelessWidget {
             ),
             Align(
               alignment: Alignment.bottomRight,
-              child: _FloatingVideoPlayPauseCornerLeaf(request: videoRequest),
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: KonataAdaptiveTokens.isAndroid ? 0 : 8,
+                ),
+                child: _FloatingVideoPlayPauseCornerLeaf(request: videoRequest),
+              ),
             ),
           ],
         );
@@ -278,30 +283,240 @@ class _FloatingAudioCoverLeaf extends ConsumerWidget {
   }
 }
 
-/// 视频悬浮小窗底部发光细进度叶子（高频进度仅重绘此叶子，零外层重建）。
-class _FloatingVideoProgressLeaf extends ConsumerWidget {
-  const _FloatingVideoProgressLeaf({required this.request});
+/// 视频悬浮小窗底部发光细进度叶子（高频进度仅重绘此叶子；Windows 端指针悬停即展开为可点击/拖拽的进度滑轨）。
+class _FloatingVideoProgressLeaf extends ConsumerStatefulWidget {
+  const _FloatingVideoProgressLeaf({
+    required this.request,
+    required this.chromeVisibleListenable,
+    this.onScrubActivity,
+  });
 
   final VideoLaunchRequest request;
+  final ValueNotifier<bool> chromeVisibleListenable;
+  final VoidCallback? onScrubActivity;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_FloatingVideoProgressLeaf> createState() =>
+      _FloatingVideoProgressLeafState();
+}
+
+class _FloatingVideoProgressLeafState
+    extends ConsumerState<_FloatingVideoProgressLeaf> {
+  bool _railHovered = false;
+  double? _hoverRatio;
+  double? _dragRatio;
+
+  double _ratioForDx(double dx, double width) =>
+      width > 0 ? (dx / width).clamp(0.0, 1.0) : 0.0;
+
+  void _commitSeekRatio(double ratio, double durationSeconds) {
+    if (durationSeconds <= 0) return;
+    ref
+        .read(videoPlaybackProvider(widget.request).notifier)
+        .seekAbsolute(ratio.clamp(0.0, 1.0) * durationSeconds);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final timing = ref.watch(
-      videoPlaybackProvider(request).select(
+      videoPlaybackProvider(widget.request).select(
         (s) => (pos: s.positionSeconds, dur: s.durationSeconds),
       ),
     );
-    final ratio = timing.dur > 0
-        ? (timing.pos / timing.dur).clamp(0.0, 1.0)
-        : 0.0;
-    return IgnorePointer(
-      child: LinearProgressIndicator(
-        key: const ValueKey('floating_mini_video_progress'),
-        value: ratio,
-        minHeight: KonataPlaybackTokens.capsuleProgressRestHeight,
-        color: context.palette.progressFill,
-        backgroundColor: Colors.transparent,
-      ),
+    final total = timing.dur > 0 ? timing.dur : 0.0;
+    final liveRatio = total > 0 ? (timing.pos / total).clamp(0.0, 1.0) : 0.0;
+
+    if (KonataAdaptiveTokens.isAndroid) {
+      return const SizedBox.shrink();
+    }
+
+    return ValueListenableBuilder<bool>(
+      valueListenable: widget.chromeVisibleListenable,
+      builder: (context, chromeVisible, _) {
+        final interactive =
+            (chromeVisible || _railHovered || _dragRatio != null) && total > 0;
+        final displayRatio = (_dragRatio ?? liveRatio).clamp(0.0, 1.0);
+        final barHeight = interactive
+            ? KonataPlaybackTokens.capsuleProgressHoverHeight
+            : 0.0;
+        final thumbSize = barHeight + 4.0;
+        final previewRatio = _dragRatio ?? (_railHovered ? _hoverRatio : null);
+
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth > 0 ? constraints.maxWidth : 1.0;
+            final thumbLeft = (displayRatio * width - thumbSize * 0.5)
+                .clamp(2.0, math.max(2.0, width - thumbSize - 2.0))
+                .toDouble();
+            final previewSec = previewRatio != null && total > 0
+                ? previewRatio * total
+                : null;
+            final previewText = previewSec != null
+                ? PlaybackFormatters.formatMediaDuration(
+                    previewSec,
+                    alwaysShowHours: total >= 3600,
+                  )
+                : '';
+            const badgeEstWidth = 48.0;
+            final badgeLeft = previewRatio != null
+                ? (previewRatio * width - badgeEstWidth * 0.5)
+                      .clamp(6.0, math.max(6.0, width - badgeEstWidth - 6.0))
+                      .toDouble()
+                : 6.0;
+
+            return MouseRegion(
+              cursor: total > 0
+                  ? SystemMouseCursors.click
+                  : SystemMouseCursors.basic,
+              onEnter: (e) {
+                widget.onScrubActivity?.call();
+                setState(() {
+                  _railHovered = true;
+                  _hoverRatio = _ratioForDx(e.localPosition.dx, width);
+                });
+              },
+              onHover: (e) {
+                setState(() {
+                  _railHovered = true;
+                  _hoverRatio = _ratioForDx(e.localPosition.dx, width);
+                });
+              },
+              onExit: (_) {
+                setState(() {
+                  _railHovered = false;
+                  _hoverRatio = null;
+                });
+              },
+              child: GestureDetector(
+                key: const ValueKey('floating_mini_video_progress'),
+                behavior: HitTestBehavior.opaque,
+                dragStartBehavior: DragStartBehavior.down,
+                onTapUp: total > 0
+                    ? (d) {
+                        widget.onScrubActivity?.call();
+                        final r = _ratioForDx(d.localPosition.dx, width);
+                        setState(() => _dragRatio = null);
+                        _commitSeekRatio(r, total);
+                      }
+                    : null,
+                onPanStart: total > 0
+                    ? (d) {
+                        widget.onScrubActivity?.call();
+                        final r = _ratioForDx(d.localPosition.dx, width);
+                        setState(() {
+                          _dragRatio = r;
+                          _hoverRatio = r;
+                        });
+                      }
+                    : null,
+                onPanUpdate: total > 0
+                    ? (d) {
+                        final r = _ratioForDx(d.localPosition.dx, width);
+                        setState(() {
+                          _dragRatio = r;
+                          _hoverRatio = r;
+                        });
+                      }
+                    : null,
+                onPanEnd: total > 0
+                    ? (_) {
+                        final target = _dragRatio;
+                        setState(() => _dragRatio = null);
+                        if (target != null) {
+                          _commitSeekRatio(target, total);
+                        }
+                      }
+                    : null,
+                onPanCancel: () => setState(() => _dragRatio = null),
+                child: SizedBox(
+                  height: KonataPlaybackTokens.capsuleProgressHitHeight,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      if (previewText.isNotEmpty)
+                        Positioned(
+                          left: badgeLeft,
+                          bottom: KonataPlaybackTokens.capsuleProgressHitHeight,
+                          child: IgnorePointer(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: KonataPlaybackTokens.videoOverlayBadgeBg,
+                                borderRadius: KonataTheme.borderRadiusBadge,
+                                border: Border.all(
+                                  color: KonataPlaybackTokens
+                                      .videoOverlayBadgeBorder,
+                                  width: KonataAdaptiveTokens.borderWidth,
+                                ),
+                              ),
+                              child: Text(
+                                previewText,
+                                style: const TextStyle(
+                                  color:
+                                      KonataPlaybackTokens.videoOverlayBadgeFg,
+                                  fontSize: KonataTheme.fontSizeCaptionXs,
+                                  fontWeight: FontWeight.w600,
+                                  fontFeatures:
+                                      KonataPlaybackTokens.tabularNumbers,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: AnimatedContainer(
+                          duration: KonataTheme.motionFast,
+                          curve: Curves.easeOutCubic,
+                          height: barHeight,
+                          color: interactive
+                              ? KonataTheme.pureWhite.withValues(alpha: 0.24)
+                              : Colors.transparent,
+                          alignment: Alignment.centerLeft,
+                          child: FractionallySizedBox(
+                            widthFactor: displayRatio,
+                            heightFactor: 1.0,
+                            child: const ColoredBox(
+                              color: KonataTheme.pureWhite,
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (interactive)
+                        Positioned(
+                          left: thumbLeft,
+                          bottom: math.max(0.0, (barHeight - thumbSize) * 0.5),
+                          child: IgnorePointer(
+                            child: Container(
+                              width: thumbSize,
+                              height: thumbSize,
+                              decoration: BoxDecoration(
+                                color: KonataTheme.pureWhite,
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: KonataPlaybackTokens.cinemaPureBlack
+                                        .withValues(alpha: 0.45),
+                                    blurRadius: 4,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

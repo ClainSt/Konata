@@ -102,15 +102,18 @@ class ReviewDialog extends ConsumerWidget {
               ),
             );
           }
-          return ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: math.max(180.0, dialogMaxHeight - 104.0),
-            ),
+          // 使用稳定视口高度并禁用 shrinkWrap，展开/收起候选时弹窗绝不跳高、按钮保持在原位不动且无 BackdropFilter 抖动。
+          final stableBodyHeight = math.max(
+            220.0,
+            math.min(620.0, dialogMaxHeight - 104.0),
+          );
+          return SizedBox(
+            key: const ValueKey('review_dialog_stable_body'),
+            height: stableBodyHeight,
             child: KonataDraggableScrollbar(
               builder: (_, ctrl) => ListView.separated(
                 controller: ctrl,
-                shrinkWrap: true,
-                padding: const EdgeInsets.only(right: 16, top: 2, bottom: 4),
+                padding: const EdgeInsets.only(right: 16, top: 2, bottom: 8),
                 itemCount: items.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 12),
                 itemBuilder: (_, index) =>

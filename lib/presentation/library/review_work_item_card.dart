@@ -32,8 +32,48 @@ class ReviewWorkItemCard extends ConsumerStatefulWidget {
   ConsumerState<ReviewWorkItemCard> createState() => _ReviewWorkItemCardState();
 }
 
-class _ReviewWorkItemCardState extends ConsumerState<ReviewWorkItemCard> {
+class _ReviewWorkItemCardState extends ConsumerState<ReviewWorkItemCard>
+    with SingleTickerProviderStateMixin {
   bool _expanded = false;
+  late final AnimationController _expandCtrl;
+  late final Animation<double> _sizeFactor;
+  late final Animation<double> _fadeFactor;
+
+  @override
+  void initState() {
+    super.initState();
+    _expandCtrl = AnimationController(
+      vsync: this,
+      duration: KonataTheme.motionMedium,
+    );
+    _sizeFactor = CurvedAnimation(
+      parent: _expandCtrl,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+    _fadeFactor = CurvedAnimation(
+      parent: _expandCtrl,
+      curve: const Interval(0.15, 1.0, curve: Curves.easeOut),
+      reverseCurve: const Interval(0.0, 0.75, curve: Curves.easeIn),
+    );
+  }
+
+  @override
+  void dispose() {
+    _expandCtrl.dispose();
+    super.dispose();
+  }
+
+  void _toggleExpanded() {
+    setState(() {
+      _expanded = !_expanded;
+    });
+    if (_expanded) {
+      _expandCtrl.forward();
+    } else {
+      _expandCtrl.reverse();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -52,7 +92,7 @@ class _ReviewWorkItemCardState extends ConsumerState<ReviewWorkItemCard> {
         children: [
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () => setState(() => _expanded = !_expanded),
+            onTap: _toggleExpanded,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -229,7 +269,7 @@ class _ReviewWorkItemCardState extends ConsumerState<ReviewWorkItemCard> {
                         color: p.textSecondary,
                       ),
                     ),
-                    onPressed: () => setState(() => _expanded = !_expanded),
+                    onPressed: _toggleExpanded,
                   );
                 },
                 orElse: () => const SizedBox.shrink(),
@@ -268,26 +308,39 @@ class _ReviewWorkItemCardState extends ConsumerState<ReviewWorkItemCard> {
               );
             },
           ),
-          AnimatedSize(
-            duration: KonataTheme.motionNormal,
-            curve: Curves.easeOutCubic,
-            alignment: Alignment.topCenter,
-            child: candidatesAsync.when(
-              data: (candidates) {
-                final topCandidates = candidates.take(5).toList(growable: false);
-                if (topCandidates.isEmpty) {
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      '暂无自动候选，请点击上方「手动搜索」或输入 TMDB ID。',
-                      style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeCaption),
+          candidatesAsync.when(
+            data: (candidates) {
+              final topCandidates = candidates.take(5).toList(growable: false);
+              if (topCandidates.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    '暂无自动候选，请点击上方「手动搜索」或输入 TMDB ID。',
+                    style: TextStyle(
+                      color: p.textMuted,
+                      fontSize: KonataTheme.fontSizeCaption,
+                    ),
+                  ),
+                );
+              }
+              return AnimatedBuilder(
+                animation: _expandCtrl,
+                builder: (context, child) {
+                  if (_expandCtrl.isDismissed && !_expanded) {
+                    return const SizedBox.shrink();
+                  }
+                  return ClipRect(
+                    child: SizeTransition(
+                      sizeFactor: _sizeFactor,
+                      alignment: Alignment.topCenter,
+                      child: FadeTransition(
+                        opacity: _fadeFactor,
+                        child: child,
+                      ),
                     ),
                   );
-                }
-                if (!_expanded) {
-                  return const SizedBox.shrink();
-                }
-                return Padding(
+                },
+                child: Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Column(
                     children: [
@@ -313,16 +366,16 @@ class _ReviewWorkItemCardState extends ConsumerState<ReviewWorkItemCard> {
                         ),
                     ],
                   ),
-                );
-              },
-              loading: () => _expanded
-                  ? const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: LinearProgressIndicator(minHeight: 2),
-                    )
-                  : const SizedBox.shrink(),
-              error: (_, _) => const SizedBox.shrink(),
-            ),
+                ),
+              );
+            },
+            loading: () => _expanded
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8),
+                    child: LinearProgressIndicator(minHeight: 2),
+                  )
+                : const SizedBox.shrink(),
+            error: (_, _) => const SizedBox.shrink(),
           ),
         ],
       ),

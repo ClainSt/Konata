@@ -16,6 +16,11 @@ abstract final class KonataAdaptiveTokens {
   static const shortViewportHeight = 500.0;
   static const touchTarget = 48.0;
   static const navigationPadding = 4.0;
+  static const tabletNavItemSize = 56.0;
+  static const tabletNavPadding = 6.0;
+  static const tabletNavItemGap = 6.0;
+  static const tabletNavEdgeGap = 14.0;
+  static const tabletNavIconSize = 24.0;
   static const safeGap = 8.0;
   static const horizontalInset = 12.0;
   static const tabletBottomInset = 18.0;

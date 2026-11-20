@@ -211,8 +211,12 @@ class _TrackSemanticExtractor {
       combinedForDetect,
       isForced: isForced,
     );
-    final group = _extractMeaningfulGroup(rawCleanName.isNotEmpty ? rawCleanName : title);
-    final cleanDesc = group.isEmpty ? _extractCleanEmbeddedTitle(title) : '';
+    final group = _extractMeaningfulGroup(
+      rawCleanName.isNotEmpty ? rawCleanName : title,
+    );
+    final cleanDesc = group.isEmpty && !_looksLikeExternalReleaseFileName(title)
+        ? _extractCleanEmbeddedTitle(title)
+        : '';
 
     final parts = <String>[
       if (langLabel.isNotEmpty) langLabel,
@@ -303,8 +307,10 @@ class _TrackSemanticExtractor {
   }
 
   static String _extractFileName(String? rawPath) {
-    if (rawPath == null || rawPath.trim().isEmpty) return '';
-    final withoutQuery = rawPath.trim().split('?').first;
+    if (rawPath == null) return '';
+    final trimmed = rawPath.trim();
+    if (trimmed.isEmpty || trimmed.startsWith('memory://')) return '';
+    final withoutQuery = trimmed.split('?').first;
     final lastSeg = withoutQuery.replaceAll('\\', '/').split('/').last;
     try {
       return Uri.decodeComponent(lastSeg);
@@ -598,6 +604,21 @@ class _TrackSemanticExtractor {
     return tokens.contains(low);
   }
 
+  static final RegExp _releaseFileExtRe = RegExp(
+    r'\.(?:ass|ssa|srt|vtt|sup|idx|sub|mkv|mp4)$',
+    caseSensitive: false,
+  );
+  static final RegExp _releaseTechNoiseRe = RegExp(
+    r'\b(?:2160p|1080p|720p|480p|x265|x264|hevc|avc|ma10p|hi10p|flac|bdrip|webrip|web-dl|remux)\b',
+    caseSensitive: false,
+  );
+
+  static bool _looksLikeExternalReleaseFileName(String rawTitle) {
+    final t = rawTitle.trim();
+    if (t.isEmpty) return false;
+    return _releaseFileExtRe.hasMatch(t) || _releaseTechNoiseRe.hasMatch(t);
+  }
+
   static String _extractCleanEmbeddedTitle(String rawTitle) {
     var cleaned = rawTitle.trim();
     if (cleaned.isEmpty) return '';
@@ -698,34 +719,49 @@ class SubtitleAndAudioChoices {
     return matched;
   }
 
-  /// 合并内嵌字幕与外挂字幕文件列表，对已作为 VobSub `.idx+.sub` 配对及已挂载的轨道去重。
+  /// 合并内嵌字幕与外挂字幕文件列表，对已作为 VobSub `.idx+.sub` 配对及已挂载的轨道（含 `memory://` 内存轨）精准去重。
   static List<SubtitleChoice> mergeSubtitles({
     required List<MpvTrackInfo> mpvTracks,
     required List<String> discoveredExternalPaths,
+    Map<int, String> mountedSourcePathsByTrackId = const {},
   }) {
     final results = <SubtitleChoice>[];
     final mountedKeys = <String>{};
 
     for (final track in mpvTracks) {
       if (track.type != MpvTrackType.subtitle) continue;
-      final extPath = track.externalFilename;
-      if (extPath != null && extPath.isNotEmpty) {
-        mountedKeys.add(_normalizeDedupKey(extPath));
+      final mappedSource = mountedSourcePathsByTrackId[track.id];
+      final rawExt = track.externalFilename;
+      final isMemoryPseudoPath =
+          rawExt != null && rawExt.trim().startsWith('memory://');
+      final effectiveExtPath =
+          (mappedSource != null && mappedSource.trim().isNotEmpty)
+          ? mappedSource.trim()
+          : (isMemoryPseudoPath ? null : rawExt);
+
+      if (effectiveExtPath != null && effectiveExtPath.isNotEmpty) {
+        mountedKeys.add(_normalizeDedupKey(effectiveExtPath));
       }
-      final fallbackTitle =
-          track.title.trim().isNotEmpty
-              ? track.title.trim()
-              : (extPath != null && extPath.isNotEmpty
-                    ? extPath.replaceAll('\\', '/').split('/').last
-                    : '');
+      final trimmedTitle = track.title.trim();
+      if ((track.isExternal || isMemoryPseudoPath || mappedSource != null) &&
+          trimmedTitle.isNotEmpty) {
+        mountedKeys.add(_normalizeDedupKey(trimmedTitle));
+      }
+
+      final fallbackTitle = trimmedTitle.isNotEmpty
+          ? trimmedTitle
+          : (effectiveExtPath != null && effectiveExtPath.isNotEmpty
+                ? effectiveExtPath.replaceAll('\\', '/').split('/').last
+                : '');
       results.add(
         SubtitleChoice(
           mpvTrackId: track.id,
           title: fallbackTitle,
           language: track.lang,
           codec: track.codec,
-          externalPath: extPath,
-          isExternal: track.isExternal,
+          externalPath: effectiveExtPath,
+          isExternal:
+              track.isExternal || isMemoryPseudoPath || mappedSource != null,
           isDefault: track.isDefault,
           isForced: track.isForced,
           selected: track.selected,

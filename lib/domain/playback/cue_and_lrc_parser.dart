@@ -211,6 +211,37 @@ class LrcDocument {
     }
     return best;
   }
+
+  /// 基于当前曲目正常相邻句的中位语速估算每字平均演唱秒数（剔除极短句与间奏长停顿）。
+  ///
+  /// 用于行级 LRC 遇到副歌后长间奏或末句时自动适配快慢歌节奏，避免扫白滞后或提前卡住。
+  double get estimatedSecondsPerChar {
+    final samples = <double>[];
+    for (var i = 0; i + 1 < lines.length; i++) {
+      final cur = lines[i];
+      final next = lines[i + 1];
+      final gap = next.startSeconds - cur.startSeconds;
+      if (gap < 0.8 || gap > 8.0) continue;
+      final charCount = cur.primaryText
+          .replaceAll(RegExp(r'\s+'), '')
+          .runes
+          .length;
+      if (charCount < 3) continue;
+      final pace = gap / charCount;
+      if (pace >= 0.08 && pace <= 0.65) {
+        samples.add(pace);
+      }
+    }
+    if (samples.length < 2) {
+      return 0.24;
+    }
+    samples.sort();
+    final mid = samples.length >> 1;
+    final median = samples.length.isOdd
+        ? samples[mid]
+        : (samples[mid - 1] + samples[mid]) * 0.5;
+    return median.clamp(0.14, 0.34);
+  }
 }
 
 /// 播放领域统一多编码探测与解码入口（直接复用全仓唯一的 `MultibyteTextDecoder`）。

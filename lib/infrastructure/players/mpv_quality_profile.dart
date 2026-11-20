@@ -330,6 +330,7 @@ class MpvQualityProfile {
   static const String androidVideoDriver = 'gpu-next';
   static const String androidLegacyVideoDriver = 'gpu';
   static const String androidAudioDriver = 'aaudio,audiotrack,opensles';
+  static const String defaultAndroidCjkSubFontFamily = 'Noto Sans CJK SC';
 
   /// WebDAV / HTTP 本地流网桥回环重连与大封面/高码率头部加速探测参数。
   static const String remoteStreamLavfOptions =
@@ -607,6 +608,9 @@ class MpvQualityProfile {
     );
     if (config.subFontName.trim().isNotEmpty) {
       setter.setOption(client, 'sub-font', config.subFontName.trim());
+    } else if (isAndroid) {
+      // Android 端关闭系统 fontconfig 后显式指定简体中文默认字族，优先命中 `NotoSansCJK` 简体字面。
+      setter.setOption(client, 'sub-font', defaultAndroidCjkSubFontFamily);
     }
     if (config.subColorHex.trim().isNotEmpty) {
       setter.setOption(client, 'sub-color', config.subColorHex.trim());

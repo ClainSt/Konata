@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:ccplayer/application/playback/cloud_subset_coordinator.dart';
 import 'package:ccplayer/application/playback/unified_playback_engine.dart';
 import 'package:ccplayer/domain/playback/ass_uue_font_decoder.dart';
+import 'package:ccplayer/infrastructure/players/android/android_video_surface_controller.dart';
 import 'package:ccplayer/infrastructure/storage/storage_root_provider.dart';
 import 'package:ccplayer/infrastructure/subtitles/fontinass_cloud_client.dart';
 import 'package:ccplayer/infrastructure/subtitles/subtitle_font_pool_manager.dart';
@@ -225,6 +226,89 @@ $uueBlock
             await SubtitleFontPoolManager.discoverVerifiedSystemCjkFonts();
         expect(winFonts, isNotEmpty);
       }
+    });
+
+    test('cmap 中文字形校验准确拦截拉丁子集字体、拒绝 .ttf 降级覆盖并在升级时自愈旧缓存', () async {
+      final latinOnlyBytes = Phase3TestFixtures.generateMinimalDualGlyphTtf(
+        familyName: 'MiSansLatin',
+        includeCjk: false,
+      );
+      final cjkBytes = Phase3TestFixtures.generateMinimalDualGlyphTtf(
+        familyName: 'NotoSansCJK',
+        includeCjk: true,
+      );
+      final secondaryCjkBytes = Phase3TestFixtures.generateMinimalDualGlyphTtf(
+        familyName: 'MiSansCJK',
+        includeCjk: true,
+      );
+
+      expect(AssUueFontDecoder.fontBytesContainCodePoint(latinOnlyBytes), isFalse);
+      expect(AssUueFontDecoder.fontBytesContainCodePoint(cjkBytes), isTrue);
+
+      // 实证校验 APK 随包内置的 NotoSansCJKsc-VF.ttf（Format 12 cmap）包含真实中文字符字形。
+      final bundledFont = File('assets/fonts/NotoSansCJKsc-VF.ttf');
+      if (await bundledFont.exists()) {
+        expect(
+          await SubtitleFontPoolManager.hasVerifiedCjkGlyph(bundledFont),
+          isTrue,
+        );
+      }
+
+      // 构造模拟小米 HyperOS 系统字体目录：同时包含高优先级 NotoSansCJK-Regular.ttc、拉丁子集 MiSansLatin.ttf 与低优先级 MiSans-Regular.ttf。
+      final mockSysDir = Directory(p.join(tempRoot.path, 'hyperos_sys_fonts'));
+      await mockSysDir.create(recursive: true);
+      final notoTtc = File(p.join(mockSysDir.path, 'NotoSansCJK-Regular.ttc'));
+      final miLatin = File(p.join(mockSysDir.path, 'MiSansLatin.ttf'));
+      final miLatinDisguised = File(p.join(mockSysDir.path, 'MiSans-Regular.ttf'));
+      final miCjk = File(p.join(mockSysDir.path, 'MiSansVF.ttf'));
+      await notoTtc.writeAsBytes(cjkBytes);
+      await miLatin.writeAsBytes(latinOnlyBytes);
+      await miLatinDisguised.writeAsBytes(latinOnlyBytes);
+      await miCjk.writeAsBytes(secondaryCjkBytes);
+
+      final found = await SubtitleFontPoolManager.discoverVerifiedSystemCjkFonts(
+        searchRootsOverride: [mockSysDir],
+      );
+      expect(
+        found.map((f) => p.basename(f.path)).toList(),
+        equals(['NotoSansCJK-Regular.ttc', 'MiSansVF.ttf']),
+      );
+
+      // 预先模拟旧版本遗留的损坏缓存：subfont.ttf 与 fonts/MiSansLatin.ttf 均为纯拉丁字体（>1024 字节）。
+      final mpvDir = Directory(p.join(tempRoot.path, 'android_mpv_cfg'));
+      final fontsDir = Directory(p.join(mpvDir.path, 'fonts'));
+      await fontsDir.create(recursive: true);
+      final paddedLatin = Uint8List(2048)..setRange(0, latinOnlyBytes.length, latinOnlyBytes);
+      await File(p.join(mpvDir.path, 'subfont.ttf')).writeAsBytes(paddedLatin);
+      await File(p.join(fontsDir.path, 'MiSansLatin.ttf')).writeAsBytes(paddedLatin);
+
+      await AndroidVideoSurfaceController.preparePortableCjkFontSymlinks(
+        mpvDir,
+        isAndroidOverride: true,
+        systemFontRootsOverride: [mockSysDir],
+      );
+
+      // 旧拉丁字体必须被清除，subfont.ttf 与主字体副本均应为含中文字形的真实普通文件且保持首选 NotoSansCJK-Regular.ttc。
+      expect(
+        await File(p.join(fontsDir.path, 'MiSansLatin.ttf')).exists(),
+        isFalse,
+      );
+      final repairedSubfont = File(p.join(mpvDir.path, 'subfont.ttf'));
+      expect(
+        await FileSystemEntity.type(repairedSubfont.path, followLinks: false),
+        equals(FileSystemEntityType.file),
+      );
+      expect(
+        await SubtitleFontPoolManager.hasVerifiedCjkGlyph(repairedSubfont),
+        isTrue,
+      );
+      expect(await repairedSubfont.readAsBytes(), equals(cjkBytes));
+      final copiedPrimary = File(p.join(fontsDir.path, 'NotoSansCJK-Regular.ttc'));
+      expect(
+        await FileSystemEntity.type(copiedPrimary.path, followLinks: false),
+        equals(FileSystemEntityType.file),
+      );
+      expect(await copiedPrimary.readAsBytes(), equals(cjkBytes));
     });
   });
 

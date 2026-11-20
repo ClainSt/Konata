@@ -9,7 +9,6 @@ import '../../domain/models/network_config.dart';
 import '../../domain/models/tmdb_models.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
-import '../widgets/design_system/adaptive_responsive_row.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
@@ -500,32 +499,30 @@ class _EndpointBackupField extends StatelessWidget {
           onSubmitted: onSubmitted,
         ),
         const SizedBox(height: 8),
-        AdaptiveResponsiveRow(
-          estimatedTrailingWidth: report != null ? 160 : 0,
-          minLeadingWidth: 140,
-          stackedTrailingAlignment: Alignment.centerLeft,
-          leading: Align(
-            alignment: Alignment.centerLeft,
-            child: KonataPillButton.secondary(
+        Wrap(
+          spacing: 12,
+          runSpacing: 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            KonataPillButton.secondary(
               label: testButtonLabel,
               icon: Icons.network_check_rounded,
               compact: true,
               onPressed: testing ? null : onTest,
             ),
-          ),
-          trailing: report != null
-              ? Text(
-                  report!.displayText,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: report!.reachable
-                        ? (report!.usedBackup ? p.warning : p.success)
-                        : p.danger,
-                    fontSize: KonataTheme.fontSizeCaption,
-                  ),
-                )
-              : const SizedBox.shrink(),
+            if (report != null)
+              Text(
+                report!.displayText,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: report!.reachable
+                      ? (report!.usedBackup ? p.warning : p.success)
+                      : p.danger,
+                  fontSize: KonataTheme.fontSizeCaption,
+                ),
+              ),
+          ],
         ),
       ],
     );

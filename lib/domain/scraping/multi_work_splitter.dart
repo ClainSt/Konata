@@ -12,6 +12,7 @@ class SplitAssetAssignment {
     required this.category,
     required this.season,
     this.episode,
+    this.episodeEnd,
     this.extraType,
   });
 
@@ -20,6 +21,9 @@ class SplitAssetAssignment {
   final String category;
   final int season;
   final int? episode;
+
+  /// 多集合并文件的区间结束集号（仅正片，已应用集号偏移）。
+  final int? episodeEnd;
   final String? extraType;
 }
 
@@ -64,6 +68,7 @@ abstract final class MultiWorkSplitter {
     caseSensitive: false,
   );
   static final _quoteBlock = RegExp(r'「([^」]+)」|『([^』]+)』');
+  static const _minQuotedFeatureBytes = 300 * 1024 * 1024;
   static final _movieToken = RegExp(
     r'(?<![a-z0-9])(?:the[ ._-]+)?movie(?![a-z0-9])|劇場版|剧场版|映画',
     caseSensitive: false,
@@ -98,6 +103,11 @@ abstract final class MultiWorkSplitter {
     DirectoryInventory inventory,
   ) {
     if (inventory.shape == WorkShape.anthology) return true;
+    return _isExplicitCollectionName(folder);
+  }
+
+  /// 仅依据目录名判断是否显式声明多作合集（如 `A & B`、`TV+Movie`），不考虑目录内容形态。
+  static bool _isExplicitCollectionName(String folder) {
     final leaf = folder
         .replaceAll('\\', '/')
         .split('/')
@@ -152,12 +162,8 @@ abstract final class MultiWorkSplitter {
           c.inventory.episodeCount >= 12 &&
           (c.inventory.season ?? 1) > 0,
     );
-    final hasStandaloneSubwork = preview.any(
-      (c) =>
-          c.inventory.season == 0 ||
-          c.inventory.shape == WorkShape.feature ||
-          c.inventory.movieMarker,
-    );
+    // 长篇连续剧附带的 OVA、特别篇、广播剧、迷你短篇都是该剧的特典，只有明确的剧场版才独立成作。
+    final hasStandaloneSubwork = preview.any((c) => c.inventory.movieMarker);
     if (hasLongSeries && hasStandaloneSubwork) return true;
     final hasMovie = preview.any((c) => c.inventory.movieMarker);
     final hasNonMovieSeries = preview.any(
@@ -199,11 +205,10 @@ abstract final class MultiWorkSplitter {
           : m,
     );
 
-    final parsedRecords = <({
-      _FileEntry entry,
-      bool isUnconditionalSide,
-      bool isContextualSide,
-    })>[];
+    final parsedRecords =
+        <
+          ({_FileEntry entry, bool isUnconditionalSide, bool isContextualSide})
+        >[];
 
     for (final asset in editable) {
       final rel = (asset['relative_path'] ?? asset['name'] ?? '')
@@ -220,7 +225,7 @@ abstract final class MultiWorkSplitter {
       final cleanName = CloudMediaFileClassifier.stripTechnicalNoise(name);
       final inSuppDir =
           subDir.isNotEmpty &&
-          CloudMediaFileClassifier.isSupplementaryDirectory(subDir);
+          CloudMediaFileClassifier.isSupplementarySubdirectory(subDir);
       final isUnconditionalSide =
           inSuppDir ||
           CloudMediaFileClassifier.isPreview(cleanName) ||
@@ -344,10 +349,7 @@ abstract final class MultiWorkSplitter {
           ..sort((a, b) => (a.episode ?? 0).compareTo(b.episode ?? 0));
         for (final item in sorted) {
           expandedBuckets.add([
-            item.copyWith(
-              kind: 'ova',
-              ovaVolume: item.episode,
-            ),
+            item.copyWith(kind: 'ova', ovaVolume: item.episode),
           ]);
         }
       } else {
@@ -365,7 +367,9 @@ abstract final class MultiWorkSplitter {
         g.first.isHashZeroOva ||
         g.first.ovaVolume != null ||
         g.first.exKey != null ||
-        g.any((e) => _ovaToken.hasMatch(e.name) || _movieToken.hasMatch(e.name));
+        g.any(
+          (e) => _ovaToken.hasMatch(e.name) || _movieToken.hasMatch(e.name),
+        );
 
     final clusterIsMainTv = <bool>[
       for (final g in expandedBuckets)
@@ -440,6 +444,39 @@ abstract final class MultiWorkSplitter {
     return clusters;
   }
 
+  /// `标题 10` 这类无前导零的集号会被保守地保留在片名里（防止误删 `86`、`Mob Psycho 100` 等数字片名）；
+  /// 若剥离末尾集号后的主干与同目录其他编号正片一致，则归并为同一主干，避免逐集拆成独立作品。
+  static List<_FileEntry> _foldTrailingEpisodeIntoStem(List<_FileEntry> files) {
+    final stems = <String>{
+      for (final e in files)
+        if (e.kind == 'series' && e.episode != null) e.normStem,
+    };
+    return [
+      for (final e in files)
+        if (e.kind == 'series' &&
+            e.episode != null &&
+            e.normStem.length > '${e.episode}'.length &&
+            e.normStem.endsWith('${e.episode}') &&
+            stems.contains(
+              e.normStem.substring(
+                0,
+                e.normStem.length - '${e.episode}'.length,
+              ),
+            ))
+          e.copyWith(
+            normStem: e.normStem.substring(
+              0,
+              e.normStem.length - '${e.episode}'.length,
+            ),
+            cleanStem: e.cleanStem
+                .replaceFirst(RegExp('[\\s._-]*0*${e.episode}\\s*\$'), '')
+                .trim(),
+          )
+        else
+          e,
+    ];
+  }
+
   static List<_FileEntry> _normalizeDashEpisodeSubtitles(
     List<_FileEntry> mainFiles,
   ) {
@@ -493,9 +530,13 @@ abstract final class MultiWorkSplitter {
     required String leafClean,
     required int? folderTmdbId,
   }) {
-    final mainFiles = _normalizeDashEpisodeSubtitles(rawMainFiles);
+    final mainFiles = _foldTrailingEpisodeIntoStem(
+      _normalizeDashEpisodeSubtitles(rawMainFiles),
+    );
     final numberedSeries = mainFiles
-        .where((e) => e.kind == 'series' && e.episode != null && e.episode! >= 1)
+        .where(
+          (e) => e.kind == 'series' && e.episode != null && e.episode! >= 1,
+        )
         .toList();
     final hasNumberedTv = numberedSeries.length >= 2;
 
@@ -544,10 +585,12 @@ abstract final class MultiWorkSplitter {
             partKey: 'roman_${e.romanPartIndex}',
           );
         }
+        // 「引号副标题」只在体量接近剧场版时才视作独立剧场版，几十 MB 的引号短片（迷你剧场、PV）仍按特典处理。
         if (folderHasMovieMarker ||
             (folderTmdbId == null &&
                 e.quote != null &&
-                e.normStem != dominantSeriesNorm)) {
+                e.normStem != dominantSeriesNorm &&
+                (e.size <= 0 || e.size >= _minQuotedFeatureBytes))) {
           return e.copyWith(kind: 'movie');
         }
       }
@@ -627,7 +670,8 @@ abstract final class MultiWorkSplitter {
             e.ovaVolume != null ||
             e.exKey != null,
       );
-      final hasDatedSpinOff = unnumbered && item.value.any((e) => e.year != null);
+      final hasDatedSpinOff =
+          unnumbered && item.value.any((e) => e.year != null);
       if (folderTmdbId != null &&
           !hasExplicitStandaloneMarker &&
           !shortOverlappingRun &&
@@ -657,7 +701,10 @@ abstract final class MultiWorkSplitter {
     final eps = group.map((e) => e.episode!).toSet();
     if (eps.length != 2 || !eps.containsAll(const {1, 2})) return false;
     final rep = group.first;
-    if (!RegExp(r'\balternative\b', caseSensitive: false).hasMatch(rep.cleanStem)) {
+    if (!RegExp(
+      r'\balternative\b',
+      caseSensitive: false,
+    ).hasMatch(rep.cleanStem)) {
       return false;
     }
     return !RegExp(
@@ -753,7 +800,10 @@ abstract final class MultiWorkSplitter {
     if (first.exKey != null) {
       final baseNoEx = cleanStem
           .replaceAll(
-            RegExp(r'\s*[\[(（【]?\s*ex[ ._-]*\d*\s*[\])）】]?\s*$', caseSensitive: false),
+            RegExp(
+              r'\s*[\[(（【]?\s*ex[ ._-]*\d*\s*[\])）】]?\s*$',
+              caseSensitive: false,
+            ),
             '',
           )
           .trim();
@@ -797,7 +847,8 @@ abstract final class MultiWorkSplitter {
                   ? '后篇'
                   : null)
             : null);
-    final arcLabelMatch = first.partKey != null && first.partKey!.startsWith('hen:')
+    final arcLabelMatch =
+        first.partKey != null && first.partKey!.startsWith('hen:')
         ? RegExp(
             r'([a-z]{3,16}[\s._-]+hen|[\u4e00-\u9fff\u3040-\u30ff]{1,6}[編篇])(?![a-z0-9])',
             caseSensitive: false,
@@ -910,7 +961,9 @@ abstract final class MultiWorkSplitter {
         );
       }
     } else {
-      final byEp = <int, List<_FileEntry>>{};
+      // 区间文件按 (起始集, 结束集) 分桶，避免与单独的起始集文件并成多版本。
+      final byEp = <String, List<_FileEntry>>{};
+      final epOfKey = <String, ({int ep, int? end})>{};
       final usedEps = <int>{
         for (final f in group)
           if (f.episode != null) f.episode!,
@@ -927,7 +980,11 @@ abstract final class MultiWorkSplitter {
       for (final f in group) {
         final rawEp = f.episode ?? nextFreeEp();
         final normEp = rawEp - epOffset;
-        (byEp[normEp] ??= []).add(f);
+        final rawEnd = f.episode == null ? null : f.episodeEnd;
+        final normEnd = rawEnd == null ? null : rawEnd - epOffset;
+        final bucketKey = normEnd == null ? '$normEp' : '$normEp-$normEnd';
+        (byEp[bucketKey] ??= []).add(f);
+        epOfKey[bucketKey] = (ep: normEp, end: normEnd);
         assignments.add(
           SplitAssetAssignment(
             assetId: f.assetId,
@@ -935,17 +992,26 @@ abstract final class MultiWorkSplitter {
             category: 'main',
             season: assignSeason,
             episode: normEp,
+            episodeEnd: normEnd,
           ),
         );
       }
-      final sortedKeys = byEp.keys.toList()..sort();
-      for (final ep in sortedKeys) {
+      final sortedKeys = byEp.keys.toList()
+        ..sort((a, b) {
+          final ka = epOfKey[a]!;
+          final kb = epOfKey[b]!;
+          final c = ka.ep.compareTo(kb.ep);
+          return c != 0 ? c : (ka.end ?? 0).compareTo(kb.end ?? 0);
+        });
+      for (final bucketKey in sortedKeys) {
+        final info = epOfKey[bucketKey]!;
         final item = LogicalItem(
-          's${assignSeason}e$ep',
+          's${assignSeason}e$bucketKey',
           primaryTitle,
-          ep,
+          info.ep,
           clusterSeason ?? 1,
-        )..files.addAll([for (final f in byEp[ep]!) f.rel]);
+          episodeEnd: info.end,
+        )..files.addAll([for (final f in byEp[bucketKey]!) f.rel]);
         logicalMain.add(item);
       }
     }
@@ -1074,14 +1140,13 @@ abstract final class MultiWorkSplitter {
     final stemSource = exKey != null
         ? withoutQuote.replaceAll(_exTagPattern, ' ')
         : withoutQuote;
-    var cleanStem =
-        PersonalFilenameParser.extractAnimeTitleKeyword(stemSource)
-            .replaceAll(
-              RegExp(r'\s*[-–—]\s*\d{1,3}(?:v\d+)?(?:\s*[-–—]+)?\s*$'),
-              '',
-            )
-            .replaceAll(RegExp(r'\s+'), ' ')
-            .trim();
+    var cleanStem = PersonalFilenameParser.extractAnimeTitleKeyword(stemSource)
+        .replaceAll(
+          RegExp(r'\s*[-–—]\s*\d{1,3}(?:v\d+)?(?:\s*[-–—]+)?\s*$'),
+          '',
+        )
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
     if (cleanStem.isEmpty) {
       cleanStem = PersonalFilenameParser.extractAnimeTitleKeyword(
         PersonalFilenameParser.stripUnbracketedTechTokens(cleanName),
@@ -1152,7 +1217,17 @@ abstract final class MultiWorkSplitter {
         final numIdx = int.tryParse(hashMovieMatch.group(2)!);
         final sub = hashMovieMatch.group(3)!.trim();
         if (numIdx != null && numIdx >= 1 && numIdx <= 9 && sub.length >= 2) {
-          const romans = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'];
+          const romans = [
+            'I',
+            'II',
+            'III',
+            'IV',
+            'V',
+            'VI',
+            'VII',
+            'VIII',
+            'IX',
+          ];
           final roman = romans[numIdx - 1];
           effectiveCleanStem = '${hashMovieMatch.group(1)!.trim()} $roman $sub';
           effectiveRomanPartIndex = numIdx;
@@ -1168,11 +1243,11 @@ abstract final class MultiWorkSplitter {
         .replaceAll(RegExp(r'[\[(]\s*(?:19|20)\d{2}\s*[\])]'), ' ')
         .replaceAll(RegExp(r'\b(?:19|20)\d{2}\b'), ' ')
         .replaceFirst(RegExp(r'(?:\s*[-–—]+)+\s*$'), '');
-    final ep = hashMovieMatched
+    final span = (hashMovieMatched || exKey != null)
         ? null
-        : (exKey != null
-              ? exEp
-              : CloudMediaFileClassifier.episodeNumberFromName(epQuoteClean));
+        : CloudMediaFileClassifier.episodeSpanFromName(epQuoteClean);
+    final ep = hashMovieMatched ? null : (exKey != null ? exEp : span?.start);
+    final epEnd = span?.end;
     final hasEpisodeSubtitle =
         ep != null && ep >= 1 && _hasExplicitEpisodeSubtitle(strippedBase, ep);
     final kind = isMovie
@@ -1202,6 +1277,7 @@ abstract final class MultiWorkSplitter {
           );
 
     return _FileEntry(
+      size: (asset['size'] as num?)?.toInt() ?? 0,
       assetId: asset['id'].toString(),
       rel: rel,
       name: name,
@@ -1216,6 +1292,7 @@ abstract final class MultiWorkSplitter {
       partIndex: effectivePartIndex,
       kind: kind,
       episode: ep,
+      episodeEnd: epEnd,
       exKey: exKey,
       hdRemasterLabel: hdRemasterLabel,
       hashZeroSubtitle: hashZeroSubtitle,
@@ -1472,8 +1549,12 @@ abstract final class MultiWorkSplitter {
     for (var gi = 0; gi < groups.length; gi++) {
       final rep = groups[gi].first;
       final groupNorm = DirectoryAnalyzer.normalize(rep.cleanStem);
-      final sampleRaw = groups[gi].map((e) => '${e.subDir} ${e.name}').join(' ');
-      final sampleClean = CloudMediaFileClassifier.stripTechnicalNoise(sampleRaw);
+      final sampleRaw = groups[gi]
+          .map((e) => '${e.subDir} ${e.name}')
+          .join(' ');
+      final sampleClean = CloudMediaFileClassifier.stripTechnicalNoise(
+        sampleRaw,
+      );
       final sampleLower = sampleClean.toLowerCase();
       final sampleNorm = DirectoryAnalyzer.normalize(sampleClean);
       final groupAscii = asciiTokens('${rep.cleanStem} $sampleClean').toSet();
@@ -1490,9 +1571,11 @@ abstract final class MultiWorkSplitter {
           if (groupNorm == segNorm) {
             lexicalScore += 300;
           } else if (segNorm.length >= 2 && groupNorm.contains(segNorm)) {
-            lexicalScore += 140 - (groupNorm.length - segNorm.length).clamp(0, 60);
+            lexicalScore +=
+                140 - (groupNorm.length - segNorm.length).clamp(0, 60);
           } else if (groupNorm.length >= 2 && segNorm.contains(groupNorm)) {
-            lexicalScore += 140 - (segNorm.length - groupNorm.length).clamp(0, 60);
+            lexicalScore +=
+                140 - (segNorm.length - groupNorm.length).clamp(0, 60);
           }
         }
 
@@ -1673,9 +1756,7 @@ abstract final class MultiWorkSplitter {
           ' ',
         )
         .replaceAll(
-          RegExp(
-            r'予告|預告|预告|特報|メイキング|ノンクレジット|ノンクレ|映像特典|特典|メニュ[ー一]',
-          ),
+          RegExp(r'予告|預告|预告|特報|メイキング|ノンクレジット|ノンクレ|映像特典|特典|メニュ[ー一]'),
           ' ',
         );
     return DirectoryAnalyzer.normalize(s);
@@ -1719,7 +1800,11 @@ abstract final class MultiWorkSplitter {
     );
     final extraSubClean = extra.subDir
         .split('/')
-        .where((s) => s.isNotEmpty && !CloudMediaFileClassifier.isSupplementaryDirectory(s))
+        .where(
+          (s) =>
+              s.isNotEmpty &&
+              !CloudMediaFileClassifier.isSupplementaryDirectory(s),
+        )
         .join(' ');
     final extraTokens = _distinctiveTokens('$cleanExtraName $extraSubClean');
     final extraCleanNorm = _cleanExtraNormalizedStem(extra.name);
@@ -1797,7 +1882,8 @@ abstract final class MultiWorkSplitter {
           score += 55;
         } else if (cNorm.length >= 4 && extraCleanNorm.contains(cNorm)) {
           score += 15 + cNorm.length.clamp(4, 40);
-        } else if (extraCleanNorm.length >= 4 && cNorm.contains(extraCleanNorm)) {
+        } else if (extraCleanNorm.length >= 4 &&
+            cNorm.contains(extraCleanNorm)) {
           score += 12 + extraCleanNorm.length.clamp(4, 40);
         }
       }
@@ -1848,9 +1934,9 @@ class _FranchiseStems {
     if (leafStem != null && leafStem!.isNotEmpty) return leafStem;
     if (grandparentStem != null &&
         grandparentStem!.isNotEmpty &&
-        DirectoryAnalyzer.normalize(leafClean).contains(
-          DirectoryAnalyzer.normalize(grandparentStem!),
-        )) {
+        DirectoryAnalyzer.normalize(
+          leafClean,
+        ).contains(DirectoryAnalyzer.normalize(grandparentStem!))) {
       return grandparentStem;
     }
     return null;
@@ -1871,6 +1957,7 @@ class _FileEntry {
     this.partKey,
     this.partIndex,
     this.episode,
+    this.episodeEnd,
     this.exKey,
     this.hdRemasterLabel,
     this.hashZeroSubtitle,
@@ -1881,6 +1968,7 @@ class _FileEntry {
     this.isHashZeroOva = false,
     this.ovaVolume,
     this.baseSeriesStem,
+    this.size = 0,
   });
 
   final String assetId;
@@ -1895,6 +1983,7 @@ class _FileEntry {
   final String? partKey;
   final int? partIndex;
   final int? episode;
+  final int? episodeEnd;
   final String? exKey;
   final String? hdRemasterLabel;
   final String? hashZeroSubtitle;
@@ -1905,6 +1994,9 @@ class _FileEntry {
   final bool isHashZeroOva;
   final int? ovaVolume;
   final String? baseSeriesStem;
+
+  /// 文件字节大小（未知时为 0）。
+  final int size;
 
   _FileEntry copyWith({
     String? kind,
@@ -1932,6 +2024,10 @@ class _FileEntry {
     partKey: partKey ?? this.partKey,
     partIndex: partIndex ?? this.partIndex,
     episode: clearEpisode ? null : (episode ?? this.episode),
+    // 集号被改写（或清空）后原区间不再可信，一并清除。
+    episodeEnd: (clearEpisode || (episode != null && episode != this.episode))
+        ? null
+        : episodeEnd,
     exKey: exKey,
     hdRemasterLabel: hdRemasterLabel,
     hashZeroSubtitle: hashZeroSubtitle,
@@ -1942,5 +2038,6 @@ class _FileEntry {
     isHashZeroOva: isHashZeroOva ?? this.isHashZeroOva,
     ovaVolume: ovaVolume ?? this.ovaVolume,
     baseSeriesStem: baseSeriesStem ?? this.baseSeriesStem,
+    size: size,
   );
 }

@@ -11,6 +11,10 @@ The media_kit and media_kit_video packages retain their respective LICENSE files
 Release-group name data is derived from https://github.com/filebot/data under
 CC0 1.0. Its notice is retained in assets/licenses/filebot-data.txt; the generated
 lookup contains literal names only and does not execute upstream expressions.
+Bangumi-to-TMDB identifier mappings are derived from Wikidata (properties
+P5732, P4983 and P4947) under CC0 1.0. Its notice is retained in
+assets/licenses/wikidata-cc0.txt; the generated lookup contains numeric
+identifiers only and is used as a matching signal, never as a sole decision.
 Bangumi Archive is downloaded or imported at the user's request. Its snapshot
 and generated database are not bundled in this source repository or app package.
 

@@ -90,6 +90,195 @@ class PersonalFilenameParser {
     return p.basenameWithoutExtension(base).trim();
   }
 
+  static final _groupLikeSuffix = RegExp(
+    r'(?:[-_ .]raws?|[-_ .]sub(?:s|bers)?|sub(?:s)?|字幕组|字幕組|字幕社|汉化组|漢化組|压制组|壓制組|'
+    r'(?<![a-z])studio|fansubs?|[-_]rip)$',
+    caseSensitive: false,
+  );
+
+  /// 驼峰式 `XxxRaws`/`XXXRAW` 组名后缀（区分大小写，避免误伤 `Draw` 这类普通单词）。
+  static final _camelRawSuffix = RegExp(r'(?<=[A-Za-z0-9])(?:Raws|RAWS?|Raw)$');
+
+  /// 动画压制组/字幕组常用名（FileBot 组名词典以欧美组为主，此处补充动画领域高频组名，统一小写比较）。
+  static const _animeReleaseGroups = <String>{
+    'vcb-s',
+    'vcb-studio',
+    'dmg',
+    'airota',
+    'nekomoe kissaten',
+    'lolihouse',
+    'sakurato',
+    'flsnow',
+    'wbx',
+    'kamigami',
+    'uha-wings',
+    'liuyun',
+    'ktxp',
+    'popgo',
+    'fzsd',
+    'hakugetsu',
+    'mh',
+    'yydm',
+    'mabors',
+    'caso',
+    'kagura',
+    'moozzi2',
+    'reinforce',
+    'todokoi',
+    'sergey_krs',
+    'orion origin',
+    'tamersunion',
+    'nyamazing',
+    't.h.x',
+    'suzu-kaze',
+    'hyakuhuyu',
+    'jojo',
+    'sumisora',
+    'emd',
+    'stk',
+    'mmzy-sub',
+    'yui-7',
+    'enkanrec',
+    'tsdm',
+    'makarihoshiyume',
+    'rath',
+    'xspitfire911',
+    'aikatsufans',
+    'neo·qsw',
+    'u2-rip',
+    'cxraw',
+    'judas',
+    'erai-raws',
+    'subsplease',
+    'horriblesubs',
+    'ohys-raws',
+    'leopard-raws',
+    'nc-raws',
+    'lilith-raws',
+    'ani',
+    'skymoon-raws',
+    'sweetsub',
+    'beansub',
+    'comicat',
+    'mingy',
+    'philosophy-raws',
+  };
+
+  /// 中文组名在联合发布标签中常以 `社`/`组` 收尾（如 `粉羽社&超古代`），仅用于联合标签的分段判定。
+  static final _cjkGroupSuffix = RegExp(r'[社组組]$');
+
+  static bool _looksLikeGroupName(String value) =>
+      ReleaseGroups.contains(value) ||
+      _animeReleaseGroups.contains(value.trim().toLowerCase()) ||
+      _groupLikeSuffix.hasMatch(value) ||
+      _camelRawSuffix.hasMatch(value);
+
+  static final _groupJoiner = RegExp(
+    r'(?<!\s)[&＆](?!\s)|\s+[&＆]\s+|[ _.]feat[ _.]+|×',
+    caseSensitive: false,
+  );
+
+  /// 判断方括号标签是否为压制组/字幕组：命中组名词典、带典型组名后缀（`-Raws`、`Sub`、`Studio`、`字幕组` 等），
+  /// 或由 `&`/`feat.` 连接且至少一段可识别为组名的联合发布标签（如 `ANK&VCB-Studio`、`FLsnow_feat.AO`）。
+  static bool isReleaseGroupTag(String tag) {
+    final trimmed = tag.trim();
+    if (trimmed.isEmpty) return false;
+    if (_looksLikeGroupName(trimmed)) return true;
+    final parts = trimmed
+        .split(_groupJoiner)
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList(growable: false);
+    if (parts.length < 2) return false;
+    bool groupPart(String part) =>
+        _looksLikeGroupName(part) || _cjkGroupSuffix.hasMatch(part);
+    // 带空格的 ` & ` 多见于片名（`TIGER & BUNNY`），要求每段都像组名；紧贴的 `A&B` 只需任一段可识别。
+    return RegExp(r'\s[&＆]\s').hasMatch(trimmed)
+        ? parts.every(groupPart)
+        : parts.any(groupPart);
+  }
+
+  static final _bracketBlockPattern = RegExp(r'\[([^\]]*)\]|【([^】]*)】');
+
+  static final _episodeLikeBlock = RegExp(
+    r'^(?:s\d{1,2}[ ._-]?e\d{1,4}|(?:ep?|episode|#|bd|vol|第)?[ ._-]*\d{1,4}(?:\.\d)?(?:v\d+)?'
+    r'(?:\s*[-~&+]\s*\d{1,4}(?:v\d+)?)?(?:[ ._-]*(?:end|fin|final|[话話集]))?)$',
+    caseSensitive: false,
+  );
+
+  static final _genericMarkerBlock = RegExp(
+    r'^(?:ova|oad|oav|sps?|specials?|(?:the[ ._-]+)?movie|剧场版|劇場版|tv版?|extras?|bonus|'
+    r'menus?|pvs?|cms?|ncop|nced|live)$',
+    caseSensitive: false,
+  );
+
+  static final _languageOrPackageToken = RegExp(
+    r'^(?:简体|繁体|简繁|繁简|简日|繁日|简中|繁中|中日|双语|雙語|内嵌|內嵌|内封|內封|外挂|外掛|'
+    r'中字|中文字幕|生肉|gb|big5|chs|cht|jpsc|jptc|cn|jp|tvrip|dvdrip|bdrip|webrip|bd|dvd|web|tv|'
+    r'mp4|mkv|avi|\d{3,4}|\d{3,4}p|v\d+)$',
+    caseSensitive: false,
+  );
+
+  static bool _isLanguageOrPackageBlock(String block) {
+    final parts = block
+        .split(RegExp(r'[\s_+,&/|-]+'))
+        .where((s) => s.isNotEmpty)
+        .toList(growable: false);
+    return parts.isNotEmpty &&
+        parts.every(
+          (part) =>
+              _languageOrPackageToken.hasMatch(part) ||
+              _technicalPart.hasMatch(part),
+        );
+  }
+
+  /// 拆解全方括号文件名（`[组名][片名][副标题][集号][规格]`）：返回片名块与集号块之前的附加限定块文本。
+  /// 优先在集号块之前的候选块中取片名：候选不少于两个时首块为压制组位，仅一个时即片名；
+  /// 集号块之后的块（如 `[on air format]`、`[LIVE]`）只是版本或附加标签，不参与片名选择。
+  /// 非全方括号命名返回 `null`。
+  static ({String title, String qualifier})? _allBracketParts(String name) {
+    if (name.replaceAll(_bracketBlockPattern, '').trim().isNotEmpty) {
+      return null;
+    }
+    final before = <String>[];
+    final after = <String>[];
+    var seenEpisode = false;
+    for (final m in _bracketBlockPattern.allMatches(name)) {
+      final block = (m[1] ?? m[2]!).trim();
+      if (block.isEmpty || _isLanguageOrPackageBlock(block)) continue;
+      if (_episodeLikeBlock.hasMatch(block)) {
+        seenEpisode = true;
+        continue;
+      }
+      (seenEpisode ? after : before).add(block);
+    }
+    final pool = before.isNotEmpty ? before : after;
+    if (pool.isEmpty) return null;
+    var titleIndex = 0;
+    if (pool.length >= 2 &&
+        (isReleaseGroupTag(pool.first) ||
+            !_genericMarkerBlock.hasMatch(pool[1]))) {
+      titleIndex = 1;
+    }
+    final qualifier = identical(pool, before)
+        ? pool.skip(titleIndex + 1).join(' ')
+        : '';
+    return (title: pool[titleIndex], qualifier: qualifier);
+  }
+
+  /// 全方括号命名中片名块之后、集号块之前的附加限定文本（如衍生短篇名 `Understanding ... in 5 Minutes`），
+  /// 用于区分同一目录内不同系列主干；非全方括号命名或无限定块时返回空串。
+  static String bracketSeriesQualifier(String fileName) {
+    var name = withoutTmdbMarkers(baseNameWithoutExtension(fileName));
+    name = _stripTechnicalBrackets(name.replaceAll(_crc32Bracket, ' '));
+    final parts = _allBracketParts(name);
+    if (parts == null) return '';
+    return parts.qualifier
+        .replaceAll(RegExp(r'[\s._-]*\d{1,4}(?:v\d+)?\s*$'), '')
+        .replaceAll('_', ' ')
+        .trim();
+  }
+
   /// 提供额外的候选片名线索供搜索比对，绝不破坏原始文件名语义。
   /// 仅命中字幕组词典不足以直接作为作品身份依据。
   static String? withoutKnownReleaseGroups(String filename) {
@@ -98,7 +287,7 @@ class PersonalFilenameParser {
       m,
     ) {
       final tag = (m[1] ?? m[2]!).trim();
-      return ReleaseGroups.contains(tag) ? ' ' : m[0]!;
+      return isReleaseGroupTag(tag) ? ' ' : m[0]!;
     }).trim();
     final separators = RegExp(r'-').allMatches(stripped).toList();
     // 限制尾缀探测深度；部分字幕组名内部自带连字符，须保持名称整体性。
@@ -146,6 +335,17 @@ class PersonalFilenameParser {
         if (!blocks.skip(i + 1).any((b) => RegExp(r'^\d{1,3}$').hasMatch(b))) {
           continue;
         }
+      }
+      // 压制组/字幕组块、纯技术或语言封装块、集号块与通用类型块（`[OVA]`、`[Live]`）都不是片名候选。
+      if (isReleaseGroupTag(block) ||
+          _isLanguageOrPackageBlock(block) ||
+          _episodeLikeBlock.hasMatch(block) ||
+          _genericMarkerBlock.hasMatch(block) ||
+          block
+              .split(RegExp(r'[\s_+.,/|&-]+'))
+              .where((s) => s.isNotEmpty)
+              .every(_technicalPart.hasMatch)) {
+        continue;
       }
       final technical = block.toLowerCase().split(RegExp(r'[\s_+,-]+'));
       if (technical.every(
@@ -196,9 +396,7 @@ class PersonalFilenameParser {
     final cleaned = pathOrName.replaceAllMapped(
       RegExp(r'\[([^\]]+)\]|【([^】]+)】'),
       (tag) {
-        return ReleaseGroups.contains((tag[1] ?? tag[2]!).trim())
-            ? ' '
-            : tag[0]!;
+        return isReleaseGroupTag((tag[1] ?? tag[2]!).trim()) ? ' ' : tag[0]!;
       },
     );
     if (cleaned != pathOrName) {
@@ -221,7 +419,8 @@ class PersonalFilenameParser {
     r'^(?:\d{3,4}[pi]|\d{3,5}x\d{3,5}|[248]k|(?:ma|hi)?\d{1,2}p|'
     r'(?:x|h)\.?26[45]|hevc|avc|av1|vp9|mpeg[24]|'
     r'(?:aac|flac|opus|ac3|eac3|dts(?:-?hd)?|truehd|alac|lpcm|mp3|ass|ssa|srt|sup|pgs)(?:x\d+)?|'
-    r'\d\.\d(?:ch)?|\dch|yuv(?:420|422|444)p?\d*|12bit|10bit|8bit|hdr10\+?|hdr|dv|sdr|'
+    r'\d\.\d(?:ch)?|\dch|yuv(?:420|422|444)p?\d*|12bits?|10bits?|8bits?|10bpp|8bpp|main\d{0,2}p?|als|'
+    r'hdr10\+?|hdr|dv|sdr|'
     '${KonataMediaExtensions.sourceTagAlternation}|'
     r'jpsc|jptc|jpchs|jpcht|chs|cht|sc|tc|gb|big5|jap|jpn|eng|dual[-_]?audio|multi[-_]?subs?|'
     '${KonataMediaExtensions.videoExtensionAlternation}|'
@@ -301,6 +500,10 @@ class PersonalFilenameParser {
 
     // 常见分隔符归一化（保留 12.5 这类半集小数点）
     name = name.replaceAll(RegExp(r'_|(?<!\d)\.|\.(?!5\b)'), ' ').trim();
+
+    // 全方括号命名直接取片名块，避免把首块压制组名当作片名。
+    final bracketParts = _allBracketParts(name);
+    if (bracketParts != null) name = bracketParts.title;
 
     // 去掉开头的字幕组/压制组标识（可能存在多个）
     name = _stripLeadingGroupTags(name);

@@ -63,7 +63,11 @@ class BangumiService {
         dedupeKey: 'bgm:$key',
       );
       if (response.statusCode != 200) {
-        if (response.statusCode >= 500 || response.statusCode == 429) {
+        // 重定向（镜像迁址时 POST 不会被自动跟随）与服务端错误均视为检索失败而非“无结果”，
+        // 交由调用方重试，避免整批作品静默丢失 Bangumi 匹配。
+        if (response.statusCode >= 500 ||
+            response.statusCode == 429 ||
+            (response.statusCode >= 300 && response.statusCode < 400)) {
           throw StateError('Bangumi 搜索失败: HTTP ${response.statusCode}');
         }
         return const <Map<String, Object?>>[];

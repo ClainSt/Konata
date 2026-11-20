@@ -1,8 +1,8 @@
-// 自动生成的 Drift 数据库映射代码，请勿手动修改。
+// GENERATED CODE - DO NOT MODIFY BY HAND
 
 part of 'konata_database.dart';
 
-/* Drift 自动生成的数据库映射代码，沿用内置规则豁免。 */ // ignore_for_file: type=lint
+// ignore_for_file: type=lint
 class $MediaSourcesTable extends MediaSources
     with TableInfo<$MediaSourcesTable, MediaSourceRow> {
   @override
@@ -2192,6 +2192,17 @@ class $EpisodesTable extends Episodes
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _episodeNumberEndMeta = const VerificationMeta(
+    'episodeNumberEnd',
+  );
+  @override
+  late final GeneratedColumn<int> episodeNumberEnd = GeneratedColumn<int>(
+    'episode_number_end',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   @override
   late final GeneratedColumnWithTypeConverter<EpisodeCategory, String>
   category = GeneratedColumn<String>(
@@ -2247,6 +2258,7 @@ class $EpisodesTable extends Episodes
     workId,
     seasonNumber,
     episodeNumber,
+    episodeNumberEnd,
     category,
     extraType,
     title,
@@ -2298,6 +2310,15 @@ class $EpisodesTable extends Episodes
         ),
       );
     }
+    if (data.containsKey('episode_number_end')) {
+      context.handle(
+        _episodeNumberEndMeta,
+        episodeNumberEnd.isAcceptableOrUnknown(
+          data['episode_number_end']!,
+          _episodeNumberEndMeta,
+        ),
+      );
+    }
     if (data.containsKey('title')) {
       context.handle(
         _titleMeta,
@@ -2340,6 +2361,10 @@ class $EpisodesTable extends Episodes
       episodeNumber: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}episode_number'],
+      ),
+      episodeNumberEnd: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}episode_number_end'],
       ),
       category: $EpisodesTable.$convertercategory.fromSql(
         attachedDatabase.typeMapping.read(
@@ -2396,6 +2421,9 @@ class EpisodeRow extends DataClass implements Insertable<EpisodeRow> {
   /// 集号或特典序号（未识别集号时保持 null，不强行兜底为 1）。
   final int? episodeNumber;
 
+  /// 多集合并文件的区间结束集号（null 表示单集；仅正片使用）。
+  final int? episodeNumberEnd;
+
   /// 分类（正片 / 特典）。
   final EpisodeCategory category;
 
@@ -2415,6 +2443,7 @@ class EpisodeRow extends DataClass implements Insertable<EpisodeRow> {
     required this.workId,
     required this.seasonNumber,
     this.episodeNumber,
+    this.episodeNumberEnd,
     required this.category,
     this.extraType,
     this.title,
@@ -2429,6 +2458,9 @@ class EpisodeRow extends DataClass implements Insertable<EpisodeRow> {
     map['season_number'] = Variable<int>(seasonNumber);
     if (!nullToAbsent || episodeNumber != null) {
       map['episode_number'] = Variable<int>(episodeNumber);
+    }
+    if (!nullToAbsent || episodeNumberEnd != null) {
+      map['episode_number_end'] = Variable<int>(episodeNumberEnd);
     }
     {
       map['category'] = Variable<String>(
@@ -2460,6 +2492,9 @@ class EpisodeRow extends DataClass implements Insertable<EpisodeRow> {
       episodeNumber: episodeNumber == null && nullToAbsent
           ? const Value.absent()
           : Value(episodeNumber),
+      episodeNumberEnd: episodeNumberEnd == null && nullToAbsent
+          ? const Value.absent()
+          : Value(episodeNumberEnd),
       category: Value(category),
       extraType: extraType == null && nullToAbsent
           ? const Value.absent()
@@ -2486,6 +2521,7 @@ class EpisodeRow extends DataClass implements Insertable<EpisodeRow> {
       workId: serializer.fromJson<String>(json['workId']),
       seasonNumber: serializer.fromJson<int>(json['seasonNumber']),
       episodeNumber: serializer.fromJson<int?>(json['episodeNumber']),
+      episodeNumberEnd: serializer.fromJson<int?>(json['episodeNumberEnd']),
       category: $EpisodesTable.$convertercategory.fromJson(
         serializer.fromJson<String>(json['category']),
       ),
@@ -2505,6 +2541,7 @@ class EpisodeRow extends DataClass implements Insertable<EpisodeRow> {
       'workId': serializer.toJson<String>(workId),
       'seasonNumber': serializer.toJson<int>(seasonNumber),
       'episodeNumber': serializer.toJson<int?>(episodeNumber),
+      'episodeNumberEnd': serializer.toJson<int?>(episodeNumberEnd),
       'category': serializer.toJson<String>(
         $EpisodesTable.$convertercategory.toJson(category),
       ),
@@ -2522,6 +2559,7 @@ class EpisodeRow extends DataClass implements Insertable<EpisodeRow> {
     String? workId,
     int? seasonNumber,
     Value<int?> episodeNumber = const Value.absent(),
+    Value<int?> episodeNumberEnd = const Value.absent(),
     EpisodeCategory? category,
     Value<ExtraKind?> extraType = const Value.absent(),
     Value<String?> title = const Value.absent(),
@@ -2534,6 +2572,9 @@ class EpisodeRow extends DataClass implements Insertable<EpisodeRow> {
     episodeNumber: episodeNumber.present
         ? episodeNumber.value
         : this.episodeNumber,
+    episodeNumberEnd: episodeNumberEnd.present
+        ? episodeNumberEnd.value
+        : this.episodeNumberEnd,
     category: category ?? this.category,
     extraType: extraType.present ? extraType.value : this.extraType,
     title: title.present ? title.value : this.title,
@@ -2550,6 +2591,9 @@ class EpisodeRow extends DataClass implements Insertable<EpisodeRow> {
       episodeNumber: data.episodeNumber.present
           ? data.episodeNumber.value
           : this.episodeNumber,
+      episodeNumberEnd: data.episodeNumberEnd.present
+          ? data.episodeNumberEnd.value
+          : this.episodeNumberEnd,
       category: data.category.present ? data.category.value : this.category,
       extraType: data.extraType.present ? data.extraType.value : this.extraType,
       title: data.title.present ? data.title.value : this.title,
@@ -2565,6 +2609,7 @@ class EpisodeRow extends DataClass implements Insertable<EpisodeRow> {
           ..write('workId: $workId, ')
           ..write('seasonNumber: $seasonNumber, ')
           ..write('episodeNumber: $episodeNumber, ')
+          ..write('episodeNumberEnd: $episodeNumberEnd, ')
           ..write('category: $category, ')
           ..write('extraType: $extraType, ')
           ..write('title: $title, ')
@@ -2580,6 +2625,7 @@ class EpisodeRow extends DataClass implements Insertable<EpisodeRow> {
     workId,
     seasonNumber,
     episodeNumber,
+    episodeNumberEnd,
     category,
     extraType,
     title,
@@ -2594,6 +2640,7 @@ class EpisodeRow extends DataClass implements Insertable<EpisodeRow> {
           other.workId == this.workId &&
           other.seasonNumber == this.seasonNumber &&
           other.episodeNumber == this.episodeNumber &&
+          other.episodeNumberEnd == this.episodeNumberEnd &&
           other.category == this.category &&
           other.extraType == this.extraType &&
           other.title == this.title &&
@@ -2606,6 +2653,7 @@ class EpisodesCompanion extends UpdateCompanion<EpisodeRow> {
   final Value<String> workId;
   final Value<int> seasonNumber;
   final Value<int?> episodeNumber;
+  final Value<int?> episodeNumberEnd;
   final Value<EpisodeCategory> category;
   final Value<ExtraKind?> extraType;
   final Value<String?> title;
@@ -2617,6 +2665,7 @@ class EpisodesCompanion extends UpdateCompanion<EpisodeRow> {
     this.workId = const Value.absent(),
     this.seasonNumber = const Value.absent(),
     this.episodeNumber = const Value.absent(),
+    this.episodeNumberEnd = const Value.absent(),
     this.category = const Value.absent(),
     this.extraType = const Value.absent(),
     this.title = const Value.absent(),
@@ -2629,6 +2678,7 @@ class EpisodesCompanion extends UpdateCompanion<EpisodeRow> {
     required String workId,
     required int seasonNumber,
     this.episodeNumber = const Value.absent(),
+    this.episodeNumberEnd = const Value.absent(),
     required EpisodeCategory category,
     this.extraType = const Value.absent(),
     this.title = const Value.absent(),
@@ -2644,6 +2694,7 @@ class EpisodesCompanion extends UpdateCompanion<EpisodeRow> {
     Expression<String>? workId,
     Expression<int>? seasonNumber,
     Expression<int>? episodeNumber,
+    Expression<int>? episodeNumberEnd,
     Expression<String>? category,
     Expression<String>? extraType,
     Expression<String>? title,
@@ -2656,6 +2707,7 @@ class EpisodesCompanion extends UpdateCompanion<EpisodeRow> {
       if (workId != null) 'work_id': workId,
       if (seasonNumber != null) 'season_number': seasonNumber,
       if (episodeNumber != null) 'episode_number': episodeNumber,
+      if (episodeNumberEnd != null) 'episode_number_end': episodeNumberEnd,
       if (category != null) 'category': category,
       if (extraType != null) 'extra_type': extraType,
       if (title != null) 'title': title,
@@ -2670,6 +2722,7 @@ class EpisodesCompanion extends UpdateCompanion<EpisodeRow> {
     Value<String>? workId,
     Value<int>? seasonNumber,
     Value<int?>? episodeNumber,
+    Value<int?>? episodeNumberEnd,
     Value<EpisodeCategory>? category,
     Value<ExtraKind?>? extraType,
     Value<String?>? title,
@@ -2682,6 +2735,7 @@ class EpisodesCompanion extends UpdateCompanion<EpisodeRow> {
       workId: workId ?? this.workId,
       seasonNumber: seasonNumber ?? this.seasonNumber,
       episodeNumber: episodeNumber ?? this.episodeNumber,
+      episodeNumberEnd: episodeNumberEnd ?? this.episodeNumberEnd,
       category: category ?? this.category,
       extraType: extraType ?? this.extraType,
       title: title ?? this.title,
@@ -2705,6 +2759,9 @@ class EpisodesCompanion extends UpdateCompanion<EpisodeRow> {
     }
     if (episodeNumber.present) {
       map['episode_number'] = Variable<int>(episodeNumber.value);
+    }
+    if (episodeNumberEnd.present) {
+      map['episode_number_end'] = Variable<int>(episodeNumberEnd.value);
     }
     if (category.present) {
       map['category'] = Variable<String>(
@@ -2738,6 +2795,7 @@ class EpisodesCompanion extends UpdateCompanion<EpisodeRow> {
           ..write('workId: $workId, ')
           ..write('seasonNumber: $seasonNumber, ')
           ..write('episodeNumber: $episodeNumber, ')
+          ..write('episodeNumberEnd: $episodeNumberEnd, ')
           ..write('category: $category, ')
           ..write('extraType: $extraType, ')
           ..write('title: $title, ')
@@ -7740,6 +7798,7 @@ typedef $$EpisodesTableCreateCompanionBuilder =
       required String workId,
       required int seasonNumber,
       Value<int?> episodeNumber,
+      Value<int?> episodeNumberEnd,
       required EpisodeCategory category,
       Value<ExtraKind?> extraType,
       Value<String?> title,
@@ -7753,6 +7812,7 @@ typedef $$EpisodesTableUpdateCompanionBuilder =
       Value<String> workId,
       Value<int> seasonNumber,
       Value<int?> episodeNumber,
+      Value<int?> episodeNumberEnd,
       Value<EpisodeCategory> category,
       Value<ExtraKind?> extraType,
       Value<String?> title,
@@ -7822,6 +7882,11 @@ class $$EpisodesTableFilterComposer
 
   ColumnFilters<int> get episodeNumber => $composableBuilder(
     column: $table.episodeNumber,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get episodeNumberEnd => $composableBuilder(
+    column: $table.episodeNumberEnd,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -7925,6 +7990,11 @@ class $$EpisodesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get episodeNumberEnd => $composableBuilder(
+    column: $table.episodeNumberEnd,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get category => $composableBuilder(
     column: $table.category,
     builder: (column) => ColumnOrderings(column),
@@ -7993,6 +8063,11 @@ class $$EpisodesTableAnnotationComposer
 
   GeneratedColumn<int> get episodeNumber => $composableBuilder(
     column: $table.episodeNumber,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get episodeNumberEnd => $composableBuilder(
+    column: $table.episodeNumberEnd,
     builder: (column) => column,
   );
 
@@ -8092,6 +8167,7 @@ class $$EpisodesTableTableManager
                 Value<String> workId = const Value.absent(),
                 Value<int> seasonNumber = const Value.absent(),
                 Value<int?> episodeNumber = const Value.absent(),
+                Value<int?> episodeNumberEnd = const Value.absent(),
                 Value<EpisodeCategory> category = const Value.absent(),
                 Value<ExtraKind?> extraType = const Value.absent(),
                 Value<String?> title = const Value.absent(),
@@ -8103,6 +8179,7 @@ class $$EpisodesTableTableManager
                 workId: workId,
                 seasonNumber: seasonNumber,
                 episodeNumber: episodeNumber,
+                episodeNumberEnd: episodeNumberEnd,
                 category: category,
                 extraType: extraType,
                 title: title,
@@ -8116,6 +8193,7 @@ class $$EpisodesTableTableManager
                 required String workId,
                 required int seasonNumber,
                 Value<int?> episodeNumber = const Value.absent(),
+                Value<int?> episodeNumberEnd = const Value.absent(),
                 required EpisodeCategory category,
                 Value<ExtraKind?> extraType = const Value.absent(),
                 Value<String?> title = const Value.absent(),
@@ -8127,6 +8205,7 @@ class $$EpisodesTableTableManager
                 workId: workId,
                 seasonNumber: seasonNumber,
                 episodeNumber: episodeNumber,
+                episodeNumberEnd: episodeNumberEnd,
                 category: category,
                 extraType: extraType,
                 title: title,

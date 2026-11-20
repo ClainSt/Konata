@@ -12,7 +12,6 @@ import '../../domain/repositories/file_system_gateway.dart';
 import '../../domain/repositories/library_repository.dart';
 import '../../domain/scraping/bangumi_models.dart';
 import '../../domain/scraping/scrape_domain_adapter.dart';
-import '../../domain/scraping/work_matcher.dart' as legacy;
 import '../../infrastructure/cache/photos_storage.dart';
 import '../../infrastructure/network/bangumi_service.dart';
 import '../../infrastructure/network/priority_http_scheduler.dart';
@@ -21,6 +20,7 @@ import '../../infrastructure/sources/directory_scanner.dart';
 import '../../infrastructure/sources/source_access_error.dart';
 import 'scrape_candidate_fetcher.dart';
 import 'scrape_compute_worker.dart';
+import 'scrape_match_resolver.dart';
 import 'scrape_progress.dart';
 import 'scrape_progress_tracker.dart';
 import 'scrape_work_persister.dart';
@@ -51,7 +51,12 @@ class ScrapeOrchestrator {
        _candidateFetcher = ScrapeCandidateFetcher(
          tmdbService,
          bangumiService: bangumiService,
-       );
+       ) {
+    _matchResolver = ScrapeMatchResolver(
+      fetcher: _candidateFetcher,
+      computeWorker: _computeWorker,
+    );
+  }
 
   final LibraryRepository _repository;
   final TmdbService _tmdbService;
@@ -62,6 +67,7 @@ class ScrapeOrchestrator {
   final ScrapeWorkPersister _persister;
   final ScrapeCandidateFetcher _candidateFetcher;
   final ScrapeComputeWorker _computeWorker;
+  late final ScrapeMatchResolver _matchResolver;
   final Map<int, int> _tmdbCollectionIdByTmdbId = <int, int>{};
 
   /// 对指定媒体源执行完整的扫描 + 四段漏斗刮削流水线。
@@ -463,104 +469,14 @@ class ScrapeOrchestrator {
     }
 
     // 阶段 3：Bangumi 在线优先匹配 -> 交叉关键词救回 TMDB 搜索 -> 合集父系列兜底 -> 双向互保重评。
-    final parentCtx = await _candidateFetcher.fetchParentCollectionContext(
+    final resolution = await _matchResolver.resolve(
       effectiveFolder,
-      onNetworkError: recordTmdbError,
+      tmdbUnavailable: tmdbNetworkError != null,
     );
-    var bgmCandidates = await _candidateFetcher.fetchBangumiCandidates(
-      effectiveFolder,
-      extraQueries: parentCtx.extraQueries,
-    );
-    var bgmEval = await _computeWorker.evaluateBangumiMatch(
-      effectiveFolder,
-      bgmCandidates,
-    );
-
-    var candidates = tmdbNetworkError != null
-        ? const <TmdbWorkDetail>[]
-        : await _candidateFetcher.fetchCandidateDetails(
-            effectiveFolder,
-            bangumiCandidate: bgmEval.best,
-            extraQueries: parentCtx.extraQueries,
-            onNetworkError: recordTmdbError,
-          );
-    var decision = await _computeWorker.evaluateMatch(
-      effectiveFolder,
-      candidates,
-      bangumiCandidates: bgmCandidates,
-    );
-
-    // 若独立子簇（如 `Accel World EX`）未命中独立 TMDB 条目且允许回退父系列，将父 TMDB 加入重评。
-    if (effectiveFolder.allowParentTmdbCandidate &&
-        parentCtx.parentDetail != null &&
-        decision.best == null) {
-      final pDetail = parentCtx.parentDetail!;
-      final mergedDetails = <String, TmdbWorkDetail>{
-        for (final c in candidates) '${c.mediaType.name}:${c.tmdbId}': c,
-        '${pDetail.mediaType.name}:${pDetail.tmdbId}': pDetail,
-      }.values.toList(growable: false);
-      final rescored = await _computeWorker.evaluateMatch(
-        effectiveFolder,
-        mergedDetails,
-        bangumiCandidates: bgmCandidates,
-      );
-      if (rescored.level != MatchLevel.unmatched) {
-        candidates = mergedDetails;
-        decision = rescored;
-      }
+    if (resolution.networkError != null) {
+      recordTmdbError(resolution.networkError!);
     }
-
-    // 当初轮 TMDB 未命中、跨源不一致被清空、或优胜条目缺少 16:9 横版背景图时，
-    // 使用已命中的 Bangumi 中/日文净化词干与年份进行二次 `/search/tv` 兜底救回。
-    final rescueBgmTarget = decision.bestBangumi ?? bgmEval.best;
-    if (tmdbNetworkError == null &&
-        rescueBgmTarget != null &&
-        (decision.best == null ||
-            (decision.best!.detail.backdropPath?.trim().isEmpty ?? true))) {
-      final rescued = await _candidateFetcher.rescueTmdbByBangumi(
-        effectiveFolder,
-        rescueBgmTarget.subject,
-        existingDetails: candidates,
-        onNetworkError: recordTmdbError,
-      );
-      if (rescued.length > candidates.length) {
-        candidates = rescued;
-        decision = await _computeWorker.evaluateMatch(
-          effectiveFolder,
-          candidates,
-          bangumiCandidates: bgmCandidates,
-        );
-      }
-    }
-
-    // 若 Bangumi 初搜落空但 TMDB 给出强候选，使用 TMDB 中/原名反向救回 Bangumi 条目。
-    if (bgmEval.tier == legacy.MatchTier.none &&
-        decision.best != null &&
-        _bangumiService != null) {
-      final tWinner = decision.best!.detail;
-      final rescueQueries = [
-        tWinner.title,
-        if (tWinner.originalTitle != null) tWinner.originalTitle!,
-        ...tWinner.aliases.take(2),
-      ].map((s) => s.trim()).where((s) => s.isNotEmpty).toSet().toList();
-      if (rescueQueries.isNotEmpty) {
-        final extraBgm = await _candidateFetcher.fetchBangumiCandidates(
-          effectiveFolder,
-          extraQueries: rescueQueries,
-        );
-        if (extraBgm.isNotEmpty) {
-          bgmCandidates = <int, BangumiSubjectCandidate>{
-            for (final b in bgmCandidates) b.id: b,
-            for (final b in extraBgm) b.id: b,
-          }.values.toList(growable: false);
-          decision = await _computeWorker.evaluateMatch(
-            effectiveFolder,
-            candidates,
-            bangumiCandidates: bgmCandidates,
-          );
-        }
-      }
-    }
+    final decision = resolution.decision;
 
     if (decision.level == MatchLevel.autoBind && decision.best != null) {
       final status = await _bindAndPersistDetail(
@@ -594,7 +510,7 @@ class ScrapeOrchestrator {
 
     final fallbackBgmCandidate =
         decision.bestBangumi ??
-        (tmdbNetworkError != null ? bgmEval.best : null);
+        (tmdbNetworkError != null ? resolution.bestBangumi : null);
     if (decision.best == null && fallbackBgmCandidate != null) {
       final bgmStatus =
           (tmdbNetworkError == null && decision.level == MatchLevel.autoBind)

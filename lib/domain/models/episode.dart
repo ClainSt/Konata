@@ -39,6 +39,7 @@ class Episode {
     required this.workId,
     required this.seasonNumber,
     this.episodeNumber,
+    this.episodeNumberEnd,
     this.category = EpisodeCategory.main,
     this.extraType,
     this.title,
@@ -58,6 +59,9 @@ class Episode {
   /// 集号或特典序号（无法提取编号的独立视频保持为空，绝不强行归为第 1 集）。
   final int? episodeNumber;
 
+  /// 多集合并文件的区间结束集号（`null` 表示单集；非空时必须大于 [episodeNumber]，仅用于正片）。
+  final int? episodeNumberEnd;
+
   /// 分类（正片或特典）。
   final EpisodeCategory category;
 
@@ -72,6 +76,16 @@ class Episode {
 
   /// 单集剧照路径。
   final String? stillPath;
+
+  /// 该条目覆盖的最后一集集号（单集时等于 [episodeNumber]）。
+  int? get lastEpisodeNumber => episodeNumberEnd ?? episodeNumber;
+
+  /// 是否为多集合并条目。
+  bool get isEpisodeRange =>
+      category == EpisodeCategory.main &&
+      episodeNumber != null &&
+      episodeNumberEnd != null &&
+      episodeNumberEnd! > episodeNumber!;
 
   /// 是否为特典/附加映像（非正片时为 `true`，供各选集列表统一判断徽章样式）。
   bool get isSpecial => category == EpisodeCategory.extra;

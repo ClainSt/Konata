@@ -50,6 +50,31 @@ class EpisodeRemapPlan {
   ({int seasonNumber, int episodeNumber})? resolve(int season, int episode) =>
       remappedSlots['$season:$episode'];
 
+  /// 解析多集合并文件区间 `[start, end]` 重映射后的结束集号。
+  ///
+  /// - 区间两端都不需要重映射时，原样返回 [end]；
+  /// - 起始集被重映射，且结束集映射到同一目标季、集号严格大于起始集映射结果时，返回映射后的结束集；
+  /// - 任一端映射失败、跨季，或区间内命中穿插特别篇时返回 `null`，调用方应退化为只保留起始集的单集。
+  int? resolveEpisodeEnd(int season, int start, int end) {
+    for (var ep = start; ep <= end; ep++) {
+      if (resolveSpecial(season, ep) != null) return null;
+    }
+    final first = resolve(season, start);
+    if (first == null) {
+      for (var ep = start + 1; ep <= end; ep++) {
+        if (resolve(season, ep) != null) return null;
+      }
+      return end;
+    }
+    final last = resolve(season, end);
+    if (last == null ||
+        last.seasonNumber != first.seasonNumber ||
+        last.episodeNumber <= first.episodeNumber) {
+      return null;
+    }
+    return last.episodeNumber;
+  }
+
   /// 查询指定原始季/集号是否被判定为穿插特别篇/总集篇。
   InterspersedSpecialMapping? resolveSpecial(int season, int episode) =>
       specialSlots['$season:$episode'];
@@ -76,9 +101,7 @@ class EpisodeRemapper {
     caseSensitive: false,
   );
 
-  static final RegExp _techNoiseBracket = RegExp(
-    r'^[\[\(（【].*?[\]\)）】]$',
-  );
+  static final RegExp _techNoiseBracket = RegExp(r'^[\[\(（【].*?[\]\)）】]$');
 
   static final RegExp _tokenSeparator = RegExp(r'[\s._\-!?！？:：()\[\]【】/\\+]+');
 
@@ -106,7 +129,8 @@ class EpisodeRemapper {
       );
       final category = slot?.category ?? parsed.category;
       if (category == EpisodeCategory.main) {
-        final season = slot?.seasonNumber ??
+        final season =
+            slot?.seasonNumber ??
             (matchedSeason != null && matchedSeason > 0
                 ? matchedSeason
                 : parsed.season);
@@ -114,9 +138,17 @@ class EpisodeRemapper {
             ? matchedSeason
             : (season > 0 ? season : 1);
         final ep = slot?.episodeNumber ?? parsed.episode;
+        final epEnd = slot?.episodeNumber == null ? null : slot?.episodeEnd;
         rawSeasons.add(effectiveSeason);
         if (ep != null && ep > 0) {
-          mainBySeason.putIfAbsent(effectiveSeason, () => {}).add(ep);
+          final covered = mainBySeason.putIfAbsent(effectiveSeason, () => {})
+            ..add(ep);
+          // 多集合并文件覆盖的后续集号同样参与绝对集号判定与重映射。
+          if (epEnd != null) {
+            for (var e = ep + 1; e <= epEnd; e++) {
+              covered.add(e);
+            }
+          }
           variantsBySeasonEp
               .putIfAbsent('$effectiveSeason:$ep', () => [])
               .add(variant);
@@ -134,12 +166,13 @@ class EpisodeRemapper {
       );
     }
 
-    final remappedSlots = Map<String, ({int seasonNumber, int episodeNumber})>.from(
-      computeRemapping(
-        tmdbSeasons: tmdbSeasons,
-        mainEpisodesBySeason: mainBySeason,
-      ),
-    );
+    final remappedSlots =
+        Map<String, ({int seasonNumber, int episodeNumber})>.from(
+          computeRemapping(
+            tmdbSeasons: tmdbSeasons,
+            mainEpisodesBySeason: mainBySeason,
+          ),
+        );
 
     final specialResult = _computeInterspersedSpecials(
       folder: folder,
@@ -177,10 +210,11 @@ class EpisodeRemapper {
     required List<TmdbSeasonSummary> tmdbSeasons,
     required Map<int, Set<int>> mainEpisodesBySeason,
   }) {
-    final validSeasons = tmdbSeasons
-        .where((s) => s.seasonNumber >= 1 && s.episodeCount > 0)
-        .toList()
-      ..sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
+    final validSeasons =
+        tmdbSeasons
+            .where((s) => s.seasonNumber >= 1 && s.episodeCount > 0)
+            .toList()
+          ..sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
     if (validSeasons.isEmpty || mainEpisodesBySeason.isEmpty) {
       return const {};
     }
@@ -269,12 +303,14 @@ class EpisodeRemapper {
     bool hasCandidate,
     Map<String, InterspersedSpecialMapping> specialSlots,
     Map<String, ({int seasonNumber, int episodeNumber})> remappedMain,
-  }) _computeInterspersedSpecials({
+  })
+  _computeInterspersedSpecials({
     required GroupedWorkFolder folder,
     required List<TmdbSeasonSummary> tmdbSeasons,
     required Map<int, Set<int>> mainBySeason,
     required Map<String, List<MediaVariant>> variantsBySeasonEp,
-    required Map<String, ({int seasonNumber, int episodeNumber})> alreadyRemapped,
+    required Map<String, ({int seasonNumber, int episodeNumber})>
+    alreadyRemapped,
     required List<TmdbEpisodeDetail> tmdbEpisodes,
     required List<BangumiEpisodeEntry> bangumiEpisodes,
   }) {
@@ -296,11 +332,11 @@ class EpisodeRemapper {
         continue;
       }
 
-      final seasonMainEps = tmdbEpisodes
-          .where((e) => e.seasonNumber == season)
-          .toList()
-        ..sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
-      final summaryCount = tmdbSeasons
+      final seasonMainEps =
+          tmdbEpisodes.where((e) => e.seasonNumber == season).toList()
+            ..sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
+      final summaryCount =
+          tmdbSeasons
               .where((s) => s.seasonNumber == season)
               .firstOrNull
               ?.episodeCount ??
@@ -320,13 +356,16 @@ class EpisodeRemapper {
       // 构造 Bangumi 播出时间轴与特殊标题线索。
       final bgmTimeline = _buildBangumiBroadcastTimeline(bangumiEpisodes);
       final claimedS0 = <int>{};
-      final candidates = <({
-        int rawEp,
-        double score,
-        String? fileHint,
-        BangumiEpisodeEntry? bgmEp,
-        TmdbEpisodeDetail? tmdbS0,
-      })>[];
+      final candidates =
+          <
+            ({
+              int rawEp,
+              double score,
+              String? fileHint,
+              BangumiEpisodeEntry? bgmEp,
+              TmdbEpisodeDetail? tmdbS0,
+            })
+          >[];
 
       for (var i = 0; i < eps.length; i++) {
         final rawEp = eps[i];
@@ -433,20 +472,20 @@ class EpisodeRemapper {
   _buildBangumiBroadcastTimeline(List<BangumiEpisodeEntry> bangumiEpisodes) {
     if (bangumiEpisodes.isEmpty) return const [];
 
-    final mainEps =
-        bangumiEpisodes.where((e) => e.type == 0).toList()
-          ..sort((a, b) {
-            final sa = a.sort ?? a.ep ?? 9999;
-            final sb = b.sort ?? b.ep ?? 9999;
-            return sa.compareTo(sb);
-          });
+    final mainEps = bangumiEpisodes.where((e) => e.type == 0).toList()
+      ..sort((a, b) {
+        final sa = a.sort ?? a.ep ?? 9999;
+        final sb = b.sort ?? b.ep ?? 9999;
+        return sa.compareTo(sb);
+      });
     if (mainEps.isEmpty) return const [];
 
-    final datedMain = mainEps
-        .map((e) => _parseAirDate(e.airDate))
-        .whereType<DateTime>()
-        .toList()
-      ..sort();
+    final datedMain =
+        mainEps
+            .map((e) => _parseAirDate(e.airDate))
+            .whereType<DateTime>()
+            .toList()
+          ..sort();
     final minMainDate = datedMain.isNotEmpty ? datedMain.first : null;
     final maxMainDate = datedMain.isNotEmpty ? datedMain.last : null;
 
@@ -479,21 +518,22 @@ class EpisodeRemapper {
       ];
     }
 
-    final merged = <({BangumiEpisodeEntry episode, bool isSp, DateTime? date})>[
-      for (final m in mainEps)
-        (episode: m, isSp: false, date: _parseAirDate(m.airDate)),
-      for (final sp in spEps)
-        (episode: sp, isSp: true, date: _parseAirDate(sp.airDate)),
-    ]..sort((a, b) {
-        if (a.date != null && b.date != null) {
-          final cmp = a.date!.compareTo(b.date!);
-          if (cmp != 0) return cmp;
-        }
-        if (a.isSp != b.isSp) return a.isSp ? 1 : -1;
-        final sa = a.episode.sort ?? a.episode.ep ?? 9999;
-        final sb = b.episode.sort ?? b.episode.ep ?? 9999;
-        return sa.compareTo(sb);
-      });
+    final merged =
+        <({BangumiEpisodeEntry episode, bool isSp, DateTime? date})>[
+          for (final m in mainEps)
+            (episode: m, isSp: false, date: _parseAirDate(m.airDate)),
+          for (final sp in spEps)
+            (episode: sp, isSp: true, date: _parseAirDate(sp.airDate)),
+        ]..sort((a, b) {
+          if (a.date != null && b.date != null) {
+            final cmp = a.date!.compareTo(b.date!);
+            if (cmp != 0) return cmp;
+          }
+          if (a.isSp != b.isSp) return a.isSp ? 1 : -1;
+          final sa = a.episode.sort ?? a.episode.ep ?? 9999;
+          final sb = b.episode.sort ?? b.episode.ep ?? 9999;
+          return sa.compareTo(sb);
+        });
 
     return [
       for (final item in merged)
@@ -564,7 +604,9 @@ class EpisodeRemapper {
         indexInLocalSequence >= seasonMainEps.length) {
       return null;
     }
-    final prevDate = _parseAirDate(seasonMainEps[indexInLocalSequence - 1].airDate);
+    final prevDate = _parseAirDate(
+      seasonMainEps[indexInLocalSequence - 1].airDate,
+    );
     final nextDate = _parseAirDate(seasonMainEps[indexInLocalSequence].airDate);
     if (prevDate == null || nextDate == null) return null;
     if (nextDate.difference(prevDate).inDays < 10) return null;

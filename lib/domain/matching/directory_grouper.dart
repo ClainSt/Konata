@@ -28,6 +28,7 @@ class EpisodeSlotAssignment {
     required this.category,
     required this.seasonNumber,
     this.episodeNumber,
+    this.episodeEnd,
     this.extraType,
     this.fractionalLabel,
     this.extraTitleHint,
@@ -42,6 +43,9 @@ class EpisodeSlotAssignment {
 
   /// 集号或特典序号（未解析集号保持 null）。
   final int? episodeNumber;
+
+  /// 多集合并文件的区间结束集号（仅正片；`null` 表示单集，非空时必大于 [episodeNumber]）。
+  final int? episodeEnd;
 
   /// 特典细分类型。
   final ExtraKind? extraType;
@@ -284,10 +288,7 @@ class DirectoryGrouper {
       if (entry.key.isNotEmpty &&
           !videoFolderKeys.contains(entry.key) &&
           SupplementaryFolderRules.isAudioOrScanPath(entry.key)) {
-        final ancestor = _findNearestAncestorFolder(
-          entry.key,
-          videoFolderKeys,
-        );
+        final ancestor = _findNearestAncestorFolder(entry.key, videoFolderKeys);
         if (ancestor != null) {
           buckets.putIfAbsent(ancestor, () => []).addAll(entry.value);
           continue;
@@ -358,8 +359,9 @@ class DirectoryGrouper {
       }
 
       final mainEpisodeSet = <int>{...strongMainEps};
-      var effectiveMainCount =
-          parsedVideos.where((p) => p.category == EpisodeCategory.main).length;
+      var effectiveMainCount = parsedVideos
+          .where((p) => p.category == EpisodeCategory.main)
+          .length;
       ParsedBdripRelease? singleMainCandidate;
       for (final p in parsedVideos) {
         if (p.category == EpisodeCategory.main) {
@@ -380,7 +382,8 @@ class DirectoryGrouper {
       }
 
       final sortedMainEps = mainEpisodeSet.toList()..sort();
-      final resolvedSeasonHint = folderHint.season ??
+      final resolvedSeasonHint =
+          folderHint.season ??
           (mainSeasons.length == 1 && mainSeasons.first > 1
               ? mainSeasons.first
               : null);

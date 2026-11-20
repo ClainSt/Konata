@@ -23,9 +23,18 @@ enum WorkShape {
 }
 
 class LogicalItem {
-  LogicalItem(this.key, this.title, this.episode, this.season);
+  LogicalItem(
+    this.key,
+    this.title,
+    this.episode,
+    this.season, {
+    this.episodeEnd,
+  });
   final String key, title;
   final int? episode, season;
+
+  /// 多集合并文件的区间结束集号（`null` 表示单集；非空时必大于 [episode]）。
+  final int? episodeEnd;
   final List<String> files = [];
 
   /// 归并至同一正片逻辑条目下的各压制版本归一化系列标题。
@@ -103,7 +112,13 @@ class DirectoryInventory {
 
   Set<int> get episodes => {
     for (final item in main)
-      if (item.episode != null) item.episode!,
+      if (item.episode != null)
+        for (
+          var e = item.episode!;
+          e <= (item.episodeEnd ?? item.episode!);
+          e++
+        )
+          e,
   };
   int get episodeCount => episodes.length;
   int get featureCount => main.where((item) => item.episode == null).length;
@@ -210,16 +225,21 @@ abstract final class DirectoryAnalyzer {
   );
 
   /// 参数 `[files]` 为相对于目录 `[folder]` 的路径列表（兼容 POSIX 与 Windows 分隔符）。
+  ///
+  /// [anchoredRoot] 表示该目录已按「标题 (年份)」或显式 ID 规范整理为单部作品，
+  /// 此时目录名本身就是作品名，不再按 `<标题> Extra/Specials` 解读为纯特典合集。
   static DirectoryInventory analyze(
     String folder,
-    Iterable<({String path, int? size})> files,
-  ) {
+    Iterable<({String path, int? size})> files, {
+    bool anchoredRoot = false,
+  }) {
     final normalizedFolder = folder.replaceAll('\\', '/');
     final name = p.posix.basename(normalizedFolder);
     final supplementaryFolder =
+        !anchoredRoot &&
         CloudMediaFileClassifier.isSupplementaryDirectory(name);
     final rawCleanTitle = cleanTitle(name);
-    final specialCollectionTitle = supplementaryFolder
+    final specialCollectionTitle = supplementaryFolder || anchoredRoot
         ? null
         : _extractSpecialCollectionTitle(rawCleanTitle);
     final title = specialCollectionTitle ?? rawCleanTitle;
@@ -236,16 +256,23 @@ abstract final class DirectoryAnalyzer {
         if (v.size != null && v.size! > 0) v.path: v.size!,
     };
 
+    final titleTokens = _pervasiveTitleTokens([
+      for (final v in videoEntries) p.posix.basename(v.path),
+    ]);
     for (final entry in videoEntries) {
       final path = entry.path;
       final file = p.posix.basename(path);
       final directory = p.posix.dirname(path) == '.'
           ? ''
           : p.posix.dirname(path);
-      final cleanFile = CloudMediaFileClassifier.stripTechnicalNoise(file);
-      final plainFile = _plain(file);
+      // 片名自带的特典词（如 `Shomin Sample`、`Special A`）不能作为特典判据，判定前先遮蔽。
+      final maskedFile = _maskTokens(file, titleTokens);
+      final cleanFile = CloudMediaFileClassifier.stripTechnicalNoise(
+        maskedFile,
+      );
+      final plainFile = _plain(maskedFile);
       if (supplementaryFolder ||
-          CloudMediaFileClassifier.isSupplementaryDirectory(directory) ||
+          CloudMediaFileClassifier.isSupplementarySubdirectory(directory) ||
           _unambiguousExtra.hasMatch(plainFile) ||
           CloudMediaFileClassifier.isPreview(cleanFile) ||
           CloudMediaFileClassifier.isNoCredit(cleanFile)) {
@@ -350,7 +377,8 @@ abstract final class DirectoryAnalyzer {
       final solePath = numbered.single.files.first;
       final soleBase = p.posix.basename(solePath);
       final hasMovieHint =
-          _movieMarker.hasMatch(name) || _movieMarker.hasMatch(_plain(soleBase));
+          _movieMarker.hasMatch(name) ||
+          _movieMarker.hasMatch(_plain(soleBase));
       final hasStrictEpisodicMarker = RegExp(
         r'(?<![a-z0-9])(?:s\d{1,2}[ ._-]*e\d{1,4}|ep[ ._-]*\d{1,4}|e\d{1,4}|\d{1,3}v\d+)\b|'
         r'第\s*\d{1,3}\s*[话話集]',
@@ -379,9 +407,10 @@ abstract final class DirectoryAnalyzer {
       for (final i in items)
         if (i.episode != null) ...i.titles.where(meaningful),
     };
+    // 蓝光原盘流文件（`00000.m2ts`）等纯数字名不构成独立剧场版标题。
     final featureTitles = {
       for (final i in items)
-        if (i.episode == null) i.title,
+        if (i.episode == null && meaningful(i.title)) i.title,
     };
     // 主干清晰、仅混有少量总集篇或短片花絮的目录仍属单一作品；
     // 只有同时包含多段规模相当的独立系列时才判定为混杂合集。
@@ -393,11 +422,17 @@ abstract final class DirectoryAnalyzer {
     }
     final episodic = perSeries.values.fold<int>(0, (a, b) => a + b);
     final dominant = perSeries.values.fold<int>(0, (a, b) => a > b ? a : b);
+    // 每个“系列主干”都只出现在一集里：主干实为逐集副标题（`01 - 某某`、`Stage1`），
+    // 而真正的混杂合集里各子系列都有多集且各自从第 1 集编号。
+    final perEpisodeSubtitles =
+        perSeries.isNotEmpty && perSeries.values.every((n) => n == 1);
     final WorkShape shape;
     if (items.isEmpty) {
       shape = WorkShape.empty;
     } else if (specialCollectionTitle == null &&
-        (episodeTitles.length >= 4 && dominant < episodic * 0.5 ||
+        (episodeTitles.length >= 4 &&
+                dominant < episodic * 0.5 &&
+                !perEpisodeSubtitles ||
             featureTitles.length >= 6 &&
                 featureTitles.length > episodeTitles.length * 4 &&
                 items.where((i) => i.episode != null).length < 6)) {
@@ -407,6 +442,38 @@ abstract final class DirectoryAnalyzer {
       shape = WorkShape.series;
     } else {
       shape = WorkShape.feature;
+    }
+
+    var multiSeasonStems = false;
+    if (shape == WorkShape.series && specialCollectionTitle == null) {
+      final separated = _separateSeriesStems(
+        items: items,
+        sizeByPath: sizeByPath,
+        extras: extras,
+        baseSeason: isMultiSeasonTitle(title)
+            ? 1
+            : (WorkSeason.explicit({'title': name}) ?? 1),
+      );
+      items = separated.items;
+      multiSeasonStems = separated.multiSeason;
+    }
+
+    // 连续剧目录中无集号的视频（剧场版总集篇、OVA、特别篇、LIVE 等）不属于正片序列，
+    // 只要编号正片占多数即整体降级为特典，交由特别篇槽位匹配。
+    if (shape == WorkShape.series && specialCollectionTitle == null) {
+      final numberedCount = items.where((i) => i.episode != null).length;
+      final unnumbered = items.where((i) => i.episode == null).toList();
+      if (numberedCount >= 2 &&
+          unnumbered.isNotEmpty &&
+          unnumbered.length < numberedCount) {
+        for (final item in unnumbered) {
+          extras.addAll(item.files);
+        }
+        items = [
+          for (final item in items)
+            if (item.episode != null) item,
+        ];
+      }
     }
 
     final fileHints = <String>[];
@@ -430,13 +497,15 @@ abstract final class DirectoryAnalyzer {
         allMain.any((f) => _movieMarker.hasMatch(_plain(f)));
     final isSeries = shape == WorkShape.series && !folderMovie && !fileMovie;
 
+    // 目录名声明了多季合辑（`S1+S2`、`S1-S3`、`X & X 第2期`）时整体季号无意义，逐集季号交由文件主干判定。
+    final multiSeasonFolder = isMultiSeasonTitle(title);
     int? inferredSeason = specialCollectionTitle != null
         ? 0
-        : WorkSeason.explicit({'title': name});
+        : (multiSeasonFolder ? null : WorkSeason.explicit({'title': name}));
     final titleHints = <String>[];
     hint(titleHints, title);
     final folderSplit = splitSeasonSuffix(title, isSeries: isSeries);
-    inferredSeason ??= folderSplit.season;
+    if (!multiSeasonFolder) inferredSeason ??= folderSplit.season;
     if (folderSplit.baseTitle != title) {
       hint(titleHints, folderSplit.baseTitle);
     }
@@ -461,7 +530,8 @@ abstract final class DirectoryAnalyzer {
     }
     final ranked = counts.keys.toList()
       ..sort((a, b) => counts[b]!.compareTo(counts[a]!));
-    if (ranked.isNotEmpty) {
+    // 目录内同时存在多季主干时，季号已逐集记录，不能再用出现最多的文件主干推断整体季号。
+    if (ranked.isNotEmpty && !multiSeasonStems) {
       final dominantFile = ranked.first;
       inferredSeason ??= CloudMediaAssetPresentation.explicitSeasonNumber({
         'work_title': dominantFile,
@@ -563,9 +633,9 @@ abstract final class DirectoryAnalyzer {
 
     // 2. 识别系列标题末尾罗马季度编号（`II / III / IV / Ⅱ / Ⅲ / Ⅳ`），
     //    自动排除机体型号或技术代号（如 `Mk-II`、`Mark II`、`Type II`、`Part II`）。
+    // 罗马数字必须全大写，避免把日文罗马音单词（如 `Tanin ga Ii`）误判为第 2 季。
     final romanTail = RegExp(
       r'^(.+?)\s+(II|III|IV|Ⅱ|Ⅲ|Ⅳ)$',
-      caseSensitive: false,
     ).firstMatch(trimmed);
     if (romanTail != null) {
       final base = romanTail.group(1)!.trim();
@@ -603,7 +673,13 @@ abstract final class DirectoryAnalyzer {
     if (supplementaryFolder || soft.isEmpty || main.isEmpty) return soft;
     final mainEpisodes = <int>{
       for (final item in main.values)
-        if (item.episode != null && item.episode! >= 1) item.episode!,
+        if (item.episode != null && item.episode! >= 1)
+          for (
+            var e = item.episode!;
+            e <= (item.episodeEnd ?? item.episode!);
+            e++
+          )
+            e,
     };
     if (mainEpisodes.length < 2) return soft;
 
@@ -702,6 +778,372 @@ abstract final class DirectoryAnalyzer {
     return kept;
   }
 
+  /// 片名自带的英文特典词：在不少于 70% 的视频片名关键词中出现、且单独即会触发特典判定的英文词元
+  /// （至少 3 个视频时才统计）。只遮蔽单个特典词，不拆散 `True Birth Edition` 这类特典短语。
+  static Set<String> _pervasiveTitleTokens(List<String> fileNames) {
+    if (fileNames.length < 3) return const {};
+    final counts = <String, int>{};
+    for (final name in fileNames) {
+      final keyword = PersonalFilenameParser.extractAnimeSearchKeyword(
+        name,
+      ).toLowerCase();
+      for (final token
+          in keyword
+              .split(RegExp(r'[^a-z0-9]+'))
+              .where((t) => t.length >= 2)
+              .toSet()) {
+        counts.update(token, (n) => n + 1, ifAbsent: () => 1);
+      }
+    }
+    return {
+      for (final e in counts.entries)
+        if (e.value >= fileNames.length * 0.7 &&
+            RegExp(r'[a-z]').hasMatch(e.key) &&
+            (_unambiguousExtra.hasMatch(e.key) ||
+                _ambiguousExtra.hasMatch(e.key) ||
+                CloudMediaFileClassifier.isClearlySupplementary('', e.key)))
+          e.key,
+    };
+  }
+
+  static String _maskTokens(String name, Set<String> tokens) {
+    if (tokens.isEmpty) return name;
+    var masked = name;
+    for (final token in tokens) {
+      masked = masked.replaceAll(
+        RegExp(
+          '(?<![a-z0-9])${RegExp.escape(token)}(?![a-z0-9])',
+          caseSensitive: false,
+        ),
+        ' ',
+      );
+    }
+    return masked;
+  }
+
+  static final _seasonRangeMarker = RegExp(
+    r'(?<![a-z0-9])s\d{1,2}\s*[+&＆~～\-–—]\s*s?\d{1,2}(?![a-z0-9])',
+    caseSensitive: false,
+  );
+  static final _seasonWordMarker = RegExp(
+    r'第\s*[0-9一二三四五六七八九十]+\s*[季期]|最终季|最終季|season\s*\d|\d(?:st|nd|rd|th)\s*season|(?<![a-z0-9])s\d{1,2}(?![a-z0-9])',
+    caseSensitive: false,
+  );
+
+  /// 目录名是否声明多季合辑：`S1+S2`/`S1-S3` 季号区间，或以 ` & ` 并列的多段中有两段带季标记，
+  /// 或带季标记的一段只是在重复另一段片名（`天地无用! 魉皇鬼 & 天地无用! 魉皇鬼 第2期`）。
+  static bool isMultiSeasonTitle(String title) {
+    if (_seasonRangeMarker.hasMatch(title)) return true;
+    final segments = title
+        .split(RegExp(r'\s+[&＆]\s+'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList(growable: false);
+    if (segments.length < 2) return false;
+    final marked = segments.where(_seasonWordMarker.hasMatch).toList();
+    if (marked.length >= 2) return true;
+    if (marked.length != 1) return false;
+    final markedBase = normalize(
+      marked.single.replaceAll(_seasonWordMarker, ' '),
+    );
+    return segments.where((s) => !identical(s, marked.single)).any((s) {
+      final other = normalize(s);
+      return other.length >= 2 && markedBase.startsWith(other);
+    });
+  }
+
+  static final _leadingReleaseGroup = RegExp(r'^\s*[\[【]([^\]】]+)[\]】]');
+  static final _stemMovieMarker = RegExp(
+    r'剧场版|劇場版|映画|movie|gekijou?ban',
+    caseSensitive: false,
+  );
+  static final _modelNumberPrefixTail = RegExp(
+    r'(?:mk|mark|type|ver|vol|part|no)$',
+    caseSensitive: false,
+  );
+  static final _wholeSeasonToken = RegExp(
+    r'^(?:(ii|iii|iv)|r?([2-9])|s([2-9])|season([2-9])|([2-9])(?:nd|rd|th)season|'
+    r'(second|third|fourth)(?:season)?|第([二三四五六七八九2-9])[期季]|([2-9])期|x([2-9]))$',
+  );
+  static final _embeddedSeasonToken = RegExp(
+    r'(?:^|[^0-9])([2-9])(?:nd|rd|th)|season([2-9])|(second|third|fourth)season',
+  );
+  static final _bangOnlySuffix = RegExp(r'^!+$');
+
+  /// 从「与主干公共前缀之后的后缀」中读取续季序号（归一化小写文本）。
+  static int? _stemSeasonFromSuffix(String suffix) {
+    if (suffix.isEmpty) return null;
+    if (_bangOnlySuffix.hasMatch(suffix)) {
+      return suffix.length >= 2 ? suffix.length : null;
+    }
+    final whole = _wholeSeasonToken.firstMatch(suffix);
+    if (whole != null) {
+      final roman = whole.group(1);
+      if (roman != null) return const {'ii': 2, 'iii': 3, 'iv': 4}[roman];
+      final word = whole.group(6);
+      if (word != null) {
+        return const {'second': 2, 'third': 3, 'fourth': 4}[word];
+      }
+      final cn = whole.group(7);
+      if (cn != null) {
+        return int.tryParse(cn) ??
+            const {
+              '二': 2,
+              '三': 3,
+              '四': 4,
+              '五': 5,
+              '六': 6,
+              '七': 7,
+              '八': 8,
+              '九': 9,
+            }[cn];
+      }
+      for (final g in [2, 3, 4, 5, 8, 9]) {
+        final v = whole.group(g);
+        if (v != null) return int.parse(v);
+      }
+    }
+    final embedded = _embeddedSeasonToken.firstMatch(suffix);
+    if (embedded != null) {
+      final word = embedded.group(3);
+      if (word != null) {
+        return const {'second': 2, 'third': 3, 'fourth': 4}[word];
+      }
+      return int.parse(embedded.group(1) ?? embedded.group(2)!);
+    }
+    return null;
+  }
+
+  static int _commonPrefixLength(String a, String b) {
+    final n = a.length < b.length ? a.length : b.length;
+    var i = 0;
+    while (i < n && a.codeUnitAt(i) == b.codeUnitAt(i)) {
+      i++;
+    }
+    return i;
+  }
+
+  static int _trailingBangs(String raw) {
+    final m = RegExp(r'([!！]+)\s*$').firstMatch(raw.trim());
+    return m == null ? 0 : m.group(1)!.length;
+  }
+
+  /// 同一作品目录内按系列主干拆分编号正片，避免不同主干的同号剧集被误并为同一集的多个版本：
+  /// 1. 后缀带续季标记（`II`、`2`、`R2`、`2nd`、`!!` 等）的主干改记对应季号；
+  /// 2. 不同压制组对同一正片的不同命名保持为多版本；
+  /// 3. 体积显著偏小、带剧场版标记或集数明显偏少的衍生主干（迷你动画、短篇、总集剧场版）降级为特典；
+  /// 4. 以主干为严格前缀且集数规模相当的主干视为下一季。
+  static ({List<LogicalItem> items, bool multiSeason}) _separateSeriesStems({
+    required List<LogicalItem> items,
+    required Map<String, int> sizeByPath,
+    required List<String> extras,
+    required int baseSeason,
+  }) {
+    final records = <({String path, String stem, int episode})>[];
+    for (final item in items) {
+      if (item.episode == null || item.season != null) continue;
+      for (var i = 0; i < item.files.length; i++) {
+        records.add((
+          path: item.files[i],
+          stem: i < item.titles.length ? item.titles[i] : item.title,
+          episode: item.episode!,
+        ));
+      }
+    }
+    final byStem = <String, List<({String path, String stem, int episode})>>{};
+    for (final r in records) {
+      (byStem[r.stem] ??= []).add(r);
+    }
+    if (byStem.length < 2) return (items: items, multiSeason: false);
+    // 每个主干只覆盖一集且集号互不重复：主干实为逐集副标题（`[14]新·小哥斯拉的逆袭`），
+    // 不是需要拆季或降级为特典的多部系列。
+    final stemEpisodes = [
+      for (final rs in byStem.values) {for (final r in rs) r.episode},
+    ];
+    if (stemEpisodes.every((eps) => eps.length == 1) &&
+        {for (final eps in stemEpisodes) ...eps}.length == byStem.length) {
+      return (items: items, multiSeason: false);
+    }
+
+    // 各主干的集号集合、中位/总体积与发布组只计算一次，避免排序比较器内反复遍历。
+    final epsByStem = <String, Set<int>>{};
+    final medianByStem = <String, double>{};
+    final totalByStem = <String, int>{};
+    final groupsByStem = <String, Set<String>>{};
+    for (final entry in byStem.entries) {
+      final sizes = [for (final r in entry.value) ?sizeByPath[r.path]]..sort();
+      epsByStem[entry.key] = {for (final r in entry.value) r.episode};
+      medianByStem[entry.key] = sizes.isEmpty
+          ? 0
+          : sizes[sizes.length ~/ 2].toDouble();
+      totalByStem[entry.key] = sizes.fold<int>(0, (sum, s) => sum + s);
+      groupsByStem[entry.key] = {
+        for (final r in entry.value)
+          if (_leadingReleaseGroup.firstMatch(p.posix.basename(r.path))
+              case final m?)
+            m.group(1)!.trim().toLowerCase(),
+      };
+    }
+    Set<int> epsOf(String stem) => epsByStem[stem]!;
+    double medianSize(String stem) => medianByStem[stem]!;
+    Set<String> groupsOf(String stem) => groupsByStem[stem]!;
+    int totalSize(String stem) => totalByStem[stem]!;
+    // 主干优先级：集数过少（不足 3 集且存在更长序列）者不参与竞争；其次不带剧场版标记者优先，
+    // 再按总体积衡量正片体量，避免集数更多的迷你短篇或单个超大活动录像被误选为正片主干。
+    final maxCount = byStem.keys.fold<int>(
+      0,
+      (m, k) => epsOf(k).length > m ? epsOf(k).length : m,
+    );
+    final minEligible = maxCount < 3 ? maxCount : 3;
+    final stems = byStem.keys.toList()
+      ..sort((a, b) {
+        final aEligible = epsOf(a).length >= minEligible;
+        final bEligible = epsOf(b).length >= minEligible;
+        if (aEligible != bEligible) return aEligible ? -1 : 1;
+        final aMovie = _stemMovieMarker.hasMatch(a);
+        final bMovie = _stemMovieMarker.hasMatch(b);
+        if (aMovie != bMovie) return aMovie ? 1 : -1;
+        final bySize = totalSize(b).compareTo(totalSize(a));
+        if (bySize != 0) return bySize;
+        final byCount = epsOf(b).length.compareTo(epsOf(a).length);
+        if (byCount != 0) return byCount;
+        return a.length.compareTo(b.length);
+      });
+    final dominant = stems.first;
+    final domEps = epsOf(dominant);
+    final domSize = medianSize(dominant);
+    final domGroups = groupsOf(dominant);
+
+    final seasonByStem = <String, int>{};
+    final extraStems = <String>{};
+    for (final stem in stems.skip(1)) {
+      final eps = epsOf(stem);
+      final stemGroups = groupsOf(stem);
+      final disjointGroups =
+          domGroups.isNotEmpty &&
+          stemGroups.isNotEmpty &&
+          domGroups.intersection(stemGroups).isEmpty;
+      final size = medianSize(stem);
+      final muchSmaller = domSize > 0 && size > 0 && size < domSize * 0.45;
+      if (eps.intersection(domEps).isEmpty) {
+        // 集号不重叠时多为同一正片序列的分卷命名差异；仅同组且体积显著偏小的短篇降级为特典。
+        if (muchSmaller && !disjointGroups) extraStems.add(stem);
+        continue;
+      }
+      final prefix = _commonPrefixLength(dominant, stem);
+      final domSuffix = dominant.substring(prefix);
+      final stemSuffix = stem.substring(prefix);
+      final guardedPrefix = _modelNumberPrefixTail.hasMatch(
+        dominant.substring(0, prefix),
+      );
+      // 仅由感叹号数量区分的续季（`Working!!`）要求另一侧后缀为空且出自同一发布组；
+      // 若另一侧带有其他后缀（`Haikyuu!!` 对 `Haikyuu!! 2nd Season`），感叹号只是片名的一部分。
+      int? seasonOf(String suffix, String otherSuffix) {
+        if (guardedPrefix) return null;
+        if (_bangOnlySuffix.hasMatch(suffix) &&
+            (otherSuffix.isNotEmpty || disjointGroups)) {
+          return null;
+        }
+        return _stemSeasonFromSuffix(suffix);
+      }
+
+      final domSeason = seasonOf(domSuffix, stemSuffix);
+      final stemSeason = seasonOf(stemSuffix, domSuffix);
+      final comparable =
+          !muchSmaller && eps.length >= (domEps.length * 0.5).clamp(3, 6);
+      final domSide =
+          domSeason != null ||
+          domSuffix.isEmpty ||
+          (stemSeason != null && comparable);
+      final stemSide =
+          stemSeason != null ||
+          stemSuffix.isEmpty ||
+          (domSeason != null && comparable);
+      if ((domSeason != null || stemSeason != null) &&
+          domSide &&
+          stemSide &&
+          (domSeason ?? baseSeason) != (stemSeason ?? baseSeason)) {
+        seasonByStem[dominant] = domSeason ?? baseSeason;
+        seasonByStem[stem] = stemSeason ?? baseSeason;
+        continue;
+      }
+      if (disjointGroups) continue;
+      if (muchSmaller) {
+        extraStems.add(stem);
+        continue;
+      }
+      if (_stemMovieMarker.hasMatch(stem) &&
+          !_stemMovieMarker.hasMatch(dominant)) {
+        extraStems.add(stem);
+        continue;
+      }
+      final minSeasonCount = domEps.length * 0.5 > 6 ? domEps.length * 0.5 : 6;
+      if (domSuffix.isEmpty &&
+          stemSuffix.isNotEmpty &&
+          eps.length >= minSeasonCount) {
+        seasonByStem[dominant] = seasonByStem[dominant] ?? baseSeason;
+        seasonByStem[stem] = baseSeason + 1;
+        continue;
+      }
+      if (eps.length < domEps.length * 0.5) {
+        extraStems.add(stem);
+      }
+    }
+    if (seasonByStem.isEmpty && extraStems.isEmpty) {
+      return (items: items, multiSeason: false);
+    }
+
+    final stemByPath = {for (final r in records) r.path: r.stem};
+    final rebuilt = <String, LogicalItem>{};
+    for (final item in items) {
+      for (var i = 0; i < item.files.length; i++) {
+        final path = item.files[i];
+        final title = i < item.titles.length ? item.titles[i] : item.title;
+        final stem = stemByPath[path];
+        if (stem != null && extraStems.contains(stem)) {
+          extras.add(path);
+          continue;
+        }
+        final season = stem == null ? item.season : seasonByStem[stem];
+        final key = item.episode == null
+            ? item.key
+            : 'e:${season ?? item.season ?? ''}:${item.episode}'
+                  '${item.episodeEnd == null ? '' : '-${item.episodeEnd}'}';
+        (rebuilt[key] ??= LogicalItem(
+            key,
+            title,
+            item.episode,
+            season ?? item.season,
+            episodeEnd: item.episodeEnd,
+          ))
+          ..files.add(path)
+          ..titles.add(title);
+      }
+    }
+    return (
+      items: rebuilt.values.toList(),
+      multiSeason: seasonByStem.isNotEmpty,
+    );
+  }
+
+  /// 编号正片的系列主干键：片名主干 + 全方括号命名中的衍生副标题块，
+  /// 片名以两个及以上感叹号收尾时保留感叹号（`Working!!`、`Hataraku Maou-sama!!` 等以此区分续季）。
+  static String _seriesStem(String file, int episode) {
+    final series = seriesTitle(
+      PersonalFilenameParser.extractAnimeSearchKeyword(file),
+      episode,
+      rawFile: file,
+    );
+    final qualifier = PersonalFilenameParser.bracketSeriesQualifier(file);
+    final bangs = _trailingBangs(series);
+    return normalize('$series $qualifier') + (bangs >= 2 ? '!' * bangs : '');
+  }
+
+  static final RegExp _seasonEpisodeMarker = RegExp(
+    r'(?<![a-z0-9])s(\d{1,2})(?:[ ._-]*e\d{1,4}|[ ._-]+-)',
+    caseSensitive: false,
+  );
+
   static void _add(
     Map<String, LogicalItem> main,
     String directory,
@@ -710,36 +1152,37 @@ abstract final class DirectoryAnalyzer {
     bool promoted = false,
     int? episodeOverride,
   }) {
-    final episode =
-        episodeOverride ??
-        CloudMediaFileClassifier.episodeNumberFromNameInDirectory(
-          directory,
-          file,
-        );
-    final season = RegExp(
-      r'(?<![a-z0-9])s(\d{1,2})(?:[ ._-]*e\d{1,4}|[ ._-]+-)',
-      caseSensitive: false,
-    ).firstMatch(file);
-    final core = versionKey(file);
-    final title = episode == null
-        ? core
-        : normalize(
-            seriesTitle(
-              PersonalFilenameParser.extractAnimeSearchKeyword(file),
-              episode,
-              rawFile: file,
-            ),
+    final span = episodeOverride != null
+        ? null
+        : CloudMediaFileClassifier.episodeSpanFromNameInDirectory(
+            directory,
+            file,
           );
+    final episode = episodeOverride ?? span?.start;
+    final season = _seasonEpisodeMarker.firstMatch(file);
+    // 多集合并文件：仅正片、非提升/覆盖场景才识别区间结束集（廉价条件在前，特典判定最后执行）。
+    final rangeEnd = span?.end;
+    final episodeEnd =
+        rangeEnd == null ||
+            promoted ||
+            CloudMediaFileClassifier.isClearlySupplementary(directory, file)
+        ? null
+        : rangeEnd;
+    final core = versionKey(file);
+    final title = episode == null ? core : _seriesStem(file, episode);
     // 同一集的多种压制版本按 `(season, number)` 键折叠去重；
+    // 区间文件键含结束集，避免与单独的起始集文件被并成同集多版本；
     // 系列标题仅额外保留用于合集判定与名称提示。
     final key = episode == null
         ? 'f:$core'
-        : 'e:${season?.group(1) ?? ''}:$episode';
+        : 'e:${season?.group(1) ?? ''}:$episode'
+              '${episodeEnd == null ? '' : '-$episodeEnd'}';
     (main[key] ??= LogicalItem(
         key,
         title,
         episode,
         season == null ? null : int.parse(season.group(1)!),
+        episodeEnd: episodeEnd,
       ))
       ..files.add(path)
       ..titles.add(title);
@@ -875,7 +1318,15 @@ abstract final class DirectoryAnalyzer {
     var title = PersonalFilenameParser.withoutTmdbMarkers(folderName)
         .replaceAll(_bangumiMarker, ' ')
         .replaceAll(RegExp(r'[(（]\s*(?:19|20)\d{2}\s*[)）]'), ' ')
-        .replaceAll(RegExp(r'\{[^}]*\}'), ' ');
+        .replaceAll(RegExp(r'\{[^}]*\}'), ' ')
+        // 目录名里区分同片不同画质的 `1080P`/`2160P`/`4K` 不属于片名。
+        .replaceAll(
+          RegExp(
+            r'(?<![a-z0-9])(?:\d{3,4}[pi]|[248]k)(?![a-z0-9])',
+            caseSensitive: false,
+          ),
+          ' ',
+        );
     title = title.replaceAll(RegExp(r'\s+'), ' ').trim();
     return title.isEmpty ? folderName : title;
   }

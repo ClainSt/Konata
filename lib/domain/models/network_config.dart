@@ -75,6 +75,45 @@ class TmdbNetworkConfig {
   /// Scan 原图单帧解码内存上限（64 MiB）。
   static const int maxScanFullImageBytes = 64 * 1024 * 1024;
 
+  /// Bangumi ↔ TMDB 离线映射表热更新镜像根地址（jsDelivr 双节点优先 + GitHub Raw 兜底）。
+  static const List<String> mappingMirrorBases = <String>[
+    'https://fastly.jsdelivr.net/gh/ClainSt/Konata@data/mapping',
+    'https://gcore.jsdelivr.net/gh/ClainSt/Konata@data/mapping',
+    'https://raw.githubusercontent.com/ClainSt/Konata/data/mapping',
+  ];
+
+  /// 远程映射表清单文件名。
+  static const String mappingManifestFileName = 'manifest.json';
+
+  /// 远程与本地映射表二进制索引文件名。
+  static const String mappingBinaryFileName = 'bangumi_tmdb_map.bin';
+
+  /// 本地持久化清单缓存文件名。
+  static const String localMappingManifestFileName =
+      'bangumi_tmdb_manifest.json';
+
+  /// 随安装包内置的映射表二进制资源路径。
+  static const String bundledMappingAssetPath =
+      'assets/data/bangumi_tmdb_map.bin';
+
+  /// 扫描前自动检查映射表更新的冷却周期（24 小时）。
+  static const Duration mappingAutoCheckInterval = Duration(hours: 24);
+
+  /// 单次清单探测超时时间。
+  static const Duration mappingCheckTimeout = Duration(seconds: 4);
+
+  /// 单次映射表二进制下载超时时间。
+  static const Duration mappingDownloadTimeout = Duration(seconds: 12);
+
+  /// 扫描前静默检查的总耗时上限（避免断网时阻塞扫描启动）。
+  static const Duration mappingSilentCheckBudget = Duration(seconds: 5);
+
+  /// 手动点击检查更新的总耗时上限。
+  static const Duration mappingManualCheckBudget = Duration(seconds: 20);
+
+  /// 映射表二进制文件大小安全上限（4 MiB，防止损坏或异常响应耗尽内存）。
+  static const int maxMappingBinaryBytes = 4 * 1024 * 1024;
+
   /// 用户配置的 TMDB 凭证（v3 API Key 或 v4 Bearer Token）。
   final String credential;
 

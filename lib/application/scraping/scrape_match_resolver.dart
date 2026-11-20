@@ -1,8 +1,9 @@
 import '../../domain/matching/directory_grouper.dart';
 import '../../domain/matching/work_matcher.dart';
 import '../../domain/models/tmdb_models.dart';
+import '../../domain/models/work.dart';
 import '../../domain/scraping/bangumi_models.dart';
-import '../../domain/scraping/bangumi_tmdb_map.dart';
+import '../../domain/scraping/bangumi_tmdb_index.dart';
 import '../../domain/scraping/work_matcher.dart' as legacy;
 import 'scrape_candidate_fetcher.dart';
 import 'scrape_compute_worker.dart';
@@ -46,10 +47,12 @@ class ScrapeMatchResolver {
   const ScrapeMatchResolver({
     required this._fetcher,
     this._computeWorker = const ScrapeComputeWorker(),
+    this._mappingIndex,
   });
 
   final ScrapeCandidateFetcher _fetcher;
   final ScrapeComputeWorker _computeWorker;
+  final BangumiTmdbIndex? _mappingIndex;
 
   /// 对单个作品分组执行在线匹配；[tmdbUnavailable] 为真时（前序阶段已遇 TMDB 网络异常）跳过 TMDB 检索。
   Future<ScrapeMatchResolution> resolve(
@@ -84,15 +87,20 @@ class ScrapeMatchResolver {
             extraQueries: parentCtx.extraQueries,
             onNetworkError: recordError,
           );
-    // Bangumi 高置信条目经 Wikidata 映射到的 TMDB 条目若未被关键词检索召回，按 ID 补拉进候选池。
+    // Bangumi 高置信条目经离线映射表命中的 TMDB 条目若未被关键词检索召回，按 ID 补拉进候选池。
     final bgmBest = bgmEval.best;
     if (!tmdbBlocked() &&
         bgmBest != null &&
         bgmEval.tier == legacy.MatchTier.high) {
-      final missing = [
-        for (final m in BangumiTmdbMap.lookup(bgmBest.subject.id))
-          if (!candidates.any((c) => c.mediaType == m.type && c.tmdbId == m.id))
-            m,
+      final seenMapped = <String>{};
+      final missing = <({TmdbMediaType type, int id})>[
+        for (final m in BangumiTmdbIndex.resolveTargets(
+          bgmBest.subject.id,
+          index: _mappingIndex,
+        ))
+          if (seenMapped.add(m.key) &&
+              !candidates.any((c) => c.mediaType == m.type && c.tmdbId == m.id))
+            (type: m.type, id: m.id),
       ];
       if (missing.isNotEmpty) {
         candidates = [
@@ -108,6 +116,7 @@ class ScrapeMatchResolver {
       folder,
       candidates,
       bangumiCandidates: bgmCandidates,
+      mappingIndex: _mappingIndex,
     );
 
     // 若独立子簇（如 `Accel World EX`）未命中独立 TMDB 条目且允许回退父系列，将父 TMDB 加入重评。
@@ -123,6 +132,7 @@ class ScrapeMatchResolver {
         folder,
         mergedDetails,
         bangumiCandidates: bgmCandidates,
+        mappingIndex: _mappingIndex,
       );
       if (rescored.level != MatchLevel.unmatched) {
         candidates = mergedDetails;
@@ -149,6 +159,7 @@ class ScrapeMatchResolver {
           folder,
           candidates,
           bangumiCandidates: bgmCandidates,
+          mappingIndex: _mappingIndex,
         );
       }
     }
@@ -177,6 +188,7 @@ class ScrapeMatchResolver {
             folder,
             candidates,
             bangumiCandidates: bgmCandidates,
+            mappingIndex: _mappingIndex,
           );
         }
       }

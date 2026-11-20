@@ -9,7 +9,7 @@ import '../models/work.dart';
 import '../parsing/bdrip_parser.dart';
 import '../parsing/media_tech_parser.dart';
 import 'bangumi_models.dart';
-import 'bangumi_tmdb_map.dart';
+import 'bangumi_tmdb_index.dart';
 import 'cloud_media_asset_presentation.dart';
 import 'collection_asset_router.dart';
 import 'directory_analyzer.dart';
@@ -773,6 +773,7 @@ abstract final class ScrapeDomainAdapter {
     GroupedWorkFolder folder,
     List<TmdbWorkDetail> candidates, {
     List<BangumiSubjectCandidate> bangumiCandidates = const [],
+    BangumiTmdbIndex? mappingIndex,
   }) {
     final inv = _effectiveInventory(folder);
     final bgmEval = evaluateBangumiMatch(folder, bangumiCandidates);
@@ -810,22 +811,32 @@ abstract final class ScrapeDomainAdapter {
       for (final c in candidates) '${c.mediaType.name}:${c.tmdbId}': c,
     };
     final matchCandidates = [for (final c in candidates) _toMatchCandidate(c)];
-    // Bangumi 高置信条目经 Wikidata 映射到的 TMDB 条目（仅限已在候选池中的），作为跨源加权与锚定依据。
-    // 零评分人数的条目多为新建的低质量重复条目（Wikidata 偶有误链），不给予映射加权。
-    final mappedKeys = bgmEval.tier == legacy.MatchTier.high
-        ? bangumiMappedTmdbKeys(bgmEval.best?.subject, {
-            for (final e in byKey.entries)
-              if (e.value.voteCount != 0) e.key,
-          })
-        : const <String>[];
+    // Bangumi 高置信条目经离线映射表命中的 TMDB 目标（仅限已在候选池中的），作为跨源加权与保守季参考依据。
+    // 零评分人数的条目多为新建的低质量重复条目，不给予映射加权。
+    final mappedTargets = bgmEval.tier == legacy.MatchTier.high
+        ? bangumiMappedTmdbTargets(
+            bgmEval.best?.subject,
+            {
+              for (final e in byKey.entries)
+                if (e.value.voteCount != 0) e.key,
+            },
+            mappingIndex: mappingIndex,
+          )
+        : const <BangumiTmdbTarget>[];
+    final mappedKeys = {
+      for (final t in mappedTargets) t.key,
+    }.toList(growable: false);
+    final isMultiSeasonBundle = DirectoryAnalyzer.isMultiSeasonTitle(inv.title);
+    final primaryMapped = mappedTargets.firstOrNull;
+    final mappedSeasonHint = isMultiSeasonBundle ? null : primaryMapped?.season;
 
     final result = legacy.WorkMatcher.tmdb(
       inv,
       matchCandidates,
       bangumi: bgmEval.rawResult,
-      mappedTarget: mappedKeys.isEmpty
+      mappedTarget: primaryMapped == null
           ? null
-          : (key: mappedKeys.first, season: null),
+          : (key: primaryMapped.key, season: mappedSeasonHint),
       ignoreTmdbMarker: folder.ignoreExplicitTmdb,
     );
 
@@ -925,6 +936,29 @@ abstract final class ScrapeDomainAdapter {
           tmdbTier = legacy.MatchTier.medium;
           matchedSeason = parent.matchedSeason;
           anchoredByBangumi = true;
+        }
+      }
+    }
+
+    // 当 WorkMatcher 未能定季且优胜 TMDB 剧集恰好命中映射表季号、且本地集数不超出该季容量时，保守采纳映射季号。
+    if (effectiveBestTmdb != null &&
+        matchedSeason == null &&
+        !isMultiSeasonBundle &&
+        effectiveBestTmdb.detail.mediaType == TmdbMediaType.tv) {
+      final winnerKey = _detailKey(effectiveBestTmdb.detail);
+      final targetSeason = mappedTargets
+          .where((t) => t.key == winnerKey && t.season != null)
+          .firstOrNull
+          ?.season;
+      if (targetSeason != null) {
+        final seasonInfo = effectiveBestTmdb.detail.seasons
+            .where((s) => s.seasonNumber == targetSeason)
+            .firstOrNull;
+        if (seasonInfo != null &&
+            (inv.episodeCount == 0 ||
+                seasonInfo.episodeCount == 0 ||
+                inv.episodeCount <= seasonInfo.episodeCount + 2)) {
+          matchedSeason = targetSeason;
         }
       }
     }
@@ -2781,25 +2815,57 @@ abstract final class ScrapeDomainAdapter {
   static String _detailKey(TmdbWorkDetail d) =>
       '${d.mediaType.name}:${d.tmdbId}';
 
-  /// Bangumi 条目经 Wikidata 映射得到、且已在 [availableKeys]（`类型:ID`）中的 TMDB 键，
+  /// 查询 Bangumi 条目经离线映射表（优先二进制索引，回退静态 Wikidata）得到、
+  /// 且已在 [availableKeys]（`类型:ID`）中的 TMDB 目标，按放送平台、季信息与来源权威度排序。
+  static List<BangumiTmdbTarget> bangumiMappedTmdbTargets(
+    BangumiSubjectCandidate? bgm,
+    Set<String> availableKeys, {
+    BangumiTmdbIndex? mappingIndex,
+  }) {
+    if (bgm == null) return const [];
+    final preferMovie = (bgm.platform?.trim() ?? '') == '剧场版';
+    final targets = [
+      for (final m in BangumiTmdbIndex.resolveTargets(
+        bgm.id,
+        index: mappingIndex,
+      ))
+        if (availableKeys.contains(m.key)) m,
+    ];
+    targets.sort((a, b) {
+      int typeRank(BangumiTmdbTarget t) =>
+          (preferMovie
+                  ? t.type == TmdbMediaType.movie
+                  : t.type == TmdbMediaType.tv)
+              ? 0
+              : 1;
+      final byType = typeRank(a).compareTo(typeRank(b));
+      if (byType != 0) return byType;
+      final aHasSeason = a.season != null && a.season! > 0 ? 0 : 1;
+      final bHasSeason = b.season != null && b.season! > 0 ? 0 : 1;
+      if (aHasSeason != bHasSeason) return aHasSeason.compareTo(bHasSeason);
+      final aOpenAni = a.isOpenAni ? 0 : 1;
+      final bOpenAni = b.isOpenAni ? 0 : 1;
+      return aOpenAni.compareTo(bOpenAni);
+    });
+    return targets;
+  }
+
+  /// Bangumi 条目经离线映射表得到、且已在 [availableKeys]（`类型:ID`）中的 TMDB 键，
   /// 按 Bangumi 放送平台排序：剧场版条目优先电影映射，其余优先剧集映射。
   static List<String> bangumiMappedTmdbKeys(
     BangumiSubjectCandidate? bgm,
-    Set<String> availableKeys,
-  ) {
-    if (bgm == null) return const [];
-    final preferMovie = (bgm.platform?.trim() ?? '') == '剧场版';
-    final keys = [
-      for (final m in BangumiTmdbMap.lookup(bgm.id))
-        if (availableKeys.contains('${m.type.name}:${m.id}'))
-          '${m.type.name}:${m.id}',
+    Set<String> availableKeys, {
+    BangumiTmdbIndex? mappingIndex,
+  }) {
+    final seen = <String>{};
+    return [
+      for (final t in bangumiMappedTmdbTargets(
+        bgm,
+        availableKeys,
+        mappingIndex: mappingIndex,
+      ))
+        if (seen.add(t.key)) t.key,
     ];
-    keys.sort((a, b) {
-      int rank(String k) =>
-          k.startsWith(preferMovie ? 'movie:' : 'tv:') ? 0 : 1;
-      return rank(a).compareTo(rank(b));
-    });
-    return keys;
   }
 
   /// TMDB 条目任一名称（标题、原名、别名）与 Bangumi 条目任一名称归一化后是否完全一致。

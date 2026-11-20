@@ -241,11 +241,9 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
     required BuildContext context,
     required AudioQueueItem item,
     required LrcDocument? lrc,
-    required bool hasLyrics,
     required AudioCoverSource cover,
     required bool isPlaying,
     required AudioLoopMode loopMode,
-    required bool isMuted,
     required String specLabel,
     required AudioPlaybackNotifier notifier,
   }) {
@@ -255,7 +253,7 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 顶部：支持下拉收起与左上 48dp 收起按钮
+          // 顶部极简留白：支持下拉收起与左上 48dp 收起按钮
           GestureDetector(
             behavior: HitTestBehavior.opaque,
             onVerticalDragStart: (_) => _pullDownDy = 0.0,
@@ -271,12 +269,12 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
               }
               _pullDownDy = 0.0;
             },
-            child: _buildTopBar(item: item, topPadding: 2),
+            child: _buildTopBar(topPadding: 2),
           ),
-          // 第一段：带镜像渐变倒影的专辑封面 ↔ 滚动歌词原位淡入淡出切换
+          // 第一段：带柔雾镜像倒影的专辑封面 ↔ 滚动歌词原位淡入淡出切换（轻触封面直达歌词）
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
               child: AnimatedSwitcher(
                 duration: KonataTheme.motionFast,
                 child: _portraitShowLyricsInPlace
@@ -342,157 +340,140 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
               ),
             ),
           ),
-          // 第二段：中段左对齐曲目名、音质徽章及两行实时歌词预览（不重复显示顶部已有的目录副标题）
+          // 第二段：极简曲目名与音质规格微标（去冗余双行歌词预览，保持通透呼吸感）
           Padding(
-            padding: const EdgeInsets.fromLTRB(22, 4, 22, 6),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.fromLTRB(24, 6, 24, 10),
+            child: Row(
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        item.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: p.textPrimary,
-                          fontSize: KonataTheme.fontSizeH2,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
+                Expanded(
+                  child: Text(
+                    item.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: p.textPrimary,
+                      fontSize: KonataTheme.fontSizeH2,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.2,
                     ),
-                    if (specLabel.isNotEmpty) ...[
-                      const SizedBox(width: 8),
-                      KonataSpecBadge(label: specLabel),
-                    ],
-                  ],
-                ),
-                if (!_portraitShowLyricsInPlace && hasLyrics) ...[
-                  const SizedBox(height: 8),
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () =>
-                        _mutateState(() => _portraitShowLyricsInPlace = true),
-                    child: const ImmersiveTwoLineLyricPreviewLeaf(),
                   ),
+                ),
+                if (specLabel.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  KonataSpecBadge(label: specLabel),
                 ],
               ],
             ),
           ),
-          // 第三段：底部进度、主控及至少 48dp 工具行（支持点击或上拉弹出播放队列抽屉）
-          GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onVerticalDragEnd: (details) {
-              if ((details.primaryVelocity ?? 0) < -240.0) {
-                _openPortraitQueueSheet();
-              }
-            },
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 2, 18, 10),
-              child: KonataGlassCapsule(
-                radius: 26,
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ImmersiveTouchAudioScrubberLeaf(notifier: notifier),
-                    const SizedBox(height: 4),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        KonataCapsuleIconButton(
-                          icon: Icons.skip_previous_rounded,
-                          tooltip: '上一曲',
-                          color: p.textPrimary,
-                          size: 28,
-                          fixedSize: 52,
-                          onTap: notifier.previous,
-                        ),
-                        KonataCapsuleIconButton(
+          // 第三段：去方框化悬浮发光细进度条 + 单行全圆角光学五键悬浮胶囊（循环 / 上一曲 / 纯白播放暂停 / 下一曲 / 队列）
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ImmersiveTouchAudioScrubberLeaf(notifier: notifier),
+                const SizedBox(height: 14),
+                Center(
+                  child: KonataGlassCapsule(
+                    key: const ValueKey('portrait_audio_transport_pill'),
+                    radius: KonataTheme.radiusPill,
+                    showShadow: true,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final playButton = GestureDetector(
                           key: const ValueKey('portrait_audio_play_pause'),
-                          icon: isPlaying
-                              ? Icons.pause_circle_filled_rounded
-                              : Icons.play_circle_fill_rounded,
-                          tooltip: isPlaying ? '暂停' : '播放',
-                          color: p.textPrimary,
-                          size: 42,
-                          fixedSize: 56,
+                          behavior: HitTestBehavior.opaque,
                           onTap: notifier.togglePlayPause,
-                        ),
-                        KonataCapsuleIconButton(
-                          icon: Icons.skip_next_rounded,
-                          tooltip: '下一曲',
-                          color: p.textPrimary,
-                          size: 28,
-                          fixedSize: 52,
-                          onTap: notifier.next,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    SizedBox(
-                      height: KonataAdaptiveTokens.touchTarget,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          KonataCapsuleIconButton(
-                            key: const ValueKey('portrait_audio_loop_button'),
-                            icon: switch (loopMode) {
-                              AudioLoopMode.sequence =>
-                                Icons.trending_flat_rounded,
-                              AudioLoopMode.loopAll => Icons.repeat_rounded,
-                              AudioLoopMode.loopOne => Icons.repeat_one_rounded,
-                            },
-                            tooltip: '循环模式：${loopMode.label}',
-                            color: p.textPrimary,
-                            size: 20,
-                            fixedSize: KonataAdaptiveTokens.touchTarget,
-                            onTap: notifier.cycleLoopMode,
-                          ),
-                          KonataCapsuleIconButton(
-                            key: const ValueKey(
-                              'portrait_toggle_lyrics_button',
+                          child: Container(
+                            width: 52,
+                            height: 52,
+                            decoration: BoxDecoration(
+                              color: p.primaryButtonBg,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: p.primaryButtonBg.withValues(
+                                    alpha: p.isDark ? 0.34 : 0.18,
+                                  ),
+                                  blurRadius: 14,
+                                ),
+                              ],
                             ),
-                            icon: Icons.lyrics_rounded,
-                            tooltip: _portraitShowLyricsInPlace
-                                ? '切换专辑封面'
-                                : '原位展开歌词',
-                            color: p.textPrimary,
-                            size: 20,
-                            highlighted: _portraitShowLyricsInPlace,
-                            fixedSize: KonataAdaptiveTokens.touchTarget,
-                            onTap: () => _mutateState(
-                              () => _portraitShowLyricsInPlace =
-                                  !_portraitShowLyricsInPlace,
+                            alignment: Alignment.center,
+                            child: Icon(
+                              isPlaying
+                                  ? Icons.pause_rounded
+                                  : Icons.play_arrow_rounded,
+                              size: 28,
+                              color: p.primaryButtonFg,
                             ),
                           ),
-                          KonataCapsuleIconButton(
-                            key: const ValueKey('portrait_open_queue_button'),
-                            icon: Icons.queue_music_rounded,
-                            tooltip: '上拉或点击展开播放队列',
-                            color: p.textPrimary,
-                            size: 21,
-                            fixedSize: KonataAdaptiveTokens.touchTarget,
-                            onTap: _openPortraitQueueSheet,
-                          ),
-                          KonataCapsuleIconButton(
-                            key: const ValueKey('portrait_audio_mute_button'),
-                            icon: isMuted
-                                ? Icons.volume_off_rounded
-                                : Icons.volume_up_rounded,
-                            tooltip: isMuted ? '取消静音' : '静音',
-                            color: p.textPrimary,
-                            size: 20,
-                            fixedSize: KonataAdaptiveTokens.touchTarget,
-                            onTap: notifier.toggleMute,
-                          ),
-                        ],
-                      ),
+                        );
+                        final row = Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            KonataCapsuleIconButton(
+                              key: const ValueKey('portrait_audio_loop_button'),
+                              icon: switch (loopMode) {
+                                AudioLoopMode.sequence =>
+                                  Icons.trending_flat_rounded,
+                                AudioLoopMode.loopAll => Icons.repeat_rounded,
+                                AudioLoopMode.loopOne =>
+                                  Icons.repeat_one_rounded,
+                              },
+                              tooltip: '循环模式：${loopMode.label}',
+                              color: p.textPrimary,
+                              size: 20,
+                              fixedSize: KonataAdaptiveTokens.touchTarget,
+                              onTap: notifier.cycleLoopMode,
+                            ),
+                            const SizedBox(width: 6),
+                            KonataCapsuleIconButton(
+                              key: const ValueKey('portrait_audio_prev_button'),
+                              icon: Icons.skip_previous_rounded,
+                              tooltip: '上一曲',
+                              color: p.textPrimary,
+                              size: 26,
+                              fixedSize: KonataAdaptiveTokens.touchTarget,
+                              onTap: notifier.previous,
+                            ),
+                            const SizedBox(width: 10),
+                            playButton,
+                            const SizedBox(width: 10),
+                            KonataCapsuleIconButton(
+                              key: const ValueKey('portrait_audio_next_button'),
+                              icon: Icons.skip_next_rounded,
+                              tooltip: '下一曲',
+                              color: p.textPrimary,
+                              size: 26,
+                              fixedSize: KonataAdaptiveTokens.touchTarget,
+                              onTap: notifier.next,
+                            ),
+                            const SizedBox(width: 6),
+                            KonataCapsuleIconButton(
+                              key: const ValueKey('portrait_open_queue_button'),
+                              icon: Icons.queue_music_rounded,
+                              tooltip: '展开播放队列',
+                              color: p.textPrimary,
+                              size: 21,
+                              fixedSize: KonataAdaptiveTokens.touchTarget,
+                              onTap: _openPortraitQueueSheet,
+                            ),
+                          ],
+                        );
+                        if (constraints.maxWidth < 292) {
+                          return FittedBox(fit: BoxFit.scaleDown, child: row);
+                        }
+                        return row;
+                      },
                     ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
         ],
@@ -500,10 +481,7 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
     );
   }
 
-  Widget _buildTopBar({
-    required AudioQueueItem item,
-    required double topPadding,
-  }) {
+  Widget _buildTopBar({required double topPadding}) {
     final p = context.palette;
     final isWindows = KonataAdaptiveTokens.isWindows;
     final isAndroid = KonataAdaptiveTokens.isAndroid;
@@ -511,7 +489,7 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
     Widget headerRow = Padding(
       padding: EdgeInsets.only(top: topPadding),
       child: SizedBox(
-        height: 52,
+        height: 48,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
@@ -519,40 +497,14 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
               KonataCapsuleIconButton(
                 key: const ValueKey('immersive_collapse_button'),
                 icon: Icons.keyboard_arrow_down_rounded,
-                tooltip: '收起为迷你底栏 (Esc)',
-                color: p.textPrimary,
-                size: 26,
-                fixedSize: isAndroid ? KonataAdaptiveTokens.touchTarget : 40,
+                tooltip: '收起全屏播放页 (Esc)',
+                color: p.textSecondary,
+                size: 24,
+                fixedSize: isAndroid ? KonataAdaptiveTokens.touchTarget : 38,
                 onTap: _collapseToMiniBar,
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    EllipsisTextWithTooltip(
-                      text: item.work.title,
-                      style: TextStyle(
-                        color: p.textPrimary,
-                        fontSize: KonataTheme.fontSizeBody,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (item.albumTitle.isNotEmpty &&
-                        item.albumTitle != item.work.title)
-                      EllipsisTextWithTooltip(
-                        text: item.albumTitle,
-                        style: TextStyle(
-                          color: p.textSecondary,
-                          fontSize: KonataTheme.fontSizeCaptionSm,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
+              const Spacer(),
               if (isWindows) ...[
-                const SizedBox(width: 8),
                 ref.read(konataWindowHostProvider).buildWindowControls(),
               ],
             ],
@@ -642,16 +594,16 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
               KonataTheme.pureWhite,
               Colors.transparent,
             ],
-            stops: [0.0, 0.06, 0.93, 1.0],
+            stops: [0.0, 0.14, 0.86, 1.0],
           ).createShader(bounds),
           blendMode: BlendMode.dstIn,
           child: ListView.builder(
             controller: ctrl,
             padding: EdgeInsets.fromLTRB(
               4,
-              compact ? 14 : 28,
+              compact ? 22 : 44,
               22,
-              compact ? 18 : 32,
+              compact ? 24 : 48,
             ),
             itemCount: lrc.lines.length,
             itemBuilder: (context, index) {
@@ -702,12 +654,12 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
             KonataTheme.pureWhite,
             Colors.transparent,
           ],
-          stops: [0.0, 0.04, 0.95, 1.0],
+          stops: [0.0, 0.10, 0.90, 1.0],
         ).createShader(bounds),
         blendMode: BlendMode.dstIn,
         child: ListView.separated(
           controller: ctrl,
-          padding: const EdgeInsets.fromLTRB(4, 16, 22, 24),
+          padding: const EdgeInsets.fromLTRB(4, 24, 22, 32),
           itemCount: displayRows.length,
           separatorBuilder: (_, _) => const SizedBox(height: 6),
           itemBuilder: (context, index) {

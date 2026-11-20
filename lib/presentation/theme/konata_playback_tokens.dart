@@ -7,21 +7,28 @@ import 'konata_theme.dart';
 ///
 /// 严禁在播放页面或播控控件内部散落硬编码像素、模糊 sigma、时长或裸色值。
 abstract final class KonataPlaybackTokens {
-  /// 根据当前主题调色盘解析明暗双套毛玻璃表面色（浅色画册米白 / 深色中性炭黑）。
+  /// 根据当前主题调色盘解析明暗双套光学玻璃表面色（浅色陶瓷柔白 / 深色轻透流光暗玻璃）。
   static Color glassSurface(KonataPalette p) =>
-      p.isDark ? const Color(0xB8161618) : p.surface;
+      p.isDark ? const Color(0x7810131C) : p.surface;
 
   /// 根据当前主题解析弹出式菜单、选曲队列及浮层底色。
   static Color popoverSurface(KonataPalette p) =>
-      p.isDark ? const Color(0xF01E2026) : p.elevatedSurface;
+      p.isDark ? const Color(0xE8131620) : p.elevatedSurface;
 
   /// 根据当前主题解析毛玻璃细微描边。
   static Color glassBorder(KonataPalette p) =>
-      p.isDark ? const Color(0x24FFFFFF) : p.hairline;
+      p.isDark ? const Color(0x2BFFFFFF) : p.hairline;
 
   /// 根据当前主题解析悬停或激活态毛玻璃描边。
   static Color activeGlassBorder(KonataPalette p) =>
-      p.isDark ? const Color(0x42FFFFFF) : p.hoverBorder;
+      p.isDark ? const Color(0x4DFFFFFF) : p.hoverBorder;
+
+  /// 根据当前主题解析播控进度条发光填充色（暗色为光学纯白，亮色为深石板墨色）。
+  static Color capsuleProgressFillFor(KonataPalette p) => p.progressFill;
+
+  /// 根据当前主题解析播控进度条微透明底轨色。
+  static Color capsuleProgressTrackFor(KonataPalette p) =>
+      p.isDark ? capsuleProgressTrack : p.progressTrack;
 
   /// 根据当前主题解析柔和半透明次级底衬色。
   static Color softFill(KonataPalette p) =>
@@ -121,51 +128,52 @@ abstract final class KonataPlaybackTokens {
   /// 内置视频页最底层防 DWM 透底纯黑画布（全屏/非全屏切换绝不触碰窗体材质）。
   static const Color cinemaPureBlack = Color(0xFF000000);
 
-  /// 全屏流光音乐页背景底色与默认流光极光主色采样回退色。
-  static const Color auroraCanvasDark = Color(0xFF0C0E14);
-  static const Color auroraDefaultGlowA = Color(0xFF3E4C8A);
-  static const Color auroraDefaultGlowB = Color(0xFF6E3C6B);
-  static const Color auroraDefaultGlowC = Color(0xFF285B6E);
+  /// 全屏流光音乐页背景底色与默认流光极光主色采样回退色（丝绒玫瑰莓紫 + 靛蓝 + 暖梅调）。
+  static const Color auroraCanvasDark = Color(0xFF0A0C12);
+  static const Color auroraDefaultGlowA = Color(0xFFA23E6F);
+  static const Color auroraDefaultGlowB = Color(0xFF3E4E96);
+  static const Color auroraDefaultGlowC = Color(0xFF7B436E);
 
-  /// 中性烟熏炭黑毛玻璃胶囊浮层统一底色（零蓝色偏色，四侧连续闭合 1px 微光描边）。
-  static const Color osdSurfaceDark = Color(0xB3161618);
+  /// 中性烟熏暗玻璃胶囊浮层统一底色（四侧连续闭合 1px 微光描边）。
+  static const Color osdSurfaceDark = Color(0x8810131C);
 
   /// 浮层连续 1px 微光玻璃描边。
-  static const Color osdBorderLight = Color(0x24FFFFFF);
+  static const Color osdBorderLight = Color(0x2BFFFFFF);
 
   /// 浮层主前景色。
-  static const Color osdTextPrimary = Color(0xFFF5F7FA);
+  static const Color osdTextPrimary = Color(0xFFF6F7FB);
 
   /// 浮层次前景色。
-  static const Color osdTextSecondary = Color(0xBAE5EAF2);
+  static const Color osdTextSecondary = Color(0xC2E6EBF4);
 
   /// 浮层微弱填充色（滑块底槽 / 次级按钮底色）。
-  static const Color osdSoftFill = Color(0x24FFFFFF);
+  static const Color osdSoftFill = Color(0x26FFFFFF);
 
   /// 浮层主色调（亮白激活态）。
   static const Color osdAccent = Color(0xFFFFFFFF);
 
-  /// 播控胶囊与音频进度的全站统一蓝色填充与轻柔微透明白底轨。
-  static const Color capsuleProgressFill = Color(0xFF6BA6FF);
-  static const Color capsuleProgressTrack = Color(0x22FFFFFF);
+  /// 播控胶囊与音频进度的光学纯白发光填充与轻柔微透明白底轨。
+  static const Color capsuleProgressFill = Color(0xFFFFFFFF);
+  static const Color capsuleProgressTrack = Color(0x36FFFFFF);
 
-  /// 音视频共享单层底部居中悬浮毛玻璃播控胶囊约束与几何规范。
-  static const double capsuleHeight = 62.0;
-  static const double capsuleMaxWidth = 900.0;
+  /// 音视频共享单层底部居中悬浮光学毛玻璃播控胶囊约束与几何规范。
+  static const double capsuleHeight = 60.0;
+  static const double capsuleMaxWidth = 860.0;
+  static const double capsuleAudioMaxWidth = 720.0;
   static const double capsuleMinWidth = 340.0;
   static const double capsuleCenterSymmetricBreakpoint = 440.0;
-  static const double capsuleRadius = 20.0;
+  static const double capsuleRadius = 999.0;
   static const double capsuleBlurSigma = 28.0;
   static const double capsuleBottomOffset = 20.0;
-  static const EdgeInsets capsulePadding = EdgeInsets.fromLTRB(16, 4, 16, 12);
+  static const EdgeInsets capsulePadding = EdgeInsets.fromLTRB(20, 10, 20, 6);
 
-  /// 胶囊内部底置内缩全圆角细滑轨几何参数（无背景盒，常态 4.5px，悬停/拖拽 9.0px，命中高度 18px 防抖）。
-  static const double capsuleProgressRestHeight = 4.5;
-  static const double capsuleProgressHoverHeight = 9.0;
+  /// 胶囊内部顶沿发光全圆角细滑轨几何参数（常态 2.5px，悬停/拖拽 5.0px，命中高度 18px 防抖）。
+  static const double capsuleProgressRestHeight = 2.5;
+  static const double capsuleProgressHoverHeight = 5.0;
   static const double capsuleProgressHitHeight = 18.0;
-  static const double capsuleProgressHorizontalInset = 18.0;
-  static const double capsuleProgressBottomInset = 6.0;
-  static const double capsuleHoverBubbleBottomOffset = 68.0;
+  static const double capsuleProgressHorizontalInset = 28.0;
+  static const double capsuleProgressTopInset = 1.5;
+  static const double capsuleHoverBubbleBottomOffset = 72.0;
 
   /// 全屏音乐页独立「曲目列表 / 同步歌词」紧凑圆角方块按钮规范。
   static const double immersiveSwitchButtonSize = 32.0;
@@ -193,27 +201,35 @@ abstract final class KonataPlaybackTokens {
   );
   static const double specBadgeFontSize = 11.0;
 
-  /// 全端统一可拖拽音视频悬浮小窗几何、吸附边距与交互时序常量。
+  /// 全端统一可拖拽音视频悬浮小窗几何、动态比例、贴边收折与手机底栏协同常量。
   static const double floatingMiniVideoWidth = 256.0;
   static const double floatingMiniVideoHeight = 144.0;
-  static const double floatingMiniAudioCoverSize = 144.0;
-  static const double floatingMiniAudioControlsHeight = 48.0;
-  static const double floatingMiniAudioTotalHeight =
-      floatingMiniAudioCoverSize + floatingMiniAudioControlsHeight;
-  static const double floatingMiniRadius = 14.0;
+  static const double floatingMiniVideoLongSideDesktop = 256.0;
+  static const double floatingMiniVideoLongSidePhone = 208.0;
+  static const double floatingMiniVideoAspectRatioMin = 0.42;
+  static const double floatingMiniVideoAspectRatioMax = 2.39;
+  static const double floatingMiniAudioDiscSize = 56.0;
+  static const double floatingMiniAudioRingWidth = 2.4;
+  static const double floatingMiniAudioPillWidth = 320.0;
+  static const double floatingMiniAudioPillHeight = 60.0;
+  static const double floatingMiniAudioPillCoverSize = 40.0;
+  static const double floatingMiniEarTabWidth = 24.0;
+  static const double floatingMiniEarTabHeight = 72.0;
+  static const double floatingMiniEdgeTuckDragThreshold = 20.0;
+  static const double floatingMiniPhoneNavInlineGap = 10.0;
+  static const double floatingMiniRadius = 16.0;
   static const double floatingMiniBorderWidth = 1.0;
   static const double floatingMiniEdgeMargin = 12.0;
   static const double floatingMiniNavigationGap = 10.0;
   static const double floatingMiniBottomClearanceGap = 12.0;
   static const double floatingMiniDesktopTopBarClearance = 52.0;
   static const double floatingMiniBottomZoneThresholdRatio = 0.55;
-  static const double floatingMiniAudioStripBlurSigma = 20.0;
   static const double floatingMiniOverlayPillSize = 28.0;
   static const double floatingMiniOverlayIconSize = 16.0;
   static const double floatingMiniTransportIconSize = 20.0;
-  static const double floatingMiniFallbackIconSize = 42.0;
-  static const int floatingMiniCoverDecodeWidth = 320;
-  static const double floatingMiniShadowBlur = 22.0;
+  static const double floatingMiniFallbackIconSize = 26.0;
+  static const int floatingMiniCoverDecodeWidth = 240;
+  static const double floatingMiniShadowBlur = 24.0;
   static const Offset floatingMiniShadowOffset = Offset(0, 8);
   static const double floatingMiniFlickProjectionSeconds = 0.07;
   static const Color floatingMiniChromeScrimTop = Color(0x75000000);
@@ -274,8 +290,8 @@ abstract final class KonataPlaybackTokens {
   );
 
   /// 全屏音频与后台纯音频 GPU 径向流光着色场遮罩透明度（严格位于 0.4 ~ 0.6 红线区间）。
-  static const double auroraScrimDarkAlpha = 0.48;
-  static const double auroraScrimLightAlpha = 0.56;
+  static const double auroraScrimDarkAlpha = 0.40;
+  static const double auroraScrimLightAlpha = 0.52;
 
   /// 全屏音频流光背景切歌有界色彩过渡时长（800 ms，到位立即停钟）。
   static const Duration auroraColorTransitionDuration = Duration(
@@ -322,13 +338,14 @@ abstract final class KonataPlaybackTokens {
   static const int thumbnailCacheCapacity = 48;
 
   /// 全屏沉浸音频页几何、流光采样与阶梯景深模糊歌词参数。
-  static const double albumCoverSize = 336.0;
-  static const double albumCoverRadius = 18.0;
-  static const double albumReflectionHeight = 86.0;
+  static const double albumCoverSize = 340.0;
+  static const double albumCoverRadius = 14.0;
+  static const double albumReflectionHeight = 104.0;
+  static const double albumReflectionBlurSigma = 2.8;
   static const double auroraBlurSigma = 88.0;
   static const List<Color> albumReflectionMaskColors = [
-    Color(0x58FFFFFF),
-    Color(0x16FFFFFF),
+    Color(0x52FFFFFF),
+    Color(0x18FFFFFF),
     Colors.transparent,
   ];
   static const double lyricActiveFontSize = 24.0;
@@ -336,13 +353,10 @@ abstract final class KonataPlaybackTokens {
   static const double lyricInactiveFontSize = 18.5;
   static const double lyricCompactInactiveFontSize = 14.5;
   static const double lyricSecondaryFontSize = 13.5;
-  static const double lyricPreviewPrimaryFontSize = 14.0;
-  static const double lyricPreviewSecondaryFontSize = 12.5;
-  static const double lyricPreviewHeight = 42.0;
-  static const double lyricBlurStep1 = 1.6;
-  static const double lyricBlurStep2 = 3.2;
-  static const double lyricBlurStepFar = 5.0;
-  static const double lyricGlowBlurRadius = 16.0;
+  static const double lyricBlurStep1 = 1.5;
+  static const double lyricBlurStep2 = 3.0;
+  static const double lyricBlurStepFar = 4.4;
+  static const double lyricGlowBlurRadius = 18.0;
   static const double lyricSweepGlowBlurRadius = 14.0;
   static const double queueRowTitleActiveFontSize = 16.0;
   static const double queueRowTitleInactiveFontSize = 14.5;
@@ -351,14 +365,14 @@ abstract final class KonataPlaybackTokens {
   static const double queueRowMetaFontSize = 12.0;
   static const double queueRowSubtitleFontSize = 11.5;
   static const double queueRowPrefixFontSize = 12.5;
-  static const double touchScrubberTrackHeight = 3.5;
-  static const double touchScrubberThumbRadius = 6.5;
-  static const double touchScrubberOverlayRadius = 16.0;
-  static const double touchScrubberHeight = 34.0;
-  static const double touchScrubberCompactHeight = 26.0;
+  static const double touchScrubberTrackHeight = 2.5;
+  static const double touchScrubberThumbRadius = 5.5;
+  static const double touchScrubberOverlayRadius = 14.0;
+  static const double touchScrubberHeight = 30.0;
+  static const double touchScrubberCompactHeight = 24.0;
   static const double touchScrubberTimeFontSize = 11.5;
-  static const double albumCoverShadowBlur = 34.0;
-  static const Offset albumCoverShadowOffset = Offset(0, 16);
+  static const double albumCoverShadowBlur = 42.0;
+  static const Offset albumCoverShadowOffset = Offset(0, 20);
   static const int albumCoverDecodeWidth = 800;
   static const double microCoverSize = 38.0;
   static const double microCoverRadius = 9.0;

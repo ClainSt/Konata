@@ -109,6 +109,7 @@ class DetailHeroInfo extends StatelessWidget {
     this.expandOverviewFullWidth = false,
     this.trailingPlayAccessory,
     this.overlayLogoHandledSeparately = false,
+    this.lockInFlowLogoHeight = false,
     this.logoMaxHeight = 80.0,
     this.logoMaxWidth = 340.0,
   });
@@ -151,6 +152,9 @@ class DetailHeroInfo extends StatelessWidget {
 
   /// 是否已将 ClearLogo 叠放在上方头图暗色渐变遮罩内（为 `true` 时文档流内不再占高度）。
   final bool overlayLogoHandledSeparately;
+
+  /// 文档流模式下是否锁定透明徽标固定槽位高度（防止竖长/宽扁 Logo 引起下方播放按钮位移）。
+  final bool lockInFlowLogoHeight;
 
   /// 透明徽标在文档流模式下的最大高度上限。
   final double logoMaxHeight;
@@ -199,20 +203,43 @@ class DetailHeroInfo extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (renderLogoInFlow)
-          DetailLockedClearLogo(
-            work: work,
-            imageLoader: imageLoader,
-            maxWidth: logoMaxWidth,
-            maxHeight: logoMaxHeight,
-            alignment: Alignment.bottomLeft,
-            errorBuilder: (_, _, _) => showTitleText
-                ? const SizedBox.shrink()
-                : _FallbackTitleBlock(
-                    title: work.title,
-                    originalTitle: work.originalTitle,
-                    fontSize: titleFontSize,
+          lockInFlowLogoHeight
+              ? SizedBox(
+                  height: logoMaxHeight,
+                  child: Align(
+                    alignment: Alignment.bottomLeft,
+                    child: DetailLockedClearLogo(
+                      key: const ValueKey('detail_hero_locked_logo'),
+                      work: work,
+                      imageLoader: imageLoader,
+                      maxWidth: logoMaxWidth,
+                      maxHeight: logoMaxHeight,
+                      alignment: Alignment.bottomLeft,
+                      errorBuilder: (_, _, _) => showTitleText
+                          ? const SizedBox.shrink()
+                          : _FallbackTitleBlock(
+                              title: work.title,
+                              originalTitle: work.originalTitle,
+                              fontSize: titleFontSize,
+                            ),
+                    ),
                   ),
-          ),
+                )
+              : DetailLockedClearLogo(
+                  key: const ValueKey('detail_hero_locked_logo'),
+                  work: work,
+                  imageLoader: imageLoader,
+                  maxWidth: logoMaxWidth,
+                  maxHeight: logoMaxHeight,
+                  alignment: Alignment.bottomLeft,
+                  errorBuilder: (_, _, _) => showTitleText
+                      ? const SizedBox.shrink()
+                      : _FallbackTitleBlock(
+                          title: work.title,
+                          originalTitle: work.originalTitle,
+                          fontSize: titleFontSize,
+                        ),
+                ),
         if (renderLogoInFlow && renderTextTitle) const SizedBox(height: 10),
         if (renderTextTitle)
           _FallbackTitleBlock(
@@ -383,6 +410,7 @@ class _FrostedPlayButtonState extends State<FrostedPlayButton> {
                 padding: const EdgeInsets.symmetric(horizontal: 22),
                 decoration: BoxDecoration(
                   color: fillColor,
+                  gradient: KonataTheme.opticalSheenGradient(p),
                   borderRadius: BorderRadius.circular(radius),
                   border: Border.all(
                     color: borderColor,

@@ -1,4 +1,4 @@
-/// 外部程序类型（视频播放器、音频播放器及图片查看器）。
+/// 外部程序类型（视频播放器与音频播放器）。
 enum ExternalPlayerKind {
   /// MPV 播放器。
   mpv,
@@ -6,11 +6,8 @@ enum ExternalPlayerKind {
   /// PotPlayer 播放器。
   potplayer,
 
-  /// 外部音频播放器（二期 CD/OST 预留）。
+  /// 外部音频播放器。
   audioPlayer,
-
-  /// 外部图片查看器（二期扫图/画集预留）。
-  imageViewer,
 
   /// 用户自定义外部程序。
   custom,

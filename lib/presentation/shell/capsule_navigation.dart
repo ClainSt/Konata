@@ -36,6 +36,7 @@ class CapsuleNavigation extends StatelessWidget {
         // 将离屏模糊采样严格约束在胶囊局部包围盒内，并由外层 RepaintBoundary 与内容区隔离。
         enableBackdropBlur: !vertical,
         solidBackdropColor: vertical ? canvasColor : null,
+        showShadow: true,
         child: Padding(
           padding: const EdgeInsets.all(KonataAdaptiveTokens.navigationPadding),
           child: Flex(

@@ -15,7 +15,6 @@ import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
-import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_glass_capsule.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
@@ -585,11 +584,9 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
         context: context,
         item: item,
         lrc: lrc,
-        hasLyrics: hasLyrics,
         cover: snap.cover,
         isPlaying: snap.isPlaying,
         loopMode: snap.loopMode,
-        isMuted: snap.isMuted,
         specLabel: specLabel,
         notifier: notifier,
       );
@@ -653,17 +650,44 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
             ),
     );
 
+    final togglePaneButton = KonataCapsuleIconButton(
+      key: const ValueKey('immersive_toggle_pane_button'),
+      icon: effectivePane == _ImmersiveRightPane.queue
+          ? Icons.lyrics_rounded
+          : Icons.queue_music_rounded,
+      tooltip: effectivePane == _ImmersiveRightPane.queue
+          ? '切换至同步歌词'
+          : '切换至专辑曲目列表',
+      color: p.textPrimary,
+      size: 19,
+      fixedSize: KonataPlaybackTokens.immersiveSwitchButtonSize,
+      borderRadius: KonataPlaybackTokens.immersiveSwitchButtonRadius,
+      padding: EdgeInsets.zero,
+      highlighted: effectivePane == _ImmersiveRightPane.queue,
+      highlightColor: p.textPrimary,
+      highlightBgColor: KonataPlaybackTokens.activePillBg(p),
+      showHighlightBorder: false,
+      onTap: () {
+        setState(() {
+          _pane = effectivePane == _ImmersiveRightPane.queue
+              ? _ImmersiveRightPane.lyrics
+              : _ImmersiveRightPane.queue;
+          _userPinnedPane = true;
+        });
+      },
+    );
+
     return SafeArea(
       child: Column(
         children: [
-          _buildTopBar(item: item, topPadding: 0),
+          _buildTopBar(topPadding: 0),
           Expanded(
             child: Padding(
               padding: EdgeInsets.fromLTRB(
-                isWide ? 48 : 20,
+                isWide ? 56 : 24,
+                4,
+                isWide ? 56 : 24,
                 8,
-                isWide ? 48 : 20,
-                10,
               ),
               child: isWide
                   ? Row(
@@ -672,14 +696,14 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                         Expanded(
                           flex: 5,
                           child: Align(
-                            alignment: const Alignment(0, -0.10),
+                            alignment: const Alignment(0, -0.06),
                             child: ImmersiveCoverWithReflection(
                               cover: cover,
                               maxCoverSize: KonataPlaybackTokens.albumCoverSize,
                             ),
                           ),
                         ),
-                        const SizedBox(width: 44),
+                        const SizedBox(width: 48),
                         Expanded(flex: 6, child: rightPaneBody),
                       ],
                     )
@@ -692,78 +716,32 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
               right: 24,
               bottom: KonataPlaybackTokens.capsuleBottomOffset,
             ),
-            child: ImmersiveAudioCapsuleDockLeaf(
-              leading: ImmersiveMicroCover(cover: cover),
-              title: item.title,
-              isPlaying: isPlaying,
-              loopMode: loopMode,
-              notifier: notifier,
-              trailingCenterButtons: [
-                KonataCapsuleIconButton(
-                  icon: Icons.queue_music_rounded,
-                  tooltip: '专辑曲目列表',
-                  color: p.textPrimary,
-                  size: 19,
-                  fixedSize: KonataPlaybackTokens.immersiveSwitchButtonSize,
-                  borderRadius:
-                      KonataPlaybackTokens.immersiveSwitchButtonRadius,
-                  padding: EdgeInsets.zero,
-                  highlighted: effectivePane == _ImmersiveRightPane.queue,
-                  highlightColor: p.textPrimary,
-                  highlightBgColor: KonataPlaybackTokens.activePillBg(p),
-                  showHighlightBorder: false,
-                  onTap: () {
-                    setState(() {
-                      _pane = _ImmersiveRightPane.queue;
-                      _userPinnedPane = true;
-                    });
-                  },
-                ),
-                const SizedBox(width: 2),
-                KonataCapsuleIconButton(
-                  icon: Icons.lyrics_rounded,
-                  tooltip: '同步歌词',
-                  color: p.textPrimary,
-                  size: 18,
-                  fixedSize: KonataPlaybackTokens.immersiveSwitchButtonSize,
-                  borderRadius:
-                      KonataPlaybackTokens.immersiveSwitchButtonRadius,
-                  padding: EdgeInsets.zero,
-                  highlighted: effectivePane == _ImmersiveRightPane.lyrics,
-                  highlightColor: p.textPrimary,
-                  highlightBgColor: KonataPlaybackTokens.activePillBg(p),
-                  showHighlightBorder: false,
-                  onTap: () {
-                    setState(() {
-                      _pane = _ImmersiveRightPane.lyrics;
-                      _userPinnedPane = true;
-                    });
-                  },
-                ),
-              ],
-              rightSlot: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (specLabel.isNotEmpty &&
-                      screenWidth >=
-                          KonataPlaybackTokens.miniBarHideBadgeBreakpoint) ...[
-                    Flexible(child: KonataSpecBadge(label: specLabel)),
-                    const SizedBox(width: 4),
+            child: Center(
+              child: ImmersiveAudioCapsuleDockLeaf(
+                maxWidth: KonataPlaybackTokens.capsuleAudioMaxWidth,
+                title: item.title,
+                isPlaying: isPlaying,
+                loopMode: loopMode,
+                notifier: notifier,
+                trailingCenterPrimaryButton: togglePaneButton,
+                rightSlot: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (specLabel.isNotEmpty &&
+                        screenWidth >=
+                            KonataPlaybackTokens
+                                .miniBarHideBadgeBreakpoint) ...[
+                      Flexible(child: KonataSpecBadge(label: specLabel)),
+                      const SizedBox(width: 6),
+                    ],
+                    KonataVolumeControl(
+                      volume: (volume / 100.0).clamp(0.0, 1.0),
+                      isMuted: isMuted,
+                      onVolumeChanged: (v) => notifier.setVolume(v * 100.0),
+                      onToggleMute: notifier.toggleMute,
+                    ),
                   ],
-                  KonataVolumeControl(
-                    volume: (volume / 100.0).clamp(0.0, 1.0),
-                    isMuted: isMuted,
-                    onVolumeChanged: (v) => notifier.setVolume(v * 100.0),
-                    onToggleMute: notifier.toggleMute,
-                  ),
-                  KonataCapsuleIconButton(
-                    icon: Icons.keyboard_arrow_down_rounded,
-                    tooltip: '收起为迷你底栏 (Esc)',
-                    color: p.textPrimary,
-                    size: 20,
-                    onTap: _collapseToMiniBar,
-                  ),
-                ],
+                ),
               ),
             ),
           ),
@@ -786,11 +764,39 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     required _ImmersiveRightPane effectivePane,
     required AudioPlaybackNotifier notifier,
   }) {
+    final p = context.palette;
     final snapshotState = ref.read(audioPlaybackProvider);
     final screenWidth = MediaQuery.sizeOf(context).width;
     final topSafe = math.max(safe.top, KonataAdaptiveTokens.tabletTopSafeMin);
     final bottomSafe =
         safe.bottom + KonataAdaptiveTokens.tabletBottomInset;
+
+    final togglePaneButton = KonataCapsuleIconButton(
+      key: const ValueKey('immersive_toggle_pane_button'),
+      icon: effectivePane == _ImmersiveRightPane.queue
+          ? Icons.lyrics_rounded
+          : Icons.queue_music_rounded,
+      tooltip: effectivePane == _ImmersiveRightPane.queue
+          ? '切换至同步歌词'
+          : '切换至专辑曲目列表',
+      color: p.textPrimary,
+      size: 20,
+      fixedSize: KonataAdaptiveTokens.touchTarget,
+      borderRadius: KonataPlaybackTokens.immersiveSwitchButtonRadius,
+      padding: EdgeInsets.zero,
+      highlighted: effectivePane == _ImmersiveRightPane.queue,
+      highlightColor: p.textPrimary,
+      highlightBgColor: KonataPlaybackTokens.activePillBg(p),
+      showHighlightBorder: false,
+      onTap: () {
+        setState(() {
+          _pane = effectivePane == _ImmersiveRightPane.queue
+              ? _ImmersiveRightPane.lyrics
+              : _ImmersiveRightPane.queue;
+          _userPinnedPane = true;
+        });
+      },
+    );
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -801,18 +807,18 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
       ),
       child: Column(
         children: [
-          _buildTopBar(item: item, topPadding: 0),
-          const SizedBox(height: 8),
+          _buildTopBar(topPadding: 0),
+          const SizedBox(height: 4),
           Expanded(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // 左栏：垂直居中专辑封面（上限 396dp）及底部镜像渐变倒影
+                // 左栏：垂直居中专辑封面（上限 396dp）及底部柔雾镜像倒影
                 Expanded(
                   flex: 5,
                   child: Center(
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
                       child: ImmersiveCoverWithReflection(
                         cover: cover,
                         maxCoverSize:
@@ -821,81 +827,54 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 28),
-                // 右栏：常驻大字号歌词与队列胶囊切换面板
+                const SizedBox(width: 32),
+                // 右栏：无顶栏杂质的纯全高歌词与队列流光舞台（由底坞五键最右侧图标一键切换）
                 Expanded(
                   flex: 6,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: KonataSegmentedCapsule<_ImmersiveRightPane>(
-                          options: const [
-                            KonataSegmentOption(
-                              value: _ImmersiveRightPane.lyrics,
-                              label: '同步歌词',
-                              icon: Icons.lyrics_rounded,
-                            ),
-                            KonataSegmentOption(
-                              value: _ImmersiveRightPane.queue,
-                              label: '播放队列',
-                              icon: Icons.queue_music_rounded,
-                            ),
-                          ],
-                          selected: effectivePane,
-                          onChanged: (next) => setState(() {
-                            _pane = next;
-                            _userPinnedPane = true;
-                          }),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Expanded(
-                        child: KonataSmoothSectionSwitcher(
-                          switchKey: effectivePane,
-                          alignment: Alignment.center,
-                          child: effectivePane == _ImmersiveRightPane.lyrics
-                              ? KeyedSubtree(
-                                  key: const ValueKey('tablet_lyrics_pane'),
-                                  child: _buildLyricsViewport(lrc, notifier),
-                                )
-                              : KeyedSubtree(
-                                  key: const ValueKey('tablet_queue_pane'),
-                                  child: _buildQueueViewport(
-                                    snapshotState,
-                                    notifier,
-                                  ),
-                                ),
-                        ),
-                      ),
-                    ],
+                  child: KonataSmoothSectionSwitcher(
+                    switchKey: effectivePane,
+                    alignment: Alignment.center,
+                    child: effectivePane == _ImmersiveRightPane.lyrics
+                        ? KeyedSubtree(
+                            key: const ValueKey('tablet_lyrics_pane'),
+                            child: _buildLyricsViewport(lrc, notifier),
+                          )
+                        : KeyedSubtree(
+                            key: const ValueKey('tablet_queue_pane'),
+                            child: _buildQueueViewport(snapshotState, notifier),
+                          ),
                   ),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 12),
-          // 整个平板播放器界面底部水平正中央：中央等距五键（循环、上一首、播放暂停、下一首、音量），格式徽章固定最右
+          // 平板底部正中光学控制坞：中央等距五键（循环、上一首、播放暂停、下一首、歌词/队列），右侧规格与音量
           Center(
             child: ImmersiveAudioCapsuleDockLeaf(
-              maxWidth: KonataPlaybackTokens.capsuleMaxWidth,
-              leading: ImmersiveMicroCover(cover: cover),
+              maxWidth: KonataAdaptiveTokens.tabletPlayerMaxWidth,
               title: item.title,
               isPlaying: isPlaying,
               loopMode: loopMode,
               notifier: notifier,
-              trailingCenterPrimaryButton: KonataVolumeControl(
-                volume: (volume / 100.0).clamp(0.0, 1.0),
-                isMuted: isMuted,
-                onVolumeChanged: (v) => notifier.setVolume(v * 100.0),
-                onToggleMute: notifier.toggleMute,
-              ),
-              rightSlot: (specLabel.isNotEmpty &&
+              trailingCenterPrimaryButton: togglePaneButton,
+              rightSlot: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (specLabel.isNotEmpty &&
                       screenWidth >=
-                          KonataPlaybackTokens.miniBarHideBadgeBreakpoint)
-                  ? KonataSpecBadge(label: specLabel)
-                  : null,
+                          KonataPlaybackTokens.miniBarHideBadgeBreakpoint) ...[
+                    KonataSpecBadge(label: specLabel),
+                    const SizedBox(width: 6),
+                  ],
+                  KonataVolumeControl(
+                    volume: (volume / 100.0).clamp(0.0, 1.0),
+                    isMuted: isMuted,
+                    onVolumeChanged: (v) => notifier.setVolume(v * 100.0),
+                    onToggleMute: notifier.toggleMute,
+                  ),
+                ],
+              ),
             ),
           ),
         ],

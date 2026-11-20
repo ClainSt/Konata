@@ -56,11 +56,4 @@ abstract interface class DesktopRelayGateway {
     double? exactStartSeconds,
     PlaybackProgressCallback? onProgressUpdate,
   });
-
-  /// 若已配置桌面看图程序且扫图位于本地磁盘则拉起外部查看，否则返回 `null`。
-  Future<LaunchPlaybackResult?> openLocalScan({
-    required Work work,
-    required MediaVariant variant,
-    MediaSource? source,
-  });
 }

@@ -15,6 +15,7 @@ import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_keep_alive_tab_switcher.dart';
+import '../widgets/playback/konata_cached_artwork_backdrop.dart';
 import 'adaptive_capsule_layout.dart';
 import 'capsule_navigation.dart';
 
@@ -67,6 +68,12 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       final miniAnchor = miniKind != FloatingMiniPlayerKind.none
           ? ref.watch(floatingMiniWindowAnchorProvider)
           : null;
+      final visualState = miniKind != FloatingMiniPlayerKind.none
+          ? ref.watch(floatingMiniVisualStateProvider)
+          : FloatingMiniVisualState.collapsed;
+      final edgeSide = miniKind != FloatingMiniPlayerKind.none
+          ? ref.watch(floatingMiniEdgeSideProvider)
+          : FloatingMiniEdgeSide.right;
       final hidden =
           ref.watch(capsuleNavigationHiddenProvider) ||
           ref.watch(immersiveAudioExpandedProvider) ||
@@ -78,6 +85,8 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         navigationVisible: !hidden,
         miniKind: miniKind,
         normalizedMiniAnchor: miniAnchor,
+        visualState: visualState,
+        edgeSide: edgeSide,
       );
       final canvasColor = context.palette.isDark
           ? KonataTheme.cinemaObsidian
@@ -90,6 +99,9 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
             backgroundColor: canvasColor,
             body: Stack(
               children: [
+                const Positioned.fill(
+                  child: KonataAmbientShellBackdrop(opaqueBase: true),
+                ),
                 Positioned.fill(
                   left: geometry.leftClearance,
                   child: RepaintBoundary(
@@ -103,7 +115,9 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
                   ),
                 ),
                 if (!hidden)
-                  Positioned.fromRect(
+                  AnimatedPositioned.fromRect(
+                    duration: KonataTheme.motionMedium,
+                    curve: Curves.easeOutCubic,
                     rect: geometry.navigationRect,
                     child: RepaintBoundary(
                       child: _AndroidCapsuleNavSlot(
@@ -126,28 +140,48 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         bottomClearance: desktopBottomClearance,
         child: Scaffold(
           backgroundColor: Colors.transparent,
-          body: Column(
+          body: Stack(
             children: [
-              if (topNavBuilder != null)
-                RepaintBoundary(
-                  child: _DesktopTopNavSlot(
-                    topNavBuilder: topNavBuilder,
-                    searchFocusNode: _searchFocusNode,
-                    searchExpanded: _searchExpanded,
-                    onSearchExpandedChanged: (expanded) {
-                      setState(() => _searchExpanded = expanded);
-                    },
+              const Positioned.fill(child: _DesktopAmbientBackdropSlot()),
+              Column(
+                children: [
+                  if (topNavBuilder != null)
+                    RepaintBoundary(
+                      child: _DesktopTopNavSlot(
+                        topNavBuilder: topNavBuilder,
+                        searchFocusNode: _searchFocusNode,
+                        searchExpanded: _searchExpanded,
+                        onSearchExpandedChanged: (expanded) {
+                          setState(() => _searchExpanded = expanded);
+                        },
+                      ),
+                    ),
+                  const Expanded(
+                    child: ClipRect(
+                      child: _ShellTabBodySlot(pages: _mainPages),
+                    ),
                   ),
-                ),
-              const Expanded(
-                child: ClipRect(
-                  child: _ShellTabBodySlot(pages: _mainPages),
-                ),
+                ],
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// 桌面端可选流光氛围画布叶子槽位（默认关闭，仅在用户开启时叠加轻柔透明流光，不触发壳层重建）。
+class _DesktopAmbientBackdropSlot extends ConsumerWidget {
+  const _DesktopAmbientBackdropSlot();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enabled = ref.watch(ambientCanvasEnabledProvider);
+    if (!enabled) return const SizedBox.shrink();
+    return const KonataAmbientShellBackdrop(
+      opaqueBase: false,
+      intensity: 0.62,
     );
   }
 }

@@ -367,6 +367,11 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
         ref: ref,
         episode: ep,
       ),
+      onEpisodeMediaInfo: (ep) => DetailActionHandlers.showEpisodeMediaInfo(
+        context: context,
+        bundle: bundle,
+        episode: ep,
+      ),
       onOpenManualMatch: () => _handleOpenManualMatch(bundle),
       onOpenManualEdit: () => _handleOpenManualEdit(bundle),
       onOpenPosterPicker: () => DetailActionHandlers.openArtworkPicker(
@@ -424,11 +429,13 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
               overrideEngine: PreferredPlaybackEngine.desktopRelay,
             )
           : null,
-      onScanTap: (variant) => DetailActionHandlers.openScanViewer(
-        context,
-        bundle,
-        variant,
-      ),
+      onScanTap: (variant, {String? volumeKey}) =>
+          DetailActionHandlers.openScanViewer(
+            context,
+            bundle,
+            variant,
+            initialVolumeKey: volumeKey,
+          ),
     );
   }
 
@@ -743,7 +750,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                       );
                     }
 
-                    // 手机竖屏与平板竖屏：16:9 背景图严格从状态栏正下方起绘 + 播放按钮与系列下拉同行 + 通栏简介
+                    // 手机竖屏采用方案 P1 全幅竖版封面沉浸头图；平板竖屏保持 16:9 横版背景头图 + 通栏简介
                     if (isPhonePortrait || isTabletPortrait) {
                       final portraitTab = _phonePortraitExpanded
                           ? preferredTab
@@ -799,7 +806,10 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                           openDownward: true,
                                         ),
                                     overlayLogoHandledSeparately:
-                                        displayPrefs.showTitleLogo && hasLogo,
+                                        isTabletPortrait &&
+                                        displayPrefs.showTitleLogo &&
+                                        hasLogo,
+                                    lockInFlowLogoHeight: isPhonePortrait,
                                     logoMaxHeight: overlayLogoMaxH,
                                     logoMaxWidth: overlayLogoMaxW,
                                     titleFontSize: isTabletPortrait ? 28 : 23,
@@ -969,22 +979,28 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                     color: KonataTheme.scrimBlackMedium,
                                   ),
                                 ),
+                              // L 型双轴光学暗幕：左→右柔光承托文字与 ClearLogo，右半屏原画保持饱满通透
                               IgnorePointer(
                                 child: DecoratedBox(
                                   decoration: BoxDecoration(
-                                    gradient: RadialGradient(
-                                      center: const Alignment(-0.78, 0.58),
-                                      radius: 0.82,
-                                      stops: const [0.0, 0.52, 1.0],
+                                    gradient: LinearGradient(
+                                      begin: Alignment.centerLeft,
+                                      end: Alignment.centerRight,
+                                      stops: const [0.0, 0.34, 0.66],
                                       colors: [
-                                        KonataTheme.scrimBlackModerate,
-                                        KonataTheme.scrimBlackFaint,
+                                        KonataTheme.cinemaObsidian.withValues(
+                                          alpha: 0.84,
+                                        ),
+                                        KonataTheme.cinemaObsidian.withValues(
+                                          alpha: 0.40,
+                                        ),
                                         Colors.transparent,
                                       ],
                                     ),
                                   ),
                                 ),
                               ),
+                              // 下→上光学渐隐暗幕：展开选集抽屉时加深托底以衬托无框卡片
                               IgnorePointer(
                                 child: DecoratedBox(
                                   decoration: BoxDecoration(
@@ -992,22 +1008,21 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                       begin: Alignment.bottomCenter,
                                       end: Alignment.topCenter,
                                       stops: isDrawerExpanded
-                                          ? const [0.0, 0.22, 0.44]
-                                          : const [0.0, 0.18],
+                                          ? const [0.0, 0.24, 0.48]
+                                          : const [0.0, 0.14, 0.30],
                                       colors: isDrawerExpanded
                                           ? [
-                                              KonataTheme.pureBlack.withValues(
-                                                alpha: 0.78,
-                                              ),
-                                              KonataTheme.pureBlack.withValues(
-                                                alpha: 0.42,
-                                              ),
+                                              KonataTheme.cinemaObsidian
+                                                  .withValues(alpha: 0.86),
+                                              KonataTheme.cinemaObsidian
+                                                  .withValues(alpha: 0.46),
                                               Colors.transparent,
                                             ]
                                           : [
-                                              KonataTheme.pureBlack.withValues(
-                                                alpha: 0.30,
-                                              ),
+                                              KonataTheme.cinemaObsidian
+                                                  .withValues(alpha: 0.54),
+                                              KonataTheme.cinemaObsidian
+                                                  .withValues(alpha: 0.18),
                                               Colors.transparent,
                                             ],
                                     ),

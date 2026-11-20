@@ -29,6 +29,7 @@ class EpisodeDrawerCard extends StatefulWidget {
     required this.imageLoader,
     required this.onTap,
     required this.onAdjustSlot,
+    this.onShowMediaInfo,
     this.onPlayBuiltin,
     this.onPlayExternal,
     this.workTitle,
@@ -49,6 +50,7 @@ class EpisodeDrawerCard extends StatefulWidget {
   final ManagedImageLoader imageLoader;
   final VoidCallback onTap;
   final VoidCallback onAdjustSlot;
+  final VoidCallback? onShowMediaInfo;
   final VoidCallback? onPlayBuiltin;
   final VoidCallback? onPlayExternal;
   final PlaybackRecord? playback;
@@ -78,10 +80,13 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
   Future<void> _showEpisodeMenu(Offset globalPos) async {
     final allowExternal =
         KonataAdaptiveTokens.isWindows && widget.onPlayExternal != null;
+    final hasMediaInfo =
+        widget.onShowMediaInfo != null && widget.variants.isNotEmpty;
     final hasAnyMenuAction =
         widget.onMarkCompleted != null ||
         widget.onPlayBuiltin != null ||
-        allowExternal;
+        allowExternal ||
+        hasMediaInfo;
     if (!hasAnyMenuAction && !KonataAdaptiveTokens.isAndroid) {
       widget.onAdjustSlot();
       return;
@@ -139,6 +144,19 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
               ],
             ),
           ),
+        if (hasMediaInfo)
+          PopupMenuItem<String>(
+            value: 'mediainfo',
+            height: itemHeight,
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.info_outline_rounded, size: 17),
+                SizedBox(width: 8),
+                Text('查看媒体信息'),
+              ],
+            ),
+          ),
         PopupMenuItem<String>(
           value: 'adjust',
           height: itemHeight,
@@ -162,6 +180,8 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
         widget.onPlayExternal?.call();
       case 'complete':
         widget.onMarkCompleted?.call();
+      case 'mediainfo':
+        widget.onShowMediaInfo?.call();
       case 'adjust':
         widget.onAdjustSlot();
     }
@@ -225,8 +245,10 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                 ).copyWith(shadows: metaShadows),
               ),
             ),
-            const SizedBox(width: 6),
-            EpisodeCategoryBadge(isSpecial: ep.isSpecial),
+            if (ep.isSpecial) ...[
+              const SizedBox(width: 6),
+              const EpisodeCategoryBadge(isSpecial: true),
+            ],
             if (widget.variants.length >= 2) ...[
               const SizedBox(width: 6),
               _FrostedMiniBadge(
@@ -326,6 +348,40 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                                   color: KonataTheme.overlayWhiteTextDim,
                                 ),
                               ),
+                        if (!KonataAdaptiveTokens.isAndroid)
+                          IgnorePointer(
+                            child: AnimatedOpacity(
+                              opacity: _hovered ? 1.0 : 0.0,
+                              duration: KonataTheme.motionFast,
+                              curve: Curves.easeOutCubic,
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: KonataTheme.scrimBlackLight,
+                                ),
+                                child: Center(
+                                  child: Container(
+                                    width: 40,
+                                    height: 40,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: KonataTheme.scrimBlackDense,
+                                      border: Border.all(
+                                        color: KonataTheme
+                                            .overlayWhiteBorderStrong,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: const Icon(
+                                      Icons.play_arrow_rounded,
+                                      size: 22,
+                                      color: KonataTheme.pureWhite,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                         if (hasProgressBadge)
                           Positioned(
                             top: 6,
@@ -373,16 +429,28 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                             left: 0,
                             right: 0,
                             bottom: 0,
-                            height: 3,
+                            height: 2.5,
                             child: Container(
                               color: KonataTheme.scrimBlackStrong,
                               alignment: Alignment.centerLeft,
                               child: FractionallySizedBox(
                                 widthFactor: progressRatio,
                                 child: Container(
-                                  color: playback!.isCompleted
-                                      ? p.success
-                                      : p.accent,
+                                  decoration: BoxDecoration(
+                                    color: playback!.isCompleted
+                                        ? p.success
+                                        : KonataTheme.pureWhite,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color:
+                                            (playback.isCompleted
+                                                    ? p.success
+                                                    : KonataTheme.pureWhite)
+                                                .withValues(alpha: 0.45),
+                                        blurRadius: 6,
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),

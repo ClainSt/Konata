@@ -12,6 +12,7 @@ import '../../../application/providers/artwork_provider.dart';
 import '../../../application/providers/diagnostics_providers.dart';
 import '../../theme/konata_palette.dart';
 import '../../theme/konata_playback_tokens.dart';
+import '../../theme/konata_theme.dart';
 
 /// 全端同源的 0 MB 模糊位图显存 GPU 径向流光舞台背景（供全屏音乐页与视频后台纯音频模式复用）。
 ///
@@ -246,32 +247,39 @@ class _AuroraRadialFieldPainter extends CustomPainter {
     // 1. 主题底布
     canvas.drawRect(rect, Paint()..color = baseColor);
 
-    // 2. 四源 GPU 径向着色场（左上主色、右中次色、左下辅色与中心柔光弥散）
-    final blendMid = Color.lerp(glowA, glowB, 0.5) ?? glowA;
+    // 2. 五源 GPU 径向丝绒流光着色场（左肩主光、右上暖霞、右下深韵、左下暗影与中轴柔光弥散）
+    final blendWarm = Color.lerp(glowA, glowB, 0.45) ?? glowA;
+    final blendCool = Color.lerp(glowB, glowC, 0.55) ?? glowC;
     final sources = <({Offset center, double radius, Color color, double alpha})>[
       (
-        center: Offset(size.width * 0.22, size.height * 0.28),
-        radius: maxDim * 0.78,
+        center: Offset(size.width * 0.16, size.height * 0.24),
+        radius: maxDim * 0.84,
         color: glowA,
-        alpha: 0.82,
+        alpha: 0.86,
       ),
       (
-        center: Offset(size.width * 0.80, size.height * 0.56),
-        radius: maxDim * 0.74,
+        center: Offset(size.width * 0.84, size.height * 0.28),
+        radius: maxDim * 0.78,
         color: glowB,
+        alpha: 0.78,
+      ),
+      (
+        center: Offset(size.width * 0.78, size.height * 0.82),
+        radius: maxDim * 0.76,
+        color: glowC,
         alpha: 0.70,
       ),
       (
-        center: Offset(size.width * 0.36, size.height * 0.86),
-        radius: maxDim * 0.70,
-        color: glowC,
-        alpha: 0.62,
+        center: Offset(size.width * 0.24, size.height * 0.84),
+        radius: maxDim * 0.72,
+        color: blendCool,
+        alpha: 0.64,
       ),
       (
-        center: Offset(size.width * 0.58, size.height * 0.22),
-        radius: maxDim * 0.60,
-        color: blendMid,
-        alpha: 0.42,
+        center: Offset(size.width * 0.50, size.height * 0.46),
+        radius: maxDim * 0.64,
+        color: blendWarm,
+        alpha: 0.44,
       ),
     ];
 
@@ -282,15 +290,15 @@ class _AuroraRadialFieldPainter extends CustomPainter {
           src.radius,
           [
             src.color.withValues(alpha: src.alpha),
-            src.color.withValues(alpha: src.alpha * 0.36),
+            src.color.withValues(alpha: src.alpha * 0.42),
             Colors.transparent,
           ],
-          const [0.0, 0.48, 1.0],
+          const [0.0, 0.46, 1.0],
         );
       canvas.drawRect(rect, paint);
     }
 
-    // 3. 主题表面遮罩（0.48 / 0.56 保障前景文字与封面高对比度）
+    // 3. 主题表面遮罩（0.40 / 0.52 保障前景歌词与封面高对比度且流光通透）
     canvas.drawRect(rect, Paint()..color = scrimColor);
   }
 
@@ -301,5 +309,124 @@ class _AuroraRadialFieldPainter extends CustomPainter {
         oldDelegate.glowB != glowB ||
         oldDelegate.glowC != glowC ||
         oldDelegate.scrimColor != scrimColor;
+  }
+}
+
+/// 跨端壳层静态流光氛围画布（零动画时钟、0 MB 位图显存、纯 GPU 轻柔三源径向弥散）。
+///
+/// 供 Android 主壳层常驻铺底，以及 Windows 端用户在「设置 → 外观」开启「流光氛围画布」时柔和叠色使用。
+class KonataAmbientShellBackdrop extends StatelessWidget {
+  /// 创建壳层静态流光氛围画布。
+  const KonataAmbientShellBackdrop({
+    super.key,
+    this.opaqueBase = true,
+    this.intensity = 1.0,
+  });
+
+  /// 是否绘制不透明主题底色（Android 实底壳层为 `true`；Windows 透明窗叠加模式为 `false`）。
+  final bool opaqueBase;
+
+  /// 光晕叠加强度系数（默认 `1.0`；Windows 透光叠色建议 `0.62`）。
+  final double intensity;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return RepaintBoundary(
+      child: IgnorePointer(
+        child: CustomPaint(
+          painter: _AmbientShellPainter(
+            isDark: p.isDark,
+            opaqueBase: opaqueBase,
+            intensity: intensity,
+          ),
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+  }
+}
+
+class _AmbientShellPainter extends CustomPainter {
+  const _AmbientShellPainter({
+    required this.isDark,
+    required this.opaqueBase,
+    required this.intensity,
+  });
+
+  final bool isDark;
+  final bool opaqueBase;
+  final double intensity;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final rect = Offset.zero & size;
+    final maxDim = size.longestSide;
+
+    if (opaqueBase) {
+      canvas.drawRect(
+        rect,
+        Paint()
+          ..color = isDark
+              ? KonataTheme.cinemaObsidian
+              : KonataTheme.themePreviewLightCanvas,
+      );
+    }
+
+    final glowA = isDark
+        ? KonataTheme.ambientShellDarkGlowA
+        : KonataTheme.ambientShellLightGlowA;
+    final glowB = isDark
+        ? KonataTheme.ambientShellDarkGlowB
+        : KonataTheme.ambientShellLightGlowB;
+    final glowC = isDark
+        ? KonataTheme.ambientShellDarkGlowC
+        : KonataTheme.ambientShellLightGlowC;
+    final baseAlpha = (isDark ? 0.24 : 0.42) * intensity.clamp(0.0, 1.0);
+
+    final blobs = <({Offset center, double radius, Color color, double weight})>[
+      (
+        center: Offset(size.width * 0.14, size.height * 0.12),
+        radius: maxDim * 0.72,
+        color: glowA,
+        weight: 1.0,
+      ),
+      (
+        center: Offset(size.width * 0.88, size.height * 0.24),
+        radius: maxDim * 0.68,
+        color: glowB,
+        weight: 0.92,
+      ),
+      (
+        center: Offset(size.width * 0.56, size.height * 0.94),
+        radius: maxDim * 0.66,
+        color: glowC,
+        weight: 0.80,
+      ),
+    ];
+
+    for (final blob in blobs) {
+      final a = (baseAlpha * blob.weight).clamp(0.0, 1.0);
+      final paint = Paint()
+        ..shader = ui.Gradient.radial(
+          blob.center,
+          blob.radius,
+          [
+            blob.color.withValues(alpha: a),
+            blob.color.withValues(alpha: a * 0.34),
+            Colors.transparent,
+          ],
+          const [0.0, 0.48, 1.0],
+        );
+      canvas.drawRect(rect, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _AmbientShellPainter oldDelegate) {
+    return oldDelegate.isDark != isDark ||
+        oldDelegate.opaqueBase != opaqueBase ||
+        oldDelegate.intensity != intensity;
   }
 }

@@ -71,8 +71,8 @@ abstract final class PlaybackHistoryCardMetrics {
   /// 桌面观看日期字号。
   static const double dateFontSize = 13.5;
 
-  /// 桌面进度条高度。
-  static const double progressBarHeight = 6.0;
+  /// 桌面进度条高度（流光细轨）。
+  static const double progressBarHeight = 3.5;
 
   /// 桌面标题与副标题间距。
   static const double titleSubtitleGap = 6.0;
@@ -275,7 +275,7 @@ class PlaybackHistoryItemCard extends StatelessWidget {
       titleLineHeight = 1.18;
       subtitleFontSize = veryNarrow ? 12.2 : 12.8;
       titleSubGap = 2.0;
-      progressBarHeight = 4.5;
+      progressBarHeight = 3.0;
       progressRowGap = 4.0;
       progressFontSize = 11.8;
       dateFontSize = 11.5;
@@ -293,7 +293,7 @@ class PlaybackHistoryItemCard extends StatelessWidget {
       titleLineHeight = 1.20;
       subtitleFontSize = veryNarrow ? 12.6 : 13.2;
       titleSubGap = 3.0;
-      progressBarHeight = 5.0;
+      progressBarHeight = 3.2;
       progressRowGap = 5.0;
       progressFontSize = 12.0;
       dateFontSize = 11.8;
@@ -368,7 +368,22 @@ class PlaybackHistoryItemCard extends StatelessWidget {
               key: ValueKey('history_${kindTag}_cover_${record.id}'),
               width: coverWidth,
               height: coverHeight,
-              child: coverChild,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  coverChild,
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(coverRadius),
+                          border: Border.all(color: p.posterBorder, width: 1),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           SizedBox(width: coverGap),

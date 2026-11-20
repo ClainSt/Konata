@@ -14,7 +14,7 @@ import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 
-/// 设置页「外部调用」一级面板：独立管理外部视频播放器、外部音频播放器及外部看图工具（输入或浏览后即时自动保存）。
+/// 设置页「外部调用」一级面板：管理外部视频播放器与外部音频播放器（输入或浏览后即时自动保存）。
 class SettingsExternalToolsPanel extends ConsumerStatefulWidget {
   /// 创建外部调用设置面板。
   const SettingsExternalToolsPanel({super.key});
@@ -29,7 +29,6 @@ class _SettingsExternalToolsPanelState
   final TextEditingController _mpvController = TextEditingController();
   final TextEditingController _potController = TextEditingController();
   final TextEditingController _audioController = TextEditingController();
-  final TextEditingController _imageController = TextEditingController();
 
   ExternalPlayerKind _preferredVideoKind = ExternalPlayerKind.mpv;
   bool _initialized = false;
@@ -49,7 +48,6 @@ class _SettingsExternalToolsPanelState
     _mpvController.dispose();
     _potController.dispose();
     _audioController.dispose();
-    _imageController.dispose();
     super.dispose();
   }
 
@@ -79,13 +77,6 @@ class _SettingsExternalToolsPanelState
         kind: ExternalPlayerKind.audioPlayer,
         executablePath: _audioController.text.trim(),
         argumentsTemplate: '{url}',
-      ),
-      ExternalPlayerConfig(
-        id: 'player_image_viewer',
-        name: '外部图片查看器',
-        kind: ExternalPlayerKind.imageViewer,
-        executablePath: _imageController.text.trim(),
-        argumentsTemplate: '{path}',
       ),
     ];
   }
@@ -181,8 +172,6 @@ class _SettingsExternalToolsPanelState
               }
             case ExternalPlayerKind.audioPlayer:
               _audioController.text = player.executablePath;
-            case ExternalPlayerKind.imageViewer:
-              _imageController.text = player.executablePath;
             case ExternalPlayerKind.custom:
               break;
           }
@@ -289,7 +278,7 @@ class _SettingsExternalToolsPanelState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '外部音频与画册查看程序',
+                '外部音频播放器',
                 style: TextStyle(
                   color: p.textPrimary,
                   fontSize: KonataTheme.fontSizeTitleSm,
@@ -298,7 +287,7 @@ class _SettingsExternalToolsPanelState
               ),
               const SizedBox(height: 4),
               Text(
-                '可指定 foobar2000 / Honeyview 等外部程序用于特定 CD 音轨或高清扫图浏览',
+                '可指定 foobar2000 等外部程序用于特定 CD 音轨播放；Scan 扫图统一由内置高清画册查看器提供全端闭环浏览',
                 style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodyXs),
               ),
               const SizedBox(height: 16),
@@ -312,19 +301,6 @@ class _SettingsExternalToolsPanelState
                 onBrowse: () => _pickExecutable(
                   _audioController,
                   dialogTitle: '选择外部音频播放器可执行文件',
-                ),
-              ),
-              const SizedBox(height: 16),
-              _ExternalPathFieldRow(
-                controller: _imageController,
-                label: '外部图片查看器路径（Scan 扫图可选）',
-                hintText: r'C:\Program Files\Honeyview\Honeyview.exe',
-                icon: Icons.photo_library_outlined,
-                onChanged: (_) => _scheduleAutoSave(),
-                onSubmitted: (_) => unawaited(_flushAutoSave()),
-                onBrowse: () => _pickExecutable(
-                  _imageController,
-                  dialogTitle: '选择外部图片查看器可执行文件',
                 ),
               ),
             ],

@@ -227,46 +227,37 @@ extension _EmbeddedVideoTopOverlays on _EmbeddedVideoPageState {
     final hwActive =
         stats.hwdecCurrent.isNotEmpty && stats.hwdecCurrent != 'no';
 
-    Widget bar = Container(
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-      decoration: p.isDark
-          ? BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  KonataPlaybackTokens.cinemaPureBlack.withValues(alpha: 0.72),
-                  KonataPlaybackTokens.cinemaPureBlack.withValues(alpha: 0.0),
-                ],
-              ),
-            )
-          : BoxDecoration(
-              color: KonataPlaybackTokens.glassSurface(p),
-              border: Border(
-                bottom: BorderSide(color: KonataPlaybackTokens.glassBorder(p)),
-              ),
-            ),
+    Widget bar = KonataGlassCapsule(
+      key: const ValueKey('desktop_video_top_capsule'),
+      radius: KonataTheme.radiusPill,
+      showShadow: true,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: Row(
         children: [
-          IconButton(
+          KonataCapsuleIconButton(
+            icon: widget.onCollapseToMini != null
+                ? Icons.keyboard_arrow_down_rounded
+                : Icons.arrow_back_rounded,
             tooltip: widget.onCollapseToMini != null
                 ? '收起为小窗播放胶囊 (Esc)'
                 : '返回作品详情 (Esc)',
-            onPressed: _collapseOrExit,
-            icon: Icon(
-              widget.onCollapseToMini != null
-                  ? Icons.keyboard_arrow_down_rounded
-                  : Icons.arrow_back_rounded,
-              color: p.textPrimary,
-            ),
+            color: p.textPrimary,
+            size: 22,
+            fixedSize: 34,
+            padding: EdgeInsets.zero,
+            onTap: _collapseOrExit,
           ),
           if (widget.onCollapseToMini != null)
-            IconButton(
+            KonataCapsuleIconButton(
+              icon: Icons.close_rounded,
               tooltip: '停止并关闭视频',
-              onPressed: () => unawaited(_closeSessionAndExit()),
-              icon: Icon(Icons.close_rounded, size: 20, color: p.textPrimary),
+              color: p.textPrimary,
+              size: 19,
+              fixedSize: 34,
+              padding: EdgeInsets.zero,
+              onTap: () => unawaited(_closeSessionAndExit()),
             ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 8),
           Expanded(
             child: Row(
               children: [
@@ -307,54 +298,54 @@ extension _EmbeddedVideoTopOverlays on _EmbeddedVideoPageState {
             ),
           ),
           const SizedBox(width: 8),
-          IconButton(
+          KonataCapsuleIconButton(
+            icon: Icons.headphones_rounded,
             tooltip: snap.audioOnlyMode ? '恢复视频画面' : '切换后台纯音频',
-            onPressed: controller.toggleAudioOnlyMode,
-            icon: Icon(
-              Icons.headphones_rounded,
-              size: 19,
-              color: snap.audioOnlyMode ? p.progressFill : p.textPrimary,
-            ),
+            color: p.textPrimary,
+            highlighted: snap.audioOnlyMode,
+            highlightColor: p.progressFill,
+            size: 19,
+            fixedSize: 34,
+            padding: EdgeInsets.zero,
+            onTap: controller.toggleAudioOnlyMode,
           ),
-          IconButton(
+          KonataCapsuleIconButton(
+            icon: Icons.analytics_outlined,
             tooltip: '技术探针指标 (Tab)',
-            onPressed: controller.toggleProbeOverlay,
-            icon: Icon(
-              Icons.analytics_outlined,
-              size: 20,
-              color: snap.probeOverlayVisible ? p.progressFill : p.textPrimary,
-            ),
+            color: p.textPrimary,
+            highlighted: snap.probeOverlayVisible,
+            highlightColor: p.progressFill,
+            size: 19,
+            fixedSize: 34,
+            padding: EdgeInsets.zero,
+            onTap: controller.toggleProbeOverlay,
           ),
           if (isWindows)
-            IconButton(
+            KonataCapsuleIconButton(
+              icon: Icons.open_in_new_rounded,
               tooltip: '切换外部播放器无缝接力续播',
-              onPressed: _relayToExternal,
-              icon: Icon(
-                Icons.open_in_new_rounded,
-                size: 19,
-                color: p.textPrimary,
-              ),
+              color: p.textPrimary,
+              size: 19,
+              fixedSize: 34,
+              padding: EdgeInsets.zero,
+              onTap: _relayToExternal,
             ),
-          IconButton(
+          KonataCapsuleIconButton(
+            icon: Icons.tune_rounded,
             tooltip: '播控与画质设置',
-            onPressed: () => _openSideSheet(VideoSideSheetTab.video),
-            icon: Icon(Icons.tune_rounded, size: 20, color: p.textPrimary),
+            color: p.textPrimary,
+            size: 19,
+            fixedSize: 34,
+            padding: EdgeInsets.zero,
+            onTap: () => _openSideSheet(VideoSideSheetTab.video),
           ),
           if (isWindows && !snap.isFullscreen) ...[
-            const SizedBox(width: 4),
+            const SizedBox(width: 6),
             ref.read(konataWindowHostProvider).buildWindowControls(),
           ],
         ],
       ),
     );
-    if (!p.isDark) {
-      bar = ClipRect(
-        child: BackdropFilter(
-          filter: KonataTheme.blurFilterOverlay,
-          child: bar,
-        ),
-      );
-    }
 
     if (isWindows && !snap.isFullscreen) {
       bar = ref.read(konataWindowHostProvider).buildDragToMoveArea(child: bar);

@@ -109,7 +109,7 @@ class ScrapeProgressBanner extends StatelessWidget {
               borderRadius: KonataTheme.borderRadiusPill,
               child: LinearProgressIndicator(
                 value: progress.totalWorks > 0 ? progress.fraction : null,
-                minHeight: 4,
+                minHeight: 3,
                 backgroundColor: p.progressTrack,
                 valueColor: AlwaysStoppedAnimation<Color>(p.progressFill),
               ),

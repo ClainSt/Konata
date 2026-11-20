@@ -205,7 +205,7 @@ void main() {
             .dx;
         expect(phoneXs[2], closeTo(rowCenter, 0.5));
 
-        // 2. 平板横屏（1280x800）与平板竖屏（800x1280）：五键同顺序同间距，FLAC 徽章固定最右
+        // 2. 平板横屏（1280x800）与平板竖屏（800x1280）：五键等距对称（循环/上一项/播放暂停/下一项/歌词队列切换），右侧为规格徽章与音量
         for (final tabletSize in const [Size(1280, 800), Size(800, 1280)]) {
           tester.view.physicalSize = tabletSize;
           await tester.pumpAndSettle();
@@ -229,7 +229,11 @@ void main() {
                 )
                 .dx,
             tester.getCenter(find.byTooltip('下一项')).dx,
-            tester.getCenter(find.byType(KonataVolumeControl)).dx,
+            tester
+                .getCenter(
+                  find.byKey(const ValueKey('immersive_toggle_pane_button')),
+                )
+                .dx,
           ];
 
           for (var i = 0; i < tabletXs.length - 1; i++) {
@@ -242,10 +246,14 @@ void main() {
           // 播放暂停严格处于第 3 位正中央及控制栏水平中心
           expect(tabletXs[2], closeTo(capsuleCenter, 0.5));
 
-          // FLAC 格式徽章固定在最右侧（位于音量键右边）
+          // 规格徽章与音量键位于五键最右侧之后
+          final toggleRect = tester.getRect(
+            find.byKey(const ValueKey('immersive_toggle_pane_button')),
+          );
           final badgeRect = tester.getRect(find.byType(KonataSpecBadge));
           final volRect = tester.getRect(find.byType(KonataVolumeControl));
-          expect(badgeRect.left, greaterThan(volRect.right));
+          expect(badgeRect.left, greaterThan(toggleRect.right));
+          expect(volRect.left, greaterThan(badgeRect.right));
         }
       } finally {
         debugDefaultTargetPlatformOverride = null;

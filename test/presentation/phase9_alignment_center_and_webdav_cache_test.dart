@@ -770,24 +770,17 @@ void main() {
       final miniCardRect = tester.getRect(
         find.byKey(const ValueKey('konata_floating_mini_player')),
       );
-      final miniPrevRect = tester.getRect(
-        find.byKey(const ValueKey('floating_mini_audio_prev')),
-      );
-      final miniPlayRect = tester.getRect(
-        find.byKey(const ValueKey('floating_mini_audio_play_pause')),
-      );
-      final miniNextRect = tester.getRect(
-        find.byKey(const ValueKey('floating_mini_audio_next')),
+      expect(
+        miniCardRect.width,
+        closeTo(KonataPlaybackTokens.floatingMiniAudioDiscSize, 0.5),
       );
       expect(
-        (miniPlayRect.center.dx - miniCardRect.center.dx).abs(),
-        lessThan(0.5),
+        miniCardRect.height,
+        closeTo(KonataPlaybackTokens.floatingMiniAudioDiscSize, 0.5),
       );
       expect(
-        ((miniPlayRect.center.dx - miniPrevRect.center.dx) -
-                (miniNextRect.center.dx - miniPlayRect.center.dx))
-            .abs(),
-        lessThan(0.5),
+        find.byKey(const ValueKey('floating_mini_audio_disc')),
+        findsOneWidget,
       );
       expect(find.text('ハルユキの災難'), findsNothing);
 

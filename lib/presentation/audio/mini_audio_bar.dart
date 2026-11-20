@@ -22,7 +22,13 @@ import 'immersive_audio_page.dart';
 import '../theme/konata_theme.dart';
 
 export '../shell/adaptive_capsule_layout.dart'
-    show FloatingMiniPlayerKind, floatingMiniWindowAnchorProvider;
+    show
+        FloatingMiniEdgeSide,
+        FloatingMiniPlayerKind,
+        FloatingMiniVisualState,
+        floatingMiniEdgeSideProvider,
+        floatingMiniVisualStateProvider,
+        floatingMiniWindowAnchorProvider;
 export '../widgets/playback/konata_floating_mini_player.dart'
     show KonataFloatingMiniPlayer;
 export '../widgets/playback/konata_stage_morph_frame.dart'
@@ -79,6 +85,10 @@ final miniAudioBottomClearanceProvider = Provider<double>((ref) {
   if (kind == FloatingMiniPlayerKind.none) {
     return 0.0;
   }
+  final visualState = ref.watch(floatingMiniVisualStateProvider);
+  if (visualState == FloatingMiniVisualState.tucked) {
+    return 0.0;
+  }
   final anchor = ref.watch(floatingMiniWindowAnchorProvider);
   if (anchor != null &&
       anchor.dy < KonataPlaybackTokens.floatingMiniBottomZoneThresholdRatio) {
@@ -86,7 +96,9 @@ final miniAudioBottomClearanceProvider = Provider<double>((ref) {
   }
   final windowHeight = kind == FloatingMiniPlayerKind.video
       ? KonataPlaybackTokens.floatingMiniVideoHeight
-      : KonataPlaybackTokens.floatingMiniAudioTotalHeight;
+      : (visualState == FloatingMiniVisualState.expanded
+            ? KonataPlaybackTokens.floatingMiniAudioPillHeight
+            : KonataPlaybackTokens.floatingMiniAudioDiscSize);
   return windowHeight +
       KonataPlaybackTokens.floatingMiniEdgeMargin +
       KonataPlaybackTokens.floatingMiniBottomClearanceGap;
@@ -531,6 +543,25 @@ class _AudioContentClearance extends ConsumerWidget {
     final miniAnchor = miniKind != FloatingMiniPlayerKind.none
         ? ref.watch(floatingMiniWindowAnchorProvider)
         : null;
+    final visualState = miniKind != FloatingMiniPlayerKind.none
+        ? ref.watch(floatingMiniVisualStateProvider)
+        : FloatingMiniVisualState.collapsed;
+    final edgeSide = miniKind != FloatingMiniPlayerKind.none
+        ? ref.watch(floatingMiniEdgeSideProvider)
+        : FloatingMiniEdgeSide.right;
+    double? videoAspectRatio;
+    if (miniKind == FloatingMiniPlayerKind.video) {
+      final videoReq = ref.watch(activeVideoSessionProvider).request;
+      if (videoReq != null) {
+        videoAspectRatio = ref.watch(
+          videoPlaybackProvider(videoReq).select((s) {
+            final w = s.probeStats.videoWidth;
+            final h = s.probeStats.videoHeight;
+            return (w != null && h != null && w > 0 && h > 0) ? w / h : null;
+          }),
+        );
+      }
+    }
     final hidden = ref.watch(capsuleNavigationHiddenProvider);
     final subRoutePushed = ref.watch(subRoutePushedProvider);
     final geometry = AdaptiveCapsuleLayout(
@@ -540,6 +571,9 @@ class _AudioContentClearance extends ConsumerWidget {
       navigationVisible: !hidden && !subRoutePushed,
       miniKind: miniKind,
       normalizedMiniAnchor: miniAnchor,
+      visualState: visualState,
+      edgeSide: edgeSide,
+      videoAspectRatio: videoAspectRatio,
     );
     final resolvedClearance = geometry.bottomClearance;
     return KonataBottomClearanceScope(
@@ -658,6 +692,18 @@ class _FloatingMiniOverlaySlot extends ConsumerWidget {
     final miniAnchor = miniKind != FloatingMiniPlayerKind.none
         ? ref.watch(floatingMiniWindowAnchorProvider)
         : null;
+    final visualState = ref.watch(floatingMiniVisualStateProvider);
+    final edgeSide = ref.watch(floatingMiniEdgeSideProvider);
+    double? videoAspectRatio;
+    if (miniKind == FloatingMiniPlayerKind.video && videoReq != null) {
+      videoAspectRatio = ref.watch(
+        videoPlaybackProvider(videoReq).select((s) {
+          final w = s.probeStats.videoWidth;
+          final h = s.probeStats.videoHeight;
+          return (w != null && h != null && w > 0 && h > 0) ? w / h : null;
+        }),
+      );
+    }
     final hidden = ref.watch(capsuleNavigationHiddenProvider);
     final subRoutePushed = ref.watch(subRoutePushedProvider);
     final layout = AdaptiveCapsuleLayout(
@@ -668,10 +714,15 @@ class _FloatingMiniOverlaySlot extends ConsumerWidget {
       desktopTopBarVisible: !subRoutePushed,
       miniKind: miniKind,
       normalizedMiniAnchor: miniAnchor,
+      visualState: visualState,
+      edgeSide: edgeSide,
+      videoAspectRatio: videoAspectRatio,
     );
 
     final sharedSurface =
-        (miniKind == FloatingMiniPlayerKind.video && videoReq != null)
+        (miniKind == FloatingMiniPlayerKind.video &&
+            videoReq != null &&
+            visualState != FloatingMiniVisualState.tucked)
         ? KonataHardwareVideoSurface(
             key: GlobalObjectKey(videoReq),
             request: videoReq,
@@ -801,8 +852,22 @@ class _FullscreenPlayerOverlaySlotState
     final size = MediaQuery.maybeSizeOf(context) ?? const Size(1280, 720);
     final safe = AdaptiveCapsuleLayout.effectiveSafeInsetsOf(context);
     final anchor = ref.read(floatingMiniWindowAnchorProvider);
+    final visualState = ref.read(floatingMiniVisualStateProvider);
+    final edgeSide = ref.read(floatingMiniEdgeSideProvider);
     final hidden = ref.read(capsuleNavigationHiddenProvider);
     final subRoutePushed = ref.read(subRoutePushedProvider);
+    double? videoAspectRatio;
+    if (kind == FloatingMiniPlayerKind.video) {
+      final vReq = ref.read(activeVideoSessionProvider).request;
+      if (vReq != null) {
+        final stats = ref.read(videoPlaybackProvider(vReq)).probeStats;
+        final w = stats.videoWidth;
+        final h = stats.videoHeight;
+        if (w != null && h != null && w > 0 && h > 0) {
+          videoAspectRatio = w / h;
+        }
+      }
+    }
     final layout = AdaptiveCapsuleLayout(
       size: size,
       safe: safe,
@@ -811,6 +876,9 @@ class _FullscreenPlayerOverlaySlotState
       desktopTopBarVisible: !subRoutePushed,
       miniKind: kind,
       normalizedMiniAnchor: anchor,
+      visualState: visualState,
+      edgeSide: edgeSide,
+      videoAspectRatio: videoAspectRatio,
     );
     return layout.floatingMiniWindowRect ??
         Rect.fromLTWH(

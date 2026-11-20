@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -88,21 +89,14 @@ class ScanLightboxLoaderService {
       }
 
       final byteGw = gw as ByteRangeReadableGateway;
-      final fileLen = await byteGw.probeFileLength(variant.relativePath);
-      if (cancelled) {
-        await cleanup();
-        return null;
-      }
-
-      final endInclusive = (fileLen != null && fileLen > 0)
-          ? (fileLen > TmdbNetworkConfig.maxScanFullImageBytes
-                ? TmdbNetworkConfig.maxScanFullImageBytes - 1
-                : fileLen - 1)
-          : TmdbNetworkConfig.maxScanFullImageBytes - 1;
-      if (endInclusive < 0) {
-        await cleanup();
-        throw StateError('当前图像文件为空');
-      }
+      // 取消冗余 probeFileLength 探测，直接发起单次流式读取：
+      // - WebDAV / 本地传入 endInclusive: null，兼容 206 与 200 并复用 Keep-Alive 连接池；
+      // - SMB 在已知 fileSize 时传入精确右边界以省去网关内部二次 stat 往返。
+      final int? endInclusive =
+          (source.kind == MediaSourceKind.smb && variant.fileSize > 0)
+          ? math.min(variant.fileSize, TmdbNetworkConfig.maxScanFullImageBytes) -
+                1
+          : null;
 
       final stream = await byteGw.openByteRange(
         variant.relativePath,

@@ -19,9 +19,12 @@ import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/managed_image.dart';
 import 'detail_hero_info.dart';
 
-/// 手机竖屏与平板竖屏共用的 `16:9` 原生比例背景头图（严格从状态栏安全区下方起绘 + 底部锚定限高透明徽标）。
+/// 竖屏详情头图组件：
+/// - 手机竖屏（方案 P1）：全幅竖版作品封面沉浸头图（高约 50%–54% 视口，无封面时平滑回退横版背景图），
+///   底部平滑融色至流光画布，避免封面印刷文字与 ClearLogo 叠压冲突；
+/// - 平板竖屏：保留原生 `16:9` 横版背景画作 + 底部锚定限高透明徽标。
 class DetailPortraitHeroHeader extends StatelessWidget {
-  /// 创建竖屏定比头图。
+  /// 创建竖屏头图。
   const DetailPortraitHeroHeader({
     super.key,
     required this.work,
@@ -62,13 +65,30 @@ class DetailPortraitHeroHeader extends StatelessWidget {
         (work.posterPath != null && work.posterPath!.trim().isNotEmpty)
         ? work.posterPath!.trim()
         : (work.bangumiPosterPath?.trim() ?? '');
+    final hasPoster = posterPath.isNotEmpty;
     final hasLogo = work.logoPath != null && work.logoPath!.trim().isNotEmpty;
 
+    // 手机竖屏采用全幅竖版封面沉浸头图（约 52% 视口高度，仅无封面时回退横版背景）；
+    // 平板竖屏保持 16:9 横版背景原画。
+    final usePhoneVerticalPosterHero = !isTablet && hasPoster;
     final raw169 = screenSize.width * 9 / 16;
-    final maxH = screenSize.height * (isTablet ? 0.36 : 0.42);
-    final heroHeight = hasBackdrop
-        ? math.max(120.0, math.min(raw169, maxH))
-        : (screenSize.height * (isTablet ? 0.32 : 0.36)).clamp(190.0, 320.0);
+    final maxTabletH = screenSize.height * 0.36;
+    final double heroHeight;
+    if (usePhoneVerticalPosterHero) {
+      final minH = math.min(280.0, screenSize.height * 0.44);
+      final maxH = math.min(460.0, screenSize.height * 0.56);
+      heroHeight = (screenSize.height * 0.52).clamp(minH, math.max(minH, maxH));
+    } else if (hasBackdrop) {
+      heroHeight = math.max(
+        120.0,
+        math.min(raw169, isTablet ? maxTabletH : screenSize.height * 0.42),
+      );
+    } else {
+      heroHeight = (screenSize.height * (isTablet ? 0.32 : 0.36)).clamp(
+        190.0,
+        320.0,
+      );
+    }
 
     return SizedBox(
       key: const ValueKey('detail_portrait_hero_header'),
@@ -76,7 +96,18 @@ class DetailPortraitHeroHeader extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          if (hasBackdrop)
+          if (usePhoneVerticalPosterHero)
+            ManagedImage(
+              posterPath,
+              key: const ValueKey('detail_phone_vertical_poster_hero'),
+              loader: imageLoader,
+              owner: work.id,
+              artwork: ManagedArtwork.poster,
+              imageSize: TmdbImageSize.original,
+              fit: BoxFit.cover,
+              alignment: SmartCoverFraming.defaultPosterAlignment,
+            )
+          else if (hasBackdrop)
             ManagedImage(
               work.backdropPath!,
               loader: imageLoader,
@@ -87,7 +118,7 @@ class DetailPortraitHeroHeader extends StatelessWidget {
               fit: BoxFit.cover,
               alignment: Alignment.center,
             )
-          else if (posterPath.isNotEmpty)
+          else if (hasPoster)
             ClipRect(
               child: Stack(
                 fit: StackFit.expand,
@@ -117,22 +148,26 @@ class DetailPortraitHeroHeader extends StatelessWidget {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  stops: const [0.0, 0.24, 0.58, 0.86, 1.0],
+                  stops: usePhoneVerticalPosterHero
+                      ? const [0.0, 0.22, 0.54, 0.84, 1.0]
+                      : const [0.0, 0.24, 0.58, 0.86, 1.0],
                   colors: [
                     KonataTheme.scrimBlackLight,
                     Colors.transparent,
                     Colors.transparent,
-                    KonataTheme.cinemaObsidian.withValues(alpha: 0.72),
+                    KonataTheme.cinemaObsidian.withValues(
+                      alpha: usePhoneVerticalPosterHero ? 0.78 : 0.72,
+                    ),
                     KonataTheme.cinemaObsidian,
                   ],
                 ),
               ),
             ),
           ),
-          if (showTitleLogo && hasLogo)
+          if (isTablet && showTitleLogo && hasLogo)
             Positioned(
-              left: isTablet ? 28 : 16,
-              right: isTablet ? 28 : 16,
+              left: 28,
+              right: 28,
               bottom: 8,
               child: Align(
                 alignment: Alignment.bottomLeft,

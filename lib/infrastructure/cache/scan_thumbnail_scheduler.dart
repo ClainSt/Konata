@@ -1,11 +1,16 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:developer' as developer;
+import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
-import 'dart:developer' as developer;
 
+import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
+
+import '../../domain/formatting/image_header_parser.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../sources/byte_stream_source_gateway.dart';
@@ -57,32 +62,79 @@ class _QueuedScanJob {
   Future<void> Function()? activeClose;
 }
 
-/// Scan 扫图微缩图并发隔离与串行 LIFO 调度器（零原图落盘）。
+/// 后台 Isolate 批量读取本地磁盘图片文件头宽高比（仅读前 64 KB，不做完整位图解码）。
+Map<String, double> _probeLocalImageHeaderRatios(
+  List<({String variantId, String absPath})> targets,
+) {
+  const headerReadLimit = 64 * 1024;
+  final result = <String, double>{};
+  for (final item in targets) {
+    RandomAccessFile? raf;
+    try {
+      final file = File(item.absPath);
+      if (!file.existsSync()) continue;
+      raf = file.openSync();
+      final bytes = raf.readSync(headerReadLimit);
+      final ratio = ImageHeaderParser.parseAspectRatio(bytes);
+      if (ratio != null) {
+        result[item.variantId] = ratio;
+      }
+    } catch (error) {
+      // 单文件损坏或不可读时静默跳过，交由默认画框比例兜底。
+      developer.log(
+        '读取本地扫图文件头失败',
+        name: 'konata.scan_thumbnail_scheduler',
+        error: error,
+      );
+    } finally {
+      try {
+        raf?.closeSync();
+      } catch (error) {
+        developer.log(
+          '关闭本地扫图文件头句柄失败',
+          name: 'konata.scan_thumbnail_scheduler',
+          error: error,
+        );
+      }
+    }
+  }
+  return result;
+}
+
+/// Scan 扫图微缩图三级按源并发调度器与自然宽高比缓存中心（零原图落盘）。
 ///
 /// 核心调度纪律：
-/// 1. 优先零毫秒直接命中 `photos/<作品> [<tag>]/scans/<hash>.webp`；
-/// 2. 命中失效时按源类型调度：
-///    - 本地磁盘（[MediaSourceKind.local]）并发上限为 `4`；
-///    - 远程源（[MediaSourceKind.webdav] / [MediaSourceKind.smb]）**严格串行 `concurrency = 1` + LIFO 栈**（后入视口优先）；
-/// 3. 远程流在内存中限流收集后通过根 Isolate `ui.instantiateImageCodec` 硬件降采样，
-///    再抛入 `Isolate.run` 交由 [CompactWebpEncoder] 编码为 15–30 KB 的 `.webp` 后按需写入 `scans/`；
+/// 1. 优先零毫秒命中 `photos/<作品> [<tag>]/scans/<hash>.webp`，并从 25 字节 VP8L 帧头瞬时还原自然宽高比；
+/// 2. 命中失效时按源类型三级隔离调度：
+///    - 本地磁盘（[MediaSourceKind.local]）并发上限默认 `4`；
+///    - 局域网 SMB NAS（[MediaSourceKind.smb]）并发上限默认 `2` + LIFO 栈；
+///    - 公网 WebDAV（[MediaSourceKind.webdav]）**严格串行 `concurrency = 1` + LIFO 栈**（后入视口优先），
+///      复用全局 `WebDavConnectionPool` 与 Digest 认证缓存，单图单次流式 `GET` 零额外 `HEAD` 探测；
+/// 3. 支持引用计数式 [pauseRemote] / [resumeRemote]：前景高清灯箱浏览时暂停后台远程缩略图通道，防止抢占网盘带宽触发限流；
 /// 4. 任何离开可视区、切页、切筛选或退出详情页动作触发 `cancel` / `cancelAll` 时，
-///    立即清空待排队任务并调用 `StreamSubscription.cancel()` 切断底层远程连接。
+///    立即清空待排队任务并切断底层远程流连接。
 class ScanThumbnailScheduler {
   /// 创建 Scan 微缩图调度器。
   ScanThumbnailScheduler({
     required this._photosStorage,
+    MediaSourceGatewayFactory? gatewayFactory,
     ScanSourceStreamOpener? streamOpener,
     this.localMaxConcurrency = 4,
+    this.smbMaxConcurrency = 2,
     this.maxSourceBytes = 30 * 1024 * 1024,
     this.defaultMaxSide = 360,
-  }) : _streamOpener = streamOpener ?? _defaultStreamOpener;
+  }) : _gatewayFactory = gatewayFactory ?? const MediaSourceGatewayFactory(),
+       _customStreamOpener = streamOpener;
 
   final PhotosStorage _photosStorage;
-  final ScanSourceStreamOpener _streamOpener;
+  final MediaSourceGatewayFactory _gatewayFactory;
+  final ScanSourceStreamOpener? _customStreamOpener;
 
   /// 本地源最大并发数（默认 4）。
   final int localMaxConcurrency;
+
+  /// 局域网 SMB 源最大并发数（默认 2）。
+  final int smbMaxConcurrency;
 
   /// 单张远程/本地扫描图最大内存读取上限（默认 30 MB）。
   final int maxSourceBytes;
@@ -92,22 +144,200 @@ class ScanThumbnailScheduler {
 
   int _nextJobId = 0;
 
-  // 本地并发队列（FIFO/LIFO）
+  // 本地并发队列（LIFO 视口优先）
   final List<_QueuedScanJob> _localPending = <_QueuedScanJob>[];
   final Set<_QueuedScanJob> _localActive = <_QueuedScanJob>{};
 
-  // 远程源严格单通道串行 LIFO 栈（后加入的当前可视卡片最先执行）
-  final ListQueue<_QueuedScanJob> _remotePendingLifo =
+  // 局域网 SMB 队列（并发上限 2 + LIFO）
+  final ListQueue<_QueuedScanJob> _smbPendingLifo = ListQueue<_QueuedScanJob>();
+  final Set<_QueuedScanJob> _smbActive = <_QueuedScanJob>{};
+
+  // 公网 WebDAV 严格单通道串行 LIFO 栈（后加入的当前可视卡片最先执行）
+  final ListQueue<_QueuedScanJob> _webdavPendingLifo =
       ListQueue<_QueuedScanJob>();
-  _QueuedScanJob? _remoteActive;
+  _QueuedScanJob? _webdavActive;
+
+  // 远程通道引用计数暂停锁（供前景高清灯箱打开期间避让后台缩略图抢通道）
+  int _remotePauseCount = 0;
+
+  // 已解析的自然宽高比内存索引（key = variant.id，仅保存正数钳制值）
+  final Map<String, double> _aspectRatioByVariantId = <String, double>{};
+
+  /// 宽高比索引版本号（画廊可按需监听以平滑更新已发现比例）。
+  final ValueNotifier<int> aspectRatioRevision = ValueNotifier<int>(0);
 
   bool _disposed = false;
 
-  /// 当前处于活跃传输中的远程流数量（供并发测试精确断言 `<= 1`）。
-  int get activeRemoteCount => _remoteActive == null ? 0 : 1;
+  /// 当前远程缩略图拉取通道是否处于暂停避让态。
+  bool get isRemotePaused => _remotePauseCount > 0;
 
-  /// 当前正在排队等待的远程任务数量。
-  int get pendingRemoteCount => _remotePendingLifo.length;
+  /// 当前处于活跃传输中的 WebDAV 流数量（严格 `<= 1`）。
+  int get activeWebDavCount => _webdavActive == null ? 0 : 1;
+
+  /// 当前处于活跃传输中的 SMB 流数量（严格 `<= smbMaxConcurrency`）。
+  int get activeSmbCount => _smbActive.length;
+
+  /// 当前处于活跃传输中的远程流总数（WebDAV + SMB，供并发测试断言）。
+  int get activeRemoteCount => activeWebDavCount + activeSmbCount;
+
+  /// 当前正在排队等待的远程任务总数（WebDAV + SMB）。
+  int get pendingRemoteCount =>
+      _webdavPendingLifo.length + _smbPendingLifo.length;
+
+  /// 查询指定扫图已缓存的自然宽高比（`width / height`），冷态未知时返回 `null`。
+  double? cachedAspectRatio(String variantId) =>
+      _aspectRatioByVariantId[variantId];
+
+  /// 写入已测得的单张自然宽高比（仅在数值有效且发生实质变化时推进修订号）。
+  void recordAspectRatio(String variantId, double ratio) {
+    if (!ratio.isFinite || ratio <= 0) return;
+    final clamped = ratio.clamp(
+      ImageHeaderParser.minAspectRatio,
+      ImageHeaderParser.maxAspectRatio,
+    );
+    final prev = _aspectRatioByVariantId[variantId];
+    if (prev != null && (prev - clamped).abs() < 0.002) return;
+    _aspectRatioByVariantId[variantId] = clamped;
+    if (!_disposed) {
+      aspectRatioRevision.value++;
+    }
+  }
+
+  /// 暂停后台远程（WebDAV / SMB）缩略图调度，让前景高清灯箱独占远端通道。
+  void pauseRemote() {
+    _remotePauseCount++;
+  }
+
+  /// 恢复后台远程缩略图调度并立即驱动待排队任务。
+  void resumeRemote() {
+    if (_remotePauseCount > 0) {
+      _remotePauseCount--;
+    }
+    if (_remotePauseCount == 0 && !_disposed) {
+      _pumpWebDav();
+      _pumpSmb();
+    }
+  }
+
+  /// 仅读取本地已落盘的 `.webp` 微缩图缓存（绝不触发任何网络或本地原图解码，供灯箱 0ms 占位与胶片条使用）。
+  Future<Uint8List?> readCachedThumbnailOnly({
+    required String workId,
+    String? workTitle,
+    required MediaVariant variant,
+  }) async {
+    if (_disposed) return null;
+    try {
+      final cached = await _photosStorage.readScanThumbnail(
+        workId: workId,
+        title: workTitle,
+        variantId: variant.id,
+        relativePath: variant.relativePath,
+        fileSize: variant.fileSize,
+      );
+      if (cached != null && cached.isNotEmpty) {
+        final ratio = ImageHeaderParser.parseAspectRatio(cached);
+        if (ratio != null) {
+          recordAspectRatio(variant.id, ratio);
+        }
+        return cached;
+      }
+    } catch (error) {
+      developer.log(
+        '只读命中扫图缩略图缓存失败',
+        name: 'konata.scan_thumbnail_scheduler',
+        error: error,
+      );
+    }
+    return null;
+  }
+
+  /// 零远程请求预热一批扫图的自然宽高比：
+  /// - 优先读取已落盘 `.webp` 前 32 字节帧头（全源通用，0 网络请求）；
+  /// - 仅对未缓存的**本地磁盘源**，在后台 `Isolate.run` 仅读文件前 64 KB 解析帧头；
+  /// - 对未缓存的 WebDAV / SMB 严禁发送任何探测包。
+  Future<void> prewarmCachedAndLocalAspectRatios({
+    required String workId,
+    String? workTitle,
+    required List<MediaVariant> variants,
+    required Map<String, MediaSource> sourcesById,
+  }) async {
+    if (_disposed || variants.isEmpty) return;
+
+    var updated = false;
+    final localTargets = <({String variantId, String absPath})>[];
+
+    for (final v in variants) {
+      if (_disposed) return;
+      if (_aspectRatioByVariantId.containsKey(v.id)) continue;
+
+      try {
+        final header = await _photosStorage.readScanThumbnailHeader(
+          workId: workId,
+          title: workTitle,
+          variantId: v.id,
+          relativePath: v.relativePath,
+          fileSize: v.fileSize,
+        );
+        if (header != null && header.isNotEmpty) {
+          final ratio = ImageHeaderParser.parseAspectRatio(header);
+          if (ratio != null) {
+            _aspectRatioByVariantId[v.id] = ratio;
+            updated = true;
+            continue;
+          }
+        }
+      } catch (error) {
+        developer.log(
+          '读取缓存微缩图帧头失败',
+          name: 'konata.scan_thumbnail_scheduler',
+          error: error,
+        );
+      }
+
+      final source = sourcesById[v.sourceId];
+      if (source != null && source.kind == MediaSourceKind.local) {
+        final relSegments = v.relativePath
+            .split(RegExp(r'[/\\]+'))
+            .where((s) => s.isNotEmpty && s != '.' && s != '..')
+            .toList(growable: false);
+        if (relSegments.isNotEmpty) {
+          final absPath = p.normalize(
+            p.joinAll([source.location, ...relSegments]),
+          );
+          localTargets.add((variantId: v.id, absPath: absPath));
+        }
+      }
+    }
+
+    if (updated && !_disposed) {
+      aspectRatioRevision.value++;
+    }
+
+    if (localTargets.isEmpty || _disposed) return;
+
+    try {
+      final probed = await Isolate.run(
+        () => _probeLocalImageHeaderRatios(localTargets),
+      );
+      if (_disposed || probed.isEmpty) return;
+      var localUpdated = false;
+      for (final entry in probed.entries) {
+        if (!_aspectRatioByVariantId.containsKey(entry.key)) {
+          _aspectRatioByVariantId[entry.key] = entry.value;
+          localUpdated = true;
+        }
+      }
+      if (localUpdated && !_disposed) {
+        aspectRatioRevision.value++;
+      }
+    } catch (error) {
+      developer.log(
+        '本地扫图文件头宽高比预热失败',
+        name: 'konata.scan_thumbnail_scheduler',
+        error: error,
+      );
+    }
+  }
 
   /// 提交一次 Scan 缩略图加载请求，返回包含 Future 结果与可随时触发切断的取消凭证。
   ({Future<Uint8List> future, ScanThumbnailTicket ticket}) schedule({
@@ -165,6 +395,10 @@ class ScanThumbnailScheduler {
         return;
       }
       if (cached != null && cached.isNotEmpty) {
+        final ratio = ImageHeaderParser.parseAspectRatio(cached);
+        if (ratio != null) {
+          recordAspectRatio(job.variant.id, ratio);
+        }
         if (!job.completer.isCompleted) {
           job.completer.complete(cached);
         }
@@ -172,7 +406,11 @@ class ScanThumbnailScheduler {
       }
     } catch (error) {
       // 忽略读缓存瞬态错误，继续走流式生成路径。
-      developer.log('可恢复异常已记录', name: 'konata.scan_thumbnail_scheduler', error: error);
+      developer.log(
+        '可恢复异常已记录',
+        name: 'konata.scan_thumbnail_scheduler',
+        error: error,
+      );
     }
 
     if (job.cancelled || _disposed) {
@@ -182,13 +420,17 @@ class ScanThumbnailScheduler {
       return;
     }
 
-    if (job.source.kind == MediaSourceKind.local) {
-      _localPending.add(job);
-      _pumpLocal();
-    } else {
-      // 远程源一律入 LIFO 栈尾，出队时从末尾取（最新进入视口的卡片优先加载）
-      _remotePendingLifo.addLast(job);
-      _pumpRemote();
+    switch (job.source.kind) {
+      case MediaSourceKind.local:
+        _localPending.add(job);
+        _pumpLocal();
+      case MediaSourceKind.smb:
+        _smbPendingLifo.addLast(job);
+        _pumpSmb();
+      case MediaSourceKind.webdav:
+        // 公网 WebDAV 严格入单通道 LIFO 栈尾（最新进入视口的卡片优先加载）
+        _webdavPendingLifo.addLast(job);
+        _pumpWebDav();
     }
   }
 
@@ -213,24 +455,47 @@ class ScanThumbnailScheduler {
     }
   }
 
-  void _pumpRemote() {
+  void _pumpSmb() {
     while (!_disposed &&
-        _remoteActive == null &&
-        _remotePendingLifo.isNotEmpty) {
-      final next = _remotePendingLifo.removeLast();
+        !isRemotePaused &&
+        _smbActive.length < smbMaxConcurrency &&
+        _smbPendingLifo.isNotEmpty) {
+      final next = _smbPendingLifo.removeLast();
       if (next.cancelled) {
         if (!next.completer.isCompleted) {
           next.completer.complete(Uint8List(0));
         }
         continue;
       }
-      _remoteActive = next;
+      _smbActive.add(next);
       unawaited(
         _runJob(next).whenComplete(() {
-          if (identical(_remoteActive, next)) {
-            _remoteActive = null;
+          _smbActive.remove(next);
+          _pumpSmb();
+        }),
+      );
+    }
+  }
+
+  void _pumpWebDav() {
+    while (!_disposed &&
+        !isRemotePaused &&
+        _webdavActive == null &&
+        _webdavPendingLifo.isNotEmpty) {
+      final next = _webdavPendingLifo.removeLast();
+      if (next.cancelled) {
+        if (!next.completer.isCompleted) {
+          next.completer.complete(Uint8List(0));
+        }
+        continue;
+      }
+      _webdavActive = next;
+      unawaited(
+        _runJob(next).whenComplete(() {
+          if (identical(_webdavActive, next)) {
+            _webdavActive = null;
           }
-          _pumpRemote();
+          _pumpWebDav();
         }),
       );
     }
@@ -253,6 +518,10 @@ class ScanThumbnailScheduler {
         fileSize: job.variant.fileSize,
       );
       if (secondCheck != null && secondCheck.isNotEmpty) {
+        final ratio = ImageHeaderParser.parseAspectRatio(secondCheck);
+        if (ratio != null) {
+          recordAspectRatio(job.variant.id, ratio);
+        }
         if (!job.completer.isCompleted) {
           job.completer.complete(secondCheck);
         }
@@ -264,7 +533,8 @@ class ScanThumbnailScheduler {
         return;
       }
 
-      final opened = await _streamOpener(job.source, job.variant, maxSourceBytes);
+      final opener = _customStreamOpener ?? _openWithGatewayFactory;
+      final opened = await opener(job.source, job.variant, maxSourceBytes);
       closeFn = opened.close;
       job.activeClose = closeFn;
       if (job.cancelled || _disposed) {
@@ -287,11 +557,15 @@ class ScanThumbnailScheduler {
         return;
       }
 
-      // 根 Isolate C++ 引擎按长边 <= maxSide 硬件降采样转 RGBA 并立即释放原图引用
+      // 根 Isolate C++ 引擎按长边 <= maxSide 硬件降采样转 RGBA，同时精准回填原图自然宽高比
       final decoded = await _decodeDownsampledRgba(rawBytes, job.maxSide);
       if (job.cancelled || _disposed || decoded == null) {
         if (!job.completer.isCompleted) job.completer.complete(Uint8List(0));
         return;
+      }
+
+      if (decoded.srcWidth > 0 && decoded.srcHeight > 0) {
+        recordAspectRatio(job.variant.id, decoded.srcWidth / decoded.srcHeight);
       }
 
       // 后台 Isolate 压缩编码为紧凑 .webp 字节（15–30 KB）
@@ -369,7 +643,13 @@ class ScanThumbnailScheduler {
     return done.future;
   }
 
-  static Future<({Uint8List rgba, int width, int height})?>
+  static Future<({
+    Uint8List rgba,
+    int width,
+    int height,
+    int srcWidth,
+    int srcHeight,
+  })?>
   _decodeDownsampledRgba(Uint8List rawBytes, int maxSide) async {
     ui.ImmutableBuffer? buffer;
     ui.ImageDescriptor? descriptor;
@@ -410,6 +690,8 @@ class ScanThumbnailScheduler {
         ),
         width: outW,
         height: outH,
+        srcWidth: srcW,
+        srcHeight: srcH,
       );
     } catch (_) {
       return null;
@@ -425,10 +707,12 @@ class ScanThumbnailScheduler {
     if (job.cancelled) return;
     job.cancelled = true;
     _localPending.remove(job);
-    _remotePendingLifo.remove(job);
+    _smbPendingLifo.remove(job);
+    _webdavPendingLifo.remove(job);
     _localActive.remove(job);
-    if (identical(_remoteActive, job)) {
-      _remoteActive = null;
+    _smbActive.remove(job);
+    if (identical(_webdavActive, job)) {
+      _webdavActive = null;
     }
     final sub = job.activeSubscription;
     if (sub != null) {
@@ -445,7 +729,8 @@ class ScanThumbnailScheduler {
     }
     if (!_disposed) {
       _pumpLocal();
-      _pumpRemote();
+      _pumpSmb();
+      _pumpWebDav();
     }
   }
 
@@ -454,15 +739,21 @@ class ScanThumbnailScheduler {
     for (final job in _localPending.toList(growable: false)) {
       _cancelJob(job);
     }
-    for (final job in _remotePendingLifo.toList(growable: false)) {
+    for (final job in _smbPendingLifo.toList(growable: false)) {
+      _cancelJob(job);
+    }
+    for (final job in _webdavPendingLifo.toList(growable: false)) {
       _cancelJob(job);
     }
     for (final job in _localActive.toList(growable: false)) {
       _cancelJob(job);
     }
-    final activeRemote = _remoteActive;
-    if (activeRemote != null) {
-      _cancelJob(activeRemote);
+    for (final job in _smbActive.toList(growable: false)) {
+      _cancelJob(job);
+    }
+    final activeWebdav = _webdavActive;
+    if (activeWebdav != null) {
+      _cancelJob(activeWebdav);
     }
   }
 
@@ -470,6 +761,7 @@ class ScanThumbnailScheduler {
   void dispose() {
     _disposed = true;
     cancelAll();
+    aspectRatioRevision.dispose();
   }
 
   static Future<void> _safeClose(Future<void> Function()? closeFn) async {
@@ -478,33 +770,36 @@ class ScanThumbnailScheduler {
       await closeFn();
     } catch (error) {
       // 忽略已断开网关的重复关闭异常。
-      developer.log('可恢复异常已记录', name: 'konata.scan_thumbnail_scheduler', error: error);
+      developer.log(
+        '可恢复异常已记录',
+        name: 'konata.scan_thumbnail_scheduler',
+        error: error,
+      );
     }
   }
 
-  static Future<({
+  Future<({
     Stream<List<int>> stream,
     Future<void> Function() close,
   })>
-  _defaultStreamOpener(
+  _openWithGatewayFactory(
     MediaSource source,
     MediaVariant variant,
     int maxBytes,
   ) async {
-    final gw = await const MediaSourceGatewayFactory().create(source);
+    final gw = await _gatewayFactory.create(source);
     if (gw is! ByteRangeReadableGateway) {
       await gw.close();
       return (stream: const Stream<List<int>>.empty(), close: () async {});
     }
     final byteGw = gw as ByteRangeReadableGateway;
-    final len = await byteGw.probeFileLength(variant.relativePath);
-    final endInclusive = (len != null && len > 0)
-        ? (len > maxBytes ? maxBytes - 1 : len - 1)
-        : maxBytes - 1;
-    if (endInclusive < 0) {
-      await gw.close();
-      return (stream: const Stream<List<int>>.empty(), close: () async {});
-    }
+    // 取消冗余 probeFileLength 探测，直接发起单次流式读取：
+    // WebDAV / 本地传入 endInclusive: null 以兼容 206/200 并复用连接池；
+    // SMB 在已知文件长度时显式截断右边界以省去网关内部二次 stat 往返。
+    final int? endInclusive =
+        (source.kind == MediaSourceKind.smb && variant.fileSize > 0)
+        ? math.min(variant.fileSize, maxBytes) - 1
+        : null;
     final stream = await byteGw.openByteRange(
       variant.relativePath,
       start: 0,

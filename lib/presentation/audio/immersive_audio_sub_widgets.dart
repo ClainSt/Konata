@@ -68,6 +68,14 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
             2 => KonataPlaybackTokens.lyricBlurStep2,
             _ => KonataPlaybackTokens.lyricBlurStepFar,
           };
+    final lineOpacity = userScrolling
+        ? (isActive ? 1.0 : 0.72)
+        : switch (status.bucket) {
+            0 => 1.0,
+            1 => 0.56,
+            2 => 0.36,
+            _ => 0.24,
+          };
 
     final activeSize = compact
         ? KonataPlaybackTokens.lyricCompactActiveFontSize
@@ -178,13 +186,26 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
       ),
     );
 
+    final scaledContent = AnimatedOpacity(
+      duration: KonataPlaybackTokens.lyricStyleTransitionDuration,
+      curve: Curves.easeOutCubic,
+      opacity: lineOpacity,
+      child: AnimatedScale(
+        duration: KonataPlaybackTokens.lyricStyleTransitionDuration,
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.centerLeft,
+        scale: isActive ? 1.03 : 1.0,
+        child: rowContent,
+      ),
+    );
+
     return RepaintBoundary(
       child: blurSigma > 0.05
           ? ImageFiltered(
               imageFilter: KonataTheme.blurFilterOf(blurSigma),
-              child: rowContent,
+              child: scaledContent,
             )
-          : rowContent,
+          : scaledContent,
     );
   }
 }
@@ -276,68 +297,6 @@ class _ActiveSpanWordSweepLeaf extends ConsumerWidget {
           ),
         ],
       ],
-    );
-  }
-}
-
-/// 手机竖屏中段两行实时歌词预览叶子（重绘隔离，无同步歌词时不渲染冗余提示文案）。
-class ImmersiveTwoLineLyricPreviewLeaf extends ConsumerWidget {
-  /// 创建两行实时歌词预览叶子。
-  const ImmersiveTwoLineLyricPreviewLeaf({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final p = context.palette;
-    final snap = ref.watch(
-      audioPlaybackProvider.select(
-        (s) => (lrc: s.lrcDocument, idx: s.activeLyricIndex),
-      ),
-    );
-    final lines = snap.lrc?.lines ?? const <LrcCueLine>[];
-    if (lines.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    final activeIdx = snap.idx >= 0 && snap.idx < lines.length ? snap.idx : 0;
-    final primary = lines[activeIdx].primaryText;
-    final secondary = lines[activeIdx].secondaryLines.isNotEmpty
-        ? lines[activeIdx].secondaryLines.first
-        : (activeIdx + 1 < lines.length
-              ? lines[activeIdx + 1].primaryText
-              : '');
-
-    return RepaintBoundary(
-      child: SizedBox(
-        height: KonataPlaybackTokens.lyricPreviewHeight,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              primary,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: p.textPrimary,
-                fontSize: KonataPlaybackTokens.lyricPreviewPrimaryFontSize,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            if (secondary.isNotEmpty) ...[
-              const SizedBox(height: 2),
-              Text(
-                secondary,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: p.textSecondary,
-                  fontSize: KonataPlaybackTokens.lyricPreviewSecondaryFontSize,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
     );
   }
 }
@@ -802,15 +761,15 @@ class _AnimatedPlayingEqualizerState extends State<_AnimatedPlayingEqualizer>
   }
 }
 
-/// 三端共用的专辑封面 + 底部镜像渐变倒影组件（自动按父容器宽高自适应，零纵向溢出）。
+/// 三端共用的专辑封面 + 柔雾镜像倒影组件（自动按父容器宽高自适应，零纵向溢出）。
 class ImmersiveCoverWithReflection extends ConsumerWidget {
-  /// 创建带镜像倒影的专辑封面。
+  /// 创建带柔雾镜像倒影的专辑封面。
   const ImmersiveCoverWithReflection({
     super.key,
     required this.cover,
     required this.maxCoverSize,
     this.borderRadius = KonataPlaybackTokens.albumCoverRadius,
-    this.reflectionRatio = 0.21,
+    this.reflectionRatio = 0.28,
   });
 
   final AudioCoverSource cover;
@@ -914,32 +873,39 @@ class ImmersiveCoverWithReflection extends ConsumerWidget {
                   ),
                 ),
               ),
-              SizedBox(
-                key: const ValueKey('immersive_cover_reflection'),
-                width: coverSize,
-                height: reflectionHeight,
-                child: ClipRect(
-                  child: OverflowBox(
-                    alignment: Alignment.topCenter,
-                    maxHeight: coverSize,
-                    child: ShaderMask(
-                      shaderCallback: (bounds) =>
-                          const LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors:
-                                KonataPlaybackTokens.albumReflectionMaskColors,
-                            stops: [0.0, 0.38, 0.94],
-                          ).createShader(
-                            Rect.fromLTWH(0, 0, coverSize, reflectionHeight),
+              RepaintBoundary(
+                child: SizedBox(
+                  key: const ValueKey('immersive_cover_reflection'),
+                  width: coverSize,
+                  height: reflectionHeight,
+                  child: ClipRect(
+                    child: OverflowBox(
+                      alignment: Alignment.topCenter,
+                      maxHeight: coverSize,
+                      child: ShaderMask(
+                        shaderCallback: (bounds) =>
+                            const LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: KonataPlaybackTokens
+                                  .albumReflectionMaskColors,
+                              stops: [0.0, 0.34, 0.92],
+                            ).createShader(
+                              Rect.fromLTWH(0, 0, coverSize, reflectionHeight),
+                            ),
+                        blendMode: BlendMode.dstIn,
+                        child: ImageFiltered(
+                          imageFilter: KonataTheme.blurFilterOf(
+                            KonataPlaybackTokens.albumReflectionBlurSigma,
                           ),
-                      blendMode: BlendMode.dstIn,
-                      child: Transform(
-                        alignment: Alignment.center,
-                        transform: Matrix4.diagonal3Values(1.0, -1.0, 1.0),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(borderRadius),
-                          child: buildArtwork(coverSize, coverAlignment),
+                          child: Transform(
+                            alignment: Alignment.center,
+                            transform: Matrix4.diagonal3Values(1.0, -1.0, 1.0),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(borderRadius),
+                              child: buildArtwork(coverSize, coverAlignment),
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -968,18 +934,24 @@ class ImmersiveCoverWithReflection extends ConsumerWidget {
   }
 }
 
-/// 底部控制胶囊左侧微缩圆角封面。
+/// 悬浮胶囊与小窗复用的微缩专辑封面（支持圆角方形或正圆形态）。
 class ImmersiveMicroCover extends ConsumerWidget {
-  /// 创建底部胶囊微缩封面。
-  const ImmersiveMicroCover({super.key, required this.cover});
+  /// 创建微缩专辑封面。
+  const ImmersiveMicroCover({
+    super.key,
+    required this.cover,
+    this.size = KonataPlaybackTokens.microCoverSize,
+    this.circular = false,
+  });
 
   final AudioCoverSource cover;
+  final double size;
+  final bool circular;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final p = context.palette;
     final loader = ref.watch(tmdbImageLoaderProvider);
-    const size = KonataPlaybackTokens.microCoverSize;
 
     return SmartCoverAlignmentBuilder(
       cover: cover,
@@ -1018,6 +990,11 @@ class ImmersiveMicroCover extends ConsumerWidget {
             art = _fallback(p, size);
         }
 
+        if (circular) {
+          return ClipOval(
+            child: SizedBox(width: size, height: size, child: art),
+          );
+        }
         return ClipRRect(
           borderRadius: BorderRadius.circular(
             KonataPlaybackTokens.microCoverRadius,

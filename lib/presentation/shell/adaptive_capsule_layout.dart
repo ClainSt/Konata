@@ -19,15 +19,46 @@ enum FloatingMiniPlayerKind {
   /// 无活跃迷你小窗。
   none,
 
-  /// `16:9` 视频实时小窗。
+  /// 动态原比例无黑边视频实时小窗。
   video,
 
-  /// `1:1` 封面加底部三键纯音频小窗。
+  /// 极简圆形光环 / 展开播控条 / 贴边耳片三态音频小窗。
   audio,
+}
+
+/// 悬浮小窗的视觉展开形态（收起态 / 展开播控条 / 贴边耳片隐藏态）。
+enum FloatingMiniVisualState {
+  /// 默认收起态（音频为 `56×56dp` 圆形封面光环，视频为动态原比例实时画面）。
+  collapsed,
+
+  /// 音频展开态（`320×60dp` 光学毛玻璃迷你播控条，点击外部或 `–` 收回圆钮）。
+  expanded,
+
+  /// 贴边耳片隐藏态（`24×72dp` 半透明侧边耳片，点击回弹恢复；视频贴边时暂停并释放硬件挖空）。
+  tucked,
+}
+
+/// 悬浮小窗贴边吸附或耳片收折所在侧边。
+enum FloatingMiniEdgeSide {
+  /// 视口左侧边缘。
+  left,
+
+  /// 视口右侧边缘。
+  right,
 }
 
 /// 悬浮小窗松手吸附后的归一化停靠锚点（`null` 表示默认右下角合法锚点；拖拽过程不写此状态以避免整页重建）。
 final floatingMiniWindowAnchorProvider = StateProvider<Offset?>((ref) => null);
+
+/// 悬浮小窗当前视觉展开形态（收起圆钮 / 展开胶囊 / 贴边耳片）。
+final floatingMiniVisualStateProvider = StateProvider<FloatingMiniVisualState>(
+  (ref) => FloatingMiniVisualState.collapsed,
+);
+
+/// 悬浮小窗最近停靠或贴边收折的侧边方向。
+final floatingMiniEdgeSideProvider = StateProvider<FloatingMiniEdgeSide>(
+  (ref) => FloatingMiniEdgeSide.right,
+);
 
 /// 模态路由层级注册表（由 Riverpod 托管生命周期，兼容未显式挂载 `KonataRootRouteObserver` 的组件测试场景）。
 class KonataModalLayerRegistry extends ChangeNotifier {
@@ -362,6 +393,9 @@ class AdaptiveCapsuleLayout {
     this.desktopTopBarVisible = false,
     this.miniKind = FloatingMiniPlayerKind.none,
     this.normalizedMiniAnchor,
+    this.visualState = FloatingMiniVisualState.collapsed,
+    this.edgeSide = FloatingMiniEdgeSide.right,
+    this.videoAspectRatio,
   });
 
   /// 当前视口尺寸。
@@ -384,6 +418,15 @@ class AdaptiveCapsuleLayout {
 
   /// 用户上次拖拽松手后的归一化停靠锚点（`null` 时取右下角默认合法位置）。
   final Offset? normalizedMiniAnchor;
+
+  /// 悬浮小窗当前视觉展开形态。
+  final FloatingMiniVisualState visualState;
+
+  /// 悬浮小窗停靠或贴边收折方向。
+  final FloatingMiniEdgeSide edgeSide;
+
+  /// 当前视频真实画面宽高比（用于无黑边动态尺寸计算；未知时回退 `16:9`）。
+  final double? videoAspectRatio;
 
   /// 提取不受内层组件消费影响的系统真实安全区（逐边取 `padding` 与 `viewPadding` 较大值）。
   static EdgeInsets effectiveSafeInsetsOf(BuildContext context) {
@@ -420,6 +463,19 @@ class AdaptiveCapsuleLayout {
       KonataAdaptiveTokens.touchTarget * 4 +
       KonataAdaptiveTokens.navigationPadding * 2;
 
+  /// 手机一级主页面是否启用「底部导航胶囊 + 右侧 56dp 圆形音频圆钮」同行水平居中并排协同。
+  bool get inlinePhoneAudioPaired =>
+      android &&
+      !tablet &&
+      navigationVisible &&
+      miniKind == FloatingMiniPlayerKind.audio &&
+      visualState != FloatingMiniVisualState.tucked &&
+      (size.width - safe.horizontal) >=
+          (navigationLength +
+              KonataPlaybackTokens.floatingMiniPhoneNavInlineGap +
+              KonataPlaybackTokens.floatingMiniAudioDiscSize +
+              16.0);
+
   /// 左侧工作区避让宽度。
   double get leftClearance => verticalNavigation && navigationVisible
       ? navigationThickness + KonataAdaptiveTokens.safeGap
@@ -435,12 +491,27 @@ class AdaptiveCapsuleLayout {
         navigationLength,
       );
     }
+    final top =
+        size.height -
+        safe.bottom -
+        KonataAdaptiveTokens.safeGap -
+        navigationThickness;
+    if (inlinePhoneAudioPaired) {
+      final groupWidth =
+          navigationLength +
+          KonataPlaybackTokens.floatingMiniPhoneNavInlineGap +
+          KonataPlaybackTokens.floatingMiniAudioDiscSize;
+      final groupLeft = (size.width - groupWidth) / 2.0;
+      return Rect.fromLTWH(
+        groupLeft,
+        top,
+        navigationLength,
+        navigationThickness,
+      );
+    }
     return Rect.fromLTWH(
       (size.width - navigationLength) / 2,
-      size.height -
-          safe.bottom -
-          KonataAdaptiveTokens.safeGap -
-          navigationThickness,
+      top,
       navigationLength,
       navigationThickness,
     );
@@ -450,11 +521,20 @@ class AdaptiveCapsuleLayout {
       ? math.max(safe.top, KonataPlaybackTokens.floatingMiniDesktopTopBarClearance)
       : safe.top;
 
-  /// 解析指定类型悬浮小窗的精确尺寸（手机、平板与桌面同规格，极端小视口按比例安全钳制）。
+  /// 解析指定类型悬浮小窗的精确尺寸（视频按真实画面比例无黑边自适应，音频按三态自适应）。
   Size resolveMiniWindowSize(FloatingMiniPlayerKind kind) {
+    if (kind == FloatingMiniPlayerKind.none) {
+      return Size.zero;
+    }
+    if (visualState == FloatingMiniVisualState.tucked) {
+      return const Size(
+        KonataPlaybackTokens.floatingMiniEarTabWidth,
+        KonataPlaybackTokens.floatingMiniEarTabHeight,
+      );
+    }
     const margin = KonataPlaybackTokens.floatingMiniEdgeMargin;
     final maxW = math.max(
-      KonataAdaptiveTokens.touchTarget * 3,
+      KonataAdaptiveTokens.touchTarget * 2,
       size.width - safe.horizontal - margin * 2,
     );
     final maxH = math.max(
@@ -465,29 +545,57 @@ class AdaptiveCapsuleLayout {
       case FloatingMiniPlayerKind.none:
         return Size.zero;
       case FloatingMiniPlayerKind.video:
-        var w = math.min(KonataPlaybackTokens.floatingMiniVideoWidth, maxW);
-        var h = w * 9.0 / 16.0;
-        if (h > maxH) {
-          h = maxH;
-          w = h * 16.0 / 9.0;
+        final ar =
+            (videoAspectRatio != null &&
+                videoAspectRatio!.isFinite &&
+                videoAspectRatio! > 0)
+            ? videoAspectRatio!.clamp(
+                KonataPlaybackTokens.floatingMiniVideoAspectRatioMin,
+                KonataPlaybackTokens.floatingMiniVideoAspectRatioMax,
+              )
+            : (16.0 / 9.0);
+        final baseLong = (android && !tablet)
+            ? KonataPlaybackTokens.floatingMiniVideoLongSidePhone
+            : KonataPlaybackTokens.floatingMiniVideoLongSideDesktop;
+        double w;
+        double h;
+        if (ar >= 1.0) {
+          w = math.min(baseLong, maxW);
+          h = w / ar;
+          if (h > maxH) {
+            h = maxH;
+            w = h * ar;
+          }
+        } else {
+          final portraitCapH = math.min(baseLong, maxH * 0.62);
+          h = math.min(portraitCapH, maxH);
+          w = h * ar;
+          if (w < 96.0 && maxW >= 96.0) {
+            w = 96.0;
+            h = math.min(w / ar, maxH);
+            w = h * ar;
+          }
+          if (w > maxW) {
+            w = maxW;
+            h = w / ar;
+          }
         }
         return Size(w, h);
       case FloatingMiniPlayerKind.audio:
-        const ctrlH = KonataPlaybackTokens.floatingMiniAudioControlsHeight;
-        final maxCover = math.max(
-          KonataAdaptiveTokens.touchTarget * 3,
-          math.min(maxW, maxH - ctrlH),
-        );
-        final coverSide = math.min(
-          KonataPlaybackTokens.floatingMiniAudioCoverSize,
-          maxCover,
-        );
-        return Size(coverSide, coverSide + ctrlH);
+        if (visualState == FloatingMiniVisualState.expanded &&
+            !inlinePhoneAudioPaired) {
+          final pillW = math.min(
+            KonataPlaybackTokens.floatingMiniAudioPillWidth,
+            math.max(220.0, size.width - safe.horizontal - 32.0),
+          );
+          return Size(pillW, KonataPlaybackTokens.floatingMiniAudioPillHeight);
+        }
+        return const Size.square(KonataPlaybackTokens.floatingMiniAudioDiscSize);
     }
   }
 
   /// 计算悬浮小窗允许活动的左上角坐标闭区间边界 `(minX, minY, maxX, maxY)`。
-  ({double minX, double minY, double maxX, double maxY}) _safeBoundsFor(
+  ({double minX, double minY, double maxX, double maxY}) safeBoundsFor(
     Size miniSize,
   ) {
     const margin = KonataPlaybackTokens.floatingMiniEdgeMargin;
@@ -503,7 +611,7 @@ class AdaptiveCapsuleLayout {
 
   /// 拖拽跟手期间实时钳制坐标，严格禁止小窗越出系统安全区。
   Offset clampMiniWindowOffset(Offset rawTopLeft, Size miniSize) {
-    final b = _safeBoundsFor(miniSize);
+    final b = safeBoundsFor(miniSize);
     return Offset(
       rawTopLeft.dx.clamp(b.minX, b.maxX),
       rawTopLeft.dy.clamp(b.minY, b.maxY),
@@ -512,7 +620,7 @@ class AdaptiveCapsuleLayout {
 
   /// 松手后计算最近合法停靠坐标：横向吸附至左右安全边缘，并避开主导航胶囊。
   Offset snapMiniWindowOffset(Offset rawTopLeft, Size miniSize) {
-    final b = _safeBoundsFor(miniSize);
+    final b = safeBoundsFor(miniSize);
     final clamped = clampMiniWindowOffset(rawTopLeft, miniSize);
     final centerX = clamped.dx + miniSize.width / 2.0;
     final snappedX = centerX < size.width / 2.0 ? b.minX : b.maxX;
@@ -574,7 +682,7 @@ class AdaptiveCapsuleLayout {
 
   /// 将松手后的合法坐标编码为 `[0..1]` 归一化锚点，跨旋转与视口变化自适应还原。
   Offset encodeNormalizedAnchor(Offset settledTopLeft, Size miniSize) {
-    final b = _safeBoundsFor(miniSize);
+    final b = safeBoundsFor(miniSize);
     final spanX = b.maxX - b.minX;
     final spanY = b.maxY - b.minY;
     final dx = spanX > 0.5 ? ((settledTopLeft.dx - b.minX) / spanX).clamp(0.0, 1.0) : 1.0;
@@ -590,7 +698,43 @@ class AdaptiveCapsuleLayout {
       return null;
     }
     final miniSize = resolveMiniWindowSize(miniKind);
-    final b = _safeBoundsFor(miniSize);
+    if (inlinePhoneAudioPaired) {
+      final nav = navigationRect;
+      final discTop = nav.center.dy - miniSize.height / 2.0;
+      return Rect.fromLTWH(
+        nav.right + KonataPlaybackTokens.floatingMiniPhoneNavInlineGap,
+        discTop,
+        miniSize.width,
+        miniSize.height,
+      );
+    }
+
+    final b = safeBoundsFor(miniSize);
+    if (visualState == FloatingMiniVisualState.tucked) {
+      final earX = edgeSide == FloatingMiniEdgeSide.left
+          ? safe.left
+          : math.max(safe.left, size.width - safe.right - miniSize.width);
+      final rawY = normalizedMiniAnchor == null
+          ? b.maxY
+          : b.minY + normalizedMiniAnchor!.dy.clamp(0.0, 1.0) * (b.maxY - b.minY);
+      var earY = rawY.clamp(b.minY, b.maxY);
+      if (android && navigationVisible) {
+        final navAvoid = navigationRect.inflate(
+          KonataPlaybackTokens.floatingMiniNavigationGap,
+        );
+        final rect = Rect.fromLTWH(earX, earY, miniSize.width, miniSize.height);
+        if (rect.overlaps(navAvoid)) {
+          final aboveY = navAvoid.top - miniSize.height;
+          if (aboveY >= b.minY) {
+            earY = aboveY;
+          } else {
+            earY = math.min(b.maxY, navAvoid.bottom);
+          }
+        }
+      }
+      return Rect.fromLTWH(earX, earY, miniSize.width, miniSize.height);
+    }
+
     final rawTarget = normalizedMiniAnchor == null
         ? Offset(b.maxX, b.maxY)
         : Offset(
@@ -608,6 +752,10 @@ class AdaptiveCapsuleLayout {
         : (!verticalNavigation && navigationVisible
               ? size.height - navigationRect.top + KonataAdaptiveTokens.safeGap
               : safe.bottom + KonataAdaptiveTokens.safeGap);
+    if (visualState == FloatingMiniVisualState.tucked ||
+        inlinePhoneAudioPaired) {
+      return baseNavClearance;
+    }
     final miniRect = floatingMiniWindowRect;
     if (miniRect == null) {
       return baseNavClearance;

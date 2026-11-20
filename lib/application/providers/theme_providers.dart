@@ -9,6 +9,9 @@ const String _kThemeModePrefKey = 'konata_v2_theme_mode';
 /// Windows 窗口材质持久化 Key。
 const String _kWindowMaterialPrefKey = 'konata_v2_window_material';
 
+/// 流光氛围画布开关持久化 Key（桌面端默认关闭以保留系统原生 DWM 透光）。
+const String _kAmbientCanvasPrefKey = 'konata_v2_ambient_canvas_enabled';
+
 /// Windows 11 原生 DWM 窗口材质类型。
 enum KonataWindowMaterial {
   /// 亚克力模糊（高透光率，实时呈现壁纸色彩与光影折射，默认推荐）。
@@ -107,6 +110,36 @@ class WindowMaterialNotifier extends StateNotifier<KonataWindowMaterial> {
   }
 }
 
+/// 流光氛围画布开关状态管理器（控制 Windows 端是否在透明窗口叠加轻柔静态流光氛围场）。
+class AmbientCanvasNotifier extends StateNotifier<bool> {
+  /// 创建流光氛围画布状态管理器，默认关闭以维持原生系统透光材质。
+  AmbientCanvasNotifier() : super(false) {
+    _restore();
+  }
+
+  Future<void> _restore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getBool(_kAmbientCanvasPrefKey);
+      if (!mounted || saved == null) return;
+      state = saved;
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.theme_providers', error: error);
+    }
+  }
+
+  /// 切换并持久化流光氛围画布开关。
+  Future<void> setEnabled(bool enabled) async {
+    state = enabled;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_kAmbientCanvasPrefKey, enabled);
+    } catch (error) {
+      developer.log('可恢复异常已记录', name: 'konata.theme_providers', error: error);
+    }
+  }
+}
+
 /// 全局主题模式 Provider。
 final themeModeProvider = StateNotifierProvider<ThemeModeNotifier, ThemeMode>((
   ref,
@@ -118,4 +151,10 @@ final themeModeProvider = StateNotifierProvider<ThemeModeNotifier, ThemeMode>((
 final windowMaterialProvider =
     StateNotifierProvider<WindowMaterialNotifier, KonataWindowMaterial>((ref) {
       return WindowMaterialNotifier();
+    });
+
+/// 全局流光氛围画布开关 Provider（桌面端可选开启，Android 端壳层默认叠加轻柔静态流光氛围）。
+final ambientCanvasEnabledProvider =
+    StateNotifierProvider<AmbientCanvasNotifier, bool>((ref) {
+      return AmbientCanvasNotifier();
     });

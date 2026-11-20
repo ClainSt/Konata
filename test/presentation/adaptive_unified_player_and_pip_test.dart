@@ -9,7 +9,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:ccplayer/application/playback/audio_playback_notifier.dart';
-import 'package:ccplayer/application/playback/playback_dispatcher.dart';
 import 'package:ccplayer/application/playback/playback_preferences_provider.dart';
 import 'package:ccplayer/application/playback/unified_playback_coordinator.dart';
 import 'package:ccplayer/application/playback/video_playback_controller.dart';
@@ -374,20 +373,20 @@ void main() {
           final queueBtn = find.byKey(
             const ValueKey('portrait_open_queue_button'),
           );
-          final lyrBtn = find.byKey(
-            const ValueKey('portrait_toggle_lyrics_button'),
-          );
+          final coverStage = find.byKey(const ValueKey('portrait_cover_stage'));
           expect(tester.getSize(queueBtn).height, greaterThanOrEqualTo(48.0));
-          expect(tester.getSize(lyrBtn).height, greaterThanOrEqualTo(48.0));
-          expect(find.text('かき鳴らせ 青春コンプレックス'), findsWidgets);
+          expect(coverStage, findsOneWidget);
+          // 封面态不展示冗余两行歌词预览
+          expect(find.text('かき鳴らせ 青春コンプレックス'), findsNothing);
 
-          // 原位切换封面 ↔ 滚动歌词
-          await tester.tap(lyrBtn);
+          // 点击封面原位切换至滚动歌词
+          await tester.tap(coverStage);
           await tester.pumpAndSettle();
           expect(
             find.byKey(const ValueKey('portrait_lyrics_stage')),
             findsOneWidget,
           );
+          expect(find.text('かき鳴らせ 青春コンプレックス'), findsWidgets);
           await tester.tap(
             find.byKey(const ValueKey('portrait_back_to_cover')),
           );
@@ -1420,7 +1419,7 @@ void main() {
   });
 
   group('6. Android 端外部程序彻底过滤与触控 48dp 更多操作入口', () {
-    testWidgets('PlaybackDispatcher.tryOpenExternalScan 返回 null 且记录/详情页过滤外部播放器', (
+    testWidgets('记录/详情页过滤外部播放器并确保 Android 触控 48dp 入口', (
       tester,
     ) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
@@ -1463,24 +1462,6 @@ void main() {
         ],
       );
       addTearDown(container.dispose);
-
-      const scanVar = MediaVariant(
-        id: 'scan_1',
-        workId: 'w_unified_1',
-        sourceId: 's_1',
-        relativePath: 'Scans/01.jpg',
-        fileName: '01.jpg',
-        fileSize: 1024,
-        assetKind: AssetKind.scanGallery,
-      );
-      final extScan = await container
-          .read(playbackDispatcherProvider)
-          .tryOpenExternalScan(
-            work: req.work,
-            variant: scanVar,
-            source: req.bundle.sourcesById['s_1'],
-          );
-      expect(extScan, isNull);
 
       // 播放记录页 48dp 更多按钮与外部播放器过滤
       await tester.pumpWidget(

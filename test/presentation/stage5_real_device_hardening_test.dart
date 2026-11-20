@@ -341,8 +341,8 @@ void main() {
         tester.view.devicePixelRatio = 1.0;
         addTearDown(tester.view.resetPhysicalSize);
 
-        expect(KonataPlaybackTokens.osdSurfaceDark, const Color(0xB3161618));
-        expect(KonataPlaybackTokens.osdBorderLight, const Color(0x24FFFFFF));
+        expect(KonataPlaybackTokens.osdSurfaceDark, const Color(0x8810131C));
+        expect(KonataPlaybackTokens.osdBorderLight, const Color(0x2BFFFFFF));
 
         const work = Work(id: 'w1', title: '孤独摇滚！');
         const variant = MediaVariant(
@@ -457,7 +457,7 @@ void main() {
         final capsuleRect = tester.getRect(find.byType(KonataPlaybackCapsule));
         final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
         await mouse.addPointer(
-          location: Offset(capsuleRect.center.dx, capsuleRect.bottom - 7),
+          location: Offset(capsuleRect.center.dx, capsuleRect.top + 6),
         );
         addTearDown(mouse.removePointer);
         await tester.pump();

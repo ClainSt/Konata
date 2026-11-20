@@ -141,7 +141,7 @@ void main() {
     }
   });
 
-  test('手机矮横屏始终维持底部水平居中紧凑导航且悬浮小窗不压住导航胶囊', () {
+  test('手机矮横屏始终维持底部紧凑导航且与音频圆钮整体水平居中无重叠', () {
     final cramped = AdaptiveCapsuleLayout(
       size: const Size(568, 320),
       safe: const EdgeInsets.fromLTRB(0, 24, 0, 20),
@@ -150,8 +150,10 @@ void main() {
     );
     expect(cramped.shortPhone, isTrue);
     expect(cramped.verticalNavigation, isFalse);
-    expect(cramped.navigationRect.center.dx, closeTo(284.0, 0.5));
+    expect(cramped.inlinePhoneAudioPaired, isTrue);
     final miniRect = cramped.floatingMiniWindowRect!;
+    final groupCenter = (cramped.navigationRect.left + miniRect.right) / 2.0;
+    expect(groupCenter, closeTo(284.0, 0.5));
     expect(miniRect.overlaps(cramped.navigationRect), isFalse);
   });
 
@@ -198,42 +200,57 @@ void main() {
         const ValueKey('konata_floating_mini_player'),
       );
       expect(miniFinder, findsOneWidget);
-      // 音频悬浮小窗不显示曲名与循环键
+      // 收起态音频悬浮圆钮 56x56 不显示冗余曲名与循环键
+      final discRect = tester.getRect(miniFinder);
+      expect(
+        discRect.width,
+        closeTo(KonataPlaybackTokens.floatingMiniAudioDiscSize, 0.5),
+      );
+      expect(
+        discRect.height,
+        closeTo(KonataPlaybackTokens.floatingMiniAudioDiscSize, 0.5),
+      );
       expect(find.text('测试曲目'), findsNothing);
       expect(tester.takeException(), isNull);
 
-      for (final key in [
-        'floating_mini_surface_tap_target',
-        'floating_mini_audio_prev',
-        'floating_mini_audio_play_pause',
-        'floating_mini_audio_next',
-      ]) {
-        final rect = tester.getRect(find.byKey(ValueKey(key)));
-        expect(rect.height, greaterThanOrEqualTo(48));
-        expect(rect.width, greaterThanOrEqualTo(48));
-      }
-
       final container = ProviderScope.containerOf(tester.element(miniFinder));
-      // 首次轻触封面显现右上 × 与左上展开图标，再次轻触进入全屏音频页
-      expect(
-        find.byKey(const ValueKey('floating_mini_close_button')),
-        findsNothing,
-      );
-      await tester.tap(
-        find.byKey(const ValueKey('floating_mini_surface_tap_target')),
-      );
-      await tester.pump();
-      expect(
-        find.byKey(const ValueKey('floating_mini_close_button')),
-        findsOneWidget,
-      );
-      await tester.tap(
-        find.byKey(const ValueKey('floating_mini_expand_button')),
-      );
-      await tester.pump();
-      expect(container.read(immersiveAudioExpandedProvider), isTrue);
-      container.read(immersiveAudioExpandedProvider.notifier).state = false;
-      await tester.pumpAndSettle();
+      final isPhoneInline =
+          size.width != 1920 && size.shortestSide < 600;
+      if (isPhoneInline) {
+        // 手机一级页：音频圆钮与底栏胶囊并排协同，单击直入全屏音频页
+        await tester.tap(
+          find.byKey(const ValueKey('floating_mini_surface_tap_target')),
+        );
+        await tester.pump();
+        expect(container.read(immersiveAudioExpandedProvider), isTrue);
+        container.read(immersiveAudioExpandedProvider.notifier).state = false;
+        await tester.pumpAndSettle();
+      } else {
+        // 桌面与平板：单击圆钮展开 320x60 光学播控条，点击曲目区进入全屏音频页，点击外部收回圆钮
+        expect(
+          find.byKey(const ValueKey('floating_mini_close_button')),
+          findsNothing,
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('floating_mini_surface_tap_target')),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('floating_mini_audio_pill')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('floating_mini_close_button')),
+          findsOneWidget,
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('floating_mini_surface_tap_target')),
+        );
+        await tester.pump();
+        expect(container.read(immersiveAudioExpandedProvider), isTrue);
+        container.read(immersiveAudioExpandedProvider.notifier).state = false;
+        await tester.pumpAndSettle();
+      }
 
       // 高频进度跳秒只驱动进度叶子，不带动宿主列表或导航胶囊重建
       final rebuilt = <Type>[];
@@ -264,7 +281,8 @@ void main() {
         await tester.pumpAndSettle();
         final after = tester.getTopLeft(miniFinder);
         if (size.shortestSide < 600 && size.height > 500) {
-          expect(after.dy, greaterThan(before.dy));
+          // 隐藏导航胶囊后，手机圆钮从底栏并排态平滑释放至右下角边缘停靠
+          expect(after.dx, greaterThan(before.dx));
         }
 
         audio.emit(_initial.copyWith(errorMessage: '播放错误'));
@@ -317,19 +335,19 @@ void main() {
     });
   }
 
-  test('手机竖屏悬浮小窗避让导航与二级页下沉补位', () {
+  test('手机竖屏视频悬浮小窗避让导航与二级页下沉补位', () {
     final normal = AdaptiveCapsuleLayout(
       size: const Size(390, 844),
       safe: safe,
       android: true,
-      miniKind: FloatingMiniPlayerKind.audio,
+      miniKind: FloatingMiniPlayerKind.video,
     );
     final detail = AdaptiveCapsuleLayout(
       size: normal.size,
       safe: safe,
       android: true,
       navigationVisible: false,
-      miniKind: FloatingMiniPlayerKind.audio,
+      miniKind: FloatingMiniPlayerKind.video,
     );
     expect(normal.navigationRect.center.dx, 195);
     final normalMini = normal.floatingMiniWindowRect!;
@@ -351,6 +369,41 @@ void main() {
     expect(layout.tablet, isFalse);
     expect(layout.leftClearance, 0);
     expect(layout.bottomClearance, 0);
+  });
+
+  test('视频悬浮小窗严格按真实片源比例无黑边缩放（4:3 / 16:9 / 2.39:1 / 9:16）', () {
+    for (final ratio in const [4 / 3, 16 / 9, 2.39, 9 / 16]) {
+      final layout = AdaptiveCapsuleLayout(
+        size: const Size(1280, 800),
+        safe: safe,
+        android: false,
+        miniKind: FloatingMiniPlayerKind.video,
+        videoAspectRatio: ratio,
+      );
+      final rect = layout.floatingMiniWindowRect!;
+      expect(rect.width / rect.height, closeTo(ratio, 0.02));
+    }
+  });
+
+  test('手机一级页音频圆钮与底栏胶囊同行水平居中并排且零额外底部占高', () {
+    final navOnly = AdaptiveCapsuleLayout(
+      size: const Size(390, 844),
+      safe: safe,
+      android: true,
+      navigationVisible: true,
+    );
+    final paired = AdaptiveCapsuleLayout(
+      size: const Size(390, 844),
+      safe: safe,
+      android: true,
+      navigationVisible: true,
+      miniKind: FloatingMiniPlayerKind.audio,
+    );
+    expect(paired.inlinePhoneAudioPaired, isTrue);
+    final discRect = paired.floatingMiniWindowRect!;
+    expect(discRect.width, closeTo(KonataPlaybackTokens.floatingMiniAudioDiscSize, 0.1));
+    expect(discRect.overlaps(paired.navigationRect), isFalse);
+    expect(paired.bottomClearance, closeTo(navOnly.bottomClearance, 0.1));
   });
 
   for (final size in [

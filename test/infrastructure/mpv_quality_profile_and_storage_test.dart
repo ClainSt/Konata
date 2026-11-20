@@ -459,6 +459,10 @@ void main() {
       expect(client.options['egl-output-format'], equals('rgb10_a2'));
       expect(client.options['hwdec'], equals('auto-safe'));
       expect(client.options['sub-font-provider'], equals('none'));
+      expect(
+        client.options['sub-font'],
+        equals(MpvQualityProfile.defaultAndroidCjkSubFontFamily),
+      );
       expect(client.options.containsKey('fbo-format'), isFalse);
     });
 

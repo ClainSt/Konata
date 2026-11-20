@@ -85,9 +85,10 @@ class Phase3TestFixtures {
     return samples;
   }
 
-  /// 生成满足 TrueType SFNT 规范的双字面微型字体二进制（支持 `.notdef`、`A` 与 `中`）。
+  /// 生成满足 TrueType SFNT 规范的微型字体二进制（默认支持 `.notdef`、`A` 与 `中`，可关闭 [includeCjk] 模拟纯拉丁字体）。
   static Uint8List generateMinimalDualGlyphTtf({
     String familyName = 'KonataProbeFont',
+    bool includeCjk = true,
   }) {
     final tables = <String, Uint8List>{};
 
@@ -172,10 +173,10 @@ class Phase3TestFixtures {
     final postBd = ByteData.sublistView(postBytes);
     postBd.setUint32(0, 0x00030000, Endian.big);
 
-    // 构造 cmap 表（Platform 3 Encoding 1 Format 4：映射 'A' -> 1，'中' -> 2）
+    // 构造 cmap 表（Platform 3 Encoding 1 Format 4：映射 'A' -> 1，按需映射 '中' -> 2）
     final cmapBytes = _buildCmapFormat4([
-      (codePoint: 0x0041, glyphId: 1),
-      (codePoint: 0x4E2D, glyphId: 2),
+      const (codePoint: 0x0041, glyphId: 1),
+      if (includeCjk) const (codePoint: 0x4E2D, glyphId: 2),
     ]);
 
     // 构造 name 表（登记字体族名与全名）

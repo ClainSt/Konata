@@ -189,6 +189,192 @@ class AssUueFontDecoder {
     return false;
   }
 
+  /// 用于实证校验字体是否包含真实中文字符字形的基准码点（汉字“中” `U+4E2D`）。
+  static const int cjkVerificationCodePoint = 0x4E2D;
+
+  /// 解析独立 SFNT 或 TrueType 集合字库（`ttcf`）首个字面的字节偏移量；非法头返回 `null`。
+  static int? extractFirstFaceOffset(Uint8List headerBytes) {
+    if (!isValidFontMagic(headerBytes)) return null;
+    final isTtc =
+        headerBytes[0] == 0x74 &&
+        headerBytes[1] == 0x74 &&
+        headerBytes[2] == 0x63 &&
+        headerBytes[3] == 0x66;
+    if (!isTtc) return 0;
+    if (headerBytes.length < 16) return null;
+    final bd = ByteData.sublistView(headerBytes);
+    final numFonts = bd.getUint32(8, Endian.big);
+    if (numFonts == 0) return null;
+    return bd.getUint32(12, Endian.big);
+  }
+
+  /// 在 SFNT 表目录原始字节区中查找指定 4 字节标签表的绝对偏移与字节长度。
+  static ({int offset, int length})? findTableRecord(
+    Uint8List tableDirectoryBytes,
+    int numTables,
+    String fourCcTag,
+  ) {
+    if (fourCcTag.length != 4 || numTables <= 0) return null;
+    final t0 = fourCcTag.codeUnitAt(0);
+    final t1 = fourCcTag.codeUnitAt(1);
+    final t2 = fourCcTag.codeUnitAt(2);
+    final t3 = fourCcTag.codeUnitAt(3);
+    final maxEntries = tableDirectoryBytes.length ~/ 16;
+    final count = numTables < maxEntries ? numTables : maxEntries;
+    final bd = ByteData.sublistView(tableDirectoryBytes);
+    for (var i = 0; i < count; i++) {
+      final base = i * 16;
+      if (tableDirectoryBytes[base] == t0 &&
+          tableDirectoryBytes[base + 1] == t1 &&
+          tableDirectoryBytes[base + 2] == t2 &&
+          tableDirectoryBytes[base + 3] == t3) {
+        return (
+          offset: bd.getUint32(base + 8, Endian.big),
+          length: bd.getUint32(base + 12, Endian.big),
+        );
+      }
+    }
+    return null;
+  }
+
+  /// 校验 OpenType `cmap` 表（支持 Format 4 与 Format 12 子表）是否将目标 Unicode 码点映射至非零字形。
+  static bool cmapTableContainsCodePoint(Uint8List cmapBytes, int codePoint) {
+    if (cmapBytes.length < 4 || codePoint < 0) return false;
+    final bd = ByteData.sublistView(cmapBytes);
+    final numSubtables = bd.getUint16(2, Endian.big);
+    final maxSubtables = (cmapBytes.length - 4) ~/ 8;
+    final count = numSubtables < maxSubtables ? numSubtables : maxSubtables;
+
+    for (var i = 0; i < count; i++) {
+      final rec = 4 + i * 8;
+      final subOffset = bd.getUint32(rec + 4, Endian.big);
+      if (subOffset + 2 > cmapBytes.length) continue;
+      final format = bd.getUint16(subOffset, Endian.big);
+
+      if (format == 4 && codePoint <= 0xFFFF) {
+        if (_cmapFormat4HasGlyph(bd, cmapBytes.length, subOffset, codePoint)) {
+          return true;
+        }
+      } else if (format == 12) {
+        if (_cmapFormat12HasGlyph(bd, cmapBytes.length, subOffset, codePoint)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /// 校验完整内存字体二进制（支持 TTF/OTF/TTC）是否包含目标 CJK 码点的有效非零字形。
+  static bool fontBytesContainCodePoint(
+    Uint8List fontBytes, {
+    int codePoint = cjkVerificationCodePoint,
+  }) {
+    final faceOffset = extractFirstFaceOffset(fontBytes);
+    if (faceOffset == null || faceOffset + 12 > fontBytes.length) {
+      return false;
+    }
+    final faceHeader = Uint8List.sublistView(
+      fontBytes,
+      faceOffset,
+      faceOffset + 12,
+    );
+    if (!isValidFontMagic(faceHeader)) return false;
+    final numTables = ByteData.sublistView(
+      faceHeader,
+    ).getUint16(4, Endian.big);
+    final dirStart = faceOffset + 12;
+    final dirEnd = dirStart + numTables * 16;
+    if (numTables == 0 || dirEnd > fontBytes.length) return false;
+    final cmapRec = findTableRecord(
+      Uint8List.sublistView(fontBytes, dirStart, dirEnd),
+      numTables,
+      'cmap',
+    );
+    if (cmapRec == null ||
+        cmapRec.length < 4 ||
+        cmapRec.offset + cmapRec.length > fontBytes.length) {
+      return false;
+    }
+    return cmapTableContainsCodePoint(
+      Uint8List.sublistView(
+        fontBytes,
+        cmapRec.offset,
+        cmapRec.offset + cmapRec.length,
+      ),
+      codePoint,
+    );
+  }
+
+  static bool _cmapFormat4HasGlyph(
+    ByteData bd,
+    int totalLen,
+    int subOffset,
+    int codePoint,
+  ) {
+    if (subOffset + 14 > totalLen) return false;
+    final segCountX2 = bd.getUint16(subOffset + 6, Endian.big);
+    if (segCountX2 < 2 || (segCountX2 & 1) != 0) return false;
+    final segCount = segCountX2 ~/ 2;
+    final endCodeBase = subOffset + 14;
+    final startCodeBase = endCodeBase + segCountX2 + 2;
+    final idDeltaBase = startCodeBase + segCountX2;
+    final idRangeOffsetBase = idDeltaBase + segCountX2;
+    if (idRangeOffsetBase + segCountX2 > totalLen) return false;
+
+    for (var s = 0; s < segCount; s++) {
+      final endCode = bd.getUint16(endCodeBase + s * 2, Endian.big);
+      final startCode = bd.getUint16(startCodeBase + s * 2, Endian.big);
+      if (codePoint < startCode || codePoint > endCode) continue;
+
+      final idDelta = bd.getInt16(idDeltaBase + s * 2, Endian.big);
+      final idRangeOffsetPos = idRangeOffsetBase + s * 2;
+      final idRangeOffset = bd.getUint16(idRangeOffsetPos, Endian.big);
+      if (idRangeOffset == 0) {
+        return ((codePoint + idDelta) & 0xFFFF) != 0;
+      }
+      final glyphIndexPos =
+          idRangeOffsetPos + idRangeOffset + (codePoint - startCode) * 2;
+      if (glyphIndexPos + 2 > totalLen) return false;
+      final rawGlyph = bd.getUint16(glyphIndexPos, Endian.big);
+      if (rawGlyph == 0) return false;
+      return ((rawGlyph + idDelta) & 0xFFFF) != 0;
+    }
+    return false;
+  }
+
+  static bool _cmapFormat12HasGlyph(
+    ByteData bd,
+    int totalLen,
+    int subOffset,
+    int codePoint,
+  ) {
+    if (subOffset + 16 > totalLen) return false;
+    final numGroups = bd.getUint32(subOffset + 12, Endian.big);
+    final groupsBase = subOffset + 16;
+    final maxGroups = (totalLen - groupsBase) ~/ 12;
+    final count = numGroups < maxGroups ? numGroups : maxGroups;
+    if (count <= 0) return false;
+
+    // OpenType Format 12 分组按码点严格递增排列，使用二分查找在微秒级判定目标码点映射。
+    var lo = 0;
+    var hi = count - 1;
+    while (lo <= hi) {
+      final mid = (lo + hi) >> 1;
+      final rec = groupsBase + mid * 12;
+      final startChar = bd.getUint32(rec, Endian.big);
+      final endChar = bd.getUint32(rec + 4, Endian.big);
+      if (codePoint < startChar) {
+        hi = mid - 1;
+      } else if (codePoint > endChar) {
+        lo = mid + 1;
+      } else {
+        final startGlyph = bd.getUint32(rec + 8, Endian.big);
+        return (startGlyph + (codePoint - startChar)) != 0;
+      }
+    }
+    return false;
+  }
+
   /// 判断文件名是否属于 libass 支持的字库文件扩展名。
   static bool isSupportedFontFileName(String fileName) {
     final lower = fileName.toLowerCase();

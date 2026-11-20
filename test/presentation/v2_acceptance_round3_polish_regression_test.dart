@@ -5,8 +5,11 @@ import 'package:ccplayer/application/playback/playback_preferences_provider.dart
 import 'package:ccplayer/application/playback/video_playback_controller.dart';
 import 'package:ccplayer/application/providers/artwork_provider.dart';
 import 'package:ccplayer/application/providers/library_providers.dart';
+import 'package:ccplayer/application/providers/scraping_providers.dart';
+import 'package:ccplayer/application/providers/source_actions_provider.dart';
 import 'package:ccplayer/domain/models/episode.dart';
 import 'package:ccplayer/domain/models/media_variant.dart';
+import 'package:ccplayer/domain/models/network_config.dart';
 import 'package:ccplayer/domain/models/tmdb_models.dart';
 import 'package:ccplayer/domain/models/work.dart';
 import 'package:ccplayer/domain/playback/cue_and_lrc_parser.dart';
@@ -21,12 +24,15 @@ import 'package:ccplayer/presentation/detail/detail_secondary_filter_bar.dart';
 import 'package:ccplayer/presentation/dialogs/episode_slot_picker_popover.dart';
 import 'package:ccplayer/presentation/dialogs/file_mapping_panel.dart';
 import 'package:ccplayer/presentation/library/review_dialog.dart';
+import 'package:ccplayer/presentation/settings/settings_network_panel.dart';
 import 'package:ccplayer/presentation/shell/adaptive_capsule_layout.dart';
 import 'package:ccplayer/presentation/theme/konata_adaptive_tokens.dart';
 import 'package:ccplayer/presentation/theme/konata_playback_tokens.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
 import 'package:ccplayer/presentation/video/embedded_video_page.dart';
 import 'package:ccplayer/presentation/widgets/design_system/konata_draggable_scrollbar.dart';
+import 'package:ccplayer/presentation/widgets/design_system/konata_pill_button.dart';
+import 'package:ccplayer/presentation/widgets/design_system/konata_surface_card.dart';
 import 'package:ccplayer/presentation/widgets/playback/konata_floating_mini_player.dart';
 import 'package:ccplayer/presentation/widgets/playback/konata_playback_capsule.dart';
 import 'package:flutter/foundation.dart';
@@ -874,5 +880,121 @@ void main() {
       expect(btnTopAfter, closeTo(btnTopBefore, 1.0));
       expect(find.text('加速世界'), findsOneWidget);
     });
+
+    testWidgets(
+      'Android 平板双栏与手机竖屏执行图片服务器连接测试时按钮文案严禁溢出胶囊或压住状态文案',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        addTearDown(tester.view.reset);
+
+        try {
+          Future<void> verifyAtViewport(Size size) async {
+            tester.view.physicalSize = size;
+            tester.view.devicePixelRatio = 1.0;
+
+            await tester.pumpWidget(
+              ProviderScope(
+                overrides: [
+                  tmdbNetworkConfigProvider.overrideWith(
+                    (_) async => const TmdbNetworkConfig(),
+                  ),
+                  konataActionsProvider.overrideWith(
+                    (ref) => _StubNetworkProbeActions(ref),
+                  ),
+                ],
+                child: MaterialApp(
+                  theme: KonataTheme.lightTheme(),
+                  home: const Scaffold(
+                    body: SingleChildScrollView(
+                      padding: EdgeInsets.all(16),
+                      child: SettingsNetworkPanel(),
+                    ),
+                  ),
+                ),
+              ),
+            );
+            await tester.pumpAndSettle();
+
+            final imageTestButtons = find.text('图片服务器连接测试');
+            expect(imageTestButtons, findsNWidgets(2));
+            for (var i = 0; i < 2; i++) {
+              await tester.ensureVisible(imageTestButtons.at(i));
+              await tester.tap(imageTestButtons.at(i));
+              await tester.pumpAndSettle();
+            }
+            expect(tester.takeException(), isNull);
+
+            final tmdbStatus = find.text('官方不可达，已自动回退备用地址连通 (699ms)');
+            final bgmStatus = find.text('官方不可达，备用地址返回 HTTP 404');
+            expect(tmdbStatus, findsOneWidget);
+            expect(bgmStatus, findsOneWidget);
+
+            final statusFinders = [tmdbStatus, bgmStatus];
+            for (var i = 0; i < 2; i++) {
+              final labelFinder = imageTestButtons.at(i);
+              final pillFinder = find
+                  .ancestor(
+                    of: labelFinder,
+                    matching: find.byType(KonataPillButton),
+                  )
+                  .first;
+              final cardFinder = find
+                  .ancestor(
+                    of: pillFinder,
+                    matching: find.byType(KonataSurfaceCard),
+                  )
+                  .first;
+              final labelRect = tester.getRect(labelFinder);
+              final pillRect = tester.getRect(pillFinder);
+              final cardRect = tester.getRect(cardFinder);
+              final statusRect = tester.getRect(statusFinders[i]);
+
+              // 按钮文字必须完整收容在胶囊内部，严禁越过胶囊右边界。
+              expect(labelRect.left, greaterThanOrEqualTo(pillRect.left));
+              expect(labelRect.right, lessThanOrEqualTo(pillRect.right + 0.5));
+              // 按钮与连通性诊断状态文本严禁互相重叠，且全部收敛在卡片右边界内。
+              expect(pillRect.overlaps(statusRect), isFalse);
+              expect(pillRect.right, lessThanOrEqualTo(cardRect.right + 0.5));
+              expect(statusRect.right, lessThanOrEqualTo(cardRect.right + 0.5));
+            }
+          }
+
+          // 平板双栏临界宽度（内容区约 768dp，左右卡片各约 376dp）与手机竖屏（360dp）均须零出框。
+          await verifyAtViewport(const Size(800, 900));
+          await verifyAtViewport(const Size(360, 900));
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
   });
+}
+
+class _StubNetworkProbeActions extends KonataActionsCoordinator {
+  const _StubNetworkProbeActions(super.ref);
+
+  @override
+  Future<void> saveNetworkConfig(TmdbNetworkConfig config) async {}
+
+  @override
+  Future<ConnectivityReport> testTmdbImageConnectivity(
+    TmdbNetworkConfig config,
+  ) async {
+    return const ConnectivityReport(
+      reachable: true,
+      latencyMs: 699,
+      usedBackup: true,
+    );
+  }
+
+  @override
+  Future<ConnectivityReport> testBangumiImageConnectivity(
+    TmdbNetworkConfig config,
+  ) async {
+    return const ConnectivityReport(
+      reachable: false,
+      latencyMs: 420,
+      errorMessage: '官方不可达，备用地址返回 HTTP 404',
+    );
+  }
 }

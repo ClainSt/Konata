@@ -185,7 +185,14 @@ class SubtitleFontPoolManager {
     return _commitFontEntriesToPool(setHash: setHash, entries: validMap);
   }
 
-  /// 运行时实证扫描操作系统中真实存在、可读且通过 SFNT 魔数校验的 CJK 兜底字体列表。
+  /// 单次按需读取字体 `cmap` 表的安全上限（4 MiB），避免将数十 MB 整本字库读入内存。
+  static const int _maxCmapTableReadBytes = 4 * 1024 * 1024;
+
+  /// 判断系统字体文件名是否符合 CJK 兜底字体候选规则（同步拦截拉丁子集、表情、符号与非 CJK 字库）。
+  static bool isAllowedCjkFallbackFontName(String baseName) =>
+      _scoreCjkFallbackFontName(baseName) > 0;
+
+  /// 运行时实证扫描操作系统中真实存在、可读且在 `cmap` 表中包含真实中文字符字形的 CJK 兜底字体列表。
   static Future<List<File>> discoverVerifiedSystemCjkFonts({
     List<Directory>? searchRootsOverride,
     int maxResults = 6,
@@ -215,14 +222,18 @@ class SubtitleFontPoolManager {
           final priority = _scoreCjkFallbackFontName(baseName);
           if (priority <= 0) continue;
           if (!seenPaths.add(entity.path.toLowerCase())) continue;
-          if (await _hasValidFontHeader(entity)) {
+          if (await hasVerifiedCjkGlyph(entity)) {
             scored.add((file: entity, priority: priority));
           }
         }
       } catch (error) {
-      // 个别系统字体目录受限无权限时静默跳过，继续实证扫描其余路径。
-      developer.log('可恢复异常已记录', name: 'konata.subtitle_font_pool_manager', error: error);
-    }
+        // 个别系统字体目录受限无权限时静默跳过，继续实证扫描其余路径。
+        developer.log(
+          '可恢复异常已记录',
+          name: 'konata.subtitle_font_pool_manager',
+          error: error,
+        );
+      }
     }
 
     scored.sort((a, b) => b.priority.compareTo(a.priority));
@@ -230,6 +241,54 @@ class SubtitleFontPoolManager {
         .take(maxResults)
         .map((e) => e.file)
         .toList(growable: false);
+  }
+
+  /// 按需随机读取字体头与 `cmap` 表，实证校验字体文件是否包含真实中文字符字形（默认验证汉字“中” `U+4E2D`）。
+  static Future<bool> hasVerifiedCjkGlyph(
+    File file, {
+    int codePoint = AssUueFontDecoder.cjkVerificationCodePoint,
+  }) async {
+    RandomAccessFile? raf;
+    try {
+      final fileLen = await file.length();
+      if (fileLen < 16) return false;
+      raf = await file.open();
+      final header = await raf.read(16);
+      final faceOffset = AssUueFontDecoder.extractFirstFaceOffset(header);
+      if (faceOffset == null || faceOffset + 12 > fileLen) return false;
+
+      await raf.setPosition(faceOffset);
+      final faceHeader = await raf.read(12);
+      if (!AssUueFontDecoder.isValidFontMagic(faceHeader)) return false;
+
+      final numTables = ByteData.sublistView(
+        faceHeader,
+      ).getUint16(4, Endian.big);
+      if (numTables <= 0 || numTables > 256) return false;
+      final dirBytesLen = numTables * 16;
+      if (faceOffset + 12 + dirBytesLen > fileLen) return false;
+
+      final dirBytes = await raf.read(dirBytesLen);
+      final cmapRec = AssUueFontDecoder.findTableRecord(
+        dirBytes,
+        numTables,
+        'cmap',
+      );
+      if (cmapRec == null ||
+          cmapRec.length < 4 ||
+          cmapRec.length > _maxCmapTableReadBytes ||
+          cmapRec.offset + cmapRec.length > fileLen) {
+        return false;
+      }
+
+      await raf.setPosition(cmapRec.offset);
+      final cmapBytes = await raf.read(cmapRec.length);
+      return AssUueFontDecoder.cmapTableContainsCodePoint(cmapBytes, codePoint);
+    } catch (_) {
+      return false;
+    } finally {
+      await raf?.close().catchError((_) {});
+    }
   }
 
   Future<ResolvedSubtitleFontSet?> _tryReuseHotLease(String setHash) async {
@@ -472,37 +531,67 @@ class SubtitleFontPoolManager {
     return (sink.digest ?? sha256.convert(const [])).toString().substring(0, 16);
   }
 
+  static const List<String> _nonCjkFontNameBlocklist = <String>[
+    'latin',
+    'emoji',
+    'symbol',
+    'math',
+    'color',
+    'arabic',
+    'hebrew',
+    'thai',
+    'devanagari',
+    'clock',
+    'number',
+  ];
+
   static int _scoreCjkFallbackFontName(String baseName) {
     final lower = baseName.toLowerCase();
+    for (final blocked in _nonCjkFontNameBlocklist) {
+      if (lower.contains(blocked)) {
+        return 0;
+      }
+    }
+
+    var baseScore = 0;
     if (lower.contains('notosanscjk') || lower.contains('sourcehansans')) {
-      return 100;
-    }
-    if (lower.contains('notoserifcjk') || lower.contains('sourcehanserif')) {
-      return 90;
-    }
-    if (lower.contains('notosanssc') ||
+      baseScore = 100;
+    } else if (lower.contains('notoserifcjk') ||
+        lower.contains('sourcehanserif')) {
+      baseScore = 90;
+    } else if (lower.contains('notosanssc') ||
         lower.contains('notosanstc') ||
         lower.contains('notosanshk') ||
         lower.contains('notosansjp')) {
-      return 85;
-    }
-    if (lower.contains('msyh') ||
+      baseScore = 85;
+    } else if (lower.contains('msyh') ||
         lower.contains('yahei') ||
         lower.contains('misans') ||
+        lower.contains('milanpro') ||
         lower.contains('opposans') ||
         lower.contains('vivosans') ||
         lower.contains('honorsans') ||
         lower.contains('pingfang') ||
         lower.contains('harmonyos')) {
-      return 80;
-    }
-    if (lower.contains('droidsansfallback') ||
+      baseScore = 80;
+    } else if (lower.contains('droidsansfallback') ||
         lower.contains('simhei') ||
         lower.contains('simsun') ||
         lower.contains('cjk')) {
-      return 60;
+      baseScore = 60;
     }
-    return 0;
+    if (baseScore == 0) return 0;
+
+    if (lower.contains('regular')) {
+      baseScore += 5;
+    } else if (lower.contains('bold') ||
+        lower.contains('heavy') ||
+        lower.contains('black') ||
+        lower.contains('thin') ||
+        lower.contains('light')) {
+      baseScore -= 5;
+    }
+    return baseScore;
   }
 
   static Future<int> _countValidFontsInDirectory(Directory dir) async {

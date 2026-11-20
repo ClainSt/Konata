@@ -36,9 +36,11 @@ import 'inline_expandable_synopsis.dart';
 import 'series_switcher_dropdown.dart';
 import 'work_detail_sub_views.dart';
 
-/// 详情页底部选集区记忆收展状态与选中分页（默认收起剧集缩略图，仅展示紧凑胶囊）。
-final detailDrawerExpandedProvider = StateProvider<bool>((ref) => false);
-final detailDrawerTabProvider = StateProvider<DetailDrawerTab>(
+/// 详情页底部选集区当前会话收展状态与选中分页（退出详情页即自动销毁重置，每次进入默认收起剧集缩略图，仅展示紧凑胶囊）。
+final detailDrawerExpandedProvider = StateProvider.autoDispose<bool>(
+  (ref) => false,
+);
+final detailDrawerTabProvider = StateProvider.autoDispose<DetailDrawerTab>(
   (ref) => DetailDrawerTab.main,
 );
 
@@ -81,6 +83,11 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
       _scanScheduler.cancelAll();
       _warmupService.cancelPending();
       _activeWorkId = widget.workId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ref.read(detailDrawerExpandedProvider.notifier).state = false;
+        ref.read(detailDrawerTabProvider.notifier).state = DetailDrawerTab.main;
+      });
     }
   }
 
@@ -164,6 +171,8 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
   void _returnToLibrary() {
     if (!mounted) return;
     _scanScheduler.cancelAll();
+    ref.read(detailDrawerExpandedProvider.notifier).state = false;
+    ref.read(detailDrawerTabProvider.notifier).state = DetailDrawerTab.main;
     Navigator.of(context).maybePop();
   }
 

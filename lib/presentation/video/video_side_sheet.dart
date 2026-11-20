@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:file_picker/file_picker.dart';
+import 'package:file_picker/file_picker.dart' show FileType;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
@@ -36,6 +36,7 @@ import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/design_system/konata_switch.dart';
+import '../widgets/design_system/konata_system_file_picker.dart';
 import '../widgets/playback/konata_audiophile_unlock_dialog.dart';
 import '../widgets/playback/konata_spec_badge.dart';
 
@@ -185,11 +186,12 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
   }
 
   Future<void> _pickExternalSubtitle(VideoPlaybackController controller) async {
-    final result = await FilePicker.pickFiles(
+    final result = await ref.read(konataSystemFilePickerProvider).pickFiles(
       dialogTitle: '选择外挂字幕文件',
       type: FileType.custom,
       allowedExtensions: KonataMediaExtensions.subtitleExtensionsNoDot,
     );
+    if (!mounted) return;
     final path = result.isEmpty ? null : result.first.path;
     if (path != null && path.trim().isNotEmpty) {
       controller.addExternalSubtitleFile(path.trim());

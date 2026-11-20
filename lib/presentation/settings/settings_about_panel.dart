@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -12,6 +11,7 @@ import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/design_system/konata_switch.dart';
+import '../widgets/design_system/konata_system_file_picker.dart';
 import '../widgets/design_system/konata_toast.dart';
 
 /// 关于页面板（真实 Konata 头像、版本 1.0.0、调试日志、异常导出、GitHub Octocat 与 TMDB 声明）。
@@ -27,7 +27,7 @@ class SettingsAboutPanel extends ConsumerWidget {
   Future<void> _exportLogs(BuildContext context, WidgetRef ref) async {
     final report =
         ref.read(diagnosticsLogStoreProvider).buildRecentIncidentReport();
-    final targetUri = await FilePicker.saveFile(
+    final targetUri = await ref.read(konataSystemFilePickerProvider).saveFile(
       dialogTitle: '导出最近异常日志',
       fileName: 'konata_incident_log.txt',
       bytes: Uint8List.fromList(utf8.encode(report)),

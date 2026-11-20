@@ -270,18 +270,10 @@ class _FloatingAudioCoverLeaf extends ConsumerWidget {
   }
 
   Widget _fallbackCover(KonataPalette p) {
-    return ColoredBox(
-      color: KonataPlaybackTokens.auroraCanvas(p),
-      child: Center(
-        child: Icon(
-          Icons.album_rounded,
-          size: math.min(
-            KonataPlaybackTokens.floatingMiniFallbackIconSize,
-            size * 0.55,
-          ),
-          color: p.textSecondary,
-        ),
-      ),
+    return SizedBox(
+      width: size,
+      height: size,
+      child: const KonataCdDiscPlaceholder(discScale: 0.92),
     );
   }
 }
@@ -333,12 +325,16 @@ class _FloatingAudioProgressLeaf extends ConsumerWidget {
         : 0.0;
 
     if (linear) {
-      return LinearProgressIndicator(
+      return CustomPaint(
         key: const ValueKey('floating_mini_audio_progress'),
-        value: ratio,
-        minHeight: KonataAdaptiveTokens.progressHeight,
-        color: p.progressFill,
-        backgroundColor: p.progressTrack,
+        painter: _CapsuleContourAudioProgressPainter(
+          progress: ratio,
+          activeColor: p.progressFill,
+          borderColor: KonataPlaybackTokens.glassBorder(p),
+          borderWidth: KonataAdaptiveTokens.borderWidth,
+          progressStrokeWidth:
+              KonataPlaybackTokens.floatingMiniAudioContourStrokeWidth,
+        ),
       );
     }
 
@@ -404,15 +400,142 @@ class _CircularAudioRingPainter extends CustomPainter {
   }
 }
 
+/// 展开态音频胶囊一体化外轮廓描边与上半沿贴边进度弧绘制器：
+/// 将胶囊 1px 玻璃边框与沿上半轮廓（9 点钟左圆弧 -> 顶直边 -> 3 点钟右圆弧）流淌的进度弧融为一体，
+/// 配合外层胶囊圆角裁切彻底消除顶部白边与切角错层。
+class _CapsuleContourAudioProgressPainter extends CustomPainter {
+  const _CapsuleContourAudioProgressPainter({
+    required this.progress,
+    required this.activeColor,
+    required this.borderColor,
+    required this.borderWidth,
+    required this.progressStrokeWidth,
+  });
+
+  final double progress;
+  final Color activeColor;
+  final Color borderColor;
+  final double borderWidth;
+  final double progressStrokeWidth;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final w = size.width;
+    final h = size.height;
+    final halfH = h / 2.0;
+    final inset = borderWidth / 2.0;
+    final arcRadius = math.max(0.0, math.min(w, h) / 2.0 - inset);
+    final leftArcCenterX = inset + arcRadius;
+    final rightArcCenterX = w - inset - arcRadius;
+
+    final borderPaint = Paint()
+      ..color = borderColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = borderWidth
+      ..strokeCap = StrokeCap.butt
+      ..isAntiAlias = true;
+
+    final clamped = progress.clamp(0.0, 1.0);
+    if (clamped <= 0.001) {
+      final rrect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(inset, inset, w - inset * 2, h - inset * 2),
+        Radius.circular(arcRadius),
+      );
+      canvas.drawRRect(rrect, borderPaint);
+      return;
+    }
+
+    // 1. 下半轮廓（3 点钟 -> 右下弧 -> 底直边 -> 左下弧 -> 9 点钟）绘制标准 1px 玻璃边框。
+    final bottomPath = Path()
+      ..arcTo(
+        Rect.fromCircle(
+          center: Offset(rightArcCenterX, halfH),
+          radius: arcRadius,
+        ),
+        0.0,
+        math.pi / 2.0,
+        false,
+      );
+    if (rightArcCenterX > leftArcCenterX) {
+      bottomPath.lineTo(leftArcCenterX, h - inset);
+    }
+    bottomPath.arcTo(
+      Rect.fromCircle(center: Offset(leftArcCenterX, halfH), radius: arcRadius),
+      math.pi / 2.0,
+      math.pi / 2.0,
+      false,
+    );
+    canvas.drawPath(bottomPath, borderPaint);
+
+    // 2. 上半轮廓（9 点钟 -> 左上弧 -> 顶直边 -> 右上弧 -> 3 点钟）：
+    // 未走过区间绘 1px 玻璃边框，已走过区间直接绘制纯净贴边进度弧，杜绝双层叠加与顶部抗锯齿白边。
+    final topPath = Path()
+      ..arcTo(
+        Rect.fromCircle(
+          center: Offset(leftArcCenterX, halfH),
+          radius: arcRadius,
+        ),
+        math.pi,
+        math.pi / 2.0,
+        false,
+      );
+    if (rightArcCenterX > leftArcCenterX) {
+      topPath.lineTo(rightArcCenterX, inset);
+    }
+    topPath.arcTo(
+      Rect.fromCircle(
+        center: Offset(rightArcCenterX, halfH),
+        radius: arcRadius,
+      ),
+      -math.pi / 2.0,
+      math.pi / 2.0,
+      false,
+    );
+
+    final progressPaint = Paint()
+      ..color = activeColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = progressStrokeWidth
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..isAntiAlias = true;
+
+    for (final metric in topPath.computeMetrics()) {
+      final targetLen = metric.length * clamped;
+      if (targetLen < metric.length) {
+        canvas.drawPath(
+          metric.extractPath(targetLen, metric.length),
+          borderPaint,
+        );
+      }
+      if (targetLen > 0.0) {
+        canvas.drawPath(metric.extractPath(0.0, targetLen), progressPaint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CapsuleContourAudioProgressPainter oldDelegate) {
+    return (oldDelegate.progress - progress).abs() > 0.001 ||
+        oldDelegate.activeColor != activeColor ||
+        oldDelegate.borderColor != borderColor ||
+        oldDelegate.borderWidth != borderWidth ||
+        oldDelegate.progressStrokeWidth != progressStrokeWidth;
+  }
+}
+
 /// 独立订阅音频播放态的微缩三柱律动指示器（暂停与单测环境立即停钟，零空闲 Ticker）。
 class _FloatingMiniEqualizerLeaf extends ConsumerStatefulWidget {
   const _FloatingMiniEqualizerLeaf({
     this.compact = false,
-    this.forceWhite = false,
+    this.contrastAgainstRing = false,
   });
 
   final bool compact;
-  final bool forceWhite;
+
+  /// 是否叠加在圆形封面与外圈进度环上：深色模式（白进度环）用纯黑条，浅色模式（黑进度环）用纯白条，清晰区分。
+  final bool contrastAgainstRing;
 
   @override
   ConsumerState<_FloatingMiniEqualizerLeaf> createState() =>
@@ -455,13 +578,33 @@ class _FloatingMiniEqualizerLeafState
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final isPlaying = ref.watch(
       audioPlaybackProvider.select((s) => s.isPlaying),
     );
     _sync(isPlaying);
-    final barColor = widget.forceWhite
-        ? KonataTheme.pureWhite
-        : context.palette.textPrimary;
+    final bool useDarkBarOnDisc = widget.contrastAgainstRing && p.isDark;
+    final bool useWhiteBarOnDisc = widget.contrastAgainstRing && !p.isDark;
+    final barColor = useDarkBarOnDisc
+        ? KonataPlaybackTokens.floatingMiniDiscEqualizerDarkBar
+        : (useWhiteBarOnDisc ? KonataTheme.pureWhite : p.textPrimary);
+    final barShadows = useDarkBarOnDisc
+        ? const [
+            BoxShadow(
+              color: KonataPlaybackTokens.floatingMiniDiscEqualizerLightHalo,
+              blurRadius: 3.5,
+              spreadRadius: 0.4,
+            ),
+          ]
+        : (useWhiteBarOnDisc
+              ? const [
+                  BoxShadow(
+                    color: KonataTheme.scrimBlackStrong,
+                    blurRadius: 3,
+                    offset: Offset(0, 1),
+                  ),
+                ]
+              : null);
     final maxH = widget.compact ? 9.0 : 12.0;
     final barW = widget.compact ? 2.0 : 2.4;
 
@@ -481,25 +624,19 @@ class _FloatingMiniEqualizerLeafState
               for (var i = 0; i < 3; i++)
                 Container(
                   width: barW,
-                  height: (maxH *
-                          (isPlaying
-                              ? (0.28 +
-                                    0.72 *
-                                        (0.5 + 0.5 * math.sin(t + phases[i])))
-                              : paused[i]))
-                      .clamp(2.4, maxH),
+                  height:
+                      (maxH *
+                              (isPlaying
+                                  ? (0.28 +
+                                        0.72 *
+                                            (0.5 +
+                                                0.5 * math.sin(t + phases[i])))
+                                  : paused[i]))
+                          .clamp(2.4, maxH),
                   decoration: BoxDecoration(
                     color: barColor,
                     borderRadius: KonataTheme.borderRadiusPill,
-                    boxShadow: widget.forceWhite
-                        ? const [
-                            BoxShadow(
-                              color: KonataTheme.scrimBlackStrong,
-                              blurRadius: 3,
-                              offset: Offset(0, 1),
-                            ),
-                          ]
-                        : null,
+                    boxShadow: barShadows,
                   ),
                 ),
             ],

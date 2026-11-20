@@ -73,6 +73,9 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
       if (!mounted) return;
       _focusNode.requestFocus();
       _scrollToActiveQueueItem(animated: false);
+      if (_lastActiveLyricIndex >= 0) {
+        _scrollToActiveLyric(animated: false);
+      }
     });
   }
 
@@ -281,7 +284,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     if (ctx != null) {
       Scrollable.ensureVisible(
         ctx,
-        alignment: 0.38,
+        alignment: KonataPlaybackTokens.lyricViewportAnchorRatio,
         duration: animated ? KonataTheme.motionEmphasis : Duration.zero,
         curve: Curves.easeOutCubic,
       );

@@ -447,9 +447,32 @@ class LrcParser {
   static final RegExp _timeTagRegex = RegExp(
     r'\[(?:(\d{1,2}):)?(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]',
   );
+  static final RegExp _inlineWordTagRegex = RegExp(
+    r'<\d{1,2}:\d{2}(?:[.:]\d{1,3})?>',
+  );
+  static final RegExp _kanaRegex = RegExp(r'[\u3040-\u309F\u30A0-\u30FF]');
+  static final RegExp _cjkHanRegex = RegExp(r'[\u4E00-\u9FFF]');
   static final RegExp _metaTagRegex = RegExp(
     r'^\[([a-zA-Z]+):(.*)\]$',
   );
+
+  /// 判断单行文本是否更像日文/外文原文而非中文译文，防止双语翻译因毫秒偏移倒挂为主行。
+  static bool _isLikelyOriginalOverChineseTranslation(
+    String candidate,
+    String existingPrimary,
+  ) {
+    final candTrim = candidate.trim();
+    final primTrim = existingPrimary.trim();
+    if (candTrim.isEmpty || primTrim.isEmpty) return false;
+    if (candTrim.startsWith('bg:')) return false;
+    final candHasKana = _kanaRegex.hasMatch(candTrim);
+    final primHasKana = _kanaRegex.hasMatch(primTrim);
+    // 含假名的日文原文始终优先于不含假名的中文译文。
+    if (candHasKana && !primHasKana && _cjkHanRegex.hasMatch(primTrim)) {
+      return true;
+    }
+    return false;
+  }
 
   /// 从原始字节解析 LRC 文档。
   static LrcDocument parseBytes(
@@ -496,7 +519,10 @@ class LrcParser {
         continue;
       }
 
-      final lyricText = line.replaceAll(_timeTagRegex, '').trim();
+      final lyricText = line
+          .replaceAll(_timeTagRegex, '')
+          .replaceAll(_inlineWordTagRegex, '')
+          .trim();
       if (lyricText.isEmpty) continue;
 
       for (final match in timeMatches) {
@@ -538,21 +564,38 @@ class LrcParser {
         .toList()
       ..sort((a, b) => a.timeSeconds.compareTo(b.timeSeconds));
 
-    // 将同一时间戳（50ms 内）多行歌词聚合成主行 + 译文/注音附行
+    // 将同一时间戳（50ms 内）多行歌词聚合成主行 + 译文/注音附行，并保证日文原文稳居主行、中文译文居副行。
     const groupTolerance = 0.05;
     final grouped = <LrcCueLine>[];
+    String normalizeDupKey(String text) =>
+        text.trim().replaceAll(RegExp(r'\s+'), ' ');
     for (final entry in adjusted) {
       if (grouped.isNotEmpty &&
           (entry.timeSeconds - grouped.last.startSeconds).abs() <=
               groupTolerance) {
         final prev = grouped.last;
-        if (entry.text != prev.primaryText &&
-            !prev.secondaryLines.contains(entry.text)) {
-          grouped[grouped.length - 1] = LrcCueLine(
-            startSeconds: prev.startSeconds,
-            primaryText: prev.primaryText,
-            secondaryLines: [...prev.secondaryLines, entry.text],
-          );
+        final entryKey = normalizeDupKey(entry.text);
+        final prevPrimaryKey = normalizeDupKey(prev.primaryText);
+        final alreadyInSecondary = prev.secondaryLines.any(
+          (s) => normalizeDupKey(s) == entryKey,
+        );
+        if (entryKey != prevPrimaryKey && !alreadyInSecondary) {
+          if (_isLikelyOriginalOverChineseTranslation(
+            entry.text,
+            prev.primaryText,
+          )) {
+            grouped[grouped.length - 1] = LrcCueLine(
+              startSeconds: prev.startSeconds,
+              primaryText: entry.text,
+              secondaryLines: [prev.primaryText, ...prev.secondaryLines],
+            );
+          } else {
+            grouped[grouped.length - 1] = LrcCueLine(
+              startSeconds: prev.startSeconds,
+              primaryText: prev.primaryText,
+              secondaryLines: [...prev.secondaryLines, entry.text],
+            );
+          }
         }
       } else {
         grouped.add(

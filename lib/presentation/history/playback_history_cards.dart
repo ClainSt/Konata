@@ -13,6 +13,7 @@ import '../theme/konata_theme.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/managed_image.dart';
+import '../widgets/playback/konata_cd_disc_placeholder.dart';
 
 /// 播放记录行级上下文菜单打开回调。
 typedef HistoryRowMenuCallback =
@@ -613,14 +614,10 @@ class _AudioHistoryCover extends ConsumerWidget {
   }
 
   Widget _buildIconPlaceholder(KonataPalette p) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: p.softFill,
-        border: Border.all(color: p.hairline, width: 1),
-      ),
-      child: Center(
-        child: Icon(Icons.album_outlined, size: 34, color: p.textMuted),
-      ),
+    return SizedBox(
+      width: size,
+      height: size,
+      child: const KonataCdDiscPlaceholder(discScale: 0.80),
     );
   }
 

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -17,6 +16,7 @@ import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/managed_image.dart';
+import '../widgets/playback/konata_cd_disc_placeholder.dart';
 import '../widgets/playback/konata_stage_morph_frame.dart';
 
 export 'scan_lightbox_dialog.dart';
@@ -392,92 +392,33 @@ class _CdDrawerCardState extends ConsumerState<CdDrawerCard> {
     final loader = widget.imageLoader;
     final hasPoster = poster.isNotEmpty && loader != null;
 
+    if (!hasPoster) {
+      return KonataCdDiscPlaceholder(hovered: _hovered);
+    }
     return Stack(
       fit: StackFit.expand,
       children: [
-        if (hasPoster) ...[
-          ImageFiltered(
-            imageFilter: KonataTheme.blurFilterSubtle,
-            child: ManagedImage(
-              poster,
-              loader: loader,
-              owner: widget.workId ?? widget.variant.workId,
-              artwork: ManagedArtwork.poster,
-              fit: BoxFit.cover,
-            ),
+        ImageFiltered(
+          imageFilter: KonataTheme.blurFilterSubtle,
+          child: ManagedImage(
+            poster,
+            loader: loader,
+            owner: widget.workId ?? widget.variant.workId,
+            artwork: ManagedArtwork.poster,
+            fit: BoxFit.cover,
           ),
-          ColoredBox(color: KonataTheme.cinemaObsidian.withValues(alpha: 0.56)),
-        ] else
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: const Alignment(-0.4, -0.4),
-                radius: 1.25,
-                colors: [
-                  KonataPlaybackTokens.auroraDefaultGlowA.withValues(
-                    alpha: p.isDark ? 0.50 : 0.24,
-                  ),
-                  KonataPlaybackTokens.auroraDefaultGlowC.withValues(
-                    alpha: p.isDark ? 0.65 : 0.16,
-                  ),
-                  p.elevatedSurface.withValues(alpha: p.isDark ? 0.94 : 0.90),
-                ],
-              ),
-            ),
-          ),
-        CustomPaint(
-          painter: _OpticalVinylGeometryPainter(
-            hovered: _hovered,
-            ringColor: KonataTheme.pureWhite,
-          ),
+        ),
+        ColoredBox(
+          color: (p.isDark ? KonataTheme.cinemaObsidian : KonataTheme.pureWhite)
+              .withValues(alpha: p.isDark ? 0.56 : 0.42),
+        ),
+        KonataCdDiscPlaceholder(
+          hovered: _hovered,
+          transparentBackdrop: true,
         ),
       ],
     );
   }
-}
-
-class _OpticalVinylGeometryPainter extends CustomPainter {
-  const _OpticalVinylGeometryPainter({
-    required this.hovered,
-    required this.ringColor,
-  });
-
-  final bool hovered;
-  final Color ringColor;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final maxR = math.min(size.width, size.height) * 0.36;
-
-    final discFill = Paint()
-      ..color = ringColor.withValues(alpha: hovered ? 0.12 : 0.08)
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(center, maxR, discFill);
-
-    final groovePaint = Paint()
-      ..color = ringColor.withValues(alpha: hovered ? 0.34 : 0.22)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.0;
-    canvas.drawCircle(center, maxR, groovePaint);
-
-    final midGroove = Paint()
-      ..color = ringColor.withValues(alpha: hovered ? 0.20 : 0.12)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.8;
-    canvas.drawCircle(center, maxR * 0.72, midGroove);
-    canvas.drawCircle(center, maxR * 0.44, midGroove);
-
-    final hubPaint = Paint()
-      ..color = ringColor.withValues(alpha: hovered ? 0.56 : 0.42)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.4;
-    canvas.drawCircle(center, maxR * 0.20, hubPaint);
-  }
-
-  @override
-  bool shouldRepaint(_OpticalVinylGeometryPainter oldDelegate) =>
-      oldDelegate.hovered != hovered || oldDelegate.ringColor != ringColor;
 }
 
 /// 详情页底部抽屉与完整画廊共用的 Scan 扫图卡片：

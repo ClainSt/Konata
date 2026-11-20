@@ -11,6 +11,7 @@ import '../../domain/models/work.dart';
 import '../../domain/repositories/file_system_gateway.dart';
 import '../../domain/repositories/library_repository.dart';
 import '../../domain/scraping/bangumi_models.dart';
+import '../../domain/scraping/bangumi_tmdb_index.dart';
 import '../../domain/scraping/scrape_domain_adapter.dart';
 import '../../infrastructure/cache/photos_storage.dart';
 import '../../infrastructure/network/bangumi_service.dart';
@@ -44,6 +45,7 @@ class ScrapeOrchestrator {
     this._scanner = const DirectoryScanner(),
     this._computeWorker = const ScrapeComputeWorker(),
     this._photosStorage,
+    this._mappingIndex,
   }) : _repository = repository,
        _tmdbService = tmdbService,
        _bangumiService = bangumiService,
@@ -55,6 +57,7 @@ class ScrapeOrchestrator {
     _matchResolver = ScrapeMatchResolver(
       fetcher: _candidateFetcher,
       computeWorker: _computeWorker,
+      mappingIndex: _mappingIndex,
     );
   }
 
@@ -62,6 +65,7 @@ class ScrapeOrchestrator {
   final TmdbService _tmdbService;
   final BangumiService? _bangumiService;
   final PhotosStorage? _photosStorage;
+  final BangumiTmdbIndex? _mappingIndex;
   final GatewayBuilder _gatewayBuilder;
   final DirectoryScanner _scanner;
   final ScrapeWorkPersister _persister;
@@ -437,9 +441,12 @@ class ScrapeOrchestrator {
           folder,
           extraQueries: [detail.title, ...detail.aliases.take(2)],
         );
-        final explicitDecision = await _computeWorker.evaluateMatch(folder, [
-          detail,
-        ], bangumiCandidates: bgmCandidates);
+        final explicitDecision = await _computeWorker.evaluateMatch(
+          folder,
+          [detail],
+          bangumiCandidates: bgmCandidates,
+          mappingIndex: _mappingIndex,
+        );
         final status = await _bindAndPersistDetail(
           workId: workId,
           existing: existing,
@@ -749,9 +756,12 @@ class ScrapeOrchestrator {
               targetFolder,
               extraQueries: [detail.title, ...detail.aliases.take(2)],
             );
-      final matchDecision = await _computeWorker.evaluateMatch(targetFolder, [
-        detail,
-      ], bangumiCandidates: bgmRescue);
+      final matchDecision = await _computeWorker.evaluateMatch(
+        targetFolder,
+        [detail],
+        bangumiCandidates: bgmRescue,
+        mappingIndex: _mappingIndex,
+      );
       final matchedSeason =
           matchDecision.matchedSeason ??
           targetFolder.seasonHint ??
@@ -1090,6 +1100,7 @@ class ScrapeOrchestrator {
       folder,
       candidates,
       bangumiCandidates: bgmCandidates,
+      mappingIndex: _mappingIndex,
     );
 
     final rescueTarget =
@@ -1110,6 +1121,7 @@ class ScrapeOrchestrator {
           folder,
           candidates,
           bangumiCandidates: bgmCandidates,
+          mappingIndex: _mappingIndex,
         );
       }
     }

@@ -7,6 +7,7 @@ import '../../application/providers/scraping_providers.dart';
 import '../../application/providers/source_actions_provider.dart';
 import '../../domain/models/network_config.dart';
 import '../../domain/models/tmdb_models.dart';
+import '../../domain/scraping/bangumi_tmdb_index.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
@@ -48,11 +49,13 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
   bool _testingTmdbImage = false;
   bool _testingBgmApi = false;
   bool _testingBgmImage = false;
+  bool _updatingMapping = false;
 
   ConnectivityReport? _tmdbApiReport;
   ConnectivityReport? _tmdbImageReport;
   ConnectivityReport? _bgmApiReport;
   ConnectivityReport? _bgmImageReport;
+  BangumiTmdbUpdateResult? _mappingUpdateResult;
 
   @override
   void dispose() {
@@ -153,6 +156,22 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
     });
   }
 
+  Future<void> _checkMappingUpdate(KonataActionsCoordinator actions) async {
+    if (_hasPendingSave) {
+      await _flushAutoSave();
+    }
+    if (!mounted) return;
+    setState(() => _updatingMapping = true);
+    final result = await actions.checkBangumiTmdbMappingUpdate(
+      _buildNetworkConfig(),
+    );
+    if (!mounted) return;
+    setState(() {
+      _updatingMapping = false;
+      _mappingUpdateResult = result;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
@@ -201,6 +220,8 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
         ),
         const SizedBox(height: 16),
         _buildProxyCard(p),
+        const SizedBox(height: 16),
+        _buildMappingCard(p, actions),
       ],
     );
   }
@@ -439,6 +460,83 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
                     ),
                   )
                 : const SizedBox.shrink(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMappingCard(
+    KonataPalette p,
+    KonataActionsCoordinator actions,
+  ) {
+    final snapshotAsync = ref.watch(bangumiTmdbSnapshotProvider);
+    final snapshot = _mappingUpdateResult?.snapshot ?? snapshotAsync.valueOrNull;
+    final statusLine = snapshot == null
+        ? '正在读取本地离线映射表...'
+        : [
+            '已载入 ${snapshot.uniqueBangumiCount} 条动画映射',
+            if (snapshot.snapshotDate.isNotEmpty) '快照 ${snapshot.snapshotDate}',
+            snapshot.sourceLabel,
+          ].join(' · ');
+
+    return KonataSurfaceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '离线动画映射表',
+            style: TextStyle(
+              color: p.textPrimary,
+              fontSize: KonataTheme.fontSizeSubtitle,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '内置 Bangumi ↔ TMDB 索引，扫描前每 24 小时自动静默检查增量快照',
+            style: TextStyle(
+              color: p.textMuted,
+              fontSize: KonataTheme.fontSizeCaption,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            statusLine,
+            style: TextStyle(
+              color: p.textSecondary,
+              fontSize: KonataTheme.fontSizeBody,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 12,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              KonataPillButton.secondary(
+                label: _updatingMapping ? '检查中...' : '检查更新',
+                icon: Icons.sync_rounded,
+                compact: true,
+                onPressed: _updatingMapping
+                    ? null
+                    : () => unawaited(_checkMappingUpdate(actions)),
+              ),
+              if (_mappingUpdateResult != null)
+                Text(
+                  _mappingUpdateResult!.message,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color:
+                        _mappingUpdateResult!.state ==
+                            BangumiTmdbUpdateState.failed
+                        ? p.danger
+                        : p.success,
+                    fontSize: KonataTheme.fontSizeCaption,
+                  ),
+                ),
+            ],
           ),
         ],
       ),

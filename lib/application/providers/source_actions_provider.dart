@@ -10,6 +10,7 @@ import '../../domain/models/tmdb_models.dart';
 import '../../domain/models/work.dart';
 import '../../domain/repositories/file_system_gateway.dart';
 import '../../domain/scraping/bangumi_models.dart';
+import '../../domain/scraping/bangumi_tmdb_index.dart';
 import '../../domain/sources/source_location_validator.dart';
 import '../../infrastructure/network/bangumi_service.dart';
 import '../../infrastructure/network/priority_http_scheduler.dart';
@@ -317,6 +318,19 @@ class KonataActionsCoordinator {
     } finally {
       client.close();
     }
+  }
+
+  /// 手动立即检查并热更新 Bangumi ↔ TMDB 离线映射表。
+  Future<BangumiTmdbUpdateResult> checkBangumiTmdbMappingUpdate(
+    TmdbNetworkConfig config,
+  ) async {
+    final updater = _ref.read(bangumiTmdbMapUpdaterProvider);
+    final result = await updater.checkAndUpdateIfDue(
+      force: true,
+      networkConfig: config,
+    );
+    _ref.invalidate(bangumiTmdbSnapshotProvider);
+    return result;
   }
 
   /// 调整单集的季/集/分类信息（用于剧集卡片右键微调纠错，自动持久化映射锁定）。

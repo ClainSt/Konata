@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/formatting/network_error_sanitizer.dart';
@@ -5,13 +7,16 @@ import '../../domain/models/media_source.dart';
 import '../../domain/models/network_config.dart';
 import '../../domain/models/tmdb_models.dart';
 import '../../domain/models/work.dart';
+import '../../domain/scraping/bangumi_tmdb_index.dart';
 import '../../infrastructure/cache/artwork_cache.dart';
 import '../../infrastructure/network/bangumi_service.dart';
 import '../../infrastructure/network/network_config_repository.dart';
 import '../../infrastructure/network/priority_http_scheduler.dart';
 import '../../infrastructure/network/tmdb_http_client.dart';
 import '../../infrastructure/network/tmdb_service.dart';
+import '../../infrastructure/scraping/bangumi_tmdb_map_updater.dart';
 import '../../infrastructure/sources/source_gateway_factory.dart';
+import '../../infrastructure/storage/storage_root_provider.dart';
 import '../scraping/scrape_orchestrator.dart';
 import '../scraping/scrape_progress.dart';
 import 'library_providers.dart';
@@ -47,6 +52,16 @@ final artworkCacheProvider = FutureProvider<ArtworkCache>((ref) async {
   return cache;
 });
 
+/// Bangumi ↔ TMDB 离线映射表加载与 24 小时静默热更新服务 Provider。
+final bangumiTmdbMapUpdaterProvider = Provider<BangumiTmdbMapUpdater>((ref) {
+  return BangumiTmdbMapUpdater(storageRoot: ref.watch(storageRootProvider));
+});
+
+/// 当前生效的 Bangumi ↔ TMDB 离线映射表只读快照 Provider。
+final bangumiTmdbSnapshotProvider = FutureProvider<BangumiTmdbSnapshot>((ref) {
+  return ref.watch(bangumiTmdbMapUpdaterProvider).loadActiveSnapshot();
+});
+
 /// 刮削进度状态管理器。
 class ScrapeController extends StateNotifier<ScrapeProgress> {
   /// 创建刮削控制器。
@@ -56,12 +71,52 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
   bool _cancelRequested = false;
   final Set<String> _autoBackfillInFlight = <String>{};
 
-  Future<ScrapeOrchestrator> _buildOrchestrator() async {
+  Future<BangumiTmdbIndex> _resolveActiveMappingIndex({
+    bool checkUpdateIfDue = false,
+  }) async {
+    final updater = _ref.read(bangumiTmdbMapUpdaterProvider);
+    if (checkUpdateIfDue) {
+      try {
+        final config = await _ref.read(tmdbNetworkConfigProvider.future);
+        final res = await updater.checkAndUpdateIfDue(
+          force: false,
+          networkConfig: config,
+        );
+        if (res.state == BangumiTmdbUpdateState.updated ||
+            res.state == BangumiTmdbUpdateState.upToDate) {
+          _ref.invalidate(bangumiTmdbSnapshotProvider);
+        }
+        return res.snapshot.index;
+      } catch (error) {
+        developer.log(
+          '扫描前静默检查映射表更新失败，沿用现有离线映射表',
+          name: 'konata.scraping_providers',
+          error: error,
+        );
+      }
+    }
+    try {
+      final snap = await _ref.read(bangumiTmdbSnapshotProvider.future);
+      return snap.index;
+    } catch (error) {
+      developer.log(
+        '读取离线映射表快照失败，自动回退静态表',
+        name: 'konata.scraping_providers',
+        error: error,
+      );
+      return BangumiTmdbIndex.empty();
+    }
+  }
+
+  Future<ScrapeOrchestrator> _buildOrchestrator({
+    BangumiTmdbIndex? mappingIndex,
+  }) async {
     final config = await _ref.read(tmdbNetworkConfigProvider.future);
     final scheduler = _ref.read(priorityHttpSchedulerProvider);
     final cooldown = _ref.read(domainCooldownRegistryProvider);
     final cache = await _ref.read(artworkCacheProvider.future);
     final repository = _ref.read(libraryRepositoryProvider);
+    final activeIndex = mappingIndex ?? await _resolveActiveMappingIndex();
     final httpClient = TmdbHttpClient(
       config: config,
       scheduler: scheduler,
@@ -79,6 +134,7 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
       bangumiService: bangumiService,
       gatewayBuilder: gatewayFactory.create,
       photosStorage: _ref.read(photosStorageProvider),
+      mappingIndex: activeIndex,
     );
   }
 
@@ -109,7 +165,10 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
     );
 
     try {
-      final orchestrator = await _buildOrchestrator();
+      final activeIndex = await _resolveActiveMappingIndex(
+        checkUpdateIfDue: true,
+      );
+      final orchestrator = await _buildOrchestrator(mappingIndex: activeIndex);
       await orchestrator.scanAndScrapeSource(
         source,
         scanRootsOverride: scanRootsOverride,

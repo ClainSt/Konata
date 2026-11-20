@@ -1,0 +1,13 @@
+open-ani/bangumi-tmdb (https://github.com/open-ani/bangumi-tmdb)
+
+Mapping data is licensed under the Creative Commons Attribution 4.0
+International License (CC BY 4.0):
+https://creativecommons.org/licenses/by/4.0/legalcode
+
+Modifications made by Konata:
+- Extracted only numeric identifier tuples (Bangumi subject ID, TMDB media type,
+  TMDB ID, and optional primary season number) into a compact binary index
+  (assets/data/bangumi_tmdb_map.bin) merged with Wikidata CC0 1.0 identifiers.
+- Used strictly as a matching candidate recall and scoring hint; final bindings
+  always pass Konata's WorkMatcher verification rules.
+- Third-party metadata, images, and titles are not redistributed by this index.

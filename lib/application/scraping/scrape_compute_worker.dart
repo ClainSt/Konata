@@ -4,6 +4,7 @@ import '../../domain/matching/directory_grouper.dart';
 import '../../domain/matching/work_matcher.dart';
 import '../../domain/models/tmdb_models.dart';
 import '../../domain/scraping/bangumi_models.dart';
+import '../../domain/scraping/bangumi_tmdb_index.dart';
 import '../../domain/scraping/scrape_domain_adapter.dart';
 import '../../domain/scraping/work_matcher.dart' as legacy;
 
@@ -74,6 +75,7 @@ class ScrapeComputeWorker {
     GroupedWorkFolder folder,
     List<TmdbWorkDetail> candidates, {
     List<BangumiSubjectCandidate> bangumiCandidates = const [],
+    BangumiTmdbIndex? mappingIndex,
   }) {
     if (!useIsolate) {
       return Future.value(
@@ -81,6 +83,7 @@ class ScrapeComputeWorker {
           folder,
           candidates,
           bangumiCandidates: bangumiCandidates,
+          mappingIndex: mappingIndex,
         ),
       );
     }
@@ -89,6 +92,7 @@ class ScrapeComputeWorker {
         folder,
         candidates,
         bangumiCandidates: bangumiCandidates,
+        mappingIndex: mappingIndex,
       ),
     );
   }

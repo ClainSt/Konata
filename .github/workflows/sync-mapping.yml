@@ -1,0 +1,70 @@
+name: Sync Bangumi-TMDB Mapping
+
+on:
+  schedule:
+    # 每日北京时间 07:00（UTC 23:00）紧跟上游 open-ani/bangumi-tmdb 定时发布后增量同步
+    - cron: '0 23 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-bangumi-tmdb-mapping
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出主干工具脚本与 Wikidata 基线
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            tool/import_bangumi_tmdb_map.py
+            lib/domain/scraping/bangumi_tmdb_map.dart
+            assets/licenses/open-ani-bangumi-tmdb-cc-by-4.0.txt
+            assets/licenses/wikidata-cc0.txt
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 拉取上游并编译紧凑二进制映射表
+        run: |
+          mkdir -p dist_mapping
+          python tool/import_bangumi_tmdb_map.py \
+            --build-binary \
+            --fetch-open-ani \
+            --out-bin dist_mapping/bangumi_tmdb_map.bin \
+            --out-manifest dist_mapping/manifest.json
+          cp assets/licenses/open-ani-bangumi-tmdb-cc-by-4.0.txt dist_mapping/LICENSE-OPEN-ANI.txt
+          cp assets/licenses/wikidata-cc0.txt dist_mapping/LICENSE-WIKIDATA.txt
+
+      - name: 校验变更并推送至独立 data/mapping 分支
+        run: |
+          NEW_SHA=$(python -c "import json; print(json.load(open('dist_mapping/manifest.json'))['binSha256'])")
+          OLD_SHA=""
+          if git ls-remote --exit-code --heads origin data/mapping >/dev/null 2>&1; then
+            git fetch origin data/mapping --depth=1
+            OLD_SHA=$(git show origin/data/mapping:manifest.json 2>/dev/null | python -c "import sys,json; print(json.load(sys.stdin).get('binSha256',''))" || true)
+          fi
+          if [ "$NEW_SHA" = "$OLD_SHA" ]; then
+            echo "映射表 SHA-256 未变化（$NEW_SHA），跳过推送。"
+            exit 0
+          fi
+
+          git checkout --orphan publish-mapping
+          git rm -rf . >/dev/null 2>&1 || true
+          cp dist_mapping/bangumi_tmdb_map.bin ./bangumi_tmdb_map.bin
+          cp dist_mapping/manifest.json ./manifest.json
+          cp dist_mapping/LICENSE-OPEN-ANI.txt ./LICENSE-OPEN-ANI.txt
+          cp dist_mapping/LICENSE-WIKIDATA.txt ./LICENSE-WIKIDATA.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bangumi_tmdb_map.bin manifest.json LICENSE-OPEN-ANI.txt LICENSE-WIKIDATA.txt
+          SNAP_DATE=$(python -c "import json; print(json.load(open('manifest.json'))['snapshotDate'])")
+          SNAP_CNT=$(python -c "import json; print(json.load(open('manifest.json'))['uniqueBangumiCount'])")
+          git commit -m "data(mapping): sync $SNAP_DATE ($SNAP_CNT subjects)"
+          git push --force origin HEAD:refs/heads/data/mapping

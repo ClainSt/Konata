@@ -58,6 +58,8 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icons/konata_icon.png
+    - assets/data/bangumi_tmdb_map.bin
+    - assets/data/bangumi_tmdb_manifest.json
   fonts:
     - family: KonataInter
       fonts:

@@ -7,6 +7,9 @@ import '../models/work.dart';
 
 /// Bangumi 条目 ID 到 TMDB 剧集/电影 ID 的离线映射查表（来自 Wikidata 公有领域数据）。
 abstract final class BangumiTmdbMap {
+  /// 静态内置 Wikidata 映射覆盖的独立 Bangumi 条目数量。
+  static int get count => _index.length;
+
   /// 返回 Bangumi 条目对应的全部 TMDB 目标（无映射时为空列表）。
   static List<({TmdbMediaType type, int id})> lookup(int bangumiId) {
     final encoded = _index[bangumiId];

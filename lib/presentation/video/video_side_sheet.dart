@@ -1057,7 +1057,9 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
           const SizedBox(height: 6),
           if (state.availableShaders.isEmpty)
             Text(
-              '请将 .glsl / .hook 着色器脚本放入 userdata/mpv/shaders/ 目录后即可在此实时勾选叠加。',
+              KonataAdaptiveTokens.isAndroid
+                  ? '请先在「设置 → 播放器」中导入 .glsl / .hook 超分脚本（如 Anime4K），随后即可在此实时勾选叠加。'
+                  : '请将 .glsl / .hook 着色器脚本放入 userdata/shaders/ 目录后即可在此实时勾选叠加。',
               style: TextStyle(color: pPal.textMuted, fontSize: KonataTheme.fontSizeCaption, height: 1.45),
             )
           else

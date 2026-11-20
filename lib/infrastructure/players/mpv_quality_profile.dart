@@ -990,7 +990,7 @@ class MpvQualityProfile {
     setter.setOption(client, 'stream-buffer-size', '65536');
   }
 
-  /// 扫描 `<Root>/userdata/mpv/shaders/` 下可用的 `.glsl` / `.hook` 着色器脚本。
+  /// 扫描 `<Root>/userdata/shaders/` 下可用的 `.glsl` / `.hook` 着色器脚本。
   static Future<List<File>> discoverShaderFiles(Directory shadersDir) async {
     if (!await shadersDir.exists()) return const [];
     final files = <File>[];

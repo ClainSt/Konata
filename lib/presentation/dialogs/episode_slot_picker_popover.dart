@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../domain/matching/episode_title_formatter.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/media_variant.dart';
 import '../theme/konata_adaptive_tokens.dart';
@@ -197,10 +198,13 @@ class _EpisodeSlotPickerButtonState extends State<EpisodeSlotPickerButton> {
       ),
     );
 
-    // 2. TMDB 正片分集
+    // 2. TMDB 正片分集（兼容多集合并文件区间如 01-02）
     for (var i = 1; i <= mainLimit; i++) {
       final ep = mainByKey[i];
-      final eStr = i.toString().padLeft(2, '0');
+      final eStr = EpisodeTitleFormatter.formatEpisodeNumberLabel(
+        i,
+        ep?.episodeNumberEnd,
+      );
       final rawTitle = ep?.title?.trim() ?? '';
       final suffix = rawTitle.isNotEmpty ? ' · $rawTitle' : '';
       options.add(
@@ -257,9 +261,17 @@ class _EpisodeSlotPickerButtonState extends State<EpisodeSlotPickerButton> {
 
   String _formatClosedLabel(EditableFileMappingRow r) {
     if (r.category == EpisodeCategory.main) {
-      final eStr = (r.episodeNumber > 0 ? r.episodeNumber : 1)
-          .toString()
-          .padLeft(2, '0');
+      final epNum = r.episodeNumber > 0 ? r.episodeNumber : 1;
+      int? epEnd;
+      for (final ep in widget.referenceEpisodes) {
+        if (ep.category == EpisodeCategory.main &&
+            ep.seasonNumber == r.seasonNumber &&
+            ep.episodeNumber == epNum) {
+          epEnd = ep.episodeNumberEnd;
+          break;
+        }
+      }
+      final eStr = EpisodeTitleFormatter.formatEpisodeNumberLabel(epNum, epEnd);
       if (r.seasonNumber > 1) {
         final sStr = r.seasonNumber.toString().padLeft(2, '0');
         return '正片 · S${sStr}E$eStr';

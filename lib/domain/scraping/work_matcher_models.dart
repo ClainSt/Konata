@@ -15,6 +15,8 @@ class MatchCandidate {
     this.isSpecialFormat = false,
     this.genreIds = const [],
     this.firstEpisodeSort,
+    this.voteCount,
+    this.originalTitle,
   });
 
   /// 刮削数据来源标识：`tmdb` 或 `bangumi`。
@@ -33,6 +35,12 @@ class MatchCandidate {
   final bool isSpecialFormat;
   final List<int> genreIds;
   final double? firstEpisodeSort;
+
+  /// TMDB 评分人数（未知时为空），用于识别新建的低质量重复条目。
+  final int? voteCount;
+
+  /// TMDB 原始语言标题（与 [title] 一起构成识别重复条目的正式名称）。
+  final String? originalTitle;
 
   String get key => '$type:$id';
 

@@ -63,15 +63,30 @@ class NetworkConfigRepository {
       tmdbBackupImageBase:
           prefs.getString(_keyTmdbBackupImage) ??
           TmdbNetworkConfig.defaultTmdbBackupImageBase,
-      bangumiBackupApiBase:
-          prefs.getString(_keyBangumiBackupApi) ??
-          TmdbNetworkConfig.defaultBangumiBackupApiBase,
-      bangumiBackupImageBase:
-          prefs.getString(_keyBangumiBackupImage) ??
-          TmdbNetworkConfig.defaultBangumiBackupImageBase,
+      bangumiBackupApiBase: _withoutRetiredDefault(
+        prefs.getString(_keyBangumiBackupApi),
+        retired: TmdbNetworkConfig.retiredBangumiBackupApiBases,
+        current: TmdbNetworkConfig.defaultBangumiBackupApiBase,
+      ),
+      bangumiBackupImageBase: _withoutRetiredDefault(
+        prefs.getString(_keyBangumiBackupImage),
+        retired: TmdbNetworkConfig.retiredBangumiBackupImageBases,
+        current: TmdbNetworkConfig.defaultBangumiBackupImageBase,
+      ),
       proxyMode: proxyMode,
       proxyUrl: proxyUrl,
     );
+  }
+
+  /// 未保存过或仍是已迁址的旧版默认地址时返回当前默认地址；用户自定义的地址原样保留。
+  static String _withoutRetiredDefault(
+    String? stored, {
+    required Set<String> retired,
+    required String current,
+  }) {
+    if (stored == null) return current;
+    final normalized = stored.trim().replaceAll(RegExp(r'/+$'), '');
+    return retired.contains(normalized) ? current : stored;
   }
 
   /// 保存网络配置。

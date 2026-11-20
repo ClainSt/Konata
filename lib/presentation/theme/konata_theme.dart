@@ -13,6 +13,14 @@ abstract final class KonataTheme {
   /// 全站视觉与品牌角标固定色 Token。
   static const Color cinemaObsidian = Color(0xFF0B0C10);
   static const Color bangumiPink = Color(0xFFF09199);
+  static const Color bangumiBadgeDarkScrim = Color(0xB80E1017);
+  static const Color bangumiBadgeBorder = Color(0x33F09199);
+  static const Color ambientShellDarkGlowA = Color(0xFF7B3B69);
+  static const Color ambientShellDarkGlowB = Color(0xFF334982);
+  static const Color ambientShellDarkGlowC = Color(0xFF4B376E);
+  static const Color ambientShellLightGlowA = Color(0xFFF2D4E1);
+  static const Color ambientShellLightGlowB = Color(0xFFD5E1F8);
+  static const Color ambientShellLightGlowC = Color(0xFFE7DAF3);
   static const Color tmdbNavy = Color(0xFF0D253F);
   static const Color tmdbMint = Color(0xFF90CEA1);
   static const Color tmdbCyan = Color(0xFF01B4E4);
@@ -248,16 +256,44 @@ abstract final class KonataTheme {
 
   /// 解析毛玻璃弹窗与侧边抽屉的高对比度表面色。
   static Color glassDialogSurface(KonataPalette p) => p.isDark
-      ? const Color(0xE61F232D)
-      : const Color(0xF0FDFDFE);
+      ? const Color(0xE0141722)
+      : const Color(0xF2FDFDFE);
 
   /// 解析毛玻璃弹窗与侧边抽屉的微光外框色。
   static Color glassDialogBorder(KonataPalette p) =>
-      p.isDark ? const Color(0x2EFFFFFF) : const Color(0xF2FFFFFF);
+      p.isDark ? const Color(0x33FFFFFF) : const Color(0xF5FFFFFF);
 
   /// 解析毛玻璃弹窗外围柔和阴影色。
   static Color glassDialogShadow(KonataPalette p) =>
-      p.isDark ? const Color(0x61000000) : const Color(0x24000000);
+      p.isDark ? const Color(0x70000000) : const Color(0x24000000);
+
+  /// 解析光学玻璃表面顶部柔和斜向反光渐变（用于卡片与浮层的统一质感增强）。
+  static LinearGradient opticalSheenGradient(
+    KonataPalette p, {
+    bool hovered = false,
+  }) {
+    if (p.isDark) {
+      return LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Colors.white.withValues(alpha: hovered ? 0.08 : 0.045),
+          Colors.transparent,
+          Colors.black.withValues(alpha: 0.04),
+        ],
+        stops: const [0.0, 0.42, 1.0],
+      );
+    }
+    return LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        Colors.white.withValues(alpha: hovered ? 0.52 : 0.36),
+        Colors.white.withValues(alpha: 0.0),
+      ],
+      stops: const [0.0, 0.55],
+    );
+  }
 
   /// 解析毛玻璃弹窗标准背景暗罩色。
   static Color glassDialogBarrier(bool isDark) =>
@@ -539,7 +575,7 @@ abstract final class KonataTheme {
         thumbColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.dragged)) {
             return palette.isDark
-                ? Colors.white.withValues(alpha: 0.62)
+                ? Colors.white.withValues(alpha: 0.68)
                 : Colors.black.withValues(alpha: 0.52);
           }
           if (states.contains(WidgetState.hovered)) {
@@ -548,8 +584,8 @@ abstract final class KonataTheme {
                 : Colors.black.withValues(alpha: 0.38);
           }
           return palette.isDark
-              ? Colors.white.withValues(alpha: 0.28)
-              : Colors.black.withValues(alpha: 0.22);
+              ? Colors.white.withValues(alpha: 0.22)
+              : Colors.black.withValues(alpha: 0.18);
         }),
         trackColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.hovered) ||

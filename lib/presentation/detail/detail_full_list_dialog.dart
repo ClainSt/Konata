@@ -24,6 +24,7 @@ import 'detail_bottom_drawer.dart';
 import 'detail_gear_menu.dart';
 import 'detail_secondary_filter_bar.dart';
 import 'episode_drawer_card.dart';
+import 'scan_gallery_view.dart';
 import 'supplementary_asset_cards.dart';
 
 /// 作品详情页高透毛玻璃「完整列表」弹窗：支持关键字实时检索、一级分类切换、二级筛选与可拖拽网格浏览。
@@ -40,6 +41,7 @@ class DetailFullListDialog extends ConsumerStatefulWidget {
     this.showScanTab = true,
     required this.onEpisodeTap,
     required this.onEpisodeAdjustSlot,
+    this.onEpisodeMediaInfo,
     this.onEpisodePlayBuiltin,
     this.onEpisodePlayExternal,
     this.onEpisodeMarkCompleted,
@@ -60,11 +62,12 @@ class DetailFullListDialog extends ConsumerStatefulWidget {
   final ValueChanged<Episode>? onEpisodePlayBuiltin;
   final ValueChanged<Episode>? onEpisodePlayExternal;
   final ValueChanged<Episode> onEpisodeAdjustSlot;
+  final ValueChanged<Episode>? onEpisodeMediaInfo;
   final ValueChanged<Episode>? onEpisodeMarkCompleted;
   final ValueChanged<MediaVariant>? onCdTap;
   final ValueChanged<MediaVariant>? onCdPlayImmersive;
   final ValueChanged<MediaVariant>? onCdPlayExternal;
-  final ValueChanged<MediaVariant>? onScanTap;
+  final DetailScanTapCallback? onScanTap;
 
   /// 以高透毛玻璃遮罩形式弹出完整资源列表弹窗。
   static Future<void> show(
@@ -78,13 +81,14 @@ class DetailFullListDialog extends ConsumerStatefulWidget {
     bool showScanTab = true,
     required ValueChanged<Episode> onEpisodeTap,
     required ValueChanged<Episode> onEpisodeAdjustSlot,
+    ValueChanged<Episode>? onEpisodeMediaInfo,
     ValueChanged<Episode>? onEpisodePlayBuiltin,
     ValueChanged<Episode>? onEpisodePlayExternal,
     ValueChanged<Episode>? onEpisodeMarkCompleted,
     ValueChanged<MediaVariant>? onCdTap,
     ValueChanged<MediaVariant>? onCdPlayImmersive,
     ValueChanged<MediaVariant>? onCdPlayExternal,
-    ValueChanged<MediaVariant>? onScanTap,
+    DetailScanTapCallback? onScanTap,
   }) {
     return showDialog<void>(
       context: context,
@@ -114,6 +118,7 @@ class DetailFullListDialog extends ConsumerStatefulWidget {
                 onEpisodePlayExternal(ep);
               },
         onEpisodeAdjustSlot: onEpisodeAdjustSlot,
+        onEpisodeMediaInfo: onEpisodeMediaInfo,
         onEpisodeMarkCompleted: onEpisodeMarkCompleted,
         onCdTap: onCdTap,
         onCdPlayImmersive: onCdPlayImmersive == null
@@ -707,6 +712,9 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
                 ? null
                 : () => widget.onEpisodePlayExternal!(ep),
             onAdjustSlot: () => widget.onEpisodeAdjustSlot(ep),
+            onShowMediaInfo: widget.onEpisodeMediaInfo == null
+                ? null
+                : () => widget.onEpisodeMediaInfo!(ep),
             playback: playback,
             onMarkCompleted: markHandler == null
                 ? null
@@ -746,6 +754,7 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
           _selectedSecondaryKey == null && cdSummary.hasMultipleSubdirs;
       return _buildCompactCardRows<MediaVariant>(
         items: list,
+        maxExtent: 176.0,
         itemBuilder: (v) {
           final group = cdSummary.byVariantId[v.id];
           final dot = v.fileName.lastIndexOf('.');
@@ -760,6 +769,13 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
           return CdDrawerCard(
             key: ValueKey('full_list_cd_${v.id}'),
             variant: v,
+            source: widget.bundle.sourcesById[v.sourceId],
+            workId: widget.bundle.work.id,
+            workPosterPath:
+                widget.bundle.work.posterPath ??
+                widget.bundle.work.bangumiPosterPath,
+            imageLoader: widget.imageLoader,
+            cardWidth: double.infinity,
             showSeriesSharedBadge: showSharedBadge,
             displayTitleOverride: titleOverride,
             showRawFileName: widget.showRawVideoFilename,
@@ -804,37 +820,27 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
     }
     if (list.isEmpty) return _buildEmptyMatch();
 
-    final showDirectSubdir =
-        _selectedSecondaryKey == null && scanSummary.hasMultipleSubdirs;
-    return _buildCompactCardRows<MediaVariant>(
+    return ScanGalleryView(
+      bundle: widget.bundle,
       items: list,
-      itemBuilder: (v) {
-        final group = scanSummary.byVariantId[v.id];
-        return ScanDrawerCard(
-          key: ValueKey('full_list_scan_${v.id}'),
-          variant: v,
-          source: widget.bundle.sourcesById[v.sourceId],
-          workId: widget.bundle.work.id,
-          workTitle: widget.bundle.work.title,
-          showSeriesSharedBadge: showSharedBadge,
-          directSubdirLabel: showDirectSubdir ? group?.directSubdirShort : null,
-          onDarkBackdrop: false,
-          onTap: () => widget.onScanTap?.call(v),
-        );
-      },
+      scanSummary: scanSummary,
+      selectedVolumeKey: _selectedSecondaryKey,
+      showSeriesSharedBadge: showSharedBadge,
+      scrollController: _gridScrollController,
+      onScanTap: widget.onScanTap,
     );
   }
 
-  /// 按卡片「16:9 缩略图 + 底部实际文字」真实自然高度紧凑分行排布，消除固定网格行高造成的垂直空隙。
+  /// 按卡片缩略图与底部实际文字真实自然高度紧凑分行排布，消除固定网格行高造成的垂直空隙。
   Widget _buildCompactCardRows<T>({
     required List<T> items,
     required Widget Function(T item) itemBuilder,
+    double maxExtent = 256.0,
   }) {
     return LayoutBuilder(
       builder: (context, constraints) {
         const rightPad = 16.0;
         const crossSpacing = 12.0;
-        const maxExtent = 256.0;
         final usableWidth = math.max(120.0, constraints.maxWidth - rightPad);
         final columns = math.max(
           1,

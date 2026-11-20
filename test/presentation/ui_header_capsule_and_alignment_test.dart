@@ -269,8 +269,7 @@ void main() {
       final hoverTarget = Offset(
         capsuleTopLeft.dx + capsuleSize.width * 0.5,
         capsuleTopLeft.dy +
-            capsuleSize.height -
-            KonataPlaybackTokens.capsuleProgressBottomInset -
+            KonataPlaybackTokens.capsuleProgressTopInset +
             KonataPlaybackTokens.capsuleProgressRestHeight * 0.5,
       );
       final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);

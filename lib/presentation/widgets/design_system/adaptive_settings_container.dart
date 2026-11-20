@@ -6,6 +6,7 @@ import '../../audio/mini_audio_bar.dart';
 import '../../theme/konata_adaptive_tokens.dart';
 import '../../theme/konata_palette.dart';
 import '../../theme/konata_theme.dart';
+import '../playback/konata_cached_artwork_backdrop.dart';
 import 'konata_draggable_scrollbar.dart';
 import 'konata_page_header.dart';
 import 'konata_surface_card.dart';
@@ -159,49 +160,56 @@ class _SettingsDetailRouteState<T>
       backgroundColor: context.palette.isDark
           ? KonataTheme.cinemaObsidian
           : KonataTheme.themePreviewLightCanvas,
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(KonataAdaptiveTokens.safeGap),
-              child: Row(
-                children: [
-                  SizedBox.square(
-                    dimension: KonataAdaptiveTokens.touchTarget,
-                    child: IconButton(
-                      key: const ValueKey('settings_detail_back'),
-                      tooltip: '返回设置分类',
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.arrow_back_rounded),
-                    ),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (KonataAdaptiveTokens.isAndroid)
+            const Positioned.fill(child: KonataAmbientShellBackdrop()),
+          SafeArea(
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(KonataAdaptiveTokens.safeGap),
+                  child: Row(
+                    children: [
+                      SizedBox.square(
+                        dimension: KonataAdaptiveTokens.touchTarget,
+                        child: IconButton(
+                          key: const ValueKey('settings_detail_back'),
+                          tooltip: '返回设置分类',
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.arrow_back_rounded),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          category.title,
+                          style: KonataTheme.h2Style(context.palette),
+                        ),
+                      ),
+                    ],
                   ),
-                  Expanded(
-                    child: Text(
-                      category.title,
-                      style: KonataTheme.h2Style(context.palette),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+                Expanded(
+                  child: phone
+                      ? _SettingsPanel(
+                          category: category,
+                          bottomClearance: clearance,
+                        )
+                      : _SettingsColumns<T>(
+                          categories: widget.categories,
+                          selected: category,
+                          onTap: (c) {
+                            setState(() => _selected = c.value);
+                            widget.onSelected(c.value);
+                          },
+                          bottomClearance: clearance,
+                        ),
+                ),
+              ],
             ),
-            Expanded(
-              child: phone
-                  ? _SettingsPanel(
-                      category: category,
-                      bottomClearance: clearance,
-                    )
-                  : _SettingsColumns<T>(
-                      categories: widget.categories,
-                      selected: category,
-                      onTap: (c) {
-                        setState(() => _selected = c.value);
-                        widget.onSelected(c.value);
-                      },
-                      bottomClearance: clearance,
-                    ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -284,9 +292,15 @@ class _SettingsCategoriesState<T> extends State<_SettingsCategories<T>> {
               color: !widget.summaries && c.value == widget.selected
                   ? context.palette.softFill
                   : Colors.transparent,
+              gradient: !widget.summaries && c.value == widget.selected
+                  ? KonataTheme.opticalSheenGradient(context.palette)
+                  : null,
               borderRadius: BorderRadius.circular(
                 KonataAdaptiveTokens.settingsRadius,
               ),
+              border: !widget.summaries && c.value == widget.selected
+                  ? Border.all(color: context.palette.hairline, width: 0.9)
+                  : null,
             ),
             child: KonataListTile(
               key: ValueKey('settings_category_${c.value}'),

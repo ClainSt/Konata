@@ -748,28 +748,34 @@ void main() {
         );
         await tester.pump();
 
-        // 顶部栏保留一次专辑副标题，封面下方不再重复渲染第二次
-        expect(find.text('スペシャルドラマCD'), findsOneWidget);
+        // 顶部极简留白不展示作品/专辑副标题，主体保留当前曲目名与音质徽章
+        expect(find.text('スペシャルドラマCD'), findsNothing);
         expect(find.text('ハルユキの災難'), findsOneWidget);
 
-        // 最下排从左到右：循环模式 < 歌词 < 队列菜单 < 音量
+        // 底部全圆角单排光学胶囊五键从左到右：循环 < 上一曲 < 播放暂停 < 下一曲 < 队列（去掉静音）
         final loopX = tester
             .getCenter(find.byKey(const ValueKey('portrait_audio_loop_button')))
             .dx;
-        final lyricsX = tester
-            .getCenter(
-              find.byKey(const ValueKey('portrait_toggle_lyrics_button')),
-            )
+        final prevX = tester
+            .getCenter(find.byKey(const ValueKey('portrait_audio_prev_button')))
+            .dx;
+        final playX = tester
+            .getCenter(find.byKey(const ValueKey('portrait_audio_play_pause')))
+            .dx;
+        final nextX = tester
+            .getCenter(find.byKey(const ValueKey('portrait_audio_next_button')))
             .dx;
         final queueX = tester
             .getCenter(find.byKey(const ValueKey('portrait_open_queue_button')))
             .dx;
-        final muteX = tester
-            .getCenter(find.byKey(const ValueKey('portrait_audio_mute_button')))
-            .dx;
-        expect(loopX, lessThan(lyricsX));
-        expect(lyricsX, lessThan(queueX));
-        expect(queueX, lessThan(muteX));
+        expect(loopX, lessThan(prevX));
+        expect(prevX, lessThan(playX));
+        expect(playX, lessThan(nextX));
+        expect(nextX, lessThan(queueX));
+        expect(
+          find.byKey(const ValueKey('portrait_audio_mute_button')),
+          findsNothing,
+        );
 
         await tester.pumpWidget(const SizedBox.shrink());
         debugDefaultTargetPlatformOverride = null;

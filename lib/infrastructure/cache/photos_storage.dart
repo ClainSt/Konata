@@ -406,6 +406,32 @@ class PhotosStorage {
     return bytes.isEmpty ? null : bytes;
   }
 
+  /// 仅读取已缓存 Scan `.webp` 文件前 32 字节帧头（用于毫秒级解析宽高比，零整图读盘、绝不建目录）。
+  Future<Uint8List?> readScanThumbnailHeader({
+    required String workId,
+    required String variantId,
+    required String relativePath,
+    required int fileSize,
+    String? title,
+  }) async {
+    if (!resolveRootDirectory().existsSync()) return null;
+    final file = await scanThumbnailFile(
+      workId: workId,
+      variantId: variantId,
+      relativePath: relativePath,
+      fileSize: fileSize,
+      title: title,
+    );
+    if (!file.existsSync()) return null;
+    final raf = await file.open();
+    try {
+      final header = await raf.read(32);
+      return header.isEmpty ? null : header;
+    } finally {
+      await raf.close();
+    }
+  }
+
   /// 懒创建 `scans/` 目录并落盘编码后的轻量化 `.webp` 微缩图。
   Future<File> writeScanThumbnail({
     required String workId,

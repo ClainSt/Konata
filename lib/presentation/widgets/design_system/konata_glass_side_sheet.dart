@@ -172,6 +172,7 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
                     child: Container(
                       decoration: BoxDecoration(
                         color: panelColor,
+                        gradient: KonataTheme.opticalSheenGradient(p),
                         borderRadius: KonataTheme.borderRadiusDialog,
                         border: Border.all(color: borderColor, width: 1),
                       ),

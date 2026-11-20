@@ -239,20 +239,6 @@ class PlaybackDispatcher {
           exactStartSeconds: cueExactStartSeconds,
         );
   }
-
-  /// 若已配置桌面看图程序且媒体源为本地文件则优先拉起，否则返回 `null` 交由内置预览处理。
-  Future<LaunchPlaybackResult?> tryOpenExternalScan({
-    required Work work,
-    required MediaVariant variant,
-    MediaSource? source,
-  }) {
-    if (KonataPlatform.isAndroid) {
-      return Future<LaunchPlaybackResult?>.value(null);
-    }
-    return _ref
-        .read(playbackCoordinatorProvider)
-        .openExternalScan(work: work, variant: variant, source: source);
-  }
 }
 
 /// 全局统一音视频播放分发器 Provider。

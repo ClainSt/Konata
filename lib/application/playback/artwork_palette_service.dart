@@ -99,8 +99,8 @@ List<int>? clusterAuroraPaletteArgb(Uint8List rgbaBytes) {
     ranked.add((
       count: c,
       h: hsv.h,
-      s: hsv.s.clamp(0.68, 0.88),
-      v: hsv.v.clamp(0.45, 0.65),
+      s: hsv.s.clamp(0.56, 0.86),
+      v: hsv.v.clamp(0.54, 0.76),
     ));
   }
 

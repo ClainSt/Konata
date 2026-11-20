@@ -309,23 +309,19 @@ void main() {
         );
         expect(
           rect.width,
-          closeTo(KonataPlaybackTokens.floatingMiniAudioCoverSize, 0.5),
+          closeTo(KonataPlaybackTokens.floatingMiniAudioDiscSize, 0.5),
         );
         expect(
           rect.height,
-          closeTo(KonataPlaybackTokens.floatingMiniAudioTotalHeight, 0.5),
+          closeTo(KonataPlaybackTokens.floatingMiniAudioDiscSize, 0.5),
         );
         expect(find.text('Don\'t say "lazy"'), findsNothing);
         expect(
-          find.byKey(const ValueKey('floating_mini_audio_prev')),
+          find.byKey(const ValueKey('floating_mini_audio_disc')),
           findsOneWidget,
         );
         expect(
-          find.byKey(const ValueKey('floating_mini_audio_play_pause')),
-          findsOneWidget,
-        );
-        expect(
-          find.byKey(const ValueKey('floating_mini_audio_next')),
+          find.byKey(const ValueKey('floating_mini_audio_progress')),
           findsOneWidget,
         );
       }
@@ -544,7 +540,7 @@ void main() {
       final bgHeightAfter = tester.getSize(find.byType(ManagedImage).first).height;
       final chipBottomAfter = tester.getBottomLeft(find.text('正片 (1)')).dy;
       const expectedClearance =
-          KonataPlaybackTokens.floatingMiniAudioTotalHeight +
+          KonataPlaybackTokens.floatingMiniAudioDiscSize +
           KonataPlaybackTokens.floatingMiniEdgeMargin +
           KonataPlaybackTokens.floatingMiniBottomClearanceGap;
       expect(bgHeightAfter, closeTo(800.0, 0.5));

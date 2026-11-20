@@ -92,41 +92,6 @@ class WindowsDesktopRelayGateway implements DesktopRelayGateway {
     );
   }
 
-  @override
-  Future<LaunchPlaybackResult?> openLocalScan({
-    required Work work,
-    required MediaVariant variant,
-    MediaSource? source,
-  }) async {
-    if (source == null || source.kind != MediaSourceKind.local) {
-      return null;
-    }
-    final players = await store.getExternalPlayers();
-    ExternalPlayerConfig? viewer;
-    for (final p in players) {
-      if (p.kind == ExternalPlayerKind.imageViewer &&
-          p.executablePath.trim().isNotEmpty) {
-        viewer = p;
-        break;
-      }
-    }
-    if (viewer == null) return null;
-    final tempEpisode = Episode(
-      id: 'scan::${variant.id}',
-      workId: work.id,
-      seasonNumber: 0,
-      category: EpisodeCategory.extra,
-      title: variant.fileName,
-    );
-    return launcher.launch(
-      work: work,
-      episode: tempEpisode,
-      variant: variant,
-      player: viewer,
-      source: source,
-    );
-  }
-
   ExternalPlayerConfig? _resolveVideoPlayer(
     List<ExternalPlayerConfig> players, {
     String? targetId,

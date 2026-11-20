@@ -300,16 +300,10 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.byType(EpisodeCategoryBadge), findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byType(EpisodeCategoryBadge),
-          matching: find.text('正片'),
-        ),
-        findsOneWidget,
-      );
+      // 正片不再渲染冗余「正片」徽章，保持卡片视觉干净
+      expect(find.byType(EpisodeCategoryBadge), findsNothing);
 
-      // 2. 完整列表弹窗同样呈现「正片」与「特典」双徽章
+      // 2. 完整列表弹窗中正片不显示冗余徽章，切至特典后呈现「特典」徽章
       await tester.pumpWidget(
         ProviderScope(
           key: const ValueKey('full-list-scope'),
@@ -337,13 +331,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(
-        find.descendant(
-          of: find.byType(EpisodeCategoryBadge),
-          matching: find.text('正片'),
-        ),
-        findsOneWidget,
-      );
+      expect(find.byType(EpisodeCategoryBadge), findsNothing);
       await tester.tap(find.text('特典 (1)'));
       await tester.pumpAndSettle();
       expect(

@@ -35,6 +35,10 @@ enum DetailDrawerLayoutMode {
   phoneLandscapeRail,
 }
 
+/// Scan 扫图点击回调签名（可选携带当前二级分卷筛选键以承接灯箱翻页范围）。
+typedef DetailScanTapCallback =
+    void Function(MediaVariant variant, {String? volumeKey});
+
 /// 详情页无黑框左右分置毛玻璃导航胶囊与悬浮剧集卡片轨道。
 class DetailBottomDrawer extends StatefulWidget {
   /// 创建无黑框底部选集与控制胶囊栏。
@@ -47,6 +51,7 @@ class DetailBottomDrawer extends StatefulWidget {
     required this.onCollapse,
     required this.onEpisodeTap,
     required this.onEpisodeAdjustSlot,
+    this.onEpisodeMediaInfo,
     this.onEpisodePlayBuiltin,
     this.onEpisodePlayExternal,
     this.onEpisodeMarkCompleted,
@@ -107,6 +112,9 @@ class DetailBottomDrawer extends StatefulWidget {
   /// 右键微调单集季号/集号。
   final ValueChanged<Episode> onEpisodeAdjustSlot;
 
+  /// 右键/长按查看单集媒体信息弹窗回调。
+  final ValueChanged<Episode>? onEpisodeMediaInfo;
+
   /// 右键快捷标为已看。
   final ValueChanged<Episode>? onEpisodeMarkCompleted;
 
@@ -127,7 +135,7 @@ class DetailBottomDrawer extends StatefulWidget {
   final ValueChanged<MediaVariant>? onCdTap;
   final ValueChanged<MediaVariant>? onCdPlayImmersive;
   final ValueChanged<MediaVariant>? onCdPlayExternal;
-  final ValueChanged<MediaVariant>? onScanTap;
+  final DetailScanTapCallback? onScanTap;
 
   /// 是否在选集卡片下方显示原始视频文件名。
   final bool showRawVideoFilename;
@@ -223,6 +231,7 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
       onEpisodePlayBuiltin: widget.onEpisodePlayBuiltin,
       onEpisodePlayExternal: widget.onEpisodePlayExternal,
       onEpisodeAdjustSlot: widget.onEpisodeAdjustSlot,
+      onEpisodeMediaInfo: widget.onEpisodeMediaInfo,
       onEpisodeMarkCompleted: widget.onEpisodeMarkCompleted,
       onCdTap: widget.onCdTap,
       onCdPlayImmersive: widget.onCdPlayImmersive,
@@ -496,7 +505,10 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
     }
 
     if (widget.layoutMode == DetailDrawerLayoutMode.phoneLandscapeRail) {
-      final landscapeRailH = widget.showRawVideoFilename ? 216.0 : 166.0;
+      final baseRailH = widget.showRawVideoFilename ? 216.0 : 166.0;
+      final landscapeRailH = currentTab == DetailDrawerTab.cd
+          ? (widget.showRawVideoFilename ? 216.0 : 196.0)
+          : (currentTab == DetailDrawerTab.scan ? 204.0 : baseRailH);
       return Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -566,9 +578,12 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
 
     if (widget.layoutMode == DetailDrawerLayoutMode.phonePortraitSection) {
       final portraitCardWidth = isTabletViewport ? 244.0 : 208.0;
-      final portraitRailH = isTabletViewport
+      final basePortraitH = isTabletViewport
           ? (widget.showRawVideoFilename ? 228.0 : 182.0)
           : (widget.showRawVideoFilename ? 216.0 : 166.0);
+      final portraitRailH = currentTab == DetailDrawerTab.cd
+          ? (widget.showRawVideoFilename ? 218.0 : 198.0)
+          : (currentTab == DetailDrawerTab.scan ? 208.0 : basePortraitH);
       final sectionPadH = isTabletViewport ? 28.0 : 16.0;
       return Column(
         mainAxisSize: MainAxisSize.min,
@@ -789,9 +804,16 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
                   group.chipLabel != 'CD')
               ? group.chipLabel
               : null;
+          final cdWidth = cardWidth <= 216.0 ? 132.0 : 144.0;
           return CdDrawerCard(
             variant: v,
-            cardWidth: cardWidth,
+            source: widget.bundle.sourcesById[v.sourceId],
+            workId: widget.bundle.work.id,
+            workPosterPath:
+                widget.bundle.work.posterPath ??
+                widget.bundle.work.bangumiPosterPath,
+            imageLoader: widget.imageLoader,
+            cardWidth: cdWidth,
             showSeriesSharedBadge: showSharedBadge,
             displayTitleOverride: titleOverride,
             showRawFileName:
@@ -817,9 +839,11 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
           final group = scanSummary.byVariantId[v.id];
           final showDirectSubdir =
               activeSecondaryKey == null && scanSummary.hasMultipleSubdirs;
+          final scanWidth = cardWidth <= 216.0 ? 168.0 : 186.0;
           return ScanDrawerCard(
             variant: v,
-            cardWidth: cardWidth,
+            cardWidth: scanWidth,
+            frameAspectRatio: 4 / 3,
             source: widget.bundle.sourcesById[v.sourceId],
             workId: widget.bundle.work.id,
             workTitle: widget.bundle.work.title,
@@ -827,7 +851,8 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
             directSubdirLabel: showDirectSubdir
                 ? group?.directSubdirShort
                 : null,
-            onTap: () => widget.onScanTap?.call(v),
+            onTap: () =>
+                widget.onScanTap?.call(v, volumeKey: activeSecondaryKey),
           );
         },
       ),
@@ -902,6 +927,9 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
           ? null
           : () => widget.onEpisodePlayExternal!(ep),
       onAdjustSlot: () => widget.onEpisodeAdjustSlot(ep),
+      onShowMediaInfo: widget.onEpisodeMediaInfo == null
+          ? null
+          : () => widget.onEpisodeMediaInfo!(ep),
       playback: playback,
       onMarkCompleted: markHandler == null ? null : () => markHandler(ep),
     );

@@ -24,7 +24,11 @@ class DesktopExternalPlayerStore {
     _tableEnsured = true;
   }
 
-  /// 读取全部已配置的外部播放器/查看器。
+  /// 历史版本遗留的外部看图器记录主键，读取时须显式过滤以防降级为视频播放器候选。
+  static const String _legacyImageViewerId = 'player_image_viewer';
+  static const String _legacyImageViewerKind = 'imageViewer';
+
+  /// 读取全部已配置的外部播放器（自动忽略历史外部图片查看器残留记录）。
   Future<List<ExternalPlayerConfig>> getExternalPlayers() async {
     await _ensureTable();
     final rows = await _db
@@ -33,17 +37,25 @@ class DesktopExternalPlayerStore {
           'FROM external_players',
         )
         .get();
-    return [
-      for (final row in rows)
+    final results = <ExternalPlayerConfig>[];
+    for (final row in rows) {
+      final id = row.read<String>('id');
+      final rawKind = row.read<String>('kind');
+      if (id == _legacyImageViewerId || rawKind == _legacyImageViewerKind) {
+        continue;
+      }
+      results.add(
         ExternalPlayerConfig(
-          id: row.read<String>('id'),
+          id: id,
           name: row.read<String>('name'),
-          kind: _parseKind(row.read<String>('kind')),
+          kind: _parseKind(rawKind),
           executablePath: row.read<String>('executable_path'),
           argumentsTemplate: row.read<String>('arguments_template'),
           isDefault: row.read<int>('is_default') != 0,
         ),
-    ];
+      );
+    }
+    return results;
   }
 
   /// 新增或覆盖保存单条外部程序配置。

@@ -432,33 +432,6 @@ class PlaybackCoordinator {
     return launchRes;
   }
 
-  /// 若已配置桌面看图程序且扫图位于本地磁盘则拉起外部程序，否则返回 `null` 回退内置预览。
-  Future<LaunchPlaybackResult?> openExternalScan({
-    required Work work,
-    required MediaVariant variant,
-    MediaSource? source,
-  }) async {
-    final gateway = _ref.read(desktopRelayGatewayProvider);
-    if (gateway == null) return null;
-
-    MediaSource? resolvedSource = source;
-    if (resolvedSource == null) {
-      final repo = _ref.read(libraryRepositoryProvider);
-      final allSources = await repo.getMediaSources();
-      for (final s in allSources) {
-        if (s.id == variant.sourceId) {
-          resolvedSource = s;
-          break;
-        }
-      }
-    }
-    return gateway.openLocalScan(
-      work: work,
-      variant: variant,
-      source: resolvedSource,
-    );
-  }
-
   void _invalidateWorkAndHistory(String workId) {
     _ref.invalidate(playbackHistoryProvider);
     _ref.invalidate(workDetailBundleProvider(workId));

@@ -825,45 +825,38 @@ void main() {
         );
         await tester.pump();
 
-        // 1. 点击底部三键严禁触发全屏跳转，且不显示曲名或循环键
+        // 1. 默认态为 56x56 圆形专辑封面盘，不显示曲名与按钮；轻触圆盘展开为流光胶囊
         expect(find.text('Track One'), findsNothing);
+        expect(
+          find.byKey(const ValueKey('floating_mini_close_button')),
+          findsNothing,
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('floating_mini_surface_tap_target')),
+        );
+        await tester.pump();
+        expect(container.read(immersiveAudioExpandedProvider), isFalse);
+        expect(find.text('Track One'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('floating_mini_close_button')),
+          findsOneWidget,
+        );
+
+        // 2. 胶囊内点击播放/暂停严禁误触发全屏跳转
         await tester.tap(
           find.byKey(const ValueKey('floating_mini_audio_play_pause')),
         );
         await tester.pump();
         expect(container.read(immersiveAudioExpandedProvider), isFalse);
 
-        // 2. 默认纯净态无 × 角标；首次轻触封面显现 × 与展开图标，3 秒无操作自动隐去
-        expect(
-          find.byKey(const ValueKey('floating_mini_close_button')),
-          findsNothing,
-        );
-        await tester.tap(
-          find.byKey(const ValueKey('floating_mini_surface_tap_target')),
-        );
-        await tester.pump();
-        expect(container.read(immersiveAudioExpandedProvider), isFalse);
-        expect(
-          find.byKey(const ValueKey('floating_mini_close_button')),
-          findsOneWidget,
-        );
-        await tester.pump(const Duration(seconds: 3));
-        expect(
-          find.byKey(const ValueKey('floating_mini_close_button')),
-          findsNothing,
-        );
-
-        // 3. 显现角标期间再次轻触封面中心或左上展开图标可展开全屏页
-        await tester.tap(
-          find.byKey(const ValueKey('floating_mini_surface_tap_target')),
-        );
-        await tester.pump();
+        // 3. 胶囊内点击封面或曲名区进入全屏流光音频页
         await tester.tap(
           find.byKey(const ValueKey('floating_mini_surface_tap_target')),
         );
         await tester.pump();
         expect(container.read(immersiveAudioExpandedProvider), isTrue);
 
+        // 4. 退出全屏后默认回归圆盘态；再次展开胶囊并贴边收折至耳片，点击耳片重新恢复展开
         container.read(immersiveAudioExpandedProvider.notifier).state = false;
         await tester.pump();
         await tester.tap(
@@ -871,10 +864,13 @@ void main() {
         );
         await tester.pump();
         await tester.tap(
-          find.byKey(const ValueKey('floating_mini_expand_button')),
+          find.byKey(const ValueKey('floating_mini_tuck_button')),
         );
         await tester.pump();
-        expect(container.read(immersiveAudioExpandedProvider), isTrue);
+        expect(find.byKey(const ValueKey('floating_mini_ear_tab')), findsOneWidget);
+        await tester.tap(find.byKey(const ValueKey('floating_mini_ear_tab')));
+        await tester.pump();
+        expect(find.byKey(const ValueKey('floating_mini_ear_tab')), findsNothing);
       },
     );
 
@@ -956,9 +952,11 @@ void main() {
 
       expect(tester.takeException(), isNull);
 
-      // 验证拆分出独立双图标，且旧版合并 menu_rounded 已移除
-      expect(find.byIcon(Icons.queue_music_rounded), findsOneWidget);
-      expect(find.byIcon(Icons.lyrics_rounded), findsOneWidget);
+      // 验证五键对称最右侧「歌词/曲目列表」切换按钮存在，且旧版合并 menu_rounded 已移除
+      final togglePaneBtn = find.byKey(
+        const ValueKey('immersive_toggle_pane_button'),
+      );
+      expect(togglePaneBtn, findsOneWidget);
       expect(find.byIcon(Icons.menu_rounded), findsNothing);
 
       // 音量组件仅保留精简动态喇叭图标，不再展示冗余数字文本
@@ -972,46 +970,24 @@ void main() {
       );
 
       // 无歌词默认高亮曲目列表，且尾轨展示回填时长 03:00
-      var queueBtn = tester.widget<KonataCapsuleIconButton>(
-        find.ancestor(
-          of: find.byIcon(Icons.queue_music_rounded),
-          matching: find.byType(KonataCapsuleIconButton),
-        ),
-      );
-      var lyricsBtn = tester.widget<KonataCapsuleIconButton>(
-        find.ancestor(
-          of: find.byIcon(Icons.lyrics_rounded),
-          matching: find.byType(KonataCapsuleIconButton),
-        ),
-      );
-      expect(queueBtn.highlighted, isTrue);
-      expect(lyricsBtn.highlighted, isFalse);
+      var paneBtnWidget = tester.widget<KonataCapsuleIconButton>(togglePaneBtn);
+      expect(paneBtnWidget.highlighted, isTrue);
+      expect(paneBtnWidget.icon, equals(Icons.lyrics_rounded));
       expect(find.text('Tail Track With Backfilled Duration'), findsOneWidget);
       expect(find.text('03:00'), findsWidgets);
 
-      // 点击「同步歌词」切入清晰克制的空状态文案
-      await tester.tap(find.byIcon(Icons.lyrics_rounded));
+      // 点击切换切入清晰克制的空歌词状态文案
+      await tester.tap(togglePaneBtn);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 240));
 
       expect(find.text('当前曲目暂无同步歌词'), findsOneWidget);
-      queueBtn = tester.widget<KonataCapsuleIconButton>(
-        find.ancestor(
-          of: find.byIcon(Icons.queue_music_rounded),
-          matching: find.byType(KonataCapsuleIconButton),
-        ),
-      );
-      lyricsBtn = tester.widget<KonataCapsuleIconButton>(
-        find.ancestor(
-          of: find.byIcon(Icons.lyrics_rounded),
-          matching: find.byType(KonataCapsuleIconButton),
-        ),
-      );
-      expect(queueBtn.highlighted, isFalse);
-      expect(lyricsBtn.highlighted, isTrue);
+      paneBtnWidget = tester.widget<KonataCapsuleIconButton>(togglePaneBtn);
+      expect(paneBtnWidget.highlighted, isFalse);
+      expect(paneBtnWidget.icon, equals(Icons.queue_music_rounded));
 
-      // 点击「曲目列表」切回曲目列表
-      await tester.tap(find.byIcon(Icons.queue_music_rounded));
+      // 再次点击切回曲目列表
+      await tester.tap(togglePaneBtn);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 240));
       expect(find.text('Tail Track With Backfilled Duration'), findsOneWidget);

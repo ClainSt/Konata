@@ -176,7 +176,7 @@ class _TopNavTabStripState extends State<_TopNavTabStrip>
     (KonataNavSection.settings, '设置'),
   ];
   static const double _indicatorRestWidth = 18.0;
-  static const double _indicatorHeight = 3.0;
+  static const double _indicatorHeight = 2.5;
 
   final GlobalKey _tabsStackKey = GlobalKey();
   late final List<GlobalKey> _tabKeys = List<GlobalKey>.generate(

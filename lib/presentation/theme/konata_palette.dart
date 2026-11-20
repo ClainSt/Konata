@@ -129,7 +129,7 @@ class KonataPalette extends ThemeExtension<KonataPalette> {
   /// 低饱和度状态强调色（仅用于徽章或图标点缀）。
   final Color accent;
 
-  /// 全站统一进度条填充蓝色（与播放记录进度条同源）。
+  /// 全站统一进度条填充色（暗色为纯白光学微光，亮色为深石板墨色）。
   final Color progressFill;
 
   /// 全站高辨识度进度条底轨填充色。
@@ -150,28 +150,28 @@ class KonataPalette extends ThemeExtension<KonataPalette> {
   final KonataBadgeColors warningBadge;
   final KonataBadgeColors dangerBadge;
 
-  /// 暗色模式调色盘（透明穿透底 + 5% 白叠色 + 9% 白微光描边）。
+  /// 暗色模式光学调色盘（透明穿透底 + 轻薄光学玻璃层 + 1px 微光边缘）。
   static const KonataPalette dark = KonataPalette(
     isDark: true,
     canvas: Colors.transparent,
-    surface: Color(0x0DFFFFFF), // Colors.white @ 0.05
-    surfaceHover: Color(0x14FFFFFF), // Colors.white @ 0.08
-    elevatedSurface: Color(0xD4161922), // 玻璃浮层/菜单自适应半透明底
-    softFill: Color(0x14FFFFFF),
-    hairline: Color(0x17FFFFFF), // Colors.white @ 0.09
-    hoverBorder: Color(0x33FFFFFF),
-    posterBorder: Color(0x24FFFFFF), // Colors.white @ 0.14
-    textPrimary: Color(0xFFF4F5F8),
-    textSecondary: Color(0x8CF4F5F8), // ~55% 透明度次级字
-    textMuted: Color(0x66F4F5F8),
-    primaryButtonBg: Color(0xFFF4F5F8),
+    surface: Color(0x12FFFFFF),
+    surfaceHover: Color(0x1CFFFFFF),
+    elevatedSurface: Color(0xDC11141E),
+    softFill: Color(0x17FFFFFF),
+    hairline: Color(0x1DFFFFFF),
+    hoverBorder: Color(0x3BFFFFFF),
+    posterBorder: Color(0x29FFFFFF),
+    textPrimary: Color(0xFFF6F7FB),
+    textSecondary: Color(0xA6F5F7FB),
+    textMuted: Color(0x70F5F7FB),
+    primaryButtonBg: Color(0xFFF6F7FB),
     primaryButtonFg: Color(0xFF0B0C10),
     primaryButtonHoverBg: Color(0xFFFFFFFF),
-    secondaryButtonBg: Color(0x14FFFFFF),
-    secondaryButtonHoverBg: Color(0x24FFFFFF),
-    glassOverlay: Color(0xA8161922),
+    secondaryButtonBg: Color(0x17FFFFFF),
+    secondaryButtonHoverBg: Color(0x28FFFFFF),
+    glassOverlay: Color(0x9E11141E),
     accent: Color(0xFF6BA6FF),
-    progressFill: Color(0xFF6BA6FF),
+    progressFill: Color(0xFFFFFFFF),
     progressTrack: Color(0x2EFFFFFF),
     warning: Color(0xFFE5A93B),
     success: Color(0xFF3FB950),
@@ -198,29 +198,29 @@ class KonataPalette extends ThemeExtension<KonataPalette> {
     ),
   );
 
-  /// 亮色模式调色盘（透明穿透底 + 62% 柔白叠色 + 85% 微光描边）。
+  /// 亮色模式光学调色盘（透明穿透底 + 陶瓷磨砂白玻璃 + 高对比深石板墨色）。
   static const KonataPalette light = KonataPalette(
     isDark: false,
     canvas: Colors.transparent,
-    surface: Color(0x9EFFFFFF), // Colors.white @ 0.62
-    surfaceHover: Color(0xC7FFFFFF), // Colors.white @ 0.78
-    elevatedSurface: Color(0xDEFFFFFF), // 亮色毛玻璃浮层/菜单底
-    softFill: Color(0x7AFFFFFF),
-    hairline: Color(0xD9FFFFFF), // Colors.white @ 0.85
+    surface: Color(0xADFFFFFF),
+    surfaceHover: Color(0xD1FFFFFF),
+    elevatedSurface: Color(0xEBFFFFFF),
+    softFill: Color(0x85FFFFFF),
+    hairline: Color(0xE0FFFFFF),
     hoverBorder: Color(0xFFFFFFFF),
-    posterBorder: Color(0x24FFFFFF), // Colors.white @ 0.14
+    posterBorder: Color(0x2EFFFFFF),
     textPrimary: Color(0xFF0F172A),
-    textSecondary: Color(0xEB0F172A), // 对齐继续播放高对比深石板墨色
+    textSecondary: Color(0xEB0F172A),
     textMuted: Color(0xCC0F172A),
     primaryButtonBg: Color(0xFF0F172A),
     primaryButtonFg: Color(0xFFFFFFFF),
     primaryButtonHoverBg: Color(0xFF282B33),
-    secondaryButtonBg: Color(0x12181A1F),
-    secondaryButtonHoverBg: Color(0x1F181A1F),
-    glassOverlay: Color(0xC2FFFFFF),
+    secondaryButtonBg: Color(0x14181A1F),
+    secondaryButtonHoverBg: Color(0x22181A1F),
+    glassOverlay: Color(0xC9FFFFFF),
     accent: Color(0xFF2D6CDF),
-    progressFill: Color(0xFF2D6CDF),
-    progressTrack: Color(0x290F172A),
+    progressFill: Color(0xFF0F172A),
+    progressTrack: Color(0x240F172A),
     warning: Color(0xFFC5841B),
     success: Color(0xFF238636),
     danger: Color(0xFFCF222E),

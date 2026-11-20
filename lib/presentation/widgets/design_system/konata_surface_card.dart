@@ -59,6 +59,9 @@ class _KonataSurfaceCardState extends State<KonataSurfaceCard> {
       return DecoratedBox(
         decoration: BoxDecoration(
           color: widget.backgroundColor ?? p.surface,
+          gradient: widget.backgroundColor == null
+              ? KonataTheme.opticalSheenGradient(p)
+              : null,
           borderRadius: radius,
           border: Border.all(
             color: widget.borderColor ?? p.hairline,
@@ -74,6 +77,9 @@ class _KonataSurfaceCardState extends State<KonataSurfaceCard> {
       padding: widget.padding,
       decoration: BoxDecoration(
         color: widget.backgroundColor ?? (_hovered ? p.surfaceHover : p.surface),
+        gradient: widget.backgroundColor == null
+            ? KonataTheme.opticalSheenGradient(p, hovered: _hovered)
+            : null,
         borderRadius: radius,
         border: Border.all(
           color: widget.borderColor ?? (_hovered ? p.hoverBorder : p.hairline),

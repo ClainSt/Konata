@@ -717,9 +717,9 @@ void main() {
         lessThanOrEqualTo(1.5),
       );
 
-      // 验证进度条倍增几何 Token 规范
-      expect(KonataPlaybackTokens.capsuleProgressRestHeight, equals(4.5));
-      expect(KonataPlaybackTokens.capsuleProgressHoverHeight, equals(9.0));
+      // 验证顶沿发光细进度条倍增几何 Token 规范
+      expect(KonataPlaybackTokens.capsuleProgressRestHeight, equals(2.5));
+      expect(KonataPlaybackTokens.capsuleProgressHoverHeight, equals(5.0));
       expect(
         KonataPlaybackTokens.capsuleProgressHitHeight,
         greaterThanOrEqualTo(

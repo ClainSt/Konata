@@ -363,9 +363,7 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
     final effectiveHeight = touch
         ? KonataAdaptiveTokens.playerHeight
         : KonataPlaybackTokens.capsuleHeight;
-    final effectiveRadius = touch
-        ? KonataAdaptiveTokens.capsuleRadius
-        : KonataPlaybackTokens.capsuleRadius;
+    final effectiveRadius = KonataPlaybackTokens.capsuleRadius;
     final actionFixedSize = touch
         ? KonataAdaptiveTokens.touchTarget
         : KonataPlaybackTokens.immersiveSwitchButtonSize;
@@ -533,6 +531,7 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                             height: effectiveHeight,
                             decoration: BoxDecoration(
                               color: bgColor,
+                              gradient: KonataTheme.opticalSheenGradient(p),
                               borderRadius: BorderRadius.circular(
                                 effectiveRadius,
                               ),
@@ -542,7 +541,7 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                                 // 1. 响应式三区对称枢轴主控内容区（锁死上一话/播放暂停/下一话严格位于胶囊 50.0% 绝对正中心）
                                 Padding(
                                   padding: touch
-                                      ? const EdgeInsets.fromLTRB(12, 2, 12, 10)
+                                      ? const EdgeInsets.fromLTRB(18, 9, 18, 4)
                                       : KonataPlaybackTokens.capsulePadding,
                                   child: LayoutBuilder(
                                     builder: (context, rowConstraints) {
@@ -776,14 +775,14 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                                     },
                                   ),
                                 ),
-                                // 2. 胶囊内部底置内缩全圆角细滑轨与 45° 菱形章节点
+                                // 2. 胶囊顶沿内嵌发光全圆角细滑轨与全量 45° 菱形章节点
                                 Positioned(
                                   left: inset,
                                   right: inset,
-                                  bottom: 0,
+                                  top: 0,
                                   height: KonataPlaybackTokens
                                       .capsuleProgressHitHeight,
-                                  child: _InsetBottomProgressRail(
+                                  child: _InsetTopProgressRail(
                                     progressRatio: progressRatio,
                                     totalDurationSeconds: total,
                                     chapters: widget.chapters,
@@ -791,6 +790,7 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                                     hovered:
                                         _progressHovered ||
                                         _dragSeconds != null,
+                                    isDark: p.isDark,
                                     activeColor: accentFg,
                                     inactiveColor: trackInactive,
                                     onHoverChanged: (hovering, ratio) {
@@ -850,12 +850,11 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                       ),
                     ),
                   ),
-                  // 3. 进度条悬停 / 拖拽预览气泡（视频模式下上方展示 16:9 缩略图）
+                  // 3. 顶沿进度条悬停 / 拖拽预览气泡（视频模式下紧贴顶沿上方展示 16:9 缩略图）
                   if (showBubble)
                     Positioned(
                       left: bubbleLeft,
-                      bottom:
-                          KonataPlaybackTokens.capsuleHoverBubbleBottomOffset,
+                      bottom: effectiveHeight + 10.0,
                       child: IgnorePointer(
                         child: _TopHoverPreviewBubble(
                           supportsThumbnailPreview:

@@ -17,6 +17,7 @@ import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/design_system/konata_toast.dart';
+import '../widgets/playback/konata_playback_capsule.dart';
 import 'delete_source_dialog.dart';
 import 'scan_progress_dialog.dart';
 import 'scrape_progress_banner.dart';
@@ -345,14 +346,14 @@ class _SourceCard extends StatelessWidget {
       MediaSourceKind.webdav => 'WebDAV',
       MediaSourceKind.smb => 'SMB 共享',
     };
+    final kindIcon = switch (source.kind) {
+      MediaSourceKind.local => Icons.folder_outlined,
+      MediaSourceKind.webdav => Icons.cloud_outlined,
+      MediaSourceKind.smb => Icons.dns_outlined,
+    };
 
     final isAndroid = KonataAdaptiveTokens.isAndroid;
-    final iconConstraints = isAndroid
-        ? const BoxConstraints(
-            minWidth: KonataAdaptiveTokens.touchTarget,
-            minHeight: KonataAdaptiveTokens.touchTarget,
-          )
-        : null;
+    final iconSize = isAndroid ? KonataAdaptiveTokens.touchTarget : 34.0;
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -372,14 +373,22 @@ class _SourceCard extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: p.softFill,
                     borderRadius: KonataTheme.borderRadiusPill,
+                    border: Border.all(color: p.hairline, width: 0.9),
                   ),
-                  child: Text(
-                    kindLabel,
-                    style: TextStyle(
-                      color: p.textSecondary,
-                      fontSize: KonataTheme.fontSizeCaption,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(kindIcon, size: 13.5, color: p.textSecondary),
+                      const SizedBox(width: 5),
+                      Text(
+                        kindLabel,
+                        style: TextStyle(
+                          color: p.textSecondary,
+                          fontSize: KonataTheme.fontSizeCaption,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(width: 14),
@@ -402,7 +411,10 @@ class _SourceCard extends StatelessWidget {
                         source.location,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodyXs),
+                        style: TextStyle(
+                          color: p.textSecondary,
+                          fontSize: KonataTheme.fontSizeBodyXs,
+                        ),
                       ),
                     ],
                   ),
@@ -422,19 +434,21 @@ class _SourceCard extends StatelessWidget {
                 compact: true,
                 onPressed: testing ? null : onTest,
               ),
-              IconButton(
+              KonataCapsuleIconButton(
+                icon: Icons.edit_outlined,
                 tooltip: '编辑',
-                constraints: iconConstraints,
                 color: p.textSecondary,
-                icon: const Icon(Icons.edit_outlined, size: 18),
-                onPressed: onEdit,
+                size: 18,
+                fixedSize: iconSize,
+                onTap: onEdit,
               ),
-              IconButton(
+              KonataCapsuleIconButton(
+                icon: Icons.delete_outline_rounded,
                 tooltip: '删除',
-                constraints: iconConstraints,
                 color: p.textSecondary,
-                icon: const Icon(Icons.delete_outline_rounded, size: 18),
-                onPressed: onDelete,
+                size: 18,
+                fixedSize: iconSize,
+                onTap: onDelete,
               ),
             ];
 

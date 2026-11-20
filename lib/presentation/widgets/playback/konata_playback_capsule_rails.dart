@@ -185,13 +185,14 @@ class _TopHoverPreviewBubble extends StatelessWidget {
   }
 }
 
-class _InsetBottomProgressRail extends StatelessWidget {
-  const _InsetBottomProgressRail({
+class _InsetTopProgressRail extends StatelessWidget {
+  const _InsetTopProgressRail({
     required this.progressRatio,
     required this.totalDurationSeconds,
     required this.chapters,
     required this.activeChapterIndex,
     required this.hovered,
+    required this.isDark,
     required this.activeColor,
     required this.inactiveColor,
     required this.onHoverChanged,
@@ -205,6 +206,7 @@ class _InsetBottomProgressRail extends StatelessWidget {
   final List<PlaybackChapter> chapters;
   final int activeChapterIndex;
   final bool hovered;
+  final bool isDark;
   final Color activeColor;
   final Color inactiveColor;
   final void Function(bool hovering, double? ratio) onHoverChanged;
@@ -224,6 +226,11 @@ class _InsetBottomProgressRail extends StatelessWidget {
         final visualHeight = hovered
             ? KonataPlaybackTokens.capsuleProgressHoverHeight
             : KonataPlaybackTokens.capsuleProgressRestHeight;
+        final thumbSize = visualHeight + 4.0;
+        final thumbLeft = (progressRatio * width - thumbSize / 2).clamp(
+          0.0,
+          (width - thumbSize).clamp(0.0, width),
+        );
 
         return MouseRegion(
           cursor: SystemMouseCursors.click,
@@ -245,7 +252,7 @@ class _InsetBottomProgressRail extends StatelessWidget {
                 Positioned(
                   left: 0,
                   right: 0,
-                  bottom: KonataPlaybackTokens.capsuleProgressBottomInset,
+                  top: KonataPlaybackTokens.capsuleProgressTopInset,
                   child: AnimatedContainer(
                     duration: KonataTheme.motionFast,
                     curve: Curves.easeOutCubic,
@@ -264,6 +271,14 @@ class _InsetBottomProgressRail extends StatelessWidget {
                           decoration: ShapeDecoration(
                             color: activeColor,
                             shape: const StadiumBorder(),
+                            shadows: [
+                              BoxShadow(
+                                color: activeColor.withValues(
+                                  alpha: isDark ? 0.56 : 0.22,
+                                ),
+                                blurRadius: hovered ? 8 : 5,
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -285,6 +300,31 @@ class _InsetBottomProgressRail extends StatelessWidget {
                       highlighted: hovered && i == activeChapterIndex,
                       activeColor: activeColor,
                     ),
+                if (hovered)
+                  Positioned(
+                    left: thumbLeft,
+                    top:
+                        KonataPlaybackTokens.capsuleProgressTopInset +
+                        (visualHeight - thumbSize) / 2,
+                    child: IgnorePointer(
+                      child: Container(
+                        width: thumbSize,
+                        height: thumbSize,
+                        decoration: BoxDecoration(
+                          color: activeColor,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: activeColor.withValues(
+                                alpha: isDark ? 0.72 : 0.30,
+                              ),
+                              blurRadius: 7,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -323,8 +363,8 @@ class _ChapterDiamondMarker extends StatelessWidget {
       0.0,
       (trackWidth - size).clamp(0.0, trackWidth),
     );
-    final bottom =
-        KonataPlaybackTokens.capsuleProgressBottomInset +
+    final top =
+        KonataPlaybackTokens.capsuleProgressTopInset +
         (railHeight - size) / 2;
     final fillColor = highlighted
         ? activeColor
@@ -334,7 +374,7 @@ class _ChapterDiamondMarker extends StatelessWidget {
 
     return Positioned(
       left: left,
-      bottom: bottom,
+      top: top,
       child: Transform.rotate(
         angle: math.pi / 4,
         child: AnimatedContainer(

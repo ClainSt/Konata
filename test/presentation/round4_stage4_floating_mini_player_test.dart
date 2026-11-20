@@ -200,11 +200,17 @@ class _HostTestShell extends ConsumerWidget {
     final android = defaultTargetPlatform == TargetPlatform.android;
     final hidden = ref.watch(capsuleNavigationHiddenProvider);
     final subPushed = ref.watch(subRoutePushedProvider);
+    final miniKind = ref.watch(activeFloatingMiniPlayerKindProvider);
+    final visualState = ref.watch(floatingMiniVisualStateProvider);
+    final edgeSide = ref.watch(floatingMiniEdgeSideProvider);
     final layout = AdaptiveCapsuleLayout(
       size: MediaQuery.sizeOf(context),
       safe: MediaQuery.paddingOf(context),
       android: android,
       navigationVisible: android && !hidden && !subPushed,
+      miniKind: miniKind,
+      visualState: visualState,
+      edgeSide: edgeSide,
     );
     return Scaffold(
       body: Stack(
@@ -377,44 +383,55 @@ void main() {
             );
             expect(miniFinder, findsOneWidget);
 
-            // 1. 音频小窗：1:1 正方形纯封面（144dp）+ 底部三键（48dp 高），无曲名、无循环键
+            // 1. 音频小窗默认收起为 56x56 圆形封面光环
             final audioRect = tester.getRect(miniFinder);
             expect(
               audioRect.width,
-              closeTo(KonataPlaybackTokens.floatingMiniAudioCoverSize, 0.5),
+              closeTo(KonataPlaybackTokens.floatingMiniAudioDiscSize, 0.5),
             );
             expect(
               audioRect.height,
-              closeTo(KonataPlaybackTokens.floatingMiniAudioTotalHeight, 0.5),
-            );
-            expect(
-              KonataPlaybackTokens.floatingMiniAudioCoverSize,
-              equals(KonataPlaybackTokens.floatingMiniVideoHeight),
+              closeTo(KonataPlaybackTokens.floatingMiniAudioDiscSize, 0.5),
             );
             expect(find.text('青春コンプレックス'), findsNothing);
             expect(find.byIcon(Icons.repeat_rounded), findsNothing);
-            expect(find.byIcon(Icons.trending_flat_rounded), findsNothing);
 
-            // 音频三键等距排布且所有热区 >= 48dp，始终可直接点击
-            final prevRect = tester.getRect(
-              find.byKey(const ValueKey('floating_mini_audio_prev')),
-            );
-            final playRect = tester.getRect(
-              find.byKey(const ValueKey('floating_mini_audio_play_pause')),
-            );
-            final nextRect = tester.getRect(
-              find.byKey(const ValueKey('floating_mini_audio_next')),
-            );
-            for (final r in [prevRect, playRect, nextRect]) {
-              expect(r.width, greaterThanOrEqualTo(48.0));
-              expect(r.height, greaterThanOrEqualTo(48.0));
+            final isPhoneInline = vp.android && vp.size.shortestSide < 600;
+            if (isPhoneInline) {
+              // 手机一级主页面：圆钮与底部导航胶囊水平并排且无重叠，左右滑动切歌，点击直入全屏
+              final navRect = tester.getRect(find.byType(CapsuleNavigation));
+              expect(audioRect.overlaps(navRect), isFalse);
+              expect(
+                audioRect.left - navRect.right,
+                closeTo(KonataPlaybackTokens.floatingMiniPhoneNavInlineGap, 1.0),
+              );
+              await tester.fling(miniFinder, const Offset(-80, 0), 500);
+              await tester.pumpAndSettle();
+              expect(audioNotifier.nextCount, equals(1));
+              await tester.tap(
+                find.byKey(const ValueKey('floating_mini_surface_tap_target')),
+              );
+              await tester.pump();
+              expect(container.read(immersiveAudioExpandedProvider), isTrue);
+              container.read(immersiveAudioExpandedProvider.notifier).state =
+                  false;
+              await tester.pumpAndSettle();
+
+              // 切入子路由（导航隐藏）后释放为自由悬浮态：支持展开、贴边耳片与关闭
+              container.read(subRoutePushedProvider.notifier).state = true;
+              await tester.pumpAndSettle();
             }
-            expect(
-              ((playRect.center.dx - prevRect.center.dx) -
-                      (nextRect.center.dx - playRect.center.dx))
-                  .abs(),
-              lessThan(0.5),
+
+            // 2. 自由悬浮态：点击圆钮展开为光学播控条 -> 切歌 -> 贴边耳片 -> 点耳片恢复 -> 关闭
+            await tester.tap(
+              find.byKey(const ValueKey('floating_mini_surface_tap_target')),
             );
+            await tester.pumpAndSettle();
+            expect(
+              find.byKey(const ValueKey('floating_mini_audio_pill')),
+              findsOneWidget,
+            );
+            expect(find.text('青春コンプレックス'), findsOneWidget);
             await tester.tap(
               find.byKey(const ValueKey('floating_mini_audio_prev')),
             );
@@ -422,15 +439,32 @@ void main() {
               find.byKey(const ValueKey('floating_mini_audio_next')),
             );
             expect(audioNotifier.prevCount, equals(1));
-            expect(audioNotifier.nextCount, equals(1));
-            expect(container.read(immersiveAudioExpandedProvider), isFalse);
+            expect(audioNotifier.nextCount, greaterThanOrEqualTo(1));
 
-            // 2. 拖拽边界与零宿主重建：向左上越界拖动时严格钳制在安全区内，松手吸附且不压住导航胶囊
+            // 贴边收折为 24x72 耳片并点击耳片恢复圆钮
+            await tester.tap(
+              find.byKey(const ValueKey('floating_mini_tuck_button')),
+            );
+            await tester.pumpAndSettle();
+            final earFinder = find.byKey(const ValueKey('floating_mini_ear_tab'));
+            expect(earFinder, findsOneWidget);
+            expect(
+              tester.getSize(earFinder).width,
+              closeTo(KonataPlaybackTokens.floatingMiniEarTabWidth, 0.5),
+            );
+            await tester.tap(earFinder);
+            await tester.pumpAndSettle();
+            expect(
+              find.byKey(const ValueKey('floating_mini_audio_disc')),
+              findsOneWidget,
+            );
+
+            // 3. 拖拽边界与零宿主重建：向左上越界拖动时严格钳制在安全区内，松手吸附且不压住导航胶囊
             final buildsBeforeDrag = hostBuilds;
-            final gesture = await tester.startGesture(audioRect.topLeft + const Offset(24, 24));
-            await gesture.moveBy(const Offset(-900, -900));
+            final discStart = tester.getCenter(miniFinder);
+            final gesture = await tester.startGesture(discStart);
+            await gesture.moveBy(const Offset(-200, -900));
             await tester.pump();
-            // 拖拽途中宿主壳层 0 重建
             expect(hostBuilds, equals(buildsBeforeDrag));
             final clampedDragRect = tester.getRect(miniFinder);
             final minTopAllowed = !vp.android
@@ -445,10 +479,6 @@ void main() {
               clampedDragRect.top,
               greaterThanOrEqualTo(minTopAllowed - 0.5),
             );
-
-            // 再拖向底部中央导航区松手，验证自动吸附到安全边缘且绝不压住导航胶囊
-            await gesture.moveBy(Offset(vp.size.width * 0.45, vp.size.height));
-            await tester.pump();
             await gesture.up();
             await tester.pumpAndSettle();
 
@@ -462,56 +492,36 @@ void main() {
               snappedRect.bottom,
               lessThanOrEqualTo(vp.size.height - vp.safe.bottom + 0.5),
             );
-            if (vp.android) {
+            if (vp.android && !isPhoneInline) {
               final navRect = tester.getRect(find.byType(CapsuleNavigation));
               expect(snappedRect.overlaps(navRect), isFalse);
             }
 
-            // 3. 默认纯净态 -> 轻触显现 × 与展开图标（热区 >= 48dp） -> 3 秒无操作自动隐藏 -> × 关闭
+            // 4. 展开播控条后点击外部自动收回圆钮（无倒计时），再次展开点击 × 立即关闭
+            await tester.tap(
+              find.byKey(const ValueKey('floating_mini_surface_tap_target')),
+            );
+            await tester.pumpAndSettle();
             expect(
+              find.byKey(const ValueKey('floating_mini_audio_pill')),
+              findsOneWidget,
+            );
+            await tester.tap(
+              find.byKey(const ValueKey('floating_mini_collapse_disc_button')),
+            );
+            await tester.pumpAndSettle();
+            expect(
+              find.byKey(const ValueKey('floating_mini_audio_disc')),
+              findsOneWidget,
+            );
+
+            await tester.tap(
+              find.byKey(const ValueKey('floating_mini_surface_tap_target')),
+            );
+            await tester.pumpAndSettle();
+            await tester.tap(
               find.byKey(const ValueKey('floating_mini_close_button')),
-              findsNothing,
             );
-            expect(
-              find.byKey(const ValueKey('floating_mini_expand_button')),
-              findsNothing,
-            );
-            await tester.tap(
-              find.byKey(const ValueKey('floating_mini_surface_tap_target')),
-            );
-            await tester.pump();
-            final closeFinder = find.byKey(
-              const ValueKey('floating_mini_close_button'),
-            );
-            final expandFinder = find.byKey(
-              const ValueKey('floating_mini_expand_button'),
-            );
-            expect(closeFinder, findsOneWidget);
-            expect(expandFinder, findsOneWidget);
-            expect(tester.getRect(closeFinder).width, greaterThanOrEqualTo(48));
-            expect(
-              tester.getRect(closeFinder).height,
-              greaterThanOrEqualTo(48),
-            );
-            expect(
-              tester.getRect(expandFinder).width,
-              greaterThanOrEqualTo(48),
-            );
-            expect(
-              tester.getRect(expandFinder).height,
-              greaterThanOrEqualTo(48),
-            );
-
-            // 满 3 秒自动隐藏角标
-            await tester.pump(const Duration(seconds: 3));
-            expect(closeFinder, findsNothing);
-
-            // 再次轻触唤出 × 后点击 × 立即停止并关闭小窗
-            await tester.tap(
-              find.byKey(const ValueKey('floating_mini_surface_tap_target')),
-            );
-            await tester.pump();
-            await tester.tap(closeFinder);
             await tester.pumpAndSettle();
             expect(audioNotifier.stopCloseCount, equals(1));
             expect(miniFinder, findsNothing);
@@ -629,13 +639,13 @@ void main() {
         await tester.pumpAndSettle();
         expect(miniFinder, findsOneWidget);
 
-        // 两段式轻触画面中心回到全屏，解码会话标识与硬件表面 State 依旧不变
+        // 轻触视频小窗显现浮层后点击展开按钮回到全屏，解码会话标识与硬件表面 State 依旧不变
         await tester.tap(
           find.byKey(const ValueKey('floating_mini_surface_tap_target')),
         );
         await tester.pump();
         await tester.tap(
-          find.byKey(const ValueKey('floating_mini_surface_tap_target')),
+          find.byKey(const ValueKey('floating_mini_expand_button')),
         );
         await tester.pumpAndSettle();
         expect(find.byType(EmbeddedVideoPage), findsOneWidget);
@@ -789,10 +799,15 @@ void main() {
         final miniFinder = find.byKey(
           const ValueKey('konata_floating_mini_player'),
         );
+        expect(miniFinder.hitTestable(), findsOneWidget);
+        // 先展开音频光学播控条以便验证模态层对播放键的完整遮盖与拦截
+        await tester.tap(
+          find.byKey(const ValueKey('floating_mini_surface_tap_target')),
+        );
+        await tester.pumpAndSettle();
         final playPauseFinder = find.byKey(
           const ValueKey('floating_mini_audio_play_pause'),
         );
-        expect(miniFinder.hitTestable(), findsOneWidget);
         expect(playPauseFinder.hitTestable(), findsOneWidget);
 
         Future<void> verifyModalOccludesMiniPlayer(
@@ -829,7 +844,7 @@ void main() {
 
           // 关闭模态层后，悬浮小窗立即恢复可触控
           expect(
-            playPauseFinder.hitTestable(),
+            miniFinder.hitTestable(),
             findsOneWidget,
             reason: '$modalName 关闭后悬浮小窗应恢复触控',
           );

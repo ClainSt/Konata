@@ -28,6 +28,7 @@ import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/design_system/konata_toast.dart';
+import 'episode_media_info_dialog.dart';
 import 'supplementary_asset_cards.dart';
 import 'variant_picker_dialog.dart';
 
@@ -472,34 +473,45 @@ class DetailActionHandlers {
     }
   }
 
-  /// 优先拉起外部看图器浏览本地扫图，未配置或不可用时回退内置预览弹窗。
+  /// 打开单集「查看媒体信息」只读毛玻璃弹窗（展示文件规格、压制/字幕组与外挂字幕）。
+  static Future<void> showEpisodeMediaInfo({
+    required BuildContext context,
+    required WorkDetailBundle bundle,
+    required Episode episode,
+  }) {
+    final variants = bundle.variantsForEpisode(episode.id);
+    final mainCount = bundle.episodes
+        .where((e) => e.category == EpisodeCategory.main)
+        .length;
+    final displayTitle = EpisodeTitleFormatter.formatCardTitle(
+      episode: episode,
+      workTitle: bundle.work.title,
+      workMediaType: bundle.work.tmdbMediaType,
+      mainEpisodeCount: mainCount,
+    );
+    return EpisodeMediaInfoDialog.show(
+      context,
+      episode: episode,
+      displayTitle: displayTitle,
+      variants: variants,
+      sourcesById: bundle.sourcesById,
+    );
+  }
+
+  /// 直接在全端内置高清灯箱中浏览扫图（支持承接当前二级分卷筛选范围）。
   static Future<void> openScanViewer(
     BuildContext context,
     WorkDetailBundle bundle,
-    MediaVariant variant,
-  ) async {
-    try {
-      final res = await ProviderScope.containerOf(context, listen: false)
-          .read(playbackDispatcherProvider)
-          .tryOpenExternalScan(
-            work: bundle.work,
-            variant: variant,
-            source: bundle.sourcesById[variant.sourceId],
-          );
-      if (res != null) {
-        if (res.launched) return;
-        if (context.mounted && res.message.isNotEmpty) {
-          showKonataToast(context, res.message, isError: true);
-        }
-      }
-    } catch (error) {
-      developer.log('可恢复异常已记录', name: 'konata.detail_action_handlers', error: error);
-    }
-    if (!context.mounted) return;
+    MediaVariant variant, {
+    String? initialVolumeKey,
+  }) {
     return showKonataGlassDialog<void>(
       context: context,
-      builder: (_) =>
-          ScanLightboxDialog(bundle: bundle, initialVariant: variant),
+      builder: (_) => ScanLightboxDialog(
+        bundle: bundle,
+        initialVariant: variant,
+        initialVolumeKey: initialVolumeKey,
+      ),
     );
   }
 }

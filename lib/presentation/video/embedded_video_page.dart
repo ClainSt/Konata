@@ -937,19 +937,19 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage>
                             math.max(safe.top, symmetricCutoutPadding.top),
                             12.0,
                           )
-                        : 0.0),
+                        : 12.0),
               left: isAndroid
                   ? math.max(
                       math.max(safe.left, symmetricCutoutPadding.left),
                       14.0,
                     )
-                  : 0.0,
+                  : 16.0,
               right: isAndroid
                   ? math.max(
                       math.max(safe.right, symmetricCutoutPadding.right),
                       14.0,
                     )
-                  : 0.0,
+                  : 16.0,
               child: AnimatedOpacity(
                 duration: hudDuration,
                 opacity: showHud ? 1.0 : 0.0,

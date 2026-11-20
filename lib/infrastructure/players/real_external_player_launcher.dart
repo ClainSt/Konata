@@ -65,12 +65,6 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
   }) async {
     final effectivePlayer = await _resolvePlayerConfig(player);
     if (effectivePlayer == null) {
-      if (player?.kind == ExternalPlayerKind.imageViewer) {
-        return LaunchPlaybackResult(
-          launched: false,
-          message: '外部图片查看器路径不存在：${player!.executablePath}',
-        );
-      }
       if (player?.kind == ExternalPlayerKind.audioPlayer) {
         return LaunchPlaybackResult(
           launched: false,
@@ -87,14 +81,6 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
       return const LaunchPlaybackResult(
         launched: false,
         message: '未找到所属媒体源配置，无法启动外部程序',
-      );
-    }
-
-    if (effectivePlayer.kind == ExternalPlayerKind.imageViewer) {
-      return _launchLocalImageViewer(
-        viewer: effectivePlayer,
-        variant: variant,
-        source: source,
       );
     }
 
@@ -226,48 +212,10 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
     );
   }
 
-  Future<LaunchPlaybackResult> _launchLocalImageViewer({
-    required ExternalPlayerConfig viewer,
-    required MediaVariant variant,
-    required MediaSource source,
-  }) async {
-    if (source.kind != MediaSourceKind.local) {
-      return const LaunchPlaybackResult(launched: false, message: '');
-    }
-    final localGw = LocalSourceGateway(rootPath: source.location);
-    final absImagePath = localGw.resolveAbsolutePath(variant.relativePath);
-    if (!await File(absImagePath).exists()) {
-      return LaunchPlaybackResult(
-        launched: false,
-        message: '本地扫图文件不存在或已移动：$absImagePath',
-      );
-    }
-    final args = sanitizeAndOrderPlayerArguments(
-      leadingOptions: const [],
-      argumentsTemplate: viewer.argumentsTemplate,
-      targetUrlOrPath: absImagePath,
-    );
-    try {
-      final process = await _processStarter(viewer.executablePath, args);
-      unawaited(process.stdout.drain<void>().catchError((_) {}));
-      unawaited(process.stderr.drain<void>().catchError((_) {}));
-      return LaunchPlaybackResult(
-        launched: true,
-        message: '已启动 ${_displayName(viewer)}',
-      );
-    } catch (error) {
-      return LaunchPlaybackResult(
-        launched: false,
-        message: '无法启动图片查看器 ${_displayName(viewer)}：$error',
-      );
-    }
-  }
-
   String _displayName(ExternalPlayerConfig player) {
     final trimmed = player.name.trim();
     if (trimmed.isNotEmpty) return trimmed;
     if (player.kind == ExternalPlayerKind.audioPlayer) return 'foobar2000';
-    if (player.kind == ExternalPlayerKind.imageViewer) return 'Honeyview';
     if (player.kind == ExternalPlayerKind.mpv) return 'MPV';
     if (player.kind == ExternalPlayerKind.potplayer) return 'PotPlayer';
     return '外部程序';
@@ -275,8 +223,7 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
 
   ExternalPlayerKind _detectProtocolKind(ExternalPlayerConfig player) {
     if (player.kind == ExternalPlayerKind.mpv ||
-        player.kind == ExternalPlayerKind.potplayer ||
-        player.kind == ExternalPlayerKind.imageViewer) {
+        player.kind == ExternalPlayerKind.potplayer) {
       return player.kind;
     }
     final normalized = player.executablePath
@@ -412,8 +359,7 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
           await File(candidate).exists()) {
         return provided;
       }
-      if (provided.kind == ExternalPlayerKind.audioPlayer ||
-          provided.kind == ExternalPlayerKind.imageViewer) {
+      if (provided.kind == ExternalPlayerKind.audioPlayer) {
         return null;
       }
     }

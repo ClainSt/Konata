@@ -15,6 +15,7 @@ class KonataGlassCapsule extends StatelessWidget {
     this.padding,
     this.enableBackdropBlur = true,
     this.solidBackdropColor,
+    this.showShadow = false,
   });
 
   /// 子内容。
@@ -31,6 +32,9 @@ class KonataGlassCapsule extends StatelessWidget {
 
   /// 当底层为纯单色画布且关闭 `BackdropFilter` 时，以 `Color.alphaBlend` 预混出像素级等价毛玻璃底色。
   final Color? solidBackdropColor;
+
+  /// 是否附加柔和光学环境阴影（供独立悬浮导航与播控胶囊使用）。
+  final bool showShadow;
 
   @override
   Widget build(BuildContext context) {
@@ -51,6 +55,7 @@ class KonataGlassCapsule extends StatelessWidget {
     final decorated = DecoratedBox(
       decoration: BoxDecoration(
         color: surfaceColor,
+        gradient: KonataTheme.opticalSheenGradient(p),
         borderRadius: borderRadius,
         border: Border.all(
           color: KonataPlaybackTokens.glassBorder(p),
@@ -59,15 +64,30 @@ class KonataGlassCapsule extends StatelessWidget {
       ),
       child: body,
     );
-    if (!enableBackdropBlur) {
-      return ClipRRect(borderRadius: borderRadius, child: decorated);
+    Widget capsule = enableBackdropBlur
+        ? ClipRRect(
+            borderRadius: borderRadius,
+            child: BackdropFilter(
+              filter: KonataTheme.blurFilterCapsule,
+              child: decorated,
+            ),
+          )
+        : ClipRRect(borderRadius: borderRadius, child: decorated);
+    if (showShadow) {
+      capsule = DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: borderRadius,
+          boxShadow: [
+            BoxShadow(
+              color: KonataPlaybackTokens.shadowColor(p),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: capsule,
+      );
     }
-    return ClipRRect(
-      borderRadius: borderRadius,
-      child: BackdropFilter(
-        filter: KonataTheme.blurFilterCapsule,
-        child: decorated,
-      ),
-    );
+    return capsule;
   }
 }

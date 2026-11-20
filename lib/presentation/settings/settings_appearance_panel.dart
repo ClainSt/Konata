@@ -9,7 +9,7 @@ import '../widgets/design_system/adaptive_responsive_row.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 
-/// 外观设置面板（仅管理 暗色 / 亮色 / 跟随系统 主题与 Acrylic / Mica 窗口材质切换）。
+/// 外观设置面板（管理 暗色 / 亮色 / 跟随系统 主题、Windows 窗口材质与流光氛围画布）。
 class SettingsAppearancePanel extends ConsumerWidget {
   /// 创建外观设置面板。
   const SettingsAppearancePanel({super.key});
@@ -21,6 +21,9 @@ class SettingsAppearancePanel extends ConsumerWidget {
     final currentMaterial = KonataAdaptiveTokens.isWindows
         ? ref.watch(windowMaterialProvider)
         : KonataWindowMaterial.acrylic;
+    final ambientCanvasEnabled = KonataAdaptiveTokens.isWindows
+        ? ref.watch(ambientCanvasEnabledProvider)
+        : true;
 
     final cards = [
       _ThemeOptionCard(
@@ -102,31 +105,50 @@ class SettingsAppearancePanel extends ConsumerWidget {
         if (KonataAdaptiveTokens.isWindows) ...[
           const SizedBox(height: 16),
           KonataSurfaceCard(
-            child: AdaptiveSettingTile(
-              padding: EdgeInsets.zero,
-              title: '窗口材质',
-              subtitle: currentMaterial.subtitle,
-              estimatedTrailingWidth: 220,
-              trailing: KonataSegmentedCapsule<KonataWindowMaterial>(
-                selected: currentMaterial,
-                options: const [
-                  KonataSegmentOption(
-                    value: KonataWindowMaterial.acrylic,
-                    label: '亚克力',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                AdaptiveSettingTile(
+                  padding: EdgeInsets.zero,
+                  title: '窗口材质',
+                  subtitle: currentMaterial.subtitle,
+                  estimatedTrailingWidth: 220,
+                  trailing: KonataSegmentedCapsule<KonataWindowMaterial>(
+                    selected: currentMaterial,
+                    options: const [
+                      KonataSegmentOption(
+                        value: KonataWindowMaterial.acrylic,
+                        label: '亚克力',
+                      ),
+                      KonataSegmentOption(
+                        value: KonataWindowMaterial.mica,
+                        label: '云母',
+                      ),
+                      KonataSegmentOption(
+                        value: KonataWindowMaterial.tabbed,
+                        label: '云母变体',
+                      ),
+                    ],
+                    onChanged: (value) => ref
+                        .read(windowMaterialProvider.notifier)
+                        .setMaterial(value),
                   ),
-                  KonataSegmentOption(
-                    value: KonataWindowMaterial.mica,
-                    label: '云母',
+                ),
+                Divider(height: 28, color: p.hairline),
+                AdaptiveSettingTile(
+                  padding: EdgeInsets.zero,
+                  title: '流光氛围画布',
+                  subtitle: '在桌面窗口底层叠加柔焦极光氛围层（关闭时保持原生桌面透光材质）',
+                  estimatedTrailingWidth: 64,
+                  trailing: Switch(
+                    key: const ValueKey('settings_ambient_canvas_switch'),
+                    value: ambientCanvasEnabled,
+                    onChanged: (value) => ref
+                        .read(ambientCanvasEnabledProvider.notifier)
+                        .setEnabled(value),
                   ),
-                  KonataSegmentOption(
-                    value: KonataWindowMaterial.tabbed,
-                    label: '云母变体',
-                  ),
-                ],
-                onChanged: (value) => ref
-                    .read(windowMaterialProvider.notifier)
-                    .setMaterial(value),
-              ),
+                ),
+              ],
             ),
           ),
         ],
@@ -167,6 +189,7 @@ class _ThemeOptionCard extends StatelessWidget {
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: p.softFill,
+            gradient: KonataTheme.opticalSheenGradient(p),
             borderRadius: KonataTheme.borderRadiusCard,
             border: Border.all(
               color: selected ? p.textPrimary : p.hairline,

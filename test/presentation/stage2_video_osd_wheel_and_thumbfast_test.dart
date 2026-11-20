@@ -440,12 +440,12 @@ void main() {
         closeTo(KonataPlaybackTokens.chapterDiamondRestSize, 0.1),
       );
 
-      // 悬停进度条后菱形放大且弹出 16:9 圆角缩略图 + 章节标题 + 等宽时间戳
+      // 悬停顶沿进度条后菱形放大且弹出 16:9 圆角缩略图 + 章节标题 + 等宽时间戳
       final capsuleBox = tester.getRect(find.byType(KonataPlaybackCapsule));
       final hoverTarget = Offset(
         capsuleBox.left + 120,
-        capsuleBox.bottom -
-            KonataPlaybackTokens.capsuleProgressBottomInset -
+        capsuleBox.top +
+            KonataPlaybackTokens.capsuleProgressTopInset +
             KonataPlaybackTokens.capsuleProgressRestHeight * 0.5,
       );
       final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);

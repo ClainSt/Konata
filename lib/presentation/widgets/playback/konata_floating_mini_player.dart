@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -16,17 +17,24 @@ import '../../shell/adaptive_capsule_layout.dart';
 import '../../theme/konata_adaptive_tokens.dart';
 import '../../theme/konata_palette.dart';
 import '../../theme/konata_playback_tokens.dart';
+import '../../theme/konata_theme.dart';
+import '../design_system/konata_glass_capsule.dart';
+import '../design_system/konata_glass_menu.dart';
 import '../design_system/konata_toast.dart';
 import '../managed_image.dart';
-import '../../theme/konata_theme.dart';
+import 'konata_playback_capsule.dart';
 
-/// 全端统一可拖拽音视频悬浮小窗组件（替代旧版底部宽条播放胶囊）。
+part 'konata_floating_mini_player_leaves.dart';
+
+/// 全端统一可拖拽音视频悬浮小窗组件（流光光学三态音频 + 动态原比例无黑边视频）。
 ///
 /// 核心职责与不变量：
-/// - 视频形态：`16:9` 实时画面（复用同一 `GlobalObjectKey` 硬件表面，跨页与展开收起零重建会话）；
-/// - 音频形态：`1:1` 正方形纯封面（与视频小窗等高），正下方紧凑等距排列「上一首 / 播放暂停 / 下一首」三键（无曲名、无循环键）；
-/// - 纯净态与两段式轻触分流：默认不常驻角标，轻触画面/封面显现右上 `×` 与左上展开图标并 3 秒无操作自动隐去；`×` 显示期间轻触 `×` 立即停止并关闭，轻触中心或左上展开图标回到全屏；
-/// - 自由拖拽与合法边缘吸附：通过 `ValueNotifier<Offset>` + `RepaintBoundary` 隔离变换层，拖拽全程零宿主页面重建，松手自动吸附至安全区内不遮挡导航胶囊的最近合法位置。
+/// - 视频形态：按真实视频宽高比自适应尺寸（零黑边），复用同一 `GlobalObjectKey` 硬件表面，
+///   贴边收折时暂停播放并隐藏硬件挖空，点击侧边耳片自动恢复并续播；
+/// - 音频形态：收起为 `56×56dp` 圆形封面发光进度环，点击向内展开为 `320×60dp` 光学毛玻璃迷你播控条，
+///   点击外部或收起键恢复圆钮（无自动倒计时）；支持拖出边缘超过 `20dp` 或点按收折键收为 `24×72dp` 贴边耳片；
+/// - 手机一级主页面协同：音频小窗自动与底部导航胶囊同行水平居中并排，单击直入全屏、左右滑动切歌、长按弹出玻璃菜单；
+/// - 拖拽层采用 `ValueNotifier<Offset>` + `RepaintBoundary` 隔离，拖拽全程零宿主页面重建。
 class KonataFloatingMiniPlayer extends ConsumerStatefulWidget {
   /// 创建视口内自由拖拽与吸附的音视频悬浮小窗。
   const KonataFloatingMiniPlayer({
@@ -83,6 +91,7 @@ class _KonataFloatingMiniPlayerState
   Offset _dragRawOffset = Offset.zero;
   Rect? _lastPublishedRect;
   KonataToastController? _toastController;
+  bool _wasVideoPlayingBeforeTuck = false;
 
   @override
   void initState() {
@@ -99,12 +108,15 @@ class _KonataFloatingMiniPlayerState
     super.didUpdateWidget(oldWidget);
     if (oldWidget.kind != widget.kind) {
       _hideChromeImmediate();
+      _wasVideoPlayingBeforeTuck = false;
     }
     if (!widget.standalone && !_isDragging) {
       final oldRect = oldWidget.layout?.floatingMiniWindowRect;
       final newRect = widget.layout?.floatingMiniWindowRect;
       if (oldWidget.kind != widget.kind || !_rectNearEqual(oldRect, newRect)) {
-        _syncTargetFromLayout(animate: _offsetInitialized && oldWidget.kind == widget.kind);
+        _syncTargetFromLayout(
+          animate: _offsetInitialized && oldWidget.kind == widget.kind,
+        );
       }
     }
   }
@@ -184,7 +196,6 @@ class _KonataFloatingMiniPlayerState
   void _handleSnapStatusChanged(AnimationStatus status) {
     if (status == AnimationStatus.completed ||
         status == AnimationStatus.dismissed) {
-      // 弹簧落位后立即对齐精确目标点并停钟，严禁残留闲置 Ticker。
       _snapController.stop();
       _liveOffsetNotifier.value = _snapEndOffset;
     }
@@ -212,7 +223,6 @@ class _KonataFloatingMiniPlayerState
 
     _snapStartOffset = start;
     _snapEndOffset = target;
-    // 将松手瞬时二维速度投影到起止位移方向，归一化为临界阻尼物理弹簧初速度。
     final projectedSpeedPx =
         (releaseVelocityPxPerSec.dx * delta.dx +
             releaseVelocityPxPerSec.dy * delta.dy) /
@@ -252,7 +262,7 @@ class _KonataFloatingMiniPlayerState
     }
   }
 
-  void _handleSurfaceTap() {
+  void _handleVideoSurfaceTap() {
     if (!_chromeVisibleNotifier.value) {
       _revealChromeWithTimer();
       return;
@@ -262,6 +272,8 @@ class _KonataFloatingMiniPlayerState
 
   void _handleExpandToFullscreen() {
     _hideChromeImmediate();
+    ref.read(floatingMiniVisualStateProvider.notifier).state =
+        FloatingMiniVisualState.collapsed;
     if (widget.kind == FloatingMiniPlayerKind.video) {
       ref.read(activeVideoSessionProvider.notifier).expandToFull();
     } else if (widget.kind == FloatingMiniPlayerKind.audio) {
@@ -271,6 +283,9 @@ class _KonataFloatingMiniPlayerState
 
   void _handleStopAndClose() {
     _hideChromeImmediate();
+    _wasVideoPlayingBeforeTuck = false;
+    ref.read(floatingMiniVisualStateProvider.notifier).state =
+        FloatingMiniVisualState.collapsed;
     if (widget.kind == FloatingMiniPlayerKind.video) {
       unawaited(ref.read(activeVideoSessionProvider.notifier).closeVideo());
     } else if (widget.kind == FloatingMiniPlayerKind.audio) {
@@ -278,8 +293,63 @@ class _KonataFloatingMiniPlayerState
     }
   }
 
+  void _handleTuckToEdge({FloatingMiniEdgeSide? side}) {
+    _hideChromeImmediate();
+    final targetSide =
+        side ??
+        _inferCurrentEdgeSide(
+          _liveOffsetNotifier.value,
+          _resolveCurrentMiniSize(context),
+        );
+    if (widget.kind == FloatingMiniPlayerKind.video &&
+        widget.videoRequest != null) {
+      final vState = ref.read(videoPlaybackProvider(widget.videoRequest!));
+      _wasVideoPlayingBeforeTuck = vState.isPlaying;
+      if (vState.isPlaying) {
+        ref
+            .read(videoPlaybackProvider(widget.videoRequest!).notifier)
+            .togglePlayPause();
+      }
+    }
+    ref.read(floatingMiniEdgeSideProvider.notifier).state = targetSide;
+    ref.read(floatingMiniVisualStateProvider.notifier).state =
+        FloatingMiniVisualState.tucked;
+  }
+
+  void _handleUntuckFromEdge() {
+    ref.read(floatingMiniVisualStateProvider.notifier).state =
+        FloatingMiniVisualState.collapsed;
+    if (widget.kind == FloatingMiniPlayerKind.video &&
+        widget.videoRequest != null &&
+        _wasVideoPlayingBeforeTuck) {
+      _wasVideoPlayingBeforeTuck = false;
+      final vState = ref.read(videoPlaybackProvider(widget.videoRequest!));
+      if (!vState.isPlaying) {
+        ref
+            .read(videoPlaybackProvider(widget.videoRequest!).notifier)
+            .togglePlayPause();
+      }
+    }
+  }
+
+  FloatingMiniEdgeSide _inferCurrentEdgeSide(Offset offset, Size miniSize) {
+    final layout = widget.layout;
+    if (layout == null || layout.size.width <= 0) {
+      return ref.read(floatingMiniEdgeSideProvider);
+    }
+    return (offset.dx + miniSize.width / 2.0) < layout.size.width / 2.0
+        ? FloatingMiniEdgeSide.left
+        : FloatingMiniEdgeSide.right;
+  }
+
   void _handlePanStart(DragStartDetails details, Size miniSize) {
-    if (widget.standalone || widget.layout == null) return;
+    final layout = widget.layout;
+    if (widget.standalone ||
+        layout == null ||
+        layout.inlinePhoneAudioPaired ||
+        layout.visualState == FloatingMiniVisualState.tucked) {
+      return;
+    }
     _snapController.stop();
     _isDragging = true;
     _dragRawOffset = _liveOffsetNotifier.value;
@@ -303,8 +373,29 @@ class _KonataFloatingMiniPlayerState
     final layout = widget.layout;
     if (widget.standalone || layout == null || !_isDragging) return;
     _isDragging = false;
+    final bounds = layout.safeBoundsFor(miniSize);
+    final overshootLeft = bounds.minX - _dragRawOffset.dx;
+    final overshootRight = _dragRawOffset.dx - bounds.maxX;
+    if (overshootLeft > KonataPlaybackTokens.floatingMiniEdgeTuckDragThreshold) {
+      final encoded = layout.encodeNormalizedAnchor(
+        Offset(bounds.minX, _liveOffsetNotifier.value.dy),
+        miniSize,
+      );
+      ref.read(floatingMiniWindowAnchorProvider.notifier).state = encoded;
+      _handleTuckToEdge(side: FloatingMiniEdgeSide.left);
+      return;
+    }
+    if (overshootRight > KonataPlaybackTokens.floatingMiniEdgeTuckDragThreshold) {
+      final encoded = layout.encodeNormalizedAnchor(
+        Offset(bounds.maxX, _liveOffsetNotifier.value.dy),
+        miniSize,
+      );
+      ref.read(floatingMiniWindowAnchorProvider.notifier).state = encoded;
+      _handleTuckToEdge(side: FloatingMiniEdgeSide.right);
+      return;
+    }
+
     final velocity = details?.velocity.pixelsPerSecond ?? Offset.zero;
-    // 继承轻扫惯性趋势（最多投影 70ms），使顺手一甩自然吸附目标边缘。
     final projectedOffset =
         _liveOffsetNotifier.value +
         velocity * KonataPlaybackTokens.floatingMiniFlickProjectionSeconds;
@@ -315,6 +406,10 @@ class _KonataFloatingMiniPlayerState
     final settled = layout.snapMiniWindowOffset(clampedProjected, miniSize);
     _publishMiniRect(settled & miniSize);
     _animateToOffset(settled, releaseVelocityPxPerSec: velocity);
+    final nextSide = _inferCurrentEdgeSide(settled, miniSize);
+    if (ref.read(floatingMiniEdgeSideProvider) != nextSide) {
+      ref.read(floatingMiniEdgeSideProvider.notifier).state = nextSide;
+    }
     final encoded = layout.encodeNormalizedAnchor(settled, miniSize);
     final prevAnchor = ref.read(floatingMiniWindowAnchorProvider);
     if (prevAnchor == null || (prevAnchor - encoded).distance > 0.002) {
@@ -322,7 +417,48 @@ class _KonataFloatingMiniPlayerState
     }
   }
 
-  Size _resolveCurrentMiniSize(BuildContext context) {
+  Future<void> _showInlinePhoneAudioMenu(BuildContext anchorContext) async {
+    final audioState = ref.read(audioPlaybackProvider);
+    final notifier = ref.read(audioPlaybackProvider.notifier);
+    final action = await showKonataGlassMenu<String>(
+      anchorContext: anchorContext,
+      items: [
+        KonataGlassMenuItem<String>(
+          value: 'toggle',
+          icon: audioState.isPlaying
+              ? Icons.pause_rounded
+              : Icons.play_arrow_rounded,
+          label: audioState.isPlaying ? '暂停播放' : '继续播放',
+        ),
+        const KonataGlassMenuItem<String>(
+          value: 'tuck',
+          icon: Icons.chevron_right_rounded,
+          label: '贴边隐藏',
+        ),
+        const KonataGlassMenuItem<String>(
+          value: 'close',
+          icon: Icons.close_rounded,
+          label: '停止并关闭',
+          isDanger: true,
+        ),
+      ],
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'toggle':
+        unawaited(notifier.togglePlayPause());
+      case 'tuck':
+        _handleTuckToEdge(side: FloatingMiniEdgeSide.right);
+      case 'close':
+        _handleStopAndClose();
+    }
+  }
+
+  Size _resolveCurrentMiniSize(
+    BuildContext context, {
+    FloatingMiniVisualState? visualState,
+    FloatingMiniEdgeSide? edgeSide,
+  }) {
     if (widget.layout != null) {
       return widget.layout!.resolveMiniWindowSize(widget.kind);
     }
@@ -331,6 +467,8 @@ class _KonataFloatingMiniPlayerState
       safe: AdaptiveCapsuleLayout.effectiveSafeInsetsOf(context),
       android: KonataAdaptiveTokens.isAndroid,
       miniKind: widget.kind,
+      visualState: visualState ?? ref.read(floatingMiniVisualStateProvider),
+      edgeSide: edgeSide ?? ref.read(floatingMiniEdgeSideProvider),
     );
     return fallbackLayout.resolveMiniWindowSize(widget.kind);
   }
@@ -345,11 +483,24 @@ class _KonataFloatingMiniPlayerState
       return const SizedBox.shrink();
     }
 
-    final p = context.palette;
-    final miniSize = _resolveCurrentMiniSize(context);
+    final visualState = widget.standalone
+        ? ref.watch(floatingMiniVisualStateProvider)
+        : (widget.layout?.visualState ?? FloatingMiniVisualState.collapsed);
+    final edgeSide = widget.standalone
+        ? ref.watch(floatingMiniEdgeSideProvider)
+        : (widget.layout?.edgeSide ?? FloatingMiniEdgeSide.right);
+    final inlinePaired =
+        !widget.standalone && (widget.layout?.inlinePhoneAudioPaired ?? false);
+    final miniSize = _resolveCurrentMiniSize(
+      context,
+      visualState: visualState,
+      edgeSide: edgeSide,
+    );
+
     final windowsVideoUnderlay =
         !KonataAdaptiveTokens.isAndroid &&
         widget.kind == FloatingMiniPlayerKind.video &&
+        visualState != FloatingMiniVisualState.tucked &&
         widget.videoRequest != null &&
         ref.watch(
           videoPlaybackProvider(
@@ -358,68 +509,52 @@ class _KonataFloatingMiniPlayerState
         );
     final usesCanvasHolePunchUnderlay =
         widget.kind == FloatingMiniPlayerKind.video &&
+        visualState != FloatingMiniVisualState.tucked &&
         (KonataAdaptiveTokens.isAndroid || windowsVideoUnderlay);
-    final bodyChild = widget.kind == FloatingMiniPlayerKind.video
-        ? _buildVideoBody(miniSize)
-        : _buildAudioBody(context, miniSize);
+
+    Widget content;
+    if (visualState == FloatingMiniVisualState.tucked) {
+      content = _buildEarTab(context, miniSize, edgeSide);
+    } else if (widget.kind == FloatingMiniPlayerKind.video) {
+      content = _buildVideoCard(
+        context,
+        miniSize,
+        usesCanvasHolePunchUnderlay: usesCanvasHolePunchUnderlay,
+      );
+    } else if (visualState == FloatingMiniVisualState.expanded &&
+        !inlinePaired) {
+      content = _buildAudioExpandedPill(context, miniSize);
+    } else {
+      content = _buildAudioDisc(
+        context,
+        miniSize,
+        inlinePaired: inlinePaired,
+      );
+    }
+
+    final allowPan =
+        !widget.standalone &&
+        !inlinePaired &&
+        visualState != FloatingMiniVisualState.tucked;
+
     final innerCard = Material(
       type: MaterialType.transparency,
       child: DefaultTextStyle.merge(
         style: const TextStyle(decoration: TextDecoration.none),
-        child: GestureDetector(
-          dragStartBehavior: DragStartBehavior.down,
-          onPanStart: widget.standalone
-              ? null
-              : (d) => _handlePanStart(d, miniSize),
-          onPanUpdate: widget.standalone
-              ? null
-              : (d) => _handlePanUpdate(d, miniSize),
-          onPanEnd: widget.standalone
-              ? null
-              : (d) => _handlePanEndOrCancel(miniSize, d),
-          onPanCancel: widget.standalone
-              ? null
-              : () => _handlePanEndOrCancel(miniSize),
-          child: Container(
-            key: const ValueKey('konata_floating_mini_player'),
-            width: miniSize.width,
-            height: miniSize.height,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(
-                KonataPlaybackTokens.floatingMiniRadius,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: KonataPlaybackTokens.shadowColor(p),
-                  blurRadius: KonataPlaybackTokens.floatingMiniShadowBlur,
-                  offset: KonataPlaybackTokens.floatingMiniShadowOffset,
-                ),
-              ],
-            ),
-            foregroundDecoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(
-                KonataPlaybackTokens.floatingMiniRadius,
-              ),
-              border: Border.all(
-                color: KonataPlaybackTokens.glassBorder(p),
-                width: KonataPlaybackTokens.floatingMiniBorderWidth,
-              ),
-            ),
-            child: usesCanvasHolePunchUnderlay
-                ? bodyChild
-                : ClipRRect(
-                    borderRadius: BorderRadius.circular(
-                      KonataPlaybackTokens.floatingMiniRadius,
-                    ),
-                    child: bodyChild,
-                  ),
-          ),
-        ),
+        child: allowPan
+            ? GestureDetector(
+                dragStartBehavior: DragStartBehavior.down,
+                onPanStart: (d) => _handlePanStart(d, miniSize),
+                onPanUpdate: (d) => _handlePanUpdate(d, miniSize),
+                onPanEnd: (d) => _handlePanEndOrCancel(miniSize, d),
+                onPanCancel: () => _handlePanEndOrCancel(miniSize),
+                child: content,
+              )
+            : content,
       ),
     );
-    // 跨端底层视频挖空（Android Underlay 与 Windows gpu-next / DComp 底层子窗口）
-    // 均依赖根画布 BlendMode.clear 透出硬件表面，禁止外层套 ClipRRect 或 RepaintBoundary
-    // 触发离屏光栅缓存阻断透明洞击穿宿主背景；圆角由前景边框与原生区域裁剪同步保证。
+
+    // 底层视频硬件挖空路径禁止外包 RepaintBoundary 阻断 BlendMode.clear 穿透。
     final card = usesCanvasHolePunchUnderlay
         ? innerCard
         : RepaintBoundary(child: innerCard);
@@ -442,442 +577,452 @@ class _KonataFloatingMiniPlayerState
     );
   }
 
-  Widget _buildVideoBody(Size miniSize) {
-    final req = widget.videoRequest!;
-    return SizedBox(
-      width: miniSize.width,
-      height: miniSize.height,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          GestureDetector(
-            key: const ValueKey('floating_mini_surface_tap_target'),
-            behavior: HitTestBehavior.opaque,
-            onTap: _handleSurfaceTap,
-            child:
-                widget.sharedVideoSurface ??
-                const ColoredBox(color: KonataPlaybackTokens.cinemaPureBlack),
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: RepaintBoundary(
-              child: _FloatingVideoProgressLeaf(request: req),
-            ),
-          ),
-          _FloatingMiniTransientChromeOverlay(
-            visibleListenable: _chromeVisibleNotifier,
-            onExpand: _handleExpandToFullscreen,
-            onClose: _handleStopAndClose,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAudioBody(BuildContext context, Size miniSize) {
+  Widget _buildEarTab(
+    BuildContext context,
+    Size miniSize,
+    FloatingMiniEdgeSide side,
+  ) {
     final p = context.palette;
-    final coverSide = miniSize.width;
-    final controlsHeight = miniSize.height - coverSide;
-    final notifier = ref.read(audioPlaybackProvider.notifier);
+    final isLeft = side == FloatingMiniEdgeSide.left;
+    final radius = isLeft
+        ? const BorderRadius.horizontal(right: Radius.circular(14))
+        : const BorderRadius.horizontal(left: Radius.circular(14));
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          width: coverSide,
-          height: coverSide,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              GestureDetector(
-                key: const ValueKey('floating_mini_surface_tap_target'),
-                behavior: HitTestBehavior.opaque,
-                onTap: _handleSurfaceTap,
-                child: RepaintBoundary(
-                  child: _FloatingAudioCoverLeaf(size: coverSide),
+    return Tooltip(
+      message: '展开悬浮小窗',
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          key: const ValueKey('floating_mini_ear_tab'),
+          behavior: HitTestBehavior.opaque,
+          onTap: _handleUntuckFromEdge,
+          child: Container(
+            key: const ValueKey('konata_floating_mini_player'),
+            width: miniSize.width,
+            height: miniSize.height,
+            decoration: BoxDecoration(
+              borderRadius: radius,
+              boxShadow: [
+                BoxShadow(
+                  color: KonataPlaybackTokens.shadowColor(p),
+                  blurRadius: 16,
+                  offset: Offset(isLeft ? 3 : -3, 4),
                 ),
-              ),
-              const Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: RepaintBoundary(child: _FloatingAudioProgressLeaf()),
-              ),
-              _FloatingMiniTransientChromeOverlay(
-                visibleListenable: _chromeVisibleNotifier,
-                onExpand: _handleExpandToFullscreen,
-                onClose: _handleStopAndClose,
-              ),
-            ],
-          ),
-        ),
-        SizedBox(
-          width: coverSide,
-          height: controlsHeight,
-          child: ClipRect(
-            child: BackdropFilter(
-              filter: KonataTheme.blurFilterControl,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: KonataPlaybackTokens.glassSurface(p),
-                  border: Border(
-                    top: BorderSide(
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: radius,
+              child: BackdropFilter(
+                filter: KonataTheme.blurFilterControl,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: KonataPlaybackTokens.glassSurface(p),
+                    gradient: KonataTheme.opticalSheenGradient(p),
+                    borderRadius: radius,
+                    border: Border.all(
                       color: KonataPlaybackTokens.glassBorder(p),
                       width: KonataPlaybackTokens.floatingMiniBorderWidth,
                     ),
                   ),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _FloatingAudioTransportButton(
-                        buttonKey: const ValueKey('floating_mini_audio_prev'),
-                        icon: Icons.skip_previous_rounded,
-                        tooltip: '上一首',
-                        onTap: notifier.previous,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (widget.kind == FloatingMiniPlayerKind.audio)
+                        const _FloatingMiniEqualizerLeaf(compact: true)
+                      else
+                        Icon(
+                          Icons.movie_outlined,
+                          size: 13,
+                          color: p.textPrimary,
+                        ),
+                      const SizedBox(height: 4),
+                      Icon(
+                        isLeft
+                            ? Icons.chevron_right_rounded
+                            : Icons.chevron_left_rounded,
+                        size: 16,
+                        color: p.textSecondary,
                       ),
-                    ),
-                    Expanded(
-                      child: _FloatingAudioPlayPauseLeaf(
-                        onTap: notifier.togglePlayPause,
-                      ),
-                    ),
-                    Expanded(
-                      child: _FloatingAudioTransportButton(
-                        buttonKey: const ValueKey('floating_mini_audio_next'),
-                        icon: Icons.skip_next_rounded,
-                        tooltip: '下一首',
-                        onTap: notifier.next,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// 轻触画面/封面后临时显现 3 秒的左上展开与右上 `×` 关闭浮层（所有触控热区严格 `>= 48dp`）。
-class _FloatingMiniTransientChromeOverlay extends StatelessWidget {
-  const _FloatingMiniTransientChromeOverlay({
-    required this.visibleListenable,
-    required this.onExpand,
-    required this.onClose,
-  });
-
-  final ValueNotifier<bool> visibleListenable;
-  final VoidCallback onExpand;
-  final VoidCallback onClose;
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: visibleListenable,
-      builder: (context, visible, _) {
-        if (!visible) {
-          return const SizedBox.shrink();
-        }
-        return Stack(
-          fit: StackFit.expand,
-          children: [
-            IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    stops: const [0.0, 0.45, 1.0],
-                    colors: const [
-                      KonataPlaybackTokens.floatingMiniChromeScrimTop,
-                      KonataPlaybackTokens.floatingMiniChromeScrimMid,
-                      Colors.transparent,
                     ],
                   ),
                 ),
               ),
             ),
-            Align(
-              alignment: Alignment.topLeft,
-              child: _FloatingOverlayCornerButton(
-                buttonKey: const ValueKey('floating_mini_expand_button'),
-                icon: Icons.open_in_full_rounded,
-                tooltip: '展开全屏',
-                onTap: onExpand,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAudioDisc(
+    BuildContext context,
+    Size miniSize, {
+    required bool inlinePaired,
+  }) {
+    final p = context.palette;
+    final side = miniSize.width;
+    final notifier = ref.read(audioPlaybackProvider.notifier);
+
+    return Builder(
+      builder: (discCtx) {
+        Widget disc = Container(
+          key: const ValueKey('konata_floating_mini_player'),
+          width: side,
+          height: side,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: KonataPlaybackTokens.shadowColor(p),
+                blurRadius: KonataPlaybackTokens.floatingMiniShadowBlur,
+                offset: KonataPlaybackTokens.floatingMiniShadowOffset,
+              ),
+            ],
+          ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(
+                  KonataPlaybackTokens.floatingMiniAudioRingWidth + 1.2,
+                ),
+                child: ClipOval(
+                  child: _FloatingAudioCoverLeaf(
+                    size:
+                        side -
+                        (KonataPlaybackTokens.floatingMiniAudioRingWidth +
+                                1.2) *
+                            2,
+                  ),
+                ),
+              ),
+              const IgnorePointer(
+                child: RepaintBoundary(child: _FloatingAudioProgressLeaf()),
+              ),
+              Positioned(
+                right: 3,
+                bottom: 3,
+                child: IgnorePointer(
+                  child: Container(
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      color: KonataPlaybackTokens.videoOverlayBadgeBg,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: KonataPlaybackTokens.videoOverlayBadgeBorder,
+                        width: 0.8,
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: const _FloatingMiniEqualizerLeaf(
+                      compact: true,
+                      forceWhite: true,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+
+        return Tooltip(
+          message: inlinePaired ? '点击全屏 · 左滑下一曲 · 长按更多' : '点击展开播控条 · 拖拽吸附/贴边',
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              key: const ValueKey('floating_mini_surface_tap_target'),
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                if (inlinePaired) {
+                  _handleExpandToFullscreen();
+                } else {
+                  ref.read(floatingMiniVisualStateProvider.notifier).state =
+                      FloatingMiniVisualState.expanded;
+                }
+              },
+              onHorizontalDragEnd: inlinePaired
+                  ? (details) {
+                      final vx = details.primaryVelocity ?? 0.0;
+                      if (vx < -140.0) {
+                        unawaited(notifier.next());
+                      } else if (vx > 140.0) {
+                        unawaited(notifier.previous());
+                      }
+                    }
+                  : null,
+              onLongPress: inlinePaired
+                  ? () => unawaited(_showInlinePhoneAudioMenu(discCtx))
+                  : null,
+              child: KeyedSubtree(
+                key: const ValueKey('floating_mini_audio_disc'),
+                child: disc,
               ),
             ),
-            Align(
-              alignment: Alignment.topRight,
-              child: _FloatingOverlayCornerButton(
-                buttonKey: const ValueKey('floating_mini_close_button'),
-                icon: Icons.close_rounded,
-                tooltip: '停止并关闭',
-                onTap: onClose,
-              ),
-            ),
-          ],
+          ),
         );
       },
     );
   }
-}
 
-class _FloatingOverlayCornerButton extends StatelessWidget {
-  const _FloatingOverlayCornerButton({
-    required this.buttonKey,
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-  });
-
-  final Key buttonKey;
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          key: buttonKey,
-          behavior: HitTestBehavior.opaque,
-          onTap: onTap,
-          child: SizedBox.square(
-            dimension: KonataAdaptiveTokens.touchTarget,
-            child: Center(
-              child: Container(
-                width: KonataPlaybackTokens.floatingMiniOverlayPillSize,
-                height: KonataPlaybackTokens.floatingMiniOverlayPillSize,
-                decoration: BoxDecoration(
-                  color: KonataPlaybackTokens.videoOverlayBadgeBg,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: KonataPlaybackTokens.videoOverlayBadgeBorder,
-                    width: KonataPlaybackTokens.floatingMiniBorderWidth,
-                  ),
-                ),
-                child: Icon(
-                  icon,
-                  size: KonataPlaybackTokens.floatingMiniOverlayIconSize,
-                  color: KonataPlaybackTokens.videoOverlayBadgeFg,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _FloatingAudioTransportButton extends StatefulWidget {
-  const _FloatingAudioTransportButton({
-    required this.buttonKey,
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-  });
-
-  final Key buttonKey;
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-
-  @override
-  State<_FloatingAudioTransportButton> createState() =>
-      _FloatingAudioTransportButtonState();
-}
-
-class _FloatingAudioTransportButtonState
-    extends State<_FloatingAudioTransportButton> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildAudioExpandedPill(BuildContext context, Size miniSize) {
     final p = context.palette;
-    return Tooltip(
-      message: widget.tooltip,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          key: widget.buttonKey,
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.onTap,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              minWidth: KonataAdaptiveTokens.touchTarget,
-              minHeight: KonataAdaptiveTokens.touchTarget,
-            ),
-            child: ColoredBox(
-              color: _hovered
-                  ? KonataPlaybackTokens.hoverFill(p)
-                  : Colors.transparent,
-              child: Center(
-                child: Icon(
-                  widget.icon,
-                  size: KonataPlaybackTokens.floatingMiniTransportIconSize,
-                  color: p.textPrimary,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 仅订阅音频播放/暂停布尔状态的独立叶子按钮，防止曲目时间推进触发底栏重绘。
-class _FloatingAudioPlayPauseLeaf extends ConsumerWidget {
-  const _FloatingAudioPlayPauseLeaf({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final isPlaying = ref.watch(
-      audioPlaybackProvider.select((s) => s.isPlaying),
-    );
-    return _FloatingAudioTransportButton(
-      buttonKey: const ValueKey('floating_mini_audio_play_pause'),
-      icon: isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-      tooltip: isPlaying ? '暂停' : '播放',
-      onTap: onTap,
-    );
-  }
-}
-
-/// 仅订阅封面数据源变更的 `1:1` 纯正方形封面叶子组件。
-class _FloatingAudioCoverLeaf extends ConsumerWidget {
-  const _FloatingAudioCoverLeaf({required this.size});
-
-  final double size;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final p = context.palette;
-    final cover = ref.watch(audioPlaybackProvider.select((s) => s.cover));
-    final expanded = ref.watch(immersiveAudioExpandedProvider);
-    final loader = ref.watch(tmdbImageLoaderProvider);
-
-    return HeroMode(
-      enabled: !expanded,
-      child: Hero(
-        tag: 'konata_audio_cover_hero',
-        child: SmartCoverAlignmentBuilder(
-          cover: cover,
-          loader: loader,
-          builder: (context, coverAlignment) {
-            switch (cover) {
-              case MemoryAudioCover(:final bytes):
-                return Image.memory(
-                  bytes,
-                  width: size,
-                  height: size,
-                  fit: BoxFit.cover,
-                  alignment: coverAlignment,
-                  filterQuality: FilterQuality.medium,
-                  gaplessPlayback: true,
-                );
-              case ManagedPosterAudioCover(
-                :final url,
-                :final workId,
-                :final revision,
-              ):
-                return ManagedImage(
-                  url,
-                  key: ValueKey('floating_mini_cov_${workId}_${url}_$revision'),
-                  loader: loader,
-                  owner: workId,
-                  width: size,
-                  height: size,
-                  decodeWidth: KonataPlaybackTokens.floatingMiniCoverDecodeWidth,
-                  fit: BoxFit.cover,
-                  alignment: coverAlignment,
-                  errorBuilder: (_, _, _) => _fallbackCover(p),
-                );
-              case EmptyAudioCover():
-                return _fallbackCover(p);
-            }
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _fallbackCover(KonataPalette p) {
-    return ColoredBox(
-      color: KonataPlaybackTokens.auroraCanvas(p),
-      child: Center(
-        child: Icon(
-          Icons.album_rounded,
-          size: KonataPlaybackTokens.floatingMiniFallbackIconSize,
-          color: p.textSecondary,
-        ),
-      ),
-    );
-  }
-}
-
-/// 视频悬浮小窗底部 `2dp` 进度指示叶子（高频进度仅重绘此叶子，零外层重建）。
-class _FloatingVideoProgressLeaf extends ConsumerWidget {
-  const _FloatingVideoProgressLeaf({required this.request});
-
-  final VideoLaunchRequest request;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final timing = ref.watch(
-      videoPlaybackProvider(request).select(
-        (s) => (pos: s.positionSeconds, dur: s.durationSeconds),
-      ),
-    );
-    final ratio = timing.dur > 0
-        ? (timing.pos / timing.dur).clamp(0.0, 1.0)
-        : 0.0;
-    return IgnorePointer(
-      child: LinearProgressIndicator(
-        key: const ValueKey('floating_mini_video_progress'),
-        value: ratio,
-        minHeight: KonataAdaptiveTokens.progressHeight,
-        color: context.palette.progressFill,
-        backgroundColor: Colors.transparent,
-      ),
-    );
-  }
-}
-
-/// 音频悬浮小窗封面底沿 `2dp` 进度指示叶子（高频进度仅重绘此叶子，零外层重建）。
-class _FloatingAudioProgressLeaf extends ConsumerWidget {
-  const _FloatingAudioProgressLeaf();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final timing = ref.watch(
+    final notifier = ref.read(audioPlaybackProvider.notifier);
+    final trackMeta = ref.watch(
       audioPlaybackProvider.select(
-        (s) => (pos: s.positionSeconds, dur: s.durationSeconds),
+        (s) => (
+          title: s.currentItem?.title ?? '',
+          subtitle: s.currentItem?.albumTitle.isNotEmpty == true
+              ? s.currentItem!.albumTitle
+              : (s.currentItem?.work.title ?? ''),
+        ),
       ),
     );
-    final ratio = timing.dur > 0
-        ? (timing.pos / timing.dur).clamp(0.0, 1.0)
-        : 0.0;
-    return IgnorePointer(
-      child: LinearProgressIndicator(
-        key: const ValueKey('floating_mini_audio_progress'),
-        value: ratio,
-        minHeight: KonataAdaptiveTokens.progressHeight,
-        color: context.palette.progressFill,
-        backgroundColor: Colors.transparent,
+    final isTouch = KonataAdaptiveTokens.isAndroid;
+    final compactButtons = miniSize.width < 300;
+    final iconBtnSize = compactButtons ? 28.0 : (isTouch ? 36.0 : 30.0);
+
+    return TapRegion(
+      onTapOutside: (_) {
+        if (mounted &&
+            ref.read(floatingMiniVisualStateProvider) ==
+                FloatingMiniVisualState.expanded) {
+          ref.read(floatingMiniVisualStateProvider.notifier).state =
+              FloatingMiniVisualState.collapsed;
+        }
+      },
+      child: SizedBox(
+        key: const ValueKey('konata_floating_mini_player'),
+        width: miniSize.width,
+        height: miniSize.height,
+        child: KonataGlassCapsule(
+        key: const ValueKey('floating_mini_audio_pill'),
+        radius: KonataTheme.radiusPill,
+        showShadow: true,
+        child: Stack(
+          children: [
+            const Positioned(
+              left: 22,
+              right: 22,
+              top: 1.0,
+              child: IgnorePointer(
+                child: RepaintBoundary(
+                  child: _FloatingAudioProgressLeaf(linear: true),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
+                        key: const ValueKey('floating_mini_surface_tap_target'),
+                        behavior: HitTestBehavior.opaque,
+                        onTap: _handleExpandToFullscreen,
+                        child: Row(
+                          children: [
+                            ClipOval(
+                              child: SizedBox.square(
+                                dimension: KonataPlaybackTokens
+                                    .floatingMiniAudioPillCoverSize,
+                                child: const _FloatingAudioCoverLeaf(
+                                  size: KonataPlaybackTokens
+                                      .floatingMiniAudioPillCoverSize,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 9),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    trackMeta.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: p.textPrimary,
+                                      fontSize: KonataTheme.fontSizeBodyXs,
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.2,
+                                    ),
+                                  ),
+                                  if (trackMeta.subtitle.isNotEmpty) ...[
+                                    const SizedBox(height: 1),
+                                    Text(
+                                      trackMeta.subtitle,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: p.textSecondary,
+                                        fontSize: KonataTheme.fontSizeMicro,
+                                        height: 1.15,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  KonataCapsuleIconButton(
+                    key: const ValueKey('floating_mini_audio_prev'),
+                    icon: Icons.skip_previous_rounded,
+                    tooltip: '上一首',
+                    color: p.textPrimary,
+                    size: 18,
+                    fixedSize: iconBtnSize,
+                    padding: EdgeInsets.zero,
+                    onTap: notifier.previous,
+                  ),
+                  _FloatingAudioPlayPauseLeaf(
+                    fixedSize: iconBtnSize,
+                    onTap: notifier.togglePlayPause,
+                  ),
+                  KonataCapsuleIconButton(
+                    key: const ValueKey('floating_mini_audio_next'),
+                    icon: Icons.skip_next_rounded,
+                    tooltip: '下一首',
+                    color: p.textPrimary,
+                    size: 18,
+                    fixedSize: iconBtnSize,
+                    padding: EdgeInsets.zero,
+                    onTap: notifier.next,
+                  ),
+                  KonataCapsuleIconButton(
+                    key: const ValueKey('floating_mini_tuck_button'),
+                    icon: Icons.last_page_rounded,
+                    tooltip: '贴边隐藏',
+                    color: p.textSecondary,
+                    size: 16,
+                    fixedSize: iconBtnSize,
+                    padding: EdgeInsets.zero,
+                    onTap: () => _handleTuckToEdge(),
+                  ),
+                  KonataCapsuleIconButton(
+                    key: const ValueKey('floating_mini_collapse_disc_button'),
+                    icon: Icons.remove_rounded,
+                    tooltip: '收起为圆形图标',
+                    color: p.textSecondary,
+                    size: 16,
+                    fixedSize: iconBtnSize,
+                    padding: EdgeInsets.zero,
+                    onTap: () {
+                      ref.read(floatingMiniVisualStateProvider.notifier).state =
+                          FloatingMiniVisualState.collapsed;
+                    },
+                  ),
+                  KonataCapsuleIconButton(
+                    key: const ValueKey('floating_mini_close_button'),
+                    icon: Icons.close_rounded,
+                    tooltip: '停止并关闭',
+                    color: p.textSecondary,
+                    size: 16,
+                    fixedSize: iconBtnSize,
+                    padding: EdgeInsets.zero,
+                    onTap: _handleStopAndClose,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      ),
+    );
+  }
+
+  Widget _buildVideoCard(
+    BuildContext context,
+    Size miniSize, {
+    required bool usesCanvasHolePunchUnderlay,
+  }) {
+    final p = context.palette;
+    final req = widget.videoRequest!;
+    final bodyChild = SizedBox(
+      width: miniSize.width,
+      height: miniSize.height,
+      child: MouseRegion(
+        onEnter: KonataAdaptiveTokens.isAndroid
+            ? null
+            : (_) => _revealChromeWithTimer(),
+        onExit: KonataAdaptiveTokens.isAndroid
+            ? null
+            : (_) => _hideChromeImmediate(),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            GestureDetector(
+              key: const ValueKey('floating_mini_surface_tap_target'),
+              behavior: HitTestBehavior.opaque,
+              onTap: _handleVideoSurfaceTap,
+              child:
+                  widget.sharedVideoSurface ??
+                  const ColoredBox(color: KonataPlaybackTokens.cinemaPureBlack),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: RepaintBoundary(
+                child: _FloatingVideoProgressLeaf(request: req),
+              ),
+            ),
+            _FloatingMiniTransientChromeOverlay(
+              visibleListenable: _chromeVisibleNotifier,
+              videoRequest: req,
+              onExpand: _handleExpandToFullscreen,
+              onTuck: () => _handleTuckToEdge(),
+              onClose: _handleStopAndClose,
+            ),
+          ],
+        ),
+      ),
+    );
+
+    return Container(
+      key: const ValueKey('konata_floating_mini_player'),
+      width: miniSize.width,
+      height: miniSize.height,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(
+          KonataPlaybackTokens.floatingMiniRadius,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: KonataPlaybackTokens.shadowColor(p),
+            blurRadius: KonataPlaybackTokens.floatingMiniShadowBlur,
+            offset: KonataPlaybackTokens.floatingMiniShadowOffset,
+          ),
+        ],
+      ),
+      foregroundDecoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(
+          KonataPlaybackTokens.floatingMiniRadius,
+        ),
+        border: Border.all(
+          color: KonataPlaybackTokens.glassBorder(p),
+          width: KonataPlaybackTokens.floatingMiniBorderWidth,
+        ),
+      ),
+      child: Builder(
+        builder: (_) => usesCanvasHolePunchUnderlay
+                ? bodyChild
+                : ClipRRect(
+                    borderRadius: BorderRadius.circular(
+                      KonataPlaybackTokens.floatingMiniRadius,
+                    ),
+                    child: bodyChild,
+                  ),
       ),
     );
   }

@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../../application/providers/library_providers.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
+import '../theme/konata_theme.dart';
+import '../widgets/design_system/bangumi_score_wordmark_badge.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/managed_image.dart';
-import '../theme/konata_theme.dart';
 
-/// 高密度海报墙单卡组件（圆角 10px + 悬停 1.03x 微缩放，零实时 BackdropFilter）。
+/// 高密度海报墙单卡组件（圆角 12px + 悬停 1.025x 微抬升 + 桌面左下 Bangumi 粉色微标，零实时 BackdropFilter）。
 class PosterCard extends StatefulWidget {
   /// 创建海报卡片。
   const PosterCard({
@@ -41,6 +43,11 @@ class _PosterCardState extends State<PosterCard> {
       if (widget.item.episodeCount > 0) '${widget.item.episodeCount} 话',
     ];
     final subtitle = subParts.isEmpty ? '待完善元数据' : subParts.join(' · ');
+    final bangumiScore = work.bangumiScore;
+    final showHoverBangumiBadge =
+        !KonataAdaptiveTokens.isAndroid &&
+        bangumiScore != null &&
+        bangumiScore > 0;
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -53,13 +60,26 @@ class _PosterCardState extends State<PosterCard> {
           children: [
             Expanded(
               child: AnimatedScale(
-                scale: _hovered ? 1.03 : 1.0,
+                scale: _hovered ? 1.025 : 1.0,
                 duration: KonataTheme.motionMedium,
                 curve: Curves.easeOutCubic,
-                child: Container(
+                child: AnimatedContainer(
+                  duration: KonataTheme.motionFast,
+                  curve: Curves.easeOutCubic,
                   decoration: BoxDecoration(
-                    borderRadius: KonataTheme.borderRadiusControl,
+                    borderRadius: KonataTheme.borderRadiusCard,
                     color: p.surface,
+                    boxShadow: _hovered
+                        ? [
+                            BoxShadow(
+                              color: KonataTheme.pureBlack.withValues(
+                                alpha: p.isDark ? 0.42 : 0.16,
+                              ),
+                              blurRadius: 18,
+                              offset: const Offset(0, 8),
+                            ),
+                          ]
+                        : null,
                   ),
                   clipBehavior: Clip.antiAlias,
                   child: Stack(
@@ -77,12 +97,41 @@ class _PosterCardState extends State<PosterCard> {
                         )
                       else
                         _PosterFallback(title: work.title),
-                      // 海报外缘内嵌 1px 微光细边
+                      // 桌面悬停时底部轻柔暗角，确保左下 Bangumi 粉色微标清晰可读
+                      if (showHoverBangumiBadge)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          height: 64,
+                          child: IgnorePointer(
+                            child: AnimatedOpacity(
+                              opacity: _hovered ? 1.0 : 0.0,
+                              duration: KonataTheme.motionFast,
+                              curve: Curves.easeOutCubic,
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      Colors.transparent,
+                                      KonataTheme.cinemaObsidian.withValues(
+                                        alpha: 0.74,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      // 海报外缘内嵌 1px 光学高光细边
                       Positioned.fill(
                         child: IgnorePointer(
                           child: DecoratedBox(
                             decoration: BoxDecoration(
-                              borderRadius: KonataTheme.borderRadiusControl,
+                              borderRadius: KonataTheme.borderRadiusCard,
                               border: Border.all(
                                 color: _hovered ? p.hoverBorder : p.posterBorder,
                                 width: 1,
@@ -91,6 +140,22 @@ class _PosterCardState extends State<PosterCard> {
                           ),
                         ),
                       ),
+                      if (showHoverBangumiBadge)
+                        Positioned(
+                          left: 8,
+                          bottom: 8,
+                          child: IgnorePointer(
+                            child: AnimatedOpacity(
+                              opacity: _hovered ? 1.0 : 0.0,
+                              duration: KonataTheme.motionFast,
+                              curve: Curves.easeOutCubic,
+                              child: BangumiScoreWordmarkBadge(
+                                key: ValueKey('poster_bangumi_badge_${work.id}'),
+                                score: bangumiScore,
+                              ),
+                            ),
+                          ),
+                        ),
                       if (widget.item.hasMultiVariants)
                         Positioned(
                           top: 8,

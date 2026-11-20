@@ -79,8 +79,11 @@ final activeFloatingMiniPlayerKindProvider = Provider<FloatingMiniPlayerKind>((
   return FloatingMiniPlayerKind.none;
 });
 
-/// 当可拖拽悬浮小窗停靠于视口下半区时，供未包裹作用域的列表或桌面壳层读取的基准底部避让高度。
+/// 当可拖拽悬浮小窗停靠于视口下半区时，供未包裹作用域的列表读取的基准底部避让高度（桌面端恒为 0，不顶推页面内容）。
 final miniAudioBottomClearanceProvider = Provider<double>((ref) {
+  if (!KonataAdaptiveTokens.isAndroid) {
+    return 0.0;
+  }
   final kind = ref.watch(activeFloatingMiniPlayerKindProvider);
   if (kind == FloatingMiniPlayerKind.none) {
     return 0.0;

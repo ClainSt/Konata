@@ -290,10 +290,13 @@ class _SettingsCategoriesState<T> extends State<_SettingsCategories<T>> {
           DecoratedBox(
             decoration: BoxDecoration(
               color: !widget.summaries && c.value == widget.selected
-                  ? context.palette.softFill
+                  ? null
                   : Colors.transparent,
               gradient: !widget.summaries && c.value == widget.selected
-                  ? KonataTheme.opticalSheenGradient(context.palette)
+                  ? KonataTheme.opticalSheenGradient(
+                      context.palette,
+                      baseColor: context.palette.softFill,
+                    )
                   : null,
               borderRadius: BorderRadius.circular(
                 KonataAdaptiveTokens.settingsRadius,

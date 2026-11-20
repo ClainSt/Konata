@@ -411,6 +411,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
         ref: ref,
         bundle: bundle,
         variant: variant,
+        expandImmersive: true,
       ),
       onCdPlayImmersive: (variant) => DetailActionHandlers.playCdAsset(
         context: context,

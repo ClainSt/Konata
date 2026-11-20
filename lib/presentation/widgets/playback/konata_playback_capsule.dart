@@ -530,8 +530,10 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                           final capsuleSurface = Container(
                             height: effectiveHeight,
                             decoration: BoxDecoration(
-                              color: bgColor,
-                              gradient: KonataTheme.opticalSheenGradient(p),
+                              gradient: KonataTheme.opticalSheenGradient(
+                                p,
+                                baseColor: bgColor,
+                              ),
                               borderRadius: BorderRadius.circular(
                                 effectiveRadius,
                               ),

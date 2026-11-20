@@ -85,13 +85,15 @@ class AudioAssetExtractor {
 
   static Uint8List? _parseFlacPictureBlock(Uint8List block) {
     if (block.length < 32) return null;
-    var cursor = 4; // skip picture type
+    // 跳过 4 字节图片类型枚举。
+    var cursor = 4;
     if (cursor + 4 > block.length) return null;
     final mimeLen = _readUint32Be(block, cursor);
     cursor += 4 + mimeLen;
     if (cursor + 4 > block.length) return null;
     final descLen = _readUint32Be(block, cursor);
-    cursor += 4 + descLen + 16; // width, height, depth, indexed colors
+    // 跳过宽高、色深与索引色数共 16 字节。
+    cursor += 4 + descLen + 16;
     if (cursor + 4 > block.length) return null;
     final dataLen = _readUint32Be(block, cursor);
     cursor += 4;
@@ -156,15 +158,18 @@ class AudioAssetExtractor {
     final encoding = frame[0];
     var cursor = 1;
     if (isV22) {
-      cursor += 3; // 3-byte image format e.g. PNG/JPG
+      // 跳过 3 字节短格式标识（如 PNG/JPG）。
+      cursor += 3;
     } else {
       while (cursor < frame.length && frame[cursor] != 0) {
         cursor++;
       }
-      cursor++; // skip NUL
+      // 跳过 MIME 终止空字节。
+      cursor++;
     }
     if (cursor >= frame.length) return null;
-    cursor++; // skip picture type byte
+    // 跳过 1 字节图片类型枚举。
+    cursor++;
 
     // 跳过以单 NUL（Latin1/UTF-8）或双 NUL（UTF-16）结尾的封面描述字符串。
     if (encoding == 1 || encoding == 2) {
@@ -185,17 +190,25 @@ class AudioAssetExtractor {
     return Uint8List.fromList(frame.sublist(cursor));
   }
 
-  /// 按有限字节上限从媒体源网关读取小文件（CUE/LRC/小图/音轨头部）。
-  static Future<Uint8List?> readBoundedBytes(
+  /// 两段式封面探测首段读取上限（256 KiB，覆盖大多数内嵌 JPEG 且大幅降低无封面文件的远程拉取量）。
+  static const int _fastEmbeddedCoverProbeBytes = 256 * 1024;
+
+  /// 两段式封面探测最大补读上限（2 MiB）。
+  static const int _maxEmbeddedCoverProbeBytes = 2 * 1024 * 1024;
+
+  /// 按有限字节上限从媒体源网关读取指定起点范围的小块数据。
+  static Future<Uint8List?> readBoundedRange(
     ByteRangeReadableGateway gateway,
     String relativePath, {
-    int maxBytes = 1536 * 1024,
+    required int start,
+    required int maxBytes,
   }) async {
+    if (maxBytes <= 0) return null;
     try {
       final stream = await gateway.openByteRange(
         relativePath,
-        start: 0,
-        endInclusive: maxBytes - 1,
+        start: start,
+        endInclusive: start + maxBytes - 1,
       );
       final chunks = <int>[];
       await for (final chunk in stream) {
@@ -203,10 +216,106 @@ class AudioAssetExtractor {
         if (chunks.length >= maxBytes) break;
       }
       if (chunks.isEmpty) return null;
+      if (chunks.length > maxBytes) {
+        return Uint8List.fromList(chunks.sublist(0, maxBytes));
+      }
       return Uint8List.fromList(chunks);
     } catch (_) {
       return null;
     }
+  }
+
+  /// 按有限字节上限从媒体源网关读取小文件（CUE/LRC/小图/音轨头部）。
+  static Future<Uint8List?> readBoundedBytes(
+    ByteRangeReadableGateway gateway,
+    String relativePath, {
+    int maxBytes = 1536 * 1024,
+  }) => readBoundedRange(gateway, relativePath, start: 0, maxBytes: maxBytes);
+
+  /// 探测音频头部所需精确字节数：先拉取 256 KiB，仅在确有更大封面块时按需续读余段，无封面文件零冗余拉流。
+  static Future<Uint8List?> readEmbeddedCoverBytes(
+    ByteRangeReadableGateway gateway,
+    String relativePath,
+  ) async {
+    final head = await readBoundedRange(
+      gateway,
+      relativePath,
+      start: 0,
+      maxBytes: _fastEmbeddedCoverProbeBytes,
+    );
+    if (head == null || head.length < 16) return null;
+
+    final fastHit = extractEmbeddedCoverFromHeaderBytes(head);
+    if (fastHit != null && fastHit.isNotEmpty) {
+      return fastHit;
+    }
+
+    final requiredTotal = _estimateRequiredCoverHeaderBytes(head);
+    if (requiredTotal <= head.length) {
+      return null;
+    }
+    final remaining = requiredTotal - head.length;
+    final tail = await readBoundedRange(
+      gateway,
+      relativePath,
+      start: head.length,
+      maxBytes: remaining,
+    );
+    if (tail == null || tail.isEmpty) {
+      return null;
+    }
+    final merged = Uint8List(head.length + tail.length);
+    merged.setRange(0, head.length, head);
+    merged.setRange(head.length, merged.length, tail);
+    return extractEmbeddedCoverFromHeaderBytes(merged);
+  }
+
+  /// 根据首段 256 KiB 容器头部判断是否存在跨段未读完的封面块及所需总字节数；确认无封面时返回 `0`。
+  static int _estimateRequiredCoverHeaderBytes(Uint8List head) {
+    if (head.length < 16) return 0;
+    // FLAC 容器：按块头长度精确定位 PICTURE 块结束位置。
+    if (head[0] == 0x66 &&
+        head[1] == 0x4C &&
+        head[2] == 0x61 &&
+        head[3] == 0x43) {
+      var offset = 4;
+      while (offset + 4 <= head.length) {
+        final header = head[offset];
+        final isLast = (header & 0x80) != 0;
+        final blockType = header & 0x7F;
+        final length =
+            (head[offset + 1] << 16) |
+            (head[offset + 2] << 8) |
+            head[offset + 3];
+        offset += 4;
+        if (length <= 0) return 0;
+        final blockEnd = offset + length;
+        if (blockEnd > head.length) {
+          if (blockType == 6) {
+            return blockEnd <= _maxEmbeddedCoverProbeBytes
+                ? blockEnd
+                : _maxEmbeddedCoverProbeBytes;
+          }
+          if (isLast) return 0;
+          final expanded = blockEnd + 65536;
+          return expanded <= _maxEmbeddedCoverProbeBytes
+              ? expanded
+              : _maxEmbeddedCoverProbeBytes;
+        }
+        offset = blockEnd;
+        if (isLast) return 0;
+      }
+      return _maxEmbeddedCoverProbeBytes;
+    }
+    // ID3v2 容器：直接依据标签总长度决定是否补读。
+    if (head[0] == 0x49 && head[1] == 0x44 && head[2] == 0x33) {
+      final tagTotal = 10 + _readSyncSafeInt(head, 6);
+      if (tagTotal <= head.length) return 0;
+      return tagTotal <= _maxEmbeddedCoverProbeBytes
+          ? tagTotal
+          : _maxEmbeddedCoverProbeBytes;
+    }
+    return 0;
   }
 
   /// 为当前 CD 曲目按需读取：1) 头部内嵌封面；2) 同目录封面图；3) 同名 `.lrc` 歌词。
@@ -243,14 +352,10 @@ class AudioAssetExtractor {
       if (gateway is ByteRangeReadableGateway) {
         final byteGateway = gateway as ByteRangeReadableGateway;
         if (probeEmbeddedCover) {
-          final headerBytes = await readBoundedBytes(
+          embeddedCover = await readEmbeddedCoverBytes(
             byteGateway,
             variant.relativePath,
-            maxBytes: 1536 * 1024,
           );
-          if (headerBytes != null) {
-            embeddedCover = extractEmbeddedCoverFromHeaderBytes(headerBytes);
-          }
         }
 
         // 查找同目录封面或歌词文件（优先复用缓存目录项，避免同专辑切歌重复列举）
@@ -420,16 +525,12 @@ class AudioAssetExtractor {
               fallbackAudioPath != null
           ? fallbackAudioPath
           : normRel;
-      final headerBytes = await readBoundedBytes(
+      final embedded = await readEmbeddedCoverBytes(
         byteGateway,
         probeAudioPath,
-        maxBytes: 1536 * 1024,
       );
-      if (headerBytes != null) {
-        final embedded = extractEmbeddedCoverFromHeaderBytes(headerBytes);
-        if (embedded != null && embedded.isNotEmpty) {
-          return embedded;
-        }
+      if (embedded != null && embedded.isNotEmpty) {
+        return embedded;
       }
       return null;
     } catch (_) {

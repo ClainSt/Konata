@@ -383,16 +383,23 @@ void main() {
             );
             expect(miniFinder, findsOneWidget);
 
-            // 1. 音频小窗默认收起为 56x56 圆形封面光环
+            // 1. 音频小窗默认收起为按视口实际尺寸缩放的圆形封面光环
+            final expectedDisc = AdaptiveCapsuleLayout(
+              size: vp.size,
+              safe: vp.safe,
+              android: vp.android,
+              navigationVisible: vp.android,
+              miniKind: FloatingMiniPlayerKind.audio,
+            ).floatingMiniWindowRect!.size;
             final audioRect = tester.getRect(miniFinder);
-            expect(
-              audioRect.width,
-              closeTo(KonataPlaybackTokens.floatingMiniAudioDiscSize, 0.5),
-            );
-            expect(
-              audioRect.height,
-              closeTo(KonataPlaybackTokens.floatingMiniAudioDiscSize, 0.5),
-            );
+            expect(audioRect.width, closeTo(expectedDisc.width, 0.5));
+            expect(audioRect.height, closeTo(expectedDisc.height, 0.5));
+            if (vp.size.shortestSide >= 600) {
+              expect(
+                audioRect.width,
+                greaterThan(KonataPlaybackTokens.floatingMiniAudioDiscSize),
+              );
+            }
             expect(find.text('青春コンプレックス'), findsNothing);
             expect(find.byIcon(Icons.repeat_rounded), findsNothing);
 

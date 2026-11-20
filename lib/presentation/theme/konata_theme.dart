@@ -13,8 +13,15 @@ abstract final class KonataTheme {
   /// 全站视觉与品牌角标固定色 Token。
   static const Color cinemaObsidian = Color(0xFF0B0C10);
   static const Color bangumiPink = Color(0xFFF09199);
-  static const Color bangumiBadgeDarkScrim = Color(0xB80E1017);
-  static const Color bangumiBadgeBorder = Color(0x33F09199);
+  static const Color bangumiPinkLightTheme = Color(0xFFDC6576);
+  static const Color bangumiBadgeDarkSurface = Color(0x9E1E222B);
+  static const Color bangumiBadgeLightSurface = Color(0xCCFFFFFF);
+  static const Color toastErrorLightSurface = Color(0xF5FEF2F2);
+  static const Color toastErrorLightBorder = Color(0x66DC2626);
+  static const Color toastErrorLightFg = Color(0xFF991B1B);
+  static const Color toastErrorDarkSurface = Color(0xEC3B0D14);
+  static const Color toastErrorDarkBorder = Color(0x66FCA5A5);
+  static const Color toastErrorDarkFg = Color(0xFFFECACA);
   static const Color ambientShellDarkGlowA = Color(0xFF7B3B69);
   static const Color ambientShellDarkGlowB = Color(0xFF334982);
   static const Color ambientShellDarkGlowC = Color(0xFF4B376E);
@@ -66,8 +73,8 @@ abstract final class KonataTheme {
   static const Duration standardTransition = Duration(milliseconds: 95);
   static const Duration capsuleSlideDuration = Duration(milliseconds: 100);
   static const Duration panelSwitchDuration = Duration(milliseconds: 85);
-  static const Duration navSliderDuration = Duration(milliseconds: 220);
-  static const Duration tabSwitchDuration = Duration(milliseconds: 100);
+  static const Duration navSliderDuration = Duration(milliseconds: 240);
+  static const Duration tabSwitchDuration = Duration(milliseconds: 220);
   static const Duration settingsAutoSaveDebounce = Duration(milliseconds: 300);
   static const Duration motionSnap = Duration(milliseconds: 70);
   static const Duration motionMicro = Duration(milliseconds: 110);
@@ -267,19 +274,23 @@ abstract final class KonataTheme {
   static Color glassDialogShadow(KonataPalette p) =>
       p.isDark ? const Color(0x70000000) : const Color(0x24000000);
 
-  /// 解析光学玻璃表面顶部柔和斜向反光渐变（用于卡片与浮层的统一质感增强）。
+  /// 解析光学玻璃表面顶部柔和斜向反光渐变（传入 [baseColor] 时通过 `Color.alphaBlend`
+  /// 预混底层磨砂色，避免 `BoxDecoration` 同时指定 `color` 与 `gradient` 时丢弃底色）。
   static LinearGradient opticalSheenGradient(
     KonataPalette p, {
     bool hovered = false,
+    Color? baseColor,
   }) {
+    Color compose(Color sheen) =>
+        baseColor != null ? Color.alphaBlend(sheen, baseColor) : sheen;
     if (p.isDark) {
       return LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: [
-          Colors.white.withValues(alpha: hovered ? 0.08 : 0.045),
-          Colors.transparent,
-          Colors.black.withValues(alpha: 0.04),
+          compose(Colors.white.withValues(alpha: hovered ? 0.08 : 0.045)),
+          compose(Colors.transparent),
+          compose(Colors.black.withValues(alpha: 0.04)),
         ],
         stops: const [0.0, 0.42, 1.0],
       );
@@ -288,12 +299,34 @@ abstract final class KonataTheme {
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
       colors: [
-        Colors.white.withValues(alpha: hovered ? 0.52 : 0.36),
-        Colors.white.withValues(alpha: 0.0),
+        compose(Colors.white.withValues(alpha: hovered ? 0.46 : 0.30)),
+        compose(Colors.white.withValues(alpha: 0.0)),
       ],
       stops: const [0.0, 0.55],
     );
   }
+
+  /// 海报卡片 Bangumi 评分角标双主题毛玻璃填充色（对齐「N 部」计数胶囊视觉体系）。
+  static Color bangumiBadgeFill(KonataPalette p) =>
+      p.isDark ? bangumiBadgeDarkSurface : bangumiBadgeLightSurface;
+
+  /// 海报卡片 Bangumi 评分角标双主题细亮描边色。
+  static Color bangumiBadgeBorderFor(KonataPalette p) =>
+      p.isDark ? overlayWhiteBorderStrong : p.hairline;
+
+  /// 海报卡片 Bangumi 评分角标高对比品牌粉前景色（浅底微加深以防白底发飘）。
+  static Color bangumiBadgeForeground(KonataPalette p) =>
+      p.isDark ? bangumiPink : bangumiPinkLightTheme;
+
+  /// 错误悬浮提示胶囊高对比底色、描边与文字色（杜绝浅色模式红底深字不可读）。
+  static Color toastErrorSurface(KonataPalette p) =>
+      p.isDark ? toastErrorDarkSurface : toastErrorLightSurface;
+
+  static Color toastErrorBorder(KonataPalette p) =>
+      p.isDark ? toastErrorDarkBorder : toastErrorLightBorder;
+
+  static Color toastErrorForeground(KonataPalette p) =>
+      p.isDark ? toastErrorDarkFg : toastErrorLightFg;
 
   /// 解析毛玻璃弹窗标准背景暗罩色。
   static Color glassDialogBarrier(bool isDark) =>

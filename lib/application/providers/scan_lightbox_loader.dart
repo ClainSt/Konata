@@ -12,6 +12,7 @@ import '../../domain/models/network_config.dart';
 import '../../domain/repositories/file_system_gateway.dart';
 import '../../infrastructure/logging/diagnostics_log_store.dart';
 import '../../infrastructure/sources/byte_stream_source_gateway.dart';
+import '../../infrastructure/sources/source_access_error.dart';
 import '../../infrastructure/sources/source_gateway_factory.dart';
 import 'diagnostics_providers.dart';
 import 'playback_providers.dart';
@@ -98,47 +99,54 @@ class ScanLightboxLoaderService {
                 1
           : null;
 
-      final stream = await byteGw.openByteRange(
-        variant.relativePath,
-        start: 0,
-        endInclusive: endInclusive,
-      );
-      if (cancelled) {
-        await cleanup();
-        return null;
-      }
-
-      final builder = BytesBuilder(copy: false);
-      final done = Completer<Uint8List?>();
-      late final StreamSubscription<List<int>> sub;
-      sub = stream.listen(
-        (chunk) {
-          if (cancelled) {
-            unawaited(sub.cancel());
-            if (!done.isCompleted) done.complete(null);
-            return;
-          }
-          builder.add(chunk);
-          if (builder.length >= TmdbNetworkConfig.maxScanFullImageBytes) {
-            unawaited(sub.cancel());
-            if (!done.isCompleted) done.complete(builder.takeBytes());
-          }
-        },
-        onError: (Object err) {
-          if (!done.isCompleted) done.completeError(err);
-        },
-        onDone: () {
-          if (!done.isCompleted) {
-            done.complete(builder.takeBytes());
-          }
-        },
-        cancelOnError: true,
-      );
-      activeSub = sub;
-
       try {
+        final stream = await byteGw.openByteRange(
+          variant.relativePath,
+          start: 0,
+          endInclusive: endInclusive,
+        );
+        if (cancelled) {
+          unawaited(stream.listen(null).cancel());
+          await cleanup();
+          return null;
+        }
+
+        final builder = BytesBuilder(copy: false);
+        final done = Completer<Uint8List?>();
+        late final StreamSubscription<List<int>> sub;
+        sub = stream.listen(
+          (chunk) {
+            if (cancelled) {
+              unawaited(sub.cancel());
+              if (!done.isCompleted) done.complete(null);
+              return;
+            }
+            builder.add(chunk);
+            if (builder.length >= TmdbNetworkConfig.maxScanFullImageBytes) {
+              unawaited(sub.cancel());
+              if (!done.isCompleted) done.complete(builder.takeBytes());
+            }
+          },
+          onError: (Object err) {
+            if (!done.isCompleted) done.completeError(err);
+          },
+          onDone: () {
+            if (!done.isCompleted) {
+              done.complete(builder.takeBytes());
+            }
+          },
+          cancelOnError: true,
+        );
+        activeSub = sub;
+
         final bytes = await done.future;
         return cancelled ? null : bytes;
+      } catch (err) {
+        if (cancelled) return null;
+        if (err is StateError) rethrow;
+        throw StateError(
+          SourceAccessErrorClassifier.toChineseMessage(err, source.kind),
+        );
       } finally {
         await cleanup();
       }

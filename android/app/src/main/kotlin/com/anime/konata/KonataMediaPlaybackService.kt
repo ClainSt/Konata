@@ -92,6 +92,11 @@ object KonataMediaSessionDispatcher {
             return
         }
 
+        // 未正式进入播放态前不提前启动前台媒体服务，避免远程源离线或秒败触发 Android 14+ 前台服务超时崩溃。
+        if (!isPlaying) {
+            return
+        }
+
         val intent = Intent(context, KonataMediaPlaybackService::class.java)
             .setAction(KonataMediaPlaybackService.ACTION_SYNC)
         try {
@@ -248,17 +253,45 @@ class KonataMediaPlaybackService : Service() {
             ACTION_NEXT -> KonataMediaSessionDispatcher.dispatch("next")
             ACTION_STOP -> {
                 KonataMediaSessionDispatcher.dispatch("stop")
+                ensureForegroundBeforeStop()
                 stopSessionAndService()
                 return START_NOT_STICKY
             }
         }
         val snap = KonataMediaSessionDispatcher.current()
         if (!snap.active || snap.title.isEmpty()) {
+            ensureForegroundBeforeStop()
             stopSessionAndService()
             return START_NOT_STICKY
         }
         refreshSessionAndNotification()
         return START_NOT_STICKY
+    }
+
+    /// 满足 Android O+ 前台服务启动后必须至少调用一次 `startForeground` 的系统契约，防止瞬停时触发进程崩溃。
+    private fun ensureForegroundBeforeStop() {
+        if (foregroundStarted || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return
+        }
+        try {
+            val stub = Notification.Builder(this, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_stat_konata_media)
+                .setBadgeIconType(Notification.BADGE_ICON_NONE)
+                .setContentTitle("")
+                .setOnlyAlertOnce(true)
+                .setShowWhen(false)
+                .build()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    stub,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, stub)
+            }
+            foregroundStarted = true
+        } catch (_: Exception) {}
     }
 
     /// 同步刷新 `MediaSession` 元数据、可拖拽进度状态与系统通知栏媒体卡片。
@@ -410,6 +443,10 @@ class KonataMediaPlaybackService : Service() {
             .addAction(prevAction)
             .addAction(toggleAction)
             .addAction(nextAction)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            builder.setBadgeIconType(Notification.BADGE_ICON_NONE)
+        }
 
         if (coverBitmap != null && !coverBitmap.isRecycled) {
             builder.setLargeIcon(coverBitmap)

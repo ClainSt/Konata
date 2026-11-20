@@ -58,6 +58,8 @@ class _QueuedScanJob {
   final int maxSide;
   final Completer<Uint8List> completer;
   bool cancelled = false;
+  bool preempted = false;
+  int runEpoch = 0;
   StreamSubscription<List<int>>? activeSubscription;
   Future<void> Function()? activeClose;
 }
@@ -204,8 +206,44 @@ class ScanThumbnailScheduler {
   }
 
   /// 暂停后台远程（WebDAV / SMB）缩略图调度，让前景高清灯箱独占远端通道。
-  void pauseRemote() {
+  ///
+  /// 传入 `abortActive: true` 时同步抢占中止已在途的远程缩略图流并将其退回队尾，
+  /// 防止在 CloudDrive2 / WebDAV 单通道下与前景高清灯箱互相卡死；灯箱关闭恢复后自动续传。
+  void pauseRemote({bool abortActive = false}) {
     _remotePauseCount++;
+    if (!abortActive) return;
+
+    final activeWebdav = _webdavActive;
+    if (activeWebdav != null) {
+      _webdavActive = null;
+      _preemptAndRequeue(activeWebdav, _webdavPendingLifo);
+    }
+    for (final activeSmb in _smbActive.toList(growable: false)) {
+      _smbActive.remove(activeSmb);
+      _preemptAndRequeue(activeSmb, _smbPendingLifo);
+    }
+  }
+
+  void _preemptAndRequeue(
+    _QueuedScanJob job,
+    ListQueue<_QueuedScanJob> pendingQueue,
+  ) {
+    if (job.cancelled || _disposed) return;
+    job.preempted = true;
+    job.runEpoch++;
+    final sub = job.activeSubscription;
+    if (sub != null) {
+      job.activeSubscription = null;
+      unawaited(sub.cancel());
+    }
+    final closeFn = job.activeClose;
+    if (closeFn != null) {
+      job.activeClose = null;
+      unawaited(_safeClose(closeFn));
+    }
+    if (!pendingQueue.contains(job)) {
+      pendingQueue.addLast(job);
+    }
   }
 
   /// 恢复后台远程缩略图调度并立即驱动待排队任务。
@@ -468,10 +506,14 @@ class ScanThumbnailScheduler {
         continue;
       }
       _smbActive.add(next);
+      next.preempted = false;
+      final epoch = ++next.runEpoch;
       unawaited(
-        _runJob(next).whenComplete(() {
-          _smbActive.remove(next);
-          _pumpSmb();
+        _runJob(next, epoch).whenComplete(() {
+          if (epoch == next.runEpoch) {
+            _smbActive.remove(next);
+            _pumpSmb();
+          }
         }),
       );
     }
@@ -490,22 +532,38 @@ class ScanThumbnailScheduler {
         continue;
       }
       _webdavActive = next;
+      next.preempted = false;
+      final epoch = ++next.runEpoch;
       unawaited(
-        _runJob(next).whenComplete(() {
-          if (identical(_webdavActive, next)) {
+        _runJob(next, epoch).whenComplete(() {
+          if (epoch == next.runEpoch && identical(_webdavActive, next)) {
             _webdavActive = null;
+            _pumpWebDav();
           }
-          _pumpWebDav();
         }),
       );
     }
   }
 
-  Future<void> _runJob(_QueuedScanJob job) async {
+  static bool _isJobStale(_QueuedScanJob job, int epoch) =>
+      job.preempted || epoch != job.runEpoch;
+
+  static Future<Uint8List> _encodeWebpInIsolate(
+    Uint8List rgba,
+    int width,
+    int height,
+  ) => Isolate.run(
+    () => CompactWebpEncoder.encodeRgba(rgba: rgba, width: width, height: height),
+  );
+
+  Future<void> _runJob(_QueuedScanJob job, [int? expectedEpoch]) async {
+    final epoch = expectedEpoch ?? job.runEpoch;
+
     if (job.cancelled || _disposed) {
       if (!job.completer.isCompleted) job.completer.complete(Uint8List(0));
       return;
     }
+    if (_isJobStale(job, epoch)) return;
 
     Future<void> Function()? closeFn;
     try {
@@ -517,6 +575,7 @@ class ScanThumbnailScheduler {
         relativePath: job.variant.relativePath,
         fileSize: job.variant.fileSize,
       );
+      if (_isJobStale(job, epoch)) return;
       if (secondCheck != null && secondCheck.isNotEmpty) {
         final ratio = ImageHeaderParser.parseAspectRatio(secondCheck);
         if (ratio != null) {
@@ -532,26 +591,35 @@ class ScanThumbnailScheduler {
         if (!job.completer.isCompleted) job.completer.complete(Uint8List(0));
         return;
       }
+      if (_isJobStale(job, epoch)) return;
 
       final opener = _customStreamOpener ?? _openWithGatewayFactory;
       final opened = await opener(job.source, job.variant, maxSourceBytes);
       closeFn = opened.close;
-      job.activeClose = closeFn;
-      if (job.cancelled || _disposed) {
+      if (job.cancelled || _isJobStale(job, epoch) || _disposed) {
+        unawaited(opened.stream.listen(null).cancel());
         await _safeClose(closeFn);
-        if (!job.completer.isCompleted) job.completer.complete(Uint8List(0));
+        closeFn = null;
+        if (!_isJobStale(job, epoch) && !job.completer.isCompleted) {
+          job.completer.complete(Uint8List(0));
+        }
         return;
       }
+      job.activeClose = closeFn;
 
       final rawBytes = await _collectStreamBytesCancellable(
         job: job,
+        epoch: epoch,
         stream: opened.stream,
         maxBytes: maxSourceBytes,
       );
       await _safeClose(closeFn);
       closeFn = null;
-      job.activeClose = null;
+      if (!_isJobStale(job, epoch)) {
+        job.activeClose = null;
+      }
 
+      if (_isJobStale(job, epoch)) return;
       if (job.cancelled || _disposed || rawBytes == null || rawBytes.isEmpty) {
         if (!job.completer.isCompleted) job.completer.complete(Uint8List(0));
         return;
@@ -559,6 +627,7 @@ class ScanThumbnailScheduler {
 
       // 根 Isolate C++ 引擎按长边 <= maxSide 硬件降采样转 RGBA，同时精准回填原图自然宽高比
       final decoded = await _decodeDownsampledRgba(rawBytes, job.maxSide);
+      if (_isJobStale(job, epoch)) return;
       if (job.cancelled || _disposed || decoded == null) {
         if (!job.completer.isCompleted) job.completer.complete(Uint8List(0));
         return;
@@ -568,14 +637,14 @@ class ScanThumbnailScheduler {
         recordAspectRatio(job.variant.id, decoded.srcWidth / decoded.srcHeight);
       }
 
-      // 后台 Isolate 压缩编码为紧凑 .webp 字节（15–30 KB）
-      final rgba = decoded.rgba;
-      final w = decoded.width;
-      final h = decoded.height;
-      final webpBytes = await Isolate.run(
-        () => CompactWebpEncoder.encodeRgba(rgba: rgba, width: w, height: h),
+      // 后台 Isolate 压缩编码为紧凑 .webp 字节（经静态函数隔离，避免捕获外层不可序列化闭包上下文）
+      final webpBytes = await _encodeWebpInIsolate(
+        decoded.rgba,
+        decoded.width,
+        decoded.height,
       );
 
+      if (_isJobStale(job, epoch)) return;
       if (job.cancelled || _disposed) {
         if (!job.completer.isCompleted) job.completer.complete(Uint8List(0));
         return;
@@ -589,32 +658,43 @@ class ScanThumbnailScheduler {
         fileSize: job.variant.fileSize,
         webpBytes: webpBytes,
       );
-      if (!job.completer.isCompleted) {
+      if (!_isJobStale(job, epoch) && !job.completer.isCompleted) {
         job.completer.complete(webpBytes);
       }
-    } catch (_) {
-      if (!job.completer.isCompleted) {
+    } catch (error, stackTrace) {
+      developer.log(
+        '生成扫图缩略图任务失败',
+        name: 'konata.scan_thumbnail_scheduler',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (!_isJobStale(job, epoch) && !job.completer.isCompleted) {
         job.completer.complete(Uint8List(0));
       }
     } finally {
       await _safeClose(closeFn);
-      job.activeSubscription = null;
-      job.activeClose = null;
+      if (!_isJobStale(job, epoch)) {
+        job.activeSubscription = null;
+        job.activeClose = null;
+      }
     }
   }
 
   Future<Uint8List?> _collectStreamBytesCancellable({
     required _QueuedScanJob job,
+    required int epoch,
     required Stream<List<int>> stream,
     required int maxBytes,
   }) async {
     final builder = BytesBuilder(copy: false);
     final done = Completer<Uint8List?>();
     late final StreamSubscription<List<int>> sub;
+    bool aborted() =>
+        job.cancelled || job.preempted || epoch != job.runEpoch || _disposed;
 
     sub = stream.listen(
       (chunk) {
-        if (job.cancelled || _disposed) {
+        if (aborted()) {
           unawaited(sub.cancel());
           if (!done.isCompleted) done.complete(null);
           return;
@@ -630,13 +710,13 @@ class ScanThumbnailScheduler {
       },
       onDone: () {
         if (!done.isCompleted) {
-          done.complete(job.cancelled ? null : builder.takeBytes());
+          done.complete(aborted() ? null : builder.takeBytes());
         }
       },
       cancelOnError: true,
     );
     job.activeSubscription = sub;
-    if (job.cancelled || _disposed) {
+    if (aborted()) {
       await sub.cancel();
       if (!done.isCompleted) done.complete(null);
     }

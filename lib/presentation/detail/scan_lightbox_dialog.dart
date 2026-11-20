@@ -12,6 +12,7 @@ import '../../application/providers/artwork_provider.dart';
 import '../../application/providers/diagnostics_providers.dart';
 import '../../application/providers/library_providers.dart';
 import '../../application/providers/scan_lightbox_loader.dart';
+import '../../composition/platform_composition.dart';
 import '../../domain/formatting/image_header_parser.dart';
 import '../../domain/matching/supplementary_subclassifier.dart';
 import '../../domain/models/media_source.dart';
@@ -20,6 +21,7 @@ import '../../infrastructure/cache/scan_thumbnail_scheduler.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
+import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_toast.dart';
 
 part 'scan_lightbox_widgets.dart';
@@ -96,6 +98,7 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
   final ScrollController _filmstripController = ScrollController();
 
   late final ScanThumbnailScheduler _scanScheduler;
+  late final KonataWindowHost _windowHost;
   late final ScanVolumeGroupSummary _scanSummary;
 
   String? _selectedVolumeKey;
@@ -113,6 +116,7 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
   _ScanFitMode _fitMode = _ScanFitMode.fitWindow;
 
   bool _fullscreen = false;
+  bool _enteredSystemFullscreen = false;
   bool _chromeVisible = true;
   bool _showFilmstrip = true;
 
@@ -138,7 +142,8 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
   void initState() {
     super.initState();
     _scanScheduler = ref.read(scanThumbnailSchedulerProvider);
-    _scanScheduler.pauseRemote();
+    _windowHost = ref.read(konataWindowHostProvider);
+    _scanScheduler.pauseRemote(abortActive: true);
 
     _transformController.addListener(_handleTransformChanged);
     _scanSummary = SupplementarySubclassifier.groupScanVariants(
@@ -170,6 +175,13 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
     _transformController.removeListener(_handleTransformChanged);
     _transformController.dispose();
     _filmstripController.dispose();
+    if (_enteredSystemFullscreen) {
+      _enteredSystemFullscreen = false;
+      unawaited(_windowHost.setFullScreen(false));
+    }
+    if (_fullscreen && KonataAdaptiveTokens.isAndroid) {
+      unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
+    }
     unawaited(_abortAllAndEvictAll());
     _scanScheduler.resumeRemote();
     super.dispose();
@@ -817,13 +829,13 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () {
           if (_fullscreen) {
-            setState(() => _fullscreen = false);
+            unawaited(_setFullscreen(false));
           } else {
             Navigator.of(context).pop();
           }
         },
         const SingleActivator(LogicalKeyboardKey.keyF): () =>
-            setState(() => _fullscreen = !_fullscreen),
+            unawaited(_setFullscreen(!_fullscreen)),
         const SingleActivator(LogicalKeyboardKey.digit0): _resetZoom,
         if (_scopedScans.length > 1)
           const SingleActivator(LogicalKeyboardKey.arrowLeft): () {
@@ -946,7 +958,34 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
     );
   }
 
-  void _toggleFullscreen() => setState(() => _fullscreen = !_fullscreen);
+  void _toggleFullscreen() => unawaited(_setFullscreen(!_fullscreen));
+
+  /// 同步切换灯箱无边框沉浸态与操作系统级窗口全屏（Windows 真全屏 / Android 隐藏系统栏）。
+  Future<void> _setFullscreen(bool enable) async {
+    if (_fullscreen == enable) return;
+    if (mounted) {
+      setState(() => _fullscreen = enable);
+    } else {
+      _fullscreen = enable;
+    }
+
+    if (KonataAdaptiveTokens.isWindows) {
+      if (enable) {
+        final alreadyWindowFull = await _windowHost.isFullScreen();
+        if (!alreadyWindowFull && _fullscreen && mounted) {
+          _enteredSystemFullscreen = true;
+          await _windowHost.setFullScreen(true);
+        }
+      } else if (_enteredSystemFullscreen) {
+        _enteredSystemFullscreen = false;
+        await _windowHost.setFullScreen(false);
+      }
+    } else if (KonataAdaptiveTokens.isAndroid) {
+      await SystemChrome.setEnabledSystemUIMode(
+        enable ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+      );
+    }
+  }
 
   void _toggleFilmstrip() => setState(() => _showFilmstrip = !_showFilmstrip);
 

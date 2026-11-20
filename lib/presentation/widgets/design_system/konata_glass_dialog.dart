@@ -485,8 +485,10 @@ class KonataGlassDialog extends StatelessWidget {
                             )
                           : EdgeInsets.all(compact ? 16 : 22)),
                 decoration: BoxDecoration(
-                  color: glassBg,
-                  gradient: KonataTheme.opticalSheenGradient(p),
+                  gradient: KonataTheme.opticalSheenGradient(
+                    p,
+                    baseColor: glassBg,
+                  ),
                   borderRadius: KonataTheme.borderRadiusDialog,
                   border: Border.all(color: glassBorder, width: 1),
                 ),

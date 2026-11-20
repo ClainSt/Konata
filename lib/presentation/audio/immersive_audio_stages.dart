@@ -583,7 +583,11 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
       },
       child: KonataDraggableScrollbar(
         controller: _lyricScrollCtrl,
-        trackInsets: const EdgeInsets.only(top: 20, bottom: 24, right: 4),
+        trackInsets: EdgeInsets.only(
+          top: compact ? 22 : 44,
+          bottom: compact ? 24 : 48,
+          right: 4,
+        ),
         builder: (_, ctrl) => ShaderMask(
           shaderCallback: (bounds) => const LinearGradient(
             begin: Alignment.topCenter,
@@ -594,7 +598,7 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
               KonataTheme.pureWhite,
               Colors.transparent,
             ],
-            stops: [0.0, 0.14, 0.86, 1.0],
+            stops: [0.0, 0.08, 0.92, 1.0],
           ).createShader(bounds),
           blendMode: BlendMode.dstIn,
           child: ListView.builder(
@@ -643,7 +647,7 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
     final displayRows = state.buildDisplayRows();
     return KonataDraggableScrollbar(
       controller: _queueScrollCtrl,
-      trackInsets: const EdgeInsets.only(top: 16, bottom: 20, right: 4),
+      trackInsets: const EdgeInsets.only(top: 24, bottom: 32, right: 4),
       builder: (_, ctrl) => ShaderMask(
         shaderCallback: (bounds) => const LinearGradient(
           begin: Alignment.topCenter,
@@ -654,7 +658,7 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
             KonataTheme.pureWhite,
             Colors.transparent,
           ],
-          stops: [0.0, 0.10, 0.90, 1.0],
+          stops: [0.0, 0.06, 0.94, 1.0],
         ).createShader(bounds),
         blendMode: BlendMode.dstIn,
         child: ListView.separated(

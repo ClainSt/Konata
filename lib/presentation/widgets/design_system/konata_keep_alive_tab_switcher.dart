@@ -18,8 +18,8 @@ class KonataKeepAliveTabSwitcher extends StatefulWidget {
     required this.activeIndex,
     required this.children,
     this.duration = KonataTheme.tabSwitchDuration,
-    this.incomingSlidePixels = 16.0,
-    this.outgoingSlidePixels = 10.0,
+    this.incomingSlidePixels = 10.0,
+    this.outgoingSlidePixels = 8.0,
     this.scrimFadeColor,
   });
 
@@ -54,10 +54,15 @@ class _KonataKeepAliveTabSwitcherState
 
   late final AnimationController _animCtrl;
   late final CurvedAnimation _curved;
+  late final CurvedAnimation _incomingOpacity;
+  late final CurvedAnimation _outgoingOpacityCurve;
+  late final Animation<double> _outgoingOpacity;
   late Animation<Offset> _incomingSlide;
+  late Animation<Offset> _outgoingSlide;
   late List<bool> _mountedFlags;
   late List<Widget> _wrappedChildren;
   bool _animating = false;
+  int? _outgoingIndex;
   double _direction = 1.0;
 
   @override
@@ -71,27 +76,58 @@ class _KonataKeepAliveTabSwitcherState
     );
     _curved = CurvedAnimation(
       parent: _animCtrl,
-      curve: Curves.easeOutCubic,
+      curve: Curves.easeOutQuart,
     );
+    _incomingOpacity = CurvedAnimation(
+      parent: _animCtrl,
+      curve: const Interval(0.12, 1.0, curve: Curves.easeOutQuart),
+    );
+    _outgoingOpacityCurve = CurvedAnimation(
+      parent: _animCtrl,
+      curve: const Interval(0.0, 0.52, curve: Curves.easeOutCubic),
+    );
+    _outgoingOpacity = Tween<double>(
+      begin: 1.0,
+      end: 0.0,
+    ).animate(_outgoingOpacityCurve);
     _incomingSlide = _buildIncomingSlide(_direction);
+    _outgoingSlide = _buildOutgoingSlide(_direction);
     _animCtrl.addStatusListener(_handleAnimationStatus);
   }
 
   Animation<Offset> _buildIncomingSlide(double direction) {
-    // 使用轻量分数位移近似 16px 水平滑入，完全跳过逐帧 Widget build。
-    final fractionalDx = (widget.incomingSlidePixels / 800.0).clamp(0.01, 0.04);
+    // 轻柔短距分数位移配合 easeOutQuart 丝滑刹车到位，跳过逐帧 Widget 重建。
+    final fractionalDx = (widget.incomingSlidePixels / 960.0).clamp(
+      0.006,
+      0.022,
+    );
     return Tween<Offset>(
       begin: Offset(direction * fractionalDx, 0.0),
       end: Offset.zero,
     ).animate(_curved);
   }
 
+  Animation<Offset> _buildOutgoingSlide(double direction) {
+    final fractionalDx = (widget.outgoingSlidePixels / 960.0).clamp(
+      0.004,
+      0.018,
+    );
+    return Tween<Offset>(
+      begin: Offset.zero,
+      end: Offset(-direction * fractionalDx, 0.0),
+    ).animate(_curved);
+  }
+
   void _handleAnimationStatus(AnimationStatus status) {
     if (status == AnimationStatus.completed && _animating) {
       if (mounted) {
-        setState(() => _animating = false);
+        setState(() {
+          _animating = false;
+          _outgoingIndex = null;
+        });
       } else {
         _animating = false;
+        _outgoingIndex = null;
       }
     }
   }
@@ -127,12 +163,15 @@ class _KonataKeepAliveTabSwitcherState
       _mountedFlags[widget.activeIndex] = true;
       _direction = widget.activeIndex >= oldWidget.activeIndex ? 1.0 : -1.0;
       _incomingSlide = _buildIncomingSlide(_direction);
+      _outgoingSlide = _buildOutgoingSlide(_direction);
       final disableAnim = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
       if (disableAnim || widget.duration == Duration.zero) {
         _animating = false;
+        _outgoingIndex = null;
         _animCtrl.value = 1.0;
       } else {
         _animating = true;
+        _outgoingIndex = oldWidget.activeIndex;
         _animCtrl.duration = widget.duration;
         _animCtrl.forward(from: 0.0);
       }
@@ -142,6 +181,8 @@ class _KonataKeepAliveTabSwitcherState
   @override
   void dispose() {
     _animCtrl.removeStatusListener(_handleAnimationStatus);
+    _incomingOpacity.dispose();
+    _outgoingOpacityCurve.dispose();
     _curved.dispose();
     _animCtrl.dispose();
     super.dispose();
@@ -173,10 +214,12 @@ class _KonataKeepAliveTabSwitcherState
 
   Widget _buildSlot(int index, {required bool useScrimFade}) {
     final isActive = index == widget.activeIndex;
+    final isOutgoing = !useScrimFade && _animating && index == _outgoingIndex;
+    final isVisible = isActive || isOutgoing;
     final animatingIn = isActive && _animating;
 
     // 保持固定槽位顺序与一致子树结构，防止子页面状态与滚动位置重建；
-    // 实底画布模式彻底免除透明离屏合成层，透明桌面模式仅在进场瞬态施加轻量位移淡入且终态解绑监听。
+    // 实底画布模式免除全屏离屏合成层，透明桌面模式仅在 220ms 转场瞬态做前后页柔滑交叉淡入淡出，终态立即退回静息零开销。
     final Widget content;
     if (useScrimFade) {
       content = SlideTransition(
@@ -184,17 +227,29 @@ class _KonataKeepAliveTabSwitcherState
         child: _wrappedChildren[index],
       );
     } else {
+      final Animation<double> opacityAnim;
+      final Animation<Offset> slideAnim;
+      if (animatingIn) {
+        opacityAnim = _incomingOpacity;
+        slideAnim = _incomingSlide;
+      } else if (isOutgoing) {
+        opacityAnim = _outgoingOpacity;
+        slideAnim = _outgoingSlide;
+      } else {
+        opacityAnim = kAlwaysCompleteAnimation;
+        slideAnim = _kZeroOffsetAnimation;
+      }
       content = FadeTransition(
-        opacity: animatingIn ? _curved : kAlwaysCompleteAnimation,
+        opacity: opacityAnim,
         child: SlideTransition(
-          position: animatingIn ? _incomingSlide : _kZeroOffsetAnimation,
+          position: slideAnim,
           child: _wrappedChildren[index],
         ),
       );
     }
     return Offstage(
       key: ValueKey<int>(index),
-      offstage: !isActive,
+      offstage: !isVisible,
       child: IgnorePointer(
         ignoring: !isActive,
         child: ExcludeFocus(
@@ -216,7 +271,7 @@ class _ScrimFadePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final alpha = (1.0 - animation.value).clamp(0.0, 1.0);
+    final alpha = ((1.0 - animation.value) * 0.72).clamp(0.0, 1.0);
     if (alpha <= 0.001) return;
     canvas.drawRect(
       Offset.zero & size,

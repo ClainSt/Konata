@@ -43,6 +43,7 @@ import 'package:ccplayer/presentation/history/playback_history_page.dart';
 import 'package:ccplayer/presentation/library/hidden_works_dialog.dart';
 import 'package:ccplayer/presentation/library/library_page.dart';
 import 'package:ccplayer/presentation/settings/settings_display_panel.dart';
+import 'package:ccplayer/presentation/shell/adaptive_capsule_layout.dart';
 import 'package:ccplayer/presentation/theme/konata_palette.dart';
 import 'package:ccplayer/presentation/theme/konata_playback_tokens.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
@@ -770,14 +771,15 @@ void main() {
       final miniCardRect = tester.getRect(
         find.byKey(const ValueKey('konata_floating_mini_player')),
       );
-      expect(
-        miniCardRect.width,
-        closeTo(KonataPlaybackTokens.floatingMiniAudioDiscSize, 0.5),
-      );
-      expect(
-        miniCardRect.height,
-        closeTo(KonataPlaybackTokens.floatingMiniAudioDiscSize, 0.5),
-      );
+      final expectedDiscSize = AdaptiveCapsuleLayout(
+        size: const Size(1280, 800),
+        safe: EdgeInsets.zero,
+        android: false,
+        navigationVisible: false,
+        miniKind: FloatingMiniPlayerKind.audio,
+      ).floatingMiniWindowRect!.size;
+      expect(miniCardRect.width, closeTo(expectedDiscSize.width, 0.5));
+      expect(miniCardRect.height, closeTo(expectedDiscSize.height, 0.5));
       expect(
         find.byKey(const ValueKey('floating_mini_audio_disc')),
         findsOneWidget,

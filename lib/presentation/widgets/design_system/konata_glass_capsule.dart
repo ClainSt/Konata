@@ -54,8 +54,7 @@ class KonataGlassCapsule extends StatelessWidget {
               : KonataTheme.capsuleDarkSurface(p));
     final decorated = DecoratedBox(
       decoration: BoxDecoration(
-        color: surfaceColor,
-        gradient: KonataTheme.opticalSheenGradient(p),
+        gradient: KonataTheme.opticalSheenGradient(p, baseColor: surfaceColor),
         borderRadius: borderRadius,
         border: Border.all(
           color: KonataPlaybackTokens.glassBorder(p),

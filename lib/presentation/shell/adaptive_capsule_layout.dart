@@ -554,9 +554,14 @@ class AdaptiveCapsuleLayout {
                 KonataPlaybackTokens.floatingMiniVideoAspectRatioMax,
               )
             : (16.0 / 9.0);
-        final baseLong = (android && !tablet)
-            ? KonataPlaybackTokens.floatingMiniVideoLongSidePhone
-            : KonataPlaybackTokens.floatingMiniVideoLongSideDesktop;
+        // 纯按实际视口最短边连续自适应缩放，绝不按平台/包体硬编码区分小窗大小。
+        final baseLong =
+            (size.shortestSide *
+                    KonataPlaybackTokens.floatingMiniVideoViewportRatio)
+                .clamp(
+                  KonataPlaybackTokens.floatingMiniVideoLongSideMin,
+                  KonataPlaybackTokens.floatingMiniVideoLongSideMax,
+                );
         double w;
         double h;
         if (ar >= 1.0) {
@@ -584,13 +589,38 @@ class AdaptiveCapsuleLayout {
       case FloatingMiniPlayerKind.audio:
         if (visualState == FloatingMiniVisualState.expanded &&
             !inlinePhoneAudioPaired) {
+          final targetPillW =
+              (size.width * KonataPlaybackTokens.floatingMiniAudioPillWidthRatio)
+                  .clamp(
+                    KonataPlaybackTokens.floatingMiniAudioPillWidth,
+                    KonataPlaybackTokens.floatingMiniAudioPillMaxWidth,
+                  );
           final pillW = math.min(
-            KonataPlaybackTokens.floatingMiniAudioPillWidth,
+            targetPillW,
             math.max(220.0, size.width - safe.horizontal - 32.0),
           );
-          return Size(pillW, KonataPlaybackTokens.floatingMiniAudioPillHeight);
+          final pillH =
+              (size.shortestSide *
+                      KonataPlaybackTokens.floatingMiniAudioPillHeightRatio)
+                  .clamp(
+                    KonataPlaybackTokens.floatingMiniAudioPillHeight,
+                    KonataPlaybackTokens.floatingMiniAudioPillMaxHeight,
+                  );
+          return Size(pillW, pillH);
         }
-        return const Size.square(KonataPlaybackTokens.floatingMiniAudioDiscSize);
+        if (inlinePhoneAudioPaired) {
+          return const Size.square(
+            KonataPlaybackTokens.floatingMiniAudioDiscSize,
+          );
+        }
+        final discSide =
+            (size.shortestSide *
+                    KonataPlaybackTokens.floatingMiniAudioDiscViewportRatio)
+                .clamp(
+                  KonataPlaybackTokens.floatingMiniAudioDiscSize,
+                  KonataPlaybackTokens.floatingMiniAudioDiscMaxSize,
+                );
+        return Size.square(discSide);
     }
   }
 
@@ -746,12 +776,16 @@ class AdaptiveCapsuleLayout {
   }
 
   /// 页面滚动流与底部面板统一安全避让高度（供列表、详情页与 Toast 同源读取）。
+  ///
+  /// 桌面端悬浮小窗支持窗口内自由移动叠加，绝不把详情页正片/特典列表整体往上顶起；
+  /// 仅移动端需要为底部胶囊及小窗保留滚动避让，且全端均确保小窗严禁遮挡弹窗与下拉菜单。
   double get bottomClearance {
-    final baseNavClearance = !android
-        ? 0.0
-        : (!verticalNavigation && navigationVisible
-              ? size.height - navigationRect.top + KonataAdaptiveTokens.safeGap
-              : safe.bottom + KonataAdaptiveTokens.safeGap);
+    if (!android) {
+      return 0.0;
+    }
+    final baseNavClearance = !verticalNavigation && navigationVisible
+        ? size.height - navigationRect.top + KonataAdaptiveTokens.safeGap
+        : safe.bottom + KonataAdaptiveTokens.safeGap;
     if (visualState == FloatingMiniVisualState.tucked ||
         inlinePhoneAudioPaired) {
       return baseNavClearance;

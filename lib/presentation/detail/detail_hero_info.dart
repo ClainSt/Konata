@@ -409,8 +409,11 @@ class _FrostedPlayButtonState extends State<FrostedPlayButton> {
                 height: capsuleHeight,
                 padding: const EdgeInsets.symmetric(horizontal: 22),
                 decoration: BoxDecoration(
-                  color: fillColor,
-                  gradient: KonataTheme.opticalSheenGradient(p),
+                  gradient: KonataTheme.opticalSheenGradient(
+                    p,
+                    hovered: _hovered,
+                    baseColor: fillColor,
+                  ),
                   borderRadius: BorderRadius.circular(radius),
                   border: Border.all(
                     color: borderColor,

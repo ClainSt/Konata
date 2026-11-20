@@ -2,12 +2,14 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../../theme/konata_palette.dart';
 import '../../theme/konata_theme.dart';
 
 /// Bangumi 粉色斜体几何微标 + 评分数字组件（零外部字体/图片体积膨胀）。
 ///
 /// 使用纯矢量 [CustomPainter] 绘制经典 `bangumi` 粉色几何斜体标识（含 `m` 顶部的标志性
-/// 小电视天线 `v`，无底行副标文字），右侧紧跟同色斜体等宽评分数字，供海报墙悬停左下角使用。
+/// 小电视天线 `v`，无底行副标文字），右侧紧凑衔接同色斜体等宽评分数字；
+/// 外壳对齐「N 部」计数胶囊的双主题半透明毛玻璃与细亮描边质感。
 class BangumiScoreWordmarkBadge extends StatelessWidget {
   /// 创建 Bangumi 评分微标。
   const BangumiScoreWordmarkBadge({
@@ -19,58 +21,74 @@ class BangumiScoreWordmarkBadge extends StatelessWidget {
   /// Bangumi 评分（如 `8.6` / `6.7`）。
   final double score;
 
-  /// `bangumi` 矢量字标高度（宽度按自然比例 `5.2:1` 计算）。
+  /// `bangumi` 矢量字标高度（宽度按矢量实际绘制边界 `3.88:1` 紧凑计算）。
   final double wordmarkHeight;
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final formattedScore = score.toStringAsFixed(1);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4.5),
+    final fgColor = KonataTheme.bangumiBadgeForeground(p);
+    final fillColor = KonataTheme.bangumiBadgeFill(p);
+    final borderColor = KonataTheme.bangumiBadgeBorderFor(p);
+
+    return DecoratedBox(
       decoration: BoxDecoration(
-        color: KonataTheme.bangumiBadgeDarkScrim,
-        borderRadius: KonataTheme.borderRadiusSm,
-        border: Border.all(
-          color: KonataTheme.bangumiBadgeBorder,
-          width: 0.9,
-        ),
+        borderRadius: KonataTheme.borderRadiusPill,
         boxShadow: [
           BoxShadow(
-            color: KonataTheme.pureBlack.withValues(alpha: 0.34),
+            color: KonataTheme.pureBlack.withValues(
+              alpha: p.isDark ? 0.30 : 0.14,
+            ),
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),
         ],
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          SizedBox(
-            width: wordmarkHeight * 4.85,
-            height: wordmarkHeight,
-            child: CustomPaint(
-              painter: const _BangumiWordmarkPainter(
-                color: KonataTheme.bangumiPink,
+      child: ClipRRect(
+        borderRadius: KonataTheme.borderRadiusPill,
+        child: BackdropFilter(
+          filter: KonataTheme.blurFilterSubtle,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+            decoration: BoxDecoration(
+              gradient: KonataTheme.opticalSheenGradient(
+                p,
+                baseColor: fillColor,
               ),
+              borderRadius: KonataTheme.borderRadiusPill,
+              border: Border.all(color: borderColor, width: 1.0),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: wordmarkHeight * 3.88,
+                  height: wordmarkHeight,
+                  child: CustomPaint(
+                    painter: _BangumiWordmarkPainter(color: fgColor),
+                  ),
+                ),
+                const SizedBox(width: 4.5),
+                Transform(
+                  transform: Matrix4.skewX(-0.22),
+                  alignment: Alignment.center,
+                  child: Text(
+                    formattedScore,
+                    style: KonataTheme.textStyle(
+                      color: fgColor,
+                      fontSize: wordmarkHeight * 0.96,
+                      weight: 760,
+                      height: 1.0,
+                      tabularFigures: true,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: 5),
-          Transform(
-            transform: Matrix4.skewX(-0.22),
-            alignment: Alignment.center,
-            child: Text(
-              formattedScore,
-              style: KonataTheme.textStyle(
-                color: KonataTheme.bangumiPink,
-                fontSize: wordmarkHeight * 0.96,
-                weight: 760,
-                height: 1.0,
-                tabularFigures: true,
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

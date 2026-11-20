@@ -25,6 +25,43 @@ class ScrapeCandidateFetcher {
   /// Bangumi 首波检索全部失败后整体重试前的等待时长。
   static const Duration _bangumiWaveRetryDelay = Duration(seconds: 2);
 
+  /// 并发发起一组互不依赖的请求（实际并发度由后台网络调度器限制），再按原顺序还原逐条串行的语义：
+  /// 遇到首个瞬时网络异常即上报并丢弃其后的结果，非瞬时异常按顺序原样抛出，空结果跳过。
+  /// 每部作品原本要逐条等待的候选详情、季详情往返因此可以重叠，刮削总耗时随之下降。
+  static Future<({List<R> results, bool aborted})> _fetchAllInOrder<T, R>(
+    Iterable<T> targets,
+    Future<R?> Function(T target) fetch, {
+    void Function(Object error)? onNetworkError,
+  }) async {
+    final outcomes = await Future.wait([
+      for (final t in targets) _settle(() => fetch(t)),
+    ]);
+    final results = <R>[];
+    for (final outcome in outcomes) {
+      final error = outcome.error;
+      if (error != null) {
+        if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+          onNetworkError?.call(error);
+          return (results: results, aborted: true);
+        }
+        Error.throwWithStackTrace(error, outcome.stackTrace!);
+      }
+      final value = outcome.value;
+      if (value != null) results.add(value);
+    }
+    return (results: results, aborted: false);
+  }
+
+  static Future<({R? value, Object? error, StackTrace? stackTrace})> _settle<R>(
+    Future<R?> Function() run,
+  ) async {
+    try {
+      return (value: await run(), error: null, stackTrace: null);
+    } catch (error, stackTrace) {
+      return (value: null, error: error, stackTrace: stackTrace);
+    }
+  }
+
   /// 若当前子簇无显式 ID 但合集父目录带 `{tmdb-N}`，拉取父系列官方标题作为补充检索线索。
   Future<({List<String> extraQueries, TmdbWorkDetail? parentDetail})>
   fetchParentCollectionContext(
@@ -361,24 +398,17 @@ class ScrapeCandidateFetcher {
       if (seenKeys.add(k)) detailTargets.add(raw);
     }
 
-    final details = <TmdbWorkDetail>[];
-    for (final item in detailTargets) {
-      try {
-        final detail = await _tmdbService.getWorkDetail(
-          item.tmdbId,
-          item.mediaType,
-          priority: RequestPriority.background,
-        );
-        if (detail != null) details.add(detail);
-      } catch (error) {
-        if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
-          onNetworkError?.call(error);
-          networkAborted = true;
-          break;
-        }
-        rethrow;
-      }
-    }
+    final fetched = await _fetchAllInOrder(
+      detailTargets,
+      (item) => _tmdbService.getWorkDetail(
+        item.tmdbId,
+        item.mediaType,
+        priority: RequestPriority.background,
+      ),
+      onNetworkError: onNetworkError,
+    );
+    final details = fetched.results;
+    networkAborted = fetched.aborted;
     if (!networkAborted) {
       details.addAll(
         await _recoverCanonicalEntries(
@@ -408,43 +438,41 @@ class ScrapeCandidateFetcher {
           d.originalTitle!.trim(),
     };
     if (originals.isEmpty) return const [];
+    // 任一步遇到瞬时网络异常都整体放弃补搜结果。
+    final searches = await _fetchAllInOrder(
+      originals.take(2),
+      (original) => _tmdbService.searchAnime(
+        original,
+        mediaTypeFilter: typeFilter,
+        priority: RequestPriority.background,
+      ),
+      onNetworkError: onNetworkError,
+    );
+    if (searches.aborted) return const [];
     final hits = <String, TmdbSearchResult>{};
-    try {
-      for (final original in originals.take(2)) {
-        final results = await _tmdbService.searchAnime(
-          original,
-          mediaTypeFilter: typeFilter,
-          priority: RequestPriority.background,
-        );
-        for (final h in results) {
-          final key = '${h.mediaType.name}:${h.tmdbId}';
-          if (!known.contains(key)) hits.putIfAbsent(key, () => h);
-        }
+    for (final results in searches.results) {
+      for (final h in results) {
+        final key = '${h.mediaType.name}:${h.tmdbId}';
+        if (!known.contains(key)) hits.putIfAbsent(key, () => h);
       }
-      final ranked = [...hits.values]
-        ..sort(
-          (a, b) => ScrapeDomainAdapter.scoreSearchHitPreview(
-            folder,
-            b,
-          ).compareTo(ScrapeDomainAdapter.scoreSearchHitPreview(folder, a)),
-        );
-      final recovered = <TmdbWorkDetail>[];
-      for (final hit in ranked.take(3)) {
-        final detail = await _tmdbService.getWorkDetail(
-          hit.tmdbId,
-          hit.mediaType,
-          priority: RequestPriority.background,
-        );
-        if (detail != null) recovered.add(detail);
-      }
-      return recovered;
-    } catch (error) {
-      if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
-        onNetworkError?.call(error);
-        return const [];
-      }
-      rethrow;
     }
+    final ranked = [...hits.values]
+      ..sort(
+        (a, b) => ScrapeDomainAdapter.scoreSearchHitPreview(
+          folder,
+          b,
+        ).compareTo(ScrapeDomainAdapter.scoreSearchHitPreview(folder, a)),
+      );
+    final recovered = await _fetchAllInOrder(
+      ranked.take(3),
+      (hit) => _tmdbService.getWorkDetail(
+        hit.tmdbId,
+        hit.mediaType,
+        priority: RequestPriority.background,
+      ),
+      onNetworkError: onNetworkError,
+    );
+    return recovered.aborted ? const [] : recovered.results;
   }
 
   /// 按 ID 补拉指定 TMDB 条目详情（跨源映射命中但关键词检索未召回时使用；不存在的 ID 静默跳过）。
@@ -452,24 +480,16 @@ class ScrapeCandidateFetcher {
     List<({TmdbMediaType type, int id})> targets, {
     void Function(Object error)? onNetworkError,
   }) async {
-    final details = <TmdbWorkDetail>[];
-    for (final t in targets) {
-      try {
-        final detail = await _tmdbService.getWorkDetail(
-          t.id,
-          t.type,
-          priority: RequestPriority.background,
-        );
-        if (detail != null) details.add(detail);
-      } catch (error) {
-        if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
-          onNetworkError?.call(error);
-          break;
-        }
-        rethrow;
-      }
-    }
-    return details;
+    final fetched = await _fetchAllInOrder(
+      targets,
+      (t) => _tmdbService.getWorkDetail(
+        t.id,
+        t.type,
+        priority: RequestPriority.background,
+      ),
+      onNetworkError: onNetworkError,
+    );
+    return fetched.results;
   }
 
   /// TMDB 检索类型过滤：目录画像倾向剧集时锁定 `/search/tv`；
@@ -559,27 +579,20 @@ class ScrapeCandidateFetcher {
     }
     if (hitMap.isEmpty) return existingDetails;
 
-    final fetched = <TmdbWorkDetail>[...existingDetails];
-    for (final hit in hitMap.values.take(4)) {
-      try {
-        final detail = await _tmdbService.getWorkDetail(
-          hit.tmdbId,
-          hit.mediaType,
-          priority: RequestPriority.background,
-        );
-        if (detail != null &&
-            seenIds.add('${detail.mediaType.name}:${detail.tmdbId}')) {
-          fetched.add(detail);
-        }
-      } catch (error) {
-        if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
-          onNetworkError?.call(error);
-          break;
-        }
-        rethrow;
-      }
-    }
-    return fetched;
+    final rescued = await _fetchAllInOrder(
+      hitMap.values.take(4),
+      (hit) => _tmdbService.getWorkDetail(
+        hit.tmdbId,
+        hit.mediaType,
+        priority: RequestPriority.background,
+      ),
+      onNetworkError: onNetworkError,
+    );
+    return [
+      ...existingDetails,
+      for (final detail in rescued.results)
+        if (seenIds.add('${detail.mediaType.name}:${detail.tmdbId}')) detail,
+    ];
   }
 
   /// 一次拉取各引用季完整详情（含单季专属封面、季名、简介与分集列表）。
@@ -602,26 +615,19 @@ class ScrapeCandidateFetcher {
       );
     }
     final targetSeasons = seasons.isEmpty ? {1} : seasons;
+    final fetched = await _fetchAllInOrder(targetSeasons, (season) async {
+      final detail = await _tmdbService.getSeasonDetail(
+        tmdbId,
+        season,
+        priority: RequestPriority.background,
+      );
+      return detail == null ? null : (season: season, detail: detail);
+    }, onNetworkError: onNetworkError);
     final allEpisodes = <TmdbEpisodeDetail>[];
     final details = <int, TmdbSeasonDetail>{};
-    for (final season in targetSeasons) {
-      try {
-        final seasonDetail = await _tmdbService.getSeasonDetail(
-          tmdbId,
-          season,
-          priority: RequestPriority.background,
-        );
-        if (seasonDetail != null) {
-          details[season] = seasonDetail;
-          allEpisodes.addAll(seasonDetail.episodes);
-        }
-      } catch (error) {
-        if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
-          onNetworkError?.call(error);
-          break;
-        }
-        rethrow;
-      }
+    for (final entry in fetched.results) {
+      details[entry.season] = entry.detail;
+      allEpisodes.addAll(entry.detail.episodes);
     }
     return (episodes: allEpisodes, seasonDetails: details);
   }

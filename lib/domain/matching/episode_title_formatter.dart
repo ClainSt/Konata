@@ -10,7 +10,7 @@ import '../models/work.dart';
 /// 3. 为 MPV / PotPlayer 生成干净无 URL 编码的播放标题。
 abstract final class EpisodeTitleFormatter {
   static final RegExp _genericEpisodePattern = RegExp(
-    r'^(?:正片|第\s*0*\d+\s*[话集話]|(?:episode|ep)\s*0*\d+)$',
+    r'^(?:正片|第\s*0*\d+(?:\s*[-～~]\s*0*\d+)?\s*[话集話]|(?:episode|ep)\s*0*\d+)$',
     caseSensitive: false,
   );
 
@@ -89,13 +89,20 @@ abstract final class EpisodeTitleFormatter {
       }
       return '未分集';
     }
-    final epNumStr = epNum.toString().padLeft(2, '0');
+    final epNumStr = formatEpisodeNumberLabel(epNum, episode.episodeNumberEnd);
     if (rawTitle != null &&
         rawTitle.isNotEmpty &&
         !isGenericEpisodePlaceholder(rawTitle)) {
       return '$epNumStr · $rawTitle';
     }
     return '第 $epNumStr 话';
+  }
+
+  /// 集号文本：单集为 `01`，多集合并区间为 `01-02`。
+  static String formatEpisodeNumberLabel(int episodeNumber, int? episodeEnd) {
+    final start = episodeNumber.toString().padLeft(2, '0');
+    if (episodeEnd == null || episodeEnd <= episodeNumber) return start;
+    return '$start-${episodeEnd.toString().padLeft(2, '0')}';
   }
 
   /// 格式化播放记录页的单集副标题（避免旧版 `S01E01` 或冗余重复，保持 `[集号] · [单集标题]` / 特典短标题）。

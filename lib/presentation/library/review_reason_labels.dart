@@ -47,6 +47,10 @@ class ReviewReasonLabels {
     'close_candidates': '多个候选分数接近，需人工核实',
     'low_confidence': '整体匹配置信度不足',
     'high_confidence': '高置信度自动匹配',
+    'bangumi_anchored': 'Bangumi 条目锚定匹配',
+    'cross_source_confirmed': 'TMDB 与 Bangumi 双源互证',
+    'stub_entry': 'TMDB 空壳条目（信息缺失）',
+    'unpopular_duplicate': 'TMDB 冷门重复条目',
     'no_match': '候选得分过低，需手动指定',
     'no_candidates': '未找到匹配候选',
   };

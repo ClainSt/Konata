@@ -162,6 +162,7 @@ class TmdbService {
       backdropPath: preferredBackdrop,
       logoPath: logoPath,
       voteAverage: voteAverage,
+      voteCount: (json['vote_count'] as num?)?.toInt(),
       aliases: aliases.toList(growable: false),
       seasons: seasons,
       candidatePosters: candidatePosters,

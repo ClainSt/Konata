@@ -9,6 +9,7 @@ import '../models/work.dart';
 import '../parsing/bdrip_parser.dart';
 import '../parsing/media_tech_parser.dart';
 import 'bangumi_models.dart';
+import 'bangumi_tmdb_map.dart';
 import 'cloud_media_asset_presentation.dart';
 import 'collection_asset_router.dart';
 import 'directory_analyzer.dart';
@@ -62,6 +63,79 @@ abstract final class ScrapeDomainAdapter {
   static final RegExp _yearParentPattern = RegExp(
     r'^(?:19|20)\d{2}(?:[-._]\d{1,2})?(?:年.*)?$',
   );
+
+  /// 媒体库「标题 (年份)」命名约定：年份括号位于末尾，其后只允许跟随 `{...}`/`[...]` 标识块。
+  static final RegExp _trailingYearAnchor = RegExp(
+    r'\S.*?[(（]\s*(?:19|20)\d{2}\s*[)）](?:\s*[\[{【][^\]}】]*[\]}】])*\s*$',
+  );
+
+  /// 判定目录段是否为锚定作品根目录：0 表示非锚定，1 表示「标题 (年份)」约定，2 表示携带显式刮削 ID。
+  ///
+  /// 锚定根目录代表用户已按媒体库规范整理好的单部作品，其下所有子目录（压制组目录、分卷、
+  /// 字幕语言版本、特典目录等）一律向上归并，不再按子目录碎片化成独立作品。
+  static int _workRootAnchorKind(String segment) {
+    final trimmed = segment.trim();
+    if (trimmed.isEmpty) return 0;
+    if (PersonalFilenameParser.tmdbIds(trimmed).isNotEmpty ||
+        _bangumiMarker.hasMatch(trimmed)) {
+      return 2;
+    }
+    if (!_trailingYearAnchor.hasMatch(trimmed)) return 0;
+    if (_categoryFolderPattern.hasMatch(trimmed) ||
+        SupplementaryFolderRules.isSupplementarySegment(trimmed)) {
+      return 0;
+    }
+    return 1;
+  }
+
+  /// 判断「标题 (年份)」目录名中的 ` & ` 是否真的并列了多部作品：每一段都必须拥有其他段没有的独有词，
+  /// 且这些独有词分别命中互不重叠的视频文件（如 `FLCL Alternative & FLCL Progressive`）。
+  /// `TIGER & BUNNY`、`NULL & PETA` 这类片名本身含 `&` 的目录，各段词在全部文件中同时出现，不满足条件。
+  static bool _isDisjointAmpersandCollection(
+    String folderLeaf,
+    List<ScannedFileInput> videos,
+  ) {
+    final segments = DirectoryAnalyzer.cleanTitle(folderLeaf)
+        .split(RegExp(r'\s+[&＆]\s+'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList(growable: false);
+    if (segments.length < 2) return false;
+    Set<String> tokens(String value) => value
+        .toLowerCase()
+        .split(RegExp(r'[^a-z0-9぀-鿿]+'))
+        .where((t) => t.length >= 2)
+        .toSet();
+    final segmentTokens = segments.map(tokens).toList(growable: false);
+    final fileTokens = [for (final v in videos) tokens(v.fileName)];
+    final hitSets = <Set<int>>[];
+    for (var i = 0; i < segmentTokens.length; i++) {
+      final others = <String>{
+        for (var j = 0; j < segmentTokens.length; j++)
+          if (j != i) ...segmentTokens[j],
+      };
+      final distinct = segmentTokens[i].difference(others);
+      if (distinct.isEmpty) return false;
+      final hits = <int>{
+        for (var f = 0; f < fileTokens.length; f++)
+          if (fileTokens[f].intersection(distinct).isNotEmpty) f,
+      };
+      if (hits.isEmpty) return false;
+      if (hitSets.any((prev) => prev.intersection(hits).isNotEmpty)) {
+        return false;
+      }
+      hitSets.add(hits);
+    }
+    return true;
+  }
+
+  /// 返回路径中最深一层锚定作品根目录的段下标，不存在时返回 -1。
+  static int _deepestAnchorIndex(List<String> dirSegments) {
+    for (var i = dirSegments.length - 1; i >= 0; i--) {
+      if (_workRootAnchorKind(dirSegments[i]) > 0) return i;
+    }
+    return -1;
+  }
 
   /// 使用无损目录分析器与多作品拆分器对扫描文件执行抗碎裂归拢与合集拆分。
   static List<GroupedWorkFolder> groupAndSplitFiles({
@@ -129,7 +203,12 @@ abstract final class ScrapeDomainAdapter {
         }
       }
 
-      var inventory = DirectoryAnalyzer.analyze(analyzePath, relativeVideos);
+      final anchorKind = _workRootAnchorKind(folderLeafName);
+      var inventory = DirectoryAnalyzer.analyze(
+        analyzePath,
+        relativeVideos,
+        anchoredRoot: anchorKind > 0,
+      );
       if (nfoHint.tmdbId != null || nfoHint.mediaType != null) {
         inventory = inventory.withExplicitIds(
           tmdbId: inventory.tmdbId ?? nfoHint.tmdbId,
@@ -137,7 +216,13 @@ abstract final class ScrapeDomainAdapter {
         );
       }
 
-      if (videoFiles.length >= 2) {
+      // 显式 ID 锚定目录由用户声明为单部作品，绝不拆分；「标题 (年份)」目录仅在目录名
+      // 以 ` & ` 并列多部作品、且各段独有词分别命中互不重叠的文件时才允许拆分。
+      final splitAllowed =
+          anchorKind == 0 ||
+          (anchorKind == 1 &&
+              _isDisjointAmpersandCollection(folderLeafName, videoFiles));
+      if (splitAllowed && videoFiles.length >= 2) {
         final rawAssets = [
           for (final v in videoFiles)
             <String, Object?>{
@@ -258,6 +343,7 @@ abstract final class ScrapeDomainAdapter {
                       ? item.season
                       : (cluster.inventory.season ?? 1),
                   episodeNumber: item.episode,
+                  episodeEnd: item.episode == null ? null : item.episodeEnd,
                   extraType: null,
                   fractionalLabel: parsed.fractionalEpisode,
                 );
@@ -273,7 +359,9 @@ abstract final class ScrapeDomainAdapter {
                 }
               }
             }
-            if (clusterFiles.where((f) => f.assetKind == AssetKind.video).isEmpty) {
+            if (clusterFiles
+                .where((f) => f.assetKind == AssetKind.video)
+                .isEmpty) {
               continue;
             }
 
@@ -462,12 +550,17 @@ abstract final class ScrapeDomainAdapter {
           .replaceAll(RegExp(r'（\s*(?:19|20)\d{2}\s*）'), ' ')
           .replaceAll(RegExp(r'\s+'), ' ')
           .trim();
-      final sanitized = SearchQuerySanitizer.sanitize(stripped);
+      final sanitized = SearchQuerySanitizer.sanitize(
+        _cutTechnicalTail(stripped),
+      );
       final clean = sanitized.isNotEmpty ? sanitized : stripped;
-      if (clean.isEmpty) return;
-      final key = clean
-          .toLowerCase()
-          .replaceAll(RegExp(r'[\s:：\-～~·・･/—]+'), '');
+      if (clean.isEmpty || _isJunkQuery(clean) || _isJunkQuery(stripped)) {
+        return;
+      }
+      final key = clean.toLowerCase().replaceAll(
+        RegExp(r'[\s:：\-～~·・･/—]+'),
+        '',
+      );
       if (key.isEmpty || !seen.add(key)) return;
       out.add(clean);
     }
@@ -554,7 +647,11 @@ abstract final class ScrapeDomainAdapter {
         .where((s) => s.isNotEmpty)
         .toList();
     if (parts.length >= 2) {
-      for (var idx = parts.length - 2; idx >= 0 && idx >= parts.length - 3; idx--) {
+      for (
+        var idx = parts.length - 2;
+        idx >= 0 && idx >= parts.length - 3;
+        idx--
+      ) {
         final parent = parts[idx]
             .replaceFirst(
               RegExp(
@@ -573,14 +670,8 @@ abstract final class ScrapeDomainAdapter {
     }
 
     // 主系列词干与尾部副标题剥离（如 `系列名：副标题` / `前辈 主标题`）。
-    for (final base in [
-      ...inv.titleHints.take(2),
-      ...inv.fileHints.take(2),
-    ]) {
-      final beforePunct = base
-          .split(RegExp(r'[:：～~—/·・･]+'))
-          .first
-          .trim();
+    for (final base in [...inv.titleHints.take(2), ...inv.fileHints.take(2)]) {
+      final beforePunct = base.split(RegExp(r'[:：～~—/·・･]+')).first.trim();
       if (beforePunct.isNotEmpty &&
           beforePunct != base &&
           (_hasCjk(beforePunct)
@@ -631,7 +722,8 @@ abstract final class ScrapeDomainAdapter {
     ScoredBangumiCandidate? best,
     List<ScoredBangumiCandidate> topCandidates,
     legacy.MatchResult rawResult,
-  }) evaluateBangumiMatch(
+  })
+  evaluateBangumiMatch(
     GroupedWorkFolder folder,
     List<BangumiSubjectCandidate> candidates,
   ) {
@@ -647,10 +739,9 @@ abstract final class ScrapeDomainAdapter {
     final byId = <int, BangumiSubjectCandidate>{
       for (final c in candidates) c.id: c,
     };
-    final result = legacy.WorkMatcher.bangumi(
-      inv,
-      [for (final c in candidates) c.toMatchCandidate()],
-    );
+    final result = legacy.WorkMatcher.bangumi(inv, [
+      for (final c in candidates) c.toMatchCandidate(),
+    ]);
     final scored = <ScoredBangumiCandidate>[];
     for (final s in result.ranking) {
       final subject = byId[s.candidate.id];
@@ -668,9 +759,7 @@ abstract final class ScrapeDomainAdapter {
     }
     final best = result.candidate == null
         ? null
-        : scored
-              .where((s) => s.subject.id == result.candidate!.id)
-              .firstOrNull;
+        : scored.where((s) => s.subject.id == result.candidate!.id).firstOrNull;
     return (
       tier: result.tier,
       best: best,
@@ -720,14 +809,23 @@ abstract final class ScrapeDomainAdapter {
     final byKey = <String, TmdbWorkDetail>{
       for (final c in candidates) '${c.mediaType.name}:${c.tmdbId}': c,
     };
-    final matchCandidates = [
-      for (final c in candidates) _toMatchCandidate(c),
-    ];
+    final matchCandidates = [for (final c in candidates) _toMatchCandidate(c)];
+    // Bangumi 高置信条目经 Wikidata 映射到的 TMDB 条目（仅限已在候选池中的），作为跨源加权与锚定依据。
+    // 零评分人数的条目多为新建的低质量重复条目（Wikidata 偶有误链），不给予映射加权。
+    final mappedKeys = bgmEval.tier == legacy.MatchTier.high
+        ? bangumiMappedTmdbKeys(bgmEval.best?.subject, {
+            for (final e in byKey.entries)
+              if (e.value.voteCount != 0) e.key,
+          })
+        : const <String>[];
 
     final result = legacy.WorkMatcher.tmdb(
       inv,
       matchCandidates,
       bangumi: bgmEval.rawResult,
+      mappedTarget: mappedKeys.isEmpty
+          ? null
+          : (key: mappedKeys.first, season: null),
       ignoreTmdbMarker: folder.ignoreExplicitTmdb,
     );
 
@@ -800,6 +898,37 @@ abstract final class ScrapeDomainAdapter {
       }
     }
 
+    // Bangumi 高置信时以 Bangumi 条目锚定 TMDB：候选任一名称与 Bangumi 中/日文名或别名归一化后完全一致
+    // 且年份吻合即视为同一作品。适用于 TMDB 因分差过小或跨源校验被整体放弃，以及当前优胜条目
+    // 只是把单独上架的特别篇归入母剧第 0 季、而另有名称完全一致的专属条目两种情形；
+    // 当前优胜条目已对上母剧正片季时不覆盖（续季常另有同名的低质量重复条目）。
+    var anchoredByBangumi = false;
+    if (effectiveBestBgm != null && bgmEval.tier == legacy.MatchTier.high) {
+      final bgmSubject = effectiveBestBgm.subject;
+      final current = effectiveBestTmdb;
+      final anchored = _bangumiAnchoredTmdb(scoredList, bgmSubject, mappedKeys);
+      if (anchored != null &&
+          (current == null ||
+              (!identical(anchored, current) &&
+                  current.detail.mediaType == TmdbMediaType.tv &&
+                  matchedSeason == 0 &&
+                  !mappedKeys.contains(_detailKey(current.detail)) &&
+                  !_tmdbNamesMatchBangumi(current.detail, bgmSubject)))) {
+        effectiveBestTmdb = anchored;
+        tmdbTier = legacy.MatchTier.medium;
+        matchedSeason = anchored.matchedSeason;
+        anchoredByBangumi = true;
+      } else if (current == null) {
+        final parent = _bangumiParentSeriesTmdb(scoredList, bgmSubject, inv);
+        if (parent != null) {
+          effectiveBestTmdb = parent;
+          tmdbTier = legacy.MatchTier.medium;
+          matchedSeason = parent.matchedSeason;
+          anchoredByBangumi = true;
+        }
+      }
+    }
+
     if (effectiveBestTmdb == null && effectiveBestBgm != null) {
       final bgmHigh = bgmEval.tier == legacy.MatchTier.high;
       return MatchDecision(
@@ -809,14 +938,30 @@ abstract final class ScrapeDomainAdapter {
         bestBangumi: effectiveBestBgm,
         topBangumiCandidates: bgmEval.topCandidates,
         primaryReason: bgmHigh ? 'bangumi_high_confidence' : 'bangumi_review',
-        reviewReason: bgmHigh
-            ? null
-            : '仅命中 Bangumi 候选，TMDB 候选分歧较大请复核',
+        reviewReason: bgmHigh ? null : '仅命中 Bangumi 候选，TMDB 候选分歧较大请复核',
       );
     }
 
+    // 双源互证：TMDB 中置信且标题、年份吻合、无硬冲突，Bangumi 虽因同系列条目（TV/OVA、各季）分差过小
+    // 未达高置信，但其首选与 TMDB 优胜条目跨源兼容时，两个独立数据源一致即视为高置信。
+    // Bangumi 侧仍不绑定，避免在分差过小的同系列条目间误选。
+    final bgmTop = bgmEval.topCandidates.firstOrNull;
+    final crossConfirmed =
+        tmdbTier == legacy.MatchTier.medium &&
+        effectiveBestTmdb != null &&
+        bgmEval.tier != legacy.MatchTier.high &&
+        bgmTop != null &&
+        bgmTop.score >= _crossConfirmBangumiScore &&
+        _hasStrongTitleAndYear(effectiveBestTmdb.reasons) &&
+        _providersCompatible(
+          effectiveBestTmdb.detail,
+          matchedSeason,
+          bgmTop.subject,
+        );
+
     final high =
         tmdbTier == legacy.MatchTier.high ||
+        crossConfirmed ||
         (effectiveBestBgm != null && bgmEval.tier == legacy.MatchTier.high);
 
     if (tmdbTier == legacy.MatchTier.none && effectiveBestBgm == null) {
@@ -842,7 +987,9 @@ abstract final class ScrapeDomainAdapter {
         bestBangumi: effectiveBestBgm,
         topBangumiCandidates: bgmEval.topCandidates,
         matchedSeason: matchedSeason,
-        primaryReason: 'high_confidence',
+        primaryReason: anchoredByBangumi
+            ? 'bangumi_anchored'
+            : (crossConfirmed ? 'cross_source_confirmed' : 'high_confidence'),
       );
     }
 
@@ -887,6 +1034,34 @@ abstract final class ScrapeDomainAdapter {
         0;
   }
 
+  /// 显式 `{tmdb-N}` 未标注类型而剧集与电影两侧同号条目都存在时（两类 ID 空间相互重叠），
+  /// 忽略目录 ID 标记、按标题/年份/正片形态为两侧打分择优；分数相同时回退目录的电影/剧集提示。
+  static TmdbWorkDetail chooseExplicitTypeCandidate(
+    GroupedWorkFolder folder, {
+    required TmdbWorkDetail tv,
+    required TmdbWorkDetail movie,
+  }) {
+    final ranking = legacy.WorkMatcher.tmdb(_effectiveInventory(folder), [
+      _toMatchCandidate(tv),
+      _toMatchCandidate(movie),
+    ], ignoreTmdbMarker: true).ranking;
+    double scoreOf(TmdbWorkDetail detail) =>
+        ranking
+            .where(
+              (r) =>
+                  r.candidate.id == detail.tmdbId &&
+                  r.candidate.type == detail.mediaType.name,
+            )
+            .firstOrNull
+            ?.score
+            .toDouble() ??
+        double.negativeInfinity;
+    final tvScore = scoreOf(tv);
+    final movieScore = scoreOf(movie);
+    if (tvScore == movieScore) return folder.isMovieHint ? movie : tv;
+    return tvScore > movieScore ? tv : movie;
+  }
+
   /// 当 `WorkMatcher` 未显式定季（如单文件显式 `{tmdb-N}` 绑定）时，回退使用 `WorkSeason.resolve` 定季。
   static int? fallbackResolveSeason({
     required GroupedWorkFolder folder,
@@ -904,15 +1079,12 @@ abstract final class ScrapeDomainAdapter {
           'poster_path': s.posterPath,
         },
     ];
-    return WorkSeason.resolve(
-      <String, Object?>{
-        'title': folder.folderName,
-        'folder': folder.folderRelativePath,
-        'year': folder.year,
-        'season': folder.seasonHint,
-      },
-      rawSeasons,
-    );
+    return WorkSeason.resolve(<String, Object?>{
+      'title': folder.folderName,
+      'folder': folder.folderRelativePath,
+      'year': folder.year,
+      'season': folder.seasonHint,
+    }, rawSeasons);
   }
 
   /// 为绑定作品解析季级身份（季专属标题、首播年份、季海报、Bangumi 封面、系列回退海报与简介）。
@@ -946,7 +1118,8 @@ abstract final class ScrapeDomainAdapter {
       final inv = _effectiveInventory(folder);
       final bgmTitle = _nonEmpty(bgmSubject?.displayTitle);
       return (
-        title: bgmTitle ?? (inv.title.isNotEmpty ? inv.title : folder.folderName),
+        title:
+            bgmTitle ?? (inv.title.isNotEmpty ? inv.title : folder.folderName),
         year: bgmSubject?.year ?? folder.year,
         posterPath: bgmPoster,
         posterFallback: null,
@@ -1199,7 +1372,9 @@ abstract final class ScrapeDomainAdapter {
         if (normTmdb.isNotEmpty &&
             normLocal.startsWith(normTmdb) &&
             normLocal.length >= normTmdb.length + 2 &&
-            !_genericSeasonName.hasMatch(normLocal.substring(normTmdb.length))) {
+            !_genericSeasonName.hasMatch(
+              normLocal.substring(normTmdb.length),
+            )) {
           return inv.title;
         }
       }
@@ -1294,6 +1469,8 @@ abstract final class ScrapeDomainAdapter {
       aliases: aliases,
       seasons: seasons,
       genreIds: detail.genreIds,
+      voteCount: detail.voteCount,
+      originalTitle: detail.originalTitle,
     );
   }
 
@@ -1304,7 +1481,12 @@ abstract final class ScrapeDomainAdapter {
     final mainItems = <LogicalItem>[];
     final byEp = <int, LogicalItem>{};
     for (final ep in folder.mainEpisodeNumbers) {
-      final item = LogicalItem('e::$ep', folder.cleanTitle, ep, folder.seasonHint);
+      final item = LogicalItem(
+        'e::$ep',
+        folder.cleanTitle,
+        ep,
+        folder.seasonHint,
+      );
       byEp[ep] = item;
       mainItems.add(item);
     }
@@ -1333,7 +1515,8 @@ abstract final class ScrapeDomainAdapter {
     );
   }
 
-  static Map<String, EpisodeSlotAssignment> _buildSlotAssignmentsForSingleFolder({
+  static Map<String, EpisodeSlotAssignment>
+  _buildSlotAssignmentsForSingleFolder({
     required String folderPath,
     required List<ScannedFileInput> videoFiles,
     required DirectoryInventory inventory,
@@ -1341,8 +1524,13 @@ abstract final class ScrapeDomainAdapter {
   }) {
     final slotMap = <String, EpisodeSlotAssignment>{};
     final relToRaw = <String, ScannedFileInput>{
-      for (final v in videoFiles) _stripFolderPrefix(v.relativePath, folderPath): v,
+      for (final v in videoFiles)
+        _stripFolderPrefix(v.relativePath, folderPath): v,
     };
+    // 多季合辑目录（`S1+S2`、`X & X 第2期`）的路径季号只描述其中一季，不能套用到目录内全部正片。
+    final multiSeasonFolder = DirectoryAnalyzer.isMultiSeasonTitle(
+      inventory.title,
+    );
 
     for (final item in inventory.main) {
       for (final subRel in item.files) {
@@ -1355,16 +1543,18 @@ abstract final class ScrapeDomainAdapter {
           folderSeasonHint: inventory.season,
         );
         final epNum = item.episode ?? parsed.episode;
-        final seasonNum =
-            (item.season != null && item.season! > 0)
+        final seasonNum = (item.season != null && item.season! > 0)
             ? item.season!
             : ((inventory.season != null && inventory.season! > 0)
                   ? inventory.season!
-                  : (parsed.season > 0 ? parsed.season : 1));
+                  : (!multiSeasonFolder && parsed.season > 0
+                        ? parsed.season
+                        : 1));
         slotMap[raw.relativePath] = EpisodeSlotAssignment(
           category: EpisodeCategory.main,
           seasonNumber: seasonNum,
           episodeNumber: epNum,
+          episodeEnd: item.episode == null ? null : item.episodeEnd,
           extraType: null,
           fractionalLabel: parsed.fractionalEpisode,
         );
@@ -1557,10 +1747,10 @@ abstract final class ScrapeDomainAdapter {
       caseSensitive: false,
     ).firstMatch(fileName);
     if (promoMatch != null) {
-      final tag = promoMatch.group(1)!.toUpperCase().replaceAll(
-        RegExp(r'[ ._-]+'),
-        '',
-      );
+      final tag = promoMatch
+          .group(1)!
+          .toUpperCase()
+          .replaceAll(RegExp(r'[ ._-]+'), '');
       final numPart = promoMatch.group(2) ?? '';
       return numPart.isEmpty ? tag : '$tag$numPart';
     }
@@ -1602,9 +1792,10 @@ abstract final class ScrapeDomainAdapter {
     required ParsedBdripRelease parsed,
     required String? shortTitle,
   }) {
-    final normShort = (shortTitle ?? '')
-        .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9\u3040-\u9fff]+'), '');
+    final normShort = (shortTitle ?? '').toLowerCase().replaceAll(
+      RegExp(r'[^a-z0-9\u3040-\u9fff]+'),
+      '',
+    );
     var stem = fileName.replaceFirst(RegExp(r'\.[^.]+$'), '');
     for (final grp in [parsed.releaseGroup, parsed.subtitleGroup]) {
       if (grp != null && grp.trim().isNotEmpty) {
@@ -1626,9 +1817,10 @@ abstract final class ScrapeDomainAdapter {
         .replaceAll(RegExp(r'[^a-z0-9\u3040-\u9fff]+'), '_')
         .replaceAll(RegExp(r'_+'), '_')
         .replaceAll(RegExp(r'^_+|_+$'), '');
-    final volSuffix = _extractVolumeOrDiscSuffix(fileName, relativePath)
-        ?.toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9]+'), '');
+    final volSuffix = _extractVolumeOrDiscSuffix(
+      fileName,
+      relativePath,
+    )?.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '');
     final parts = <String>[
       if (normShort.isNotEmpty) normShort,
       if (volSuffix != null && volSuffix.isNotEmpty) volSuffix,
@@ -1749,6 +1941,11 @@ abstract final class ScrapeDomainAdapter {
         .toList();
     if (segments.length <= 1) return '';
     final parentSegments = segments.sublist(0, segments.length - 1);
+
+    final anchor = _deepestAnchorIndex(parentSegments);
+    if (anchor >= 0) {
+      return parentSegments.sublist(0, anchor + 1).join('/');
+    }
 
     var scanStart = 1;
     if (multiInstallmentRoots.isNotEmpty) {
@@ -2048,6 +2245,10 @@ abstract final class ScrapeDomainAdapter {
           label == 'folder says movie' ||
           label == 'file says movie') {
         add('media_type_match');
+      } else if (label == 'stub entry') {
+        add('stub_entry');
+      } else if (label == 'unpopular duplicate') {
+        add('unpopular_duplicate');
       } else {
         add(label);
       }
@@ -2108,6 +2309,51 @@ abstract final class ScrapeDomainAdapter {
       .trim();
 
   static bool _hasCjk(String s) => RegExp(r'[\u3040-\u9fff]').hasMatch(s);
+
+  /// 场景式命名在标题后紧跟年份、分辨率、编码或季集标记，搜索词从首个此类标记处截断（标记不在开头时）。
+  static final RegExp _queryTechnicalTail = RegExp(
+    r'(?<![a-z0-9぀-鿿])(?:(?:19|20)\d{2}|s\d{1,2}e\d{1,4}|tvsp\d{1,3}|\d{3,4}[pi]|[248]k|x26[45]|h\.?26[45]|'
+    r'hevc|avc|flac|aac|ac3|dual[ ._-]?audio|10bits?|8bits?|bdrip|dvdrip|webrip|web[ ._-]?dl|blu[ ._-]?ray)(?![a-z0-9])',
+    caseSensitive: false,
+  );
+
+  static String _cutTechnicalTail(String query) {
+    final m = _queryTechnicalTail.firstMatch(query);
+    if (m == null || m.start == 0) {
+      return query
+          .replaceAll(
+            RegExp(
+              r'(?<![a-z0-9])(?:\d{3,4}[pi]|[248]k)(?![a-z0-9])',
+              caseSensitive: false,
+            ),
+            ' ',
+          )
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+    }
+    return query.substring(0, m.start).trim();
+  }
+
+  /// 压制组名、纯技术/语言标签、通用类型词与过短的版本号片段都不是有效作品搜索词。
+  static final RegExp _genericQueryWord = RegExp(
+    r'^(?:电影|映画|剧场版|劇場版|the[ ._-]+movie|movie|film|ova|oad|oav|ona|sp|sps|specials?|tv|'
+    r'特典|特别篇|特別編|总集篇|総集編|extras?|bonus|bd|dvd|web|v\d+|\d{1,2}d)$',
+    caseSensitive: false,
+  );
+
+  static bool _isJunkQuery(String query) {
+    final trimmed = query.trim();
+    if (_genericQueryWord.hasMatch(trimmed)) return true;
+    if (PersonalFilenameParser.isReleaseGroupTag(trimmed) &&
+        !_hasCjk(
+          trimmed.replaceAll(RegExp(r'字幕[组組社]|[汉漢]化[组組]|[压壓]制[组組]'), ''),
+        )) {
+      return true;
+    }
+    final letters = trimmed.replaceAll(RegExp(r'[\W_]+', unicode: true), '');
+    if (!_hasCjk(trimmed) && letters.length <= 2) return true;
+    return false;
+  }
 
   static bool _isSafeFirstToken(String firstToken, String fullQuery) {
     if (_hasCjk(firstToken)) return firstToken.length >= 2;
@@ -2279,7 +2525,8 @@ abstract final class ScrapeDomainAdapter {
   }
 
   static bool _isClusterSpecial(SubWorkCluster cluster) {
-    if (cluster.inventory.folderMovieMarker || cluster.inventory.fileMovieMarker) {
+    if (cluster.inventory.folderMovieMarker ||
+        cluster.inventory.fileMovieMarker) {
       return false;
     }
     if (cluster.inventory.season == 0 || _isClusterEx(cluster)) return true;
@@ -2394,6 +2641,186 @@ abstract final class ScrapeDomainAdapter {
     return false;
   }
 
+  /// 以 Bangumi 高置信条目锚定 TMDB 候选：任一名称归一化后与 Bangumi 名称完全一致或命中
+  /// Wikidata 映射（[mappedKeys]），且年份吻合（剧集取任一季首播年，相差不超过 1 年）。
+  /// 唯一锚定或锚定候选间分差不小于 5 时返回，否则返回 `null` 交由原降级逻辑处理。
+  /// 身份已由名称或映射确认，因此不再要求 TMDB 标注动画类型（小型条目常漏标），
+  /// 但空壳条目与得分过低（合集/类型硬冲突）的候选不参与锚定。
+  static ScoredTmdbCandidate? _bangumiAnchoredTmdb(
+    List<ScoredTmdbCandidate> scored,
+    BangumiSubjectCandidate bgm,
+    List<String> mappedKeys,
+  ) {
+    final bgmYear = bgm.year;
+    if (bgmYear == null) return null;
+
+    bool yearOk(TmdbWorkDetail d) {
+      final years = <int>{
+        ?d.year,
+        if (d.mediaType == TmdbMediaType.tv)
+          for (final s in d.seasons) ?_parseYear(s.airDate),
+      };
+      return years.any((y) => (y - bgmYear).abs() <= 1);
+    }
+
+    final anchored = [
+      for (final c in scored)
+        if (c.score >= 30 &&
+            !c.reasons.contains('stub_entry') &&
+            yearOk(c.detail) &&
+            (mappedKeys.contains(_detailKey(c.detail)) ||
+                _tmdbNamesMatchBangumi(c.detail, bgm)))
+          c,
+    ];
+    if (anchored.isEmpty) return null;
+    if (anchored.length == 1) return anchored.first;
+    if (anchored[0].score - anchored[1].score >= 5) return anchored[0];
+    // 多个锚定候选分差过小时，以 Wikidata 映射唯一指向的条目定夺（如母剧与续作专属条目同名）。
+    final close = anchored
+        .where((c) => anchored[0].score - c.score < 5)
+        .toList(growable: false);
+    final mapped = close
+        .where((c) => mappedKeys.contains(_detailKey(c.detail)))
+        .toList(growable: false);
+    if (mapped.length == 1) return mapped.single;
+    // 其余均为零评分人数的新建重复条目时，取唯一有评分人数的正主条目。
+    final rated = close
+        .where((c) => (c.detail.voteCount ?? 1) > 0)
+        .toList(growable: false);
+    return rated.length == 1 ? rated.single : null;
+  }
+
+  static final RegExp _seasonOrPartSuffix = RegExp(
+    r'^(?:第?[0-9一二三四五六七八九十]+(?:季|期|部分|部|章|クール)|最终季.*|finalseason.*|'
+    r'season[0-9]+|s[0-9]+|[0-9]+(?:st|nd|rd|th)season|part[0-9]+|volume[0-9]+|vol[0-9]+)$',
+    caseSensitive: false,
+  );
+
+  /// Bangumi 高置信条目是某部 TMDB 剧集的续季、分部或篇章（Bangumi 名称 = 剧集名称 + 后缀）时绑定母剧
+  /// （TMDB 常把续季并入同一剧集条目，以累计集号续接）。满足该关系的剧集候选中取评分人数最多者为正主
+  /// （同名的零评分新建重复条目让位），且其得分不得比全体第一名低超过 10 分。
+  /// 仅在 TMDB 已被整体放弃时使用；剧场版条目不走此路径，避免把独立电影错挂到母剧。
+  /// 后缀须为季/分部标记，或目录本身是多集正片（续作篇章、OVA 系列）。
+  static ScoredTmdbCandidate? _bangumiParentSeriesTmdb(
+    List<ScoredTmdbCandidate> scored,
+    BangumiSubjectCandidate bgm,
+    DirectoryInventory inv,
+  ) {
+    final bgmYear = bgm.year;
+    if (scored.isEmpty ||
+        bgmYear == null ||
+        (bgm.platform?.trim() ?? '') == '剧场版') {
+      return null;
+    }
+    final bgmNorms = [
+      for (final raw in [bgm.nameCn, bgm.name, ...bgm.aliases])
+        DirectoryAnalyzer.normalize(raw),
+    ];
+    final multiEpisode = inv.shape == WorkShape.series && inv.episodeCount >= 2;
+
+    // 仅以正式标题与原名作前缀：别名常含系列总称（如 `宇宙戦艦ヤマト`），会把同系列的另一部作品误判为母剧。
+    bool isParentOf(TmdbWorkDetail d) {
+      final tmdbNorms = <String>{
+        DirectoryAnalyzer.normalize(d.title),
+        if (d.originalTitle != null)
+          DirectoryAnalyzer.normalize(d.originalTitle!),
+      }..removeWhere((e) => e.length < 2);
+      for (final n in bgmNorms) {
+        for (final t in tmdbNorms) {
+          if (n.length <= t.length || !n.startsWith(t)) continue;
+          if (multiEpisode ||
+              _seasonOrPartSuffix.hasMatch(n.substring(t.length))) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    final parents = [
+      for (final c in scored)
+        if (c.detail.mediaType == TmdbMediaType.tv &&
+            !c.reasons.contains('stub_entry') &&
+            c.detail.year != null &&
+            c.detail.year! <= bgmYear + 1 &&
+            scored.first.score - c.score <= 10 &&
+            isParentOf(c.detail))
+          c,
+    ];
+    if (parents.isEmpty) return null;
+    parents.sort((a, b) {
+      final byVotes = (b.detail.voteCount ?? 0).compareTo(
+        a.detail.voteCount ?? 0,
+      );
+      return byVotes != 0 ? byVotes : b.score.compareTo(a.score);
+    });
+    return parents.first;
+  }
+
+  /// 双源互证要求的 Bangumi 首选最低得分（标题需高度一致，约等于标题精确命中再无明显冲突）。
+  static const double _crossConfirmBangumiScore = 50;
+
+  static const Set<String> _hardConflictReasonCodes = {
+    'year_mismatch',
+    'media_type_conflict',
+    'explicit_id_mismatch',
+    'anthology_conflict',
+    'subtitle_conflict',
+    'missing_sequel_number',
+    'stub_entry',
+    'unpopular_duplicate',
+  };
+
+  /// TMDB 候选打分原因中标题高度一致、年份吻合且不含任何硬冲突。
+  static bool _hasStrongTitleAndYear(List<String> reasons) =>
+      (reasons.contains('exact_title') ||
+          reasons.contains('high_title_similarity')) &&
+      (reasons.contains('year_exact') || reasons.contains('year_near')) &&
+      !reasons.any(_hardConflictReasonCodes.contains);
+
+  static String _detailKey(TmdbWorkDetail d) =>
+      '${d.mediaType.name}:${d.tmdbId}';
+
+  /// Bangumi 条目经 Wikidata 映射得到、且已在 [availableKeys]（`类型:ID`）中的 TMDB 键，
+  /// 按 Bangumi 放送平台排序：剧场版条目优先电影映射，其余优先剧集映射。
+  static List<String> bangumiMappedTmdbKeys(
+    BangumiSubjectCandidate? bgm,
+    Set<String> availableKeys,
+  ) {
+    if (bgm == null) return const [];
+    final preferMovie = (bgm.platform?.trim() ?? '') == '剧场版';
+    final keys = [
+      for (final m in BangumiTmdbMap.lookup(bgm.id))
+        if (availableKeys.contains('${m.type.name}:${m.id}'))
+          '${m.type.name}:${m.id}',
+    ];
+    keys.sort((a, b) {
+      int rank(String k) =>
+          k.startsWith(preferMovie ? 'movie:' : 'tv:') ? 0 : 1;
+      return rank(a).compareTo(rank(b));
+    });
+    return keys;
+  }
+
+  /// TMDB 条目任一名称（标题、原名、别名）与 Bangumi 条目任一名称归一化后是否完全一致。
+  static bool _tmdbNamesMatchBangumi(
+    TmdbWorkDetail tmdb,
+    BangumiSubjectCandidate bgm,
+  ) {
+    final bgmNorms = <String>{
+      DirectoryAnalyzer.normalize(bgm.nameCn),
+      DirectoryAnalyzer.normalize(bgm.name),
+      for (final a in bgm.aliases) DirectoryAnalyzer.normalize(a),
+    }..removeWhere((e) => e.length < 2);
+    if (bgmNorms.isEmpty) return false;
+    return <String>{
+      DirectoryAnalyzer.normalize(tmdb.title),
+      if (tmdb.originalTitle != null)
+        DirectoryAnalyzer.normalize(tmdb.originalTitle!),
+      for (final a in tmdb.aliases) DirectoryAnalyzer.normalize(a),
+    }.any(bgmNorms.contains);
+  }
+
   static bool _isBangumiRemasterIdentity(
     DirectoryInventory inventory,
     legacy.MatchCandidate? tmdbPick,
@@ -2470,7 +2897,10 @@ abstract final class ScrapeDomainAdapter {
           : '';
       if (suffix.isNotEmpty && _genericSeasonName.hasMatch(suffix)) {
         final seqSeason =
-            DirectoryAnalyzer.splitSeasonSuffix(bgmTitle, isSeries: true).season ??
+            DirectoryAnalyzer.splitSeasonSuffix(
+              bgmTitle,
+              isSeries: true,
+            ).season ??
             inventory.season;
         return mergedSingleSeason && (seqSeason ?? 0) >= 2;
       }
@@ -2488,20 +2918,59 @@ abstract final class ScrapeDomainAdapter {
 
   static List<String> _romanNumeralVariants(String raw) {
     const unicodeToAscii = <String, String>{
-      'Ⅰ': 'I', 'Ⅱ': 'II', 'Ⅲ': 'III', 'Ⅳ': 'IV', 'Ⅴ': 'V',
-      'Ⅵ': 'VI', 'Ⅶ': 'VII', 'Ⅷ': 'VIII', 'Ⅸ': 'IX', 'Ⅹ': 'X',
-      'ⅰ': 'I', 'ⅱ': 'II', 'ⅲ': 'III', 'ⅳ': 'IV', 'ⅴ': 'V',
-      'ⅵ': 'VI', 'ⅶ': 'VII', 'ⅷ': 'VIII', 'ⅸ': 'IX', 'ⅹ': 'X',
+      'Ⅰ': 'I',
+      'Ⅱ': 'II',
+      'Ⅲ': 'III',
+      'Ⅳ': 'IV',
+      'Ⅴ': 'V',
+      'Ⅵ': 'VI',
+      'Ⅶ': 'VII',
+      'Ⅷ': 'VIII',
+      'Ⅸ': 'IX',
+      'Ⅹ': 'X',
+      'ⅰ': 'I',
+      'ⅱ': 'II',
+      'ⅲ': 'III',
+      'ⅳ': 'IV',
+      'ⅴ': 'V',
+      'ⅵ': 'VI',
+      'ⅶ': 'VII',
+      'ⅷ': 'VIII',
+      'ⅸ': 'IX',
+      'ⅹ': 'X',
     };
     const unicodeToArabic = <String, String>{
-      'Ⅰ': '1', 'Ⅱ': '2', 'Ⅲ': '3', 'Ⅳ': '4', 'Ⅴ': '5',
-      'Ⅵ': '6', 'Ⅶ': '7', 'Ⅷ': '8', 'Ⅸ': '9', 'Ⅹ': '10',
-      'ⅰ': '1', 'ⅱ': '2', 'ⅲ': '3', 'ⅳ': '4', 'ⅴ': '5',
-      'ⅵ': '6', 'ⅶ': '7', 'ⅷ': '8', 'ⅸ': '9', 'ⅹ': '10',
+      'Ⅰ': '1',
+      'Ⅱ': '2',
+      'Ⅲ': '3',
+      'Ⅳ': '4',
+      'Ⅴ': '5',
+      'Ⅵ': '6',
+      'Ⅶ': '7',
+      'Ⅷ': '8',
+      'Ⅸ': '9',
+      'Ⅹ': '10',
+      'ⅰ': '1',
+      'ⅱ': '2',
+      'ⅲ': '3',
+      'ⅳ': '4',
+      'ⅴ': '5',
+      'ⅵ': '6',
+      'ⅶ': '7',
+      'ⅷ': '8',
+      'ⅸ': '9',
+      'ⅹ': '10',
     };
     const asciiToArabic = <String, String>{
-      'II': '2', 'III': '3', 'IV': '4', 'V': '5',
-      'VI': '6', 'VII': '7', 'VIII': '8', 'IX': '9', 'X': '10',
+      'II': '2',
+      'III': '3',
+      'IV': '4',
+      'V': '5',
+      'VI': '6',
+      'VII': '7',
+      'VIII': '8',
+      'IX': '9',
+      'X': '10',
     };
 
     var ascii = raw;

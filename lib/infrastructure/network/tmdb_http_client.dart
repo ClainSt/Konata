@@ -207,8 +207,9 @@ class TmdbHttpClient {
     }
 
     if (_cooldown.isCoolingDown(primaryUri.host, _now())) {
+      final http.Response viaBackup;
       try {
-        return await _sendSingle(
+        viaBackup = await _sendSingle(
           method: method,
           uri: effectiveBackup,
           headers: headers,
@@ -221,27 +222,21 @@ class TmdbHttpClient {
         }
         rethrow;
       }
+      // 备用地址返回重定向或服务端错误（镜像迁址、故障）时解除冷却、改回官方地址重试，
+      // 避免整个冷却窗口内的请求都拿到不可用响应而静默失败。
+      if (!_isUnusableBackupStatus(viaBackup.statusCode)) return viaBackup;
+      _cooldown.clearHost(primaryUri.host);
     }
 
+    final http.Response response;
     try {
-      final response = await _sendSingle(
+      response = await _sendSingle(
         method: method,
         uri: primaryUri,
         headers: headers,
         body: body,
         timeout: primaryTimeout,
       );
-      if (response.statusCode >= 500) {
-        _cooldown.markBlocked(primaryUri.host, _now());
-        return _sendSingle(
-          method: method,
-          uri: effectiveBackup,
-          headers: headers,
-          body: body,
-          timeout: backupTimeout,
-        );
-      }
-      return response;
     } catch (e) {
       if (_isFallbackTriggerError(e)) {
         _cooldown.markBlocked(primaryUri.host, _now());
@@ -255,7 +250,23 @@ class TmdbHttpClient {
       }
       rethrow;
     }
+    // 主链路返回 5xx 时切向备用地址；备用请求放在 try 之外，其异常直接上抛而不会被上面的回退分支重复处理。
+    if (response.statusCode >= 500) {
+      _cooldown.markBlocked(primaryUri.host, _now());
+      return _sendSingle(
+        method: method,
+        uri: effectiveBackup,
+        headers: headers,
+        body: body,
+        timeout: backupTimeout,
+      );
+    }
+    return response;
   }
+
+  /// 备用地址的不可用响应：重定向（POST 不会被自动跟随）或服务端错误。
+  static bool _isUnusableBackupStatus(int statusCode) =>
+      statusCode >= 500 || (statusCode >= 300 && statusCode < 400);
 
   Future<http.Response> _sendSingle({
     required String method,

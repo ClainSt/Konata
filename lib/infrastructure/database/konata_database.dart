@@ -100,8 +100,7 @@ class Works extends Table {
       boolean().withDefault(const Constant(false))();
 
   /// 封面海报是否已人工锁定。
-  BoolColumn get posterLocked =>
-      boolean().withDefault(const Constant(false))();
+  BoolColumn get posterLocked => boolean().withDefault(const Constant(false))();
 
   /// 横版背景原画是否已人工锁定。
   BoolColumn get backdropLocked =>
@@ -129,8 +128,7 @@ class Works extends Table {
   TextColumn get seriesLabel => text().nullable()();
 
   /// 系列编组与标签是否已人工锁定。
-  BoolColumn get seriesLocked =>
-      boolean().withDefault(const Constant(false))();
+  BoolColumn get seriesLocked => boolean().withDefault(const Constant(false))();
 
   @override
   Set<Column<Object>> get primaryKey => {id};
@@ -172,6 +170,9 @@ class Episodes extends Table {
   /// 集号或特典序号（未识别集号时保持 null，不强行兜底为 1）。
   IntColumn get episodeNumber => integer().nullable()();
 
+  /// 多集合并文件的区间结束集号（null 表示单集；仅正片使用）。
+  IntColumn get episodeNumberEnd => integer().nullable()();
+
   /// 分类（正片 / 特典）。
   TextColumn get category => textEnum<EpisodeCategory>()();
 
@@ -202,8 +203,11 @@ class MediaVariants extends Table {
       text().references(Works, #id, onDelete: KeyAction.cascade)();
 
   /// 关联的逻辑剧集 ID（可空）。
-  TextColumn get episodeId =>
-      text().nullable().references(Episodes, #id, onDelete: KeyAction.setNull)();
+  TextColumn get episodeId => text().nullable().references(
+    Episodes,
+    #id,
+    onDelete: KeyAction.setNull,
+  )();
 
   /// 所属媒体源 ID。
   TextColumn get sourceId =>
@@ -248,8 +252,7 @@ class MediaVariants extends Table {
       boolean().withDefault(const Constant(false))();
 
   /// 该物理文件的作品归属是否已人工锁定。
-  BoolColumn get workLocked =>
-      boolean().withDefault(const Constant(false))();
+  BoolColumn get workLocked => boolean().withDefault(const Constant(false))();
 
   /// 作为附属资源在系列内的可见作用域。
   TextColumn get assetScope => textEnum<SupplementaryAssetScope>().withDefault(
@@ -257,8 +260,7 @@ class MediaVariants extends Table {
   )();
 
   /// 该文件的系列作用域是否已人工锁定。
-  BoolColumn get scopeLocked =>
-      boolean().withDefault(const Constant(false))();
+  BoolColumn get scopeLocked => boolean().withDefault(const Constant(false))();
 
   @override
   Set<Column<Object>> get primaryKey => {id};
@@ -337,16 +339,13 @@ class PlaybackRecords extends Table {
   DateTimeColumn get playedAt => dateTime()();
 
   /// 当前播放位置（秒）。
-  IntColumn get positionSeconds =>
-      integer().withDefault(const Constant(0))();
+  IntColumn get positionSeconds => integer().withDefault(const Constant(0))();
 
   /// 视频总时长（秒）。
-  IntColumn get durationSeconds =>
-      integer().withDefault(const Constant(0))();
+  IntColumn get durationSeconds => integer().withDefault(const Constant(0))();
 
   /// 是否已看完（自动阈值或手动标记）。
-  BoolColumn get isCompleted =>
-      boolean().withDefault(const Constant(false))();
+  BoolColumn get isCompleted => boolean().withDefault(const Constant(false))();
 
   @override
   Set<Column<Object>> get primaryKey => {id};
@@ -398,7 +397,7 @@ class KonataDatabase extends _$KonataDatabase {
   factory KonataDatabase.openDefault() => KonataDatabase(_openConnection());
 
   @override
-  int get schemaVersion => 11;
+  int get schemaVersion => 12;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -452,6 +451,10 @@ class KonataDatabase extends _$KonataDatabase {
         await m.addColumn(mediaVariants, mediaVariants.workLocked);
         await m.addColumn(mediaVariants, mediaVariants.assetScope);
         await m.addColumn(mediaVariants, mediaVariants.scopeLocked);
+      }
+      // v7 之前的库会在 `from < 7` 里按最新表定义重建 episodes（已含该列），无需重复添加。
+      if (from < 12 && from >= 7) {
+        await m.addColumn(episodes, episodes.episodeNumberEnd);
       }
     },
     beforeOpen: (details) async {

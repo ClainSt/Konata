@@ -125,6 +125,7 @@ class DriftLibraryRepository implements LibraryRepository {
             workId: Value(episode.workId),
             seasonNumber: Value(episode.seasonNumber),
             episodeNumber: Value(episode.episodeNumber),
+            episodeNumberEnd: Value(episode.episodeNumberEnd),
             category: Value(episode.category),
             extraType: Value(episode.extraType),
             title: Value(episode.title),
@@ -150,6 +151,7 @@ class DriftLibraryRepository implements LibraryRepository {
           workId: row.workId,
           seasonNumber: row.seasonNumber,
           episodeNumber: row.episodeNumber,
+          episodeNumberEnd: row.episodeNumberEnd,
           category: row.category,
           extraType: row.extraType,
           title: row.title,
@@ -179,9 +181,7 @@ class DriftLibraryRepository implements LibraryRepository {
             bitDepth: Value(variant.bitDepth),
             resolution: Value(variant.resolution),
             audioCodec: Value(variant.audioCodec),
-            externalSubtitlesJson: Value(
-              jsonEncode(variant.externalSubtitles),
-            ),
+            externalSubtitlesJson: Value(jsonEncode(variant.externalSubtitles)),
             mappingLocked: Value(variant.mappingLocked),
             workLocked: Value(variant.workLocked),
             assetScope: Value(variant.assetScope),
@@ -335,7 +335,9 @@ class DriftLibraryRepository implements LibraryRepository {
     await (_db.update(_db.works)..where((t) => t.id.equals(workId))).write(
       WorksCompanion(
         isHidden: Value(isHidden),
-        keepHidden: keepHidden != null ? Value(keepHidden) : const Value.absent(),
+        keepHidden: keepHidden != null
+            ? Value(keepHidden)
+            : const Value.absent(),
       ),
     );
   }
@@ -368,8 +370,7 @@ class DriftLibraryRepository implements LibraryRepository {
       findSeriesGroupByIdInDb(_db, seriesId);
 
   @override
-  Future<List<SeriesGroup>> getAllSeriesGroups() =>
-      getAllSeriesGroupsInDb(_db);
+  Future<List<SeriesGroup>> getAllSeriesGroups() => getAllSeriesGroupsInDb(_db);
 
   @override
   Future<void> deleteSeriesGroup(String seriesId) =>

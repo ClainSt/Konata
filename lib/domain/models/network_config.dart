@@ -47,10 +47,21 @@ class TmdbNetworkConfig {
   static const String defaultBangumiImageBase = 'https://lain.bgm.tv';
 
   /// 默认 Bangumi 备用 API 地址。
-  static const String defaultBangumiBackupApiBase = 'https://api.bangumi.lat/v0';
+  static const String defaultBangumiBackupApiBase = 'https://api.bgm.lat/v0';
 
   /// 默认 Bangumi 备用图片服务器地址。
-  static const String defaultBangumiBackupImageBase = 'https://lain.bangumi.lat';
+  static const String defaultBangumiBackupImageBase = 'https://lain.bgm.lat';
+
+  /// 已迁址的旧版默认 Bangumi 备用 API 地址（现对全部请求返回 301，POST 检索会被静默当作无结果），
+  /// 加载持久化配置时自动替换为 [defaultBangumiBackupApiBase]。
+  static const Set<String> retiredBangumiBackupApiBases = {
+    'https://api.bangumi.lat/v0',
+  };
+
+  /// 已迁址的旧版默认 Bangumi 备用图片地址，加载时自动替换为 [defaultBangumiBackupImageBase]。
+  static const Set<String> retiredBangumiBackupImageBases = {
+    'https://lain.bangumi.lat',
+  };
 
   /// 官方外部站点与设置输入提示常量。
   static const String tmdbHomeUrl = 'https://www.themoviedb.org/';

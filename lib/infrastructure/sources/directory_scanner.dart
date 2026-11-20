@@ -4,6 +4,7 @@ import '../../domain/matching/directory_grouper.dart';
 import '../../domain/matching/supplementary_folder_rules.dart';
 import '../../domain/models/media_extensions.dart';
 import '../../domain/models/media_variant.dart';
+import '../../domain/playback/subtitle_and_audio_choices.dart';
 import '../../domain/repositories/file_system_gateway.dart';
 import 'subtitle_matcher.dart';
 
@@ -36,7 +37,11 @@ class DirectoryScanResult {
 
 /// 扫描进度回调。
 typedef DirectoryScanProgressCallback =
-    void Function(String currentDirectory, int scannedDirectories, int foundFiles);
+    void Function(
+      String currentDirectory,
+      int scannedDirectories,
+      int foundFiles,
+    );
 
 /// 单目录枚举完成回调。
 typedef DirectoryFolderVisitedCallback =
@@ -167,10 +172,20 @@ class DirectoryScanner {
       );
     }
 
-    final allSubtitlePaths = [
-      for (final subs in subtitlesByFolder.values)
-        for (final sub in subs) sub.relativePath,
-    ];
+    // 字幕只可能挂到同一逻辑目录（含 `Subs/` 子目录折叠）的视频上，按逻辑目录预建索引，避免全库逐视频遍历的平方级开销。
+    final subtitlePathsByLogicalDir = <String, List<String>>{};
+    for (final entry in subtitlesByFolder.entries) {
+      final logicalDir = SubtitleAndAudioChoices.logicalParentDirOfSubtitleDir(
+        entry.key,
+      );
+      final bucket = subtitlePathsByLogicalDir.putIfAbsent(
+        logicalDir,
+        () => <String>[],
+      );
+      for (final sub in entry.value) {
+        bucket.add(sub.relativePath);
+      }
+    }
 
     final outputs = <ScannedFileInput>[];
     for (final entry in rawFiles) {
@@ -182,7 +197,8 @@ class DirectoryScanner {
       final subtitleMatch = kind == AssetKind.video
           ? SubtitleMatcher.matchForVideo(
               videoRelativePath: entry.relativePath,
-              allSubtitleRelativePaths: allSubtitlePaths,
+              allSubtitleRelativePaths:
+                  subtitlePathsByLogicalDir[folder] ?? const <String>[],
             )
           : null;
 
@@ -211,8 +227,7 @@ class DirectoryScanner {
     final cleaned = <String>{
       for (final raw in scanRoots)
         raw.replaceAll('\\', '/').replaceAll(RegExp(r'^/+|/+$'), ''),
-    }.toList()
-      ..sort();
+    }.toList()..sort();
 
     if (cleaned.isEmpty || cleaned.contains('')) {
       return [''];

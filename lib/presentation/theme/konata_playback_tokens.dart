@@ -215,6 +215,33 @@ abstract final class KonataPlaybackTokens {
   static const double floatingMiniAudioDiscMaxSize = 72.0;
   static const double floatingMiniAudioDiscViewportRatio = 0.105;
   static const double floatingMiniAudioRingWidth = 2.4;
+
+  /// 展开态音频胶囊一体化外轮廓进度弧画笔宽度（配合外层圆角裁切可见约 2.2px 贴边细轨）。
+  static const double floatingMiniAudioContourStrokeWidth = 3.4;
+
+  /// 圆形音频小窗右下角律动条在深色模式下使用的深邃黑色（与亮白色外圈进度环清晰区分）。
+  static const Color floatingMiniDiscEqualizerDarkBar = Color(0xFF0A0C10);
+
+  /// 圆形音频小窗右下角深色律动条背衬柔白光边，确保叠在暗色封面上依然轮廓分明。
+  static const Color floatingMiniDiscEqualizerLightHalo = Color(0xCCFFFFFF);
+
+  /// 实体光学 CD 占位光盘色阶（双主题适配流光毛玻璃美学，无裸色外泄）。
+  static const Color cdCaseBgDarkTop = Color(0xFF202530);
+  static const Color cdCaseBgDarkBottom = Color(0xFF13161D);
+  static const Color cdCaseBgLightTop = Color(0xFFF3F5FA);
+  static const Color cdCaseBgLightBottom = Color(0xFFE3E7F0);
+  static const Color cdDiscBodyDarkOuter = Color(0xFF2B313F);
+  static const Color cdDiscBodyDarkMid = Color(0xFF424B5E);
+  static const Color cdDiscBodyDarkInner = Color(0xFF242936);
+  static const Color cdDiscBodyLightOuter = Color(0xFFDCE1EC);
+  static const Color cdDiscBodyLightMid = Color(0xFFF5F7FC);
+  static const Color cdDiscBodyLightInner = Color(0xFFCFD6E4);
+  static const Color cdIridescenceCyan = Color(0x5288D8FF);
+  static const Color cdIridescenceViolet = Color(0x44B49BFF);
+  static const Color cdIridescenceRose = Color(0x3EFFA8CE);
+  static const Color cdIridescenceWhite = Color(0x66FFFFFF);
+  static const Color cdSpindleHoleDark = Color(0xFF0E1118);
+  static const Color cdSpindleHoleLight = Color(0xFFC8CFDD);
   static const double floatingMiniAudioPillWidth = 320.0;
   static const double floatingMiniAudioPillMaxWidth = 420.0;
   static const double floatingMiniAudioPillWidthRatio = 0.34;
@@ -330,10 +357,14 @@ abstract final class KonataPlaybackTokens {
   static const Color osdProbeValueColor = Color(0xFFFFFFFF);
   static const double wheelVolumeOsdTopOffset = 76.0;
 
-  /// 进度条高对比度 45° 菱形章节点尺寸与描边常量。
-  static const double chapterDiamondRestSize = 7.0;
-  static const double chapterDiamondHoverSize = 10.5;
-  static const double chapterDiamondStrokeWidth = 1.25;
+  /// 进度条高对比度 45° 菱形章节点尺寸、防碰撞稀疏间距与磁吸判定半径常量。
+  static const double chapterDiamondRestSize = 4.5;
+  static const double chapterDiamondHoverSize = 6.5;
+  static const double chapterDiamondHighlightSizeDelta = 1.0;
+  static const double chapterDiamondStrokeWidth = 1.0;
+  static const double chapterDiamondMinSpacingPx = 12.0;
+  static const double chapterDiamondSnapRadiusPx = 7.5;
+  static const double chapterHoverBoundaryEpsilonSec = 0.25;
 
   /// `thumbfast` 级后台缩略图会话解码尺寸、预热延迟与时间桶配置（严格 4 像素对齐 192x108）。
   static const int thumbnailDecodeWidth = 192;
@@ -357,11 +388,23 @@ abstract final class KonataPlaybackTokens {
     Color(0x18FFFFFF),
     Colors.transparent,
   ];
-  static const double lyricActiveFontSize = 24.0;
-  static const double lyricCompactActiveFontSize = 18.0;
-  static const double lyricInactiveFontSize = 18.5;
-  static const double lyricCompactInactiveFontSize = 14.5;
-  static const double lyricSecondaryFontSize = 13.5;
+  static const double lyricActiveFontSize = 34.0;
+  static const double lyricCompactActiveFontSize = 24.0;
+  static const double lyricInactiveFontSize = 19.0;
+  static const double lyricCompactInactiveFontSize = 15.5;
+  static const double lyricActiveSecondaryFontSize = 17.0;
+  static const double lyricSecondaryFontSize = 14.0;
+  static const double lyricViewportAnchorRatio = 0.42;
+  static const double lyricCompactViewportAnchorRatio = 0.36;
+  static const double lyricKaraokeUnlitAlphaDark = 0.36;
+  static const double lyricKaraokeUnlitAlphaLight = 0.30;
+  static const double lyricKaraokeFeatherMaxPx = 18.0;
+
+  /// 根据单行歌词扫光窗秒数构造下限保底（250ms）的有限扫光动画时长。
+  static Duration lyricKaraokeWindowDuration(double seconds) {
+    final ms = (seconds * 1000).round();
+    return Duration(milliseconds: ms < 250 ? 250 : ms);
+  }
   static const double lyricBlurStep1 = 1.5;
   static const double lyricBlurStep2 = 3.0;
   static const double lyricBlurStepFar = 4.4;

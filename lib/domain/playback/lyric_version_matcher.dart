@@ -141,6 +141,17 @@ class LyricVersionMatcher {
   static final RegExp _wordTagRegex = RegExp(
     r'<(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?>',
   );
+  static final RegExp _harmonyLineRegex = RegExp(
+    r'^\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]\s*bg:',
+    multiLine: true,
+  );
+
+  /// 判断原始歌词文本是否包含显式逐字时间戳 `<mm:ss.xx>` 或并行和声层 `bg:` 标记。
+  ///
+  /// 普通双语 LRC（仅原文行 + 同时间戳中文译文行）不含这两类标记，绝不能误并入主唱逐字分片。
+  static bool hasExplicitEnhancedTags(String content) {
+    return _wordTagRegex.hasMatch(content) || _harmonyLineRegex.hasMatch(content);
+  }
 
   /// 判断曲目是否为伴奏/Off Vocal/纯音乐（命中时立即短路跳过远端歌词抓取）。
   static bool isInstrumentalTrack({
@@ -267,8 +278,20 @@ class LyricVersionMatcher {
   }
 
   /// 解析支持逐字 `<mm:ss.xx>` 与并行和声层 (`bg:` 前缀行) 的增强歌词为 Active Span Set 列表。
+  ///
+  /// 同一时间桶内若出现多条非 `bg:` 普通文本（例如双语 LRC 的原文与中文译文），
+  /// 严禁拼接进主唱 `spans`，而是作为独立的 `translation` 归位保存。
   static List<ActiveSpanLyricLine> parseActiveSpanLines(String content) {
-    final grouped = <double, ({List<TimedLyricSpan> spans, String translation})>{};
+    final grouped =
+        <
+          double,
+          ({
+            List<TimedLyricSpan> spans,
+            bool hasWordLead,
+            String leadPlainText,
+            String translation,
+          })
+        >{};
     final linePrefixRegex = RegExp(
       r'^\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\](.*)$',
     );
@@ -289,18 +312,53 @@ class LyricVersionMatcher {
       if (isHarmony) {
         body = body.substring(3).trim();
       }
+      final hasWordTags = _wordTagRegex.hasMatch(body);
       final parsedSpans = _parseWordSpans(
         body,
         lineStart: lineStart,
         isHarmony: isHarmony,
       );
+      final plainText = parsedSpans.map((s) => s.text).join().trim();
 
       final bucketKey = (lineStart * 20).round() / 20.0;
       final existing = grouped[bucketKey];
       if (existing == null) {
-        grouped[bucketKey] = (spans: parsedSpans, translation: '');
-      } else {
+        grouped[bucketKey] = (
+          spans: parsedSpans,
+          hasWordLead: !isHarmony && hasWordTags,
+          leadPlainText: isHarmony ? '' : plainText,
+          translation: '',
+        );
+      } else if (isHarmony) {
         existing.spans.addAll(parsedSpans);
+      } else if (existing.leadPlainText.isEmpty) {
+        // 原桶仅含先到达的 bg: 和声行，补齐主唱行。
+        grouped[bucketKey] = (
+          spans: [...parsedSpans, ...existing.spans],
+          hasWordLead: hasWordTags,
+          leadPlainText: plainText,
+          translation: existing.translation,
+        );
+      } else if (hasWordTags && !existing.hasWordLead) {
+        // 新行自带逐字标签而旧行为普通译文行：升级新行作主唱，旧行降为译文。
+        final harmonyOnly = existing.spans.where((s) => s.isHarmony).toList();
+        grouped[bucketKey] = (
+          spans: [...parsedSpans, ...harmonyOnly],
+          hasWordLead: true,
+          leadPlainText: plainText,
+          translation: existing.leadPlainText != plainText
+              ? existing.leadPlainText
+              : existing.translation,
+        );
+      } else if (existing.translation.isEmpty &&
+          plainText.isNotEmpty &&
+          plainText != existing.leadPlainText) {
+        grouped[bucketKey] = (
+          spans: existing.spans,
+          hasWordLead: existing.hasWordLead,
+          leadPlainText: existing.leadPlainText,
+          translation: plainText,
+        );
       }
     }
 

@@ -16,6 +16,7 @@ class KonataGlassCapsule extends StatelessWidget {
     this.enableBackdropBlur = true,
     this.solidBackdropColor,
     this.showShadow = false,
+    this.showBorder = true,
   });
 
   /// 子内容。
@@ -35,6 +36,9 @@ class KonataGlassCapsule extends StatelessWidget {
 
   /// 是否附加柔和光学环境阴影（供独立悬浮导航与播控胶囊使用）。
   final bool showShadow;
+
+  /// 是否由胶囊容器自身绘制静态外描边（当子级需自绘与边框浑然一体的进度轮廓时可关闭避免双层白边）。
+  final bool showBorder;
 
   @override
   Widget build(BuildContext context) {
@@ -56,10 +60,12 @@ class KonataGlassCapsule extends StatelessWidget {
       decoration: BoxDecoration(
         gradient: KonataTheme.opticalSheenGradient(p, baseColor: surfaceColor),
         borderRadius: borderRadius,
-        border: Border.all(
-          color: KonataPlaybackTokens.glassBorder(p),
-          width: KonataAdaptiveTokens.borderWidth,
-        ),
+        border: showBorder
+            ? Border.all(
+                color: KonataPlaybackTokens.glassBorder(p),
+                width: KonataAdaptiveTokens.borderWidth,
+              )
+            : null,
       ),
       child: body,
     );

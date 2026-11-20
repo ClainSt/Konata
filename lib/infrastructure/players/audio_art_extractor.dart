@@ -414,7 +414,7 @@ class AudioAssetExtractor {
                 legacyDecoder: legacyDecoder,
               );
               lrc = LrcParser.parseText(lrcText);
-              if (lrcText.contains('<') || lrcText.contains('bg:')) {
+              if (LyricVersionMatcher.hasExplicitEnhancedTags(lrcText)) {
                 activeSpanLines = LyricVersionMatcher.parseActiveSpanLines(
                   lrcText,
                 );

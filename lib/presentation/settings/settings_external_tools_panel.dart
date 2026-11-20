@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:file_picker/file_picker.dart';
+import 'package:file_picker/file_picker.dart' show FileType;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -13,6 +13,7 @@ import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/design_system/konata_surface_card.dart';
+import '../widgets/design_system/konata_system_file_picker.dart';
 
 /// 设置页「外部调用」一级面板：管理外部视频播放器与外部音频播放器（输入或浏览后即时自动保存）。
 class SettingsExternalToolsPanel extends ConsumerStatefulWidget {
@@ -128,11 +129,13 @@ class _SettingsExternalToolsPanelState
     TextEditingController target, {
     required String dialogTitle,
   }) async {
-    final files = await FilePicker.pickFiles(
+    final picker = ref.read(konataSystemFilePickerProvider);
+    final files = await picker.pickFiles(
       dialogTitle: dialogTitle,
       type: FileType.custom,
       allowedExtensions: const ['exe'],
     );
+    if (!mounted) return;
     final path = files.firstOrNull?.path;
     if (path != null && path.isNotEmpty) {
       _initialized = true;
@@ -188,8 +191,6 @@ class _SettingsExternalToolsPanelState
       _preferredVideoKind = prefKind;
     }
 
-    final mpvIsPreferred = _preferredVideoKind == ExternalPlayerKind.mpv;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -243,7 +244,7 @@ class _SettingsExternalToolsPanelState
               const SizedBox(height: 16),
               _ExternalPathFieldRow(
                 controller: _mpvController,
-                label: mpvIsPreferred ? 'MPV 可执行文件路径（当前首选）' : 'MPV 可执行文件路径（备选）',
+                label: 'MPV 可执行文件路径',
                 hintText: r'C:\Program Files\mpv\mpv.exe',
                 icon: Icons.play_circle_outline_rounded,
                 onChanged: (_) => _scheduleAutoSave(),
@@ -256,9 +257,7 @@ class _SettingsExternalToolsPanelState
               const SizedBox(height: 16),
               _ExternalPathFieldRow(
                 controller: _potController,
-                label: !mpvIsPreferred
-                    ? 'PotPlayer 可执行文件路径（当前首选）'
-                    : 'PotPlayer 可执行文件路径（备选）',
+                label: 'PotPlayer 可执行文件路径',
                 hintText:
                     r'C:\Program Files\DAUM\PotPlayer\PotPlayerMini64.exe',
                 icon: Icons.ondemand_video_rounded,

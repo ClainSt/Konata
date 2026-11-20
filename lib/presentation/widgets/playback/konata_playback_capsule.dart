@@ -305,10 +305,67 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
     return -1;
   }
 
-  String? _chapterTitleNear(double seconds, double total) {
-    final idx = _activeChapterIndexNear(seconds, total);
-    if (idx < 0) return null;
-    final title = widget.chapters[idx].title.trim();
+  /// 统一解析悬停/拖拽态命中的章节索引：指针贴近章节点菱形时优先磁吸至最近章节点，确保气泡标题与高亮菱形严格一致。
+  int _resolvePreviewChapterIndex({
+    required double previewSeconds,
+    required double previewRatio,
+    required double total,
+    required double barSpan,
+  }) {
+    if (widget.chapters.isEmpty || total <= 0) return -1;
+    final hoverX = previewRatio.clamp(0.0, 1.0) * barSpan;
+    final halfDiag =
+        KonataPlaybackTokens.chapterDiamondHoverSize * math.sqrt2 * 0.5;
+    final minCenter = math.min(halfDiag, barSpan * 0.5);
+    final maxCenter = math.max(minCenter, barSpan - halfDiag);
+
+    final markerCenters = <(int index, double cx)>[];
+    for (var i = 0; i < widget.chapters.length; i++) {
+      final start = widget.chapters[i].startSeconds;
+      if (start > 0 && start < total) {
+        final cx = (start / total * barSpan).clamp(minCenter, maxCenter);
+        markerCenters.add((i, cx));
+      }
+    }
+
+    if (markerCenters.isNotEmpty) {
+      var bestIdx = -1;
+      var bestCx = 0.0;
+      var bestDist = double.infinity;
+      for (final entry in markerCenters) {
+        final dist = (hoverX - entry.$2).abs();
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestIdx = entry.$1;
+          bestCx = entry.$2;
+        }
+      }
+      if (bestIdx >= 0) {
+        var nearestNeighbor = double.infinity;
+        for (final entry in markerCenters) {
+          if (entry.$1 == bestIdx) continue;
+          final d = (entry.$2 - bestCx).abs();
+          if (d < nearestNeighbor) nearestNeighbor = d;
+        }
+        final snapRadius = math.min(
+          KonataPlaybackTokens.chapterDiamondSnapRadiusPx,
+          nearestNeighbor * 0.45,
+        );
+        if (bestDist <= snapRadius) {
+          return bestIdx;
+        }
+      }
+    }
+
+    return _activeChapterIndexNear(
+      previewSeconds + KonataPlaybackTokens.chapterHoverBoundaryEpsilonSec,
+      total,
+    );
+  }
+
+  String? _chapterTitleAt(int index) {
+    if (index < 0 || index >= widget.chapters.length) return null;
+    final title = widget.chapters[index].title.trim();
     return title.isNotEmpty ? title : null;
   }
 
@@ -394,10 +451,14 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                 capsuleWidth,
               );
 
-              final activeChapterIndex = _activeChapterIndexNear(
-                previewSeconds ?? effectivePos,
-                total,
-              );
+              final activeChapterIndex = showBubble
+                  ? _resolvePreviewChapterIndex(
+                      previewSeconds: previewSeconds,
+                      previewRatio: previewRatio!,
+                      total: total,
+                      barSpan: barSpan,
+                    )
+                  : _activeChapterIndexNear(effectivePos, total);
               final previewText = showBubble
                   ? PlaybackFormatters.formatMediaDuration(
                       previewSeconds,
@@ -405,7 +466,7 @@ class _KonataPlaybackCapsuleState extends State<KonataPlaybackCapsule> {
                     )
                   : '';
               final previewChapter = showBubble
-                  ? _chapterTitleNear(previewSeconds, total)
+                  ? _chapterTitleAt(activeChapterIndex)
                   : null;
               final bubbleLabel =
                   previewChapter != null && previewChapter.isNotEmpty

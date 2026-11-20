@@ -226,14 +226,15 @@ class LyricLookupCoordinator {
     if (matched == null) return null;
     final parsedLrc = LrcParser.parseText(matched.lrcContent);
     if (parsedLrc.lines.isEmpty) return null;
-    final spans = LyricVersionMatcher.parseActiveSpanLines(matched.lrcContent);
-    final hasEnhancedSpans = spans.any(
-      (line) =>
-          line.spans.length > 1 || line.spans.any((span) => span.isHarmony),
+    final hasExplicitEnhanced = LyricVersionMatcher.hasExplicitEnhancedTags(
+      matched.lrcContent,
     );
+    final spans = hasExplicitEnhanced
+        ? LyricVersionMatcher.parseActiveSpanLines(matched.lrcContent)
+        : const <ActiveSpanLyricLine>[];
     return LyricLookupOutcome(
       lrcDocument: parsedLrc,
-      activeSpanLines: hasEnhancedSpans ? spans : const [],
+      activeSpanLines: spans,
       matchedTier: matched.tier,
       matchedCandidate: matched.meta,
     );

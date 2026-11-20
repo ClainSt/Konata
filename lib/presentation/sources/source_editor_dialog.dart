@@ -1,4 +1,3 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../domain/models/media_source.dart';
@@ -9,6 +8,7 @@ import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
+import '../widgets/design_system/konata_system_file_picker.dart';
 import '../theme/konata_theme.dart';
 
 /// 添加或编辑媒体源毛玻璃弹窗（支持本地磁盘、WebDAV、SMB 三类源与连通测试）。
@@ -50,6 +50,7 @@ class _SourceEditorDialogState extends State<SourceEditorDialog> {
   late final TextEditingController _locationController;
   late final TextEditingController _usernameController;
   final TextEditingController _passwordController = TextEditingController();
+  final KonataSystemFilePicker _fallbackFilePicker = KonataSystemFilePicker();
   bool _saving = false;
   bool _testing = false;
   bool _clearPassword = false;
@@ -77,9 +78,14 @@ class _SourceEditorDialogState extends State<SourceEditorDialog> {
   }
 
   Future<void> _pickLocalDirectory() async {
-    final selected = await FilePicker.getDirectoryPath(
+    final picker = KonataSystemFilePicker.resolve(
+      context,
+      fallback: _fallbackFilePicker,
+    );
+    final selected = await picker.getDirectoryPath(
       dialogTitle: '选择本地动画媒体目录',
     );
+    if (!mounted) return;
     if (selected != null && selected.isNotEmpty) {
       _locationController.text = selected;
       if (_labelController.text.trim().isEmpty) {

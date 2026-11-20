@@ -571,71 +571,92 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
       );
     }
 
-    return NotificationListener<ScrollNotification>(
-      onNotification: (notification) {
-        if (notification is ScrollStartNotification &&
-            notification.dragDetails != null) {
-          _onUserLyricScrollActivity();
-        } else if (notification is UserScrollNotification) {
-          _onUserLyricScrollActivity();
-        }
-        return false;
-      },
-      child: KonataDraggableScrollbar(
-        controller: _lyricScrollCtrl,
-        trackInsets: EdgeInsets.only(
-          top: compact ? 22 : 44,
-          bottom: compact ? 24 : 48,
-          right: 4,
-        ),
-        builder: (_, ctrl) => ShaderMask(
-          shaderCallback: (bounds) => const LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.transparent,
-              KonataTheme.pureWhite,
-              KonataTheme.pureWhite,
-              Colors.transparent,
-            ],
-            stops: [0.0, 0.08, 0.92, 1.0],
-          ).createShader(bounds),
-          blendMode: BlendMode.dstIn,
-          child: ListView.builder(
-            controller: ctrl,
-            padding: EdgeInsets.fromLTRB(
-              4,
-              compact ? 22 : 44,
-              22,
-              compact ? 24 : 48,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final viewportH = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : 480.0;
+        final anchorRatio = compact
+            ? KonataPlaybackTokens.lyricCompactViewportAnchorRatio
+            : KonataPlaybackTokens.lyricViewportAnchorRatio;
+        final topSpacer = (viewportH * anchorRatio).clamp(
+          compact ? 48.0 : 96.0,
+          340.0,
+        );
+        final bottomSpacer = (viewportH * (compact ? 0.44 : 0.50)).clamp(
+          compact ? 64.0 : 120.0,
+          380.0,
+        );
+        return NotificationListener<ScrollNotification>(
+          onNotification: (notification) {
+            if (notification is ScrollStartNotification &&
+                notification.dragDetails != null) {
+              _onUserLyricScrollActivity();
+            } else if (notification is UserScrollNotification) {
+              _onUserLyricScrollActivity();
+            }
+            return false;
+          },
+          child: KonataDraggableScrollbar(
+            controller: _lyricScrollCtrl,
+            trackInsets: EdgeInsets.only(
+              top: compact ? 20 : 32,
+              bottom: compact ? 20 : 36,
+              right: 4,
             ),
-            itemCount: lrc.lines.length,
-            itemBuilder: (context, index) {
-              final line = lrc.lines[index];
-              final spanLines = ref.read(audioPlaybackProvider).activeSpanLines;
-              final activeSpanLine = LyricVersionMatcher.matchLineForTimestamp(
-                spanLines,
-                line.startSeconds,
-              );
-              return KeyedSubtree(
-                key: _lyricKeys[index],
-                child: ImmersiveLyricLineLeaf(
-                  index: index,
-                  line: line,
-                  activeSpanLine: activeSpanLine,
-                  compact: compact,
-                  userScrolling: _isUserScrollingLyrics,
-                  onSeekLine: () {
-                    _scrollResetTimer?.cancel();
-                    _mutateState(() => _isUserScrollingLyrics = false);
-                    notifier.seekRelativeTrackSeconds(line.startSeconds);
-                  },
-                ),
-              );
-            },
+            builder: (_, ctrl) => ShaderMask(
+              shaderCallback: (bounds) => const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.transparent,
+                  KonataTheme.pureWhite,
+                  KonataTheme.pureWhite,
+                  Colors.transparent,
+                ],
+                stops: [0.0, 0.10, 0.88, 1.0],
+              ).createShader(bounds),
+              blendMode: BlendMode.dstIn,
+              child: ListView.builder(
+                key: const ValueKey('immersive_lyrics_list'),
+                controller: ctrl,
+                padding: EdgeInsets.fromLTRB(4, topSpacer, 22, bottomSpacer),
+                itemCount: lrc.lines.length,
+                itemBuilder: (context, index) {
+                  final line = lrc.lines[index];
+                  final nextStart = index + 1 < lrc.lines.length
+                      ? lrc.lines[index + 1].startSeconds
+                      : null;
+                  final spanLines = ref
+                      .read(audioPlaybackProvider)
+                      .activeSpanLines;
+                  final activeSpanLine =
+                      LyricVersionMatcher.matchLineForTimestamp(
+                        spanLines,
+                        line.startSeconds,
+                      );
+                  return KeyedSubtree(
+                    key: _lyricKeys[index],
+                    child: ImmersiveLyricLineLeaf(
+                      index: index,
+                      line: line,
+                      activeSpanLine: activeSpanLine,
+                      nextLineStartSeconds: nextStart,
+                      compact: compact,
+                      userScrolling: _isUserScrollingLyrics,
+                      onSeekLine: () {
+                        _scrollResetTimer?.cancel();
+                        _mutateState(() => _isUserScrollingLyrics = false);
+                        notifier.seekRelativeTrackSeconds(line.startSeconds);
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 

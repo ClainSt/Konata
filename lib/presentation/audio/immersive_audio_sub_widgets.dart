@@ -14,7 +14,9 @@ import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/managed_image.dart';
+import '../widgets/playback/konata_cd_disc_placeholder.dart';
 import '../widgets/playback/konata_playback_capsule.dart';
+import 'immersive_karaoke_sweep_text.dart';
 import 'smart_cover_framing.dart';
 
 /// 独立歌词行叶子组件：仅当自身高亮态或邻近模糊阶梯变化时重建。
@@ -28,6 +30,7 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
     required this.userScrolling,
     required this.onSeekLine,
     this.activeSpanLine,
+    this.nextLineStartSeconds,
   });
 
   final int index;
@@ -39,14 +42,19 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
   /// 可选主唱/和声并行逐字扫光片段行（仅高亮当前行挂载局部进度叶子，非当前行零订阅）。
   final ActiveSpanLyricLine? activeSpanLine;
 
+  /// 下一行歌词起点秒数（供标准整行时间戳 LRC 计算精准匀速扫光时长）。
+  final double? nextLineStartSeconds;
+
   static int _distanceBucket(int lineIdx, int activeIdx) {
-    if (activeIdx < 0) return 0;
     final d = (lineIdx - activeIdx).abs();
     if (d == 0) return 0;
     if (d == 1) return 1;
     if (d == 2) return 2;
     return 3;
   }
+
+  static String _normalizeCompare(String raw) =>
+      raw.trim().replaceAll(RegExp(r'\s+'), ' ');
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -91,64 +99,83 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
         ? const <TimedLyricSpan>[]
         : spanLine.spans.where((s) => s.isHarmony).toList(growable: false);
     final hasSpanData = leadSpans.isNotEmpty || harmonySpans.isNotEmpty;
-    final filteredSecondary = harmonySpans.isEmpty
-        ? line.secondaryLines
-        : line.secondaryLines
-              .where((s) => !s.trimLeft().startsWith('bg:'))
-              .toList(growable: false);
+    final effectiveLeadText = leadSpans.isNotEmpty
+        ? leadSpans.map((s) => s.text).join()
+        : line.primaryText;
+    final normalizedLead = _normalizeCompare(effectiveLeadText);
+    final filteredSecondary = <String>[];
+    final seenSecondary = <String>{if (normalizedLead.isNotEmpty) normalizedLead};
+    for (final rawSec in line.secondaryLines) {
+      final trimmed = rawSec.trim();
+      if (trimmed.isEmpty) continue;
+      if (harmonySpans.isNotEmpty && trimmed.startsWith('bg:')) continue;
+      final norm = _normalizeCompare(trimmed);
+      if (seenSecondary.add(norm)) {
+        filteredSecondary.add(trimmed);
+      }
+    }
 
     final Widget primaryBody;
-    if (hasSpanData && isActive) {
-      primaryBody = _ActiveSpanWordSweepLeaf(
+    if (isActive) {
+      primaryBody = _ActiveKaraokeSweepLeaf(
+        leadText: effectiveLeadText,
+        lineStartSeconds: line.startSeconds,
+        lineEndSeconds: line.endSeconds,
+        nextLineStartSeconds: nextLineStartSeconds,
         leadSpans: leadSpans,
         harmonySpans: harmonySpans,
         activeFontSize: activeSize,
         palette: p,
       );
     } else if (hasSpanData) {
-      final inactiveLeadText = leadSpans.map((s) => s.text).join();
       final inactiveHarmonyText = harmonySpans.map((s) => s.text).join();
       primaryBody = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (inactiveLeadText.isNotEmpty)
+          if (effectiveLeadText.isNotEmpty)
             Text(
-              inactiveLeadText,
+              effectiveLeadText,
+              softWrap: true,
               style: TextStyle(
                 color: p.textSecondary,
                 fontSize: inactiveSize,
                 fontWeight: FontWeight.w400,
-                height: 1.35,
+                height: 1.38,
               ),
             ),
           if (inactiveHarmonyText.isNotEmpty) ...[
             const SizedBox(height: 3),
             Text(
               inactiveHarmonyText,
+              softWrap: true,
               style: TextStyle(
                 color: p.textMuted,
                 fontSize: KonataPlaybackTokens.lyricSecondaryFontSize,
-                height: 1.25,
+                height: 1.28,
               ),
             ),
           ],
         ],
       );
     } else {
-      primaryBody = AnimatedDefaultTextStyle(
-        duration: KonataPlaybackTokens.lyricStyleTransitionDuration,
-        curve: Curves.easeOutCubic,
+      primaryBody = Text(
+        line.primaryText,
+        softWrap: true,
         style: TextStyle(
-          color: isActive ? p.textPrimary : p.textSecondary,
-          fontSize: isActive ? activeSize : inactiveSize,
-          fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
-          height: 1.35,
-          shadows: isActive ? KonataPlaybackTokens.lyricGlowShadow(p) : null,
+          color: p.textSecondary,
+          fontSize: inactiveSize,
+          fontWeight: FontWeight.w400,
+          height: 1.38,
         ),
-        child: Text(line.primaryText),
       );
     }
+
+    final secondaryFontSize = isActive
+        ? (compact
+              ? KonataPlaybackTokens.lyricSecondaryFontSize
+              : KonataPlaybackTokens.lyricActiveSecondaryFontSize)
+        : KonataPlaybackTokens.lyricSecondaryFontSize;
 
     final rowContent = GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -162,7 +189,7 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
         child: Padding(
           padding: EdgeInsets.symmetric(
             horizontal: 12,
-            vertical: compact ? 7 : 10,
+            vertical: isActive ? (compact ? 10 : 14) : (compact ? 7 : 10),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -170,13 +197,15 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
             children: [
               primaryBody,
               for (final sec in filteredSecondary) ...[
-                const SizedBox(height: 4),
+                SizedBox(height: isActive ? 6 : 4),
                 Text(
                   sec,
+                  softWrap: true,
                   style: TextStyle(
                     color: isActive ? p.textSecondary : p.textMuted,
-                    fontSize: KonataPlaybackTokens.lyricSecondaryFontSize,
-                    height: 1.3,
+                    fontSize: secondaryFontSize,
+                    fontWeight: isActive ? FontWeight.w500 : FontWeight.w400,
+                    height: 1.34,
                   ),
                 ),
               ],
@@ -186,114 +215,211 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
       ),
     );
 
-    final scaledContent = AnimatedOpacity(
+    final fadedContent = AnimatedOpacity(
       duration: KonataPlaybackTokens.lyricStyleTransitionDuration,
       curve: Curves.easeOutCubic,
       opacity: lineOpacity,
-      child: AnimatedScale(
-        duration: KonataPlaybackTokens.lyricStyleTransitionDuration,
-        curve: Curves.easeOutCubic,
-        alignment: Alignment.centerLeft,
-        scale: isActive ? 1.03 : 1.0,
-        child: rowContent,
-      ),
+      child: rowContent,
     );
 
     return RepaintBoundary(
       child: blurSigma > 0.05
           ? ImageFiltered(
               imageFilter: KonataTheme.blurFilterOf(blurSigma),
-              child: scaledContent,
+              child: fadedContent,
             )
-          : scaledContent,
+          : fadedContent,
     );
   }
 }
 
-/// 仅挂载于当前激活歌词行的逐字主唱与并行和声扫光叶子（独立订阅播放秒数，零父级重建）。
-class _ActiveSpanWordSweepLeaf extends ConsumerWidget {
-  const _ActiveSpanWordSweepLeaf({
+/// 仅挂载于当前激活歌词行的实时卡拉 OK 扫白叶子（支持逐字片段与整行匀速双模式，零父级重建）。
+class _ActiveKaraokeSweepLeaf extends ConsumerStatefulWidget {
+  const _ActiveKaraokeSweepLeaf({
+    required this.leadText,
+    required this.lineStartSeconds,
+    required this.lineEndSeconds,
+    required this.nextLineStartSeconds,
     required this.leadSpans,
     required this.harmonySpans,
     required this.activeFontSize,
     required this.palette,
   });
 
+  final String leadText;
+  final double lineStartSeconds;
+  final double? lineEndSeconds;
+  final double? nextLineStartSeconds;
   final List<TimedLyricSpan> leadSpans;
   final List<TimedLyricSpan> harmonySpans;
   final double activeFontSize;
   final KonataPalette palette;
 
-  TextSpan _buildSweepSpan(
-    TimedLyricSpan span, {
-    required double positionSeconds,
-    required double fontSize,
-    required bool isHarmony,
-  }) {
-    final progress = span.sweepProgressAt(positionSeconds);
-    final baseColor = isHarmony ? palette.textMuted : palette.textSecondary;
-    final litColor = isHarmony ? palette.textSecondary : palette.textPrimary;
-    final blended = Color.lerp(baseColor, litColor, progress) ?? litColor;
-    final isLit = progress > 0.05;
-    return TextSpan(
-      text: span.text,
-      style: TextStyle(
-        color: blended,
-        fontSize: fontSize,
-        fontWeight: isHarmony
-            ? (isLit ? FontWeight.w500 : FontWeight.w400)
-            : (isLit ? FontWeight.w700 : FontWeight.w500),
-        height: isHarmony ? 1.28 : 1.35,
-        shadows: isLit && !isHarmony
-            ? KonataPlaybackTokens.lyricGlowShadow(
-                palette,
-                intensity: progress,
-                blurRadius: KonataPlaybackTokens.lyricSweepGlowBlurRadius,
-              )
-            : null,
-      ),
-    );
+  @override
+  ConsumerState<_ActiveKaraokeSweepLeaf> createState() =>
+      _ActiveKaraokeSweepLeafState();
+}
+
+class _ActiveKaraokeSweepLeafState
+    extends ConsumerState<_ActiveKaraokeSweepLeaf>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _sweepController;
+  late double _windowStart;
+  late double _windowEnd;
+
+  @override
+  void initState() {
+    super.initState();
+    _sweepController = AnimationController(vsync: this);
+    _recomputeWindow();
+    final snap = ref.read(audioPlaybackProvider);
+    _syncAnimation(snap.positionSeconds, snap.isPlaying);
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final pos = ref.watch(
-      audioPlaybackProvider.select((s) => s.positionSeconds),
+  void didUpdateWidget(covariant _ActiveKaraokeSweepLeaf oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.leadText != widget.leadText ||
+        oldWidget.lineStartSeconds != widget.lineStartSeconds ||
+        oldWidget.lineEndSeconds != widget.lineEndSeconds ||
+        oldWidget.nextLineStartSeconds != widget.nextLineStartSeconds ||
+        oldWidget.leadSpans != widget.leadSpans ||
+        oldWidget.harmonySpans != widget.harmonySpans) {
+      _recomputeWindow();
+      final snap = ref.read(audioPlaybackProvider);
+      _syncAnimation(snap.positionSeconds, snap.isPlaying);
+    }
+  }
+
+  @override
+  void dispose() {
+    _sweepController.dispose();
+    super.dispose();
+  }
+
+  void _recomputeWindow() {
+    final allSpans = <TimedLyricSpan>[
+      ...widget.leadSpans,
+      ...widget.harmonySpans,
+    ];
+    if (allSpans.isNotEmpty) {
+      var minStart = allSpans.first.startSeconds;
+      var maxEnd = allSpans.first.endSeconds;
+      for (final s in allSpans) {
+        if (s.startSeconds < minStart) minStart = s.startSeconds;
+        if (s.endSeconds > maxEnd) maxEnd = s.endSeconds;
+      }
+      _windowStart = minStart;
+      _windowEnd = math.max(minStart + 0.25, maxEnd);
+      return;
+    }
+
+    _windowStart = widget.lineStartSeconds;
+    final rawEnd = widget.lineEndSeconds ?? widget.nextLineStartSeconds;
+    final estVocal = (widget.leadText.runes.length * 0.34).clamp(2.4, 9.5);
+    if (rawEnd == null || rawEnd <= _windowStart) {
+      _windowEnd = _windowStart + estVocal;
+      return;
+    }
+    final gap = rawEnd - _windowStart;
+    if (gap <= 0.35) {
+      _windowEnd = _windowStart + 0.35;
+    } else if (gap <= 11.0) {
+      _windowEnd = rawEnd;
+    } else {
+      _windowEnd = _windowStart + estVocal.clamp(3.0, math.min(gap, 10.5));
+    }
+  }
+
+  void _syncAnimation(double posSeconds, bool isPlaying) {
+    final durSec = math.max(0.25, _windowEnd - _windowStart);
+    final target = ((posSeconds - _windowStart) / durSec).clamp(0.0, 1.0);
+    if (!isPlaying || target >= 1.0) {
+      _sweepController.stop();
+      if ((_sweepController.value - target).abs() > 0.001) {
+        _sweepController.value = target;
+      }
+      return;
+    }
+    final targetDuration = KonataPlaybackTokens.lyricKaraokeWindowDuration(
+      durSec,
     );
+    final currentEstPos = _windowStart + _sweepController.value * durSec;
+    if (!_sweepController.isAnimating ||
+        _sweepController.duration != targetDuration ||
+        (currentEstPos - posSeconds).abs() > 0.14) {
+      _sweepController.duration = targetDuration;
+      _sweepController.forward(from: target);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen<({double pos, bool isPlaying})>(
+      audioPlaybackProvider.select(
+        (s) => (pos: s.positionSeconds, isPlaying: s.isPlaying),
+      ),
+      (_, next) => _syncAnimation(next.pos, next.isPlaying),
+    );
+
+    final p = widget.palette;
+    final unlitAlpha = p.isDark
+        ? KonataPlaybackTokens.lyricKaraokeUnlitAlphaDark
+        : KonataPlaybackTokens.lyricKaraokeUnlitAlphaLight;
+    final litLeadColor = p.isDark ? KonataTheme.pureWhite : p.textPrimary;
+    final baseLeadColor = litLeadColor.withValues(alpha: unlitAlpha);
+    final leadBaseStyle = TextStyle(
+      color: baseLeadColor,
+      fontSize: widget.activeFontSize,
+      fontWeight: FontWeight.w700,
+      height: 1.36,
+    );
+    final leadLitStyle = leadBaseStyle.copyWith(
+      color: litLeadColor,
+      shadows: KonataPlaybackTokens.lyricGlowShadow(
+        p,
+        blurRadius: KonataPlaybackTokens.lyricSweepGlowBlurRadius,
+      ),
+    );
+
+    final hasLeadSpans = widget.leadSpans.isNotEmpty;
+    final harmonyText = widget.harmonySpans.map((s) => s.text).join();
+    final harmonyBaseStyle = TextStyle(
+      color: p.textMuted.withValues(alpha: p.isDark ? 0.45 : 0.42),
+      fontSize: KonataPlaybackTokens.lyricSecondaryFontSize,
+      fontWeight: FontWeight.w500,
+      height: 1.28,
+    );
+    final harmonyLitStyle = harmonyBaseStyle.copyWith(color: p.textSecondary);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (leadSpans.isNotEmpty)
-          Text.rich(
-            key: const ValueKey('active_lead_spans'),
-            TextSpan(
-              children: [
-                for (final span in leadSpans)
-                  _buildSweepSpan(
-                    span,
-                    positionSeconds: pos,
-                    fontSize: activeFontSize,
-                    isHarmony: false,
-                  ),
-              ],
+        if (widget.leadText.isNotEmpty)
+          ImmersiveKaraokeSweepText(
+            key: ValueKey(
+              hasLeadSpans ? 'active_lead_spans' : 'active_line_karaoke',
             ),
+            text: widget.leadText,
+            baseStyle: leadBaseStyle,
+            litStyle: leadLitStyle,
+            progress: _sweepController,
+            windowStartSeconds: _windowStart,
+            windowEndSeconds: _windowEnd,
+            spans: widget.leadSpans,
           ),
-        if (harmonySpans.isNotEmpty) ...[
-          const SizedBox(height: 4),
-          Text.rich(
+        if (harmonyText.isNotEmpty) ...[
+          const SizedBox(height: 5),
+          ImmersiveKaraokeSweepText(
             key: const ValueKey('active_harmony_spans'),
-            TextSpan(
-              children: [
-                for (final span in harmonySpans)
-                  _buildSweepSpan(
-                    span,
-                    positionSeconds: pos,
-                    fontSize: KonataPlaybackTokens.lyricSecondaryFontSize,
-                    isHarmony: true,
-                  ),
-              ],
-            ),
+            text: harmonyText,
+            baseStyle: harmonyBaseStyle,
+            litStyle: harmonyLitStyle,
+            progress: _sweepController,
+            windowStartSeconds: _windowStart,
+            windowEndSeconds: _windowEnd,
+            spans: widget.harmonySpans,
           ),
         ],
       ],
@@ -920,16 +1046,10 @@ class ImmersiveCoverWithReflection extends ConsumerWidget {
   }
 
   Widget _emptyArt(KonataPalette p, double size) {
-    return Container(
+    return SizedBox(
       width: size,
       height: size,
-      color: KonataPlaybackTokens.softFill(p),
-      alignment: Alignment.center,
-      child: Icon(
-        Icons.album_rounded,
-        size: size * 0.34,
-        color: p.textMuted.withValues(alpha: 0.56),
-      ),
+      child: const KonataCdDiscPlaceholder(discScale: 0.78),
     );
   }
 }
@@ -1006,16 +1126,10 @@ class ImmersiveMicroCover extends ConsumerWidget {
   }
 
   Widget _fallback(KonataPalette p, double size) {
-    return Container(
+    return SizedBox(
       width: size,
       height: size,
-      color: KonataPlaybackTokens.softFill(p),
-      alignment: Alignment.center,
-      child: Icon(
-        Icons.music_note_rounded,
-        size: KonataPlaybackTokens.microCoverFallbackIconSize,
-        color: p.textSecondary,
-      ),
+      child: KonataCdDiscPlaceholder(discScale: circular ? 0.92 : 0.80),
     );
   }
 }

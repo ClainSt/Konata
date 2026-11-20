@@ -1,4 +1,4 @@
-import 'package:file_picker/file_picker.dart';
+import 'package:file_picker/file_picker.dart' show FileType;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -13,6 +13,7 @@ import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
+import '../widgets/design_system/konata_system_file_picker.dart';
 import '../widgets/design_system/konata_toast.dart';
 import '../widgets/managed_image.dart';
 import 'artwork_crop_dialog.dart';
@@ -130,7 +131,7 @@ class _WorkArtworkPickerDialogState
 
   Future<void> _pickLocalImage() async {
     final isPoster = widget.kind == WorkArtworkKind.poster;
-    final files = await FilePicker.pickFiles(
+    final files = await ref.read(konataSystemFilePickerProvider).pickFiles(
       dialogTitle: isPoster ? '选择本地封面海报图片' : '选择本地背景图片',
       type: FileType.image,
     );

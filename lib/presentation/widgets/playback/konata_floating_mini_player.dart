@@ -22,6 +22,7 @@ import '../design_system/konata_glass_capsule.dart';
 import '../design_system/konata_glass_menu.dart';
 import '../design_system/konata_toast.dart';
 import '../managed_image.dart';
+import 'konata_cd_disc_placeholder.dart';
 import 'konata_playback_capsule.dart';
 
 part 'konata_floating_mini_player_leaves.dart';
@@ -702,12 +703,12 @@ class _KonataFloatingMiniPlayerState
                 child: RepaintBoundary(child: _FloatingAudioProgressLeaf()),
               ),
               Positioned(
-                right: 7,
-                bottom: 7,
+                right: 8,
+                bottom: 8,
                 child: IgnorePointer(
                   child: _FloatingMiniEqualizerLeaf(
                     compact: side < 64.0,
-                    forceWhite: true,
+                    contrastAgainstRing: true,
                   ),
                 ),
               ),
@@ -785,153 +786,156 @@ class _KonataFloatingMiniPlayerState
         width: miniSize.width,
         height: miniSize.height,
         child: KonataGlassCapsule(
-        key: const ValueKey('floating_mini_audio_pill'),
-        radius: KonataTheme.radiusPill,
-        showShadow: true,
-        child: Stack(
-          children: [
-            const Positioned(
-              left: 22,
-              right: 22,
-              top: 1.0,
-              child: IgnorePointer(
-                child: RepaintBoundary(
-                  child: _FloatingAudioProgressLeaf(linear: true),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: GestureDetector(
-                        key: const ValueKey('floating_mini_surface_tap_target'),
-                        behavior: HitTestBehavior.opaque,
-                        onTap: _handleExpandToFullscreen,
-                        child: Row(
-                          children: [
-                            ClipOval(
-                              child: SizedBox.square(
-                                dimension: (miniSize.height - 20.0).clamp(
-                                  KonataPlaybackTokens
-                                      .floatingMiniAudioPillCoverSize,
-                                  48.0,
-                                ),
-                                child: _FloatingAudioCoverLeaf(
-                                  size: (miniSize.height - 20.0).clamp(
+          key: const ValueKey('floating_mini_audio_pill'),
+          radius: KonataTheme.radiusPill,
+          showShadow: true,
+          showBorder: false,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: GestureDetector(
+                          key: const ValueKey(
+                            'floating_mini_surface_tap_target',
+                          ),
+                          behavior: HitTestBehavior.opaque,
+                          onTap: _handleExpandToFullscreen,
+                          child: Row(
+                            children: [
+                              ClipOval(
+                                child: SizedBox.square(
+                                  dimension: (miniSize.height - 20.0).clamp(
                                     KonataPlaybackTokens
                                         .floatingMiniAudioPillCoverSize,
                                     48.0,
                                   ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 9),
-                            Expanded(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    trackMeta.title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: p.textPrimary,
-                                      fontSize: KonataTheme.fontSizeBodyXs,
-                                      fontWeight: FontWeight.w600,
-                                      height: 1.2,
+                                  child: _FloatingAudioCoverLeaf(
+                                    size: (miniSize.height - 20.0).clamp(
+                                      KonataPlaybackTokens
+                                          .floatingMiniAudioPillCoverSize,
+                                      48.0,
                                     ),
                                   ),
-                                  if (trackMeta.subtitle.isNotEmpty) ...[
-                                    const SizedBox(height: 1),
+                                ),
+                              ),
+                              const SizedBox(width: 9),
+                              Expanded(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
                                     Text(
-                                      trackMeta.subtitle,
+                                      trackMeta.title,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
-                                        color: p.textSecondary,
-                                        fontSize: KonataTheme.fontSizeMicro,
-                                        height: 1.15,
+                                        color: p.textPrimary,
+                                        fontSize: KonataTheme.fontSizeBodyXs,
+                                        fontWeight: FontWeight.w600,
+                                        height: 1.2,
                                       ),
                                     ),
+                                    if (trackMeta.subtitle.isNotEmpty) ...[
+                                      const SizedBox(height: 1),
+                                      Text(
+                                        trackMeta.subtitle,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: p.textSecondary,
+                                          fontSize: KonataTheme.fontSizeMicro,
+                                          height: 1.15,
+                                        ),
+                                      ),
+                                    ],
                                   ],
-                                ],
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 4),
-                  KonataCapsuleIconButton(
-                    key: const ValueKey('floating_mini_audio_prev'),
-                    icon: Icons.skip_previous_rounded,
-                    tooltip: '上一首',
-                    color: p.textPrimary,
-                    size: 18,
-                    fixedSize: iconBtnSize,
-                    padding: EdgeInsets.zero,
-                    onTap: notifier.previous,
-                  ),
-                  _FloatingAudioPlayPauseLeaf(
-                    fixedSize: iconBtnSize,
-                    onTap: notifier.togglePlayPause,
-                  ),
-                  KonataCapsuleIconButton(
-                    key: const ValueKey('floating_mini_audio_next'),
-                    icon: Icons.skip_next_rounded,
-                    tooltip: '下一首',
-                    color: p.textPrimary,
-                    size: 18,
-                    fixedSize: iconBtnSize,
-                    padding: EdgeInsets.zero,
-                    onTap: notifier.next,
-                  ),
-                  KonataCapsuleIconButton(
-                    key: const ValueKey('floating_mini_tuck_button'),
-                    icon: Icons.last_page_rounded,
-                    tooltip: '贴边隐藏',
-                    color: p.textSecondary,
-                    size: 16,
-                    fixedSize: iconBtnSize,
-                    padding: EdgeInsets.zero,
-                    onTap: () => _handleTuckToEdge(),
-                  ),
-                  KonataCapsuleIconButton(
-                    key: const ValueKey('floating_mini_collapse_disc_button'),
-                    icon: Icons.remove_rounded,
-                    tooltip: '收起为圆形图标',
-                    color: p.textSecondary,
-                    size: 16,
-                    fixedSize: iconBtnSize,
-                    padding: EdgeInsets.zero,
-                    onTap: () {
-                      ref.read(floatingMiniVisualStateProvider.notifier).state =
-                          FloatingMiniVisualState.collapsed;
-                    },
-                  ),
-                  KonataCapsuleIconButton(
-                    key: const ValueKey('floating_mini_close_button'),
-                    icon: Icons.close_rounded,
-                    tooltip: '停止并关闭',
-                    color: p.textSecondary,
-                    size: 16,
-                    fixedSize: iconBtnSize,
-                    padding: EdgeInsets.zero,
-                    onTap: _handleStopAndClose,
-                  ),
-                ],
+                    const SizedBox(width: 4),
+                    KonataCapsuleIconButton(
+                      key: const ValueKey('floating_mini_audio_prev'),
+                      icon: Icons.skip_previous_rounded,
+                      tooltip: '上一首',
+                      color: p.textPrimary,
+                      size: 18,
+                      fixedSize: iconBtnSize,
+                      padding: EdgeInsets.zero,
+                      onTap: notifier.previous,
+                    ),
+                    _FloatingAudioPlayPauseLeaf(
+                      fixedSize: iconBtnSize,
+                      onTap: notifier.togglePlayPause,
+                    ),
+                    KonataCapsuleIconButton(
+                      key: const ValueKey('floating_mini_audio_next'),
+                      icon: Icons.skip_next_rounded,
+                      tooltip: '下一首',
+                      color: p.textPrimary,
+                      size: 18,
+                      fixedSize: iconBtnSize,
+                      padding: EdgeInsets.zero,
+                      onTap: notifier.next,
+                    ),
+                    KonataCapsuleIconButton(
+                      key: const ValueKey('floating_mini_tuck_button'),
+                      icon: Icons.last_page_rounded,
+                      tooltip: '贴边隐藏',
+                      color: p.textSecondary,
+                      size: 16,
+                      fixedSize: iconBtnSize,
+                      padding: EdgeInsets.zero,
+                      onTap: () => _handleTuckToEdge(),
+                    ),
+                    KonataCapsuleIconButton(
+                      key: const ValueKey('floating_mini_collapse_disc_button'),
+                      icon: Icons.remove_rounded,
+                      tooltip: '收起为圆形图标',
+                      color: p.textSecondary,
+                      size: 16,
+                      fixedSize: iconBtnSize,
+                      padding: EdgeInsets.zero,
+                      onTap: () {
+                        ref
+                                .read(floatingMiniVisualStateProvider.notifier)
+                                .state =
+                            FloatingMiniVisualState.collapsed;
+                      },
+                    ),
+                    KonataCapsuleIconButton(
+                      key: const ValueKey('floating_mini_close_button'),
+                      icon: Icons.close_rounded,
+                      tooltip: '停止并关闭',
+                      color: p.textSecondary,
+                      size: 16,
+                      fixedSize: iconBtnSize,
+                      padding: EdgeInsets.zero,
+                      onTap: _handleStopAndClose,
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+              const Positioned.fill(
+                child: IgnorePointer(
+                  child: RepaintBoundary(
+                    child: _FloatingAudioProgressLeaf(linear: true),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
       ),
     );
   }

@@ -214,6 +214,9 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
   Future<SubtitleMemoryApplyResult?> setSubtitleOpenCcMode(
     SubtitleOpenCcMode mode,
   ) async {
+    if (mode == _state.subtitleOpenCcMode) {
+      return null;
+    }
     final sourcePath = _resolveActiveExternalTextSubtitlePath();
     final sourceExists = sourcePath != null && await File(sourcePath).exists();
     if (!sourceExists) {
@@ -240,15 +243,27 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
     }
 
     _activeExternalSubtitleSourcePath = sourcePath;
+    _activeExternalSubtitleTitle = p.basename(sourcePath);
+    final originalTrackId = mode == SubtitleOpenCcMode.none
+        ? _ensureSubtitleMemoryEngine().lookupOriginalTrackIdForSourcePath(
+            sourcePath,
+          )
+        : null;
+    final slot = originalTrackId != null
+        ? SubtitleSlotRequest.existingTrack(
+            originalTrackId,
+            displayTitle: p.basename(sourcePath),
+          )
+        : SubtitleSlotRequest.memory(
+            localFilePath: sourcePath,
+            fileName: p.basename(sourcePath),
+            displayTitle: _buildMemoryTrackTitle(sourcePath, mode: mode),
+            openCcMode: mode,
+            enableCloudSubset: true,
+          );
     final result = await applyMemorySubtitleIntent(
       AuthoritativeSubtitleIntent(
-        primary: SubtitleSlotRequest.memory(
-          localFilePath: sourcePath,
-          fileName: p.basename(sourcePath),
-          displayTitle: _buildMemoryTrackTitle(sourcePath, mode: mode),
-          openCcMode: mode,
-          enableCloudSubset: true,
-        ),
+        primary: slot,
         instantSubDelaySeconds: _state.subtitleDelaySeconds,
       ),
     );
@@ -379,12 +394,17 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
       );
     } else if (_isTextSubtitlePath(choice.externalPath)) {
       final path = choice.externalPath!.trim();
+      final memEngine = _ensureSubtitleMemoryEngine();
+      final originalMountedId = memEngine.lookupOriginalTrackIdForSourcePath(
+        path,
+      );
       _activeExternalSubtitleSourcePath = path;
-      _activeOriginalSubtitleTrackId = choice.mpvTrackId;
-      _activeExternalSubtitleTitle = choice.primaryTitle;
+      _activeOriginalSubtitleTrackId = originalMountedId ?? choice.mpvTrackId;
+      _activeExternalSubtitleTitle = p.basename(path);
       final existingMountedId =
+          originalMountedId ??
           choice.mpvTrackId ??
-          _ensureSubtitleMemoryEngine().lookupTrackIdForSourcePath(path);
+          memEngine.lookupTrackIdForSourcePath(path);
       final slot = existingMountedId != null
           ? SubtitleSlotRequest.existingTrack(
               existingMountedId,

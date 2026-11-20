@@ -15,7 +15,6 @@ import '../widgets/design_system/adaptive_card_grid.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
-import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/playback/konata_playback_capsule.dart';
 import 'hidden_works_dialog.dart';
 import 'poster_card.dart';
@@ -734,48 +733,44 @@ class _EmptyLibraryState extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 24),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 380),
-          child: KonataSurfaceCard(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 30),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  isSearching
-                      ? Icons.search_off_rounded
-                      : Icons.video_library_outlined,
-                  size: 46,
-                  color: p.textMuted,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                isSearching
+                    ? Icons.search_off_rounded
+                    : Icons.video_library_outlined,
+                size: 48,
+                color: p.textMuted,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                isSearching ? '没有匹配当前筛选条件的作品' : '媒体库尚未入库任何作品',
+                textAlign: TextAlign.center,
+                style: KonataTheme.cardTitleStyle(
+                  p,
+                  fontSize: KonataTheme.fontSizeTitle,
                 ),
-                const SizedBox(height: 12),
+              ),
+              if (isSearching) ...[
+                const SizedBox(height: 6),
                 Text(
-                  isSearching ? '没有匹配当前筛选条件的作品' : '媒体库尚未入库任何作品',
+                  '可尝试按日文原名、压制组或 TMDB ID 检索',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: p.textPrimary,
-                    fontSize: KonataTheme.fontSizeTitleSm,
-                    fontWeight: FontWeight.w600,
+                  style: KonataTheme.captionStyle(
+                    p,
+                    fontSize: KonataTheme.fontSizeBodyMd,
                   ),
                 ),
-                if (isSearching) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    '可尝试按日文原名、压制组或 TMDB ID 检索',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: p.textSecondary,
-                      fontSize: KonataTheme.fontSizeBodyXs,
-                    ),
-                  ),
-                ] else ...[
-                  const SizedBox(height: 18),
-                  KonataPillButton.primary(
-                    label: '前往添加媒体源',
-                    icon: Icons.add_rounded,
-                    onPressed: onGoSources,
-                  ),
-                ],
+              ] else ...[
+                const SizedBox(height: 18),
+                KonataPillButton.primary(
+                  label: '前往添加媒体源',
+                  icon: Icons.add_rounded,
+                  onPressed: onGoSources,
+                ),
               ],
-            ),
+            ],
           ),
         ),
       ),

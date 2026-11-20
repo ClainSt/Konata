@@ -153,8 +153,12 @@ class _SelectableTrackTileState extends State<_SelectableTrackTile> {
               ? KonataTheme.overlayWhiteMuted
               : pPal.textPrimary.withValues(alpha: 0.08))
         : (_hovered
-              ? pPal.softFill.withValues(alpha: 0.92)
-              : pPal.softFill.withValues(alpha: 0.56));
+              ? (pPal.isDark
+                    ? pPal.secondaryButtonHoverBg
+                    : pPal.softFill.withValues(alpha: 0.92))
+              : (pPal.isDark
+                    ? pPal.surface
+                    : pPal.softFill.withValues(alpha: 0.56)));
     final borderColor = selected
         ? (pPal.isDark
               ? KonataTheme.overlayWhiteBorderHover

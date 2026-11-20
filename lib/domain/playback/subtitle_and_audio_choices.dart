@@ -719,7 +719,7 @@ class SubtitleAndAudioChoices {
     return matched;
   }
 
-  /// 合并内嵌字幕与外挂字幕文件列表，对已作为 VobSub `.idx+.sub` 配对及已挂载的轨道（含 `memory://` 内存轨）精准去重。
+  /// 合并内嵌字幕与外挂字幕文件列表，对已作为 VobSub `.idx+.sub` 配对及同源文件派生的 `memory://` 内存轨（如 OpenCC 繁简转换）精准去重。
   static List<SubtitleChoice> mergeSubtitles({
     required List<MpvTrackInfo> mpvTracks,
     required List<String> discoveredExternalPaths,
@@ -727,6 +727,7 @@ class SubtitleAndAudioChoices {
   }) {
     final results = <SubtitleChoice>[];
     final mountedKeys = <String>{};
+    final indexByMountedSourceKey = <String, int>{};
 
     for (final track in mpvTracks) {
       if (track.type != MpvTrackType.subtitle) continue;
@@ -734,39 +735,61 @@ class SubtitleAndAudioChoices {
       final rawExt = track.externalFilename;
       final isMemoryPseudoPath =
           rawExt != null && rawExt.trim().startsWith('memory://');
-      final effectiveExtPath =
-          (mappedSource != null && mappedSource.trim().isNotEmpty)
+      final hasMappedSource =
+          mappedSource != null && mappedSource.trim().isNotEmpty;
+      final effectiveExtPath = hasMappedSource
           ? mappedSource.trim()
           : (isMemoryPseudoPath ? null : rawExt);
 
+      String? sourceDedupKey;
       if (effectiveExtPath != null && effectiveExtPath.isNotEmpty) {
-        mountedKeys.add(_normalizeDedupKey(effectiveExtPath));
+        sourceDedupKey = _normalizeDedupKey(effectiveExtPath);
+        mountedKeys.add(sourceDedupKey);
       }
       final trimmedTitle = track.title.trim();
-      if ((track.isExternal || isMemoryPseudoPath || mappedSource != null) &&
+      if ((track.isExternal || isMemoryPseudoPath || hasMappedSource) &&
           trimmedTitle.isNotEmpty) {
         mountedKeys.add(_normalizeDedupKey(trimmedTitle));
       }
 
-      final fallbackTitle = trimmedTitle.isNotEmpty
-          ? trimmedTitle
-          : (effectiveExtPath != null && effectiveExtPath.isNotEmpty
-                ? effectiveExtPath.replaceAll('\\', '/').split('/').last
-                : '');
-      results.add(
-        SubtitleChoice(
-          mpvTrackId: track.id,
-          title: fallbackTitle,
-          language: track.lang,
-          codec: track.codec,
-          externalPath: effectiveExtPath,
-          isExternal:
-              track.isExternal || isMemoryPseudoPath || mappedSource != null,
-          isDefault: track.isDefault,
-          isForced: track.isForced,
-          selected: track.selected,
-        ),
+      // 经内存引擎由同一外挂物理文件派生的轨道统一保留原始文件名作为标题，避免 `[简]`/`[繁]` 后缀污染语种识别。
+      final canonicalSourceFileName = hasMappedSource
+          ? effectiveExtPath!.replaceAll('\\', '/').split('/').last
+          : '';
+      final fallbackTitle = canonicalSourceFileName.isNotEmpty
+          ? canonicalSourceFileName
+          : (trimmedTitle.isNotEmpty
+                ? trimmedTitle
+                : (effectiveExtPath != null && effectiveExtPath.isNotEmpty
+                      ? effectiveExtPath.replaceAll('\\', '/').split('/').last
+                      : ''));
+
+      final choice = SubtitleChoice(
+        mpvTrackId: track.id,
+        title: fallbackTitle,
+        language: track.lang,
+        codec: track.codec,
+        externalPath: effectiveExtPath,
+        isExternal:
+            track.isExternal || isMemoryPseudoPath || hasMappedSource,
+        isDefault: track.isDefault,
+        isForced: track.isForced,
+        selected: track.selected,
       );
+
+      // 同一外挂源文件同时存在原文轨与 OpenCC/调轴派生轨时合并为唯一一行，选中态实时同步至当前活跃轨。
+      if (hasMappedSource && sourceDedupKey != null) {
+        final existingIdx = indexByMountedSourceKey[sourceDedupKey];
+        if (existingIdx != null) {
+          if (choice.selected && !results[existingIdx].selected) {
+            results[existingIdx] = choice;
+          }
+          continue;
+        }
+        indexByMountedSourceKey[sourceDedupKey] = results.length;
+      }
+
+      results.add(choice);
     }
 
     // 处理 .idx/.sub VobSub 成对文件：存在同名 .idx 时跳过独立 .sub

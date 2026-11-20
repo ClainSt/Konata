@@ -23,6 +23,7 @@ import 'package:ccplayer/presentation/audio/immersive_karaoke_sweep_text.dart';
 import 'package:ccplayer/presentation/detail/detail_secondary_filter_bar.dart';
 import 'package:ccplayer/presentation/dialogs/episode_slot_picker_popover.dart';
 import 'package:ccplayer/presentation/dialogs/file_mapping_panel.dart';
+import 'package:ccplayer/presentation/library/library_page.dart';
 import 'package:ccplayer/presentation/library/review_dialog.dart';
 import 'package:ccplayer/presentation/settings/settings_network_panel.dart';
 import 'package:ccplayer/presentation/shell/adaptive_capsule_layout.dart';
@@ -965,6 +966,71 @@ void main() {
         } finally {
           debugDefaultTargetPlatformOverride = null;
         }
+      },
+    );
+
+    testWidgets(
+      '媒体库空状态在桌面、Android 平板与手机三端均采用无外框居中布局，与媒体源和播放记录视觉一致',
+      (tester) async {
+        addTearDown(tester.view.reset);
+
+        Future<void> verifyFramelessEmptyState(
+          TargetPlatform platform,
+          Size viewport,
+        ) async {
+          debugDefaultTargetPlatformOverride = platform;
+          try {
+            tester.view.physicalSize = viewport;
+            tester.view.devicePixelRatio = 1.0;
+
+            await tester.pumpWidget(
+              ProviderScope(
+                overrides: [
+                  filteredLibraryItemsProvider.overrideWithValue(
+                    const AsyncValue.data([]),
+                  ),
+                  worksCountProvider.overrideWith((_) async => 0),
+                  hiddenWorksProvider.overrideWith((_) async => const []),
+                  needsReviewItemsProvider.overrideWithValue(
+                    const AsyncValue.data([]),
+                  ),
+                ],
+                child: MaterialApp(
+                  theme: KonataTheme.darkTheme(),
+                  home: const Scaffold(body: LibraryPage()),
+                ),
+              ),
+            );
+            await tester.pumpAndSettle();
+
+            final emptyTitle = find.text('媒体库尚未入库任何作品');
+            expect(emptyTitle, findsOneWidget);
+            expect(find.text('前往添加媒体源'), findsOneWidget);
+            // 空态提示外层严禁包裹带边框的 KonataSurfaceCard 方框。
+            expect(
+              find.ancestor(
+                of: emptyTitle,
+                matching: find.byType(KonataSurfaceCard),
+              ),
+              findsNothing,
+            );
+          } finally {
+            debugDefaultTargetPlatformOverride = null;
+          }
+        }
+
+        await verifyFramelessEmptyState(
+          TargetPlatform.windows,
+          const Size(1280, 800),
+        );
+        await verifyFramelessEmptyState(
+          TargetPlatform.android,
+          const Size(1024, 768),
+        );
+        await verifyFramelessEmptyState(
+          TargetPlatform.android,
+          const Size(390, 844),
+        );
       },
     );
   });

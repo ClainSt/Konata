@@ -169,6 +169,7 @@ class _PreparedMemorySlot {
     this.displayTitle,
     this.hasTimelineRemap = false,
     this.cloudSubsetApplied = false,
+    this.isDerivedVariant = false,
   });
 
   final int? existingTrackId;
@@ -181,6 +182,7 @@ class _PreparedMemorySlot {
   final String? displayTitle;
   final bool hasTimelineRemap;
   final bool cloudSubsetApplied;
+  final bool isDerivedVariant;
 }
 
 /// 内存级无副作用字幕引擎（`memory://` 零落盘直注 + 单一串行权威意图通道）。
@@ -230,7 +232,9 @@ class SubtitleMemoryEngine {
 
   /// 当前物理媒体周期内已挂载的外部字幕源路径与底层 `trackId` 的映射表（便于原轨复用与反查源路径）。
   final Map<String, int> _mountedTrackIdBySourcePath = {};
+  final Map<String, int> _originalTrackIdBySourcePath = {};
   final Map<int, String> _sourcePathByMountedTrackId = {};
+  final Set<int> _derivedMemoryTrackIds = {};
 
   /// 当前最新权威意图版本（用于诊断与测试）。
   int get latestIntentVersion => _latestIntentVersion;
@@ -245,6 +249,10 @@ class SubtitleMemoryEngine {
   /// 根据原始外挂字幕文件路径查询当前物理周期已挂载的轨道 ID。
   int? lookupTrackIdForSourcePath(String filePath) =>
       _mountedTrackIdBySourcePath[_normalizePathKey(filePath)];
+
+  /// 根据原始外挂字幕文件路径查询未做繁简/调轴改写的原始“原文”轨道 ID。
+  int? lookupOriginalTrackIdForSourcePath(String filePath) =>
+      _originalTrackIdBySourcePath[_normalizePathKey(filePath)];
 
   /// 返回当前物理周期已挂载内存字幕轨 ID 到真实原始字幕路径的只读快照（供轨道合并去重与组名提炼）。
   Map<int, String> get mountedSourcePathsSnapshot =>
@@ -265,7 +273,9 @@ class SubtitleMemoryEngine {
     _latestIntentVersion += 1;
     _mountedMemoryTracksBySha1.clear();
     _mountedTrackIdBySourcePath.clear();
+    _originalTrackIdBySourcePath.clear();
     _sourcePathByMountedTrackId.clear();
+    _derivedMemoryTrackIds.clear();
   }
 
   /// 同步更新瞬时 `sub-delay` 并同步推进权威意图代数，防止在途异步选轨覆盖新延迟。
@@ -587,6 +597,16 @@ class SubtitleMemoryEngine {
         client.command(['seek', '0', 'relative', 'exact']);
       }
 
+      // 回收已被替换且主/副字幕均不再使用的派生内存轨（如旧 OpenCC 繁简转换或旧调轴轨），防止轨道无限累积。
+      final activeSecondaryId = intent.updateSecondary
+          ? secondaryTrackId
+          : int.tryParse(client.getPropertyString('secondary-sid')?.trim() ?? '');
+      _pruneSupersededDerivedTracks(
+        client,
+        activePrimaryId: primaryTrackId,
+        activeSecondaryId: activeSecondaryId,
+      );
+
       onTrackStateChanged?.call();
       stopwatch.stop();
       completer.complete(
@@ -616,7 +636,30 @@ class SubtitleMemoryEngine {
     _latestIntentVersion += 1;
     _mountedMemoryTracksBySha1.clear();
     _mountedTrackIdBySourcePath.clear();
+    _originalTrackIdBySourcePath.clear();
     _sourcePathByMountedTrackId.clear();
+    _derivedMemoryTrackIds.clear();
+  }
+
+  void _pruneSupersededDerivedTracks(
+    LibMpvClient client, {
+    required int? activePrimaryId,
+    required int? activeSecondaryId,
+  }) {
+    if (_derivedMemoryTrackIds.isEmpty) return;
+    final staleIds = <int>[
+      for (final id in _derivedMemoryTrackIds)
+        if (id != activePrimaryId && id != activeSecondaryId) id,
+    ];
+    for (final staleId in staleIds) {
+      final rc = client.command(['sub-remove', '$staleId']);
+      if (rc >= 0) {
+        _derivedMemoryTrackIds.remove(staleId);
+        _sourcePathByMountedTrackId.remove(staleId);
+        _mountedMemoryTracksBySha1.removeWhere((_, id) => id == staleId);
+        _mountedTrackIdBySourcePath.removeWhere((_, id) => id == staleId);
+      }
+    }
   }
 
   int _currentPhysicalEpoch() {
@@ -708,6 +751,9 @@ class SubtitleMemoryEngine {
       displayTitle: request.displayTitle ?? request.fileName,
       hasTimelineRemap: request.hasTimelineRemap,
       cloudSubsetApplied: cloudApplied,
+      isDerivedVariant:
+          request.openCcMode != SubtitleOpenCcMode.none ||
+          request.hasTimelineRemap,
     );
   }
 
@@ -728,13 +774,25 @@ class SubtitleMemoryEngine {
         if (track.type == MpvTrackType.subtitle) track.id,
     };
 
-    // 命中当前物理周期已挂载且仍在 track-list 中的同内容内存轨，直接去重复用。
-    final cachedId = _mountedMemoryTracksBySha1[contentSha1];
+    // 按「规范化源路径 + 内容 SHA-1」隔离去重键，避免不同外挂文件经 OpenCC 转换后撞同内容 SHA-1 互相覆盖源路径归属。
+    final sourceKey =
+        (slot.sourceFilePath != null && slot.sourceFilePath!.isNotEmpty)
+        ? _normalizePathKey(slot.sourceFilePath!)
+        : '';
+    final cacheKey = sourceKey.isEmpty ? contentSha1 : '$sourceKey::$contentSha1';
+
+    // 命中当前物理周期已挂载且仍在 track-list 中的同源同内容内存轨，直接去重复用。
+    final cachedId = _mountedMemoryTracksBySha1[cacheKey];
     if (cachedId != null && existingSubIds.contains(cachedId)) {
-      if (slot.sourceFilePath != null && slot.sourceFilePath!.isNotEmpty) {
-        _mountedTrackIdBySourcePath[_normalizePathKey(slot.sourceFilePath!)] =
-            cachedId;
-        _sourcePathByMountedTrackId[cachedId] = slot.sourceFilePath!;
+      if (sourceKey.isNotEmpty) {
+        if (!slot.isDerivedVariant) {
+          _originalTrackIdBySourcePath[sourceKey] = cachedId;
+          _mountedTrackIdBySourcePath[sourceKey] = cachedId;
+        }
+        _sourcePathByMountedTrackId.putIfAbsent(
+          cachedId,
+          () => slot.sourceFilePath!,
+        );
       }
       return (trackId: cachedId, reused: true);
     }
@@ -771,13 +829,21 @@ class SubtitleMemoryEngine {
       }
     }
     if (mountedId == null) return null;
-    _mountedMemoryTracksBySha1[contentSha1] = mountedId;
-    if (slot.sourceFilePath != null && slot.sourceFilePath!.isNotEmpty) {
-      _mountedTrackIdBySourcePath[_normalizePathKey(slot.sourceFilePath!)] =
-          mountedId;
-      _sourcePathByMountedTrackId[mountedId] = slot.sourceFilePath!;
+    final resolvedTrackId = mountedId;
+    _mountedMemoryTracksBySha1[cacheKey] = resolvedTrackId;
+    if (slot.isDerivedVariant) {
+      _derivedMemoryTrackIds.add(resolvedTrackId);
     }
-    return (trackId: mountedId, reused: false);
+    if (sourceKey.isNotEmpty) {
+      if (!slot.isDerivedVariant) {
+        _originalTrackIdBySourcePath[sourceKey] = resolvedTrackId;
+        _mountedTrackIdBySourcePath[sourceKey] = resolvedTrackId;
+      } else {
+        _mountedTrackIdBySourcePath.putIfAbsent(sourceKey, () => resolvedTrackId);
+      }
+      _sourcePathByMountedTrackId[resolvedTrackId] = slot.sourceFilePath!;
+    }
+    return (trackId: resolvedTrackId, reused: false);
   }
 
   void _writeSubDelay(

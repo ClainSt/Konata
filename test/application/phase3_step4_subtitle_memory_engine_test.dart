@@ -12,6 +12,7 @@ import 'package:ccplayer/application/playback/subtitle_memory_engine.dart';
 import 'package:ccplayer/application/playback/unified_playback_engine.dart';
 import 'package:ccplayer/domain/playback/cue_and_lrc_parser.dart';
 import 'package:ccplayer/domain/playback/playback_probe_stats.dart';
+import 'package:ccplayer/domain/playback/subtitle_and_audio_choices.dart';
 import 'package:ccplayer/domain/playback/subtitle_content_processor.dart';
 import 'package:ccplayer/domain/playback/subtitle_timeline_remapper.dart';
 import 'package:ccplayer/domain/playback/track_preferences.dart';
@@ -118,7 +119,10 @@ class _FakeSubtitleMpvClient implements LibMpvClient {
   @override
   int setPropertyString(String name, String value) {
     recordedPropertyWrites.add((name: name, value: value));
-    if (name == 'sid') sid = value;
+    if (name == 'sid') {
+      sid = value;
+      _syncSelectedSubtitle();
+    }
     if (name == 'secondary-sid') secondarySid = value;
     return 0;
   }
@@ -133,9 +137,32 @@ class _FakeSubtitleMpvClient implements LibMpvClient {
   @override
   int setPropertyInt64(String name, int value) {
     recordedPropertyWrites.add((name: name, value: value));
-    if (name == 'sid') sid = '$value';
+    if (name == 'sid') {
+      sid = '$value';
+      _syncSelectedSubtitle();
+    }
     if (name == 'secondary-sid') secondarySid = '$value';
     return 0;
+  }
+
+  void _syncSelectedSubtitle() {
+    final activeId = int.tryParse(sid);
+    for (var i = 0; i < _tracks.length; i++) {
+      final t = _tracks[i];
+      if (t.type != MpvTrackType.subtitle) continue;
+      _tracks[i] = MpvTrackInfo(
+        id: t.id,
+        type: t.type,
+        title: t.title,
+        lang: t.lang,
+        codec: t.codec,
+        isExternal: t.isExternal,
+        externalFilename: t.externalFilename,
+        isDefault: t.isDefault,
+        isForced: t.isForced,
+        selected: activeId != null && t.id == activeId,
+      );
+    }
   }
 
   @override
@@ -196,6 +223,13 @@ class _FakeSubtitleMpvClient implements LibMpvClient {
           selected: false,
         ),
       );
+    } else if (args.length >= 2 && args[0] == 'sub-remove') {
+      final targetId = int.tryParse(args[1]);
+      if (targetId != null) {
+        _tracks.removeWhere(
+          (t) => t.type == MpvTrackType.subtitle && t.id == targetId,
+        );
+      }
     }
     return 0;
   }
@@ -739,6 +773,120 @@ Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,這個動畫真好看
       expect(reuseRes.usedCachedMemoryTrack, isTrue);
       expect(reuseRes.primaryTrackId, equals(okRes.primaryTrackId));
       expect(fakeClient.recordedCommands.length, equals(subAddCountBefore));
+    });
+
+    test('反复切换 OpenCC 转简体/转繁体/原文时自动回收旧派生轨，合并轨道列表恒定不重复不漂移语种', () async {
+      final tempDir = await Directory.systemTemp.createTemp('konata_opencc_dedup_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      final chsFile = File(
+        p.join(
+          tempDir.path,
+          '[SweetSub&VCB-Studio] 16bit Sensation [01].chs.ass',
+        ),
+      );
+      final chtFile = File(
+        p.join(
+          tempDir.path,
+          '[SweetSub&VCB-Studio] 16bit Sensation [01].cht.ass',
+        ),
+      );
+      await chsFile.writeAsString('''
+[Script Info]
+ScriptType: v4.00+
+[Events]
+Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,我穿越了，这个动画真好看
+''');
+      await chtFile.writeAsString('''
+[Script Info]
+ScriptType: v4.00+
+[Events]
+Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,我穿越了，這個動畫真好看
+''');
+
+      final fakeClient = _FakeSubtitleMpvClient();
+      final unifiedEngine = UnifiedPlaybackEngine();
+      unifiedEngine.beginPhysicalMedia();
+      final memEngine = SubtitleMemoryEngine(
+        clientSupplier: () => fakeClient,
+        playbackEngine: unifiedEngine,
+      );
+
+      final mountRes = await memEngine.mountDiscoveredExternalSubtitles(
+        textSubtitlePaths: [chsFile.path, chtFile.path],
+        trackMemory: const CrossEpisodeTrackMemory(),
+        trackPreferences: const TrackPreferences(),
+      );
+      expect(mountRes.applied, isTrue);
+      final origChsId = memEngine.lookupOriginalTrackIdForSourcePath(chsFile.path);
+      expect(origChsId, isNotNull);
+
+      List<SubtitleChoice> currentChoices() => SubtitleAndAudioChoices.mergeSubtitles(
+        mpvTracks: fakeClient.readTrackList(),
+        discoveredExternalPaths: [chsFile.path, chtFile.path],
+        mountedSourcePathsByTrackId: memEngine.mountedSourcePathsSnapshot,
+      );
+
+      expect(currentChoices(), hasLength(2));
+
+      // 连续 6 轮在转繁体、转简体、原文间切换，底层轨道数与 UI 合并列表均严禁无限增长。
+      for (var round = 0; round < 3; round++) {
+        final toTrad = await memEngine.applyIntent(
+          AuthoritativeSubtitleIntent(
+            primary: SubtitleSlotRequest.memory(
+              localFilePath: chsFile.path,
+              fileName: p.basename(chsFile.path),
+              displayTitle: '${p.basename(chsFile.path)} [繁]',
+              openCcMode: SubtitleOpenCcMode.toTraditional,
+            ),
+          ),
+        );
+        expect(toTrad.applied, isTrue);
+        final tradMerged = currentChoices();
+        expect(tradMerged, hasLength(2));
+        expect(tradMerged[0].primaryTitle, equals('简体中文 · SweetSub&VCB-Studio'));
+        expect(tradMerged[0].selected, isTrue);
+        expect(tradMerged[1].primaryTitle, equals('繁体中文 · SweetSub&VCB-Studio'));
+        expect(tradMerged[1].selected, isFalse);
+
+        final toSimp = await memEngine.applyIntent(
+          AuthoritativeSubtitleIntent(
+            primary: SubtitleSlotRequest.memory(
+              localFilePath: chtFile.path,
+              fileName: p.basename(chtFile.path),
+              displayTitle: '${p.basename(chtFile.path)} [简]',
+              openCcMode: SubtitleOpenCcMode.toSimplified,
+            ),
+          ),
+        );
+        expect(toSimp.applied, isTrue);
+        final simpMerged = currentChoices();
+        expect(simpMerged, hasLength(2));
+        expect(simpMerged[1].primaryTitle, equals('繁体中文 · SweetSub&VCB-Studio'));
+        expect(simpMerged[1].selected, isTrue);
+        // 底层仅保留 2 条原轨 + 最多 1 条当前活跃派生轨，旧派生轨已被 sub-remove 回收。
+        final rawSubTracks = fakeClient
+            .readTrackList()
+            .where((t) => t.type == MpvTrackType.subtitle)
+            .toList();
+        expect(rawSubTracks.length, lessThanOrEqualTo(3));
+      }
+
+      // 切回原文后，所有临时派生轨被彻底回收，仅剩原始 2 条。
+      final backToOrig = await memEngine.applyIntent(
+        AuthoritativeSubtitleIntent(
+          primary: SubtitleSlotRequest.existingTrack(origChsId!),
+        ),
+      );
+      expect(backToOrig.applied, isTrue);
+      final finalRawSubTracks = fakeClient
+          .readTrackList()
+          .where((t) => t.type == MpvTrackType.subtitle)
+          .toList();
+      expect(finalRawSubTracks, hasLength(2));
+      expect(currentChoices(), hasLength(2));
+      expect(currentChoices()[0].selected, isTrue);
     });
 
     test(

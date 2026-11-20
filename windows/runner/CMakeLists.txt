@@ -50,9 +50,32 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app flutter_wrapper_plugin)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib" "d3d11.lib" "dxgi.lib")
+# 对齐 konata-native.cmake 的原生目录定位，并在首次检出尚未展开头文件时自动解包。
+if(DEFINED ENV{KONATA_NATIVE_ROOT})
+  set(KONATA_RUNNER_NATIVE_ROOT "$ENV{KONATA_NATIVE_ROOT}")
+else()
+  get_filename_component(KONATA_RUNNER_NATIVE_ROOT
+    "${CMAKE_SOURCE_DIR}/../native/konata-native" ABSOLUTE)
+endif()
+if(EXISTS "${KONATA_RUNNER_NATIVE_ROOT}/windows-headers.zip")
+  set(KONATA_RUNNER_HEADERS_READY TRUE)
+  foreach(KONATA_HDR client.h render.h render_d3d11.h render_gl.h stream_cb.h)
+    if(NOT EXISTS "${KONATA_RUNNER_NATIVE_ROOT}/windows/include/mpv/${KONATA_HDR}")
+      set(KONATA_RUNNER_HEADERS_READY FALSE)
+    endif()
+  endforeach()
+  if(NOT KONATA_RUNNER_HEADERS_READY)
+    file(MAKE_DIRECTORY "${KONATA_RUNNER_NATIVE_ROOT}/windows/include")
+    file(ARCHIVE_EXTRACT
+      INPUT "${KONATA_RUNNER_NATIVE_ROOT}/windows-headers.zip"
+      DESTINATION "${KONATA_RUNNER_NATIVE_ROOT}/windows/include"
+    )
+  endif()
+endif()
+
 target_include_directories(${BINARY_NAME} PRIVATE
   "${CMAKE_SOURCE_DIR}"
-  "${CMAKE_SOURCE_DIR}/../native/konata-native/windows/include"
+  "${KONATA_RUNNER_NATIVE_ROOT}/windows/include"
 )
 
 # Run the Flutter tool portions of the build. This must not be removed.

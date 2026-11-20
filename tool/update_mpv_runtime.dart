@@ -157,8 +157,39 @@ const List<String> _requiredMpvSymbols = [
   'mpv_render_context_free',
 ];
 
+Future<void> _ensureWindowsHeadersUnpacked(Directory root, Directory winDir) async {
+  final headerArchive = File(p.join(root.path, 'windows-headers.zip'));
+  if (!headerArchive.existsSync()) return;
+  final includeDir = Directory(p.join(winDir.path, 'include'));
+  final mpvIncludeDir = Directory(p.join(includeDir.path, 'mpv'));
+  const expectedHeaders = [
+    'client.h',
+    'render.h',
+    'render_d3d11.h',
+    'render_gl.h',
+    'stream_cb.h',
+  ];
+  final allPresent = expectedHeaders.every(
+    (name) => File(p.join(mpvIncludeDir.path, name)).existsSync(),
+  );
+  if (allPresent) return;
+
+  await includeDir.create(recursive: true);
+  // 使用系统内置 tar 解包同级头文件归档，避免引入额外第三方依赖。
+  final result = await Process.run(
+    'tar',
+    ['-xf', headerArchive.path, '-C', includeDir.path],
+  );
+  if (result.exitCode != 0) {
+    throw StateError(
+      '解包 windows-headers.zip 失败 (exit=${result.exitCode}): ${result.stderr}',
+    );
+  }
+}
+
 Future<void> _processWindows(Directory root, _CliOptions options) async {
   final winDir = Directory(p.join(root.path, 'windows'));
+  await _ensureWindowsHeadersUnpacked(root, winDir);
   final dllFile = File(p.join(winDir.path, 'libmpv-2.dll'));
   if (!dllFile.existsSync()) {
     throw StateError('缺少 Windows 原生库: ${dllFile.path}');

@@ -39,6 +39,10 @@ def main():
         for name in ['libmpv-2.dll', 'libmpv.dll.a', 'LICENSE.LGPL']:
             shutil.copy2(build / 'artifact-libmpv' / name, target / name)
         shutil.copytree(build / 'artifact-libmpv/include', target / 'include', dirs_exist_ok=True)
+        # 同步生成供版本库跟踪的头文件压缩包，避免受控仓库直接纳入第三方英文头文件。
+        with zipfile.ZipFile(output / 'windows-headers.zip', 'w', zipfile.ZIP_DEFLATED) as hdr_zip:
+            for hdr in sorted((target / 'include' / 'mpv').glob('*.h')):
+                hdr_zip.write(hdr, f'mpv/{hdr.name}')
         (target / 'reference').mkdir(exist_ok=True)
         for name in ['mpv.exe', 'mpv.com']:
             shutil.copy2(build / 'artifact' / name, target / 'reference' / name)

@@ -54,11 +54,16 @@ app.*.map.json
 android/.kotlin/
 
 
-# Native runtime binaries (only track *-manifest.json in Git)
+# Native runtime binaries (track manifest-verified windows & android runtimes; keep reference/ & unpacked C headers untracked)
 /native/*
 !/native/konata-native/
 /native/konata-native/*
 !/native/konata-native/*-manifest.json
+!/native/konata-native/windows-headers.zip
+!/native/konata-native/windows/
+/native/konata-native/windows/include/
+/native/konata-native/windows/reference/
+!/native/konata-native/android/
 
 # Portable runtime data & local debug databases
 /userdata/

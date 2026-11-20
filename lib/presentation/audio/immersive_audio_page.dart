@@ -272,13 +272,12 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     }
   }
 
-  /// 计算当前最接近中央时间轴基准线的歌词行索引。
-  int _resolveCenterLyricIndex(LrcDocument lrc, double anchorRatio) {
+  /// 计算当前最接近中央时间轴基准线 [anchorY] 的歌词行索引。
+  int _resolveCenterLyricIndex(LrcDocument lrc, double anchorY) {
     final total = lrc.lines.length;
     if (total == 0) return 0;
     final vpObj = _lyricViewportKey.currentContext?.findRenderObject();
     if (vpObj is RenderBox && vpObj.hasSize && vpObj.size.height > 1.0) {
-      final targetY = vpObj.size.height * anchorRatio;
       var bestIdx = -1;
       var bestDist = double.infinity;
       final limit = math.min(total, _lyricKeys.length);
@@ -290,7 +289,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
         final centerY = box
             .localToGlobal(Offset(0, box.size.height * 0.5), ancestor: vpObj)
             .dy;
-        final dist = (centerY - targetY).abs();
+        final dist = (centerY - anchorY).abs();
         if (dist < bestDist) {
           bestDist = dist;
           bestIdx = i;
@@ -329,10 +328,10 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
 
   void _onUserLyricScrollActivity(
     LrcDocument lrc,
-    double anchorRatio, {
+    double anchorY, {
     required bool activeDrag,
   }) {
-    final targetIdx = _resolveCenterLyricIndex(lrc, anchorRatio);
+    final targetIdx = _resolveCenterLyricIndex(lrc, anchorY);
     if (!_isUserScrollingLyrics ||
         _lyricScrollActivelyDragging != activeDrag ||
         _scrubTargetLyricIndex != targetIdx) {
@@ -349,7 +348,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
         KonataPlaybackTokens.lyricScrollIdleSettleDelay,
         () {
           if (!mounted || !_isUserScrollingLyrics) return;
-          final settledIdx = _resolveCenterLyricIndex(lrc, anchorRatio);
+          final settledIdx = _resolveCenterLyricIndex(lrc, anchorY);
           if (_lyricScrollActivelyDragging ||
               _scrubTargetLyricIndex != settledIdx) {
             setState(() {
@@ -365,10 +364,10 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     }
   }
 
-  void _onUserLyricScrollEnded(LrcDocument lrc, double anchorRatio) {
+  void _onUserLyricScrollEnded(LrcDocument lrc, double anchorY) {
     if (!_isUserScrollingLyrics) return;
     _scrollIdleTimer?.cancel();
-    final targetIdx = _resolveCenterLyricIndex(lrc, anchorRatio);
+    final targetIdx = _resolveCenterLyricIndex(lrc, anchorY);
     if (_lyricScrollActivelyDragging || _scrubTargetLyricIndex != targetIdx) {
       setState(() {
         _lyricScrollActivelyDragging = false;
@@ -376,6 +375,13 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
       });
     }
     _scheduleLyricScrollResetTimer();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_isUserScrollingLyrics) return;
+      final refined = _resolveCenterLyricIndex(lrc, anchorY);
+      if (_scrubTargetLyricIndex != refined) {
+        setState(() => _scrubTargetLyricIndex = refined);
+      }
+    });
   }
 
   void _cancelUserLyricScrub() {

@@ -5,6 +5,54 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../domain/formatting/clear_logo_legibility.dart';
+
+/// 透明标题徽标可读性增强模式 LRU 内存缓存（由 Riverpod 托管生命周期，避免重复采样闪烁）。
+class ClearLogoLegibilityCache {
+  /// 创建容量受限的透明标题徽标可读性缓存。
+  ClearLogoLegibilityCache({this.maxEntries = 64});
+
+  /// 最大缓存条目数。
+  final int maxEntries;
+
+  final Map<String, ClearLogoLegibilityMode> _entries =
+      <String, ClearLogoLegibilityMode>{};
+
+  /// 查询并刷新命中键的最近访问次序。
+  ClearLogoLegibilityMode? get(String key) {
+    final hit = _entries.remove(key);
+    if (hit == null) return null;
+    _entries[key] = hit;
+    return hit;
+  }
+
+  /// 写入增强模式并在超出容量上限时淘汰最久未使用的条目。
+  void put(String key, ClearLogoLegibilityMode mode) {
+    _entries.remove(key);
+    _entries[key] = mode;
+    while (_entries.length > maxEntries) {
+      _entries.remove(_entries.keys.first);
+    }
+  }
+
+  /// 清空全部缓存条目。
+  void clear() {
+    _entries.clear();
+  }
+
+  /// 当前缓存条目数量。
+  int get length => _entries.length;
+}
+
+/// 全局透明标题徽标可读性模式缓存 Provider（随容器释放自动回收）。
+final clearLogoLegibilityCacheProvider = Provider<ClearLogoLegibilityCache>((
+  ref,
+) {
+  final cache = ClearLogoLegibilityCache();
+  ref.onDispose(cache.clear);
+  return cache;
+});
+
 /// 封面主色色板 LRU 内存缓存（由 Riverpod Provider 托管生命周期，禁止全局静态可变字段）。
 class ArtworkPaletteCache {
   /// 创建容量受限的色板 LRU 缓存。

@@ -127,6 +127,7 @@ class ManagedImage extends StatelessWidget {
     this.imageSize,
     this.isHeroBackdrop = false,
     this.errorBuilder,
+    this.onImageResolved,
   });
 
   /// 图片地址。
@@ -164,6 +165,9 @@ class ManagedImage extends StatelessWidget {
 
   /// 加载失败兜底构建器。
   final ImageErrorWidgetBuilder? errorBuilder;
+
+  /// 首帧图像解码就绪时的可选只读回调（复用同一缓存图像流，零重复下载与解码）。
+  final void Function(ui.Image image, ImageProvider provider)? onImageResolved;
 
   @override
   Widget build(BuildContext context) {
@@ -203,7 +207,7 @@ class ManagedImage extends StatelessWidget {
             ? baseProvider
             : ResizeImage.resizeIfNeeded(target, null, baseProvider);
 
-        return Image(
+        final imageWidget = Image(
           image: effectiveProvider,
           width: width,
           height: height,
@@ -215,7 +219,99 @@ class ManagedImage extends StatelessWidget {
           gaplessPlayback: true,
           errorBuilder: errorBuilder,
         );
+
+        final observer = onImageResolved;
+        if (observer == null) {
+          return imageWidget;
+        }
+        return _ManagedImageDecodeObserver(
+          provider: effectiveProvider,
+          onImageResolved: observer,
+          child: imageWidget,
+        );
       },
     );
   }
+}
+
+/// 复用同一 [ImageProvider] 缓存流监听解码就绪事件，严禁触发二次下载或二次解码。
+class _ManagedImageDecodeObserver extends StatefulWidget {
+  const _ManagedImageDecodeObserver({
+    required this.provider,
+    required this.onImageResolved,
+    required this.child,
+  });
+
+  final ImageProvider provider;
+  final void Function(ui.Image image, ImageProvider provider) onImageResolved;
+  final Widget child;
+
+  @override
+  State<_ManagedImageDecodeObserver> createState() =>
+      _ManagedImageDecodeObserverState();
+}
+
+class _ManagedImageDecodeObserverState
+    extends State<_ManagedImageDecodeObserver> {
+  ImageStream? _stream;
+  ImageStreamListener? _listener;
+  ImageProvider? _listeningProvider;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncStream();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ManagedImageDecodeObserver oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.provider != widget.provider) {
+      _syncStream();
+    }
+  }
+
+  void _syncStream() {
+    if (_listeningProvider == widget.provider && _stream != null) return;
+    _detachStream();
+    _listeningProvider = widget.provider;
+    final stream = widget.provider.resolve(
+      createLocalImageConfiguration(context),
+    );
+    final listener = ImageStreamListener(
+      _handleFrame,
+      onError: _handleStreamError,
+    );
+    _stream = stream;
+    _listener = listener;
+    stream.addListener(listener);
+  }
+
+  void _handleFrame(ImageInfo info, bool synchronousCall) {
+    if (!mounted) return;
+    widget.onImageResolved(info.image, widget.provider);
+  }
+
+  void _handleStreamError(Object error, StackTrace? stackTrace) {
+    // 加载异常统一由子级 Image.errorBuilder 承接展示，此处仅静默解绑。
+    _detachStream();
+  }
+
+  void _detachStream() {
+    if (_stream != null && _listener != null) {
+      _stream!.removeListener(_listener!);
+    }
+    _stream = null;
+    _listener = null;
+    _listeningProvider = null;
+  }
+
+  @override
+  void dispose() {
+    _detachStream();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

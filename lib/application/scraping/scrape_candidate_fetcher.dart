@@ -252,45 +252,51 @@ class ScrapeCandidateFetcher {
       }),
     );
 
-    // 当目录包含第 1 集且存在多条同系列候选（如分割放送第 1/2 部分）时，
-    // 拉取前 4 条候选的少量正片分集以识别其起始 sort 序号，避免续作（sort >= 12）抢夺 [01]。
+    // 仅当目录包含第 1 集且前排存在多个相近竞争候选（如分割放送第 1/2 部分）时，
+    // 按需拉取竞争候选的少量正片分集以识别其起始 sort 序号，避免无关搜索噪音触发多余请求。
     if (!folder.isMovieHint &&
         folder.mainEpisodeNumbers.contains(1) &&
-        rawById.length >= 2) {
-      final sortTargets = prelim.topCandidates
+        prelim.topCandidates.length >= 2) {
+      final bestScore = prelim.topCandidates.first.score;
+      final competing = prelim.topCandidates
+          .where((c) => c.score >= 30 || (bestScore - c.score) <= 25)
           .take(4)
-          .map((e) => e.subject.id)
           .toList(growable: false);
-      await Future.wait(
-        sortTargets.map((id) async {
-          try {
-            final eps = await bgm.getSubjectEpisodes(
-              id,
-              type: 0,
-              limit: 5,
-              priority: RequestPriority.background,
-            );
-            double? minSort;
-            for (final ep in eps) {
-              final s = ep.sort ?? ep.ep;
-              if (s == null || s <= 0) continue;
-              if (minSort == null || s < minSort) {
-                minSort = s;
+      if (competing.length >= 2) {
+        final sortTargets = competing
+            .map((e) => e.subject.id)
+            .toList(growable: false);
+        await Future.wait(
+          sortTargets.map((id) async {
+            try {
+              final eps = await bgm.getSubjectEpisodes(
+                id,
+                type: 0,
+                limit: 5,
+                priority: RequestPriority.background,
+              );
+              double? minSort;
+              for (final ep in eps) {
+                final s = ep.sort ?? ep.ep;
+                if (s == null || s <= 0) continue;
+                if (minSort == null || s < minSort) {
+                  minSort = s;
+                }
               }
+              if (minSort != null && rawById[id] != null) {
+                rawById[id] = rawById[id]!.copyWith(firstEpisodeSort: minSort);
+              }
+            } catch (error) {
+              // 部分测试桩或网络故障未提供 episodes 接口时静默跳过。
+              developer.log(
+                '可恢复异常已记录',
+                name: 'konata.scrape_candidate_fetcher',
+                error: error,
+              );
             }
-            if (minSort != null && rawById[id] != null) {
-              rawById[id] = rawById[id]!.copyWith(firstEpisodeSort: minSort);
-            }
-          } catch (error) {
-            // 部分测试桩或网络故障未提供 episodes 接口时静默跳过。
-            developer.log(
-              '可恢复异常已记录',
-              name: 'konata.scrape_candidate_fetcher',
-              error: error,
-            );
-          }
-        }),
-      );
+          }),
+        );
+      }
     }
 
     return rawById.values.toList(growable: false);
@@ -404,6 +410,7 @@ class ScrapeCandidateFetcher {
         item.tmdbId,
         item.mediaType,
         priority: RequestPriority.background,
+        includeImages: false,
       ),
       onNetworkError: onNetworkError,
     );
@@ -469,15 +476,17 @@ class ScrapeCandidateFetcher {
         hit.tmdbId,
         hit.mediaType,
         priority: RequestPriority.background,
+        includeImages: false,
       ),
       onNetworkError: onNetworkError,
     );
     return recovered.aborted ? const [] : recovered.results;
   }
 
-  /// 按 ID 补拉指定 TMDB 条目详情（跨源映射命中但关键词检索未召回时使用；不存在的 ID 静默跳过）。
+  /// 按 ID 补拉指定 TMDB 条目详情（映射直连或跨源补拉时使用；不存在的 ID 静默跳过）。
   Future<List<TmdbWorkDetail>> fetchDetailsByIds(
     List<({TmdbMediaType type, int id})> targets, {
+    bool includeImages = false,
     void Function(Object error)? onNetworkError,
   }) async {
     final fetched = await _fetchAllInOrder(
@@ -486,6 +495,7 @@ class ScrapeCandidateFetcher {
         t.id,
         t.type,
         priority: RequestPriority.background,
+        includeImages: includeImages,
       ),
       onNetworkError: onNetworkError,
     );
@@ -585,6 +595,7 @@ class ScrapeCandidateFetcher {
         hit.tmdbId,
         hit.mediaType,
         priority: RequestPriority.background,
+        includeImages: false,
       ),
       onNetworkError: onNetworkError,
     );

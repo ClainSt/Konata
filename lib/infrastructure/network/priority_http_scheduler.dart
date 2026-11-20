@@ -6,7 +6,7 @@ enum RequestPriority {
   /// 前台交互通道（海报墙封面、详情页、手动纠错搜索）。
   interactive,
 
-  /// 后台批量刮削通道（受限流、退避与在途去重约束）。
+  /// 后台批量刮削通道（受按域限流、退避与在途去重约束）。
   background,
 }
 
@@ -25,43 +25,74 @@ class RateLimitedHttpException implements Exception {
   String toString() => 'RateLimitedHttpException($message, $retryAfter)';
 }
 
-/// 物理隔离前后台队列的双优先级 HTTP 调度器。
+/// 物理隔离前后台队列与上游域桶的双优先级 HTTP 调度器。
 ///
 /// - `InteractiveChannel`：默认最大并发 6，高优立即调度，不被后台刮削阻塞；
-/// - `BackgroundChannel`：默认最大并发 3，支持在途相同键去重与 429 指数退避冷却。
+/// - `BackgroundChannel`：按上游域（如 `tmdb`、`bangumi`）独立分桶并发与 429 退避冷却，
+///   支持在途相同键去重，避免单域限流拖慢另一数据源吞吐。
 class PriorityHttpScheduler {
   /// 创建双通道调度器。
   PriorityHttpScheduler({
     this.interactiveConcurrency = 6,
-    this.backgroundConcurrency = 3,
+    this.backgroundConcurrency = defaultBackgroundConcurrency,
     this.maxRetries = 3,
-  });
+    Map<String, int>? backgroundBucketConcurrency,
+  }) : _customBucketLimits = backgroundBucketConcurrency == null
+           ? const {}
+           : Map<String, int>.unmodifiable(backgroundBucketConcurrency);
+
+  /// 后台通用通道默认并发上限。
+  static const int defaultBackgroundConcurrency = 3;
+
+  /// 未显式覆写时的分域后台默认并发上限（平衡吞吐与上游风控）。
+  static const Map<String, int> defaultBucketConcurrency = <String, int>{
+    'tmdb': 6,
+    'bangumi': 4,
+  };
 
   /// 前台交互通道最大并发数。
   final int interactiveConcurrency;
 
-  /// 后台批量通道最大并发数。
+  /// 后台默认通道最大并发数。
   final int backgroundConcurrency;
 
   /// 429 限流最大重试次数。
   final int maxRetries;
 
+  final Map<String, int> _customBucketLimits;
+
   int _interactiveActive = 0;
   final Queue<Completer<void>> _interactiveQueue = Queue();
 
-  int _backgroundActive = 0;
-  final Queue<Completer<void>> _backgroundQueue = Queue();
-
+  final Map<String, _BackgroundBucket> _backgroundBuckets = {};
   final Map<String, Future<Object?>> _inflightBackground = {};
-  DateTime _backgroundCooldownUntil = DateTime.fromMillisecondsSinceEpoch(0);
 
-  /// 当前处于排队或执行中的后台任务数（测试可观测）。
-  int get backgroundActiveCount => _backgroundActive;
+  /// 当前处于执行中的后台任务总数（测试可观测）。
+  int get backgroundActiveCount {
+    var total = 0;
+    for (final bucket in _backgroundBuckets.values) {
+      total += bucket.active;
+    }
+    return total;
+  }
 
-  /// 当前处于排队或执行中的前台任务数（测试可观测）。
+  /// 当前处于执行中的前台任务数（测试可观测）。
   int get interactiveActiveCount => _interactiveActive;
 
-  /// 在指定优先级通道中调度请求。
+  /// 查询指定后台域桶当前实际并发上限（测试可观测，保底不低于 1 防队列饥饿）。
+  int concurrencyLimitForBucket(String? bucketKey) {
+    final key = _normalizeBucketKey(bucketKey);
+    final custom = _customBucketLimits[key];
+    if (custom != null && custom > 0) return custom;
+    final fallback = backgroundConcurrency < 1 ? 1 : backgroundConcurrency;
+    if (key.isNotEmpty &&
+        backgroundConcurrency == defaultBackgroundConcurrency) {
+      return defaultBucketConcurrency[key] ?? fallback;
+    }
+    return fallback;
+  }
+
+  /// 在指定优先级通道与可选上游域桶中调度请求。
   ///
   /// 当 [priority] 为 [RequestPriority.background] 且提供了 [dedupeKey] 时，
   /// 在途相同的 [dedupeKey] 会自动合并为一次真实网络请求。
@@ -69,6 +100,7 @@ class PriorityHttpScheduler {
     RequestPriority priority,
     Future<T> Function() task, {
     String? dedupeKey,
+    String? bucketKey,
   }) async {
     if (priority == RequestPriority.interactive) {
       return _runInChannel(
@@ -85,7 +117,13 @@ class PriorityHttpScheduler {
       return shared as T;
     }
 
-    final future = _runBackgroundWithRetry(task);
+    final bucketName = _normalizeBucketKey(bucketKey);
+    final bucket = _backgroundBuckets.putIfAbsent(
+      bucketName,
+      () => _BackgroundBucket(limit: concurrencyLimitForBucket(bucketName)),
+    );
+
+    final future = _runBackgroundWithRetry(bucket, task);
     if (dedupeKey != null) {
       _inflightBackground[dedupeKey] = future;
     }
@@ -98,20 +136,23 @@ class PriorityHttpScheduler {
     }
   }
 
-  Future<T> _runBackgroundWithRetry<T>(Future<T> Function() task) async {
+  Future<T> _runBackgroundWithRetry<T>(
+    _BackgroundBucket bucket,
+    Future<T> Function() task,
+  ) async {
     var attempt = 0;
     while (true) {
       final now = DateTime.now();
-      if (_backgroundCooldownUntil.isAfter(now)) {
-        await Future<void>.delayed(_backgroundCooldownUntil.difference(now));
+      if (bucket.cooldownUntil.isAfter(now)) {
+        await Future<void>.delayed(bucket.cooldownUntil.difference(now));
       }
 
       try {
         return await _runInChannel(
-          queue: _backgroundQueue,
-          isFull: () => _backgroundActive >= backgroundConcurrency,
-          increment: () => _backgroundActive++,
-          decrement: () => _backgroundActive--,
+          queue: bucket.queue,
+          isFull: () => bucket.active >= bucket.limit,
+          increment: () => bucket.active++,
+          decrement: () => bucket.active--,
           action: task,
         );
       } on RateLimitedHttpException catch (e) {
@@ -120,8 +161,8 @@ class PriorityHttpScheduler {
         final backoffMs = e.retryAfter.inMilliseconds * (1 << (attempt - 1));
         final wait = Duration(milliseconds: backoffMs.clamp(200, 30000));
         final nextAllowed = DateTime.now().add(wait);
-        if (nextAllowed.isAfter(_backgroundCooldownUntil)) {
-          _backgroundCooldownUntil = nextAllowed;
+        if (nextAllowed.isAfter(bucket.cooldownUntil)) {
+          bucket.cooldownUntil = nextAllowed;
         }
       }
     }
@@ -152,4 +193,16 @@ class PriorityHttpScheduler {
       }
     }
   }
+
+  static String _normalizeBucketKey(String? raw) =>
+      (raw ?? '').trim().toLowerCase();
+}
+
+class _BackgroundBucket {
+  _BackgroundBucket({required this.limit});
+
+  final int limit;
+  int active = 0;
+  final Queue<Completer<void>> queue = Queue();
+  DateTime cooldownUntil = DateTime.fromMillisecondsSinceEpoch(0);
 }

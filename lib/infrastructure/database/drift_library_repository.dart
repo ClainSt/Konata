@@ -119,21 +119,32 @@ class DriftLibraryRepository implements LibraryRepository {
   Future<void> upsertEpisode(Episode episode) async {
     await _db
         .into(_db.episodes)
-        .insertOnConflictUpdate(
-          EpisodesCompanion(
-            id: Value(episode.id),
-            workId: Value(episode.workId),
-            seasonNumber: Value(episode.seasonNumber),
-            episodeNumber: Value(episode.episodeNumber),
-            episodeNumberEnd: Value(episode.episodeNumberEnd),
-            category: Value(episode.category),
-            extraType: Value(episode.extraType),
-            title: Value(episode.title),
-            overview: Value(episode.overview),
-            stillPath: Value(episode.stillPath),
-          ),
-        );
+        .insertOnConflictUpdate(_episodeCompanion(episode));
   }
+
+  @override
+  Future<void> upsertEpisodesBatch(List<Episode> episodes) async {
+    if (episodes.isEmpty) return;
+    await _db.batch((batch) {
+      batch.insertAllOnConflictUpdate(
+        _db.episodes,
+        [for (final ep in episodes) _episodeCompanion(ep)],
+      );
+    });
+  }
+
+  EpisodesCompanion _episodeCompanion(Episode episode) => EpisodesCompanion(
+    id: Value(episode.id),
+    workId: Value(episode.workId),
+    seasonNumber: Value(episode.seasonNumber),
+    episodeNumber: Value(episode.episodeNumber),
+    episodeNumberEnd: Value(episode.episodeNumberEnd),
+    category: Value(episode.category),
+    extraType: Value(episode.extraType),
+    title: Value(episode.title),
+    overview: Value(episode.overview),
+    stillPath: Value(episode.stillPath),
+  );
 
   @override
   Future<List<Episode>> getEpisodesByWork(String workId) async {
@@ -165,30 +176,42 @@ class DriftLibraryRepository implements LibraryRepository {
   Future<void> upsertMediaVariant(MediaVariant variant) async {
     await _db
         .into(_db.mediaVariants)
-        .insertOnConflictUpdate(
-          MediaVariantsCompanion(
-            id: Value(variant.id),
-            workId: Value(variant.workId),
-            episodeId: Value(variant.episodeId),
-            sourceId: Value(variant.sourceId),
-            relativePath: Value(variant.relativePath),
-            fileName: Value(variant.fileName),
-            fileSize: Value(variant.fileSize),
-            assetKind: Value(variant.assetKind),
-            releaseGroup: Value(variant.releaseGroup),
-            subtitleGroup: Value(variant.subtitleGroup),
-            videoCodec: Value(variant.videoCodec),
-            bitDepth: Value(variant.bitDepth),
-            resolution: Value(variant.resolution),
-            audioCodec: Value(variant.audioCodec),
-            externalSubtitlesJson: Value(jsonEncode(variant.externalSubtitles)),
-            mappingLocked: Value(variant.mappingLocked),
-            workLocked: Value(variant.workLocked),
-            assetScope: Value(variant.assetScope),
-            scopeLocked: Value(variant.scopeLocked),
-          ),
-        );
+        .insertOnConflictUpdate(_variantCompanion(variant));
   }
+
+  @override
+  Future<void> upsertMediaVariantsBatch(List<MediaVariant> variants) async {
+    if (variants.isEmpty) return;
+    await _db.batch((batch) {
+      batch.insertAllOnConflictUpdate(
+        _db.mediaVariants,
+        [for (final v in variants) _variantCompanion(v)],
+      );
+    });
+  }
+
+  MediaVariantsCompanion _variantCompanion(MediaVariant variant) =>
+      MediaVariantsCompanion(
+        id: Value(variant.id),
+        workId: Value(variant.workId),
+        episodeId: Value(variant.episodeId),
+        sourceId: Value(variant.sourceId),
+        relativePath: Value(variant.relativePath),
+        fileName: Value(variant.fileName),
+        fileSize: Value(variant.fileSize),
+        assetKind: Value(variant.assetKind),
+        releaseGroup: Value(variant.releaseGroup),
+        subtitleGroup: Value(variant.subtitleGroup),
+        videoCodec: Value(variant.videoCodec),
+        bitDepth: Value(variant.bitDepth),
+        resolution: Value(variant.resolution),
+        audioCodec: Value(variant.audioCodec),
+        externalSubtitlesJson: Value(jsonEncode(variant.externalSubtitles)),
+        mappingLocked: Value(variant.mappingLocked),
+        workLocked: Value(variant.workLocked),
+        assetScope: Value(variant.assetScope),
+        scopeLocked: Value(variant.scopeLocked),
+      );
 
   @override
   Future<List<MediaVariant>> getVariantsByWork(String workId) async {
@@ -204,6 +227,17 @@ class DriftLibraryRepository implements LibraryRepository {
       ..where((t) => t.sourceId.equals(sourceId));
     final rows = await query.get();
     return [for (final row in rows) _mapVariant(row)];
+  }
+
+  @override
+  Future<List<MediaVariant>> getAllVariants() async {
+    final rows = await _db.select(_db.mediaVariants).get();
+    return [for (final row in rows) _mapVariant(row)];
+  }
+
+  @override
+  Future<T> runInTransaction<T>(Future<T> Function() action) {
+    return _db.transaction(action);
   }
 
   MediaVariant _mapVariant(MediaVariantRow row) => MediaVariant(

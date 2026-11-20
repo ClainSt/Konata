@@ -21,6 +21,10 @@ class DomainCooldownRegistry {
   final Duration cooldownDuration;
 
   final Map<String, DateTime> _blockedUntil = {};
+  final Map<String, int> _backupServerErrorStreaks = {};
+
+  /// 备用链路连续返回服务端 5xx 达到该次数后解除主域名冷却并重新探活。
+  static const int backupErrorStreakToUnblock = 3;
 
   /// 判断指定域名当前是否处于冷却窗口内。
   bool isCoolingDown(String host, [DateTime? now]) {
@@ -31,6 +35,7 @@ class DomainCooldownRegistry {
     final current = now ?? DateTime.now();
     if (!current.isBefore(until)) {
       _blockedUntil.remove(key);
+      _backupServerErrorStreaks.remove(key);
       return false;
     }
     return true;
@@ -42,6 +47,29 @@ class DomainCooldownRegistry {
     if (key.isEmpty) return;
     final current = now ?? DateTime.now();
     _blockedUntil[key] = current.add(cooldownDuration);
+    _backupServerErrorStreaks.remove(key);
+  }
+
+  /// 记录备用链路返回一次瞬时 5xx；连续达到阈值时自动解除主域名冷却以重新探活。
+  bool recordBackupServerError(String host) {
+    final key = host.trim().toLowerCase();
+    if (key.isEmpty) return false;
+    final streak = (_backupServerErrorStreaks[key] ?? 0) + 1;
+    if (streak >= backupErrorStreakToUnblock) {
+      _backupServerErrorStreaks.remove(key);
+      _blockedUntil.remove(key);
+      return true;
+    }
+    _backupServerErrorStreaks[key] = streak;
+    return false;
+  }
+
+  /// 备用链路返回正常响应时清空连续服务端异常计数。
+  void resetBackupServerError(String host) {
+    final key = host.trim().toLowerCase();
+    if (key.isNotEmpty) {
+      _backupServerErrorStreaks.remove(key);
+    }
   }
 
   /// 解除指定域名的冷却状态（例如手工测试连通恢复时）。
@@ -49,11 +77,15 @@ class DomainCooldownRegistry {
     final key = host.trim().toLowerCase();
     if (key.isNotEmpty) {
       _blockedUntil.remove(key);
+      _backupServerErrorStreaks.remove(key);
     }
   }
 
   /// 清空全部冷却记录。
-  void clearAll() => _blockedUntil.clear();
+  void clearAll() {
+    _blockedUntil.clear();
+    _backupServerErrorStreaks.clear();
+  }
 }
 
 /// 支持「官方优先 + 备用地址自动容灾回退 + 冷却窗口」的统一 HTTP 客户端。
@@ -120,12 +152,14 @@ class TmdbHttpClient {
     Map<String, String> headers = const {},
     RequestPriority priority = RequestPriority.background,
     String? dedupeKey,
+    String? bucketKey,
   }) {
     return getWithFallback(
       uri,
       headers: headers,
       priority: priority,
       dedupeKey: dedupeKey,
+      bucketKey: bucketKey,
     );
   }
 
@@ -136,6 +170,7 @@ class TmdbHttpClient {
     Map<String, String> headers = const {},
     RequestPriority priority = RequestPriority.background,
     String? dedupeKey,
+    String? bucketKey,
   }) {
     return _scheduler.schedule<http.Response>(
       priority,
@@ -146,6 +181,7 @@ class TmdbHttpClient {
         headers: headers,
       ),
       dedupeKey: dedupeKey ?? primaryUri.toString(),
+      bucketKey: bucketKey,
     );
   }
 
@@ -156,6 +192,7 @@ class TmdbHttpClient {
     Object? body,
     RequestPriority priority = RequestPriority.background,
     String? dedupeKey,
+    String? bucketKey,
   }) {
     return postWithFallback(
       uri,
@@ -163,6 +200,7 @@ class TmdbHttpClient {
       body: body,
       priority: priority,
       dedupeKey: dedupeKey,
+      bucketKey: bucketKey,
     );
   }
 
@@ -174,6 +212,7 @@ class TmdbHttpClient {
     Object? body,
     RequestPriority priority = RequestPriority.background,
     String? dedupeKey,
+    String? bucketKey,
   }) {
     return _scheduler.schedule<http.Response>(
       priority,
@@ -185,6 +224,7 @@ class TmdbHttpClient {
         body: body,
       ),
       dedupeKey: dedupeKey,
+      bucketKey: bucketKey,
     );
   }
 
@@ -222,10 +262,18 @@ class TmdbHttpClient {
         }
         rethrow;
       }
-      // 备用地址返回重定向或服务端错误（镜像迁址、故障）时解除冷却、改回官方地址重试，
-      // 避免整个冷却窗口内的请求都拿到不可用响应而静默失败。
-      if (!_isUnusableBackupStatus(viaBackup.statusCode)) return viaBackup;
-      _cooldown.clearHost(primaryUri.host);
+      // 备用地址返回重定向（镜像迁址）时立即解除冷却改回官方重试；
+      // 备用偶发单次 5xx 不立刻破坏官方阻断冷却，连续多次 5xx 才解除冷却重新探活，避免每次都多等 3.5 秒超时。
+      if (viaBackup.statusCode >= 300 && viaBackup.statusCode < 400) {
+        _cooldown.clearHost(primaryUri.host);
+      } else if (viaBackup.statusCode >= 500) {
+        if (!_cooldown.recordBackupServerError(primaryUri.host)) {
+          return viaBackup;
+        }
+      } else {
+        _cooldown.resetBackupServerError(primaryUri.host);
+        return viaBackup;
+      }
     }
 
     final http.Response response;
@@ -263,10 +311,6 @@ class TmdbHttpClient {
     }
     return response;
   }
-
-  /// 备用地址的不可用响应：重定向（POST 不会被自动跟随）或服务端错误。
-  static bool _isUnusableBackupStatus(int statusCode) =>
-      statusCode >= 500 || (statusCode >= 300 && statusCode < 400);
 
   Future<http.Response> _sendSingle({
     required String method,

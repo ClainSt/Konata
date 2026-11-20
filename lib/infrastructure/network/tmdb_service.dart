@@ -14,11 +14,38 @@ import 'tmdb_http_client.dart';
 /// TMDB API 强类型业务客户端（支持 v3 Key / v4 Bearer 双凭证、详情聚合与图片缓存）。
 class TmdbService {
   /// 创建 TMDB 服务实例。
-  TmdbService({required TmdbHttpClient httpClient, this._artworkCache})
-    : _http = httpClient;
+  TmdbService({
+    required TmdbHttpClient httpClient,
+    this._artworkCache,
+    bool enableSessionCache = false,
+  }) : _http = httpClient,
+       _alwaysMemoize = enableSessionCache;
 
   final TmdbHttpClient _http;
   final ArtworkCache? _artworkCache;
+  final bool _alwaysMemoize;
+  static const int _maxMemoEntries = 320;
+  static const String _tmdbBucketKey = 'tmdb';
+  final Map<String, Future<Object?>> _memo = {};
+  int _sessionCacheDepth = 0;
+
+  /// 当前是否处于批量刮削会话缓存窗口内。
+  bool get isSessionCacheActive => _alwaysMemoize || _sessionCacheDepth > 0;
+
+  /// 开启一次扫描会话级内存缓存（支持嵌套计数，扫描结束调用 [endSessionCache] 立即释放内存）。
+  void beginSessionCache() {
+    _sessionCacheDepth++;
+  }
+
+  /// 结束一次扫描会话级内存缓存；当最外层会话结束时自动清空缓存，杜绝跨次扫描读到过期元数据。
+  void endSessionCache() {
+    if (_sessionCacheDepth > 0) {
+      _sessionCacheDepth--;
+    }
+    if (!isSessionCacheActive) {
+      _memo.clear();
+    }
+  }
 
   /// 在指定的优先级通道检索 TMDB 候选（支持通过 [mediaTypeFilter] 限定仅查 `/search/tv` 或 `/search/movie`）。
   Future<List<TmdbSearchResult>> searchAnime(
@@ -33,145 +60,186 @@ class TmdbService {
     final trimmed = sanitized.isNotEmpty ? sanitized : query.trim();
     if (trimmed.isEmpty) return const [];
 
-    final tvParams = <String, String>{
-      'query': trimmed,
-      'language': language,
-      'include_adult': includeAdult.toString(),
-      if (year != null) 'first_air_date_year': year.toString(),
-    };
-    final movieParams = <String, String>{
-      'query': trimmed,
-      'language': language,
-      'include_adult': includeAdult.toString(),
-      if (year != null) 'primary_release_year': year.toString(),
-    };
+    final memoKey =
+        'search:${trimmed.toLowerCase()}|${year ?? ''}|$language|$includeAdult|${mediaTypeFilter?.name ?? 'all'}';
+    final loaded = await _memoized(
+      memoKey,
+      priority: priority,
+      load: () async {
+        final tvParams = <String, String>{
+          'query': trimmed,
+          'language': language,
+          'include_adult': includeAdult.toString(),
+          if (year != null) 'first_air_date_year': year.toString(),
+        };
+        final movieParams = <String, String>{
+          'query': trimmed,
+          'language': language,
+          'include_adult': includeAdult.toString(),
+          if (year != null) 'primary_release_year': year.toString(),
+        };
 
-    final merged = <TmdbSearchResult>[];
-    if (mediaTypeFilter == TmdbMediaType.tv) {
-      final tvBody = await _getJson('/search/tv', tvParams, priority: priority);
-      _parseSearchList(tvBody, TmdbMediaType.tv, merged);
-      return merged;
-    }
-    if (mediaTypeFilter == TmdbMediaType.movie) {
-      final movieBody = await _getJson(
-        '/search/movie',
-        movieParams,
-        priority: priority,
-      );
-      _parseSearchList(movieBody, TmdbMediaType.movie, merged);
-      return merged;
-    }
+        final merged = <TmdbSearchResult>[];
+        if (mediaTypeFilter == TmdbMediaType.tv) {
+          final tvBody = await _getJson(
+            '/search/tv',
+            tvParams,
+            priority: priority,
+          );
+          _parseSearchList(tvBody, TmdbMediaType.tv, merged);
+          return List<TmdbSearchResult>.unmodifiable(merged);
+        }
+        if (mediaTypeFilter == TmdbMediaType.movie) {
+          final movieBody = await _getJson(
+            '/search/movie',
+            movieParams,
+            priority: priority,
+          );
+          _parseSearchList(movieBody, TmdbMediaType.movie, merged);
+          return List<TmdbSearchResult>.unmodifiable(merged);
+        }
 
-    final results = await Future.wait([
-      _getJson('/search/tv', tvParams, priority: priority),
-      _getJson('/search/movie', movieParams, priority: priority),
-    ]);
+        final results = await Future.wait([
+          _getJson('/search/tv', tvParams, priority: priority),
+          _getJson('/search/movie', movieParams, priority: priority),
+        ]);
 
-    _parseSearchList(results[0], TmdbMediaType.tv, merged);
-    _parseSearchList(results[1], TmdbMediaType.movie, merged);
-    return merged;
+        _parseSearchList(results[0], TmdbMediaType.tv, merged);
+        _parseSearchList(results[1], TmdbMediaType.movie, merged);
+        return List<TmdbSearchResult>.unmodifiable(merged);
+      },
+    );
+    return loaded is List<TmdbSearchResult> ? loaded : const [];
   }
 
-  /// 一次性拉取作品详情、别名、多语言翻译与顶层图像集（默认包含英文以覆盖无中日文透明标题的 TV 番剧）。
+  /// 拉取作品详情、别名与多语言翻译；[includeImages] 为 `true` 时同时附带图像与 ClearLogo 候选集。
   Future<TmdbWorkDetail?> getWorkDetail(
     int tmdbId,
     TmdbMediaType mediaType, {
     RequestPriority priority = RequestPriority.background,
     bool includeEnglishImages = true,
+    bool includeImages = true,
   }) async {
     final segment = mediaType == TmdbMediaType.tv ? 'tv' : 'movie';
-    final json = await _getJson('/$segment/$tmdbId', {
-      'language': 'zh-CN',
-      'append_to_response': 'alternative_titles,translations,images',
-      'include_image_language': includeEnglishImages
-          ? 'zh,ja,en,null'
-          : 'zh,ja,null',
-    }, priority: priority);
-    if (json == null || json['id'] == null) return null;
+    final fullKey = 'detail:$segment:$tmdbId:img:$includeEnglishImages';
+    final liteKey = 'detail:$segment:$tmdbId:lite';
+    if (isSessionCacheActive &&
+        priority == RequestPriority.background &&
+        !includeImages &&
+        _memo.containsKey(fullKey)) {
+      final cachedFull = await _memo[fullKey]!;
+      return cachedFull is TmdbWorkDetail ? cachedFull : null;
+    }
 
-    final title = _pickString(json, ['name', 'title']) ?? '';
-    final original = _pickString(json, ['original_name', 'original_title']);
-    final year = _parseYear(json['first_air_date'] ?? json['release_date']);
+    final targetKey = includeImages ? fullKey : liteKey;
+    final loaded = await _memoized(
+      targetKey,
+      priority: priority,
+      load: () async {
+        final query = <String, String>{
+          'language': 'zh-CN',
+          'append_to_response': includeImages
+              ? 'alternative_titles,translations,images'
+              : 'alternative_titles,translations',
+          if (includeImages)
+            'include_image_language': includeEnglishImages
+                ? 'zh,ja,en,null'
+                : 'zh,ja,null',
+        };
+        final json = await _getJson('/$segment/$tmdbId', query, priority: priority);
+        if (json == null || json['id'] == null) return null;
 
-    final aliases = <String>{};
-    if (original != null && original.isNotEmpty) aliases.add(original);
-    _collectAliases(json, aliases);
+        final title = _pickString(json, ['name', 'title']) ?? '';
+        final original = _pickString(json, ['original_name', 'original_title']);
+        final year = _parseYear(json['first_air_date'] ?? json['release_date']);
 
-    final seasons = <TmdbSeasonSummary>[];
-    final rawSeasons = json['seasons'];
-    if (mediaType == TmdbMediaType.tv && rawSeasons is List) {
-      for (final item in rawSeasons) {
-        if (item is! Map) continue;
-        final sNum = (item['season_number'] as num?)?.toInt();
-        if (sNum == null || sNum < 0) continue;
-        seasons.add(
-          TmdbSeasonSummary(
-            seasonNumber: sNum,
-            name: (item['name'] ?? 'Season $sNum').toString(),
-            episodeCount: (item['episode_count'] as num?)?.toInt() ?? 0,
-            airDate: item['air_date']?.toString(),
-            posterPath: item['poster_path']?.toString(),
-          ),
+        final aliases = <String>{};
+        if (original != null && original.isNotEmpty) aliases.add(original);
+        _collectAliases(json, aliases);
+
+        final seasons = <TmdbSeasonSummary>[];
+        final rawSeasons = json['seasons'];
+        if (mediaType == TmdbMediaType.tv && rawSeasons is List) {
+          for (final item in rawSeasons) {
+            if (item is! Map) continue;
+            final sNum = (item['season_number'] as num?)?.toInt();
+            if (sNum == null || sNum < 0) continue;
+            seasons.add(
+              TmdbSeasonSummary(
+                seasonNumber: sNum,
+                name: (item['name'] ?? 'Season $sNum').toString(),
+                episodeCount: (item['episode_count'] as num?)?.toInt() ?? 0,
+                airDate: item['air_date']?.toString(),
+                posterPath: item['poster_path']?.toString(),
+              ),
+            );
+          }
+        }
+
+        final logoPath = includeImages
+            ? _selectBestLogoPath(json, tmdbId: tmdbId, mediaType: mediaType)
+            : null;
+        final voteAverage = (json['vote_average'] as num?)?.toDouble();
+        final candidatePosters = includeImages
+            ? _extractImageOptions(json, 'posters')
+            : const <TmdbArtworkImage>[];
+        final candidateBackdrops = includeImages
+            ? _extractImageOptions(json, 'backdrops')
+            : const <TmdbArtworkImage>[];
+        final candidateLogos = includeImages
+            ? _extractImageOptions(json, 'logos')
+            : const <TmdbArtworkImage>[];
+        final textlessHdBackdrop = candidateBackdrops
+            .where(
+              (b) =>
+                  (b.width ?? 0) >= 1280 &&
+                  _backdropLanguageRank(b.isoLanguage) == 0,
+            )
+            .firstOrNull;
+        final preferredBackdrop =
+            textlessHdBackdrop?.filePath ??
+            json['backdrop_path']?.toString() ??
+            (candidateBackdrops.isNotEmpty &&
+                    (candidateBackdrops.first.width ?? 0) >= 1280
+                ? candidateBackdrops.first.filePath
+                : null);
+        final rawCollection = json['belongs_to_collection'];
+        int? collectionId;
+        String? collectionName;
+        if (rawCollection is Map) {
+          collectionId = (rawCollection['id'] as num?)?.toInt();
+          final rawName = rawCollection['name']?.toString().trim();
+          if (rawName != null && rawName.isNotEmpty) {
+            collectionName = rawName;
+          }
+        }
+        final detailGenres = _parseDetailGenreIds(json);
+
+        return TmdbWorkDetail(
+          tmdbId: (json['id'] as num).toInt(),
+          mediaType: mediaType,
+          title: title.isNotEmpty ? title : (original ?? 'TMDB #$tmdbId'),
+          originalTitle: original,
+          year: year,
+          overview: json['overview']?.toString(),
+          posterPath: json['poster_path']?.toString(),
+          backdropPath: preferredBackdrop,
+          logoPath: logoPath,
+          voteAverage: voteAverage,
+          voteCount: (json['vote_count'] as num?)?.toInt(),
+          aliases: aliases.toList(growable: false),
+          seasons: seasons,
+          candidatePosters: candidatePosters,
+          candidateBackdrops: candidateBackdrops,
+          candidateLogos: candidateLogos,
+          collectionId: collectionId,
+          collectionName: collectionName,
+          genreIds: detailGenres,
+          imagesLoaded: includeImages,
         );
-      }
-    }
-
-    final logoPath = _selectBestLogoPath(
-      json,
-      tmdbId: tmdbId,
-      mediaType: mediaType,
+      },
     );
-    final voteAverage = (json['vote_average'] as num?)?.toDouble();
-    final candidatePosters = _extractImageOptions(json, 'posters');
-    final candidateBackdrops = _extractImageOptions(json, 'backdrops');
-    final candidateLogos = _extractImageOptions(json, 'logos');
-    final textlessHdBackdrop = candidateBackdrops
-        .where(
-          (b) =>
-              (b.width ?? 0) >= 1280 &&
-              _backdropLanguageRank(b.isoLanguage) == 0,
-        )
-        .firstOrNull;
-    final preferredBackdrop =
-        textlessHdBackdrop?.filePath ??
-        json['backdrop_path']?.toString() ??
-        (candidateBackdrops.isNotEmpty &&
-                (candidateBackdrops.first.width ?? 0) >= 1280
-            ? candidateBackdrops.first.filePath
-            : null);
-    final rawCollection = json['belongs_to_collection'];
-    int? collectionId;
-    String? collectionName;
-    if (rawCollection is Map) {
-      collectionId = (rawCollection['id'] as num?)?.toInt();
-      final rawName = rawCollection['name']?.toString().trim();
-      if (rawName != null && rawName.isNotEmpty) {
-        collectionName = rawName;
-      }
-    }
-    final detailGenres = _parseDetailGenreIds(json);
-
-    return TmdbWorkDetail(
-      tmdbId: (json['id'] as num).toInt(),
-      mediaType: mediaType,
-      title: title.isNotEmpty ? title : (original ?? 'TMDB #$tmdbId'),
-      originalTitle: original,
-      year: year,
-      overview: json['overview']?.toString(),
-      posterPath: json['poster_path']?.toString(),
-      backdropPath: preferredBackdrop,
-      logoPath: logoPath,
-      voteAverage: voteAverage,
-      voteCount: (json['vote_count'] as num?)?.toInt(),
-      aliases: aliases.toList(growable: false),
-      seasons: seasons,
-      candidatePosters: candidatePosters,
-      candidateBackdrops: candidateBackdrops,
-      candidateLogos: candidateLogos,
-      collectionId: collectionId,
-      collectionName: collectionName,
-      genreIds: detailGenres,
-    );
+    return loaded is TmdbWorkDetail ? loaded : null;
   }
 
   /// 拉取单季完整详情（包含季标题、简介、单季专属海报与分集列表）。
@@ -180,39 +248,47 @@ class TmdbService {
     int seasonNumber, {
     RequestPriority priority = RequestPriority.background,
   }) async {
-    final json = await _getJson('/tv/$tmdbId/season/$seasonNumber', const {
-      'language': 'zh-CN',
-    }, priority: priority);
-    if (json == null) return null;
+    final memoKey = 'season:$tmdbId:$seasonNumber';
+    final loaded = await _memoized(
+      memoKey,
+      priority: priority,
+      load: () async {
+        final json = await _getJson('/tv/$tmdbId/season/$seasonNumber', const {
+          'language': 'zh-CN',
+        }, priority: priority);
+        if (json == null) return null;
 
-    final list = <TmdbEpisodeDetail>[];
-    final rawEpisodes = json['episodes'];
-    if (rawEpisodes is List) {
-      for (final item in rawEpisodes) {
-        if (item is! Map) continue;
-        final epNum = (item['episode_number'] as num?)?.toInt();
-        if (epNum == null) continue;
-        list.add(
-          TmdbEpisodeDetail(
-            seasonNumber: seasonNumber,
-            episodeNumber: epNum,
-            title: (item['name'] ?? '第 $epNum 集').toString(),
-            overview: item['overview']?.toString(),
-            stillPath: item['still_path']?.toString(),
-            airDate: item['air_date']?.toString(),
-          ),
+        final list = <TmdbEpisodeDetail>[];
+        final rawEpisodes = json['episodes'];
+        if (rawEpisodes is List) {
+          for (final item in rawEpisodes) {
+            if (item is! Map) continue;
+            final epNum = (item['episode_number'] as num?)?.toInt();
+            if (epNum == null) continue;
+            list.add(
+              TmdbEpisodeDetail(
+                seasonNumber: seasonNumber,
+                episodeNumber: epNum,
+                title: (item['name'] ?? '第 $epNum 集').toString(),
+                overview: item['overview']?.toString(),
+                stillPath: item['still_path']?.toString(),
+                airDate: item['air_date']?.toString(),
+              ),
+            );
+          }
+        }
+
+        return TmdbSeasonDetail(
+          seasonNumber: seasonNumber,
+          name: (json['name'] ?? 'Season $seasonNumber').toString(),
+          overview: json['overview']?.toString(),
+          airDate: json['air_date']?.toString(),
+          posterPath: json['poster_path']?.toString(),
+          episodes: list,
         );
-      }
-    }
-
-    return TmdbSeasonDetail(
-      seasonNumber: seasonNumber,
-      name: (json['name'] ?? 'Season $seasonNumber').toString(),
-      overview: json['overview']?.toString(),
-      airDate: json['air_date']?.toString(),
-      posterPath: json['poster_path']?.toString(),
-      episodes: list,
+      },
     );
+    return loaded is TmdbSeasonDetail ? loaded : null;
   }
 
   /// 拉取单季分集列表与剧照路径。
@@ -389,6 +465,7 @@ class TmdbService {
       headers: headers,
       priority: priority,
       dedupeKey: '$path?${Uri(queryParameters: query).query}',
+      bucketKey: _tmdbBucketKey,
     );
     if (response.statusCode == 404) return null;
     if (response.statusCode != 200) {
@@ -632,5 +709,28 @@ class TmdbService {
     if (raw == null) return null;
     final m = RegExp(r'(19|20)\d{2}').firstMatch(raw.toString());
     return m == null ? null : int.tryParse(m.group(0)!);
+  }
+
+  /// 会话级有界内存缓存：仅在批量扫描会话窗口内缓存后台请求，前台手动刷新强制拉取最新数据并覆写缓存。
+  Future<Object?> _memoized(
+    String key, {
+    required RequestPriority priority,
+    required Future<Object?> Function() load,
+  }) {
+    if (!isSessionCacheActive) {
+      return load();
+    }
+    if (priority == RequestPriority.background && _memo.containsKey(key)) {
+      return _memo[key]!;
+    }
+    if (_memo.length >= _maxMemoEntries && !_memo.containsKey(key)) {
+      _memo.remove(_memo.keys.first);
+    }
+    final future = load().catchError((Object error) {
+      _memo.remove(key);
+      throw error;
+    });
+    _memo[key] = future;
+    return future;
   }
 }

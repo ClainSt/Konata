@@ -116,9 +116,12 @@ class ScrapeWorkPersister {
           ? existing.originalTitle
           : candidate.originalTitle,
       year: existing.metadataLocked ? existing.year : candidate.year,
-      overview: existing.metadataLocked ? existing.overview : candidate.overview,
-      posterPath:
-          existing.posterLocked ? existing.posterPath : candidate.posterPath,
+      overview: existing.metadataLocked
+          ? existing.overview
+          : candidate.overview,
+      posterPath: existing.posterLocked
+          ? existing.posterPath
+          : candidate.posterPath,
       posterFallback: existing.posterLocked
           ? existing.posterFallback
           : candidate.posterFallback,
@@ -143,7 +146,8 @@ class ScrapeWorkPersister {
           ? existing.seriesLabel
           : (candidate.seriesLabel ?? existing.seriesLabel),
       seriesLocked: existing.seriesLocked,
-      isManualLocked: candidate.isManualLocked ||
+      isManualLocked:
+          candidate.isManualLocked ||
           existing.isManualLocked ||
           existing.metadataLocked ||
           existing.posterLocked ||
@@ -282,32 +286,34 @@ class ScrapeWorkPersister {
       for (final ep in existingEpisodes) ep.id: ep,
     };
 
-    final extraVariants = folder.variants.where((v) {
-      if (v.assetKind != AssetKind.video) return false;
-      final vId = deterministicId('${v.sourceId}::${v.relativePath}');
-      final globalExisting = sourceVariantById[vId];
-      if (!resetManualLocks &&
-          globalExisting != null &&
-          globalExisting.workId != work.id &&
-          (globalExisting.workLocked || globalExisting.scopeLocked)) {
-        return false;
-      }
-      final existingVariant = existingVariantById[vId];
-      if (!resetManualLocks &&
-          existingVariant != null &&
-          existingVariant.mappingLocked &&
-          existingVariant.episodeId != null) {
-        return false;
-      }
-      return (folder.slotAssignmentsByPath[v.relativePath]?.category ??
-              BdripParser.parseFileName(
-                v.fileName,
-                relativePath: v.relativePath,
-                folderTitle: folder.cleanTitle,
-                folderSeasonHint: folder.seasonHint,
-              ).category) ==
-          EpisodeCategory.extra;
-    }).toList(growable: false);
+    final extraVariants = folder.variants
+        .where((v) {
+          if (v.assetKind != AssetKind.video) return false;
+          final vId = deterministicId('${v.sourceId}::${v.relativePath}');
+          final globalExisting = sourceVariantById[vId];
+          if (!resetManualLocks &&
+              globalExisting != null &&
+              globalExisting.workId != work.id &&
+              (globalExisting.workLocked || globalExisting.scopeLocked)) {
+            return false;
+          }
+          final existingVariant = existingVariantById[vId];
+          if (!resetManualLocks &&
+              existingVariant != null &&
+              existingVariant.mappingLocked &&
+              existingVariant.episodeId != null) {
+            return false;
+          }
+          return (folder.slotAssignmentsByPath[v.relativePath]?.category ??
+                  BdripParser.parseFileName(
+                    v.fileName,
+                    relativePath: v.relativePath,
+                    folderTitle: folder.cleanTitle,
+                    folderSeasonHint: folder.seasonHint,
+                  ).category) ==
+              EpisodeCategory.extra;
+        })
+        .toList(growable: false);
     final mappedSpecialsByPath = ScrapeDomainAdapter.mapSpecialEpisodes(
       work: work,
       extraVariants: extraVariants,
@@ -330,7 +336,10 @@ class ScrapeWorkPersister {
       if (preSlot != null) {
         if (preSlot.category == EpisodeCategory.main &&
             preSlot.episodeNumber != null) {
-          strongMainEpisodes.add(preSlot.episodeNumber!);
+          final lastCovered = preSlot.episodeEnd ?? preSlot.episodeNumber!;
+          for (var e = preSlot.episodeNumber!; e <= lastCovered; e++) {
+            strongMainEpisodes.add(e);
+          }
         }
       } else if (parsed.category == EpisodeCategory.main &&
           parsed.episode != null) {
@@ -366,6 +375,7 @@ class ScrapeWorkPersister {
         var resolved = _ResolvedEpisodeSlot(
           seasonNumber: lockedExistingEp?.seasonNumber ?? 1,
           episodeNumber: lockedExistingEp?.episodeNumber,
+          episodeEnd: lockedExistingEp?.episodeNumberEnd,
           category: lockedExistingEp?.category ?? EpisodeCategory.main,
           extraType: lockedExistingEp?.extraType,
         );
@@ -377,11 +387,15 @@ class ScrapeWorkPersister {
           if (preSlot != null) {
             var targetSeason = preSlot.seasonNumber;
             var targetEp = preSlot.episodeNumber;
+            var targetEpEnd = preSlot.category == EpisodeCategory.main
+                ? preSlot.episodeEnd
+                : null;
             if (preSlot.category == EpisodeCategory.main) {
               if (work.tmdbMediaType == TmdbMediaType.movie &&
                   folder.mainEpisodeNumbers.length <= 1) {
                 targetSeason = 1;
                 targetEp = null;
+                targetEpEnd = null;
               } else if (work.matchedSeason != null &&
                   work.matchedSeason! > 0) {
                 targetSeason = work.matchedSeason!;
@@ -390,6 +404,7 @@ class ScrapeWorkPersister {
             resolved0 = _ResolvedEpisodeSlot(
               seasonNumber: targetSeason,
               episodeNumber: targetEp,
+              episodeEnd: targetEp == null ? null : targetEpEnd,
               category: preSlot.category,
               extraType: preSlot.extraType,
               fractionalLabel: preSlot.fractionalLabel,
@@ -430,7 +445,8 @@ class ScrapeWorkPersister {
               resolved.episodeNumber!,
             );
             if (specialMapping != null) {
-              final bgmTitle = specialMapping.bangumiEpisode?.displayName.trim();
+              final bgmTitle = specialMapping.bangumiEpisode?.displayName
+                  .trim();
               resolved = _ResolvedEpisodeSlot(
                 seasonNumber: 0,
                 episodeNumber:
@@ -451,14 +467,35 @@ class ScrapeWorkPersister {
                 resolved.seasonNumber,
                 resolved.episodeNumber!,
               );
+              // 多集合并区间：两端都能映射到同一目标季才保留区间，否则退化为起始集单集。
+              final rangeEnd = resolved.episodeEnd;
+              final remappedEnd = rangeEnd == null || remapPlan == null
+                  ? rangeEnd
+                  : remapPlan.resolveEpisodeEnd(
+                      resolved.seasonNumber,
+                      resolved.episodeNumber!,
+                      rangeEnd,
+                    );
               if (remapped != null) {
                 resolved = _ResolvedEpisodeSlot(
                   seasonNumber: remapped.seasonNumber,
                   episodeNumber: remapped.episodeNumber,
+                  episodeEnd: remappedEnd,
                   category: resolved.category,
                   extraType: resolved.extraType,
                   fractionalLabel: resolved.fractionalLabel,
                   extraTitleHint: resolved.extraTitleHint,
+                );
+              } else if (rangeEnd != remappedEnd) {
+                resolved = _ResolvedEpisodeSlot(
+                  seasonNumber: resolved.seasonNumber,
+                  episodeNumber: resolved.episodeNumber,
+                  episodeEnd: remappedEnd,
+                  category: resolved.category,
+                  extraType: resolved.extraType,
+                  fractionalLabel: resolved.fractionalLabel,
+                  extraTitleHint: resolved.extraTitleHint,
+                  unnumberedStemKey: resolved.unnumberedStemKey,
                 );
               }
             }
@@ -501,18 +538,21 @@ class ScrapeWorkPersister {
                         ? (resolved.unnumberedStemKey ?? extraTagDisambiguator)
                         : extraTagDisambiguator));
         final key =
-            '${resolved.category.name}:${resolved.seasonNumber}:${resolved.episodeNumber ?? 'unnumbered'}:${resolved.extraType?.name ?? ''}:$stemKey';
-        final epId = lockedExistingEp?.id ?? deterministicId('${work.id}::$key');
+            '${resolved.category.name}:${resolved.seasonNumber}:${resolved.episodeNumber ?? 'unnumbered'}${resolved.episodeEnd == null ? '' : '-${resolved.episodeEnd}'}:${resolved.extraType?.name ?? ''}:$stemKey';
+        final epId =
+            lockedExistingEp?.id ?? deterministicId('${work.id}::$key');
 
         var episode = episodeById[epId];
-        final tmdbEp = mappedSpecial ??
+        final tmdbEp =
+            mappedSpecial ??
             ((resolved.category == EpisodeCategory.main ||
-                    specialMapping != null ||
-                    lockedExistingEp != null) &&
+                        specialMapping != null ||
+                        lockedExistingEp != null) &&
                     resolved.episodeNumber != null
                 ? tmdbByKey['${resolved.seasonNumber}:${resolved.episodeNumber}']
                 : null);
-        final bgmEp = specialMapping?.bangumiEpisode ??
+        final bgmEp =
+            specialMapping?.bangumiEpisode ??
             ((resolved.category == EpisodeCategory.main &&
                     resolved.episodeNumber != null)
                 ? bgmByEp[resolved.episodeNumber!]
@@ -526,8 +566,25 @@ class ScrapeWorkPersister {
             mappedSpecial?.episodeNumber ?? resolved.episodeNumber;
         final tmdbTitle = tmdbEp?.title.trim();
         final bgmTitle = bgmEp?.displayName.trim();
+        final rangeEnd =
+            (resolved.category == EpisodeCategory.main &&
+                resolved.episodeNumber != null &&
+                specialMapping == null)
+            ? resolved.episodeEnd
+            : null;
+        final rangeInfo = (rangeEnd == null)
+            ? null
+            : _composeRangeMetadata(
+                season: resolved.seasonNumber,
+                start: resolved.episodeNumber!,
+                end: rangeEnd,
+                tmdbByKey: tmdbByKey,
+                bgmByEp: bgmByEp,
+              );
         final String desiredTitle;
-        if (specialMapping != null) {
+        if (rangeInfo?.title != null) {
+          desiredTitle = rangeInfo!.title!;
+        } else if (specialMapping != null) {
           final hasTmdbCjk =
               tmdbTitle != null &&
               RegExp(r'[\u4e00-\u9fff]').hasMatch(tmdbTitle);
@@ -556,10 +613,11 @@ class ScrapeWorkPersister {
             workId: work.id,
             seasonNumber: resolved.seasonNumber,
             episodeNumber: resolvedEpNumber,
+            episodeNumberEnd: rangeEnd,
             category: resolved.category,
             extraType: resolved.extraType,
             title: desiredTitle,
-            overview: tmdbEp?.overview,
+            overview: rangeInfo?.overview ?? tmdbEp?.overview,
             stillPath: tmdbEp?.stillPath,
           );
           await _repository.upsertEpisode(episode);
@@ -568,6 +626,7 @@ class ScrapeWorkPersister {
                 (episode.title != tmdbEp.title ||
                     episode.stillPath != tmdbEp.stillPath)) ||
             episode.episodeNumber != resolvedEpNumber ||
+            episode.episodeNumberEnd != rangeEnd ||
             episode.extraType != resolved.extraType ||
             episode.title != desiredTitle) {
           episode = Episode(
@@ -575,10 +634,12 @@ class ScrapeWorkPersister {
             workId: episode.workId,
             seasonNumber: resolved.seasonNumber,
             episodeNumber: resolvedEpNumber,
+            episodeNumberEnd: rangeEnd,
             category: resolved.category,
             extraType: resolved.extraType,
             title: desiredTitle,
-            overview: tmdbEp?.overview ?? episode.overview,
+            overview:
+                rangeInfo?.overview ?? tmdbEp?.overview ?? episode.overview,
             stillPath: tmdbEp?.stillPath ?? episode.stillPath,
           );
           await _repository.upsertEpisode(episode);
@@ -685,10 +746,7 @@ class ScrapeWorkPersister {
     String? titleHint,
   ) {
     if (category != EpisodeCategory.extra || titleHint == null) return '';
-    final upper = titleHint.trim().toUpperCase().replaceAll(
-      RegExp(r'\s+'),
-      '',
-    );
+    final upper = titleHint.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
     if (upper.startsWith('TVCM')) return 'tvcm';
     if (upper.startsWith('BDCM')) return 'bdcm';
     if (upper.startsWith('PVCM')) return 'pvcm';
@@ -789,7 +847,52 @@ class ScrapeWorkPersister {
       if (trimmed != null && trimmed.isNotEmpty) return trimmed;
       return '正片';
     }
+    if (slot.episodeEnd != null) {
+      return '第 ${slot.episodeNumber}-${slot.episodeEnd} 话';
+    }
     return '第 ${slot.episodeNumber} 话';
+  }
+
+  /// 为多集合并条目合成标题与简介。
+  ///
+  /// 标题：优先 TMDB 各集标题、缺失回退 Bangumi 标题；跨度 2–3 集用 ` / ` 连接，
+  /// 更大跨度用 `{首集标题} ～ {末集标题}`；任一所需标题缺失则返回 `null`（由调用方回退默认标题）。
+  /// 简介：跨度不超过 3 集时用空行连接各集简介，否则 `null`（沿用首集简介）。
+  static ({String? title, String? overview}) _composeRangeMetadata({
+    required int season,
+    required int start,
+    required int end,
+    required Map<String, TmdbEpisodeDetail> tmdbByKey,
+    required Map<int, BangumiEpisodeEntry> bgmByEp,
+  }) {
+    String? titleOf(int ep) {
+      final tmdb = tmdbByKey['$season:$ep']?.title.trim();
+      if (tmdb != null && tmdb.isNotEmpty) return tmdb;
+      final bgm = bgmByEp[ep]?.displayName.trim();
+      if (bgm != null && bgm.isNotEmpty) return bgm;
+      return null;
+    }
+
+    final span = end - start + 1;
+    String? title;
+    if (span <= 3) {
+      final titles = [for (var e = start; e <= end; e++) titleOf(e)];
+      if (titles.every((t) => t != null)) title = titles.join(' / ');
+    } else {
+      final first = titleOf(start);
+      final last = titleOf(end);
+      if (first != null && last != null) title = '$first ～ $last';
+    }
+    String? overview;
+    if (span <= 3) {
+      final parts = [
+        for (var e = start; e <= end; e++)
+          if (tmdbByKey['$season:$e']?.overview?.trim().isNotEmpty ?? false)
+            tmdbByKey['$season:$e']!.overview!.trim(),
+      ];
+      if (parts.isNotEmpty) overview = parts.join('\n\n');
+    }
+    return (title: title, overview: overview);
   }
 
   String? _extractSubtitleGroupFromPaths(List<String> paths) {
@@ -851,6 +954,7 @@ class _ResolvedEpisodeSlot {
     required this.episodeNumber,
     required this.category,
     required this.extraType,
+    this.episodeEnd,
     this.fractionalLabel,
     this.extraTitleHint,
     this.unnumberedStemKey,
@@ -858,6 +962,9 @@ class _ResolvedEpisodeSlot {
 
   final int seasonNumber;
   final int? episodeNumber;
+
+  /// 多集合并区间的结束集（仅正片）。
+  final int? episodeEnd;
   final EpisodeCategory category;
   final ExtraKind? extraType;
   final String? fractionalLabel;

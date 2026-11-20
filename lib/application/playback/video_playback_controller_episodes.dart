@@ -707,7 +707,7 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
       title: work.title,
     );
     final epTag = _state.currentEpisode.episodeNumber != null
-        ? 'EP${_state.currentEpisode.episodeNumber.toString().padLeft(2, '0')}'
+        ? 'EP${EpisodeTitleFormatter.formatEpisodeNumberLabel(_state.currentEpisode.episodeNumber!, _state.currentEpisode.episodeNumberEnd)}'
         : null;
     final res = await session.captureScreenshot(
       workPhotoDir: workDir,
@@ -722,9 +722,7 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
   }
 
   /// 一键热接力至桌面接力程序：携带精确当前秒数退出内置播放页并在外部程序续播回写。
-  Future<LaunchPlaybackResult> relayToDesktopPlayer([
-    String? targetId,
-  ]) async {
+  Future<LaunchPlaybackResult> relayToDesktopPlayer([String? targetId]) async {
     final relayPos =
         (_session?.readCurrentPositionSeconds() ?? currentPositionSeconds)
             .round();
@@ -788,7 +786,7 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
       episodeTitle:
           ep.title ??
           (ep.episodeNumber != null
-              ? '第 ${ep.episodeNumber} 话'
+              ? '第 ${ep.episodeNumberEnd == null ? '${ep.episodeNumber}' : '${ep.episodeNumber}-${ep.episodeNumberEnd}'} 话'
               : (ep.category == EpisodeCategory.extra
                     ? (ep.extraType?.name.toUpperCase() ?? '特典')
                     : work.title)),

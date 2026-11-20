@@ -1,6 +1,6 @@
-
 import 'package:flutter/material.dart';
 
+import '../../domain/matching/episode_title_formatter.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/media_variant.dart';
 import '../theme/konata_palette.dart';
@@ -106,7 +106,8 @@ class EpisodeSlotPickerButton extends StatefulWidget {
     int seasonNumber,
     int episodeNumber,
     ExtraKind? extraType,
-  ) onPicked;
+  )
+  onPicked;
 
   @override
   State<EpisodeSlotPickerButton> createState() =>
@@ -150,10 +151,13 @@ class _EpisodeSlotPickerButtonState extends State<EpisodeSlotPickerButton> {
 
     for (var i = 1; i <= mainLimit; i++) {
       final ep = mainByKey[i];
-      final eStr = i.toString().padLeft(2, '0');
+      final eStr = EpisodeTitleFormatter.formatEpisodeNumberLabel(
+        i,
+        ep?.episodeNumberEnd,
+      );
       final title = (ep?.title?.trim().isNotEmpty ?? false)
           ? ep!.title!.trim()
-          : '第 $i 话';
+          : '第 $eStr 话';
       options.add(
         _SlotOption(
           category: EpisodeCategory.main,
@@ -215,8 +219,8 @@ class _EpisodeSlotPickerButtonState extends State<EpisodeSlotPickerButton> {
     if (box == null || !box.hasSize) return;
     final pos = box.localToGlobal(Offset.zero);
     final screen = MediaQuery.sizeOf(context);
-    final openUpward = pos.dy + box.size.height + 286 > screen.height - 16 &&
-        pos.dy > 260;
+    final openUpward =
+        pos.dy + box.size.height + 286 > screen.height - 16 && pos.dy > 260;
 
     final options = _buildOptions();
     final overlay = Overlay.of(context, rootOverlay: true);
@@ -461,7 +465,8 @@ class _SlotPopoverOverlayState extends State<_SlotPopoverOverlay> {
                                             : (isHovered
                                                   ? p.softFill
                                                   : Colors.transparent),
-                                        borderRadius: KonataTheme.borderRadiusSm,
+                                        borderRadius:
+                                            KonataTheme.borderRadiusSm,
                                       ),
                                       child: Row(
                                         children: [
@@ -473,7 +478,8 @@ class _SlotPopoverOverlayState extends State<_SlotPopoverOverlay> {
                                                 color: isCurrent
                                                     ? p.accent
                                                     : p.textPrimary,
-                                                fontSize: KonataTheme.fontSizeCaption,
+                                                fontSize:
+                                                    KonataTheme.fontSizeCaption,
                                                 fontWeight: isCurrent
                                                     ? FontWeight.w600
                                                     : FontWeight.w500,
@@ -575,7 +581,10 @@ class _InlineNumberStepperBoxState extends State<InlineNumberStepperBox> {
           children: [
             Text(
               widget.label,
-              style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeBadge),
+              style: TextStyle(
+                color: p.textMuted,
+                fontSize: KonataTheme.fontSizeBadge,
+              ),
             ),
             InkWell(
               borderRadius: KonataTheme.borderRadiusXs,

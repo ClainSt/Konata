@@ -14,13 +14,16 @@ import '../../infrastructure/network/tmdb_service.dart';
 /// 刮削过程中的 Bangumi + TMDB 双引擎候选检索、单季元数据与分集拉取辅助器。
 class ScrapeCandidateFetcher {
   /// 创建候选检索辅助器。
-  const ScrapeCandidateFetcher(
-    this._tmdbService, {
-    this.bangumiService,
-  });
+  const ScrapeCandidateFetcher(this._tmdbService, {this.bangumiService});
 
   final TmdbService _tmdbService;
   final BangumiService? bangumiService;
+
+  /// 评分人数低于该值的前列候选视为疑似新建重复条目，触发原名补搜。
+  static const int _canonicalVoteFloor = 3;
+
+  /// Bangumi 首波检索全部失败后整体重试前的等待时长。
+  static const Duration _bangumiWaveRetryDelay = Duration(seconds: 2);
 
   /// 若当前子簇无显式 ID 但合集父目录带 `{tmdb-N}`，拉取父系列官方标题作为补充检索线索。
   Future<({List<String> extraQueries, TmdbWorkDetail? parentDetail})>
@@ -52,9 +55,10 @@ class ScrapeCandidateFetcher {
       }
       if (detail == null) continue;
       final extra = <String>[];
-      final parentTitles = [detail.title, ...detail.aliases.take(2)]
-          .map((s) => s.trim())
-          .where((s) => s.isNotEmpty);
+      final parentTitles = [
+        detail.title,
+        ...detail.aliases.take(2),
+      ].map((s) => s.trim()).where((s) => s.isNotEmpty);
       for (final pt in parentTitles) {
         extra.add(pt);
         if (folder.allowParentTmdbCandidate) {
@@ -67,7 +71,11 @@ class ScrapeCandidateFetcher {
     return (extraQueries: const <String>[], parentDetail: null);
   }
 
-  /// 阶段 2：显式 TMDB ID 直连拉取，并在未限定类型且首选 404 时自动尝试另一侧类型 (`tv <-> movie`)。
+  /// 阶段 2：显式 TMDB ID 直连拉取。
+  ///
+  /// 标记写明类型时只拉取该类型；`{tmdb-999}` / `[tmdbid=999]` 未写明类型时，TMDB 剧集与电影的 ID
+  /// 空间相互重叠，同号的另一侧往往是毫不相干的作品，因此两侧同时拉取：仅一侧存在时直接采用，
+  /// 两侧都存在时交由目录画像打分择优，而不是盲信电影/剧集提示。
   Future<TmdbWorkDetail?> fetchExplicitDetail(
     GroupedWorkFolder folder, {
     void Function(Object error)? onNetworkError,
@@ -75,28 +83,35 @@ class ScrapeCandidateFetcher {
     final tmdbId = folder.explicitTmdbId;
     if (tmdbId == null) return null;
 
-    final primaryType =
-        folder.explicitMediaType ??
-        (folder.isMovieHint ? TmdbMediaType.movie : TmdbMediaType.tv);
     try {
-      final primaryDetail = await _tmdbService.getWorkDetail(
-        tmdbId,
-        primaryType,
-        priority: RequestPriority.background,
-      );
-      if (primaryDetail != null) return primaryDetail;
-
-      // 若文件夹标记如 `{tmdb-999}` / `[tmdbid=999]` 未写死类型，首选 404 时自动尝试另一侧类型。
-      if (folder.explicitMediaType == null) {
-        final fallbackType = primaryType == TmdbMediaType.tv
-            ? TmdbMediaType.movie
-            : TmdbMediaType.tv;
+      final explicitType = folder.explicitMediaType;
+      if (explicitType != null) {
         return await _tmdbService.getWorkDetail(
           tmdbId,
-          fallbackType,
+          explicitType,
           priority: RequestPriority.background,
         );
       }
+      final details = await Future.wait([
+        _tmdbService.getWorkDetail(
+          tmdbId,
+          TmdbMediaType.tv,
+          priority: RequestPriority.background,
+        ),
+        _tmdbService.getWorkDetail(
+          tmdbId,
+          TmdbMediaType.movie,
+          priority: RequestPriority.background,
+        ),
+      ]);
+      final tv = details[0];
+      final movie = details[1];
+      if (tv == null || movie == null) return tv ?? movie;
+      return ScrapeDomainAdapter.chooseExplicitTypeCandidate(
+        folder,
+        tv: tv,
+        movie: movie,
+      );
     } catch (error) {
       if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
         onNetworkError?.call(error);
@@ -104,8 +119,6 @@ class ScrapeCandidateFetcher {
       }
       rethrow;
     }
-
-    return null;
   }
 
   /// 在线 Bangumi 多波次检索并补全 Top 4 候选完整 `infobox`、封面大图与简介（不查询角色/声优接口）。
@@ -124,35 +137,51 @@ class ScrapeCandidateFetcher {
 
     final rawById = <int, BangumiSubjectCandidate>{};
 
-    Future<void> runWave(Iterable<String> terms) async {
+    // 同一波次内各检索词互不牵连：单条失败只丢弃该条结果（Bangumi 临时异常不阻断主 TMDB 管线），返回失败条数。
+    Future<int> runWave(List<String> terms) async {
+      var failures = 0;
       final results = await Future.wait(
-        terms.map(
-          (q) => bgm.searchSubjects(q, priority: RequestPriority.background),
-        ),
+        terms.map((q) async {
+          try {
+            return await bgm.searchSubjects(
+              q,
+              priority: RequestPriority.background,
+            );
+          } catch (error) {
+            failures++;
+            developer.log(
+              'Bangumi 检索失败已跳过',
+              name: 'konata.scrape_candidate_fetcher',
+              error: error,
+            );
+            return const <BangumiSubjectCandidate>[];
+          }
+        }),
       );
       for (final list in results) {
         for (final item in list) {
           if (item.id > 0) rawById.putIfAbsent(item.id, () => item);
         }
       }
+      return failures;
     }
 
-    try {
-      await runWave(queries.take(3));
-      final needWave2 =
-          queries.length > 3 &&
-          (rawById.isEmpty ||
-              ScrapeDomainAdapter.evaluateBangumiMatch(
-                    folder,
-                    rawById.values.toList(growable: false),
-                  ).tier ==
-                  legacy.MatchTier.none);
-      if (needWave2) {
-        await runWave(queries.skip(3).take(4));
-      }
-    } catch (_) {
-      // Bangumi 临时异常不阻断主 TMDB 管线。
-      if (rawById.isEmpty) return const [];
+    final firstWave = queries.take(3).toList(growable: false);
+    // 首波全部失败多为瞬时网络抖动：短暂等待后整体重试一次，避免整部作品静默降级为仅 TMDB 匹配。
+    if (await runWave(firstWave) == firstWave.length) {
+      await Future<void>.delayed(_bangumiWaveRetryDelay);
+      await runWave(firstWave);
+    }
+    final needWave2 =
+        queries.length > 3 &&
+        (rawById.isEmpty ||
+            ScrapeDomainAdapter.evaluateBangumiMatch(
+                  folder,
+                  rawById.values.toList(growable: false),
+                ).tier ==
+                legacy.MatchTier.none);
+    if (needWave2) {
+      await runWave(queries.skip(3).take(4).toList(growable: false));
     }
 
     if (rawById.isEmpty) return const [];
@@ -176,9 +205,13 @@ class ScrapeCandidateFetcher {
           );
           if (full != null) rawById[id] = full;
         } catch (error) {
-      // 保留粗搜基础条目信息。
-      developer.log('可恢复异常已记录', name: 'konata.scrape_candidate_fetcher', error: error);
-    }
+          // 保留粗搜基础条目信息。
+          developer.log(
+            '可恢复异常已记录',
+            name: 'konata.scrape_candidate_fetcher',
+            error: error,
+          );
+        }
       }),
     );
 
@@ -212,9 +245,13 @@ class ScrapeCandidateFetcher {
               rawById[id] = rawById[id]!.copyWith(firstEpisodeSort: minSort);
             }
           } catch (error) {
-      // 部分测试桩或网络故障未提供 episodes 接口时静默跳过。
-      developer.log('可恢复异常已记录', name: 'konata.scrape_candidate_fetcher', error: error);
-    }
+            // 部分测试桩或网络故障未提供 episodes 接口时静默跳过。
+            developer.log(
+              '可恢复异常已记录',
+              name: 'konata.scrape_candidate_fetcher',
+              error: error,
+            );
+          }
         }),
       );
     }
@@ -236,7 +273,7 @@ class ScrapeCandidateFetcher {
     );
     final searchYear = ScrapeDomainAdapter.extractSearchYear(folder);
     final candidatesMap = <String, TmdbSearchResult>{};
-    final typeFilter = folder.prefersTvSearch ? TmdbMediaType.tv : null;
+    final typeFilter = _tvOnlyFilter(folder, bangumiCandidate?.subject);
     var networkAborted = false;
 
     Future<void> collectWave(
@@ -256,7 +293,10 @@ class ScrapeCandidateFetcher {
             priority: RequestPriority.background,
           );
           for (final h in hits) {
-            candidatesMap.putIfAbsent('${h.mediaType.name}:${h.tmdbId}', () => h);
+            candidatesMap.putIfAbsent(
+              '${h.mediaType.name}:${h.tmdbId}',
+              () => h,
+            );
           }
           if (candidatesMap.length >= cap) break;
         } catch (error) {
@@ -333,12 +373,120 @@ class ScrapeCandidateFetcher {
       } catch (error) {
         if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
           onNetworkError?.call(error);
+          networkAborted = true;
+          break;
+        }
+        rethrow;
+      }
+    }
+    if (!networkAborted) {
+      details.addAll(
+        await _recoverCanonicalEntries(
+          folder,
+          details,
+          typeFilter: typeFilter,
+          onNetworkError: onNetworkError,
+        ),
+      );
+    }
+    return details;
+  }
+
+  /// 前列候选几乎无人评分（多为新建的同名重复条目，常把正主挤出检索结果）时，
+  /// 用其原名补搜一轮，把评分人数正常的正主条目找回候选池；最多补拉 3 条新详情。
+  Future<List<TmdbWorkDetail>> _recoverCanonicalEntries(
+    GroupedWorkFolder folder,
+    List<TmdbWorkDetail> details, {
+    TmdbMediaType? typeFilter,
+    void Function(Object error)? onNetworkError,
+  }) async {
+    final known = {for (final d in details) '${d.mediaType.name}:${d.tmdbId}'};
+    final originals = <String>{
+      for (final d in details.take(3))
+        if ((d.voteCount ?? _canonicalVoteFloor) < _canonicalVoteFloor &&
+            (d.originalTitle?.trim().isNotEmpty ?? false))
+          d.originalTitle!.trim(),
+    };
+    if (originals.isEmpty) return const [];
+    final hits = <String, TmdbSearchResult>{};
+    try {
+      for (final original in originals.take(2)) {
+        final results = await _tmdbService.searchAnime(
+          original,
+          mediaTypeFilter: typeFilter,
+          priority: RequestPriority.background,
+        );
+        for (final h in results) {
+          final key = '${h.mediaType.name}:${h.tmdbId}';
+          if (!known.contains(key)) hits.putIfAbsent(key, () => h);
+        }
+      }
+      final ranked = [...hits.values]
+        ..sort(
+          (a, b) => ScrapeDomainAdapter.scoreSearchHitPreview(
+            folder,
+            b,
+          ).compareTo(ScrapeDomainAdapter.scoreSearchHitPreview(folder, a)),
+        );
+      final recovered = <TmdbWorkDetail>[];
+      for (final hit in ranked.take(3)) {
+        final detail = await _tmdbService.getWorkDetail(
+          hit.tmdbId,
+          hit.mediaType,
+          priority: RequestPriority.background,
+        );
+        if (detail != null) recovered.add(detail);
+      }
+      return recovered;
+    } catch (error) {
+      if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+        onNetworkError?.call(error);
+        return const [];
+      }
+      rethrow;
+    }
+  }
+
+  /// 按 ID 补拉指定 TMDB 条目详情（跨源映射命中但关键词检索未召回时使用；不存在的 ID 静默跳过）。
+  Future<List<TmdbWorkDetail>> fetchDetailsByIds(
+    List<({TmdbMediaType type, int id})> targets, {
+    void Function(Object error)? onNetworkError,
+  }) async {
+    final details = <TmdbWorkDetail>[];
+    for (final t in targets) {
+      try {
+        final detail = await _tmdbService.getWorkDetail(
+          t.id,
+          t.type,
+          priority: RequestPriority.background,
+        );
+        if (detail != null) details.add(detail);
+      } catch (error) {
+        if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+          onNetworkError?.call(error);
           break;
         }
         rethrow;
       }
     }
     return details;
+  }
+
+  /// TMDB 检索类型过滤：目录画像倾向剧集时锁定 `/search/tv`；
+  /// 但仅 1～2 个编号正片且 Bangumi 条目标注为剧场版时放开电影检索
+  /// （分上下篇放映的剧场版常被编号成两集，如 `次元大介の墓標 01/02`）。
+  static TmdbMediaType? _tvOnlyFilter(
+    GroupedWorkFolder folder,
+    BangumiSubjectCandidate? bangumi,
+  ) {
+    if (!folder.prefersTvSearch) return null;
+    final platform = bangumi?.platform?.trim() ?? '';
+    final bangumiSaysMovie =
+        platform == '剧场版' || platform.toLowerCase() == 'movie';
+    if (bangumiSaysMovie && folder.mainEpisodeNumbers.toSet().length <= 2) {
+      return null;
+    }
+    return TmdbMediaType.tv;
   }
 
   /// 当首轮 TMDB 未命中、跨源不一致被清空、或优胜条目缺少 16:9 横版背景图时，
@@ -366,7 +514,7 @@ class ScrapeCandidateFetcher {
       for (final d in existingDetails) '${d.mediaType.name}:${d.tmdbId}',
     };
     final hitMap = <String, TmdbSearchResult>{};
-    final typeFilter = folder.prefersTvSearch ? TmdbMediaType.tv : null;
+    final typeFilter = _tvOnlyFilter(folder, bangumi);
     var networkAborted = false;
 
     Future<void> runSearch(
@@ -435,10 +583,13 @@ class ScrapeCandidateFetcher {
   }
 
   /// 一次拉取各引用季完整详情（含单季专属封面、季名、简介与分集列表）。
-  Future<({
-    List<TmdbEpisodeDetail> episodes,
-    Map<int, TmdbSeasonDetail> seasonDetails,
-  })> fetchSeasonBundle(
+  Future<
+    ({
+      List<TmdbEpisodeDetail> episodes,
+      Map<int, TmdbSeasonDetail> seasonDetails,
+    })
+  >
+  fetchSeasonBundle(
     int tmdbId,
     TmdbMediaType mediaType,
     Set<int> seasons, {

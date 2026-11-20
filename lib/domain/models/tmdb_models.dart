@@ -193,6 +193,7 @@ class TmdbWorkDetail {
     this.backdropPath,
     this.logoPath,
     this.voteAverage,
+    this.voteCount,
     this.aliases = const [],
     this.seasons = const [],
     this.candidatePosters = const [],
@@ -232,6 +233,9 @@ class TmdbWorkDetail {
 
   /// TMDB 评分（0.0 ~ 10.0）。
   final double? voteAverage;
+
+  /// TMDB 评分人数（`0` 多为新建的低质量重复条目；未知时为空）。
+  final int? voteCount;
 
   /// 合并主副标题、多语言翻译与别名后的全部名称列表。
   final List<String> aliases;

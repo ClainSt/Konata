@@ -15,7 +15,7 @@ abstract final class CloudMediaFileClassifier {
   );
 
   static final _preview = RegExp(
-    r'予告|預告|预告|(^|[^a-z])(trailer|teaser|preview)(?=[^a-z]|$)',
+    r'予告|預告|预告|(^|[^a-z])(trailer|teaser|preview|forecast)(?=[^a-z]|$)',
     caseSensitive: false,
   );
 
@@ -91,33 +91,39 @@ abstract final class CloudMediaFileClassifier {
       KonataMediaExtensions.videoExtensionSuffixPattern;
 
   static final RegExp _trailingSpacedVideoExtension = RegExp(
-    r'\s+(' '${KonataMediaExtensions.videoExtensionSuffixPattern}' r')',
+    r'\s+('
+    '${KonataMediaExtensions.videoExtensionSuffixPattern}'
+    r')',
     caseSensitive: false,
   );
 
   static final RegExp _adjacentLocalizedEpisodeRegex = RegExp(
     r'[^\x00-\x7f]\s*(\d{1,4})'
-    r'(?=\s*(?:[\[(（]|' '${KonataMediaExtensions.videoExtensionSuffixPattern}' r'|$))',
+    r'(?=\s*(?:[\[(（]|'
+    '${KonataMediaExtensions.videoExtensionSuffixPattern}'
+    r'|$))',
     caseSensitive: false,
   );
 
   static final RegExp _leadingEpisodeRegex = RegExp(
     r'^[ ._-]*(\d{1,4})(?!\.\d)(?:[ ._-]*[a-z])?'
-    r'(?=\s*(?:' '${KonataMediaExtensions.videoExtensionSuffixPattern}' r'|[-–—_]))',
+    r'(?=\s*(?:'
+    '${KonataMediaExtensions.videoExtensionSuffixPattern}'
+    r'|[-–—_]))',
     caseSensitive: false,
   );
 
   static final RegExp _looseTailEpisodeRegex = RegExp(
-    r'^\s*[._-]*\s*(?:[\[(（【]|' '${KonataMediaExtensions.videoExtensionSuffixPattern}' r'|'
+    r'^\s*[._-]*\s*(?:[\[(（【]|'
+    '${KonataMediaExtensions.videoExtensionSuffixPattern}'
+    r'|'
     r'(?:\d{3,4}p|bd|web|dvd|ld|tv|hdtv|hevc|avc|[xh][ ._-]?26[45]|flac|aac|'
     r'opus|ac3|eac3|dts|dtshd|truehd|alac|end|fin|final|premiere|'
     r'early[\s._-]*screening|screening)\b)',
     caseSensitive: false,
   );
 
-  static final _crc32Bracket = RegExp(
-    r'[\[(（【［]\s*[0-9a-fA-F]{8}\s*[\])）】］]',
-  );
+  static final _crc32Bracket = RegExp(r'[\[(（【［]\s*[0-9a-fA-F]{8}\s*[\])）】］]');
 
   static final _frameRateMarker = RegExp(
     r'(?<![a-z0-9.])\d+(?:\.\d+)?\s*fps(?![a-z0-9])',
@@ -129,9 +135,7 @@ abstract final class CloudMediaFileClassifier {
     caseSensitive: false,
   );
 
-  static final _bracketBlock = RegExp(
-    r'[\[(（【［]([^\]\)）】］]*)[\])）】］]',
-  );
+  static final _bracketBlock = RegExp(r'[\[(（【［]([^\]\)）】］]*)[\])）】］]');
 
   static final _coreTechToken = RegExp(
     r'^(?:'
@@ -254,7 +258,7 @@ abstract final class CloudMediaFileClassifier {
     r'特別企画|特别企划|放送直前|新作アニメーション|引退記念|'
     r'ミュージカルパート|挿入歌|キャラクターソング|キャラソン|'
     r'イメージボード|ラッシュビデオ|ガイド|講座|讲座|ドキュメント[\s._-]*[#＃][\s._-]*\d+|'
-    r'映像|本編制作',
+    r'映像|本編制作|おまけ|オマケ|[\[(（【]\s*live\s*[\])）】]',
     caseSensitive: false,
   );
 
@@ -290,7 +294,7 @@ abstract final class CloudMediaFileClassifier {
   /// 判断视频是否携带强特典标记（如无字幕主题曲、预告、宣传片、菜单、预览及特典目录），
   /// 以区分仅带弱备注标识（如特别篇、总集篇）的正片文件。
   static bool isStrongSupplementary(String directory, String name) {
-    if (isSupplementaryDirectory(directory)) return true;
+    if (isSupplementarySubdirectory(directory)) return true;
     if (_releaseSample.hasMatch(name)) return true;
     final cleanName = stripTechnicalNoise(name);
     return _preview.hasMatch(cleanName) ||
@@ -313,7 +317,7 @@ abstract final class CloudMediaFileClassifier {
   /// 扫描器据此从含预告/菜单/活动视频的目录中筛选出唯一无编号正片候选。
   /// 保障单剧场版或单卷 OVA 目录的主正片稳定识别。
   static bool isClearlySupplementary(String directory, String name) {
-    if (isSupplementaryDirectory(directory)) return true;
+    if (isSupplementarySubdirectory(directory)) return true;
     if (_releaseSample.hasMatch(name)) return true;
     final cleanName = stripTechnicalNoise(name);
     return _preview.hasMatch(cleanName) ||
@@ -334,6 +338,81 @@ abstract final class CloudMediaFileClassifier {
         .map((segment) => segment.trim())
         .where((segment) => segment.isNotEmpty);
     return segments.any(_supplementaryDirectory.hasMatch);
+  }
+
+  /// 判断作品根目录之下的相对子目录路径是否属于特典目录；
+  /// 在 [isSupplementaryDirectory] 基础上按词元识别 `NC Ver`、`BD Menu`、`PV&CM`、`Bonus DVD`，
+  /// 以及 `<作品名> 映像特典`、`[组名] XX Extras` 这类以强特典词收尾的目录。
+  static bool isSupplementarySubdirectory(String relativeDirectory) {
+    return relativeDirectory
+        .replaceAll('\\', '/')
+        .split('/')
+        .map((segment) => segment.trim())
+        .where((segment) => segment.isNotEmpty)
+        .any((s) {
+          if (_supplementaryDirectory.hasMatch(s) ||
+              isExtraVideoDirectoryName(s)) {
+            return true;
+          }
+          final tokens = _extraDirTokens(s);
+          return tokens.isNotEmpty && _extraDirTailToken.hasMatch(tokens.last);
+        });
+  }
+
+  /// 特典视频目录核心词：目录名去除组名/卷号括号后，全部词元均为核心词或修饰词且至少含一个核心词时判定为特典目录。
+  static final _extraDirCoreToken = RegExp(
+    r'^(?:sps?|specials?|extras?|exrtras|bonus(?:es)?|omake|'
+    r'nc(?:op|ed|oped)?s?|opeds?|creditless|textless|noncredit|'
+    r'pvs?|cms?|pvcms?|cmpvs?|menus?|mvs?|trailers?|teasers?|previews?|'
+    r'promos?|promotion|spots?|tvcms?|bdcms?|effects?|fandisc|reviews?|'
+    r'interviews?|events?|making|digest|recaps?|commentary|radio|comics?|'
+    r'storyboards?|endcards?|eyecatch(?:es)?|lives?|credits?|samples?|'
+    r'特典|映像特典|特典映像|特典卷|花絮|幕后|访谈|预告|預告|宣传|番外|映像)$',
+  );
+
+  /// 特典视频目录修饰词：只能与核心词同现，单独出现不构成特典目录。
+  static final _extraDirModifierToken = RegExp(
+    r'^(?:bd|dvd|web|tv|ver|version|non|visual|music|video|next|episode|'
+    r'videos|clip|clips|fan|disc|voice|and|the|of|op|ed|vol|volume|'
+    r'collection|all|cds?\d{0,2}|\d{1,3}|v\d{1,2}|s\d{1,2}|ep?\d{1,3}|\d{3,4}p)$',
+  );
+
+  /// 允许以「作品名 + 特典词」形式收尾的强特典词（仅用于作品根目录之下的子目录）。
+  static final _extraDirTailToken = RegExp(
+    r'^(?:特典|映像特典|特典映像|extras|specials|sps|bonus)$',
+  );
+
+  static final _extraDirEdgeBracket = RegExp(
+    r'^\s*[\[【][^\]】]*[\]】]\s*|\s*[\[(（【][^\])）】]*[\])）】]\s*$',
+  );
+
+  static List<String> _extraDirTokens(String segment) {
+    var s = segment.trim();
+    while (true) {
+      final next = s.replaceFirst(_extraDirEdgeBracket, '').trim();
+      if (next == s || next.isEmpty) break;
+      s = next;
+    }
+    return s
+        .toLowerCase()
+        .split(RegExp(r'[\s&＆+＋_.,，、/\-–—!！]+'))
+        .where((t) => t.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  /// 依据词元判断单个目录段是否为特典视频目录（如 `NC Ver`、`BD Menu`、`PV&CM`、`Creditless OPEDs`、`Bonus DVD`）。
+  static bool isExtraVideoDirectoryName(String segment) {
+    final tokens = _extraDirTokens(segment);
+    if (tokens.isEmpty) return false;
+    var hasCore = false;
+    for (final token in tokens) {
+      if (_extraDirCoreToken.hasMatch(token)) {
+        hasCore = true;
+      } else if (!_extraDirModifierToken.hasMatch(token)) {
+        return false;
+      }
+    }
+    return hasCore;
   }
 
   static String classifyAsset(
@@ -423,6 +502,93 @@ abstract final class CloudMediaFileClassifier {
     return null;
   }
 
+  /// 单次解析同时得到 [episodeNumberFromNameInDirectory] 的起始集号与同源的区间结束集号。
+  ///
+  /// 仅当产生起始集号的那个记号后紧跟 `-`、`~`、`～`、`&`、`＆` 加结束集
+  /// （结束集可带 `E`/`EP` 前缀）时才给出结束集，且要求结束集大于起始集、跨度不超过
+  /// [maxEpisodeRangeSpan] 集；带特典标识的文件名不给出结束集。该结束集只对正片槽位有意义。
+  static ({int? start, int? end}) episodeSpanFromNameInDirectory(
+    String directory,
+    String name,
+  ) {
+    final cleanName = stripTechnicalNoise(name);
+    final parsed = _parseEpisode(cleanName);
+    if (parsed == null) return (start: null, end: null);
+    if (!_hasExplicitEpisodeMarker(cleanName) &&
+        _looksLikeTitleNumber(directory, cleanName, parsed.start)) {
+      return (start: null, end: null);
+    }
+    final end = parsed.end == null || _rangeExtraHint.hasMatch(cleanName)
+        ? null
+        : parsed.end;
+    return (start: parsed.start, end: end);
+  }
+
+  /// 单次解析同时得到 [episodeNumberFromName] 的起始集号与同源区间结束集号（不含目录级标题数字抑制）。
+  static ({int? start, int? end}) episodeSpanFromName(String name) {
+    final parsed = _parseEpisode(name);
+    if (parsed == null) return (start: null, end: null);
+    final end = parsed.end == null || _rangeExtraHint.hasMatch(name)
+        ? null
+        : parsed.end;
+    return (start: parsed.start, end: end);
+  }
+
+  /// 带有特典/附属映像标识的文件名：其区间（`NCOP EP01-08`、`Picture Drama 10-13` 等）不是正片合并。
+  static final RegExp _rangeExtraHint = RegExp(
+    r'(?<![a-z0-9])(?:ncop|nced|pv|cm|sp|ova|oad|menu|digest|special|extras?|'
+    r'bonus|trailer|teaser|preview|creditless|textless|making|interview|'
+    r'picture[ ._-]*drama|drama[ ._-]*cd)(?![a-z])',
+    caseSensitive: false,
+  );
+
+  /// 单个文件允许的最大连续集数（结束集 - 起始集 + 1）。
+  static const int maxEpisodeRangeSpan = 30;
+
+  /// 紧随起始集号之后的区间尾部：分隔符 + 可带 `E`/`EP` 前缀的结束集。
+  /// 不允许分隔符两侧出现空白，避免把 `Title 2 - 12` 之类片名数字当成区间。
+  static final RegExp _rangeTailRegex = RegExp(
+    r'^(?:v\d+)?[-–—~～&＆](?:e(?:p(?:isode)?)?[ ._-]*)?(\d{1,4})(?:v\d+)?'
+    r'(?![a-z0-9])(?!\.\d{1,2}(?!\d|[pi]\b))(?![-–—~～&＆]\d)',
+    caseSensitive: false,
+  );
+
+  /// `S01E01E02` 这类无分隔符的连写区间尾部。
+  static final RegExp _rangeTailBareERegex = RegExp(
+    r'^(?:v\d+)?e(?:p)?[ ._-]*(\d{1,4})(?:v\d+)?'
+    r'(?![a-z0-9])(?!\.\d{1,2}(?!\d|[pi]\b))',
+    caseSensitive: false,
+  );
+
+  /// `第01-02话`、`第1话-第2话` 这类本地化区间。
+  static final RegExp _localizedRangeRegex = RegExp(
+    r'第[ ._-]*([0-9]+|[一二三四五六七八九十百〇零壱弐参伍拾]+)[ ._-]*'
+    r'(?:话|話|集|回)?[ ._-]*[-~～&＆][ ._-]*第?[ ._-]*'
+    r'([0-9]+|[一二三四五六七八九十百〇零壱弐参伍拾]+)[ ._-]*(?:话|話|集|回)',
+  );
+
+  static int? _validRangeEnd(int start, int? end) {
+    if (end == null || end <= start) return null;
+    if (end - start + 1 > maxEpisodeRangeSpan) return null;
+    if (_technicalNumber(end)) return null;
+    return end;
+  }
+
+  /// 从 [text] 的 [position] 起读取紧邻的区间结束集号。
+  static int? _rangeEndAfter(
+    String text,
+    int position,
+    int start, {
+    bool allowBareE = false,
+  }) {
+    final tail = text.substring(position);
+    var match = _rangeTailRegex.firstMatch(tail);
+    if (match == null && allowBareE) {
+      match = _rangeTailBareERegex.firstMatch(tail);
+    }
+    return _validRangeEnd(start, _number(match?.group(1)));
+  }
+
   /// 即使作品标题本身含有相同数字，显式集号标识依然具有最高权威性；
   /// 标题数字抑制策略仅作用于宽松兜底数字提取路径。
   static bool _hasExplicitEpisodeMarker(String name) {
@@ -459,6 +625,7 @@ abstract final class CloudMediaFileClassifier {
     ).hasMatch(searchable)) {
       return true;
     }
+    if (_localizedRangeRegex.hasMatch(searchable)) return true;
     if (RegExp(
       r'(?<![a-z0-9])(?:19|20)\d{2}[ ._-]+-[ ._-]*\d{1,4}(?=\s+\S)',
     ).hasMatch(searchable)) {
@@ -486,7 +653,10 @@ abstract final class CloudMediaFileClassifier {
   /// 提取文件名所代表的首个集号；多集连播文件名（如 `01-04`、`003&004`）
   /// 默认映射至起始集号，完整原始文件名仍由目录索引保留用于播放与展示。
   /// 确保连续合集文件具备唯一稳定的排序主键。
-  static int? episodeNumberFromName(String name) {
+  static int? episodeNumberFromName(String name) => _parseEpisode(name)?.start;
+
+  /// 解析起始集号及紧邻其后的区间结束集号；起始集号的判定顺序与历史行为完全一致。
+  static ({int start, int? end})? _parseEpisode(String name) {
     final normalized = _normalizeName(stripTechnicalNoise(name));
     final normalizedStem = normalized.replaceFirst(
       KonataMediaExtensions.trailingVideoExtensionRegex,
@@ -505,82 +675,124 @@ abstract final class CloudMediaFileClassifier {
       caseSensitive: false,
     ).firstMatch(searchable);
     final seasonEpisode = _number(match?.group(1));
-    if (seasonEpisode != null) return seasonEpisode;
+    if (seasonEpisode != null) {
+      return (
+        start: seasonEpisode,
+        end: _rangeEndAfter(
+          searchable,
+          match!.end,
+          seasonEpisode,
+          allowBareE: true,
+        ),
+      );
+    }
 
     match = RegExp(
       r'(?<![a-z0-9])(?:episode|ep)(?![a-z])[ ._-]*(\d{1,4})',
       caseSensitive: false,
     ).firstMatch(searchable);
     final explicitEpisode = _number(match?.group(1));
-    if (explicitEpisode != null) return explicitEpisode;
+    if (explicitEpisode != null) {
+      return (
+        start: explicitEpisode,
+        end: _rangeEndAfter(searchable, match!.end, explicitEpisode),
+      );
+    }
 
     match = RegExp(
       r'(?<![a-z0-9])e(?![a-z])[ ._-]*(\d{1,3})(?![a-z0-9])',
       caseSensitive: false,
     ).firstMatch(searchable);
     final shortEpisode = _number(match?.group(1));
-    if (shortEpisode != null) return shortEpisode;
+    if (shortEpisode != null) {
+      return (
+        start: shortEpisode,
+        end: _rangeEndAfter(searchable, match!.end, shortEpisode),
+      );
+    }
 
     match = RegExp(
       r'(?<![a-z0-9])stage[ ._-]*(\d{1,4})(?![a-z0-9])',
       caseSensitive: false,
     ).firstMatch(searchable);
     final stage = _number(match?.group(1));
-    if (stage != null) return stage;
+    if (stage != null) return (start: stage, end: null);
 
     match = RegExp(
       r'(?<![a-z0-9])(?:19|20)\d{2}[ ._-]+-[ ._-]*(\d{1,4})'
       r'(?=\s+\S)',
     ).firstMatch(searchable);
     final datedEpisode = _number(match?.group(1));
-    if (datedEpisode != null) return datedEpisode;
+    if (datedEpisode != null) return (start: datedEpisode, end: null);
+
+    match = _localizedRangeRegex.firstMatch(searchable);
+    final localizedStart = _number(match?.group(1));
+    if (localizedStart != null) {
+      return (
+        start: localizedStart,
+        end: _validRangeEnd(localizedStart, _number(match!.group(2))),
+      );
+    }
 
     match = RegExp(
       r'第[ ._-]*([0-9]+|[一二三四五六七八九十百〇零壱弐参伍拾]+)'
       r'[ ._-]*(?:话|話|集|回)',
     ).firstMatch(searchable);
     final localized = _number(match?.group(1));
-    if (localized != null) return localized;
+    if (localized != null) return (start: localized, end: null);
 
     match = RegExp(
       r'[#＃][ ._-]*(\d{1,4})(?:[ ._-]*(?:end|fin|final|完))?',
       caseSensitive: false,
     ).firstMatch(searchable);
     final hash = _number(match?.group(1));
-    if (hash != null) return hash;
+    if (hash != null) {
+      return (start: hash, end: _rangeEndAfter(searchable, match!.end, hash));
+    }
 
-    final bracketed = _episodeFromBrackets(searchable);
+    final bracketed = _episodeFromBracketsWithEnd(searchable);
     if (bracketed != null) return bracketed;
 
     final delimited = _number(
       delimitedEpisode.firstMatch(searchable)?.group(1),
     );
-    if (delimited != null) return delimited;
+    if (delimited != null) return (start: delimited, end: null);
 
     match = RegExp(
       r'(?:^|[\s\]】)])\s*(\d{1,4})'
-      r'(?:[-–—]\d{1,4}|\s*[&~]\s*\d{1,4})'
+      r'(?:[-–—~～](\d{1,4})|\s*[&＆~～]\s*(\d{1,4}))'
       '(?=\\s*(?:[\\[(（【]|$_videoExtensionSuffix|\$))',
       caseSensitive: false,
     ).firstMatch(searchable);
     final rangeStart = _number(match?.group(1));
-    if (rangeStart != null) return rangeStart;
+    if (rangeStart != null) {
+      return (
+        start: rangeStart,
+        end: _validRangeEnd(
+          rangeStart,
+          _number(match!.group(2) ?? match.group(3)),
+        ),
+      );
+    }
 
     final postMarker = _extractPostMarkerEpisode(searchable);
-    if (postMarker != null) return postMarker;
+    if (postMarker != null) return (start: postMarker, end: null);
 
     match = RegExp(r'\((\d{1,4})\)').firstMatch(searchable);
     final parenthesized = _number(match?.group(1));
-    if (parenthesized != null) return parenthesized;
+    if (parenthesized != null) return (start: parenthesized, end: null);
 
     match = _adjacentLocalizedEpisodeRegex.firstMatch(searchable);
     final adjacentLocalized = _number(match?.group(1));
-    if (adjacentLocalized != null) return adjacentLocalized;
+    if (adjacentLocalized != null) {
+      return (start: adjacentLocalized, end: null);
+    }
 
     match = _leadingEpisodeRegex.firstMatch(searchable);
     final leading = _number(match?.group(1));
-    if (leading != null) return leading;
-    return _looseEpisodeNumber(searchable);
+    if (leading != null) return (start: leading, end: null);
+    final loose = _looseEpisodeNumber(searchable);
+    return loose == null ? null : (start: loose, end: null);
   }
 
   static int? _extractPostMarkerEpisode(
@@ -607,10 +819,7 @@ abstract final class CloudMediaFileClassifier {
       '(?=\\s*(?:[\\[(（【「]|$_videoExtensionSuffix|v\\d+\\b|end\\b|fin\\b|final\\b|完|\$))',
       caseSensitive: false,
     ).firstMatch(searchable);
-    final separated = _number(
-      separatedMatch?.group(1),
-      rejectYears: false,
-    );
+    final separated = _number(separatedMatch?.group(1), rejectYears: false);
     if (separated != null) return separated;
 
     final trailingPattern = RegExp(
@@ -643,7 +852,7 @@ abstract final class CloudMediaFileClassifier {
   }
 
   static bool _isFractionalEpisode(String name) =>
-      RegExp(r'(?:^|[\[(_【\s])\d{1,3}\.\d(?=[\])）._\s]|$)').hasMatch(name);
+      RegExp(r'(?:^|[\[(_【\s#＃])\d{1,3}\.\d(?=[\])）._\s]|$)').hasMatch(name);
 
   static bool _isMovieContext(String directory, String name) {
     final dot = name.lastIndexOf('.');
@@ -677,9 +886,26 @@ abstract final class CloudMediaFileClassifier {
     return nameYears.isNotEmpty && directoryYears.isNotEmpty;
   }
 
-  static int? _episodeFromBrackets(String name, {bool completeOnly = true}) {
+  static int? _episodeFromBrackets(String name, {bool completeOnly = true}) =>
+      _episodeFromBracketsWithEnd(name, completeOnly: completeOnly)?.start;
+
+  static ({int start, int? end})? _episodeFromBracketsWithEnd(
+    String name, {
+    bool completeOnly = true,
+  }) {
     for (final bracket in RegExp(r'[\[【]([^\]】]+)[\]】]').allMatches(name)) {
       final content = bracket.group(1)!.trim();
+      // `[BD_01]`/`[BD 12]` 这类两位以上补零编号是蓝光正片集号，不能被 `bd` 技术词前缀跳过（单个数字的 `BD1` 仍视作碟号）。
+      final bdEpisode = RegExp(
+        r'^bd[ _]+(\d{2,3})(?:v\d+)?$',
+        caseSensitive: false,
+      ).firstMatch(content);
+      if (bdEpisode != null) {
+        final number = _number(bdEpisode.group(1));
+        if (number != null && !_technicalNumber(number)) {
+          return (start: number, end: null);
+        }
+      }
       if (content.isEmpty ||
           RegExp(
             r'^(?:\d{3,4}p|[248]k|[xh][ ._-]?26[45]|hevc|avc|av1|ma10p|main12|'
@@ -708,11 +934,30 @@ abstract final class CloudMediaFileClassifier {
         group = 1;
       }
       final number = _number(entryMatch?.group(group));
-      if (number != null && !_technicalNumber(number)) return number;
+      if (number != null && !_technicalNumber(number)) {
+        int? end;
+        // 仅允许无前缀或 ep/episode 前缀的括号内区间，如 `[01-02]`、`[EP01-12]`；
+        // `[Disc 1-2]`、`[Vol.1-3]` 等不视为集数区间。
+        final prefix = RegExp(
+          r'^([a-z]*)',
+          caseSensitive: false,
+        ).firstMatch(content)!.group(1)!.toLowerCase();
+        if (match != null &&
+            identical(entryMatch, match) &&
+            (prefix.isEmpty || prefix == 'ep' || prefix == 'episode')) {
+          final tail = content.substring(match.end).trimRight();
+          final tailMatch = RegExp(
+            r'^(?:v\d+)?[-–—~～&＆](?:e(?:p(?:isode)?)?[ ._-]*)?(\d{1,4})(?:v\d+)?$',
+            caseSensitive: false,
+          ).firstMatch(tail);
+          end = _validRangeEnd(number, _number(tailMatch?.group(1)));
+        }
+        return (start: number, end: end);
+      }
     }
     // 优先采纳任意位置出现的完整规范集号证据，其次才回退历史注解格式。
     return completeOnly
-        ? _episodeFromBrackets(name, completeOnly: false)
+        ? _episodeFromBracketsWithEnd(name, completeOnly: false)
         : null;
   }
 

@@ -661,6 +661,11 @@ abstract final class WorkMatcher {
     return baseDecision;
   }
 
+  static Set<String> _primaryNames(MatchCandidate c) => {
+    DirectoryAnalyzer.normalize(c.title),
+    if (c.originalTitle != null) DirectoryAnalyzer.normalize(c.originalTitle!),
+  }..removeWhere((e) => e.length < 2);
+
   static MatchResult tmdb(
     DirectoryInventory inventory,
     List<MatchCandidate> candidates, {
@@ -678,9 +683,32 @@ abstract final class WorkMatcher {
     final invSeq = _inventorySequelNumber(inventory);
     final primaryLatinTokens = _significantLatinTokens(inventory.title);
     final invHasCjk = _cjkPattern.hasMatch(inventory.title);
+    // TMDB 存在随手创建的空壳条目（无首播日期、无类型、零评分），标题与正主完全相同；
+    // 仅当同批次存在信息完整的候选时才降权空壳，避免离线夹具（均无年份/类型）整体失真。
+    final anyComplete = candidates.any(
+      (c) => c.year != null || c.genreIds.isNotEmpty,
+    );
+    // 同批次中评分人数不低于 10 的条目正式名称：几乎无人评分、且正式标题或原名与之相同的条目
+    // 多为新建的重复条目。只比对正式名称，别名常含系列总称（如 `宇宙戦艦ヤマト`），会误伤同系列续作。
+    final establishedNames = <int, Set<String>>{
+      for (final c in candidates)
+        if ((c.voteCount ?? 0) >= 10) c.id: _primaryNames(c),
+    };
     final ranking = <ScoredCandidate>[];
     for (final candidate in candidates) {
       final scored = ScoredCandidate(candidate);
+      if (anyComplete && candidate.year == null && candidate.genreIds.isEmpty) {
+        scored.add(-30, 'stub entry');
+      }
+      final votes = candidate.voteCount;
+      if (votes != null && votes <= 2) {
+        final names = _primaryNames(candidate);
+        if (establishedNames.entries.any(
+          (e) => e.key != candidate.id && e.value.any(names.contains),
+        )) {
+          scored.add(-15, 'unpopular duplicate');
+        }
+      }
       if (inventory.tmdbId != null && !ignoreTmdbMarker) {
         if (inventory.tmdbId == candidate.id) {
           scored.add(30, 'marker');

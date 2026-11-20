@@ -156,8 +156,12 @@ Future<WorkMergeOutcome> _transferVariantsToTargetInRepo(
   final sourceEpById = {for (final ep in sourceEpisodes) ep.id: ep};
   final targetEpByKey = <String, Episode>{
     for (final ep in targetEpisodes)
-      _episodeSlotKey(ep.category, ep.seasonNumber, ep.episodeNumber, ep.extraType):
-          ep,
+      _episodeSlotKey(
+        ep.category,
+        ep.seasonNumber,
+        ep.episodeNumber,
+        ep.extraType,
+      ): ep,
   };
   final occupiedEpIds = {
     for (final v in targetVariants)
@@ -180,9 +184,8 @@ Future<WorkMergeOutcome> _transferVariantsToTargetInRepo(
 
   final sorted = List<MediaVariant>.of(variantsToMove)
     ..sort(
-      (a, b) => a.relativePath.toLowerCase().compareTo(
-        b.relativePath.toLowerCase(),
-      ),
+      (a, b) =>
+          a.relativePath.toLowerCase().compareTo(b.relativePath.toLowerCase()),
     );
   final oldToNewEpisode = <String, Episode>{};
 
@@ -206,13 +209,16 @@ Future<WorkMergeOutcome> _transferVariantsToTargetInRepo(
 
     late final int destSeason;
     late final int destEpNum;
+    // 多集合并条目：沿用原集号时一并保留区间结束集。
+    int? destEpEnd;
     ExtraKind? destExtraKind;
 
     if (destCategory == EpisodeCategory.extra) {
       destSeason = 0;
       destExtraKind = _resolveExtraKindForVariant(variant, oldEp);
-      final candidateNum =
-          (oldEp?.category == EpisodeCategory.extra ? oldEp?.episodeNumber : null);
+      final candidateNum = (oldEp?.category == EpisodeCategory.extra
+          ? oldEp?.episodeNumber
+          : null);
       final candidateKey = candidateNum != null && candidateNum > 0
           ? _episodeSlotKey(
               EpisodeCategory.extra,
@@ -221,7 +227,8 @@ Future<WorkMergeOutcome> _transferVariantsToTargetInRepo(
               destExtraKind,
             )
           : null;
-      final collides = candidateKey != null &&
+      final collides =
+          candidateKey != null &&
           avoidExtraSlotCollision &&
           targetEpByKey[candidateKey] != null &&
           occupiedEpIds.contains(targetEpByKey[candidateKey]!.id);
@@ -235,7 +242,8 @@ Future<WorkMergeOutcome> _transferVariantsToTargetInRepo(
         if (destEpNum > prev) nextExtraEpByKind[destExtraKind] = destEpNum;
       }
     } else {
-      final preferredSeason = targetWork.matchedSeason ??
+      final preferredSeason =
+          targetWork.matchedSeason ??
           ((oldEp != null && oldEp.seasonNumber > 0) ? oldEp.seasonNumber : 1);
       destSeason = preferredSeason <= 0 ? 1 : preferredSeason;
       final canKeepNum =
@@ -244,8 +252,10 @@ Future<WorkMergeOutcome> _transferVariantsToTargetInRepo(
           oldEp!.episodeNumber! > 0;
       if (canKeepNum) {
         destEpNum = oldEp.episodeNumber!;
+        destEpEnd = oldEp.episodeNumberEnd;
         final prev = nextMainEpBySeason[destSeason] ?? 0;
-        if (destEpNum > prev) nextMainEpBySeason[destSeason] = destEpNum;
+        final coveredMax = destEpEnd ?? destEpNum;
+        if (coveredMax > prev) nextMainEpBySeason[destSeason] = coveredMax;
       } else {
         final next = (nextMainEpBySeason[destSeason] ?? 0) + 1;
         nextMainEpBySeason[destSeason] = next;
@@ -261,18 +271,24 @@ Future<WorkMergeOutcome> _transferVariantsToTargetInRepo(
     );
     var targetEp = targetEpByKey[key];
     if (targetEp == null) {
-      final title = (oldEp != null &&
+      final title =
+          (oldEp != null &&
               oldEp.category == destCategory &&
               (oldEp.title?.trim().isNotEmpty ?? false))
           ? oldEp.title!.trim()
           : (destCategory == EpisodeCategory.extra
                 ? '${(destExtraKind?.name ?? 'SP').toUpperCase()} ${destEpNum.toString().padLeft(2, '0')}'
-                : '第 $destEpNum 话');
+                : (destEpEnd != null
+                      ? '第 $destEpNum-$destEpEnd 话'
+                      : '第 $destEpNum 话'));
       targetEp = Episode(
         id: ScrapeWorkPersister.deterministicId('${targetWork.id}::$key'),
         workId: targetWork.id,
         seasonNumber: destSeason,
         episodeNumber: destEpNum,
+        episodeNumberEnd: destCategory == EpisodeCategory.main
+            ? destEpEnd
+            : null,
         category: destCategory,
         extraType: destExtraKind,
         title: title,

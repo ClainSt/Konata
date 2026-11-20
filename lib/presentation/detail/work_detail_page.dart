@@ -985,20 +985,26 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                     color: KonataTheme.scrimBlackMedium,
                                   ),
                                 ),
-                              // L 型双轴光学暗幕：左→右柔光承托文字与 ClearLogo，右半屏原画保持饱满通透
+                              // 左下角定向斜角柔晕：仅聚光承托左下标题与简介区，左上人物面部与右半屏原画保持 100% 鲜艳通透
                               IgnorePointer(
                                 child: DecoratedBox(
+                                  key: const ValueKey(
+                                    'detail_wide_corner_scrim',
+                                  ),
                                   decoration: BoxDecoration(
                                     gradient: LinearGradient(
-                                      begin: Alignment.centerLeft,
-                                      end: Alignment.centerRight,
-                                      stops: const [0.0, 0.34, 0.66],
+                                      begin: Alignment.bottomLeft,
+                                      end: const Alignment(-0.08, 0.14),
+                                      stops: const [0.0, 0.42, 0.78, 1.0],
                                       colors: [
                                         KonataTheme.cinemaObsidian.withValues(
-                                          alpha: 0.84,
+                                          alpha: 0.74,
                                         ),
                                         KonataTheme.cinemaObsidian.withValues(
-                                          alpha: 0.40,
+                                          alpha: 0.42,
+                                        ),
+                                        KonataTheme.cinemaObsidian.withValues(
+                                          alpha: 0.10,
                                         ),
                                         Colors.transparent,
                                       ],
@@ -1006,7 +1012,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                   ),
                                 ),
                               ),
-                              // 下→上光学渐隐暗幕：展开选集抽屉时加深托底以衬托无框卡片
+                              // 下→上光学渐隐暗幕：收起时克制托底，展开选集抽屉时加深以衬托无框卡片
                               IgnorePointer(
                                 child: DecoratedBox(
                                   decoration: BoxDecoration(
@@ -1014,21 +1020,21 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                       begin: Alignment.bottomCenter,
                                       end: Alignment.topCenter,
                                       stops: isDrawerExpanded
-                                          ? const [0.0, 0.24, 0.48]
-                                          : const [0.0, 0.14, 0.30],
+                                          ? const [0.0, 0.26, 0.52]
+                                          : const [0.0, 0.18, 0.38],
                                       colors: isDrawerExpanded
                                           ? [
                                               KonataTheme.cinemaObsidian
-                                                  .withValues(alpha: 0.86),
+                                                  .withValues(alpha: 0.88),
                                               KonataTheme.cinemaObsidian
-                                                  .withValues(alpha: 0.46),
+                                                  .withValues(alpha: 0.48),
                                               Colors.transparent,
                                             ]
                                           : [
                                               KonataTheme.cinemaObsidian
-                                                  .withValues(alpha: 0.54),
+                                                  .withValues(alpha: 0.68),
                                               KonataTheme.cinemaObsidian
-                                                  .withValues(alpha: 0.18),
+                                                  .withValues(alpha: 0.26),
                                               Colors.transparent,
                                             ],
                                     ),

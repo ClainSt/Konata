@@ -249,6 +249,30 @@ abstract final class KonataTheme {
     tileMode: ui.TileMode.clamp,
   );
 
+  /// 暗底单色深黑 ClearLogo 的保色相亮度反相滤镜（180° 色相旋转复合反转，黑字柔化为光学象牙白且少量彩色点缀保持原色相）。
+  static const ColorFilter clearLogoSmartInvertFilter = ColorFilter.matrix(
+    <double>[
+      0.540, -1.344, -0.135, 0, 244,
+      -0.400, -0.404, -0.135, 0, 244,
+      -0.400, -1.344, 0.805, 0, 244,
+      0, 0, 0, 1, 0,
+    ],
+  );
+
+  /// 深彩色无白边 ClearLogo 的字形轮廓霜白背晕滤镜与颜色令牌（`TileMode.decal` 保证画布边缘平滑归零不拖影）。
+  static final ui.ImageFilter clearLogoHaloBlurWide = ui.ImageFilter.blur(
+    sigmaX: 9.0,
+    sigmaY: 9.0,
+    tileMode: ui.TileMode.decal,
+  );
+  static final ui.ImageFilter clearLogoHaloBlurTight = ui.ImageFilter.blur(
+    sigmaX: 2.5,
+    sigmaY: 2.5,
+    tileMode: ui.TileMode.decal,
+  );
+  static const Color clearLogoHaloGlowWide = Color(0x8CFFFFFF);
+  static const Color clearLogoHaloGlowTight = Color(0x7AFFFFFF);
+
   /// 详情页主卡片与剧集卡片投影。
   static const Shadow heroCardTextShadow = Shadow(
     color: Color(0x8C000000),

@@ -10,8 +10,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:ccplayer/application/playback/artwork_palette_service.dart';
 import 'package:ccplayer/application/providers/artwork_provider.dart';
 import 'package:ccplayer/application/providers/library_providers.dart';
+import 'package:ccplayer/domain/formatting/clear_logo_legibility.dart';
 import 'package:ccplayer/domain/models/episode.dart';
 import 'package:ccplayer/domain/models/media_source.dart';
 import 'package:ccplayer/domain/models/media_variant.dart';
@@ -22,11 +24,13 @@ import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
 import 'package:ccplayer/infrastructure/database/konata_database.dart';
 import 'package:ccplayer/presentation/detail/detail_bottom_drawer.dart';
 import 'package:ccplayer/presentation/detail/detail_full_list_dialog.dart';
+import 'package:ccplayer/presentation/detail/detail_hero_info.dart';
 import 'package:ccplayer/presentation/detail/episode_drawer_card.dart';
 import 'package:ccplayer/presentation/detail/episode_media_info_dialog.dart';
 import 'package:ccplayer/presentation/detail/supplementary_asset_cards.dart';
 import 'package:ccplayer/presentation/detail/work_detail_page.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
+import 'package:ccplayer/presentation/widgets/managed_image.dart';
 
 final Uint8List _sample1x1Png = Uint8List.fromList(const <int>[
   0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
@@ -385,5 +389,184 @@ void main() {
       await tester.pumpAndSettle();
       expect(scheduler.isRemotePaused, isFalse);
     });
+
+    test('analyzeClearLogoRgba 精准区分亮色/带白边、单色深黑与深彩色无白边透明标题', () {
+      Uint8List solidRgba(int r, int g, int b, int a, {int count = 20}) {
+        final out = Uint8List(count * 4);
+        for (var i = 0; i < count; i++) {
+          out[i * 4] = r;
+          out[i * 4 + 1] = g;
+          out[i * 4 + 2] = b;
+          out[i * 4 + 3] = a;
+        }
+        return out;
+      }
+
+      // 纯白与亮彩色保持原图
+      expect(
+        analyzeClearLogoRgba(solidRgba(245, 248, 255, 255)),
+        ClearLogoLegibilityMode.original,
+      );
+      expect(
+        analyzeClearLogoRgba(solidRgba(255, 110, 160, 255)),
+        ClearLogoLegibilityMode.original,
+      );
+      // 全透明或空数据保持原图
+      expect(
+        analyzeClearLogoRgba(solidRgba(0, 0, 0, 0)),
+        ClearLogoLegibilityMode.original,
+      );
+      // 含 30% 白色外描边的黑字保持原图
+      final outlined = Uint8List(40 * 4);
+      for (var i = 0; i < 40; i++) {
+        final v = i < 12 ? 250 : 12;
+        outlined[i * 4] = v;
+        outlined[i * 4 + 1] = v;
+        outlined[i * 4 + 2] = v;
+        outlined[i * 4 + 3] = 255;
+      }
+      expect(analyzeClearLogoRgba(outlined), ClearLogoLegibilityMode.original);
+
+      // 纯黑 / 炭黑单色标题（含透明背景）触发保色相亮度反相为清晰象牙白
+      final fmpBlack = Uint8List(40 * 4);
+      for (var i = 0; i < 20; i++) {
+        fmpBlack[i * 4] = 18;
+        fmpBlack[i * 4 + 1] = 15;
+        fmpBlack[i * 4 + 2] = 14;
+        fmpBlack[i * 4 + 3] = 255;
+      }
+      expect(
+        analyzeClearLogoRgba(fmpBlack),
+        ClearLogoLegibilityMode.smartInvert,
+      );
+
+      // 深酒红 / 深海蓝高饱和暗色无白边标题保留原色相并叠加字形轮廓霜白背晕
+      expect(
+        analyzeClearLogoRgba(solidRgba(96, 12, 16, 255)),
+        ClearLogoLegibilityMode.softHalo,
+      );
+      expect(
+        analyzeClearLogoRgba(solidRgba(14, 34, 112, 255)),
+        ClearLogoLegibilityMode.softHalo,
+      );
+    });
+
+    testWidgets(
+      'DetailLockedClearLogo 按采样结果切换智能反白/字形背晕且保持唯一 ManagedImage，宽屏详情页采用左下角斜向柔晕',
+      (tester) async {
+        tester.view.physicalSize = const Size(1280, 720);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+
+        const workInvert = Work(
+          id: 'w_fmp',
+          title: '全金属狂潮',
+          backdropPath: '/backdrop_fmp.jpg',
+          logoPath: '/logo_black.png',
+        );
+        const workHalo = Work(
+          id: 'w_crimson',
+          title: '深红标题作品',
+          logoPath: '/logo_crimson.png',
+        );
+
+        final cache = ClearLogoLegibilityCache()
+          ..put(
+            '${workInvert.id}|${workInvert.logoPath}',
+            ClearLogoLegibilityMode.smartInvert,
+          )
+          ..put(
+            '${workHalo.id}|${workHalo.logoPath}',
+            ClearLogoLegibilityMode.softHalo,
+          );
+
+        // 1. 验证单色深黑 ClearLogo 启用保色相亮度反相滤镜，且保持唯一 ManagedImage
+        await tester.pumpWidget(
+          _wrapApp(
+            Scaffold(
+              backgroundColor: KonataTheme.cinemaObsidian,
+              body: Center(
+                child: DetailLockedClearLogo(
+                  key: const ValueKey('detail_hero_locked_logo'),
+                  work: workInvert,
+                  imageLoader: (_, {targetWidth, imageSize}) async =>
+                      _sample1x1Png,
+                  maxHeight: 80,
+                  maxWidth: 340,
+                ),
+              ),
+            ),
+            overrides: [
+              clearLogoLegibilityCacheProvider.overrideWithValue(cache),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('detail_clear_logo_smart_invert')),
+          findsOneWidget,
+        );
+        expect(find.byType(ManagedImage), findsOneWidget);
+
+        // 2. 验证深彩色无白边 ClearLogo 启用字形轮廓霜白背晕（双层 ImageFiltered），仍保持唯一 ManagedImage
+        await tester.pumpWidget(
+          _wrapApp(
+            Scaffold(
+              backgroundColor: KonataTheme.cinemaObsidian,
+              body: Center(
+                child: DetailLockedClearLogo(
+                  key: const ValueKey('detail_hero_locked_logo'),
+                  work: workHalo,
+                  imageLoader: (_, {targetWidth, imageSize}) async =>
+                      _sample1x1Png,
+                  maxHeight: 80,
+                  maxWidth: 340,
+                ),
+              ),
+            ),
+            overrides: [
+              clearLogoLegibilityCacheProvider.overrideWithValue(cache),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('detail_clear_logo_soft_halo')),
+          findsOneWidget,
+        );
+        expect(find.byType(ImageFiltered), findsNWidgets(2));
+        expect(find.byType(ManagedImage), findsOneWidget);
+
+        // 3. 验证桌面宽屏详情页使用左下角定向斜向柔晕（不再使用从顶到底全高左暗帘压暗左上人物）
+        await tester.pumpWidget(const SizedBox.shrink());
+        final db = KonataDatabase(NativeDatabase.memory());
+        final repo = DriftLibraryRepository(db);
+        await repo.upsertWork(workInvert);
+        await tester.pumpWidget(
+          _wrapApp(
+            const WorkDetailPage(workId: 'w_fmp'),
+            overrides: [
+              libraryRepositoryProvider.overrideWithValue(repo),
+              clearLogoLegibilityCacheProvider.overrideWithValue(cache),
+              tmdbImageLoaderProvider.overrideWithValue(
+                (_, {targetWidth, imageSize}) async => _sample1x1Png,
+              ),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
+        final cornerScrim = tester.widget<DecoratedBox>(
+          find.byKey(const ValueKey('detail_wide_corner_scrim')),
+        );
+        final gradient =
+            (cornerScrim.decoration as BoxDecoration).gradient!
+                as LinearGradient;
+        expect(gradient.begin, Alignment.bottomLeft);
+        expect(gradient.end, isNot(Alignment.centerRight));
+
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.runAsync(db.close);
+      },
+    );
   });
 }

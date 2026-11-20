@@ -340,19 +340,19 @@ class DetailLandscapeHeroBanner extends StatelessWidget {
                 ),
               ),
             ),
-          // 整体左暗晕承托文字可读性
+          // 左下角定向柔晕承托文字可读性，保留左上原画通透色彩
           IgnorePointer(
             child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                  stops: const [0.0, 0.42, 0.78, 1.0],
+                  begin: Alignment.bottomLeft,
+                  end: const Alignment(0.12, -0.05),
+                  stops: const [0.0, 0.44, 0.80, 1.0],
                   colors: [
-                    KonataTheme.cinemaObsidian.withValues(alpha: 0.92),
-                    KonataTheme.cinemaObsidian.withValues(alpha: 0.56),
+                    KonataTheme.cinemaObsidian.withValues(alpha: 0.80),
+                    KonataTheme.cinemaObsidian.withValues(alpha: 0.42),
+                    KonataTheme.cinemaObsidian.withValues(alpha: 0.10),
                     Colors.transparent,
-                    KonataTheme.cinemaObsidian.withValues(alpha: 0.62),
                   ],
                 ),
               ),

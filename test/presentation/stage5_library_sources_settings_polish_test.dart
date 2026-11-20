@@ -1,22 +1,57 @@
+import 'dart:io';
 import 'dart:ui' show PointerDeviceKind;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:ccplayer/application/playback/playback_preferences_provider.dart';
 import 'package:ccplayer/application/providers/desktop_external_tools_providers.dart';
 import 'package:ccplayer/application/providers/library_providers.dart';
 import 'package:ccplayer/application/providers/theme_providers.dart';
 import 'package:ccplayer/domain/models/external_player_config.dart';
 import 'package:ccplayer/domain/models/work.dart';
+import 'package:ccplayer/infrastructure/storage/storage_root_provider.dart';
 import 'package:ccplayer/presentation/library/poster_card.dart';
 import 'package:ccplayer/presentation/settings/settings_appearance_panel.dart';
 import 'package:ccplayer/presentation/settings/settings_external_tools_panel.dart';
+import 'package:ccplayer/presentation/settings/settings_players_panel.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
 import 'package:ccplayer/presentation/widgets/design_system/bangumi_score_wordmark_badge.dart';
+import 'package:ccplayer/presentation/widgets/design_system/konata_system_file_picker.dart';
+
+final class _MemoryPlatformFile extends PlatformFile {
+  _MemoryPlatformFile({required this.name, required Uint8List content})
+    : _bytes = content;
+
+  @override
+  final String name;
+
+  final Uint8List _bytes;
+
+  @override
+  Uri get uri => Uri.parse('content://konata.test/shaders/$name');
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
+  @override
+  int? lengthSync() => _bytes.length;
+
+  @override
+  Future<int?> length() async => _bytes.length;
+
+  @override
+  Future<Uint8List> readAsBytes() async => _bytes;
+
+  @override
+  Stream<Uint8List> readAsByteStream() => Stream<Uint8List>.value(_bytes);
+}
 
 final Uint8List _sample1x1Png = Uint8List.fromList(const <int>[
   0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
@@ -220,5 +255,168 @@ void main() {
       await tester.pumpAndSettle();
       debugDefaultTargetPlatformOverride = null;
     });
+
+    testWidgets(
+      'libsoxr 精度仅在 Windows 展示并在 Android 隐藏；Android 完整支持多选导入、启用与长按删除 GLSL 着色器',
+      (tester) async {
+        final tempRoot = Directory.systemTemp.createTempSync(
+          'konata_android_shaders_',
+        );
+        addTearDown(() {
+          debugDefaultTargetPlatformOverride = null;
+          if (tempRoot.existsSync()) {
+            tempRoot.deleteSync(recursive: true);
+          }
+        });
+        tester.view.physicalSize = const Size(900, 1200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+
+        final fakePicker = KonataSystemFilePicker(
+          pickFilesImpl: ({
+            dialogTitle,
+            initialDirectory,
+            type = FileType.any,
+            allowedExtensions,
+            windowsOptions = const WindowsOptions(),
+          }) async => [
+            _MemoryPlatformFile(
+              name: 'Anime4K:Restore_M.glsl',
+              content: Uint8List.fromList('// anime4k glsl\n'.codeUnits),
+            ),
+            _MemoryPlatformFile(
+              name: 'readme.txt',
+              content: Uint8List.fromList('hello'.codeUnits),
+            ),
+          ],
+        );
+
+        // 1. Windows 端：显示 libsoxr 下拉框与「打开目录」，不显示 Android 专属「导入着色器」
+        debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+        await tester.pumpWidget(
+          _wrapApp(
+            const SingleChildScrollView(
+              padding: EdgeInsets.all(20),
+              child: SettingsPlayersPanel(),
+            ),
+            overrides: [
+              storageRootProvider.overrideWithValue(
+                StorageRootService(overrideRoot: tempRoot),
+              ),
+              konataSystemFilePickerProvider.overrideWithValue(fakePicker),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('libsoxr 音频重采样精度'), findsOneWidget);
+        expect(find.text('打开目录'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('settings_import_shader_button')),
+          findsNothing,
+        );
+
+        // 2. Android 端：隐藏无效的 libsoxr 精度选项，呈现「导入着色器」并完成导入 -> 激活 -> 长按删除闭环
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+
+        final container = ProviderContainer(
+          overrides: [
+            storageRootProvider.overrideWithValue(
+              StorageRootService(overrideRoot: tempRoot),
+            ),
+            konataSystemFilePickerProvider.overrideWithValue(fakePicker),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              locale: const Locale('zh', 'CN'),
+              supportedLocales: const [Locale('zh', 'CN')],
+              localizationsDelegates: GlobalMaterialLocalizations.delegates,
+              theme: KonataTheme.darkTheme(),
+              home: const Scaffold(
+                body: SingleChildScrollView(
+                  padding: EdgeInsets.all(20),
+                  child: SettingsPlayersPanel(),
+                ),
+              ),
+            ),
+          ),
+        );
+        Future<void> flushRealIo() async {
+          for (var i = 0; i < 20; i++) {
+            await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 10)),
+            );
+            await tester.pump();
+          }
+          await tester.pumpAndSettle();
+        }
+
+        await flushRealIo();
+
+        expect(find.text('libsoxr 音频重采样精度'), findsNothing);
+        expect(find.text('打开目录'), findsNothing);
+        final importBtn = find.byKey(
+          const ValueKey('settings_import_shader_button'),
+        );
+        expect(importBtn, findsOneWidget);
+
+        await tester.ensureVisible(importBtn);
+        await tester.pumpAndSettle();
+        await tester.tap(importBtn);
+        await tester.pump();
+        await flushRealIo();
+
+        // 非法 .txt 已过滤，冒号已清洗为下划线并落盘至 userdata/shaders/
+        const sanitizedName = 'Anime4K_Restore_M.glsl';
+        final importedFile = File(
+          p.join(tempRoot.path, 'userdata', 'shaders', sanitizedName),
+        );
+        expect(importedFile.existsSync(), isTrue);
+        expect(find.text(sanitizedName), findsOneWidget);
+        expect(find.text('readme.txt'), findsNothing);
+
+        // 单击胶囊启用着色器
+        await tester.ensureVisible(find.text(sanitizedName));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(sanitizedName));
+        await tester.pumpAndSettle();
+        expect(
+          container
+              .read(playbackPreferencesProvider)
+              .qualityConfig
+              .activeShaderPaths,
+          contains(importedFile.path),
+        );
+
+        // 长按胶囊弹出毛玻璃菜单并删除着色器文件（同步移出激活列表）
+        await tester.longPress(find.text(sanitizedName));
+        await tester.pumpAndSettle();
+        final deleteMenuItem = find.byKey(const ValueKey('shader_menu_delete'));
+        expect(deleteMenuItem, findsOneWidget);
+        await tester.tap(deleteMenuItem);
+        await tester.pump();
+        await flushRealIo();
+
+        expect(importedFile.existsSync(), isFalse);
+        expect(find.text(sanitizedName), findsNothing);
+        expect(
+          container
+              .read(playbackPreferencesProvider)
+              .qualityConfig
+              .activeShaderPaths,
+          isNot(contains(importedFile.path)),
+        );
+
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
   });
 }

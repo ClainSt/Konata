@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -16,11 +17,13 @@ import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/adaptive_responsive_row.dart';
 import '../widgets/design_system/konata_dropdown.dart';
+import '../widgets/design_system/konata_glass_menu.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/design_system/konata_switch.dart';
+import '../widgets/design_system/konata_system_file_picker.dart';
 import '../widgets/design_system/konata_toast.dart';
 import '../widgets/playback/konata_audiophile_unlock_dialog.dart';
 import '../widgets/playback/konata_spec_badge.dart';
@@ -105,6 +108,93 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
       if (mounted) {
         showKonataToast(context, '打开目录失败：$e', isError: true);
       }
+    }
+  }
+
+  Future<void> _importShaders() async {
+    try {
+      // Android SAF 未注册 .glsl/.hook 的 MIME 类型，使用 FileType.any 配合后置扩展名校验避免文件灰显不可选。
+      final picked = await ref
+          .read(konataSystemFilePickerProvider)
+          .pickFiles(
+            dialogTitle: '选择 GLSL / HOOK 着色器脚本',
+            type: FileType.any,
+          );
+      if (picked.isEmpty || !mounted) return;
+      final sources = [
+        for (final f in picked)
+          ShaderImportSource(
+            name: f.name,
+            sourcePath: f.path,
+            readBytes: f.readAsBytes,
+          ),
+      ];
+      final result = await ref
+          .read(shaderDiscoveryProvider.notifier)
+          .importShaderFiles(sources);
+      if (!mounted) return;
+      if (result.imported.isNotEmpty) {
+        final extra = result.skippedUnsupported > 0
+            ? '（已忽略 ${result.skippedUnsupported} 个非 .glsl/.hook 文件）'
+            : '';
+        showKonataToast(context, '已导入 ${result.imported.length} 个着色器脚本$extra');
+      } else if (result.skippedUnsupported > 0) {
+        showKonataToast(
+          context,
+          '所选文件均不是 .glsl 或 .hook 着色器脚本',
+          isError: true,
+        );
+      } else if (result.failedCount > 0) {
+        showKonataToast(context, '导入着色器失败，请检查文件是否可读', isError: true);
+      }
+    } catch (e) {
+      if (mounted) {
+        showKonataToast(context, '导入着色器失败：$e', isError: true);
+      }
+    }
+  }
+
+  Future<void> _showShaderActionsMenu(
+    BuildContext anchorContext, {
+    required ShaderFileEntry file,
+    required bool selected,
+    required PlaybackPreferencesNotifier notifier,
+  }) async {
+    final action = await showKonataGlassMenu<String>(
+      anchorContext: anchorContext,
+      items: [
+        KonataGlassMenuItem<String>(
+          key: const ValueKey('shader_menu_toggle'),
+          value: 'toggle',
+          label: selected ? '停用此着色器' : '启用此着色器',
+          icon: selected
+              ? Icons.visibility_off_outlined
+              : Icons.check_circle_outline_rounded,
+        ),
+        const KonataGlassMenuItem<String>(
+          key: ValueKey('shader_menu_delete'),
+          value: 'delete',
+          label: '删除着色器文件',
+          icon: Icons.delete_outline_rounded,
+          isDanger: true,
+        ),
+      ],
+    );
+    if (!mounted || action == null) return;
+    if (action == 'toggle') {
+      await notifier.toggleShaderPath(file.path, !selected);
+      return;
+    }
+    if (action == 'delete') {
+      final ok = await ref
+          .read(shaderDiscoveryProvider.notifier)
+          .deleteShaderFile(file.path);
+      if (!mounted) return;
+      showKonataToast(
+        context,
+        ok ? '已删除着色器：${file.name}' : '删除着色器失败',
+        isError: !ok,
+      );
     }
   }
 
@@ -468,21 +558,21 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                       onChanged: notifier.setDefaultAudioEngine,
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  Text('libsoxr 音频重采样精度', style: KonataTheme.captionStyle(p)),
+                  const SizedBox(height: 6),
+                  KonataDropdown<int>(
+                    dense: true,
+                    value: q.audioResamplerPrecision,
+                    options: const [
+                      KonataDropdownOption(value: 16, label: '16-bit 标准实时'),
+                      KonataDropdownOption(value: 24, label: '24-bit 清晰线性相位'),
+                      KonataDropdownOption(value: 28, label: '28-bit 高保真推荐 (默认)'),
+                      KonataDropdownOption(value: 33, label: '33-bit 极限解析度'),
+                    ],
+                    onChanged: notifier.setAudioResamplerPrecision,
+                  ),
                 ],
-                const SizedBox(height: 12),
-                Text('libsoxr 音频重采样精度', style: KonataTheme.captionStyle(p)),
-                const SizedBox(height: 6),
-                KonataDropdown<int>(
-                  dense: true,
-                  value: q.audioResamplerPrecision,
-                  options: const [
-                    KonataDropdownOption(value: 16, label: '16-bit 标准实时'),
-                    KonataDropdownOption(value: 24, label: '24-bit 清晰线性相位'),
-                    KonataDropdownOption(value: 28, label: '28-bit 高保真推荐 (默认)'),
-                    KonataDropdownOption(value: 33, label: '33-bit 极限解析度'),
-                  ],
-                  onChanged: notifier.setAudioResamplerPrecision,
-                ),
               ],
             ),
           ),
@@ -625,7 +715,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                 AdaptiveResponsiveRow(
                   estimatedTrailingWidth: KonataAdaptiveTokens.isWindows
                       ? 176
-                      : 84,
+                      : 192,
                   minLeadingWidth: 140,
                   leading: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -636,7 +726,9 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '放入 userdata/shaders/ 下的 .glsl/.hook 文件（已识别 ${shaders.files.length} 个）',
+                        KonataAdaptiveTokens.isAndroid
+                            ? '点击导入 .glsl/.hook 超分脚本（如 Anime4K，已识别 ${shaders.files.length} 个；长按可删除）'
+                            : '放入 userdata/shaders/ 下的 .glsl/.hook 文件（已识别 ${shaders.files.length} 个）',
                         style: KonataTheme.captionStyle(p),
                       ),
                     ],
@@ -664,6 +756,14 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                           icon: Icons.folder_open_rounded,
                           compact: true,
                           onPressed: _openShadersFolder,
+                        )
+                      else
+                        KonataPillButton.secondary(
+                          key: const ValueKey('settings_import_shader_button'),
+                          label: '导入着色器',
+                          icon: Icons.file_upload_outlined,
+                          compact: true,
+                          onPressed: _importShaders,
                         ),
                     ],
                   ),
@@ -675,13 +775,28 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                     runSpacing: KonataAdaptiveTokens.safeGap,
                     children: [
                       for (final file in shaders.files)
-                        _ShaderTogglePill(
-                          label: file.name,
-                          selected: q.activeShaderPaths.contains(file.path),
-                          onTap: () => notifier.toggleShaderPath(
-                            file.path,
-                            !q.activeShaderPaths.contains(file.path),
-                          ),
+                        Builder(
+                          builder: (pillCtx) {
+                            final isSelected = q.activeShaderPaths.contains(
+                              file.path,
+                            );
+                            return _ShaderTogglePill(
+                              label: file.name,
+                              selected: isSelected,
+                              onTap: () => notifier.toggleShaderPath(
+                                file.path,
+                                !isSelected,
+                              ),
+                              onShowMenu: () => unawaited(
+                                _showShaderActionsMenu(
+                                  pillCtx,
+                                  file: file,
+                                  selected: isSelected,
+                                  notifier: notifier,
+                                ),
+                              ),
+                            );
+                          },
                         ),
                     ],
                   ),
@@ -700,11 +815,13 @@ class _ShaderTogglePill extends StatefulWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    required this.onShowMenu,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final VoidCallback onShowMenu;
 
   @override
   State<_ShaderTogglePill> createState() => _ShaderTogglePillState();
@@ -732,6 +849,8 @@ class _ShaderTogglePillState extends State<_ShaderTogglePill> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
+        onLongPress: widget.onShowMenu,
+        onSecondaryTap: widget.onShowMenu,
         child: AnimatedContainer(
           constraints: KonataAdaptiveTokens.isAndroid
               ? const BoxConstraints(

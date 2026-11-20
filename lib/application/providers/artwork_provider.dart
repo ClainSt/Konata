@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -22,7 +23,25 @@ import 'scraping_providers.dart';
 class ArtworkMemoryCaches {
   final Map<String, (int, int)> originalDimensions = {};
   final Map<String, Uint8List> audioAlbumCovers = {};
+  final Map<String, Uint8List> audioDirAlbumCovers = {};
   final Set<String> missingLocalAlbumCoverKeys = {};
+  final Set<String> missingDirAlbumCoverKeys = {};
+  final Map<String, Future<Uint8List?>> _inFlightDirCoverLoads = {};
+  Future<void> _remoteCoverSerialTail = Future<void>.value();
+
+  /// 计算音频所属专辑目录的标准化共享缓存键（同目录所有曲目共享单张专辑封面）。
+  static String dirKeyOf(String sourceId, String relativePath) {
+    final normRel = relativePath.replaceAll('\\', '/');
+    final dir = path_util.posix.dirname(normRel);
+    final normalizedDir = dir == '.' ? '' : dir;
+    return '$sourceId::$normalizedDir';
+  }
+
+  /// 生成用于 `<workPhotoDir>/thumbnails/` 的确定性专辑封面磁盘缓存文件名。
+  static String albumCoverDiskFileKey(String sourceId, String relativePath) {
+    final dirKey = dirKeyOf(sourceId, relativePath);
+    return 'album_cover_${PhotosStorage.shortDigest(dirKey)}.bin';
+  }
 
   /// 缓存图片原始像素尺寸，超限时按 FIFO 淘汰最早条目。
   void putOriginalDimensions(String key, (int, int) dims) {
@@ -32,13 +51,55 @@ class ArtworkMemoryCaches {
     originalDimensions[key] = dims;
   }
 
-  /// 缓存音频专辑封面字节，超限时按 FIFO 淘汰最早条目。
+  /// 同步查询曲目级或目录级已缓存的专辑封面字节（0ms 命中）。
+  Uint8List? findAudioAlbumCover({
+    required String sourceId,
+    required String relativePath,
+    String? variantId,
+  }) {
+    final dirKey = dirKeyOf(sourceId, relativePath);
+    if (variantId != null && variantId.isNotEmpty) {
+      final exact = audioAlbumCovers['$dirKey::$variantId'];
+      if (exact != null && exact.isNotEmpty) return exact;
+    }
+    final byDir = audioDirAlbumCovers[dirKey];
+    if (byDir != null && byDir.isNotEmpty) return byDir;
+    final dirPrefix = '$dirKey::';
+    for (final entry in audioAlbumCovers.entries) {
+      if (entry.key.startsWith(dirPrefix) && entry.value.isNotEmpty) {
+        return entry.value;
+      }
+    }
+    return null;
+  }
+
+  /// 缓存音频专辑封面字节（同步写入曲目键与目录共享键），超限时按 FIFO 淘汰最早条目。
   void putAudioAlbumCover(String key, Uint8List bytes) {
+    if (bytes.isEmpty) return;
     if (audioAlbumCovers.length >= 64) {
       audioAlbumCovers.remove(audioAlbumCovers.keys.first);
     }
     missingLocalAlbumCoverKeys.remove(key);
     audioAlbumCovers[key] = bytes;
+  }
+
+  /// 写入专辑目录级共享封面（供详情页 CD 卡片、播放记录与全屏音频页三处互通）。
+  void putAudioAlbumCoverForDir({
+    required String sourceId,
+    required String relativePath,
+    required Uint8List bytes,
+    String? variantId,
+  }) {
+    if (bytes.isEmpty) return;
+    final dirKey = dirKeyOf(sourceId, relativePath);
+    missingDirAlbumCoverKeys.remove(dirKey);
+    if (audioDirAlbumCovers.length >= 64) {
+      audioDirAlbumCovers.remove(audioDirAlbumCovers.keys.first);
+    }
+    audioDirAlbumCovers[dirKey] = bytes;
+    if (variantId != null && variantId.isNotEmpty) {
+      putAudioAlbumCover('$dirKey::$variantId', bytes);
+    }
   }
 
   /// 标记本地音频条目暂无专属封面，避免列表滚动重复扫盘。
@@ -47,6 +108,42 @@ class ArtworkMemoryCaches {
       missingLocalAlbumCoverKeys.remove(missingLocalAlbumCoverKeys.first);
     }
     missingLocalAlbumCoverKeys.add(key);
+  }
+
+  /// 标记整张专辑目录暂无专属封面，避免同专辑曲目重复发起远程探测。
+  void markMissingDirAlbumCover(String dirKey) {
+    if (missingDirAlbumCoverKeys.length >= 256) {
+      missingDirAlbumCoverKeys.remove(missingDirAlbumCoverKeys.first);
+    }
+    missingDirAlbumCoverKeys.add(dirKey);
+  }
+
+  /// 对同一专辑目录执行单次去重（Single-Flight）封面提取，防止同专辑多张卡片并发重复请求。
+  Future<Uint8List?> deduplicateDirCoverLoad(
+    String dirKey,
+    Future<Uint8List?> Function() loader,
+  ) {
+    final existing = _inFlightDirCoverLoads[dirKey];
+    if (existing != null) return existing;
+    final future = loader().whenComplete(() {
+      _inFlightDirCoverLoads.remove(dirKey);
+    });
+    _inFlightDirCoverLoads[dirKey] = future;
+    return future;
+  }
+
+  /// 严格单通道串行（并发 = 1）执行远程 WebDAV / SMB 专辑封面拉取，防止请求风暴。
+  Future<T> runRemoteCoverSerial<T>(Future<T> Function() task) {
+    final completer = Completer<T>();
+    final prev = _remoteCoverSerialTail;
+    _remoteCoverSerialTail = prev.whenComplete(() async {
+      try {
+        completer.complete(await task());
+      } catch (e, st) {
+        completer.completeError(e, st);
+      }
+    });
+    return completer.future;
   }
 }
 
@@ -150,7 +247,7 @@ final tmdbImageLoaderProvider = Provider<ManagedImageLoader>((ref) {
   });
 });
 
-/// 音频播放记录专属专辑封面异步加载器（优先目录 Folder/Cover，其次内嵌 CD 封面；无专属图返回 `null`）。
+/// 音频播放记录专属专辑封面异步加载器（优先内存与 `photos/` 磁盘缓存，未命中再查目录与内嵌封面）。
 final audioRecordAlbumCoverProvider = FutureProvider.autoDispose
     .family<Uint8List?, ({String workId, String variantId})>((ref, args) async {
       if (args.variantId.trim().isEmpty) return null;
@@ -175,66 +272,153 @@ final audioRecordAlbumCoverProvider = FutureProvider.autoDispose
       }
       if (source == null) return null;
 
-      final dir = path_util.posix.dirname(
-        variant.relativePath.replaceAll('\\', '/'),
-      );
-      final cacheKey = '${source.id}::${dir == '.' ? '' : dir}::${variant.id}';
       final caches = ref.read(artworkMemoryCachesProvider);
-      final cached = caches.audioAlbumCovers[cacheKey];
-      if (cached != null) return cached;
-
-      final gatewayFactory = ref.read(mediaSourceGatewayFactoryProvider);
-      final bytes = await AudioAssetExtractor.resolveAlbumCoverBytes(
-        source: source,
-        variant: variant,
-        gatewayFactory: gatewayFactory,
+      final memHit = caches.findAudioAlbumCover(
+        sourceId: source.id,
+        relativePath: variant.relativePath,
+        variantId: variant.id,
       );
+      if (memHit != null) return memHit;
+
+      final photos = ref.read(photosStorageProvider);
+      final diskKey = ArtworkMemoryCaches.albumCoverDiskFileKey(
+        source.id,
+        variant.relativePath,
+      );
+      final diskHit = await photos.readArtwork(
+        workId: args.workId,
+        subfolder: PhotoSubfolder.thumbnails,
+        fileKey: diskKey,
+      );
+      if (diskHit != null && diskHit.isNotEmpty) {
+        caches.putAudioAlbumCoverForDir(
+          sourceId: source.id,
+          relativePath: variant.relativePath,
+          variantId: variant.id,
+          bytes: diskHit,
+        );
+        return diskHit;
+      }
+
+      final dirKey = ArtworkMemoryCaches.dirKeyOf(
+        source.id,
+        variant.relativePath,
+      );
+      final targetSource = source;
+      final targetVariant = variant;
+      final gatewayFactory = ref.read(mediaSourceGatewayFactoryProvider);
+      final bytes = await caches.deduplicateDirCoverLoad(dirKey, () async {
+        Future<Uint8List?> fetch() => AudioAssetExtractor.resolveAlbumCoverBytes(
+          source: targetSource,
+          variant: targetVariant,
+          gatewayFactory: gatewayFactory,
+        );
+        return targetSource.kind == MediaSourceKind.local
+            ? await fetch()
+            : await caches.runRemoteCoverSerial(fetch);
+      });
       if (bytes != null && bytes.isNotEmpty) {
-        caches.putAudioAlbumCover(cacheKey, bytes);
+        caches.putAudioAlbumCoverForDir(
+          sourceId: targetSource.id,
+          relativePath: targetVariant.relativePath,
+          variantId: targetVariant.id,
+          bytes: bytes,
+        );
+        unawaited(
+          photos
+              .writeArtwork(
+                workId: args.workId,
+                subfolder: PhotoSubfolder.thumbnails,
+                fileKey: diskKey,
+                bytes: bytes,
+              )
+              .catchError((_) => null),
+        );
         return bytes;
       }
       return null;
     });
 
 /// CD 卡片专辑封面安全加载器：
-/// - 所有媒体源优先零开销命中内存缓存；
-/// - 仅对本地磁盘源按需读取目录封面或内嵌封面，严禁向 WebDAV / SMB 发起列表探测风暴。
+/// - 所有媒体源优先 0ms 命中内存缓存与 `photos/<作品>/thumbnails/` 本地磁盘缓存；
+/// - 未命中时按专辑目录 Single-Flight 去重；远程 WebDAV / SMB 严格单通道串行（并发 = 1），
+///   杜绝并发风暴并让同张专辑下全部曲目共享一次探测结果。
 final cdCardAlbumCoverProvider = FutureProvider.autoDispose
     .family<Uint8List?, ({MediaSource source, MediaVariant variant})>((
       ref,
       args,
     ) async {
-      final dir = path_util.posix.dirname(
-        args.variant.relativePath.replaceAll('\\', '/'),
-      );
-      final normalizedDir = dir == '.' ? '' : dir;
-      final cacheKey = '${args.source.id}::$normalizedDir::${args.variant.id}';
-      final dirPrefix = '${args.source.id}::$normalizedDir::';
       final caches = ref.read(artworkMemoryCachesProvider);
-      final exact = caches.audioAlbumCovers[cacheKey];
-      if (exact != null && exact.isNotEmpty) return exact;
-      // 复用同目录已缓存封面（同张专辑各曲目共享目录封面，零重复 IO）
-      for (final entry in caches.audioAlbumCovers.entries) {
-        if (entry.key.startsWith(dirPrefix) && entry.value.isNotEmpty) {
-          return entry.value;
-        }
-      }
-      if (args.source.kind != MediaSourceKind.local) {
-        return null;
-      }
-      if (caches.missingLocalAlbumCoverKeys.contains(cacheKey)) {
-        return null;
-      }
-      final gatewayFactory = ref.read(mediaSourceGatewayFactoryProvider);
-      final bytes = await AudioAssetExtractor.resolveAlbumCoverBytes(
-        source: args.source,
-        variant: args.variant,
-        gatewayFactory: gatewayFactory,
+      final dirKey = ArtworkMemoryCaches.dirKeyOf(
+        args.source.id,
+        args.variant.relativePath,
       );
+      final memHit = caches.findAudioAlbumCover(
+        sourceId: args.source.id,
+        relativePath: args.variant.relativePath,
+        variantId: args.variant.id,
+      );
+      if (memHit != null) return memHit;
+      if (caches.missingDirAlbumCoverKeys.contains(dirKey)) {
+        return null;
+      }
+
+      final photos = ref.read(photosStorageProvider);
+      final diskKey = ArtworkMemoryCaches.albumCoverDiskFileKey(
+        args.source.id,
+        args.variant.relativePath,
+      );
+      final diskHit = await photos.readArtwork(
+        workId: args.variant.workId,
+        subfolder: PhotoSubfolder.thumbnails,
+        fileKey: diskKey,
+      );
+      if (diskHit != null && diskHit.isNotEmpty) {
+        caches.putAudioAlbumCoverForDir(
+          sourceId: args.source.id,
+          relativePath: args.variant.relativePath,
+          variantId: args.variant.id,
+          bytes: diskHit,
+        );
+        return diskHit;
+      }
+
+      final gatewayFactory = ref.read(mediaSourceGatewayFactoryProvider);
+      final bytes = await caches.deduplicateDirCoverLoad(dirKey, () async {
+        final again = caches.findAudioAlbumCover(
+          sourceId: args.source.id,
+          relativePath: args.variant.relativePath,
+          variantId: args.variant.id,
+        );
+        if (again != null) return again;
+        Future<Uint8List?> fetch() => AudioAssetExtractor.resolveAlbumCoverBytes(
+          source: args.source,
+          variant: args.variant,
+          gatewayFactory: gatewayFactory,
+        );
+        return args.source.kind == MediaSourceKind.local
+            ? await fetch()
+            : await caches.runRemoteCoverSerial(fetch);
+      });
       if (bytes != null && bytes.isNotEmpty) {
-        caches.putAudioAlbumCover(cacheKey, bytes);
+        caches.putAudioAlbumCoverForDir(
+          sourceId: args.source.id,
+          relativePath: args.variant.relativePath,
+          variantId: args.variant.id,
+          bytes: bytes,
+        );
+        unawaited(
+          photos
+              .writeArtwork(
+                workId: args.variant.workId,
+                subfolder: PhotoSubfolder.thumbnails,
+                fileKey: diskKey,
+                bytes: bytes,
+              )
+              .catchError((_) => null),
+        );
         return bytes;
       }
-      caches.markMissingLocalAlbumCover(cacheKey);
+      caches.markMissingDirAlbumCover(dirKey);
       return null;
     });

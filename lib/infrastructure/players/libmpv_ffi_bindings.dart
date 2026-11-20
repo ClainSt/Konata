@@ -11,6 +11,7 @@ abstract final class MpvError {
   static const int aoInitFailed = -14;
   static const int voInitFailed = -15;
   static const int nothingToPlay = -16;
+  static const int unknownFormat = -17;
 
   /// 将 libmpv 结束错误码转译为准确的简体中文音频诊断说明。
   static String describeAudioError(int errorCode) {
@@ -18,7 +19,20 @@ abstract final class MpvError {
       nothingToPlay => '未找到可播放音轨或音频流未被选中 (code: $nothingToPlay)',
       loadingFailed => '音频流打开或解复用失败 (code: $loadingFailed)',
       aoInitFailed => '音频输出设备初始化失败 (code: $aoInitFailed)',
+      unknownFormat => '无法识别的音频封装或数据流为空 (code: $unknownFormat)',
       _ => '音频加载或播放异常 (code: $errorCode)',
+    };
+  }
+
+  /// 将 libmpv 结束错误码转译为准确的简体中文视频诊断说明。
+  static String describeVideoError(int errorCode) {
+    return switch (errorCode) {
+      nothingToPlay => '未找到可播放视频或音轨 (code: $nothingToPlay)',
+      loadingFailed => '视频流打开失败，请检查文件或网络源是否可用 (code: $loadingFailed)',
+      aoInitFailed => '音频输出设备初始化失败 (code: $aoInitFailed)',
+      voInitFailed => '视频渲染输出初始化失败 (code: $voInitFailed)',
+      unknownFormat => '无法识别的视频封装格式或媒体流为空 (code: $unknownFormat)',
+      _ => '视频加载或播放异常 (code: $errorCode)',
     };
   }
 }

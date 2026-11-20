@@ -858,7 +858,10 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage>
             Center(
               child: _ErrorFallbackCard(
                 message: snap.errorMessage!,
-                showExternalButton: KonataAdaptiveTokens.isWindows,
+                showExternalButton:
+                    KonataAdaptiveTokens.isWindows &&
+                    controller.errorAllowsExternalRelay,
+                onRetry: () => unawaited(controller.retryCurrentEpisode()),
                 onRelayExternal: _relayToExternal,
                 onBack: _closeSessionAndExit,
               ),

@@ -33,8 +33,8 @@ enum VideoQualityPreset {
 ///
 /// 使用跨端中性的配置键，避免 Android AOT 产物残留平台专属后端符号。
 enum VideoOutputPipelineMode {
-  /// 默认原生 `vo=gpu-next` (`libplacebo` 10-bit/HDR 翻转交换链 + 底层子窗口挖空直出)。
-  gpuNextUnderlay('gpu_next', '10-bit/HDR 直通 (vo=gpu-next)'),
+  /// 原生 `vo=gpu-next` (`libplacebo` 10-bit/HDR 翻转交换链独立子窗口)。
+  gpuNextUnderlay('gpu_next', '10-bit/HDR 子窗口直通 (vo=gpu-next)'),
 
   /// 底层 10-bit 翻转模型交换链视觉层直出。
   layered10Bit('comp_10bit', '10-bit 底层合成交换链'),
@@ -42,8 +42,8 @@ enum VideoOutputPipelineMode {
   /// 底层 16-bit scRGB HDR 交换链视觉层直出。
   layeredFp16('comp_fp16', '16-bit HDR 底层合成交换链'),
 
-  /// 老旧驱动兼容回退：高精内部 FBO 经 IGN 抖动解析至 8-bit 共享纹理。
-  legacyTextureFallback('texture_fallback', '8-bit 兼容共享纹理回退');
+  /// 默认高精共享纹理合成：16-bit FP16 内部 FBO 经 IGN 抖动与 Flutter 场景树同层合成（零遮挡、圆角抗锯齿）。
+  legacyTextureFallback('texture_fallback', '16-bit 共享纹理合成（推荐，零遮挡）');
 
   const VideoOutputPipelineMode(this.bridgeKey, this.label);
 
@@ -53,7 +53,7 @@ enum VideoOutputPipelineMode {
   /// 简体中文界面展示名称。
   final String label;
 
-  /// 按持久化键名或枚举名安全解析渲染后端（未知值回落默认真 10-bit 直通）。
+  /// 按持久化键名或枚举名安全解析渲染后端（未知值回落默认 16-bit 共享纹理合成）。
   static VideoOutputPipelineMode parse(
     Object? raw, {
     MpvPlatformProfileDelegate? delegate,
@@ -66,7 +66,7 @@ enum VideoOutputPipelineMode {
         }
       }
     }
-    return VideoOutputPipelineMode.gpuNextUnderlay;
+    return VideoOutputPipelineMode.legacyTextureFallback;
   }
 }
 
@@ -132,7 +132,7 @@ class PlaybackQualityConfig {
   /// 创建画质与音画偏好配置。
   const PlaybackQualityConfig({
     this.preset = VideoQualityPreset.highFidelity,
-    this.outputPipelineMode = VideoOutputPipelineMode.gpuNextUnderlay,
+    this.outputPipelineMode = VideoOutputPipelineMode.legacyTextureFallback,
     this.hardwareDecode = true,
     this.debandEnabled = false,
     this.demuxerMaxBytesMiB = defaultDemuxerMaxBytesMiB,

@@ -201,17 +201,26 @@ abstract final class KonataPlaybackTokens {
   );
   static const double specBadgeFontSize = 11.0;
 
-  /// 全端统一可拖拽音视频悬浮小窗几何、动态比例、贴边收折与手机底栏协同常量。
+  /// 全端统一可拖拽音视频悬浮小窗几何、按视口尺寸连续缩放、贴边收折与手机底栏协同常量。
   static const double floatingMiniVideoWidth = 256.0;
   static const double floatingMiniVideoHeight = 144.0;
-  static const double floatingMiniVideoLongSideDesktop = 256.0;
+  static const double floatingMiniVideoLongSideDesktop = 360.0;
   static const double floatingMiniVideoLongSidePhone = 208.0;
+  static const double floatingMiniVideoLongSideMin = 208.0;
+  static const double floatingMiniVideoLongSideMax = 384.0;
+  static const double floatingMiniVideoViewportRatio = 0.48;
   static const double floatingMiniVideoAspectRatioMin = 0.42;
   static const double floatingMiniVideoAspectRatioMax = 2.39;
   static const double floatingMiniAudioDiscSize = 56.0;
+  static const double floatingMiniAudioDiscMaxSize = 72.0;
+  static const double floatingMiniAudioDiscViewportRatio = 0.105;
   static const double floatingMiniAudioRingWidth = 2.4;
   static const double floatingMiniAudioPillWidth = 320.0;
+  static const double floatingMiniAudioPillMaxWidth = 420.0;
+  static const double floatingMiniAudioPillWidthRatio = 0.34;
   static const double floatingMiniAudioPillHeight = 60.0;
+  static const double floatingMiniAudioPillMaxHeight = 68.0;
+  static const double floatingMiniAudioPillHeightRatio = 0.095;
   static const double floatingMiniAudioPillCoverSize = 40.0;
   static const double floatingMiniEarTabWidth = 24.0;
   static const double floatingMiniEarTabHeight = 72.0;

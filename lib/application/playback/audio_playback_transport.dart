@@ -99,6 +99,10 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
       clearError: !preserveErrorToast,
     );
 
+    if (initialCover is EmptyAudioCover && item.source != null) {
+      unawaited(_hydrateAlbumCoverFromDisk(item, generation: generation));
+    }
+
     final isRemote =
         item.source != null && item.source!.kind != MediaSourceKind.local;
     try {
@@ -260,11 +264,15 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
       if (generation == _loadGeneration && mounted) {
         final isDeterministicError =
             SourceAccessErrorClassifier.isNonTransientError(e) ||
+            e is SourceAccessException ||
+            e is SocketException ||
             e is _CueTrackBoundsException ||
             e is UnsupportedError;
         final friendly = switch (e) {
           SourceAccessException(:final message) => message,
           _CueTrackBoundsException(:final message) => message,
+          _ when item.source != null =>
+            SourceAccessErrorClassifier.toChineseMessage(e, item.source!.kind),
           _ => '音频加载失败：$e',
         };
         unawaited(
@@ -273,6 +281,7 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
             failedItem: item,
             reasonMessage: friendly,
             retryable: !isDeterministicError,
+            allowAutoSkip: !isDeterministicError,
           ),
         );
       }
@@ -764,29 +773,38 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
       _isTransitioningCueBoundary = false;
       _client?.setPropertyString('start', 'none');
       final curItem = _state.currentItem;
+      final leaseToken = _engine.mainStreamLease?.leaseToken;
+      final relPath = curItem?.effectiveRelativePath;
+      final bridgeKind = _streamBridge.lastErrorKind(
+        token: leaseToken,
+        relativePath: relPath,
+      );
       final bridgeDiag = _streamBridge.describeLastError(
-        token: _engine.mainStreamLease?.leaseToken,
-        relativePath: curItem?.effectiveRelativePath,
+        token: leaseToken,
+        relativePath: relPath,
       );
       final reasonMessage =
           bridgeDiag ?? MpvError.describeAudioError(event.errorCode);
+      final isSourceAccessFault = bridgeKind != null;
       unawaited(
         _handleTrackLoadFailure(
           generation: _activeCommandedGeneration,
           failedItem: curItem,
           reasonMessage: reasonMessage,
-          retryable: true,
+          retryable: !isSourceAccessFault,
+          allowAutoSkip: !isSourceAccessFault,
         ),
       );
     }
   }
 
-  /// 处理单曲装填或解复用异常：对偶发错误最多静默重试 3 次，连续 3 首物理坏文件立即熔断停播。
+  /// 处理单曲装填或解复用异常：源连接/认证/路径故障立即停播报错，偶发流异常重试最多 3 次，连续 3 首坏文件熔断。
   Future<void> _handleTrackLoadFailure({
     required int generation,
     required AudioQueueItem? failedItem,
     required String reasonMessage,
     required bool retryable,
+    bool allowAutoSkip = true,
   }) async {
     if (!mounted || !_state.isActive || generation != _loadGeneration) {
       return;
@@ -819,13 +837,24 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
     }
 
     _trackRetryCount = 0;
-    final circuitBreakerTripped =
-        _engine.recordPhysicalMediaFailure() || _engine.isCircuitBreakerTripped;
     _loadedPhysicalKey = null;
     final fallbackCover =
         (_state.cover is EmptyAudioCover && failedItem != null)
         ? _resolvePosterFallback(failedItem.work)
         : _state.cover;
+
+    if (!allowAutoSkip) {
+      _state = _state.copyWith(
+        isPlaying: false,
+        isBuffering: false,
+        cover: fallbackCover,
+        errorMessage: reasonMessage,
+      );
+      return;
+    }
+
+    final circuitBreakerTripped =
+        _engine.recordPhysicalMediaFailure() || _engine.isCircuitBreakerTripped;
 
     final rawNextIdx = _state.currentIndex + 1;
     final canAdvance =

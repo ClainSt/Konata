@@ -376,6 +376,7 @@ class PlaybackPreferencesNotifier
       'cloudSubsetEndpoint': s.cloudSubsetEndpoint,
       'preset': q.preset.name,
       'outputPipelineMode': q.outputPipelineMode.bridgeKey,
+      'outputPipelineSchemaVersion': 2,
       'hardwareDecode': q.hardwareDecode,
       'debandEnabled': q.debandEnabled,
       'demuxerMaxBytesMiB': q.demuxerMaxBytesMiB,
@@ -473,10 +474,20 @@ class PlaybackPreferencesNotifier
           map['preset'],
           VideoQualityPreset.highFidelity,
         ),
-        outputPipelineMode: VideoOutputPipelineMode.parse(
-          map['outputPipelineMode'],
-          delegate: delegate,
-        ),
+        outputPipelineMode: () {
+          final parsed = VideoOutputPipelineMode.parse(
+            map['outputPipelineMode'],
+            delegate: delegate,
+          );
+          final schemaVersion = map['outputPipelineSchemaVersion'] is num
+              ? (map['outputPipelineSchemaVersion'] as num).toInt()
+              : 1;
+          if (schemaVersion < 2 &&
+              parsed == VideoOutputPipelineMode.gpuNextUnderlay) {
+            return VideoOutputPipelineMode.legacyTextureFallback;
+          }
+          return parsed;
+        }(),
         hardwareDecode: map['hardwareDecode'] is bool
             ? map['hardwareDecode'] as bool
             : true,

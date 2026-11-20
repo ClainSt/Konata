@@ -674,8 +674,11 @@ class _ReviewHeaderPillState extends State<_ReviewHeaderPill> {
                 vertical: 7,
               ),
               decoration: BoxDecoration(
-                color: _hovered ? p.surfaceHover : p.surface,
-                gradient: KonataTheme.opticalSheenGradient(p),
+                gradient: KonataTheme.opticalSheenGradient(
+                  p,
+                  hovered: _hovered,
+                  baseColor: _hovered ? p.surfaceHover : p.surface,
+                ),
                 borderRadius: KonataTheme.borderRadiusPill,
                 border: Border.all(
                   color: _hovered ? p.hoverBorder : p.hairline,

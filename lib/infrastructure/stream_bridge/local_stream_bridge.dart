@@ -100,6 +100,7 @@ class _RegisteredStreamSession {
   Future<int?>? inflightLengthProbe;
   RemoteWindowReader? windowReader;
   String? lastDiagnosticError;
+  SourceAccessProblemKind? lastDiagnosticKind;
 }
 
 /// 本地安全回环按需 HTTP Range 流媒体网桥（绑定 `127.0.0.1` 动态空闲端口）。
@@ -127,6 +128,8 @@ class LocalStreamBridge {
   final Map<String, _RegisteredStreamSession> _sessions = {};
   final Map<String, String> _recentErrorsByPath = {};
   final Map<String, String> _recentErrorsByToken = {};
+  final Map<String, SourceAccessProblemKind> _recentKindsByPath = {};
+  final Map<String, SourceAccessProblemKind> _recentKindsByToken = {};
   int _tokenCounter = 0;
 
   void _recordDiagnostic(_RegisteredStreamSession session, Object error) {
@@ -138,16 +141,25 @@ class LocalStreamBridge {
         ? '媒体文件不存在或源路径已变更（${session.relativePath}），请前往「媒体源」重新扫描同步'
         : classified.message;
     session.lastDiagnosticError = message;
+    session.lastDiagnosticKind = classified.kind;
     final normPath = session.relativePath.replaceAll('\\', '/');
     _recentErrorsByPath.remove(normPath);
     _recentErrorsByPath[normPath] = message;
+    _recentKindsByPath.remove(normPath);
+    _recentKindsByPath[normPath] = classified.kind;
     while (_recentErrorsByPath.length > 24) {
-      _recentErrorsByPath.remove(_recentErrorsByPath.keys.first);
+      final oldest = _recentErrorsByPath.keys.first;
+      _recentErrorsByPath.remove(oldest);
+      _recentKindsByPath.remove(oldest);
     }
     _recentErrorsByToken.remove(session.token);
     _recentErrorsByToken[session.token] = message;
+    _recentKindsByToken.remove(session.token);
+    _recentKindsByToken[session.token] = classified.kind;
     while (_recentErrorsByToken.length > 24) {
-      _recentErrorsByToken.remove(_recentErrorsByToken.keys.first);
+      final oldest = _recentErrorsByToken.keys.first;
+      _recentErrorsByToken.remove(oldest);
+      _recentKindsByToken.remove(oldest);
     }
   }
 
@@ -162,6 +174,24 @@ class LocalStreamBridge {
     if (relativePath != null && relativePath.isNotEmpty) {
       final norm = relativePath.replaceAll('\\', '/');
       return _recentErrorsByPath[norm];
+    }
+    return null;
+  }
+
+  /// 查询指定流令牌或相对路径最近一次捕获的上游故障分类（用于区分源离线/鉴权/404 与解码故障）。
+  SourceAccessProblemKind? lastErrorKind({
+    String? token,
+    String? relativePath,
+  }) {
+    if (token != null && token.isNotEmpty) {
+      final live = _sessions[token]?.lastDiagnosticKind;
+      if (live != null) return live;
+      final recentByTok = _recentKindsByToken[token];
+      if (recentByTok != null) return recentByTok;
+    }
+    if (relativePath != null && relativePath.isNotEmpty) {
+      final norm = relativePath.replaceAll('\\', '/');
+      return _recentKindsByPath[norm];
     }
     return null;
   }
@@ -227,7 +257,9 @@ class LocalStreamBridge {
     // 会话级强 ETag：禁止将弱 ETag 用于 If-Range 的强校验。
     final etag = '"$etagDigest"';
 
-    _recentErrorsByPath.remove(relativePath.replaceAll('\\', '/'));
+    final normRel = relativePath.replaceAll('\\', '/');
+    _recentErrorsByPath.remove(normRel);
+    _recentKindsByPath.remove(normRel);
     _sessions[token] = _RegisteredStreamSession(
       token: token,
       gateway: gateway,
@@ -732,7 +764,7 @@ class LocalStreamBridge {
               start: parsedRange.start,
               endInclusive: parsedRange.endInclusive,
             );
-        await _streamChunksWithAbort(stream, response);
+        await _streamChunksWithAbort(stream, response, session: session);
         return;
       }
 
@@ -752,13 +784,16 @@ class LocalStreamBridge {
               totalLength: totalLength,
             )).read(start: 0, endInclusive: totalLength - 1)
           : await session.gateway.openByteRange(session.relativePath, start: 0);
-      await _streamChunksWithAbort(fullStream, response);
+      await _streamChunksWithAbort(fullStream, response, session: session);
     } catch (error) {
       if (trackedSession != null) {
         _recordDiagnostic(trackedSession, error);
       }
       try {
         final msg = error.toString();
+        response.contentLength = 0;
+        response.headers.removeAll(HttpHeaders.contentRangeHeader);
+        response.headers.removeAll(HttpHeaders.etagHeader);
         if (error is PathNotFoundException || msg.contains('HTTP 404')) {
           response.statusCode = HttpStatus.notFound;
         } else {
@@ -790,17 +825,34 @@ class LocalStreamBridge {
   }
 
   /// 拆离底层回环套接字以实时监听对端 `FIN/RST` 断连信号，在下游主动取消或 Seek 中断时即时取消上游流。
+  ///
+  /// 关键语义：先等待上游首个数据块就绪再发送 `200/206` 响应头，避免 WebDAV/SMB 离线或 401/404 时
+  /// 提前向 `libmpv` 回传 200 并静默吞掉上游 `SocketException` 导致只剩裸错码 `-17`。
   Future<void> _streamChunksWithAbort(
     Stream<List<int>> source,
-    HttpResponse response,
-  ) async {
+    HttpResponse response, {
+    required _RegisteredStreamSession session,
+  }) async {
     response.persistentConnection = false;
     response.headers.chunkedTransferEncoding = false;
     response.headers.set(HttpHeaders.connectionHeader, 'close');
-    // 在发送下游响应头之前启动首个远端窗口读取，
-    // 避免惰性 async* 在下游未开始消费时完全不触发上游 Range。
     final iterator = StreamIterator<List<int>>(source);
-    var nextMove = iterator.moveNext();
+    bool hasFirstChunk;
+    try {
+      hasFirstChunk = await iterator.moveNext();
+    } catch (_) {
+      try {
+        await iterator.cancel();
+      } catch (cancelErr) {
+        developer.log(
+          '上游首包取消异常已忽略',
+          name: 'konata.local_stream_bridge',
+          error: cancelErr,
+        );
+      }
+      rethrow;
+    }
+
     final socket = await response.detachSocket(writeHeaders: true);
     try {
       socket.setOption(SocketOption.tcpNoDelay, true);
@@ -831,9 +883,23 @@ class LocalStreamBridge {
         ),
       );
 
+      if (!hasFirstChunk) {
+        completedNormally = !disconnected.isCompleted;
+        return;
+      }
+
       const flushThresholdBytes = 256 * 1024;
       var unflushedBytes = 0;
       var firstChunkFlushed = false;
+
+      final firstChunk = iterator.current;
+      if (firstChunk.isNotEmpty) {
+        socket.add(firstChunk);
+        firstChunkFlushed = true;
+        await socket.flush();
+      }
+
+      var nextMove = iterator.moveNext();
       while (true) {
         final hasNext = await Future.any<bool>([nextMove, disconnected.future]);
         if (!hasNext) {
@@ -858,12 +924,21 @@ class LocalStreamBridge {
         nextMove = iterator.moveNext();
       }
     } on SocketException catch (error) {
-  // 播放器触发 Seek 或关闭时主动断开连接，属正常现象。
-  developer.log('可恢复异常已记录', name: 'konata.local_stream_bridge', error: error);
-} on HttpException catch (error) {
-  // 客户端连接中断。
-  developer.log('可恢复异常已记录', name: 'konata.local_stream_bridge', error: error);
-} finally {
+      if (!disconnected.isCompleted) {
+        _recordDiagnostic(session, error);
+      }
+      developer.log('流传输连接异常已记录', name: 'konata.local_stream_bridge', error: error);
+    } on HttpException catch (error) {
+      if (!disconnected.isCompleted) {
+        _recordDiagnostic(session, error);
+      }
+      developer.log('流传输 HTTP 异常已记录', name: 'konata.local_stream_bridge', error: error);
+    } catch (error) {
+      if (!disconnected.isCompleted) {
+        _recordDiagnostic(session, error);
+      }
+      developer.log('流传输上游异常已记录', name: 'konata.local_stream_bridge', error: error);
+    } finally {
       try {
         await iterator.cancel();
       } catch (error) {

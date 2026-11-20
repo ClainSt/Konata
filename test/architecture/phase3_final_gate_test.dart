@@ -222,8 +222,8 @@ void main() {
       );
       expect(
         topNavSrc,
-        contains('blurRadius: 12.0 * t'),
-        reason: '桌面顶栏必须保留连续发光阴影半径过渡',
+        contains('blurRadius: 6.0 * t'),
+        reason: '桌面顶栏必须保留克制柔和的连续发光阴影半径过渡',
       );
     });
 

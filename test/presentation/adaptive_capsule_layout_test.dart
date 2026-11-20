@@ -200,16 +200,23 @@ void main() {
         const ValueKey('konata_floating_mini_player'),
       );
       expect(miniFinder, findsOneWidget);
-      // 收起态音频悬浮圆钮 56x56 不显示冗余曲名与循环键
+      final expectedDiscSize = AdaptiveCapsuleLayout(
+        size: size,
+        safe: const EdgeInsets.fromLTRB(0, 24, 0, 20),
+        android: size.width != 1920,
+        navigationVisible: size.width != 1920,
+        miniKind: FloatingMiniPlayerKind.audio,
+      ).floatingMiniWindowRect!.size;
+      // 收起态音频悬浮圆钮随视口实际尺寸自适应，不显示冗余曲名与循环键
       final discRect = tester.getRect(miniFinder);
-      expect(
-        discRect.width,
-        closeTo(KonataPlaybackTokens.floatingMiniAudioDiscSize, 0.5),
-      );
-      expect(
-        discRect.height,
-        closeTo(KonataPlaybackTokens.floatingMiniAudioDiscSize, 0.5),
-      );
+      expect(discRect.width, closeTo(expectedDiscSize.width, 0.5));
+      expect(discRect.height, closeTo(expectedDiscSize.height, 0.5));
+      if (size.shortestSide >= 600) {
+        expect(
+          discRect.width,
+          greaterThan(KonataPlaybackTokens.floatingMiniAudioDiscSize),
+        );
+      }
       expect(find.text('测试曲目'), findsNothing);
       expect(tester.takeException(), isNull);
 
@@ -323,13 +330,10 @@ void main() {
         safe.top + (size.height - safe.vertical) / 2,
       );
       final miniRect = layout.floatingMiniWindowRect!;
+      expect(miniRect.width / miniRect.height, closeTo(16 / 9, 0.02));
       expect(
         miniRect.width,
-        equals(KonataPlaybackTokens.floatingMiniVideoWidth),
-      );
-      expect(
-        miniRect.height,
-        equals(KonataPlaybackTokens.floatingMiniVideoHeight),
+        greaterThan(KonataPlaybackTokens.floatingMiniVideoWidth),
       );
       expect(miniRect.overlaps(layout.navigationRect), isFalse);
     });

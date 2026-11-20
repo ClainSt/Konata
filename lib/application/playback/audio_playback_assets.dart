@@ -47,9 +47,23 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
     _bindAndroidMediaSessionCallbacks();
     final item = _state.currentItem;
     if (!_state.isActive || item == null) {
-      unawaited(_mediaSessionBridge.stopSession());
+      if (_androidMediaSessionStarted) {
+        _androidMediaSessionStarted = false;
+        unawaited(_mediaSessionBridge.stopSession());
+      }
       return;
     }
+
+    // 曲目尚未真正载入且未进入播放态（如远程建连阶段或首曲立即失败）时，
+    // 不提前启动 Android 前台媒体服务，避免瞬停触发系统前台服务超时崩溃。
+    if (!_state.isPlaying && !_engine.fileLoadedInCurrentEpoch) {
+      if (_androidMediaSessionStarted) {
+        _androidMediaSessionStarted = false;
+        unawaited(_mediaSessionBridge.stopSession());
+      }
+      return;
+    }
+    _androidMediaSessionStarted = true;
 
     String coverKey = '';
     Uint8List? coverBytes;
@@ -135,22 +149,83 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
     if (cached != null) {
       return cached.cover;
     }
+    final source = item.source;
+    if (source != null) {
+      final sharedBytes = _ref
+          .read(artworkMemoryCachesProvider)
+          .findAudioAlbumCover(
+            sourceId: source.id,
+            relativePath: item.effectiveRelativePath,
+            variantId: item.variant.id,
+          );
+      if (sharedBytes != null && sharedBytes.isNotEmpty) {
+        final cover = MemoryAudioCover(sharedBytes);
+        _cacheAlbumCover(
+          item.albumCacheKey,
+          cover,
+          hasDedicatedCover: true,
+          item: item,
+          persistToDisk: false,
+        );
+        return cover;
+      }
+    }
     if (previousItem != null &&
         previousItem.albumCacheKey == item.albumCacheKey &&
         _state.cover is MemoryAudioCover) {
       return _state.cover;
     }
-    if (item.source == null) {
+    if (source == null) {
       return _resolvePosterFallback(item.work);
     }
     // 未确认目录/音频均无专属封面之前，严禁先闪现 work.posterUrl 兜底海报
     return const EmptyAudioCover();
   }
 
+  /// 曲目切换瞬间先从本地 `photos/<作品>/thumbnails/` 磁盘缓存回填专辑封面（纯本地读盘，不争抢远程流锁）。
+  Future<void> _hydrateAlbumCoverFromDisk(
+    AudioQueueItem item, {
+    required int generation,
+  }) async {
+    final source = item.source;
+    if (source == null || !mounted || generation != _loadGeneration) return;
+    if (_state.cover is! EmptyAudioCover) return;
+    try {
+      final photos = _ref.read(photosStorageProvider);
+      final diskKey = ArtworkMemoryCaches.albumCoverDiskFileKey(
+        source.id,
+        item.effectiveRelativePath,
+      );
+      final bytes = await photos.readArtwork(
+        workId: item.work.id,
+        title: item.work.title,
+        subfolder: PhotoSubfolder.thumbnails,
+        fileKey: diskKey,
+      );
+      if (bytes == null || bytes.isEmpty) return;
+      if (!mounted || generation != _loadGeneration) return;
+      final cover = MemoryAudioCover(bytes);
+      _cacheAlbumCover(
+        item.albumCacheKey,
+        cover,
+        hasDedicatedCover: true,
+        item: item,
+        persistToDisk: false,
+      );
+      if (_state.cover is EmptyAudioCover) {
+        _state = _state.copyWith(cover: cover);
+      }
+    } catch (e) {
+      _logStore.record('AUDIO', '读取本地专辑封面缓存忽略：$e');
+    }
+  }
+
   void _cacheAlbumCover(
     String albumKey,
     AudioCoverSource cover, {
     required bool hasDedicatedCover,
+    AudioQueueItem? item,
+    bool persistToDisk = true,
   }) {
     _albumCoverCache.remove(albumKey);
     _albumCoverCache[albumKey] = (
@@ -160,6 +235,39 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
     while (_albumCoverCache.length >
         AudioPlaybackNotifier._maxAlbumCacheEntries) {
       _albumCoverCache.remove(_albumCoverCache.keys.first);
+    }
+    final source = item?.source;
+    if (hasDedicatedCover &&
+        item != null &&
+        source != null &&
+        cover is MemoryAudioCover &&
+        cover.bytes.isNotEmpty) {
+      _ref
+          .read(artworkMemoryCachesProvider)
+          .putAudioAlbumCoverForDir(
+            sourceId: source.id,
+            relativePath: item.effectiveRelativePath,
+            variantId: item.variant.id,
+            bytes: cover.bytes,
+          );
+      if (persistToDisk) {
+        final diskKey = ArtworkMemoryCaches.albumCoverDiskFileKey(
+          source.id,
+          item.effectiveRelativePath,
+        );
+        unawaited(
+          _ref
+              .read(photosStorageProvider)
+              .writeArtwork(
+                workId: item.work.id,
+                title: item.work.title,
+                subfolder: PhotoSubfolder.thumbnails,
+                fileKey: diskKey,
+                bytes: cover.bytes,
+              )
+              .catchError((_) => null),
+        );
+      }
     }
   }
 
@@ -296,16 +404,31 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
         } else {
           resolvedCover = MemoryAudioCover(aux.embeddedCover!);
         }
-        _cacheAlbumCover(albumKey, resolvedCover, hasDedicatedCover: true);
+        _cacheAlbumCover(
+          albumKey,
+          resolvedCover,
+          hasDedicatedCover: true,
+          item: item,
+        );
       } else if (cachedCoverEntry != null) {
         resolvedCover = cachedCoverEntry.cover;
       } else if (aux.folderCover != null && aux.folderCover!.isNotEmpty) {
         resolvedCover = MemoryAudioCover(aux.folderCover!);
-        _cacheAlbumCover(albumKey, resolvedCover, hasDedicatedCover: true);
+        _cacheAlbumCover(
+          albumKey,
+          resolvedCover,
+          hasDedicatedCover: true,
+          item: item,
+        );
       } else {
         // 仅当异步探测最终确认内嵌封面与同目录封面均不存在时才回退作品海报
         resolvedCover = _resolvePosterFallback(item.work);
-        _cacheAlbumCover(albumKey, resolvedCover, hasDedicatedCover: false);
+        _cacheAlbumCover(
+          albumKey,
+          resolvedCover,
+          hasDedicatedCover: false,
+          item: item,
+        );
       }
 
       final lrc = aux.lrc;

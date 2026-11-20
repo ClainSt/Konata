@@ -306,6 +306,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
           cdPlaylist: bundle.cdVariants,
           sourcesById: bundle.sourcesById,
           overrideEngine: overrideEngine,
+          expandImmersive: true,
           initialCueTrackNumber: cueTrackNumber,
         );
     if (context.mounted && res.message.isNotEmpty) {

@@ -175,7 +175,7 @@ class _TopNavTabStripState extends State<_TopNavTabStrip>
     (KonataNavSection.history, '播放记录'),
     (KonataNavSection.settings, '设置'),
   ];
-  static const double _indicatorRestWidth = 18.0;
+  static const double _indicatorRestWidth = 20.0;
   static const double _indicatorHeight = 2.5;
 
   final GlobalKey _tabsStackKey = GlobalKey();
@@ -285,15 +285,16 @@ class _TopNavTabStripState extends State<_TopNavTabStrip>
     final tl = _toLeft!;
     final tr = _toRight!;
     final t = _sliderCtrl.value;
+    // 克制的前后沿时间差配合 easeOutQuart，使指示条轻柔舒展滑行而非夸张甩尾。
     final leadingT = const Interval(
       0.0,
-      0.72,
-      curve: Curves.easeOutCubic,
+      0.82,
+      curve: Curves.easeOutQuart,
     ).transform(t);
     final trailingT = const Interval(
-      0.20,
+      0.12,
       1.0,
-      curve: Curves.easeOutCubic,
+      curve: Curves.easeOutQuart,
     ).transform(t);
     if (_movingForward) {
       return (
@@ -374,8 +375,8 @@ class _TopNavTabStripState extends State<_TopNavTabStrip>
                       borderRadius: KonataTheme.borderRadiusPill,
                       boxShadow: [
                         BoxShadow(
-                          color: p.progressFill.withValues(alpha: 0.42),
-                          blurRadius: 8,
+                          color: p.progressFill.withValues(alpha: 0.22),
+                          blurRadius: 4,
                         ),
                       ],
                     ),
@@ -446,10 +447,12 @@ class _TextNavTabState extends State<_TextNavTab> {
         onTapCancel: () => setState(() => _pressed = false),
         onTap: widget.onTap,
         child: AnimatedScale(
-          scale: _pressed ? 0.96 : 1.0,
-          duration: KonataTheme.capsuleSlideDuration,
-          curve: Curves.easeOutCubic,
-          child: DecoratedBox(
+          scale: _pressed ? 0.97 : 1.0,
+          duration: KonataTheme.motionFast,
+          curve: Curves.easeOutQuart,
+          child: AnimatedContainer(
+            duration: KonataTheme.motionFast,
+            curve: Curves.easeOutCubic,
             decoration: BoxDecoration(
               color: (!widget.selected && _hovered)
                   ? p.secondaryButtonBg
@@ -464,12 +467,12 @@ class _TextNavTabState extends State<_TextNavTab> {
                 10,
               ),
               child: TweenAnimationBuilder<double>(
-                duration: KonataTheme.standardTransition,
-                curve: Curves.easeOutCubic,
+                duration: KonataTheme.navSliderDuration,
+                curve: Curves.easeOutQuart,
                 tween: Tween<double>(end: widget.selected ? 1.0 : 0.0),
                 builder: (context, t, reserveChild) {
                   final inactiveColor = _hovered
-                      ? p.textPrimary.withValues(alpha: 0.85)
+                      ? p.textPrimary.withValues(alpha: 0.86)
                       : p.textSecondary;
                   final textColor =
                       Color.lerp(inactiveColor, p.textPrimary, t) ??
@@ -487,9 +490,9 @@ class _TextNavTabState extends State<_TextNavTab> {
                         ? [
                             Shadow(
                               color: p.progressFill.withValues(
-                                alpha: (p.isDark ? 0.35 : 0.16) * t,
+                                alpha: (p.isDark ? 0.10 : 0.04) * t,
                               ),
-                              blurRadius: 12.0 * t,
+                              blurRadius: 6.0 * t,
                             ),
                           ]
                         : null,

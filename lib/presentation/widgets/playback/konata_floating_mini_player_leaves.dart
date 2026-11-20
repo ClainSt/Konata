@@ -491,6 +491,15 @@ class _FloatingMiniEqualizerLeafState
                   decoration: BoxDecoration(
                     color: barColor,
                     borderRadius: KonataTheme.borderRadiusPill,
+                    boxShadow: widget.forceWhite
+                        ? const [
+                            BoxShadow(
+                              color: KonataTheme.scrimBlackStrong,
+                              blurRadius: 3,
+                              offset: Offset(0, 1),
+                            ),
+                          ]
+                        : null,
                   ),
                 ),
             ],

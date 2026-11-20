@@ -101,6 +101,7 @@ class _KonataHardwareVideoSurfaceState
           texId: s.textureId,
           windowsUnderlay: s.windowsUnderlayActive,
           audioOnly: s.audioOnlyMode,
+          hasError: s.errorMessage != null,
           aspectMode: s.aspectMode,
           videoW: s.probeStats.videoWidth,
           videoH: s.probeStats.videoHeight,
@@ -110,6 +111,26 @@ class _KonataHardwareVideoSurfaceState
     );
     final controller = ref.read(videoPlaybackProvider(widget.request).notifier);
     _cachedVideoController = controller;
+
+    if (snap.hasError) {
+      if (_windowsUnderlayVisible && KonataAdaptiveTokens.isWindows) {
+        _windowsUnderlayVisible = false;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            unawaited(
+              controller.syncWindowsUnderlayViewport(
+                leftPx: 0,
+                topPx: 0,
+                rightPx: 0,
+                bottomPx: 0,
+                visible: false,
+              ),
+            );
+          }
+        });
+      }
+      return const ColoredBox(color: KonataPlaybackTokens.cinemaPureBlack);
+    }
 
     if (snap.audioOnly) {
       if (_androidUnderlayController != null) {

@@ -480,13 +480,18 @@ class _KonataGlassToastCapsule extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final badge = data.isError ? p.dangerBadge : null;
     final bgColor = data.isError
-        ? badge!.bg.withValues(alpha: p.isDark ? 0.90 : 0.95)
+        ? KonataTheme.toastErrorSurface(p)
         : p.elevatedSurface.withValues(alpha: p.isDark ? 0.84 : 0.92);
-    final borderColor = data.isError ? badge!.border : p.hoverBorder;
-    final fgColor = data.isError ? badge!.fg : p.textPrimary;
-    final iconColor = data.isError ? badge!.fg : p.accent;
+    final borderColor = data.isError
+        ? KonataTheme.toastErrorBorder(p)
+        : p.hoverBorder;
+    final fgColor = data.isError
+        ? KonataTheme.toastErrorForeground(p)
+        : p.textPrimary;
+    final iconColor = data.isError
+        ? KonataTheme.toastErrorForeground(p)
+        : p.accent;
     final closeHitSize = isAndroid
         ? KonataAdaptiveTokens.touchTarget
         : KonataAdaptiveTokens.desktopToastCloseHitSize;

@@ -248,12 +248,27 @@ extension _ScanLightboxDialogViews on _ScanLightboxDialogState {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(
-            _errorText!,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: p.danger,
-              fontSize: KonataTheme.fontSizeBody,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _errorText!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: p.danger,
+                    fontSize: KonataTheme.fontSizeBody,
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                KonataPillButton.primary(
+                  label: '重新加载',
+                  icon: Icons.refresh_rounded,
+                  onPressed: () => unawaited(_loadCurrentScan()),
+                ),
+              ],
             ),
           ),
         ),

@@ -429,6 +429,50 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
     seekAbsolute(window.endSeconds);
   }
 
+  /// 当前报错是否适合提供「外部播放器打开」兜底（媒体源离线、鉴权失败或本地文件缺失时严禁误导打开外部播放器）。
+  bool get errorAllowsExternalRelay {
+    final msg = _state.errorMessage;
+    if (msg == null || msg.isEmpty) return false;
+    final bridgeKind = _streamBridge.lastErrorKind(
+      token: _engine.mainStreamLease?.leaseToken,
+      relativePath: _state.currentVariant.relativePath,
+    );
+    if (bridgeKind != null) return false;
+    const accessHints = <String>[
+      '不存在',
+      '路径已变更',
+      '盘符',
+      '无法连接',
+      '未开启',
+      '网络不可达',
+      '连接超时',
+      '认证失败',
+      '鉴权',
+      '权限不足',
+      'HTTP 401',
+      'HTTP 403',
+      'HTTP 404',
+      '媒体源',
+    ];
+    for (final hint in accessHints) {
+      if (msg.contains(hint)) return false;
+    }
+    return true;
+  }
+
+  /// 重新加载当前报错的分集（清零熔断计数并原地重试）。
+  Future<void> retryCurrentEpisode() async {
+    if (!mounted || _state.isClosing) return;
+    _engine.recordManualSelection();
+    await switchToEpisode(
+      _state.currentEpisode,
+      targetBundle: activeBundle,
+      specificVariant: _state.currentVariant,
+      startSeconds: currentPositionSeconds > 3 ? currentPositionSeconds : 0.0,
+      isAutoAdvance: false,
+    );
+  }
+
   void _handleEndOfFile(int reason, int errorCode) {
     if (!mounted || _state.isClosing) return;
     if (reason == MpvEndFileReason.eof) {
@@ -439,30 +483,93 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
         unawaited(_persistProgress(isFinal: true));
       }
     } else if (reason == MpvEndFileReason.error) {
-      final tripped = _engine.recordPhysicalMediaFailure();
-      final detail = '播放意外中断 (code: $errorCode)';
-      _logStore.record('VIDEO', detail, isError: true);
-      if (tripped) {
-        _state = _state.copyWith(
-          isBuffering: false,
-          isPlaying: false,
-          errorMessage:
-              '连续 ${UnifiedPlaybackEngine.maxConsecutiveBadFiles} 个视频文件加载异常（$detail），已熔断停播',
+      unawaited(_handleEndOfFileError(errorCode));
+    }
+  }
+
+  Future<({String message, bool deterministicSourceFailure})>
+  _diagnoseVideoError(String fallbackMessage) async {
+    final currentVariant = _state.currentVariant;
+    final currentSource =
+        activeBundle.sourcesById[currentVariant.sourceId] ?? request.source;
+    final token = _engine.mainStreamLease?.leaseToken;
+    final bridgeDiag = _streamBridge.describeLastError(
+      token: token,
+      relativePath: currentVariant.relativePath,
+    );
+    final bridgeKind = _streamBridge.lastErrorKind(
+      token: token,
+      relativePath: currentVariant.relativePath,
+    );
+    if (bridgeDiag != null && bridgeDiag.isNotEmpty) {
+      return (message: bridgeDiag, deterministicSourceFailure: bridgeKind != null);
+    }
+    if (currentSource != null && currentSource.kind == MediaSourceKind.local) {
+      final rootClean = currentSource.location.replaceAll(
+        RegExp(r'[\\/]+$'),
+        '',
+      );
+      final relClean = currentVariant.relativePath
+          .replaceAll('\\', '/')
+          .replaceAll(RegExp(r'^/+'), '')
+          .split('/')
+          .join(Platform.pathSeparator);
+      final localPath = relClean.isEmpty
+          ? currentSource.location
+          : '$rootClean${Platform.pathSeparator}$relClean';
+      if (!await File(localPath).exists()) {
+        return (
+          message:
+              '本地视频文件不存在或磁盘未挂载（${currentVariant.relativePath}），请检查媒体源路径或重新扫描',
+          deterministicSourceFailure: true,
         );
-        return;
       }
-      final prefs = _ref.read(playbackPreferencesProvider);
-      if (prefs.autoNextEpisode && hasNextEpisodeAny) {
-        showTransientBanner('当前分集加载异常，自动尝试下一话');
-        unawaited(goToNextEpisode(isAutoAdvance: true));
-        return;
-      }
+    }
+    return (message: fallbackMessage, deterministicSourceFailure: false);
+  }
+
+  Future<void> _handleEndOfFileError(int errorCode) async {
+    if (!mounted || _state.isClosing) return;
+    final diag = await _diagnoseVideoError(
+      MpvError.describeVideoError(errorCode),
+    );
+    if (!mounted || _state.isClosing) return;
+    _logStore.record('VIDEO', diag.message, isError: true);
+
+    // 属于媒体源离线/连接拒绝/鉴权失败/本地文件缺失等确定性故障时，立即按真实原因停播报错，绝不盲目连跳 3 集。
+    if (diag.deterministicSourceFailure) {
       _state = _state.copyWith(
+        isInitializing: false,
         isBuffering: false,
         isPlaying: false,
-        errorMessage: detail,
+        errorMessage: diag.message,
       );
+      return;
     }
+
+    final tripped = _engine.recordPhysicalMediaFailure();
+    if (tripped) {
+      _state = _state.copyWith(
+        isInitializing: false,
+        isBuffering: false,
+        isPlaying: false,
+        errorMessage:
+            '连续 ${UnifiedPlaybackEngine.maxConsecutiveBadFiles} 个视频文件加载异常（${diag.message}），已熔断停播',
+      );
+      return;
+    }
+    final prefs = _ref.read(playbackPreferencesProvider);
+    if (prefs.autoNextEpisode && hasNextEpisodeAny) {
+      showTransientBanner('当前分集加载异常（${diag.message}），自动尝试下一话');
+      unawaited(goToNextEpisode(isAutoAdvance: true));
+      return;
+    }
+    _state = _state.copyWith(
+      isInitializing: false,
+      isBuffering: false,
+      isPlaying: false,
+      errorMessage: diag.message,
+    );
   }
 
   /// 无缝切换同作品或同系列下一季剧集/变体（先保存旧分集进度，递增物理媒体代数后热替换流）。
@@ -731,43 +838,26 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
   /// 处理底层播放会话致命错误（区分本地文件缺失、网桥诊断与连续坏文件熔断）。
   Future<void> _handleFatalSessionError(String msg) async {
     if (!mounted || _state.isClosing) return;
-    final currentVariant = _state.currentVariant;
-    final currentSource =
-        activeBundle.sourcesById[currentVariant.sourceId] ?? request.source;
-    final bridgeDiag = _streamBridge.describeLastError(
-      relativePath: currentVariant.relativePath,
-    );
-    var effectiveMsg = bridgeDiag ?? msg;
-    if (bridgeDiag == null &&
-        currentSource != null &&
-        currentSource.kind == MediaSourceKind.local) {
-      final rootClean = currentSource.location.replaceAll(
-        RegExp(r'[\\/]+$'),
-        '',
-      );
-      final relClean = currentVariant.relativePath
-          .replaceAll('\\', '/')
-          .replaceAll(RegExp(r'^/+'), '')
-          .split('/')
-          .join(Platform.pathSeparator);
-      final localPath = relClean.isEmpty
-          ? currentSource.location
-          : '$rootClean${Platform.pathSeparator}$relClean';
-      if (!await File(localPath).exists()) {
-        effectiveMsg =
-            '本地视频文件不存在或路径已变更（${currentVariant.relativePath}），请检查磁盘挂载或重新扫描媒体源';
-      }
-    }
+    final diag = await _diagnoseVideoError(msg);
     if (!mounted || _state.isClosing) return;
+    _logStore.record('VIDEO', '视频播放致命错误：${diag.message}', isError: true);
+    if (diag.deterministicSourceFailure) {
+      _state = _state.copyWith(
+        isInitializing: false,
+        isBuffering: false,
+        isPlaying: false,
+        errorMessage: diag.message,
+      );
+      return;
+    }
     final tripped = _engine.recordPhysicalMediaFailure();
-    _logStore.record('VIDEO', '视频播放致命错误：$effectiveMsg', isError: true);
     _state = _state.copyWith(
       isInitializing: false,
       isBuffering: false,
       isPlaying: false,
       errorMessage: tripped
-          ? '连续 ${UnifiedPlaybackEngine.maxConsecutiveBadFiles} 个视频文件加载异常（$effectiveMsg），已熔断停播'
-          : effectiveMsg,
+          ? '连续 ${UnifiedPlaybackEngine.maxConsecutiveBadFiles} 个视频文件加载异常（${diag.message}），已熔断停播'
+          : diag.message,
     );
   }
 

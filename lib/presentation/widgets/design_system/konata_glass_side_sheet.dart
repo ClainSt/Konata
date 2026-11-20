@@ -171,8 +171,10 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
                     filter: KonataTheme.blurFilterSheet,
                     child: Container(
                       decoration: BoxDecoration(
-                        color: panelColor,
-                        gradient: KonataTheme.opticalSheenGradient(p),
+                        gradient: KonataTheme.opticalSheenGradient(
+                          p,
+                          baseColor: panelColor,
+                        ),
                         borderRadius: KonataTheme.borderRadiusDialog,
                         border: Border.all(color: borderColor, width: 1),
                       ),

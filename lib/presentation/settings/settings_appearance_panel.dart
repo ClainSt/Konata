@@ -188,8 +188,10 @@ class _ThemeOptionCard extends StatelessWidget {
         cursor: SystemMouseCursors.click,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: p.softFill,
-            gradient: KonataTheme.opticalSheenGradient(p),
+            gradient: KonataTheme.opticalSheenGradient(
+              p,
+              baseColor: p.softFill,
+            ),
             borderRadius: KonataTheme.borderRadiusCard,
             border: Border.all(
               color: selected ? p.textPrimary : p.hairline,

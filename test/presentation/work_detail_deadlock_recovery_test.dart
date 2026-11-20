@@ -14,8 +14,10 @@ import 'package:ccplayer/domain/models/playback_record.dart';
 import 'package:ccplayer/domain/models/tmdb_models.dart';
 import 'package:ccplayer/domain/models/work.dart';
 import 'package:ccplayer/domain/scraping/bangumi_models.dart';
+import 'package:ccplayer/infrastructure/cache/photos_storage.dart';
 import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
 import 'package:ccplayer/infrastructure/database/konata_database.dart';
+import 'package:path/path.dart' as p;
 import 'package:ccplayer/presentation/detail/work_detail_page.dart';
 import 'package:ccplayer/presentation/dialogs/manual_match_dialog.dart';
 import 'package:ccplayer/presentation/history/playback_history_page.dart';
@@ -180,6 +182,11 @@ void main() {
           ProviderScope(
             overrides: [
               libraryRepositoryProvider.overrideWithValue(repo),
+              photosStorageProvider.overrideWithValue(
+                PhotosStorage(
+                  overrideRoot: Directory(p.join(tempRoot.path, 'photos')),
+                ),
+              ),
               tmdbImageLoaderProvider.overrideWithValue(
                 (_, {targetWidth, imageSize}) async => _transparentPng,
               ),
@@ -273,6 +280,11 @@ void main() {
           ProviderScope(
             overrides: [
               libraryRepositoryProvider.overrideWithValue(repo),
+              photosStorageProvider.overrideWithValue(
+                PhotosStorage(
+                  overrideRoot: Directory(p.join(tempRoot.path, 'photos')),
+                ),
+              ),
               tmdbImageLoaderProvider.overrideWithValue(
                 (_, {targetWidth, imageSize}) async => _transparentPng,
               ),

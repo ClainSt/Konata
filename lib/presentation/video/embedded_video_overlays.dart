@@ -705,12 +705,14 @@ class _ErrorFallbackCard extends StatelessWidget {
   const _ErrorFallbackCard({
     required this.message,
     required this.showExternalButton,
+    required this.onRetry,
     required this.onRelayExternal,
     required this.onBack,
   });
 
   final String message;
   final bool showExternalButton;
+  final VoidCallback onRetry;
   final VoidCallback onRelayExternal;
   final VoidCallback onBack;
 
@@ -722,10 +724,13 @@ class _ErrorFallbackCard extends StatelessWidget {
       child: BackdropFilter(
         filter: KonataTheme.blurFilterOverlay,
         child: Container(
-          constraints: const BoxConstraints(maxWidth: 420),
+          constraints: const BoxConstraints(maxWidth: 440),
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
-            color: KonataPlaybackTokens.glassSurface(p),
+            gradient: KonataTheme.opticalSheenGradient(
+              p,
+              baseColor: KonataPlaybackTokens.glassSurface(p),
+            ),
             borderRadius: KonataTheme.borderRadiusDialog,
             border: Border.all(color: KonataPlaybackTokens.glassBorder(p)),
           ),
@@ -737,17 +742,25 @@ class _ErrorFallbackCard extends StatelessWidget {
               Text(
                 message,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: p.textPrimary, fontSize: KonataTheme.fontSizeBody),
+                style: TextStyle(
+                  color: p.textPrimary,
+                  fontSize: KonataTheme.fontSizeBody,
+                ),
               ),
               const SizedBox(height: 18),
               Wrap(
                 alignment: WrapAlignment.center,
-                spacing: 12,
+                spacing: 10,
                 runSpacing: 8,
                 children: [
                   KonataPillButton.secondary(label: '返回', onPressed: onBack),
+                  KonataPillButton.primary(
+                    label: '重试',
+                    icon: Icons.refresh_rounded,
+                    onPressed: onRetry,
+                  ),
                   if (showExternalButton)
-                    KonataPillButton.primary(
+                    KonataPillButton.secondary(
                       label: '外部播放器打开',
                       icon: Icons.open_in_new_rounded,
                       onPressed: onRelayExternal,

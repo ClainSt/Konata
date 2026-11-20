@@ -31,8 +31,8 @@ abstract final class WebDavGatewayConfig {
   /// 持久连接空闲保活时长。
   static const Duration idleKeepAliveTimeout = Duration(seconds: 60);
 
-  /// 单主机最大并发 Keep-Alive 连接数。
-  static const int maxConnectionsPerHost = 8;
+  /// 单主机最大并发 Keep-Alive 连接数（为视频/音频流、封面探测与画册灯箱预留充足并发槽位）。
+  static const int maxConnectionsPerHost = 16;
 
   /// 允许跟踪的最大 30x 重定向跳数（防重定向循环）。
   static const int maxRedirects = 5;
@@ -269,6 +269,31 @@ class WebDavSourceGateway
 
   String? _lastDigestChallenge;
   int _nonceCount = 0;
+  final Set<Future<void> Function()> _activeStreamAborters = {};
+
+  /// 安全排空并释放轻量 HTTP 响应体；超时则直接取消订阅切断底层连接，防止池槽位长期占用。
+  static Future<void> _safeDrainResponse(http.StreamedResponse response) async {
+    try {
+      await response.stream
+          .drain<void>()
+          .timeout(const Duration(seconds: 5));
+    } catch (error) {
+      developer.log(
+        '排空 WebDAV 轻量响应体超时或中断，改用强制取消',
+        name: 'konata.webdav_source_gateway',
+        error: error,
+      );
+      try {
+        await response.stream.listen(null).cancel();
+      } catch (cancelErr) {
+        developer.log(
+          '强制取消 WebDAV 响应流忽略',
+          name: 'konata.webdav_source_gateway',
+          error: cancelErr,
+        );
+      }
+    }
+  }
 
   static Uri _normalizeRoot(Uri uri) {
     final path = uri.path.endsWith('/') ? uri.path : '${uri.path}/';
@@ -383,7 +408,7 @@ class WebDavSourceGateway
         HttpHeaders.userAgentHeader,
         () => WebDavGatewayConfig.defaultUserAgent,
       );
-      if (body != null) {
+      if (body != null && body.isNotEmpty) {
         req.body = body;
       }
       return req;
@@ -420,7 +445,7 @@ class WebDavSourceGateway
           streamed.headers['www-authenticate'] ??
           streamed.headers['WWW-Authenticate'];
       if (wwwAuth != null && wwwAuth.toLowerCase().contains('digest ')) {
-        await streamed.stream.drain<void>();
+        await _safeDrainResponse(streamed);
         _lastDigestChallenge = wwwAuth;
         _nonceCount = 0;
         _connectionPool?.rememberDigestChallenge(
@@ -456,12 +481,15 @@ class WebDavSourceGateway
     var allowCredentials = _isSameOrigin(_rootUri, currentUri);
 
     for (var hop = 0; hop <= WebDavGatewayConfig.maxRedirects; hop++) {
+      final initialBody = body ?? (hop == 0 ? buildRequest(const {}).body : null);
       final streamed = await _sendSingleWithDigest(
         method: currentMethod,
         uri: currentUri,
         includeCredentials: allowCredentials,
         extraHeaders: extraHeaders,
-        body: body ?? (hop == 0 ? buildRequest(const {}).body : null),
+        body: (initialBody != null && initialBody.isNotEmpty)
+            ? initialBody
+            : null,
         activeClient: activeClient,
         timeoutOverride: timeoutOverride,
       );
@@ -477,7 +505,7 @@ class WebDavSourceGateway
         return streamed;
       }
 
-      await streamed.stream.drain<void>();
+      await _safeDrainResponse(streamed);
       final nextUri = currentUri.resolve(location.trim());
       // 严格 30x 跨源凭据隔离：一旦跳转至不同协议/主机/端口，立即剥离 Authorization。
       if (!_isSameOrigin(_rootUri, nextUri)) {
@@ -760,18 +788,26 @@ class WebDavSourceGateway
     String? expectedStrongValidator,
   }) async {
     final uri = _resolveUri(relativePath, asDirectory: false);
-    final rangeHeader = endInclusive != null
-        ? 'bytes=$start-$endInclusive'
-        : 'bytes=$start-';
     final streamTimeout =
         requestTimeout == WebDavGatewayConfig.defaultRequestTimeout
         ? WebDavGatewayConfig.defaultStreamOpenTimeout
         : requestTimeout;
-    final extraHeaders = <String, String>{'Range': rangeHeader};
-    if (expectedStrongValidator != null &&
+    final hasValidator =
+        expectedStrongValidator != null &&
         expectedStrongValidator.isNotEmpty &&
         !expectedStrongValidator.startsWith('W/') &&
-        !expectedStrongValidator.startsWith('w/')) {
+        !expectedStrongValidator.startsWith('w/');
+    final isFullFromStart =
+        start == 0 && endInclusive == null && !hasValidator;
+    final extraHeaders = <String, String>{};
+    // 完整文件从头读取（如 Scan 原图与缩略图）走标准 HTTP GET，避免向 CloudDrive2/网盘发送开放式 bytes=0- Range 头引发兼容挂起。
+    if (!isFullFromStart) {
+      final rangeHeader = endInclusive != null
+          ? 'bytes=$start-$endInclusive'
+          : 'bytes=$start-';
+      extraHeaders['Range'] = rangeHeader;
+    }
+    if (hasValidator) {
       extraHeaders[HttpHeaders.ifRangeHeader] = expectedStrongValidator;
     }
 
@@ -878,15 +914,50 @@ class WebDavSourceGateway
     }
 
     StreamSubscription<List<int>>? upstreamSub;
+    var streamReleased = false;
+    var listened = false;
     late final StreamController<List<int>> controller;
+    late final Future<void> Function() aborter;
+    aborter = () async {
+      if (streamReleased) return;
+      streamReleased = true;
+      _activeStreamAborters.remove(aborter);
+      try {
+        if (upstreamSub != null) {
+          await upstreamSub!.cancel();
+          upstreamSub = null;
+        } else if (!listened) {
+          // 若下游在尚未 listen 前就取消或关闭网关，必须立即消费并取消底层响应，严防池化 TCP 槽位永久泄漏。
+          await streamed.stream.listen(null).cancel();
+        }
+      } catch (error) {
+        developer.log(
+          '释放 WebDAV 响应流忽略',
+          name: 'konata.webdav_source_gateway',
+          error: error,
+        );
+      }
+    };
+    _activeStreamAborters.add(aborter);
+
     controller = StreamController<List<int>>(
       onListen: () {
+        listened = true;
+        if (streamReleased) {
+          if (!controller.isClosed) {
+            unawaited(controller.close());
+          }
+          return;
+        }
         upstreamSub = checkedResponse().listen(
           controller.add,
           onError: (Object error, StackTrace st) {
             if (!controller.isClosed) controller.addError(error, st);
           },
           onDone: () {
+            streamReleased = true;
+            _activeStreamAborters.remove(aborter);
+            upstreamSub = null;
             if (!controller.isClosed) {
               unawaited(controller.close());
             }
@@ -896,9 +967,7 @@ class WebDavSourceGateway
       },
       onPause: () => upstreamSub?.pause(),
       onResume: () => upstreamSub?.resume(),
-      onCancel: () async {
-        await upstreamSub?.cancel();
-      },
+      onCancel: aborter,
     );
     return ValidatedByteRangeStream(
       stream: controller.stream,
@@ -939,6 +1008,11 @@ class WebDavSourceGateway
 
   @override
   Future<void> close() async {
+    final pending = _activeStreamAborters.toList(growable: false);
+    _activeStreamAborters.clear();
+    for (final abort in pending) {
+      await abort();
+    }
     if (_ownsClient) {
       _client.close();
     }

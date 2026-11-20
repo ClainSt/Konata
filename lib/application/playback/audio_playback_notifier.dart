@@ -18,6 +18,7 @@ import '../../domain/playback/cue_variant_resolver.dart';
 import '../../domain/playback/lyric_version_matcher.dart';
 import '../../domain/playback/playback_formatters.dart';
 import '../../domain/repositories/file_system_gateway.dart';
+import '../../infrastructure/cache/photos_storage.dart';
 import '../../infrastructure/logging/diagnostics_log_store.dart';
 import '../../infrastructure/players/android/android_media_session_bridge.dart';
 import '../../infrastructure/players/audio_art_extractor.dart';
@@ -154,6 +155,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
 
   final Map<String, Uint8List> _posterNotificationBytesCache = {};
   final Set<String> _loadingPosterNotificationKeys = {};
+  bool _androidMediaSessionStarted = false;
 
   /// 暴露媒体会话通信桥实例供集成与单元测试观测。
   AndroidMediaSessionBridge get mediaSessionBridge => _mediaSessionBridge;

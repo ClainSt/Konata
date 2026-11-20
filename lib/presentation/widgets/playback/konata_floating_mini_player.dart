@@ -616,8 +616,10 @@ class _KonataFloatingMiniPlayerState
                 filter: KonataTheme.blurFilterControl,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: KonataPlaybackTokens.glassSurface(p),
-                    gradient: KonataTheme.opticalSheenGradient(p),
+                    gradient: KonataTheme.opticalSheenGradient(
+                      p,
+                      baseColor: KonataPlaybackTokens.glassSurface(p),
+                    ),
                     borderRadius: radius,
                     border: Border.all(
                       color: KonataPlaybackTokens.glassBorder(p),
@@ -700,25 +702,12 @@ class _KonataFloatingMiniPlayerState
                 child: RepaintBoundary(child: _FloatingAudioProgressLeaf()),
               ),
               Positioned(
-                right: 3,
-                bottom: 3,
+                right: 7,
+                bottom: 7,
                 child: IgnorePointer(
-                  child: Container(
-                    width: 18,
-                    height: 18,
-                    decoration: BoxDecoration(
-                      color: KonataPlaybackTokens.videoOverlayBadgeBg,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: KonataPlaybackTokens.videoOverlayBadgeBorder,
-                        width: 0.8,
-                      ),
-                    ),
-                    alignment: Alignment.center,
-                    child: const _FloatingMiniEqualizerLeaf(
-                      compact: true,
-                      forceWhite: true,
-                    ),
+                  child: _FloatingMiniEqualizerLeaf(
+                    compact: side < 64.0,
+                    forceWhite: true,
                   ),
                 ),
               ),
@@ -827,11 +816,17 @@ class _KonataFloatingMiniPlayerState
                           children: [
                             ClipOval(
                               child: SizedBox.square(
-                                dimension: KonataPlaybackTokens
-                                    .floatingMiniAudioPillCoverSize,
-                                child: const _FloatingAudioCoverLeaf(
-                                  size: KonataPlaybackTokens
+                                dimension: (miniSize.height - 20.0).clamp(
+                                  KonataPlaybackTokens
                                       .floatingMiniAudioPillCoverSize,
+                                  48.0,
+                                ),
+                                child: _FloatingAudioCoverLeaf(
+                                  size: (miniSize.height - 20.0).clamp(
+                                    KonataPlaybackTokens
+                                        .floatingMiniAudioPillCoverSize,
+                                    48.0,
+                                  ),
                                 ),
                               ),
                             ),

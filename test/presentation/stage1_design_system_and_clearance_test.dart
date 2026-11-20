@@ -20,6 +20,7 @@ import 'package:ccplayer/infrastructure/database/konata_database.dart';
 import 'package:ccplayer/presentation/audio/mini_audio_bar.dart';
 import 'package:ccplayer/presentation/detail/detail_bottom_drawer.dart';
 import 'package:ccplayer/presentation/detail/work_detail_page.dart';
+import 'package:ccplayer/presentation/shell/adaptive_capsule_layout.dart';
 import 'package:ccplayer/presentation/sources/scan_progress_dialog.dart';
 import 'package:ccplayer/presentation/sources/scrape_progress_banner.dart';
 import 'package:ccplayer/presentation/theme/konata_palette.dart';
@@ -307,14 +308,15 @@ void main() {
         final rect = tester.getRect(
           find.byKey(const ValueKey('konata_floating_mini_player')),
         );
-        expect(
-          rect.width,
-          closeTo(KonataPlaybackTokens.floatingMiniAudioDiscSize, 0.5),
-        );
-        expect(
-          rect.height,
-          closeTo(KonataPlaybackTokens.floatingMiniAudioDiscSize, 0.5),
-        );
+        final expectedDisc = AdaptiveCapsuleLayout(
+          size: const Size(1280, 800),
+          safe: EdgeInsets.zero,
+          android: false,
+          navigationVisible: false,
+          miniKind: FloatingMiniPlayerKind.audio,
+        ).floatingMiniWindowRect!.size;
+        expect(rect.width, closeTo(expectedDisc.width, 0.5));
+        expect(rect.height, closeTo(expectedDisc.height, 0.5));
         expect(find.text('Don\'t say "lazy"'), findsNothing);
         expect(
           find.byKey(const ValueKey('floating_mini_audio_disc')),
@@ -534,26 +536,24 @@ void main() {
       final chipBottomBefore = tester.getBottomLeft(find.text('正片 (1)')).dy;
       expect(bgHeightBefore, closeTo(800.0, 0.5));
 
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(WorkDetailPage)),
+      );
+      container.read(audioPlaybackProvider);
       audioNotifier.emit(activeAudio);
       await tester.pumpAndSettle();
 
       final bgHeightAfter = tester.getSize(find.byType(ManagedImage).first).height;
       final chipBottomAfter = tester.getBottomLeft(find.text('正片 (1)')).dy;
-      const expectedClearance =
-          KonataPlaybackTokens.floatingMiniAudioDiscSize +
-          KonataPlaybackTokens.floatingMiniEdgeMargin +
-          KonataPlaybackTokens.floatingMiniBottomClearanceGap;
+      // 桌面端悬浮小窗自由悬浮于最顶层，不顶起详情页底栏正片/特典/CD 卡片条
       expect(bgHeightAfter, closeTo(800.0, 0.5));
-      expect(
-        chipBottomBefore - chipBottomAfter,
-        closeTo(expectedClearance, 1.0),
-      );
+      expect(chipBottomAfter, closeTo(chipBottomBefore, 1.0));
       expect(
         tester.getBottomLeft(find.byType(DetailBottomDrawer)).dy,
-        closeTo(800.0 - expectedClearance, 1.0),
+        closeTo(800.0, 1.0),
       );
 
-      // 关闭胶囊后平滑回落到底部原位
+      // 关闭悬浮小窗后底栏依旧稳定贴底
       audioNotifier.emit(idleAudio);
       await tester.pumpAndSettle();
       expect(tester.getBottomLeft(find.text('正片 (1)')).dy, closeTo(chipBottomBefore, 1.0));

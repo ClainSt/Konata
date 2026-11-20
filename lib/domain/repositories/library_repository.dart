@@ -29,17 +29,29 @@ abstract interface class LibraryRepository {
   /// 新增或更新逻辑剧集条目。
   Future<void> upsertEpisode(Episode episode);
 
+  /// 在单个批量语句中写入或更新多条逻辑剧集条目。
+  Future<void> upsertEpisodesBatch(List<Episode> episodes);
+
   /// 查询指定作品下的全部剧集与特典。
   Future<List<Episode>> getEpisodesByWork(String workId);
 
   /// 新增或更新物理文件版本记录。
   Future<void> upsertMediaVariant(MediaVariant variant);
 
+  /// 在单个批量语句中写入或更新多条物理文件版本记录。
+  Future<void> upsertMediaVariantsBatch(List<MediaVariant> variants);
+
   /// 查询指定作品关联的全部物理文件版本。
   Future<List<MediaVariant>> getVariantsByWork(String workId);
 
   /// 查询指定媒体源下全部已入库的物理文件版本。
   Future<List<MediaVariant>> getVariantsBySource(String sourceId);
+
+  /// 查询库内全部物理文件版本（用于批量系列编组避免逐作 N+1 查询）。
+  Future<List<MediaVariant>> getAllVariants();
+
+  /// 在单一数据库事务中原子执行一组读写操作。
+  Future<T> runInTransaction<T>(Future<T> Function() action);
 
   /// 保存作品的 Top-5 待复核候选摘要（覆盖旧候选）。
   Future<void> saveScrapeCandidates(

@@ -202,6 +202,7 @@ class TmdbWorkDetail {
     this.collectionId,
     this.collectionName,
     this.genreIds = const [],
+    this.imagesLoaded = true,
   });
 
   /// TMDB 条目 ID。
@@ -260,6 +261,9 @@ class TmdbWorkDetail {
 
   /// TMDB 类型标签 ID 列表（`16` 为动画）。
   final List<int> genreIds;
+
+  /// 是否已一并拉取完整图像候选集（轻量候选初筛模式为 `false`，确认绑定后按需补全高清图集）。
+  final bool imagesLoaded;
 }
 
 /// 待复核候选持久化摘要实体。

@@ -16,6 +16,7 @@ class BangumiService {
     'Accept': 'application/json',
   };
   static const int _maxMemoEntries = 240;
+  static const String _bangumiBucketKey = 'bangumi';
 
   final TmdbHttpClient _http;
   final Map<String, Future<Object?>> _memo = {};
@@ -61,6 +62,7 @@ class BangumiService {
         }),
         priority: priority,
         dedupeKey: 'bgm:$key',
+        bucketKey: _bangumiBucketKey,
       );
       if (response.statusCode != 200) {
         // 重定向（镜像迁址时 POST 不会被自动跟随）与服务端错误均视为检索失败而非“无结果”，
@@ -144,6 +146,7 @@ class BangumiService {
         headers: _bgmHeaders,
         priority: priority,
         dedupeKey: 'bgm:$key',
+        bucketKey: _bangumiBucketKey,
       );
       if (response.statusCode == 404) return null;
       if (response.statusCode != 200) {
@@ -180,6 +183,7 @@ class BangumiService {
         headers: _bgmHeaders,
         priority: priority,
         dedupeKey: 'bgm:$key',
+        bucketKey: _bangumiBucketKey,
       );
       if (response.statusCode == 404) return const <Map<String, Object?>>[];
       if (response.statusCode != 200) return const <Map<String, Object?>>[];
@@ -228,6 +232,7 @@ class BangumiService {
         headers: _bgmHeaders,
         priority: priority,
         dedupeKey: 'bgm:$key',
+        bucketKey: _bangumiBucketKey,
       );
       if (response.statusCode != 200) return const <BangumiRelatedSubject>[];
       final decoded = jsonDecode(utf8.decode(response.bodyBytes));

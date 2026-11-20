@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:developer' as developer;
 import '../../domain/formatting/network_error_sanitizer.dart';
 import '../../domain/matching/directory_grouper.dart';
@@ -46,6 +47,7 @@ class ScrapeOrchestrator {
     this._computeWorker = const ScrapeComputeWorker(),
     this._photosStorage,
     this._mappingIndex,
+    this._maxWorkConcurrency = defaultWorkConcurrency,
   }) : _repository = repository,
        _tmdbService = tmdbService,
        _bangumiService = bangumiService,
@@ -61,11 +63,15 @@ class ScrapeOrchestrator {
     );
   }
 
+  /// 阶段 3 跨作品并发刮削默认并发度（仅并发在线元数据请求，写库与进度串行保护）。
+  static const int defaultWorkConcurrency = 5;
+
   final LibraryRepository _repository;
   final TmdbService _tmdbService;
   final BangumiService? _bangumiService;
   final PhotosStorage? _photosStorage;
   final BangumiTmdbIndex? _mappingIndex;
+  final int _maxWorkConcurrency;
   final GatewayBuilder _gatewayBuilder;
   final DirectoryScanner _scanner;
   final ScrapeWorkPersister _persister;
@@ -93,6 +99,8 @@ class ScrapeOrchestrator {
     emit(tracker.snapshot);
 
     final gateway = await _gatewayBuilder(source);
+    final computeSession = _computeWorker.openSession();
+    _tmdbService.beginSessionCache();
     try {
       final scanResult = await _scanner.scan(
         gateway,
@@ -136,12 +144,27 @@ class ScrapeOrchestrator {
       final existingSourceVariants = await _repository.getVariantsBySource(
         source.id,
       );
+      final allExistingWorks = await _repository.getAllWorks();
+      final worksById = <String, Work>{
+        for (final w in allExistingWorks) w.id: w,
+      };
+      final sourceVariantById = <String, MediaVariant>{
+        for (final v in existingSourceVariants) v.id: v,
+      };
+      final workIdByRelPath = <String, String>{};
+      final unlockedVariantsByWorkId = <String, List<MediaVariant>>{};
       final lockedByNormalizedPath = <String, MediaVariant>{};
       for (final variant in existingSourceVariants) {
-        if (!variant.workLocked && !variant.scopeLocked) continue;
-        final norm = _normalizeSourceRelPath(variant.relativePath);
-        if (norm.isNotEmpty) {
-          lockedByNormalizedPath[norm] = variant;
+        workIdByRelPath[variant.relativePath] = variant.workId;
+        if (variant.workLocked || variant.scopeLocked) {
+          final norm = _normalizeSourceRelPath(variant.relativePath);
+          if (norm.isNotEmpty) {
+            lockedByNormalizedPath[norm] = variant;
+          }
+        } else {
+          unlockedVariantsByWorkId
+              .putIfAbsent(variant.workId, () => <MediaVariant>[])
+              .add(variant);
         }
       }
 
@@ -159,7 +182,7 @@ class ScrapeOrchestrator {
         }
       }
 
-      final groupedWorksAll = await _computeWorker.groupFiles(
+      final groupedWorksAll = await computeSession.groupFiles(
         sourceId: source.id,
         files: unlockedScanFiles,
         nfoByFolder: scanResult.nfoByFolder,
@@ -185,44 +208,102 @@ class ScrapeOrchestrator {
         ),
       );
 
+      final scanContext = _ScanBatchContext(
+        computeWorker: computeSession,
+        worksById: worksById,
+        workIdByRelPath: workIdByRelPath,
+        sourceVariantById: sourceVariantById,
+        unlockedVariantsByWorkId: unlockedVariantsByWorkId,
+        persistMutex: _AsyncMutex(),
+      );
+
       final activeWorkIds = <String>{...lockedActiveWorkIds};
       final activeVariantIds = <String>{...lockedActiveVariantIds};
-      for (final folder in groupedWorks) {
-        if (isCancelled?.call() ?? false) {
-          final cancelled = tracker.advance(
-            phase: ScrapePhase.cancelled,
-            currentItemName: '已取消刮削',
-            cancelRequested: true,
-          );
-          emit(cancelled);
-          return cancelled;
-        }
-        emit(tracker.advance(currentItemName: folder.cleanTitle));
 
-        final result = await _processSingleFolderSafe(source.id, folder);
-        activeWorkIds.add(result.workId);
-        for (final v in folder.variants) {
-          activeVariantIds.add(
-            ScrapeWorkPersister.deterministicId(
-              '${v.sourceId}::${v.relativePath}',
+      // 阶段 3 受控跨作品并发池：重叠多部作品的在线元数据往返，同时对写库与进度上报串行加锁防竞态。
+      final effectiveConcurrency = _maxWorkConcurrency < 1
+          ? 1
+          : (_maxWorkConcurrency > groupedWorks.length
+                ? groupedWorks.length
+                : _maxWorkConcurrency);
+      var nextIndex = 0;
+      var cancelledDuringScrape = false;
+      Object? fatalError;
+      StackTrace? fatalStackTrace;
+
+      Future<void> runWorker() async {
+        while (true) {
+          if (fatalError != null) return;
+          if (isCancelled?.call() ?? false) {
+            cancelledDuringScrape = true;
+            return;
+          }
+          if (nextIndex >= groupedWorks.length) return;
+          final folder = groupedWorks[nextIndex++];
+          emit(tracker.advance(currentItemName: folder.cleanTitle));
+
+          final ({ScrapeStatus status, String workId}) result;
+          try {
+            result = await _processSingleFolderSafe(
+              source.id,
+              folder,
+              scanContext: scanContext,
+              isCancelled: isCancelled,
+            );
+          } catch (error, stackTrace) {
+            fatalError ??= error;
+            fatalStackTrace ??= stackTrace;
+            return;
+          }
+
+          if (isCancelled?.call() ?? false) {
+            cancelledDuringScrape = true;
+            return;
+          }
+
+          activeWorkIds.add(result.workId);
+          for (final v in folder.variants) {
+            activeVariantIds.add(
+              ScrapeWorkPersister.deterministicId(
+                '${v.sourceId}::${v.relativePath}',
+              ),
+            );
+          }
+          final snap = tracker.snapshot;
+          emit(
+            tracker.advance(
+              processedWorks: snap.processedWorks + 1,
+              matchedWorks:
+                  snap.matchedWorks +
+                  (result.status == ScrapeStatus.matched ? 1 : 0),
+              reviewWorks:
+                  snap.reviewWorks +
+                  (result.status == ScrapeStatus.needsReview ? 1 : 0),
+              unmatchedWorks:
+                  snap.unmatchedWorks +
+                  (result.status == ScrapeStatus.unmatched ? 1 : 0),
             ),
           );
         }
-        final snap = tracker.snapshot;
-        emit(
-          tracker.advance(
-            processedWorks: snap.processedWorks + 1,
-            matchedWorks:
-                snap.matchedWorks +
-                (result.status == ScrapeStatus.matched ? 1 : 0),
-            reviewWorks:
-                snap.reviewWorks +
-                (result.status == ScrapeStatus.needsReview ? 1 : 0),
-            unmatchedWorks:
-                snap.unmatchedWorks +
-                (result.status == ScrapeStatus.unmatched ? 1 : 0),
-          ),
+      }
+
+      if (effectiveConcurrency > 0) {
+        await Future.wait([
+          for (var i = 0; i < effectiveConcurrency; i++) runWorker(),
+        ]);
+      }
+
+      if (fatalError != null) {
+        Error.throwWithStackTrace(fatalError!, fatalStackTrace!);
+      }
+      if (cancelledDuringScrape || (isCancelled?.call() ?? false)) {
+        final cancelled = tracker.advance(
+          phase: ScrapePhase.cancelled,
+          currentItemName: '已取消刮削',
+          cancelRequested: true,
         );
+        emit(cancelled);
+        return cancelled;
       }
 
       // 支持全量与局部 scanRoots 范围修剪：非空 scopedRoots 仅清理对应目录前缀下的失联条目，绝不误删未选目录作品。
@@ -271,80 +352,124 @@ class ScrapeOrchestrator {
       emit(failed);
       rethrow;
     } finally {
+      _tmdbService.endSessionCache();
+      await computeSession.dispose();
       await gateway.close();
     }
   }
 
   Future<({ScrapeStatus status, String workId})> _processSingleFolderSafe(
     String sourceId,
-    GroupedWorkFolder folder,
-  ) async {
+    GroupedWorkFolder folder, {
+    required _ScanBatchContext scanContext,
+    bool Function()? isCancelled,
+  }) async {
     try {
-      return await _processSingleFolder(sourceId, folder);
+      return await _processSingleFolder(
+        sourceId,
+        folder,
+        scanContext: scanContext,
+        isCancelled: isCancelled,
+      );
     } catch (error) {
       if (!NetworkErrorSanitizer.isTransientNetworkError(error)) {
         rethrow;
       }
-      final existing = await _persister.findExistingWorkForFolder(
-        sourceId,
-        folder,
-      );
-      final workId =
-          existing?.id ??
-          ScrapeWorkPersister.deterministicId(
+      if (isCancelled?.call() ?? false) {
+        return (
+          status: ScrapeStatus.needsReview,
+          workId: ScrapeWorkPersister.deterministicId(
             '$sourceId::${folder.folderRelativePath}',
+          ),
+        );
+      }
+      return scanContext.persistMutex.synchronized(() async {
+        final existing = await _persister.findExistingWorkForFolder(
+          sourceId,
+          folder,
+          workIdByRelPath: scanContext.workIdByRelPath,
+          worksById: scanContext.worksById,
+        );
+        final workId =
+            existing?.id ??
+            ScrapeWorkPersister.deterministicId(
+              '$sourceId::${folder.folderRelativePath}',
+            );
+        if (existing != null && existing.scrapeStatus == ScrapeStatus.matched) {
+          await _persister.syncEpisodesAndVariants(
+            work: existing,
+            folder: folder,
+            tmdbEpisodes: const [],
+            preloadedSourceVariantsById: scanContext.sourceVariantById,
           );
-      if (existing != null && existing.scrapeStatus == ScrapeStatus.matched) {
+          return (status: existing.scrapeStatus, workId: workId);
+        }
+        final fallbackWork = Work(
+          id: workId,
+          title: folder.cleanTitle,
+          year: folder.year,
+          folderTmdbHint: folder.explicitTmdbId,
+          isManualLocked: false,
+          isHidden: existing?.keepHidden == true
+              ? true
+              : (existing?.isHidden ?? false),
+          keepHidden: existing?.keepHidden ?? false,
+          scrapeStatus: ScrapeStatus.needsReview,
+          reviewReason: NetworkErrorSanitizer.toUserMessage(
+            error,
+            prefix: 'TMDB 网络异常，已使用本地目录降级入库',
+          ),
+        );
+        await _repository.upsertWork(fallbackWork);
+        scanContext.worksById[fallbackWork.id] = fallbackWork;
+        await _photosStorage?.renameWorkFolderIfNeeded(
+          fallbackWork.id,
+          fallbackWork.title,
+        );
         await _persister.syncEpisodesAndVariants(
-          work: existing,
+          work: fallbackWork,
           folder: folder,
           tmdbEpisodes: const [],
+          preloadedSourceVariantsById: scanContext.sourceVariantById,
         );
-        return (status: existing.scrapeStatus, workId: workId);
-      }
-      final fallbackWork = Work(
-        id: workId,
-        title: folder.cleanTitle,
-        year: folder.year,
-        folderTmdbHint: folder.explicitTmdbId,
-        isManualLocked: false,
-        isHidden: existing?.keepHidden == true
-            ? true
-            : (existing?.isHidden ?? false),
-        keepHidden: existing?.keepHidden ?? false,
-        scrapeStatus: ScrapeStatus.needsReview,
-        reviewReason: NetworkErrorSanitizer.toUserMessage(
-          error,
-          prefix: 'TMDB 网络异常，已使用本地目录降级入库',
-        ),
-      );
-      await _repository.upsertWork(fallbackWork);
-      await _photosStorage?.renameWorkFolderIfNeeded(
-        fallbackWork.id,
-        fallbackWork.title,
-      );
-      await _persister.syncEpisodesAndVariants(
-        work: fallbackWork,
-        folder: folder,
-        tmdbEpisodes: const [],
-      );
-      return (status: ScrapeStatus.needsReview, workId: workId);
+        return (status: ScrapeStatus.needsReview, workId: workId);
+      });
     }
   }
 
   Future<({ScrapeStatus status, String workId})> _processSingleFolder(
     String sourceId,
-    GroupedWorkFolder folder,
-  ) async {
+    GroupedWorkFolder folder, {
+    required _ScanBatchContext scanContext,
+    bool Function()? isCancelled,
+  }) async {
     final existing = await _persister.findExistingWorkForFolder(
       sourceId,
       folder,
+      workIdByRelPath: scanContext.workIdByRelPath,
+      worksById: scanContext.worksById,
     );
     final workId =
         existing?.id ??
         ScrapeWorkPersister.deterministicId(
           '$sourceId::${folder.folderRelativePath}',
         );
+
+    // 增量重扫零请求快跳：已成功绑定 TMDB（或人工锁定）且目录物理文件集与字幕列表未发生变化、
+    // 且未出现新的显式 ID/季提示时，直接沿用既有入库结果并跳过全部在线 API 与重复写库；
+    // 仅命中 Bangumi 而缺少 TMDB ID 的非锁定条目仍允许重扫补绑，详情页也始终保留手动重抓入口。
+    if (existing != null &&
+        existing.scrapeStatus == ScrapeStatus.matched &&
+        (existing.tmdbId != null || existing.isManualLocked) &&
+        _canFastSkipUnchangedMatchedWork(
+          existing: existing,
+          folder: folder,
+          existingUnlockedVariants:
+              scanContext.unlockedVariantsByWorkId[existing.id] ?? const [],
+        )) {
+      return (status: existing.scrapeStatus, workId: workId);
+    }
+
     final seasons = _extractReferencedSeasons(folder);
 
     // 阶段 1：人工锁定保护，跳过自动重刮削，仅同步新增文件与剧集关联（保留手动文件映射与 Bangumi 穿插校准）。
@@ -361,8 +486,14 @@ class ScrapeOrchestrator {
             existing.tmdbId!,
             existing.tmdbMediaType!,
             priority: RequestPriority.background,
+            includeImages: false,
           );
-        } catch (_) {
+        } catch (error) {
+          developer.log(
+            '锁定作品详情预拉失败，继续本地分集同步',
+            name: 'konata.scrape_orchestrator',
+            error: error,
+          );
           lockedDetail = null;
         }
       }
@@ -414,13 +545,19 @@ class ScrapeOrchestrator {
               bangumiEpisodes: bgmEps,
             )
           : preRemap;
-      await _persister.syncEpisodesAndVariants(
-        work: existing,
-        folder: folder,
-        tmdbEpisodes: episodes,
-        bangumiEpisodes: bgmEps,
-        remapPlan: finalRemap,
-      );
+      if (isCancelled?.call() ?? false) {
+        return (status: existing.scrapeStatus, workId: workId);
+      }
+      await scanContext.persistMutex.synchronized(() async {
+        await _persister.syncEpisodesAndVariants(
+          work: existing,
+          folder: folder,
+          tmdbEpisodes: episodes,
+          bangumiEpisodes: bgmEps,
+          remapPlan: finalRemap,
+          preloadedSourceVariantsById: scanContext.sourceVariantById,
+        );
+      });
       return (status: existing.scrapeStatus, workId: workId);
     }
 
@@ -441,12 +578,15 @@ class ScrapeOrchestrator {
           folder,
           extraQueries: [detail.title, ...detail.aliases.take(2)],
         );
-        final explicitDecision = await _computeWorker.evaluateMatch(
+        final explicitDecision = await scanContext.computeWorker.evaluateMatch(
           folder,
           [detail],
           bangumiCandidates: bgmCandidates,
           mappingIndex: _mappingIndex,
         );
+        if (isCancelled?.call() ?? false) {
+          return (status: ScrapeStatus.unmatched, workId: workId);
+        }
         final status = await _bindAndPersistDetail(
           workId: workId,
           existing: existing,
@@ -466,6 +606,8 @@ class ScrapeOrchestrator {
               ? true
               : (existing?.isHidden ?? false),
           keepHidden: existing?.keepHidden ?? false,
+          scanContext: scanContext,
+          isCancelled: isCancelled,
         );
         return (status: status, workId: workId);
       }
@@ -475,11 +617,15 @@ class ScrapeOrchestrator {
       }
     }
 
-    // 阶段 3：Bangumi 在线优先匹配 -> 交叉关键词救回 TMDB 搜索 -> 合集父系列兜底 -> 双向互保重评。
+    // 阶段 3：Bangumi 在线优先匹配 -> 离线映射直连快通道 -> 交叉关键词救回 TMDB 搜索 -> 合集父系列兜底 -> 双向互保重评。
     final resolution = await _matchResolver.resolve(
       effectiveFolder,
       tmdbUnavailable: tmdbNetworkError != null,
+      computeWorker: scanContext.computeWorker,
     );
+    if (isCancelled?.call() ?? false) {
+      return (status: ScrapeStatus.unmatched, workId: workId);
+    }
     if (resolution.networkError != null) {
       recordTmdbError(resolution.networkError!);
     }
@@ -499,6 +645,8 @@ class ScrapeOrchestrator {
             ? true
             : (existing?.isHidden ?? false),
         keepHidden: existing?.keepHidden ?? false,
+        scanContext: scanContext,
+        isCancelled: isCancelled,
       );
       return (status: status, workId: workId);
     }
@@ -507,11 +655,14 @@ class ScrapeOrchestrator {
     if (tmdbNetworkError != null &&
         existing != null &&
         existing.scrapeStatus == ScrapeStatus.matched) {
-      await _persister.syncEpisodesAndVariants(
-        work: existing,
-        folder: effectiveFolder,
-        tmdbEpisodes: const [],
-      );
+      await scanContext.persistMutex.synchronized(() async {
+        await _persister.syncEpisodesAndVariants(
+          work: existing,
+          folder: effectiveFolder,
+          tmdbEpisodes: const [],
+          preloadedSourceVariantsById: scanContext.sourceVariantById,
+        );
+      });
       return (status: existing.scrapeStatus, workId: workId);
     }
 
@@ -541,9 +692,6 @@ class ScrapeOrchestrator {
             : (existing?.isHidden ?? false),
         keepHidden: existing?.keepHidden ?? false,
       );
-      await _repository.upsertWork(work);
-      await _photosStorage?.renameWorkFolderIfNeeded(work.id, work.title);
-      await _persister.saveTopCandidates(workId, decision.topCandidates);
       final bgmEpisodes =
           (bgmStatus == ScrapeStatus.matched || tmdbNetworkError != null)
           ? await _candidateFetcher.fetchBangumiEpisodes(
@@ -551,12 +699,22 @@ class ScrapeOrchestrator {
               type: null,
             )
           : const <BangumiEpisodeEntry>[];
-      await _persister.syncEpisodesAndVariants(
-        work: work,
-        folder: effectiveFolder,
-        tmdbEpisodes: const [],
-        bangumiEpisodes: bgmEpisodes,
-      );
+      if (isCancelled?.call() ?? false) {
+        return (status: bgmStatus, workId: workId);
+      }
+      await scanContext.persistMutex.synchronized(() async {
+        await _repository.upsertWork(work);
+        scanContext.worksById[work.id] = work;
+        await _photosStorage?.renameWorkFolderIfNeeded(work.id, work.title);
+        await _persister.saveTopCandidates(workId, decision.topCandidates);
+        await _persister.syncEpisodesAndVariants(
+          work: work,
+          folder: effectiveFolder,
+          tmdbEpisodes: const [],
+          bangumiEpisodes: bgmEpisodes,
+          preloadedSourceVariantsById: scanContext.sourceVariantById,
+        );
+      });
       return (status: bgmStatus, workId: workId);
     }
 
@@ -584,14 +742,18 @@ class ScrapeOrchestrator {
       scrapeStatus: status,
       reviewReason: reviewReason,
     );
-    await _repository.upsertWork(work);
-    await _photosStorage?.renameWorkFolderIfNeeded(work.id, work.title);
-    await _persister.saveTopCandidates(workId, decision.topCandidates);
-    await _persister.syncEpisodesAndVariants(
-      work: work,
-      folder: effectiveFolder,
-      tmdbEpisodes: const [],
-    );
+    await scanContext.persistMutex.synchronized(() async {
+      await _repository.upsertWork(work);
+      scanContext.worksById[work.id] = work;
+      await _photosStorage?.renameWorkFolderIfNeeded(work.id, work.title);
+      await _persister.saveTopCandidates(workId, decision.topCandidates);
+      await _persister.syncEpisodesAndVariants(
+        work: work,
+        folder: effectiveFolder,
+        tmdbEpisodes: const [],
+        preloadedSourceVariantsById: scanContext.sourceVariantById,
+      );
+    });
     return (status: status, workId: workId);
   }
 
@@ -606,15 +768,42 @@ class ScrapeOrchestrator {
     required bool isManualLocked,
     bool isHidden = false,
     bool keepHidden = false,
+    _ScanBatchContext? scanContext,
+    bool Function()? isCancelled,
   }) async {
-    if (detail.collectionId != null && detail.collectionId! > 0) {
-      _tmdbCollectionIdByTmdbId[detail.tmdbId] = detail.collectionId!;
+    // 候选初筛阶段省略了沉重的 images 集合；仅对最终确认绑定的唯一优胜条目按需补全 ClearLogo 与高清背景图集。
+    var effectiveDetail = detail;
+    if (!detail.imagesLoaded) {
+      try {
+        final hydrated = await _tmdbService.getWorkDetail(
+          detail.tmdbId,
+          detail.mediaType,
+          priority: RequestPriority.background,
+          includeImages: true,
+        );
+        if (hydrated != null) {
+          effectiveDetail = hydrated;
+        }
+      } catch (error) {
+        developer.log(
+          '补全优胜条目高清图集失败，沿用基础详情继续入库',
+          name: 'konata.scrape_orchestrator',
+          error: error,
+        );
+      }
+    }
+
+    if (effectiveDetail.collectionId != null &&
+        effectiveDetail.collectionId! > 0) {
+      _tmdbCollectionIdByTmdbId[effectiveDetail.tmdbId] =
+          effectiveDetail.collectionId!;
     }
     final preRemap =
-        (detail.mediaType == TmdbMediaType.tv && detail.seasons.isNotEmpty)
+        (effectiveDetail.mediaType == TmdbMediaType.tv &&
+            effectiveDetail.seasons.isNotEmpty)
         ? EpisodeRemapper.buildPlan(
             folder: folder,
-            tmdbSeasons: detail.seasons,
+            tmdbSeasons: effectiveDetail.seasons,
             matchedSeason: matchedSeason,
           )
         : null;
@@ -622,14 +811,14 @@ class ScrapeOrchestrator {
       ...ScrapeDomainAdapter.referencedSeasonsToFetch(
         folder,
         matchedSeason: matchedSeason,
-        detail: detail,
+        detail: effectiveDetail,
       ),
       if (preRemap != null) ...preRemap.referencedSeasons,
       ...seasons,
     };
     final bundle = await _candidateFetcher.fetchSeasonBundle(
-      detail.tmdbId,
-      detail.mediaType,
+      effectiveDetail.tmdbId,
+      effectiveDetail.mediaType,
       seasonsToFetch,
     );
     final seasonDetail = matchedSeason != null
@@ -638,7 +827,7 @@ class ScrapeOrchestrator {
 
     final candidateWork = ScrapeWorkPersister.buildMatchedWork(
       id: workId,
-      detail: detail,
+      detail: effectiveDetail,
       folder: folder,
       matchedSeason: matchedSeason,
       seasonDetail: seasonDetail,
@@ -653,9 +842,6 @@ class ScrapeOrchestrator {
       existing: existing,
       candidate: candidateWork,
     );
-    await _repository.upsertWork(work);
-    await _photosStorage?.renameWorkFolderIfNeeded(work.id, work.title);
-    await _repository.clearScrapeCandidates(workId);
 
     final effectiveBgmId = bangumiCandidate?.subject.id ?? existing?.bangumiId;
     final needBgmEpisodes =
@@ -671,25 +857,82 @@ class ScrapeOrchestrator {
         : const <BangumiEpisodeEntry>[];
 
     final remapPlan =
-        (detail.mediaType == TmdbMediaType.tv && detail.seasons.isNotEmpty)
+        (effectiveDetail.mediaType == TmdbMediaType.tv &&
+            effectiveDetail.seasons.isNotEmpty)
         ? EpisodeRemapper.buildPlan(
             folder: folder,
-            tmdbSeasons: detail.seasons,
+            tmdbSeasons: effectiveDetail.seasons,
             matchedSeason: matchedSeason,
             tmdbEpisodes: bundle.episodes,
             bangumiEpisodes: bangumiEpisodes,
           )
         : preRemap;
 
-    await _persister.syncEpisodesAndVariants(
-      work: work,
-      folder: folder,
-      tmdbEpisodes: bundle.episodes,
-      bangumiEpisodes: bangumiEpisodes,
-      remapPlan: remapPlan,
-      seasonName: seasonDetail?.name,
-    );
+    if (isCancelled?.call() ?? false) {
+      return ScrapeStatus.unmatched;
+    }
+
+    Future<void> persist() async {
+      await _repository.upsertWork(work);
+      scanContext?.worksById[work.id] = work;
+      await _photosStorage?.renameWorkFolderIfNeeded(work.id, work.title);
+      await _repository.clearScrapeCandidates(workId);
+      await _persister.syncEpisodesAndVariants(
+        work: work,
+        folder: folder,
+        tmdbEpisodes: bundle.episodes,
+        bangumiEpisodes: bangumiEpisodes,
+        remapPlan: remapPlan,
+        seasonName: seasonDetail?.name,
+        preloadedSourceVariantsById: scanContext?.sourceVariantById,
+      );
+    }
+
+    if (scanContext != null) {
+      await scanContext.persistMutex.synchronized(persist);
+    } else {
+      await persist();
+    }
     return ScrapeStatus.matched;
+  }
+
+  /// 判断已成功匹配的作品在增量重扫时其未锁定文件集是否完全未变化，允许零网络请求直接快跳。
+  static bool _canFastSkipUnchangedMatchedWork({
+    required Work existing,
+    required GroupedWorkFolder folder,
+    required List<MediaVariant> existingUnlockedVariants,
+  }) {
+    if (existingUnlockedVariants.isEmpty ||
+        existingUnlockedVariants.length != folder.variants.length) {
+      return false;
+    }
+    if (folder.explicitTmdbId != null &&
+        folder.explicitTmdbId != existing.tmdbId) {
+      return false;
+    }
+    if (existing.tmdbId != null &&
+        existing.tmdbMediaType == TmdbMediaType.tv &&
+        existing.matchedSeason == null &&
+        folder.seasonHint != null) {
+      return false;
+    }
+
+    String signatureOf(MediaVariant v) {
+      final subs = List<String>.of(v.externalSubtitles)..sort();
+      return '${v.sourceId}\u0000${v.relativePath}\u0000${v.fileSize}\u0000'
+          '${v.assetKind.index}\u0000${subs.join('\u0001')}';
+    }
+
+    final existingSigs = {for (final v in existingUnlockedVariants) signatureOf(v)};
+    if (existingSigs.length != existingUnlockedVariants.length) {
+      return false;
+    }
+    for (final v in folder.variants) {
+      if (!existingSigs.contains(signatureOf(v))) {
+        return false;
+      }
+    }
+    return true;
   }
 
   Set<int> _extractReferencedSeasons(GroupedWorkFolder folder) =>
@@ -1296,5 +1539,42 @@ class ScrapeOrchestrator {
         .replaceAll(RegExp(r'/+'), '/')
         .replaceAll(RegExp(r'^/+|/+$'), '')
         .toLowerCase();
+  }
+}
+
+/// 单次扫描会话内共享的预载索引与串行写库互斥锁（避免跨作品并发时的 SQLite 写锁竞争与重复查表）。
+class _ScanBatchContext {
+  const _ScanBatchContext({
+    required this.computeWorker,
+    required this.worksById,
+    required this.workIdByRelPath,
+    required this.sourceVariantById,
+    required this.unlockedVariantsByWorkId,
+    required this.persistMutex,
+  });
+
+  final ScrapeComputeWorker computeWorker;
+  final Map<String, Work> worksById;
+  final Map<String, String> workIdByRelPath;
+  final Map<String, MediaVariant> sourceVariantById;
+  final Map<String, List<MediaVariant>> unlockedVariantsByWorkId;
+  final _AsyncMutex persistMutex;
+}
+
+/// 轻量级异步串行互斥锁（保护数据库事务写入顺序与内存索引一致性）。
+class _AsyncMutex {
+  Future<void> _tail = Future<void>.value();
+
+  Future<T> synchronized<T>(Future<T> Function() action) {
+    final prev = _tail;
+    final done = Completer<void>();
+    _tail = done.future;
+    return prev.then((_) async {
+      try {
+        return await action();
+      } finally {
+        done.complete();
+      }
+    });
   }
 }

@@ -208,15 +208,44 @@ class ScrapeWorkPersister {
   }
 
   /// 根据媒体源内已有物理文件映射，定位已存在的 `workId`（用于增量扫描与锁定保护）。
+  ///
+  /// 批量扫描期间可注入预载的 [workIdByRelPath] 与 [worksById] 索引，避免每部作品执行 O(N) 全表查库。
   Future<Work?> findExistingWorkForFolder(
     String sourceId,
-    GroupedWorkFolder folder,
-  ) async {
+    GroupedWorkFolder folder, {
+    Map<String, String>? workIdByRelPath,
+    Map<String, Work>? worksById,
+  }) async {
     final stableId = deterministicId('$sourceId::${folder.folderRelativePath}');
-    final exact = await _repository.findWorkById(stableId);
+    final cachedExact = worksById?[stableId];
+    if (cachedExact != null) return cachedExact;
+    final exact = worksById == null
+        ? await _repository.findWorkById(stableId)
+        : null;
     if (exact != null) return exact;
     // 多作品合集拆簇后禁止回退抢占共享父目录旧 `workId`，否则同目录拆出的多部子作品会互相覆盖。
     if (folder.isSplitCluster) return null;
+
+    if (workIdByRelPath != null) {
+      if (workIdByRelPath.isEmpty) return null;
+      final hitCountByWorkId = <String, int>{};
+      for (final f in folder.variants) {
+        final ownerId = workIdByRelPath[f.relativePath];
+        if (ownerId == null) continue;
+        hitCountByWorkId[ownerId] = (hitCountByWorkId[ownerId] ?? 0) + 1;
+      }
+      if (hitCountByWorkId.isEmpty) return null;
+      String? bestWorkId;
+      var bestHitCount = 0;
+      for (final entry in hitCountByWorkId.entries) {
+        if (entry.value > bestHitCount) {
+          bestHitCount = entry.value;
+          bestWorkId = entry.key;
+        }
+      }
+      if (bestWorkId == null) return null;
+      return worksById?[bestWorkId] ?? await _repository.findWorkById(bestWorkId);
+    }
 
     final allWorks = await _repository.getAllWorks();
     if (allWorks.isEmpty) return null;
@@ -241,6 +270,9 @@ class ScrapeWorkPersister {
   }
 
   /// 同步一个作品文件夹下的所有逻辑剧集、特典（Season 0 对齐）与多版本物理文件。
+  ///
+  /// 全部剧集与物理文件写入收口至单一 SQLite 事务批量提交；当提供 [preloadedSourceVariantsById]
+  /// 时直接复用内存中的源级变体索引并同步维护更新，消除批量扫描期间重复反序列化整源数据。
   Future<void> syncEpisodesAndVariants({
     required Work work,
     required GroupedWorkFolder folder,
@@ -249,6 +281,7 @@ class ScrapeWorkPersister {
     EpisodeRemapPlan? remapPlan,
     String? seasonName,
     bool resetManualLocks = false,
+    Map<String, MediaVariant>? preloadedSourceVariantsById,
   }) async {
     final tmdbByKey = <String, TmdbEpisodeDetail>{
       for (final ep in tmdbEpisodes)
@@ -273,12 +306,17 @@ class ScrapeWorkPersister {
     final existingVariantById = <String, MediaVariant>{
       for (final v in existingVariants) v.id: v,
     };
-    final sourceIds = {for (final v in folder.variants) v.sourceId};
-    final sourceVariantById = <String, MediaVariant>{};
-    for (final sid in sourceIds) {
-      final list = await _repository.getVariantsBySource(sid);
-      for (final sv in list) {
-        sourceVariantById[sv.id] = sv;
+    final Map<String, MediaVariant> sourceVariantById;
+    if (preloadedSourceVariantsById != null) {
+      sourceVariantById = preloadedSourceVariantsById;
+    } else {
+      sourceVariantById = <String, MediaVariant>{};
+      final sourceIds = {for (final v in folder.variants) v.sourceId};
+      for (final sid in sourceIds) {
+        final list = await _repository.getVariantsBySource(sid);
+        for (final sv in list) {
+          sourceVariantById[sv.id] = sv;
+        }
       }
     }
     final existingEpisodes = await _repository.getEpisodesByWork(work.id);
@@ -346,6 +384,9 @@ class ScrapeWorkPersister {
         strongMainEpisodes.add(parsed.episode!);
       }
     }
+
+    final episodesToUpsert = <String, Episode>{};
+    final variantsToUpsert = <MediaVariant>[];
 
     for (final rawVariant in folder.variants) {
       String? episodeId;
@@ -620,7 +661,7 @@ class ScrapeWorkPersister {
             overview: rangeInfo?.overview ?? tmdbEp?.overview,
             stillPath: tmdbEp?.stillPath,
           );
-          await _repository.upsertEpisode(episode);
+          episodesToUpsert[epId] = episode;
           episodeById[epId] = episode;
         } else if ((tmdbEp != null &&
                 (episode.title != tmdbEp.title ||
@@ -642,7 +683,7 @@ class ScrapeWorkPersister {
                 rangeInfo?.overview ?? tmdbEp?.overview ?? episode.overview,
             stillPath: tmdbEp?.stillPath ?? episode.stillPath,
           );
-          await _repository.upsertEpisode(episode);
+          episodesToUpsert[epId] = episode;
           episodeById[epId] = episode;
         }
         episodeId = episode.id;
@@ -675,10 +716,26 @@ class ScrapeWorkPersister {
             : rawVariant.assetScope,
         scopeLocked: existingVariant?.scopeLocked ?? rawVariant.scopeLocked,
       );
-      await _repository.upsertMediaVariant(variant);
+      variantsToUpsert.add(variant);
     }
 
-    await _repository.deleteOrphanEpisodes(work.id);
+    await _repository.runInTransaction(() async {
+      if (episodesToUpsert.isNotEmpty) {
+        await _repository.upsertEpisodesBatch(
+          episodesToUpsert.values.toList(growable: false),
+        );
+      }
+      if (variantsToUpsert.isNotEmpty) {
+        await _repository.upsertMediaVariantsBatch(variantsToUpsert);
+      }
+      await _repository.deleteOrphanEpisodes(work.id);
+    });
+
+    if (preloadedSourceVariantsById != null) {
+      for (final variant in variantsToUpsert) {
+        preloadedSourceVariantsById[variant.id] = variant;
+      }
+    }
   }
 
   /// 保存待人工复核的 Top-5 候选列表。

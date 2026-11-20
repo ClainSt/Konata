@@ -1,7 +1,9 @@
 import 'dart:developer' as developer;
+import '../../domain/models/media_variant.dart';
 import '../../domain/models/series_group.dart';
 import '../../domain/models/work.dart';
 import '../../domain/repositories/library_repository.dart';
+import '../../domain/scraping/bangumi_models.dart';
 import '../../infrastructure/network/bangumi_service.dart';
 import '../../infrastructure/network/tmdb_service.dart';
 
@@ -198,12 +200,17 @@ class SeriesAutoLinker {
       uf.unionAll(group);
     }
 
-    // 5. 物理合集根目录分组（例如 [ReinForce] Spy x Family 下各季与剧场版）。
+    // 5. 物理合集根目录分组（一次性批量载入全库变体，消除逐作品 N+1 SQLite 查询）。
+    final allVariants = await repository.getAllVariants();
+    final variantsByWorkId = <String, List<MediaVariant>>{};
+    for (final v in allVariants) {
+      variantsByWorkId.putIfAbsent(v.workId, () => <MediaVariant>[]).add(v);
+    }
     final rootEntries = <_WorkFolderDescriptor>[];
     for (var i = 0; i < eligibleWorks.length; i++) {
       final w = eligibleWorks[i];
-      final variants = await repository.getVariantsByWork(w.id);
-      if (variants.isEmpty) continue;
+      final variants = variantsByWorkId[w.id];
+      if (variants == null || variants.isEmpty) continue;
       final descriptor = _describeWorkFolder(
         workIndex: i,
         sourceId: variants.first.sourceId,
@@ -238,27 +245,49 @@ class SeriesAutoLinker {
       }
     }
 
-    // 6. Bangumi 条目关联分组（前传 / 续集 / 剧场版 / 番外等）。
+    // 6. Bangumi 条目关联分组（受控 5 并发拉取关联条目，保持结果合并确定性）。
     if (bangumiService != null && byBangumiId.length >= 2) {
-      final queriedIds = <int>{};
-      for (final bgmId in byBangumiId.keys) {
-        if (!queriedIds.add(bgmId)) continue;
-        try {
-          final relations = await bangumiService.getRelatedSubjects(bgmId);
-          for (final rel in relations) {
-            final targetId = rel.id;
-            final targetIndices = byBangumiId[targetId];
-            if (targetIndices == null || targetIndices.isEmpty) continue;
-            if (!_isSeriesRelation(rel.relation)) continue;
-            final sourceIndices = byBangumiId[bgmId] ?? const [];
-            if (sourceIndices.isNotEmpty) {
-              uf.unionAll([...sourceIndices, ...targetIndices]);
+      final uniqueBgmIds = byBangumiId.keys.toList(growable: false);
+      final relationsByBgmId = <int, List<BangumiRelatedSubject>>{};
+      const maxConcurrency = 5;
+      var cursor = 0;
+
+      Future<void> worker() async {
+        while (cursor < uniqueBgmIds.length) {
+          final bgmId = uniqueBgmIds[cursor++];
+          try {
+            final relations = await bangumiService.getRelatedSubjects(bgmId);
+            if (relations.isNotEmpty) {
+              relationsByBgmId[bgmId] = relations;
             }
+          } catch (error) {
+            // Bangumi 关联查询失败（如离线测试或接口抖动）时不阻断主流程。
+            developer.log(
+              '可恢复异常已记录',
+              name: 'konata.series_auto_linker',
+              error: error,
+            );
           }
-        } catch (error) {
-      // Bangumi 关联查询失败（如离线测试或接口抖动）时不阻断主流程。
-      developer.log('可恢复异常已记录', name: 'konata.series_auto_linker', error: error);
-    }
+        }
+      }
+
+      final workerCount = uniqueBgmIds.length < maxConcurrency
+          ? uniqueBgmIds.length
+          : maxConcurrency;
+      await Future.wait([for (var i = 0; i < workerCount; i++) worker()]);
+
+      for (final bgmId in uniqueBgmIds) {
+        final relations = relationsByBgmId[bgmId];
+        if (relations == null) continue;
+        for (final rel in relations) {
+          final targetIndices = byBangumiId[rel.id];
+          if (targetIndices == null || targetIndices.isEmpty) continue;
+          if (!_isSeriesRelation(rel.relation)) continue;
+          final sourceIndices = byBangumiId[bgmId] ?? const [];
+          if (sourceIndices.isNotEmpty) {
+            uf.unionAll([...sourceIndices, ...targetIndices]);
+          }
+        }
       }
     }
 

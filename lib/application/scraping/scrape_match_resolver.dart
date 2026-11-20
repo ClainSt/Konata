@@ -39,9 +39,9 @@ class ScrapeMatchResolution {
   final Object? networkError;
 }
 
-/// 刮削阶段 3 在线匹配决策器：Bangumi 在线优先匹配 → 交叉关键词救回 TMDB 搜索 →
-/// 合集父系列兜底 → Bangumi 反向救回 → 双向互保重评。只做检索与打分，不写数据库，
-/// 供调度器入库流程与离线/在线准确率评测共用同一套决策逻辑。
+/// 刮削阶段 3 在线匹配决策器：Bangumi 在线优先匹配 → 离线映射表直连快通道 →
+/// 交叉关键词救回 TMDB 搜索 → 合集父系列兜底 → Bangumi 反向救回 → 双向互保重评。
+/// 只做检索与打分，不写数据库，供调度器入库流程与离线/在线准确率评测共用同一套决策逻辑。
 class ScrapeMatchResolver {
   /// 创建匹配决策器。
   const ScrapeMatchResolver({
@@ -49,6 +49,9 @@ class ScrapeMatchResolver {
     this._computeWorker = const ScrapeComputeWorker(),
     this._mappingIndex,
   });
+
+  /// 允许触发离线映射直连快通道的单条最大去重目标数（过多剧场版分拆目标直接走常规检索）。
+  static const int _fastPathMaxTargets = 3;
 
   final ScrapeCandidateFetcher _fetcher;
   final ScrapeComputeWorker _computeWorker;
@@ -58,7 +61,9 @@ class ScrapeMatchResolver {
   Future<ScrapeMatchResolution> resolve(
     GroupedWorkFolder folder, {
     bool tmdbUnavailable = false,
+    ScrapeComputeWorker? computeWorker,
   }) async {
+    final compute = computeWorker ?? _computeWorker;
     Object? networkError;
     void recordError(Object err) {
       networkError ??= err;
@@ -74,45 +79,90 @@ class ScrapeMatchResolver {
       folder,
       extraQueries: parentCtx.extraQueries,
     );
-    final bgmEval = await _computeWorker.evaluateBangumiMatch(
-      folder,
-      bgmCandidates,
-    );
+    final bgmEval = await compute.evaluateBangumiMatch(folder, bgmCandidates);
+
+    // 离线映射直连快通道：Bangumi 高置信命中离线映射且目标数精简（<= 3）时，
+    // 仅拉取映射指向的 1~3 条 TMDB 轻量详情并执行完整复核；若确认高置信 autoBind 则直接短路跳过全部 TMDB 关键词检索，
+    // 否则无缝回退常规全量检索并复用已拉取详情，保证准确率零妥协。
+    final bgmBest = bgmEval.best;
+    final preloadedMapped = <TmdbWorkDetail>[];
+    final orderedMappedTargets = (!tmdbBlocked() &&
+            bgmBest != null &&
+            bgmEval.tier == legacy.MatchTier.high)
+        ? _orderedUniqueMappedTargets(bgmBest.subject)
+        : const <({TmdbMediaType type, int id})>[];
+
+    if (!tmdbBlocked() &&
+        orderedMappedTargets.isNotEmpty &&
+        orderedMappedTargets.length <= _fastPathMaxTargets) {
+      final fastDetails = await _fetcher.fetchDetailsByIds(
+        orderedMappedTargets,
+        includeImages: false,
+        onNetworkError: recordError,
+      );
+      if (fastDetails.isNotEmpty) {
+        preloadedMapped.addAll(fastDetails);
+        if (!tmdbBlocked()) {
+          final fastDecision = await compute.evaluateMatch(
+            folder,
+            fastDetails,
+            bangumiCandidates: bgmCandidates,
+            mappingIndex: _mappingIndex,
+          );
+          final fastBest = fastDecision.best;
+          if (fastDecision.level == MatchLevel.autoBind &&
+              fastDecision.primaryReason == 'high_confidence' &&
+              fastBest != null &&
+              fastBest.score >= 70 &&
+              (fastBest.detail.voteCount ?? 1) > 0) {
+            return ScrapeMatchResolution(
+              decision: fastDecision,
+              bangumiTier: bgmEval.tier,
+              bestBangumi: bgmEval.best,
+              bangumiCandidates: bgmCandidates,
+              candidates: fastDetails,
+              networkError: networkError,
+            );
+          }
+        }
+      }
+    }
 
     var candidates = tmdbBlocked()
-        ? const <TmdbWorkDetail>[]
+        ? List<TmdbWorkDetail>.of(preloadedMapped)
         : await _fetcher.fetchCandidateDetails(
             folder,
             bangumiCandidate: bgmEval.best,
             extraQueries: parentCtx.extraQueries,
             onNetworkError: recordError,
           );
-    // Bangumi 高置信条目经离线映射表命中的 TMDB 条目若未被关键词检索召回，按 ID 补拉进候选池。
-    final bgmBest = bgmEval.best;
-    if (!tmdbBlocked() &&
-        bgmBest != null &&
-        bgmEval.tier == legacy.MatchTier.high) {
-      final seenMapped = <String>{};
+    if (preloadedMapped.isNotEmpty) {
+      final mergedByKey = <String, TmdbWorkDetail>{
+        for (final c in candidates) '${c.mediaType.name}:${c.tmdbId}': c,
+        for (final m in preloadedMapped) '${m.mediaType.name}:${m.tmdbId}': m,
+      };
+      candidates = mergedByKey.values.toList(growable: false);
+    }
+
+    // Bangumi 高置信条目经离线映射命中的其余 TMDB 条目若未被关键词检索召回，按 ID 补拉进候选池。
+    if (!tmdbBlocked() && orderedMappedTargets.isNotEmpty) {
       final missing = <({TmdbMediaType type, int id})>[
-        for (final m in BangumiTmdbIndex.resolveTargets(
-          bgmBest.subject.id,
-          index: _mappingIndex,
-        ))
-          if (seenMapped.add(m.key) &&
-              !candidates.any((c) => c.mediaType == m.type && c.tmdbId == m.id))
-            (type: m.type, id: m.id),
+        for (final m in orderedMappedTargets)
+          if (!candidates.any((c) => c.mediaType == m.type && c.tmdbId == m.id))
+            m,
       ];
       if (missing.isNotEmpty) {
         candidates = [
           ...candidates,
           ...await _fetcher.fetchDetailsByIds(
             missing,
+            includeImages: false,
             onNetworkError: recordError,
           ),
         ];
       }
     }
-    var decision = await _computeWorker.evaluateMatch(
+    var decision = await compute.evaluateMatch(
       folder,
       candidates,
       bangumiCandidates: bgmCandidates,
@@ -128,7 +178,7 @@ class ScrapeMatchResolver {
         for (final c in candidates) '${c.mediaType.name}:${c.tmdbId}': c,
         '${pDetail.mediaType.name}:${pDetail.tmdbId}': pDetail,
       }.values.toList(growable: false);
-      final rescored = await _computeWorker.evaluateMatch(
+      final rescored = await compute.evaluateMatch(
         folder,
         mergedDetails,
         bangumiCandidates: bgmCandidates,
@@ -155,7 +205,7 @@ class ScrapeMatchResolver {
       );
       if (rescued.length > candidates.length) {
         candidates = rescued;
-        decision = await _computeWorker.evaluateMatch(
+        decision = await compute.evaluateMatch(
           folder,
           candidates,
           bangumiCandidates: bgmCandidates,
@@ -184,7 +234,7 @@ class ScrapeMatchResolver {
             for (final b in bgmCandidates) b.id: b,
             for (final b in extraBgm) b.id: b,
           }.values.toList(growable: false);
-          decision = await _computeWorker.evaluateMatch(
+          decision = await compute.evaluateMatch(
             folder,
             candidates,
             bangumiCandidates: bgmCandidates,
@@ -202,5 +252,38 @@ class ScrapeMatchResolver {
       candidates: candidates,
       networkError: networkError,
     );
+  }
+
+  List<({TmdbMediaType type, int id})> _orderedUniqueMappedTargets(
+    BangumiSubjectCandidate subject,
+  ) {
+    final preferMovie = (subject.platform?.trim() ?? '') == '剧场版';
+    final raw = BangumiTmdbIndex.resolveTargets(
+      subject.id,
+      index: _mappingIndex,
+    );
+    if (raw.isEmpty) return const [];
+    final sorted = List<BangumiTmdbTarget>.of(raw)
+      ..sort((a, b) {
+        int typeRank(BangumiTmdbTarget t) =>
+            (preferMovie
+                    ? t.type == TmdbMediaType.movie
+                    : t.type == TmdbMediaType.tv)
+                ? 0
+                : 1;
+        final byType = typeRank(a).compareTo(typeRank(b));
+        if (byType != 0) return byType;
+        final aSeason = a.season != null && a.season! > 0 ? 0 : 1;
+        final bSeason = b.season != null && b.season! > 0 ? 0 : 1;
+        if (aSeason != bSeason) return aSeason.compareTo(bSeason);
+        final aOpen = a.isOpenAni ? 0 : 1;
+        final bOpen = b.isOpenAni ? 0 : 1;
+        return aOpen.compareTo(bOpen);
+      });
+    final seen = <String>{};
+    return [
+      for (final t in sorted)
+        if (seen.add(t.key)) (type: t.type, id: t.id),
+    ];
   }
 }

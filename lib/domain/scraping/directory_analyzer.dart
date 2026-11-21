@@ -724,6 +724,23 @@ abstract final class DirectoryAnalyzer {
       final domSplit = splitSeasonSuffix(dominantFile, isSeries: isSeries);
       inferredSeason ??= domSplit.season;
     }
+    // 当目录未给出明确季号但 >= 80% 的正片文件均携带一致的显式续季标记（如 `S2 - 01`、`S2 [01]`）时，
+    // 继承该一致续季号，避免乱目录场景下 `S2` 被搜索词清洗剥离后误落第 1 季。
+    if (inferredSeason == null && !multiSeasonStems && isSeries && items.isNotEmpty) {
+      final explicitItemSeasons = <int, int>{};
+      for (final item in items) {
+        final s = item.season;
+        if (s != null && s >= 2) {
+          explicitItemSeasons.update(s, (n) => n + 1, ifAbsent: () => 1);
+        }
+      }
+      if (explicitItemSeasons.length == 1) {
+        final onlyEntry = explicitItemSeasons.entries.single;
+        if (onlyEntry.value * 5 >= items.length * 4) {
+          inferredSeason = onlyEntry.key;
+        }
+      }
+    }
     if (commonPrefixStem != null) {
       hint(fileHints, commonPrefixStem);
     }
@@ -736,7 +753,7 @@ abstract final class DirectoryAnalyzer {
       final fileWithoutMarker = value
           .replaceAll(
             RegExp(
-              r'剧场版|劇場版|総集編|总集篇|\b(?:the\s+movie|movie|ova|oad|oab)\b',
+              r'剧场版|劇場版|総集編|总集篇|\b(?:the\s+movie|movie|ova\d*|oads?|oav\d*|oab)\b',
               caseSensitive: false,
             ),
             ' ',
@@ -744,6 +761,25 @@ abstract final class DirectoryAnalyzer {
           .trim();
       if (fileWithoutMarker != value) {
         hint(fileHints, fileWithoutMarker);
+      }
+      // 提取文件名中 `OVA`/`OAD`/`The Animation` 之前的母系列基础片名作为次级提示，
+      // 确保乱目录下含单集副标题的 OVA/OAD（如 `Seraph of the End - OVA - Shahar`、`Neptune The Animation OVA1`）可精确命中母剧。
+      final beforeSpecialFile = RegExp(
+        r'^(.+?)(?:\s*[-–—]\s*|\s+)(?:ova\d*|oads?|oav\d*|tvsp|sp\d+|special\s+ride)\b',
+        caseSensitive: false,
+      ).firstMatch(value.trim());
+      if (beforeSpecialFile != null) {
+        final baseSeries = beforeSpecialFile
+            .group(1)!
+            .replaceFirst(
+              RegExp(r'\s+the\s+animation$', caseSensitive: false),
+              '',
+            )
+            .trim();
+        if (baseSeries.length >= 4 ||
+            RegExp(r'[\u3040-\u9fff]').hasMatch(baseSeries)) {
+          hint(fileHints, baseSeries);
+        }
       }
       // 罗马音 + 含假名日文双语拼接文件名（如 `Yuyushiki ゆゆ式 OVA 「...」`）同步拆出独立拉丁段与日文段，
       // 便于乱目录场景下与 TMDB/Bangumi 单语正式片名取得精确匹配。
@@ -776,18 +812,28 @@ abstract final class DirectoryAnalyzer {
         ? null
         : WorkSeason.year({'title': name});
     int? fileYear;
-    if (folderYear == null &&
-        (shape == WorkShape.feature || useConsistentFileAsPrimary)) {
-      final years = {
-        for (final file in allMain)
-          ?int.tryParse(
-            RegExp(
-                  r'[(\[ ._]((?:19|20)\d{2})[)\] ._]',
-                ).firstMatch(file)?.group(1) ??
-                '',
-          ),
-      };
-      if (years.length == 1) fileYear = years.single;
+    if (folderYear == null && allMain.isNotEmpty) {
+      final yearCounts = <int, int>{};
+      final yearRegex = RegExp(
+        shape == WorkShape.feature || useConsistentFileAsPrimary
+            ? r'[(\[ ._]((?:19[5-9]|20[0-2])\d)[)\] ._]'
+            : r'[(（\[【]\s*((?:19[5-9]|20[0-2])\d)\s*[)）\]】]',
+      );
+      for (final file in allMain) {
+        final m = yearRegex.firstMatch(file);
+        final y = m == null ? null : int.tryParse(m.group(1)!);
+        if (y != null) {
+          yearCounts.update(y, (n) => n + 1, ifAbsent: () => 1);
+        }
+      }
+      if (yearCounts.length == 1) {
+        final only = yearCounts.entries.single;
+        if (shape == WorkShape.feature ||
+            useConsistentFileAsPrimary ||
+            only.value * 5 >= allMain.length * 4) {
+          fileYear = only.key;
+        }
+      }
     }
     return DirectoryInventory._(
       folder: normalizedFolder,
@@ -1372,7 +1418,7 @@ abstract final class DirectoryAnalyzer {
   }
 
   static final RegExp _seasonEpisodeMarker = RegExp(
-    r'(?<![a-z0-9])s(\d{1,2})(?:[ ._-]*e\d{1,4}|[ ._-]+-)',
+    r'(?<![a-z0-9])s(\d{1,2})(?:[ ._-]*e\d{1,4}|[ ._-]+-|\s*[\[【]\s*\d{1,3}\s*[\]】])',
     caseSensitive: false,
   );
 
@@ -1579,6 +1625,20 @@ abstract final class DirectoryAnalyzer {
         best = entry.key;
       }
     }
+    if (best != null) {
+      final trimmedStruct = best
+          .replaceFirst(
+            RegExp(
+              r'[\s._\-–—]+(?:chapter|part|vol(?:ume)?|ep(?:isode)?|disc|disk)$',
+              caseSensitive: false,
+            ),
+            '',
+          )
+          .trim();
+      if (normalize(trimmedStruct).length >= 3) {
+        return trimmedStruct;
+      }
+    }
     return best;
   }
 
@@ -1688,14 +1748,111 @@ abstract final class DirectoryAnalyzer {
     return title.isEmpty ? folderName : title;
   }
 
+  static bool _isNormalizedStripPunct(int c) {
+    switch (c) {
+      case 0x20: // 空格
+      case 0x09:
+      case 0x0A:
+      case 0x0D:
+      case 0x0C:
+      case 0x0B:
+      case 0x2D: // -
+      case 0x5F: // _
+      case 0x2014: // —
+      case 0x2013: // –
+      case 0x7E: // ~
+      case 0xFF5E: // ～
+      case 0x301C: // 〜
+      case 0x3A: // :
+      case 0xFF1A: // ：
+      case 0x2E: // .
+      case 0x2C: // ,
+      case 0xFF0C: // ，
+      case 0x3001: // 、
+      case 0x3B: // ;
+      case 0xFF1B: // ；
+      case 0x21: // !
+      case 0xFF01: // ！
+      case 0x3F: // ?
+      case 0xFF1F: // ？
+      case 0x30FB: // ・
+      case 0x00B7: // ·
+      case 0x2022: // •
+      case 0x27: // '
+      case 0x2019: // ’
+      case 0x2018: // ‘
+      case 0x22: // "
+      case 0x201C: // “
+      case 0x201D: // ”
+      case 0x28: // (
+      case 0x29: // )
+      case 0xFF08: // （
+      case 0xFF09: // ）
+      case 0x5B: // [
+      case 0x5D: // ]
+      case 0x3010: // 【
+      case 0x3011: // 】
+      case 0x7B: // {
+      case 0x7D: // }
+      case 0x300C: // 「
+      case 0x300D: // 」
+      case 0x300E: // 『
+      case 0x300F: // 』
+      case 0x3C: // <
+      case 0x3E: // >
+      case 0x300A: // 《
+      case 0x300B: // 》
+      case 0x2F: // /
+      case 0x5C: // \
+      case 0x7C: // |
+      case 0x26: // &
+      case 0xFF06: // ＆
+      case 0x2B: // +
+      case 0xFF0B: // ＋
+      case 0x2A: // *
+      case 0x2606: // ☆
+      case 0x2605: // ★
+      case 0x266A: // ♪
+      case 0x3000: // 全角空格
+      case 0x00A0: // NBSP
+        return true;
+      default:
+        return false;
+    }
+  }
+
   /// 跨语言标题比对键：统一折叠全半角、大小写、假名、罗马数字、乘号及繁简体，
   /// 剔除标点符号并移除数字前导零（保证 `Legend 01` 与 `Legend 1` 一致）。
-  static String normalize(String value) => TitleNormalizer.fold(value)
-      .replaceAll(RegExp(r'(?<!\d)0+(?=\d)'), '')
-      .replaceAll(
-        RegExp(
-          r'''[\s\-_—–~～〜:：.,，、;；!！?？・·•'’‘"“”()（）\[\]【】{}「」『』<>《》/\\|&＆+＋*☆★♪]''',
-        ),
-        '',
-      );
+  static String normalize(String value) {
+    final folded = TitleNormalizer.fold(value);
+    final len = folded.length;
+    if (len == 0) return '';
+    final buf = StringBuffer();
+    var i = 0;
+    while (i < len) {
+      final c = folded.codeUnitAt(i);
+      if (c >= 0x30 && c <= 0x39) {
+        // 连续数字段跳过前导零（保留独立单个 `0`），等价于 `(?<!\d)0+(?=\d)`。
+        final start = i;
+        while (i < len &&
+            folded.codeUnitAt(i) >= 0x30 &&
+            folded.codeUnitAt(i) <= 0x39) {
+          i++;
+        }
+        var nz = start;
+        while (nz < i - 1 && folded.codeUnitAt(nz) == 0x30) {
+          nz++;
+        }
+        for (var k = nz; k < i; k++) {
+          buf.writeCharCode(folded.codeUnitAt(k));
+        }
+        continue;
+      }
+      if (!_isNormalizedStripPunct(c)) {
+        buf.writeCharCode(c);
+      }
+      i++;
+    }
+    return buf.toString();
+  }
 }

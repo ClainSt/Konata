@@ -266,14 +266,23 @@ abstract final class ScrapeDomainAdapter {
       caseSensitive: false,
     );
 
+    final seenNonVideoDirs = <String>{};
     for (final file in files) {
-      final segments = file.relativePath
-          .replaceAll('\\', '/')
+      final rawPath = file.relativePath;
+      final normPath = rawPath.contains('\\')
+          ? rawPath.replaceAll('\\', '/')
+          : rawPath;
+      final lastSlash = normPath.lastIndexOf('/');
+      if (lastSlash <= 0) continue;
+      final dirPath = normPath.substring(0, lastSlash);
+      if (file.assetKind != AssetKind.video && !seenNonVideoDirs.add(dirPath)) {
+        continue;
+      }
+      final dirSegs = dirPath
           .split('/')
           .where((s) => s.isNotEmpty)
-          .toList();
-      if (segments.length < 3) continue;
-      final dirSegs = segments.sublist(0, segments.length - 1);
+          .toList(growable: false);
+      if (dirSegs.length < 2) continue;
       final anchor = _deepestAnchorIndex(dirSegs);
       if (anchor < 0 || anchor + 1 >= dirSegs.length) continue;
 
@@ -325,11 +334,21 @@ abstract final class ScrapeDomainAdapter {
     );
     final anchoredPackageRoots = _detectAnchoredPackageCollectionRoots(files);
     final rawBuckets = <String, List<ScannedFileInput>>{};
+    final resolvedByParentDir = <String, String>{};
     for (final file in files) {
-      final workFolder = _resolvePhysicalWorkFolder(
-        file.relativePath,
-        multiInstallmentRoots: multiInstallmentRoots,
-        anchoredPackageRoots: anchoredPackageRoots,
+      final rawPath = file.relativePath;
+      final normPath = rawPath.contains('\\')
+          ? rawPath.replaceAll('\\', '/')
+          : rawPath;
+      final lastSlash = normPath.lastIndexOf('/');
+      final parentDir = lastSlash > 0 ? normPath.substring(0, lastSlash) : '';
+      final workFolder = resolvedByParentDir.putIfAbsent(
+        parentDir,
+        () => _resolvePhysicalWorkFolder(
+          normPath,
+          multiInstallmentRoots: multiInstallmentRoots,
+          anchoredPackageRoots: anchoredPackageRoots,
+        ),
       );
       rawBuckets.putIfAbsent(workFolder, () => []).add(file);
     }
@@ -503,6 +522,7 @@ abstract final class ScrapeDomainAdapter {
                 )
                 .toList(growable: false);
 
+            final clusterParsedCache = <String, ParsedBdripRelease>{};
             for (final item in cluster.assignments) {
               final raw = fileByRelPath[item.relativePath];
               if (raw == null) continue;
@@ -514,6 +534,7 @@ abstract final class ScrapeDomainAdapter {
                 folderTitle: cluster.inventory.title,
                 folderSeasonHint: cluster.inventory.season,
               );
+              clusterParsedCache[raw.relativePath] = parsed;
               if (isExtra) {
                 slotMap[raw.relativePath] = resolveExtraSlotAssignment(
                   fileName: raw.fileName,
@@ -568,6 +589,7 @@ abstract final class ScrapeDomainAdapter {
               folderTitle: cluster.inventory.title,
               seasonHint: cluster.inventory.season,
               assetScopesByPath: clusterScopeMap,
+              parsedCache: clusterParsedCache,
             );
             final sortedEps = cluster.inventory.episodes.toList()..sort();
             final clusterTitle = cluster.inventory.title.isNotEmpty
@@ -673,11 +695,13 @@ abstract final class ScrapeDomainAdapter {
           fileHints: inventory.fileHints,
         );
       }
+      final singleParsedCache = <String, ParsedBdripRelease>{};
       final slotMap = _buildSlotAssignmentsForSingleFolder(
         folderPath: folderPath,
         videoFiles: videoFiles,
         inventory: inventory,
         cleanTitle: cleanTitle,
+        parsedCache: singleParsedCache,
       );
       final workId = '$sourceId::$folderPath';
       final variants = _buildVariants(
@@ -687,6 +711,7 @@ abstract final class ScrapeDomainAdapter {
         folderTitle: cleanTitle,
         seasonHint: inventory.season,
         assetScopesByPath: foldedExtras.assetScopeByPath,
+        parsedCache: singleParsedCache,
       );
       final sortedEps = inventory.episodes.toList()..sort();
       final explicitType =
@@ -1202,19 +1227,26 @@ abstract final class ScrapeDomainAdapter {
     if (mappedTargets.isEmpty &&
         bgmEval.tier == legacy.MatchTier.medium &&
         bgmEval.best != null) {
-      final bgmSubj = bgmEval.best!.subject;
+      final bgmScored = bgmEval.best!;
+      final bgmTitlePts = bgmScored.reasons
+          .where((r) => r.endsWith(' title'))
+          .map((r) => double.tryParse(r.split(' ').first) ?? 0.0)
+          .fold<double>(0.0, (m, v) => v > m ? v : m);
+      final bgmTitleTrustworthy = bgmTitlePts >= 32.0;
+      final bgmSubj = bgmScored.subject;
       final bgmPlatform = bgmSubj.platform?.trim().toUpperCase() ?? '';
       final bgmEps = bgmSubj.totalEpisodes ?? 0;
       final isBgmMovie = bgmPlatform == '剧场版' || bgmPlatform == 'MOVIE';
       final isSpecialLocalOrBgm =
-          inv.season == 0 ||
-          DirectoryAnalyzer.isOvaText(inv.title) ||
-          inv.fileHints.any(DirectoryAnalyzer.isOvaText) ||
-          DirectoryAnalyzer.isOva(inv) ||
-          bgmPlatform == 'OVA' ||
-          bgmPlatform == 'OAD' ||
-          (inv.shape == WorkShape.feature &&
-              (isBgmMovie || (bgmEps > 0 && bgmEps <= 2)));
+          bgmTitleTrustworthy &&
+          (inv.season == 0 ||
+              DirectoryAnalyzer.isOvaText(inv.title) ||
+              inv.fileHints.any(DirectoryAnalyzer.isOvaText) ||
+              DirectoryAnalyzer.isOva(inv) ||
+              bgmPlatform == 'OVA' ||
+              bgmPlatform == 'OAD' ||
+              (inv.shape == WorkShape.feature &&
+                  (isBgmMovie || (bgmEps > 0 && bgmEps <= 2))));
       final seqMatch = RegExp(r'(?<!\d)([2-9])(?!\d)').firstMatch(inv.title);
       final localSeqDigit = seqMatch?.group(1);
       final isSequelCorroboratedTv =
@@ -2019,6 +2051,7 @@ abstract final class ScrapeDomainAdapter {
     required List<ScannedFileInput> videoFiles,
     required DirectoryInventory inventory,
     required String cleanTitle,
+    Map<String, ParsedBdripRelease>? parsedCache,
   }) {
     final slotMap = <String, EpisodeSlotAssignment>{};
     final relToRaw = <String, ScannedFileInput>{
@@ -2040,6 +2073,7 @@ abstract final class ScrapeDomainAdapter {
           folderTitle: cleanTitle,
           folderSeasonHint: inventory.season,
         );
+        if (parsedCache != null) parsedCache[raw.relativePath] = parsed;
         final epNum = item.episode ?? parsed.episode;
         final seasonNum = (item.season != null && item.season! > 0)
             ? item.season!
@@ -2071,6 +2105,7 @@ abstract final class ScrapeDomainAdapter {
         folderTitle: cleanTitle,
         folderSeasonHint: inventory.season,
       );
+      if (parsedCache != null) parsedCache[raw.relativePath] = parsed;
       slotMap[raw.relativePath] = resolveExtraSlotAssignment(
         fileName: raw.fileName,
         relativePath: raw.relativePath,
@@ -2334,16 +2369,18 @@ abstract final class ScrapeDomainAdapter {
     required String folderTitle,
     int? seasonHint,
     Map<String, SupplementaryAssetScope> assetScopesByPath = const {},
+    Map<String, ParsedBdripRelease>? parsedCache,
   }) {
     final out = <MediaVariant>[];
     for (final file in files) {
       final parsed = file.assetKind == AssetKind.video
-          ? BdripParser.parseFileName(
-              file.fileName,
-              relativePath: file.relativePath,
-              folderTitle: folderTitle,
-              folderSeasonHint: seasonHint,
-            )
+          ? (parsedCache?[file.relativePath] ??
+                BdripParser.parseFileName(
+                  file.fileName,
+                  relativePath: file.relativePath,
+                  folderTitle: folderTitle,
+                  folderSeasonHint: seasonHint,
+                ))
           : null;
       out.add(
         MediaVariant(
@@ -2928,9 +2965,9 @@ abstract final class ScrapeDomainAdapter {
       if (parentSeriesTitle.isNotEmpty) {
         final trimmedParent = parentSeriesTitle.trim();
         final hasAltWord = RegExp(
-          r'\balternative\b',
-          caseSensitive: false,
-        ).hasMatch(trimmedParent);
+              r'\balternative\b',
+              caseSensitive: false,
+            ).hasMatch(trimmedParent);
         if (hasAltWord) {
           if (!hasVolSuffix.hasMatch(trimmedParent)) {
             extraTitleHints.add('$trimmedParent $vol');
@@ -3087,9 +3124,9 @@ abstract final class ScrapeDomainAdapter {
     if (!hasAlt) return null;
     final alreadyPart = cluster.inventory.titleHints.any(
       (h) => RegExp(
-        r'\balternative\s+(?:one|two)\b',
-        caseSensitive: false,
-      ).hasMatch(h),
+          r'\balternative\s+(?:one|two)\b',
+          caseSensitive: false,
+        ).hasMatch(h),
     );
     if (alreadyPart) return null;
     if (cluster.inventory.episodes.length == 1) {

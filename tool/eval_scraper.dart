@@ -231,12 +231,17 @@ Future<int> runEvalCli(
           fanartRelayAllowed: fanartRelayAllowed,
         );
 
-    final workers = options.workers.clamp(1, 5);
+    final workers = options.workers.clamp(1, 12);
     final tmdbHttp = TmdbHttpClient(
       config: netConfig,
       httpClient: vcrClient,
       scheduler: PriorityHttpScheduler(
-        backgroundConcurrency: workers,
+        backgroundConcurrency: workers * 2,
+        backgroundBucketConcurrency: const <String, int>{
+          'tmdb': 6,
+          'bangumi': 4,
+          'fanart': 2,
+        },
         maxRetries: 1,
       ),
       primaryTimeout: const Duration(seconds: 25),
@@ -835,7 +840,10 @@ EvalVcrHttpClient _createVcrClient({
   required TmdbNetworkConfig netConfig,
   required bool fanartRelayAllowed,
 }) {
-  final io = HttpClient()..connectionTimeout = const Duration(seconds: 25);
+  final io = HttpClient()
+    ..connectionTimeout = const Duration(seconds: 10)
+    ..idleTimeout = const Duration(seconds: 4)
+    ..maxConnectionsPerHost = 12;
   io.findProxy = (uri) {
     if (netConfig.proxyMode == ProxyMode.none) return 'DIRECT';
     if (netConfig.proxyMode == ProxyMode.custom &&
@@ -1219,7 +1227,7 @@ class _EvalCliOptions {
     var withExplicit = false;
     var messyFolders = false;
     var onlyFilters = <String>[];
-    var workers = 4;
+    var workers = 8;
     var sampleSize = 180;
     var force = false;
     var proxyUrl = '';
@@ -1281,7 +1289,7 @@ class _EvalCliOptions {
             .where((e) => e.isNotEmpty)
             .toList(growable: false);
       } else if (raw.startsWith('--workers=')) {
-        workers = int.tryParse(raw.substring(10)) ?? 4;
+        workers = int.tryParse(raw.substring(10)) ?? 8;
       } else if (raw.startsWith('--sample-size=')) {
         sampleSize = int.tryParse(raw.substring(14)) ?? 180;
       } else if (raw == '--force') {
@@ -1359,7 +1367,7 @@ void _printUsage() {
     '  --offline                     纯离线回放模式（不触网）\n'
     '  --with-explicit               保留目录已有 {tmdb-N}（默认盲测剥离显式 ID）\n'
     '  --only=<A|B>                  仅评测路径包含指定子串的作品\n'
-    '  --workers=<1..5>              在线并发度上限（默认 4，最大 5）\n'
+    '  --workers=<1..12>             在线并发度上限（默认 8，受分域限流保护）\n'
     '  --proxy=<url> / --no-proxy    显式覆盖或禁用代理',
   );
 }

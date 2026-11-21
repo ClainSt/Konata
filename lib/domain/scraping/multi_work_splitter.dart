@@ -797,9 +797,9 @@ abstract final class MultiWorkSplitter {
     if (eps.length != 2 || !eps.containsAll(const {1, 2})) return false;
     final rep = group.first;
     if (!RegExp(
-      r'\balternative\b',
-      caseSensitive: false,
-    ).hasMatch(rep.cleanStem)) {
+                r'\balternative\b',
+                caseSensitive: false,
+              ).hasMatch(rep.cleanStem)) {
       return false;
     }
     return !RegExp(
@@ -916,13 +916,13 @@ abstract final class MultiWorkSplitter {
       final parentAlt = combinableParent ?? stemInfo.fallbackStem;
       if (parentAlt != null && parentAlt.isNotEmpty) {
         final hasAltWord = RegExp(
-          r'\balternative\b',
-          caseSensitive: false,
-        ).hasMatch(parentAlt);
+                r'\balternative\b',
+                caseSensitive: false,
+              ).hasMatch(parentAlt);
         final stemHasAltWord = RegExp(
-          r'\balternative\b',
-          caseSensitive: false,
-        ).hasMatch(cleanStem);
+                r'\balternative\b',
+                caseSensitive: false,
+              ).hasMatch(cleanStem);
         final altBase = !hasAltWord && stemHasAltWord
             ? '$parentAlt Alternative'
             : parentAlt;
@@ -1040,9 +1040,9 @@ abstract final class MultiWorkSplitter {
           final strippedMovie = cleanStem
               .replaceAll(
                 RegExp(
-                  r'\b(?:the\s+movie|movie)\b|剧场版|劇場版',
-                  caseSensitive: false,
-                ),
+                r'\b(?:the\s+movie|movie)\b|剧场版|劇場版',
+                caseSensitive: false,
+              ),
                 ' ',
               )
               .replaceAll(RegExp(r'\s+'), ' ')
@@ -1172,15 +1172,20 @@ abstract final class MultiWorkSplitter {
         first.quote != null &&
         first.quote!.isNotEmpty &&
         !first.isHashZeroOva;
+    final movieOwnPart =
+        first.kind == 'movie' && twoPartPair && localizedPart != null;
     final fileHints = <String>[
       for (final f in group.take(3))
         if (movieOwnQuote && f.quote != null && f.quote!.isNotEmpty)
           '${f.cleanStem} ${f.quote!}'.trim()
+        else if (movieOwnPart && f.cleanStem.isNotEmpty)
+          '${f.cleanStem} $localizedPart'.trim()
         else if (f.cleanStem.isNotEmpty)
           f.cleanStem,
       if (first.baseSeriesStem != null && first.baseSeriesStem!.isNotEmpty)
         first.baseSeriesStem!,
       if (!movieOwnQuote &&
+          !movieOwnPart &&
           parentSeriesFileHint != null &&
           parentSeriesFileHint.isNotEmpty)
         parentSeriesFileHint,

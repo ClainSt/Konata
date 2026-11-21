@@ -229,24 +229,28 @@ class ScrapeCandidateFetcher {
       await Future<void>.delayed(_bangumiWaveRetryDelay);
       await runWave(firstWave);
     }
+    final wave1Eval = rawById.isEmpty
+        ? null
+        : ScrapeDomainAdapter.evaluateBangumiMatch(
+            folder,
+            rawById.values.toList(growable: false),
+          );
     final needWave2 =
         queries.length > 3 &&
-        (rawById.isEmpty ||
-            ScrapeDomainAdapter.evaluateBangumiMatch(
-                  folder,
-                  rawById.values.toList(growable: false),
-                ).tier ==
-                legacy.MatchTier.none);
+        (wave1Eval == null || wave1Eval.tier == legacy.MatchTier.none);
+    final beforeWave2Count = rawById.length;
     if (needWave2) {
       await runWave(queries.skip(3).take(4).toList(growable: false));
     }
 
     if (rawById.isEmpty) return const [];
 
-    final prelim = ScrapeDomainAdapter.evaluateBangumiMatch(
-      folder,
-      rawById.values.toList(growable: false),
-    );
+    final prelim = (wave1Eval != null && rawById.length == beforeWave2Count)
+        ? wave1Eval
+        : ScrapeDomainAdapter.evaluateBangumiMatch(
+            folder,
+            rawById.values.toList(growable: false),
+          );
     final limit = prelim.tier == legacy.MatchTier.high ? 2 : 4;
     final topIds = <int>{
       ...prelim.topCandidates.take(limit).map((e) => e.subject.id),
@@ -345,35 +349,70 @@ class ScrapeCandidateFetcher {
       String language = 'zh-CN',
       required int cap,
     }) async {
-      if (networkAborted) return;
-      for (final q in qs) {
-        try {
-          final hits = await _tmdbService.searchAnime(
-            q,
-            year: year,
-            language: language,
-            mediaTypeFilter: typeFilter,
-            priority: RequestPriority.background,
+      final list = qs.toList(growable: false);
+      if (networkAborted || list.isEmpty) return;
+
+      bool mergeHits(List<TmdbSearchResult> hits) {
+        for (final h in hits) {
+          candidatesMap.putIfAbsent(
+            '${h.mediaType.name}:${h.tmdbId}',
+            () => h,
           );
-          for (final h in hits) {
-            candidatesMap.putIfAbsent(
-              '${h.mediaType.name}:${h.tmdbId}',
-              () => h,
-            );
-          }
-          // 仅统计动画/未标分类候选计入波次上限，防止通用中文词（如 `避难所`）返回大量真人片挤掉英文文件名查询。
-          final animCount = candidatesMap.values
-              .where((h) => h.genreIds.contains(16) || h.genreIds.isEmpty)
-              .length;
-          if (animCount >= cap || candidatesMap.length >= cap * 4) break;
-        } catch (error) {
-          if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
-            networkAborted = true;
-            onNetworkError?.call(error);
-            return;
-          }
-          rethrow;
         }
+        // 仅统计动画/未标分类候选计入波次上限，防止通用中文词（如 `避难所`）返回大量真人片挤掉英文文件名查询。
+        final animCount = candidatesMap.values
+            .where((h) => h.genreIds.contains(16) || h.genreIds.isEmpty)
+            .length;
+        return animCount >= cap || candidatesMap.length >= cap * 4;
+      }
+
+      // 首词快路径：常规作品首词即满足上限，零多余请求；未满时剩余备选词并发执行并按原顺序合入以保证确定性。
+      try {
+        final firstHits = await _tmdbService.searchAnime(
+          list.first,
+          year: year,
+          language: language,
+          mediaTypeFilter: typeFilter,
+          priority: RequestPriority.background,
+        );
+        if (mergeHits(firstHits) || list.length == 1) return;
+      } catch (error) {
+        if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+          networkAborted = true;
+          onNetworkError?.call(error);
+          return;
+        }
+        rethrow;
+      }
+
+      Object? fatalError;
+      final restHits = await Future.wait(
+        list.skip(1).map((q) async {
+          if (networkAborted) return const <TmdbSearchResult>[];
+          try {
+            return await _tmdbService.searchAnime(
+              q,
+              year: year,
+              language: language,
+              mediaTypeFilter: typeFilter,
+              priority: RequestPriority.background,
+            );
+          } catch (error) {
+            if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+              if (!networkAborted) {
+                networkAborted = true;
+                onNetworkError?.call(error);
+              }
+              return const <TmdbSearchResult>[];
+            }
+            fatalError ??= error;
+            return const <TmdbSearchResult>[];
+          }
+        }),
+      );
+      if (fatalError != null) throw fatalError!;
+      for (final hits in restHits) {
+        if (mergeHits(hits)) break;
       }
     }
 
@@ -637,34 +676,68 @@ class ScrapeCandidateFetcher {
       int? year,
       required String lang,
     }) async {
-      if (networkAborted) return;
-      for (final q in qs) {
-        try {
-          final hits = await _tmdbService.searchAnime(
-            q,
-            year: year,
-            language: lang,
-            mediaTypeFilter: typeFilter,
-            priority: RequestPriority.background,
-          );
-          for (final h in hits) {
-            final k = '${h.mediaType.name}:${h.tmdbId}';
-            if (!seenIds.contains(k)) {
-              hitMap.putIfAbsent(k, () => h);
-            }
+      final list = qs.toList(growable: false);
+      if (networkAborted || list.isEmpty) return;
+
+      bool mergeHits(List<TmdbSearchResult> hits) {
+        for (final h in hits) {
+          final k = '${h.mediaType.name}:${h.tmdbId}';
+          if (!seenIds.contains(k)) {
+            hitMap.putIfAbsent(k, () => h);
           }
-          final animCount = hitMap.values
-              .where(isYearCompatibleAnimation)
-              .length;
-          if (animCount >= 6) break;
-        } catch (error) {
-          if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
-            networkAborted = true;
-            onNetworkError?.call(error);
-            return;
-          }
-          rethrow;
         }
+        final animCount = hitMap.values
+            .where(isYearCompatibleAnimation)
+            .length;
+        return animCount >= 6;
+      }
+
+      try {
+        final firstHits = await _tmdbService.searchAnime(
+          list.first,
+          year: year,
+          language: lang,
+          mediaTypeFilter: typeFilter,
+          priority: RequestPriority.background,
+        );
+        if (mergeHits(firstHits) || list.length == 1) return;
+      } catch (error) {
+        if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+          networkAborted = true;
+          onNetworkError?.call(error);
+          return;
+        }
+        rethrow;
+      }
+
+      Object? fatalError;
+      final restHits = await Future.wait(
+        list.skip(1).map((q) async {
+          if (networkAborted) return const <TmdbSearchResult>[];
+          try {
+            return await _tmdbService.searchAnime(
+              q,
+              year: year,
+              language: lang,
+              mediaTypeFilter: typeFilter,
+              priority: RequestPriority.background,
+            );
+          } catch (error) {
+            if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+              if (!networkAborted) {
+                networkAborted = true;
+                onNetworkError?.call(error);
+              }
+              return const <TmdbSearchResult>[];
+            }
+            fatalError ??= error;
+            return const <TmdbSearchResult>[];
+          }
+        }),
+      );
+      if (fatalError != null) throw fatalError!;
+      for (final hits in restHits) {
+        if (mergeHits(hits)) break;
       }
     }
 

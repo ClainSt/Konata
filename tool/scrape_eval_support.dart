@@ -17,13 +17,21 @@ groupListing(
 }) async {
   var lines = File(listingPath).readAsLinesSync();
   if (physicalRootPrefixes != null && physicalRootPrefixes.isNotEmpty) {
-    final normalizedPrefixes = [
-      for (final raw in physicalRootPrefixes)
-        '${raw.trim().replaceAll('\\', '/').replaceAll(RegExp(r'^/+|/+$'), '')}/',
-    ];
+    final prefixSet = <String>{};
+    var maxDepth = 0;
+    for (final raw in physicalRootPrefixes) {
+      final norm = _trimSlashes(raw.trim().replaceAll('\\', '/'));
+      if (norm.isEmpty) continue;
+      prefixSet.add(norm);
+      var depth = 0;
+      for (var i = 0; i < norm.length; i++) {
+        if (norm.codeUnitAt(i) == 0x2F) depth++;
+      }
+      if (depth > maxDepth) maxDepth = depth;
+    }
     lines = [
       for (final raw in lines)
-        if (_matchesAnyPrefix(raw, normalizedPrefixes)) raw,
+        if (_matchesAnyPrefix(raw, prefixSet, maxDepth)) raw,
     ];
   }
   final gateway = ListingGateway.fromListing(lines);
@@ -48,15 +56,49 @@ groupListing(
   );
 }
 
-bool _matchesAnyPrefix(String rawLine, List<String> prefixes) {
-  final line = rawLine.replaceFirst('\uFEFF', '').trimRight();
-  if (line.isEmpty) return false;
-  final tab = line.lastIndexOf('\t');
-  final path = (tab < 0 ? line : line.substring(0, tab))
-      .replaceAll('\\', '/')
-      .replaceAll(RegExp(r'^/+'), '');
-  for (final prefix in prefixes) {
-    if (path.startsWith(prefix)) return true;
+String _trimSlashes(String value) {
+  var start = 0;
+  var end = value.length;
+  while (start < end && value.codeUnitAt(start) == 0x2F) {
+    start++;
+  }
+  while (end > start && value.codeUnitAt(end - 1) == 0x2F) {
+    end--;
+  }
+  return start == 0 && end == value.length ? value : value.substring(start, end);
+}
+
+bool _matchesAnyPrefix(String rawLine, Set<String> prefixSet, int maxDepth) {
+  var start = 0;
+  var end = rawLine.length;
+  if (end > 0 && rawLine.codeUnitAt(0) == 0xFEFF) start = 1;
+  while (end > start) {
+    final c = rawLine.codeUnitAt(end - 1);
+    if (c == 0x20 || c == 0x09 || c == 0x0D || c == 0x0A) {
+      end--;
+    } else {
+      break;
+    }
+  }
+  if (start >= end) return false;
+  final tab = rawLine.lastIndexOf('\t', end - 1);
+  final pathEnd = tab >= start ? tab : end;
+  var path = rawLine.substring(start, pathEnd);
+  if (path.contains('\\')) {
+    path = path.replaceAll('\\', '/');
+  }
+  var pStart = 0;
+  while (pStart < path.length && path.codeUnitAt(pStart) == 0x2F) {
+    pStart++;
+  }
+  if (pStart > 0) path = path.substring(pStart);
+  var slashes = 0;
+  for (var i = 0; i < path.length; i++) {
+    if (path.codeUnitAt(i) == 0x2F) {
+      if (prefixSet.contains(path.substring(0, i))) return true;
+      slashes++;
+      if (slashes > maxDepth) return false;
+    }
   }
   return false;
 }

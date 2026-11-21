@@ -111,6 +111,41 @@ class DirectoryInventory {
   /// 由文件名解析出的候选标题列表（涵盖罗马音、原名及副标题）。
   final List<String> fileHints;
 
+  /// 自身目录未显式标注 TMDB 编号且非虚拟拆簇路径时，提取直接父目录名中的 TMDB 编号（如 `物语系列 第二季 (2013) {tmdb-46195}/囮物语`）。
+  int? get parentFolderTmdbId {
+    if (tmdbId != null || folder.contains('::')) return null;
+    final segs = folder
+        .replaceAll('\\', '/')
+        .split('/')
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (segs.length < 2) return null;
+    return PersonalFilenameParser.tmdbId(segs[segs.length - 2]);
+  }
+
+  /// 提取直接父目录清洗后的名称与年份（跳过纯分类或系列合集外层目录），用于识别如 `物语系列 第二季 (2013)/囮物语` 的季级归属。
+  ({String title, int? year})? get parentFolderInfo {
+    if (folder.contains('::')) return null;
+    final segs = folder
+        .replaceAll('\\', '/')
+        .split('/')
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (segs.length < 2) return null;
+    final rawParent = segs[segs.length - 2].trim();
+    if (rawParent.isEmpty) return null;
+    if (RegExp(
+      r'(?:系列|作品集|合集|Collection)$|^(?:动画|番剧|电影|动漫|未添加TMDB)',
+      caseSensitive: false,
+    ).hasMatch(rawParent)) {
+      return null;
+    }
+    final clean = DirectoryAnalyzer.cleanTitle(rawParent);
+    if (clean.length < 2) return null;
+    final pYear = WorkSeason.year({'title': rawParent});
+    return (title: clean, year: pYear);
+  }
+
   Set<int> get episodes => {
     for (final item in main)
       if (item.episode != null)
@@ -159,7 +194,7 @@ abstract final class DirectoryAnalyzer {
     caseSensitive: false,
   );
   static final _ovaMarker = RegExp(
-    r'(?:^|[^a-z])(?:ova|oad|oav)(?:[^a-z]|$)',
+    r'(?:^|[^a-z])(?:ova|oad|oav|oab)(?:[^a-z]|$)',
     caseSensitive: false,
   );
 
@@ -220,7 +255,7 @@ abstract final class DirectoryAnalyzer {
   static const _maxTinyClipBytes = 120 * 1024 * 1024;
 
   static final _technical = RegExp(
-    r'(?:^|[\s._\-\[(])(?:(?:19|20)\d{2}[\s._-]+(?=.*\b\d{3,4}p\b)|'
+    r'(?:^|[\s._\-\[(])(?:(?:19[5-9]\d|20[0-2]\d)[\s._-]+(?=.*\b\d{3,4}p\b)|'
     r'(?:480|576|720|1080|1440|2160|4320)[pi]\b|'
     r'(?:bd|uhd|web|dvd|hd)[ ._-]?(?:rip|dl|remux)\b|blu-?ray\b|remux\b|'
     r'\d{3,4}x\d{3,4}\b)',
@@ -625,6 +660,12 @@ abstract final class DirectoryAnalyzer {
         consistentFileStem = topStem;
       }
     }
+    // 若每集文件名带有逐集副标题（如 `小哥斯拉的逆袭 黑多老师...`、`Saint Seiya ... chapter 1/2`）
+    // 导致无单一完整词干覆盖 >= 80%，则提取跨 >= 80% 条目的最长公共片名前缀作为一致文件主干。
+    final commonPrefixStem = consistentFileStem == null && items.length >= 3
+        ? _extractDominantCommonPrefix(items)
+        : null;
+    consistentFileStem ??= commonPrefixStem;
     final useConsistentFileAsPrimary =
         tmdbId == null &&
         bangumiId == null &&
@@ -648,9 +689,27 @@ abstract final class DirectoryAnalyzer {
     if (folderSplit.baseTitle != effectiveTitle) {
       hint(titleHints, folderSplit.baseTitle);
     }
+    // 对 `S1+S2` / `S1-S4` 等多季合装后缀同时产出剥离后的纯净剧名提示，避免主标题相似度被后缀拉低。
+    if (multiSeasonFolder) {
+      final strippedMulti = effectiveTitle
+          .replaceFirst(
+            RegExp(
+              r'\s+s\d{1,2}(?:\s*[+&~～\-]\s*(?:s?\d{1,2}|ova|oad|sp|movie))+\s*$',
+              caseSensitive: false,
+            ),
+            '',
+          )
+          .trim();
+      if (strippedMulti.isNotEmpty && strippedMulti != effectiveTitle) {
+        hint(titleHints, strippedMulti);
+      }
+    }
     final withoutMarker = effectiveTitle
         .replaceAll(
-          RegExp(r'剧场版|劇場版|\bOVA\b|\bOAD\b', caseSensitive: false),
+          RegExp(
+            r'剧场版|劇場版|総集編|总集篇|\b(?:the\s+movie|movie|ova|oad|oab)\b',
+            caseSensitive: false,
+          ),
           ' ',
         )
         .trim();
@@ -665,11 +724,51 @@ abstract final class DirectoryAnalyzer {
       final domSplit = splitSeasonSuffix(dominantFile, isSeries: isSeries);
       inferredSeason ??= domSplit.season;
     }
+    if (commonPrefixStem != null) {
+      hint(fileHints, commonPrefixStem);
+    }
     for (final value in ranked) {
       hint(fileHints, value);
       final split = splitSeasonSuffix(value, isSeries: isSeries);
       if (split.baseTitle != value) {
         hint(fileHints, split.baseTitle);
+      }
+      final fileWithoutMarker = value
+          .replaceAll(
+            RegExp(
+              r'剧场版|劇場版|総集編|总集篇|\b(?:the\s+movie|movie|ova|oad|oab)\b',
+              caseSensitive: false,
+            ),
+            ' ',
+          )
+          .trim();
+      if (fileWithoutMarker != value) {
+        hint(fileHints, fileWithoutMarker);
+      }
+      // 罗马音 + 含假名日文双语拼接文件名（如 `Yuyushiki ゆゆ式 OVA 「...」`）同步拆出独立拉丁段与日文段，
+      // 便于乱目录场景下与 TMDB/Bangumi 单语正式片名取得精确匹配。
+      final bilingualFile = RegExp(
+        r'^([A-Za-z0-9][A-Za-z0-9\s!\-’\x27.,]{3,}?)\s+([\u3040-\u9fff][^\r\n]{1,})$',
+      ).firstMatch(value.trim());
+      if (bilingualFile != null &&
+          RegExp(r'[\u3040-\u30ff]').hasMatch(bilingualFile.group(2)!)) {
+        final latinSeg = bilingualFile.group(1)!.trim();
+        final cjkSeg = bilingualFile
+            .group(2)!
+            .split(
+              RegExp(
+                r'\s+(?:ova\d*|oads?|oab|sp\d*|special|「|『)',
+                caseSensitive: false,
+              ),
+            )
+            .first
+            .trim();
+        if (latinSeg.length >= 4) hint(fileHints, latinSeg);
+        if (cjkSeg.length >= 2 &&
+            (RegExp(r'[\u4e00-\u9fff]').hasMatch(cjkSeg) ||
+                cjkSeg.length >= 5)) {
+          hint(fileHints, cjkSeg);
+        }
       }
     }
 
@@ -1443,12 +1542,53 @@ abstract final class DirectoryAnalyzer {
     }
   }
 
+  /// 提取覆盖不少于 80% 主条目的最长公共片名前缀（按空格或中文词界截断），
+  /// 用于处理逐集自带单集副标题（如 `小哥斯拉的逆袭 黑多老师...`）或分章序列的文件集合。
+  static String? _extractDominantCommonPrefix(List<LogicalItem> items) {
+    final samples = <String>[];
+    for (final item in items) {
+      if (item.files.isEmpty) continue;
+      final kw = PersonalFilenameParser.extractAnimeSearchKeyword(
+        p.posix.basename(item.files.first),
+      ).trim();
+      final cleaned = _trimTechnical(kw);
+      if (cleaned.length >= 4) samples.add(cleaned);
+    }
+    if (samples.length < 3) return null;
+    final prefixCounts = <String, int>{};
+    for (final s in samples) {
+      final words = s.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+      if (words.length >= 2) {
+        final buf = StringBuffer();
+        for (var i = 0; i < words.length - 1; i++) {
+          if (i > 0) buf.write(' ');
+          buf.write(words[i]);
+          final cand = buf.toString().trim();
+          final norm = normalize(cand);
+          if (norm.length >= 3) {
+            prefixCounts.update(cand, (n) => n + 1, ifAbsent: () => 1);
+          }
+        }
+      }
+    }
+    String? best;
+    for (final entry in prefixCounts.entries) {
+      if (entry.value * 5 < samples.length * 4) continue;
+      if (_isGenericOrIrregularFolderName(entry.key)) continue;
+      if (best == null || entry.key.length > best.length) {
+        best = entry.key;
+      }
+    }
+    return best;
+  }
+
   static String _trimTechnical(String value) {
     final cut = _technical.firstMatch(value);
     var result = cut == null ? value : value.substring(0, cut.start);
+    // 仅剥离合理发行年份范围（1950~2029），绝不截断科幻片名自带的未来年份（如 `Demon Lord 2099`）。
     result = result.replaceAll(
       RegExp(
-        r'[\s._-]+(?:19|20)\d{2}$|[\s._-]+(?:movie|ova)$',
+        r'[\s._-]+(?:19[5-9]\d|20[0-2]\d)$|[\s._-]+(?:movie|ova)$',
         caseSensitive: false,
       ),
       '',

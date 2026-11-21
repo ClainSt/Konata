@@ -25,6 +25,8 @@ param(
 
     [switch]$Offline,
 
+    [switch]$OfflineSoft,
+
     [switch]$WithExplicit,
 
     [switch]$MessyFolders,
@@ -448,6 +450,7 @@ $cliArgs.Add("--workers=$Workers")
 $cliArgs.Add("--sample-size=$SampleSize")
 if ($AllowFanartRelay) { $cliArgs.Add('--allow-fanart-relay') }
 if ($Offline) { $cliArgs.Add('--offline') }
+if ($OfflineSoft) { $cliArgs.Add('--offline-soft') }
 if ($WithExplicit) { $cliArgs.Add('--with-explicit') }
 if ($MessyFolders) { $cliArgs.Add('--messy-folders') }
 if ($Force) { $cliArgs.Add('--force') }
@@ -469,7 +472,7 @@ try {
     Remove-Item Env:KONATA_EVAL_FANART_API_KEY -ErrorAction SilentlyContinue
     Remove-Item Env:KONATA_EVAL_FANART_CLIENT_KEY -ErrorAction SilentlyContinue
 
-    if ($isOnlineMode -and $PromptKeys -and (-not $Offline)) {
+    if ($isOnlineMode -and $PromptKeys -and (-not $Offline) -and (-not $OfflineSoft)) {
         $keys = Show-ZeroDiskKeyPrompt -ReasonText '已指定提前输入密钥，请粘贴当次评测所需凭据：'
         if ($null -eq $keys) {
             Write-Warning '用户已取消密钥输入，评测中止。'
@@ -484,7 +487,7 @@ try {
     $code = $LASTEXITCODE
 
     # 按需延迟弹窗：仅当本地 VCR 缓存未命中且缺密钥（约定退出码 42）时弹窗一次并自动续跑。
-    if ($code -eq 42 -and $isOnlineMode -and (-not $Offline) -and $null -eq $keys) {
+    if ($code -eq 42 -and $isOnlineMode -and (-not $Offline) -and (-not $OfflineSoft) -and $null -eq $keys) {
         $keys = Show-ZeroDiskKeyPrompt -ReasonText '检测到有新增查询未命中本地 VCR 缓存，请临时输入密钥以继续回源：'
         if ($null -eq $keys -or [string]::IsNullOrWhiteSpace($keys.TmdbKey)) {
             Write-Warning '未提供 TMDB 密钥，已中止本次在线回源。'

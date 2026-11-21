@@ -128,6 +128,7 @@ Future<int> runEvalCli(
 
   final prefilterRoots = _computePrefilterPhysicalRoots(
     mode: options.mode,
+    manifestFile: manifestFile,
     goldenCases: goldenCases,
     failedKeysFile: failedKeysFile,
     onlyFilters: options.onlyFilters,
@@ -285,6 +286,15 @@ Future<int> runEvalCli(
       );
       records.addAll(results);
       networkStatsJson = vcrClient.stats.toJson();
+      if (options.offlineSoft && vcrClient.missedKeys.isNotEmpty) {
+        final uniqueMissed = vcrClient.missedKeys.toSet().toList();
+        stderr.writeln(
+          '离线软回退提示：共 ${vcrClient.missedKeys.length} 次缓存未命中（去重 ${uniqueMissed.length} 个键），前 10 个示例：',
+        );
+        for (final key in uniqueMissed.take(10)) {
+          stderr.writeln('  - $key');
+        }
+      }
     } finally {
       tmdbHttp.close();
       if (injectedVcrClient == null) {
@@ -472,8 +482,14 @@ const List<String> _messyFolderNames = [
 
 /// 将单作目录的目录名与父级路径全部替换为不规范乱目录名，仅保留原始内部视频文件名用于档位 3 真实压力评测。
 GroupedWorkFolder _buildMessyEvalFolder(GroupedWorkFolder folder, int index) {
-  final messyName = _messyFolderNames[index % _messyFolderNames.length];
-  final rootPrefix = '${_normalizePhysicalRoot(folder)}/';
+  final root = _normalizePhysicalRoot(folder);
+  var hash = 2166136261;
+  for (final code in root.codeUnits) {
+    hash ^= code;
+    hash = (hash * 16777619) & 0x7fffffff;
+  }
+  final messyName = _messyFolderNames[hash % _messyFolderNames.length];
+  final rootPrefix = '$root/';
   final entries = <({String path, int? size})>[];
   for (final v in folder.variants) {
     final norm = v.relativePath.replaceAll('\\', '/');
@@ -845,6 +861,7 @@ EvalVcrHttpClient _createVcrClient({
     cacheDir: cacheDir,
     refreshPolicy: options.refreshPolicy,
     offlineOnly: options.offlineOnly,
+    offlineSoft: options.offlineSoft,
     allowFanartRelay: fanartRelayAllowed,
   );
 }
@@ -911,6 +928,7 @@ List<GoldenCase> _loadGoldenCasesIfNeeded({
 
 Set<String>? _computePrefilterPhysicalRoots({
   required EvalMode mode,
+  required File manifestFile,
   required List<GoldenCase> goldenCases,
   required File failedKeysFile,
   required List<String> onlyFilters,
@@ -939,6 +957,70 @@ Set<String>? _computePrefilterPhysicalRoots({
       final sep = raw.indexOf('::');
       final root = (sep > 0 ? raw.substring(0, sep) : raw).trim();
       if (root.isNotEmpty) roots.add(root);
+    }
+    return roots;
+  }
+  // 无 ID 全量摸底或指定 --only 过滤时，直接按清单行秒级预筛目标目录，避免全量解析 30 万文件耗时 2 分钟。
+  if (mode == EvalMode.corpusNoId || onlyFilters.isNotEmpty) {
+    final tmdbMarker = RegExp(r'[\[{（(]\s*tmdb', caseSensitive: false);
+    final auxSegment = RegExp(
+      r'^(sps?|extras?|bonus|cds?|ost|music|soundtrack|scans?|bk|booklet|'
+      r'menus?|nc|ncop|nced|pv|cm|op|ed|fonts?|subs?|subtitles?|scripts?|'
+      r'artwork|images?|pics?|videos?|bd|dvd|disc\s*\d*|vol\.?\s*\d*|'
+      r'cd\s*\d*|season\s*\d+|s\d+|ova|oad|specials?|movies?|preview|'
+      r'trailer|teaser|tokuten|特典|扫图|原声|音乐|字幕|菜单|花絮|剧场版)$',
+      caseSensitive: false,
+    );
+    final splitCue = RegExp(
+      r'(?:movie|剧场版|劇場版|前[编編]|后[编編]|後[编編]|zenpen|kouhen|'
+      r'の巻|之巻|第[一二三1-3]章|film|超电影版)',
+      caseSensitive: false,
+    );
+    final videoExt = RegExp(
+      r'\.(?:mkv|mp4|avi|m2ts|ts|flv|wmv|mov|webm|m4v)$',
+      caseSensitive: false,
+    );
+    final roots = <String>{};
+    for (final rawLine in manifestFile.readAsLinesSync()) {
+      final tab = rawLine.indexOf('\t');
+      final path = (tab > 0 ? rawLine.substring(0, tab) : rawLine)
+          .replaceAll('\\', '/')
+          .trim();
+      if (path.isEmpty) continue;
+      if (onlyFilters.isNotEmpty) {
+        final lower = path.toLowerCase();
+        if (!onlyFilters.any(lower.contains)) continue;
+      }
+      final parts = path.split('/');
+      if (parts.length < 2) continue;
+      final parentParts = parts.sublist(0, parts.length - 1);
+      final fileName = parts.last;
+      if (mode == EvalMode.corpusNoId) {
+        var tmdbIdx = -1;
+        for (var i = 0; i < parentParts.length; i++) {
+          if (tmdbMarker.hasMatch(parentParts[i])) {
+            tmdbIdx = i;
+            break;
+          }
+        }
+        if (tmdbIdx < 0) {
+          roots.add(parentParts.join('/'));
+        } else {
+          final tmdbRoot = parentParts.sublist(0, tmdbIdx + 1).join('/');
+          if (tmdbIdx == parentParts.length - 1) {
+            if (videoExt.hasMatch(fileName) && splitCue.hasMatch(fileName)) {
+              roots.add(tmdbRoot);
+            }
+          } else {
+            final nextSeg = parentParts[tmdbIdx + 1];
+            if (!auxSegment.hasMatch(nextSeg) && videoExt.hasMatch(fileName)) {
+              roots.add(parentParts.sublist(0, tmdbIdx + 2).join('/'));
+            }
+          }
+        }
+      } else {
+        roots.add(parentParts.join('/'));
+      }
     }
     return roots;
   }
@@ -1071,6 +1153,7 @@ class _EvalCliOptions {
     required this.refreshPolicy,
     required this.allowFanartRelay,
     required this.offlineOnly,
+    required this.offlineSoft,
     required this.withExplicit,
     required this.messyFolders,
     required this.onlyFilters,
@@ -1091,6 +1174,7 @@ class _EvalCliOptions {
   final EvalCacheRefreshPolicy refreshPolicy;
   final bool allowFanartRelay;
   final bool offlineOnly;
+  final bool offlineSoft;
   final bool withExplicit;
   final bool messyFolders;
   final List<String> onlyFilters;
@@ -1131,6 +1215,7 @@ class _EvalCliOptions {
     var refreshPolicy = EvalCacheRefreshPolicy.none;
     var allowFanartRelay = false;
     var offlineOnly = false;
+    var offlineSoft = false;
     var withExplicit = false;
     var messyFolders = false;
     var onlyFilters = <String>[];
@@ -1181,6 +1266,9 @@ class _EvalCliOptions {
         allowFanartRelay = true;
       } else if (raw == '--offline') {
         offlineOnly = true;
+      } else if (raw == '--offline-soft') {
+        offlineOnly = true;
+        offlineSoft = true;
       } else if (raw == '--with-explicit') {
         withExplicit = true;
       } else if (raw == '--messy-folders') {
@@ -1217,6 +1305,7 @@ class _EvalCliOptions {
       refreshPolicy: refreshPolicy,
       allowFanartRelay: allowFanartRelay,
       offlineOnly: offlineOnly,
+      offlineSoft: offlineSoft,
       withExplicit: withExplicit,
       messyFolders: messyFolders,
       onlyFilters: onlyFilters,

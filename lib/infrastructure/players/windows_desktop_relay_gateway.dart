@@ -8,7 +8,7 @@ import '../../domain/repositories/desktop_relay_service.dart';
 import '../../domain/repositories/external_player_launcher.dart';
 import 'desktop_external_player_store.dart';
 
-/// Windows 桌面专属外部程序接力网关（完整封装 MPV / PotPlayer / 外部音频与看图路由，零泄漏至 Android 入口）。
+/// Windows 桌面专属外部程序接力网关（完整封装 MPV / PotPlayer / 外部音频路由，零泄漏至 Android 入口）。
 class WindowsDesktopRelayGateway implements DesktopRelayGateway {
   /// 创建桌面外部程序接力网关。
   const WindowsDesktopRelayGateway({
@@ -90,6 +90,46 @@ class WindowsDesktopRelayGateway implements DesktopRelayGateway {
       exactStartSeconds: exactStartSeconds,
       onProgressUpdate: onProgressUpdate,
     );
+  }
+
+  @override
+  Future<LaunchPlaybackResult> launchAudioAlbum(
+    ExternalAudioAlbumRelayRequest request, {
+    ExternalAudioProgressCallback? onTrackProgress,
+  }) async {
+    final players = await store.getExternalPlayers();
+    final target = _resolveAudioPlayer(players, targetId: request.targetId);
+    return launcher.launchAudioAlbum(
+      request: request,
+      player: target,
+      onTrackProgress: onTrackProgress,
+    );
+  }
+
+  @override
+  Future<FoobarComponentStatusSnapshot> probeAudioPlayerStatus({
+    int beefwebPort = FoobarBeefwebConfig.defaultPort,
+  }) async {
+    final players = await store.getExternalPlayers();
+    ExternalPlayerConfig? audioPlayer;
+    for (final p in players) {
+      if (p.kind == ExternalPlayerKind.audioPlayer &&
+          p.executablePath.trim().isNotEmpty) {
+        audioPlayer = p;
+        break;
+      }
+    }
+    return launcher.probeAudioPlayerStatus(
+      player: audioPlayer,
+      beefwebPort: beefwebPort,
+    );
+  }
+
+  @override
+  Future<void> stopActiveExternalAudioSession({
+    int beefwebPort = FoobarBeefwebConfig.defaultPort,
+  }) {
+    return launcher.stopActiveExternalAudioSession(beefwebPort: beefwebPort);
   }
 
   ExternalPlayerConfig? _resolveVideoPlayer(

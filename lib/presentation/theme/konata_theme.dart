@@ -285,6 +285,57 @@ abstract final class KonataTheme {
     offset: Offset(0, 1.5),
   );
 
+  /// 详情页无徽标风格化主标题专属视觉令牌（三层光学投影、局部椭圆暗晕、渐隐细线与冷白微光）。
+  static const Color detailHeroKickerBarColor = Color(0x99FFFFFF);
+  static const Color detailHeroKickerTextColor = Color(0xC2E8EEF8);
+  static const Color detailHeroSubtitleColor = Color(0xD4E8EEF8);
+  static const List<Color> detailHeroTitleSheenColors = <Color>[
+    Color(0xFFFFFFFF),
+    Color(0xFFE4EAF4),
+  ];
+  static const List<Color> detailHeroHairlineColors = <Color>[
+    Color(0xA6FFFFFF),
+    Color(0x38FFFFFF),
+    Colors.transparent,
+  ];
+  static const List<double> detailHeroHairlineStops = <double>[0.0, 0.48, 1.0];
+  static const List<Color> detailHeroBackdropHaloColors = <Color>[
+    Color(0x5C0B0C10),
+    Color(0x290B0C10),
+    Colors.transparent,
+  ];
+  static const List<double> detailHeroBackdropHaloStops = <double>[
+    0.0,
+    0.54,
+    1.0,
+  ];
+  static const List<Shadow> detailHeroTitleShadows = <Shadow>[
+    Shadow(
+      color: Color(0xC2000000),
+      offset: Offset(0, 1),
+      blurRadius: 2.5,
+    ),
+    Shadow(
+      color: Color(0x8A000000),
+      offset: Offset(0, 3),
+      blurRadius: 10,
+    ),
+    Shadow(
+      color: Color(0x4D000000),
+      offset: Offset(0, 6),
+      blurRadius: 24,
+    ),
+  ];
+  static const double detailHeroMaxTextScale = 1.25;
+  static const double detailHeroTitleStepDownDelta = 2.0;
+  static const int detailHeroTitleMaxStepDowns = 2;
+  static const double detailHeroBackdropHaloHorizontalOverflow = 34.0;
+  static const double detailHeroBackdropHaloVerticalOverflow = 24.0;
+
+  /// 透明徽标选择器暗底棋盘格单元格色阶。
+  static const Color logoCheckerDarkCellA = Color(0xFF171A23);
+  static const Color logoCheckerDarkCellB = Color(0xFF212533);
+
   /// 解析毛玻璃弹窗与侧边抽屉的高对比度表面色。
   static Color glassDialogSurface(KonataPalette p) => p.isDark
       ? const Color(0xE0141722)
@@ -574,6 +625,26 @@ abstract final class KonataTheme {
       height: height,
       tabularFigures: false,
       shadows: isDark ? detailTextShadows : lightDetailTextShadows,
+    );
+  }
+
+  /// 构建详情页无徽标风格化展示大标题样式（直接透传可变展示字重与三层光学投影，不受全局浅色主题去影影响）。
+  static TextStyle detailHeroTitleStyle({
+    required double fontSize,
+    required double weight,
+    Color color = pureWhite,
+    double? letterSpacing,
+    double? height,
+    List<Shadow>? shadows,
+  }) {
+    return textStyle(
+      fontSize: fontSize,
+      weight: weight.clamp(400.0, 800.0),
+      color: color,
+      letterSpacing: letterSpacing,
+      height: height,
+      tabularFigures: false,
+      shadows: shadows ?? detailHeroTitleShadows,
     );
   }
 

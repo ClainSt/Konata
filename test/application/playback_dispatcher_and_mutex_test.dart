@@ -14,6 +14,7 @@ import 'package:ccplayer/domain/models/episode.dart';
 import 'package:ccplayer/domain/models/external_player_config.dart';
 import 'package:ccplayer/domain/models/media_source.dart';
 import 'package:ccplayer/domain/models/media_variant.dart';
+import 'package:ccplayer/domain/models/playback_record.dart';
 import 'package:ccplayer/domain/models/work.dart';
 import 'package:ccplayer/domain/playback/playback_probe_stats.dart';
 import 'package:ccplayer/domain/playback/track_preferences.dart';
@@ -28,9 +29,11 @@ import 'package:ccplayer/infrastructure/storage/storage_root_provider.dart';
 
 class _SpyExternalLauncher implements ExternalPlayerLauncher {
   int callCount = 0;
+  int stopExternalAudioCount = 0;
   ExternalPlayerConfig? lastPlayer;
   int? lastStartSeconds;
   double? lastExactStartSeconds;
+  ExternalAudioAlbumRelayRequest? lastAlbumRequest;
 
   @override
   Future<LaunchPlaybackResult> launch({
@@ -49,6 +52,39 @@ class _SpyExternalLauncher implements ExternalPlayerLauncher {
     lastStartSeconds = startSeconds;
     lastExactStartSeconds = exactStartSeconds;
     return const LaunchPlaybackResult(launched: true, message: '外部拉起成功');
+  }
+
+  @override
+  Future<LaunchPlaybackResult> launchAudioAlbum({
+    required ExternalAudioAlbumRelayRequest request,
+    ExternalPlayerConfig? player,
+    ExternalAudioProgressCallback? onTrackProgress,
+  }) async {
+    callCount += 1;
+    lastPlayer = player;
+    lastStartSeconds = request.startSeconds;
+    lastExactStartSeconds = request.exactStartSeconds;
+    lastAlbumRequest = request;
+    return const LaunchPlaybackResult(launched: true, message: '外部专辑拉起成功');
+  }
+
+  @override
+  Future<FoobarComponentStatusSnapshot> probeAudioPlayerStatus({
+    required ExternalPlayerConfig? player,
+    int beefwebPort = FoobarBeefwebConfig.defaultPort,
+  }) async {
+    return FoobarComponentStatusSnapshot(
+      state: FoobarComponentState.connected,
+      executablePath: player?.executablePath ?? '',
+      port: beefwebPort,
+    );
+  }
+
+  @override
+  Future<void> stopActiveExternalAudioSession({
+    int beefwebPort = FoobarBeefwebConfig.defaultPort,
+  }) async {
+    stopExternalAudioCount += 1;
   }
 }
 
@@ -348,6 +384,129 @@ void main() {
         overrideEngine: PreferredPlaybackEngine.desktopRelay,
       );
       expect(spyLauncher.callCount, equals(1));
+    });
+
+    test('整轨音频变体拉起外部播放器时自动配对同目录 CUE 展开多曲目并继承子轨断点', () async {
+      final container = createContainer(runtimeAvailable: true);
+      addTearDown(container.dispose);
+
+      final cdDir = Directory('${tempRoot.path}/DramaCD');
+      await cdDir.create(recursive: true);
+      final flacFile = File('${cdDir.path}/drama1.flac');
+      await flacFile.writeAsBytes(const <int>[1, 2, 3, 4]);
+      final cueFile = File('${cdDir.path}/drama1.cue');
+      await cueFile.writeAsString('''
+PERFORMER "川原礫"
+TITLE "ドラマCD-1"
+FILE "drama1.wav" WAVE
+  TRACK 01 AUDIO
+    TITLE "キリトの受難"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE "ハルユキの災難"
+    INDEX 01 27:55:00
+''');
+
+      final localSource = MediaSource(
+        id: 's_local_cd',
+        kind: MediaSourceKind.local,
+        label: '本地抓轨',
+        location: tempRoot.path,
+      );
+      final cueBytesLen = await cueFile.length();
+      const flacVar = MediaVariant(
+        id: 'v_drama_flac',
+        workId: 'w1',
+        sourceId: 's_local_cd',
+        assetKind: AssetKind.cdAlbum,
+        relativePath: 'DramaCD/drama1.flac',
+        fileName: 'drama1.flac',
+        fileSize: 4,
+      );
+      final cueVar = MediaVariant(
+        id: 'v_drama_cue',
+        workId: 'w1',
+        sourceId: 's_local_cd',
+        assetKind: AssetKind.cdAlbum,
+        relativePath: 'DramaCD/drama1.cue',
+        fileName: 'drama1.cue',
+        fileSize: cueBytesLen,
+      );
+      await repo.upsertMediaSource(localSource);
+      await repo.upsertMediaVariant(flacVar);
+      await repo.upsertMediaVariant(cueVar);
+
+      // 预先写入第 1 轨听到 10 秒（共 1675 秒 = 27:55）的历史记录。
+      await repo.recordPlayback(
+        PlaybackRecord(
+          id: 'cd::v_drama_cue::track_1',
+          workId: 'w1',
+          episodeId: 'cd::v_drama_cue::track_1',
+          variantId: 'v_drama_flac',
+          seasonNumber: 0,
+          episodeNumber: 1,
+          episodeTitle: 'キリトの受難',
+          sourceType: MediaSourceKind.local,
+          playedAt: DateTime(2026, 11, 20, 16, 0),
+          positionSeconds: 10,
+          durationSeconds: 1675,
+          isCompleted: false,
+        ),
+      );
+
+      // 即便详情页传入的是过滤掉 `.cue` 后的 `.flac` 变体，也必须自动配对拆出 2 首曲目并继承 10 秒断点。
+      final res = await container.read(playbackDispatcherProvider).playCdVariant(
+        work: work,
+        variant: flacVar,
+        cdPlaylist: [flacVar, cueVar],
+        sourcesById: {'s_local_cd': localSource},
+        overrideEngine: PreferredPlaybackEngine.desktopRelay,
+      );
+
+      expect(res.launched, isTrue);
+      final req = spyLauncher.lastAlbumRequest;
+      expect(req, isNotNull);
+      expect(req!.tracks.length, equals(2));
+      expect(req.tracks[0].title, equals('キリトの受難'));
+      expect(req.tracks[1].title, equals('ハルユキの災難'));
+      expect(req.initialTrackIndex, equals(0));
+      expect(req.startSeconds, equals(10));
+
+      // 当第 1 轨已听完后再次从详情页点击整轨卡片，自动推进到第 2 轨从 0 秒起播。
+      await repo.recordPlayback(
+        PlaybackRecord(
+          id: 'cd::v_drama_cue::track_1',
+          workId: 'w1',
+          episodeId: 'cd::v_drama_cue::track_1',
+          variantId: 'v_drama_flac',
+          seasonNumber: 0,
+          episodeNumber: 1,
+          episodeTitle: 'キリトの受難',
+          sourceType: MediaSourceKind.local,
+          playedAt: DateTime(2026, 11, 20, 16, 30),
+          positionSeconds: 1675,
+          durationSeconds: 1675,
+          isCompleted: true,
+        ),
+      );
+
+      await container.read(playbackDispatcherProvider).playCdVariant(
+        work: work,
+        variant: flacVar,
+        cdPlaylist: [flacVar, cueVar],
+        sourcesById: {'s_local_cd': localSource},
+        overrideEngine: PreferredPlaybackEngine.desktopRelay,
+      );
+      expect(spyLauncher.lastAlbumRequest!.initialTrackIndex, equals(1));
+      expect(spyLauncher.lastAlbumRequest!.startSeconds, equals(0));
+
+      // 切回内置视频播放时，自动通知外部接力网关停止活跃音频会话释放独占声卡。
+      await container.read(playbackDispatcherProvider).dispatchVideoVariant(
+        bundle: bundle,
+        episode: ep1,
+        variant: videoVar,
+      );
+      expect(spyLauncher.stopExternalAudioCount, greaterThanOrEqualTo(1));
     });
   });
 }

@@ -10,16 +10,31 @@ enum RequestPriority {
   background,
 }
 
-/// HTTP 429 限流异常（携带服务端建议的等待时长）。
+/// HTTP 429 限流异常（携带服务端建议的等待时长与可选响应摘要以区分频率限流与日额度耗尽）。
 class RateLimitedHttpException implements Exception {
   /// 创建限流异常。
-  const RateLimitedHttpException(this.retryAfter, [this.message = 'HTTP 429']);
+  const RateLimitedHttpException(
+    this.retryAfter, [
+    this.message = 'HTTP 429',
+    this.headers = const {},
+    this.bodySnippet,
+    this.isQuotaExhausted = false,
+  ]);
 
   /// 建议退避等待时长。
   final Duration retryAfter;
 
   /// 描述信息。
   final String message;
+
+  /// 原始响应头（用于区分 `X-Konata-Relay-Error: rate_limited` 与平台日额度耗尽）。
+  final Map<String, String> headers;
+
+  /// 截断后的响应正文片段（用于识别 Cloudflare 1027 或非 JSON 错误页）。
+  final String? bodySnippet;
+
+  /// 是否已判定为日额度耗尽（为 `true` 时调度器不再退避重试）。
+  final bool isQuotaExhausted;
 
   @override
   String toString() => 'RateLimitedHttpException($message, $retryAfter)';
@@ -48,6 +63,7 @@ class PriorityHttpScheduler {
   static const Map<String, int> defaultBucketConcurrency = <String, int>{
     'tmdb': 6,
     'bangumi': 4,
+    'fanart': 2,
   };
 
   /// 前台交互通道最大并发数。
@@ -156,6 +172,7 @@ class PriorityHttpScheduler {
           action: task,
         );
       } on RateLimitedHttpException catch (e) {
+        if (e.isQuotaExhausted) rethrow;
         attempt++;
         if (attempt > maxRetries) rethrow;
         final backoffMs = e.retryAfter.inMilliseconds * (1 << (attempt - 1));

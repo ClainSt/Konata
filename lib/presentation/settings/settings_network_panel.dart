@@ -16,6 +16,7 @@ import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/design_system/konata_toast.dart';
+import 'fanart_api_help_dialog.dart';
 import 'tmdb_api_help_dialog.dart';
 
 /// 刮削与网络设置面板（官方优先 + 备用地址自动回退 + 即时自动持久化 + 四通道独立连通性测试）。
@@ -37,10 +38,19 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
   final TextEditingController _bgmApiBackupController = TextEditingController();
   final TextEditingController _bgmImageBackupController =
       TextEditingController();
+  final TextEditingController _fanartClientKeyController =
+      TextEditingController();
+  final TextEditingController _fanartApiKeyOverrideController =
+      TextEditingController();
+  final TextEditingController _fanartApiBackupController =
+      TextEditingController();
+  final TextEditingController _fanartImageBackupController =
+      TextEditingController();
   final TextEditingController _proxyUrlController = TextEditingController();
 
   ProxyMode _proxyMode = ProxyMode.system;
   bool _initializedNetwork = false;
+  bool _fanartAdvancedExpanded = false;
   bool _hasPendingSave = false;
   Timer? _autoSaveTimer;
   KonataActionsCoordinator? _actions;
@@ -49,12 +59,16 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
   bool _testingTmdbImage = false;
   bool _testingBgmApi = false;
   bool _testingBgmImage = false;
+  bool _testingFanartApi = false;
+  bool _testingFanartImage = false;
   bool _updatingMapping = false;
 
   ConnectivityReport? _tmdbApiReport;
   ConnectivityReport? _tmdbImageReport;
   ConnectivityReport? _bgmApiReport;
   ConnectivityReport? _bgmImageReport;
+  ConnectivityReport? _fanartApiReport;
+  ConnectivityReport? _fanartImageReport;
   BangumiTmdbUpdateResult? _mappingUpdateResult;
 
   @override
@@ -71,6 +85,10 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
     _tmdbImageBackupController.dispose();
     _bgmApiBackupController.dispose();
     _bgmImageBackupController.dispose();
+    _fanartClientKeyController.dispose();
+    _fanartApiKeyOverrideController.dispose();
+    _fanartApiBackupController.dispose();
+    _fanartImageBackupController.dispose();
     _proxyUrlController.dispose();
     super.dispose();
   }
@@ -82,6 +100,10 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
       tmdbBackupImageBase: _tmdbImageBackupController.text.trim(),
       bangumiBackupApiBase: _bgmApiBackupController.text.trim(),
       bangumiBackupImageBase: _bgmImageBackupController.text.trim(),
+      fanartClientKey: _fanartClientKeyController.text.trim(),
+      fanartApiKeyOverride: _fanartApiKeyOverrideController.text.trim(),
+      fanartBackupApiBase: _fanartApiBackupController.text.trim(),
+      fanartBackupImageBase: _fanartImageBackupController.text.trim(),
       proxyMode: _proxyMode,
       proxyUrl: _proxyUrlController.text.trim(),
     );
@@ -138,6 +160,21 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
     showKonataToast(context, '已恢复 Bangumi 默认备用地址');
   }
 
+  void _restoreFanartDefaults() {
+    setState(() {
+      _initializedNetwork = true;
+      _fanartApiKeyOverrideController.text = '';
+      _fanartApiBackupController.text =
+          TmdbNetworkConfig.builtInFanartRelayBase;
+      _fanartImageBackupController.text = '';
+      _fanartApiReport = null;
+      _fanartImageReport = null;
+    });
+    _hasPendingSave = true;
+    unawaited(_flushAutoSave());
+    showKonataToast(context, '已恢复 Fanart.tv 默认内置中继设置');
+  }
+
   Future<void> _runProbe(
     Future<ConnectivityReport> Function(TmdbNetworkConfig cfg) runner,
     void Function(bool busy) setBusy,
@@ -185,6 +222,10 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
         _tmdbImageBackupController.text = cfg.tmdbBackupImageBase;
         _bgmApiBackupController.text = cfg.bangumiBackupApiBase;
         _bgmImageBackupController.text = cfg.bangumiBackupImageBase;
+        _fanartClientKeyController.text = cfg.fanartClientKey;
+        _fanartApiKeyOverrideController.text = cfg.fanartApiKeyOverride;
+        _fanartApiBackupController.text = cfg.fanartBackupApiBase;
+        _fanartImageBackupController.text = cfg.fanartBackupImageBase;
         _proxyMode = cfg.proxyMode;
         _proxyUrlController.text = cfg.proxyUrl;
       }
@@ -218,6 +259,8 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
             );
           },
         ),
+        const SizedBox(height: 16),
+        _buildFanartCard(p, actions),
         const SizedBox(height: 16),
         _buildProxyCard(p),
         const SizedBox(height: 16),
@@ -407,6 +450,194 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
               (b) => _testingBgmImage = b,
               (r) => _bgmImageReport = r,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFanartCard(KonataPalette p, KonataActionsCoordinator actions) {
+    final relayHealth = ref.watch(fanartRelayHealthProvider);
+    final hasCustomApi =
+        TmdbNetworkConfig.resolveEffectiveFanartApiKey(
+          manualOverride: _fanartApiKeyOverrideController.text,
+        ).isNotEmpty;
+
+    return KonataSurfaceCard(
+      key: const ValueKey('settings_network_fanart_card'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Fanart.tv 透明徽标',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: p.textPrimary,
+                    fontSize: KonataTheme.fontSizeTitleSm,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              KonataPillButton.ghost(
+                label: '获取个人 Key',
+                icon: Icons.open_in_new_rounded,
+                compact: true,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                onPressed: () {
+                  showKonataGlassDialog<void>(
+                    context: context,
+                    builder: (_) => const FanartApiHelpDialog(),
+                  );
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '选填，填入后可更快获取新番透明 Logo；留空时默认经内置无状态中继开箱即用',
+            style: TextStyle(
+              color: p.textMuted,
+              fontSize: KonataTheme.fontSizeCaption,
+            ),
+          ),
+          const SizedBox(height: 12),
+          KonataSoftTextField(
+            controller: _fanartClientKeyController,
+            obscureText: true,
+            label: 'Fanart.tv 个人密钥（Client Key · 选填）',
+            hintText: '粘贴 Fanart.tv Personal API Key（留空不影响使用）',
+            prefixIcon: Icons.key_rounded,
+            onChanged: (_) => _scheduleAutoSave(),
+            onSubmitted: (_) => unawaited(_flushAutoSave()),
+          ),
+          if (!hasCustomApi &&
+              relayHealth.isDegraded &&
+              relayHealth.message != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: p.warning.withValues(alpha: 0.14),
+                borderRadius: KonataTheme.borderRadiusSm,
+                border: Border.all(
+                  color: p.warning.withValues(alpha: 0.35),
+                  width: 0.9,
+                ),
+              ),
+              child: Text(
+                relayHealth.message!,
+                style: TextStyle(
+                  color: p.warning,
+                  fontSize: KonataTheme.fontSizeCaption,
+                  height: 1.45,
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 10,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              KonataPillButton.ghost(
+                label: _fanartAdvancedExpanded ? '收起高级设置与连接测试' : '高级设置与连接测试',
+                icon: _fanartAdvancedExpanded
+                    ? Icons.expand_less_rounded
+                    : Icons.tune_rounded,
+                compact: true,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                onPressed: () {
+                  setState(
+                    () => _fanartAdvancedExpanded = !_fanartAdvancedExpanded,
+                  );
+                },
+              ),
+              if (_fanartAdvancedExpanded)
+                KonataPillButton.ghost(
+                  label: '恢复默认',
+                  icon: Icons.restart_alt_rounded,
+                  compact: true,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
+                  onPressed: _restoreFanartDefaults,
+                ),
+            ],
+          ),
+          KonataSmoothSectionSwitcher(
+            switchKey: _fanartAdvancedExpanded,
+            alignment: Alignment.topLeft,
+            child: _fanartAdvancedExpanded
+                ? Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        KonataSoftTextField(
+                          controller: _fanartApiKeyOverrideController,
+                          obscureText: true,
+                          dense: true,
+                          label: '自定义项目 API Key（api-key · 选填覆盖内置中继）',
+                          hintText: '仅在内置中继受限或需直连官方 Fanart.tv 时填写',
+                          prefixIcon: Icons.vpn_key_outlined,
+                          onChanged: (_) => _scheduleAutoSave(),
+                          onSubmitted: (_) => unawaited(_flushAutoSave()),
+                        ),
+                        const SizedBox(height: 14),
+                        _EndpointBackupField(
+                          title: '中继 / 备用 API 地址',
+                          officialSubtitle:
+                              '官方标准地址 · ${TmdbNetworkConfig.defaultFanartApiBase}',
+                          controller: _fanartApiBackupController,
+                          hintText:
+                              TmdbNetworkConfig.builtInFanartRelayBase.isNotEmpty
+                                  ? TmdbNetworkConfig.builtInFanartRelayBase
+                                  : 'https://relay.example.com',
+                          testButtonLabel: _testingFanartApi
+                              ? '测试中...'
+                              : 'API 连接测试',
+                          testing: _testingFanartApi,
+                          report: _fanartApiReport,
+                          onChanged: (_) => _scheduleAutoSave(),
+                          onSubmitted: (_) => unawaited(_flushAutoSave()),
+                          onTest: () => _runProbe(
+                            actions.testFanartApiConnectivity,
+                            (b) => _testingFanartApi = b,
+                            (r) => _fanartApiReport = r,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        _EndpointBackupField(
+                          title: '备用图片服务器地址',
+                          officialSubtitle:
+                              '官方标准地址 · ${TmdbNetworkConfig.defaultFanartImageBase}',
+                          controller: _fanartImageBackupController,
+                          hintText: '选填自定义 assets.fanart.tv 图片反代地址',
+                          testButtonLabel: _testingFanartImage
+                              ? '测试中...'
+                              : '图片服务器连接测试',
+                          testing: _testingFanartImage,
+                          report: _fanartImageReport,
+                          onChanged: (_) => _scheduleAutoSave(),
+                          onSubmitted: (_) => unawaited(_flushAutoSave()),
+                          onTest: () => _runProbe(
+                            actions.testFanartImageConnectivity,
+                            (b) => _testingFanartImage = b,
+                            (r) => _fanartImageReport = r,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : const SizedBox.shrink(),
           ),
         ],
       ),

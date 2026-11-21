@@ -438,7 +438,7 @@ abstract final class KonataPlaybackTokens {
   );
   static const Duration equalizerCycleDuration = Duration(milliseconds: 1150);
   static const Duration lyricUserScrollResetDelay = Duration(
-    seconds: 5,
+    seconds: 3,
   );
   static const Duration lyricScrollIdleSettleDelay = Duration(
     milliseconds: 140,

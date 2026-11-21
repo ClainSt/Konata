@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../composition/platform_composition.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/playback/video_aspect_mode.dart';
@@ -596,9 +597,15 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
   /// 启动或热切换全局视频会话并展开全屏舞台。
   Future<void> openVideo(VideoLaunchRequest nextRequest) async {
     _ensureAndroidPipCallbacksBound();
-    // 互斥收起全屏音频页并暂停纯音频会话
+    // 互斥收起全屏音频页并暂停纯音频会话，同时释放外部音频独占声卡。
     _ref.read(immersiveAudioExpandedProvider.notifier).state = false;
     await _ref.read(audioPlaybackProvider.notifier).pauseForVideoSession();
+    final port = _ref.read(playbackPreferencesProvider).foobarBeefwebPort;
+    unawaited(
+      _ref
+          .read(desktopRelayGatewayProvider)
+          ?.stopActiveExternalAudioSession(beefwebPort: port),
+    );
 
     final currentReq = state.request;
     if (currentReq != null) {

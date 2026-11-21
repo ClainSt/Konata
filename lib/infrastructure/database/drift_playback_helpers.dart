@@ -75,6 +75,7 @@ Future<void> upsertPlaybackRecordInDb(
       PlaybackRecord.computeCompleted(
         positionSeconds: record.positionSeconds,
         durationSeconds: record.durationSeconds,
+        isAudio: record.isAudioRecord,
       );
 
   await db.transaction(() async {

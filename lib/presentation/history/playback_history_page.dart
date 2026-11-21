@@ -24,6 +24,7 @@ import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_toast.dart';
 import '../widgets/managed_image.dart';
+import '../widgets/playback/konata_foobar_beefweb_dialog.dart';
 import 'playback_history_cards.dart';
 
 /// 播放记录分类页签（视频 / 音频）。
@@ -278,11 +279,29 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
       }
       return;
     }
+    final trackMatch = RegExp(
+      r'^cd::(.+?)::track_(\d+)$',
+    ).firstMatch(rec.episodeId);
+    final extractedCueId = trackMatch?.group(1);
+    final cueTrackNumber = trackMatch != null
+        ? int.tryParse(trackMatch.group(2)!)
+        : null;
+
     MediaVariant? targetVariant;
-    for (final v in bundle.cdVariants) {
-      if (v.id == rec.variantId) {
-        targetVariant = v;
-        break;
+    if (extractedCueId != null) {
+      for (final v in bundle.cdVariants) {
+        if (v.id == extractedCueId) {
+          targetVariant = v;
+          break;
+        }
+      }
+    }
+    if (targetVariant == null) {
+      for (final v in bundle.cdVariants) {
+        if (v.id == rec.variantId) {
+          targetVariant = v;
+          break;
+        }
       }
     }
     targetVariant ??= bundle.cdVariants.isNotEmpty
@@ -294,24 +313,26 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
       }
       return;
     }
-    final trackMatch = RegExp(r'::track_(\d+)$').firstMatch(rec.episodeId);
-    final cueTrackNumber = trackMatch != null
-        ? int.tryParse(trackMatch.group(1)!)
-        : null;
-    final res = await ref
-        .read(playbackDispatcherProvider)
-        .playCdVariant(
-          work: bundle.work,
-          variant: targetVariant,
-          cdPlaylist: bundle.cdVariants,
-          sourcesById: bundle.sourcesById,
-          overrideEngine: overrideEngine,
-          expandImmersive: true,
-          initialCueTrackNumber: cueTrackNumber,
-        );
-    if (context.mounted && res.message.isNotEmpty) {
-      showKonataToast(context, res.message, isError: !res.launched);
-    }
+    final resolvedTarget = targetVariant;
+    final resumeSec = rec.isCompleted ? 0 : rec.positionSeconds;
+    if (!context.mounted) return;
+    await ExternalAudioRelayUiHelper.dispatchWithGuide(
+      context: context,
+      ref: ref,
+      action: ({required forceAllowWithoutBeefweb}) => ref
+          .read(playbackDispatcherProvider)
+          .playCdVariant(
+            work: bundle.work,
+            variant: resolvedTarget,
+            cdPlaylist: bundle.cdVariants,
+            sourcesById: bundle.sourcesById,
+            overrideEngine: overrideEngine,
+            expandImmersive: true,
+            initialCueTrackNumber: cueTrackNumber,
+            startSeconds: resumeSec,
+            forceAllowWithoutBeefweb: forceAllowWithoutBeefweb,
+          ),
+    );
   }
 
   Future<void> _showRowMenu({

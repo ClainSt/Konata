@@ -28,6 +28,7 @@ import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/design_system/konata_toast.dart';
+import '../widgets/playback/konata_foobar_beefweb_dialog.dart';
 import 'episode_media_info_dialog.dart';
 import 'supplementary_asset_cards.dart';
 import 'variant_picker_dialog.dart';
@@ -457,20 +458,22 @@ class DetailActionHandlers {
     String? explicitTargetId,
     bool expandImmersive = false,
   }) async {
-    final res = await ref
-        .read(playbackDispatcherProvider)
-        .playCdVariant(
-          work: bundle.work,
-          variant: variant,
-          cdPlaylist: bundle.cdVariants,
-          sourcesById: bundle.sourcesById,
-          overrideEngine: overrideEngine,
-          explicitTargetId: explicitTargetId,
-          expandImmersive: expandImmersive,
-        );
-    if (context.mounted && res.message.isNotEmpty) {
-      showKonataToast(context, res.message, isError: !res.launched);
-    }
+    await ExternalAudioRelayUiHelper.dispatchWithGuide(
+      context: context,
+      ref: ref,
+      action: ({required forceAllowWithoutBeefweb}) => ref
+          .read(playbackDispatcherProvider)
+          .playCdVariant(
+            work: bundle.work,
+            variant: variant,
+            cdPlaylist: bundle.cdVariants,
+            sourcesById: bundle.sourcesById,
+            overrideEngine: overrideEngine,
+            explicitTargetId: explicitTargetId,
+            expandImmersive: expandImmersive,
+            forceAllowWithoutBeefweb: forceAllowWithoutBeefweb,
+          ),
+    );
   }
 
   /// 打开单集「查看媒体信息」只读毛玻璃弹窗（展示文件规格、压制/字幕组与外挂字幕）。

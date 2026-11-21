@@ -18,10 +18,15 @@ class NetworkConfigRepository {
   final Future<SharedPreferences> Function() _prefsLoader;
 
   static const String _keyCredential = 'konata_v2_tmdb_credential';
+  static const String _keyFanartClientKey = 'konata_v2_fanart_client_key';
+  static const String _keyFanartApiKeyOverride =
+      'konata_v2_fanart_api_key_override';
   static const String _keyTmdbBackupApi = 'konata_v2_tmdb_backup_api';
   static const String _keyTmdbBackupImage = 'konata_v2_tmdb_backup_image';
   static const String _keyBangumiBackupApi = 'konata_v2_bangumi_backup_api';
   static const String _keyBangumiBackupImage = 'konata_v2_bangumi_backup_image';
+  static const String _keyFanartBackupApi = 'konata_v2_fanart_backup_api';
+  static const String _keyFanartBackupImage = 'konata_v2_fanart_backup_image';
   static const String _keyProxyMode = 'konata_v2_proxy_mode';
   static const String _keyProxyUrl = 'konata_v2_proxy_url';
 
@@ -35,6 +40,10 @@ class NetworkConfigRepository {
   Future<TmdbNetworkConfig> load() async {
     final prefs = await _prefsLoader();
     final credential = (await _secureStorage.read(key: _keyCredential)) ?? '';
+    final fanartClientKey =
+        (await _secureStorage.read(key: _keyFanartClientKey)) ?? '';
+    final fanartApiKeyOverride =
+        (await _secureStorage.read(key: _keyFanartApiKeyOverride)) ?? '';
 
     var proxyMode = ProxyMode.system;
     var proxyUrl = prefs.getString(_keyProxyUrl) ?? '';
@@ -73,6 +82,12 @@ class NetworkConfigRepository {
         retired: TmdbNetworkConfig.retiredBangumiBackupImageBases,
         current: TmdbNetworkConfig.defaultBangumiBackupImageBase,
       ),
+      fanartClientKey: fanartClientKey,
+      fanartApiKeyOverride: fanartApiKeyOverride,
+      fanartBackupApiBase:
+          prefs.getString(_keyFanartBackupApi) ??
+          TmdbNetworkConfig.builtInFanartRelayBase,
+      fanartBackupImageBase: prefs.getString(_keyFanartBackupImage) ?? '',
       proxyMode: proxyMode,
       proxyUrl: proxyUrl,
     );
@@ -105,14 +120,31 @@ class NetworkConfigRepository {
       _keyBangumiBackupImage,
       config.bangumiBackupImageBase.trim(),
     );
+    await prefs.setString(
+      _keyFanartBackupApi,
+      config.fanartBackupApiBase.trim(),
+    );
+    await prefs.setString(
+      _keyFanartBackupImage,
+      config.fanartBackupImageBase.trim(),
+    );
     await prefs.setString(_keyProxyMode, config.proxyMode.name);
     await prefs.setString(_keyProxyUrl, config.proxyUrl.trim());
 
-    final trimmedCred = config.credential.trim();
-    if (trimmedCred.isEmpty) {
-      await _secureStorage.delete(key: _keyCredential);
+    await _writeOrDeleteSecret(_keyCredential, config.credential);
+    await _writeOrDeleteSecret(_keyFanartClientKey, config.fanartClientKey);
+    await _writeOrDeleteSecret(
+      _keyFanartApiKeyOverride,
+      config.fanartApiKeyOverride,
+    );
+  }
+
+  Future<void> _writeOrDeleteSecret(String key, String raw) async {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) {
+      await _secureStorage.delete(key: key);
     } else {
-      await _secureStorage.write(key: _keyCredential, value: trimmedCred);
+      await _secureStorage.write(key: key, value: trimmed);
     }
   }
 }

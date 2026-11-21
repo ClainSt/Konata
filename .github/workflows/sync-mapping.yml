@@ -27,15 +27,18 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: 拉取上游并编译紧凑二进制映射表
+      - name: 拉取上游并编译紧凑二进制映射表（v1 向后兼容 + v2 含 TVDB ID）
         run: |
           OUT_DIR="${RUNNER_TEMP}/dist_mapping"
           mkdir -p "$OUT_DIR"
           python tool/import_bangumi_tmdb_map.py \
             --build-binary \
             --fetch-open-ani \
+            --fetch-anime-lists \
             --out-bin "$OUT_DIR/bangumi_tmdb_map.bin" \
-            --out-manifest "$OUT_DIR/manifest.json"
+            --out-manifest "$OUT_DIR/manifest.json" \
+            --out-bin-v2 "$OUT_DIR/bangumi_tmdb_map_v2.bin" \
+            --out-manifest-v2 "$OUT_DIR/manifest_v2.json"
           cp assets/licenses/open-ani-bangumi-tmdb-cc-by-4.0.txt "$OUT_DIR/LICENSE-OPEN-ANI.txt"
           cp assets/licenses/wikidata-cc0.txt "$OUT_DIR/LICENSE-WIKIDATA.txt"
 
@@ -43,13 +46,16 @@ jobs:
         run: |
           OUT_DIR="${RUNNER_TEMP}/dist_mapping"
           NEW_SHA=$(python -c "import json; print(json.load(open('$OUT_DIR/manifest.json'))['binSha256'])")
+          NEW_SHA_V2=$(python -c "import json; print(json.load(open('$OUT_DIR/manifest_v2.json'))['binSha256'])")
           OLD_SHA=""
+          OLD_SHA_V2=""
           if git ls-remote --exit-code --heads origin data/mapping >/dev/null 2>&1; then
             git fetch origin data/mapping --depth=1
             OLD_SHA=$(git show origin/data/mapping:manifest.json 2>/dev/null | python -c "import sys,json; print(json.load(sys.stdin).get('binSha256',''))" || true)
+            OLD_SHA_V2=$(git show origin/data/mapping:manifest_v2.json 2>/dev/null | python -c "import sys,json; print(json.load(sys.stdin).get('binSha256',''))" || true)
           fi
-          if [ "$NEW_SHA" = "$OLD_SHA" ]; then
-            echo "映射表 SHA-256 未变化（$NEW_SHA），跳过推送。"
+          if [ "$NEW_SHA" = "$OLD_SHA" ] && [ "$NEW_SHA_V2" = "$OLD_SHA_V2" ]; then
+            echo "映射表 v1/v2 SHA-256 均未变化，跳过推送。"
             exit 0
           fi
 
@@ -57,12 +63,14 @@ jobs:
           git rm -rf . >/dev/null 2>&1 || true
           cp "$OUT_DIR/bangumi_tmdb_map.bin" ./bangumi_tmdb_map.bin
           cp "$OUT_DIR/manifest.json" ./manifest.json
+          cp "$OUT_DIR/bangumi_tmdb_map_v2.bin" ./bangumi_tmdb_map_v2.bin
+          cp "$OUT_DIR/manifest_v2.json" ./manifest_v2.json
           cp "$OUT_DIR/LICENSE-OPEN-ANI.txt" ./LICENSE-OPEN-ANI.txt
           cp "$OUT_DIR/LICENSE-WIKIDATA.txt" ./LICENSE-WIKIDATA.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add bangumi_tmdb_map.bin manifest.json LICENSE-OPEN-ANI.txt LICENSE-WIKIDATA.txt
-          SNAP_DATE=$(python -c "import json; print(json.load(open('manifest.json'))['snapshotDate'])")
-          SNAP_CNT=$(python -c "import json; print(json.load(open('manifest.json'))['uniqueBangumiCount'])")
-          git commit -m "data(mapping): sync $SNAP_DATE ($SNAP_CNT subjects)"
+          git add bangumi_tmdb_map.bin manifest.json bangumi_tmdb_map_v2.bin manifest_v2.json LICENSE-OPEN-ANI.txt LICENSE-WIKIDATA.txt
+          SNAP_DATE=$(python -c "import json; print(json.load(open('manifest_v2.json'))['snapshotDate'])")
+          SNAP_CNT=$(python -c "import json; print(json.load(open('manifest_v2.json'))['uniqueBangumiCount'])")
+          git commit -m "data(mapping): sync $SNAP_DATE ($SNAP_CNT subjects, v1+v2)"
           git push --force origin HEAD:refs/heads/data/mapping

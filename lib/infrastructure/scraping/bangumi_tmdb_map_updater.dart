@@ -62,8 +62,10 @@ class BangumiTmdbMapUpdater {
               bundledLoaded.index.snapshotDateYyyymmdd ||
           (localLoaded.index.snapshotDateYyyymmdd ==
                   bundledLoaded.index.snapshotDateYyyymmdd &&
-              localLoaded.index.recordCount >=
-                  bundledLoaded.index.recordCount);
+              (localLoaded.index.version > bundledLoaded.index.version ||
+                  (localLoaded.index.version == bundledLoaded.index.version &&
+                      localLoaded.index.recordCount >=
+                          bundledLoaded.index.recordCount)));
       final chosen = localNewerOrSame ? localLoaded : bundledLoaded;
       return chosen.copyWith(
         etag: prefsState.etag,
@@ -150,40 +152,77 @@ class BangumiTmdbMapUpdater {
         }
 
         try {
-          final manifestUri = Uri.parse(
-            '$base/${TmdbNetworkConfig.mappingManifestFileName}',
-          );
-          final headers = <String, String>{'Accept': 'application/json'};
-          final canSendEtag =
-              current.etag != null &&
-              current.etag!.isNotEmpty &&
-              current.sha256Hex.isNotEmpty &&
-              current.lastMirrorBase == base;
-          if (canSendEtag) {
-            headers['If-None-Match'] = current.etag!;
+          // 优先探测 v2 含 `tvdb_id` 清单；若镜像尚未发布 v2（返回 404），同节点无缝回退 v1 清单。
+          final manifestCandidates =
+              const <({String manifestFile, String binFile, String channel})>[
+                (
+                  manifestFile: TmdbNetworkConfig.mappingV2ManifestFileName,
+                  binFile: TmdbNetworkConfig.mappingV2BinaryFileName,
+                  channel: 'v2',
+                ),
+                (
+                  manifestFile: TmdbNetworkConfig.mappingManifestFileName,
+                  binFile: TmdbNetworkConfig.mappingBinaryFileName,
+                  channel: 'v1',
+                ),
+              ];
+
+          http.Response? manifestResp;
+          String activeBinFile = TmdbNetworkConfig.mappingBinaryFileName;
+          String activeMirrorKey = base;
+
+          for (final cand in manifestCandidates) {
+            final probeRemaining = deadline.difference(_now());
+            if (probeRemaining <= const Duration(milliseconds: 250)) {
+              lastFailure ??= '检查超时，已跳过';
+              break;
+            }
+            final manifestUri = Uri.parse('$base/${cand.manifestFile}');
+            final mirrorKey =
+                cand.channel == 'v2' ? '$base#v2' : base;
+            final headers = <String, String>{'Accept': 'application/json'};
+            final canSendEtag =
+                current.etag != null &&
+                current.etag!.isNotEmpty &&
+                current.sha256Hex.isNotEmpty &&
+                current.lastMirrorBase == mirrorKey;
+            if (canSendEtag) {
+              headers['If-None-Match'] = current.etag!;
+            }
+            final manifestTimeout =
+                probeRemaining < TmdbNetworkConfig.mappingCheckTimeout
+                ? probeRemaining
+                : TmdbNetworkConfig.mappingCheckTimeout;
+            final resp = await checkClient
+                .get(
+                  manifestUri,
+                  headers: headers,
+                  priority: RequestPriority.interactive,
+                )
+                .timeout(manifestTimeout);
+            if (resp.statusCode == 404 && cand.channel == 'v2') {
+              continue;
+            }
+            manifestResp = resp;
+            activeBinFile = cand.binFile;
+            activeMirrorKey = mirrorKey;
+            break;
           }
 
-          final manifestTimeout =
-              remaining < TmdbNetworkConfig.mappingCheckTimeout
-              ? remaining
-              : TmdbNetworkConfig.mappingCheckTimeout;
-          final manifestResp = await checkClient
-              .get(
-                manifestUri,
-                headers: headers,
-                priority: RequestPriority.interactive,
-              )
-              .timeout(manifestTimeout);
+          if (manifestResp == null) {
+            lastFailure ??= '镜像未返回有效清单';
+            continue;
+          }
 
           if (manifestResp.statusCode == 304) {
             await _savePrefsState(
               checkedAt: now,
               etag: current.etag,
-              mirrorBase: base,
+              mirrorBase: activeMirrorKey,
             );
             final updatedSnap = current.copyWith(
               lastCheckedAt: now,
-              lastMirrorBase: base,
+              lastMirrorBase: activeMirrorKey,
             );
             return BangumiTmdbUpdateResult(
               state: BangumiTmdbUpdateState.upToDate,
@@ -211,17 +250,21 @@ class BangumiTmdbMapUpdater {
           final remoteOlder =
               current.index.isNotEmpty &&
               parsed.snapshotDateYyyymmdd > 0 &&
-              current.index.snapshotDateYyyymmdd > parsed.snapshotDateYyyymmdd;
+              (current.index.snapshotDateYyyymmdd >
+                      parsed.snapshotDateYyyymmdd ||
+                  (current.index.snapshotDateYyyymmdd ==
+                          parsed.snapshotDateYyyymmdd &&
+                      current.index.version > parsed.schemaVersion));
           if (sameHash || remoteOlder) {
             await _savePrefsState(
               checkedAt: now,
               etag: nextEtag ?? current.etag,
-              mirrorBase: base,
+              mirrorBase: activeMirrorKey,
             );
             final updatedSnap = current.copyWith(
               etag: nextEtag ?? current.etag,
               lastCheckedAt: now,
-              lastMirrorBase: base,
+              lastMirrorBase: activeMirrorKey,
             );
             return BangumiTmdbUpdateResult(
               state: BangumiTmdbUpdateState.upToDate,
@@ -236,9 +279,7 @@ class BangumiTmdbMapUpdater {
             lastFailure = '下载时间预算不足';
             break;
           }
-          final binUri = Uri.parse(
-            '$base/${TmdbNetworkConfig.mappingBinaryFileName}',
-          );
+          final binUri = Uri.parse('$base/$activeBinFile');
           final downloadTimeout =
               downloadRemaining < TmdbNetworkConfig.mappingDownloadTimeout
               ? downloadRemaining
@@ -285,7 +326,7 @@ class BangumiTmdbMapUpdater {
           await _savePrefsState(
             checkedAt: now,
             etag: nextEtag,
-            mirrorBase: base,
+            mirrorBase: activeMirrorKey,
           );
           final nextDate = nextIndex.formattedSnapshotDate.isNotEmpty
               ? nextIndex.formattedSnapshotDate
@@ -297,7 +338,7 @@ class BangumiTmdbMapUpdater {
             sha256Hex: actualSha,
             etag: nextEtag,
             lastCheckedAt: now,
-            lastMirrorBase: base,
+            lastMirrorBase: activeMirrorKey,
           );
           return BangumiTmdbUpdateResult(
             state: BangumiTmdbUpdateState.updated,
@@ -540,7 +581,10 @@ class BangumiTmdbMapUpdater {
       final decoded = jsonDecode(utf8.decode(bodyBytes));
       if (decoded is! Map) return null;
       final schemaVersion = (decoded['schemaVersion'] as num?)?.toInt();
-      if (schemaVersion != BangumiTmdbIndex.formatVersion) return null;
+      if (schemaVersion != BangumiTmdbIndex.formatVersionV1 &&
+          schemaVersion != BangumiTmdbIndex.formatVersionV2) {
+        return null;
+      }
       final sha = (decoded['binSha256'] ?? '').toString().trim().toLowerCase();
       if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(sha)) return null;
       final binBytes = (decoded['binBytes'] as num?)?.toInt() ?? 0;
@@ -550,6 +594,7 @@ class BangumiTmdbMapUpdater {
       final snapshotDate = (decoded['snapshotDate'] ?? '').toString().trim();
       final dateInt = _parseDateYyyymmdd(snapshotDate);
       return _ParsedManifest(
+        schemaVersion: schemaVersion!,
         binSha256: sha,
         binBytes: binBytes,
         snapshotDate: snapshotDate,
@@ -583,12 +628,14 @@ class BangumiTmdbMapUpdater {
 
 class _ParsedManifest {
   const _ParsedManifest({
+    required this.schemaVersion,
     required this.binSha256,
     required this.binBytes,
     required this.snapshotDate,
     required this.snapshotDateYyyymmdd,
   });
 
+  final int schemaVersion;
   final String binSha256;
   final int binBytes;
   final String snapshotDate;

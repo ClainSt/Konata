@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../composition/platform_composition.dart';
+import '../../domain/models/external_audio_relay_models.dart';
 import '../../domain/playback/track_preferences.dart';
 import '../../infrastructure/players/android/android_audio_route_bridge.dart';
 import '../../infrastructure/players/mpv_quality_profile.dart';
@@ -47,6 +48,8 @@ class PlaybackPreferencesState {
     this.androidBitPerfectUsb = false,
     this.cloudSubsetEnabled = false,
     this.cloudSubsetEndpoint = '',
+    this.foobarBeefwebPort = FoobarBeefwebConfig.defaultPort,
+    this.skipFoobarBeefwebPrompt = false,
   });
 
   /// 默认视频（正片 / 特典）播放引擎。
@@ -88,6 +91,12 @@ class PlaybackPreferencesState {
   /// 可选 FontInAss 云端字幕字体子集化服务端点地址。
   final String cloudSubsetEndpoint;
 
+  /// `foobar2000` 本地 `foo_beefweb` 组件监听端口（默认 `8880`）。
+  final int foobarBeefwebPort;
+
+  /// 用户是否已确认在未安装 `foo_beefweb` 时跳过引导弹窗并仅执行单文件拉起。
+  final bool skipFoobarBeefwebPrompt;
+
   /// 复制并修改局部偏好字段。
   PlaybackPreferencesState copyWith({
     PreferredPlaybackEngine? defaultVideoEngine,
@@ -103,6 +112,8 @@ class PlaybackPreferencesState {
     bool? androidBitPerfectUsb,
     bool? cloudSubsetEnabled,
     String? cloudSubsetEndpoint,
+    int? foobarBeefwebPort,
+    bool? skipFoobarBeefwebPrompt,
   }) {
     return PlaybackPreferencesState(
       defaultVideoEngine: defaultVideoEngine ?? this.defaultVideoEngine,
@@ -119,6 +130,9 @@ class PlaybackPreferencesState {
       androidBitPerfectUsb: androidBitPerfectUsb ?? this.androidBitPerfectUsb,
       cloudSubsetEnabled: cloudSubsetEnabled ?? this.cloudSubsetEnabled,
       cloudSubsetEndpoint: cloudSubsetEndpoint ?? this.cloudSubsetEndpoint,
+      foobarBeefwebPort: foobarBeefwebPort ?? this.foobarBeefwebPort,
+      skipFoobarBeefwebPrompt:
+          skipFoobarBeefwebPrompt ?? this.skipFoobarBeefwebPrompt,
     );
   }
 
@@ -137,7 +151,9 @@ class PlaybackPreferencesState {
         other.bitstreamPassthrough == bitstreamPassthrough &&
         other.androidBitPerfectUsb == androidBitPerfectUsb &&
         other.cloudSubsetEnabled == cloudSubsetEnabled &&
-        other.cloudSubsetEndpoint == cloudSubsetEndpoint;
+        other.cloudSubsetEndpoint == cloudSubsetEndpoint &&
+        other.foobarBeefwebPort == foobarBeefwebPort &&
+        other.skipFoobarBeefwebPrompt == skipFoobarBeefwebPrompt;
   }
 
   @override
@@ -155,6 +171,8 @@ class PlaybackPreferencesState {
     androidBitPerfectUsb,
     cloudSubsetEnabled,
     cloudSubsetEndpoint,
+    foobarBeefwebPort,
+    skipFoobarBeefwebPrompt,
   );
 }
 
@@ -349,6 +367,21 @@ class PlaybackPreferencesNotifier
     await _persist();
   }
 
+  /// 更新 `foobar2000` 本地 `foo_beefweb` 组件监听端口号。
+  Future<void> setFoobarBeefwebPort(int port) async {
+    final safePort = port.clamp(1, 65535);
+    if (state.foobarBeefwebPort == safePort) return;
+    state = state.copyWith(foobarBeefwebPort: safePort);
+    await _persist();
+  }
+
+  /// 更新未安装 `foo_beefweb` 时是否跳过组件引导提示。
+  Future<void> setSkipFoobarBeefwebPrompt(bool skip) async {
+    if (state.skipFoobarBeefwebPrompt == skip) return;
+    state = state.copyWith(skipFoobarBeefwebPrompt: skip);
+    await _persist();
+  }
+
   Future<void> _persist() async {
     if (!enablePersistence) return;
     try {
@@ -374,6 +407,8 @@ class PlaybackPreferencesNotifier
       'androidBitPerfectUsb': s.androidBitPerfectUsb,
       'cloudSubsetEnabled': s.cloudSubsetEnabled,
       'cloudSubsetEndpoint': s.cloudSubsetEndpoint,
+      'foobarBeefwebPort': s.foobarBeefwebPort,
+      'skipFoobarBeefwebPrompt': s.skipFoobarBeefwebPrompt,
       'preset': q.preset.name,
       'outputPipelineMode': q.outputPipelineMode.bridgeKey,
       'outputPipelineSchemaVersion': 2,
@@ -468,6 +503,15 @@ class PlaybackPreferencesNotifier
       cloudSubsetEndpoint: map['cloudSubsetEndpoint'] is String
           ? (map['cloudSubsetEndpoint'] as String).trim()
           : '',
+      foobarBeefwebPort: parseInt(
+        map['foobarBeefwebPort'],
+        FoobarBeefwebConfig.defaultPort,
+        1,
+        65535,
+      ),
+      skipFoobarBeefwebPrompt: map['skipFoobarBeefwebPrompt'] is bool
+          ? map['skipFoobarBeefwebPrompt'] as bool
+          : false,
       qualityConfig: PlaybackQualityConfig(
         preset: parseEnum(
           VideoQualityPreset.values,

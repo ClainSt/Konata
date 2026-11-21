@@ -1,18 +1,15 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/playback/audio_playback_notifier.dart';
+import '../../application/playback/playback_dispatcher.dart';
 import '../../application/playback/playback_preferences_provider.dart';
 import '../../composition/platform_composition.dart';
 import '../../domain/playback/cue_and_lrc_parser.dart';
-import '../../domain/playback/lyric_version_matcher.dart';
-import '../../domain/playback/playback_formatters.dart';
 import '../shell/adaptive_capsule_layout.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
@@ -23,11 +20,13 @@ import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/playback/konata_cached_artwork_backdrop.dart';
+import '../widgets/playback/konata_foobar_beefweb_dialog.dart';
 import '../widgets/playback/konata_playback_capsule.dart';
 import '../widgets/playback/konata_spec_badge.dart';
 import '../widgets/playback/konata_stage_morph_frame.dart';
 import '../widgets/playback/konata_volume_control.dart';
 import 'immersive_audio_sub_widgets.dart';
+import 'immersive_lyrics_viewport.dart';
 
 part 'immersive_audio_stages.dart';
 
@@ -49,26 +48,15 @@ class ImmersiveAudioPage extends ConsumerStatefulWidget {
 
 class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
   final FocusNode _focusNode = FocusNode(debugLabel: 'immersive_audio_focus');
-  final ScrollController _lyricScrollCtrl = ScrollController();
   final ScrollController _queueScrollCtrl = ScrollController();
 
   _ImmersiveRightPane _pane = _ImmersiveRightPane.lyrics;
   bool _userPinnedPane = false;
   bool _portraitShowLyricsInPlace = false;
-  bool _isUserScrollingLyrics = false;
-  bool _lyricScrollActivelyDragging = false;
-  bool _programmaticLyricScroll = false;
-  int? _scrubTargetLyricIndex;
   double _pullDownDy = 0.0;
   BuildContext? _activeQueueSheetContext;
-  Timer? _scrollResetTimer;
-  Timer? _scrollIdleTimer;
-  Timer? _programmaticScrollTimer;
   final GlobalKey _activeQueueItemKey = GlobalKey();
-  final GlobalKey _lyricViewportKey = GlobalKey();
-  List<GlobalKey> _lyricKeys = const [];
   String? _lastItemId;
-  int _lastActiveLyricIndex = -1;
   _ImmersiveRightPane? _lastEffectivePane;
   bool _amllConfirmDialogShowing = false;
   String? _amllPromptedItemId;
@@ -76,14 +64,10 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
   @override
   void initState() {
     super.initState();
-    _lastActiveLyricIndex = ref.read(audioPlaybackProvider).activeLyricIndex;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _focusNode.requestFocus();
       _scrollToActiveQueueItem(animated: false);
-      if (_lastActiveLyricIndex >= 0) {
-        _scrollToActiveLyric(animated: false);
-      }
     });
   }
 
@@ -95,7 +79,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
   }
 
   void _scrollToActiveQueueItem({required bool animated}) {
-    if (!_queueScrollCtrl.hasClients) return;
+    if (_queueScrollCtrl.positions.length != 1) return;
     final state = ref.read(audioPlaybackProvider);
     final rows = state.buildDisplayRows();
     if (rows.isEmpty) return;
@@ -139,7 +123,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
 
     if (!animated) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_queueScrollCtrl.hasClients) return;
+        if (!mounted || _queueScrollCtrl.positions.length != 1) return;
         final ctx = _activeQueueItemKey.currentContext;
         if (ctx == null) return;
         final box = ctx.findRenderObject();
@@ -166,11 +150,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
 
   @override
   void dispose() {
-    _scrollResetTimer?.cancel();
-    _scrollIdleTimer?.cancel();
-    _programmaticScrollTimer?.cancel();
     _focusNode.dispose();
-    _lyricScrollCtrl.dispose();
     _queueScrollCtrl.dispose();
     super.dispose();
   }
@@ -262,207 +242,6 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
       }
     } finally {
       _amllConfirmDialogShowing = false;
-    }
-  }
-
-  void _syncLyricKeys(LrcDocument? doc) {
-    final len = doc?.lines.length ?? 0;
-    if (_lyricKeys.length != len) {
-      _lyricKeys = List<GlobalKey>.generate(len, (_) => GlobalKey());
-    }
-  }
-
-  /// 计算当前最接近中央时间轴基准线 [anchorY] 的歌词行索引。
-  int _resolveCenterLyricIndex(LrcDocument lrc, double anchorY) {
-    final total = lrc.lines.length;
-    if (total == 0) return 0;
-    final vpObj = _lyricViewportKey.currentContext?.findRenderObject();
-    if (vpObj is RenderBox && vpObj.hasSize && vpObj.size.height > 1.0) {
-      var bestIdx = -1;
-      var bestDist = double.infinity;
-      final limit = math.min(total, _lyricKeys.length);
-      for (var i = 0; i < limit; i++) {
-        final ctx = _lyricKeys[i].currentContext;
-        if (ctx == null) continue;
-        final box = ctx.findRenderObject();
-        if (box is! RenderBox || !box.hasSize) continue;
-        final centerY = box
-            .localToGlobal(Offset(0, box.size.height * 0.5), ancestor: vpObj)
-            .dy;
-        final dist = (centerY - anchorY).abs();
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestIdx = i;
-        }
-      }
-      if (bestIdx >= 0) return bestIdx;
-    }
-    if (_lyricScrollCtrl.hasClients) {
-      final maxExtent = _lyricScrollCtrl.position.maxScrollExtent;
-      if (maxExtent > 1.0) {
-        final ratio = (_lyricScrollCtrl.offset / maxExtent).clamp(0.0, 1.0);
-        return (ratio * (total - 1)).round().clamp(0, total - 1);
-      }
-    }
-    return (_lastActiveLyricIndex >= 0 ? _lastActiveLyricIndex : 0).clamp(
-      0,
-      total - 1,
-    );
-  }
-
-  void _scheduleLyricScrollResetTimer() {
-    _scrollResetTimer?.cancel();
-    _scrollResetTimer = Timer(
-      KonataPlaybackTokens.lyricUserScrollResetDelay,
-      () {
-        if (!mounted) return;
-        setState(() {
-          _isUserScrollingLyrics = false;
-          _lyricScrollActivelyDragging = false;
-          _scrubTargetLyricIndex = null;
-        });
-        _scrollToActiveLyric(animated: true);
-      },
-    );
-  }
-
-  void _onUserLyricScrollActivity(
-    LrcDocument lrc,
-    double anchorY, {
-    required bool activeDrag,
-  }) {
-    final targetIdx = _resolveCenterLyricIndex(lrc, anchorY);
-    if (!_isUserScrollingLyrics ||
-        _lyricScrollActivelyDragging != activeDrag ||
-        _scrubTargetLyricIndex != targetIdx) {
-      setState(() {
-        _isUserScrollingLyrics = true;
-        _lyricScrollActivelyDragging = activeDrag;
-        _scrubTargetLyricIndex = targetIdx;
-      });
-    }
-    _scrollIdleTimer?.cancel();
-    _scrollResetTimer?.cancel();
-    if (activeDrag) {
-      _scrollIdleTimer = Timer(
-        KonataPlaybackTokens.lyricScrollIdleSettleDelay,
-        () {
-          if (!mounted || !_isUserScrollingLyrics) return;
-          final settledIdx = _resolveCenterLyricIndex(lrc, anchorY);
-          if (_lyricScrollActivelyDragging ||
-              _scrubTargetLyricIndex != settledIdx) {
-            setState(() {
-              _lyricScrollActivelyDragging = false;
-              _scrubTargetLyricIndex = settledIdx;
-            });
-          }
-          _scheduleLyricScrollResetTimer();
-        },
-      );
-    } else {
-      _scheduleLyricScrollResetTimer();
-    }
-  }
-
-  void _onUserLyricScrollEnded(LrcDocument lrc, double anchorY) {
-    if (!_isUserScrollingLyrics) return;
-    _scrollIdleTimer?.cancel();
-    final targetIdx = _resolveCenterLyricIndex(lrc, anchorY);
-    if (_lyricScrollActivelyDragging || _scrubTargetLyricIndex != targetIdx) {
-      setState(() {
-        _lyricScrollActivelyDragging = false;
-        _scrubTargetLyricIndex = targetIdx;
-      });
-    }
-    _scheduleLyricScrollResetTimer();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_isUserScrollingLyrics) return;
-      final refined = _resolveCenterLyricIndex(lrc, anchorY);
-      if (_scrubTargetLyricIndex != refined) {
-        setState(() => _scrubTargetLyricIndex = refined);
-      }
-    });
-  }
-
-  void _cancelUserLyricScrub() {
-    _scrollResetTimer?.cancel();
-    _scrollIdleTimer?.cancel();
-    if (_isUserScrollingLyrics ||
-        _lyricScrollActivelyDragging ||
-        _scrubTargetLyricIndex != null) {
-      setState(() {
-        _isUserScrollingLyrics = false;
-        _lyricScrollActivelyDragging = false;
-        _scrubTargetLyricIndex = null;
-      });
-    }
-  }
-
-  void _commitScrubSeek(LrcDocument lrc, AudioPlaybackNotifier notifier) {
-    final idx = _scrubTargetLyricIndex;
-    if (idx == null || idx < 0 || idx >= lrc.lines.length) return;
-    final targetSec = lrc.lines[idx].startSeconds;
-    _scrollResetTimer?.cancel();
-    _scrollIdleTimer?.cancel();
-    setState(() {
-      _isUserScrollingLyrics = false;
-      _lyricScrollActivelyDragging = false;
-      _scrubTargetLyricIndex = null;
-    });
-    notifier.seekRelativeTrackSeconds(targetSec);
-    if (!ref.read(audioPlaybackProvider).isPlaying) {
-      notifier.togglePlayPause();
-    }
-  }
-
-  void _beginProgrammaticLyricScroll({required bool animated}) {
-    _programmaticLyricScroll = true;
-    _programmaticScrollTimer?.cancel();
-    if (animated) {
-      _programmaticScrollTimer = Timer(
-        KonataPlaybackTokens.lyricProgrammaticScrollSettleDelay,
-        () {
-          _programmaticLyricScroll = false;
-        },
-      );
-    } else {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _programmaticLyricScroll = false;
-      });
-    }
-  }
-
-  void _scrollToActiveLyric({bool animated = true}) {
-    final idx = _lastActiveLyricIndex;
-    if (idx < 0 || idx >= _lyricKeys.length) return;
-    final ctx = _lyricKeys[idx].currentContext;
-    if (ctx != null) {
-      _beginProgrammaticLyricScroll(animated: animated);
-      Scrollable.ensureVisible(
-        ctx,
-        alignment: KonataPlaybackTokens.lyricViewportAnchorRatio,
-        duration: animated ? KonataTheme.motionEmphasis : Duration.zero,
-        curve: Curves.easeOutCubic,
-      );
-      return;
-    }
-    if (_lyricScrollCtrl.hasClients && _lyricKeys.isNotEmpty) {
-      final estRatio = idx / _lyricKeys.length;
-      final targetOffset =
-          (estRatio * _lyricScrollCtrl.position.maxScrollExtent).clamp(
-            0.0,
-            _lyricScrollCtrl.position.maxScrollExtent,
-          );
-      _beginProgrammaticLyricScroll(animated: animated);
-      if (animated) {
-        _lyricScrollCtrl.animateTo(
-          targetOffset,
-          duration: KonataTheme.motionEmphasis,
-          curve: Curves.easeOutCubic,
-        );
-      } else {
-        _lyricScrollCtrl.jumpTo(targetOffset);
-      }
     }
   }
 
@@ -613,20 +392,6 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
         _closePortraitQueueSheet();
       }
     });
-    ref.listen<int>(
-      audioPlaybackProvider.select((s) => s.activeLyricIndex),
-      (prev, next) {
-        if (next == _lastActiveLyricIndex) return;
-        _lastActiveLyricIndex = next;
-        if (!_isUserScrollingLyrics) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted && !_isUserScrollingLyrics) {
-              _scrollToActiveLyric(animated: true);
-            }
-          });
-        }
-      },
-    );
 
     final notifier = ref.read(audioPlaybackProvider.notifier);
     ref.listen<bool>(
@@ -659,11 +424,6 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     if (itemChanged) {
       final hadPrev = _lastItemId != null;
       _lastItemId = item.id;
-      _isUserScrollingLyrics = false;
-      _lyricScrollActivelyDragging = false;
-      _scrubTargetLyricIndex = null;
-      _scrollResetTimer?.cancel();
-      _scrollIdleTimer?.cancel();
       if (hadPrev) {
         _scheduleQueueCentering(animated: true);
       }
@@ -677,8 +437,6 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
         _scheduleQueueCentering(animated: false);
       }
     }
-
-    _syncLyricKeys(lrc);
 
     final specLabel = snap.codecLabel.isNotEmpty
         ? (snap.rateDepthLabel.isNotEmpty
@@ -806,7 +564,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
       child: effectivePane == _ImmersiveRightPane.lyrics
           ? KeyedSubtree(
               key: const ValueKey('immersive_lyrics_pane'),
-              child: _buildLyricsViewport(lrc, notifier),
+              child: _buildLyricsViewport(item.id, lrc, notifier),
             )
           : KeyedSubtree(
               key: const ValueKey('immersive_queue_pane'),
@@ -1001,7 +759,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                     child: effectivePane == _ImmersiveRightPane.lyrics
                         ? KeyedSubtree(
                             key: const ValueKey('tablet_lyrics_pane'),
-                            child: _buildLyricsViewport(lrc, notifier),
+                            child: _buildLyricsViewport(item.id, lrc, notifier),
                           )
                         : KeyedSubtree(
                             key: const ValueKey('tablet_queue_pane'),

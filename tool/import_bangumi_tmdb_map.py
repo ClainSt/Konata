@@ -33,12 +33,18 @@ DEFAULT_OUT_BIN = ROOT / 'assets' / 'data' / 'bangumi_tmdb_map.bin'
 DEFAULT_OUT_MANIFEST = ROOT / 'assets' / 'data' / 'bangumi_tmdb_manifest.json'
 
 BINARY_MAGIC = b'KTBM'
-FORMAT_VERSION = 1
-RECORD_SIZE = 12
+FORMAT_VERSION_V1 = 1
+FORMAT_VERSION_V2 = 2
+RECORD_SIZE_V1 = 12
+RECORD_SIZE_V2 = 16
 FLAG_WIKIDATA = 1 << 0
 FLAG_OPEN_ANI = 1 << 1
+FLAG_ANIME_LISTS_TVDB = 1 << 2
 MOVIE_BIT = 0x80000000
 MAX_TMDB_ID = 0x7FFFFFFF
+ANIME_LISTS_URL = (
+    'https://raw.githubusercontent.com/Fribb/anime-lists/master/anime-list-full.json'
+)
 
 TEMPLATE = '''// 由 tool/import_bangumi_tmdb_map.py 自动生成，请勿手动修改映射表。
 // 数据来源：Wikidata（P5732 Bangumi 条目 ID ↔ P4983 TMDB 剧集 ID / P4947 TMDB 电影 ID）。
@@ -147,6 +153,37 @@ def fetch_latest_open_ani() -> tuple[bytes, dict]:
     return subjects_bytes, manifest
 
 
+def fetch_anime_lists_tvdb() -> tuple[dict[int, int], dict[int, int]]:
+    """拉取 Fribb/anime-lists（MIT）提取 TheTVDB 剧集 ID 辅助映射（按 TMDB TV ID 与 Bangumi ID 双索引）。"""
+    req = urllib.request.Request(
+        ANIME_LISTS_URL,
+        headers={'User-Agent': 'Konata-Mapping-Builder/1.0'},
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        raw = json.loads(resp.read().decode('utf-8'))
+    return parse_anime_lists_tvdb(raw)
+
+
+def parse_anime_lists_tvdb(items: object) -> tuple[dict[int, int], dict[int, int]]:
+    tvdb_by_tmdb: dict[int, int] = {}
+    tvdb_by_bgm: dict[int, int] = {}
+    if not isinstance(items, list):
+        return tvdb_by_tmdb, tvdb_by_bgm
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        raw_tvdb = item.get('thetvdb_id')
+        if not isinstance(raw_tvdb, int) or raw_tvdb <= 0:
+            continue
+        raw_tmdb = item.get('themoviedb_id')
+        if isinstance(raw_tmdb, int) and raw_tmdb > 0 and raw_tmdb not in tvdb_by_tmdb:
+            tvdb_by_tmdb[raw_tmdb] = raw_tvdb
+        raw_bgm = item.get('bangumi_id')
+        if isinstance(raw_bgm, int) and raw_bgm > 0 and raw_bgm not in tvdb_by_bgm:
+            tvdb_by_bgm[raw_bgm] = raw_tvdb
+    return tvdb_by_tmdb, tvdb_by_bgm
+
+
 def parse_snapshot_date(manifest: dict | None) -> int:
     if manifest:
         for raw in (manifest.get('generatedAt'), (manifest.get('archive') or {}).get('name')):
@@ -165,6 +202,10 @@ def build_compact_binary(
     wikidata_dart: Path,
     out_bin: Path,
     out_manifest: Path,
+    out_bin_v2: Path | None = None,
+    out_manifest_v2: Path | None = None,
+    tvdb_by_tmdb: dict[int, int] | None = None,
+    tvdb_by_bgm: dict[int, int] | None = None,
 ) -> dict:
     doc = json.loads(subjects_bytes.decode('utf-8'))
     subjects = doc.get('subjects', [])
@@ -218,55 +259,95 @@ def build_compact_binary(
             else:
                 merged[key] = (prev[0], prev[1] | FLAG_WIKIDATA)
 
-    # 按 (bangumiId, mediaTypeOrder, tmdbId) 升序编码 12 字节定长记录。
     ordered_keys = sorted(
         merged.keys(),
         key=lambda k: (k[0], 1 if k[1] == 'movie' else 0, k[2]),
     )
     unique_bgm_count = len({k[0] for k in ordered_keys})
     snapshot_date = parse_snapshot_date(upstream_manifest)
-
-    buf = bytearray()
-    buf += struct.pack(
-        '<4sHHIIII',
-        BINARY_MAGIC,
-        FORMAT_VERSION,
-        RECORD_SIZE,
-        len(ordered_keys),
-        unique_bgm_count,
-        snapshot_date,
-        0,
-    )
-    for bgm_id, media_type, tmdb_id in ordered_keys:
-        season, flags = merged[(bgm_id, media_type, tmdb_id)]
-        packed = (MOVIE_BIT if media_type == 'movie' else 0) | (tmdb_id & MAX_TMDB_ID)
-        buf += struct.pack('<IIhH', bgm_id, packed, season, flags)
-
-    bin_bytes = bytes(buf)
-    bin_sha256 = hashlib.sha256(bin_bytes).hexdigest()
-    out_bin.parent.mkdir(parents=True, exist_ok=True)
-    out_bin.write_bytes(bin_bytes)
-
     date_str = f'{snapshot_date // 10000:04d}-{(snapshot_date % 10000) // 100:02d}-{snapshot_date % 100:02d}'
-    manifest_payload = {
-        'schemaVersion': FORMAT_VERSION,
-        'snapshotDate': date_str,
-        'snapshotDateInt': snapshot_date,
-        'uniqueBangumiCount': unique_bgm_count,
-        'recordCount': len(ordered_keys),
-        'binBytes': len(bin_bytes),
-        'binSha256': bin_sha256,
-        'upstreamSource': 'open-ani/bangumi-tmdb (CC BY 4.0) + Wikidata (CC0 1.0)',
-        'upstreamCommit': (upstream_manifest or {}).get('sourceCommit', ''),
-        'generatedAt': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-    }
-    out_manifest.parent.mkdir(parents=True, exist_ok=True)
-    out_manifest.write_text(
-        json.dumps(manifest_payload, ensure_ascii=False, indent=2) + '\n',
-        encoding='utf-8',
-        newline='\n',
+
+    def write_variant(
+        *,
+        version: int,
+        rec_size: int,
+        target_bin: Path,
+        target_manifest: Path,
+    ) -> dict:
+        buf = bytearray()
+        buf += struct.pack(
+            '<4sHHIIII',
+            BINARY_MAGIC,
+            version,
+            rec_size,
+            len(ordered_keys),
+            unique_bgm_count,
+            snapshot_date,
+            0,
+        )
+        tvdb_hits = 0
+        for bgm_id, media_type, tmdb_id in ordered_keys:
+            season, flags = merged[(bgm_id, media_type, tmdb_id)]
+            packed = (MOVIE_BIT if media_type == 'movie' else 0) | (tmdb_id & MAX_TMDB_ID)
+            if version == FORMAT_VERSION_V2:
+                tvdb_id = 0
+                if media_type == 'tv':
+                    if tvdb_by_tmdb and tmdb_id in tvdb_by_tmdb:
+                        tvdb_id = tvdb_by_tmdb[tmdb_id]
+                    elif tvdb_by_bgm and bgm_id in tvdb_by_bgm:
+                        tvdb_id = tvdb_by_bgm[bgm_id]
+                if tvdb_id > 0:
+                    tvdb_hits += 1
+                    flags |= FLAG_ANIME_LISTS_TVDB
+                buf += struct.pack('<IIhHI', bgm_id, packed, season, flags, tvdb_id)
+            else:
+                buf += struct.pack('<IIhH', bgm_id, packed, season, flags)
+
+        bin_bytes = bytes(buf)
+        bin_sha256 = hashlib.sha256(bin_bytes).hexdigest()
+        target_bin.parent.mkdir(parents=True, exist_ok=True)
+        target_bin.write_bytes(bin_bytes)
+
+        upstream_desc = 'open-ani/bangumi-tmdb (CC BY 4.0) + Wikidata (CC0 1.0)'
+        if version == FORMAT_VERSION_V2 and tvdb_hits > 0:
+            upstream_desc += ' + Fribb/anime-lists (MIT)'
+        manifest_payload = {
+            'schemaVersion': version,
+            'snapshotDate': date_str,
+            'snapshotDateInt': snapshot_date,
+            'uniqueBangumiCount': unique_bgm_count,
+            'recordCount': len(ordered_keys),
+            'binBytes': len(bin_bytes),
+            'binSha256': bin_sha256,
+            'upstreamSource': upstream_desc,
+            'upstreamCommit': (upstream_manifest or {}).get('sourceCommit', ''),
+            'generatedAt': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+        }
+        if version == FORMAT_VERSION_V2:
+            manifest_payload['tvdbLinkedCount'] = tvdb_hits
+        target_manifest.parent.mkdir(parents=True, exist_ok=True)
+        target_manifest.write_text(
+            json.dumps(manifest_payload, ensure_ascii=False, indent=2) + '\n',
+            encoding='utf-8',
+            newline='\n',
+        )
+        return manifest_payload
+
+    v1_info = write_variant(
+        version=FORMAT_VERSION_V1,
+        rec_size=RECORD_SIZE_V1,
+        target_bin=out_bin,
+        target_manifest=out_manifest,
     )
-    return manifest_payload
+    if out_bin_v2 is not None and out_manifest_v2 is not None:
+        v2_info = write_variant(
+            version=FORMAT_VERSION_V2,
+            rec_size=RECORD_SIZE_V2,
+            target_bin=out_bin_v2,
+            target_manifest=out_manifest_v2,
+        )
+        v1_info['v2'] = v2_info
+    return v1_info
 
 
 def main() -> int:
@@ -277,9 +358,13 @@ def main() -> int:
     parser.add_argument('--open-ani', type=Path, help='本地 open-ani/bangumi-tmdb subjects.json 路径')
     parser.add_argument('--open-ani-manifest', type=Path, help='本地 open-ani/bangumi-tmdb manifest.json 路径')
     parser.add_argument('--fetch-open-ani', action='store_true', help='在线拉取 open-ani/bangumi-tmdb 最新 Release')
+    parser.add_argument('--fetch-anime-lists', action='store_true', help='在线拉取 Fribb/anime-lists 回填 TheTVDB ID')
+    parser.add_argument('--anime-lists', type=Path, help='本地 anime-list-full.json 路径')
     parser.add_argument('--wikidata-dart', type=Path, default=WIKIDATA_DART, help='内置 Wikidata Dart 映射路径')
-    parser.add_argument('--out-bin', type=Path, default=DEFAULT_OUT_BIN, help='输出二进制表路径')
-    parser.add_argument('--out-manifest', type=Path, default=DEFAULT_OUT_MANIFEST, help='输出 manifest.json 路径')
+    parser.add_argument('--out-bin', type=Path, default=DEFAULT_OUT_BIN, help='输出 v1 二进制表路径')
+    parser.add_argument('--out-manifest', type=Path, default=DEFAULT_OUT_MANIFEST, help='输出 v1 manifest.json 路径')
+    parser.add_argument('--out-bin-v2', type=Path, help='可选同步输出含 tvdb_id 的 v2 二进制表路径')
+    parser.add_argument('--out-manifest-v2', type=Path, help='可选同步输出 v2 manifest_v2.json 路径')
     args = parser.parse_args()
 
     if args.build_binary:
@@ -294,17 +379,35 @@ def main() -> int:
             )
         else:
             parser.error('--build-binary 需要指定 --open-ani 或 --fetch-open-ani')
+        tvdb_by_tmdb: dict[int, int] = {}
+        tvdb_by_bgm: dict[int, int] = {}
+        if args.fetch_anime_lists:
+            tvdb_by_tmdb, tvdb_by_bgm = fetch_anime_lists_tvdb()
+        elif args.anime_lists and args.anime_lists.is_file():
+            tvdb_by_tmdb, tvdb_by_bgm = parse_anime_lists_tvdb(
+                json.loads(args.anime_lists.read_text(encoding='utf-8'))
+            )
         info = build_compact_binary(
             subjects_bytes=subjects_bytes,
             upstream_manifest=upstream_manifest,
             wikidata_dart=args.wikidata_dart,
             out_bin=args.out_bin,
             out_manifest=args.out_manifest,
+            out_bin_v2=args.out_bin_v2,
+            out_manifest_v2=args.out_manifest_v2,
+            tvdb_by_tmdb=tvdb_by_tmdb,
+            tvdb_by_bgm=tvdb_by_bgm,
         )
         print(
             f"已生成 {args.out_bin.name}：{info['uniqueBangumiCount']} 部动画 / "
             f"{info['recordCount']} 条目标（{info['binBytes']} 字节，SHA-256={info['binSha256'][:12]}）"
         )
+        if 'v2' in info and args.out_bin_v2:
+            v2 = info['v2']
+            print(
+                f"已生成 {args.out_bin_v2.name}：{v2['recordCount']} 条目标 / "
+                f"{v2.get('tvdbLinkedCount', 0)} 条含 TVDB（{v2['binBytes']} 字节，SHA-256={v2['binSha256'][:12]}）"
+            )
         return 0
 
     if not args.csv_path:

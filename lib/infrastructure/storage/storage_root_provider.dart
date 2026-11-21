@@ -16,6 +16,7 @@ abstract final class StoragePathConfig {
   static const String tempSubdirName = 'tmp';
   static const String photosDirName = 'photos';
   static const String subtitleStageSubdirName = 'konata_subs';
+  static const String cueStageSubdirName = 'konata_cues';
   static const String fontPoolSubdirName = 'konata_fonts';
   static const String cloudSubsetCacheSubdirName = 'konata_cloud_subs';
 }
@@ -192,6 +193,16 @@ class StorageRootService {
     final tmp = await ensureTempDir();
     final dir = Directory(
       p.join(tmp.path, StoragePathConfig.subtitleStageSubdirName, workHash),
+    );
+    await dir.create(recursive: true);
+    return dir;
+  }
+
+  /// 返回本地外部音频归一化影子 `.cue` 暂存目录 `<Root>/cache/tmp/konata_cues/`。
+  Future<Directory> ensureCueStageDir() async {
+    final tmp = await ensureTempDir();
+    final dir = Directory(
+      p.join(tmp.path, StoragePathConfig.cueStageSubdirName),
     );
     await dir.create(recursive: true);
     return dir;

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/providers/detail_display_preferences_provider.dart';
 import '../../application/providers/library_providers.dart';
 import '../../composition/platform_composition.dart';
+import '../../domain/formatting/detail_title_typography.dart';
 import '../../domain/matching/playback_resume_resolver.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/tmdb_models.dart';
@@ -18,6 +19,7 @@ import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/managed_image.dart';
 import 'detail_hero_info.dart';
+import 'detail_stylized_title_block.dart';
 
 /// 竖屏详情头图组件：
 /// - 手机竖屏（方案 P1）：全幅竖版作品封面沉浸头图（高约 50%–54% 视口，无封面时平滑回退横版背景图），
@@ -32,6 +34,7 @@ class DetailPortraitHeroHeader extends StatelessWidget {
     required this.screenSize,
     required this.isTablet,
     required this.showTitleLogo,
+    this.showTitleText = false,
     required this.logoMaxHeight,
     required this.logoMaxWidth,
   });
@@ -50,6 +53,9 @@ class DetailPortraitHeroHeader extends StatelessWidget {
 
   /// 是否显示透明标题徽标。
   final bool showTitleLogo;
+
+  /// 是否已由下方文档流承担文字标题（用于徽标加载失败时避免双标题重复）。
+  final bool showTitleText;
 
   /// 徽标最大高度。
   final double logoMaxHeight;
@@ -178,6 +184,14 @@ class DetailPortraitHeroHeader extends StatelessWidget {
                   maxHeight: logoMaxHeight,
                   maxWidth: logoMaxWidth,
                   alignment: Alignment.bottomLeft,
+                  errorBuilder: (_, _, _) => showTitleText
+                      ? const SizedBox.shrink()
+                      : DetailStylizedTitleBlock(
+                          work: work,
+                          viewport: DetailTitleViewportProfile.tabletPortrait,
+                          mode: DetailTitlePresentationMode.heroEmblem,
+                          onBackdrop: true,
+                        ),
                 ),
               ),
             ),
@@ -224,7 +238,6 @@ class DetailLandscapeHeroBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.palette;
     final safe = MediaQuery.paddingOf(context);
     final work = bundle.work;
     final hasBackdrop =
@@ -235,6 +248,11 @@ class DetailLandscapeHeroBanner extends StatelessWidget {
         : (work.bangumiPosterPath?.trim() ?? '');
     final hasLogo = work.logoPath != null && work.logoPath!.trim().isNotEmpty;
     final renderLogo = displayPrefs.showTitleLogo && hasLogo;
+    final renderTextTitle =
+        displayPrefs.showTitleText || (displayPrefs.showTitleLogo && !hasLogo);
+    final textMode = renderLogo
+        ? DetailTitlePresentationMode.companionText
+        : DetailTitlePresentationMode.heroEmblem;
 
     final mainEpisodes = bundle.episodes
         .where((e) => e.category == EpisodeCategory.main)
@@ -404,46 +422,34 @@ class DetailLandscapeHeroBanner extends StatelessWidget {
                     maxHeight: 48.0,
                     maxWidth: math.min(screenSize.width * 0.44, 240.0),
                     alignment: Alignment.bottomLeft,
-                    errorBuilder: (_, _, _) => Text(
-                      work.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: KonataTheme.detailTextStyle(
-                        fontSize: KonataTheme.fontSizeH2,
-                        fontWeight: FontWeight.w700,
-                        palette: p,
-                        color: KonataTheme.pureWhite,
-                      ),
-                    ),
-                  )
-                else
-                  ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxWidth: screenSize.width * 0.65,
-                    ),
-                    child: Text(
-                      work.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: KonataTheme.detailTextStyle(
-                        fontSize: KonataTheme.fontSizeH2,
-                        fontWeight: FontWeight.w700,
-                        palette: p,
-                        color: KonataTheme.pureWhite,
-                      ),
-                    ),
+                    errorBuilder: (_, _, _) => displayPrefs.showTitleText
+                        ? const SizedBox.shrink()
+                        : DetailStylizedTitleBlock(
+                            work: work,
+                            viewport: DetailTitleViewportProfile.phoneLandscape,
+                            mode: DetailTitlePresentationMode.heroEmblem,
+                            onBackdrop: true,
+                          ),
+                  ),
+                if (renderLogo && renderTextTitle) const SizedBox(height: 4),
+                if (renderTextTitle)
+                  DetailStylizedTitleBlock(
+                    work: work,
+                    viewport: DetailTitleViewportProfile.phoneLandscape,
+                    mode: textMode,
+                    onBackdrop: true,
                   ),
                 if (metaParts.isNotEmpty) ...[
-                  const SizedBox(height: 6),
+                  if (renderLogo || renderTextTitle) const SizedBox(height: 6),
                   Text(
                     metaParts.join(' · '),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: KonataTheme.detailTextStyle(
+                    style: KonataTheme.detailHeroTitleStyle(
                       fontSize: KonataTheme.fontSizeBodySm,
-                      fontWeight: FontWeight.w600,
-                      palette: p,
+                      weight: KonataTheme.weightH1,
                       color: KonataTheme.overlayWhiteTextHigh,
+                      shadows: KonataTheme.detailTextShadows,
                     ),
                   ),
                 ],
@@ -666,6 +672,102 @@ class MissingWorkFallbackView extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// 桌面与平板横屏详情页的全幅背景画布与定向暗幕层。
+class DetailWideBackdropStage extends StatelessWidget {
+  /// 创建宽屏背景与双层定向暗幕舞台。
+  const DetailWideBackdropStage({
+    super.key,
+    required this.workId,
+    required this.bgPath,
+    required this.hasBackdrop,
+    required this.isDrawerExpanded,
+    required this.imageLoader,
+  });
+
+  /// 作品唯一标识（用于图片缓存归属）。
+  final String workId;
+
+  /// 背景图路径（无横版背景时回退海报路径）。
+  final String bgPath;
+
+  /// 是否使用真实横版背景图（为 `false` 时对海报施加毛玻璃柔化）。
+  final bool hasBackdrop;
+
+  /// 底部选集抽屉是否展开（展开时适度加深底部暗幕衬托卡片）。
+  final bool isDrawerExpanded;
+
+  /// 统一图片加载器。
+  final ManagedImageLoader imageLoader;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (bgPath.isNotEmpty)
+          ManagedImage(
+            bgPath,
+            loader: imageLoader,
+            owner: workId,
+            artwork: ManagedArtwork.backdrop,
+            isHeroBackdrop: true,
+            imageSize: TmdbImageSize.original,
+            fit: BoxFit.cover,
+          ),
+        if (!hasBackdrop && bgPath.isNotEmpty)
+          BackdropFilter(
+            filter: KonataTheme.blurFilterCapsule,
+            child: Container(color: KonataTheme.scrimBlackMedium),
+          ),
+        // 左下角定向斜角柔晕：仅聚光承托左下标题与简介区，左上人物面部与右半屏原画保持鲜艳通透。
+        IgnorePointer(
+          child: DecoratedBox(
+            key: const ValueKey('detail_wide_corner_scrim'),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.bottomLeft,
+                end: const Alignment(-0.08, 0.14),
+                stops: const [0.0, 0.42, 0.78, 1.0],
+                colors: [
+                  KonataTheme.cinemaObsidian.withValues(alpha: 0.74),
+                  KonataTheme.cinemaObsidian.withValues(alpha: 0.42),
+                  KonataTheme.cinemaObsidian.withValues(alpha: 0.10),
+                  Colors.transparent,
+                ],
+              ),
+            ),
+          ),
+        ),
+        // 下→上光学渐隐暗幕：收起时克制托底，展开选集抽屉时加深以衬托无框卡片。
+        IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+                stops: isDrawerExpanded
+                    ? const [0.0, 0.26, 0.52]
+                    : const [0.0, 0.18, 0.38],
+                colors: isDrawerExpanded
+                    ? [
+                        KonataTheme.cinemaObsidian.withValues(alpha: 0.88),
+                        KonataTheme.cinemaObsidian.withValues(alpha: 0.48),
+                        Colors.transparent,
+                      ]
+                    : [
+                        KonataTheme.cinemaObsidian.withValues(alpha: 0.68),
+                        KonataTheme.cinemaObsidian.withValues(alpha: 0.26),
+                        Colors.transparent,
+                      ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

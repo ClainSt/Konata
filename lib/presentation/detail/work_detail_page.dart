@@ -12,9 +12,10 @@ import '../../application/providers/library_providers.dart';
 import '../../application/providers/playback_providers.dart';
 import '../../application/providers/scraping_providers.dart';
 import '../../application/providers/work_management_provider.dart';
+import '../../application/scraping/clear_logo_resolver.dart';
 import '../../composition/platform_composition.dart';
+import '../../domain/formatting/detail_title_typography.dart';
 import '../../domain/models/episode.dart';
-import '../../domain/models/tmdb_models.dart';
 import '../../domain/models/work.dart';
 import '../../domain/playback/cue_variant_resolver.dart';
 import '../../infrastructure/cache/scan_thumbnail_scheduler.dart';
@@ -121,19 +122,29 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
   }
 
   void _maybeBackfillTmdbArtwork(Work work) {
+    final config = ref.read(tmdbNetworkConfigProvider).valueOrNull;
     final missingTmdbAfterBangumiFallback =
         !work.metadataLocked &&
         work.tmdbId == null &&
         (work.bangumiId != null || work.folderTmdbHint != null);
-    final missingTvArtwork =
+    final missingBackdrop =
         work.tmdbId != null &&
-        work.tmdbMediaType == TmdbMediaType.tv &&
-        ((work.logoPath == null || work.logoPath!.trim().isEmpty) ||
-            (!work.backdropLocked &&
-                (work.backdropPath == null ||
-                    work.backdropPath!.trim().isEmpty)));
-    if (!missingTmdbAfterBangumiFallback && !missingTvArtwork) return;
-    if (!_tmdbBackfillRequested.add(work.id)) return;
+        !work.backdropLocked &&
+        (work.backdropPath == null || work.backdropPath!.trim().isEmpty);
+    final needLogoBackfill =
+        config != null &&
+        ClearLogoResolver.shouldAttemptDetailLogoBackfill(
+          work: work,
+          config: config,
+        );
+    if (!missingTmdbAfterBangumiFallback &&
+        !missingBackdrop &&
+        !needLogoBackfill) {
+      return;
+    }
+    final requestKey =
+        '${work.id}|${work.logoNegativeMask}|${config?.hasFanartClientKey ?? false}|${config?.hasCustomFanartApiKey ?? false}';
+    if (!_tmdbBackfillRequested.add(requestKey)) return;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       final updated = await ref
@@ -393,6 +404,13 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
         bundle,
         WorkArtworkKind.backdrop,
       ),
+      onOpenLogoPicker: displayPrefs.showTitleLogo
+          ? () => DetailActionHandlers.openArtworkPicker(
+              context,
+              bundle,
+              WorkArtworkKind.logo,
+            )
+          : null,
       onHideWork: () => DetailActionHandlers.hideWorkAndPop(
         context,
         ref,
@@ -473,6 +491,13 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
         loaded,
         WorkArtworkKind.backdrop,
       ),
+      onEditLogo: displayPrefs.showTitleLogo
+          ? () => DetailActionHandlers.openArtworkPicker(
+              context,
+              loaded,
+              WorkArtworkKind.logo,
+            )
+          : null,
       onHideWork: () => DetailActionHandlers.hideWorkAndPop(
         context,
         ref,
@@ -784,6 +809,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                 screenSize: screenSize,
                                 isTablet: isTabletPortrait,
                                 showTitleLogo: displayPrefs.showTitleLogo,
+                                showTitleText: displayPrefs.showTitleText,
                                 logoMaxHeight: overlayLogoMaxH,
                                 logoMaxWidth: overlayLogoMaxW,
                               ),
@@ -818,7 +844,12 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                     lockInFlowLogoHeight: isPhonePortrait,
                                     logoMaxHeight: overlayLogoMaxH,
                                     logoMaxWidth: overlayLogoMaxW,
-                                    titleFontSize: isTabletPortrait ? 28 : 23,
+                                    viewportProfile: isTabletPortrait
+                                        ? DetailTitleViewportProfile
+                                              .tabletPortrait
+                                        : DetailTitleViewportProfile
+                                              .phonePortrait,
+                                    onBackdrop: false,
                                     fullWidthPlayButton: false,
                                     onPrimaryPlay: () =>
                                         DetailActionHandlers.handlePrimaryPlay(
@@ -936,6 +967,10 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                       showTitleText: displayPrefs.showTitleText,
                       showTitleLogo: displayPrefs.showTitleLogo,
                       showOverview: displayPrefs.showOverview,
+                      viewportProfile: isAndroidTablet
+                          ? DetailTitleViewportProfile.tabletLandscape
+                          : DetailTitleViewportProfile.desktop,
+                      onBackdrop: true,
                       logoMaxHeight: 80.0,
                       logoMaxWidth: 340.0,
                       onPrimaryPlay: () =>
@@ -965,83 +1000,12 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                           left: 0,
                           right: 0,
                           bottom: 0,
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              if (bgPath.isNotEmpty)
-                                ManagedImage(
-                                  bgPath,
-                                  loader: imageLoader,
-                                  owner: work.id,
-                                  artwork: ManagedArtwork.backdrop,
-                                  isHeroBackdrop: true,
-                                  imageSize: TmdbImageSize.original,
-                                  fit: BoxFit.cover,
-                                ),
-                              if (!hasBackdrop && bgPath.isNotEmpty)
-                                BackdropFilter(
-                                  filter: KonataTheme.blurFilterCapsule,
-                                  child: Container(
-                                    color: KonataTheme.scrimBlackMedium,
-                                  ),
-                                ),
-                              // 左下角定向斜角柔晕：仅聚光承托左下标题与简介区，左上人物面部与右半屏原画保持 100% 鲜艳通透
-                              IgnorePointer(
-                                child: DecoratedBox(
-                                  key: const ValueKey(
-                                    'detail_wide_corner_scrim',
-                                  ),
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.bottomLeft,
-                                      end: const Alignment(-0.08, 0.14),
-                                      stops: const [0.0, 0.42, 0.78, 1.0],
-                                      colors: [
-                                        KonataTheme.cinemaObsidian.withValues(
-                                          alpha: 0.74,
-                                        ),
-                                        KonataTheme.cinemaObsidian.withValues(
-                                          alpha: 0.42,
-                                        ),
-                                        KonataTheme.cinemaObsidian.withValues(
-                                          alpha: 0.10,
-                                        ),
-                                        Colors.transparent,
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              // 下→上光学渐隐暗幕：收起时克制托底，展开选集抽屉时加深以衬托无框卡片
-                              IgnorePointer(
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.bottomCenter,
-                                      end: Alignment.topCenter,
-                                      stops: isDrawerExpanded
-                                          ? const [0.0, 0.26, 0.52]
-                                          : const [0.0, 0.18, 0.38],
-                                      colors: isDrawerExpanded
-                                          ? [
-                                              KonataTheme.cinemaObsidian
-                                                  .withValues(alpha: 0.88),
-                                              KonataTheme.cinemaObsidian
-                                                  .withValues(alpha: 0.48),
-                                              Colors.transparent,
-                                            ]
-                                          : [
-                                              KonataTheme.cinemaObsidian
-                                                  .withValues(alpha: 0.68),
-                                              KonataTheme.cinemaObsidian
-                                                  .withValues(alpha: 0.26),
-                                              Colors.transparent,
-                                            ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
+                          child: DetailWideBackdropStage(
+                            workId: work.id,
+                            bgPath: bgPath,
+                            hasBackdrop: hasBackdrop,
+                            isDrawerExpanded: isDrawerExpanded,
+                            imageLoader: imageLoader,
                           ),
                         ),
                         // Android 平板横屏使用底部 padding 避让迷你播放胶囊的纵向滚动流，防止分类栏向上硬推遮挡播放按钮。

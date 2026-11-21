@@ -1,13 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:developer' as developer;
+import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../../domain/models/media_extensions.dart';
 import '../../domain/models/media_source.dart';
+import '../../domain/playback/cue_and_lrc_parser.dart';
 import '../sources/byte_stream_source_gateway.dart';
 import '../sources/source_access_error.dart';
 import '../sources/subtitle_matcher.dart';
@@ -15,6 +17,8 @@ import '../storage/atomic_file_writer.dart';
 import '../storage/storage_root_provider.dart';
 import 'http_byte_range.dart';
 import 'remote_window_reader.dart';
+
+part 'local_stream_bridge_album.dart';
 
 /// 本地回环流网桥集中配置常量（避免超时阈值与路径硬编码）。
 abstract final class StreamBridgeConfig {
@@ -126,6 +130,7 @@ class LocalStreamBridge {
   Future<HttpServer>? _starting;
   Timer? _reaperTimer;
   final Map<String, _RegisteredStreamSession> _sessions = {};
+  final Map<String, _VirtualAlbumDirectorySession> _albumSessions = {};
   final Map<String, String> _recentErrorsByPath = {};
   final Map<String, String> _recentErrorsByToken = {};
   final Map<String, SourceAccessProblemKind> _recentKindsByPath = {};
@@ -200,7 +205,7 @@ class LocalStreamBridge {
   int? get port => _server?.port;
 
   /// 当前仍处于注册状态的流会话令牌数量（用于测试与诊断）。
-  int get activeSessionCount => _sessions.length;
+  int get activeSessionCount => _sessions.length + _albumSessions.length;
 
   /// 确保底层回环 HTTP 服务器已启动，并返回监听的服务器实例。
   Future<HttpServer> ensureStarted() {
@@ -310,7 +315,14 @@ class LocalStreamBridge {
     for (final token in expiredTokens) {
       await unregisterSession(token);
     }
-    return expiredTokens.length;
+    final expiredAlbums = _collectExpiredAlbumTokens(
+      threshold: threshold,
+      current: current,
+    );
+    for (final albumToken in expiredAlbums) {
+      await unregisterAlbumSession(albumToken);
+    }
+    return expiredTokens.length + expiredAlbums.length;
   }
 
   /// 规范化字幕相对路径（统一斜杠与首尾分隔符，作为缓存定位键组成部分）。
@@ -676,23 +688,34 @@ class LocalStreamBridge {
 
   Future<void> _handleRequest(HttpRequest request) async {
     final response = request.response;
+    final segments = request.uri.pathSegments;
+    if (segments.length >= 3 && segments[0] == 'album') {
+      await _handleVirtualAlbumRequest(request, segments);
+      return;
+    }
+    if (segments.length < 2 || segments[0] != 'stream') {
+      response.statusCode = HttpStatus.notFound;
+      await response.close();
+      return;
+    }
+
+    final token = segments[1];
+    final session = _sessions[token];
+    if (session == null) {
+      response.statusCode = HttpStatus.notFound;
+      await response.close();
+      return;
+    }
+    await _serveStreamSession(request, response, session);
+  }
+
+  Future<void> _serveStreamSession(
+    HttpRequest request,
+    HttpResponse response,
+    _RegisteredStreamSession session,
+  ) async {
     _RegisteredStreamSession? trackedSession;
     try {
-      final segments = request.uri.pathSegments;
-      if (segments.length < 2 || segments[0] != 'stream') {
-        response.statusCode = HttpStatus.notFound;
-        await response.close();
-        return;
-      }
-
-      final token = segments[1];
-      final session = _sessions[token];
-      if (session == null) {
-        response.statusCode = HttpStatus.notFound;
-        await response.close();
-        return;
-      }
-
       trackedSession = session;
       session.lastAccessedAt = DateTime.now();
       session.activeStreams += 1;
@@ -976,6 +999,10 @@ class LocalStreamBridge {
     final tokens = _sessions.keys.toList(growable: false);
     for (final token in tokens) {
       await unregisterSession(token);
+    }
+    final albumTokens = _albumSessions.keys.toList(growable: false);
+    for (final albumToken in albumTokens) {
+      await unregisterAlbumSession(albumToken);
     }
     final server = _server;
     _server = null;

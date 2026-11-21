@@ -49,6 +49,9 @@ class Works extends Table {
   /// Bangumi 辅助条目 ID。
   IntColumn get bangumiId => integer().nullable()();
 
+  /// TheTVDB 关联剧集 ID（用于直接对接 Fanart.tv 剧集接口）。
+  IntColumn get tvdbId => integer().nullable()();
+
   /// TMDB 条目类型（`tv` / `movie`）。
   TextColumn get tmdbMediaType => textEnum<TmdbMediaType>().nullable()();
 
@@ -105,6 +108,15 @@ class Works extends Table {
   /// 横版背景原画是否已人工锁定。
   BoolColumn get backdropLocked =>
       boolean().withDefault(const Constant(false))();
+
+  /// 透明标题徽标是否已人工锁定。
+  BoolColumn get logoLocked => boolean().withDefault(const Constant(false))();
+
+  /// 透明标题徽标负缓存冷却截止时间。
+  DateTimeColumn get logoNegativeUntil => dateTime().nullable()();
+
+  /// 透明标题徽标负缓存探测数据源位掩码。
+  IntColumn get logoNegativeMask => integer().withDefault(const Constant(0))();
 
   /// 是否在主媒体库隐藏。
   BoolColumn get isHidden => boolean().withDefault(const Constant(false))();
@@ -397,7 +409,7 @@ class KonataDatabase extends _$KonataDatabase {
   factory KonataDatabase.openDefault() => KonataDatabase(_openConnection());
 
   @override
-  int get schemaVersion => 12;
+  int get schemaVersion => 13;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -455,6 +467,12 @@ class KonataDatabase extends _$KonataDatabase {
       // v7 之前的库会在 `from < 7` 里按最新表定义重建 episodes（已含该列），无需重复添加。
       if (from < 12 && from >= 7) {
         await m.addColumn(episodes, episodes.episodeNumberEnd);
+      }
+      if (from < 13) {
+        await m.addColumn(works, works.tvdbId);
+        await m.addColumn(works, works.logoLocked);
+        await m.addColumn(works, works.logoNegativeUntil);
+        await m.addColumn(works, works.logoNegativeMask);
       }
     },
     beforeOpen: (details) async {

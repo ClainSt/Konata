@@ -1,0 +1,27 @@
+name = "konata-fanart-relay"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+# 免费版 Workers Rate Limiting Binding（按 IP 60 秒窗防护慢速爬虫）
+[[ratelimits]]
+name = "FANART_ANON_LIMITER"
+namespace_id = "1001"
+simple = { limit = 30, period = 60 }
+
+[[ratelimits]]
+name = "FANART_PERSONAL_LIMITER"
+namespace_id = "1002"
+simple = { limit = 60, period = 60 }
+
+# 部署清单（请在 Cloudflare Dashboard 同步开启免费版防护，零 Worker 额度拦截非法流量）：
+# 1. 写入项目密钥（严禁把真实密钥提交进仓库）：
+#      wrangler secret put FANART_PROJECT_KEY
+# 2. Caching -> Tiered Cache -> 开启免费 Smart Tiered Cache（跨 Colo 共享上游缓存）。
+# 3. Security -> WAF -> Custom Rules（免费版运算符，勿用 matches 正则）拦截：
+#      (http.request.method ne "GET")
+#      or (len(http.request.uri.query) gt 0)
+#      or not (starts_with(http.request.uri.path, "/fanart/v3/tv/") or starts_with(http.request.uri.path, "/fanart/v3/movies/"))
+#      or (len(http.request.uri.path) gt 32)
+#    动作：Block。
+# 4. Security -> WAF -> Rate limiting rules（免费 1 条）：
+#      路径 starts_with "/fanart/v3/"，单 IP 每 10 秒 > 20 次 -> Block 10 秒。

@@ -69,8 +69,143 @@ class TitleNormalizer {
   /// 适用于跨文字体系的模糊及精确片名比对。
   /// 屏蔽全半角与平片假名写法差异。
   static String fold(String input) {
-    if (input.isEmpty) return '';
-    final runes = input.runes.toList(growable: false);
+    final len = input.length;
+    if (len == 0) return '';
+    // 检测是否含非 BMP 代理对；常规片名均落入 BMP，可直接按 UTF-16 码元单趟扫描避免 runes 列表分配。
+    var hasSurrogate = false;
+    for (var i = 0; i < len; i++) {
+      final u = input.codeUnitAt(i);
+      if (u >= 0xD800 && u <= 0xDFFF) {
+        hasSurrogate = true;
+        break;
+      }
+    }
+    if (hasSurrogate) {
+      return _foldRunes(input.runes.toList(growable: false));
+    }
+
+    final buffer = StringBuffer();
+    var lastWasProlonged = false;
+    var pendingSpace = false;
+
+    void writeSpace() {
+      if (buffer.isNotEmpty) pendingSpace = true;
+    }
+
+    void flushSpace() {
+      if (pendingSpace) {
+        buffer.writeCharCode(0x20);
+        pendingSpace = false;
+      }
+    }
+
+    for (var i = 0; i < len; i++) {
+      final rune = input.codeUnitAt(i);
+      if (rune == 0x20 ||
+          rune == 0x09 ||
+          rune == 0x0A ||
+          rune == 0x0D ||
+          rune == 0x0C ||
+          rune == 0x0B ||
+          rune == 0x3000 ||
+          rune == 0x00A0) {
+        lastWasProlonged = false;
+        writeSpace();
+        continue;
+      }
+      if (rune >= 0x41 && rune <= 0x5A) {
+        lastWasProlonged = false;
+        flushSpace();
+        buffer.writeCharCode(rune + 32);
+        continue;
+      }
+      if (rune < 0x80) {
+        lastWasProlonged = false;
+        flushSpace();
+        buffer.writeCharCode(rune);
+        continue;
+      }
+      if (rune >= 0xFF01 && rune <= 0xFF5E) {
+        lastWasProlonged = false;
+        final half = rune - 0xFEE0;
+        if (_isMultiplier(half)) {
+          writeSpace();
+          flushSpace();
+          buffer.writeCharCode(0x78);
+          writeSpace();
+        } else {
+          flushSpace();
+          buffer.writeCharCode(
+            half >= 0x41 && half <= 0x5A ? half + 32 : half,
+          );
+        }
+        continue;
+      }
+      if (_isMultiplier(rune)) {
+        lastWasProlonged = false;
+        writeSpace();
+        flushSpace();
+        buffer.writeCharCode(0x78);
+        writeSpace();
+        continue;
+      }
+      if (rune >= 0x2160 && rune <= 0x216B) {
+        lastWasProlonged = false;
+        flushSpace();
+        buffer.write(_romanFolded[rune - 0x2160]);
+        continue;
+      }
+      if (rune >= 0x2170 && rune <= 0x217B) {
+        lastWasProlonged = false;
+        flushSpace();
+        buffer.write(_romanFolded[rune - 0x2170]);
+        continue;
+      }
+      if (rune == 0x30FC || rune == 0xFF70) {
+        if (!lastWasProlonged) {
+          flushSpace();
+          buffer.writeCharCode(0x30FC);
+          lastWasProlonged = true;
+        }
+        continue;
+      }
+      if (rune >= 0xFF66 && rune <= 0xFF9D) {
+        lastWasProlonged = false;
+        flushSpace();
+        final next = i + 1 < len ? input.codeUnitAt(i + 1) : 0;
+        final voiced = _combineHalfwidthKatakana(rune, next);
+        if (voiced != null) {
+          buffer.write(voiced);
+          i++;
+        } else {
+          buffer.write(_halfwidthBaseHiragana[rune - 0xFF66]);
+        }
+        continue;
+      }
+      if (rune == 0xFF9E || rune == 0xFF9F) {
+        // 未附着在可转换基础假名之后的孤立半角浊音/半浊音符号直接折叠剔除。
+        continue;
+      }
+
+      lastWasProlonged = false;
+      flushSpace();
+      if (rune >= 0x30A1 && rune <= 0x30F6) {
+        buffer.writeCharCode(rune - 0x60);
+      } else if (rune == 0x30FD || rune == 0x30FE) {
+        buffer.writeCharCode(rune - 0x60);
+      } else if (rune >= 0x00C0 && rune <= 0x024F ||
+          (rune >= 0x0370 && rune <= 0x052F)) {
+        // 含拉丁扩展/希腊/西里尔大小写字符时交由标准小写转换确保等价。
+        buffer.write(String.fromCharCode(rune).toLowerCase());
+      } else {
+        buffer.writeCharCode(_tradToSimp[rune] ?? rune);
+      }
+    }
+
+    return buffer.toString();
+  }
+
+  static String _foldRunes(List<int> runes) {
     final buffer = StringBuffer();
     var lastWasProlonged = false;
 
@@ -126,8 +261,6 @@ class TitleNormalizer {
         continue;
       }
       if (rune == 0xFF9E || rune == 0xFF9F) {
-        // 未附着在可转换基础假名之后的孤立半角浊音/半浊音符号直接折叠剔除。
-        // 避免孤立音标残留破坏标题归一化键。
         continue;
       }
 
@@ -341,12 +474,16 @@ class TitleNormalizer {
       final fw = phoneticLatinFold(w);
       final sw = phoneticSkeleton(w);
       if (st.length >= 3 && sw == st) return true;
+      final minLen = ft.length < fw.length ? ft.length : fw.length;
+      final maxLen = ft.length > fw.length ? ft.length : fw.length;
       if (ft.length >= 5 &&
           fw.length >= 4 &&
-          (ft.length - fw.length).abs() <= 3 &&
-          _longestCommonSubseqLen(ft, fw) >=
-              (ft.length < fw.length ? ft.length : fw.length) - 1) {
-        return true;
+          (ft.length - fw.length).abs() <= 3) {
+        final lcs = _longestCommonSubseqLen(ft, fw);
+        final minRequired = minLen <= 4 ? minLen : minLen - 1;
+        if (lcs >= minRequired && lcs * 100 >= maxLen * 65) {
+          return true;
+        }
       }
     }
     return false;
@@ -355,16 +492,16 @@ class TitleNormalizer {
   static double _bigramDice(String a, String b) {
     if (a.length < 2 || b.length < 2) return 0;
     if (a == b) return 1;
-    final grams = <String, int>{};
+    final grams = <int, int>{};
     for (var i = 0; i < a.length - 1; i++) {
-      final g = a.substring(i, i + 2);
+      final g = (a.codeUnitAt(i) << 16) | a.codeUnitAt(i + 1);
       grams[g] = (grams[g] ?? 0) + 1;
     }
     var shared = 0;
     for (var i = 0; i < b.length - 1; i++) {
-      final g = b.substring(i, i + 2);
-      final left = grams[g] ?? 0;
-      if (left > 0) {
+      final g = (b.codeUnitAt(i) << 16) | b.codeUnitAt(i + 1);
+      final left = grams[g];
+      if (left != null && left > 0) {
         shared++;
         grams[g] = left - 1;
       }
@@ -372,37 +509,66 @@ class TitleNormalizer {
     return 2 * shared / (a.length + b.length - 2);
   }
 
-  /// 估算纯 ASCII/罗马音本地片名与含日语假名远程片名之间的跨语种语音相似度
-  /// （取值区间 `0..0.88`）。
-  static double romajiKanaSimilarity(String localAscii, String remoteRaw) {
-    if (!containsKana(remoteRaw)) return 0;
-    if (RegExp(r'[\u3040-\u9fff]').hasMatch(localAscii)) return 0;
-    final localTokens = RegExp(r'[a-z0-9]{3,}')
-        .allMatches(localAscii.toLowerCase())
-        .map((m) => m.group(0)!)
-        .toList();
-    if (localTokens.length < 2) return 0;
-
+  /// 预编译含假名远程标题的语音特征，供多提示比对复用，避免重复假名音译。
+  static PreparedKanaTarget? prepareKanaTarget(String remoteRaw) {
+    if (!containsKana(remoteRaw)) return null;
     final romaji = kanaToRomaji(remoteRaw);
     final romajiWords = RegExp(r'[a-z0-9]{3,}')
         .allMatches(romaji.toLowerCase())
         .map((m) => m.group(0)!)
-        .toList();
-    if (romajiWords.isEmpty) return 0;
+        .toList(growable: false);
+    if (romajiWords.isEmpty) return null;
     final kanaLatin = romajiWords.join(' ');
     final romajiFolded = phoneticLatinFold(kanaLatin);
+    if (romajiFolded.length < 6) return null;
     final romajiSkeleton = phoneticSkeleton(kanaLatin);
-    final localFolded = phoneticLatinFold(localAscii);
-    final localSkeleton = phoneticSkeleton(localAscii);
-    if (localFolded.length < 6 || romajiFolded.length < 6) return 0;
+    final wordFolds = [
+      for (final w in romajiWords)
+        (
+          word: w,
+          folded: phoneticLatinFold(w),
+          skeleton: phoneticSkeleton(w),
+        ),
+    ];
+    return PreparedKanaTarget._(
+      romajiWords: romajiWords,
+      romajiFolded: romajiFolded,
+      romajiSkeleton: romajiSkeleton,
+      wordFolds: wordFolds,
+    );
+  }
 
+  /// 预编译纯拉丁本地提示的语音特征，供与多条远程假名别名快速比对。
+  static PreparedLocalAscii? prepareLocalAscii(String localAscii) {
+    if (RegExp(r'[\u3040-\u9fff]').hasMatch(localAscii)) return null;
+    final localTokens = RegExp(r'[a-z0-9]{3,}')
+        .allMatches(localAscii.toLowerCase())
+        .map((m) => m.group(0)!)
+        .toList(growable: false);
+    if (localTokens.length < 2) return null;
+    final localFolded = phoneticLatinFold(localAscii);
+    if (localFolded.length < 6) return null;
+    final localSkeleton = phoneticSkeleton(localAscii);
+    return PreparedLocalAscii._(
+      tokens: localTokens,
+      folded: localFolded,
+      skeleton: localSkeleton,
+    );
+  }
+
+  /// 使用预编译特征计算拉丁提示与假名远程片名之间的跨语种语音相似度（`0..0.88`）。
+  static double romajiKanaSimilarityPrepared(
+    PreparedLocalAscii local,
+    PreparedKanaTarget target,
+  ) {
+    final localTokens = local.tokens;
     var covered = 0;
     for (final token in localTokens) {
       if (phoneticTokenCovered(
         token,
-        romajiFolded: romajiFolded,
-        romajiSkeleton: romajiSkeleton,
-        romajiWords: romajiWords,
+        romajiFolded: target.romajiFolded,
+        romajiSkeleton: target.romajiSkeleton,
+        romajiWords: target.romajiWords,
       )) {
         covered++;
       }
@@ -412,28 +578,26 @@ class TitleNormalizer {
 
     var remoteCovered = 0;
     var uncoveredDistinctiveRemote = 0;
-    for (final word in romajiWords) {
-      final wf = phoneticLatinFold(word);
-      final ws = phoneticSkeleton(word);
+    for (final wfItem in target.wordFolds) {
       final hit = localTokens.any(
         (lt) => phoneticTokenCovered(
           lt,
-          romajiFolded: wf,
-          romajiSkeleton: ws,
-          romajiWords: [word],
+          romajiFolded: wfItem.folded,
+          romajiSkeleton: wfItem.skeleton,
+          romajiWords: [wfItem.word],
         ),
       );
       if (hit) {
         remoteCovered++;
-      } else if (wf.length >= 4) {
+      } else if (wfItem.folded.length >= 4) {
         uncoveredDistinctiveRemote++;
       }
     }
-    final remoteRatio = remoteCovered / romajiWords.length;
-    if (remoteCovered < 2 && romajiWords.length >= 2) return 0;
+    final remoteRatio = remoteCovered / target.romajiWords.length;
+    if (remoteCovered < 2 && target.romajiWords.length >= 2) return 0;
 
-    final foldDice = _bigramDice(localFolded, romajiFolded);
-    final skelDice = _bigramDice(localSkeleton, romajiSkeleton);
+    final foldDice = _bigramDice(local.folded, target.romajiFolded);
+    final skelDice = _bigramDice(local.skeleton, target.romajiSkeleton);
     final alignment = localRatio * 0.6 + remoteRatio * 0.4;
     var score =
         0.48 +
@@ -453,6 +617,16 @@ class TitleNormalizer {
     return score > 0.88 ? 0.88 : score;
   }
 
+  /// 估算纯 ASCII/罗马音本地片名与含日语假名远程片名之间的跨语种语音相似度
+  /// （取值区间 `0..0.88`）。
+  static double romajiKanaSimilarity(String localAscii, String remoteRaw) {
+    final target = prepareKanaTarget(remoteRaw);
+    if (target == null) return 0;
+    final local = prepareLocalAscii(localAscii);
+    if (local == null) return 0;
+    return romajiKanaSimilarityPrepared(local, target);
+  }
+
   static int _longestCommonSubseqLen(String a, String b) {
     if (a.isEmpty || b.isEmpty) return 0;
     final dp = List<int>.filled(b.length + 1, 0);
@@ -470,4 +644,32 @@ class TitleNormalizer {
     }
     return dp[b.length];
   }
+}
+
+/// 预编译的远程含假名标题语音特征（供跨提示比对复用）。
+class PreparedKanaTarget {
+  const PreparedKanaTarget._({
+    required this.romajiWords,
+    required this.romajiFolded,
+    required this.romajiSkeleton,
+    required this.wordFolds,
+  });
+
+  final List<String> romajiWords;
+  final String romajiFolded;
+  final String romajiSkeleton;
+  final List<({String word, String folded, String skeleton})> wordFolds;
+}
+
+/// 预编译的本地纯拉丁标题语音特征（供与多条假名别名比对复用）。
+class PreparedLocalAscii {
+  const PreparedLocalAscii._({
+    required this.tokens,
+    required this.folded,
+    required this.skeleton,
+  });
+
+  final List<String> tokens;
+  final String folded;
+  final String skeleton;
 }

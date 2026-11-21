@@ -11,6 +11,7 @@ import 'package:ccplayer/domain/scraping/directory_analyzer.dart';
 import 'package:ccplayer/domain/scraping/multi_work_splitter.dart';
 import 'package:ccplayer/domain/scraping/personal_filename_parser.dart';
 import 'package:ccplayer/domain/scraping/scrape_domain_adapter.dart';
+import 'package:ccplayer/domain/scraping/title_normalizer.dart';
 import 'package:ccplayer/domain/scraping/work_wall_eligibility.dart';
 import 'package:ccplayer/infrastructure/network/bangumi_service.dart';
 import 'package:ccplayer/infrastructure/network/priority_http_scheduler.dart';
@@ -1151,6 +1152,228 @@ void main() {
       expect(sinDecision.level, MatchLevel.autoBind);
       expect(sinDecision.best?.detail.tmdbId, 62104);
       expect(sinDecision.matchedSeason, 0);
+    });
+
+    test('第 7 轮共性回归：防假名短词误碰撞、前后篇单字卷尾消歧与乱目录文件名季/年/演唱会/Dash 识别', () {
+      // 1) 4 字符片假名短词不得与长拉丁词误碰撞（防止 `扶桑花之舞` 劫持 `Dance with Devils Fortuna`）
+      expect(
+        TitleNormalizer.romajiKanaSimilarity(
+          'Dance with Devils Fortuna',
+          'フラ・フラダンス',
+        ),
+        equals(0.0),
+      );
+      final fortuna = _buildGroupedFolder(
+        folderPath: '动画-单作品/与魔共舞 (2015) {tmdb-68768}::1dancewithdevilsfortunathemovie',
+        fileNames: const [
+          '[BDRip] Dance with Devils Fortuna The Movie [1080p].mkv',
+        ],
+      );
+      const hulaBgm = BangumiSubjectCandidate(
+        id: 318543,
+        name: 'フラ・フラダンス',
+        nameCn: '扶桑花之舞',
+        aliases: ['Hula Fulla Dance'],
+        year: 2021,
+        totalEpisodes: 1,
+        platform: '剧场版',
+      );
+      final bgmEval = ScrapeDomainAdapter.evaluateBangumiMatch(
+        fortuna,
+        const [hulaBgm],
+      );
+      expect(bgmEval.best, isNull);
+
+      // 2) `地球外少年少女 前篇 / 后篇` 单字卷尾对立消歧，不因高相似度平分落榜
+      final chikyuuFront = _buildGroupedFolder(
+        folderPath: '动画-单作品/地球外少年少女 前篇',
+        fileNames: const ['[BDRip] 地球外少年少女 前篇 [1080p].mkv'],
+      );
+      const chikyuuPart1 = TmdbWorkDetail(
+        tmdbId: 890579,
+        mediaType: TmdbMediaType.movie,
+        title: '地球外少年少女 前篇',
+        originalTitle: '地球外少年少女 前編',
+        aliases: ['The Orbital Children Part 1', '地球外少年少女 前篇'],
+        year: 2022,
+        voteCount: 35,
+        genreIds: [16, 878],
+      );
+      const chikyuuPart2 = TmdbWorkDetail(
+        tmdbId: 890580,
+        mediaType: TmdbMediaType.movie,
+        title: '地球外少年少女 后篇',
+        originalTitle: '地球外少年少女 後編',
+        aliases: ['The Orbital Children Part 2', '地球外少年少女 后篇'],
+        year: 2022,
+        voteCount: 35,
+        genreIds: [16, 878],
+      );
+      final chikyuuDec = ScrapeDomainAdapter.evaluateMatch(
+        chikyuuFront,
+        const [chikyuuPart1, chikyuuPart2],
+      );
+      expect(chikyuuDec.level, MatchLevel.autoBind);
+      expect(chikyuuDec.best?.detail.tmdbId, 890579);
+
+      // 3) 乱目录中正片文件名一致携带 `(2019)` 时，不得被 S1 Bangumi (2018) 首播日期反向压回第 1 季
+      final retsuko = _buildGroupedFolder(
+        folderPath: '乱目录测试/随便命名的测试目录',
+        fileNames: [
+          for (var i = 1; i <= 10; i++)
+            '[Erai-raws] Aggressive Retsuko (2019) - ${i.toString().padLeft(2, '0')} [1080p].mkv',
+        ],
+      );
+      expect(retsuko.year, 2019);
+      const retsukoTmdb = TmdbWorkDetail(
+        tmdbId: 78941,
+        mediaType: TmdbMediaType.tv,
+        title: '职场小烈',
+        originalTitle: 'アグレッシブ烈子',
+        aliases: ['Aggressive Retsuko', 'Aggretsuko'],
+        year: 2018,
+        voteCount: 160,
+        genreIds: [16, 35],
+        seasons: [
+          TmdbSeasonSummary(
+            seasonNumber: 1,
+            name: '第 1 季',
+            episodeCount: 10,
+            airDate: '2018-04-20',
+          ),
+          TmdbSeasonSummary(
+            seasonNumber: 2,
+            name: '第 2 季',
+            episodeCount: 10,
+            airDate: '2019-06-14',
+          ),
+        ],
+      );
+      const retsukoS1Bgm = BangumiSubjectCandidate(
+        id: 247086,
+        name: 'アグレッシブ烈子',
+        nameCn: '职场小烈',
+        aliases: ['Aggressive Retsuko'],
+        year: 2018,
+        airDate: '2018-04-20',
+        totalEpisodes: 10,
+        platform: 'WEB',
+      );
+      final retsukoDec = ScrapeDomainAdapter.evaluateMatch(
+        retsuko,
+        const [retsukoTmdb],
+        bangumiCandidates: const [retsukoS1Bgm],
+      );
+      expect(retsukoDec.level, MatchLevel.autoBind);
+      expect(retsukoDec.best?.detail.tmdbId, 78941);
+      expect(retsukoDec.matchedSeason, 2);
+
+      // 4) 乱目录中 `S2 [01]` 显式季号与连续合并单季 `Season 2` (13..24) 均精准落位
+      final vendingS2 = _buildGroupedFolder(
+        folderPath: '乱目录测试/阿伟推荐的神作2 (2026)',
+        fileNames: [
+          for (var i = 1; i <= 12; i++)
+            '[CheeseAni] Jidou Hanbaiki S2 [${i.toString().padLeft(2, '0')}][1080p].mkv',
+        ],
+      );
+      expect(vendingS2.seasonHint, 2);
+
+      final bisqueS2 = _buildGroupedFolder(
+        folderPath: '乱目录测试/新建文件夹 (3)',
+        fileNames: [
+          for (var i = 13; i <= 24; i++)
+            'Sono Bisque Doll wa Koi wo Suru Season 2 - $i [1080p].mkv',
+        ],
+      );
+      const bisqueTmdb = TmdbWorkDetail(
+        tmdbId: 123249,
+        mediaType: TmdbMediaType.tv,
+        title: '更衣人偶坠入爱河',
+        originalTitle: 'その着せ替え人形は恋をする',
+        aliases: [
+          'Sono Bisque Doll wa Koi wo Suru',
+          'Sono Bisque Doll wa Koi wo Suru Season 2',
+        ],
+        year: 2022,
+        voteCount: 540,
+        genreIds: [16, 35],
+        seasons: [
+          TmdbSeasonSummary(
+            seasonNumber: 1,
+            name: '第 1 季',
+            episodeCount: 24,
+            airDate: '2022-01-09',
+          ),
+        ],
+      );
+      final bisqueDec = ScrapeDomainAdapter.evaluateMatch(
+        bisqueS2,
+        const [bisqueTmdb],
+      );
+      expect(bisqueDec.level, MatchLevel.autoBind);
+      expect(bisqueDec.best?.detail.tmdbId, 123249);
+      expect(bisqueDec.matchedSeason, 1);
+
+      // 5) 乱目录演唱会 `Special Live` 经文件名识别放行音乐分类 (10402)
+      final live = _buildGroupedFolder(
+        folderPath: '乱目录测试/阿伟推荐的神作2 (2026)',
+        fileNames: const [
+          '[VCB-Studio] Rhodanthe Special Live 2014 HELLO KONNICHIWA [Ma10p_1080p].mkv',
+        ],
+      );
+      const liveTmdb = TmdbWorkDetail(
+        tmdbId: 992325,
+        mediaType: TmdbMediaType.movie,
+        title: 'Rhodanthe* Special Live 2014 ハロー * コンニチハ !!',
+        originalTitle: 'Rhodanthe* Special Live 2014 ハロー * コンニチハ !!',
+        aliases: ['Rhodanthe Special Live 2014 HELLO KONNICHIWA'],
+        year: 2014,
+        voteCount: 3,
+        genreIds: [10402],
+      );
+      final liveDec = ScrapeDomainAdapter.evaluateMatch(live, const [liveTmdb]);
+      expect(liveDec.level, MatchLevel.autoBind);
+      expect(liveDec.best?.detail.tmdbId, 992325);
+
+      // 6) 日语续季右上撇号 `’` 与罗马音 `Dash` 跨语种季名对齐
+      final jashinS2 = _buildGroupedFolder(
+        folderPath: '乱目录测试/经典老番_未整理_2025',
+        fileNames: [
+          for (var i = 1; i <= 11; i++)
+            '[VCB-Studio] Jashin-chan Dropkick Dash [${i.toString().padLeft(2, '0')}][1080p].mkv',
+        ],
+      );
+      const jashinTmdb = TmdbWorkDetail(
+        tmdbId: 80713,
+        mediaType: TmdbMediaType.tv,
+        title: '邪神与厨二病少女',
+        originalTitle: '邪神ちゃんドロップキック',
+        aliases: ['Jashin-chan Dropkick'],
+        year: 2018,
+        voteCount: 120,
+        genreIds: [16, 35],
+        seasons: [
+          TmdbSeasonSummary(
+            seasonNumber: 1,
+            name: '邪神与厨二病少女',
+            episodeCount: 11,
+            airDate: '2018-07-09',
+          ),
+          TmdbSeasonSummary(
+            seasonNumber: 2,
+            name: '邪神与厨二病少女’',
+            episodeCount: 11,
+            airDate: '2020-04-06',
+          ),
+        ],
+      );
+      final jashinDec = ScrapeDomainAdapter.evaluateMatch(
+        jashinS2,
+        const [jashinTmdb],
+      );
+      expect(jashinDec.level, MatchLevel.autoBind);
+      expect(jashinDec.best?.detail.tmdbId, 80713);
+      expect(jashinDec.matchedSeason, 2);
     });
   });
 }

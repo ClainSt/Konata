@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:ccplayer/domain/formatting/network_error_sanitizer.dart';
 import 'package:crypto/crypto.dart';
@@ -214,8 +215,13 @@ class EvalVcrHttpClient extends http.BaseClient {
   /// 当前时钟提供函数（便于测试注入）。
   final DateTime Function() nowProvider;
 
+  static final RegExp _multiSlash = RegExp(r'/+');
+  static const int _maxMemCacheEntries = 16384;
+
   final Map<String, EvalDomainQuota> _quotas;
   final Map<String, _DomainGate> _gates = <String, _DomainGate>{};
+  final Map<String, ({int status, Uint8List bytes})> _memCache =
+      <String, ({int status, Uint8List bytes})>{};
 
   /// 本次评测累计网络与缓存统计。
   final EvalNetworkStats stats = EvalNetworkStats();
@@ -246,7 +252,9 @@ class EvalVcrHttpClient extends http.BaseClient {
     String? body,
   }) {
     final domain = classifyDomain(uri);
-    var normalizedPath = uri.path.replaceAll(RegExp(r'/+'), '/');
+    var normalizedPath = uri.path.contains('//')
+        ? uri.path.replaceAll(_multiSlash, '/')
+        : uri.path;
     if (domain == 'fanart') {
       final fanartIdx = normalizedPath.toLowerCase().indexOf('/fanart/v3/');
       if (fanartIdx >= 0) {
@@ -349,22 +357,32 @@ class EvalVcrHttpClient extends http.BaseClient {
       body: reqBody,
     );
     final domainStats = stats.of(keyInfo.domain);
-    final cacheFile = _cacheFileFor(keyInfo.sha256Hex);
+    final memHit = _memCache[keyInfo.sha256Hex];
+    if (memHit != null && !_shouldRefreshCached(keyInfo.domain, memHit.status)) {
+      domainStats.cacheHits++;
+      return http.StreamedResponse(
+        Stream.value(memHit.bytes),
+        memHit.status,
+        headers: const {'content-type': 'application/json; charset=utf-8'},
+        request: request,
+        contentLength: memHit.bytes.length,
+      );
+    }
 
-    if (cacheFile.existsSync()) {
-      final cached = _tryReadCache(cacheFile);
-      if (cached != null &&
-          !_shouldRefreshCached(keyInfo.domain, cached.status)) {
-        domainStats.cacheHits++;
-        final bytes = utf8.encode(cached.body);
-        return http.StreamedResponse(
-          Stream.value(bytes),
-          cached.status,
-          headers: const {'content-type': 'application/json; charset=utf-8'},
-          request: request,
-          contentLength: bytes.length,
-        );
-      }
+    final cacheFile = _cacheFileFor(keyInfo.sha256Hex);
+    final cached = await _tryReadCacheAsync(cacheFile);
+    if (cached != null &&
+        !_shouldRefreshCached(keyInfo.domain, cached.status)) {
+      domainStats.cacheHits++;
+      final bytes = Uint8List.fromList(utf8.encode(cached.body));
+      _putMemCache(keyInfo.sha256Hex, cached.status, bytes);
+      return http.StreamedResponse(
+        Stream.value(bytes),
+        cached.status,
+        headers: const {'content-type': 'application/json; charset=utf-8'},
+        request: request,
+        contentLength: bytes.length,
+      );
     }
 
     domainStats.cacheMisses++;
@@ -429,11 +447,17 @@ class EvalVcrHttpClient extends http.BaseClient {
     );
 
     if (response.statusCode == 200 || response.statusCode == 404) {
+      final bodyText = utf8.decode(bytes, allowMalformed: true);
+      _putMemCache(
+        keyInfo.sha256Hex,
+        response.statusCode,
+        bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+      );
       _writeCacheAtomically(
         file: cacheFile,
         canonicalKey: keyInfo.canonicalKey,
         status: response.statusCode,
-        body: utf8.decode(bytes, allowMalformed: true),
+        body: bodyText,
       );
     }
 
@@ -464,8 +488,12 @@ class EvalVcrHttpClient extends http.BaseClient {
       try {
         final (response, bytes) = await gate.run(() async {
           domainStats.networkRequests++;
-          final resp = await _inner.send(copy);
-          final bodyBytes = await resp.stream.toBytes();
+          final resp = await _inner
+              .send(copy)
+              .timeout(const Duration(seconds: 12));
+          final bodyBytes = await resp.stream
+              .toBytes()
+              .timeout(const Duration(seconds: 12));
           return (resp, bodyBytes);
         });
 
@@ -515,11 +543,21 @@ class EvalVcrHttpClient extends http.BaseClient {
           throw _sanitizeError(error);
         }
         domainStats.retryCount++;
-        await Future<void>.delayed(
-          Duration(seconds: (1 << attempt).clamp(1, 16)),
-        );
+        // 代理空闲 Keep-Alive 断连等瞬态传输异常采用短阶梯重试，避免每次无意义空等 1~8 秒。
+        const transientBackoffsMs = <int>[200, 600, 1500, 3000];
+        final delayMs = attempt < transientBackoffsMs.length
+            ? transientBackoffsMs[attempt]
+            : transientBackoffsMs.last;
+        await Future<void>.delayed(Duration(milliseconds: delayMs));
       }
     }
+  }
+
+  void _putMemCache(String key, int status, Uint8List bytes) {
+    if (_memCache.length >= _maxMemCacheEntries) {
+      _memCache.remove(_memCache.keys.first);
+    }
+    _memCache[key] = (status: status, bytes: bytes);
   }
 
   static bool _isQuotaExhausted429(
@@ -562,9 +600,10 @@ class EvalVcrHttpClient extends http.BaseClient {
     return error;
   }
 
-  ({int status, String body})? _tryReadCache(File file) {
+  Future<({int status, String body})?> _tryReadCacheAsync(File file) async {
     try {
-      final decoded = jsonDecode(file.readAsStringSync());
+      final raw = await file.readAsString();
+      final decoded = jsonDecode(raw);
       if (decoded is! Map) return null;
       final status = (decoded['status'] as num?)?.toInt();
       final body = decoded['body'];

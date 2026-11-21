@@ -136,11 +136,23 @@ class ScrapeMatchResolver {
       }
     }
 
+    // 仅当 Bangumi 达到高置信、或中置信且标题分足够可信（避免仅靠单字巧合的弱候选污染 TMDB 第一波词）时，才借用其别名扩展检索。
+    final bgmTitleScore = bgmBest == null
+        ? 0.0
+        : bgmBest.reasons
+              .where((r) => r.endsWith(' title'))
+              .map((r) => double.tryParse(r.split(' ').first) ?? 0.0)
+              .fold<double>(0.0, (m, v) => v > m ? v : m);
+    final trustedBgmForTmdb =
+        bgmBest != null &&
+        (bgmEval.tier == legacy.MatchTier.high ||
+            (bgmEval.tier == legacy.MatchTier.medium && bgmTitleScore >= 32.0));
+
     var candidates = tmdbBlocked()
         ? List<TmdbWorkDetail>.of(preloadedMapped)
         : await _fetcher.fetchCandidateDetails(
             folder,
-            bangumiCandidate: bgmEval.best,
+            bangumiCandidate: trustedBgmForTmdb ? bgmBest : null,
             extraQueries: parentCtx.extraQueries,
             onNetworkError: recordError,
           );
@@ -152,12 +164,13 @@ class ScrapeMatchResolver {
       candidates = mergedByKey.values.toList(growable: false);
     }
 
-    // Bangumi 命中（高置信或中置信）经离线映射指向的 TMDB 条目若未被关键词检索召回，按 ID 补拉进候选池参与公平打分。
-    final supplementMappedTargets =
-        (!tmdbBlocked() && bgmBest != null && bgmEval.tier != legacy.MatchTier.none)
+    // Bangumi 命中（高置信或标题可信的中置信）经离线映射指向的 TMDB 条目若未被关键词检索召回，按 ID 补拉进候选池参与公平打分。
+    final supplementMappedTargets = (!tmdbBlocked() && trustedBgmForTmdb)
         ? (orderedMappedTargets.isNotEmpty
               ? orderedMappedTargets
-              : _orderedUniqueMappedTargets(bgmBest.subject).take(2).toList(growable: false))
+              : _orderedUniqueMappedTargets(
+                  bgmBest.subject,
+                ).take(2).toList(growable: false))
         : const <({TmdbMediaType type, int id})>[];
     if (!tmdbBlocked() && supplementMappedTargets.isNotEmpty) {
       final missing = <({TmdbMediaType type, int id})>[
@@ -205,8 +218,9 @@ class ScrapeMatchResolver {
     }
 
     // 当初轮 TMDB 未命中、跨源不一致被清空、或优胜条目缺少 16:9 横版背景图时，
-    // 使用已命中的 Bangumi 中/日文净化词干与年份进行二次 `/search/tv` 兜底救回。
-    final rescueBgmTarget = decision.bestBangumi ?? bgmEval.best;
+    // 使用已命中的可信 Bangumi 中/日文净化词干与年份进行二次 `/search/tv` 兜底救回。
+    final rescueBgmTarget =
+        decision.bestBangumi ?? (trustedBgmForTmdb ? bgmEval.best : null);
     if (!tmdbBlocked() &&
         rescueBgmTarget != null &&
         (decision.best == null ||

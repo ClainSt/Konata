@@ -37,8 +37,8 @@ param(
 
     [string]$Only = '',
 
-    [ValidateRange(1, 5)]
-    [int]$Workers = 4,
+    [ValidateRange(1, 12)]
+    [int]$Workers = 8,
 
     [ValidateRange(20, 1000)]
     [int]$SampleSize = 180,

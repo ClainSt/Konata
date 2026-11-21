@@ -373,6 +373,49 @@ abstract final class DirectoryAnalyzer {
             }
           }
         }
+        // 单/多部大型剧场版目录下若同时平放了大量小体积无编号 BD 花絮短片（如图像剧/宣传片），
+        // 当存在 1~3 部超大主片（>= 1.2 GB）且其余全部片段均不足主片 20% 且 < 450 MB 时，
+        // 将小体积无编号短片降级归入特典，防止剧场版目录被误判为多作合集。
+        if (epSizes.isEmpty &&
+            main.length >= 4 &&
+            main.values.every((item) => item.episode == null)) {
+          final itemMaxSize = <String, int>{};
+          var allSized = true;
+          var globalMax = 0;
+          for (final entry in main.entries) {
+            final sizes = [
+              for (final f in entry.value.files)
+                if (sizeByPath.containsKey(f)) sizeByPath[f]!,
+            ];
+            if (sizes.length != entry.value.files.length || sizes.isEmpty) {
+              allSized = false;
+              break;
+            }
+            final largest = sizes.reduce((a, b) => a > b ? a : b);
+            itemMaxSize[entry.key] = largest;
+            if (largest > globalMax) globalMax = largest;
+          }
+          const minGiantFeatureBytes = 1200 * 1024 * 1024;
+          const maxBonusClipBytes = 450 * 1024 * 1024;
+          if (allSized && globalMax >= minGiantFeatureBytes) {
+            final dominantKeys = [
+              for (final e in itemMaxSize.entries)
+                if (e.value >= globalMax * 0.35) e.key,
+            ];
+            final tinyKeys = [
+              for (final e in itemMaxSize.entries)
+                if (e.value < globalMax * 0.20 && e.value < maxBonusClipBytes)
+                  e.key,
+            ];
+            if (dominantKeys.isNotEmpty &&
+                dominantKeys.length <= 3 &&
+                dominantKeys.length + tinyKeys.length == main.length) {
+              for (final key in tinyKeys) {
+                extras.addAll(main.remove(key)!.files);
+              }
+            }
+          }
+        }
       }
     }
 
@@ -434,16 +477,31 @@ abstract final class DirectoryAnalyzer {
     // 而真正的混杂合集里各子系列都有多集且各自从第 1 集编号。
     final perEpisodeSubtitles =
         perSeries.isNotEmpty && perSeries.values.every((n) => n == 1);
+    // 同季多配音/多剪辑平行版本（如 4 组完整 24 集且集号完全重合、不含 OVA1/Mk1 序号的变体）：
+    // 仍属同一部剧集的多版本而非多作合集。
+    final numberedItemCount = items.where((i) => i.episode != null).length;
+    final parallelSameShowVersions =
+        perSeries.length >= 2 &&
+        dominant >= 12 &&
+        numberedItemCount == dominant &&
+        perSeries.values.every((n) => n == dominant) &&
+        !perSeries.keys.any(
+          (k) => RegExp(
+            r'(?:ova|oad|mk|part|vol|season|s)\s*\d+',
+            caseSensitive: false,
+          ).hasMatch(k),
+        );
     final WorkShape shape;
     if (items.isEmpty) {
       shape = WorkShape.empty;
     } else if (specialCollectionTitle == null &&
         (episodeTitles.length >= 4 &&
                 dominant < episodic * 0.5 &&
-                !perEpisodeSubtitles ||
+                !perEpisodeSubtitles &&
+                !parallelSameShowVersions ||
             featureTitles.length >= 6 &&
                 featureTitles.length > episodeTitles.length * 4 &&
-                items.where((i) => i.episode != null).length < 6)) {
+                numberedItemCount < 6)) {
       // 目录内混杂多部无关剧场版或外传系列（例如 SD 高达外传全集）。
       shape = WorkShape.anthology;
     } else if (items.any((i) => i.episode != null)) {
@@ -1416,7 +1474,8 @@ abstract final class DirectoryAnalyzer {
     caseSensitive: false,
   );
 
-  /// 判定目录名是否属于不含真实番名信息的通用整理/下载桶（如 `新建文件夹`、`2025年7月新番`、`BDMV_042`）。
+  /// 判定目录名是否属于不含真实番名信息的通用整理/下载桶（如 `新建文件夹`、`2025年7月新番`、`BDMV_042`）
+  /// 或纯压制规格/编码技术串（如 `SourceUnknown.AVI.702x480.enHard (1)`）。
   /// 纯数字片名（如 `86`）不视作通用桶，避免误伤数字番。
   static bool _isGenericOrIrregularFolderName(String raw) {
     final stripped = raw
@@ -1426,32 +1485,65 @@ abstract final class DirectoryAnalyzer {
     if (stripped.isEmpty) return true;
     if (RegExp(r'^\d+$').hasMatch(stripped)) return false;
     final tokens = stripped.split(RegExp(r'\s+')).where((t) => t.isNotEmpty);
-    var sawOrganizerWord = false;
+    var sawOrganizerOrTechWord = false;
     for (final tok in tokens) {
       if (RegExp(r'^\d+$').hasMatch(tok)) continue;
-      if (_genericOrganizerFolderToken.hasMatch(tok)) {
-        sawOrganizerWord = true;
+      if (_genericOrganizerFolderToken.hasMatch(tok) ||
+          PersonalFilenameParser.isTechnicalBracketBlock(tok)) {
+        sawOrganizerOrTechWord = true;
         continue;
       }
       return false;
     }
-    return sawOrganizerWord;
+    return sawOrganizerOrTechWord;
   }
 
-  /// 清理刮削源标记、发行年份及方括号标签后的纯净目录名称。
+  /// 清理刮削源标记、发行年份、开头压制组标签及纯技术规格方括号后的纯净目录名称；
+  /// 完整保留片名自身携带的语义方括号（如 `[前篇]`、`[Unlimited Blade Works]`、`[r=1-sinθ]`）。
   static String cleanTitle(String folderName) {
     var title = PersonalFilenameParser.withoutTmdbMarkers(folderName)
         .replaceAll(_bangumiMarker, ' ')
         .replaceAll(RegExp(r'[(（]\s*(?:19|20)\d{2}\s*[)）]'), ' ')
-        .replaceAll(RegExp(r'\{[^}]*\}'), ' ')
-        // 目录名里区分同片不同画质的 `1080P`/`2160P`/`4K` 不属于片名。
-        .replaceAll(
-          RegExp(
-            r'(?<![a-z0-9])(?:\d{3,4}[pi]|[248]k)(?![a-z0-9])',
-            caseSensitive: false,
-          ),
-          ' ',
-        );
+        .replaceAll(RegExp(r'\{[^}]*\}'), ' ');
+    // 先移除纯技术规格括号块（如 `[Ma10p_1080p]`、`[WEBDL]`、`[x265_flac]`）。
+    title = title.replaceAllMapped(
+      RegExp(r'\[([^\]]+)\]|【([^】]+)】'),
+      (m) {
+        final inner = (m[1] ?? m[2] ?? '').trim();
+        return PersonalFilenameParser.isTechnicalBracketBlock(inner)
+            ? ' '
+            : m[0]!;
+      },
+    );
+    // 剥离目录开头连续的压制组/字幕组方括号标签（如 `[VCB-Studio]`、`[ReinForce]`、`[FLsnow_feat.AO]`）。
+    while (true) {
+      final lead = RegExp(r'^\s*(?:\[([^\]]+)\]|【([^】]+)】)\s*').firstMatch(
+        title,
+      );
+      if (lead == null) break;
+      final inner = (lead[1] ?? lead[2] ?? '').trim();
+      final rest = title.substring(lead.end).trim();
+      if (rest.isNotEmpty && PersonalFilenameParser.isReleaseGroupTag(inner)) {
+        title = rest;
+        continue;
+      }
+      break;
+    }
+    // 若去除组名与规格后仅剩单个外层方括号包裹片名（如 `[Aikatsu_Planet!-Bloomy_Cafe]`），解包并还原下划线。
+    final singleWrapped = RegExp(r'^[\[【]([^\[\]【】]+)[\]】]$').firstMatch(
+      title.trim(),
+    );
+    if (singleWrapped != null) {
+      title = singleWrapped[1]!.replaceAll('_', ' ');
+    }
+    // 目录名里区分同片不同画质的 `1080P`/`2160P`/`4K` 不属于片名。
+    title = title.replaceAll(
+      RegExp(
+        r'(?<![a-z0-9])(?:\d{3,4}[pi]|[248]k)(?![a-z0-9])',
+        caseSensitive: false,
+      ),
+      ' ',
+    );
     title = title.replaceAll(RegExp(r'\s+'), ' ').trim();
     return title.isEmpty ? folderName : title;
   }

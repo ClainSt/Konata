@@ -14,7 +14,9 @@ import 'package:ccplayer/domain/models/network_config.dart';
 import 'package:ccplayer/domain/models/tmdb_models.dart';
 import 'package:ccplayer/domain/models/work.dart';
 import 'package:ccplayer/domain/scraping/bangumi_tmdb_index.dart';
+import 'package:ccplayer/domain/scraping/directory_analyzer.dart';
 import 'package:ccplayer/domain/scraping/scrape_domain_adapter.dart';
+import 'package:ccplayer/domain/scraping/work_wall_eligibility.dart';
 import 'package:ccplayer/infrastructure/network/bangumi_service.dart';
 import 'package:ccplayer/infrastructure/network/fanart_service.dart';
 import 'package:ccplayer/infrastructure/network/priority_http_scheduler.dart';
@@ -162,11 +164,13 @@ Future<int> runEvalCli(
     goldenCases: goldenCases,
     failedKeysFile: failedKeysFile,
     onlyFilters: options.onlyFilters,
+    messyFolders: options.messyFolders,
   );
   final activeGoldenCases = _filterGoldenCasesForTargets(
     mode: options.mode,
     goldenCases: goldenCases,
     targets: targets,
+    messyFolders: options.messyFolders,
   );
 
   if (targets.isEmpty) {
@@ -271,7 +275,8 @@ Future<int> runEvalCli(
         targets: targets,
         workers: workers,
         artworkMode: artworkMode,
-        withExplicit: options.withExplicit,
+        withExplicit: options.withExplicit && !options.messyFolders,
+        messyFolders: options.messyFolders,
         tmdbService: tmdbService,
         fetcher: fetcher,
         resolver: resolver,
@@ -339,6 +344,30 @@ Future<int> runEvalCli(
   );
 
   stdout.writeln(diffMd);
+  if (options.mode == EvalMode.corpusNoId ||
+      options.mode == EvalMode.corpusAll) {
+    final total = records.length;
+    final autoCount = records.where((r) => r.matchLevel == 'autoBind').length;
+    final reviewCount = records
+        .where((r) => r.matchLevel == 'reviewRequired')
+        .length;
+    final unmatchedCount = total - autoCount - reviewCount;
+    final pct = total == 0 ? 0.0 : autoCount * 100.0 / total;
+    stdout.writeln(
+      '\n## 全库绑定分布（${options.mode.name}，共 $total 部）\n'
+      '- 自动绑定（autoBind）：`$autoCount / $total`（`${pct.toStringAsFixed(2)}%`）\n'
+      '- 待复核（reviewRequired）：`$reviewCount` ｜ 未命中（unmatched）：`$unmatchedCount`',
+    );
+    final nonAuto = records.where((r) => r.matchLevel != 'autoBind').toList();
+    if (nonAuto.isNotEmpty) {
+      stdout.writeln('- 非自动绑定明细（最多展示 40 条）：');
+      for (final r in nonAuto.take(40)) {
+        stdout.writeln(
+          '  - [${r.matchLevel}] `${r.folderKey}` | tmdb=${r.bestTmdbKey ?? 'none'} S${r.matchedSeason} | bgm=${r.bestBangumiId ?? 'none'}(${r.bangumiTier}) | reason=${r.primaryReason}',
+        );
+      }
+    }
+  }
   stdout.writeln('精简差异报告已写入：${latestDiffFile.path}');
   return 0;
 }
@@ -376,6 +405,7 @@ Future<List<EvalClusterRecord>> _evaluateOnlineBatch({
   required int workers,
   required EvalArtworkMode artworkMode,
   required bool withExplicit,
+  required bool messyFolders,
   required TmdbService tmdbService,
   required ScrapeCandidateFetcher fetcher,
   required ScrapeMatchResolver resolver,
@@ -397,8 +427,10 @@ Future<List<EvalClusterRecord>> _evaluateOnlineBatch({
       try {
         outputs[idx] = await _evaluateSingleOnline(
           folder: folder,
+          index: idx,
           artworkMode: artworkMode,
           withExplicit: withExplicit,
+          messyFolders: messyFolders,
           tmdbService: tmdbService,
           fetcher: fetcher,
           resolver: resolver,
@@ -425,10 +457,55 @@ Future<List<EvalClusterRecord>> _evaluateOnlineBatch({
   return [for (final item in outputs) if (item != null) item];
 }
 
+const List<String> _messyFolderNames = [
+  '新建文件夹 (3)',
+  '2026年7月新番',
+  'BDMV_1080p_x265_FLAC',
+  '阿伟推荐的神作2 (2026)',
+  '周末补番_硬盘A组',
+  '【高清蓝光】我的动画收藏合集',
+  'Downloads_042',
+  '经典老番_未整理_2025',
+  'SourceUnknown.MKV.1080p',
+  '随便命名的测试目录',
+];
+
+/// 将单作目录的目录名与父级路径全部替换为不规范乱目录名，仅保留原始内部视频文件名用于档位 3 真实压力评测。
+GroupedWorkFolder _buildMessyEvalFolder(GroupedWorkFolder folder, int index) {
+  final messyName = _messyFolderNames[index % _messyFolderNames.length];
+  final rootPrefix = '${_normalizePhysicalRoot(folder)}/';
+  final entries = <({String path, int? size})>[];
+  for (final v in folder.variants) {
+    final norm = v.relativePath.replaceAll('\\', '/');
+    final rel = norm.startsWith(rootPrefix)
+        ? norm.substring(rootPrefix.length)
+        : v.fileName;
+    entries.add((path: rel, size: v.fileSize));
+  }
+  final messyPath = '乱目录测试/$messyName';
+  final messyInv = DirectoryAnalyzer.analyze(messyPath, entries);
+  final eps = messyInv.episodes.toList()..sort();
+  return GroupedWorkFolder(
+    folderRelativePath: messyPath,
+    folderName: messyName,
+    cleanTitle: messyInv.title,
+    year: messyInv.year,
+    seasonHint: messyInv.season,
+    mainEpisodeNumbers: eps,
+    isMovieHint: messyInv.folderMovieMarker || messyInv.fileMovieMarker,
+    inventory: messyInv,
+    titleHints: messyInv.titleHints,
+    fileHints: messyInv.fileHints,
+    variants: folder.variants,
+  );
+}
+
 Future<EvalClusterRecord> _evaluateSingleOnline({
   required GroupedWorkFolder folder,
+  required int index,
   required EvalArtworkMode artworkMode,
   required bool withExplicit,
+  required bool messyFolders,
   required TmdbService tmdbService,
   required ScrapeCandidateFetcher fetcher,
   required ScrapeMatchResolver resolver,
@@ -437,7 +514,9 @@ Future<EvalClusterRecord> _evaluateSingleOnline({
 }) async {
   final info = GoldenSetSampler.inspectFolder(folder);
   final physicalRoot = _normalizePhysicalRoot(folder);
-  final evalFolder = withExplicit ? folder : folder.withoutExplicitTmdb();
+  final evalFolder = messyFolders
+      ? _buildMessyEvalFolder(folder, index)
+      : (withExplicit ? folder : folder.withoutExplicitTmdb());
   final queries = ScrapeDomainAdapter.buildSearchQueries(evalFolder);
 
   TmdbWorkDetail? explicitDetail;
@@ -872,6 +951,7 @@ List<GroupedWorkFolder> _selectTargetGroups({
   required List<GoldenCase> goldenCases,
   required File failedKeysFile,
   required List<String> onlyFilters,
+  bool messyFolders = false,
 }) {
   Iterable<GroupedWorkFolder> selected = groups;
   if (mode == EvalMode.golden) {
@@ -892,6 +972,21 @@ List<GroupedWorkFolder> _selectTargetGroups({
     selected = groups.where(
       (g) => allowedRoots.contains(_normalizePhysicalRoot(g)),
     );
+  } else if (mode == EvalMode.corpusNoId) {
+    selected = groups.where(
+      (g) =>
+          g.explicitTmdbId == null &&
+          WorkWallEligibility.hasMainPlayableContent(g),
+    );
+  }
+
+  if (messyFolders) {
+    selected = selected.where(
+      (g) =>
+          !g.isSplitCluster &&
+          WorkWallEligibility.hasMainPlayableContent(g) &&
+          (g.inventory?.fileHints.isNotEmpty ?? g.fileHints.isNotEmpty),
+    );
   }
 
   if (onlyFilters.isNotEmpty) {
@@ -910,20 +1005,15 @@ List<GoldenCase> _filterGoldenCasesForTargets({
   required EvalMode mode,
   required List<GoldenCase> goldenCases,
   required List<GroupedWorkFolder> targets,
+  bool messyFolders = false,
 }) {
   if (goldenCases.isEmpty) return const [];
-  if (mode == EvalMode.parseOnly) {
-    // 离线解析模式下仅当黄金集存在时对覆盖项顺带核验。
-    final roots = {for (final g in targets) _normalizePhysicalRoot(g)};
-    return [
-      for (final c in goldenCases)
-        if (roots.contains(c.physicalRoot)) c,
-    ];
-  }
   final targetRoots = {for (final g in targets) _normalizePhysicalRoot(g)};
   return [
     for (final c in goldenCases)
-      if (targetRoots.contains(c.physicalRoot)) c,
+      if (targetRoots.contains(c.physicalRoot) &&
+          (!messyFolders || c.clusterHint == '*'))
+        c,
   ];
 }
 
@@ -982,6 +1072,7 @@ class _EvalCliOptions {
     required this.allowFanartRelay,
     required this.offlineOnly,
     required this.withExplicit,
+    required this.messyFolders,
     required this.onlyFilters,
     required this.workers,
     required this.sampleSize,
@@ -1001,6 +1092,7 @@ class _EvalCliOptions {
   final bool allowFanartRelay;
   final bool offlineOnly;
   final bool withExplicit;
+  final bool messyFolders;
   final List<String> onlyFilters;
   final int workers;
   final int sampleSize;
@@ -1021,6 +1113,8 @@ class _EvalCliOptions {
         return switch (mode) {
           EvalMode.parseOnly ||
           EvalMode.initGolden ||
+          EvalMode.corpusNoId ||
+          EvalMode.corpusAll ||
           EvalMode.acceptBaseline => EvalArtworkMode.off,
           EvalMode.golden || EvalMode.onlyFailed => EvalArtworkMode.full,
         };
@@ -1038,6 +1132,7 @@ class _EvalCliOptions {
     var allowFanartRelay = false;
     var offlineOnly = false;
     var withExplicit = false;
+    var messyFolders = false;
     var onlyFilters = <String>[];
     var workers = 4;
     var sampleSize = 180;
@@ -1057,6 +1152,10 @@ class _EvalCliOptions {
         mode = EvalMode.golden;
       } else if (raw == '--only-failed') {
         mode = EvalMode.onlyFailed;
+      } else if (raw == '--corpus-no-id') {
+        mode = EvalMode.corpusNoId;
+      } else if (raw == '--corpus-all') {
+        mode = EvalMode.corpusAll;
       } else if (raw == '--accept-baseline') {
         mode = EvalMode.acceptBaseline;
       } else if (raw.startsWith('--mode=')) {
@@ -1084,6 +1183,8 @@ class _EvalCliOptions {
         offlineOnly = true;
       } else if (raw == '--with-explicit') {
         withExplicit = true;
+      } else if (raw == '--messy-folders') {
+        messyFolders = true;
       } else if (raw.startsWith('--only=')) {
         onlyFilters = raw
             .substring(7)
@@ -1117,6 +1218,7 @@ class _EvalCliOptions {
       allowFanartRelay: allowFanartRelay,
       offlineOnly: offlineOnly,
       withExplicit: withExplicit,
+      messyFolders: messyFolders,
       onlyFilters: onlyFilters,
       workers: workers,
       sampleSize: sampleSize,
@@ -1133,6 +1235,8 @@ class _EvalCliOptions {
       'init-golden' || 'initgolden' => EvalMode.initGolden,
       'golden' => EvalMode.golden,
       'only-failed' || 'onlyfailed' => EvalMode.onlyFailed,
+      'corpus-no-id' || 'corpusnoid' => EvalMode.corpusNoId,
+      'corpus-all' || 'corpusall' => EvalMode.corpusAll,
       'accept-baseline' || 'acceptbaseline' => EvalMode.acceptBaseline,
       _ => throw FormatException('不支持的运行模式：$raw'),
     };

@@ -20,6 +20,12 @@ enum EvalMode {
   /// 仅重跑错题本与最近修复样本。
   onlyFailed,
 
+  /// 全量评测云盘快照中所有不带显式 TMDB ID 的可播放作品（验证无 ID 盲测极限覆盖）。
+  corpusNoId,
+
+  /// 全量评测云盘快照中的全部归组作品（常与 `--with-explicit --artwork=off` 搭配验收全库 99.5% 指标）。
+  corpusAll,
+
   /// 将最近一次有效评测汇总锁定为当前对比基线。
   acceptBaseline,
 }

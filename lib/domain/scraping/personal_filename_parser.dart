@@ -240,7 +240,7 @@ class PersonalFilenameParser {
   );
 
   static final _genericMarkerBlock = RegExp(
-    r'^(?:ova|oad|oav|sps?|specials?|(?:the[ ._-]+)?movie|剧场版|劇場版|tv版?|extras?|bonus|'
+    r'^(?:(?:ova|oad|oav|sp|special)\d*|sps|specials|(?:the[ ._-]+)?movie|剧场版|劇場版|tv版?|extras?|bonus|'
     r'menus?|pvs?|cms?|ncop|nced|live)$',
     caseSensitive: false,
   );
@@ -451,26 +451,33 @@ class PersonalFilenameParser {
   static final _technicalPart = RegExp(
     r'^(?:\d{3,4}[pi]|\d{3,5}x\d{3,5}|[248]k|(?:ma|hi)?\d{1,2}p|\d{1,3}(?:\.\d{1,3})?fps|'
     r'(?:x|h)\.?26[45]|hevc|avc|av1|vp9|mpeg[24]|'
-    r'(?:aac|flac|opus|ac3|eac3|dts(?:-?hd)?|truehd|alac|lpcm|mp3|ass|ssa|srt|sup|pgs)(?:x\d+)?|'
+    r'\d*(?:aac|flac|opus|ac3|eac3|dts(?:-?hd)?(?:ma)?|truehd|alac|lpcm|mp3|ass|ssa|srt|sup|pgs)(?:[x×]\d+)?|'
+    r'hdma|hd|ma|2audio|multi[-_]?audio|'
     r'\d\.\d(?:ch)?|\dch|yuv(?:420|422|444)p?\d*|12bits?|10bits?|8bits?|10bpp|8bpp|main\d{0,2}p?|als|'
     r'hdr10\+?|hdr|dv|sdr|'
     '${KonataMediaExtensions.sourceTagAlternation}|'
-    r'jpsc|jptc|jpchs|jpcht|chs|cht|sc|tc|gb|big5|jap|jpn|eng|dual[-_]?audio|multi[-_]?subs?|'
+    r'jpsc|jptc|jpchs|jpcht|chs|cht|sc|tc|gb|big5|jap|jpn|eng|enhard|ensub|sourceunknown|dual[-_]?audio|multi[-_]?subs?|'
     '${KonataMediaExtensions.videoExtensionAlternation}|'
     r'[0-9a-f]{8})$',
     caseSensitive: false,
   );
 
+  /// 判断方括号/圆括号内文本是否完全由音视频编码、分辨率、介质或语言等技术标签构成。
+  static bool isTechnicalBracketBlock(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return true;
+    final parts = trimmed
+        .split(RegExp(r'[\s_+.,/|+&-]+'))
+        .where((s) => s.isNotEmpty)
+        .toList();
+    return parts.isNotEmpty && parts.every(_technicalPart.hasMatch);
+  }
+
   static String _stripTechnicalBrackets(String input) => input.replaceAllMapped(
     RegExp(r'\[([^\]]+)\]|【([^】]+)】|\(([^)]+)\)|（([^）]+)）'),
     (m) {
       final raw = (m[1] ?? m[2] ?? m[3] ?? m[4] ?? '').trim();
-      if (raw.isEmpty) return ' ';
-      final parts = raw
-          .split(RegExp(r'[\s_+.,/|+&-]+'))
-          .where((s) => s.isNotEmpty)
-          .toList();
-      if (parts.isNotEmpty && parts.every(_technicalPart.hasMatch)) {
+      if (isTechnicalBracketBlock(raw)) {
         return ' ';
       }
       return m[0]!;

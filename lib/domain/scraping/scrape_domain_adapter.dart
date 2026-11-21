@@ -860,6 +860,18 @@ abstract final class ScrapeDomainAdapter {
       }
       final strippedPart = WorkSeason.withoutPart(hint);
       if (strippedPart != hint) add(strippedPart, expandVariants: false);
+      final strippedMultiSeason = hint
+          .replaceFirst(
+            RegExp(
+              r'\s+s\d{1,2}(?:\s*[+&~～\-]\s*(?:s?\d{1,2}|ova|oad|sp|movie))+\s*$',
+              caseSensitive: false,
+            ),
+            '',
+          )
+          .trim();
+      if (strippedMultiSeason != hint && strippedMultiSeason.isNotEmpty) {
+        add(strippedMultiSeason, expandVariants: false);
+      }
       final strippedRemaster = _stripRemasterTag(hint);
       if (strippedRemaster != hint && strippedRemaster.isNotEmpty) {
         add(strippedRemaster, expandVariants: false);
@@ -944,6 +956,20 @@ abstract final class ScrapeDomainAdapter {
             (_hasCjk(tail) ? tail.length >= 2 : tail.length >= 4)) {
           add(tail, expandVariants: false);
         }
+      }
+    }
+
+    // 极短真片名兜底（如 `W'Z`、`86`、`K`、`C`）：避免全部候选词被长度门限滤空导致零检索。
+    if (out.isEmpty) {
+      final rawFallback = (inv.title.isNotEmpty ? inv.title : folder.cleanTitle)
+          .replaceAll(RegExp(r'\{[^}]*\}'), ' ')
+          .replaceAll(RegExp(r'\(\s*(?:19|20)\d{2}\s*\)'), ' ')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      final cleanFallback = SearchQuerySanitizer.sanitize(rawFallback);
+      final chosen = cleanFallback.isNotEmpty ? cleanFallback : rawFallback;
+      if (chosen.isNotEmpty && !_genericQueryWord.hasMatch(chosen)) {
+        out.add(chosen);
       }
     }
 
@@ -1093,19 +1119,21 @@ abstract final class ScrapeDomainAdapter {
             mappingIndex: mappingIndex,
           )
         : const <BangumiTmdbTarget>[];
-    // 中置信 Bangumi 特别篇/OVA 条目（如拆簇 EX 或双标题 OVA 合放目录）若经离线映射精确指向
-    // 候选池内已有母剧的 Season 0 动画条目，则借该 S0 映射补齐跨源锚定，避免漏绑待复核。
+    // 中置信 Bangumi 特别篇/OVA 条目（含 1~2 集电视特别篇，如拆簇 EX、双标题 OVA 或单集 TV SP）
+    // 若经离线映射精确指向候选池内已有母剧的 Season 0 动画条目，则借该 S0 映射补齐跨源锚定，避免漏绑待复核。
     if (mappedTargets.isEmpty &&
         bgmEval.tier == legacy.MatchTier.medium &&
         bgmEval.best != null) {
       final bgmSubj = bgmEval.best!.subject;
       final bgmPlatform = bgmSubj.platform?.trim().toUpperCase() ?? '';
+      final bgmEps = bgmSubj.totalEpisodes ?? 0;
       final isSpecialLocalOrBgm =
           inv.season == 0 ||
           DirectoryAnalyzer.isOvaText(inv.title) ||
           inv.fileHints.any(DirectoryAnalyzer.isOvaText) ||
           bgmPlatform == 'OVA' ||
-          bgmPlatform == 'OAD';
+          bgmPlatform == 'OAD' ||
+          (inv.shape == WorkShape.feature && bgmEps > 0 && bgmEps <= 2);
       if (isSpecialLocalOrBgm) {
         mappedTargets = bangumiMappedTmdbTargets(
           bgmSubj,
@@ -2716,7 +2744,8 @@ abstract final class ScrapeDomainAdapter {
 
   /// 压制组名、纯技术/语言标签、通用类型词与过短的版本号片段都不是有效作品搜索词。
   static final RegExp _genericQueryWord = RegExp(
-    r'^(?:电影|映画|剧场版|劇場版|the[ ._-]+movie|movie|film|ova|oad|oav|ona|sp|sps|specials?|tv|'
+    r'^(?:电影|映画|剧场版|劇場版|the[ ._-]+movie|movie|film|(?:ova|oad|oav|ona|sp|special)\d*|sps|specials|tv|'
+    r'dts[ ._-]*hd(?:ma)?|'
     r'特典|特别篇|特別編|总集篇|総集編|extras?|bonus|bd|dvd|web|v\d+|\d{1,2}d)$',
     caseSensitive: false,
   );

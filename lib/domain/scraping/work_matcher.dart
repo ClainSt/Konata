@@ -903,6 +903,13 @@ abstract final class WorkMatcher {
       if (fileDriven && filePrimarySim > titleSim) {
         titleSim = filePrimarySim;
       }
+      final isMappedSpecialBgm =
+          matchedBgm != null &&
+          (matchedBgm.isSpecialFormat ||
+              (inventory.shape == WorkShape.feature &&
+                  matchedBgm.seasons.isNotEmpty &&
+                  matchedBgm.seasons.first.count > 0 &&
+                  matchedBgm.seasons.first.count <= 2));
       final parentTvSpecial =
           (verifiedBgm != null &&
               _isParentTvForBangumiSpecial(inventory, candidate, verifiedBgm)) ||
@@ -910,8 +917,7 @@ abstract final class WorkMatcher {
               mappedTarget.season == 0 &&
               candidate.type == 'tv' &&
               candidate.seasons.any((s) => s.number == 0) &&
-              matchedBgm != null &&
-              matchedBgm.isSpecialFormat);
+              isMappedSpecialBgm);
       final localOvaParentTv =
           !parentTvSpecial &&
           _isParentTvForLocalOvaFolder(inventory, candidate, titleSim);

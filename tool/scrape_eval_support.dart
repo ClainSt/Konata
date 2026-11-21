@@ -8,17 +8,26 @@ import 'package:ccplayer/infrastructure/sources/directory_scanner.dart';
 
 /// 读取清单并经真实扫描器与归组拆分器得到作品分组，同时返回扫描与归组耗时（毫秒）。
 Future<({List<GroupedWorkFolder> groups, int files, int scanMs, int groupMs})>
-groupListing(String listingPath, {List<String> roots = const []}) async {
+groupListing(
+  String listingPath, {
+  List<String> roots = const [],
+  bool detectLocalCovers = false,
+}) async {
   final gateway = ListingGateway.fromListing(
     File(listingPath).readAsLinesSync(),
   );
   final clock = Stopwatch()..start();
-  final scan = await const DirectoryScanner().scan(gateway, scanRoots: roots);
+  final scan = await const DirectoryScanner().scan(
+    gateway,
+    scanRoots: roots,
+    detectLocalCovers: detectLocalCovers,
+  );
   final scanMs = clock.elapsedMilliseconds;
   final groups = ScrapeDomainAdapter.groupAndSplitFiles(
     sourceId: 'eval',
     files: scan.files,
     nfoByFolder: scan.nfoByFolder,
+    localCoverByFolder: detectLocalCovers ? scan.localCoverByFolder : const {},
   );
   return (
     groups: groups,

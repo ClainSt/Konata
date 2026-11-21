@@ -276,6 +276,7 @@ Future<int> runEvalCli(
         fetcher: fetcher,
         resolver: resolver,
         enricher: enricher,
+        mappingIndex: mapping.index,
       );
       records.addAll(results);
       networkStatsJson = vcrClient.stats.toJson();
@@ -379,6 +380,7 @@ Future<List<EvalClusterRecord>> _evaluateOnlineBatch({
   required ScrapeCandidateFetcher fetcher,
   required ScrapeMatchResolver resolver,
   required ScrapeArtworkEnricher enricher,
+  required BangumiTmdbIndex? mappingIndex,
 }) async {
   final outputs = List<EvalClusterRecord?>.filled(targets.length, null);
   var nextIndex = 0;
@@ -401,6 +403,7 @@ Future<List<EvalClusterRecord>> _evaluateOnlineBatch({
           fetcher: fetcher,
           resolver: resolver,
           enricher: enricher,
+          mappingIndex: mappingIndex,
         );
       } on EvalKeyRequiredException catch (e) {
         keyRequired ??= e;
@@ -430,6 +433,7 @@ Future<EvalClusterRecord> _evaluateSingleOnline({
   required ScrapeCandidateFetcher fetcher,
   required ScrapeMatchResolver resolver,
   required ScrapeArtworkEnricher enricher,
+  required BangumiTmdbIndex? mappingIndex,
 }) async {
   final info = GoldenSetSampler.inspectFolder(folder);
   final physicalRoot = _normalizePhysicalRoot(folder);
@@ -468,11 +472,26 @@ Future<EvalClusterRecord> _evaluateSingleOnline({
 
   try {
     if (explicitDetail != null) {
+      // 与生产 ScrapeOrchestrator 阶段 2 对齐：同步检索 Bangumi 并运行完整季级消歧与双源艺术图补全。
+      final bgmCandidates = await fetcher.fetchBangumiCandidates(
+        evalFolder,
+        extraQueries: [explicitDetail.title, ...explicitDetail.aliases.take(2)],
+      );
+      final explicitDecision = ScrapeDomainAdapter.evaluateMatch(
+        evalFolder,
+        [explicitDetail],
+        bangumiCandidates: bgmCandidates,
+        mappingIndex: mappingIndex,
+      );
       matchLevel = MatchLevel.autoBind.name;
       bestTmdbKey = '${explicitDetail.mediaType.name}:${explicitDetail.tmdbId}';
       bestTmdbTitle = explicitDetail.title;
       bestTmdbYear = explicitDetail.year;
+      bestBangumiId = explicitDecision.bestBangumi?.subject.id;
+      bestBangumiTitle = explicitDecision.bestBangumi?.subject.displayTitle;
+      bangumiTier = explicitDecision.bestBangumi != null ? 'high' : 'none';
       matchedSeason =
+          explicitDecision.matchedSeason ??
           evalFolder.seasonHint ??
           ScrapeDomainAdapter.fallbackResolveSeason(
             folder: evalFolder,
@@ -493,7 +512,7 @@ Future<EvalClusterRecord> _evaluateSingleOnline({
           detail: hydrated,
           seasonDetail: null,
           matchedSeason: matchedSeason,
-          bangumiCandidate: null,
+          bangumiCandidate: explicitDecision.bestBangumi,
           priority: RequestPriority.background,
           upgradeNonZhCnLogo: artworkMode == EvalArtworkMode.full,
         );

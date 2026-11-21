@@ -505,70 +505,27 @@ abstract final class DirectoryAnalyzer {
         allMain.any((f) => _movieMarker.hasMatch(_plain(f)));
     final isSeries = shape == WorkShape.series && !folderMovie && !fileMovie;
 
-    // 目录名声明了多季合辑（`S1+S2`、`S1-S3`、`X & X 第2期`）时整体季号无意义，逐集季号交由文件主干判定。
-    final multiSeasonFolder = isMultiSeasonTitle(title);
-    int? inferredSeason = specialCollectionTitle != null
-        ? 0
-        : (multiSeasonFolder ? null : WorkSeason.explicit({'title': name}));
-    final titleHints = <String>[];
-    hint(titleHints, title);
-    final folderSplit = splitSeasonSuffix(title, isSeries: isSeries);
-    if (!multiSeasonFolder) inferredSeason ??= folderSplit.season;
-    if (folderSplit.baseTitle != title) {
-      hint(titleHints, folderSplit.baseTitle);
-    }
-    final withoutMarker = title
-        .replaceAll(
-          RegExp(r'剧场版|劇場版|\bOVA\b|\bOAD\b', caseSensitive: false),
-          ' ',
-        )
-        .trim();
-    hint(titleHints, withoutMarker);
     // 按频次降序汇总归一化标题，将出现最频繁的文件名主标题排在首位。
     final counts = <String, int>{};
+    final itemCoverage = <String, int>{};
     for (final item in items) {
+      final itemSeen = <String>{};
       for (final file in item.files) {
         for (final candidate in _fileTitles(
           p.posix.basename(file),
           item.episode,
         )) {
           counts.update(candidate, (n) => n + 1, ifAbsent: () => 1);
+          final normKey = normalize(candidate);
+          if (normKey.length >= 2 && itemSeen.add(normKey)) {
+            itemCoverage.update(normKey, (n) => n + 1, ifAbsent: () => 1);
+          }
         }
       }
     }
     final ranked = counts.keys.toList()
       ..sort((a, b) => counts[b]!.compareTo(counts[a]!));
-    // 目录内同时存在多季主干时，季号已逐集记录，不能再用出现最多的文件主干推断整体季号。
-    if (ranked.isNotEmpty && !multiSeasonStems) {
-      final dominantFile = ranked.first;
-      inferredSeason ??= CloudMediaAssetPresentation.explicitSeasonNumber({
-        'work_title': dominantFile,
-      });
-      final domSplit = splitSeasonSuffix(dominantFile, isSeries: isSeries);
-      inferredSeason ??= domSplit.season;
-    }
-    for (final value in ranked) {
-      hint(fileHints, value);
-      final split = splitSeasonSuffix(value, isSeries: isSeries);
-      if (split.baseTitle != value) {
-        hint(fileHints, split.baseTitle);
-      }
-    }
 
-    final folderYear = WorkSeason.year({'title': name});
-    int? fileYear;
-    if (folderYear == null && shape == WorkShape.feature) {
-      final years = {
-        for (final file in allMain)
-          ?int.tryParse(
-            RegExp(
-                  r'[(\[ ._]((?:19|20)\d{2})[)\] ._]',
-                ).firstMatch(file)?.group(1) ??
-                '',
-          ),
-      };
-      if (years.length == 1) fileYear = years.single;
-    }
     var tmdbId = PersonalFilenameParser.tmdbId(name);
     var tmdbType = PersonalFilenameParser.tmdbType(name);
     if (tmdbId == null && allMain.isNotEmpty) {
@@ -592,15 +549,98 @@ abstract final class DirectoryAnalyzer {
       };
       if (fileBgm.length == 1) bangumiId = fileBgm.single;
     }
+
+    // 复杂目录容错：当文件夹名仅为通用整理/下载桶（如 `新建文件夹`、`2025年7月新番`、`待看`、`BDMV_042`）
+    // 且目录内全部/绝大多数正片视频共享一致的清晰片名主干时，直接以一致文件名主干为主标题，
+    // 消除不规范目录名携带的伪年份与伪序号干扰。
+    String? consistentFileStem;
+    if (ranked.isNotEmpty && items.isNotEmpty) {
+      final topStem = ranked.first;
+      final topNorm = normalize(topStem);
+      final coveredItems = itemCoverage[topNorm] ?? 0;
+      final isConsistent =
+          (items.length >= 2 && coveredItems * 5 >= items.length * 4) ||
+          (items.length == 1 && topNorm.length >= 3);
+      if (isConsistent &&
+          !RegExp(r'^\d+$').hasMatch(topNorm) &&
+          !_isGenericOrIrregularFolderName(topStem)) {
+        consistentFileStem = topStem;
+      }
+    }
+    final useConsistentFileAsPrimary =
+        tmdbId == null &&
+        bangumiId == null &&
+        consistentFileStem != null &&
+        _isGenericOrIrregularFolderName(title);
+
+    final effectiveTitle = useConsistentFileAsPrimary
+        ? consistentFileStem
+        : title;
+    final multiSeasonFolder =
+        !useConsistentFileAsPrimary && isMultiSeasonTitle(effectiveTitle);
+    int? inferredSeason = specialCollectionTitle != null
+        ? 0
+        : (useConsistentFileAsPrimary || multiSeasonFolder
+              ? null
+              : WorkSeason.explicit({'title': name}));
+    final titleHints = <String>[];
+    hint(titleHints, effectiveTitle);
+    final folderSplit = splitSeasonSuffix(effectiveTitle, isSeries: isSeries);
+    if (!multiSeasonFolder) inferredSeason ??= folderSplit.season;
+    if (folderSplit.baseTitle != effectiveTitle) {
+      hint(titleHints, folderSplit.baseTitle);
+    }
+    final withoutMarker = effectiveTitle
+        .replaceAll(
+          RegExp(r'剧场版|劇場版|\bOVA\b|\bOAD\b', caseSensitive: false),
+          ' ',
+        )
+        .trim();
+    hint(titleHints, withoutMarker);
+
+    // 目录内同时存在多季主干时，季号已逐集记录，不能再用出现最多的文件主干推断整体季号。
+    if (ranked.isNotEmpty && !multiSeasonStems) {
+      final dominantFile = ranked.first;
+      inferredSeason ??= CloudMediaAssetPresentation.explicitSeasonNumber({
+        'work_title': dominantFile,
+      });
+      final domSplit = splitSeasonSuffix(dominantFile, isSeries: isSeries);
+      inferredSeason ??= domSplit.season;
+    }
+    for (final value in ranked) {
+      hint(fileHints, value);
+      final split = splitSeasonSuffix(value, isSeries: isSeries);
+      if (split.baseTitle != value) {
+        hint(fileHints, split.baseTitle);
+      }
+    }
+
+    final folderYear = useConsistentFileAsPrimary
+        ? null
+        : WorkSeason.year({'title': name});
+    int? fileYear;
+    if (folderYear == null &&
+        (shape == WorkShape.feature || useConsistentFileAsPrimary)) {
+      final years = {
+        for (final file in allMain)
+          ?int.tryParse(
+            RegExp(
+                  r'[(\[ ._]((?:19|20)\d{2})[)\] ._]',
+                ).firstMatch(file)?.group(1) ??
+                '',
+          ),
+      };
+      if (years.length == 1) fileYear = years.single;
+    }
     return DirectoryInventory._(
       folder: normalizedFolder,
-      title: title,
+      title: effectiveTitle,
       year: folderYear ?? fileYear,
       tmdbId: tmdbId,
       tmdbType: tmdbType,
       bangumiId: bangumiId,
       season: inferredSeason,
-      folderMovieMarker: folderMovie,
+      folderMovieMarker: useConsistentFileAsPrimary ? false : folderMovie,
       fileMovieMarker: fileMovie,
       main: items,
       extras: extras,
@@ -1364,6 +1404,39 @@ abstract final class DirectoryAnalyzer {
       ).replaceAll(RegExp(r'[._]+'), ' ');
 
   static bool _isVideo(String path) => KonataMediaExtensions.isVideoFile(path);
+
+  static final _genericOrganizerFolderToken = RegExp(
+    r'^(?:'
+    r'新建文件夹|未命名|未分类|未整理|待看|在看|补番|新番|完结|追番|收藏|下载|临时|杂项|备份|整理|精选集?|推荐|资源|'
+    r'个人|我的|动漫|动画|番剧|国漫|日漫|剧场版|蓝光|高清|原盘|生肉|熟肉|压制|字幕|合集|全集|归档|仓库|硬盘|网盘|云盘|目录|分类|默认|测试|文件夹|'
+    r'new|folder|untitled|unsorted|temp|tmp|downloads?|misc|backup|animes?|videos?|movies?|series|collection|'
+    r'bdmv|bdrip|webrip|raws?|subs?|watch|later|test|dir|disk|archive|part|vol|disc|batch|pack|all|best|fav|favorites?|my|'
+    r'第?\d+[季期部弹批组]|(?:19|20)\d{2}年?(?:\d{1,2}月?)?|\d{1,2}月'
+    r')+$',
+    caseSensitive: false,
+  );
+
+  /// 判定目录名是否属于不含真实番名信息的通用整理/下载桶（如 `新建文件夹`、`2025年7月新番`、`BDMV_042`）。
+  /// 纯数字片名（如 `86`）不视作通用桶，避免误伤数字番。
+  static bool _isGenericOrIrregularFolderName(String raw) {
+    final stripped = raw
+        .replaceAll(RegExp(r'[\[\]【】()（）{}「」『』<>《》]'), ' ')
+        .replaceAll(RegExp(r'[\s._\-–—~～/\\|&+]+'), ' ')
+        .trim();
+    if (stripped.isEmpty) return true;
+    if (RegExp(r'^\d+$').hasMatch(stripped)) return false;
+    final tokens = stripped.split(RegExp(r'\s+')).where((t) => t.isNotEmpty);
+    var sawOrganizerWord = false;
+    for (final tok in tokens) {
+      if (RegExp(r'^\d+$').hasMatch(tok)) continue;
+      if (_genericOrganizerFolderToken.hasMatch(tok)) {
+        sawOrganizerWord = true;
+        continue;
+      }
+      return false;
+    }
+    return sawOrganizerWord;
+  }
 
   /// 清理刮削源标记、发行年份及方括号标签后的纯净目录名称。
   static String cleanTitle(String folderName) {

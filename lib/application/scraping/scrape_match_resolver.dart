@@ -152,10 +152,16 @@ class ScrapeMatchResolver {
       candidates = mergedByKey.values.toList(growable: false);
     }
 
-    // Bangumi 高置信条目经离线映射命中的其余 TMDB 条目若未被关键词检索召回，按 ID 补拉进候选池。
-    if (!tmdbBlocked() && orderedMappedTargets.isNotEmpty) {
+    // Bangumi 命中（高置信或中置信）经离线映射指向的 TMDB 条目若未被关键词检索召回，按 ID 补拉进候选池参与公平打分。
+    final supplementMappedTargets =
+        (!tmdbBlocked() && bgmBest != null && bgmEval.tier != legacy.MatchTier.none)
+        ? (orderedMappedTargets.isNotEmpty
+              ? orderedMappedTargets
+              : _orderedUniqueMappedTargets(bgmBest.subject).take(2).toList(growable: false))
+        : const <({TmdbMediaType type, int id})>[];
+    if (!tmdbBlocked() && supplementMappedTargets.isNotEmpty) {
       final missing = <({TmdbMediaType type, int id})>[
-        for (final m in orderedMappedTargets)
+        for (final m in supplementMappedTargets)
           if (!candidates.any((c) => c.mediaType == m.type && c.tmdbId == m.id))
             m,
       ];

@@ -876,13 +876,13 @@ List<GroupedWorkFolder> _selectTargetGroups({
   }
 
   if (onlyFilters.isNotEmpty) {
-    selected = selected.where(
-      (g) => onlyFilters.any(
-        (f) =>
-            g.folderRelativePath.contains(f) ||
-            _normalizePhysicalRoot(g).contains(f),
-      ),
-    );
+    selected = selected.where((g) {
+      final relLower = g.folderRelativePath.toLowerCase();
+      final rootLower = _normalizePhysicalRoot(g).toLowerCase();
+      return onlyFilters.any(
+        (f) => relLower.contains(f) || rootLower.contains(f),
+      );
+    });
   }
   return selected.toList(growable: false);
 }
@@ -1069,7 +1069,7 @@ class _EvalCliOptions {
         onlyFilters = raw
             .substring(7)
             .split(RegExp(r'[|,]'))
-            .map((e) => e.trim())
+            .map((e) => e.trim().toLowerCase())
             .where((e) => e.isNotEmpty)
             .toList(growable: false);
       } else if (raw.startsWith('--workers=')) {

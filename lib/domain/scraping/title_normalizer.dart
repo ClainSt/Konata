@@ -330,6 +330,10 @@ class TitleNormalizer {
     final ft = phoneticLatinFold(token);
     if (ft.length < 3) return false;
     if (romajiFolded.contains(ft)) return true;
+    // 英语短元音 `u` 在日语片假名外来词中普遍音译为 `a`（如 `fun->ファン`、`love/club/cut/sun`）。
+    if (ft.contains('u') && romajiFolded.contains(ft.replaceAll('u', 'a'))) {
+      return true;
+    }
     if (ft.length >= 5 && romajiFolded.contains(ft.substring(0, 4))) return true;
     final st = phoneticSkeleton(token);
     if (st.length >= 3 && romajiSkeleton.contains(st)) return true;
@@ -380,10 +384,9 @@ class TitleNormalizer {
     if (localTokens.length < 2) return 0;
 
     final romaji = kanaToRomaji(remoteRaw);
-    final romajiWords = RegExp(r'[a-z0-9]{2,}')
+    final romajiWords = RegExp(r'[a-z0-9]{3,}')
         .allMatches(romaji.toLowerCase())
         .map((m) => m.group(0)!)
-        .where((w) => w != 'to' && w != 'no' && w != 'na' && w != 'wa')
         .toList();
     if (romajiWords.isEmpty) return 0;
     final kanaLatin = romajiWords.join(' ');
@@ -408,6 +411,7 @@ class TitleNormalizer {
     if (covered < 2 || localRatio < 0.35) return 0;
 
     var remoteCovered = 0;
+    var uncoveredDistinctiveRemote = 0;
     for (final word in romajiWords) {
       final wf = phoneticLatinFold(word);
       final ws = phoneticSkeleton(word);
@@ -419,7 +423,11 @@ class TitleNormalizer {
           romajiWords: [word],
         ),
       );
-      if (hit) remoteCovered++;
+      if (hit) {
+        remoteCovered++;
+      } else if (wf.length >= 4) {
+        uncoveredDistinctiveRemote++;
+      }
     }
     final remoteRatio = remoteCovered / romajiWords.length;
     if (remoteCovered < 2 && romajiWords.length >= 2) return 0;
@@ -427,9 +435,22 @@ class TitleNormalizer {
     final foldDice = _bigramDice(localFolded, romajiFolded);
     final skelDice = _bigramDice(localSkeleton, romajiSkeleton);
     final alignment = localRatio * 0.6 + remoteRatio * 0.4;
-    final score =
-        0.48 + 0.24 * alignment + 0.22 * (skelDice > foldDice ? skelDice : foldDice);
-    return score > 0.86 ? 0.86 : score;
+    var score =
+        0.48 +
+        0.24 * alignment +
+        0.22 * (skelDice > foldDice ? skelDice : foldDice);
+    // 当远程片名包含本地未覆盖的显著假名副标题词时按未覆盖数衰减，避免同系列兄弟作（如两部特别篇）
+    // 仅凭共享主标题假名互相抵消分差；反之假名全覆盖且本地覆盖度高时给予上限微增。
+    if (uncoveredDistinctiveRemote > 0 && remoteRatio < 0.70) {
+      score -= 0.14 * uncoveredDistinctiveRemote;
+      if (score < 0) score = 0;
+    } else if (uncoveredDistinctiveRemote == 0 &&
+        remoteRatio >= 0.90 &&
+        localRatio >= 0.45 &&
+        covered >= 4) {
+      score += 0.11;
+    }
+    return score > 0.88 ? 0.88 : score;
   }
 
   static int _longestCommonSubseqLen(String a, String b) {

@@ -341,7 +341,11 @@ class ScrapeCandidateFetcher {
               () => h,
             );
           }
-          if (candidatesMap.length >= cap) break;
+          // 仅统计动画/未标分类候选计入波次上限，防止通用中文词（如 `避难所`）返回大量真人片挤掉英文文件名查询。
+          final animCount = candidatesMap.values
+              .where((h) => h.genreIds.contains(16) || h.genreIds.isEmpty)
+              .length;
+          if (animCount >= cap || candidatesMap.length >= cap * 4) break;
         } catch (error) {
           if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
             networkAborted = true;
@@ -513,7 +517,7 @@ class ScrapeCandidateFetcher {
     final platform = bangumi?.platform?.trim() ?? '';
     final bangumiSaysMovie =
         platform == '剧场版' || platform.toLowerCase() == 'movie';
-    if (bangumiSaysMovie && folder.mainEpisodeNumbers.toSet().length <= 2) {
+    if (bangumiSaysMovie && folder.mainEpisodeNumbers.toSet().length <= 4) {
       return null;
     }
     return TmdbMediaType.tv;
@@ -568,7 +572,10 @@ class ScrapeCandidateFetcher {
               hitMap.putIfAbsent(k, () => h);
             }
           }
-          if (hitMap.length >= 6) break;
+          final animCount = hitMap.values
+              .where((h) => h.genreIds.contains(16))
+              .length;
+          if (animCount >= 6 || hitMap.length >= 24) break;
         } catch (error) {
           if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
             networkAborted = true;
@@ -580,17 +587,47 @@ class ScrapeCandidateFetcher {
       }
     }
 
+    bool hasAnimationHit() =>
+        hitMap.values.any((h) => h.genreIds.contains(16));
+
     await runSearch(queries.take(3), year: bangumi.year, lang: 'zh-CN');
-    if (!networkAborted && hitMap.isEmpty && bangumi.year != null) {
+    if (!networkAborted && !hasAnimationHit() && bangumi.year != null) {
       await runSearch(queries.take(3), lang: 'zh-CN');
     }
-    if (!networkAborted && hitMap.isEmpty) {
+    if (!networkAborted && !hasAnimationHit()) {
+      final asciiQueries = queries
+          .where((q) => RegExp(r'[A-Za-z]{3,}').hasMatch(q))
+          .take(2)
+          .toList(growable: false);
+      if (asciiQueries.isNotEmpty) {
+        if (bangumi.year != null) {
+          await runSearch(asciiQueries, year: bangumi.year, lang: 'en-US');
+        }
+        if (!networkAborted && !hasAnimationHit()) {
+          await runSearch(asciiQueries, lang: 'en-US');
+        }
+      }
+    }
+    if (!networkAborted && !hasAnimationHit()) {
       await runSearch(queries.take(2), lang: 'ja-JP');
     }
     if (hitMap.isEmpty) return existingDetails;
 
+    final rankedHits = hitMap.values.toList(growable: false)
+      ..sort((a, b) {
+        final aAnim = a.genreIds.contains(16) ? 0 : 1;
+        final bAnim = b.genreIds.contains(16) ? 0 : 1;
+        if (aAnim != bAnim) return aAnim.compareTo(bAnim);
+        final aYear = (bangumi.year != null && a.year == bangumi.year) ? 0 : 1;
+        final bYear = (bangumi.year != null && b.year == bangumi.year) ? 0 : 1;
+        if (aYear != bYear) return aYear.compareTo(bYear);
+        final aPoster = (a.posterPath?.isNotEmpty ?? false) ? 0 : 1;
+        final bPoster = (b.posterPath?.isNotEmpty ?? false) ? 0 : 1;
+        return aPoster.compareTo(bPoster);
+      });
+
     final rescued = await _fetchAllInOrder(
-      hitMap.values.take(4),
+      rankedHits.take(4),
       (hit) => _tmdbService.getWorkDetail(
         hit.tmdbId,
         hit.mediaType,

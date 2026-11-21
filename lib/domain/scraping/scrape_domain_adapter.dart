@@ -796,6 +796,16 @@ abstract final class ScrapeDomainAdapter {
     void add(String raw, {bool expandVariants = true}) {
       addSingle(raw);
       if (!expandVariants) return;
+      final withoutInfixOva = raw
+          .replaceAll(
+            RegExp(r'(?<=\s)(?:OVA|OAD|OAV)(?=\s+\S)', caseSensitive: false),
+            ' ',
+          )
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      if (withoutInfixOva != raw && withoutInfixOva.length >= 4) {
+        addSingle(withoutInfixOva);
+      }
       for (final rv in _romanNumeralVariants(raw)) {
         addSingle(rv);
       }
@@ -804,7 +814,7 @@ abstract final class ScrapeDomainAdapter {
       }
     }
 
-    // Cross-provider rescue: Bangumi 的官方中日文名用于救回本地同义译名在 TMDB 搜索 0 命中的条目。
+    // 跨源救回：使用 Bangumi 官方中日文名补搜本地同义译名在 TMDB 零命中的条目。
     if (bangumiCandidate != null) {
       final bgm = bangumiCandidate.subject;
       if (bgm.displayTitle.isNotEmpty) {
@@ -1040,22 +1050,103 @@ abstract final class ScrapeDomainAdapter {
     };
     final matchCandidates = [for (final c in candidates) _toMatchCandidate(c)];
     // Bangumi 高置信条目经离线映射表命中的 TMDB 目标（仅限已在候选池中的），作为跨源加权与保守季参考依据。
-    // 零评分人数的条目多为新建的低质量重复条目，不给予映射加权。
-    final mappedTargets = bgmEval.tier == legacy.MatchTier.high
+    // 零评分人数条目仅在具备动画分类与封面且候选池无同类型同年份已评分竞争正主时允许参与（如冷门独立 OAD）。
+    bool mappedCandidateEligible(TmdbWorkDetail d) {
+      if (d.voteCount != 0) return true;
+      final hasPoster = d.posterPath?.trim().isNotEmpty ?? false;
+      if (!d.genreIds.contains(16) || !hasPoster) return false;
+      final hasRatedPeer = byKey.values.any(
+        (other) =>
+            !identical(other, d) &&
+            other.mediaType == d.mediaType &&
+            (other.voteCount ?? 0) > 0 &&
+            other.genreIds.contains(16) &&
+            (d.year == null ||
+                other.year == null ||
+                (d.year! - other.year!).abs() <= 1),
+      );
+      return !hasRatedPeer;
+    }
+
+    final eligibleMappedKeys = {
+      for (final e in byKey.entries)
+        if (mappedCandidateEligible(e.value)) e.key,
+    };
+    var mappedTargets = bgmEval.tier == legacy.MatchTier.high
         ? bangumiMappedTmdbTargets(
             bgmEval.best?.subject,
-            {
-              for (final e in byKey.entries)
-                if (e.value.voteCount != 0) e.key,
-            },
+            eligibleMappedKeys,
             mappingIndex: mappingIndex,
           )
         : const <BangumiTmdbTarget>[];
+    // 中置信 Bangumi 特别篇/OVA 条目（如拆簇 EX 或双标题 OVA 合放目录）若经离线映射精确指向
+    // 候选池内已有母剧的 Season 0 动画条目，则借该 S0 映射补齐跨源锚定，避免漏绑待复核。
+    if (mappedTargets.isEmpty &&
+        bgmEval.tier == legacy.MatchTier.medium &&
+        bgmEval.best != null) {
+      final bgmSubj = bgmEval.best!.subject;
+      final bgmPlatform = bgmSubj.platform?.trim().toUpperCase() ?? '';
+      final isSpecialLocalOrBgm =
+          inv.season == 0 ||
+          DirectoryAnalyzer.isOvaText(inv.title) ||
+          inv.fileHints.any(DirectoryAnalyzer.isOvaText) ||
+          bgmPlatform == 'OVA' ||
+          bgmPlatform == 'OAD';
+      if (isSpecialLocalOrBgm) {
+        mappedTargets = bangumiMappedTmdbTargets(
+          bgmSubj,
+          eligibleMappedKeys,
+          mappingIndex: mappingIndex,
+        )
+            .where((t) {
+              if (t.type != TmdbMediaType.tv || t.season != 0) return false;
+              final detail = byKey[t.key];
+              return detail != null && detail.genreIds.contains(16);
+            })
+            .toList(growable: false);
+      }
+    }
     final mappedKeys = {
       for (final t in mappedTargets) t.key,
     }.toList(growable: false);
     final isMultiSeasonBundle = DirectoryAnalyzer.isMultiSeasonTitle(inv.title);
-    final primaryMapped = mappedTargets.firstOrNull;
+    var primaryMapped = mappedTargets.firstOrNull;
+    // 当本地目录或 Bangumi 明确指向剧场版、且候选池已有同名独立 Movie 条目时，
+    // 不让映射表里遗留的母剧 TV 映射加权（+20）反压真正的独立剧场版。
+    final expectsMovie =
+        folder.isMovieHint ||
+        (bgmEval.best?.subject.platform?.trim() ?? '') == '剧场版';
+    if (expectsMovie &&
+        primaryMapped != null &&
+        primaryMapped.type == TmdbMediaType.tv) {
+      final hasMatchingStandaloneMovie = byKey.values.any((c) {
+        if (c.mediaType != TmdbMediaType.movie || (c.voteCount ?? 1) == 0) {
+          return false;
+        }
+        final movieNames = [
+          c.title,
+          if (c.originalTitle != null) c.originalTitle!,
+          ...c.aliases,
+        ];
+        final localRef = [
+          inv.title,
+          if (bgmEval.best != null) bgmEval.best!.subject.displayTitle,
+          if (bgmEval.best != null) bgmEval.best!.subject.name,
+        ];
+        return movieNames.any((mn) {
+          final mNorm = legacy.WorkMatcher.canonTitleKey(mn);
+          if (mNorm.length < 4) return false;
+          return localRef.any((lr) {
+            final lNorm = legacy.WorkMatcher.canonTitleKey(lr);
+            return lNorm.length >= 4 &&
+                legacy.WorkMatcher.similarity(lNorm, mNorm) >= 0.80;
+          });
+        });
+      });
+      if (hasMatchingStandaloneMovie) {
+        primaryMapped = null;
+      }
+    }
     final mappedSeasonHint = isMultiSeasonBundle ? null : primaryMapped?.season;
 
     final result = legacy.WorkMatcher.tmdb(
@@ -2740,10 +2831,26 @@ abstract final class ScrapeDomainAdapter {
         extraTitleHints.add('$parentSeriesTitle OVA');
       }
     }
-    for (final seg in explicitSegments) {
-      final clean = seg.trim();
+    // 若子簇已精确对齐至 `A & B` 合集目录中的某一段标题，则仅保留该段而不注入兄弟段，
+    // 防止兄弟作品的 Bangumi/TMDB 候选反向拉平本簇分差。
+    final clusterTitleNorm = DirectoryAnalyzer.normalize(
+      cluster.inventory.title,
+    );
+    final matchedSeg = explicitSegments.where((seg) {
+      final sn = DirectoryAnalyzer.normalize(seg);
+      return sn.isNotEmpty && sn == clusterTitleNorm;
+    }).firstOrNull;
+    if (matchedSeg != null) {
+      final clean = matchedSeg.trim();
       if (clean.isNotEmpty && !extraQueries.contains(clean)) {
         extraQueries.add(clean);
+      }
+    } else {
+      for (final seg in explicitSegments) {
+        final clean = seg.trim();
+        if (clean.isNotEmpty && !extraQueries.contains(clean)) {
+          extraQueries.add(clean);
+        }
       }
     }
     return (

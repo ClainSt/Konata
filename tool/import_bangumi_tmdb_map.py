@@ -164,6 +164,19 @@ def fetch_anime_lists_tvdb() -> tuple[dict[int, int], dict[int, int]]:
     return parse_anime_lists_tvdb(raw)
 
 
+def _parse_positive_int(raw: object) -> int | None:
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw if raw > 0 else None
+    if isinstance(raw, str):
+        text = raw.strip()
+        if text.isdigit():
+            value = int(text)
+            return value if value > 0 else None
+    return None
+
+
 def parse_anime_lists_tvdb(items: object) -> tuple[dict[int, int], dict[int, int]]:
     tvdb_by_tmdb: dict[int, int] = {}
     tvdb_by_bgm: dict[int, int] = {}
@@ -172,14 +185,23 @@ def parse_anime_lists_tvdb(items: object) -> tuple[dict[int, int], dict[int, int
     for item in items:
         if not isinstance(item, dict):
             continue
-        raw_tvdb = item.get('thetvdb_id')
-        if not isinstance(raw_tvdb, int) or raw_tvdb <= 0:
+        # 兼容 Fribb/anime-lists 新版 `tvdb_id` 与旧版 `thetvdb_id` 字段。
+        raw_tvdb = _parse_positive_int(item.get('tvdb_id')) or _parse_positive_int(
+            item.get('thetvdb_id')
+        )
+        if raw_tvdb is None:
             continue
-        raw_tmdb = item.get('themoviedb_id')
-        if isinstance(raw_tmdb, int) and raw_tmdb > 0 and raw_tmdb not in tvdb_by_tmdb:
+        # 兼容新版 `themoviedb_id: {"tv": 26209}` 对象结构与旧版裸整型字段。
+        raw_tmdb_field = item.get('themoviedb_id')
+        raw_tmdb = (
+            _parse_positive_int(raw_tmdb_field.get('tv'))
+            if isinstance(raw_tmdb_field, dict)
+            else _parse_positive_int(raw_tmdb_field)
+        )
+        if raw_tmdb is not None and raw_tmdb not in tvdb_by_tmdb:
             tvdb_by_tmdb[raw_tmdb] = raw_tvdb
-        raw_bgm = item.get('bangumi_id')
-        if isinstance(raw_bgm, int) and raw_bgm > 0 and raw_bgm not in tvdb_by_bgm:
+        raw_bgm = _parse_positive_int(item.get('bangumi_id'))
+        if raw_bgm is not None and raw_bgm not in tvdb_by_bgm:
             tvdb_by_bgm[raw_bgm] = raw_tvdb
     return tvdb_by_tmdb, tvdb_by_bgm
 

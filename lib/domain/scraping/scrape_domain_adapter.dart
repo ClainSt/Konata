@@ -36,6 +36,7 @@ abstract final class ScrapeDomainAdapter {
     r'^(?:动画|番剧|电影|剧场版|劇場版|动漫|影视|日漫|国漫|美漫|'
     r'动画[-_]?单作品|动画[-_]?多作品|动画[-_]?天雪论坛|动画[-_]?系列作未收集|'
     r'天雪论坛|系列作未收集|未添加\s*tmdb(?:\s*id)?|'
+    r'乱目录测试|测试目录?|待整理|未整理|临时|未分类|杂项|收藏夹?|'
     r'anime|movies?|tv|series|bdmv|bdrip|video|media|downloads?)$',
     caseSensitive: false,
   );
@@ -771,7 +772,7 @@ abstract final class ScrapeDomainAdapter {
     final seen = <String>{};
     final out = <String>[];
 
-    void addSingle(String raw) {
+    void addSingle(String raw, {bool allowGroupHomonym = false}) {
       final stripped = raw
           .replaceAll(RegExp(r'\{[^}]*\}'), ' ')
           .replaceAll(RegExp(r'\(\s*(?:19|20)\d{2}\s*\)'), ' ')
@@ -782,7 +783,9 @@ abstract final class ScrapeDomainAdapter {
         _cutTechnicalTail(stripped),
       );
       final clean = sanitized.isNotEmpty ? sanitized : stripped;
-      if (clean.isEmpty || _isJunkQuery(clean) || _isJunkQuery(stripped)) {
+      if (clean.isEmpty ||
+          _isJunkQuery(clean, allowGroupHomonym: allowGroupHomonym) ||
+          _isJunkQuery(stripped, allowGroupHomonym: allowGroupHomonym)) {
         return;
       }
       final key = clean.toLowerCase().replaceAll(
@@ -793,9 +796,68 @@ abstract final class ScrapeDomainAdapter {
       out.add(clean);
     }
 
-    void add(String raw, {bool expandVariants = true}) {
-      addSingle(raw);
+    final deferredFallbacks = <String>[];
+
+    void add(
+      String raw, {
+      bool expandVariants = true,
+      bool allowGroupHomonym = false,
+      bool immediateSpecialFallback = false,
+    }) {
+      addSingle(raw, allowGroupHomonym: allowGroupHomonym);
       if (!expandVariants) return;
+      void emitFallback(String term) {
+        if (immediateSpecialFallback) {
+          addSingle(term, allowGroupHomonym: allowGroupHomonym);
+        } else {
+          deferredFallbacks.add(term);
+        }
+      }
+
+      // 剥离尾部或中置 OVA/OAD/OADs/OVA1/TVSP/The Movie 及其后副标题，提炼母系列检索词。
+      final beforeSpecial = RegExp(
+        r'^(.+?)\s+(?:the\s+movie|movie|ova\d*|oads?|oav\d*|tvsp|sp\d+|special\s+ride)\b',
+        caseSensitive: false,
+      ).firstMatch(raw.trim());
+      if (beforeSpecial != null) {
+        final baseSeries = beforeSpecial
+            .group(1)!
+            .replaceFirst(
+              RegExp(r'\s+the\s+animation$', caseSensitive: false),
+              '',
+            )
+            .trim();
+        if (baseSeries.length >= 4 || _hasCjk(baseSeries)) {
+          emitFallback(baseSeries);
+        }
+      }
+      // 罗马音 + 日文假名双语拼接文件名（如 `Yowamushi Pedal 弱虫ペダル`、`Himouto! Umaru chan 干物妹! うまるちゃん`、`Yuyushiki ゆゆ式`）：
+      // 仅当日文段含平/片假名时拆出拉丁段与日文段，绝不误拆 `Code Geass 亡国的阿基德` 这类单语中英混合正式片名。
+      final bilingual = RegExp(
+        r'^([A-Za-z0-9][A-Za-z0-9\s!\-’\x27.,]{3,}?)\s+([\u3040-\u9fff][^\r\n]{1,})$',
+      ).firstMatch(raw.trim());
+      if (bilingual != null &&
+          RegExp(r'[\u3040-\u30ff]').hasMatch(bilingual.group(2)!)) {
+        final latinSeg = bilingual.group(1)!.trim();
+        final cjkSeg = bilingual
+            .group(2)!
+            .split(
+              RegExp(
+                r'\s+(?:ova\d*|oads?|oab|sp\d*|special|「|『)',
+                caseSensitive: false,
+              ),
+            )
+            .first
+            .trim();
+        if (latinSeg.length >= 4) {
+          emitFallback(latinSeg);
+        }
+        if (cjkSeg.length >= 2 &&
+            (RegExp(r'[\u4e00-\u9fff]').hasMatch(cjkSeg) ||
+                cjkSeg.length >= 5)) {
+          emitFallback(cjkSeg);
+        }
+      }
       final withoutInfixOva = raw
           .replaceAll(
             RegExp(r'(?<=\s)(?:OVA|OAD|OAV)(?=\s+\S)', caseSensitive: false),
@@ -854,9 +916,16 @@ abstract final class ScrapeDomainAdapter {
             0.50;
     for (var i = 0; i < hints.length; i++) {
       final hint = hints[i];
-      add(hint, expandVariants: i == 0);
+      add(hint, expandVariants: i == 0, allowGroupHomonym: i == 0);
       if (i == 0 && divergentPrimaryFile) {
-        add(inv.fileHints.first, expandVariants: true);
+        add(
+          inv.fileHints.first,
+          expandVariants: true,
+          allowGroupHomonym: true,
+          // 仅当目录主提示单一（典型于乱目录名，如 `阿伟推荐的神作2`）时立即展开双语/去后缀兜底词进第一波；
+          // 规范中文目录（如 `飙速宅男 OAD`）已含去后缀主名 `hints[1]`，避免挤占第一波槽位。
+          immediateSpecialFallback: hints.length == 1,
+        );
       }
       final strippedPart = WorkSeason.withoutPart(hint);
       if (strippedPart != hint) add(strippedPart, expandVariants: false);
@@ -892,8 +961,9 @@ abstract final class ScrapeDomainAdapter {
       add('${inv.title} TWO');
     }
 
-    for (final fh in inv.fileHints) {
-      add(fh);
+    for (var i = 0; i < inv.fileHints.length; i++) {
+      final fh = inv.fileHints[i];
+      add(fh, allowGroupHomonym: i == 0);
       final strippedRemaster = _stripRemasterTag(fh);
       if (strippedRemaster != fh && strippedRemaster.isNotEmpty) {
         add(strippedRemaster, expandVariants: false);
@@ -959,6 +1029,10 @@ abstract final class ScrapeDomainAdapter {
       }
     }
 
+    for (final fb in deferredFallbacks) {
+      addSingle(fb);
+    }
+
     // 极短真片名兜底（如 `W'Z`、`86`、`K`、`C`）：避免全部候选词被长度门限滤空导致零检索。
     if (out.isEmpty) {
       final rawFallback = (inv.title.isNotEmpty ? inv.title : folder.cleanTitle)
@@ -976,8 +1050,12 @@ abstract final class ScrapeDomainAdapter {
     return out.take(10).toList(growable: false);
   }
 
-  /// 提取高置信度目录括号年份提示（用于 TMDB 首波精确年份检索）。
+  /// 提取高置信度目录括号年份提示（用于 TMDB 首波精确年份检索）；
+  /// 当目录分析器已主动清空通用乱目录伪年份时不再从路径中强行复活该伪年份。
   static int? extractSearchYear(GroupedWorkFolder folder) {
+    if (folder.inventory != null && folder.inventory!.year == null) {
+      return null;
+    }
     final physPath = (folder.physicalRootFolder ?? folder.folderRelativePath)
         .replaceAll('\\', '/');
     final segments = physPath
@@ -1119,31 +1197,56 @@ abstract final class ScrapeDomainAdapter {
             mappingIndex: mappingIndex,
           )
         : const <BangumiTmdbTarget>[];
-    // 中置信 Bangumi 特别篇/OVA 条目（含 1~2 集电视特别篇，如拆簇 EX、双标题 OVA 或单集 TV SP）
-    // 若经离线映射精确指向候选池内已有母剧的 Season 0 动画条目，则借该 S0 映射补齐跨源锚定，避免漏绑待复核。
+    // 中置信 Bangumi 特别篇/OVA/独立剧场版条目（含 1~2 集电视特别篇或单文件独立剧场版）
+    // 若经离线映射精确指向候选池内已有母剧的 Season 0 动画条目或独立动画电影，则借该映射补齐跨源锚定，避免漏绑待复核。
     if (mappedTargets.isEmpty &&
         bgmEval.tier == legacy.MatchTier.medium &&
         bgmEval.best != null) {
       final bgmSubj = bgmEval.best!.subject;
       final bgmPlatform = bgmSubj.platform?.trim().toUpperCase() ?? '';
       final bgmEps = bgmSubj.totalEpisodes ?? 0;
+      final isBgmMovie = bgmPlatform == '剧场版' || bgmPlatform == 'MOVIE';
       final isSpecialLocalOrBgm =
           inv.season == 0 ||
           DirectoryAnalyzer.isOvaText(inv.title) ||
           inv.fileHints.any(DirectoryAnalyzer.isOvaText) ||
+          DirectoryAnalyzer.isOva(inv) ||
           bgmPlatform == 'OVA' ||
           bgmPlatform == 'OAD' ||
-          (inv.shape == WorkShape.feature && bgmEps > 0 && bgmEps <= 2);
-      if (isSpecialLocalOrBgm) {
+          (inv.shape == WorkShape.feature &&
+              (isBgmMovie || (bgmEps > 0 && bgmEps <= 2)));
+      final seqMatch = RegExp(r'(?<!\d)([2-9])(?!\d)').firstMatch(inv.title);
+      final localSeqDigit = seqMatch?.group(1);
+      final isSequelCorroboratedTv =
+          localSeqDigit != null &&
+          bgmSubj.displayTitle.contains(localSeqDigit) &&
+          inv.shape == WorkShape.series;
+      if (isSpecialLocalOrBgm || isSequelCorroboratedTv) {
         mappedTargets = bangumiMappedTmdbTargets(
           bgmSubj,
           eligibleMappedKeys,
           mappingIndex: mappingIndex,
         )
             .where((t) {
-              if (t.type != TmdbMediaType.tv || t.season != 0) return false;
               final detail = byKey[t.key];
-              return detail != null && detail.genreIds.contains(16);
+              if (detail == null || !detail.genreIds.contains(16)) return false;
+              if (isSpecialLocalOrBgm &&
+                  t.type == TmdbMediaType.tv &&
+                  t.season == 0) {
+                return true;
+              }
+              if (isSpecialLocalOrBgm &&
+                  t.type == TmdbMediaType.movie &&
+                  inv.shape == WorkShape.feature &&
+                  (isBgmMovie || bgmPlatform == 'OVA' || bgmPlatform == 'OAD')) {
+                return true;
+              }
+              if (isSequelCorroboratedTv &&
+                  t.type == TmdbMediaType.tv &&
+                  detail.title.contains(localSeqDigit)) {
+                return true;
+              }
+              return false;
             })
             .toList(growable: false);
       }
@@ -2718,9 +2821,10 @@ abstract final class ScrapeDomainAdapter {
 
   static bool _hasCjk(String s) => RegExp(r'[\u3040-\u9fff]').hasMatch(s);
 
-  /// 场景式命名在标题后紧跟年份、分辨率、编码或季集标记，搜索词从首个此类标记处截断（标记不在开头时）。
+  /// 场景式命名在标题后紧跟合理发行年份（1950~2029）、分辨率、编码或季集标记，搜索词从首个此类标记处截断（标记不在开头时）；
+  /// 科幻片名自带的未来年份（如 `Demon Lord 2099`）不被截断。
   static final RegExp _queryTechnicalTail = RegExp(
-    r'(?<![a-z0-9぀-鿿])(?:(?:19|20)\d{2}|s\d{1,2}e\d{1,4}|tvsp\d{1,3}|\d{3,4}[pi]|[248]k|x26[45]|h\.?26[45]|'
+    r'(?<![a-z0-9぀-鿿])(?:(?:19[5-9]\d|20[0-2]\d)|s\d{1,2}e\d{1,4}|tvsp\d{1,3}|\d{3,4}[pi]|[248]k|x26[45]|h\.?26[45]|'
     r'hevc|avc|flac|aac|ac3|dual[ ._-]?audio|10bits?|8bits?|bdrip|dvdrip|webrip|web[ ._-]?dl|blu[ ._-]?ray)(?![a-z0-9])',
     caseSensitive: false,
   );
@@ -2744,16 +2848,18 @@ abstract final class ScrapeDomainAdapter {
 
   /// 压制组名、纯技术/语言标签、通用类型词与过短的版本号片段都不是有效作品搜索词。
   static final RegExp _genericQueryWord = RegExp(
-    r'^(?:电影|映画|剧场版|劇場版|the[ ._-]+movie|movie|film|(?:ova|oad|oav|ona|sp|special)\d*|sps|specials|tv|'
+    r'^(?:电影|映画|剧场版|劇場版|the[ ._-]+movie|movie|film|(?:ova|oad|oav|oab|ona|sp|special)\d*|sps|specials|tv|'
     r'dts[ ._-]*hd(?:ma)?|'
+    r'完结篇|完結編|前篇|前編|后篇|後編|中篇|中編|上篇|下篇|'
     r'特典|特别篇|特別編|总集篇|総集編|extras?|bonus|bd|dvd|web|v\d+|\d{1,2}d)$',
     caseSensitive: false,
   );
 
-  static bool _isJunkQuery(String query) {
+  static bool _isJunkQuery(String query, {bool allowGroupHomonym = false}) {
     final trimmed = query.trim();
     if (_genericQueryWord.hasMatch(trimmed)) return true;
-    if (PersonalFilenameParser.isReleaseGroupTag(trimmed) &&
+    if (!allowGroupHomonym &&
+        PersonalFilenameParser.isReleaseGroupTag(trimmed) &&
         !_hasCjk(
           trimmed.replaceAll(RegExp(r'字幕[组組社]|[汉漢]化[组組]|[压壓]制[组組]'), ''),
         )) {
@@ -3088,11 +3194,22 @@ abstract final class ScrapeDomainAdapter {
       return years.any((y) => (y - bgmYear).abs() <= 1);
     }
 
+    // 漏标动画类型(16)的日本小条目仅在含中日文独有片名且年份完全一致时放行锚定，
+    // 杜绝纯拉丁通用词（如英文 `Shelter`）误将真人惊悚/剧情片锚定为动画。
+    bool genreSafeForAnchor(TmdbWorkDetail d) {
+      if (mappedKeys.contains(_detailKey(d))) return true;
+      if (d.genreIds.isEmpty || d.genreIds.contains(16)) return true;
+      final tmdbText = '${d.title} ${d.originalTitle ?? ''}';
+      final bgmText = '${bgm.name} ${bgm.nameCn}';
+      return _hasCjk(tmdbText) && _hasCjk(bgmText) && d.year == bgmYear;
+    }
+
     final anchored = [
       for (final c in scored)
         if (c.score >= 30 &&
             !c.reasons.contains('stub_entry') &&
             yearOk(c.detail) &&
+            genreSafeForAnchor(c.detail) &&
             (mappedKeys.contains(_detailKey(c.detail)) ||
                 _tmdbNamesMatchBangumi(c.detail, bgm)))
           c,

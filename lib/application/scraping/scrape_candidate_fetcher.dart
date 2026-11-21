@@ -407,6 +407,61 @@ class ScrapeCandidateFetcher {
       await collectWave(queries.take(3), language: 'ja-JP', cap: 12);
     }
 
+    // Wave 4（零召回兜底）：前 3 波均彻底零召回时，先对多词英文/罗马音查询逐级裁去尾部外传/版本词，
+    // 仍零召回且短集数（<=4 集）曾锁定仅搜 TV 时，再放开电影检索一次（如分篇剧场版）。
+    // 正常已有候选的作品完全零开销。
+    if (!networkAborted && candidatesMap.isEmpty) {
+      final trimmedFallbacks = <String>[];
+      final seenTrim = <String>{for (final q in queries) q.toLowerCase()};
+      for (final q in queries.take(4)) {
+        final tokens = q
+            .split(RegExp(r'\s+'))
+            .where((t) => t.isNotEmpty)
+            .toList(growable: false);
+        if (tokens.length < 3 || RegExp(r'[\u4e00-\u9fff]').hasMatch(q)) {
+          continue;
+        }
+        for (var drop = 1; drop <= 2 && tokens.length - drop >= 2; drop++) {
+          final cand = tokens.take(tokens.length - drop).join(' ').trim();
+          if (cand.length >= 6 && seenTrim.add(cand.toLowerCase())) {
+            trimmedFallbacks.add(cand);
+          }
+        }
+      }
+      if (trimmedFallbacks.isNotEmpty) {
+        await collectWave(trimmedFallbacks.take(4), cap: 8);
+      }
+      if (!networkAborted &&
+          candidatesMap.isEmpty &&
+          typeFilter == TmdbMediaType.tv &&
+          folder.mainEpisodeNumbers.toSet().length <= 4) {
+        for (final q in queries.take(2)) {
+          try {
+            final movieHits = await _tmdbService.searchAnime(
+              q,
+              language: 'zh-CN',
+              mediaTypeFilter: TmdbMediaType.movie,
+              priority: RequestPriority.background,
+            );
+            for (final h in movieHits) {
+              candidatesMap.putIfAbsent(
+                '${h.mediaType.name}:${h.tmdbId}',
+                () => h,
+              );
+            }
+            if (candidatesMap.isNotEmpty) break;
+          } catch (error) {
+            if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+              networkAborted = true;
+              onNetworkError?.call(error);
+              break;
+            }
+            rethrow;
+          }
+        }
+      }
+    }
+
     if (candidatesMap.isEmpty) return const [];
 
     // 取初步打分前 6 条与原始结果前 2 条并集拉取完整详情。

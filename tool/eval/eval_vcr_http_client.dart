@@ -149,6 +149,7 @@ class EvalVcrHttpClient extends http.BaseClient {
     required Directory cacheDir,
     this.refreshPolicy = EvalCacheRefreshPolicy.none,
     this.offlineOnly = false,
+    this.offlineSoft = false,
     this.allowFanartRelay = false,
     Map<String, EvalDomainQuota>? domainQuotas,
     this.maxRetries = 4,
@@ -197,6 +198,12 @@ class EvalVcrHttpClient extends http.BaseClient {
 
   /// 仅读缓存模式（未命中时不触发真实网络，直接抛出缺密或返回 503）。
   final bool offlineOnly;
+
+  /// 离线软回退模式（仅读缓存，未命中时不中止批处理，而是返回空搜索结果或 404 并记录未命中键）。
+  final bool offlineSoft;
+
+  /// 本次离线软回退期间记录到的缓存未命中规范化键列表。
+  final List<String> missedKeys = <String>[];
 
   /// 是否允许在未配置直连项目密钥时低速访问公开 Fanart 中继。
   final bool allowFanartRelay;
@@ -361,6 +368,34 @@ class EvalVcrHttpClient extends http.BaseClient {
     }
 
     domainStats.cacheMisses++;
+
+    if (offlineSoft) {
+      missedKeys.add(keyInfo.canonicalKey);
+      final pathLower = request.url.path.toLowerCase();
+      final isSearch =
+          pathLower.contains('/search') || pathLower.contains('/v0/search');
+      if (isSearch) {
+        final emptyBody = keyInfo.domain == 'bgm'
+            ? '{"data":[],"total":0}'
+            : '{"page":1,"results":[],"total_pages":0,"total_results":0}';
+        final bytes = utf8.encode(emptyBody);
+        return http.StreamedResponse(
+          Stream.value(bytes),
+          200,
+          headers: const {'content-type': 'application/json; charset=utf-8'},
+          request: request,
+          contentLength: bytes.length,
+        );
+      }
+      final bytes = utf8.encode('{}');
+      return http.StreamedResponse(
+        Stream.value(bytes),
+        404,
+        headers: const {'content-type': 'application/json; charset=utf-8'},
+        request: request,
+        contentLength: bytes.length,
+      );
+    }
 
     if (offlineOnly) {
       throw EvalKeyRequiredException(

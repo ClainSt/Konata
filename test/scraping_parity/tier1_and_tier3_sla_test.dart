@@ -714,6 +714,444 @@ void main() {
       );
       expect(movieCluster.inventory.title, contains('锁链战记'));
     });
+
+    test('档位 3 实战深化：罗马音文件在带伪年份/伪续作乱目录下双向驱动 Bangumi+TMDB 且拒绑非动画片', () {
+      // 1) 阿伟推荐的神作2 (2026) 包装 2011 罗马音单集剧场版 Hoshi wo Ou Kodomo
+      final hoshi = _buildGroupedFolder(
+        folderPath: '乱目录测试/阿伟推荐的神作2 (2026)',
+        fileNames: const ['Hoshi_wo_Ou_Kodomo_(2011)_[1080p,BluRay,x264].mkv'],
+      );
+      const hoshiTmdb = TmdbWorkDetail(
+        tmdbId: 79707,
+        mediaType: TmdbMediaType.movie,
+        title: '追逐繁星的孩子',
+        originalTitle: '星を追う子ども',
+        aliases: ['Children Who Chase Lost Voices', 'Hoshi wo Ou Kodomo'],
+        year: 2011,
+        voteCount: 510,
+        genreIds: [16, 12, 14],
+      );
+      const hoshiBgm = BangumiSubjectCandidate(
+        id: 9912,
+        name: '星を追う子ども',
+        nameCn: '追逐繁星的孩子',
+        aliases: ['Hoshi wo Ou Kodomo'],
+        year: 2011,
+        totalEpisodes: 1,
+        platform: '剧场版',
+      );
+      final hoshiDec = ScrapeDomainAdapter.evaluateMatch(
+        hoshi,
+        const [hoshiTmdb],
+        bangumiCandidates: const [hoshiBgm],
+      );
+      expect(hoshiDec.level, MatchLevel.autoBind);
+      expect(hoshiDec.best?.detail.tmdbId, 79707);
+
+      // 2) 非动画惊悚片 movie:472094 (genres=[53]) 绝不得经 bangumi_anchored 错绑到动画 MV 避难所
+      final shelter = _buildGroupedFolder(
+        folderPath: '乱目录测试/新建文件夹 (3)',
+        fileNames: const ['[VCB-Studio] Shelter [Ma10p_1080p][x265_flac].mkv'],
+      );
+      const liveActionShelter = TmdbWorkDetail(
+        tmdbId: 472094,
+        mediaType: TmdbMediaType.movie,
+        title: 'Shelter',
+        originalTitle: 'Shelter',
+        year: 2017,
+        voteCount: 32,
+        genreIds: [53],
+      );
+      const shelterBgm = BangumiSubjectCandidate(
+        id: 195249,
+        name: 'SHELTER',
+        nameCn: '避难所',
+        year: 2016,
+        totalEpisodes: 1,
+        platform: '其他',
+      );
+      final shelterDec = ScrapeDomainAdapter.evaluateMatch(
+        shelter,
+        const [liveActionShelter],
+        bangumiCandidates: const [shelterBgm],
+      );
+      expect(shelterDec.best, isNull);
+      expect(shelterDec.bestBangumi?.subject.id, 195249);
+    });
+
+    test('档位 3 实战深化：Demon Lord 2099/Babylon/逐集公共前缀/双语假名/OVA前缀与 Wave4 零召回回退', () async {
+      // 1) Demon Lord 2099 保留科幻年份 2099，不被年份剥离规则截成 Demon Lord
+      final dl = _buildGroupedFolder(
+        folderPath: '乱目录测试/经典老番_未整理_2025',
+        fileNames: const [
+          '[VCB-Studio] Demon Lord 2099 [01][Ma10p_1080p].mkv',
+          '[VCB-Studio] Demon Lord 2099 [02][Ma10p_1080p].mkv',
+        ],
+      );
+      expect(
+        ScrapeDomainAdapter.buildSearchQueries(dl),
+        contains('Demon Lord 2099'),
+      );
+
+      // 2) Babylon 同名压制组放行主文件片名
+      final babylon = _buildGroupedFolder(
+        folderPath: '乱目录测试/新建文件夹 (3)',
+        fileNames: const [
+          '[subbers] Babylon - 01 [BDRip HEVC-yuv420p10 FLAC].mkv',
+          '[subbers] Babylon - 02 [BDRip HEVC-yuv420p10 FLAC].mkv',
+        ],
+      );
+      expect(ScrapeDomainAdapter.buildSearchQueries(babylon), contains('Babylon'));
+
+      // 3) 逐集副标题自动提取公共前缀 `小哥斯拉的逆袭`
+      final chibi = _buildGroupedFolder(
+        folderPath: '乱目录测试/新建文件夹 (3)',
+        fileNames: const [
+          '[Sub] 小哥斯拉的逆袭 黑多老师的长篇大论 - 01 [1080p].mkv',
+          '[Sub] 小哥斯拉的逆袭 小迷你拉很靠谱 - 02 [1080p].mkv',
+          '[Sub] 小哥斯拉的逆袭 手机真方便 - 03 [1080p].mkv',
+          '[Sub] 小哥斯拉的逆袭 新朋友来了 - 04 [1080p].mkv',
+        ],
+      );
+      expect(chibi.cleanTitle, '小哥斯拉的逆袭');
+
+      // 4) 双语假名文件与 OVA/OAD 尾缀提取母系列检索词
+      final pedal = _buildGroupedFolder(
+        folderPath: '乱目录测试/新建文件夹 (3)',
+        fileNames: const [
+          '[BDRip] Yowamushi Pedal 弱虫ペダル SPECIAL RIDE OAD [1080p].mkv',
+        ],
+      );
+      final pedalQueries = ScrapeDomainAdapter.buildSearchQueries(pedal);
+      expect(pedalQueries, contains('Yowamushi Pedal'));
+      expect(pedalQueries, contains('弱虫ペダル'));
+
+      // 5) Wave 4 零召回末词回退：4 词英文外传名零命中时自动裁去末词搜母系列
+      final queried = <String>[];
+      final fakeTmdb = _RecordingTmdbService(
+        onSearch: (query, year, lang) {
+          queried.add(query);
+          if (query == 'Gundam Build Fighters') {
+            return const [
+              TmdbSearchResult(
+                tmdbId: 60667,
+                mediaType: TmdbMediaType.tv,
+                title: '高达创战者',
+                year: 2013,
+                genreIds: [16],
+              ),
+            ];
+          }
+          return const [];
+        },
+        details: const {
+          'tv:60667': TmdbWorkDetail(
+            tmdbId: 60667,
+            mediaType: TmdbMediaType.tv,
+            title: '高达创战者',
+            originalTitle: 'ガンダムビルドファイターズ',
+            year: 2013,
+            genreIds: [16],
+          ),
+        },
+      );
+      final fetcher = ScrapeCandidateFetcher(fakeTmdb);
+      final gbf = _buildGroupedFolder(
+        folderPath: '乱目录测试/新建文件夹 (3)',
+        fileNames: const [
+          '[BDRip] Gundam Build Fighters Battlogue - 01 [1080p].mkv',
+          '[BDRip] Gundam Build Fighters Battlogue - 02 [1080p].mkv',
+        ],
+      );
+      final details = await fetcher.fetchCandidateDetails(gbf);
+      expect(queried, contains('Gundam Build Fighters'));
+      expect(details.map((d) => d.tmdbId), contains(60667));
+    });
+
+    test('档位 3 实战深化：电影未要求续作号降权、文件名 Movie 标记压制 TV S0 与连续续季集号 13..24 自动升格', () {
+      // 1) 未要求续作号 Ⅱ 降权（亚尔斯兰战记 vs 亚尔斯兰战记 Ⅱ）
+      final arslan = _buildGroupedFolder(
+        folderPath: '乱目录测试/随便命名的测试目录',
+        fileNames: const ['[BDRip] 劇場版 アルスラーン戦記 [1080p].mkv'],
+      );
+      const m1 = TmdbWorkDetail(
+        tmdbId: 1183942,
+        mediaType: TmdbMediaType.movie,
+        title: '亚尔斯兰战记',
+        originalTitle: 'アルスラーン戦記',
+        year: 1991,
+        voteCount: 15,
+        genreIds: [16, 12],
+      );
+      const m2 = TmdbWorkDetail(
+        tmdbId: 1183946,
+        mediaType: TmdbMediaType.movie,
+        title: '亚尔斯兰战记 Ⅱ',
+        originalTitle: 'アルスラーン戦記 Ⅱ',
+        year: 1992,
+        voteCount: 12,
+        genreIds: [16, 12],
+      );
+      final arslanDec = ScrapeDomainAdapter.evaluateMatch(
+        arslan,
+        const [m1, m2],
+      );
+      expect(arslanDec.level, MatchLevel.autoBind);
+      expect(arslanDec.best?.detail.tmdbId, 1183942);
+
+      // 2) 连续续季编号 Season 2 (13..24) 无年份时不被 cumulativeWithoutYear 误拦
+      final bisque = _buildGroupedFolder(
+        folderPath: '乱目录测试/新建文件夹 (3)',
+        fileNames: [
+          for (var e = 13; e <= 24; e++)
+            'Sono Bisque Doll wa Koi wo Suru Season 2 - $e.mkv',
+        ],
+      );
+      const bisqueTmdb = TmdbWorkDetail(
+        tmdbId: 123249,
+        mediaType: TmdbMediaType.tv,
+        title: '更衣人偶坠入爱河',
+        originalTitle: 'その着せ替え人形は恋をする',
+        aliases: ['Sono Bisque Doll wa Koi wo Suru'],
+        year: 2022,
+        voteCount: 700,
+        genreIds: [16, 35],
+        seasons: [
+          TmdbSeasonSummary(
+            seasonNumber: 1,
+            name: '第 1 季',
+            episodeCount: 12,
+            airDate: '2022-01-09',
+          ),
+          TmdbSeasonSummary(
+            seasonNumber: 2,
+            name: '第 2 季',
+            episodeCount: 12,
+            airDate: '2025-07-06',
+          ),
+        ],
+      );
+      final bisqueDec = ScrapeDomainAdapter.evaluateMatch(
+        bisque,
+        const [bisqueTmdb],
+      );
+      expect(bisqueDec.level, MatchLevel.autoBind);
+      expect(bisqueDec.best?.detail.tmdbId, 123249);
+      expect(bisqueDec.matchedSeason, 2);
+    });
+
+    test('第 6 轮无 ID 全库与乱目录共性规则：双部电影自动分篇、括号副标题拆簇、父目录季名归属与污染前缀消歧', () {
+      // 1) 同目录 TV + 2 部共享主干的无分篇词剧场版（DDDD 模式）自动标注前篇/后篇；
+      //    自带独立章节副标题的双部剧场版（薄樱鬼 第一章/第二章）不被覆盖。
+      final ddddClusters = MultiWorkSplitter.split(
+        '动画-单作品/DDDD 恶魔的破坏 (2024) {tmdb-254987}',
+        [
+          for (var i = 1; i <= 12; i++)
+            {
+              'id': 'tv_$i',
+              'name':
+                  "[Moozzi2] Dead Dead Demon's Dededededestruction - ${'$i'.padLeft(2, '0')} (BD 1920x1080).mkv",
+              'relative_path':
+                  "动画-单作品/DDDD 恶魔的破坏 (2024) {tmdb-254987}/[Moozzi2] Dead Dead Demon's Dededededestruction - ${'$i'.padLeft(2, '0')} (BD 1920x1080).mkv",
+              'size': 800 * 1024 * 1024,
+            },
+          {
+            'id': 'm1',
+            'name':
+                "[Moozzi2] Dead Dead Demon's Dededededestruction The Movie - 01 (BD 1920x1080).mkv",
+            'relative_path':
+                "动画-单作品/DDDD 恶魔的破坏 (2024) {tmdb-254987}/[Moozzi2] Dead Dead Demon's Dededededestruction The Movie - 01 (BD 1920x1080).mkv",
+            'size': 4 * 1024 * 1024 * 1024,
+          },
+          {
+            'id': 'm2',
+            'name':
+                "[Moozzi2] Dead Dead Demon's Dededededestruction The Movie - 02 (BD 1920x1080).mkv",
+            'relative_path':
+                "动画-单作品/DDDD 恶魔的破坏 (2024) {tmdb-254987}/[Moozzi2] Dead Dead Demon's Dededededestruction The Movie - 02 (BD 1920x1080).mkv",
+            'size': 4 * 1024 * 1024 * 1024,
+          },
+        ],
+      );
+      expect(ddddClusters.length, 3);
+      final movieTitles = ddddClusters
+          .where((c) => c.inventory.movieMarker)
+          .map((c) => c.inventory.title)
+          .toList();
+      expect(movieTitles.any((t) => t.contains('前篇')), isTrue);
+      expect(movieTitles.any((t) => t.contains('后篇')), isTrue);
+
+      // 2) 剧场版序号后方括号非技术副标题提取，且 `#01 前編` / `#02 後編` 不注入多余罗马数字 I/II。
+      final dqClusters = MultiWorkSplitter.split(
+        '动画-多作品/勇者斗恶龙系列/勇者斗恶龙 达伊的大冒险 (2020) {tmdb-96884}',
+        [
+          for (var i = 1; i <= 12; i++)
+            {
+              'id': 'dq_tv_$i',
+              'name':
+                  '[Moozzi2] Dragon Quest Dai no Daibouken - ${'$i'.padLeft(2, '0')} (BD 1080p).mkv',
+              'relative_path':
+                  '动画-多作品/勇者斗恶龙系列/勇者斗恶龙 达伊的大冒险 (2020) {tmdb-96884}/[Moozzi2] Dragon Quest Dai no Daibouken - ${'$i'.padLeft(2, '0')} (BD 1080p).mkv',
+              'size': 600 * 1024 * 1024,
+            },
+          {
+            'id': 'dq_m2',
+            'name':
+                '[Moozzi2] Dragon Quest Dai no Daibouken The Movie - 02 [ Tachiagare!! Avan no Shito ] (BD 1080p).mkv',
+            'relative_path':
+                '动画-多作品/勇者斗恶龙系列/勇者斗恶龙 达伊的大冒险 (2020) {tmdb-96884}/[Moozzi2] Dragon Quest Dai no Daibouken The Movie - 02 [ Tachiagare!! Avan no Shito ] (BD 1080p).mkv',
+            'size': 2 * 1024 * 1024 * 1024,
+          },
+        ],
+      );
+      final dqMovie = dqClusters.firstWhere((c) => c.inventory.movieMarker);
+      expect(
+        dqMovie.inventory.titleHints.join(' '),
+        contains('Tachiagare!! Avan no Shito'),
+      );
+
+      final freeClusters = MultiWorkSplitter.split(
+        '动画-多作品/Free!系列/剧场版 Free!-the Final Stroke- (2021) {tmdb-738091}',
+        [
+          {
+            'id': 'f1',
+            'name':
+                '[AI-Raws] 劇場版 Free!-the Final Stroke- #01 前編 (BD HEVC 1920x1080 FLAC).mkv',
+            'relative_path':
+                '动画-多作品/Free!系列/剧场版 Free!-the Final Stroke- (2021) {tmdb-738091}/[AI-Raws] 劇場版 Free!-the Final Stroke- #01 前編 (BD HEVC 1920x1080 FLAC).mkv',
+            'size': 5 * 1024 * 1024 * 1024,
+          },
+          {
+            'id': 'f2',
+            'name':
+                '[AI-Raws] 劇場版 Free!-the Final Stroke- #02 後編 (BD HEVC 1920x1080 FLAC).mkv',
+            'relative_path':
+                '动画-多作品/Free!系列/剧场版 Free!-the Final Stroke- (2021) {tmdb-738091}/[AI-Raws] 劇場版 Free!-the Final Stroke- #02 後編 (BD HEVC 1920x1080 FLAC).mkv',
+            'size': 5 * 1024 * 1024 * 1024,
+          },
+        ],
+      );
+      expect(freeClusters.length, 2);
+      expect(
+        freeClusters.every(
+          (c) =>
+              !c.inventory.title.contains(' I ') &&
+              !c.inventory.title.contains(' II '),
+        ),
+        isTrue,
+      );
+
+      // 3) 直接父目录季名+年份（物语系列 第二季 (2013)/囮物语）纯盲测精准归属 S3，
+      //    且 `OAB` 标记与 `sin` 污染前缀扣分生效。
+      final otoriFolder = _buildGroupedFolder(
+        folderPath: '动画-多作品/西尾维新 作品集/物语系列 第二季 (2013)/囮物语',
+        fileNames: const [
+          '[VCB-S]Otorimonogatari[01][Hi10p_1080p][BDRip].mkv',
+          '[VCB-S]Otorimonogatari[02][Hi10p_1080p][BDRip].mkv',
+          '[VCB-S]Otorimonogatari[03][Hi10p_1080p][BDRip].mkv',
+          '[VCB-S]Otorimonogatari[04][Hi10p_1080p][BDRip].mkv',
+        ],
+      );
+      final otoriDecision = ScrapeDomainAdapter.evaluateMatch(
+        otoriFolder,
+        const [
+          TmdbWorkDetail(
+            tmdbId: 46195,
+            mediaType: TmdbMediaType.tv,
+            title: '物语系列',
+            originalTitle: '化物語',
+            aliases: ['囮物语', 'Otorimonogatari'],
+            year: 2009,
+            voteCount: 900,
+            genreIds: [16, 18],
+            seasons: [
+              TmdbSeasonSummary(
+                seasonNumber: 1,
+                name: '化物语',
+                episodeCount: 12,
+                airDate: '2009-07-03',
+              ),
+              TmdbSeasonSummary(
+                seasonNumber: 3,
+                name: '物语系列 第二季',
+                episodeCount: 23,
+                airDate: '2013-07-07',
+              ),
+            ],
+          ),
+        ],
+      );
+      expect(otoriDecision.level, MatchLevel.autoBind);
+      expect(otoriDecision.best?.detail.tmdbId, 46195);
+      expect(otoriDecision.matchedSeason, 3);
+
+      expect(DirectoryAnalyzer.isOvaText('Himouto! Umaru-chan OAB'), isTrue);
+
+      final sinConflictFolder = _buildGroupedFolder(
+        folderPath: '阿伟推荐的神作2',
+        fileNames: const [
+          '[Moozzi2] Nanatsu no Taizai OAD - 01 (BD 1080p).mkv',
+          '[Moozzi2] Nanatsu no Taizai OAD - 02 (BD 1080p).mkv',
+          '[Moozzi2] Nanatsu no Taizai OAD - 03 (BD 1080p).mkv',
+        ],
+      );
+      final sinDecision = ScrapeDomainAdapter.evaluateMatch(
+        sinConflictFolder,
+        const [
+          TmdbWorkDetail(
+            tmdbId: 71018,
+            mediaType: TmdbMediaType.tv,
+            title: 'sin 七大罪',
+            originalTitle: 'sin 七つの大罪',
+            aliases: ['Nanatsu no taizai', 'sin 七つの大罪'],
+            year: 2017,
+            voteCount: 120,
+            genreIds: [16],
+            seasons: [
+              TmdbSeasonSummary(
+                seasonNumber: 0,
+                name: '特别篇',
+                episodeCount: 10,
+                airDate: '2017-05-12',
+              ),
+              TmdbSeasonSummary(
+                seasonNumber: 1,
+                name: '第 1 季',
+                episodeCount: 12,
+                airDate: '2017-04-15',
+              ),
+            ],
+          ),
+          TmdbWorkDetail(
+            tmdbId: 62104,
+            mediaType: TmdbMediaType.tv,
+            title: '七大罪',
+            originalTitle: '七つの大罪',
+            aliases: ['Nanatsu no Taizai', '七大罪'],
+            year: 2014,
+            voteCount: 4000,
+            genreIds: [16],
+            seasons: [
+              TmdbSeasonSummary(
+                seasonNumber: 0,
+                name: '特别篇',
+                episodeCount: 20,
+                airDate: '2015-01-04',
+              ),
+              TmdbSeasonSummary(
+                seasonNumber: 1,
+                name: '第 1 季',
+                episodeCount: 24,
+                airDate: '2014-10-05',
+              ),
+            ],
+          ),
+        ],
+      );
+      expect(sinDecision.level, MatchLevel.autoBind);
+      expect(sinDecision.best?.detail.tmdbId, 62104);
+      expect(sinDecision.matchedSeason, 0);
+    });
   });
 }
 

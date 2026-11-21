@@ -180,7 +180,21 @@ abstract final class MultiWorkSplitter {
     final hasNonMovieSeries = preview.any(
       (c) => !c.inventory.movieMarker && c.inventory.episodeCount >= 6,
     );
-    return hasMovie && hasNonMovieSeries;
+    if (hasMovie && hasNonMovieSeries) return true;
+    // 同目录合装多部独立剧场版（如 `剧场版 窈窕淑女` 内同时含 `zenpen`/`kouhen` 上下篇）：
+    // 仅当全部拆出子簇均为独立单部剧场版且彼此标题不同（非同片多版本压制）时自动拆簇。
+    if (preview.every(
+      (c) => c.inventory.movieMarker && c.inventory.shape == WorkShape.feature,
+    )) {
+      final distinctTitles = preview
+          .map((c) => DirectoryAnalyzer.normalize(c.inventory.title))
+          .where((s) => s.isNotEmpty)
+          .toSet();
+      if (distinctTitles.length == preview.length) {
+        return true;
+      }
+    }
+    return false;
   }
 
   static List<SubWorkCluster> split(
@@ -447,6 +461,37 @@ abstract final class MultiWorkSplitter {
         expandedBuckets.map((g) => g.first.partIndex).toSet().containsAll(
           const {1, 2},
         );
+    // 同目录内即使与 TV 正片混放，只要同一剧场版主干恰好拆出 `01`/`02` 两部共享完全相同主干名且无独立副标题的剧场版
+    // （如 `DDDD The Movie - 01/02`、`地球外少年少女 [Movie 01]/[Movie 02]`），按上下/前后篇成对标注；
+    // 自带独立章节副标题的双部剧场版（如 `薄樱鬼 第一章 京都乱舞 / 第二章 士魂苍穹`）保持原副标题不覆盖。
+    final movieIndicesByStem = <String, Set<int>>{};
+    final movieBucketsByStem = <String, int>{};
+    final movieCleanStemsByStem = <String, Set<String>>{};
+    for (final g in expandedBuckets) {
+      final rep = g.first;
+      if (rep.kind == 'movie' &&
+          rep.partKey == null &&
+          rep.quote == null &&
+          rep.partIndex != null) {
+        movieBucketsByStem.update(
+          rep.normStem,
+          (n) => n + 1,
+          ifAbsent: () => 1,
+        );
+        (movieIndicesByStem[rep.normStem] ??= <int>{}).add(rep.partIndex!);
+        (movieCleanStemsByStem[rep.normStem] ??= <String>{}).add(
+          DirectoryAnalyzer.normalize(rep.cleanStem),
+        );
+      }
+    }
+    final twoPartMovieStems = <String>{
+      for (final e in movieIndicesByStem.entries)
+        if (movieBucketsByStem[e.key] == 2 &&
+            (movieCleanStemsByStem[e.key]?.length ?? 0) == 1 &&
+            e.value.length == 2 &&
+            e.value.containsAll(const {1, 2}))
+          e.key,
+    };
 
     final mainSeriesFallbackHint = _mainSeriesFallbackHint(
       expandedBuckets,
@@ -466,6 +511,15 @@ abstract final class MultiWorkSplitter {
       final extras = clusterExtras[i]!;
       final explicitTitle = assignedSegment[i];
       final keepTmdb = folderTmdbId != null && clusterIsMainTv[i];
+      final isTwoPartCluster =
+          (twoPartIndices &&
+              expandedBuckets
+                      .map((g) => DirectoryAnalyzer.normalize(g.first.cleanStem))
+                      .toSet()
+                      .length ==
+                  1) ||
+          (group.first.kind == 'movie' &&
+              twoPartMovieStems.contains(group.first.normStem));
       final clusterInfo = _buildClusterMetadata(
         index: i,
         group: group,
@@ -473,7 +527,7 @@ abstract final class MultiWorkSplitter {
         stemInfo: stemInfo,
         leafClean: leafClean,
         explicitTitle: explicitTitle,
-        twoPartPair: twoPartIndices,
+        twoPartPair: isTwoPartCluster,
         tmdbId: keepTmdb ? folderTmdbId : null,
         tmdbType: keepTmdb ? (folderTmdbType ?? 'tv') : null,
         parentSeriesFileHint: (folderTmdbId != null && !keepTmdb)
@@ -881,7 +935,7 @@ abstract final class MultiWorkSplitter {
 
     final localizedPart =
         _localizedPartLabel(first.partKey) ??
-        (twoPartPair && !hasIndependentTitle
+        (twoPartPair && first.partKey == null
             ? (first.partIndex == 1
                   ? '前篇'
                   : first.partIndex == 2
@@ -940,7 +994,7 @@ abstract final class MultiWorkSplitter {
       final quote = first.quote!;
       final baseWithoutMovie = cleanStem
           .replaceAll(
-            RegExp(r'\b(?:movie|ova|oad)\b', caseSensitive: false),
+            RegExp(r'\b(?:the\s+movie|movie|ova|oad)\b', caseSensitive: false),
             ' ',
           )
           .replaceAll(RegExp(r'\s+'), ' ')
@@ -957,7 +1011,47 @@ abstract final class MultiWorkSplitter {
       addHint('$cleanStem ${first.hdRemasterLabel}');
     }
     if (hasIndependentTitle) {
-      addHint(cleanStem);
+      final movieHasOwnQuote =
+          first.kind == 'movie' &&
+          first.quote != null &&
+          first.quote!.isNotEmpty &&
+          !first.isHashZeroOva;
+      if (twoPartPair && localizedPart != null && first.partKey == null) {
+        final stemNoMovie = cleanStem
+            .replaceAll(
+              RegExp(
+                r'\b(?:the\s+movie|movie)\b|剧场版|劇場版',
+                caseSensitive: false,
+              ),
+              ' ',
+            )
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim();
+        if (stemNoMovie.isNotEmpty) {
+          addHint('$stemNoMovie $localizedPart');
+          addHint('$stemNoMovie Part ${first.partIndex}');
+        }
+      }
+      // 已携带专属方括号/引号副标题的独立剧场版（如 `The Movie - 02 [ Tachiagare!! Avan no Shito ]`）
+      // 不再把剥离副标题后的裸主干注入标题提示，避免与同系列第 1 部无副标题剧场版打平。
+      if (!movieHasOwnQuote) {
+        addHint(cleanStem);
+        if (first.kind == 'movie') {
+          final strippedMovie = cleanStem
+              .replaceAll(
+                RegExp(
+                  r'\b(?:the\s+movie|movie)\b|剧场版|劇場版',
+                  caseSensitive: false,
+                ),
+                ' ',
+              )
+              .replaceAll(RegExp(r'\s+'), ' ')
+              .trim();
+          if (strippedMovie.isNotEmpty && strippedMovie != cleanStem) {
+            addHint(strippedMovie);
+          }
+        }
+      }
     }
     if (combinableParent != null &&
         combinableParent.isNotEmpty &&
@@ -1073,12 +1167,22 @@ abstract final class MultiWorkSplitter {
       );
     }
 
+    final movieOwnQuote =
+        first.kind == 'movie' &&
+        first.quote != null &&
+        first.quote!.isNotEmpty &&
+        !first.isHashZeroOva;
     final fileHints = <String>[
       for (final f in group.take(3))
-        if (f.cleanStem.isNotEmpty) f.cleanStem,
+        if (movieOwnQuote && f.quote != null && f.quote!.isNotEmpty)
+          '${f.cleanStem} ${f.quote!}'.trim()
+        else if (f.cleanStem.isNotEmpty)
+          f.cleanStem,
       if (first.baseSeriesStem != null && first.baseSeriesStem!.isNotEmpty)
         first.baseSeriesStem!,
-      if (parentSeriesFileHint != null && parentSeriesFileHint.isNotEmpty)
+      if (!movieOwnQuote &&
+          parentSeriesFileHint != null &&
+          parentSeriesFileHint.isNotEmpty)
         parentSeriesFileHint,
     ];
 
@@ -1298,6 +1402,34 @@ abstract final class MultiWorkSplitter {
             (movieTokenHit ||
                 (subDir.isNotEmpty && _movieSubdir.hasMatch(subDir))));
     final isOva = exKey != null || (!isMovie && _ovaToken.hasMatch(base));
+    // 提取剧场版文件名在 `Movie` / 序号之后方括号内的非技术副标题（如 `The Movie - 02 [ Tachiagare!! Avan no Shito ]`），
+    // 自动排除集号区间（如 `[ EP.05~08 ]`）、技术标签、压制组与纯数字校验码。
+    var effectiveQuote = quote;
+    if (isMovie && effectiveQuote == null) {
+      final moviePos = _movieToken.firstMatch(rawBaseBeforeTechStrip);
+      if (moviePos != null) {
+        final afterMovie = rawBaseBeforeTechStrip.substring(moviePos.end);
+        for (final bm in RegExp(r'\[([^\[\]]{4,80})\]').allMatches(afterMovie)) {
+          final inner = bm.group(1)!.replaceAll(RegExp(r'\s+'), ' ').trim();
+          if (inner.isEmpty) continue;
+          if (PersonalFilenameParser.isTechnicalBracketBlock(inner) ||
+              PersonalFilenameParser.isReleaseGroupTag(inner)) {
+            continue;
+          }
+          if (RegExp(
+            r'^(?:ep\.?\s*\d|movie\s*\d|sp\s*\d|vol\.?\s*\d|part\s*\d|[0-9a-f]{8}$|\d+$)',
+            caseSensitive: false,
+          ).hasMatch(inner)) {
+            continue;
+          }
+          final letters = inner.replaceAll(RegExp(r'[^a-zA-Z\u3040-\u9fff]'), '');
+          if (letters.length >= 4) {
+            effectiveQuote = inner;
+            break;
+          }
+        }
+      }
+    }
     var hashMovieMatched = false;
     if (isMovie && effectiveRomanPartIndex == null) {
       final hashMovieMatch = RegExp(
@@ -1322,8 +1454,12 @@ abstract final class MultiWorkSplitter {
           final cleanSub = sub
               .replaceAll(RegExp(r'^[～~〜\s]+|[～~〜\s]+$'), '')
               .trim();
-          // `#1～雪の巻～` 这类自带独立卷名的剧场版保持原卷名，不注入原片名中不存在的罗马数字 II/III。
-          effectiveCleanStem = hasChapterVolumeMovie && cleanSub.isNotEmpty
+          final isPurePartSub = RegExp(
+            r'^(?:前編|後編|中編|前篇|后篇|中篇|上篇|下篇)$',
+          ).hasMatch(cleanSub);
+          // `#1～雪の巻～` 或 `#01 前編`/`#02 後編` 保持原卷名或分篇名，不注入原片名中不存在的罗马数字 I/II/III。
+          effectiveCleanStem =
+              (hasChapterVolumeMovie || isPurePartSub) && cleanSub.isNotEmpty
               ? '${hashMovieMatch.group(1)!.trim()} $cleanSub'
               : '${hashMovieMatch.group(1)!.trim()} $roman $sub';
           effectiveRomanPartIndex = numIdx;
@@ -1377,7 +1513,7 @@ abstract final class MultiWorkSplitter {
       normStem: normStem.isEmpty
           ? DirectoryAnalyzer.normalize(effectiveCleanStem)
           : normStem,
-      quote: quote,
+      quote: effectiveQuote,
       year: year,
       partKey: effectivePartKey,
       partIndex: effectivePartIndex,

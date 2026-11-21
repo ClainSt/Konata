@@ -8,8 +8,10 @@ abstract final class CloudMediaFileClassifier {
     r'menu|menus|music|music[\s._-]*videos?|mvs?|samples?|(?:eizou[\s._-]+)?tokuten|creditless|textless|interviews?|events?|making|'
     r'trailers?|previews?|promos?|promotion|tv[\s._-]*spots?|tvcm|bdcm|'
     r'effects?|fan[\s._-]*disc|fandisc|.*pvd.*|reviews?|'
-    r'logo|logos|voices?|ost|soundtrack|gallery|artwork|特典|映像特典|'
+    r'logo|logos|voices?|cds|ost|soundtrack|gallery|artwork|特典|映像特典|'
     r'特典映像|花絮|幕后|访谈|预告|預告|宣传|聲優|声优|'
+    r'tv[\s._-]*スポット|プロモーション映像|(?:ミュージック|ミコージック)[・·\s._-]*クリップ|'
+    r'劇場アナウンス|アナウンス|ピクチャードラマ|スペシャル映像|'
     r'(?:op|ed)(?:[\s._&-]*(?:op|ed))*)$',
     caseSensitive: false,
   );
@@ -77,7 +79,11 @@ abstract final class CloudMediaFileClassifier {
     r'(?:^|[\s._-])(?:ラジオ|radio)(?=$|[\s._-])|'
     r'(?:^|[\s._-])final[\s._-]+plus(?=$|[\s._-])|'
     r'(?:^|[\s._-])frag\.(?:前|後|上|中|下)[編篇]|'
-    r'帰ってきた[^\r\n]*甲子園|beginning[\s._-]+of[\s._-]+',
+    r'帰ってきた[^\r\n]*甲子園|beginning[\s._-]+of[\s._-]+|'
+    r'ピクチャードラマ|picture[\s._-]*drama|スペシャル[\s._-]*映像|未公開(?:映像)?|'
+    r'bd[\s._-]*sp[\s._-]*live\w*|sp[\s._-]*live\w*|'
+    r'bd[\s._-]*special[\s._-]*talk|special[\s._-]*talk|'
+    r'tokuten(?:[\s._-]*dvd)?|(?<![a-z0-9])(?:menue\d*|hauptmenue|vorschau)(?![a-z0-9])',
     caseSensitive: false,
   );
 
@@ -266,7 +272,7 @@ abstract final class CloudMediaFileClassifier {
     r'[\[(【（]\s*(?<![a-z0-9])(?:nc(?:oped|op|ed)|op|ed)(?:[ ._-]*v?\d{1,2})?(?![a-z0-9])\s*[\])】）]|'
     r'(?<![a-z0-9])nc(?:oped|op|ed)(?:[ ._-]*v?\d{1,2})?(?![a-z0-9])|'
     r'(?<![a-z0-9])(?:op|ed)(?:v?\d{1,2})?(?![a-z0-9])'
-    '(?=\\s*(?:[\\[(（【]|$_videoExtensionSuffix|\$))|'
+    '(?=[_\\s]*(?:[\\[(（【]|$_videoExtensionSuffix|\$))|'
     r'(?<![a-z0-9])(?:op|ed)v?\d{1,2}(?![a-z0-9])'
     r'(?=\s*(?:[\[(（【._-]|$))',
     caseSensitive: false,
@@ -354,26 +360,40 @@ abstract final class CloudMediaFileClassifier {
               isExtraVideoDirectoryName(s)) {
             return true;
           }
+          // 兼容全方括号发布子目录以 `[Extra]`、`[SP Live]`、`[Bonus]` 等特典标签收尾的命名。
+          final trailingBracket = _trailingExtraBracket.firstMatch(s);
+          if (trailingBracket != null) {
+            final inner = trailingBracket.group(1)!.trim();
+            if (inner.isNotEmpty && isExtraVideoDirectoryName(inner)) {
+              return true;
+            }
+          }
           final tokens = _extraDirTokens(s);
           return tokens.isNotEmpty && _extraDirTailToken.hasMatch(tokens.last);
         });
   }
 
+  static final _trailingExtraBracket = RegExp(
+    r'[\[(（【]([^\[\]()（）【】]+)[\])）】]\s*$',
+  );
+
   /// 特典视频目录核心词：目录名去除组名/卷号括号后，全部词元均为核心词或修饰词且至少含一个核心词时判定为特典目录。
   static final _extraDirCoreToken = RegExp(
-    r'^(?:sps?|specials?|extras?|exrtras|bonus(?:es)?|omake|'
+    r'^(?:sps?|specials?|extras?|exrtras|bonus(?:es)?|omake|tokuten|'
     r'nc(?:op|ed|oped)?s?|opeds?|creditless|textless|noncredit|'
     r'pvs?|cms?|pvcms?|cmpvs?|menus?|mvs?|trailers?|teasers?|previews?|'
     r'promos?|promotion|spots?|tvcms?|bdcms?|effects?|fandisc|reviews?|'
     r'interviews?|events?|making|digest|recaps?|commentary|radio|comics?|'
-    r'storyboards?|endcards?|eyecatch(?:es)?|lives?|credits?|samples?|'
+    r'storyboards?|endcards?|eyecatch(?:es)?|lives?|credits?|samples?|cds|'
+    r'スポット|プロモーション映像|プロモーション|ミュージック|ミコージック|'
+    r'クリップ|アナウンス|劇場アナウンス|ピクチャードラマ|スペシャル映像|'
     r'特典|映像特典|特典映像|特典卷|花絮|幕后|访谈|预告|預告|宣传|番外|映像)$',
   );
 
   /// 特典视频目录修饰词：只能与核心词同现，单独出现不构成特典目录。
   static final _extraDirModifierToken = RegExp(
     r'^(?:bd|dvd|web|tv|ver|version|non|visual|music|video|next|episode|'
-    r'videos|clip|clips|fan|disc|voice|and|the|of|op|ed|vol|volume|'
+    r'videos|clip|clips|fan|dis[ck]|voice|and|the|of|op|ed|vol|volume|'
     r'collection|all|cds?\d{0,2}|\d{1,3}|v\d{1,2}|s\d{1,2}|ep?\d{1,3}|\d{3,4}p)$',
   );
 
@@ -395,7 +415,7 @@ abstract final class CloudMediaFileClassifier {
     }
     return s
         .toLowerCase()
-        .split(RegExp(r'[\s&＆+＋_.,，、/\-–—!！]+'))
+        .split(RegExp(r'[\s&＆+＋_.,，、・·/\-–—!！]+'))
         .where((t) => t.isNotEmpty)
         .toList(growable: false);
   }
@@ -548,8 +568,8 @@ abstract final class CloudMediaFileClassifier {
   /// 紧随起始集号之后的区间尾部：分隔符 + 可带 `E`/`EP` 前缀的结束集。
   /// 不允许分隔符两侧出现空白，避免把 `Title 2 - 12` 之类片名数字当成区间。
   static final RegExp _rangeTailRegex = RegExp(
-    r'^(?:v\d+)?[-–—~～&＆](?:e(?:p(?:isode)?)?[ ._-]*)?(\d{1,4})(?:v\d+)?'
-    r'(?![a-z0-9])(?!\.\d{1,2}(?!\d|[pi]\b))(?![-–—~～&＆]\d)',
+    r'^(?:v\d+)?[-–—~～&＆+＋](?:e(?:p(?:isode)?)?[ ._-]*)?(\d{1,4})(?:v\d+)?'
+    r'(?![a-z0-9])(?!\.\d{1,2}(?!\d|[pi]\b))(?![-–—~～&＆+＋]\d)',
     caseSensitive: false,
   );
 
@@ -563,7 +583,7 @@ abstract final class CloudMediaFileClassifier {
   /// `第01-02话`、`第1话-第2话` 这类本地化区间。
   static final RegExp _localizedRangeRegex = RegExp(
     r'第[ ._-]*([0-9]+|[一二三四五六七八九十百〇零壱弐参伍拾]+)[ ._-]*'
-    r'(?:话|話|集|回)?[ ._-]*[-~～&＆][ ._-]*第?[ ._-]*'
+    r'(?:话|話|集|回)?[ ._-]*[-~～&＆+＋][ ._-]*第?[ ._-]*'
     r'([0-9]+|[一二三四五六七八九十百〇零壱弐参伍拾]+)[ ._-]*(?:话|話|集|回)',
   );
 
@@ -760,7 +780,7 @@ abstract final class CloudMediaFileClassifier {
 
     match = RegExp(
       r'(?:^|[\s\]】)])\s*(\d{1,4})'
-      r'(?:[-–—~～](\d{1,4})|\s*[&＆~～]\s*(\d{1,4}))'
+      r'(?:[-–—~～+＋](\d{1,4})|\s*[&＆~～]\s*(\d{1,4}))'
       '(?=\\s*(?:[\\[(（【]|$_videoExtensionSuffix|\$))',
       caseSensitive: false,
     ).firstMatch(searchable);
@@ -916,7 +936,7 @@ abstract final class CloudMediaFileClassifier {
         continue;
       }
       final suffix = completeOnly
-          ? r'(?=\s*(?:$|[-–—&~]\s*\d|\([^)]*\)\s*$)|\s+(?:Ma\d+p|\d{3,4}p|BDRip|WEB|HEVC|AVC|[xh][ ._-]?26[45])(?=$|[^a-z0-9]))'
+          ? r'(?=\s*(?:$|[-–—&~+＋]\s*\d|\([^)]*\)\s*$)|\s+(?:Ma\d+p|\d{3,4}p|BDRip|WEB|HEVC|AVC|[xh][ ._-]?26[45])(?=$|[^a-z0-9]))'
           : r'(?![a-z0-9])';
       final match = RegExp(
         r'^(?:(?:movie|tv|episode|ep|part|act|final[ ._-]*act|chapter|'
@@ -947,7 +967,7 @@ abstract final class CloudMediaFileClassifier {
             (prefix.isEmpty || prefix == 'ep' || prefix == 'episode')) {
           final tail = content.substring(match.end).trimRight();
           final tailMatch = RegExp(
-            r'^(?:v\d+)?[-–—~～&＆](?:e(?:p(?:isode)?)?[ ._-]*)?(\d{1,4})(?:v\d+)?$',
+            r'^(?:v\d+)?[-–—~～&＆+＋](?:e(?:p(?:isode)?)?[ ._-]*)?(\d{1,4})(?:v\d+)?$',
             caseSensitive: false,
           ).firstMatch(tail);
           end = _validRangeEnd(number, _number(tailMatch?.group(1)));

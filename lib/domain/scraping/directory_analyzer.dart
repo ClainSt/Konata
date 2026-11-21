@@ -1,5 +1,6 @@
 import 'package:path/path.dart' as p;
 
+import '../models/media_extensions.dart';
 import 'cloud_media_asset_presentation.dart';
 import 'cloud_media_file_classifier.dart';
 import 'personal_filename_parser.dart';
@@ -165,15 +166,20 @@ abstract final class DirectoryAnalyzer {
   /// 语义明确的纯附属影像词汇：即便目录内单独存在，也不视作正片。
   static final _unambiguousExtra = RegExp(
     r'(?<![a-z0-9])(?:nc(?:op|ed)\w*|pv\w*|cm\w*|menus?(?:[ ._-]*ex)?\d*|'
+    r'menue\d*|hauptmenue|vorschau|'
     r'music[ ._-]*(?:video|clip)|mv[ ._-]*making|'
     r'trailers?\d*|teasers?\d*|previews?\d*|samples?\d*|drama[ ._-]*cd|'
     r'making|commentary|eyecatch|karaoke|'
-    r'tv[ ._-]*cm|bd[ ._-]*cm|bd[ ._-]*menu\w*)(?![a-z0-9])|'
+    r'tv[ ._-]*cm|bd[ ._-]*cm|bd[ ._-]*menu\w*|'
+    r'bd[ ._-]*sp[ ._-]*live\w*|bd[ ._-]*special[ ._-]*talk|'
+    r'tokuten[ ._-]*dvd)(?![a-z0-9])|'
     r'[\[(【]\s*(?<![a-z0-9])(?:op|ed)\d*(?:v\d+)?(?![a-z0-9])\s*[\])】]|'
     r'[\[(（【]\s*mv\s*[\])）】]|'
     r'[\[【]\s*\d{1,3}\s*[\(（]\s*(?:oad|ova\d*|sp\d*|special)\s*[\)）]\s*[\]】]|'
     r'予告|預告|预告|特報|メニュ|メイキング|映像特典|ノンクレ|'
-    r'アイキャッチ(?:集)?|オーディオ[ ._-]*コメンタリー|ミュージック[ ._-]*(?:ビデオ|クリップ)',
+    r'プロモーション映像|劇場アナウンス|'
+    r'アイキャッチ(?:集)?|オーディオ[ ._-]*コメンタリー|'
+    r'(?:ミュージック|ミコージック)[ ._-・]*(?:ビデオ|クリップ)',
     caseSensitive: false,
   );
 
@@ -184,8 +190,10 @@ abstract final class DirectoryAnalyzer {
   static final _ambiguousExtra = RegExp(
     r'(?<![a-z0-9])(?:interviews?|events?|talk|radio|logo|gallery|advice|'
     r'mv|music[ ._-]*clip|spots?|info|supporters?|digest|recap|'
+    r'picture[ ._-]*drama|sp[ ._-]*live\w*|special[ ._-]*talk|tokuten|'
     r'prologue[ ._-]+to[ ._-]+the[ ._-]+movie)(?:[ ._-]*\d+)?(?![a-z0-9])|'
     r'インタビュー|イベント|トーク|ラジオ|特典|宣伝|スポット|座談会|上映会|'
+    r'ピクチャードラマ|スペシャル[ ._-]*映像|未公開(?:映像)?|'
     r'初日舞台挨拶|舞台挨拶|キャストトークショー|トークショー|'
     r'(?:tv[ ._-]*)?シリーズ[ ._-]*ガイド|ドキュメント[ ._-]*[#＃][ ._-]*\d+',
     caseSensitive: false,
@@ -778,6 +786,29 @@ abstract final class DirectoryAnalyzer {
     return kept;
   }
 
+  /// 纯蓝光光盘结构缩写绝不当作“片名高频词”遮蔽，防止单剧场版附带十余条 `SP/PV/CM/Menu` 时反把自身特典标记抹除。
+  static const Set<String> _neverMaskExtraAbbrev = {
+    'sp',
+    'sps',
+    'pv',
+    'cm',
+    'mv',
+    'op',
+    'ed',
+    'ncop',
+    'nced',
+    'ncoped',
+    'tvcm',
+    'bdcm',
+    'pvcm',
+    'menu',
+    'menus',
+    'menue',
+    'ova',
+    'oad',
+    'oav',
+  };
+
   /// 片名自带的英文特典词：在不少于 70% 的视频片名关键词中出现、且单独即会触发特典判定的英文词元
   /// （至少 3 个视频时才统计）。只遮蔽单个特典词，不拆散 `True Birth Edition` 这类特典短语。
   static Set<String> _pervasiveTitleTokens(List<String> fileNames) {
@@ -798,6 +829,7 @@ abstract final class DirectoryAnalyzer {
     return {
       for (final e in counts.entries)
         if (e.value >= fileNames.length * 0.7 &&
+            !_neverMaskExtraAbbrev.contains(e.key) &&
             RegExp(r'[a-z]').hasMatch(e.key) &&
             (_unambiguousExtra.hasMatch(e.key) ||
                 _ambiguousExtra.hasMatch(e.key) ||
@@ -1308,10 +1340,7 @@ abstract final class DirectoryAnalyzer {
         CloudMediaFileClassifier.stripTechnicalNoise(file),
       ).replaceAll(RegExp(r'[._]+'), ' ');
 
-  static bool _isVideo(String path) => RegExp(
-    r'\.(?:mkv|mp4|avi|m2ts|ts|webm|mov|wmv)$',
-    caseSensitive: false,
-  ).hasMatch(path);
+  static bool _isVideo(String path) => KonataMediaExtensions.isVideoFile(path);
 
   /// 清理刮削源标记、发行年份及方括号标签后的纯净目录名称。
   static String cleanTitle(String folderName) {

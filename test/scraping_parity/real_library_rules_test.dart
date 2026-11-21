@@ -428,4 +428,180 @@ void main() {
       );
     });
   });
+
+  group('实库体检防误拆与特典防泄漏回归', () {
+    test('日式/罗马音/德语特典目录与尾括号特典子目录识别为特典，且支持 .mpg/.iso 扩展名', () {
+      for (final dir in [
+        'Tokuten DVD',
+        'TVスポット',
+        'プロモーション映像',
+        'ミコージック・クリップ',
+        '劇場アナウンス',
+        'SP DISK',
+        'CDs/2.0 OST/BVCH_47004/BDMV/STREAM',
+        '[WBX-SUB][Precure_All-Stars_New_Stage][Extra]',
+        '[S1.O.F.S&FLsnow][Aikatsu! x PriPara THE MOVIE][BDrip][SP Live]',
+      ]) {
+        expect(
+          CloudMediaFileClassifier.isSupplementarySubdirectory(dir),
+          isTrue,
+          reason: dir,
+        );
+      }
+
+      const clannadRoot = '动画-多作品/Key社 作品集/剧场版 CLANNAD (2007) {tmdb-16516}';
+      const clannadMain =
+          '$clannadRoot/劇場版 CLANNAD [DVD 720x480 23.976fps AVC-yuv420p10 FLAC] - fch1993.mkv';
+      const clannadSpot =
+          '$clannadRoot/TVスポット/劇場版 CLANNAD -クラナド- - 第1弾 (15秒) [DVD 712x362].mkv';
+      const clannadMv =
+          '$clannadRoot/ミコージック・クリップ/劇場版 CLANNAD -クラナド- - 「メグメル」0426Ver. [DVD].mkv';
+      const clannadAnnounce =
+          '$clannadRoot/劇場アナウンス/劇場版 CLANNAD -クラナド- - 渚・智代・杏 [DVD].mkv';
+      final clannad = _group([
+        _video(clannadMain, size: 1559 * _mb),
+        _video(clannadSpot, size: 5 * _mb),
+        _video(clannadMv, size: 18 * _mb),
+        _video(clannadAnnounce, size: 7 * _mb),
+      ]).single;
+      expect(clannad.inventory?.shape, WorkShape.feature);
+      expect(_slot(clannad, clannadMain).category, EpisodeCategory.main);
+      expect(_slot(clannad, clannadSpot).category, EpisodeCategory.extra);
+      expect(_slot(clannad, clannadMv).category, EpisodeCategory.extra);
+      expect(_slot(clannad, clannadAnnounce).category, EpisodeCategory.extra);
+
+      const sgRoot = '动画-多作品/命运石之门系列/命运石之门 (2011) {tmdb-42509}';
+      const sgMain = '$sgRoot/[Group] Steins;Gate [01][1080p].mkv';
+      const sgBonusMpg = '$sgRoot/Bonus/03_STEINS GATE_PSPOP.mpg';
+      const sgCdIso = '$sgRoot/Soundtrack/CDs/DVD_VIDEO.ISO';
+      final sg = _group([
+        _video(sgMain, size: 900 * _mb),
+        _video(sgBonusMpg, size: 120 * _mb),
+        _video(sgCdIso, size: 300 * _mb),
+      ]).single;
+      expect(_slot(sg, sgMain).category, EpisodeCategory.main);
+      expect(_slot(sg, sgBonusMpg).category, EpisodeCategory.extra);
+      expect(_slot(sg, sgCdIso).category, EpisodeCategory.extra);
+    });
+
+    test('异国迷宫的十字路口：ピクチャードラマ与スペシャル映像不误拆为独立电影', () {
+      const root = '动画-天雪论坛/异国迷宫的十字路口';
+      final files = <ScannedFileInput>[
+        for (var i = 1; i <= 12; i++)
+          _video(
+            '$root/[ANK-Raws] 異国迷路のクロワーゼ The Animation ${_ep(i)} (BDrip 1920x1080 HEVC-YUV420P10 FLAC).mkv',
+            size: 700 * _mb,
+          ),
+        _video('$root/「SD『湯音＆アリス』スペシャル映像（しゃっくり編）」.mkv', size: 98 * _mb),
+        _video('$root/「SD『湯音＆アリス』スペシャル映像１（未公開）」.mkv', size: 53 * _mb),
+        _video('$root/「ピクチャードラマ１ 『教えて 湯音ちゃん』」.mkv', size: 326 * _mb),
+        _video('$root/「ピクチャードラマ２ 『赤ずきん 湯音』」.mkv', size: 363 * _mb),
+      ];
+      final groups = _group(files);
+      expect(groups, hasLength(1));
+      expect(groups.single.mainEpisodeNumbers.toSet().length, 12);
+      expect(
+        _slot(groups.single, '$root/「ピクチャードラマ１ 『教えて 湯音ちゃん』」.mkv').category,
+        EpisodeCategory.extra,
+      );
+      expect(
+        _slot(groups.single, '$root/「SD『湯音＆アリス』スペシャル映像（しゃっくり編）」.mkv').category,
+        EpisodeCategory.extra,
+      );
+    });
+
+    test('偶像活动Planet剧场版：十余条 BD_SP_Live 与 BD_Special_Talk 归入特典不拆出假作品且不被高频词误遮蔽', () {
+      const root = '动画-系列作未收集/偶像活动系列/偶像活动Planet！剧场版';
+      const movie =
+          '$root/[FLsnow_feat.AO][Aikatsu_Planet!][BD_Movie][AVC_FLAC].mkv';
+      const talk =
+          '$root/[FLsnow_feat.AO][Aikatsu_Planet!][BD_Special_Talk][AVC_FLAC].mkv';
+      final lives = [
+        for (var i = 1; i <= 18; i++)
+          '$root/[FLsnow_feat.AO][Aikatsu_Planet!][BD_SP_Live_${_ep(i)}][AVC_FLAC].mkv',
+      ];
+      final groups = _group([
+        _video(movie, size: 2798 * _mb),
+        for (final path in lives) _video(path, size: 320 * _mb),
+        _video(talk, size: 280 * _mb),
+      ]);
+      expect(groups, hasLength(1));
+      expect(groups.single.inventory?.shape, WorkShape.feature);
+      expect(_slot(groups.single, movie).category, EpisodeCategory.main);
+      for (final path in lives) {
+        expect(_slot(groups.single, path).category, EpisodeCategory.extra);
+      }
+      expect(_slot(groups.single, talk).category, EpisodeCategory.extra);
+    });
+
+    test('东方活动写真馆：德语 Menue/Vorschau/OP/ED 与同人短片盘不被拆碎成多部假电影', () {
+      const root = '动画-多作品/东方Project 作品集/东方活动写真馆 2009';
+      final files = <ScannedFileInput>[
+        _video(
+          '$root/[Akiba]_Touhou_Kinema_Kan_1_Erster_Akt_1_Touhou_Kinema_Kan_OP_[BD-1080p_Hi10P_AAC][Ger-Sub][11FEECB3].mkv',
+          size: 73 * _mb,
+        ),
+        _video(
+          '$root/[Akiba]_Touhou_Kinema_Kan_1_Erster_Akt_2_Touhou-Spielplatz_[BD-1080p_Hi10P_AAC][Ger-Sub][B38A3A40].mkv',
+          size: 44 * _mb,
+        ),
+        _video(
+          '$root/[Akiba]_Touhou_Kinema_Kan_1_Erster_Akt_3_Touhou_Kinema_Kan_ED_[BD-1080p_Hi10P_AAC][ADB48684].mkv',
+          size: 26 * _mb,
+        ),
+        _video(
+          '$root/[Akiba]_Touhou_Kinema_Kan_1_Erster_Akt_Menue_[BD-1080p_Hi10P_AAC][Ger-Sub][E7A6CC5C].mkv',
+          size: 68 * _mb,
+        ),
+        _video(
+          '$root/[Akiba]_Touhou_Kinema_Kan_2_Zweiter_Akt_2_Touhou_Unterstuetzergruppe_[BD-1080p_Hi10P_AAC][Ger-Sub][71C81331].mkv',
+          size: 128 * _mb,
+        ),
+        _video(
+          '$root/[Akiba]_Touhou_Kinema_Kan_2_Zweiter_Akt_3_Touhou_Blumentanz_[BD-1080p_Hi10P_AAC][Ger-Sub][2E266699].mkv',
+          size: 104 * _mb,
+        ),
+        _video(
+          '$root/[Akiba]_Touhou_Kinema_Kan_3_Chens_Gensoukyou_Ondo_1_Chens_Gensoukyou_Ondo_[BD-1080p_Hi10P_AAC][Ger-Sub][8C4FA94A].mkv',
+          size: 37 * _mb,
+        ),
+        _video(
+          '$root/[Akiba]_Touhou_Kinema_Kan_4_Touhou_Kourindou_1_Touhou_Kourindou_[BD-1080p_Hi10P_AAC][Ger-Sub_V2][1B89B0B6].mkv',
+          size: 42 * _mb,
+        ),
+        _video(
+          '$root/[Akiba]_Touhou_Kinema_Kan_4_Touhou_Kourindou_3_Vorschau_zu_Touhou_Tagtraum_[BD-1080p_Hi10P_AAC][Ger-Sub][24D9DDB5].mkv',
+          size: 11 * _mb,
+        ),
+        _video(
+          '$root/[Akiba]_Touhou_Kinema_Kan_5_Touhou_Tagtraum_1_Touhou_Tagtraum_[BD-1080p_Hi10P_AAC][Ger-Sub][47DF23C4].mkv',
+          size: 58 * _mb,
+        ),
+        _video(
+          '$root/[Akiba]_Touhou_Kinema_Kan_5_Touhou_Tagtraum_3_A_Flower_[BD-1080p_Hi10P_AAC][Ger-Sub][992A19C0].mkv',
+          size: 305 * _mb,
+        ),
+        _video(
+          '$root/[Akiba]_Touhou_Kinema_Kan_Hauptmenue_[BD-1080p_Hi10P_AAC][Ger-Sub][47659D2B].mkv',
+          size: 47 * _mb,
+        ),
+      ];
+      final groups = _group(files);
+      expect(groups, hasLength(1));
+      expect(
+        _slot(
+          groups.single,
+          '$root/[Akiba]_Touhou_Kinema_Kan_Hauptmenue_[BD-1080p_Hi10P_AAC][Ger-Sub][47659D2B].mkv',
+        ).category,
+        EpisodeCategory.extra,
+      );
+      expect(
+        _slot(
+          groups.single,
+          '$root/[Akiba]_Touhou_Kinema_Kan_4_Touhou_Kourindou_3_Vorschau_zu_Touhou_Tagtraum_[BD-1080p_Hi10P_AAC][Ger-Sub][24D9DDB5].mkv',
+        ).category,
+        EpisodeCategory.extra,
+      );
+    });
+  });
 }

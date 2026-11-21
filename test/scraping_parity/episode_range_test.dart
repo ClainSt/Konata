@@ -58,6 +58,11 @@ void main() {
       '[Group] Title S01E01E02.mkv': (1, 2),
       '[Group] Title S01E05~E06 [1080p].mkv': (5, 6),
       '[Group] Title 07～08 [1080p].mkv': (7, 8),
+      '[ANK-Raws] ももくり 01+02 (BDrip 1920x1080 HEVC-YUV420P10 FLAC).mkv': (
+        1,
+        2,
+      ),
+      '[Group] Title [03+04][1080p].mkv': (3, 4),
     };
     positives.forEach((name, range) {
       test('识别区间：$name', () {

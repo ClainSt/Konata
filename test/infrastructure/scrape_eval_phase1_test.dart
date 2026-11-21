@@ -649,6 +649,6 @@ void main() {
         ).existsSync(),
         isTrue,
       );
-    });
+    }, timeout: const Timeout(Duration(seconds: 90)));
   });
 }

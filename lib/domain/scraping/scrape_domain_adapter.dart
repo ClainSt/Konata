@@ -843,9 +843,21 @@ abstract final class ScrapeDomainAdapter {
     final hints = inv.titleHints.isNotEmpty
         ? inv.titleHints
         : [folder.cleanTitle];
+    // 当首条一致文件名主干与目录名明显不同（常见于不规范目录名如 `阿伟推荐/` 内含规范番剧文件）时，
+    // 将一致文件名主干紧随目录主名置入第 2 检索位，确保首波（前 3 词）必然同时召回文件主干对应作品。
+    final divergentPrimaryFile =
+        inv.fileHints.isNotEmpty &&
+        legacy.WorkMatcher.similarity(
+              DirectoryAnalyzer.normalize(hints.first),
+              DirectoryAnalyzer.normalize(inv.fileHints.first),
+            ) <
+            0.50;
     for (var i = 0; i < hints.length; i++) {
       final hint = hints[i];
       add(hint, expandVariants: i == 0);
+      if (i == 0 && divergentPrimaryFile) {
+        add(inv.fileHints.first, expandVariants: true);
+      }
       final strippedPart = WorkSeason.withoutPart(hint);
       if (strippedPart != hint) add(strippedPart, expandVariants: false);
       final strippedRemaster = _stripRemasterTag(hint);
@@ -977,9 +989,11 @@ abstract final class ScrapeDomainAdapter {
     final byId = <int, BangumiSubjectCandidate>{
       for (final c in candidates) c.id: c,
     };
-    final result = legacy.WorkMatcher.bangumi(inv, [
-      for (final c in candidates) c.toMatchCandidate(),
-    ]);
+    final result = legacy.WorkMatcher.bangumi(
+      inv,
+      [for (final c in candidates) c.toMatchCandidate()],
+      ignoreBangumiMarker: folder.ignoreExplicitTmdb,
+    );
     final scored = <ScoredBangumiCandidate>[];
     for (final s in result.ranking) {
       final subject = byId[s.candidate.id];

@@ -158,6 +158,9 @@ class GroupedWorkFolder {
   /// 仅限本地磁盘源单作根目录识别到的本地封面图片绝对路径（WebDAV/SMB 恒为 `null`；合集拆簇不继承父目录封面）。
   final String? localPosterPath;
 
+  /// 从文件夹或文件名提取的显式 Bangumi ID（盲测或失效回退时屏蔽）。
+  int? get explicitBangumiId => ignoreExplicitTmdb ? null : inventory?.bangumiId;
+
   /// 当目录存在正片集号（或已识别为 TV 剧集）且未显式标记为电影或覆写媒体类型时，
   /// TMDB 候选检索仅锁定 `/search/tv`，避免同名冷门电影（如无背景图条目）污染结果。
   bool get prefersTvSearch =>

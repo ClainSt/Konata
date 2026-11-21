@@ -554,27 +554,81 @@ abstract final class WorkMatcher {
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
 
+  /// 计算一组本地标题提示词与候选条目的最高名称相似度（同时覆盖拉丁罗马音↔假名语音匹配）。
+  static double _hintsMatchScore(
+    Iterable<String> hints,
+    MatchCandidate candidate,
+  ) {
+    final remoteRaw = [candidate.title, ...candidate.aliases];
+    final remoteNorms = [
+      for (final raw in remoteRaw)
+        if (DirectoryAnalyzer.normalize(raw).isNotEmpty)
+          DirectoryAnalyzer.normalize(raw),
+    ];
+    var best = 0.0;
+    for (final rawHint in hints) {
+      final hNorm = DirectoryAnalyzer.normalize(rawHint);
+      if (hNorm.isEmpty) continue;
+      for (final rn in remoteNorms) {
+        final s = similarity(hNorm, rn);
+        if (s > best) best = s;
+      }
+      if (!_cjkPattern.hasMatch(rawHint)) {
+        for (final raw in remoteRaw) {
+          final rs = TitleNormalizer.romajiKanaSimilarity(rawHint, raw);
+          if (rs > best) best = rs;
+        }
+      }
+    }
+    return best;
+  }
+
+  static bool _fileHintsMentionYear(DirectoryInventory inventory, int year) {
+    final token = '$year';
+    return inventory.fileHints.any((f) => f.contains(token));
+  }
+
   static MatchResult bangumi(
     DirectoryInventory inventory,
-    List<MatchCandidate> candidates,
-  ) {
+    List<MatchCandidate> candidates, {
+    bool ignoreBangumiMarker = false,
+  }) {
     if (inventory.shape == WorkShape.empty) return MatchResult.empty;
+    final effectiveBgmId = ignoreBangumiMarker ? null : inventory.bangumiId;
     final localIsRemaster = _hasRemasterInInventory(inventory);
     final localIsEx =
         _inventoryHasExTag(inventory) &&
         (inventory.shape == WorkShape.feature || inventory.episodeCount <= 4);
     final invSeq = _inventorySequelNumber(inventory);
+    final fileOnlySeq = inventory.fileHints.isEmpty
+        ? null
+        : _explicitSequelNumber(inventory.fileHints.first);
+    final folderUnrelatedToBatch =
+        effectiveBgmId == null &&
+        inventory.fileHints.isNotEmpty &&
+        candidates.isNotEmpty &&
+        candidates.every(
+          (c) => _hintsMatchScore(inventory.titleHints, c) < 0.45,
+        );
     final primaryLatinTokens = _significantLatinTokens(inventory.title);
     final invHasCjk = _cjkPattern.hasMatch(inventory.title);
     final ranking = <ScoredCandidate>[];
     for (final candidate in candidates) {
       final scored = ScoredCandidate(candidate);
-      if (inventory.bangumiId != null) {
-        scored.add(inventory.bangumiId == candidate.id ? 60 : -60, 'marker');
+      if (effectiveBgmId != null) {
+        scored.add(effectiveBgmId == candidate.id ? 60 : -60, 'marker');
       }
-      final titleSim = _title(inventory, candidate);
+      final filePrimarySim = folderUnrelatedToBatch
+          ? _hintsMatchScore([inventory.fileHints.first], candidate)
+          : 0.0;
+      final fileDriven = folderUnrelatedToBatch && filePrimarySim >= 0.88;
+      var titleSim = _title(inventory, candidate);
+      if (fileDriven && filePrimarySim > titleSim) {
+        titleSim = filePrimarySim;
+      }
       scored.add(45 * titleSim, 'title');
-      if (primaryLatinTokens.length >= 2 &&
+      if (!fileDriven &&
+          primaryLatinTokens.length >= 2 &&
           !invHasCjk &&
           !_candidateHasSharedCjkWithInventory(inventory, candidate) &&
           !_candidateSharesRomajiArcCjk(inventory, candidate) &&
@@ -584,13 +638,19 @@ abstract final class WorkMatcher {
       if (localIsRemaster && _hasRemasterInCandidate(candidate)) {
         scored.add(10, 'remaster match');
       }
-      if (titleSim < 0.9) {
+      if (!fileDriven && titleSim < 0.9) {
         scored.add(
           _subtitleConflictPenalty(inventory, candidate),
           'conflicting subtitle',
         );
       }
-      _year(scored, inventory.year, candidate.year);
+      final bgmYearInput =
+          (fileDriven &&
+              inventory.year != null &&
+              !_fileHintsMentionYear(inventory, inventory.year!))
+          ? null
+          : inventory.year;
+      _year(scored, bgmYearInput, candidate.year);
       if (inventory.shape == WorkShape.series &&
           candidate.seasons.isNotEmpty &&
           inventory.episodeCount > 0) {
@@ -605,11 +665,13 @@ abstract final class WorkMatcher {
               (remoteEps - localEps).abs() >= 8 &&
               remoteEps != localEps * 2) {
             scored.add(-8, 'episode count mismatch');
-          } else if (localEps <= 4 &&
+          } else if (!fileDriven &&
+              localEps <= 4 &&
               remoteEps >= 11 &&
               _hasConflictingCjkTitle(inventory.title, candidate.title)) {
             scored.add(-18, 'short ova vs long tv');
-          } else if (localEps <= 4 &&
+          } else if (!fileDriven &&
+              localEps <= 4 &&
               remoteEps >= 12 &&
               DirectoryAnalyzer.normalize(inventory.title) !=
                   DirectoryAnalyzer.normalize(candidate.title)) {
@@ -629,7 +691,11 @@ abstract final class WorkMatcher {
               remoteEps >= 11 &&
               (inventory.folderMovieMarker ||
                   inventory.fileMovieMarker ||
-                  _hasConflictingCjkTitle(inventory.title, candidate.title))) {
+                  (!fileDriven &&
+                      _hasConflictingCjkTitle(
+                        inventory.title,
+                        candidate.title,
+                      )))) {
             scored.add(-12, 'feature vs long tv');
           }
         }
@@ -667,16 +733,19 @@ abstract final class WorkMatcher {
           !_candidateHasSequelSignal(inventory, names)) {
         scored.add(-16, 'base entry vs sequel');
       }
-      if (invSeq != null &&
-          inventory.bangumiId != candidate.id &&
-          !_namesHaveSequelNumber(invSeq, names)) {
-        scored.add(-32, 'missing sequel number $invSeq');
+      final effSeq = fileDriven ? fileOnlySeq : invSeq;
+      if (effSeq != null &&
+          effectiveBgmId != candidate.id &&
+          !_namesHaveSequelNumber(effSeq, names)) {
+        scored.add(-32, 'missing sequel number $effSeq');
       }
-      if (invSeq == null &&
+      if (effSeq == null &&
           (inventory.season == null || inventory.season! <= 1) &&
-          inventory.bangumiId != candidate.id) {
+          effectiveBgmId != candidate.id) {
         final candSeq = _explicitSequelNumber(candidate.title);
-        final localNorm = DirectoryAnalyzer.normalize(inventory.title);
+        final localNorm = DirectoryAnalyzer.normalize(
+          fileDriven ? inventory.fileHints.first : inventory.title,
+        );
         final candNorm = DirectoryAnalyzer.normalize(candidate.title);
         if (candSeq != null && candSeq >= 2 && localNorm != candNorm) {
           scored.add(-24, 'unrequested sequel/part $candSeq');
@@ -690,7 +759,9 @@ abstract final class WorkMatcher {
           );
         }
       }
-      if (inventory.folderMovieMarker && !names.any(_movieWord.hasMatch)) {
+      if (!fileDriven &&
+          inventory.folderMovieMarker &&
+          !names.any(_movieWord.hasMatch)) {
         scored.add(-30, 'folder says movie');
       }
       if (inventory.shape == WorkShape.anthology) {
@@ -704,7 +775,7 @@ abstract final class WorkMatcher {
       final multiPart = _resolveBangumiMultiPartTie(inventory, ranking);
       if (multiPart != null) return multiPart;
       if (baseDecision.tier == MatchTier.medium &&
-          inventory.year == null &&
+          (inventory.year == null || folderUnrelatedToBatch) &&
           ranking.isNotEmpty) {
         final top = ranking.first;
         final margin = ranking.length < 2
@@ -712,7 +783,10 @@ abstract final class WorkMatcher {
             : top.score - ranking[1].score;
         final exactPrimaryTitle =
             DirectoryAnalyzer.normalize(inventory.title) ==
-            DirectoryAnalyzer.normalize(top.candidate.title);
+                DirectoryAnalyzer.normalize(top.candidate.title) ||
+            (folderUnrelatedToBatch &&
+                _hintsMatchScore([inventory.fileHints.first], top.candidate) >=
+                    0.96);
         final sameTitleEpWinner =
             exactPrimaryTitle &&
             ranking.length >= 2 &&
@@ -752,6 +826,16 @@ abstract final class WorkMatcher {
     final matchedBgm =
         bangumi != null && bangumi.tier != MatchTier.none ? linked : null;
     final invSeq = _inventorySequelNumber(inventory);
+    final fileOnlySeq = inventory.fileHints.isEmpty
+        ? null
+        : _explicitSequelNumber(inventory.fileHints.first);
+    final folderUnrelatedToBatch =
+        (inventory.tmdbId == null || ignoreTmdbMarker) &&
+        inventory.fileHints.isNotEmpty &&
+        candidates.isNotEmpty &&
+        candidates.every(
+          (c) => _hintsMatchScore(inventory.titleHints, c) < 0.45,
+        );
     final primaryLatinTokens = _significantLatinTokens(inventory.title);
     final invHasCjk = _cjkPattern.hasMatch(inventory.title);
     final isConcertLive =
@@ -811,7 +895,14 @@ abstract final class WorkMatcher {
       if (isMapped) {
         scored.add(20, 'bangumi-tmdb mapping');
       }
+      final filePrimarySim = folderUnrelatedToBatch
+          ? _hintsMatchScore([inventory.fileHints.first], candidate)
+          : 0.0;
+      final fileDriven = folderUnrelatedToBatch && filePrimarySim >= 0.88;
       var titleSim = _title(inventory, candidate);
+      if (fileDriven && filePrimarySim > titleSim) {
+        titleSim = filePrimarySim;
+      }
       final parentTvSpecial =
           (verifiedBgm != null &&
               _isParentTvForBangumiSpecial(inventory, candidate, verifiedBgm)) ||
@@ -854,6 +945,7 @@ abstract final class WorkMatcher {
       }
       scored.add(45 * titleSim, 'title');
       if (!effectiveParentTvSpecial &&
+          !fileDriven &&
           primaryLatinTokens.length >= 2 &&
           !invHasCjk &&
           !_candidateHasSharedCjkWithInventory(inventory, candidate) &&
@@ -861,9 +953,21 @@ abstract final class WorkMatcher {
           _coveredLatinTokens(primaryLatinTokens, candidate) < 2) {
         scored.add(-18, 'partial latin token match');
       }
+      final effYear =
+          (fileDriven &&
+              inventory.year != null &&
+              !_fileHintsMentionYear(inventory, inventory.year!))
+          ? verifiedBgm?.year
+          : year;
+      final effBorrowed =
+          borrowed ||
+          (fileDriven &&
+              inventory.year != null &&
+              !_fileHintsMentionYear(inventory, inventory.year!));
+      final effInvSeq = fileDriven ? fileOnlySeq : invSeq;
       var subtitleConflict = 0.0;
       if (candidate.type == 'movie') {
-        if (!isMapped && !effectiveParentTvSpecial && titleSim < 0.9) {
+        if (!isMapped && !effectiveParentTvSpecial && !fileDriven && titleSim < 0.9) {
           subtitleConflict = _subtitleConflictPenalty(
             inventory,
             candidate,
@@ -881,21 +985,21 @@ abstract final class WorkMatcher {
                 candidate.title.contains('：'))) {
           scored.add(-12, 'ova folder vs non-ova movie');
         }
-        _year(scored, year, candidate.year, borrowed: borrowed);
-        if (invSeq != null &&
+        _year(scored, effYear, candidate.year, borrowed: effBorrowed);
+        if (effInvSeq != null &&
             !(inventory.tmdbId == candidate.id && !ignoreTmdbMarker) &&
-            !_namesHaveSequelNumber(invSeq, [
+            !_namesHaveSequelNumber(effInvSeq, [
               candidate.title,
               ...candidate.aliases,
             ])) {
-          scored.add(-35, 'missing sequel number $invSeq');
+          scored.add(-35, 'missing sequel number $effInvSeq');
         }
       } else {
         _tv(
           scored,
           inventory,
-          year,
-          borrowed,
+          effYear,
+          effBorrowed,
           mappedSeason: isMapped ? mappedTarget.season : null,
           verifiedBangumi: verifiedBgm,
           matchedBangumi: matchedBgm,
@@ -903,12 +1007,15 @@ abstract final class WorkMatcher {
           localOvaParentTv: localOvaParentTv,
           titleSim: titleSim,
           ignoreTmdbMarker: ignoreTmdbMarker,
+          fileDriven: fileDriven,
+          overrideInvSeq: effInvSeq,
         );
         if (scored.seasonNameMatched && titleSim < 0.85) {
           scored.add(45 * (0.85 - titleSim), 'season name');
         }
         if (!isMapped &&
             !effectiveParentTvSpecial &&
+            !fileDriven &&
             titleSim < 0.9 &&
             !scored.seasonNameMatched &&
             !scored.tmdbMarkerSeasonMatched) {
@@ -941,7 +1048,11 @@ abstract final class WorkMatcher {
     }
     final decision = _decide(ranking);
     if (decision.tier == MatchTier.medium &&
-        year == null &&
+        (year == null ||
+            (folderUnrelatedToBatch &&
+                verifiedBgm?.year == null &&
+                (inventory.year == null ||
+                    !_fileHintsMentionYear(inventory, inventory.year!)))) &&
         ranking.isNotEmpty &&
         inventory.shape != WorkShape.anthology) {
       final top = ranking.first;
@@ -1021,6 +1132,8 @@ abstract final class WorkMatcher {
     bool localOvaParentTv = false,
     double titleSim = 0,
     bool ignoreTmdbMarker = false,
+    bool fileDriven = false,
+    int? overrideInvSeq,
   }) {
     final candidate = scored.candidate;
     final regular = candidate.seasons.where((s) => s.number > 0).toList();
@@ -1062,6 +1175,7 @@ abstract final class WorkMatcher {
           ? null
           : epsSet.reduce((a, b) => a > b ? a : b);
       if (!parentTvSpecial &&
+          !fileDriven &&
           inventory.season != 0 &&
           !(matchedBangumi?.isSpecialFormat ?? false) &&
           episodes <= 4 &&
@@ -1097,6 +1211,8 @@ abstract final class WorkMatcher {
               linkedBangumi: matchedBangumi,
               localIsRemaster: localIsRemaster,
               ignoreTmdbMarker: ignoreTmdbMarker,
+              fileDriven: fileDriven,
+              overrideInvSeq: overrideInvSeq,
             );
       final maxSpecialEps = (inventory.season == 0 || forceLocalOvaS0)
           ? (specials.isNotEmpty ? specials.first.count : 0)
@@ -1225,7 +1341,9 @@ abstract final class WorkMatcher {
         scored.add(-20, 'ex special missing ex/s0');
       }
     }
-    final invSeq = _inventorySequelNumber(inventory);
+    final invSeq = fileDriven
+        ? overrideInvSeq
+        : (overrideInvSeq ?? _inventorySequelNumber(inventory));
     if (invSeq != null &&
         !(inventory.tmdbId == candidate.id && !ignoreTmdbMarker) &&
         !_namesHaveSequelNumber(invSeq, [
@@ -1438,6 +1556,8 @@ abstract final class WorkMatcher {
     MatchCandidate? linkedBangumi,
     bool localIsRemaster = false,
     bool ignoreTmdbMarker = false,
+    bool fileDriven = false,
+    int? overrideInvSeq,
   }) {
     if (regular.isEmpty) return null;
     final rawExplicit =
@@ -1447,7 +1567,9 @@ abstract final class WorkMatcher {
             ? inventory.main.map((i) => i.season).whereType<int>().first
             : null);
     if (rawExplicit == 0) return null;
-    final invSeq = _inventorySequelNumber(inventory);
+    final invSeq = fileDriven
+        ? overrideInvSeq
+        : (overrideInvSeq ?? _inventorySequelNumber(inventory));
     final candHasSeq =
         invSeq == null ||
         _namesHaveSequelNumber(invSeq, [

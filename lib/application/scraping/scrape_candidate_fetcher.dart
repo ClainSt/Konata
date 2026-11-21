@@ -159,12 +159,32 @@ class ScrapeCandidateFetcher {
   }
 
   /// 在线 Bangumi 多波次检索并补全 Top 4 候选完整 `infobox`、封面大图与简介（不查询角色/声优接口）。
+  /// 当目录或文件名携带显式 `{bgm-N}` / `[bgmid=N]` 标记时，优先按 ID 直连拉取保证 100% 召回。
   Future<List<BangumiSubjectCandidate>> fetchBangumiCandidates(
     GroupedWorkFolder folder, {
     List<String> extraQueries = const [],
   }) async {
     final bgm = bangumiService;
     if (bgm == null) return const [];
+
+    final explicitBgmId = folder.explicitBangumiId;
+    if (explicitBgmId != null && explicitBgmId > 0) {
+      try {
+        final direct = await bgm.getSubjectDetail(
+          explicitBgmId,
+          priority: RequestPriority.background,
+        );
+        if (direct != null) {
+          return [direct];
+        }
+      } catch (error) {
+        developer.log(
+          '显式 Bangumi ID 直连拉取失败，回退关键词检索',
+          name: 'konata.scrape_candidate_fetcher',
+          error: error,
+        );
+      }
+    }
 
     final queries = ScrapeDomainAdapter.buildSearchQueries(
       folder,

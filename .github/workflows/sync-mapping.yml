@@ -17,14 +17,10 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: 检出主干工具脚本与 Wikidata 基线
+      - name: 检出主干脚本与 Wikidata 基线
         uses: actions/checkout@v4
         with:
-          sparse-checkout: |
-            tool/import_bangumi_tmdb_map.py
-            lib/domain/scraping/bangumi_tmdb_map.dart
-            assets/licenses/open-ani-bangumi-tmdb-cc-by-4.0.txt
-            assets/licenses/wikidata-cc0.txt
+          fetch-depth: 1
 
       - name: 设置 Python 3.12
         uses: actions/setup-python@v5
@@ -33,18 +29,20 @@ jobs:
 
       - name: 拉取上游并编译紧凑二进制映射表
         run: |
-          mkdir -p dist_mapping
+          OUT_DIR="${RUNNER_TEMP}/dist_mapping"
+          mkdir -p "$OUT_DIR"
           python tool/import_bangumi_tmdb_map.py \
             --build-binary \
             --fetch-open-ani \
-            --out-bin dist_mapping/bangumi_tmdb_map.bin \
-            --out-manifest dist_mapping/manifest.json
-          cp assets/licenses/open-ani-bangumi-tmdb-cc-by-4.0.txt dist_mapping/LICENSE-OPEN-ANI.txt
-          cp assets/licenses/wikidata-cc0.txt dist_mapping/LICENSE-WIKIDATA.txt
+            --out-bin "$OUT_DIR/bangumi_tmdb_map.bin" \
+            --out-manifest "$OUT_DIR/manifest.json"
+          cp assets/licenses/open-ani-bangumi-tmdb-cc-by-4.0.txt "$OUT_DIR/LICENSE-OPEN-ANI.txt"
+          cp assets/licenses/wikidata-cc0.txt "$OUT_DIR/LICENSE-WIKIDATA.txt"
 
       - name: 校验变更并推送至独立 data/mapping 分支
         run: |
-          NEW_SHA=$(python -c "import json; print(json.load(open('dist_mapping/manifest.json'))['binSha256'])")
+          OUT_DIR="${RUNNER_TEMP}/dist_mapping"
+          NEW_SHA=$(python -c "import json; print(json.load(open('$OUT_DIR/manifest.json'))['binSha256'])")
           OLD_SHA=""
           if git ls-remote --exit-code --heads origin data/mapping >/dev/null 2>&1; then
             git fetch origin data/mapping --depth=1
@@ -57,10 +55,10 @@ jobs:
 
           git checkout --orphan publish-mapping
           git rm -rf . >/dev/null 2>&1 || true
-          cp dist_mapping/bangumi_tmdb_map.bin ./bangumi_tmdb_map.bin
-          cp dist_mapping/manifest.json ./manifest.json
-          cp dist_mapping/LICENSE-OPEN-ANI.txt ./LICENSE-OPEN-ANI.txt
-          cp dist_mapping/LICENSE-WIKIDATA.txt ./LICENSE-WIKIDATA.txt
+          cp "$OUT_DIR/bangumi_tmdb_map.bin" ./bangumi_tmdb_map.bin
+          cp "$OUT_DIR/manifest.json" ./manifest.json
+          cp "$OUT_DIR/LICENSE-OPEN-ANI.txt" ./LICENSE-OPEN-ANI.txt
+          cp "$OUT_DIR/LICENSE-WIKIDATA.txt" ./LICENSE-WIKIDATA.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add bangumi_tmdb_map.bin manifest.json LICENSE-OPEN-ANI.txt LICENSE-WIKIDATA.txt

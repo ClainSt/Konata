@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "snapshotDate": "2026-11-21",
+  "snapshotDateInt": 20261121,
+  "uniqueBangumiCount": 20785,
+  "recordCount": 21023,
+  "binBytes": 252300,
+  "binSha256": "a6c9a9bdec8f3790e24a571fb5742a35b45c3537cfce7154baa38c44b73a8c45",
+  "upstreamSource": "open-ani/bangumi-tmdb (CC BY 4.0) + Wikidata (CC0 1.0)",
+  "upstreamCommit": "8de16cd97285b5ba5e93e599ebc49fdff62b8eaf",
+  "generatedAt": "2026-11-21T06:55:29Z"
+}

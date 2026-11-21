@@ -83,11 +83,44 @@ class PersonalFilenameParser {
     return result;
   }
 
+  static const Set<String> _extraKnownExtensions = {
+    '.nfo',
+    '.txt',
+    '.xml',
+    '.json',
+    '.log',
+    '.zip',
+    '.rar',
+    '.7z',
+    '.mks',
+    '.m3u',
+    '.m3u8',
+    '.sfv',
+    '.md5',
+    '.torrent',
+    '.part',
+  };
+
+  static bool _isKnownFileExtension(String ext) {
+    final lower = ext.toLowerCase();
+    return KonataMediaExtensions.video.contains(lower) ||
+        KonataMediaExtensions.scannableAudio.contains(lower) ||
+        KonataMediaExtensions.subtitle.contains(lower) ||
+        KonataMediaExtensions.scanImage.contains(lower) ||
+        _extraKnownExtensions.contains(lower);
+  }
+
   static String baseNameWithoutExtension(String pathOrName) {
     final trimmed = pathOrName.trim();
     if (trimmed.isEmpty) return '';
     final base = p.posix.basename(trimmed.replaceAll('\\', '/'));
-    return p.basenameWithoutExtension(base).trim();
+    final ext = p.extension(base);
+    // 仅剥离已知媒体/字幕/文档扩展名，防止对已去扩展名的片名二次调用时
+    // 将标题中的点号缩写（如 `C.E. 73 Stargazer`、`Dr. STONE`）误判为扩展名截断。
+    if (ext.isNotEmpty && _isKnownFileExtension(ext)) {
+      return base.substring(0, base.length - ext.length).trim();
+    }
+    return base.trim();
   }
 
   static final _groupLikeSuffix = RegExp(
@@ -416,7 +449,7 @@ class PersonalFilenameParser {
   );
 
   static final _technicalPart = RegExp(
-    r'^(?:\d{3,4}[pi]|\d{3,5}x\d{3,5}|[248]k|(?:ma|hi)?\d{1,2}p|'
+    r'^(?:\d{3,4}[pi]|\d{3,5}x\d{3,5}|[248]k|(?:ma|hi)?\d{1,2}p|\d{1,3}(?:\.\d{1,3})?fps|'
     r'(?:x|h)\.?26[45]|hevc|avc|av1|vp9|mpeg[24]|'
     r'(?:aac|flac|opus|ac3|eac3|dts(?:-?hd)?|truehd|alac|lpcm|mp3|ass|ssa|srt|sup|pgs)(?:x\d+)?|'
     r'\d\.\d(?:ch)?|\dch|yuv(?:420|422|444)p?\d*|12bits?|10bits?|8bits?|10bpp|8bpp|main\d{0,2}p?|als|'
@@ -493,8 +526,12 @@ class PersonalFilenameParser {
     var name = withoutTmdbMarkers(baseNameWithoutExtension(pathOrName));
     if (name.isEmpty) return '';
 
-    // 阶段一（Anitomy 式消去）：先剥离 8 位 CRC32 校验码与纯技术参数括号块，
-    // 防止压制标签干扰右侧集数定界，同时保留标题内括号与数字番名。
+    // 阶段一（Anitomy 式消去）：先剥离紧贴技术规格方括号尾部的压制者签名（如 `[BD ... FLAC] - yan04000985`）、
+    // 8 位 CRC32 校验码与纯技术参数括号块，防止压制标签干扰右侧集数定界，同时保留标题内括号与数字番名。
+    name = name.replaceFirst(
+      RegExp(r'(?<=\])\s+[-–—]\s+[a-zA-Z][a-zA-Z0-9._-]{3,24}\s*$'),
+      '',
+    );
     name = name.replaceAll(_crc32Bracket, ' ');
     name = _stripTechnicalBrackets(name);
 
@@ -511,9 +548,10 @@ class PersonalFilenameParser {
     // 去掉末尾的编码/分辨率等标签（可能存在多个）
     name = _stripTrailingTags(name);
 
-    // 阶段二：从右侧集数定界符切分，左侧数字番名（86、Mob Psycho 100、Steins;Gate 0）自然保留
+    // 阶段二：从右侧集数定界符切分，左侧数字番名（86、Mob Psycho 100、Steins;Gate 0）自然保留。
+    // 裸 `E` 必须紧贴数字（`E01`），避免 `C.E. 73` 经点号归一化为 `C E 73` 后误触发截断。
     final episodeMarker = RegExp(
-      r'[／/]?\s*\b(?:S\d{1,2}E\d{1,3}(?:\.5)?(?:v\d+)?|EP?\s*\d{1,3}(?:\.5)?(?:v\d+)?)\b|'
+      r'[／/]?\s*\b(?:S\d{1,2}E\d{1,3}(?:\.5)?(?:v\d+)?|EP\s*\d{1,3}(?:\.5)?(?:v\d+)?|E\d{1,3}(?:\.5)?(?:v\d+)?)\b|'
       r'第\s*\d{1,3}(?:\.5)?\s*[话話集]',
       caseSensitive: false,
     ).firstMatch(name);

@@ -231,7 +231,15 @@ abstract final class MultiWorkSplitter {
       final subDir = dirPart == '.' ? '' : dirPart;
       final size = (asset['size'] as num?)?.toInt() ?? 0;
 
-      final cleanName = CloudMediaFileClassifier.stripTechnicalNoise(name);
+      final withoutUploaderTail = name.replaceFirst(
+      RegExp(
+        r'(?<=\])\s+[-–—]\s+[a-zA-Z][a-zA-Z0-9._-]{3,24}(?=\.[a-zA-Z0-9]{2,5}$|\s*$)',
+      ),
+      '',
+    );
+    final cleanName = CloudMediaFileClassifier.stripTechnicalNoise(
+      withoutUploaderTail,
+    );
       final inSuppDir =
           subDir.isNotEmpty &&
           CloudMediaFileClassifier.isSupplementarySubdirectory(subDir);
@@ -1040,7 +1048,7 @@ abstract final class MultiWorkSplitter {
           's${assignSeason}e$bucketKey',
           primaryTitle,
           info.ep,
-          clusterSeason ?? 1,
+          clusterSeason,
           episodeEnd: info.end,
         )..files.addAll([for (final f in byEp[bucketKey]!) f.rel]);
         logicalMain.add(item);
@@ -1111,17 +1119,28 @@ abstract final class MultiWorkSplitter {
     required String name,
     required String subDir,
   }) {
-    final cleanName = CloudMediaFileClassifier.stripTechnicalNoise(name);
+    final withoutUploaderTail = name.replaceFirst(
+      RegExp(
+        r'(?<=\])\s+[-–—]\s+[a-zA-Z][a-zA-Z0-9._-]{3,24}(?=\.[a-zA-Z0-9]{2,5}$|\s*$)',
+      ),
+      '',
+    );
+    final rawBaseBeforeTechStrip = PersonalFilenameParser.baseNameWithoutExtension(
+      withoutUploaderTail,
+    );
+    final cleanName = CloudMediaFileClassifier.stripTechnicalNoise(
+      withoutUploaderTail,
+    );
     final base = PersonalFilenameParser.baseNameWithoutExtension(cleanName);
     final quoteMatch = _quoteBlock.firstMatch(base);
     final quote = (quoteMatch?.group(1) ?? quoteMatch?.group(2))?.trim();
     final yearMatch = RegExp(
       r'[\[(（]\s*((?:19|20)\d{2})\s*[\])）]|'
       r'(?<=\b(?:movie|ova|oad|tv|ver\.?)\s+)((?:19|20)\d{2})(?![a-z0-9%])|'
-      r'(?<![a-z0-9])((?:19|20)\d{2})(?=\s*(?:「|『|\[|\(|ep\b|ova\b|oad\b|movie\b|anime\b|hd\b|-))|'
+      r'(?<![a-z0-9])((?:19|20)\d{2})(?=\s*(?:「|『|\[|\(|ep\d*\b|ova\b|oad\b|movie\b|anime\b|hd\b|-))|'
       r'(?<=\b(?:movie|ova|oad|part|chapter)[\s._-]*\d{1,2}[\s._-])((?:19|20)\d{2})(?=$|[\s._\-)\]])',
       caseSensitive: false,
-    ).firstMatch(base);
+    ).firstMatch(rawBaseBeforeTechStrip);
     final year = int.tryParse(
       yearMatch?.group(1) ??
           yearMatch?.group(2) ??
@@ -1178,6 +1197,14 @@ abstract final class MultiWorkSplitter {
         )
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
+    if (year != null && cleanStem.endsWith(' $year')) {
+      final withoutTrailingYear = cleanStem
+          .substring(0, cleanStem.length - ' $year'.length)
+          .trim();
+      if (withoutTrailingYear.length >= 4) {
+        cleanStem = withoutTrailingYear;
+      }
+    }
     if (cleanStem.isEmpty) {
       cleanStem = PersonalFilenameParser.extractAnimeTitleKeyword(
         PersonalFilenameParser.stripUnbracketedTechTokens(cleanName),
@@ -1290,11 +1317,19 @@ abstract final class MultiWorkSplitter {
             'IX',
           ];
           final roman = romans[numIdx - 1];
-          effectiveCleanStem = '${hashMovieMatch.group(1)!.trim()} $roman $sub';
+          final cleanSub = sub
+              .replaceAll(RegExp(r'^[～~〜\s]+|[～~〜\s]+$'), '')
+              .trim();
+          // `#1～雪の巻～` 这类自带独立卷名的剧场版保持原卷名，不注入原片名中不存在的罗马数字 II/III。
+          effectiveCleanStem = hasChapterVolumeMovie && cleanSub.isNotEmpty
+              ? '${hashMovieMatch.group(1)!.trim()} $cleanSub'
+              : '${hashMovieMatch.group(1)!.trim()} $roman $sub';
           effectiveRomanPartIndex = numIdx;
           effectiveRomanPartSubtitle = sub;
           effectivePartIndex ??= numIdx;
-          effectivePartKey ??= 'roman_$numIdx';
+          effectivePartKey ??= hasChapterVolumeMovie
+              ? 'vol_$numIdx'
+              : 'roman_$numIdx';
           hashMovieMatched = true;
         }
       }

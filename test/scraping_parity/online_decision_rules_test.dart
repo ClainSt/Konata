@@ -8,7 +8,9 @@ import 'package:ccplayer/domain/models/work.dart';
 import 'package:ccplayer/domain/scraping/bangumi_models.dart';
 import 'package:ccplayer/domain/scraping/bangumi_tmdb_index.dart';
 import 'package:ccplayer/domain/scraping/bangumi_tmdb_map.dart';
+import 'package:ccplayer/domain/scraping/multi_work_splitter.dart';
 import 'package:ccplayer/domain/scraping/scrape_domain_adapter.dart';
+import 'package:ccplayer/domain/scraping/title_normalizer.dart';
 import 'package:ccplayer/infrastructure/network/bangumi_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -889,6 +891,484 @@ void main() {
       expect(res.networkError, isNull);
       expect(res.decision.level, MatchLevel.autoBind);
       expect(res.decision.best?.detail.tmdbId, 49471);
+    });
+
+    test('雪月花三部曲拆簇保留干净卷名，单字卷名互斥使三卷分别直绑对应 Movie', () {
+      const folderPath = '动画/刀剑乱舞-花丸-合集/特『刀剑乱舞-花丸-』～雪月花～ (2022)';
+      final clusters = MultiWorkSplitter.split(folderPath, const [
+        {
+          'id': '1',
+          'relative_path': '$folderPath/[AI-Raws] 特・刀剣乱舞-花丸- #1～雪の巻～.mkv',
+          'name': '[AI-Raws] 特・刀剣乱舞-花丸- #1～雪の巻～.mkv',
+          'size': 3500 * 1024 * 1024,
+        },
+        {
+          'id': '2',
+          'relative_path': '$folderPath/[AI-Raws] 特・刀剣乱舞-花丸- #2～月の巻～.mkv',
+          'name': '[AI-Raws] 特・刀剣乱舞-花丸- #2～月の巻～.mkv',
+          'size': 3500 * 1024 * 1024,
+        },
+        {
+          'id': '3',
+          'relative_path': '$folderPath/[AI-Raws] 特・刀剣乱舞-花丸- #3～華の巻～.mkv',
+          'name': '[AI-Raws] 特・刀剣乱舞-花丸- #3～華の巻～.mkv',
+          'size': 3500 * 1024 * 1024,
+        },
+      ]);
+      expect(clusters, hasLength(3));
+      expect(clusters[0].inventory.title, '特・刀剣乱舞-花丸- 雪の巻');
+      expect(clusters[1].inventory.title, '特・刀剣乱舞-花丸- 月の巻');
+      expect(clusters[2].inventory.title, '特・刀剣乱舞-花丸- 華の巻');
+
+      const candidates = [
+        TmdbWorkDetail(
+          tmdbId: 978039,
+          mediaType: TmdbMediaType.movie,
+          title: '特『刀剑乱舞-花丸-』～雪月花～雪之卷',
+          originalTitle: '特『刀剣乱舞-花丸-』～雪ノ巻～',
+          year: 2022,
+          voteCount: 3,
+          genreIds: [16],
+        ),
+        TmdbWorkDetail(
+          tmdbId: 1081640,
+          mediaType: TmdbMediaType.movie,
+          title: '特『刀剑乱舞-花丸-』～雪月花～月之卷',
+          originalTitle: '特『刀剣乱舞-花丸-』～月ノ巻～',
+          year: 2022,
+          voteCount: 5,
+          genreIds: [16],
+        ),
+        TmdbWorkDetail(
+          tmdbId: 1081641,
+          mediaType: TmdbMediaType.movie,
+          title: '特『刀剑乱舞-花丸-』～雪月花～花之卷',
+          originalTitle: '特『刀剣乱舞-花丸-』～華ノ巻～',
+          year: 2022,
+          voteCount: 3,
+          genreIds: [16],
+        ),
+      ];
+      final expectedIds = [978039, 1081640, 1081641];
+      for (var i = 0; i < 3; i++) {
+        final c = clusters[i];
+        final decision = ScrapeDomainAdapter.evaluateMatch(
+          GroupedWorkFolder(
+            folderRelativePath: '$folderPath::${c.slug}',
+            folderName: c.inventory.title,
+            cleanTitle: c.inventory.title,
+            isMovieHint: true,
+            isSplitCluster: true,
+            inventory: c.inventory,
+            titleHints: c.inventory.titleHints,
+            fileHints: c.inventory.fileHints,
+            variants: const [],
+          ),
+          candidates,
+        );
+        expect(decision.level, MatchLevel.autoBind);
+        expect(decision.best?.detail.tmdbId, expectedIds[i]);
+      }
+    });
+
+    test('高达 SEED 合集拆簇不伪造 season=1、准确命中 S2 且 C.E. 73 Stargazer 不截断', () {
+      const root = '动画/机动战士高达SEED HD重制版 & 机动战士高达SEED DESTINY HD重制版';
+      final clusters = MultiWorkSplitter.split(root, [
+        for (var i = 1; i <= 50; i++)
+          {
+            'id': 's$i',
+            'relative_path':
+                '$root/Mobile Suit Gundam SEED - HD Remaster 2011 EP${'$i'.padLeft(2, '0')} [BD 1920x1080].mkv',
+            'name':
+                'Mobile Suit Gundam SEED - HD Remaster 2011 EP${'$i'.padLeft(2, '0')} [BD 1920x1080].mkv',
+            'size': 800 * 1024 * 1024,
+          },
+        for (var i = 1; i <= 50; i++)
+          {
+            'id': 'd$i',
+            'relative_path':
+                '$root/Mobile Suit Gundam SEED Destiny - HD Remaster 2013 EP${'$i'.padLeft(2, '0')} [BD 1920x1080].mkv',
+            'name':
+                'Mobile Suit Gundam SEED Destiny - HD Remaster 2013 EP${'$i'.padLeft(2, '0')} [BD 1920x1080].mkv',
+            'size': 800 * 1024 * 1024,
+          },
+        {
+          'id': 'astray',
+          'relative_path':
+              '$root/Mobile Suit Gundam SEED OVA ASTRAY BLUE FRAME 2006 [BD 1920x1080 23.976fps AVC-yuv420p10 FLAC] - yan04000985.mkv',
+          'name':
+              'Mobile Suit Gundam SEED OVA ASTRAY BLUE FRAME 2006 [BD 1920x1080 23.976fps AVC-yuv420p10 FLAC] - yan04000985.mkv',
+          'size': 400 * 1024 * 1024,
+        },
+        {
+          'id': 'sg',
+          'relative_path':
+              '$root/Mobile Suit Gundam SEED OVA C.E. 73 Stargazer 2006 EP01-03 [BD 1920x1080 23.976fps AVC-yuv420p10 FLAC] - yan04000985.mkv',
+          'name':
+              'Mobile Suit Gundam SEED OVA C.E. 73 Stargazer 2006 EP01-03 [BD 1920x1080 23.976fps AVC-yuv420p10 FLAC] - yan04000985.mkv',
+          'size': 1200 * 1024 * 1024,
+        },
+      ]);
+      final destiny = clusters.firstWhere(
+        (c) => c.inventory.title.contains('DESTINY'),
+      );
+      expect(destiny.inventory.main.every((m) => m.season == null), isTrue);
+
+      final astray = clusters.firstWhere(
+        (c) => c.inventory.title.contains('ASTRAY BLUE FRAME'),
+      );
+      expect(astray.inventory.title, 'Mobile Suit Gundam SEED OVA ASTRAY BLUE FRAME');
+      expect(astray.inventory.year, 2006);
+
+      final stargazer = clusters.firstWhere(
+        (c) => c.inventory.title.contains('Stargazer'),
+      );
+      expect(
+        stargazer.inventory.title,
+        'Mobile Suit Gundam SEED OVA C E 73 Stargazer',
+      );
+      expect(stargazer.inventory.year, 2006);
+
+      final destinyDecision = ScrapeDomainAdapter.evaluateMatch(
+        GroupedWorkFolder(
+          folderRelativePath: '$root::${destiny.slug}',
+          folderName: destiny.inventory.title,
+          cleanTitle: destiny.inventory.title,
+          isSplitCluster: true,
+          inventory: destiny.inventory,
+          mainEpisodeNumbers: [for (var i = 1; i <= 50; i++) i],
+          titleHints: destiny.inventory.titleHints,
+          fileHints: destiny.inventory.fileHints,
+          variants: const [],
+        ),
+        const [
+          TmdbWorkDetail(
+            tmdbId: 20111,
+            mediaType: TmdbMediaType.tv,
+            title: '机动战士高达SEED',
+            originalTitle: '機動戦士ガンダムSEED',
+            year: 2002,
+            voteCount: 300,
+            genreIds: [16, 10765],
+            seasons: [
+              TmdbSeasonSummary(
+                seasonNumber: 1,
+                name: '机动战士高达SEED 第 1 季',
+                episodeCount: 50,
+                airDate: '2002-10-05',
+              ),
+              TmdbSeasonSummary(
+                seasonNumber: 2,
+                name: '机动战士高达SEED DESTINY 第 2 季',
+                episodeCount: 50,
+                airDate: '2004-10-09',
+              ),
+            ],
+          ),
+        ],
+        bangumiCandidates: const [
+          BangumiSubjectCandidate(
+            id: 54277,
+            name: '機動戦士ガンダムSEED DESTINY HDリマスター',
+            nameCn: '机动战士高达SEED DESTINY HD重制版',
+            year: 2013,
+            airDate: '2013-04-07',
+            totalEpisodes: 50,
+            platform: 'TV',
+          ),
+        ],
+      );
+      expect(destinyDecision.level, MatchLevel.autoBind);
+      expect(destinyDecision.best?.detail.tmdbId, 20111);
+      expect(destinyDecision.matchedSeason, 2);
+    });
+
+    test('长罗马音共享前缀尾段副标题冲突拦截错绑前作（美男高校 High collar vs LOVE/HAPPY KISS）', () {
+      final workFolder = GroupedWorkFolder(
+        folderRelativePath: '动画/美男高校地球防卫部High collar！',
+        folderName: '美男高校地球防卫部High collar！',
+        cleanTitle: '美男高校地球防卫部High collar！',
+        mainEpisodeNumbers: [for (var i = 1; i <= 12; i++) i],
+        variants: [
+          for (var i = 1; i <= 12; i++)
+            MediaVariant(
+              id: 'hc$i',
+              workId: 'w',
+              sourceId: 's',
+              relativePath:
+                  '动画/美男高校地球防卫部High collar！/[LoliHouse] Binan Koukou Chikyuu Bouei-bu Haikara！ - ${'$i'.padLeft(2, '0')}.mkv',
+              fileName:
+                  '[LoliHouse] Binan Koukou Chikyuu Bouei-bu Haikara！ - ${'$i'.padLeft(2, '0')}.mkv',
+              fileSize: 500,
+            ),
+        ],
+      );
+      final decision = ScrapeDomainAdapter.evaluateMatch(
+        workFolder,
+        const [
+          TmdbWorkDetail(
+            tmdbId: 61930,
+            mediaType: TmdbMediaType.tv,
+            title: '美男高校地球防卫部 LOVE！',
+            originalTitle: '美男高校地球防衛部LOVE！',
+            aliases: ['Binan Koukou Chikyuu Bouei-bu LOVE!'],
+            year: 2015,
+            voteCount: 50,
+            genreIds: [16, 35],
+            seasons: [
+              TmdbSeasonSummary(
+                seasonNumber: 1,
+                name: '第 1 季',
+                episodeCount: 12,
+                airDate: '2015-01-07',
+              ),
+            ],
+          ),
+          TmdbWorkDetail(
+            tmdbId: 289562,
+            mediaType: TmdbMediaType.tv,
+            title: '美男高校地球防卫部High collar！',
+            originalTitle: '美男高校地球防衛部ハイカラ！',
+            year: 2025,
+            voteCount: 4,
+            genreIds: [16, 35],
+            seasons: [
+              TmdbSeasonSummary(
+                seasonNumber: 1,
+                name: '第 1 季',
+                episodeCount: 12,
+                airDate: '2025-07-07',
+              ),
+            ],
+          ),
+        ],
+        bangumiCandidates: const [
+          BangumiSubjectCandidate(
+            id: 234378,
+            name: '美男高校地球防衛部HAPPY KISS！',
+            nameCn: '美男高校地球防卫部 HAPPY KISS！',
+            aliases: ['Binan Koukou Chikyuu Bouei-bu Happy Kiss!'],
+            year: 2018,
+            totalEpisodes: 12,
+            platform: 'TV',
+          ),
+        ],
+      );
+      expect(decision.level, MatchLevel.autoBind);
+      expect(decision.best?.detail.tmdbId, 289562);
+      expect(decision.bestBangumi, isNull);
+    });
+
+    test('零评分但具动画分类与封面的冷门独立 OAD 经离线映射正常锚定（刃牙道 OAD）', () {
+      final index = BangumiTmdbIndex.fromBytes(
+        BangumiTmdbIndex.encode(
+          const [
+            BangumiTmdbRecord(
+              bangumiId: 186404,
+              type: TmdbMediaType.movie,
+              tmdbId: 1698625,
+              season: null,
+            ),
+          ],
+          snapshotDateYyyymmdd: 20261121,
+        ),
+      );
+      final decision = ScrapeDomainAdapter.evaluateMatch(
+        folder('刃牙道 OAD', year: 2016),
+        const [
+          TmdbWorkDetail(
+            tmdbId: 1698625,
+            mediaType: TmdbMediaType.movie,
+            title: 'バキ 最凶死刑囚編SP(スペシャル)アニメ',
+            originalTitle: 'バキ 最凶死刑囚編SP(スペシャル)アニメ',
+            year: 2016,
+            voteCount: 0,
+            genreIds: [28, 16],
+            posterPath: '/baki-oad.jpg',
+          ),
+        ],
+        bangumiCandidates: const [
+          BangumiSubjectCandidate(
+            id: 186404,
+            name: '刃牙道 OAD',
+            nameCn: '刃牙道 OAD',
+            year: 2016,
+            airDate: '2016-12-06',
+            totalEpisodes: 1,
+            platform: 'OVA',
+          ),
+        ],
+        mappingIndex: index,
+      );
+      expect(decision.level, MatchLevel.autoBind);
+      expect(decision.best?.detail.mediaType, TmdbMediaType.movie);
+      expect(decision.best?.detail.tmdbId, 1698625);
+    });
+
+    test('无年份 Bangumi 同名多版本按精确集数升格高置信 + 短篇 OVA 与长篇 TV 分离', () {
+      final aikatsu = ScrapeDomainAdapter.evaluateBangumiMatch(
+        folder('偶像活动 10th STORY ～通往未来的STARWAY～', eps: const [1, 2, 3]),
+        const [
+          BangumiSubjectCandidate(
+            id: 377962,
+            name: 'アイカツ! 10th STORY ～未来へのSTARWAY～',
+            nameCn: '偶像活动! 10th STORY ～通往未来的STARWAY～',
+            year: 2022,
+            totalEpisodes: 1,
+            platform: '剧场版',
+          ),
+          BangumiSubjectCandidate(
+            id: 404427,
+            name: 'アイカツ! 10th STORY ～未来へのSTARWAY～',
+            nameCn: '偶像活动! 10th STORY ～通往未来的STARWAY～',
+            year: 2023,
+            totalEpisodes: 3,
+            platform: '剧场版',
+          ),
+        ],
+      );
+      expect(aikatsu.best?.subject.id, 404427);
+      expect(aikatsu.rawResult.tier.name, 'high');
+
+      final aquarion = ScrapeDomainAdapter.evaluateBangumiMatch(
+        folder('创星的大天使', eps: const [1, 2]),
+        const [
+          BangumiSubjectCandidate(
+            id: 22601,
+            name: '創星のアクエリオン',
+            nameCn: '创星的大天使',
+            year: 2007,
+            totalEpisodes: 2,
+            platform: 'OVA',
+          ),
+          BangumiSubjectCandidate(
+            id: 1763,
+            name: '創聖のアクエリオン',
+            nameCn: '创圣的大天使',
+            aliases: ['Aquarion'],
+            year: 2005,
+            totalEpisodes: 26,
+            platform: 'TV',
+          ),
+        ],
+      );
+      expect(aquarion.best?.subject.id, 22601);
+      expect(aquarion.rawResult.tier.name, 'high');
+    });
+
+    test('假名罗马音语音匹配显著拉开同系列兄弟特别篇分差（少女福尔摩斯 亚森 vs 派对之夜）', () {
+      const arseneLocal = 'Tantei Opera Milky Holmes - Arsene Karei Naru Yokubou';
+      const pearlyLocal =
+          'Tantei Opera Milky Holmes Fun Fun Pearly Night - Ken to Janet no Okurimono';
+      const arseneJp = '探偵オペラ ミルキィホームズ アルセーヌ 華麗なる欲望';
+      const pearlyJp = '探偵オペラ ミルキィホームズ ファンファンパーリーナイト♪ ～ケンとジャネットの贈り物～';
+
+      final arseneRight = TitleNormalizer.romajiKanaSimilarity(
+        arseneLocal,
+        arseneJp,
+      );
+      final arseneWrong = TitleNormalizer.romajiKanaSimilarity(
+        arseneLocal,
+        pearlyJp,
+      );
+      expect(arseneRight, greaterThanOrEqualTo(0.84));
+      expect(arseneRight - arseneWrong, greaterThanOrEqualTo(0.30));
+
+      final pearlyRight = TitleNormalizer.romajiKanaSimilarity(
+        pearlyLocal,
+        pearlyJp,
+      );
+      final pearlyWrong = TitleNormalizer.romajiKanaSimilarity(
+        pearlyLocal,
+        arseneJp,
+      );
+      expect(pearlyRight, greaterThanOrEqualTo(0.84));
+      expect(pearlyRight - pearlyWrong, greaterThanOrEqualTo(0.30));
+    });
+
+    test('中置信特别篇/OVA 借离线 S0 映射直绑母剧第 0 季（Accel World EX 与 海王星 OVA1/2）', () {
+      final index = BangumiTmdbIndex.fromBytes(
+        BangumiTmdbIndex.encode(
+          const [
+            BangumiTmdbRecord(
+              bangumiId: 48997,
+              type: TmdbMediaType.tv,
+              tmdbId: 43167,
+              season: 0,
+              tvdbId: 257516,
+            ),
+            BangumiTmdbRecord(
+              bangumiId: 351253,
+              type: TmdbMediaType.tv,
+              tmdbId: 63525,
+              season: 0,
+              tvdbId: 267705,
+            ),
+          ],
+          snapshotDateYyyymmdd: 20261121,
+        ),
+      );
+      final awExDecision = ScrapeDomainAdapter.evaluateMatch(
+        GroupedWorkFolder(
+          folderRelativePath: '动画/加速世界 TV+Movie::ex',
+          folderName: 'Accel World EX',
+          cleanTitle: 'Accel World EX',
+          seasonHint: 0,
+          isSplitCluster: true,
+          mainEpisodeNumbers: const [1, 2],
+          titleHints: const ['Accel World EX', '加速世界 EX'],
+          fileHints: const ['Accel World'],
+          variants: const [
+            MediaVariant(
+              id: 'ex1',
+              workId: 'w',
+              sourceId: 's',
+              relativePath: '动画/加速世界 TV+Movie/Accel World [EX01].mkv',
+              fileName: 'Accel World [EX01].mkv',
+              fileSize: 500,
+            ),
+            MediaVariant(
+              id: 'ex2',
+              workId: 'w',
+              sourceId: 's',
+              relativePath: '动画/加速世界 TV+Movie/Accel World [EX02].mkv',
+              fileName: 'Accel World [EX02].mkv',
+              fileSize: 500,
+            ),
+          ],
+        ),
+        const [
+          TmdbWorkDetail(
+            tmdbId: 43167,
+            mediaType: TmdbMediaType.tv,
+            title: '加速世界',
+            originalTitle: 'アクセル・ワールド',
+            aliases: ['Accel World'],
+            year: 2012,
+            voteCount: 164,
+            genreIds: [16, 10759],
+            seasons: [
+              TmdbSeasonSummary(seasonNumber: 0, name: '特别篇', episodeCount: 10),
+              TmdbSeasonSummary(seasonNumber: 1, name: '加速世界', episodeCount: 24),
+            ],
+          ),
+        ],
+        bangumiCandidates: const [
+          BangumiSubjectCandidate(
+            id: 48997,
+            name: 'アクセル・ワールド -銀翼の覚醒-',
+            nameCn: '加速世界 Stage:01 -银翼的觉醒-',
+            aliases: ['Accel World EX', '加速世界 OVA'],
+            year: 2012,
+            totalEpisodes: 1,
+            platform: 'OVA',
+          ),
+        ],
+        mappingIndex: index,
+      );
+      expect(awExDecision.level, MatchLevel.autoBind);
+      expect(awExDecision.best?.detail.tmdbId, 43167);
+      expect(awExDecision.matchedSeason, 0);
     });
   });
 }

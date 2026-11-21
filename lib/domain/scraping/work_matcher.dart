@@ -58,6 +58,34 @@ abstract final class WorkMatcher {
     return s;
   }
 
+  static final _zhChapterDigitPattern = RegExp(
+    r'第\s*([一二三四五六七八九十])\s*([章部话話卷巻回期季])',
+  );
+
+  static const _zhSingleDigit = <String, String>{
+    '一': '1',
+    '二': '2',
+    '三': '3',
+    '四': '4',
+    '五': '5',
+    '六': '6',
+    '七': '7',
+    '八': '8',
+    '九': '9',
+    '十': '10',
+  };
+
+  /// 跨源比对用标题规范键：剥离剧场版载体词并将中文数字章节（如 `第五章`）归一为阿拉伯数字（`第5章`）。
+  static String canonTitleKey(String raw) {
+    final normalizedChapter = raw
+        .replaceAll(_movieWord, ' ')
+        .replaceAllMapped(
+          _zhChapterDigitPattern,
+          (m) => '第${_zhSingleDigit[m.group(1)!] ?? m.group(1)!}${m.group(2)!}',
+        );
+    return DirectoryAnalyzer.normalize(normalizedChapter);
+  }
+
   static final _latinMediaCarrier = RegExp(
     r'(?<![a-z0-9])(?:oad|ova|ona|sp|specials?|ex\d{0,2}|the\s+movie|movie|tv|bd|dvd|rip)(?![a-z0-9])',
     caseSensitive: false,
@@ -581,6 +609,11 @@ abstract final class WorkMatcher {
               remoteEps >= 11 &&
               _hasConflictingCjkTitle(inventory.title, candidate.title)) {
             scored.add(-18, 'short ova vs long tv');
+          } else if (localEps <= 4 &&
+              remoteEps >= 12 &&
+              DirectoryAnalyzer.normalize(inventory.title) !=
+                  DirectoryAnalyzer.normalize(candidate.title)) {
+            scored.add(-8, 'short series vs long tv');
           }
         }
       } else if (inventory.shape == WorkShape.feature &&
@@ -677,10 +710,20 @@ abstract final class WorkMatcher {
         final margin = ranking.length < 2
             ? double.infinity
             : top.score - ranking[1].score;
-        if (top.score >= 44.5 &&
-            margin >= 12.0 &&
+        final exactPrimaryTitle =
             DirectoryAnalyzer.normalize(inventory.title) ==
-                DirectoryAnalyzer.normalize(top.candidate.title)) {
+            DirectoryAnalyzer.normalize(top.candidate.title);
+        final sameTitleEpWinner =
+            exactPrimaryTitle &&
+            ranking.length >= 2 &&
+            DirectoryAnalyzer.normalize(top.candidate.title) ==
+                DirectoryAnalyzer.normalize(ranking[1].candidate.title) &&
+            top.reasons.any((r) => r.contains('episode count')) &&
+            !ranking[1].reasons.any((r) => r.contains('episode count')) &&
+            margin >= 7.5;
+        if (top.score >= 44.5 &&
+            exactPrimaryTitle &&
+            (margin >= 12.0 || sameTitleEpWinner)) {
           return MatchResult(MatchTier.high, ranking);
         }
       }
@@ -770,8 +813,14 @@ abstract final class WorkMatcher {
       }
       var titleSim = _title(inventory, candidate);
       final parentTvSpecial =
-          verifiedBgm != null &&
-          _isParentTvForBangumiSpecial(inventory, candidate, verifiedBgm);
+          (verifiedBgm != null &&
+              _isParentTvForBangumiSpecial(inventory, candidate, verifiedBgm)) ||
+          (isMapped &&
+              mappedTarget.season == 0 &&
+              candidate.type == 'tv' &&
+              candidate.seasons.any((s) => s.number == 0) &&
+              matchedBgm != null &&
+              matchedBgm.isSpecialFormat);
       final localOvaParentTv =
           !parentTvSpecial &&
           _isParentTvForLocalOvaFolder(inventory, candidate, titleSim);
@@ -780,8 +829,28 @@ abstract final class WorkMatcher {
         final bridged = _bridgedTitle(verifiedBgm, candidate) * 0.85;
         if (bridged > titleSim) titleSim = bridged;
       }
-      if (effectiveParentTvSpecial && titleSim < 0.80) {
-        titleSim = 0.80;
+      if (effectiveParentTvSpecial) {
+        final localNorm = DirectoryAnalyzer.normalize(inventory.title);
+        final candNorm = DirectoryAnalyzer.normalize(candidate.title);
+        final exactCjkPrefixParent =
+            localOvaParentTv &&
+            RegExp(r'[\u3040-\u9fff]').allMatches(candNorm).length >= 3 &&
+            localNorm.startsWith(candNorm);
+        final exactLatinPrefixParent =
+            localOvaParentTv &&
+            !exactCjkPrefixParent &&
+            [candidate.title, ...candidate.aliases].any((n) {
+              final cn = DirectoryAnalyzer.normalize(n);
+              return cn.length >= 12 &&
+                  localNorm.startsWith(cn) &&
+                  localNorm.length > cn.length;
+            });
+        final floor = exactCjkPrefixParent
+            ? 0.94
+            : (exactLatinPrefixParent ? 0.90 : 0.80);
+        if (titleSim < floor) {
+          titleSim = floor;
+        }
       }
       scored.add(45 * titleSim, 'title');
       if (!effectiveParentTvSpecial &&
@@ -852,7 +921,9 @@ abstract final class WorkMatcher {
         }
       }
       if (verifiedBgm != null ||
-          (matchedBgm != null && subtitleConflict == 0)) {
+          (matchedBgm != null &&
+              subtitleConflict == 0 &&
+              _subtitleConflictPenalty(inventory, matchedBgm) == 0)) {
         _linked(
           scored,
           verifiedBgm ?? matchedBgm!,
@@ -898,6 +969,21 @@ abstract final class WorkMatcher {
       }
       final minMargin = exactSeasonCount ? 18.0 : 20.0;
       if (!cumulativeWithoutYear && top.score >= 59.5 && margin >= minMargin) {
+        return MatchResult(MatchTier.high, ranking);
+      }
+    }
+    if (decision.tier == MatchTier.medium &&
+        ranking.isNotEmpty &&
+        inventory.shape == WorkShape.feature &&
+        ranking.first.candidate.type == 'tv' &&
+        ranking.first.season == 0 &&
+        (DirectoryAnalyzer.isOvaText(inventory.title) ||
+            DirectoryAnalyzer.isOvaText(inventory.folder))) {
+      final top = ranking.first;
+      final margin = ranking.length < 2
+          ? double.infinity
+          : top.score - ranking[1].score;
+      if (top.score >= 60.0 && margin >= 18.0) {
         return MatchResult(MatchTier.high, ranking);
       }
     }
@@ -984,9 +1070,20 @@ abstract final class WorkMatcher {
           _hasConflictingCjkTitle(inventory.title, candidate.title)) {
         scored.add(-18, 'short ova vs long tv');
       }
+      final isExplicitOvaTarget =
+          DirectoryAnalyzer.isOvaText(inventory.title) ||
+          DirectoryAnalyzer.isOvaText(inventory.folder) ||
+          inventory.fileHints.any(DirectoryAnalyzer.isOvaText) ||
+          (verifiedBangumi?.isSpecialFormat ?? false) ||
+          (parentTvSpecial && (matchedBangumi?.isSpecialFormat ?? false));
+      final staleMappedS1ForOva =
+          mappedSeason == 1 &&
+          isExplicitOvaTarget &&
+          episodes <= 12 &&
+          regular.any((s) => s.number == 1 && s.count >= episodes + 6);
       final forceLocalOvaS0 =
-          localOvaParentTv &&
-          (mappedSeason == null || mappedSeason == 0) &&
+          (localOvaParentTv || (parentTvSpecial && isExplicitOvaTarget)) &&
+          (mappedSeason == null || mappedSeason == 0 || staleMappedS1ForOva) &&
           specials.isNotEmpty &&
           specials.first.count >= episodes;
       final seasonPick = forceLocalOvaS0
@@ -1001,7 +1098,7 @@ abstract final class WorkMatcher {
               localIsRemaster: localIsRemaster,
               ignoreTmdbMarker: ignoreTmdbMarker,
             );
-      final maxSpecialEps = (inventory.season == 0 || localOvaParentTv)
+      final maxSpecialEps = (inventory.season == 0 || forceLocalOvaS0)
           ? (specials.isNotEmpty ? specials.first.count : 0)
           : ((mappedSeason == 0 || (matchedBangumi?.isSpecialFormat ?? false))
                 ? 12
@@ -1036,7 +1133,7 @@ abstract final class WorkMatcher {
         scored.season = 0;
         yearOf = s0.year ?? yearOf;
         scored.add(
-          s0.count == episodes
+          s0.count == episodes || (localOvaParentTv && episodes >= 3)
               ? 15
               : (parentTvSpecial || localOvaParentTv || inventory.season == 0
                     ? 12
@@ -1249,6 +1346,13 @@ abstract final class WorkMatcher {
     final primaryNorm = _canonCjk(
       DirectoryAnalyzer.normalize(_stripRemaster(inventory.title)),
     );
+    // 若本地主标题已在系列基础名之后携带独立篇章/续作副标题（如 `SEED DESTINY` 相对 `SEED`），
+    // 则仅含系列基础名的第 1 季不得借次要父系列提示词拿到季名精确命中。
+    if (sNorm == baseNorm &&
+        primaryNorm.length > baseNorm.length + 1 &&
+        primaryNorm.startsWith(baseNorm)) {
+      return 0.0;
+    }
     final localResidual =
         baseNorm.isNotEmpty &&
             primaryNorm.startsWith(baseNorm) &&
@@ -1350,13 +1454,6 @@ abstract final class WorkMatcher {
           candidate.title,
           ...candidate.aliases,
         ]);
-    final explicit =
-        (invSeq != null &&
-            !candHasSeq &&
-            rawExplicit == 1 &&
-            inventory.season == null)
-        ? null
-        : rawExplicit;
     final localArcs = <String>{
       for (final raw in [
         inventory.title,
@@ -1392,6 +1489,13 @@ abstract final class WorkMatcher {
       0.0,
       (m, v) => v > m ? v : m,
     );
+    final explicit =
+        (rawExplicit == 1 &&
+            inventory.season == null &&
+            ((invSeq != null && !candHasSeq) ||
+                (bestNameScore >= 0.88 && (nameScores[1] ?? 0.0) < 0.72)))
+        ? null
+        : rawExplicit;
 
     if (explicit == null &&
         mappedSeason == null &&
@@ -1449,7 +1553,13 @@ abstract final class WorkMatcher {
         }
       }
       var score = 0;
-      if (mappedSeason != null) {
+      // 当 TMDB 自身季名已以极高相似度命中另一季时（如 `SEED DESTINY 第 2 季`），
+      // 忽略离线映射表里默认填写的冲突季号（常见 `open-ani` 默认 season=1）。
+      final ignoreConflictingMappedSeason =
+          mappedSeason != null &&
+          bestNameScore >= 0.88 &&
+          (nameScores[mappedSeason] ?? 0.0) < 0.72;
+      if (mappedSeason != null && !ignoreConflictingMappedSeason) {
         score += season.number == mappedSeason ? 8 : -6;
       }
       if (explicit != null) {
@@ -1585,18 +1695,33 @@ abstract final class WorkMatcher {
     MatchCandidate bangumi, {
     bool parentTvSpecial = false,
   }) {
-    final remote = {
-      for (final name in [scored.candidate.title, ...scored.candidate.aliases])
+    final remote = <String>{
+      for (final name in [scored.candidate.title, ...scored.candidate.aliases]) ...[
         DirectoryAnalyzer.normalize(name),
+        canonTitleKey(name),
+      ],
     }..remove('');
     final original = bangumi.aliases.isEmpty
         ? ''
         : DirectoryAnalyzer.normalize(bangumi.aliases.first);
-    var bonus = original.isNotEmpty && remote.contains(original) ? 12.0 : 0.0;
+    final originalCanon = bangumi.aliases.isEmpty
+        ? ''
+        : canonTitleKey(bangumi.aliases.first);
+    var bonus =
+        (original.isNotEmpty && remote.contains(original)) ||
+            (originalCanon.isNotEmpty && remote.contains(originalCanon))
+        ? 12.0
+        : 0.0;
     var others = 0;
     for (final name in {bangumi.title, ...bangumi.aliases.skip(1)}) {
       final key = DirectoryAnalyzer.normalize(name);
-      if (key.isNotEmpty && key != original && remote.contains(key)) others++;
+      final cKey = canonTitleKey(name);
+      if ((key.isNotEmpty && key != original && remote.contains(key)) ||
+          (cKey.isNotEmpty &&
+              cKey != originalCanon &&
+              remote.contains(cKey))) {
+        others++;
+      }
     }
     bonus += (others * 5).clamp(0, 10).toDouble();
     if (bonus == 0 && parentTvSpecial && scored.season == 0) {
@@ -1688,7 +1813,10 @@ abstract final class WorkMatcher {
     }
     final explicitOvaFolder =
         DirectoryAnalyzer.isOvaText(inventory.title) ||
-        DirectoryAnalyzer.isOvaText(inventory.folder);
+        DirectoryAnalyzer.isOvaText(inventory.folder) ||
+        (inventory.shape == WorkShape.series &&
+            inventory.episodeCount >= 2 &&
+            inventory.fileHints.any(DirectoryAnalyzer.isOvaText));
     if (!explicitOvaFolder) return false;
     if (DirectoryAnalyzer.isOvaText(candidate.title) ||
         candidate.aliases.any(DirectoryAnalyzer.isOvaText)) {
@@ -1750,6 +1878,37 @@ abstract final class WorkMatcher {
     );
     if (localPrimary.length < 4) return 0;
 
+    // 卷章型单字副标题对立（如 `雪の巻` vs `月の巻` vs `華の巻`、`前篇` vs `后篇`、`上卷` vs `下卷`）：
+    // 若本地片名与候选全部名称均以同类单字卷/章/篇后缀结尾、且没有任何别名与本地卷字一致，直接判冲突。
+    ({String head, String unit})? extractVolumeTail(String norm) {
+      final m = RegExp(
+        r'([\u4e00-\u9fff])(?:の|之)?([巻卷篇編章部])$',
+      ).firstMatch(norm);
+      if (m == null) return null;
+      final unit = switch (m.group(2)!) {
+        '巻' => '卷',
+        '編' => '篇',
+        final u => u,
+      };
+      return (head: m.group(1)!, unit: unit);
+    }
+
+    final localVol = extractVolumeTail(localPrimary);
+    if (localVol != null) {
+      final candVols = [
+        for (final n in [candidate.title, ...candidate.aliases])
+          ?extractVolumeTail(
+            DirectoryAnalyzer.normalize(
+              _stripRemaster(n.replaceAll(_movieWord, ' ')),
+            ),
+          ),
+      ].where((v) => v.unit == localVol.unit).toList(growable: false);
+      if (candVols.isNotEmpty &&
+          !candVols.any((v) => v.head == localVol.head)) {
+        return -25;
+      }
+    }
+
     final remoteNames = [
       candidate.title,
       ...candidate.aliases,
@@ -1773,7 +1932,7 @@ abstract final class WorkMatcher {
       return 0;
     }
 
-    // 若文件名携带了明确的副标题且与某候选别名高度一致（且不附带单边续作后缀），
+    // 若文件名携带了明确的副标题且与某候选别名高度一致（且不附带单边续作后缀、尾部副标题不互相冲突），
     // 即使文件夹名与 TMDB 中译存在跨语言翻译差异也不再扣分。
     // 保障文件名自带副标题的高置信精准绑定不受目录译名差异影响。
     for (final fh in inventory.fileHints.take(2)) {
@@ -1784,6 +1943,20 @@ abstract final class WorkMatcher {
             rn.length > fn.length &&
             _sequelOrSpinoffSuffix.hasMatch(rn.substring(fn.length))) {
           continue;
+        }
+        var pLen = 0;
+        final lim = fn.length < rn.length ? fn.length : rn.length;
+        while (pLen < lim && fn.codeUnitAt(pLen) == rn.codeUnitAt(pLen)) {
+          pLen++;
+        }
+        if (pLen >= 6) {
+          final fnTail = fn.substring(pLen);
+          final rnTail = rn.substring(pLen);
+          if (fnTail.length >= 3 &&
+              rnTail.length >= 3 &&
+              similarity(fnTail, rnTail) < 0.25) {
+            continue;
+          }
         }
         if (similarity(fn, rn) >= 0.70) return 0;
       }
@@ -2196,7 +2369,6 @@ abstract final class WorkMatcher {
     return best;
   }
 
-  /// 完全一致返回 `1.0`；包含关系按长度比例缩放；其余情况退化计算二元字符集 Dice 系数。
   /// 完全一致返回 `1.0`；包含关系按长度比例缩放；其余情况退化计算二元字符集 Dice 系数。
   static double similarity(String a, String b) => _wmSimilarity(a, b);
 

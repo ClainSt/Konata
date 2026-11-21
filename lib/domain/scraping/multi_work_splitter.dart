@@ -57,14 +57,19 @@ abstract final class MultiWorkSplitter {
   );
   static final _pureSideToken = RegExp(
     r'(?<![a-z0-9])(?:ncoped|ncop|nced|pvcm|tv[ ._-]*cm|bd[ ._-]*cm|cm|pv|'
-    r'menus?(?:[ ._-]*ex)?\d*|bd[ ._-]*menu\w*|trailer|teaser|preview|'
+    r'menus?(?:[ ._-]*ex)?\d*|menue\d*|hauptmenue|vorschau|'
+    r'bd[ ._-]*menu\w*|bd[ ._-]*sp[ ._-]*live\w*|sp[ ._-]*live\w*|'
+    r'bd[ ._-]*special[ ._-]*talk|special[ ._-]*talk|tokuten(?:[ ._-]*dvd)?|'
+    r'picture[ ._-]*drama|trailer|teaser|preview|'
     r'music[ ._-]*(?:video|clip)|mv[ ._-]*making|'
     r'tv[ ._-]*spot|spot|making|digest|interview|iv\d+|commentary|'
     r'creditless|textless|appendix|sample|hyakka)(?:[ ._-]*\d+[a-z]?)?'
     r'(?![a-z0-9])|'
     r'[\[(（【]\s*mv\s*[\])）】]|'
     r'予告|預告|预告|特報|メイキング|ダイジェスト|総集編|总集篇|メニュ[ー一]|百科|'
-    r'アイキャッチ(?:集)?|オーディオ[ ._-]*コメンタリー|ミュージック[ ._-]*(?:ビデオ|クリップ)',
+    r'ピクチャードラマ|スペシャル[ ._-]*映像|未公開(?:映像)?|プロモーション映像|劇場アナウンス|'
+    r'アイキャッチ(?:集)?|オーディオ[ ._-]*コメンタリー|'
+    r'(?:ミュージック|ミコージック)[ ._-・]*(?:ビデオ|クリップ)',
     caseSensitive: false,
   );
   static final _quoteBlock = RegExp(r'「([^」]+)」|『([^』]+)』');
@@ -358,6 +363,28 @@ abstract final class MultiWorkSplitter {
     }
 
     if (expandedBuckets.length < 2) return const [];
+
+    // 防止非显式合集的同人短片/MV 合盘（无集号、非显式电影且普遍小于 300 MB）被碎片化拆成数十部假电影。
+    if (folderTmdbId == null &&
+        explicitSegments.isEmpty &&
+        !_isExplicitCollectionName(normFolder) &&
+        expandedBuckets.length >= 6 &&
+        expandedBuckets.every(
+          (g) =>
+              g.length == 1 &&
+              g.single.episode == null &&
+              g.single.kind != 'movie',
+        )) {
+      final sizedCount = expandedBuckets.where((g) => g.single.size > 0).length;
+      final smallCount = expandedBuckets
+          .where(
+            (g) => g.single.size > 0 && g.single.size < _minQuotedFeatureBytes,
+          )
+          .length;
+      if (sizedCount >= 6 && smallCount * 10 >= sizedCount * 7) {
+        return const [];
+      }
+    }
 
     // 对显式 `{tmdb-N}` 目录，仅当存在至少一个明确的独立剧场版或独立 OVA 子聚类时
     // 才执行与主 TV 剧集之间的拆分。

@@ -7,15 +7,26 @@ import 'package:ccplayer/domain/scraping/scrape_domain_adapter.dart';
 import 'package:ccplayer/infrastructure/sources/directory_scanner.dart';
 
 /// 读取清单并经真实扫描器与归组拆分器得到作品分组，同时返回扫描与归组耗时（毫秒）。
+/// 当提供 [physicalRootPrefixes] 时，仅载入位于目标物理作品根目录之下的清单行以大幅加速黄金集与错题集复测。
 Future<({List<GroupedWorkFolder> groups, int files, int scanMs, int groupMs})>
 groupListing(
   String listingPath, {
   List<String> roots = const [],
   bool detectLocalCovers = false,
+  Set<String>? physicalRootPrefixes,
 }) async {
-  final gateway = ListingGateway.fromListing(
-    File(listingPath).readAsLinesSync(),
-  );
+  var lines = File(listingPath).readAsLinesSync();
+  if (physicalRootPrefixes != null && physicalRootPrefixes.isNotEmpty) {
+    final normalizedPrefixes = [
+      for (final raw in physicalRootPrefixes)
+        '${raw.trim().replaceAll('\\', '/').replaceAll(RegExp(r'^/+|/+$'), '')}/',
+    ];
+    lines = [
+      for (final raw in lines)
+        if (_matchesAnyPrefix(raw, normalizedPrefixes)) raw,
+    ];
+  }
+  final gateway = ListingGateway.fromListing(lines);
   final clock = Stopwatch()..start();
   final scan = await const DirectoryScanner().scan(
     gateway,
@@ -35,6 +46,19 @@ groupListing(
     scanMs: scanMs,
     groupMs: clock.elapsedMilliseconds - scanMs,
   );
+}
+
+bool _matchesAnyPrefix(String rawLine, List<String> prefixes) {
+  final line = rawLine.replaceFirst('\uFEFF', '').trimRight();
+  if (line.isEmpty) return false;
+  final tab = line.lastIndexOf('\t');
+  final path = (tab < 0 ? line : line.substring(0, tab))
+      .replaceAll('\\', '/')
+      .replaceAll(RegExp(r'^/+'), '');
+  for (final prefix in prefixes) {
+    if (path.startsWith(prefix)) return true;
+  }
+  return false;
 }
 
 /// 把单个作品分组导出为评测用 JSON（含逐文件分类、季、集、特典类型与系列主干）。

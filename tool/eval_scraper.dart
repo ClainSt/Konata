@@ -112,9 +112,36 @@ Future<int> runEvalCli(
 
   final totalClock = Stopwatch()..start();
   final detectLocalCovers = options.sourceKind == EvalSourceKind.local;
+
+  final goldenCases = _loadGoldenCasesIfNeeded(
+    mode: options.mode,
+    goldenFile: goldenFile,
+  );
+  if (options.mode == EvalMode.golden && goldenCases.isEmpty) {
+    stderr.writeln(
+      '黄金集文件不存在或为空：${goldenFile.path}。请先执行 --mode=init-golden 抽样生成。',
+    );
+    return 2;
+  }
+
+  final prefilterRoots = _computePrefilterPhysicalRoots(
+    mode: options.mode,
+    goldenCases: goldenCases,
+    failedKeysFile: failedKeysFile,
+    onlyFilters: options.onlyFilters,
+  );
+  if (options.mode == EvalMode.onlyFailed &&
+      options.onlyFilters.isEmpty &&
+      prefilterRoots != null &&
+      prefilterRoots.isEmpty) {
+    stderr.writeln('目标评测集合为空（若运行 --only-failed，说明当前错题本已清空）。');
+    return 0;
+  }
+
   final grouped = await groupListing(
     manifestFile.path,
     detectLocalCovers: detectLocalCovers,
+    physicalRootPrefixes: prefilterRoots,
   );
   stderr.writeln(
     '快照载入完成：${grouped.files} 媒体文件（${grouped.scanMs}ms），'
@@ -127,17 +154,6 @@ Future<int> runEvalCli(
       groups: grouped.groups,
       goldenFile: goldenFile,
     );
-  }
-
-  final goldenCases = _loadGoldenCasesIfNeeded(
-    mode: options.mode,
-    goldenFile: goldenFile,
-  );
-  if (options.mode == EvalMode.golden && goldenCases.isEmpty) {
-    stderr.writeln(
-      '黄金集文件不存在或为空：${goldenFile.path}。请先执行 --mode=init-golden 抽样生成。',
-    );
-    return 2;
   }
 
   final targets = _selectTargetGroups(
@@ -793,6 +809,42 @@ List<GoldenCase> _loadGoldenCasesIfNeeded({
     return GoldenSetCsvCodec.readFile(goldenFile);
   }
   return const [];
+}
+
+Set<String>? _computePrefilterPhysicalRoots({
+  required EvalMode mode,
+  required List<GoldenCase> goldenCases,
+  required File failedKeysFile,
+  required List<String> onlyFilters,
+}) {
+  if (mode == EvalMode.golden) {
+    final roots = <String>{
+      for (final c in goldenCases)
+        if (c.physicalRoot.trim().isNotEmpty) c.physicalRoot.trim(),
+    };
+    if (onlyFilters.isEmpty) return roots;
+    return {
+      for (final r in roots)
+        if (onlyFilters.any((f) => r.toLowerCase().contains(f))) r,
+    };
+  }
+  if (mode == EvalMode.onlyFailed && onlyFilters.isEmpty) {
+    final failedJson = _tryReadJsonMap(failedKeysFile);
+    final rawKeys = <String>{
+      for (final key in ((failedJson?['failed_folder_keys'] as List?) ?? const []))
+        key.toString(),
+      for (final key in ((failedJson?['recently_fixed_keys'] as List?) ?? const []))
+        key.toString(),
+    };
+    final roots = <String>{};
+    for (final raw in rawKeys) {
+      final sep = raw.indexOf('::');
+      final root = (sep > 0 ? raw.substring(0, sep) : raw).trim();
+      if (root.isNotEmpty) roots.add(root);
+    }
+    return roots;
+  }
+  return null;
 }
 
 List<GroupedWorkFolder> _selectTargetGroups({

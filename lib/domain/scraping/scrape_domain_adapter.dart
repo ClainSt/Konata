@@ -142,6 +142,7 @@ abstract final class ScrapeDomainAdapter {
     required String sourceId,
     required List<ScannedFileInput> files,
     Map<String, String> nfoByFolder = const {},
+    Map<String, String> localCoverByFolder = const {},
   }) {
     final multiInstallmentRoots = _detectMultiInstallmentRoots(
       files,
@@ -392,6 +393,12 @@ abstract final class ScrapeDomainAdapter {
                     cluster.inventory.season != 0);
             final passParentTmdb =
                 cluster.inventory.tmdbId == null && parentTmdbId != null;
+            final clusterLocalCover = _resolveDedicatedClusterLocalCover(
+              parentFolderPath: folderPath,
+              clusterFiles: clusterFiles,
+              slotMap: slotMap,
+              localCoverByFolder: localCoverByFolder,
+            );
 
             result.add(
               GroupedWorkFolder(
@@ -425,6 +432,7 @@ abstract final class ScrapeDomainAdapter {
                 parentTmdbType: passParentTmdb ? parentTmdbType : null,
                 allowParentTmdbCandidate: clusterExtraHints.isSpecial,
                 assetScopesByPath: Map.unmodifiable(clusterScopeMap),
+                localPosterPath: clusterLocalCover,
               ),
             );
           }
@@ -526,11 +534,43 @@ abstract final class ScrapeDomainAdapter {
               if (foldedExtras.assetScopeByPath.containsKey(f.relativePath))
                 f.relativePath: foldedExtras.assetScopeByPath[f.relativePath]!,
           }),
+          localPosterPath: localCoverByFolder[folderPath],
         ),
       );
     }
 
     return result;
+  }
+
+  /// 拆簇子作品严禁继承父合集根目录封面，仅在全部正片视频归属同一独立子目录且该子目录自有封面时才采纳。
+  static String? _resolveDedicatedClusterLocalCover({
+    required String parentFolderPath,
+    required List<ScannedFileInput> clusterFiles,
+    required Map<String, EpisodeSlotAssignment> slotMap,
+    required Map<String, String> localCoverByFolder,
+  }) {
+    if (localCoverByFolder.isEmpty) return null;
+    final normParent = parentFolderPath
+        .trim()
+        .replaceAll('\\', '/')
+        .replaceAll(RegExp(r'^/+|/+$'), '');
+    final mainDirs = <String>{};
+    for (final f in clusterFiles) {
+      if (f.assetKind != AssetKind.video) continue;
+      final slot = slotMap[f.relativePath];
+      if (slot != null && slot.category != EpisodeCategory.main) continue;
+      final normRel = f.relativePath
+          .trim()
+          .replaceAll('\\', '/')
+          .replaceAll(RegExp(r'^/+|/+$'), '');
+      final slash = normRel.lastIndexOf('/');
+      final dir = slash > 0 ? normRel.substring(0, slash) : '';
+      mainDirs.add(dir);
+    }
+    if (mainDirs.length != 1) return null;
+    final onlyDir = mainDirs.first;
+    if (onlyDir.isEmpty || onlyDir == normParent) return null;
+    return localCoverByFolder[onlyDir];
   }
 
   /// 构建遵循 `feat/scrape-pipeline` 多波次检索策略的去重搜索词表（最多 10 个；支持 Bangumi 交叉词救回）。

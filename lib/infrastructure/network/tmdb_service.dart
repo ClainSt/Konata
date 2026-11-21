@@ -2,12 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../../domain/models/artwork_storage.dart';
 import '../../domain/models/network_config.dart';
 import '../../domain/models/tmdb_models.dart';
 import '../../domain/models/work.dart';
 import '../../domain/scraping/search_query_sanitizer.dart';
-import '../cache/artwork_cache.dart';
-import '../cache/photos_storage.dart';
 import 'priority_http_scheduler.dart';
 import 'tmdb_http_client.dart';
 
@@ -22,7 +21,7 @@ class TmdbService {
        _alwaysMemoize = enableSessionCache;
 
   final TmdbHttpClient _http;
-  final ArtworkCache? _artworkCache;
+  final ArtworkCacheStore? _artworkCache;
   final bool _alwaysMemoize;
   static const int _maxMemoEntries = 320;
   static const String _tmdbBucketKey = 'tmdb';
@@ -364,7 +363,7 @@ class TmdbService {
     // 3. 标准 TMDB 相对路径（官方优先 + 备用地址自动回退，并按尺寸档位与质量隔离缓存）
     final effectiveSize = resolveImageSize(size: size, targetWidth: targetWidth);
     final normalizedPath = trimmed.startsWith('/') ? trimmed : '/$trimmed';
-    final cacheKey = ArtworkCache.buildSizedKey(effectiveSize, normalizedPath);
+    final cacheKey = buildSizedArtworkCacheKey(effectiveSize, normalizedPath);
 
     final cached = await _artworkCache?.read(
       cacheKey,

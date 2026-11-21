@@ -6,6 +6,7 @@ import '../application/providers/theme_providers.dart';
 import '../domain/models/relay_target_descriptor.dart';
 import '../domain/playback/cue_and_lrc_parser.dart';
 import '../domain/repositories/desktop_relay_service.dart';
+import '../infrastructure/network/tmdb_http_client.dart';
 import '../infrastructure/players/konata_video_texture_bridge.dart';
 import '../infrastructure/players/mpv_quality_profile.dart';
 
@@ -156,4 +157,9 @@ final platformExclusiveAudioSheetTitleProvider = Provider<String>(
 /// 平台比特流源码透传标题 Provider（桌面组装根覆写具体接口名称）。
 final platformBitstreamTitleProvider = Provider<String>(
   (ref) => '比特流源码透传',
+);
+
+/// 平台系统代理查询委托 Provider（Android 由组装根注入，桌面与纯 Dart 评测环境走环境变量探测）。
+final systemProxyResolverProvider = Provider<SystemProxyResolver?>(
+  (ref) => null,
 );

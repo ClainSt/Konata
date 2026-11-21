@@ -85,6 +85,11 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
     _bgmQueryController = TextEditingController(text: widget.initialQuery);
     if (widget.isSplitMode) {
       _mode = _ManualMatchMode.hybrid;
+    } else {
+      final cfg = ref.read(tmdbNetworkConfigProvider).valueOrNull;
+      if (cfg != null && cfg.credential.trim().isEmpty) {
+        _mode = _ManualMatchMode.bangumiOnly;
+      }
     }
     _tmdbQueryFocusNode.addListener(_onFocusUpdated);
     _directIdFocusNode.addListener(_onFocusUpdated);

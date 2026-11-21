@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:developer' as developer;
 
-import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
@@ -11,6 +10,9 @@ import '../../domain/formatting/network_error_sanitizer.dart';
 import '../../domain/models/network_config.dart';
 import '../../domain/models/tmdb_models.dart';
 import 'priority_http_scheduler.dart';
+
+/// 系统代理查询回调签名（供 Android 组装根与离线测试按需注入）。
+typedef SystemProxyResolver = Future<String?> Function(Uri uri);
 
 /// 不可达官方域名冷却注册表（防止主线受阻时每张图片或每条请求重复等待超时）。
 class DomainCooldownRegistry {
@@ -99,6 +101,7 @@ class TmdbHttpClient {
     this.primaryTimeout = const Duration(seconds: 3, milliseconds: 500),
     this.backupTimeout = const Duration(seconds: 12),
     DateTime Function()? nowProvider,
+    this._systemProxyResolver,
   }) : _scheduler = scheduler ?? PriorityHttpScheduler(),
        _injectedClient = httpClient,
        _cooldown = cooldownRegistry ?? DomainCooldownRegistry(),
@@ -109,6 +112,7 @@ class TmdbHttpClient {
   final http.Client? _injectedClient;
   final DomainCooldownRegistry _cooldown;
   final DateTime Function() _now;
+  final SystemProxyResolver? _systemProxyResolver;
 
   /// 官方主链路单次请求超时阈值（默认 3.5 秒以快速感知受阻并切向备用地址）。
   final Duration primaryTimeout;
@@ -118,9 +122,6 @@ class TmdbHttpClient {
 
   http.Client? _cachedIoClient;
 
-  static const MethodChannel _androidNetworkChannel = MethodChannel(
-    'ccplayer/network',
-  );
   static const List<String> _dohJsonEndpoints = <String>[
     'https://223.5.5.5/resolve',
     'https://1.1.1.1/dns-query',
@@ -526,10 +527,7 @@ class TmdbHttpClient {
       final primary = Uri.parse(
         '${TmdbNetworkConfig.defaultFanartApiBase}$probePath',
       );
-      final rawBackup = _config.fanartBackupApiBase.trim().replaceAll(
-        RegExp(r'/+$'),
-        '',
-      );
+      final rawBackup = _config.normalizedFanartDirectBackupApiBase;
       final backup = rawBackup.isNotEmpty
           ? Uri.tryParse(
               rawBackup.endsWith('/v3')
@@ -762,6 +760,8 @@ class TmdbHttpClient {
 
   /// 查询并短期缓存 Android 系统 Wi-Fi HTTP 代理配置（兼容未开启 TUN 模式的系统代理）。
   Future<void> _warmAndroidSystemProxy(Uri uri) async {
+    final resolver = _systemProxyResolver;
+    if (resolver == null) return;
     if (uri.scheme != 'http' && uri.scheme != 'https') return;
     final key = '${uri.scheme}://${uri.host}'.toLowerCase();
     final now = _now();
@@ -770,10 +770,7 @@ class TmdbHttpClient {
       return;
     }
     try {
-      final probeUrl = '${uri.scheme}://${uri.host}/';
-      final directive = await _androidNetworkChannel
-          .invokeMethod<String>('proxy', probeUrl)
-          .timeout(const Duration(milliseconds: 600));
+      final directive = await resolver(uri);
       if (directive != null && directive.trim().isNotEmpty) {
         _androidProxyCache[key] = (
           directive: directive.trim(),

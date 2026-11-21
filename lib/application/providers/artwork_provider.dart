@@ -12,7 +12,6 @@ import '../../domain/models/tmdb_models.dart';
 import '../../infrastructure/cache/photos_storage.dart';
 import '../../infrastructure/cache/scan_thumbnail_scheduler.dart';
 import '../../infrastructure/network/priority_http_scheduler.dart';
-import '../../infrastructure/network/tmdb_http_client.dart';
 import '../../infrastructure/network/tmdb_service.dart';
 import '../../infrastructure/players/audio_art_extractor.dart';
 import 'library_providers.dart';
@@ -227,14 +226,8 @@ final tmdbImageLoaderProvider = Provider<ManagedImageLoader>((ref) {
       return Uint8List(0);
     }
     final config = await ref.read(tmdbNetworkConfigProvider.future);
-    final scheduler = ref.read(priorityHttpSchedulerProvider);
-    final cooldown = ref.read(domainCooldownRegistryProvider);
     final cache = await ref.read(artworkCacheProvider.future);
-    final client = TmdbHttpClient(
-      config: config,
-      scheduler: scheduler,
-      cooldownRegistry: cooldown,
-    );
+    final client = createAppTmdbHttpClient(ref, config);
     final tmdb = TmdbService(httpClient: client, artworkCache: cache);
     return tmdb.fetchImageBytes(
       pathOrUrl,

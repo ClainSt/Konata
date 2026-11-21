@@ -1,7 +1,8 @@
-# 仅在签名密钥持有者的交互式 PowerShell 会话中运行。
+﻿# 仅在签名密钥持有者的交互式 PowerShell 会话中运行。
 param(
     [ValidateRange(0, 2147481647)] [int] $BuildNumber = 0,
-    [string] $BuildName = '1.0.0'
+    [string] $BuildName = '1.0.0',
+    [string] $FanartRelayBase = ''
 )
 $ErrorActionPreference = 'Stop'
 if ($env:KONATA_RELEASE_VALIDATION -eq '1') {
@@ -54,7 +55,11 @@ try {
     }
     Set-BuildStage 'building-release'
     # 在 flutter test 或 pub get 后重新生成 Release 插件注册代码，显式指向 Android 裁剪入口。
-    & $flutter build apk --release -t lib/main_android.dart --target-platform android-arm64 --split-per-abi --build-name=$BuildName --build-number=$BuildNumber 2>&1 |
+    $extraDefineArgs = @()
+    if ($FanartRelayBase.Trim().Length -gt 0) {
+        $extraDefineArgs += "--dart-define=KONATA_FANART_RELAY_BASE=$($FanartRelayBase.Trim())"
+    }
+    & $flutter build apk --release -t lib/main_android.dart --target-platform android-arm64 --split-per-abi --build-name=$BuildName --build-number=$BuildNumber @extraDefineArgs 2>&1 |
         Tee-Object -FilePath (Join-Path $statusDir 'android-release-build.log')
     if ($LASTEXITCODE) { throw 'Android Release 构建失败。' }
     $apk = Join-Path $project 'build/app/outputs/flutter-apk/app-arm64-v8a-release.apk'

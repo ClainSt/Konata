@@ -62,10 +62,16 @@ class TmdbNetworkConfig {
   /// 官方标准 Fanart.tv 图片 CDN 根地址。
   static const String defaultFanartImageBase = 'https://assets.fanart.tv';
 
-  /// Release 打包通过 `--dart-define=KONATA_FANART_RELAY_BASE=...` 注入的内置 Cloudflare Workers 无状态中继根地址。
-  static const String builtInFanartRelayBase = String.fromEnvironment(
+  /// 默认公开的 Cloudflare Workers 无状态中继根地址（不含任何私钥）。
+  static const String defaultFanartRelayBase = 'https://api.konata.acgcc.cn';
+
+  static const String _envFanartRelayBase = String.fromEnvironment(
     'KONATA_FANART_RELAY_BASE',
   );
+
+  /// 内置 Cloudflare Workers 无状态中继根地址（支持通过 `--dart-define=KONATA_FANART_RELAY_BASE=...` 覆盖，空串自动回退默认中继）。
+  static const String builtInFanartRelayBase =
+      _envFanartRelayBase != '' ? _envFanartRelayBase : defaultFanartRelayBase;
 
   /// 本地调试或开发构建通过 `--dart-define=FANART_API_KEY=...` 或 `--dart-define-from-file=dart_defines.dev.json` 注入的项目 API Key（源码默认为空）。
   static const String compileTimeFanartApiKey = String.fromEnvironment(
@@ -207,6 +213,15 @@ class TmdbNetworkConfig {
     final trimmed = _trimTrailingSlashes(fanartBackupApiBase);
     if (trimmed.isNotEmpty) return trimmed;
     return _trimTrailingSlashes(builtInFanartRelayBase);
+  }
+
+  /// 直连自定义 `api-key` 模式下可用的备用反代 API 地址（自动排除内置无状态中继，避免向公开中继发送私有 `api-key`）。
+  String get normalizedFanartDirectBackupApiBase {
+    final trimmed = _trimTrailingSlashes(fanartBackupApiBase);
+    if (trimmed.isEmpty) return '';
+    final builtIn = _trimTrailingSlashes(builtInFanartRelayBase);
+    if (trimmed.toLowerCase() == builtIn.toLowerCase()) return '';
+    return trimmed;
   }
 
   /// 规范化后的 Fanart.tv 备用图片 Base URL（去尾斜杠；为空时返回空字符串）。

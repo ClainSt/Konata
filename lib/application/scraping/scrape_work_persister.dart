@@ -27,7 +27,13 @@ class ScrapeWorkPersister {
 
   final LibraryRepository _repository;
 
-  /// 根据 TMDB 与可选 Bangumi 详情及季级身份解析结果构造已匹配的强类型 [Work] 实体。
+  static String? _nonEmpty(String? raw) {
+    final trimmed = raw?.trim();
+    if (trimmed == null || trimmed.isEmpty) return null;
+    return trimmed;
+  }
+
+  /// 根据 TMDB 与可选 Bangumi/Fanart 详情及季级身份解析结果构造已匹配的强类型 [Work] 实体。
   static Work buildMatchedWork({
     required String id,
     required TmdbWorkDetail detail,
@@ -35,6 +41,11 @@ class ScrapeWorkPersister {
     int? matchedSeason,
     TmdbSeasonDetail? seasonDetail,
     ScoredBangumiCandidate? bangumiCandidate,
+    int? tvdbIdOverride,
+    String? fanartPosterFallback,
+    String? fanartBackdropOverride,
+    String? fanartLogoOverride,
+    String? localPosterFallback,
     int? fallbackYear,
     int? folderTmdbHint,
     required bool isManualLocked,
@@ -42,6 +53,7 @@ class ScrapeWorkPersister {
     bool posterLocked = false,
     bool backdropLocked = false,
     bool logoLocked = false,
+    int logoNegativeMask = 0,
     bool isHidden = false,
     bool keepHidden = false,
   }) {
@@ -71,22 +83,42 @@ class ScrapeWorkPersister {
                 bgmSubject?.summary,
           );
 
+    final effectiveFanartPoster = _nonEmpty(fanartPosterFallback);
+    final effectiveLocalPoster =
+        _nonEmpty(localPosterFallback) ?? _nonEmpty(folder?.localPosterPath);
+    final effectivePoster =
+        _nonEmpty(resolved.posterPath) ??
+        effectiveFanartPoster ??
+        effectiveLocalPoster;
+    String? effectivePosterFallback = _nonEmpty(resolved.posterFallback);
+    if (effectivePosterFallback == null &&
+        effectiveFanartPoster != null &&
+        effectiveFanartPoster != effectivePoster) {
+      effectivePosterFallback = effectiveFanartPoster;
+    }
+    if (effectivePosterFallback == null &&
+        effectiveLocalPoster != null &&
+        effectiveLocalPoster != effectivePoster) {
+      effectivePosterFallback = effectiveLocalPoster;
+    }
+
     return Work(
       id: id,
       tmdbId: detail.tmdbId,
       tmdbMediaType: detail.mediaType,
       bangumiId: bgmSubject?.id,
-      tvdbId: detail.tvdbId,
+      tvdbId: detail.tvdbId ?? tvdbIdOverride,
       matchedSeason: matchedSeason,
       title: resolved.title,
       originalTitle: detail.originalTitle ?? bgmSubject?.name,
       year: resolved.year ?? fallbackYear,
       overview: resolved.overview,
-      posterPath: resolved.posterPath,
-      posterFallback: resolved.posterFallback,
+      posterPath: effectivePoster,
+      posterFallback: effectivePosterFallback,
       bangumiPosterPath: resolved.bangumiPosterPath,
-      backdropPath: detail.backdropPath,
-      logoPath: detail.logoPath,
+      backdropPath:
+          _nonEmpty(fanartBackdropOverride) ?? _nonEmpty(detail.backdropPath),
+      logoPath: _nonEmpty(fanartLogoOverride) ?? _nonEmpty(detail.logoPath),
       voteAverage: detail.voteAverage,
       bangumiScore: bgmSubject?.score,
       folderTmdbHint: folderTmdbHint,
@@ -95,6 +127,7 @@ class ScrapeWorkPersister {
       posterLocked: posterLocked,
       backdropLocked: backdropLocked,
       logoLocked: logoLocked,
+      logoNegativeMask: logoNegativeMask,
       isHidden: isHidden,
       keepHidden: keepHidden,
       scrapeStatus: ScrapeStatus.matched,
@@ -115,6 +148,13 @@ class ScrapeWorkPersister {
         : (candidate.logoPath ?? existing.logoPath);
     final hasResolvedLogo =
         nextLogoPath != null && nextLogoPath.trim().isNotEmpty;
+    final nextLogoNegativeMask = hasResolvedLogo
+        ? (candidate.logoNegativeMask != 0
+              ? candidate.logoNegativeMask
+              : (nextLogoPath == existing.logoPath
+                    ? existing.logoNegativeMask
+                    : 0))
+        : existing.logoNegativeMask;
     return candidate.copyWith(
       tvdbId: candidate.tvdbId ?? existing.tvdbId,
       matchedSeason: existing.metadataLocked
@@ -130,18 +170,18 @@ class ScrapeWorkPersister {
           : candidate.overview,
       posterPath: existing.posterLocked
           ? existing.posterPath
-          : candidate.posterPath,
+          : (candidate.posterPath ?? existing.posterPath),
       posterFallback: existing.posterLocked
           ? existing.posterFallback
-          : candidate.posterFallback,
+          : (candidate.posterFallback ?? existing.posterFallback),
       backdropPath: existing.backdropLocked
           ? existing.backdropPath
-          : candidate.backdropPath,
+          : (candidate.backdropPath ?? existing.backdropPath),
       logoPath: nextLogoPath,
       clearLogoPath: !hasResolvedLogo,
-      clearLogoNegative: hasResolvedLogo,
+      clearLogoNegative: hasResolvedLogo && nextLogoNegativeMask == 0,
       logoNegativeUntil: hasResolvedLogo ? null : existing.logoNegativeUntil,
-      logoNegativeMask: hasResolvedLogo ? 0 : existing.logoNegativeMask,
+      logoNegativeMask: nextLogoNegativeMask,
       bangumiId: (existing.metadataLocked && existing.bangumiId != null)
           ? existing.bangumiId
           : (candidate.bangumiId ?? existing.bangumiId),
@@ -174,17 +214,22 @@ class ScrapeWorkPersister {
     );
   }
 
-  /// 构造仅命中 Bangumi 在线条目时的强类型 [Work] 实体（无 TMDB 条目时保底封面、简介与年份）。
+  /// 构造仅命中 Bangumi 在线条目时的强类型 [Work] 实体（支持联合 Fanart.tv / 本地封面保底独立上墙）。
   static Work buildBangumiOnlyWork({
     required String id,
     required GroupedWorkFolder folder,
     required ScoredBangumiCandidate bangumiCandidate,
     required ScrapeStatus status,
     String? reviewReason,
+    int? tvdbId,
+    String? posterPathOverride,
+    String? backdropPath,
+    String? logoPath,
     required bool isManualLocked,
     bool metadataLocked = false,
     bool posterLocked = false,
     bool backdropLocked = false,
+    bool logoLocked = false,
     bool isHidden = false,
     bool keepHidden = false,
   }) {
@@ -193,23 +238,75 @@ class ScrapeWorkPersister {
       bangumiCandidate: bangumiCandidate,
     );
     final subject = bangumiCandidate.subject;
+    final overridePoster = _nonEmpty(posterPathOverride);
+    final localPoster = _nonEmpty(folder.localPosterPath);
+    final effectivePoster =
+        _nonEmpty(resolved.posterPath) ?? overridePoster ?? localPoster;
+    String? effectiveFallback = _nonEmpty(resolved.posterFallback);
+    if (effectiveFallback == null &&
+        overridePoster != null &&
+        overridePoster != effectivePoster) {
+      effectiveFallback = overridePoster;
+    }
+    if (effectiveFallback == null &&
+        localPoster != null &&
+        localPoster != effectivePoster) {
+      effectiveFallback = localPoster;
+    }
     return Work(
       id: id,
       bangumiId: subject.id,
+      tvdbId: tvdbId,
+      matchedSeason: folder.seasonHint,
       title: resolved.title,
       originalTitle: subject.name.isNotEmpty ? subject.name : null,
       year: resolved.year ?? folder.year,
       overview: resolved.overview,
-      posterPath: resolved.posterPath,
-      posterFallback: resolved.posterFallback,
+      posterPath: effectivePoster,
+      posterFallback: effectiveFallback,
       bangumiPosterPath: resolved.bangumiPosterPath,
+      backdropPath: _nonEmpty(backdropPath),
+      logoPath: _nonEmpty(logoPath),
       bangumiScore: subject.score,
       folderTmdbHint: folder.explicitTmdbId,
       isManualLocked: isManualLocked,
+      metadataLocked: metadataLocked,
+      posterLocked: posterLocked,
+      backdropLocked: backdropLocked,
+      logoLocked: logoLocked,
       isHidden: isHidden,
       keepHidden: keepHidden,
       scrapeStatus: status,
       reviewReason: reviewReason,
+    );
+  }
+
+  /// 构造无 TMDB 与 Bangumi 主匹配、但凭 Fanart.tv 封面或本地磁盘封面独立上墙的 [Work] 实体。
+  static Work buildCoverFallbackWork({
+    required String id,
+    required GroupedWorkFolder folder,
+    required String posterPath,
+    int? tvdbId,
+    String? backdropPath,
+    String? logoPath,
+    bool isManualLocked = false,
+    bool isHidden = false,
+    bool keepHidden = false,
+  }) {
+    return Work(
+      id: id,
+      tvdbId: tvdbId,
+      matchedSeason: folder.seasonHint,
+      title: folder.cleanTitle,
+      year: folder.year,
+      posterPath: posterPath.trim(),
+      backdropPath: _nonEmpty(backdropPath),
+      logoPath: _nonEmpty(logoPath),
+      folderTmdbHint: folder.explicitTmdbId,
+      isManualLocked: isManualLocked,
+      isHidden: isHidden,
+      keepHidden: keepHidden,
+      scrapeStatus: ScrapeStatus.matched,
     );
   }
 

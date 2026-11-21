@@ -29,6 +29,7 @@ class ScrapeComputeWorker {
     required String sourceId,
     required List<ScannedFileInput> files,
     Map<String, String> nfoByFolder = const {},
+    Map<String, String> localCoverByFolder = const {},
   }) {
     if (!useIsolate) {
       return Future.value(
@@ -36,6 +37,7 @@ class ScrapeComputeWorker {
           sourceId: sourceId,
           files: files,
           nfoByFolder: nfoByFolder,
+          localCoverByFolder: localCoverByFolder,
         ),
       );
     }
@@ -44,6 +46,7 @@ class ScrapeComputeWorker {
         sourceId: sourceId,
         files: files,
         nfoByFolder: nfoByFolder,
+        localCoverByFolder: localCoverByFolder,
       ),
     );
   }
@@ -130,12 +133,14 @@ class ScrapeComputeSession implements ScrapeComputeWorker {
     required String sourceId,
     required List<ScannedFileInput> files,
     Map<String, String> nfoByFolder = const {},
+    Map<String, String> localCoverByFolder = const {},
   }) async {
     if (!useIsolate) {
       return ScrapeDomainAdapter.groupAndSplitFiles(
         sourceId: sourceId,
         files: files,
         nfoByFolder: nfoByFolder,
+        localCoverByFolder: localCoverByFolder,
       );
     }
     final res = await _dispatch(
@@ -143,6 +148,7 @@ class ScrapeComputeSession implements ScrapeComputeWorker {
         sourceId: sourceId,
         files: files,
         nfoByFolder: nfoByFolder,
+        localCoverByFolder: localCoverByFolder,
       ),
     );
     return res as List<GroupedWorkFolder>;
@@ -311,11 +317,13 @@ final class _GroupFilesTask extends _ComputeTask {
     required this.sourceId,
     required this.files,
     required this.nfoByFolder,
+    required this.localCoverByFolder,
   });
 
   final String sourceId;
   final List<ScannedFileInput> files;
   final Map<String, String> nfoByFolder;
+  final Map<String, String> localCoverByFolder;
 }
 
 final class _EvalBangumiTask extends _ComputeTask {
@@ -346,6 +354,7 @@ Object? _executeTaskSync(_ComputeTask task) {
         sourceId: task.sourceId,
         files: task.files,
         nfoByFolder: task.nfoByFolder,
+        localCoverByFolder: task.localCoverByFolder,
       );
     case _EvalBangumiTask():
       final res = ScrapeDomainAdapter.evaluateBangumiMatch(

@@ -95,3 +95,6 @@ dart_defines.dev.json
 dart_defines.local.json
 **/.wrangler/
 **/.dev.vars
+
+# Local scraper evaluation corpus, golden set, VCR cache & run reports (never commit)
+/local_eval/

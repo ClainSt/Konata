@@ -8,7 +8,10 @@ import 'package:ccplayer/domain/models/work.dart';
 import 'package:ccplayer/domain/scraping/bangumi_models.dart';
 import 'package:ccplayer/domain/scraping/bangumi_tmdb_index.dart';
 import 'package:ccplayer/domain/scraping/directory_analyzer.dart';
+import 'package:ccplayer/domain/scraping/multi_work_splitter.dart';
+import 'package:ccplayer/domain/scraping/personal_filename_parser.dart';
 import 'package:ccplayer/domain/scraping/scrape_domain_adapter.dart';
+import 'package:ccplayer/domain/scraping/work_wall_eligibility.dart';
 import 'package:ccplayer/infrastructure/network/bangumi_service.dart';
 import 'package:ccplayer/infrastructure/network/priority_http_scheduler.dart';
 import 'package:ccplayer/infrastructure/network/tmdb_service.dart';
@@ -464,6 +467,254 @@ void main() {
       expect(passed, total, reason: failures.join('\n'));
     });
   });
+
+  group('全库 3492 部深水区防退化回归（短名、单集 TV SP、巨型主片花絮降级、平行多版本与目录净化）', () {
+    test('中置信单集 TV 特别篇经离线映射指向母剧 S0 时自动锚定母剧第 0 季', () {
+      final f = _buildGroupedFolder(
+        folderPath: '少女福尔摩斯系列/Tantei Opera Milky Holmes - Arsene Karei Naru Yokubou',
+        fileNames: const [
+          '[BDRip] Tantei Opera Milky Holmes - Arsene Karei Naru Yokubou [1080p].mkv',
+        ],
+      );
+      const bgm = BangumiSubjectCandidate(
+        id: 230295,
+        name: '探偵オペラ ミルキィホームズ アルセーヌ 華麗なる欲望',
+        nameCn: '侦探歌剧 少女福尔摩斯 亚森 华丽的欲望',
+        year: 2017,
+        airDate: '2017-12-31',
+        totalEpisodes: 1,
+        platform: 'TV',
+      );
+      const parentTv = TmdbWorkDetail(
+        tmdbId: 51492,
+        mediaType: TmdbMediaType.tv,
+        title: '侦探歌剧 少女福尔摩斯',
+        originalTitle: '探偵オペラ ミルキィホームズ',
+        year: 2010,
+        voteCount: 45,
+        genreIds: [16, 9648],
+        seasons: [
+          TmdbSeasonSummary(seasonNumber: 0, name: '特别篇', episodeCount: 12),
+          TmdbSeasonSummary(seasonNumber: 1, name: '第 1 季', episodeCount: 12),
+        ],
+      );
+      final mapIndex = BangumiTmdbIndex.fromBytes(
+        BangumiTmdbIndex.encode(
+          const [
+            BangumiTmdbRecord(
+              bangumiId: 230295,
+              type: TmdbMediaType.tv,
+              tmdbId: 51492,
+              season: 0,
+            ),
+          ],
+          snapshotDateYyyymmdd: 20261121,
+        ),
+      );
+
+      final decision = ScrapeDomainAdapter.evaluateMatch(
+        f,
+        const [parentTv],
+        bangumiCandidates: const [bgm],
+        mappingIndex: mapIndex,
+      );
+      expect(decision.level, MatchLevel.autoBind);
+      expect(decision.best?.detail.tmdbId, 51492);
+      expect(decision.matchedSeason, 0);
+    });
+
+    test('rescueTmdbByBangumi 遇跨年份无关动画不提前截断，继续以英文/日文拉回同年份正主', () async {
+      final searchCalls = <String>[];
+      final fakeTmdb = _RecordingTmdbService(
+        onSearch: (query, year, lang) {
+          searchCalls.add('$lang:${year ?? 'any'}:$query');
+          if (lang == 'zh-CN') {
+            return const [
+              TmdbSearchResult(
+                tmdbId: 281302,
+                mediaType: TmdbMediaType.tv,
+                title: "Audrey's Shelter",
+                year: 2024,
+                genreIds: [16, 10762],
+              ),
+            ];
+          }
+          if (lang == 'en-US' && year == 2016) {
+            return const [
+              TmdbSearchResult(
+                tmdbId: 421091,
+                mediaType: TmdbMediaType.movie,
+                title: 'Shelter',
+                year: 2016,
+                genreIds: [16, 10402],
+                posterPath: '/shelter.jpg',
+              ),
+            ];
+          }
+          return const [];
+        },
+        details: const {
+          'movie:421091': TmdbWorkDetail(
+            tmdbId: 421091,
+            mediaType: TmdbMediaType.movie,
+            title: '避难所',
+            originalTitle: 'Shelter',
+            year: 2016,
+            genreIds: [16, 10402],
+          ),
+        },
+      );
+      final fetcher = ScrapeCandidateFetcher(fakeTmdb);
+      final f = _buildGroupedFolder(
+        folderPath: '动画-单作品/避难所',
+        fileNames: const ['[VCB-Studio] Shelter [Ma10p_1080p][x265_flac].mkv'],
+      );
+      const bgm = BangumiSubjectCandidate(
+        id: 195249,
+        name: 'SHELTER',
+        nameCn: '避难所',
+        year: 2016,
+        totalEpisodes: 1,
+        platform: '其他',
+      );
+      final rescued = await fetcher.rescueTmdbByBangumi(f, bgm);
+      expect(rescued.map((d) => d.tmdbId), contains(421091));
+      expect(searchCalls.any((c) => c.startsWith('en-US:2016:')), isTrue);
+    });
+
+    test('极短真片名 W\'Z 与多季拼接目录 S1+S2 生成有效去噪查询词且不泄漏 DTS HDMA / SP01', () {
+      final wz = _buildGroupedFolder(
+        folderPath: "动画-单作品/W'Z (2019) {tmdb-83099}",
+        fileNames: const ["[Moozzi2] W'z - 01 (BD 1920x1080 x.264 Flac).mkv"],
+      );
+      final wzQueries = ScrapeDomainAdapter.buildSearchQueries(wz);
+      expect(wzQueries, isNotEmpty);
+      expect(wzQueries.first.toUpperCase(), contains("W'Z"));
+
+      final s1s2 = _buildGroupedFolder(
+        folderPath: '动画-系列作未收集/偶像活动Friends S1+S2',
+        fileNames: const ['[Subs] Aikatsu Friends! - 01 [1080p].mkv'],
+      );
+      final s1s2Queries = ScrapeDomainAdapter.buildSearchQueries(s1s2);
+      expect(s1s2Queries, contains('偶像活动Friends'));
+
+      final dts = _buildGroupedFolder(
+        folderPath: '未添加TMDB ID/窈窕淑女系列/剧场版 窈窕淑女',
+        fileNames: const [
+          '[Nekomoe kissaten][Haikara-san ga Toru the movie zenpen][BDRip][Ma10p_1080p][x265_DTS-HDMA_flac_aac].mkv',
+        ],
+      );
+      final dtsQueries = ScrapeDomainAdapter.buildSearchQueries(dts);
+      expect(
+        dtsQueries.any((q) => q.toUpperCase().contains('DTS')),
+        isFalse,
+      );
+      expect(
+        PersonalFilenameParser.isTechnicalBracketBlock('x265_DTS-HDMA_flac×2'),
+        isTrue,
+      );
+    });
+
+    test('单部巨型剧场版配大量小花絮短片自动降级花絮不误判合集，4 组完整平行配音版本不误判合集', () {
+      final brokenBladeInv = DirectoryAnalyzer.analyze(
+        '破刃之剑 第一章 觉醒之刻 (2010) {tmdb-55426}',
+        const [
+          (
+            path: '[VCB-Studio]劇場版 ブレイクブレイド 第一章「覚醒ノ刻」(BDrip 1920x1080).mkv',
+            size: 2912 * 1024 * 1024,
+          ),
+          (path: '[VCB-Studio]劇場版 ブレイクブレイド イリオス兵軍学校.mkv', size: 287 * 1024 * 1024),
+          (path: '[VCB-Studio]劇場版 ブレイクブレイド クリシュナ9世、御前試合.mkv', size: 305 * 1024 * 1024),
+          (path: '[VCB-Studio]劇場版 ブレイクブレイド ミレニル部隊、結成！.mkv', size: 192 * 1024 * 1024),
+          (path: '[VCB-Studio]劇場版 ブレイクブレイド 潜入！ボルキュス邸.mkv', size: 203 * 1024 * 1024),
+          (path: '[VCB-Studio]劇場版 ブレイクブレイド 運命に抗おう.mkv', size: 291 * 1024 * 1024),
+          (path: '[VCB-Studio]劇場版 ブレイクブレイド アッサム国立士官学校.mkv', size: 160 * 1024 * 1024),
+        ],
+      );
+      expect(brokenBladeInv.shape, WorkShape.feature);
+      expect(brokenBladeInv.main.length, 1);
+
+      final tonoInv = DirectoryAnalyzer.analyze(
+        '殿下与狗 (2024) {tmdb-270657}',
+        [
+          for (final ver in ['Mofu Mofu!', 'Pote Pote!', 'Woof Woof!', 'Kyu Kyu!'])
+            for (var e = 1; e <= 24; e++)
+              (
+                path:
+                    '$ver/[LoliHouse] Tono to Inu $ver - ${'$e'.padLeft(2, '0')} [1080p].mkv',
+                size: 120 * 1024 * 1024,
+              ),
+        ],
+      );
+      expect(tonoInv.shape, WorkShape.series);
+      final tonoFolder = GroupedWorkFolder(
+        folderRelativePath: '动画-单作品/殿下与狗 (2024) {tmdb-270657}',
+        folderName: '殿下与狗 (2024) {tmdb-270657}',
+        cleanTitle: tonoInv.title,
+        mainEpisodeNumbers: tonoInv.episodes.toList()..sort(),
+        inventory: tonoInv,
+        variants: const [],
+      );
+      expect(WorkWallEligibility.hasMainPlayableContent(tonoFolder), isTrue);
+    });
+
+    test('压制组前缀与纯规格目录名清洗：保留片名方括号、剥离组名规格、技术目录自动提升文件片名', () {
+      expect(
+        DirectoryAnalyzer.cleanTitle('[VCB-Studio] 幻想万华镜 (2011) {tmdb-83958}'),
+        '幻想万华镜',
+      );
+      expect(
+        DirectoryAnalyzer.cleanTitle(
+          '[FLsnow_feat.AO][Aikatsu_Planet!-Bloomy_Cafe][WEBDL]',
+        ),
+        'Aikatsu Planet!-Bloomy Cafe',
+      );
+      expect(
+        DirectoryAnalyzer.cleanTitle('剧场版 魔法少女小圆 [前篇] 起始的物语 (2012) {tmdb-152042}'),
+        '剧场版 魔法少女小圆 [前篇] 起始的物语',
+      );
+      expect(
+        DirectoryAnalyzer.cleanTitle('Fate stay night [Unlimited Blade Works] (2014)'),
+        'Fate stay night [Unlimited Blade Works]',
+      );
+      final techDirInv = DirectoryAnalyzer.analyze(
+        'SourceUnknown.AVI.702x480.enHard (1)',
+        const [(path: '[SpA] Saiyuki Premium OVA 1.avi', size: 220 * 1024 * 1024)],
+      );
+      expect(techDirInv.title, contains('Saiyuki Premium OVA'));
+
+      // 拆簇中纯通用名 Movie Edition 自动拼接父目录作品名。
+      final clusters = MultiWorkSplitter.split(
+        '锁链战记～赫克瑟塔斯之光～ (2017) {tmdb-69237}',
+        [
+          for (var e = 1; e <= 12; e++)
+            {
+              'id': 'tv$e',
+              'relative_path':
+                  '[Moozzi2] Chain Chronicle Hekuseitasu no Hikari - ${'$e'.padLeft(2, '0')} (BD 1920x1080).mkv',
+              'file_size': 1200 * 1024 * 1024,
+            },
+          {
+            'id': 'm1',
+            'relative_path':
+                '[Moozzi2] Movie Edition - 01 [ EP.01~04 ] (BD 1920x1080).mkv',
+            'file_size': 3500 * 1024 * 1024,
+          },
+          {
+            'id': 'm2',
+            'relative_path':
+                '[Moozzi2] Movie Edition - 02 [ EP.05~08 ] (BD 1920x1080).mkv',
+            'file_size': 3500 * 1024 * 1024,
+          },
+        ],
+      );
+      expect(clusters.length, 2);
+      final movieCluster = clusters.firstWhere(
+        (c) => c.inventory.title.contains('剧场版'),
+      );
+      expect(movieCluster.inventory.title, contains('锁链战记'));
+    });
+  });
 }
 
 GroupedWorkFolder _buildGroupedFolder({
@@ -568,6 +819,36 @@ class _FakeTmdbService implements TmdbService {
     TmdbMediaType? mediaTypeFilter,
     RequestPriority priority = RequestPriority.background,
   }) async => const [];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _RecordingTmdbService implements TmdbService {
+  _RecordingTmdbService({required this.onSearch, required this.details});
+
+  final List<TmdbSearchResult> Function(String query, int? year, String lang)
+  onSearch;
+  final Map<String, TmdbWorkDetail> details;
+
+  @override
+  Future<List<TmdbSearchResult>> searchAnime(
+    String query, {
+    int? year,
+    String language = 'zh-CN',
+    bool includeAdult = false,
+    TmdbMediaType? mediaTypeFilter,
+    RequestPriority priority = RequestPriority.background,
+  }) async => onSearch(query, year, language);
+
+  @override
+  Future<TmdbWorkDetail?> getWorkDetail(
+    int tmdbId,
+    TmdbMediaType mediaType, {
+    RequestPriority priority = RequestPriority.background,
+    bool includeImages = true,
+    bool includeEnglishImages = false,
+  }) async => details['${mediaType.name}:$tmdbId'];
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

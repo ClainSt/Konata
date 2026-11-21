@@ -571,6 +571,12 @@ class ScrapeCandidateFetcher {
     final typeFilter = _tvOnlyFilter(folder, bangumi);
     var networkAborted = false;
 
+    bool isYearCompatibleAnimation(TmdbSearchResult h) =>
+        h.genreIds.contains(16) &&
+        (bangumi.year == null ||
+            h.year == null ||
+            (h.year! - bangumi.year!).abs() <= 1);
+
     Future<void> runSearch(
       Iterable<String> qs, {
       int? year,
@@ -593,9 +599,9 @@ class ScrapeCandidateFetcher {
             }
           }
           final animCount = hitMap.values
-              .where((h) => h.genreIds.contains(16))
+              .where(isYearCompatibleAnimation)
               .length;
-          if (animCount >= 6 || hitMap.length >= 24) break;
+          if (animCount >= 6) break;
         } catch (error) {
           if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
             networkAborted = true;
@@ -607,8 +613,7 @@ class ScrapeCandidateFetcher {
       }
     }
 
-    bool hasAnimationHit() =>
-        hitMap.values.any((h) => h.genreIds.contains(16));
+    bool hasAnimationHit() => hitMap.values.any(isYearCompatibleAnimation);
 
     await runSearch(queries.take(3), year: bangumi.year, lang: 'zh-CN');
     if (!networkAborted && !hasAnimationHit() && bangumi.year != null) {

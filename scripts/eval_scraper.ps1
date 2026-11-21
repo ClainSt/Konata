@@ -1,7 +1,7 @@
 ﻿# Konata 零落盘密钥与本地 CD2 目录只读刮削评测启动器（Windows）。
 # 所有评测资产严格隔离在 .gitignore 忽略的 local_eval/ 目录下，绝不进入仓库或发布产物。
 param(
-    [ValidateSet('ParseOnly', 'InitGolden', 'Golden', 'OnlyFailed', 'AcceptBaseline')]
+    [ValidateSet('ParseOnly', 'InitGolden', 'Golden', 'OnlyFailed', 'CorpusNoId', 'CorpusAll', 'AcceptBaseline')]
     [string]$Mode = 'Golden',
 
     [switch]$RefreshSnapshot,
@@ -26,6 +26,8 @@ param(
     [switch]$Offline,
 
     [switch]$WithExplicit,
+
+    [switch]$MessyFolders,
 
     [switch]$PromptKeys,
 
@@ -429,6 +431,8 @@ $modeArg = switch ($Mode) {
     'InitGolden'     { '--mode=init-golden' }
     'Golden'         { '--mode=golden' }
     'OnlyFailed'     { '--mode=only-failed' }
+    'CorpusNoId'     { '--mode=corpus-no-id' }
+    'CorpusAll'      { '--mode=corpus-all' }
     'AcceptBaseline' { '--mode=accept-baseline' }
 }
 
@@ -445,6 +449,7 @@ $cliArgs.Add("--sample-size=$SampleSize")
 if ($AllowFanartRelay) { $cliArgs.Add('--allow-fanart-relay') }
 if ($Offline) { $cliArgs.Add('--offline') }
 if ($WithExplicit) { $cliArgs.Add('--with-explicit') }
+if ($MessyFolders) { $cliArgs.Add('--messy-folders') }
 if ($Force) { $cliArgs.Add('--force') }
 if (-not [string]::IsNullOrWhiteSpace($Only)) { $cliArgs.Add("--only=$Only") }
 
@@ -455,7 +460,7 @@ if ($NoProxy) {
     $cliArgs.Add("--proxy=$effectiveProxy")
 }
 
-$isOnlineMode = ($Mode -eq 'Golden' -or $Mode -eq 'OnlyFailed')
+$isOnlineMode = ($Mode -eq 'Golden' -or $Mode -eq 'OnlyFailed' -or $Mode -eq 'CorpusNoId' -or $Mode -eq 'CorpusAll')
 
 # 步骤 3：仅在当次子进程内存注入密钥并在退出时彻底销毁。
 $keys = $null

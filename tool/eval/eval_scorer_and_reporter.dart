@@ -981,11 +981,12 @@ abstract final class EvalScorerAndReporter {
       }
     }
 
-    // 季号考评（仅对填写了整数季号的条目严格校验）。
+    // 季号考评（仅对填写了整数季号的条目严格校验；当期望同时接受 TV 与电影条目且实际命中电影时跳过季号校验）。
     var seasonChecked = false;
     var seasonRight = false;
     final wantSeasonInt = int.tryParse(caseItem.expectedSeason.trim());
-    if (wantSeasonInt != null) {
+    final actualIsMovie = (actualTmdb ?? '').startsWith('movie:');
+    if (wantSeasonInt != null && !actualIsMovie) {
       seasonChecked = true;
       seasonRight = record.matchedSeason == wantSeasonInt;
       if (!seasonRight) {
@@ -1003,9 +1004,12 @@ abstract final class EvalScorerAndReporter {
       }
     }
 
-    // Bangumi 考评（无 TMDB 时作为主考评，有 TMDB 时作跨源辅考评）。
+    // Bangumi 考评（无 TMDB 或期望 TMDB=none 时作为主考评，有 TMDB 时作跨源辅考评）。
+    final expectTmdbNoneOnly =
+        acceptedTmdb.length == 1 && acceptedTmdb.contains('none');
     final acceptedBgm = caseItem.acceptedBangumiKeys;
-    if (acceptedBgm.isNotEmpty && acceptedTmdb.isEmpty) {
+    if (acceptedBgm.isNotEmpty &&
+        (acceptedTmdb.isEmpty || expectTmdbNoneOnly)) {
       final actualBgm = record.bestBangumiId?.toString();
       final expectNone = acceptedBgm.length == 1 && acceptedBgm.contains('none');
       if (expectNone && actualBgm != null && record.wallChannel != 'block') {

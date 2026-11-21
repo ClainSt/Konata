@@ -102,7 +102,9 @@ abstract final class MultiWorkSplitter {
     caseSensitive: false,
   );
   static final _genericStandaloneStem = RegExp(
-    r'^(?:ep(?:isode)?|part|vol(?:ume)?|movie|film|ova|oad|sp|special|ex)?'
+    r'^(?:ep(?:isode)?|part|vol(?:ume)?|'
+    r'(?:the[\s._-]+)?movie(?:[\s._-]+(?:edition|ver(?:sion)?))?|'
+    r'theatrical(?:[\s._-]+edition)?|film|ova|oad|sp|special|ex)?'
     r'[\s._-]*\d{0,4}$',
     caseSensitive: false,
   );

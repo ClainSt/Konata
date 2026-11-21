@@ -71,10 +71,8 @@ class ScrapeMatchResolver {
 
     bool tmdbBlocked() => tmdbUnavailable || networkError != null;
 
-    final parentCtx = await _fetcher.fetchParentCollectionContext(
-      folder,
-      onNetworkError: recordError,
-    );
+    // 父系列目录上下文仅作为可选补充检索词；其瞬时网络波动不阻断后续主作品 TMDB 检索。
+    final parentCtx = await _fetcher.fetchParentCollectionContext(folder);
     var bgmCandidates = await _fetcher.fetchBangumiCandidates(
       folder,
       extraQueries: parentCtx.extraQueries,
@@ -85,6 +83,9 @@ class ScrapeMatchResolver {
     // 仅拉取映射指向的 1~3 条 TMDB 轻量详情并执行完整复核；若确认高置信 autoBind 则直接短路跳过全部 TMDB 关键词检索，
     // 否则无缝回退常规全量检索并复用已拉取详情，保证准确率零妥协。
     final bgmBest = bgmEval.best;
+    final expectsMovie =
+        folder.isMovieHint ||
+        (bgmBest?.subject.platform?.trim() ?? '') == '剧场版';
     final preloadedMapped = <TmdbWorkDetail>[];
     final orderedMappedTargets = (!tmdbBlocked() &&
             bgmBest != null &&
@@ -110,9 +111,16 @@ class ScrapeMatchResolver {
             mappingIndex: _mappingIndex,
           );
           final fastBest = fastDecision.best;
+          // 当本地目录或 Bangumi 明确指向剧场版、但映射仅返回母剧 TV 条目时，
+          // 不短路快通道，继续搜索独立 Movie 条目参与同池竞争。
+          final movieHijackedByTv =
+              expectsMovie &&
+              fastBest != null &&
+              fastBest.detail.mediaType == TmdbMediaType.tv;
           if (fastDecision.level == MatchLevel.autoBind &&
               fastDecision.primaryReason == 'high_confidence' &&
               fastBest != null &&
+              !movieHijackedByTv &&
               fastBest.score >= 70 &&
               (fastBest.detail.voteCount ?? 1) > 0) {
             return ScrapeMatchResolution(

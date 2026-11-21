@@ -1068,7 +1068,7 @@ class _EvalCliOptions {
       } else if (raw.startsWith('--only=')) {
         onlyFilters = raw
             .substring(7)
-            .split('|')
+            .split(RegExp(r'[|,]'))
             .map((e) => e.trim())
             .where((e) => e.isNotEmpty)
             .toList(growable: false);

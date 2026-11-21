@@ -267,6 +267,7 @@ function Show-ZeroDiskKeyPrompt {
 
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
+    [System.Windows.Forms.Application]::EnableVisualStyles()
 
     $form = [System.Windows.Forms.Form]::new()
     $form.Text = 'Konata 评测零落盘密钥输入'
@@ -275,6 +276,7 @@ function Show-ZeroDiskKeyPrompt {
     $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
     $form.MaximizeBox = $false
     $form.MinimizeBox = $false
+    $form.ShowInTaskbar = $true
     $form.TopMost = $true
 
     $infoLabel = [System.Windows.Forms.Label]::new()
@@ -335,7 +337,7 @@ function Show-ZeroDiskKeyPrompt {
     $form.CancelButton = $btnCancel
     $form.Controls.Add($btnCancel)
 
-    $form.Add_Shown({ $form.Activate(); $txtTmdb.Focus() })
+    $form.Add_Shown({ $form.TopMost = $true; $form.BringToFront(); $form.Activate(); $txtTmdb.Focus() })
 
     try {
         $dialogResult = $form.ShowDialog()

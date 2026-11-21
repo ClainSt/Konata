@@ -60,6 +60,9 @@ abstract final class MultiWorkSplitter {
     r'menus?(?:[ ._-]*ex)?\d*|menue\d*|hauptmenue|vorschau|'
     r'bd[ ._-]*menu\w*|bd[ ._-]*sp[ ._-]*live\w*|sp[ ._-]*live\w*|'
     r'bd[ ._-]*special[ ._-]*talk|special[ ._-]*talk|tokuten(?:[ ._-]*dvd)?|'
+    r'greeting[ ._-]*event|stage[ ._-]*events?|premiere[ ._-]*event|'
+    r'cv[ ._-]*chat|japan[ ._-]*expo|memorial[ ._-]*movie|'
+    r'weekly[ ._-]*movies?|weekly[ ._-]*hero[ ._-]*countdown|shinka[ ._-]*scene|'
     r'picture[ ._-]*drama|trailer|teaser|preview|'
     r'music[ ._-]*(?:video|clip)|mv[ ._-]*making|'
     r'tv[ ._-]*spot|spot|making|digest|interview|iv\d+|commentary|'
@@ -67,6 +70,7 @@ abstract final class MultiWorkSplitter {
     r'(?![a-z0-9])|'
     r'[\[(（【]\s*mv\s*[\])）】]|'
     r'予告|預告|预告|特報|メイキング|ダイジェスト|総集編|总集篇|メニュ[ー一]|百科|'
+    r'舞台挨拶|撮りおろし[^\r\n]*インタビュー|先付けミニアニメ|ミニアニメ|'
     r'ピクチャードラマ|スペシャル[ ._-]*映像|未公開(?:映像)?|プロモーション映像|劇場アナウンス|'
     r'アイキャッチ(?:集)?|オーディオ[ ._-]*コメンタリー|'
     r'(?:ミュージック|ミコージック)[ ._-・]*(?:ビデオ|クリップ)',
@@ -867,7 +871,7 @@ abstract final class MultiWorkSplitter {
 
     final localizedPart =
         _localizedPartLabel(first.partKey) ??
-        (twoPartPair
+        (twoPartPair && !hasIndependentTitle
             ? (first.partIndex == 1
                   ? '前篇'
                   : first.partIndex == 2
@@ -1231,14 +1235,44 @@ abstract final class MultiWorkSplitter {
     var effectivePartIndex = _detectPartIndex(base);
     var effectiveRomanPartIndex = romanPartIndex;
     var effectiveRomanPartSubtitle = romanPartSubtitle;
+    final hasBundledRangeMovie = RegExp(
+      r'[\[【]\s*\d{1,3}\s*[-–—~～]\s*\d{1,3}\s*[\(（]\s*movie\s*[\)）]\s*[\]】]',
+      caseSensitive: false,
+    ).hasMatch(base);
+    final isNonFeatureMovieExtra = RegExp(
+      r'memorial[ ._-]*movie|weekly[ ._-]*movies?|digest[ ._-]*movie',
+      caseSensitive: false,
+    ).hasMatch(base);
+    final hasChapterVolumeMovie =
+        RegExp(r'[#＃]\s*0*[1-9]\s*[～~〜][^～~〜]+?[の之]?[巻卷]').hasMatch(base) &&
+        ((asset['size'] as num?)?.toInt() ?? 0) >= _minQuotedFeatureBytes;
+    final epQuoteClean = PersonalFilenameParser.stripUnbracketedTechTokens(base)
+        .replaceAll(_quoteBlock, ' ')
+        .replaceAll(RegExp(r'[\[(]\s*(?:19|20)\d{2}\s*[\])]'), ' ')
+        .replaceAll(RegExp(r'\b(?:19|20)\d{2}\b'), ' ')
+        .replaceFirst(RegExp(r'(?:\s*[-–—]+)+\s*$'), '');
+    final prelimSpan = exKey != null
+        ? null
+        : CloudMediaFileClassifier.episodeSpanFromName(epQuoteClean);
+    // 裸汉字「映画」若出现在带常规集号的单集副标题中（如 `映画監督は宇宙人`），不视作独立剧场版。
+    final strongMovieToken = RegExp(
+      r'(?<![a-z0-9])(?:the[ ._-]+)?movie(?![a-z0-9])|劇場版|剧场版',
+      caseSensitive: false,
+    );
+    final movieTokenHit =
+        strongMovieToken.hasMatch(base) ||
+        (prelimSpan == null && _movieToken.hasMatch(base));
     final isMovie =
-        _movieToken.hasMatch(base) ||
-        (subDir.isNotEmpty && _movieSubdir.hasMatch(subDir));
+        hasChapterVolumeMovie ||
+        (!hasBundledRangeMovie &&
+            !isNonFeatureMovieExtra &&
+            (movieTokenHit ||
+                (subDir.isNotEmpty && _movieSubdir.hasMatch(subDir))));
     final isOva = exKey != null || (!isMovie && _ovaToken.hasMatch(base));
     var hashMovieMatched = false;
     if (isMovie && effectiveRomanPartIndex == null) {
       final hashMovieMatch = RegExp(
-        r'^(.*?\S)\s*[#＃]\s*0*([1-9])\s+(\S.*)$',
+        r'^(.*?\S)\s*[#＃]\s*0*([1-9])\s*(?:[～~〜]\s*)?(\S.*)$',
       ).firstMatch(effectiveCleanStem);
       if (hashMovieMatch != null) {
         final numIdx = int.tryParse(hashMovieMatch.group(2)!);
@@ -1265,14 +1299,7 @@ abstract final class MultiWorkSplitter {
         }
       }
     }
-    final epQuoteClean = PersonalFilenameParser.stripUnbracketedTechTokens(base)
-        .replaceAll(_quoteBlock, ' ')
-        .replaceAll(RegExp(r'[\[(]\s*(?:19|20)\d{2}\s*[\])]'), ' ')
-        .replaceAll(RegExp(r'\b(?:19|20)\d{2}\b'), ' ')
-        .replaceFirst(RegExp(r'(?:\s*[-–—]+)+\s*$'), '');
-    final span = (hashMovieMatched || exKey != null)
-        ? null
-        : CloudMediaFileClassifier.episodeSpanFromName(epQuoteClean);
+    final span = hashMovieMatched ? null : prelimSpan;
     final ep = hashMovieMatched ? null : (exKey != null ? exEp : span?.start);
     final epEnd = span?.end;
     final hasEpisodeSubtitle =
@@ -1376,6 +1403,32 @@ abstract final class MultiWorkSplitter {
     if (numMatch != null) {
       final v = int.tryParse(numMatch.group(1)!);
       if (v != null && v >= 1 && v <= 20) return v;
+    }
+    final cjkChapter = RegExp(
+      r'第\s*([0-9一二三四五六七八九十]{1,2})\s*[章部巻卷]',
+    ).firstMatch(base);
+    if (cjkChapter != null) {
+      const zhNum = <String, int>{
+        '一': 1,
+        '二': 2,
+        '三': 3,
+        '四': 4,
+        '五': 5,
+        '六': 6,
+        '七': 7,
+        '八': 8,
+        '九': 9,
+        '十': 10,
+      };
+      final raw = cjkChapter.group(1)!;
+      final v = int.tryParse(raw) ?? zhNum[raw];
+      if (v != null && v >= 1 && v <= 20) return v;
+    }
+    final hashVol = RegExp(
+      r'[#＃]\s*0*([1-9])\s*[～~〜][^～~〜]+?[の之]?[巻卷]',
+    ).firstMatch(base);
+    if (hashVol != null) {
+      return int.tryParse(hashVol.group(1)!);
     }
     return null;
   }

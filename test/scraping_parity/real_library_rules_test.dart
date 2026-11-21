@@ -85,7 +85,7 @@ void main() {
       expect(groups.single.mainEpisodeNumbers, [1, 2, 3, 4, 5, 6]);
     });
 
-    test('显式 ID 目录内的剧场版与 OVA 不再拆成独立作品，而是作为该作品特典', () {
+    test('显式 ID 目录内捆绑的明确大型独立剧场版拆分为独立作品，TV 主簇保留原 ID', () {
       const root = '动画-单作品/与魔共舞 (2015) {tmdb-68768}';
       final groups = _group([
         for (var i = 1; i <= 12; i++)
@@ -97,15 +97,14 @@ void main() {
           size: 4000 * _mb,
         ),
       ]);
-      expect(groups, hasLength(1));
-      final g = groups.single;
-      expect(g.explicitTmdbId, 68768);
+      expect(groups, hasLength(2));
+      final tvGroup = groups.firstWhere((g) => g.explicitTmdbId == 68768);
+      final movieGroup = groups.firstWhere((g) => g.explicitTmdbId == null);
+      expect(tvGroup.mainEpisodeNumbers, List.generate(12, (i) => i + 1));
+      expect(movieGroup.isMovieHint, isTrue);
       expect(
-        _slot(
-          g,
-          '$root/[Shiniori-Raws] Dance with Devils Fortuna The Movie (BD 1920x1080 x265 10bit FLAC).mkv',
-        ).category,
-        EpisodeCategory.extra,
+        movieGroup.cleanTitle.toLowerCase(),
+        contains('fortuna'),
       );
     });
 
@@ -602,6 +601,148 @@ void main() {
         ).category,
         EpisodeCategory.extra,
       );
+    });
+  });
+
+  group('第二轮混合目录拆分、分类词净化与 OAD 集号回归', () {
+    test('薄樱鬼双章剧场版拆分为两部独立电影并保留章节副标题', () {
+      const root = '动画-多作品/薄樱鬼系列/薄樱鬼 剧场版 (2013) {tmdb-461067}';
+      final groups = _group([
+        _video(
+          '$root/[AI-Raws] 劇場版 薄桜鬼 第一章 京都乱舞 (BD HEVC 1920x1080 FLAC)[8550EB3A].mkv',
+          size: 4159 * _mb,
+        ),
+        _video(
+          '$root/[AI-Raws] 劇場版 薄桜鬼 第二章 士魂蒼穹 (BD HEVC 1920x1080 FLAC)[8ADCD915].mkv',
+          size: 3993 * _mb,
+        ),
+        _video(
+          '$root/[AI-Raws] 劇場版 薄桜鬼 予告編・PV・CM集 (BD HEVC 1920x1080 FLAC)[DE9DC841].mkv',
+          size: 255 * _mb,
+        ),
+      ]);
+      expect(groups, hasLength(2));
+      expect(groups.every((g) => g.isMovieHint), isTrue);
+      expect(groups.every((g) => g.explicitTmdbId == null), isTrue);
+      expect(groups.any((g) => g.cleanTitle.contains('京都乱舞')), isTrue);
+      expect(groups.any((g) => g.cleanTitle.contains('士魂蒼穹')), isTrue);
+    });
+
+    test('特『刀剑乱舞-花丸-』雪月花三卷剧场版拆分为三部独立电影且迷你动画归特典', () {
+      const root = '动画-多作品/刀剑乱舞系列/特『刀剑乱舞-花丸-』～雪月花～ (2022) {tmdb-978039}';
+      final groups = _group([
+        _video(
+          '$root/[AI-Raws] 特・刀剣乱舞-花丸- #1～雪の巻～ (BD HEVC 1920x1080 FLAC).mkv',
+          size: 4903 * _mb,
+        ),
+        _video(
+          '$root/[AI-Raws] 特・刀剣乱舞-花丸- #2～月の巻～ (BD HEVC 1920x1080 FLAC).mkv',
+          size: 5495 * _mb,
+        ),
+        _video(
+          '$root/[AI-Raws] 特・刀剣乱舞-花丸- #3～華の巻～ (BD HEVC 1920x1080 FLAC).mkv',
+          size: 4282 * _mb,
+        ),
+        _video(
+          '$root/[AI-Raws] 特・刀剣乱舞-花丸- 先付けミニアニメ『花丸日記』①あぶらげ編 (BD HEVC 1920x1080 FLAC).mkv',
+          size: 24 * _mb,
+        ),
+      ]);
+      expect(groups, hasLength(3));
+      expect(groups.every((g) => g.isMovieHint), isTrue);
+      expect(groups.any((g) => g.cleanTitle.contains('雪の巻')), isTrue);
+      expect(groups.any((g) => g.cleanTitle.contains('月の巻')), isTrue);
+      expect(groups.any((g) => g.cleanTitle.contains('華の巻')), isTrue);
+    });
+
+    test('锚定父目录下自带独立 SPs/CDs/Scans 的多篇章子目录（物语系列第二季）各自成作', () {
+      const root = '动画-多作品/西尾维新 作品集/物语系列 第二季 (2013) {tmdb-46195}';
+      final files = <ScannedFileInput>[
+        for (final arc in ['倾物语', '囮物语']) ...[
+          for (var i = 1; i <= 4; i++)
+            _video('$root/$arc/[VCB-S] $arc [${_ep(i)}][1080p].mkv'),
+          _video('$root/$arc/SPs/[VCB-S] $arc [NCOP].mkv', size: 80 * _mb),
+          ScannedFileInput(
+            relativePath: '$root/$arc/CDs/ost.flac',
+            fileName: 'ost.flac',
+            fileSize: 100 * _mb,
+            assetKind: AssetKind.cdAlbum,
+          ),
+        ],
+      ];
+      final groups = _group(files);
+      expect(groups, hasLength(2));
+      expect(groups.map((g) => g.cleanTitle).toSet(), {'倾物语', '囮物语'});
+      expect(groups.every((g) => g.mainEpisodeNumbers.length == 4), isTrue);
+    });
+
+    test('防误拆底线：单章剧场版、PRIVILEGE DISC、7 集 OVA 与单集副标题含「映画」绝不误拆', () {
+      const nanoha = '动画-多作品/魔法少女奈叶系列/魔法少女奈叶 The MOVIE 1st (2010) {tmdb-50716}';
+      final nanohaGroups = _group([
+        _video(
+          '$nanoha/MAIN MOVIE/[FLsnow][NANOHA_The_Movie_1st][Main_Movie].mkv',
+          size: 8000 * _mb,
+        ),
+        _video(
+          '$nanoha/PRIVILEGE DISC/[FLsnow][NANOHA_The_Movie_1st][CV_Chat].mkv',
+          size: 900 * _mb,
+        ),
+      ]);
+      expect(nanohaGroups, hasLength(1));
+
+      const uc = '未添加TMDB ID/机动战士高达 作品集/机动战士高达UC (2010) {tmdb-45500}';
+      final ucGroups = _group([
+        for (var i = 1; i <= 7; i++)
+          _video(
+            '$uc/[Group] Mobile Suit Gundam Unicorn Movie ${_ep(i)} - Ep $i.mkv',
+            size: 3500 * _mb,
+          ),
+      ]);
+      expect(ucGroups, hasLength(1));
+
+      const precure = '动画-多作品/光之美少女 作品集/【第十四代】Star☆Twinkle 光之美少女 (2019) {tmdb-85322}';
+      final precureGroups = _group([
+        for (var i = 1; i <= 10; i++)
+          _video('$precure/[Group] Star Twinkle Precure - ${_ep(i)}.mkv'),
+        _video(
+          '$precure/[Group] Star Twinkle Precure - 11 さよならララ！？映画監督は宇宙人☆.mkv',
+          size: 900 * _mb,
+        ),
+      ]);
+      expect(precureGroups, hasLength(1));
+      expect(precureGroups.single.mainEpisodeNumbers, hasLength(11));
+    });
+
+    test('未添加TMDB ID 与系列分类目录不污染搜索词，独立 OAD01..10 提取第 0 季集号', () {
+      const root = '未添加TMDB ID/新撰组异闻录 铁系列/新撰组异闻录 铁 ～想道～';
+      final folder = _group([
+        _video(
+          '$root/[AI-Raws] 劇場版 PEACEMAKER鐵 #01 前篇 想道 (BD HEVC).mkv',
+          size: 1477 * _mb,
+        ),
+      ]).single;
+      final queries = ScrapeDomainAdapter.buildSearchQueries(folder);
+      expect(
+        queries.any((q) => q.contains('未添加TMDB')),
+        isFalse,
+        reason: '分类目录未添加TMDB ID不得进入检索词',
+      );
+
+      final oadInv = DirectoryAnalyzer.analyze(
+        '出包王女Darkness OAD (2012) {tmdb-34742}',
+        [
+          for (var i = 1; i <= 10; i++)
+            (
+              path:
+                  '[VCB-Studio] To LOVE-Ru Darkness OADs [OAD${_ep(i)}][Ma10p_1080p].mkv',
+              size: 1200 * _mb,
+            ),
+        ],
+        anchoredRoot: true,
+      );
+      expect(oadInv.shape, WorkShape.series);
+      expect(oadInv.episodeCount, 10);
+      expect(oadInv.main.every((item) => item.season == 0), isTrue);
     });
   });
 }

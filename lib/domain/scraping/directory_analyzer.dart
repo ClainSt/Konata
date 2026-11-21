@@ -666,6 +666,9 @@ abstract final class DirectoryAnalyzer {
     return (baseTitle: trimmed, season: null);
   }
 
+  /// 路径或文件名是否显式携带 OVA / OAD / OAV 标记。
+  static bool isOvaText(String text) => _ovaMarker.hasMatch(text);
+
   static bool isOva(DirectoryInventory inventory) =>
       _ovaMarker.hasMatch(inventory.folder) ||
       inventory.main.any((i) => i.files.any((f) => _ovaMarker.hasMatch(f)));
@@ -1176,6 +1179,12 @@ abstract final class DirectoryAnalyzer {
     caseSensitive: false,
   );
 
+  /// 独立 OVA/OAD/SP 目录软提升正片时的特别篇集号标记（如 `[OAD01]`、`[OVA02]`、`[SP03]`）。
+  static final RegExp _promotedSpecialEpisodeMarker = RegExp(
+    r'(?:[\[【(]\s*|(?:^|[\s._\-–—]))(?:ova|oad|oav|sp|special|ex)[ ._-]*0*(\d{1,2})(?:v\d+)?(?=\s*[\]】)]|(?![0-9a-z]))',
+    caseSensitive: false,
+  );
+
   static void _add(
     Map<String, LogicalItem> main,
     String directory,
@@ -1190,8 +1199,22 @@ abstract final class DirectoryAnalyzer {
             directory,
             file,
           );
-    final episode = episodeOverride ?? span?.start;
+    var episode = episodeOverride ?? span?.start;
+    var promotedSpecialSeason = false;
+    if (promoted && episode == null) {
+      final specialMatch = _promotedSpecialEpisodeMarker.firstMatch(file);
+      final parsedSpecial = specialMatch == null
+          ? null
+          : int.tryParse(specialMatch.group(1)!);
+      if (parsedSpecial != null && parsedSpecial >= 1 && parsedSpecial <= 99) {
+        episode = parsedSpecial;
+        promotedSpecialSeason = true;
+      }
+    }
     final season = _seasonEpisodeMarker.firstMatch(file);
+    final resolvedSeason = season != null
+        ? int.parse(season.group(1)!)
+        : (promotedSpecialSeason ? 0 : null);
     // 多集合并文件：仅正片、非提升/覆盖场景才识别区间结束集（廉价条件在前，特典判定最后执行）。
     final rangeEnd = span?.end;
     final episodeEnd =
@@ -1207,13 +1230,13 @@ abstract final class DirectoryAnalyzer {
     // 系列标题仅额外保留用于合集判定与名称提示。
     final key = episode == null
         ? 'f:$core'
-        : 'e:${season?.group(1) ?? ''}:$episode'
+        : 'e:${resolvedSeason ?? ''}:$episode'
               '${episodeEnd == null ? '' : '-$episodeEnd'}';
     (main[key] ??= LogicalItem(
         key,
         title,
         episode,
-        season == null ? null : int.parse(season.group(1)!),
+        resolvedSeason,
         episodeEnd: episodeEnd,
       ))
       ..files.add(path)

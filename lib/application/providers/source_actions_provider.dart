@@ -13,6 +13,7 @@ import '../../domain/scraping/bangumi_models.dart';
 import '../../domain/scraping/bangumi_tmdb_index.dart';
 import '../../domain/sources/source_location_validator.dart';
 import '../../infrastructure/network/bangumi_service.dart';
+import '../../infrastructure/network/fanart_service.dart';
 import '../../infrastructure/network/priority_http_scheduler.dart';
 import '../../infrastructure/network/tmdb_http_client.dart';
 import '../../infrastructure/network/tmdb_service.dart';
@@ -237,10 +238,13 @@ class KonataActionsCoordinator {
     }
   }
 
-  /// 保存网络与凭证配置并重置域名冷却状态，立即刷新生效。
+  /// 保存网络与凭证配置并重置域名冷却与 Fanart 熔断状态，立即刷新生效。
   Future<void> saveNetworkConfig(TmdbNetworkConfig config) async {
     await _ref.read(networkConfigRepositoryProvider).save(config);
     _ref.read(domainCooldownRegistryProvider).clearAll();
+    _ref.read(fanartCircuitBreakerProvider).reset();
+    _ref.read(fanartRelayHealthProvider.notifier).state =
+        FanartRelayHealthSnapshot.ok;
     _ref.invalidate(tmdbNetworkConfigProvider);
   }
 
@@ -315,6 +319,48 @@ class KonataActionsCoordinator {
     );
     try {
       return await client.testBangumiImageConnectivity();
+    } finally {
+      client.close();
+    }
+  }
+
+  /// 测试 Fanart.tv 透明徽标 API 连通性（无状态中继或自定义项目 Key 直连）。
+  Future<ConnectivityReport> testFanartApiConnectivity(
+    TmdbNetworkConfig config,
+  ) async {
+    final scheduler = _ref.read(priorityHttpSchedulerProvider);
+    final cooldown = _ref.read(domainCooldownRegistryProvider);
+    final client = TmdbHttpClient(
+      config: config,
+      scheduler: scheduler,
+      cooldownRegistry: cooldown,
+    );
+    try {
+      final report = await client.testFanartApiConnectivity();
+      if (report.reachable) {
+        _ref.read(fanartCircuitBreakerProvider).recordSuccess();
+        _ref.read(fanartRelayHealthProvider.notifier).state =
+            FanartRelayHealthSnapshot.ok;
+      }
+      return report;
+    } finally {
+      client.close();
+    }
+  }
+
+  /// 测试 Fanart.tv 图片服务器连通性（官方 `assets.fanart.tv` 优先，受阻自动回退备用图片地址）。
+  Future<ConnectivityReport> testFanartImageConnectivity(
+    TmdbNetworkConfig config,
+  ) async {
+    final scheduler = _ref.read(priorityHttpSchedulerProvider);
+    final cooldown = _ref.read(domainCooldownRegistryProvider);
+    final client = TmdbHttpClient(
+      config: config,
+      scheduler: scheduler,
+      cooldownRegistry: cooldown,
+    );
+    try {
+      return await client.testFanartImageConnectivity();
     } finally {
       client.close();
     }

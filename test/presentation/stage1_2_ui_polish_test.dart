@@ -79,7 +79,10 @@ class _FakeArtworkWorkManagement extends WorkManagementActions {
   final WorkArtworkOptions options;
 
   @override
-  Future<WorkArtworkOptions> fetchWorkArtworkOptions(Work work) async => options;
+  Future<WorkArtworkOptions> fetchWorkArtworkOptions(
+    Work work, {
+    bool includeLogos = false,
+  }) async => options;
 }
 
 void main() {

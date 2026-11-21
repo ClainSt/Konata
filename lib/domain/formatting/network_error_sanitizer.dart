@@ -4,11 +4,11 @@
 /// 并将底层套接字、域名解析、握手与超时异常转换为面向用户的中文提示。
 abstract final class NetworkErrorSanitizer {
   static final RegExp _apiKeyQueryPattern = RegExp(
-    r'(api_key\s*=\s*)([^&\s)\x27",;]+)',
+    r'((?:api_key|client_key|api-key|client-key)\s*[=:]\s*)([^&\s)\x27",;]+)',
     caseSensitive: false,
   );
   static final RegExp _encodedApiKeyPattern = RegExp(
-    r'(api_key%3d)([^&\s)\x27",;%]+)',
+    r'((?:api_key|client_key)%3d)([^&\s)\x27",;%]+)',
     caseSensitive: false,
   );
   static final RegExp _bearerTokenPattern = RegExp(

@@ -201,6 +201,7 @@ class TmdbWorkDetail {
     this.candidateLogos = const [],
     this.collectionId,
     this.collectionName,
+    this.tvdbId,
     this.genreIds = const [],
     this.imagesLoaded = true,
   });
@@ -258,6 +259,9 @@ class TmdbWorkDetail {
 
   /// 所属 TMDB 合集名称。
   final String? collectionName;
+
+  /// 关联的 TheTVDB 剧集 ID（通过 `append_to_response=external_ids` 随详情一并拉取）。
+  final int? tvdbId;
 
   /// TMDB 类型标签 ID 列表（`16` 为动画）。
   final List<int> genreIds;

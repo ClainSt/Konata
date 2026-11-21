@@ -21,6 +21,7 @@ class DetailOpsCapsule extends StatefulWidget {
     required this.onManualEdit,
     required this.onEditPoster,
     required this.onEditBackdrop,
+    this.onEditLogo,
     required this.onHideWork,
     required this.onDeleteWork,
     required this.onRescrape,
@@ -55,6 +56,7 @@ class DetailOpsCapsule extends StatefulWidget {
   final VoidCallback onManualEdit;
   final VoidCallback onEditPoster;
   final VoidCallback onEditBackdrop;
+  final VoidCallback? onEditLogo;
   final VoidCallback onHideWork;
   final VoidCallback onDeleteWork;
   final VoidCallback onRescrape;
@@ -114,6 +116,7 @@ class _DetailOpsCapsuleState extends State<DetailOpsCapsule> {
           onManualEdit: widget.onManualEdit,
           onEditPoster: widget.onEditPoster,
           onEditBackdrop: widget.onEditBackdrop,
+          onEditLogo: widget.onEditLogo,
           onHideWork: widget.onHideWork,
           onDeleteWork: widget.onDeleteWork,
           onRescrape: widget.onRescrape,
@@ -216,6 +219,7 @@ class DetailGearMenuOverlay extends StatefulWidget {
     required this.onManualEdit,
     required this.onEditPoster,
     required this.onEditBackdrop,
+    this.onEditLogo,
     required this.onHideWork,
     required this.onDeleteWork,
     required this.onRescrape,
@@ -243,6 +247,7 @@ class DetailGearMenuOverlay extends StatefulWidget {
   final VoidCallback onManualEdit;
   final VoidCallback onEditPoster;
   final VoidCallback onEditBackdrop;
+  final VoidCallback? onEditLogo;
   final VoidCallback onHideWork;
   final VoidCallback onDeleteWork;
   final VoidCallback onRescrape;
@@ -360,6 +365,12 @@ class _DetailGearMenuOverlayState extends State<DetailGearMenuOverlay> {
                             label: '编辑背景图',
                             onTap: () => widget.onSelect(widget.onEditBackdrop),
                           ),
+                          if (widget.onEditLogo != null)
+                            _MenuRow(
+                              icon: Icons.title_rounded,
+                              label: '编辑标题徽标',
+                              onTap: () => widget.onSelect(widget.onEditLogo!),
+                            ),
                           _MenuRow(
                             icon: Icons.layers_rounded,
                             label: '管理系列编组',

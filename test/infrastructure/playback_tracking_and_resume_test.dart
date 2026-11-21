@@ -181,6 +181,24 @@ void main() {
         isFalse,
       );
 
+      // 音频专属完播判定：3 分 30 秒（210s）单曲听到 130 秒（剩余 80s <= 90s）绝不能误判为已听完。
+      expect(
+        PlaybackRecord.computeCompleted(
+          positionSeconds: 130,
+          durationSeconds: 210,
+          isAudio: true,
+        ),
+        isFalse,
+      );
+      expect(
+        PlaybackRecord.computeCompleted(
+          positionSeconds: 206,
+          durationSeconds: 210,
+          isAudio: true,
+        ),
+        isTrue,
+      );
+
       const ep3 = Episode(
         id: 'ep3',
         workId: 'w1',

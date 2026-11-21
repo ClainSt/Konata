@@ -51,7 +51,7 @@ Future<void> main(List<String> args) async {
       exitCode = await _runStep(
         flutterBin: flutterBin,
         label: 'Windows Debug 构建 (build)',
-        flutterArgs: const ['build', 'windows', '--debug'],
+        flutterArgs: _buildWindowsDebugArgs(),
         timeout: const Duration(seconds: 240),
       );
     case 'all':
@@ -84,7 +84,7 @@ Future<int> _runAll(String flutterBin) async {
     ),
     (
       label: '阶段 3/3 · Windows Debug 构建 (build)',
-      args: const ['build', 'windows', '--debug'],
+      args: _buildWindowsDebugArgs(),
       timeout: const Duration(seconds: 240),
     ),
   ];
@@ -229,6 +229,16 @@ Future<void> _playBeep() async {
     } catch (_) {}
   }
   stdout.write('\x07');
+}
+
+/// 构造 Windows Debug 构建参数；若仓库根目录存在本地密钥定义文件则自动附带注入。
+List<String> _buildWindowsDebugArgs() {
+  const baseArgs = ['build', 'windows', '--debug'];
+  final devDefines = File('dart_defines.dev.json');
+  if (devDefines.existsSync()) {
+    return [...baseArgs, '--dart-define-from-file=dart_defines.dev.json'];
+  }
+  return baseArgs;
 }
 
 /// 打印门禁脚本命令行用法说明。

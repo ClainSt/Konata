@@ -20,6 +20,7 @@ import '../../infrastructure/network/priority_http_scheduler.dart';
 import '../../infrastructure/network/tmdb_service.dart';
 import '../../infrastructure/sources/directory_scanner.dart';
 import '../../infrastructure/sources/source_access_error.dart';
+import 'clear_logo_resolver.dart';
 import 'scrape_candidate_fetcher.dart';
 import 'scrape_compute_worker.dart';
 import 'scrape_match_resolver.dart';
@@ -42,6 +43,7 @@ class ScrapeOrchestrator {
     required LibraryRepository repository,
     required TmdbService tmdbService,
     BangumiService? bangumiService,
+    this._clearLogoResolver,
     required this._gatewayBuilder,
     this._scanner = const DirectoryScanner(),
     this._computeWorker = const ScrapeComputeWorker(),
@@ -69,6 +71,7 @@ class ScrapeOrchestrator {
   final LibraryRepository _repository;
   final TmdbService _tmdbService;
   final BangumiService? _bangumiService;
+  final ClearLogoResolver? _clearLogoResolver;
   final PhotosStorage? _photosStorage;
   final BangumiTmdbIndex? _mappingIndex;
   final int _maxWorkConcurrency;
@@ -1167,28 +1170,88 @@ class ScrapeOrchestrator {
 
     if (existing.tmdbId != null && existing.tmdbMediaType != null) {
       if (interactive) {
-        return rebindWorkToTmdb(
+        var rebound = await rebindWorkToTmdb(
           workId,
           existing.tmdbId!,
           existing.tmdbMediaType!,
         );
+        final stillMissingLogo =
+            !rebound.logoLocked &&
+            (rebound.logoPath == null || rebound.logoPath!.trim().isEmpty);
+        if (stillMissingLogo && _clearLogoResolver != null) {
+          final outcome = await _clearLogoResolver.resolveForWork(
+            rebound,
+            forceRefresh: true,
+            skipTmdb: true,
+            priority: RequestPriority.interactive,
+          );
+          rebound = rebound.copyWith(
+            logoPath: outcome.logoPath ?? rebound.logoPath,
+            tvdbId: outcome.resolvedTvdbId ?? rebound.tvdbId,
+            clearLogoNegative: outcome.logoPath != null,
+            logoNegativeUntil: outcome.logoPath != null
+                ? null
+                : outcome.negativeUntil,
+            logoNegativeMask: outcome.logoPath != null
+                ? 0
+                : outcome.negativeMask,
+          );
+          await _repository.upsertWork(rebound);
+        }
+        return rebound;
       }
-      final missingLogo = existing.logoPath == null || existing.logoPath!.trim().isEmpty;
+
+      final missingLogo =
+          !existing.logoLocked &&
+          (existing.logoPath == null || existing.logoPath!.trim().isEmpty);
       final missingBackdrop =
           !existing.backdropLocked &&
-          (existing.backdropPath == null || existing.backdropPath!.trim().isEmpty);
+          (existing.backdropPath == null ||
+              existing.backdropPath!.trim().isEmpty);
       if (!missingLogo && !missingBackdrop) {
         return existing;
       }
+
+      if (missingLogo && !missingBackdrop && _clearLogoResolver != null) {
+        final outcome = await _clearLogoResolver.resolveForWork(
+          existing,
+          priority: RequestPriority.background,
+        );
+        final nextLogo = outcome.logoPath ?? existing.logoPath;
+        final nextTvdb = outcome.resolvedTvdbId ?? existing.tvdbId;
+        final nextNegUntil = outcome.logoPath != null
+            ? null
+            : outcome.negativeUntil;
+        final nextNegMask = outcome.logoPath != null ? 0 : outcome.negativeMask;
+        final changed =
+            nextLogo != existing.logoPath ||
+            nextTvdb != existing.tvdbId ||
+            nextNegUntil != existing.logoNegativeUntil ||
+            nextNegMask != existing.logoNegativeMask;
+        if (!changed) return existing;
+        final updated = existing.copyWith(
+          logoPath: nextLogo,
+          tvdbId: nextTvdb,
+          clearLogoNegative: outcome.logoPath != null,
+          logoNegativeUntil: nextNegUntil,
+          logoNegativeMask: nextNegMask,
+        );
+        await _repository.upsertWork(updated);
+        return await _repository.findWorkById(workId) ?? updated;
+      }
+
       final detail = await _tmdbService.getWorkDetail(
         existing.tmdbId!,
         existing.tmdbMediaType!,
         priority: RequestPriority.background,
       );
       if (detail == null) return existing;
-      final nextLogo = missingLogo
+      var nextLogo = missingLogo
           ? (detail.logoPath ?? existing.logoPath)
           : existing.logoPath;
+      var nextTvdb = detail.tvdbId ?? existing.tvdbId;
+      DateTime? nextNegUntil = existing.logoNegativeUntil;
+      int nextNegMask = existing.logoNegativeMask;
       final canUpgradeRemoteBackdrop =
           !existing.backdropLocked &&
           (missingBackdrop ||
@@ -1198,12 +1261,38 @@ class ScrapeOrchestrator {
       final nextBackdrop = canUpgradeRemoteBackdrop
           ? (detail.backdropPath ?? existing.backdropPath)
           : existing.backdropPath;
-      if (nextLogo == existing.logoPath && nextBackdrop == existing.backdropPath) {
+
+      if (missingLogo &&
+          (nextLogo == null || nextLogo.trim().isEmpty) &&
+          _clearLogoResolver != null) {
+        final outcome = await _clearLogoResolver.resolveForWork(
+          existing.copyWith(tvdbId: nextTvdb),
+          skipTmdb: true,
+          priority: RequestPriority.background,
+        );
+        nextLogo = outcome.logoPath ?? nextLogo;
+        nextTvdb = outcome.resolvedTvdbId ?? nextTvdb;
+        nextNegUntil = outcome.logoPath != null ? null : outcome.negativeUntil;
+        nextNegMask = outcome.logoPath != null ? 0 : outcome.negativeMask;
+      } else if (nextLogo != null && nextLogo.trim().isNotEmpty) {
+        nextNegUntil = null;
+        nextNegMask = 0;
+      }
+
+      if (nextLogo == existing.logoPath &&
+          nextBackdrop == existing.backdropPath &&
+          nextTvdb == existing.tvdbId &&
+          nextNegUntil == existing.logoNegativeUntil &&
+          nextNegMask == existing.logoNegativeMask) {
         return existing;
       }
       final updated = existing.copyWith(
         logoPath: nextLogo,
         backdropPath: nextBackdrop,
+        tvdbId: nextTvdb,
+        clearLogoNegative: nextLogo != null && nextLogo.trim().isNotEmpty,
+        logoNegativeUntil: nextNegUntil,
+        logoNegativeMask: nextNegMask,
       );
       await _repository.upsertWork(updated);
       await SeriesAutoLinker.reconcileAll(

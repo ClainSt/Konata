@@ -10,6 +10,7 @@ import '../../domain/models/work.dart';
 import '../../domain/scraping/bangumi_tmdb_index.dart';
 import '../../infrastructure/cache/artwork_cache.dart';
 import '../../infrastructure/network/bangumi_service.dart';
+import '../../infrastructure/network/fanart_service.dart';
 import '../../infrastructure/network/network_config_repository.dart';
 import '../../infrastructure/network/priority_http_scheduler.dart';
 import '../../infrastructure/network/tmdb_http_client.dart';
@@ -17,6 +18,7 @@ import '../../infrastructure/network/tmdb_service.dart';
 import '../../infrastructure/scraping/bangumi_tmdb_map_updater.dart';
 import '../../infrastructure/sources/source_gateway_factory.dart';
 import '../../infrastructure/storage/storage_root_provider.dart';
+import '../scraping/clear_logo_resolver.dart';
 import '../scraping/scrape_orchestrator.dart';
 import '../scraping/scrape_progress.dart';
 import 'library_providers.dart';
@@ -42,6 +44,27 @@ final priorityHttpSchedulerProvider = Provider<PriorityHttpScheduler>((ref) {
 /// 全应用共享的不可达官方域名冷却注册表 Provider（10 分钟冷却窗口，由 Riverpod 托管生命周期）。
 final domainCooldownRegistryProvider = Provider<DomainCooldownRegistry>(
   (ref) => DomainCooldownRegistry(),
+);
+
+/// 全应用共享的 Fanart.tv 内置无状态中继熔断器 Provider（区分 429 频率限流与日额度耗尽）。
+final fanartCircuitBreakerProvider = Provider<FanartCircuitBreaker>((ref) {
+  final breaker = FanartCircuitBreaker();
+  ref.onDispose(breaker.reset);
+  return breaker;
+});
+
+/// 全应用共享的透明徽标在途去重注册表 Provider（防止详情页重建或同系列多季并发重复探测）。
+final clearLogoInFlightRegistryProvider = Provider<ClearLogoInFlightRegistry>((
+  ref,
+) {
+  final registry = ClearLogoInFlightRegistry();
+  ref.onDispose(registry.clear);
+  return registry;
+});
+
+/// Fanart.tv 内置中继健康与熔断 UI 状态 Provider（供设置页与「编辑标题徽标」弹窗实时展示引导）。
+final fanartRelayHealthProvider = StateProvider<FanartRelayHealthSnapshot>(
+  (ref) => FanartRelayHealthSnapshot.ok,
 );
 
 /// 海报与剧照本地磁盘缓存异步 Provider（直连统一 `photos/` 目录，零系统用户缓存写入）。
@@ -127,11 +150,23 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
       artworkCache: cache,
     );
     final bangumiService = BangumiService(httpClient: httpClient);
+    final fanartService = FanartService(
+      httpClient: httpClient,
+      circuitBreaker: _ref.read(fanartCircuitBreakerProvider),
+    );
+    final clearLogoResolver = ClearLogoResolver(
+      tmdbService: tmdbService,
+      fanartService: fanartService,
+      networkConfig: config,
+      mappingIndex: activeIndex,
+      inFlightRegistry: _ref.read(clearLogoInFlightRegistryProvider),
+    );
     const gatewayFactory = MediaSourceGatewayFactory();
     return ScrapeOrchestrator(
       repository: repository,
       tmdbService: tmdbService,
       bangumiService: bangumiService,
+      clearLogoResolver: clearLogoResolver,
       gatewayBuilder: gatewayFactory.create,
       photosStorage: _ref.read(photosStorageProvider),
       mappingIndex: activeIndex,
@@ -245,7 +280,9 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
     }
     try {
       final config = await _ref.read(tmdbNetworkConfigProvider.future);
-      if (!interactive && config.credentialKind == TmdbCredentialKind.none) {
+      if (!interactive &&
+          config.credentialKind == TmdbCredentialKind.none &&
+          !config.isFanartAvailable) {
         return null;
       }
       final before = await _ref
@@ -258,6 +295,9 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
         workId,
         interactive: interactive,
       );
+      _ref.read(fanartRelayHealthProvider.notifier).state = _ref
+          .read(fanartCircuitBreakerProvider)
+          .snapshot();
       if (updated == null) return null;
 
       if (updated.tmdbId != null && updated.tmdbMediaType != null) {

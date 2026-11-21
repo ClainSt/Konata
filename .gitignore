@@ -89,3 +89,9 @@ android/.kotlin/
 .agent-work/
 .codex/
 .agent/
+
+# Local dart-define & wrangler secret/cache files (never commit)
+dart_defines.dev.json
+dart_defines.local.json
+**/.wrangler/
+**/.dev.vars

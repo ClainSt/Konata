@@ -463,6 +463,15 @@ class $WorksTable extends Works with TableInfo<$WorksTable, WorkRow> {
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _tvdbIdMeta = const VerificationMeta('tvdbId');
+  @override
+  late final GeneratedColumn<int> tvdbId = GeneratedColumn<int>(
+    'tvdb_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   @override
   late final GeneratedColumnWithTypeConverter<TmdbMediaType?, String>
   tmdbMediaType = GeneratedColumn<String>(
@@ -672,6 +681,45 @@ class $WorksTable extends Works with TableInfo<$WorksTable, WorkRow> {
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _logoLockedMeta = const VerificationMeta(
+    'logoLocked',
+  );
+  @override
+  late final GeneratedColumn<bool> logoLocked = GeneratedColumn<bool>(
+    'logo_locked',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("logo_locked" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _logoNegativeUntilMeta = const VerificationMeta(
+    'logoNegativeUntil',
+  );
+  @override
+  late final GeneratedColumn<DateTime> logoNegativeUntil =
+      GeneratedColumn<DateTime>(
+        'logo_negative_until',
+        aliasedName,
+        true,
+        type: DriftSqlType.dateTime,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _logoNegativeMaskMeta = const VerificationMeta(
+    'logoNegativeMask',
+  );
+  @override
+  late final GeneratedColumn<int> logoNegativeMask = GeneratedColumn<int>(
+    'logo_negative_mask',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   static const VerificationMeta _isHiddenMeta = const VerificationMeta(
     'isHidden',
   );
@@ -775,6 +823,7 @@ class $WorksTable extends Works with TableInfo<$WorksTable, WorkRow> {
     id,
     tmdbId,
     bangumiId,
+    tvdbId,
     tmdbMediaType,
     matchedSeason,
     title,
@@ -793,6 +842,9 @@ class $WorksTable extends Works with TableInfo<$WorksTable, WorkRow> {
     metadataLocked,
     posterLocked,
     backdropLocked,
+    logoLocked,
+    logoNegativeUntil,
+    logoNegativeMask,
     isHidden,
     keepHidden,
     scrapeStatus,
@@ -829,6 +881,12 @@ class $WorksTable extends Works with TableInfo<$WorksTable, WorkRow> {
       context.handle(
         _bangumiIdMeta,
         bangumiId.isAcceptableOrUnknown(data['bangumi_id']!, _bangumiIdMeta),
+      );
+    }
+    if (data.containsKey('tvdb_id')) {
+      context.handle(
+        _tvdbIdMeta,
+        tvdbId.isAcceptableOrUnknown(data['tvdb_id']!, _tvdbIdMeta),
       );
     }
     if (data.containsKey('matched_season')) {
@@ -971,6 +1029,30 @@ class $WorksTable extends Works with TableInfo<$WorksTable, WorkRow> {
         ),
       );
     }
+    if (data.containsKey('logo_locked')) {
+      context.handle(
+        _logoLockedMeta,
+        logoLocked.isAcceptableOrUnknown(data['logo_locked']!, _logoLockedMeta),
+      );
+    }
+    if (data.containsKey('logo_negative_until')) {
+      context.handle(
+        _logoNegativeUntilMeta,
+        logoNegativeUntil.isAcceptableOrUnknown(
+          data['logo_negative_until']!,
+          _logoNegativeUntilMeta,
+        ),
+      );
+    }
+    if (data.containsKey('logo_negative_mask')) {
+      context.handle(
+        _logoNegativeMaskMeta,
+        logoNegativeMask.isAcceptableOrUnknown(
+          data['logo_negative_mask']!,
+          _logoNegativeMaskMeta,
+        ),
+      );
+    }
     if (data.containsKey('is_hidden')) {
       context.handle(
         _isHiddenMeta,
@@ -1046,6 +1128,10 @@ class $WorksTable extends Works with TableInfo<$WorksTable, WorkRow> {
         DriftSqlType.int,
         data['${effectivePrefix}bangumi_id'],
       ),
+      tvdbId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}tvdb_id'],
+      ),
       tmdbMediaType: $WorksTable.$convertertmdbMediaTypen.fromSql(
         attachedDatabase.typeMapping.read(
           DriftSqlType.string,
@@ -1120,6 +1206,18 @@ class $WorksTable extends Works with TableInfo<$WorksTable, WorkRow> {
         DriftSqlType.bool,
         data['${effectivePrefix}backdrop_locked'],
       )!,
+      logoLocked: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}logo_locked'],
+      )!,
+      logoNegativeUntil: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}logo_negative_until'],
+      ),
+      logoNegativeMask: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}logo_negative_mask'],
+      )!,
       isHidden: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}is_hidden'],
@@ -1186,6 +1284,9 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
   /// Bangumi 辅助条目 ID。
   final int? bangumiId;
 
+  /// TheTVDB 关联剧集 ID（用于直接对接 Fanart.tv 剧集接口）。
+  final int? tvdbId;
+
   /// TMDB 条目类型（`tv` / `movie`）。
   final TmdbMediaType? tmdbMediaType;
 
@@ -1240,6 +1341,15 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
   /// 横版背景原画是否已人工锁定。
   final bool backdropLocked;
 
+  /// 透明标题徽标是否已人工锁定。
+  final bool logoLocked;
+
+  /// 透明标题徽标负缓存冷却截止时间。
+  final DateTime? logoNegativeUntil;
+
+  /// 透明标题徽标负缓存探测数据源位掩码。
+  final int logoNegativeMask;
+
   /// 是否在主媒体库隐藏。
   final bool isHidden;
 
@@ -1267,6 +1377,7 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
     required this.id,
     this.tmdbId,
     this.bangumiId,
+    this.tvdbId,
     this.tmdbMediaType,
     this.matchedSeason,
     required this.title,
@@ -1285,6 +1396,9 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
     required this.metadataLocked,
     required this.posterLocked,
     required this.backdropLocked,
+    required this.logoLocked,
+    this.logoNegativeUntil,
+    required this.logoNegativeMask,
     required this.isHidden,
     required this.keepHidden,
     required this.scrapeStatus,
@@ -1303,6 +1417,9 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
     }
     if (!nullToAbsent || bangumiId != null) {
       map['bangumi_id'] = Variable<int>(bangumiId);
+    }
+    if (!nullToAbsent || tvdbId != null) {
+      map['tvdb_id'] = Variable<int>(tvdbId);
     }
     if (!nullToAbsent || tmdbMediaType != null) {
       map['tmdb_media_type'] = Variable<String>(
@@ -1350,6 +1467,11 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
     map['metadata_locked'] = Variable<bool>(metadataLocked);
     map['poster_locked'] = Variable<bool>(posterLocked);
     map['backdrop_locked'] = Variable<bool>(backdropLocked);
+    map['logo_locked'] = Variable<bool>(logoLocked);
+    if (!nullToAbsent || logoNegativeUntil != null) {
+      map['logo_negative_until'] = Variable<DateTime>(logoNegativeUntil);
+    }
+    map['logo_negative_mask'] = Variable<int>(logoNegativeMask);
     map['is_hidden'] = Variable<bool>(isHidden);
     map['keep_hidden'] = Variable<bool>(keepHidden);
     {
@@ -1382,6 +1504,9 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
       bangumiId: bangumiId == null && nullToAbsent
           ? const Value.absent()
           : Value(bangumiId),
+      tvdbId: tvdbId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(tvdbId),
       tmdbMediaType: tmdbMediaType == null && nullToAbsent
           ? const Value.absent()
           : Value(tmdbMediaType),
@@ -1424,6 +1549,11 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
       metadataLocked: Value(metadataLocked),
       posterLocked: Value(posterLocked),
       backdropLocked: Value(backdropLocked),
+      logoLocked: Value(logoLocked),
+      logoNegativeUntil: logoNegativeUntil == null && nullToAbsent
+          ? const Value.absent()
+          : Value(logoNegativeUntil),
+      logoNegativeMask: Value(logoNegativeMask),
       isHidden: Value(isHidden),
       keepHidden: Value(keepHidden),
       scrapeStatus: Value(scrapeStatus),
@@ -1452,6 +1582,7 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
       id: serializer.fromJson<String>(json['id']),
       tmdbId: serializer.fromJson<int?>(json['tmdbId']),
       bangumiId: serializer.fromJson<int?>(json['bangumiId']),
+      tvdbId: serializer.fromJson<int?>(json['tvdbId']),
       tmdbMediaType: $WorksTable.$convertertmdbMediaTypen.fromJson(
         serializer.fromJson<String?>(json['tmdbMediaType']),
       ),
@@ -1474,6 +1605,11 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
       metadataLocked: serializer.fromJson<bool>(json['metadataLocked']),
       posterLocked: serializer.fromJson<bool>(json['posterLocked']),
       backdropLocked: serializer.fromJson<bool>(json['backdropLocked']),
+      logoLocked: serializer.fromJson<bool>(json['logoLocked']),
+      logoNegativeUntil: serializer.fromJson<DateTime?>(
+        json['logoNegativeUntil'],
+      ),
+      logoNegativeMask: serializer.fromJson<int>(json['logoNegativeMask']),
       isHidden: serializer.fromJson<bool>(json['isHidden']),
       keepHidden: serializer.fromJson<bool>(json['keepHidden']),
       scrapeStatus: $WorksTable.$converterscrapeStatus.fromJson(
@@ -1493,6 +1629,7 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
       'id': serializer.toJson<String>(id),
       'tmdbId': serializer.toJson<int?>(tmdbId),
       'bangumiId': serializer.toJson<int?>(bangumiId),
+      'tvdbId': serializer.toJson<int?>(tvdbId),
       'tmdbMediaType': serializer.toJson<String?>(
         $WorksTable.$convertertmdbMediaTypen.toJson(tmdbMediaType),
       ),
@@ -1513,6 +1650,9 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
       'metadataLocked': serializer.toJson<bool>(metadataLocked),
       'posterLocked': serializer.toJson<bool>(posterLocked),
       'backdropLocked': serializer.toJson<bool>(backdropLocked),
+      'logoLocked': serializer.toJson<bool>(logoLocked),
+      'logoNegativeUntil': serializer.toJson<DateTime?>(logoNegativeUntil),
+      'logoNegativeMask': serializer.toJson<int>(logoNegativeMask),
       'isHidden': serializer.toJson<bool>(isHidden),
       'keepHidden': serializer.toJson<bool>(keepHidden),
       'scrapeStatus': serializer.toJson<String>(
@@ -1530,6 +1670,7 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
     String? id,
     Value<int?> tmdbId = const Value.absent(),
     Value<int?> bangumiId = const Value.absent(),
+    Value<int?> tvdbId = const Value.absent(),
     Value<TmdbMediaType?> tmdbMediaType = const Value.absent(),
     Value<int?> matchedSeason = const Value.absent(),
     String? title,
@@ -1548,6 +1689,9 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
     bool? metadataLocked,
     bool? posterLocked,
     bool? backdropLocked,
+    bool? logoLocked,
+    Value<DateTime?> logoNegativeUntil = const Value.absent(),
+    int? logoNegativeMask,
     bool? isHidden,
     bool? keepHidden,
     ScrapeStatus? scrapeStatus,
@@ -1560,6 +1704,7 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
     id: id ?? this.id,
     tmdbId: tmdbId.present ? tmdbId.value : this.tmdbId,
     bangumiId: bangumiId.present ? bangumiId.value : this.bangumiId,
+    tvdbId: tvdbId.present ? tvdbId.value : this.tvdbId,
     tmdbMediaType: tmdbMediaType.present
         ? tmdbMediaType.value
         : this.tmdbMediaType,
@@ -1590,6 +1735,11 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
     metadataLocked: metadataLocked ?? this.metadataLocked,
     posterLocked: posterLocked ?? this.posterLocked,
     backdropLocked: backdropLocked ?? this.backdropLocked,
+    logoLocked: logoLocked ?? this.logoLocked,
+    logoNegativeUntil: logoNegativeUntil.present
+        ? logoNegativeUntil.value
+        : this.logoNegativeUntil,
+    logoNegativeMask: logoNegativeMask ?? this.logoNegativeMask,
     isHidden: isHidden ?? this.isHidden,
     keepHidden: keepHidden ?? this.keepHidden,
     scrapeStatus: scrapeStatus ?? this.scrapeStatus,
@@ -1604,6 +1754,7 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
       id: data.id.present ? data.id.value : this.id,
       tmdbId: data.tmdbId.present ? data.tmdbId.value : this.tmdbId,
       bangumiId: data.bangumiId.present ? data.bangumiId.value : this.bangumiId,
+      tvdbId: data.tvdbId.present ? data.tvdbId.value : this.tvdbId,
       tmdbMediaType: data.tmdbMediaType.present
           ? data.tmdbMediaType.value
           : this.tmdbMediaType,
@@ -1650,6 +1801,15 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
       backdropLocked: data.backdropLocked.present
           ? data.backdropLocked.value
           : this.backdropLocked,
+      logoLocked: data.logoLocked.present
+          ? data.logoLocked.value
+          : this.logoLocked,
+      logoNegativeUntil: data.logoNegativeUntil.present
+          ? data.logoNegativeUntil.value
+          : this.logoNegativeUntil,
+      logoNegativeMask: data.logoNegativeMask.present
+          ? data.logoNegativeMask.value
+          : this.logoNegativeMask,
       isHidden: data.isHidden.present ? data.isHidden.value : this.isHidden,
       keepHidden: data.keepHidden.present
           ? data.keepHidden.value
@@ -1679,6 +1839,7 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
           ..write('id: $id, ')
           ..write('tmdbId: $tmdbId, ')
           ..write('bangumiId: $bangumiId, ')
+          ..write('tvdbId: $tvdbId, ')
           ..write('tmdbMediaType: $tmdbMediaType, ')
           ..write('matchedSeason: $matchedSeason, ')
           ..write('title: $title, ')
@@ -1697,6 +1858,9 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
           ..write('metadataLocked: $metadataLocked, ')
           ..write('posterLocked: $posterLocked, ')
           ..write('backdropLocked: $backdropLocked, ')
+          ..write('logoLocked: $logoLocked, ')
+          ..write('logoNegativeUntil: $logoNegativeUntil, ')
+          ..write('logoNegativeMask: $logoNegativeMask, ')
           ..write('isHidden: $isHidden, ')
           ..write('keepHidden: $keepHidden, ')
           ..write('scrapeStatus: $scrapeStatus, ')
@@ -1714,6 +1878,7 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
     id,
     tmdbId,
     bangumiId,
+    tvdbId,
     tmdbMediaType,
     matchedSeason,
     title,
@@ -1732,6 +1897,9 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
     metadataLocked,
     posterLocked,
     backdropLocked,
+    logoLocked,
+    logoNegativeUntil,
+    logoNegativeMask,
     isHidden,
     keepHidden,
     scrapeStatus,
@@ -1748,6 +1916,7 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
           other.id == this.id &&
           other.tmdbId == this.tmdbId &&
           other.bangumiId == this.bangumiId &&
+          other.tvdbId == this.tvdbId &&
           other.tmdbMediaType == this.tmdbMediaType &&
           other.matchedSeason == this.matchedSeason &&
           other.title == this.title &&
@@ -1766,6 +1935,9 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
           other.metadataLocked == this.metadataLocked &&
           other.posterLocked == this.posterLocked &&
           other.backdropLocked == this.backdropLocked &&
+          other.logoLocked == this.logoLocked &&
+          other.logoNegativeUntil == this.logoNegativeUntil &&
+          other.logoNegativeMask == this.logoNegativeMask &&
           other.isHidden == this.isHidden &&
           other.keepHidden == this.keepHidden &&
           other.scrapeStatus == this.scrapeStatus &&
@@ -1780,6 +1952,7 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
   final Value<String> id;
   final Value<int?> tmdbId;
   final Value<int?> bangumiId;
+  final Value<int?> tvdbId;
   final Value<TmdbMediaType?> tmdbMediaType;
   final Value<int?> matchedSeason;
   final Value<String> title;
@@ -1798,6 +1971,9 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
   final Value<bool> metadataLocked;
   final Value<bool> posterLocked;
   final Value<bool> backdropLocked;
+  final Value<bool> logoLocked;
+  final Value<DateTime?> logoNegativeUntil;
+  final Value<int> logoNegativeMask;
   final Value<bool> isHidden;
   final Value<bool> keepHidden;
   final Value<ScrapeStatus> scrapeStatus;
@@ -1811,6 +1987,7 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
     this.id = const Value.absent(),
     this.tmdbId = const Value.absent(),
     this.bangumiId = const Value.absent(),
+    this.tvdbId = const Value.absent(),
     this.tmdbMediaType = const Value.absent(),
     this.matchedSeason = const Value.absent(),
     this.title = const Value.absent(),
@@ -1829,6 +2006,9 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
     this.metadataLocked = const Value.absent(),
     this.posterLocked = const Value.absent(),
     this.backdropLocked = const Value.absent(),
+    this.logoLocked = const Value.absent(),
+    this.logoNegativeUntil = const Value.absent(),
+    this.logoNegativeMask = const Value.absent(),
     this.isHidden = const Value.absent(),
     this.keepHidden = const Value.absent(),
     this.scrapeStatus = const Value.absent(),
@@ -1843,6 +2023,7 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
     required String id,
     this.tmdbId = const Value.absent(),
     this.bangumiId = const Value.absent(),
+    this.tvdbId = const Value.absent(),
     this.tmdbMediaType = const Value.absent(),
     this.matchedSeason = const Value.absent(),
     required String title,
@@ -1861,6 +2042,9 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
     this.metadataLocked = const Value.absent(),
     this.posterLocked = const Value.absent(),
     this.backdropLocked = const Value.absent(),
+    this.logoLocked = const Value.absent(),
+    this.logoNegativeUntil = const Value.absent(),
+    this.logoNegativeMask = const Value.absent(),
     this.isHidden = const Value.absent(),
     this.keepHidden = const Value.absent(),
     required ScrapeStatus scrapeStatus,
@@ -1877,6 +2061,7 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
     Expression<String>? id,
     Expression<int>? tmdbId,
     Expression<int>? bangumiId,
+    Expression<int>? tvdbId,
     Expression<String>? tmdbMediaType,
     Expression<int>? matchedSeason,
     Expression<String>? title,
@@ -1895,6 +2080,9 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
     Expression<bool>? metadataLocked,
     Expression<bool>? posterLocked,
     Expression<bool>? backdropLocked,
+    Expression<bool>? logoLocked,
+    Expression<DateTime>? logoNegativeUntil,
+    Expression<int>? logoNegativeMask,
     Expression<bool>? isHidden,
     Expression<bool>? keepHidden,
     Expression<String>? scrapeStatus,
@@ -1909,6 +2097,7 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
       if (id != null) 'id': id,
       if (tmdbId != null) 'tmdb_id': tmdbId,
       if (bangumiId != null) 'bangumi_id': bangumiId,
+      if (tvdbId != null) 'tvdb_id': tvdbId,
       if (tmdbMediaType != null) 'tmdb_media_type': tmdbMediaType,
       if (matchedSeason != null) 'matched_season': matchedSeason,
       if (title != null) 'title': title,
@@ -1927,6 +2116,9 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
       if (metadataLocked != null) 'metadata_locked': metadataLocked,
       if (posterLocked != null) 'poster_locked': posterLocked,
       if (backdropLocked != null) 'backdrop_locked': backdropLocked,
+      if (logoLocked != null) 'logo_locked': logoLocked,
+      if (logoNegativeUntil != null) 'logo_negative_until': logoNegativeUntil,
+      if (logoNegativeMask != null) 'logo_negative_mask': logoNegativeMask,
       if (isHidden != null) 'is_hidden': isHidden,
       if (keepHidden != null) 'keep_hidden': keepHidden,
       if (scrapeStatus != null) 'scrape_status': scrapeStatus,
@@ -1943,6 +2135,7 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
     Value<String>? id,
     Value<int?>? tmdbId,
     Value<int?>? bangumiId,
+    Value<int?>? tvdbId,
     Value<TmdbMediaType?>? tmdbMediaType,
     Value<int?>? matchedSeason,
     Value<String>? title,
@@ -1961,6 +2154,9 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
     Value<bool>? metadataLocked,
     Value<bool>? posterLocked,
     Value<bool>? backdropLocked,
+    Value<bool>? logoLocked,
+    Value<DateTime?>? logoNegativeUntil,
+    Value<int>? logoNegativeMask,
     Value<bool>? isHidden,
     Value<bool>? keepHidden,
     Value<ScrapeStatus>? scrapeStatus,
@@ -1975,6 +2171,7 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
       id: id ?? this.id,
       tmdbId: tmdbId ?? this.tmdbId,
       bangumiId: bangumiId ?? this.bangumiId,
+      tvdbId: tvdbId ?? this.tvdbId,
       tmdbMediaType: tmdbMediaType ?? this.tmdbMediaType,
       matchedSeason: matchedSeason ?? this.matchedSeason,
       title: title ?? this.title,
@@ -1993,6 +2190,9 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
       metadataLocked: metadataLocked ?? this.metadataLocked,
       posterLocked: posterLocked ?? this.posterLocked,
       backdropLocked: backdropLocked ?? this.backdropLocked,
+      logoLocked: logoLocked ?? this.logoLocked,
+      logoNegativeUntil: logoNegativeUntil ?? this.logoNegativeUntil,
+      logoNegativeMask: logoNegativeMask ?? this.logoNegativeMask,
       isHidden: isHidden ?? this.isHidden,
       keepHidden: keepHidden ?? this.keepHidden,
       scrapeStatus: scrapeStatus ?? this.scrapeStatus,
@@ -2016,6 +2216,9 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
     }
     if (bangumiId.present) {
       map['bangumi_id'] = Variable<int>(bangumiId.value);
+    }
+    if (tvdbId.present) {
+      map['tvdb_id'] = Variable<int>(tvdbId.value);
     }
     if (tmdbMediaType.present) {
       map['tmdb_media_type'] = Variable<String>(
@@ -2073,6 +2276,15 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
     if (backdropLocked.present) {
       map['backdrop_locked'] = Variable<bool>(backdropLocked.value);
     }
+    if (logoLocked.present) {
+      map['logo_locked'] = Variable<bool>(logoLocked.value);
+    }
+    if (logoNegativeUntil.present) {
+      map['logo_negative_until'] = Variable<DateTime>(logoNegativeUntil.value);
+    }
+    if (logoNegativeMask.present) {
+      map['logo_negative_mask'] = Variable<int>(logoNegativeMask.value);
+    }
     if (isHidden.present) {
       map['is_hidden'] = Variable<bool>(isHidden.value);
     }
@@ -2111,6 +2323,7 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
           ..write('id: $id, ')
           ..write('tmdbId: $tmdbId, ')
           ..write('bangumiId: $bangumiId, ')
+          ..write('tvdbId: $tvdbId, ')
           ..write('tmdbMediaType: $tmdbMediaType, ')
           ..write('matchedSeason: $matchedSeason, ')
           ..write('title: $title, ')
@@ -2129,6 +2342,9 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
           ..write('metadataLocked: $metadataLocked, ')
           ..write('posterLocked: $posterLocked, ')
           ..write('backdropLocked: $backdropLocked, ')
+          ..write('logoLocked: $logoLocked, ')
+          ..write('logoNegativeUntil: $logoNegativeUntil, ')
+          ..write('logoNegativeMask: $logoNegativeMask, ')
           ..write('isHidden: $isHidden, ')
           ..write('keepHidden: $keepHidden, ')
           ..write('scrapeStatus: $scrapeStatus, ')
@@ -6704,6 +6920,7 @@ typedef $$WorksTableCreateCompanionBuilder =
       required String id,
       Value<int?> tmdbId,
       Value<int?> bangumiId,
+      Value<int?> tvdbId,
       Value<TmdbMediaType?> tmdbMediaType,
       Value<int?> matchedSeason,
       required String title,
@@ -6722,6 +6939,9 @@ typedef $$WorksTableCreateCompanionBuilder =
       Value<bool> metadataLocked,
       Value<bool> posterLocked,
       Value<bool> backdropLocked,
+      Value<bool> logoLocked,
+      Value<DateTime?> logoNegativeUntil,
+      Value<int> logoNegativeMask,
       Value<bool> isHidden,
       Value<bool> keepHidden,
       required ScrapeStatus scrapeStatus,
@@ -6737,6 +6957,7 @@ typedef $$WorksTableUpdateCompanionBuilder =
       Value<String> id,
       Value<int?> tmdbId,
       Value<int?> bangumiId,
+      Value<int?> tvdbId,
       Value<TmdbMediaType?> tmdbMediaType,
       Value<int?> matchedSeason,
       Value<String> title,
@@ -6755,6 +6976,9 @@ typedef $$WorksTableUpdateCompanionBuilder =
       Value<bool> metadataLocked,
       Value<bool> posterLocked,
       Value<bool> backdropLocked,
+      Value<bool> logoLocked,
+      Value<DateTime?> logoNegativeUntil,
+      Value<int> logoNegativeMask,
       Value<bool> isHidden,
       Value<bool> keepHidden,
       Value<ScrapeStatus> scrapeStatus,
@@ -6873,6 +7097,11 @@ class $$WorksTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<int> get tvdbId => $composableBuilder(
+    column: $table.tvdbId,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnWithTypeConverterFilters<TmdbMediaType?, TmdbMediaType, String>
   get tmdbMediaType => $composableBuilder(
     column: $table.tmdbMediaType,
@@ -6961,6 +7190,21 @@ class $$WorksTableFilterComposer
 
   ColumnFilters<bool> get backdropLocked => $composableBuilder(
     column: $table.backdropLocked,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get logoLocked => $composableBuilder(
+    column: $table.logoLocked,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get logoNegativeUntil => $composableBuilder(
+    column: $table.logoNegativeUntil,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get logoNegativeMask => $composableBuilder(
+    column: $table.logoNegativeMask,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -7130,6 +7374,11 @@ class $$WorksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get tvdbId => $composableBuilder(
+    column: $table.tvdbId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get tmdbMediaType => $composableBuilder(
     column: $table.tmdbMediaType,
     builder: (column) => ColumnOrderings(column),
@@ -7220,6 +7469,21 @@ class $$WorksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get logoLocked => $composableBuilder(
+    column: $table.logoLocked,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get logoNegativeUntil => $composableBuilder(
+    column: $table.logoNegativeUntil,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get logoNegativeMask => $composableBuilder(
+    column: $table.logoNegativeMask,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<bool> get isHidden => $composableBuilder(
     column: $table.isHidden,
     builder: (column) => ColumnOrderings(column),
@@ -7278,6 +7542,9 @@ class $$WorksTableAnnotationComposer
 
   GeneratedColumn<int> get bangumiId =>
       $composableBuilder(column: $table.bangumiId, builder: (column) => column);
+
+  GeneratedColumn<int> get tvdbId =>
+      $composableBuilder(column: $table.tvdbId, builder: (column) => column);
 
   GeneratedColumnWithTypeConverter<TmdbMediaType?, String> get tmdbMediaType =>
       $composableBuilder(
@@ -7359,6 +7626,21 @@ class $$WorksTableAnnotationComposer
 
   GeneratedColumn<bool> get backdropLocked => $composableBuilder(
     column: $table.backdropLocked,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get logoLocked => $composableBuilder(
+    column: $table.logoLocked,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get logoNegativeUntil => $composableBuilder(
+    column: $table.logoNegativeUntil,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get logoNegativeMask => $composableBuilder(
+    column: $table.logoNegativeMask,
     builder: (column) => column,
   );
 
@@ -7536,6 +7818,7 @@ class $$WorksTableTableManager
                 Value<String> id = const Value.absent(),
                 Value<int?> tmdbId = const Value.absent(),
                 Value<int?> bangumiId = const Value.absent(),
+                Value<int?> tvdbId = const Value.absent(),
                 Value<TmdbMediaType?> tmdbMediaType = const Value.absent(),
                 Value<int?> matchedSeason = const Value.absent(),
                 Value<String> title = const Value.absent(),
@@ -7554,6 +7837,9 @@ class $$WorksTableTableManager
                 Value<bool> metadataLocked = const Value.absent(),
                 Value<bool> posterLocked = const Value.absent(),
                 Value<bool> backdropLocked = const Value.absent(),
+                Value<bool> logoLocked = const Value.absent(),
+                Value<DateTime?> logoNegativeUntil = const Value.absent(),
+                Value<int> logoNegativeMask = const Value.absent(),
                 Value<bool> isHidden = const Value.absent(),
                 Value<bool> keepHidden = const Value.absent(),
                 Value<ScrapeStatus> scrapeStatus = const Value.absent(),
@@ -7567,6 +7853,7 @@ class $$WorksTableTableManager
                 id: id,
                 tmdbId: tmdbId,
                 bangumiId: bangumiId,
+                tvdbId: tvdbId,
                 tmdbMediaType: tmdbMediaType,
                 matchedSeason: matchedSeason,
                 title: title,
@@ -7585,6 +7872,9 @@ class $$WorksTableTableManager
                 metadataLocked: metadataLocked,
                 posterLocked: posterLocked,
                 backdropLocked: backdropLocked,
+                logoLocked: logoLocked,
+                logoNegativeUntil: logoNegativeUntil,
+                logoNegativeMask: logoNegativeMask,
                 isHidden: isHidden,
                 keepHidden: keepHidden,
                 scrapeStatus: scrapeStatus,
@@ -7600,6 +7890,7 @@ class $$WorksTableTableManager
                 required String id,
                 Value<int?> tmdbId = const Value.absent(),
                 Value<int?> bangumiId = const Value.absent(),
+                Value<int?> tvdbId = const Value.absent(),
                 Value<TmdbMediaType?> tmdbMediaType = const Value.absent(),
                 Value<int?> matchedSeason = const Value.absent(),
                 required String title,
@@ -7618,6 +7909,9 @@ class $$WorksTableTableManager
                 Value<bool> metadataLocked = const Value.absent(),
                 Value<bool> posterLocked = const Value.absent(),
                 Value<bool> backdropLocked = const Value.absent(),
+                Value<bool> logoLocked = const Value.absent(),
+                Value<DateTime?> logoNegativeUntil = const Value.absent(),
+                Value<int> logoNegativeMask = const Value.absent(),
                 Value<bool> isHidden = const Value.absent(),
                 Value<bool> keepHidden = const Value.absent(),
                 required ScrapeStatus scrapeStatus,
@@ -7631,6 +7925,7 @@ class $$WorksTableTableManager
                 id: id,
                 tmdbId: tmdbId,
                 bangumiId: bangumiId,
+                tvdbId: tvdbId,
                 tmdbMediaType: tmdbMediaType,
                 matchedSeason: matchedSeason,
                 title: title,
@@ -7649,6 +7944,9 @@ class $$WorksTableTableManager
                 metadataLocked: metadataLocked,
                 posterLocked: posterLocked,
                 backdropLocked: backdropLocked,
+                logoLocked: logoLocked,
+                logoNegativeUntil: logoNegativeUntil,
+                logoNegativeMask: logoNegativeMask,
                 isHidden: isHidden,
                 keepHidden: keepHidden,
                 scrapeStatus: scrapeStatus,

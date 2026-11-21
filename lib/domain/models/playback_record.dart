@@ -64,8 +64,9 @@ class PlaybackRecord {
     return (positionSeconds / durationSeconds).clamp(0.0, 1.0);
   }
 
-  /// 是否属于可断点续播状态（未看完且已播放超过 5 秒）。
-  bool get hasResumableProgress => !isCompleted && positionSeconds > 5;
+  /// 是否属于可断点续播状态（视频需超过 5 秒，音频满 2 秒即可断点续播）。
+  bool get hasResumableProgress =>
+      !isCompleted && positionSeconds >= (isAudioRecord ? 2 : 6);
 
   /// 是否为音频 / CD 播放历史记录。
   bool get isAudioRecord =>
@@ -84,12 +85,19 @@ class PlaybackRecord {
     return 'S${sStr}E${episodeNumber.toString().padLeft(2, '0')}';
   }
 
-  /// 完播判定规则：总时长有效且进度 >= 90% 或剩余时长 <= 90 秒时自动标记已看完。
+  /// 完播判定规则：
+  /// - 视频记录：进度 `>= 90%` 或剩余时长 `<= 90` 秒时自动标记已看完；
+  /// - 音频记录：避免 90 秒片尾阈值误伤短单曲，仅在进度 `>= 95%` 或（总长 `> 15` 秒且剩余 `<= 5` 秒）时标记已听完。
   static bool computeCompleted({
     required int positionSeconds,
     required int durationSeconds,
+    bool isAudio = false,
   }) {
     if (durationSeconds <= 0 || positionSeconds <= 0) return false;
+    if (isAudio) {
+      if (positionSeconds / durationSeconds >= 0.95) return true;
+      return durationSeconds > 15 && (durationSeconds - positionSeconds <= 5);
+    }
     if (positionSeconds / durationSeconds >= 0.90) return true;
     return durationSeconds > 90 && (durationSeconds - positionSeconds <= 90);
   }

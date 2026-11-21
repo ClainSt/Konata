@@ -1,5 +1,8 @@
 import 'dart:developer' as developer;
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as path_util;
 
 import '../../domain/models/episode.dart';
 import '../../domain/models/work.dart';
@@ -8,6 +11,7 @@ import '../../domain/sources/artwork_crop_math.dart';
 import '../../infrastructure/cache/local_artwork_cropper.dart';
 import '../../infrastructure/cache/photos_storage.dart';
 import '../../infrastructure/network/bangumi_service.dart';
+import '../../infrastructure/network/fanart_service.dart';
 import '../../infrastructure/network/priority_http_scheduler.dart';
 import '../../infrastructure/network/tmdb_http_client.dart';
 import '../../infrastructure/network/tmdb_service.dart';
@@ -20,14 +24,17 @@ import 'work_split_and_series_actions.dart';
 export 'work_merge_actions.dart' show WorkMergeOutcome;
 export 'work_split_and_series_actions.dart' show HybridMatchRequest;
 
-/// 作品详情页封面/背景图选择弹窗中的单张候选图片（支持 Bangumi 与 TMDB 混排标识）。
+/// 作品详情页封面/背景图/透明徽标选择弹窗中的单张候选图片（支持 Bangumi、TMDB 与 Fanart.tv 混排标识）。
 class WorkArtworkOption {
   /// 创建候选图条目。
   const WorkArtworkOption({
     required this.filePath,
     required this.sourceLabel,
     this.isBangumi = false,
+    this.isFanart = false,
     this.isSeasonPoster = false,
+    this.langTag,
+    this.isHd = false,
     this.width,
     this.height,
   });
@@ -35,14 +42,23 @@ class WorkArtworkOption {
   /// 图片 URL、TMDB 路径或本地文件路径。
   final String filePath;
 
-  /// 来源标签（如 `Bangumi`、`TMDB 第 2 季`、`TMDB`）。
+  /// 来源标签（如 `Bangumi`、`TMDB 第 2 季`、`TMDB`、`Fanart.tv`）。
   final String sourceLabel;
 
   /// 是否来自 Bangumi 官方封面。
   final bool isBangumi;
 
+  /// 是否来自 Fanart.tv 透明徽标源。
+  final bool isFanart;
+
   /// 是否为 TMDB 匹配季专属封面。
   final bool isSeasonPoster;
+
+  /// 可选语言标签（如 `简中`、`繁中`、`日文`、`英文`、`无字`）。
+  final String? langTag;
+
+  /// 是否为高清透明徽标档位（如 Fanart.tv `hdtvlogo`/`hdmovielogo`）。
+  final bool isHd;
 
   /// 原图真实像素宽度（若已知）。
   final int? width;
@@ -54,15 +70,16 @@ class WorkArtworkOption {
   String? get resolutionLabel =>
       (width != null && height != null && width! > 0 && height! > 0)
       ? '$width×$height'
-      : null;
+      : (isHd ? 'HD' : null);
 }
 
-/// 作品可用的候选海报与背景图集合（同时聚合 Bangumi 封面与 TMDB 候选图集）。
+/// 作品可用的候选海报、背景图与透明徽标集合。
 class WorkArtworkOptions {
   /// 创建候选集合实例。
   const WorkArtworkOptions({
     this.posters = const [],
     this.backdrops = const [],
+    this.logos = const [],
   });
 
   /// 全部可选海报（含 Bangumi 与 TMDB 季/系列封面）。
@@ -70,6 +87,9 @@ class WorkArtworkOptions {
 
   /// 全部可选横版背景图。
   final List<WorkArtworkOption> backdrops;
+
+  /// 全部可选透明标题徽标（聚合 TMDB 与 Fanart.tv）。
+  final List<WorkArtworkOption> logos;
 }
 
 /// 单个物理文件到逻辑剧集的手动重映射请求。
@@ -229,6 +249,7 @@ class WorkManagementActions {
       tmdbId: existing.tmdbId,
       tmdbMediaType: existing.tmdbMediaType,
       bangumiId: existing.bangumiId,
+      tvdbId: existing.tvdbId,
       matchedSeason: existing.matchedSeason,
       title: title.trim().isEmpty ? existing.title : title.trim(),
       originalTitle: (originalTitle ?? '').trim().isEmpty
@@ -248,6 +269,9 @@ class WorkManagementActions {
       metadataLocked: nextLocked,
       posterLocked: existing.posterLocked,
       backdropLocked: existing.backdropLocked,
+      logoLocked: existing.logoLocked,
+      logoNegativeUntil: existing.logoNegativeUntil,
+      logoNegativeMask: existing.logoNegativeMask,
       isHidden: existing.isHidden,
       keepHidden: existing.keepHidden,
       scrapeStatus: existing.scrapeStatus,
@@ -336,12 +360,17 @@ class WorkManagementActions {
     _invalidateWork(workId);
   }
 
-  /// 获取作品对应 Bangumi 封面与 TMDB 候选封面/背景图列表（用于在图像选择器自由切换）。
-  Future<WorkArtworkOptions> fetchWorkArtworkOptions(Work work) async {
+  /// 获取作品对应 Bangumi、TMDB 与 Fanart.tv 候选图像集合（支持海报、背景图与透明徽标）。
+  Future<WorkArtworkOptions> fetchWorkArtworkOptions(
+    Work work, {
+    bool includeLogos = false,
+  }) async {
     final posters = <WorkArtworkOption>[];
     final backdrops = <WorkArtworkOption>[];
+    final logos = <WorkArtworkOption>[];
     final seenPosters = <String>{};
     final seenBackdrops = <String>{};
+    final seenLogos = <String>{};
 
     void addPoster(
       String? path, {
@@ -387,6 +416,32 @@ class WorkManagementActions {
       }
     }
 
+    void addLogo(
+      String? path, {
+      required String sourceLabel,
+      bool isFanart = false,
+      String? langTag,
+      bool isHd = false,
+      int? width,
+      int? height,
+    }) {
+      final clean = path?.trim();
+      if (clean == null || clean.isEmpty) return;
+      if (seenLogos.add(clean)) {
+        logos.add(
+          WorkArtworkOption(
+            filePath: clean,
+            sourceLabel: sourceLabel,
+            isFanart: isFanart,
+            langTag: langTag,
+            isHd: isHd,
+            width: width,
+            height: height,
+          ),
+        );
+      }
+    }
+
     // 1. 优先加入已保存或在线拉取的 Bangumi 官方封面
     addPoster(
       work.bangumiPosterPath,
@@ -403,100 +458,216 @@ class WorkManagementActions {
       cooldownRegistry: cooldown,
     );
 
-    if (work.bangumiPosterPath == null && work.bangumiId != null) {
-      try {
-        final bgm = BangumiService(httpClient: client);
-        final subject = await bgm.getSubjectDetail(
-          work.bangumiId!,
-          priority: RequestPriority.interactive,
-        );
-        addPoster(
-          subject?.posterUrl,
-          sourceLabel: 'Bangumi',
-          isBangumi: true,
-        );
-      } catch (error) {
-      // Bangumi 在线获取失败时不阻塞 TMDB 候选图集展示。
-      developer.log('可恢复异常已记录', name: 'konata.work_management_provider', error: error);
-    }
-    }
-
-    // 2. 拉取 TMDB 分季封面、系列主封面及候选图集（透传 /images 原生宽高）
-    if (work.tmdbId != null && work.tmdbMediaType != null) {
-      final tmdb = TmdbService(httpClient: client);
-      final detail = await tmdb.getWorkDetail(
-        work.tmdbId!,
-        work.tmdbMediaType!,
-        priority: RequestPriority.interactive,
-        includeEnglishImages: true,
-      );
-      if (detail != null) {
-        final posterDimsByPath = <String, (int?, int?)>{
-          for (final item in detail.candidatePosters)
-            item.filePath.trim(): (item.width, item.height),
-        };
-        final backdropDimsByPath = <String, (int?, int?)>{
-          for (final item in detail.candidateBackdrops)
-            item.filePath.trim(): (item.width, item.height),
-        };
-
-        if (work.matchedSeason != null &&
-            work.tmdbMediaType == TmdbMediaType.tv) {
-          final seasonSummary = detail.seasons
-              .where((s) => s.seasonNumber == work.matchedSeason)
-              .firstOrNull;
-          final seasonPath = seasonSummary?.posterPath?.trim();
-          final seasonDims =
-              seasonPath != null ? posterDimsByPath[seasonPath] : null;
-          addPoster(
-            seasonSummary?.posterPath,
-            sourceLabel: work.matchedSeason == 0
-                ? 'TMDB·SP'
-                : 'TMDB·S${work.matchedSeason}',
-            isSeasonPoster: true,
-            width: seasonDims?.$1,
-            height: seasonDims?.$2,
+    try {
+      if (!includeLogos &&
+          work.bangumiPosterPath == null &&
+          work.bangumiId != null) {
+        try {
+          final bgm = BangumiService(httpClient: client);
+          final subject = await bgm.getSubjectDetail(
+            work.bangumiId!,
+            priority: RequestPriority.interactive,
           );
-        }
-        final defaultPosterDims = detail.posterPath != null
-            ? posterDimsByPath[detail.posterPath!.trim()]
-            : null;
-        addPoster(
-          detail.posterPath,
-          sourceLabel: 'TMDB',
-          width: defaultPosterDims?.$1,
-          height: defaultPosterDims?.$2,
-        );
-        for (final item in detail.candidatePosters) {
           addPoster(
-            item.filePath,
-            sourceLabel: 'TMDB',
-            width: item.width,
-            height: item.height,
+            subject?.posterUrl,
+            sourceLabel: 'Bangumi',
+            isBangumi: true,
           );
-        }
-        final defaultBackdropDims = detail.backdropPath != null
-            ? backdropDimsByPath[detail.backdropPath!.trim()]
-            : null;
-        addBackdrop(
-          detail.backdropPath,
-          width: defaultBackdropDims?.$1,
-          height: defaultBackdropDims?.$2,
-        );
-        for (final item in detail.candidateBackdrops) {
-          addBackdrop(
-            item.filePath,
-            width: item.width,
-            height: item.height,
+        } catch (error) {
+          developer.log(
+            '可恢复异常已记录',
+            name: 'konata.work_management_provider',
+            error: error,
           );
         }
       }
+
+      int? resolvedTvdbId = work.tvdbId;
+
+      // 2. 拉取 TMDB 分季封面、系列主封面、背景图及透明徽标候选集
+      if (work.tmdbId != null &&
+          work.tmdbMediaType != null &&
+          config.credential.trim().isNotEmpty) {
+        try {
+          final tmdb = TmdbService(httpClient: client);
+          final detail = await tmdb.getWorkDetail(
+            work.tmdbId!,
+            work.tmdbMediaType!,
+            priority: RequestPriority.interactive,
+            includeEnglishImages: true,
+          );
+          if (detail != null) {
+            resolvedTvdbId ??= detail.tvdbId;
+            final posterDimsByPath = <String, (int?, int?)>{
+              for (final item in detail.candidatePosters)
+                item.filePath.trim(): (item.width, item.height),
+            };
+            final backdropDimsByPath = <String, (int?, int?)>{
+              for (final item in detail.candidateBackdrops)
+                item.filePath.trim(): (item.width, item.height),
+            };
+
+            if (work.matchedSeason != null &&
+                work.tmdbMediaType == TmdbMediaType.tv) {
+              final seasonSummary = detail.seasons
+                  .where((s) => s.seasonNumber == work.matchedSeason)
+                  .firstOrNull;
+              final seasonPath = seasonSummary?.posterPath?.trim();
+              final seasonDims =
+                  seasonPath != null ? posterDimsByPath[seasonPath] : null;
+              addPoster(
+                seasonSummary?.posterPath,
+                sourceLabel: work.matchedSeason == 0
+                    ? 'TMDB·SP'
+                    : 'TMDB·S${work.matchedSeason}',
+                isSeasonPoster: true,
+                width: seasonDims?.$1,
+                height: seasonDims?.$2,
+              );
+            }
+            final defaultPosterDims = detail.posterPath != null
+                ? posterDimsByPath[detail.posterPath!.trim()]
+                : null;
+            addPoster(
+              detail.posterPath,
+              sourceLabel: 'TMDB',
+              width: defaultPosterDims?.$1,
+              height: defaultPosterDims?.$2,
+            );
+            for (final item in detail.candidatePosters) {
+              addPoster(
+                item.filePath,
+                sourceLabel: 'TMDB',
+                width: item.width,
+                height: item.height,
+              );
+            }
+            final defaultBackdropDims = detail.backdropPath != null
+                ? backdropDimsByPath[detail.backdropPath!.trim()]
+                : null;
+            addBackdrop(
+              detail.backdropPath,
+              width: defaultBackdropDims?.$1,
+              height: defaultBackdropDims?.$2,
+            );
+            for (final item in detail.candidateBackdrops) {
+              addBackdrop(
+                item.filePath,
+                width: item.width,
+                height: item.height,
+              );
+            }
+
+            if (includeLogos) {
+              final mistagged = work.tmdbMediaType == TmdbMediaType.tv
+                  ? TmdbService.tmdbMistaggedTvLogoTargets[work.tmdbId!]
+                  : null;
+              for (final item in detail.candidateLogos) {
+                if (mistagged != null && mistagged.containsKey(item.filePath)) {
+                  continue;
+                }
+                addLogo(
+                  item.filePath,
+                  sourceLabel: 'TMDB',
+                  langTag: _formatLogoLanguageTag(
+                    item.isoLanguage,
+                    item.isoCountry,
+                  ),
+                  width: item.width,
+                  height: item.height,
+                );
+              }
+            }
+          }
+        } catch (error) {
+          developer.log(
+            '拉取 TMDB 候选图集失败，继续尝试其他来源',
+            name: 'konata.work_management_provider',
+            error: error,
+          );
+        }
+      }
+
+      // 3. 当打开「编辑标题徽标」时，实时聚合 Fanart.tv 透明徽标候选（自动绕过负缓存）
+      if (includeLogos && config.isFanartAvailable) {
+        if (resolvedTvdbId == null) {
+          final snap = await _ref.read(bangumiTmdbSnapshotProvider.future);
+          if (work.bangumiId != null && work.bangumiId! > 0) {
+            for (final target in snap.index.lookup(work.bangumiId!)) {
+              if (target.tvdbId != null && target.tvdbId! > 0) {
+                resolvedTvdbId = target.tvdbId;
+                break;
+              }
+            }
+          }
+          if (resolvedTvdbId == null &&
+              work.tmdbId != null &&
+              work.tmdbMediaType == TmdbMediaType.tv) {
+            resolvedTvdbId = snap.index.lookupTvdbIdByTmdb(
+              mediaType: TmdbMediaType.tv,
+              tmdbId: work.tmdbId!,
+            );
+          }
+        }
+        final effectiveMediaType =
+            work.tmdbMediaType ??
+            (resolvedTvdbId != null ? TmdbMediaType.tv : null);
+        if (effectiveMediaType != null) {
+          final breaker = _ref.read(fanartCircuitBreakerProvider);
+          final fanart = FanartService(
+            httpClient: client,
+            circuitBreaker: breaker,
+          );
+          try {
+            final res = await fanart.fetchLogos(
+              mediaType: effectiveMediaType,
+              tmdbId: work.tmdbId,
+              tvdbId: resolvedTvdbId,
+              priority: RequestPriority.interactive,
+            );
+            _ref.read(fanartRelayHealthProvider.notifier).state =
+                breaker.snapshot();
+            for (final item in res.logos) {
+              addLogo(
+                item.url,
+                sourceLabel: 'Fanart.tv',
+                isFanart: true,
+                langTag: _formatLogoLanguageTag(item.lang, null),
+                isHd: item.kind.isHd,
+              );
+            }
+          } catch (error) {
+            _ref.read(fanartRelayHealthProvider.notifier).state =
+                breaker.snapshot();
+            developer.log(
+              '拉取 Fanart.tv 候选透明徽标失败',
+              name: 'konata.work_management_provider',
+              error: error,
+            );
+          }
+        }
+      }
+    } finally {
+      client.close();
     }
 
     return WorkArtworkOptions(
       posters: posters,
       backdrops: backdrops,
+      logos: logos,
     );
+  }
+
+  static String? _formatLogoLanguageTag(String? isoLang, String? isoCountry) {
+    final rank = TmdbService.logoLanguageRank(isoLang, isoCountry);
+    return switch (rank) {
+      0 => '简中',
+      1 => '繁中',
+      2 => '日文',
+      3 => '英文',
+      4 => '无字',
+      _ => null,
+    };
   }
 
   /// 加载本地图片完整原分辨率位图句柄（供框选裁切弹窗无损预览与原图裁切使用）。
@@ -528,11 +699,50 @@ class WorkManagementActions {
     return savedPath;
   }
 
-  /// 替换作品海报或背景图路径（支持 TMDB 路径、HTTP URL 或本地文件路径）并分别持久化锁定。
+  /// 直接原样保存用户挑选的本地透明徽标图片至 `photos/<作品>/logos/`（保留透明通道不强制裁切）。
+  Future<String> saveLocalLogoArtwork({
+    required Work work,
+    required String sourceFilePath,
+  }) async {
+    final file = File(sourceFilePath);
+    if (!await file.exists()) {
+      throw StateError('所选本地徽标文件不存在');
+    }
+    final bytes = await file.readAsBytes();
+    if (bytes.isEmpty) {
+      throw StateError('所选本地徽标文件为空');
+    }
+    if (bytes.length > 8 * 1024 * 1024) {
+      throw StateError('透明徽标文件体积超过 8 MB 上限');
+    }
+    final rawExt = path_util.extension(sourceFilePath).toLowerCase();
+    final safeExt = switch (rawExt) {
+      '.png' || '.webp' || '.jpg' || '.jpeg' || '.gif' => rawExt,
+      _ => '.png',
+    };
+    final digest = PhotosStorage.shortDigest(
+      '${work.id}::${bytes.length}::${DateTime.now().microsecondsSinceEpoch}',
+    );
+    final savedFile = await _ref.read(photosStorageProvider).writeArtwork(
+      workId: work.id,
+      subfolder: PhotoSubfolder.logos,
+      fileKey: 'custom_$digest$safeExt',
+      bytes: bytes,
+      title: work.title,
+    );
+    if (savedFile == null) {
+      throw StateError('保存本地透明徽标失败');
+    }
+    await updateWorkArtwork(workId: work.id, logoPath: savedFile.path);
+    return savedFile.path;
+  }
+
+  /// 替换作品海报、背景图或透明标题徽标路径并分别持久化锁定。
   Future<void> updateWorkArtwork({
     required String workId,
     String? posterPath,
     String? backdropPath,
+    String? logoPath,
   }) async {
     final repo = _ref.read(libraryRepositoryProvider);
     final existing = await repo.findWorkById(workId);
@@ -540,11 +750,15 @@ class WorkManagementActions {
     final lockPoster = posterPath != null ? true : existing.posterLocked;
     final lockBackdrop =
         backdropPath != null ? true : existing.backdropLocked;
+    final lockLogo = logoPath != null ? true : existing.logoLocked;
     final next = existing.copyWith(
       posterPath: posterPath ?? existing.posterPath,
       backdropPath: backdropPath ?? existing.backdropPath,
+      logoPath: logoPath ?? existing.logoPath,
       posterLocked: lockPoster,
       backdropLocked: lockBackdrop,
+      logoLocked: lockLogo,
+      clearLogoNegative: logoPath != null,
       isManualLocked: true,
     );
     await repo.upsertWork(next);
@@ -566,6 +780,7 @@ class WorkManagementActions {
             existing.tmdbId != null ||
             existing.posterLocked ||
             existing.backdropLocked ||
+            existing.logoLocked ||
             hasAnyMappingLock,
       ),
     );
@@ -580,32 +795,43 @@ class WorkManagementActions {
     return repo.findWorkById(workId);
   }
 
-  /// 解除海报或背景图锁定，并在已绑定 TMDB 时立即恢复自动抓取默认图像。
+  /// 解除海报、背景图或透明标题徽标锁定，并在具备条目 ID 时立即恢复自动抓取默认图像。
   Future<Work?> resetArtworkLockToAuto({
     required String workId,
     bool resetPoster = false,
     bool resetBackdrop = false,
+    bool resetLogo = false,
   }) async {
     final repo = _ref.read(libraryRepositoryProvider);
     final existing = await repo.findWorkById(workId);
     if (existing == null) return null;
     final nextPosterLocked = resetPoster ? false : existing.posterLocked;
     final nextBackdropLocked = resetBackdrop ? false : existing.backdropLocked;
+    final nextLogoLocked = resetLogo ? false : existing.logoLocked;
     final variants = await repo.getVariantsByWork(workId);
     final hasAnyMappingLock = variants.any((v) => v.mappingLocked);
     await repo.upsertWork(
       existing.copyWith(
         posterLocked: nextPosterLocked,
         backdropLocked: nextBackdropLocked,
+        logoLocked: nextLogoLocked,
+        clearLogoPath: resetLogo,
+        clearLogoNegative: resetLogo,
         isManualLocked:
             existing.tmdbId != null ||
             existing.metadataLocked ||
             nextPosterLocked ||
             nextBackdropLocked ||
+            nextLogoLocked ||
             hasAnyMappingLock,
       ),
     );
     if (existing.tmdbId != null && existing.tmdbMediaType != null) {
+      if (resetLogo && !resetPoster && !resetBackdrop) {
+        return _ref
+            .read(scrapeControllerProvider.notifier)
+            .ensureOrRescrapeWork(workId: workId, interactive: true);
+      }
       return _ref.read(scrapeControllerProvider.notifier).rebindWork(
             workId: workId,
             tmdbId: existing.tmdbId!,
@@ -633,7 +859,8 @@ class WorkManagementActions {
             existing.tmdbId != null ||
             existing.metadataLocked ||
             existing.posterLocked ||
-            existing.backdropLocked,
+            existing.backdropLocked ||
+            existing.logoLocked,
       ),
     );
     if (existing.tmdbId != null && existing.tmdbMediaType != null) {

@@ -11,7 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/playback/artwork_palette_service.dart';
 import '../../application/providers/library_providers.dart';
 import '../../domain/formatting/clear_logo_legibility.dart';
-import '../../domain/formatting/media_display_formatter.dart';
+import '../../domain/formatting/detail_title_typography.dart';
 import '../../domain/matching/playback_resume_resolver.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/tmdb_models.dart';
@@ -21,12 +21,9 @@ import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/managed_image.dart';
+import 'detail_stylized_title_block.dart';
 import 'inline_expandable_synopsis.dart';
 import 'work_review_banner.dart';
-
-const List<Shadow> _kHeroBackdropTextShadows = [
-  KonataTheme.heroCardTextShadow,
-];
 
 /// 严格锁死最大高度与最大宽度的透明背景标题徽标（ClearLogo）组件。
 ///
@@ -330,7 +327,8 @@ class DetailHeroInfo extends StatelessWidget {
     this.showOverview = true,
     this.onManualMatch,
     this.onDismissReview,
-    this.titleFontSize = 34.0,
+    this.viewportProfile = DetailTitleViewportProfile.desktop,
+    this.onBackdrop = true,
     this.fullWidthPlayButton = false,
     this.expandOverviewFullWidth = false,
     this.trailingPlayAccessory,
@@ -364,8 +362,11 @@ class DetailHeroInfo extends StatelessWidget {
   /// 从待复核横幅忽略复核提示回调。
   final VoidCallback? onDismissReview;
 
-  /// 文字主标题字号（桌面默认 `34`，手机竖屏传入较小字号防止超大折行）。
-  final double titleFontSize;
+  /// 当前详情页所处端形态与视口档位（驱动风格化文字标题的字号、行宽与行数自适应）。
+  final DetailTitleViewportProfile viewportProfile;
+
+  /// 文字标题是否直接叠放在高动态背景原画之上（控制局部椭圆暗晕背衬开关）。
+  final bool onBackdrop;
 
   /// 主播放按钮是否撑满容器宽度。
   final bool fullWidthPlayButton;
@@ -390,7 +391,6 @@ class DetailHeroInfo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.palette;
     final work = bundle.work;
     final mainEpisodes = bundle.episodes
         .where((e) => e.category == EpisodeCategory.main)
@@ -413,9 +413,12 @@ class DetailHeroInfo extends StatelessWidget {
     final buttonLabel = resumePlan?.buttonLabel ?? '开始播放';
 
     final hasLogo = work.logoPath != null && work.logoPath!.trim().isNotEmpty;
-    final renderLogoInFlow =
-        !overlayLogoHandledSeparately && showTitleLogo && hasLogo;
+    final hasVisibleLogo = showTitleLogo && hasLogo;
+    final renderLogoInFlow = !overlayLogoHandledSeparately && hasVisibleLogo;
     final renderTextTitle = showTitleText || (showTitleLogo && !hasLogo);
+    final textPresentationMode = hasVisibleLogo
+        ? DetailTitlePresentationMode.companionText
+        : DetailTitlePresentationMode.heroEmblem;
     final hasTitleSection = renderLogoInFlow || renderTextTitle;
     final hasOverview =
         showOverview &&
@@ -443,10 +446,11 @@ class DetailHeroInfo extends StatelessWidget {
                       alignment: Alignment.bottomLeft,
                       errorBuilder: (_, _, _) => showTitleText
                           ? const SizedBox.shrink()
-                          : _FallbackTitleBlock(
-                              title: work.title,
-                              originalTitle: work.originalTitle,
-                              fontSize: titleFontSize,
+                          : DetailStylizedTitleBlock(
+                              work: work,
+                              viewport: viewportProfile,
+                              mode: DetailTitlePresentationMode.heroEmblem,
+                              onBackdrop: onBackdrop,
                             ),
                     ),
                   ),
@@ -460,30 +464,32 @@ class DetailHeroInfo extends StatelessWidget {
                   alignment: Alignment.bottomLeft,
                   errorBuilder: (_, _, _) => showTitleText
                       ? const SizedBox.shrink()
-                      : _FallbackTitleBlock(
-                          title: work.title,
-                          originalTitle: work.originalTitle,
-                          fontSize: titleFontSize,
+                      : DetailStylizedTitleBlock(
+                          work: work,
+                          viewport: viewportProfile,
+                          mode: DetailTitlePresentationMode.heroEmblem,
+                          onBackdrop: onBackdrop,
                         ),
                 ),
         if (renderLogoInFlow && renderTextTitle) const SizedBox(height: 10),
         if (renderTextTitle)
-          _FallbackTitleBlock(
-            title: work.title,
-            originalTitle: work.originalTitle,
-            fontSize: titleFontSize,
+          DetailStylizedTitleBlock(
+            work: work,
+            viewport: viewportProfile,
+            mode: textPresentationMode,
+            onBackdrop: onBackdrop,
           ),
         if (metaParts.isNotEmpty) ...[
           if (hasTitleSection) const SizedBox(height: 12),
           Text(
             metaParts.join(' · '),
-            style: KonataTheme.detailTextStyle(
+            style: KonataTheme.detailHeroTitleStyle(
               fontSize: KonataTheme.fontSizeBody,
-              fontWeight: FontWeight.w600,
+              weight: KonataTheme.weightH1,
               letterSpacing: 0.4,
-              palette: p,
               color: KonataTheme.overlayWhiteTextHigh,
-            ).copyWith(shadows: _kHeroBackdropTextShadows),
+              shadows: KonataTheme.detailTextShadows,
+            ),
           ),
         ],
         if (hasOverview) ...[
@@ -675,61 +681,6 @@ class _FrostedPlayButtonState extends State<FrostedPlayButton> {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _FallbackTitleBlock extends StatelessWidget {
-  const _FallbackTitleBlock({
-    required this.title,
-    required this.originalTitle,
-    this.fontSize = 34.0,
-  });
-
-  final String title;
-  final String? originalTitle;
-  final double fontSize;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    final showOriginal = MediaDisplayFormatter.shouldShowOriginalSubtitle(
-      title: title,
-      originalTitle: originalTitle,
-    );
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          title,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: KonataTheme.detailTextStyle(
-            palette: p,
-            color: KonataTheme.pureWhite,
-            fontSize: fontSize,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.5,
-            height: 1.22,
-          ).copyWith(shadows: _kHeroBackdropTextShadows),
-        ),
-        if (showOriginal) ...[
-          const SizedBox(height: 6),
-          Text(
-            originalTitle!,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: KonataTheme.detailTextStyle(
-              palette: p,
-              color: KonataTheme.overlayWhiteTextMid,
-              fontSize: KonataTheme.fontSizeBodyMd,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0.3,
-            ).copyWith(shadows: _kHeroBackdropTextShadows),
-          ),
-        ],
-      ],
     );
   }
 }

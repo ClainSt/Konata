@@ -28,6 +28,7 @@ class Work {
     this.tmdbId,
     this.tmdbMediaType,
     this.bangumiId,
+    this.tvdbId,
     this.matchedSeason,
     this.originalTitle,
     this.year,
@@ -44,6 +45,9 @@ class Work {
     this.metadataLocked = false,
     this.posterLocked = false,
     this.backdropLocked = false,
+    this.logoLocked = false,
+    this.logoNegativeUntil,
+    this.logoNegativeMask = 0,
     this.isHidden = false,
     this.keepHidden = false,
     this.scrapeStatus = ScrapeStatus.unmatched,
@@ -65,6 +69,9 @@ class Work {
 
   /// 绑定的 Bangumi 条目 ID（用于混合匹配或离线交叉验证）。
   final int? bangumiId;
+
+  /// 关联的 TheTVDB 剧集 ID（来自 TMDB `external_ids` 或离线映射表，用于对接 Fanart.tv 剧集接口）。
+  final int? tvdbId;
 
   /// 匹配的 TMDB 目标季号（用于多季拆卡与季级海报/年份/标题展示）。
   final int? matchedSeason;
@@ -117,6 +124,15 @@ class Work {
   /// 横版背景原画是否已人工锁定。
   final bool backdropLocked;
 
+  /// 透明标题徽标是否已人工锁定（锁定后自动刮削与补全不得覆盖）。
+  final bool logoLocked;
+
+  /// 透明标题徽标负缓存冷却截止时间（未到期前不重复发起在线补查）。
+  final DateTime? logoNegativeUntil;
+
+  /// 上次透明标题徽标无图探测覆盖的数据源位掩码（详见 `ClearLogoNegativeMask`）。
+  final int logoNegativeMask;
+
   /// 是否从主媒体库视图隐藏。
   final bool isHidden;
 
@@ -146,6 +162,8 @@ class Work {
     int? tmdbId,
     TmdbMediaType? tmdbMediaType,
     int? bangumiId,
+    int? tvdbId,
+    bool clearTvdbId = false,
     int? matchedSeason,
     String? title,
     String? originalTitle,
@@ -164,6 +182,10 @@ class Work {
     bool? metadataLocked,
     bool? posterLocked,
     bool? backdropLocked,
+    bool? logoLocked,
+    DateTime? logoNegativeUntil,
+    bool clearLogoNegative = false,
+    int? logoNegativeMask,
     bool? isHidden,
     bool? keepHidden,
     ScrapeStatus? scrapeStatus,
@@ -181,6 +203,7 @@ class Work {
       tmdbId: tmdbId ?? this.tmdbId,
       tmdbMediaType: tmdbMediaType ?? this.tmdbMediaType,
       bangumiId: bangumiId ?? this.bangumiId,
+      tvdbId: clearTvdbId ? null : (tvdbId ?? this.tvdbId),
       matchedSeason: matchedSeason ?? this.matchedSeason,
       title: title ?? this.title,
       originalTitle: originalTitle ?? this.originalTitle,
@@ -200,6 +223,13 @@ class Work {
       metadataLocked: metadataLocked ?? this.metadataLocked,
       posterLocked: posterLocked ?? this.posterLocked,
       backdropLocked: backdropLocked ?? this.backdropLocked,
+      logoLocked: logoLocked ?? this.logoLocked,
+      logoNegativeUntil: clearLogoNegative
+          ? null
+          : (logoNegativeUntil ?? this.logoNegativeUntil),
+      logoNegativeMask: clearLogoNegative
+          ? 0
+          : (logoNegativeMask ?? this.logoNegativeMask),
       isHidden: isHidden ?? this.isHidden,
       keepHidden: keepHidden ?? this.keepHidden,
       scrapeStatus: scrapeStatus ?? this.scrapeStatus,

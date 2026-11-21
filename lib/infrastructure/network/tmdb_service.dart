@@ -139,7 +139,7 @@ class TmdbService {
         final query = <String, String>{
           'language': 'zh-CN',
           'append_to_response': includeImages
-              ? 'alternative_titles,translations,images'
+              ? 'alternative_titles,translations,images,external_ids'
               : 'alternative_titles,translations',
           if (includeImages)
             'include_image_language': includeEnglishImages
@@ -214,6 +214,7 @@ class TmdbService {
           }
         }
         final detailGenres = _parseDetailGenreIds(json);
+        final tvdbId = _parseTvdbId(json);
 
         return TmdbWorkDetail(
           tmdbId: (json['id'] as num).toInt(),
@@ -234,6 +235,7 @@ class TmdbService {
           candidateLogos: candidateLogos,
           collectionId: collectionId,
           collectionName: collectionName,
+          tvdbId: tvdbId,
           genreIds: detailGenres,
           imagesLoaded: includeImages,
         );
@@ -416,6 +418,13 @@ class TmdbService {
           : primary.path;
       return Uri.tryParse(
         '$backupBase$suffix${primary.hasQuery ? '?${primary.query}' : ''}',
+      );
+    }
+    if (host == 'assets.fanart.tv') {
+      final backupBase = _http.config.normalizedFanartBackupImageBase;
+      if (backupBase.isEmpty) return null;
+      return Uri.tryParse(
+        '$backupBase${primary.path}${primary.hasQuery ? '?${primary.query}' : ''}',
       );
     }
     return null;
@@ -695,6 +704,21 @@ class TmdbService {
       return (b.voteAverage ?? 0).compareTo(a.voteAverage ?? 0);
     });
     return parsed.take(24).toList(growable: false);
+  }
+
+  static int? _parseTvdbId(Map<String, Object?> json) {
+    final ext = json['external_ids'];
+    if (ext is! Map) return null;
+    final raw = ext['tvdb_id'];
+    if (raw is num) {
+      final id = raw.toInt();
+      return id > 0 ? id : null;
+    }
+    if (raw is String) {
+      final id = int.tryParse(raw.trim());
+      return (id != null && id > 0) ? id : null;
+    }
+    return null;
   }
 
   static String? _pickString(Map<dynamic, dynamic> map, List<String> keys) {

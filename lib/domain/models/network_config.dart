@@ -21,6 +21,10 @@ class TmdbNetworkConfig {
     this.tmdbBackupImageBase = defaultTmdbBackupImageBase,
     this.bangumiBackupApiBase = defaultBangumiBackupApiBase,
     this.bangumiBackupImageBase = defaultBangumiBackupImageBase,
+    this.fanartClientKey = '',
+    this.fanartApiKeyOverride = '',
+    this.fanartBackupApiBase = builtInFanartRelayBase,
+    this.fanartBackupImageBase = '',
     this.proxyMode = ProxyMode.system,
     this.proxyUrl = '',
   });
@@ -52,6 +56,26 @@ class TmdbNetworkConfig {
   /// 默认 Bangumi 备用图片服务器地址。
   static const String defaultBangumiBackupImageBase = 'https://lain.bgm.lat';
 
+  /// 官方标准 Fanart.tv v3 API 根地址。
+  static const String defaultFanartApiBase = 'https://webservice.fanart.tv/v3';
+
+  /// 官方标准 Fanart.tv 图片 CDN 根地址。
+  static const String defaultFanartImageBase = 'https://assets.fanart.tv';
+
+  /// Release 打包通过 `--dart-define=KONATA_FANART_RELAY_BASE=...` 注入的内置 Cloudflare Workers 无状态中继根地址。
+  static const String builtInFanartRelayBase = String.fromEnvironment(
+    'KONATA_FANART_RELAY_BASE',
+  );
+
+  /// 本地调试或开发构建通过 `--dart-define=FANART_API_KEY=...` 或 `--dart-define-from-file=dart_defines.dev.json` 注入的项目 API Key（源码默认为空）。
+  static const String compileTimeFanartApiKey = String.fromEnvironment(
+    'FANART_API_KEY',
+    defaultValue: '',
+  );
+
+  /// Fanart.tv 个人 API Key 免费申请页地址。
+  static const String fanartGetApiKeyUrl = 'https://fanart.tv/get-an-api-key/';
+
   /// 已迁址的旧版默认 Bangumi 备用 API 地址（现对全部请求返回 301，POST 检索会被静默当作无结果），
   /// 加载持久化配置时自动替换为 [defaultBangumiBackupApiBase]。
   static const Set<String> retiredBangumiBackupApiBases = {
@@ -82,11 +106,13 @@ class TmdbNetworkConfig {
     'https://raw.githubusercontent.com/ClainSt/Konata/data/mapping',
   ];
 
-  /// 远程映射表清单文件名。
+  /// 远程映射表清单文件名（v1 向后兼容与 v2 含 `tvdb_id` 优先）。
   static const String mappingManifestFileName = 'manifest.json';
+  static const String mappingV2ManifestFileName = 'manifest_v2.json';
 
   /// 远程与本地映射表二进制索引文件名。
   static const String mappingBinaryFileName = 'bangumi_tmdb_map.bin';
+  static const String mappingV2BinaryFileName = 'bangumi_tmdb_map_v2.bin';
 
   /// 本地持久化清单缓存文件名。
   static const String localMappingManifestFileName =
@@ -129,6 +155,18 @@ class TmdbNetworkConfig {
   /// Bangumi 备用图片服务器地址（官方不可达或超时自动回退）。
   final String bangumiBackupImageBase;
 
+  /// 用户选填的 Fanart.tv 个人 API Key（`client-key`，填入后更快获取新番透明徽标）。
+  final String fanartClientKey;
+
+  /// 高级设置选填的自定义 Fanart.tv 项目 API Key（`api-key`，填写后直接覆盖内置中继通道）。
+  final String fanartApiKeyOverride;
+
+  /// Fanart.tv 无状态中继或备用 API 根地址（默认取编译期注入的 Cloudflare Workers 中继地址）。
+  final String fanartBackupApiBase;
+
+  /// Fanart.tv 备用图片反代服务器地址（官方 `assets.fanart.tv` 受阻时自动回退）。
+  final String fanartBackupImageBase;
+
   /// 代理模式（默认跟随系统代理）。
   final ProxyMode proxyMode;
 
@@ -164,6 +202,41 @@ class TmdbNetworkConfig {
   String get normalizedBangumiBackupImageBase =>
       _trimTrailingSlashes(bangumiBackupImageBase);
 
+  /// 规范化后的 Fanart.tv 中继/备用 API Base URL（去尾斜杠；为空时回退编译期内置中继地址）。
+  String get normalizedFanartBackupApiBase {
+    final trimmed = _trimTrailingSlashes(fanartBackupApiBase);
+    if (trimmed.isNotEmpty) return trimmed;
+    return _trimTrailingSlashes(builtInFanartRelayBase);
+  }
+
+  /// 规范化后的 Fanart.tv 备用图片 Base URL（去尾斜杠；为空时返回空字符串）。
+  String get normalizedFanartBackupImageBase =>
+      _trimTrailingSlashes(fanartBackupImageBase);
+
+  /// 解析最终生效的 Fanart.tv 项目 `api-key`（优先级：设置页手填 Key > 编译期注入 Key > 空）。
+  static String resolveEffectiveFanartApiKey({
+    required String manualOverride,
+    String compileTimeKey = compileTimeFanartApiKey,
+  }) {
+    final manual = manualOverride.trim();
+    if (manual.isNotEmpty) return manual;
+    return compileTimeKey.trim();
+  }
+
+  /// 当前实际生效的 Fanart.tv 项目 `api-key`（优先级：设置页手填 Key > 编译期注入 Key > 空）。
+  String get effectiveFanartApiKey =>
+      resolveEffectiveFanartApiKey(manualOverride: fanartApiKeyOverride);
+
+  /// 当前是否具备直连官方 Fanart.tv 的项目 `api-key`（设置页手填优先，其次编译期注入）。
+  bool get hasCustomFanartApiKey => effectiveFanartApiKey.isNotEmpty;
+
+  /// 当前是否填写了用户选填的 Fanart.tv 个人 `client-key`。
+  bool get hasFanartClientKey => fanartClientKey.trim().isNotEmpty;
+
+  /// 当前是否具备可用的 Fanart.tv 查询通道（自定义 `api-key` 或内置/自填 Cloudflare Workers 中继地址）。
+  bool get isFanartAvailable =>
+      hasCustomFanartApiKey || normalizedFanartBackupApiBase.isNotEmpty;
+
   /// 复制并修改部分字段。
   TmdbNetworkConfig copyWith({
     String? credential,
@@ -171,6 +244,10 @@ class TmdbNetworkConfig {
     String? tmdbBackupImageBase,
     String? bangumiBackupApiBase,
     String? bangumiBackupImageBase,
+    String? fanartClientKey,
+    String? fanartApiKeyOverride,
+    String? fanartBackupApiBase,
+    String? fanartBackupImageBase,
     ProxyMode? proxyMode,
     String? proxyUrl,
   }) {
@@ -181,6 +258,11 @@ class TmdbNetworkConfig {
       bangumiBackupApiBase: bangumiBackupApiBase ?? this.bangumiBackupApiBase,
       bangumiBackupImageBase:
           bangumiBackupImageBase ?? this.bangumiBackupImageBase,
+      fanartClientKey: fanartClientKey ?? this.fanartClientKey,
+      fanartApiKeyOverride: fanartApiKeyOverride ?? this.fanartApiKeyOverride,
+      fanartBackupApiBase: fanartBackupApiBase ?? this.fanartBackupApiBase,
+      fanartBackupImageBase:
+          fanartBackupImageBase ?? this.fanartBackupImageBase,
       proxyMode: proxyMode ?? this.proxyMode,
       proxyUrl: proxyUrl ?? this.proxyUrl,
     );

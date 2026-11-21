@@ -583,6 +583,7 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
           PlaybackRecord.computeCompleted(
             positionSeconds: posSec,
             durationSeconds: durSec,
+            isAudio: true,
           );
       final recordId = '${PlaybackRecord.audioEpisodePrefix}${item.id}';
       await repo.recordPlayback(

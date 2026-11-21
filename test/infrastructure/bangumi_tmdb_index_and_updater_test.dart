@@ -442,5 +442,94 @@ void main() {
       expect(active.uniqueBangumiCount, 2);
       expect(active.snapshotDate, '2026-11-25');
     });
+
+    test('KTBM v2 二进制编解码携带 tvdbId 并支持通过 manifest_v2.json 热更新', () async {
+      final bundledV1 = buildBin(
+        dateInt: 20261110,
+        recs: const [
+          BangumiTmdbRecord(
+            bangumiId: 10,
+            type: TmdbMediaType.tv,
+            tmdbId: 1000,
+            season: 1,
+          ),
+        ],
+      );
+      final remoteV2 = buildBin(
+        dateInt: 20261121,
+        recs: const [
+          BangumiTmdbRecord(
+            bangumiId: 400602,
+            type: TmdbMediaType.tv,
+            tmdbId: 209867,
+            season: 1,
+            tvdbId: 424536,
+          ),
+          BangumiTmdbRecord(
+            bangumiId: 10,
+            type: TmdbMediaType.movie,
+            tmdbId: 129,
+          ),
+        ],
+      );
+      final parsedV2 = BangumiTmdbIndex.fromBytes(remoteV2);
+      expect(parsedV2.version, BangumiTmdbIndex.formatVersionV2);
+      expect(parsedV2.supportsTvdbId, isTrue);
+      expect(parsedV2.lookup(400602).first.tvdbId, 424536);
+      expect(
+        parsedV2.lookupTvdbIdByTmdb(
+          mediaType: TmdbMediaType.tv,
+          tmdbId: 209867,
+        ),
+        424536,
+      );
+      expect(
+        parsedV2.lookupTvdbIdByTmdb(
+          mediaType: TmdbMediaType.movie,
+          tmdbId: 129,
+        ),
+        isNull,
+      );
+
+      final v2Sha = sha256.convert(remoteV2).toString();
+      final mockClient = MockClient((request) async {
+        if (request.url.path.endsWith('/manifest_v2.json')) {
+          return http.Response(
+            jsonEncode({
+              'schemaVersion': 2,
+              'snapshotDate': '2026-11-21',
+              'recordCount': 2,
+              'uniqueBangumiCount': 2,
+              'binBytes': remoteV2.length,
+              'binSha256': v2Sha,
+            }),
+            200,
+            headers: const {'etag': '"etag-ktbm-v2"'},
+          );
+        }
+        if (request.url.path.endsWith('/bangumi_tmdb_map_v2.bin')) {
+          return http.Response.bytes(remoteV2, 200);
+        }
+        return http.Response('not found', 404);
+      });
+
+      final updater = BangumiTmdbMapUpdater(
+        storageRoot: storageRoot,
+        assetLoader: fakeAssetLoader(bundledV1),
+        httpClient: mockClient,
+        mirrorBases: const ['https://mirror-v2.example/mapping'],
+      );
+      final updated = await updater.checkAndUpdateIfDue(force: true);
+      expect(updated.state, BangumiTmdbUpdateState.updated);
+      expect(updated.snapshot.source, BangumiTmdbMapSource.localHotUpdate);
+      expect(updated.snapshot.index.supportsTvdbId, isTrue);
+      expect(
+        updated.snapshot.index.lookupTvdbIdByTmdb(
+          mediaType: TmdbMediaType.tv,
+          tmdbId: 209867,
+        ),
+        424536,
+      );
+    });
   });
 }

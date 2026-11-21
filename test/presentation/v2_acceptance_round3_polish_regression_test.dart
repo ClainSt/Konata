@@ -548,7 +548,7 @@ void main() {
       }
     });
 
-    testWidgets('全屏音乐竖屏去胶囊与黑框按钮、三端歌词无滚动条且支持网易云式时间轴定位与 5 秒自动回弹', (
+    testWidgets('全屏音乐竖屏去胶囊与黑框按钮、三端歌词无滚动条且支持网易云式时间轴定位与 3 秒自动回弹', (
       tester,
     ) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
@@ -684,7 +684,7 @@ void main() {
           findsNothing,
         );
 
-        // 再次拖动后静置满 5 秒应自动回弹隐藏时间轴
+        // 再次拖动后静置满 3 秒应自动回弹隐藏时间轴
         await tester.drag(
           find.byKey(const ValueKey('immersive_lyrics_list')),
           const Offset(0, -140),
@@ -694,7 +694,7 @@ void main() {
           find.byKey(const ValueKey('lyric_timeline_scrub_guide')),
           findsOneWidget,
         );
-        await tester.pump(const Duration(seconds: 4));
+        await tester.pump(const Duration(seconds: 2));
         expect(
           find.byKey(const ValueKey('lyric_timeline_scrub_guide')),
           findsOneWidget,
@@ -716,6 +716,120 @@ void main() {
         debugDefaultTargetPlatformOverride = null;
       }
     });
+
+    testWidgets(
+      'Android 手机竖屏在曲目中段反复快速点击切换封面与歌词：零 GlobalKey/ScrollController 冲突且自动精准居中聚焦当前句',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+        try {
+          final lrcBuf = StringBuffer();
+          for (var i = 0; i < 36; i++) {
+            final sec = 5 + i * 4;
+            final mm = (sec ~/ 60).toString().padLeft(2, '0');
+            final ss = (sec % 60).toString().padLeft(2, '0');
+            lrcBuf.writeln('[$mm:$ss.00] 第${i + 1}句长歌词测试内容与伴奏对齐');
+          }
+          final lrc = LrcParser.parseText(lrcBuf.toString());
+          const work = Work(id: 'w_lrc_rapid', title: '16bit的感动');
+          const variant = MediaVariant(
+            id: 'v_lrc_rapid',
+            workId: 'w_lrc_rapid',
+            sourceId: 's_1',
+            relativePath: '01.flac',
+            fileName: '01.flac',
+            fileSize: 1024,
+          );
+          const queueItem = AudioQueueItem(
+            id: 'q_rapid',
+            work: work,
+            variant: variant,
+            title: '65535',
+          );
+
+          await tester.pumpWidget(
+            ProviderScope(
+              overrides: [
+                playbackPreferencesProvider.overrideWith(
+                  (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+                ),
+                tmdbImageLoaderProvider.overrideWithValue(
+                  (_, {targetWidth, imageSize}) async => Uint8List(0),
+                ),
+                audioPlaybackProvider.overrideWith(
+                  (ref) => _StubAudioNotifier(
+                    ref,
+                    AudioPlaybackState(
+                      isActive: true,
+                      isPlaying: true,
+                      queue: const [queueItem],
+                      currentIndex: 0,
+                      positionSeconds: 81.0,
+                      durationSeconds: 193.0,
+                      lrcDocument: lrc,
+                      activeLyricIndex: 19,
+                      audioCodecLabel: 'FLAC',
+                    ),
+                  ),
+                ),
+              ],
+              child: MaterialApp(
+                theme: KonataTheme.lightTheme(),
+                locale: const Locale('zh', 'CN'),
+                supportedLocales: const [Locale('zh', 'CN')],
+                localizationsDelegates: GlobalMaterialLocalizations.delegates,
+                home: const ImmersiveAudioPage(),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          // 连续 9 次以 40ms 间隔高速反复点击切换封面 <-> 歌词（远短于 140ms 淡入淡出期），最终停留在歌词态
+          for (var round = 0; round < 9; round++) {
+            final showingCover = round.isEven;
+            final target = showingCover
+                ? find.byKey(const ValueKey('portrait_cover_stage')).last
+                : find.byKey(const ValueKey('portrait_lyrics_stage')).last;
+            await tester.tap(target);
+            await tester.pump(const Duration(milliseconds: 40));
+            expect(tester.takeException(), isNull);
+          }
+
+          // 推进动画与多轮像素精校帧至稳态
+          await tester.pump(const Duration(milliseconds: 220));
+          await tester.pump();
+          await tester.pump();
+          expect(tester.takeException(), isNull);
+
+          final lyricsStage = find.byKey(
+            const ValueKey('portrait_lyrics_stage'),
+          );
+          expect(lyricsStage, findsOneWidget);
+
+          // 当前第 20 句（索引 19）必须已精准滚动入视口并处于清晰扫白激活态，绝不滞留顶部模糊态
+          final listView = tester.widget<ListView>(
+            find.byKey(const ValueKey('immersive_lyrics_list')),
+          );
+          expect(listView.controller!.offset, greaterThan(200.0));
+          final activeSweep = find.byType(ImmersiveKaraokeSweepText);
+          expect(activeSweep, findsOneWidget);
+
+          final stageRect = tester.getRect(lyricsStage);
+          final activeRect = tester.getRect(activeSweep);
+          final expectedAnchorY =
+              stageRect.top +
+              stageRect.height * KonataPlaybackTokens.lyricViewportAnchorRatio;
+          expect(
+            (activeRect.center.dy - expectedAnchorY).abs(),
+            lessThan(32.0),
+          );
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
 
     testWidgets('Android 视频悬浮小窗无多余进度条且平板左侧导航胶囊离边并加宽', (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;

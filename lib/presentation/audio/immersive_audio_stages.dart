@@ -105,6 +105,7 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
                         ? KeyedSubtree(
                             key: const ValueKey('short_phone_lyrics_pane'),
                             child: _buildLyricsViewport(
+                              item.id,
                               lrc,
                               notifier,
                               compact: true,
@@ -192,10 +193,29 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               child: AnimatedSwitcher(
                 duration: KonataTheme.motionFast,
+                transitionBuilder: (child, animation) => AnimatedBuilder(
+                  animation: animation,
+                  child: child,
+                  builder: (_, inner) {
+                    final isOutgoing =
+                        animation.status == AnimationStatus.reverse;
+                    return IgnorePointer(
+                      ignoring: isOutgoing,
+                      child: TickerMode(
+                        enabled: !isOutgoing,
+                        child: FadeTransition(
+                          opacity: animation,
+                          child: inner,
+                        ),
+                      ),
+                    );
+                  },
+                ),
                 child: _portraitShowLyricsInPlace
                     ? KeyedSubtree(
                         key: const ValueKey('portrait_lyrics_stage'),
                         child: _buildLyricsViewport(
+                          item.id,
                           lrc,
                           notifier,
                           centerAligned: true,
@@ -350,6 +370,8 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
     final p = context.palette;
     final isWindows = KonataAdaptiveTokens.isWindows;
     final isAndroid = KonataAdaptiveTokens.isAndroid;
+    final canRelayExternal =
+        isWindows && ref.watch(desktopRelayGatewayProvider) != null;
 
     Widget headerRow = Padding(
       padding: EdgeInsets.only(top: topPadding),
@@ -369,6 +391,28 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
                 onTap: _collapseToMiniBar,
               ),
               const Spacer(),
+              if (canRelayExternal) ...[
+                KonataCapsuleIconButton(
+                  key: const ValueKey('immersive_relay_external_button'),
+                  icon: Icons.open_in_new_rounded,
+                  tooltip: '使用外部播放器继续播放',
+                  color: p.textSecondary,
+                  size: 18,
+                  fixedSize: 36,
+                  onTap: () => unawaited(
+                    ExternalAudioRelayUiHelper.dispatchWithGuide(
+                      context: context,
+                      ref: ref,
+                      action: ({required forceAllowWithoutBeefweb}) => ref
+                          .read(playbackDispatcherProvider)
+                          .relayActiveBuiltinAudioToDesktop(
+                            forceAllowWithoutBeefweb: forceAllowWithoutBeefweb,
+                          ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
               if (isWindows) ...[
                 ref.read(konataWindowHostProvider).buildWindowControls(),
               ],
@@ -387,362 +431,20 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
   }
 
   Widget _buildLyricsViewport(
+    String itemId,
     LrcDocument? lrc,
     AudioPlaybackNotifier notifier, {
     bool compact = false,
     bool centerAligned = false,
     VoidCallback? onTapEmptyArea,
   }) {
-    final p = context.palette;
-    if (lrc == null || lrc.lines.isEmpty) {
-      return GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTapEmptyArea,
-        child: Center(
-          child: Consumer(
-            builder: (ctx, cRef, _) {
-              final needsAmllConfirm = cRef.watch(
-                audioPlaybackProvider.select(
-                  (s) => s.needsMobileAmllLyricConfirmation,
-                ),
-              );
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.lyrics_outlined, size: 40, color: p.textMuted),
-                  const SizedBox(height: 12),
-                  Text(
-                    needsAmllConfirm
-                        ? '当前处于移动计量网络，拉取 AMLL 逐字歌词索引需消耗流量'
-                        : '当前曲目暂无同步歌词',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodyMd),
-                  ),
-                  if (needsAmllConfirm) ...[
-                    const SizedBox(height: 12),
-                    KonataPillButton.primary(
-                      key: const ValueKey('confirm_mobile_amll_lyric_button'),
-                      label: '允许加载 AMLL 歌词',
-                      icon: Icons.cloud_download_outlined,
-                      compact: true,
-                      onPressed: () =>
-                          unawaited(notifier.confirmMobileAmllLyricLookup()),
-                    ),
-                  ],
-                ],
-              );
-            },
-          ),
-        ),
-      );
-    }
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final viewportH = constraints.maxHeight.isFinite
-            ? constraints.maxHeight
-            : 480.0;
-        final anchorRatio = compact
-            ? KonataPlaybackTokens.lyricCompactViewportAnchorRatio
-            : KonataPlaybackTokens.lyricViewportAnchorRatio;
-        final guideH = compact
-            ? KonataPlaybackTokens.lyricScrubCompactGuideHeight
-            : KonataPlaybackTokens.lyricScrubGuideHeight;
-        final minAnchor = math.min(viewportH * 0.5, compact ? 44.0 : 84.0);
-        final maxAnchor = math.max(minAnchor, viewportH - (compact ? 48.0 : 88.0));
-        final anchorY = (viewportH * anchorRatio).clamp(minAnchor, maxAnchor);
-        final topSpacer = math.max(12.0, anchorY - guideH * 0.5);
-        final bottomSpacer = math.max(24.0, viewportH - anchorY - guideH * 0.5);
-        final scrubIdx = _isUserScrollingLyrics
-            ? (_scrubTargetLyricIndex ??
-                      (_lastActiveLyricIndex >= 0 ? _lastActiveLyricIndex : 0))
-                  .clamp(0, lrc.lines.length - 1)
-            : null;
-        final scrubLine = scrubIdx != null ? lrc.lines[scrubIdx] : null;
-        final scrubSettled =
-            scrubLine != null && !_lyricScrollActivelyDragging;
-        final isAndroid = KonataAdaptiveTokens.isAndroid;
-        final playButtonSize = isAndroid
-            ? KonataAdaptiveTokens.touchTarget
-            : 36.0;
-        final listPadLeft = compact ? 48.0 : 54.0;
-        final listPadRight = isAndroid ? 50.0 : 42.0;
-        final viewportW = constraints.maxWidth.isFinite
-            ? constraints.maxWidth
-            : 480.0;
-        final middleTrackWidth = math.max(
-          0.0,
-          viewportW -
-              KonataPlaybackTokens.lyricScrubTimeWidth -
-              playButtonSize,
-        );
-        // 测量焦点句实际文本宽度，将中央虚线精确避开歌词文本区域，绝不穿过或遮挡任何文字。
-        var textExcludeLeft = 0.0;
-        var textExcludeRight = 0.0;
-        if (scrubLine != null && middleTrackWidth > 16.0) {
-          final isFocusActive = scrubIdx == _lastActiveLyricIndex;
-          final fontSize = isFocusActive
-              ? (compact
-                    ? KonataPlaybackTokens.lyricCompactActiveFontSize
-                    : KonataPlaybackTokens.lyricActiveFontSize)
-              : (compact
-                    ? KonataPlaybackTokens.lyricCompactInactiveFontSize
-                    : KonataPlaybackTokens.lyricInactiveFontSize);
-          final textMaxW = math.max(
-            0.0,
-            viewportW - listPadLeft - listPadRight - 16.0,
-          );
-          final painter = TextPainter(
-            text: TextSpan(
-              text: scrubLine.primaryText,
-              style: TextStyle(
-                fontSize: fontSize,
-                fontWeight: isFocusActive ? FontWeight.w700 : FontWeight.w600,
-              ),
-            ),
-            textDirection: Directionality.of(context),
-            textScaler: MediaQuery.textScalerOf(context),
-          )..layout(maxWidth: textMaxW);
-          final measuredW = math.min(painter.width, textMaxW);
-          painter.dispose();
-          final textRegionStart =
-              (listPadLeft + 8.0) - KonataPlaybackTokens.lyricScrubTimeWidth;
-          final textRegionWidth = textMaxW;
-          if (centerAligned) {
-            final centerX = textRegionStart + textRegionWidth * 0.5;
-            textExcludeLeft = (centerX - measuredW * 0.5 - 10.0).clamp(
-              0.0,
-              middleTrackWidth,
-            );
-            textExcludeRight = (centerX + measuredW * 0.5 + 10.0).clamp(
-              0.0,
-              middleTrackWidth,
-            );
-          } else {
-            textExcludeLeft = math.max(0.0, textRegionStart - 8.0);
-            textExcludeRight = (textRegionStart + measuredW + 12.0).clamp(
-              0.0,
-              middleTrackWidth,
-            );
-          }
-        }
-
-        return SizedBox(
-          key: _lyricViewportKey,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              // 三端统一隐藏歌词滚动条，禁止直接点击单句跳播；改为上下滚动唤出中央时间轴定位跳转。
-              Positioned.fill(
-                child: Listener(
-                  onPointerSignal: (event) {
-                    if (event is PointerScrollEvent) {
-                      _onUserLyricScrollActivity(
-                        lrc,
-                        anchorY,
-                        activeDrag: true,
-                      );
-                    }
-                  },
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onTap: onTapEmptyArea == null
-                        ? null
-                        : () {
-                            if (_isUserScrollingLyrics) {
-                              _cancelUserLyricScrub();
-                            }
-                            onTapEmptyArea();
-                          },
-                    child: NotificationListener<ScrollNotification>(
-                      onNotification: (notification) {
-                        if (notification is ScrollStartNotification) {
-                          if (notification.dragDetails != null ||
-                              !_programmaticLyricScroll) {
-                            _onUserLyricScrollActivity(
-                              lrc,
-                              anchorY,
-                              activeDrag: true,
-                            );
-                          }
-                        } else if (notification is UserScrollNotification) {
-                          if (notification.direction != ScrollDirection.idle) {
-                            _onUserLyricScrollActivity(
-                              lrc,
-                              anchorY,
-                              activeDrag: true,
-                            );
-                          }
-                        } else if (notification is ScrollUpdateNotification) {
-                          if (!_programmaticLyricScroll &&
-                              (notification.dragDetails != null ||
-                                  _isUserScrollingLyrics)) {
-                            _onUserLyricScrollActivity(
-                              lrc,
-                              anchorY,
-                              activeDrag: true,
-                            );
-                          }
-                        } else if (notification is ScrollEndNotification) {
-                          if (_isUserScrollingLyrics) {
-                            _onUserLyricScrollEnded(lrc, anchorY);
-                          }
-                        }
-                        return false;
-                      },
-                      child: ScrollConfiguration(
-                        behavior: ScrollConfiguration.of(
-                          context,
-                        ).copyWith(scrollbars: false),
-                        child: ShaderMask(
-                          shaderCallback: (bounds) => const LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              KonataTheme.pureWhite,
-                              KonataTheme.pureWhite,
-                              Colors.transparent,
-                            ],
-                            stops: [0.0, 0.10, 0.88, 1.0],
-                          ).createShader(bounds),
-                          blendMode: BlendMode.dstIn,
-                          child: ListView.builder(
-                            key: const ValueKey('immersive_lyrics_list'),
-                            controller: _lyricScrollCtrl,
-                            padding: EdgeInsets.fromLTRB(
-                              listPadLeft,
-                              topSpacer,
-                              listPadRight,
-                              bottomSpacer,
-                            ),
-                            itemCount: lrc.lines.length,
-                            itemBuilder: (context, index) {
-                              final line = lrc.lines[index];
-                              final nextStart = index + 1 < lrc.lines.length
-                                  ? lrc.lines[index + 1].startSeconds
-                                  : null;
-                              final songPaceSecPerChar =
-                                  lrc.estimatedSecondsPerChar;
-                              final spanLines = ref
-                                  .read(audioPlaybackProvider)
-                                  .activeSpanLines;
-                              final activeSpanLine =
-                                  LyricVersionMatcher.matchLineForTimestamp(
-                                    spanLines,
-                                    line.startSeconds,
-                                  );
-                              return KeyedSubtree(
-                                key: _lyricKeys[index],
-                                child: ImmersiveLyricLineLeaf(
-                                  index: index,
-                                  line: line,
-                                  activeSpanLine: activeSpanLine,
-                                  nextLineStartSeconds: nextStart,
-                                  estimatedSecondsPerChar: songPaceSecPerChar,
-                                  compact: compact,
-                                  centerAligned: centerAligned,
-                                  userScrolling: _isUserScrollingLyrics,
-                                  isScrubFocused: scrubIdx == index,
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              // 中央时间轴虚线定位层：去大框背景，仅在歌词文字外的空白区间绘制轻盈虚线，绝不遮挡歌词文字。
-              if (scrubLine != null)
-                Positioned(
-                  key: const ValueKey('lyric_timeline_scrub_guide'),
-                  left: 0,
-                  right: 0,
-                  top: (anchorY - guideH * 0.5).clamp(
-                    0.0,
-                    math.max(0.0, viewportH - guideH),
-                  ),
-                  height: guideH,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      IgnorePointer(
-                        child: SizedBox(
-                          width: KonataPlaybackTokens.lyricScrubTimeWidth,
-                          child: Text(
-                            PlaybackFormatters.formatMediaDuration(
-                              scrubLine.startSeconds,
-                            ),
-                            key: const ValueKey(
-                              'lyric_timeline_scrub_timestamp',
-                            ),
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: p.textSecondary.withValues(alpha: 0.9),
-                              fontSize: KonataTheme.fontSizeCaption,
-                              fontWeight: FontWeight.w500,
-                              fontFeatures: KonataPlaybackTokens.tabularNumbers,
-                            ),
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            IgnorePointer(
-                              child: CustomPaint(
-                                key: const ValueKey(
-                                  'lyric_timeline_dashed_line',
-                                ),
-                                painter: _LyricScrubDashedLinePainter(
-                                  color: p.textPrimary.withValues(
-                                    alpha: p.isDark ? 0.28 : 0.24,
-                                  ),
-                                  excludeLeft: textExcludeLeft,
-                                  excludeRight: textExcludeRight,
-                                ),
-                              ),
-                            ),
-                            if (scrubSettled)
-                              GestureDetector(
-                                key: const ValueKey('lyric_timeline_seek_band'),
-                                behavior: HitTestBehavior.translucent,
-                                onTap: () => _commitScrubSeek(lrc, notifier),
-                                child: const SizedBox.expand(),
-                              ),
-                          ],
-                        ),
-                      ),
-                      MouseRegion(
-                        cursor: SystemMouseCursors.click,
-                        child: GestureDetector(
-                          key: const ValueKey(
-                            'lyric_timeline_seek_play_button',
-                          ),
-                          behavior: HitTestBehavior.opaque,
-                          onTap: () => _commitScrubSeek(lrc, notifier),
-                          child: SizedBox.square(
-                            dimension: playButtonSize,
-                            child: Center(
-                              child: Icon(
-                                Icons.play_arrow_rounded,
-                                size: 20,
-                                color: p.textPrimary.withValues(alpha: 0.9),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-        );
-      },
+    return ImmersiveLyricsViewport(
+      itemId: itemId,
+      lrc: lrc,
+      notifier: notifier,
+      compact: compact,
+      centerAligned: centerAligned,
+      onTapEmptyArea: onTapEmptyArea,
     );
   }
 
@@ -790,63 +492,5 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
         ),
       ),
     );
-  }
-}
-
-/// 歌词拖拽定位中央虚线绘制器：自动跳过当前焦点句文本占用区间 `[excludeLeft, excludeRight]`，
-/// 仅在两侧空白处绘出轻盈虚线，保证歌词清晰无遮挡。
-class _LyricScrubDashedLinePainter extends CustomPainter {
-  const _LyricScrubDashedLinePainter({
-    required this.color,
-    required this.excludeLeft,
-    required this.excludeRight,
-  });
-
-  final Color color;
-  final double excludeLeft;
-  final double excludeRight;
-
-  static const double _dashWidth = 4.5;
-  static const double _dashGap = 4.0;
-
-  void _drawDashedSpan(
-    Canvas canvas,
-    Paint paint,
-    double y,
-    double startX,
-    double endX,
-  ) {
-    if (endX - startX < _dashWidth) return;
-    var x = startX;
-    while (x < endX) {
-      final segEnd = math.min(x + _dashWidth, endX);
-      canvas.drawLine(Offset(x, y), Offset(segEnd, y), paint);
-      x += _dashWidth + _dashGap;
-    }
-  }
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (size.width <= 0 || size.height <= 0) return;
-    final y = size.height * 0.5;
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 1.0
-      ..strokeCap = StrokeCap.round;
-
-    const edgeInset = 4.0;
-    final maxX = size.width - edgeInset;
-    final exLeft = excludeLeft.clamp(edgeInset, maxX);
-    final exRight = excludeRight.clamp(exLeft, maxX);
-
-    _drawDashedSpan(canvas, paint, y, edgeInset, exLeft);
-    _drawDashedSpan(canvas, paint, y, exRight, maxX);
-  }
-
-  @override
-  bool shouldRepaint(covariant _LyricScrubDashedLinePainter oldDelegate) {
-    return oldDelegate.color != color ||
-        (oldDelegate.excludeLeft - excludeLeft).abs() > 0.5 ||
-        (oldDelegate.excludeRight - excludeRight).abs() > 0.5;
   }
 }

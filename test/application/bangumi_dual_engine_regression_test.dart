@@ -915,7 +915,10 @@ class _TestableWorkManagementActions extends WorkManagementActions {
   final TmdbService tmdbService;
 
   @override
-  Future<WorkArtworkOptions> fetchWorkArtworkOptions(Work work) async {
+  Future<WorkArtworkOptions> fetchWorkArtworkOptions(
+    Work work, {
+    bool includeLogos = false,
+  }) async {
     final posters = <WorkArtworkOption>[
       if (work.bangumiPosterPath != null && work.bangumiPosterPath!.isNotEmpty)
         WorkArtworkOption(

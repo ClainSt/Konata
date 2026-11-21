@@ -275,8 +275,15 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     required MediaVariant initialVariant,
     required Map<String, MediaSource> sourcesById,
     int? initialCueTrackNumber,
+    double initialTrackOffsetSeconds = 0.0,
   }) async {
     _ensureRuntimeListenersBound();
+    final port = _ref.read(playbackPreferencesProvider).foobarBeefwebPort;
+    unawaited(
+      _ref
+          .read(desktopRelayGatewayProvider)
+          ?.stopActiveExternalAudioSession(beefwebPort: port),
+    );
     final generation = ++_loadGeneration;
     final built = await _buildQueueItems(
       work: work,
@@ -322,6 +329,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       built.targetIndex,
       generation: generation,
       previousItemOverride: previousItem,
+      initialTrackOffsetSeconds: initialTrackOffsetSeconds,
     );
   }
 

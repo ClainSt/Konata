@@ -367,9 +367,25 @@ class TmdbHttpClient {
     if (response.statusCode == 429) {
       final retrySec =
           int.tryParse(response.headers['retry-after'] ?? '') ?? 1;
+      final bodyText = response.body.length > 512
+          ? response.body.substring(0, 512)
+          : response.body;
+      final relayError =
+          (response.headers['x-konata-relay-error'] ?? '').trim().toLowerCase();
+      final contentType =
+          (response.headers['content-type'] ?? '').trim().toLowerCase();
+      final isQuota =
+          relayError != 'rate_limited' &&
+          (bodyText.contains('1027') ||
+              bodyText.toLowerCase().contains('quota_exceeded') ||
+              (uri.path.contains('/fanart/') &&
+                  !contentType.contains('application/json')));
       throw RateLimitedHttpException(
         Duration(seconds: retrySec.clamp(1, 30)),
         'HTTP 429',
+        response.headers,
+        bodyText,
+        isQuota,
       );
     }
     return response;
@@ -495,6 +511,134 @@ class TmdbHttpClient {
     );
   }
 
+  /// 探测 Fanart.tv 透明徽标 API（自定义 `api-key` 时走官方优先+备用回退，否则探测无状态中继）。
+  Future<ConnectivityReport> testFanartApiConnectivity() async {
+    // 使用长期稳定公开动画电影条目《千与千寻》(TMDB 129) 作为最小探活目标。
+    const probePath = '/movies/129';
+    final headers = <String, String>{'Accept': 'application/json'};
+    final clientKey = _config.fanartClientKey.trim();
+    if (clientKey.isNotEmpty) {
+      headers['client-key'] = clientKey;
+    }
+
+    if (_config.hasCustomFanartApiKey) {
+      headers['api-key'] = _config.effectiveFanartApiKey;
+      final primary = Uri.parse(
+        '${TmdbNetworkConfig.defaultFanartApiBase}$probePath',
+      );
+      final rawBackup = _config.fanartBackupApiBase.trim().replaceAll(
+        RegExp(r'/+$'),
+        '',
+      );
+      final backup = rawBackup.isNotEmpty
+          ? Uri.tryParse(
+              rawBackup.endsWith('/v3')
+                  ? '$rawBackup$probePath'
+                  : '$rawBackup/v3$probePath',
+            )
+          : null;
+      return _probeEndpointPair(
+        primaryUri: primary,
+        backupUri: backup,
+        headers: headers,
+        checkAuthErrors: true,
+      );
+    }
+
+    final relayBase = _config.normalizedFanartBackupApiBase;
+    if (relayBase.isEmpty) {
+      return const ConnectivityReport(
+        reachable: false,
+        latencyMs: 0,
+        errorMessage: '未配置内置中继地址，可在高级设置填写自定义项目 API Key 或中继地址',
+        statusSummary: '未配置中继地址或自定义项目 API Key',
+      );
+    }
+    final trimmedBase = relayBase.replaceAll(RegExp(r'/+$'), '');
+    final String relayUrl;
+    if (trimmedBase.endsWith('/fanart/v3')) {
+      relayUrl = '$trimmedBase$probePath';
+    } else if (trimmedBase.endsWith('/fanart')) {
+      relayUrl = '$trimmedBase/v3$probePath';
+    } else if (trimmedBase.endsWith('/v3')) {
+      relayUrl = '$trimmedBase$probePath';
+    } else {
+      relayUrl = '$trimmedBase/fanart/v3$probePath';
+    }
+    final relayUri = Uri.parse(relayUrl);
+    final sw = Stopwatch()..start();
+    try {
+      final resp = await _sendSingle(
+        method: 'GET',
+        uri: relayUri,
+        headers: headers,
+        timeout: backupTimeout,
+      );
+      sw.stop();
+      if (resp.statusCode == 200) {
+        return ConnectivityReport(
+          reachable: true,
+          latencyMs: sw.elapsedMilliseconds,
+          resolvedAddress: NetworkErrorSanitizer.redactSecrets(
+            relayUri.toString(),
+          ),
+          statusSummary: '无状态中继连通成功 (${sw.elapsedMilliseconds}ms)',
+        );
+      }
+      if (resp.statusCode == 401 || resp.statusCode == 403) {
+        return ConnectivityReport(
+          reachable: false,
+          latencyMs: sw.elapsedMilliseconds,
+          errorMessage: '密钥无效或被拒 (HTTP ${resp.statusCode})',
+          statusSummary: '中继连通，但密钥无效 (HTTP ${resp.statusCode})',
+        );
+      }
+      return ConnectivityReport(
+        reachable: false,
+        latencyMs: sw.elapsedMilliseconds,
+        errorMessage: 'HTTP ${resp.statusCode}',
+        statusSummary: '中继返回 HTTP ${resp.statusCode}，可在高级设置填自定义 API Key 直连',
+      );
+    } on RateLimitedHttpException catch (e) {
+      sw.stop();
+      final msg = e.isQuotaExhausted
+          ? '内置中继今日免费额度已达上限，请填个人 Key 或在高级设置填写自定义 API Key 直连'
+          : '内置中继当前请求频繁 (HTTP 429)，请稍后重试或填写个人 Key';
+      return ConnectivityReport(
+        reachable: false,
+        latencyMs: sw.elapsedMilliseconds,
+        errorMessage: msg,
+        statusSummary: msg,
+      );
+    } catch (_) {
+      sw.stop();
+      return ConnectivityReport(
+        reachable: false,
+        latencyMs: sw.elapsedMilliseconds,
+        errorMessage: '无法连接内置中继，请检查代理或在高级设置填写自定义 API Key',
+        statusSummary: '无法连接内置中继（请检查网络/代理或改用自定义 API Key）',
+      );
+    }
+  }
+
+  /// 探测 Fanart.tv 图片服务器（官方 `assets.fanart.tv` 优先，受阻自动回退备用图片反代）。
+  Future<ConnectivityReport> testFanartImageConnectivity() {
+    const probePath =
+        '/fanart/movies/129/hdmovielogo/spirited-away-5215d8259099b.png';
+    final primary = Uri.parse(
+      '${TmdbNetworkConfig.defaultFanartImageBase}$probePath',
+    );
+    final backupRaw = _config.normalizedFanartBackupImageBase;
+    final backup = backupRaw.isNotEmpty
+        ? Uri.tryParse('$backupRaw$probePath')
+        : null;
+    return _probeEndpointPair(
+      primaryUri: primary,
+      backupUri: backup,
+      headers: const {'Accept': 'image/*,*/*'},
+    );
+  }
+
   /// 兼容旧调用的连通测试入口（等同 `testTmdbApiConnectivity`）。
   Future<ConnectivityReport> testConnectivity() => testTmdbApiConnectivity();
 
@@ -507,13 +651,14 @@ class TmdbHttpClient {
     final safePrimaryAddr = NetworkErrorSanitizer.redactSecrets(
       primaryUri.toString(),
     );
+    final usableBackup = _usableBackup(primaryUri, backupUri);
     final sw = Stopwatch()..start();
     try {
       final resp = await _sendSingle(
         method: 'GET',
         uri: primaryUri,
         headers: headers,
-        timeout: primaryTimeout,
+        timeout: usableBackup == null ? backupTimeout : primaryTimeout,
       );
       sw.stop();
       if (resp.statusCode == 200) {
@@ -553,7 +698,6 @@ class TmdbHttpClient {
       sw.stop();
     }
 
-    final usableBackup = _usableBackup(primaryUri, backupUri);
     if (usableBackup == null) {
       return ConnectivityReport(
         reachable: false,
@@ -733,7 +877,7 @@ class TmdbHttpClient {
     if (_injectedClient != null) return _injectedClient;
     if (_cachedIoClient != null) return _cachedIoClient!;
 
-    final ioClient = HttpClient()..connectionTimeout = primaryTimeout;
+    final ioClient = HttpClient()..connectionTimeout = backupTimeout;
     ioClient.findProxy = _effectiveProxyDirectiveForUri;
     ioClient.connectionFactory = (Uri url, String? proxyHost, int? proxyPort) {
       if (proxyHost != null && proxyPort != null) {

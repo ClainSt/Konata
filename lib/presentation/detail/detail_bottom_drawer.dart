@@ -59,6 +59,7 @@ class DetailBottomDrawer extends StatefulWidget {
     required this.onOpenManualEdit,
     required this.onOpenPosterPicker,
     required this.onOpenBackdropPicker,
+    this.onOpenLogoPicker,
     required this.onHideWork,
     required this.onDeleteWork,
     required this.onRescrape,
@@ -123,6 +124,7 @@ class DetailBottomDrawer extends StatefulWidget {
   final VoidCallback onOpenManualEdit;
   final VoidCallback onOpenPosterPicker;
   final VoidCallback onOpenBackdropPicker;
+  final VoidCallback? onOpenLogoPicker;
   final VoidCallback onHideWork;
   final VoidCallback onDeleteWork;
   final VoidCallback onRescrape;
@@ -495,6 +497,7 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
         onManualEdit: widget.onOpenManualEdit,
         onEditPoster: widget.onOpenPosterPicker,
         onEditBackdrop: widget.onOpenBackdropPicker,
+        onEditLogo: widget.onOpenLogoPicker,
         onHideWork: widget.onHideWork,
         onDeleteWork: widget.onOpenDeleteWorkSafe(),
         onRescrape: widget.onRescrape,

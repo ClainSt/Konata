@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import '../models/work.dart';
 import 'bangumi_tmdb_map.dart';
 
-/// 单条 Bangumi 到 TMDB 的离线映射目标（含可选精确季号与来源标志）。
+/// 单条 Bangumi 到 TMDB 的离线映射目标（含可选精确季号、TheTVDB 剧集 ID 与来源标志）。
 class BangumiTmdbTarget {
   /// 创建单条映射目标。
   const BangumiTmdbTarget({
@@ -11,6 +11,7 @@ class BangumiTmdbTarget {
     required this.id,
     this.season,
     this.flags = 0,
+    this.tvdbId,
   });
 
   /// 来源标志位：来自 Wikidata CC0 快照。
@@ -18,6 +19,9 @@ class BangumiTmdbTarget {
 
   /// 来源标志位：来自 `open-ani/bangumi-tmdb`（CC BY 4.0）快照。
   static const int flagOpenAni = 1 << 1;
+
+  /// 来源标志位：来自 `Fribb/anime-lists`（MIT）补充的 TheTVDB 关联标识。
+  static const int flagAnimeListsTvdb = 1 << 2;
 
   /// TMDB 媒体类型（剧集或电影）。
   final TmdbMediaType type;
@@ -30,6 +34,9 @@ class BangumiTmdbTarget {
 
   /// 来源位掩码标志。
   final int flags;
+
+  /// 关联的 TheTVDB 剧集 ID（v2 映射表扩展字段，未知或电影条目为 `null`）。
+  final int? tvdbId;
 
   /// TMDB 复合键（如 `tv:31724` / `movie:23150`）。
   String get key => '${type.name}:$id';
@@ -50,6 +57,7 @@ class BangumiTmdbRecord {
     required this.tmdbId,
     this.season,
     this.flags = 0,
+    this.tvdbId,
   });
 
   /// Bangumi 条目 ID。
@@ -66,19 +74,24 @@ class BangumiTmdbRecord {
 
   /// 来源标志位。
   final int flags;
+
+  /// 可选 TheTVDB 剧集 ID（仅 v2 格式落盘）。
+  final int? tvdbId;
 }
 
 /// 紧凑只读 Bangumi ↔ TMDB 离线二进制索引（不可变，可零拷贝跨 Isolate 传递）。
 ///
 /// 二进制格式（小端序）：
-/// - 24 字节文件头：`KTBM`(4B) + `version=1`(2B) + `recordSize=12`(2B) +
+/// - 24 字节文件头：`KTBM`(4B) + `version`(2B，支持 `1` 与 `2`) + `recordSize`(2B，v1 为 `12`，v2 为 `16`) +
 ///   `recordCount`(4B) + `uniqueBangumiCount`(4B) + `snapshotDateYyyymmdd`(4B) + `reserved`(4B)；
-/// - 每条 12 字节定长记录，按 `bangumiId` 升序排列：
+/// - 每条定长记录，按 `bangumiId` 升序排列：
 ///   `bangumiId`(uint32) + `packedTarget`(uint32，最高位 1 为电影/0 为剧集，低 31 位为 TMDB ID) +
-///   `season`(int16，`-1` 表示未知) + `flags`(uint16)。
+///   `season`(int16，`-1` 表示未知) + `flags`(uint16) + [仅 v2：`tvdbId`(uint32，`0` 表示未知)]。
 class BangumiTmdbIndex {
   BangumiTmdbIndex._({
     required Uint8List bytes,
+    required this.version,
+    required this.recordSize,
     required this.recordCount,
     required this.uniqueBangumiCount,
     required this.snapshotDateYyyymmdd,
@@ -88,12 +101,14 @@ class BangumiTmdbIndex {
   /// 创建空索引（查询时可按需回退至内置静态 Wikidata 映射表）。
   factory BangumiTmdbIndex.empty() => BangumiTmdbIndex._(
     bytes: Uint8List(0),
+    version: formatVersionV1,
+    recordSize: recordBytesV1,
     recordCount: 0,
     uniqueBangumiCount: 0,
     snapshotDateYyyymmdd: 0,
   );
 
-  /// 从二进制快照严格校验并解析索引；格式损坏或版本不兼容时抛出 [FormatException]。
+  /// 从二进制快照严格校验并解析索引（同时兼容 v1 12B 与 v2 16B）；损坏或版本不兼容时抛出 [FormatException]。
   factory BangumiTmdbIndex.fromBytes(Uint8List bytes) {
     if (bytes.length < headerBytes) {
       throw const FormatException('映射表二进制头长度不足');
@@ -107,13 +122,15 @@ class BangumiTmdbIndex {
     final view = ByteData.sublistView(bytes);
     final version = view.getUint16(4, Endian.little);
     final recSize = view.getUint16(6, Endian.little);
-    if (version != formatVersion || recSize != recordBytes) {
+    final validV1 = version == formatVersionV1 && recSize == recordBytesV1;
+    final validV2 = version == formatVersionV2 && recSize == recordBytesV2;
+    if (!validV1 && !validV2) {
       throw FormatException('不支持的映射表格式版本($version)或记录长度($recSize)');
     }
     final recordCount = view.getUint32(8, Endian.little);
     final uniqueCount = view.getUint32(12, Endian.little);
     final snapshotDate = view.getUint32(16, Endian.little);
-    final expectedLen = headerBytes + recordCount * recordBytes;
+    final expectedLen = headerBytes + recordCount * recSize;
     if (bytes.length != expectedLen) {
       throw FormatException(
         '映射表字节长度与头声明不一致（实际 ${bytes.length}，期望 $expectedLen）',
@@ -121,16 +138,19 @@ class BangumiTmdbIndex {
     }
     return BangumiTmdbIndex._(
       bytes: bytes,
+      version: version,
+      recordSize: recSize,
       recordCount: recordCount,
       uniqueBangumiCount: uniqueCount,
       snapshotDateYyyymmdd: snapshotDate,
     );
   }
 
-  /// 将记录集合排序去重并编码为标准紧凑二进制字节流。
+  /// 将记录集合排序去重并编码为标准紧凑二进制字节流（自动识别或显式指定 v1 / v2 格式）。
   static Uint8List encode(
     Iterable<BangumiTmdbRecord> records, {
     required int snapshotDateYyyymmdd,
+    int? formatVersionOverride,
   }) {
     final sorted =
         records
@@ -146,15 +166,22 @@ class BangumiTmdbIndex {
             return (a.season ?? -1).compareTo(b.season ?? -1);
           });
 
+    final hasTvdb = sorted.any((r) => (r.tvdbId ?? 0) > 0);
+    final targetVersion =
+        formatVersionOverride ?? (hasTvdb ? formatVersionV2 : formatVersionV1);
+    final targetRecordSize = targetVersion == formatVersionV2
+        ? recordBytesV2
+        : recordBytesV1;
+
     final uniqueBgmIds = <int>{for (final r in sorted) r.bangumiId};
-    final out = Uint8List(headerBytes + sorted.length * recordBytes);
+    final out = Uint8List(headerBytes + sorted.length * targetRecordSize);
     out[0] = _magic0;
     out[1] = _magic1;
     out[2] = _magic2;
     out[3] = _magic3;
     final view = ByteData.sublistView(out);
-    view.setUint16(4, formatVersion, Endian.little);
-    view.setUint16(6, recordBytes, Endian.little);
+    view.setUint16(4, targetVersion, Endian.little);
+    view.setUint16(6, targetRecordSize, Endian.little);
     view.setUint32(8, sorted.length, Endian.little);
     view.setUint32(12, uniqueBgmIds.length, Endian.little);
     view.setUint32(16, snapshotDateYyyymmdd, Endian.little);
@@ -162,7 +189,7 @@ class BangumiTmdbIndex {
 
     for (var i = 0; i < sorted.length; i++) {
       final r = sorted[i];
-      final off = headerBytes + i * recordBytes;
+      final off = headerBytes + i * targetRecordSize;
       final packed =
           (r.type == TmdbMediaType.movie ? _movieBitMask : 0) |
           (r.tmdbId & _maxTmdbId);
@@ -173,6 +200,10 @@ class BangumiTmdbIndex {
       view.setUint32(off + 4, packed, Endian.little);
       view.setInt16(off + 8, encodedSeason, Endian.little);
       view.setUint16(off + 10, r.flags & 0xFFFF, Endian.little);
+      if (targetVersion == formatVersionV2) {
+        final tvdb = (r.tvdbId != null && r.tvdbId! > 0) ? r.tvdbId! : 0;
+        view.setUint32(off + 12, tvdb, Endian.little);
+      }
     }
     return out;
   }
@@ -180,11 +211,17 @@ class BangumiTmdbIndex {
   /// 二进制文件头固定长度（24 字节）。
   static const int headerBytes = 24;
 
-  /// 单条定长记录长度（12 字节）。
-  static const int recordBytes = 12;
+  /// v1 单条定长记录长度（12 字节）。
+  static const int recordBytesV1 = 12;
 
-  /// 当前支持的二进制格式版本号。
-  static const int formatVersion = 1;
+  /// v2 单条定长记录长度（16 字节，含 `tvdbId`）。
+  static const int recordBytesV2 = 16;
+
+  /// 默认兼容常量别名（v1 记录长度与版本号）。
+  static const int recordBytes = recordBytesV1;
+  static const int formatVersionV1 = 1;
+  static const int formatVersionV2 = 2;
+  static const int formatVersion = formatVersionV1;
 
   static const int _magic0 = 0x4B; // 魔数第 1 字节（ASCII 字母 K）
   static const int _magic1 = 0x54; // 魔数第 2 字节（ASCII 字母 T）
@@ -196,6 +233,12 @@ class BangumiTmdbIndex {
   final Uint8List _bytes;
   final ByteData _view;
 
+  /// 当前索引二进制版本号（`1` 或 `2`）。
+  final int version;
+
+  /// 当前索引每条记录字节数（`12` 或 `16`）。
+  final int recordSize;
+
   /// 索引中的总目标记录条数。
   final int recordCount;
 
@@ -204,6 +247,9 @@ class BangumiTmdbIndex {
 
   /// 快照日期（`YYYYMMDD` 整数；未知时为 `0`）。
   final int snapshotDateYyyymmdd;
+
+  /// 是否包含 v2 扩展的 `tvdbId` 字段。
+  bool get supportsTvdbId => version >= formatVersionV2 && recordSize >= recordBytesV2;
 
   /// 原始只读字节视图（便于跨 Isolate 透传与持久化摘要计算）。
   Uint8List get rawBytes => _bytes;
@@ -234,7 +280,7 @@ class BangumiTmdbIndex {
     while (lo < hi) {
       final mid = (lo + hi) >> 1;
       final midId = _view.getUint32(
-        headerBytes + mid * recordBytes,
+        headerBytes + mid * recordSize,
         Endian.little,
       );
       if (midId < bangumiId) {
@@ -245,19 +291,22 @@ class BangumiTmdbIndex {
     }
     if (lo >= recordCount) return const [];
     final firstId = _view.getUint32(
-      headerBytes + lo * recordBytes,
+      headerBytes + lo * recordSize,
       Endian.little,
     );
     if (firstId != bangumiId) return const [];
 
     final targets = <BangumiTmdbTarget>[];
     for (var i = lo; i < recordCount; i++) {
-      final off = headerBytes + i * recordBytes;
+      final off = headerBytes + i * recordSize;
       final curId = _view.getUint32(off, Endian.little);
       if (curId != bangumiId) break;
       final packed = _view.getUint32(off + 4, Endian.little);
       final rawSeason = _view.getInt16(off + 8, Endian.little);
       final flags = _view.getUint16(off + 10, Endian.little);
+      final rawTvdb = supportsTvdbId
+          ? _view.getUint32(off + 12, Endian.little)
+          : 0;
       final isMovie = (packed & _movieBitMask) != 0;
       final tmdbId = packed & _maxTmdbId;
       targets.add(
@@ -266,10 +315,30 @@ class BangumiTmdbIndex {
           id: tmdbId,
           season: rawSeason >= 0 ? rawSeason : null,
           flags: flags,
+          tvdbId: rawTvdb > 0 ? rawTvdb : null,
         ),
       );
     }
     return targets;
+  }
+
+  /// 按 TMDB 媒体类型与 ID 反查离线映射表中的 TheTVDB ID（仅 v2 索引生效，零额外内存占用）。
+  int? lookupTvdbIdByTmdb({
+    required TmdbMediaType mediaType,
+    required int tmdbId,
+  }) {
+    if (!supportsTvdbId || recordCount == 0 || tmdbId <= 0) return null;
+    final desiredPacked =
+        (mediaType == TmdbMediaType.movie ? _movieBitMask : 0) |
+        (tmdbId & _maxTmdbId);
+    for (var i = 0; i < recordCount; i++) {
+      final off = headerBytes + i * recordSize;
+      final packed = _view.getUint32(off + 4, Endian.little);
+      if (packed != desiredPacked) continue;
+      final tvdb = _view.getUint32(off + 12, Endian.little);
+      if (tvdb > 0) return tvdb;
+    }
+    return null;
   }
 
   /// 优先从当前二进制索引查询；若当前索引为空（如纯离线单测），自动回退静态内置 Wikidata 映射表。

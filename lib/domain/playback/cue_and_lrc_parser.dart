@@ -653,3 +653,160 @@ class LrcParser {
     );
   }
 }
+
+/// 扩展播放列表单条曲目输入条目（供无状态生成带 `#EXTINF` 的 `.m3u8` 文本）。
+class ExtendedM3uTrackEntry {
+  /// 创建扩展播放列表曲目条目。
+  const ExtendedM3uTrackEntry({
+    required this.targetUriOrPath,
+    required this.title,
+    this.performer = '',
+    this.durationSeconds = -1,
+  });
+
+  /// 目标流地址或本地绝对路径。
+  final String targetUriOrPath;
+
+  /// 曲目展示标题。
+  final String title;
+
+  /// 演唱者或艺术家。
+  final String performer;
+
+  /// 曲目整秒时长（未知时传 `-1`）。
+  final int durationSeconds;
+}
+
+/// 归一化 `.cue` 分轨清单与扩展 `.m3u8` 播放列表纯领域序列化器。
+abstract final class CueSheetSerializer {
+  /// UTF-8 字节顺序标记（供外部播放器如 `foobar2000` 强制按 UTF-8 解析日文/中文曲名，彻底避免系统 ANSI 代码页乱码）。
+  static const List<int> utf8BomBytes = <int>[0xEF, 0xBB, 0xBF];
+
+  /// 生成已修正真实 `FILE` 引用且保留精确整数光盘扇区（`1/75 s`）的标准 `.cue` 文本。
+  static String buildNormalizedCueText({
+    required CueSheet sheet,
+    required Map<int, String> resolvedFileByTrackNumber,
+    String fallbackAlbumTitle = '',
+    String fallbackAlbumPerformer = '',
+  }) {
+    final buf = StringBuffer();
+    final albumPerformer = sheet.performer.trim().isNotEmpty
+        ? sheet.performer.trim()
+        : fallbackAlbumPerformer.trim();
+    final albumTitle = sheet.title.trim().isNotEmpty
+        ? sheet.title.trim()
+        : fallbackAlbumTitle.trim();
+
+    if (albumPerformer.isNotEmpty) {
+      buf.writeln('PERFORMER "${_escapeCueQuoted(albumPerformer)}"');
+    }
+    if (albumTitle.isNotEmpty) {
+      buf.writeln('TITLE "${_escapeCueQuoted(albumTitle)}"');
+    }
+
+    var activeFileRef = '';
+    for (final track in sheet.tracks) {
+      final targetFile =
+          (resolvedFileByTrackNumber[track.trackNumber] ?? track.fileName)
+              .trim();
+      if (targetFile.isEmpty) continue;
+      if (targetFile != activeFileRef) {
+        activeFileRef = targetFile;
+        buf.writeln('FILE "${_escapeCueQuoted(activeFileRef)}" WAVE');
+      }
+      final trackNo = track.trackNumber.clamp(1, 99).toString().padLeft(2, '0');
+      buf.writeln('  TRACK $trackNo AUDIO');
+      final trackTitle = track.title.trim().isNotEmpty
+          ? track.title.trim()
+          : 'Track $trackNo';
+      buf.writeln('    TITLE "${_escapeCueQuoted(trackTitle)}"');
+      final trackPerformer = track.performer.trim().isNotEmpty
+          ? track.performer.trim()
+          : albumPerformer;
+      if (trackPerformer.isNotEmpty) {
+        buf.writeln('    PERFORMER "${_escapeCueQuoted(trackPerformer)}"');
+      }
+      final pregap = track.pregapIndex00SectorFrames;
+      if (pregap != null && pregap >= 0 && pregap <= track.startSectorFrames) {
+        buf.writeln('    INDEX 00 ${_formatSectorTimestamp(pregap)}');
+      }
+      buf.writeln(
+        '    INDEX 01 ${_formatSectorTimestamp(track.startSectorFrames)}',
+      );
+    }
+    return buf.toString();
+  }
+
+  /// 将归一化 `.cue` 文本编码为带 UTF-8 BOM 的字节数组。
+  static Uint8List encodeCueWithUtf8Bom(String cueText) {
+    final body = List<int>.from(cueText.codeUnits.isEmpty ? const <int>[] : _utf8Encode(cueText));
+    final out = Uint8List(utf8BomBytes.length + body.length);
+    out.setRange(0, utf8BomBytes.length, utf8BomBytes);
+    out.setRange(utf8BomBytes.length, out.length, body);
+    return out;
+  }
+
+  /// 生成包含 `#EXTINF` 标题与时长元数据的 `.m3u8` 播放列表文本（防止外部播放器后台并发扫描全部 WebDAV 远程流触发风控）。
+  static String buildExtendedM3u8Text(Iterable<ExtendedM3uTrackEntry> entries) {
+    final buf = StringBuffer('#EXTM3U\r\n');
+    for (final entry in entries) {
+      final target = entry.targetUriOrPath.trim();
+      if (target.isEmpty) continue;
+      final dur = entry.durationSeconds > 0 ? entry.durationSeconds : -1;
+      final cleanTitle = _sanitizeSingleLine(entry.title);
+      final cleanPerformer = _sanitizeSingleLine(entry.performer);
+      final display = cleanPerformer.isNotEmpty
+          ? '$cleanPerformer - $cleanTitle'
+          : cleanTitle;
+      buf.writeln('#EXTINF:$dur,$display\r');
+      buf.writeln('$target\r');
+    }
+    return buf.toString();
+  }
+
+  static String _formatSectorTimestamp(int sectorFrames) {
+    final safe = sectorFrames < 0 ? 0 : sectorFrames;
+    final totalSeconds = safe ~/ CueTrack.sectorsPerSecond;
+    final frames = safe % CueTrack.sectorsPerSecond;
+    final minutes = totalSeconds ~/ 60;
+    final seconds = totalSeconds % 60;
+    final mm = minutes.toString().padLeft(2, '0');
+    final ss = seconds.toString().padLeft(2, '0');
+    final ff = frames.toString().padLeft(2, '0');
+    return '$mm:$ss:$ff';
+  }
+
+  static String _escapeCueQuoted(String raw) {
+    return raw
+        .replaceAll('\r', ' ')
+        .replaceAll('\n', ' ')
+        .replaceAll('"', "'")
+        .trim();
+  }
+
+  static String _sanitizeSingleLine(String raw) {
+    return raw.replaceAll('\r', ' ').replaceAll('\n', ' ').trim();
+  }
+
+  static List<int> _utf8Encode(String input) {
+    final bytes = <int>[];
+    for (final rune in input.runes) {
+      if (rune <= 0x7F) {
+        bytes.add(rune);
+      } else if (rune <= 0x7FF) {
+        bytes.add(0xC0 | ((rune >> 6) & 0x1F));
+        bytes.add(0x80 | (rune & 0x3F));
+      } else if (rune <= 0xFFFF) {
+        bytes.add(0xE0 | ((rune >> 12) & 0x0F));
+        bytes.add(0x80 | ((rune >> 6) & 0x3F));
+        bytes.add(0x80 | (rune & 0x3F));
+      } else {
+        bytes.add(0xF0 | ((rune >> 18) & 0x07));
+        bytes.add(0x80 | ((rune >> 12) & 0x3F));
+        bytes.add(0x80 | ((rune >> 6) & 0x3F));
+        bytes.add(0x80 | (rune & 0x3F));
+      }
+    }
+    return bytes;
+  }
+}

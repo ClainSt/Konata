@@ -41,6 +41,7 @@ class ScrapeWorkPersister {
     bool metadataLocked = false,
     bool posterLocked = false,
     bool backdropLocked = false,
+    bool logoLocked = false,
     bool isHidden = false,
     bool keepHidden = false,
   }) {
@@ -75,6 +76,7 @@ class ScrapeWorkPersister {
       tmdbId: detail.tmdbId,
       tmdbMediaType: detail.mediaType,
       bangumiId: bgmSubject?.id,
+      tvdbId: detail.tvdbId,
       matchedSeason: matchedSeason,
       title: resolved.title,
       originalTitle: detail.originalTitle ?? bgmSubject?.name,
@@ -92,6 +94,7 @@ class ScrapeWorkPersister {
       metadataLocked: metadataLocked,
       posterLocked: posterLocked,
       backdropLocked: backdropLocked,
+      logoLocked: logoLocked,
       isHidden: isHidden,
       keepHidden: keepHidden,
       scrapeStatus: ScrapeStatus.matched,
@@ -107,7 +110,13 @@ class ScrapeWorkPersister {
     if (existing == null || resetManualLocks) {
       return candidate;
     }
+    final nextLogoPath = existing.logoLocked
+        ? existing.logoPath
+        : (candidate.logoPath ?? existing.logoPath);
+    final hasResolvedLogo =
+        nextLogoPath != null && nextLogoPath.trim().isNotEmpty;
     return candidate.copyWith(
+      tvdbId: candidate.tvdbId ?? existing.tvdbId,
       matchedSeason: existing.metadataLocked
           ? (existing.matchedSeason ?? candidate.matchedSeason)
           : candidate.matchedSeason,
@@ -128,6 +137,11 @@ class ScrapeWorkPersister {
       backdropPath: existing.backdropLocked
           ? existing.backdropPath
           : candidate.backdropPath,
+      logoPath: nextLogoPath,
+      clearLogoPath: !hasResolvedLogo,
+      clearLogoNegative: hasResolvedLogo,
+      logoNegativeUntil: hasResolvedLogo ? null : existing.logoNegativeUntil,
+      logoNegativeMask: hasResolvedLogo ? 0 : existing.logoNegativeMask,
       bangumiId: (existing.metadataLocked && existing.bangumiId != null)
           ? existing.bangumiId
           : (candidate.bangumiId ?? existing.bangumiId),
@@ -151,10 +165,12 @@ class ScrapeWorkPersister {
           existing.isManualLocked ||
           existing.metadataLocked ||
           existing.posterLocked ||
-          existing.backdropLocked,
+          existing.backdropLocked ||
+          existing.logoLocked,
       metadataLocked: existing.metadataLocked,
       posterLocked: existing.posterLocked,
       backdropLocked: existing.backdropLocked,
+      logoLocked: existing.logoLocked,
     );
   }
 

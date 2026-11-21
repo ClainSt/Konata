@@ -389,6 +389,7 @@ class PlaybackCoordinator {
             final completed = PlaybackRecord.computeCompleted(
               positionSeconds: posSeconds,
               durationSeconds: durSeconds,
+              isAudio: true,
             );
             await repo.recordPlayback(
               PlaybackRecord(
@@ -401,7 +402,9 @@ class PlaybackCoordinator {
                 episodeTitle: trackTitle,
                 sourceType: sourceType,
                 playedAt: DateTime.now(),
-                positionSeconds: posSeconds,
+                positionSeconds: completed && durSeconds > 0
+                    ? durSeconds
+                    : posSeconds,
                 durationSeconds: durSeconds,
                 isCompleted: completed,
               ),
@@ -428,6 +431,120 @@ class PlaybackCoordinator {
         ),
       );
       _invalidateWorkAndHistory(work.id);
+    }
+    return launchRes;
+  }
+
+  /// 调用桌面接力程序播放完整 CD 专辑或 `.cue` 分轨队列，并按分轨独立持久化秒级进度。
+  Future<LaunchPlaybackResult> playCdAlbumRelay({
+    required ExternalAudioAlbumRelayRequest request,
+  }) async {
+    final gateway = _ref.read(desktopRelayGatewayProvider);
+    if (gateway == null) {
+      return const LaunchPlaybackResult(
+        launched: false,
+        message: '当前平台仅支持内置播放器',
+      );
+    }
+
+    final repo = _ref.read(libraryRepositoryProvider);
+    MediaSource? resolvedSource = request.source;
+    if (resolvedSource == null) {
+      final targetSourceId = request.initialTrack.variant.sourceId;
+      final allSources = await repo.getMediaSources();
+      for (final s in allSources) {
+        if (s.id == targetSourceId) {
+          resolvedSource = s;
+          break;
+        }
+      }
+    }
+    final sourceType = resolvedSource?.kind ?? MediaSourceKind.local;
+
+    final existingRecords = await repo.getPlaybacksByWork(request.work.id);
+    final existingByEpId = <String, PlaybackRecord>{
+      for (final r in existingRecords)
+        if (r.isAudioRecord) r.episodeId: r,
+    };
+
+    final effectiveReq = ExternalAudioAlbumRelayRequest(
+      work: request.work,
+      tracks: request.tracks,
+      initialTrackIndex: request.initialTrackIndex,
+      startSeconds: request.startSeconds,
+      exactStartSeconds: request.exactStartSeconds,
+      pairedCueVariant: request.pairedCueVariant,
+      parsedCueSheet: request.parsedCueSheet,
+      source: resolvedSource,
+      targetId: request.targetId,
+      beefwebPort: request.beefwebPort,
+      allowWithoutBeefweb: request.allowWithoutBeefweb,
+    );
+
+    final launchRes = await gateway.launchAudioAlbum(
+      effectiveReq,
+      onTrackProgress: (
+        track,
+        posSeconds,
+        durSeconds, {
+        required bool isCompleted,
+        required bool isFinal,
+      }) async {
+        final completed =
+            isCompleted ||
+            PlaybackRecord.computeCompleted(
+              positionSeconds: posSeconds,
+              durationSeconds: durSeconds,
+              isAudio: true,
+            );
+        await repo.recordPlayback(
+          PlaybackRecord(
+            id: track.recordId,
+            workId: request.work.id,
+            episodeId: track.episodeId,
+            variantId: track.variant.id,
+            seasonNumber: 0,
+            episodeNumber: track.trackNumber,
+            episodeTitle: track.title,
+            sourceType: sourceType,
+            playedAt: DateTime.now(),
+            positionSeconds: completed && durSeconds > 0
+                ? durSeconds
+                : posSeconds,
+            durationSeconds: durSeconds,
+            isCompleted: completed,
+          ),
+        );
+        _invalidateWorkAndHistory(request.work.id);
+      },
+    );
+
+    if (launchRes.launched) {
+      final initTrack = effectiveReq.initialTrack;
+      final prev = existingByEpId[initTrack.episodeId];
+      final initPos = effectiveReq.startSeconds > 0
+          ? effectiveReq.startSeconds
+          : (prev != null && !prev.isCompleted ? prev.positionSeconds : 0);
+      final initDur = initTrack.resolvedDurationSeconds > 0
+          ? initTrack.resolvedDurationSeconds
+          : (prev?.durationSeconds ?? 0);
+      await repo.recordPlayback(
+        PlaybackRecord(
+          id: initTrack.recordId,
+          workId: request.work.id,
+          episodeId: initTrack.episodeId,
+          variantId: initTrack.variant.id,
+          seasonNumber: 0,
+          episodeNumber: initTrack.trackNumber,
+          episodeTitle: initTrack.title,
+          sourceType: sourceType,
+          playedAt: DateTime.now(),
+          positionSeconds: initPos,
+          durationSeconds: initDur,
+          isCompleted: false,
+        ),
+      );
+      _invalidateWorkAndHistory(request.work.id);
     }
     return launchRes;
   }

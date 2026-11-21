@@ -86,7 +86,10 @@ class _StubArtworkManagementActions extends WorkManagementActions {
   final WorkArtworkOptions _options;
 
   @override
-  Future<WorkArtworkOptions> fetchWorkArtworkOptions(Work work) async {
+  Future<WorkArtworkOptions> fetchWorkArtworkOptions(
+    Work work, {
+    bool includeLogos = false,
+  }) async {
     return _options;
   }
 }

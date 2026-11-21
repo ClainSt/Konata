@@ -11,6 +11,7 @@ import '../parsing/media_tech_parser.dart';
 import 'bangumi_models.dart';
 import 'bangumi_tmdb_index.dart';
 import 'cloud_media_asset_presentation.dart';
+import 'cloud_media_file_classifier.dart';
 import 'collection_asset_router.dart';
 import 'directory_analyzer.dart';
 import 'multi_work_splitter.dart';
@@ -32,7 +33,39 @@ abstract final class ScrapeDomainAdapter {
   );
 
   static final RegExp _categoryFolderPattern = RegExp(
-    r'^(?:动画|番剧|电影|剧场版|劇場版|动漫|影视|日漫|国漫|美漫|动画[-_]?单作品|动画[-_]?多作品|anime|movies?|tv|series|bdmv|bdrip|video|media|downloads?)$',
+    r'^(?:动画|番剧|电影|剧场版|劇場版|动漫|影视|日漫|国漫|美漫|'
+    r'动画[-_]?单作品|动画[-_]?多作品|动画[-_]?天雪论坛|动画[-_]?系列作未收集|'
+    r'天雪论坛|系列作未收集|未添加\s*tmdb(?:\s*id)?|'
+    r'anime|movies?|tv|series|bdmv|bdrip|video|media|downloads?)$',
+    caseSensitive: false,
+  );
+
+  /// 独立大型剧场版最低体积门槛（300 MB；测试夹具无体积时放行）。
+  static const int _minAnchoredMovieSplitBytes = 300 * 1024 * 1024;
+
+  static final RegExp _anchoredMovieFilePattern = RegExp(
+    r'(?<![a-z0-9])(?:the[ ._-]+)?movie(?![a-z0-9])|剧场版|劇場版',
+    caseSensitive: false,
+  );
+
+  static final RegExp _singleIndexedMovieFolderPattern = RegExp(
+    r'第\s*[0-9一二三四五六七八九十]{1,2}\s*[章部]|'
+    r'(?<![a-z0-9])(?:movie|part|chapter)\s*(?:1st|2nd|3rd|\d+)(?![a-z0-9])',
+    caseSensitive: false,
+  );
+
+  static final RegExp _anchoredMovieExcludedPattern = RegExp(
+    r'memorial[ ._-]*movie|weekly[ ._-]*movies?|digest[ ._-]*movie|'
+    r'[\[【]\s*\d{1,3}\s*[-–—~～]\s*\d{1,3}\s*[\(（]\s*movie\s*[\)）]\s*[\]】]',
+    caseSensitive: false,
+  );
+
+  static final RegExp _anchoredChapterFeaturePattern = RegExp(
+    r'第\s*[0-9一二三四五六七八九十]{1,2}\s*[章部]|'
+    r'(?:^|[^a-z0-9])(?:zenpen|kouhen|chuhen)(?=[^a-z0-9]|$)|'
+    r'前[篇編]|后[篇編]|後[篇編]|中[篇編]|'
+    r'[#＃]\s*0*[1-9]\s*[～~〜][^～~〜]+?[の之]?[巻卷]|'
+    r'(?<![a-z0-9])movie[ ._-]*0*[1-9](?![0-9a-z])',
     caseSensitive: false,
   );
 
@@ -129,12 +162,153 @@ abstract final class ScrapeDomainAdapter {
     return true;
   }
 
+  /// 判断锚定目录内是否包含需要拆分出去的独立剧场版：
+  /// 1. 常规 TV 目录内捆绑了明确带剧场版标记的大型正片（如 `Dance with Devils Fortuna The Movie`）；
+  /// 2. 剧场版合放目录内包含 2~4 部不同章节/卷号的大型剧场版（如 `薄樱鬼 第一章/第二章`、`刀剑乱舞 雪/月/花之卷`）。
+  static bool _hasAnchoredStandaloneMovieToSplit(
+    List<ScannedFileInput> videoFiles, {
+    required String folderPath,
+    required String folderLeafName,
+  }) {
+    // 目录名已明确声明为单部带序号的剧场版（如 `第一章 觉醒之刻`、`The MOVIE 1st`），不再按多章拆开。
+    if (_singleIndexedMovieFolderPattern.hasMatch(folderLeafName)) {
+      return false;
+    }
+    final normFolder = folderPath
+        .replaceAll('\\', '/')
+        .replaceAll(RegExp(r'^/+|/+$'), '');
+    var bigMovieCount = 0;
+    var bigChapterCount = 0;
+    final chapterMarkers = <String>{};
+    var regularEpisodeCount = 0;
+
+    for (final v in videoFiles) {
+      final rel = v.relativePath.replaceAll('\\', '/');
+      final sub = normFolder.isNotEmpty && rel.startsWith('$normFolder/')
+          ? rel.substring(normFolder.length + 1)
+          : v.fileName;
+      final slash = sub.lastIndexOf('/');
+      final subDir = slash > 0 ? sub.substring(0, slash) : '';
+      if (subDir.isNotEmpty &&
+          SupplementaryFolderRules.isSupplementarySegment(
+            subDir.split('/').first,
+          )) {
+        continue;
+      }
+      final name = v.fileName;
+      if (CloudMediaFileClassifier.isPreview(name) ||
+          CloudMediaFileClassifier.isNoCredit(name) ||
+          CloudMediaFileClassifier.contextualJapanBdExtra.hasMatch(name) ||
+          RegExp(
+            r'ncop|nced|menu|pv|cm|spot|making|digest|予告|預告|预告|特報',
+            caseSensitive: false,
+          ).hasMatch(name)) {
+        continue;
+      }
+      final isLarge =
+          v.fileSize <= 0 || v.fileSize >= _minAnchoredMovieSplitBytes;
+      final isMovieFile =
+          isLarge &&
+          _anchoredMovieFilePattern.hasMatch(name) &&
+          !_anchoredMovieExcludedPattern.hasMatch(name);
+      final chapterMatch = isLarge
+          ? _anchoredChapterFeaturePattern.firstMatch(name)
+          : null;
+      if (isMovieFile) {
+        bigMovieCount++;
+      } else if (chapterMatch == null &&
+          isLarge &&
+          CloudMediaFileClassifier.episodeNumberFromName(name) != null) {
+        regularEpisodeCount++;
+      }
+      if (chapterMatch != null) {
+        bigChapterCount++;
+        chapterMarkers.add(
+          DirectoryAnalyzer.normalize(chapterMatch.group(0)!),
+        );
+      }
+    }
+
+    // 场景 A：常规多集 TV 目录内捆绑了明确独立剧场版（排除全片都是剧场版同片多版本）。
+    if (regularEpisodeCount >= 4 && bigMovieCount >= 1 && bigMovieCount <= 3) {
+      return true;
+    }
+    // 场景 B：2~4 部不同章节/卷号的大型剧场版合放于同一目录（避免把 7 集 OVA 长篇如高达 UC 拆散）。
+    if (regularEpisodeCount == 0 &&
+        bigChapterCount >= 2 &&
+        bigChapterCount <= 4 &&
+        chapterMarkers.length >= 2) {
+      return true;
+    }
+    return false;
+  }
+
   /// 返回路径中最深一层锚定作品根目录的段下标，不存在时返回 -1。
   static int _deepestAnchorIndex(List<String> dirSegments) {
     for (var i = dirSegments.length - 1; i >= 0; i--) {
       if (_workRootAnchorKind(dirSegments[i]) > 0) return i;
     }
     return -1;
+  }
+
+  /// 检测「锚定父目录下直接包含多个自带独立附属目录（SPs/CDs/Scans/Extras）的子作品包」
+  /// （例如 `物语系列 第二季 (2013) {tmdb-46195}/倾物语`、`囮物语`、`恋物语` 等），
+  /// 以便将每个子篇章拆为独立作品并各自保留专属封面与附属资源。
+  static Set<String> _detectAnchoredPackageCollectionRoots(
+    List<ScannedFileInput> files,
+  ) {
+    final childMainVideos = <String, Map<String, int>>{};
+    final childSuppDirs = <String, Set<String>>{};
+    final groupPrefix = RegExp(r'^[\[【]');
+    final discOrLang = RegExp(
+      r'^(?:vol(?:ume)?|disc|disk|bd|dvd|cd|part|chs|cht|sc|tc|jp|en|sub|subs|subtitles|fonts?)\b',
+      caseSensitive: false,
+    );
+
+    for (final file in files) {
+      final segments = file.relativePath
+          .replaceAll('\\', '/')
+          .split('/')
+          .where((s) => s.isNotEmpty)
+          .toList();
+      if (segments.length < 3) continue;
+      final dirSegs = segments.sublist(0, segments.length - 1);
+      final anchor = _deepestAnchorIndex(dirSegs);
+      if (anchor < 0 || anchor + 1 >= dirSegs.length) continue;
+
+      final anchorPath = dirSegs.sublist(0, anchor + 1).join('/');
+      final childSeg = dirSegs[anchor + 1].trim();
+      if (childSeg.isEmpty ||
+          groupPrefix.hasMatch(childSeg) ||
+          discOrLang.hasMatch(childSeg) ||
+          SupplementaryFolderRules.isSupplementarySegment(childSeg) ||
+          SupplementaryFolderRules.isSeasonOrVolumeSegment(childSeg)) {
+        continue;
+      }
+
+      if (anchor + 2 < dirSegs.length &&
+          SupplementaryFolderRules.isSupplementarySegment(
+            dirSegs[anchor + 2],
+          )) {
+        (childSuppDirs[anchorPath] ??= <String>{}).add(childSeg);
+      } else if (file.assetKind == AssetKind.video) {
+        final byChild = childMainVideos[anchorPath] ??= <String, int>{};
+        byChild.update(childSeg, (n) => n + 1, ifAbsent: () => 1);
+      }
+    }
+
+    final roots = <String>{};
+    for (final entry in childMainVideos.entries) {
+      final anchorPath = entry.key;
+      final suppChildren = childSuppDirs[anchorPath] ?? const <String>{};
+      final qualified = entry.value.entries
+          .where((e) => e.value >= 2 && suppChildren.contains(e.key))
+          .length;
+      if (qualified >= 2) {
+        roots.add(anchorPath);
+      }
+    }
+    return roots;
   }
 
   /// 使用无损目录分析器与多作品拆分器对扫描文件执行抗碎裂归拢与合集拆分。
@@ -148,11 +322,13 @@ abstract final class ScrapeDomainAdapter {
       files,
       nfoByFolder: nfoByFolder,
     );
+    final anchoredPackageRoots = _detectAnchoredPackageCollectionRoots(files);
     final rawBuckets = <String, List<ScannedFileInput>>{};
     for (final file in files) {
       final workFolder = _resolvePhysicalWorkFolder(
         file.relativePath,
         multiInstallmentRoots: multiInstallmentRoots,
+        anchoredPackageRoots: anchoredPackageRoots,
       );
       rawBuckets.putIfAbsent(workFolder, () => []).add(file);
     }
@@ -217,12 +393,19 @@ abstract final class ScrapeDomainAdapter {
         );
       }
 
-      // 显式 ID 锚定目录由用户声明为单部作品，绝不拆分；「标题 (年份)」目录仅在目录名
-      // 以 ` & ` 并列多部作品、且各段独有词分别命中互不重叠的文件时才允许拆分。
+      // 非锚定目录默认允许拆簇；锚定目录在满足显式 `A & B` 独立双作并列、
+      // 多部章节剧场版合放或 TV 内捆绑独立大型剧场版时亦允许拆分为独立条目。
+      final anchoredMovieSplit =
+          anchorKind > 0 &&
+          _hasAnchoredStandaloneMovieToSplit(
+            videoFiles,
+            folderPath: folderPath,
+            folderLeafName: folderLeafName,
+          );
       final splitAllowed =
           anchorKind == 0 ||
-          (anchorKind == 1 &&
-              _isDisjointAmpersandCollection(folderLeafName, videoFiles));
+          _isDisjointAmpersandCollection(folderLeafName, videoFiles) ||
+          anchoredMovieSplit;
       if (splitAllowed && videoFiles.length >= 2) {
         final rawAssets = [
           for (final v in videoFiles)
@@ -242,7 +425,11 @@ abstract final class ScrapeDomainAdapter {
                 preview,
               )
             : (inventory.tmdbId != null &&
-                  _shouldSplitExplicitTmdb(inventory, preview));
+                  _shouldSplitExplicitTmdb(
+                    inventory,
+                    preview,
+                    anchoredMovieSplit: anchoredMovieSplit,
+                  ));
 
         if (shouldSplit && preview.length >= 2) {
           final fileByRelPath = <String, ScannedFileInput>{
@@ -403,7 +590,8 @@ abstract final class ScrapeDomainAdapter {
             result.add(
               GroupedWorkFolder(
                 folderRelativePath: clusterFolderId,
-                physicalRootFolder: folderPath,
+                physicalRootFolder:
+                    foldedExtras.physicalRootByBucket[folderPath] ?? folderPath,
                 folderName: clusterTitle,
                 cleanTitle: clusterTitle,
                 explicitTmdbId: cluster.inventory.tmdbId,
@@ -2007,6 +2195,7 @@ abstract final class ScrapeDomainAdapter {
   static String _resolvePhysicalWorkFolder(
     String relativePath, {
     Set<String> multiInstallmentRoots = const {},
+    Set<String> anchoredPackageRoots = const {},
   }) {
     final segments = relativePath
         .replaceAll('\\', '/')
@@ -2018,7 +2207,15 @@ abstract final class ScrapeDomainAdapter {
 
     final anchor = _deepestAnchorIndex(parentSegments);
     if (anchor >= 0) {
-      return parentSegments.sublist(0, anchor + 1).join('/');
+      final anchorPath = parentSegments.sublist(0, anchor + 1).join('/');
+      if (anchoredPackageRoots.contains(anchorPath) &&
+          anchor + 1 < parentSegments.length &&
+          !SupplementaryFolderRules.isSupplementarySegment(
+            parentSegments[anchor + 1],
+          )) {
+        return parentSegments.sublist(0, anchor + 2).join('/');
+      }
+      return anchorPath;
     }
 
     var scanStart = 1;
@@ -2132,11 +2329,15 @@ abstract final class ScrapeDomainAdapter {
 
   static bool _shouldSplitExplicitTmdb(
     DirectoryInventory inventory,
-    List<SubWorkCluster> preview,
-  ) {
+    List<SubWorkCluster> preview, {
+    bool anchoredMovieSplit = false,
+  }) {
     if (preview.length < 2) return false;
     final hasUnbound = preview.any((c) => c.inventory.tmdbId == null);
     if (!hasUnbound) return false;
+    if (anchoredMovieSplit) {
+      return preview.any((c) => c.inventory.movieMarker);
+    }
     if (preview.any((c) => c.inventory.tmdbId != null)) return true;
     return preview.any(
       (c) =>

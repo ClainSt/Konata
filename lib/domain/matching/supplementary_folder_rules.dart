@@ -7,7 +7,7 @@ class SupplementaryFolderRules {
   /// 特典/附加视频子目录（全称或去除尾部标签后的主名匹配）。
   static final RegExp _extraVideoDir = RegExp(
     r'^(?:'
-    r'sps?|specials?|ova|oad|oav|extras?|bonus(?:[ ._-]*disc)?|pvs?|cms?|'
+    r'sps?|specials?|ova|oad|oav|extras?|bonus(?:[ ._-]*disc)?|privilege[ ._-]*dis[ck]|pvs?|cms?|'
     r'menus?(?:[ ._-]*ex)?\d*|nc|ncop(?:ed)?|nced|trailers?|teasers?|previews?|'
     r'promos?|promotion|making|interviews?|events?|commentary|creditless|textless|'
     r'tv[ ._-]*spots?|tvcm|bdcm|fan[ ._-]*disc|fandisc|'

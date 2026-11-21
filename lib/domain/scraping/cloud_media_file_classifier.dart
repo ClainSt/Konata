@@ -7,7 +7,7 @@ abstract final class CloudMediaFileClassifier {
     r'^(?:sp|sps|special|specials|extra|extras|bonus|nc|ncop|nced|pv|cm|'
     r'menu|menus|music|music[\s._-]*videos?|mvs?|samples?|(?:eizou[\s._-]+)?tokuten|creditless|textless|interviews?|events?|making|'
     r'trailers?|previews?|promos?|promotion|tv[\s._-]*spots?|tvcm|bdcm|'
-    r'effects?|fan[\s._-]*disc|fandisc|.*pvd.*|reviews?|'
+    r'effects?|fan[\s._-]*disc|fandisc|privilege[\s._-]*dis[ck]|.*pvd.*|reviews?|'
     r'logo|logos|voices?|cds|ost|soundtrack|gallery|artwork|特典|映像特典|'
     r'特典映像|花絮|幕后|访谈|预告|預告|宣传|聲優|声优|'
     r'tv[\s._-]*スポット|プロモーション映像|(?:ミュージック|ミコージック)[・·\s._-]*クリップ|'
@@ -83,6 +83,10 @@ abstract final class CloudMediaFileClassifier {
     r'ピクチャードラマ|picture[\s._-]*drama|スペシャル[\s._-]*映像|未公開(?:映像)?|'
     r'bd[\s._-]*sp[\s._-]*live\w*|sp[\s._-]*live\w*|'
     r'bd[\s._-]*special[\s._-]*talk|special[\s._-]*talk|'
+    r'greeting[\s._-]*event|stage[\s._-]*events?|premiere[\s._-]*event|'
+    r'cv[\s._-]*chat|japan[\s._-]*expo|memorial[\s._-]*movie|'
+    r'weekly[\s._-]*movies?|weekly[\s._-]*hero[\s._-]*countdown|shinka[\s._-]*scene|'
+    r'撮りおろし[^\r\n]*インタビュー|先付けミニアニメ|ミニアニメ|'
     r'tokuten(?:[\s._-]*dvd)?|(?<![a-z0-9])(?:menue\d*|hauptmenue|vorschau)(?![a-z0-9])',
     caseSensitive: false,
   );

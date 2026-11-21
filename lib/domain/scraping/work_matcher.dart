@@ -31,6 +31,33 @@ abstract final class WorkMatcher {
     caseSensitive: false,
   );
 
+  static final _seasonDecorPrefix = RegExp(
+    r'^(?:第\s*[0-9一二三四五六七八九十百]+\s*[季期部]|season\s*\d+|series\s*\d+)[\s:：\-–—·・]*',
+    caseSensitive: false,
+  );
+
+  static final _seasonDecorSuffix = RegExp(
+    r'[\s:：\-–—·・]*(?:第\s*[0-9一二三四五六七八九十百]+\s*[季期部]|season\s*\d+|series\s*\d+)$',
+    caseSensitive: false,
+  );
+
+  static final _concertLiveMarker = RegExp(
+    r'\b(?:special\s+live|live\s+(?:19|20)\d{2}|concert)\b|演唱会|演唱會|ライブ',
+    caseSensitive: false,
+  );
+
+  static final _chapterInfixPattern = RegExp(
+    r'(?:前篇|后篇|後篇|中篇|前編|後編|上篇|下篇)',
+  );
+
+  static String _stripSeasonLabelDecor(String raw) {
+    var s = raw.trim();
+    if (s.isEmpty) return '';
+    s = s.replaceFirst(_seasonDecorPrefix, '').trim();
+    s = s.replaceFirst(_seasonDecorSuffix, '').trim();
+    return s;
+  }
+
   static final _latinMediaCarrier = RegExp(
     r'(?<![a-z0-9])(?:oad|ova|ona|sp|specials?|ex\d{0,2}|the\s+movie|movie|tv|bd|dvd|rip)(?![a-z0-9])',
     caseSensitive: false,
@@ -675,14 +702,24 @@ abstract final class WorkMatcher {
   }) {
     if (inventory.shape == WorkShape.empty) return MatchResult.empty;
     final linked = bangumi?.candidate;
-    final year = inventory.year ?? linked?.year;
-    // 从 Bangumi 借用的年份可能因 TV/OVA 版本发行差异存在偏差，此处采用柔和惩罚。
+    final verifiedBgm = bangumi?.tier == MatchTier.high ? linked : null;
+    // 仅从高置信 Bangumi 借用年份，防止中置信未核验条目借用错误年份误杀精确匹配的 TMDB 候选。
+    final year = inventory.year ?? verifiedBgm?.year;
     final borrowed = inventory.year == null;
     final matchedBgm =
         bangumi != null && bangumi.tier != MatchTier.none ? linked : null;
     final invSeq = _inventorySequelNumber(inventory);
     final primaryLatinTokens = _significantLatinTokens(inventory.title);
     final invHasCjk = _cjkPattern.hasMatch(inventory.title);
+    final isConcertLive =
+        _concertLiveMarker.hasMatch(inventory.title) ||
+        inventory.titleHints.any(_concertLiveMarker.hasMatch);
+    final isLocalOvaFolder =
+        !inventory.folderMovieMarker &&
+        !inventory.fileMovieMarker &&
+        (inventory.season == 0 ||
+            DirectoryAnalyzer.isOvaText(inventory.title) ||
+            DirectoryAnalyzer.isOvaText(inventory.folder));
     // TMDB 存在随手创建的空壳条目（无首播日期、无类型、零评分），标题与正主完全相同；
     // 仅当同批次存在信息完整的候选时才降权空壳，避免离线夹具（均无年份/类型）整体失真。
     final anyComplete = candidates.any(
@@ -699,6 +736,12 @@ abstract final class WorkMatcher {
       final scored = ScoredCandidate(candidate);
       if (anyComplete && candidate.year == null && candidate.genreIds.isEmpty) {
         scored.add(-30, 'stub entry');
+      } else if ((anyComplete || verifiedBgm != null) &&
+          candidate.genreIds.isEmpty &&
+          candidate.voteCount == 0 &&
+          (inventory.tmdbId != candidate.id || ignoreTmdbMarker)) {
+        // 无分类且明确零评分的冷门条目（常为非动画短片/同名杂项）不得高分误绑。
+        scored.add(-25, 'unverified empty-genre entry');
       }
       final votes = candidate.voteCount;
       if (votes != null && votes <= 2) {
@@ -726,19 +769,22 @@ abstract final class WorkMatcher {
         scored.add(20, 'bangumi-tmdb mapping');
       }
       var titleSim = _title(inventory, candidate);
-      final verifiedBgm = bangumi?.tier == MatchTier.high ? linked : null;
       final parentTvSpecial =
           verifiedBgm != null &&
           _isParentTvForBangumiSpecial(inventory, candidate, verifiedBgm);
+      final localOvaParentTv =
+          !parentTvSpecial &&
+          _isParentTvForLocalOvaFolder(inventory, candidate, titleSim);
+      final effectiveParentTvSpecial = parentTvSpecial || localOvaParentTv;
       if (titleSim < 0.85 && verifiedBgm != null) {
         final bridged = _bridgedTitle(verifiedBgm, candidate) * 0.85;
         if (bridged > titleSim) titleSim = bridged;
       }
-      if (parentTvSpecial && titleSim < 0.80) {
+      if (effectiveParentTvSpecial && titleSim < 0.80) {
         titleSim = 0.80;
       }
       scored.add(45 * titleSim, 'title');
-      if (!parentTvSpecial &&
+      if (!effectiveParentTvSpecial &&
           primaryLatinTokens.length >= 2 &&
           !invHasCjk &&
           !_candidateHasSharedCjkWithInventory(inventory, candidate) &&
@@ -746,18 +792,26 @@ abstract final class WorkMatcher {
           _coveredLatinTokens(primaryLatinTokens, candidate) < 2) {
         scored.add(-18, 'partial latin token match');
       }
+      var subtitleConflict = 0.0;
       if (candidate.type == 'movie') {
-        if (!isMapped && !parentTvSpecial && titleSim < 0.9) {
-          scored.add(
-            _subtitleConflictPenalty(
-              inventory,
-              candidate,
-              verifiedBangumi: verifiedBgm,
-            ),
-            'conflicting subtitle',
+        if (!isMapped && !effectiveParentTvSpecial && titleSim < 0.9) {
+          subtitleConflict = _subtitleConflictPenalty(
+            inventory,
+            candidate,
+            verifiedBangumi: verifiedBgm,
           );
+          scored.add(subtitleConflict, 'conflicting subtitle');
         }
         _movie(scored, inventory);
+        if (isLocalOvaFolder &&
+            !isMapped &&
+            !DirectoryAnalyzer.isOvaText(candidate.title) &&
+            !candidate.aliases.any(DirectoryAnalyzer.isOvaText) &&
+            (_movieWord.hasMatch(candidate.title) ||
+                candidate.title.contains(':') ||
+                candidate.title.contains('：'))) {
+          scored.add(-12, 'ova folder vs non-ova movie');
+        }
         _year(scored, year, candidate.year, borrowed: borrowed);
         if (invSeq != null &&
             !(inventory.tmdbId == candidate.id && !ignoreTmdbMarker) &&
@@ -776,7 +830,8 @@ abstract final class WorkMatcher {
           mappedSeason: isMapped ? mappedTarget.season : null,
           verifiedBangumi: verifiedBgm,
           matchedBangumi: matchedBgm,
-          parentTvSpecial: parentTvSpecial,
+          parentTvSpecial: effectiveParentTvSpecial,
+          localOvaParentTv: localOvaParentTv,
           titleSim: titleSim,
           ignoreTmdbMarker: ignoreTmdbMarker,
         );
@@ -784,24 +839,31 @@ abstract final class WorkMatcher {
           scored.add(45 * (0.85 - titleSim), 'season name');
         }
         if (!isMapped &&
-            !parentTvSpecial &&
+            !effectiveParentTvSpecial &&
             titleSim < 0.9 &&
             !scored.seasonNameMatched &&
             !scored.tmdbMarkerSeasonMatched) {
-          scored.add(
-            _subtitleConflictPenalty(
-              inventory,
-              candidate,
-              verifiedBangumi: verifiedBgm,
-            ),
-            'conflicting subtitle',
+          subtitleConflict = _subtitleConflictPenalty(
+            inventory,
+            candidate,
+            verifiedBangumi: verifiedBgm,
           );
+          scored.add(subtitleConflict, 'conflicting subtitle');
         }
       }
-      if (linked != null) {
-        _linked(scored, linked, parentTvSpecial: parentTvSpecial);
+      if (verifiedBgm != null ||
+          (matchedBgm != null && subtitleConflict == 0)) {
+        _linked(
+          scored,
+          verifiedBgm ?? matchedBgm!,
+          parentTvSpecial: effectiveParentTvSpecial,
+        );
       }
-      if (candidate.genreIds.isNotEmpty && !candidate.genreIds.contains(16)) {
+      final validMusicGenre =
+          isConcertLive && candidate.genreIds.contains(10402);
+      if (candidate.genreIds.isNotEmpty &&
+          !candidate.genreIds.contains(16) &&
+          !validMusicGenre) {
         scored.add(-35, 'non-animation genre');
       }
       ranking.add(scored);
@@ -816,6 +878,7 @@ abstract final class WorkMatcher {
           ? double.infinity
           : top.score - ranking[1].score;
       var cumulativeWithoutYear = false;
+      var exactSeasonCount = false;
       if (top.candidate.type == 'tv' &&
           top.season != null &&
           top.season! > 0 &&
@@ -824,13 +887,17 @@ abstract final class WorkMatcher {
             .where((s) => s.number == top.season)
             .firstOrNull;
         final maxEp = inventory.episodes.reduce((a, b) => a > b ? a : b);
-        if (matchedSeason != null &&
-            matchedSeason.count > 0 &&
-            maxEp > matchedSeason.count) {
-          cumulativeWithoutYear = true;
+        if (matchedSeason != null && matchedSeason.count > 0) {
+          if (maxEp > matchedSeason.count) {
+            cumulativeWithoutYear = true;
+          } else if (matchedSeason.count == inventory.episodeCount &&
+              inventory.episodeCount >= 4) {
+            exactSeasonCount = true;
+          }
         }
       }
-      if (!cumulativeWithoutYear && top.score >= 59.5 && margin >= 20.0) {
+      final minMargin = exactSeasonCount ? 18.0 : 20.0;
+      if (!cumulativeWithoutYear && top.score >= 59.5 && margin >= minMargin) {
         return MatchResult(MatchTier.high, ranking);
       }
     }
@@ -865,6 +932,7 @@ abstract final class WorkMatcher {
     MatchCandidate? verifiedBangumi,
     MatchCandidate? matchedBangumi,
     bool parentTvSpecial = false,
+    bool localOvaParentTv = false,
     double titleSim = 0,
     bool ignoreTmdbMarker = false,
   }) {
@@ -878,6 +946,7 @@ abstract final class WorkMatcher {
     int? yearOf = candidate.year;
     final bridgedSpecial =
         parentTvSpecial ||
+        localOvaParentTv ||
         (verifiedBangumi != null &&
             !inventory.folderMovieMarker &&
             (_bridgedTitle(verifiedBangumi, candidate) >= 0.60 ||
@@ -915,17 +984,24 @@ abstract final class WorkMatcher {
           _hasConflictingCjkTitle(inventory.title, candidate.title)) {
         scored.add(-18, 'short ova vs long tv');
       }
-      final seasonPick = _season(
-        inventory,
-        candidate,
-        regular,
-        year,
-        mappedSeason: mappedSeason,
-        linkedBangumi: matchedBangumi,
-        localIsRemaster: localIsRemaster,
-        ignoreTmdbMarker: ignoreTmdbMarker,
-      );
-      final maxSpecialEps = inventory.season == 0
+      final forceLocalOvaS0 =
+          localOvaParentTv &&
+          (mappedSeason == null || mappedSeason == 0) &&
+          specials.isNotEmpty &&
+          specials.first.count >= episodes;
+      final seasonPick = forceLocalOvaS0
+          ? null
+          : _season(
+              inventory,
+              candidate,
+              regular,
+              year,
+              mappedSeason: mappedSeason,
+              linkedBangumi: matchedBangumi,
+              localIsRemaster: localIsRemaster,
+              ignoreTmdbMarker: ignoreTmdbMarker,
+            );
+      final maxSpecialEps = (inventory.season == 0 || localOvaParentTv)
           ? (specials.isNotEmpty ? specials.first.count : 0)
           : ((mappedSeason == 0 || (matchedBangumi?.isSpecialFormat ?? false))
                 ? 12
@@ -934,6 +1010,7 @@ abstract final class WorkMatcher {
           inventory.season == 0 ||
           mappedSeason == 0 ||
           parentTvSpecial ||
+          localOvaParentTv ||
           (bridgedSpecial &&
               DirectoryAnalyzer.normalize(inventory.title).length >=
                   DirectoryAnalyzer.normalize(candidate.title).length + 2);
@@ -959,7 +1036,11 @@ abstract final class WorkMatcher {
         scored.season = 0;
         yearOf = s0.year ?? yearOf;
         scored.add(
-          parentTvSpecial || inventory.season == 0 ? 12 : 10,
+          s0.count == episodes
+              ? 15
+              : (parentTvSpecial || localOvaParentTv || inventory.season == 0
+                    ? 12
+                    : 10),
           'special season',
         );
       } else if (regular.isNotEmpty &&
@@ -1015,10 +1096,14 @@ abstract final class WorkMatcher {
           final match = small.first;
           scored.season = match.number;
           yearOf = match.year ?? yearOf;
-          scored.add(
-            regular.isEmpty && specials.isEmpty ? 0 : 10,
-            'special/short season',
-          );
+          if (inventory.folderMovieMarker) {
+            scored.add(-5, 'movie folder vs tv special');
+          } else {
+            scored.add(
+              regular.isEmpty && specials.isEmpty ? 0 : 10,
+              'special/short season',
+            );
+          }
         } else if (inventory.folderMovieMarker || inventory.fileMovieMarker) {
           scored.add(-35, 'movie vs tv');
         } else if (candidate.seasons.isNotEmpty) {
@@ -1102,13 +1187,16 @@ abstract final class WorkMatcher {
       _year(scored, year, candidate.year, borrowed: borrowed);
     } else if (scored.season == 0 &&
         bridgedSpecial &&
+        year != null &&
+        (yearOf != null || candidate.year != null) &&
         (parentTvSpecial
-            ? (year == null || yearOf == null || year >= yearOf - 1)
-            : (year != null && yearOf != null && year > yearOf + 1))) {
-      scored.add(
-        _yearDiff(year, yearOf) == 0 ? 15 : 8,
-        'franchise special year',
-      );
+            ? (year >= (yearOf ?? candidate.year!) - 1 ||
+                  (candidate.year != null && year >= candidate.year! - 1))
+            : (yearOf != null && year > yearOf + 1))) {
+      final specialYearScore = _yearDiff(year, yearOf) <= 1
+          ? 15.0
+          : (localOvaParentTv && titleSim >= 0.90 ? 13.0 : 8.0);
+      scored.add(specialYearScore, 'franchise special year');
     } else if (mergedContinuousSequelYear) {
       scored.add(8, 'merged single-season sequel year');
     } else {
@@ -1140,7 +1228,9 @@ abstract final class WorkMatcher {
   }) {
     final rawName = season.name?.trim() ?? '';
     if (rawName.isEmpty || _genericSeasonName.hasMatch(rawName)) return 0.0;
-    final sNorm = _canonCjk(DirectoryAnalyzer.normalize(rawName));
+    final strippedName = _stripSeasonLabelDecor(rawName);
+    final effectiveName = strippedName.isNotEmpty ? strippedName : rawName;
+    final sNorm = _canonCjk(DirectoryAnalyzer.normalize(effectiveName));
     if (sNorm.length < 2) return 0.0;
     final baseNorm = _canonCjk(
       DirectoryAnalyzer.normalize(_stripRemaster(candidate.title)),
@@ -1583,6 +1673,52 @@ abstract final class WorkMatcher {
         _bridgedTitle(verifiedBangumi, candidate) >= 0.60;
   }
 
+  /// 在无高置信 Bangumi 支撑时，判断本地显式 OVA/OAD/EX 目录是否应直接归入母剧 TMDB TV 的第 0 季：
+  /// 若候选自身已是独立 OVA 条目（如 `我的女神 OAD`），则返回 false 保持常规正片季匹配，避免压制独立条目。
+  static bool _isParentTvForLocalOvaFolder(
+    DirectoryInventory inventory,
+    MatchCandidate candidate,
+    double titleSim,
+  ) {
+    if (candidate.type != 'tv') return false;
+    if ((inventory.season != null && inventory.season != 0) ||
+        inventory.folderMovieMarker ||
+        inventory.fileMovieMarker) {
+      return false;
+    }
+    final explicitOvaFolder =
+        DirectoryAnalyzer.isOvaText(inventory.title) ||
+        DirectoryAnalyzer.isOvaText(inventory.folder);
+    if (!explicitOvaFolder) return false;
+    if (DirectoryAnalyzer.isOvaText(candidate.title) ||
+        candidate.aliases.any(DirectoryAnalyzer.isOvaText)) {
+      return false;
+    }
+    final localCount = inventory.shape == WorkShape.series
+        ? inventory.episodeCount
+        : inventory.shape == WorkShape.feature
+        ? inventory.featureCount
+        : 0;
+    if (localCount < 1 || localCount > 12) return false;
+
+    final specials = candidate.seasons.where((s) => s.number == 0).toList();
+    if (specials.isEmpty || specials.first.count < localCount) return false;
+
+    if (titleSim >= 0.72) return true;
+
+    final localNorm = DirectoryAnalyzer.normalize(inventory.title);
+    final candNorms = [candidate.title, ...candidate.aliases]
+        .map(DirectoryAnalyzer.normalize)
+        .where(
+          (s) =>
+              RegExp(r'[\u3040-\u9fff]').allMatches(s).length >= 2 ||
+              s.length >= 6,
+        );
+    return candNorms.any(
+      (c) => localNorm.startsWith(c) && localNorm.length > c.length,
+    );
+  }
+
   static bool _candidateHasSequelSignal(
     DirectoryInventory inventory,
     List<String> names,
@@ -1825,15 +1961,29 @@ abstract final class WorkMatcher {
     final baseCandNorm = DirectoryAnalyzer.normalize(candidate.title);
     final sharesBase =
         baseCandNorm.length >= 2 && primaryNorm.contains(baseCandNorm);
+    final localHasChapterInfix =
+        _chapterInfixPattern.hasMatch(inventory.title) ||
+        inventory.titleHints.any(_chapterInfixPattern.hasMatch);
     final remoteRaw = <String>[
       candidate.title,
       ...candidate.aliases,
+      if (candidate.type == 'movie' && !localHasChapterInfix)
+        for (final raw in [candidate.title, ...candidate.aliases])
+          if (_chapterInfixPattern.hasMatch(raw))
+            raw.replaceAll(_chapterInfixPattern, ' ').trim(),
       if (candidate.type == 'tv')
         for (final s in candidate.seasons)
           if (s.name != null &&
               s.name!.trim().isNotEmpty &&
               !_genericSeasonName.hasMatch(s.name!.trim())) ...[
             '${candidate.title} ${s.name!.trim()}',
+            if (_stripSeasonLabelDecor(s.name!) case final stripped
+                when stripped.isNotEmpty && stripped != s.name!.trim()) ...[
+              '${candidate.title} $stripped',
+              if (DirectoryAnalyzer.normalize(stripped).length >= 4 ||
+                  sharesBase)
+                stripped,
+            ],
             if (DirectoryAnalyzer.normalize(s.name!.trim()).length >= 4 ||
                 sharesBase)
               s.name!.trim(),
@@ -1968,7 +2118,15 @@ abstract final class WorkMatcher {
             if (latinPrefixOnly && pairSim > 0.34) {
               pairSim = 0.34;
             }
-            final value = pairSim * effectiveWeight;
+            // 完整长文件名主干与候选正式名归一化后完全一致时，不因来源为文件名而折损权重。
+            final hitWeight =
+                (pairSim >= 0.999 &&
+                    effectiveWeight < 1.0 &&
+                    local.length >= 10 &&
+                    !(localIsEx && !candHasEx && !hintHasEx))
+                ? 1.0
+                : effectiveWeight;
+            final value = pairSim * hitWeight;
             if (value > best) best = value;
           }
         }

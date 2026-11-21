@@ -11,7 +11,7 @@ const CLIENT_KEY_PATTERN = /^[A-Za-z0-9]{16,64}$/;
 const UPSTREAM_ORIGIN = 'https://webservice.fanart.tv';
 const POSITIVE_TTL_SECONDS = 43200; // 12 小时正缓存
 const NEGATIVE_TTL_SECONDS = 7200; // 2 小时 404 负缓存
-const LOGO_FIELDS = [
+const ARTWORK_FIELDS = [
   'name',
   'tmdb_id',
   'thetvdb_id',
@@ -19,6 +19,11 @@ const LOGO_FIELDS = [
   'clearlogo',
   'hdmovielogo',
   'movielogo',
+  'tvposter',
+  'seasonposter',
+  'movieposter',
+  'showbackground',
+  'moviebackground',
 ];
 
 function jsonResponse(payload, status, extraHeaders = {}) {
@@ -32,10 +37,10 @@ function jsonResponse(payload, status, extraHeaders = {}) {
   });
 }
 
-function slimLogoPayload(raw) {
+function slimArtworkPayload(raw) {
   if (!raw || typeof raw !== 'object') return {};
   const slim = {};
-  for (const key of LOGO_FIELDS) {
+  for (const key of ARTWORK_FIELDS) {
     if (key in raw) {
       slim[key] = raw[key];
     }
@@ -104,7 +109,7 @@ export default {
 
     // 统一归一化键（绝不引用原始 request.url，杜绝大小写与多余斜杠导致的缓存分裂）
     const l1CacheKey = new Request(
-      `https://konata-fanart-slim.internal/v3/${mediaType}/${numericId}`,
+      `https://konata-fanart-art.internal/v3/${mediaType}/${numericId}`,
       { method: 'GET' },
     );
     const upstreamUrl = `${UPSTREAM_ORIGIN}/v3/${mediaType}/${numericId}`;
@@ -205,7 +210,7 @@ export default {
       });
     }
 
-    const response = jsonResponse(slimLogoPayload(parsed), 200, {
+    const response = jsonResponse(slimArtworkPayload(parsed), 200, {
       'Cache-Control': hasClientKey
         ? 'private, no-store'
         : `public, max-age=${POSITIVE_TTL_SECONDS}`,

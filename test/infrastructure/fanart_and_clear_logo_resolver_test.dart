@@ -1,21 +1,35 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:ccplayer/application/providers/library_providers.dart';
+import 'package:ccplayer/application/providers/work_merge_actions.dart';
 import 'package:ccplayer/application/scraping/clear_logo_resolver.dart';
+import 'package:ccplayer/application/scraping/scrape_compute_worker.dart';
+import 'package:ccplayer/application/scraping/scrape_orchestrator.dart';
 import 'package:ccplayer/domain/formatting/network_error_sanitizer.dart';
+import 'package:ccplayer/domain/matching/directory_grouper.dart';
+import 'package:ccplayer/domain/models/episode.dart';
 import 'package:ccplayer/domain/models/fanart_models.dart';
+import 'package:ccplayer/domain/models/media_source.dart';
+import 'package:ccplayer/domain/models/media_variant.dart';
 import 'package:ccplayer/domain/models/network_config.dart';
 import 'package:ccplayer/domain/models/work.dart';
 import 'package:ccplayer/domain/scraping/bangumi_tmdb_index.dart';
+import 'package:ccplayer/domain/scraping/scrape_domain_adapter.dart';
 import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
 import 'package:ccplayer/infrastructure/database/konata_database.dart';
+import 'package:ccplayer/infrastructure/network/bangumi_service.dart';
 import 'package:ccplayer/infrastructure/network/fanart_service.dart';
 import 'package:ccplayer/infrastructure/network/priority_http_scheduler.dart';
 import 'package:ccplayer/infrastructure/network/tmdb_http_client.dart';
 import 'package:ccplayer/infrastructure/network/tmdb_service.dart';
+import 'package:ccplayer/infrastructure/sources/directory_scanner.dart';
+import 'package:ccplayer/infrastructure/sources/local_source_gateway.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:path/path.dart' as p;
 
 void main() {
   group('FanartService 无状态中继、自定义覆盖与 429/1027 熔断闭环', () {
@@ -487,6 +501,602 @@ void main() {
         ),
         isEmpty,
       );
+      expect(
+        TmdbNetworkConfig.builtInFanartRelayBase,
+        'https://api.konata.acgcc.cn',
+      );
+      // 自定义直连模式下不将内置中继误作直连反代，防止向公开中继透传用户私有 api-key
+      const directDefault = TmdbNetworkConfig(
+        fanartApiKeyOverride: 'my_custom_key_123456',
+      );
+      expect(directDefault.normalizedFanartDirectBackupApiBase, isEmpty);
+      const directCustomProxy = TmdbNetworkConfig(
+        fanartApiKeyOverride: 'my_custom_key_123456',
+        fanartBackupApiBase: 'https://my-fanart-proxy.example',
+      );
+      expect(
+        directCustomProxy.normalizedFanartDirectBackupApiBase,
+        'https://my-fanart-proxy.example',
+      );
+    });
+  });
+
+  group('Fanart 整包缓存、多源徽标/背景联合升级、跨源防合并与独立上墙全链路回归', () {
+    test('单次 Fanart 整包缓存复用三次读取仅发 1 次请求，解析分季海报与 1080p 无字背景并严格剔除 tvthumb/moviethumb', () async {
+      var httpCalls = 0;
+      final mockClient = MockClient((request) async {
+        httpCalls++;
+        return http.Response(
+          jsonEncode({
+            'hdtvlogo': [
+              {
+                'id': 'l1',
+                'url': 'https://assets.fanart.tv/fanart/tv/424536/hdtvlogo/ja.png',
+                'lang': 'ja',
+                'likes': '14',
+              },
+            ],
+            'tvposter': [
+              {
+                'id': 'p1',
+                'url': 'https://assets.fanart.tv/fanart/tv/424536/tvposter/main.jpg',
+                'lang': 'ja',
+                'likes': '9',
+              },
+            ],
+            'seasonposter': [
+              {
+                'id': 'sp1',
+                'url': 'https://assets.fanart.tv/fanart/tv/424536/seasonposter/s1.jpg',
+                'lang': 'zh',
+                'likes': '12',
+                'season': '1',
+              },
+              {
+                'id': 'sp0',
+                'url': 'https://assets.fanart.tv/fanart/tv/424536/seasonposter/s0.jpg',
+                'lang': 'ja',
+                'likes': '4',
+                'season': '0',
+              },
+            ],
+            'showbackground': [
+              {
+                'id': 'bg1',
+                'url': 'https://assets.fanart.tv/fanart/tv/424536/showbackground/low.jpg',
+                'likes': '3',
+              },
+              {
+                'id': 'bg2',
+                'url': 'https://assets.fanart.tv/fanart/tv/424536/showbackground/top.jpg',
+                'likes': '25',
+              },
+            ],
+            'tvthumb': [
+              {
+                'id': 'bad1',
+                'url': 'https://assets.fanart.tv/fanart/tv/424536/tvthumb/texted.jpg',
+                'likes': '99',
+              },
+            ],
+          }),
+          200,
+          headers: const {'content-type': 'application/json'},
+        );
+      });
+
+      final cache = FanartArtworkCache();
+      final httpClient = TmdbHttpClient(
+        config: const TmdbNetworkConfig(
+          fanartBackupApiBase: 'https://relay.konata.example',
+        ),
+        scheduler: PriorityHttpScheduler(maxRetries: 0),
+        httpClient: mockClient,
+      );
+      final fanart = FanartService(
+        httpClient: httpClient,
+        artworkCache: cache,
+      );
+
+      final first = await fanart.fetchArtworkBundle(
+        mediaType: TmdbMediaType.tv,
+        tvdbId: 424536,
+      );
+      final second = await fanart.fetchArtworkBundle(
+        mediaType: TmdbMediaType.tv,
+        tvdbId: 424536,
+      );
+      final third = await fanart.fetchLogos(
+        mediaType: TmdbMediaType.tv,
+        tvdbId: 424536,
+      );
+      expect(httpCalls, 1);
+      expect(identical(first, second), isTrue);
+      expect(identical(first, third), isTrue);
+
+      expect(first.posters, hasLength(3));
+      final s1 = first.posters.firstWhere((e) => e.season == 1);
+      final sp = first.posters.firstWhere((e) => e.season == 0);
+      expect(s1.sourceLabel, 'Fanart.tv·S1');
+      expect(sp.sourceLabel, 'Fanart.tv·SP');
+      expect(s1.width, 1000);
+      expect(s1.height, 1426);
+      expect(s1.previewUrl, contains('/preview/'));
+      expect(first.bestPosterUrlForSeason(1), s1.url);
+
+      expect(first.backgrounds, hasLength(2));
+      expect(first.bestBackgroundUrl, contains('/top.jpg'));
+      expect(
+        first.backgrounds.any((b) => b.url.contains('tvthumb')),
+        isFalse,
+      );
+    });
+
+    test('ClearLogoResolver 联合排序将已有 TMDB 英文徽标升级为 Fanart 高清日文，并同步升级 720p 背景且写入防重复掩码', () async {
+      final now = DateTime.utc(2026, 11, 21, 15, 0, 0);
+      final mockClient = MockClient((request) async {
+        if (request.url.host == 'api.themoviedb.org') {
+          if (request.url.path.endsWith('/tv/209867')) {
+            return http.Response.bytes(
+              utf8.encode(
+                jsonEncode({
+                  'id': 209867,
+                  'name': '葬送的芙莉莲',
+                  'backdrop_path': '/tmdb_720.jpg',
+                  'external_ids': {'tvdb_id': 424536},
+                  'images': {
+                    'logos': [
+                      {
+                        'iso_639_1': 'en',
+                        'iso_3166_1': 'US',
+                        'file_path': '/tmdb_en.png',
+                        'width': 1200,
+                        'height': 300,
+                        'vote_average': 8.5,
+                      },
+                    ],
+                    'backdrops': [
+                      {
+                        'iso_639_1': null,
+                        'file_path': '/tmdb_720.jpg',
+                        'width': 1280,
+                        'height': 720,
+                        'vote_average': 8.0,
+                      },
+                    ],
+                  },
+                }),
+              ),
+              200,
+              headers: const {'content-type': 'application/json; charset=utf-8'},
+            );
+          }
+          return http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'id': 209868,
+                'name': '仅英文老番',
+                'external_ids': {'tvdb_id': 999001},
+                'images': {
+                  'logos': [
+                    {
+                      'iso_639_1': 'en',
+                      'file_path': '/only_en.png',
+                      'width': 1000,
+                      'height': 250,
+                    },
+                  ],
+                },
+              }),
+            ),
+            200,
+            headers: const {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        if (request.url.host == 'relay.konata.example') {
+          if (request.url.path == '/fanart/v3/tv/424536') {
+            return http.Response(
+              jsonEncode({
+                'hdtvlogo': [
+                  {
+                    'id': 'ja1',
+                    'url': 'https://assets.fanart.tv/fanart/tv/424536/hdtvlogo/ja.png',
+                    'lang': 'ja',
+                    'likes': '11',
+                  },
+                ],
+                'showbackground': [
+                  {
+                    'id': 'bg1080',
+                    'url': 'https://assets.fanart.tv/fanart/tv/424536/showbackground/clean_1080.jpg',
+                    'likes': '18',
+                  },
+                ],
+              }),
+              200,
+            );
+          }
+          return http.Response('{"error":"not_found"}', 404);
+        }
+        return http.Response('not found', 404);
+      });
+
+      const cfg = TmdbNetworkConfig(
+        credential: 'tmdb_key',
+        fanartBackupApiBase: 'https://relay.konata.example',
+      );
+      final httpClient = TmdbHttpClient(
+        config: cfg,
+        scheduler: PriorityHttpScheduler(maxRetries: 0),
+        httpClient: mockClient,
+      );
+      final resolver = ClearLogoResolver(
+        tmdbService: TmdbService(httpClient: httpClient),
+        fanartService: FanartService(
+          httpClient: httpClient,
+          artworkCache: FanartArtworkCache(),
+        ),
+        networkConfig: cfg,
+        nowProvider: () => now,
+      );
+
+      // 1. 已有非锁定 TMDB 英文徽标的作品允许触发一次性多源联合升级，Fanart 高清日文胜出并同步升级 1080p 背景
+      const workWithTmdbEn = Work(
+        id: 'w_upgrade',
+        title: '葬送的芙莉莲',
+        tmdbId: 209867,
+        tmdbMediaType: TmdbMediaType.tv,
+        logoPath: '/tmdb_en.png',
+        backdropPath: '/tmdb_720.jpg',
+      );
+      expect(
+        ClearLogoResolver.shouldAttemptDetailLogoBackfill(
+          work: workWithTmdbEn,
+          config: cfg,
+          now: now,
+        ),
+        isTrue,
+      );
+      final upgraded = await resolver.resolveForWork(
+        workWithTmdbEn,
+        allowUpgradeExisting: true,
+        upgradeBackdropIfSuboptimal: true,
+      );
+      expect(upgraded.logoPath, contains('/hdtvlogo/ja.png'));
+      expect(upgraded.upgradedBackdropPath, contains('/clean_1080.jpg'));
+
+      // 2. 若 Fanart 404 未提供更优徽标，则保留原 TMDB 英文徽标并盖章 multiSourceUpgraded 防止反复探测
+      const workOnlyEn = Work(
+        id: 'w_only_en',
+        title: '仅英文老番',
+        tmdbId: 209868,
+        tmdbMediaType: TmdbMediaType.tv,
+        logoPath: '/only_en.png',
+      );
+      final kept = await resolver.resolveForWork(
+        workOnlyEn,
+        allowUpgradeExisting: true,
+      );
+      expect(kept.logoPath, '/only_en.png');
+      expect(
+        kept.negativeMask & ClearLogoNegativeMask.multiSourceUpgraded,
+        isNonZero,
+      );
+      expect(
+        ClearLogoResolver.shouldAttemptDetailLogoBackfill(
+          work: workOnlyEn.copyWith(logoNegativeMask: kept.negativeMask),
+          config: cfg,
+          now: now.add(const Duration(minutes: 10)),
+        ),
+        isFalse,
+      );
+    });
+
+    test('findAutoMergeTargetInRepo 仅允许同媒体源自动合并，严格禁止跨源自动合并', () async {
+      final db = KonataDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final repo = DriftLibraryRepository(db);
+      await repo.upsertMediaSource(
+        const MediaSource(
+          id: 'src_local',
+          kind: MediaSourceKind.local,
+          label: '本地磁盘',
+          location: r'D:\Anime',
+        ),
+      );
+      await repo.upsertMediaSource(
+        const MediaSource(
+          id: 'src_webdav',
+          kind: MediaSourceKind.webdav,
+          label: 'NAS WebDAV',
+          location: 'https://nas.example/dav',
+        ),
+      );
+
+      await repo.upsertWork(
+        const Work(
+          id: 'w_main_local',
+          title: '葬送的芙莉莲',
+          tmdbId: 209867,
+          tmdbMediaType: TmdbMediaType.tv,
+          matchedSeason: 1,
+          scrapeStatus: ScrapeStatus.matched,
+        ),
+      );
+      await repo.upsertEpisode(
+        const Episode(
+          id: 'ep_main_1',
+          workId: 'w_main_local',
+          seasonNumber: 1,
+          episodeNumber: 1,
+          category: EpisodeCategory.main,
+          title: '第 1 话',
+        ),
+      );
+      await repo.upsertMediaVariant(
+        const MediaVariant(
+          id: 'v_main_local',
+          workId: 'w_main_local',
+          episodeId: 'ep_main_1',
+          sourceId: 'src_local',
+          relativePath: 'Frieren/01.mkv',
+          fileName: '01.mkv',
+          fileSize: 1000,
+        ),
+      );
+
+      // 同源 0 正片特典壳 -> 允许合并
+      await repo.upsertWork(
+        const Work(
+          id: 'w_sp_same_src',
+          title: '芙莉莲 特典',
+          scrapeStatus: ScrapeStatus.needsReview,
+        ),
+      );
+      await repo.upsertMediaVariant(
+        const MediaVariant(
+          id: 'v_sp_same',
+          workId: 'w_sp_same_src',
+          sourceId: 'src_local',
+          relativePath: 'Frieren/SP/NCOP.mkv',
+          fileName: 'NCOP.mkv',
+          fileSize: 500,
+        ),
+      );
+
+      // 跨源（WebDAV）0 正片目录 -> 禁止跨源自动合并
+      await repo.upsertWork(
+        const Work(
+          id: 'w_sp_other_src',
+          title: '芙莉莲 特典 WebDAV',
+          scrapeStatus: ScrapeStatus.needsReview,
+        ),
+      );
+      await repo.upsertMediaVariant(
+        const MediaVariant(
+          id: 'v_sp_other',
+          workId: 'w_sp_other_src',
+          sourceId: 'src_webdav',
+          relativePath: 'Frieren/SP/NCOP.mkv',
+          fileName: 'NCOP.mkv',
+          fileSize: 500,
+        ),
+      );
+
+      final sameSourceTarget = await findAutoMergeTargetInRepo(
+        repo,
+        sourceWorkId: 'w_sp_same_src',
+        tmdbId: 209867,
+        tmdbMediaType: TmdbMediaType.tv,
+        matchedSeason: 1,
+      );
+      expect(sameSourceTarget?.id, 'w_main_local');
+
+      final crossSourceTarget = await findAutoMergeTargetInRepo(
+        repo,
+        sourceWorkId: 'w_sp_other_src',
+        tmdbId: 209867,
+        tmdbMediaType: TmdbMediaType.tv,
+        matchedSeason: 1,
+      );
+      expect(crossSourceTarget, isNull);
+    });
+
+    test('本地磁盘封面仅本地源扫描生效（不扫 clearlogo），且 Bangumi 独立 OVA 与本地封面独立上墙、纯特典不误拆', () async {
+      final tempRoot = await Directory.systemTemp.createTemp(
+        'konata_wall_decouple_',
+      );
+      addTearDown(() async {
+        if (await tempRoot.exists()) {
+          await tempRoot.delete(recursive: true);
+        }
+      });
+
+      // 1. 仅本地封面独立作品（含正片 + poster.jpg + clearlogo.png）
+      final localOnlyDir = Directory(p.join(tempRoot.path, 'Indie Short (2024)'));
+      await localOnlyDir.create(recursive: true);
+      await File(
+        p.join(localOnlyDir.path, '[Sub] Indie Short [01][1080p].mkv'),
+      ).writeAsBytes(List<int>.filled(64, 1));
+      await File(p.join(localOnlyDir.path, 'poster.jpg')).writeAsBytes([1, 2, 3]);
+      await File(p.join(localOnlyDir.path, 'clearlogo.png')).writeAsBytes([4, 5, 6]);
+
+      // 2. 纯特典目录（0 正片，仅有 NCOP + poster.jpg），绝不可独立建卡
+      final extraDir = Directory(p.join(tempRoot.path, 'Only Extras (2024)'));
+      await extraDir.create(recursive: true);
+      await File(
+        p.join(extraDir.path, '[VCB-Studio] Only Extras [NCOP01][1080p].mkv'),
+      ).writeAsBytes(List<int>.filled(64, 2));
+      await File(p.join(extraDir.path, 'poster.jpg')).writeAsBytes([1, 2, 3]);
+
+      // 3. 仅 Bangumi 独立 OVA（TMDB 无条目，Bangumi 有封面与简介）
+      final bgmOvaDir = Directory(p.join(tempRoot.path, 'Mystic OVA (2025)'));
+      await bgmOvaDir.create(recursive: true);
+      await File(
+        p.join(bgmOvaDir.path, '[VCB-Studio] Mystic OVA [01][1080p].mkv'),
+      ).writeAsBytes(List<int>.filled(64, 3));
+
+      // 核验 DirectoryScanner：本地源开启 detectLocalCovers 能识别 poster.jpg，远程源关闭时不扫描任何封面
+      final gateway = LocalSourceGateway(rootPath: tempRoot.path);
+      const scanner = DirectoryScanner();
+      final localScan = await scanner.scan(gateway, detectLocalCovers: true);
+      expect(
+        localScan.localCoverByFolder['Indie Short (2024)'],
+        'Indie Short (2024)/poster.jpg',
+      );
+      final remoteScan = await scanner.scan(gateway, detectLocalCovers: false);
+      expect(remoteScan.localCoverByFolder, isEmpty);
+
+      // 核验拆簇不继承父合集根目录 folder.jpg
+      final splitCheck = ScrapeDomainAdapter.groupAndSplitFiles(
+        sourceId: 'src_local',
+        files: const [
+          ScannedFileInput(
+            relativePath: 'Collection/Season 1/[Sub] Show A [01].mkv',
+            fileName: '[Sub] Show A [01].mkv',
+            fileSize: 100,
+            assetKind: AssetKind.video,
+          ),
+          ScannedFileInput(
+            relativePath: 'Collection/Movie/[Sub] Show Movie.mkv',
+            fileName: '[Sub] Show Movie.mkv',
+            fileSize: 200,
+            assetKind: AssetKind.video,
+          ),
+        ],
+        localCoverByFolder: const {
+          'Collection': r'D:\Anime\Collection\folder.jpg',
+        },
+      );
+      for (final g in splitCheck) {
+        if (g.isSplitCluster) {
+          expect(g.localPosterPath, isNull);
+        }
+      }
+
+      // 端到端 ScrapeOrchestrator 扫库验证：无 TMDB 匹配下 Bangumi OVA 与本地封面作品独立上墙，纯特典保持非 matched
+      final db = KonataDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final repo = DriftLibraryRepository(db);
+      final localSource = MediaSource(
+        id: 'src_local_test',
+        kind: MediaSourceKind.local,
+        label: '本地番剧库',
+        location: tempRoot.path,
+      );
+      await repo.upsertMediaSource(localSource);
+
+      final mockHttp = MockClient((request) async {
+        final uriStr = request.url.toString();
+        if (uriStr.contains('api.bgm.tv') && uriStr.contains('/search/subjects')) {
+          final body = request.body;
+          if (body.contains('Mystic OVA')) {
+            return http.Response.bytes(
+              utf8.encode(
+                jsonEncode({
+                  'data': [
+                    {
+                      'id': 88001,
+                      'type': 2,
+                      'name': 'Mystic OVA',
+                      'name_cn': '神秘 OVA',
+                      'date': '2025-05-01',
+                      'eps': 1,
+                      'rating': {'score': 8.1},
+                      'summary': '独立 OVA 简介',
+                      'images': {
+                        'large': 'https://lain.bgm.tv/pic/cover/l/mystic_ova.jpg',
+                      },
+                    },
+                  ],
+                }),
+              ),
+              200,
+              headers: const {'content-type': 'application/json; charset=utf-8'},
+            );
+          }
+          return http.Response('{"data":[]}', 200);
+        }
+        if (uriStr.contains('api.bgm.tv') && uriStr.contains('/episodes')) {
+          return http.Response(
+            jsonEncode({
+              'data': [
+                {'id': 1, 'type': 0, 'sort': 1, 'ep': 1, 'name_cn': '序章 OVA'},
+              ],
+            }),
+            200,
+          );
+        }
+        return http.Response('{"results":[]}', 200);
+      });
+
+      final client = TmdbHttpClient(
+        config: const TmdbNetworkConfig(credential: ''),
+        scheduler: PriorityHttpScheduler(maxRetries: 0),
+        httpClient: mockHttp,
+      );
+      final orchestrator = ScrapeOrchestrator(
+        repository: repo,
+        tmdbService: TmdbService(httpClient: client),
+        bangumiService: BangumiService(httpClient: client),
+        gatewayBuilder: (s) async => LocalSourceGateway(rootPath: s.location),
+        computeWorker: const ScrapeComputeWorker(useIsolate: false),
+      );
+
+      await orchestrator.scanAndScrapeSource(localSource);
+      final works = await repo.getAllWorks();
+      final indie = works.firstWhere((w) => w.title.contains('Indie Short'));
+      final bgmOva = works.firstWhere((w) => w.bangumiId == 88001);
+      final extraOnly = works.firstWhere((w) => w.title.contains('Only Extras'));
+
+      expect(indie.scrapeStatus, ScrapeStatus.matched);
+      expect(indie.posterPath, endsWith('poster.jpg'));
+      expect(bgmOva.scrapeStatus, ScrapeStatus.matched);
+      expect(bgmOva.tmdbId, isNull);
+      expect(bgmOva.posterPath, contains('mystic_ova.jpg'));
+      expect(extraOnly.scrapeStatus, isNot(ScrapeStatus.matched));
+
+      // 模拟跨源同作品角标：若同一 Bangumi OVA 在 WebDAV 源再入库一张卡，两者均显示对应来源角标
+      const webdavItem = WorkLibraryItem(
+        work: Work(
+          id: 'w_dav_ova',
+          title: '神秘 OVA',
+          bangumiId: 88001,
+          scrapeStatus: ScrapeStatus.matched,
+        ),
+        variants: [],
+        episodeCount: 1,
+        releaseGroups: [],
+        sourceIds: ['src_webdav'],
+        primarySourceKind: MediaSourceKind.webdav,
+        primarySourceLabel: 'NAS',
+      );
+      final localItem = WorkLibraryItem(
+        work: bgmOva,
+        variants: const [],
+        episodeCount: 1,
+        releaseGroups: const [],
+        sourceIds: const ['src_local_test'],
+        primarySourceKind: MediaSourceKind.local,
+        primarySourceLabel: '本地番剧库',
+      );
+      final indieItem = WorkLibraryItem(
+        work: indie,
+        variants: const [],
+        episodeCount: 1,
+        releaseGroups: const [],
+        sourceIds: const ['src_local_test'],
+        primarySourceKind: MediaSourceKind.local,
+        primarySourceLabel: '本地番剧库',
+      );
+      final annotated = annotateCrossSourceBadges([
+        localItem,
+        webdavItem,
+        indieItem,
+      ]);
+      expect(annotated[0].crossSourceBadgeLabel, '本地');
+      expect(annotated[1].crossSourceBadgeLabel, 'WebDAV');
+      expect(annotated[2].crossSourceBadgeLabel, isNull);
     });
   });
 }

@@ -16,6 +16,7 @@ class DirectoryScanResult {
     required this.files,
     required this.nfoByFolder,
     required this.scannedDirectories,
+    this.localCoverByFolder = const {},
     this.folderVideoCounts = const {},
     this.cancelled = false,
   });
@@ -25,6 +26,9 @@ class DirectoryScanResult {
 
   /// 目录相对路径到 `.nfo` 文本内容的映射。
   final Map<String, String> nfoByFolder;
+
+  /// 仅限本地磁盘源扫描时顺手识别的目录封面相对路径（优先级：`poster` > `cover` > `folder`，绝不扫描本地 Logo）。
+  final Map<String, String> localCoverByFolder;
 
   /// 本次遍历的目录总数。
   final int scannedDirectories;
@@ -94,9 +98,12 @@ class DirectoryScanner {
   );
 
   /// 异步递归扫描媒体源根目录或用户勾选的 [scanRoots]，返回可供后台 Isolate 归组的文件清单。
+  ///
+  /// 仅当 [detectLocalCovers] 为 `true`（仅本地磁盘源启用）时，在既有目录枚举过程中零额外 I/O 顺手记录同级常规封面文件。
   Future<DirectoryScanResult> scan(
     MediaSourceGateway gateway, {
     List<String> scanRoots = const [],
+    bool detectLocalCovers = false,
     DirectoryScanProgressCallback? onProgress,
     DirectoryFolderVisitedCallback? onFolderVisited,
     bool Function()? isCancelled,
@@ -106,6 +113,8 @@ class DirectoryScanner {
     final rawFiles = <RemoteEntry>[];
     final subtitlesByFolder = <String, List<RemoteEntry>>{};
     final nfoByFolder = <String, String>{};
+    final localCoverByFolder = <String, String>{};
+    final localCoverRankByFolder = <String, int>{};
     final folderVideoCounts = <String, int>{};
     var scannedDirectories = 0;
     var cancelled = false;
@@ -165,6 +174,19 @@ class DirectoryScanner {
         if (_subtitleExts.contains(ext)) {
           subtitlesByFolder.putIfAbsent(normalizedCurrent, () => []).add(entry);
           continue;
+        }
+
+        if (detectLocalCovers) {
+          final coverRank = _localCoverPriority(lowerName, ext);
+          if (coverRank > 0) {
+            final prevRank = localCoverRankByFolder[normalizedCurrent] ?? 0;
+            if (coverRank > prevRank) {
+              localCoverRankByFolder[normalizedCurrent] = coverRank;
+              localCoverByFolder[normalizedCurrent] = entry.relativePath
+                  .trim()
+                  .replaceAll('\\', '/');
+            }
+          }
         }
 
         final kind = _classifyAssetKind(normalizedCurrent, ext);
@@ -240,6 +262,7 @@ class DirectoryScanner {
     return DirectoryScanResult(
       files: outputs,
       nfoByFolder: nfoByFolder,
+      localCoverByFolder: Map.unmodifiable(localCoverByFolder),
       scannedDirectories: scannedDirectories,
       folderVideoCounts: Map.unmodifiable(folderVideoCounts),
     );
@@ -318,6 +341,19 @@ class DirectoryScanner {
       return AssetKind.scanGallery;
     }
     return null;
+  }
+
+  static int _localCoverPriority(String lowerFileName, String ext) {
+    if (ext != '.jpg' && ext != '.jpeg' && ext != '.png' && ext != '.webp') {
+      return 0;
+    }
+    final stem = p.posix.basenameWithoutExtension(lowerFileName);
+    return switch (stem) {
+      'poster' => 3,
+      'cover' => 2,
+      'folder' => 1,
+      _ => 0,
+    };
   }
 
   String _parentPosixDir(String relativePath) {

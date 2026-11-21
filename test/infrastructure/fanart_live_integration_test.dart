@@ -106,6 +106,54 @@ void main() {
         },
         timeout: const Timeout(Duration(seconds: 30)),
       );
+
+      test(
+        '默认内置无状态中继（api.konata.acgcc.cn）零配置开箱即用连通与拉取校验',
+        () async {
+          final relayClient = TmdbHttpClient(
+            config: const TmdbNetworkConfig(proxyMode: ProxyMode.system),
+            scheduler: PriorityHttpScheduler(maxRetries: 1),
+          );
+          addTearDown(relayClient.close);
+
+          final probe = await relayClient.testFanartApiConnectivity();
+          expect(
+            probe.reachable,
+            isTrue,
+            reason: '内置中继连通性结果: ${probe.statusSummary}',
+          );
+
+          final relayService = FanartService(httpClient: relayClient);
+          expect(relayService.isUsingRelay, isTrue);
+
+          final movieRes = await relayService.fetchArtworkBundle(
+            mediaType: TmdbMediaType.movie,
+            tmdbId: 129,
+          );
+          expect(movieRes.authRejected, isFalse);
+          expect(movieRes.bestLogoUrl, startsWith('https://assets.fanart.tv/'));
+          expect(movieRes.posters, isNotEmpty);
+          expect(movieRes.backgrounds, isNotEmpty);
+          expect(
+            movieRes.backgrounds.every((b) => !b.url.contains('/moviethumb/')),
+            isTrue,
+          );
+
+          final tvRes = await relayService.fetchArtworkBundle(
+            mediaType: TmdbMediaType.tv,
+            tvdbId: 424536,
+          );
+          expect(tvRes.authRejected, isFalse);
+          expect(tvRes.logos, isNotEmpty);
+          expect(tvRes.posters, isNotEmpty);
+          expect(tvRes.backgrounds, isNotEmpty);
+          expect(
+            tvRes.backgrounds.every((b) => !b.url.contains('/tvthumb/')),
+            isTrue,
+          );
+        },
+        timeout: const Timeout(Duration(seconds: 30)),
+      );
     },
     skip: resolved == null
         ? '未配置本地 Fanart.tv 开发测试密钥（KONATA_FANART_DEV_API_KEY / dart_defines.dev.json），自动跳过联调测试'

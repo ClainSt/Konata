@@ -15,7 +15,6 @@ import '../../domain/sources/source_location_validator.dart';
 import '../../infrastructure/network/bangumi_service.dart';
 import '../../infrastructure/network/fanart_service.dart';
 import '../../infrastructure/network/priority_http_scheduler.dart';
-import '../../infrastructure/network/tmdb_http_client.dart';
 import '../../infrastructure/network/tmdb_service.dart';
 import '../../infrastructure/sources/source_credential_store.dart';
 import '../../infrastructure/sources/source_gateway_factory.dart';
@@ -122,13 +121,7 @@ class KonataActionsCoordinator {
     if (config.credential.trim().isEmpty) {
       throw StateError('尚未配置 TMDB API 密钥，请先前往「设置 -> 刮削与网络」填写密钥');
     }
-    final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final cooldown = _ref.read(domainCooldownRegistryProvider);
-    final client = TmdbHttpClient(
-      config: config,
-      scheduler: scheduler,
-      cooldownRegistry: cooldown,
-    );
+    final client = createAppTmdbHttpClient(_ref, config);
     final tmdb = TmdbService(httpClient: client);
     try {
       return await tmdb.searchAnime(
@@ -146,13 +139,7 @@ class KonataActionsCoordinator {
     String query,
   ) async {
     final config = await _ref.read(tmdbNetworkConfigProvider.future);
-    final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final cooldown = _ref.read(domainCooldownRegistryProvider);
-    final client = TmdbHttpClient(
-      config: config,
-      scheduler: scheduler,
-      cooldownRegistry: cooldown,
-    );
+    final client = createAppTmdbHttpClient(_ref, config);
     final bgm = BangumiService(httpClient: client);
     try {
       return await bgm.searchSubjectsProgressive(
@@ -169,13 +156,7 @@ class KonataActionsCoordinator {
     int subjectId,
   ) async {
     final config = await _ref.read(tmdbNetworkConfigProvider.future);
-    final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final cooldown = _ref.read(domainCooldownRegistryProvider);
-    final client = TmdbHttpClient(
-      config: config,
-      scheduler: scheduler,
-      cooldownRegistry: cooldown,
-    );
+    final client = createAppTmdbHttpClient(_ref, config);
     final bgm = BangumiService(httpClient: client);
     try {
       return await bgm.getSubjectDetail(
@@ -193,13 +174,7 @@ class KonataActionsCoordinator {
     TmdbMediaType mediaType,
   ) async {
     final config = await _ref.read(tmdbNetworkConfigProvider.future);
-    final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final cooldown = _ref.read(domainCooldownRegistryProvider);
-    final client = TmdbHttpClient(
-      config: config,
-      scheduler: scheduler,
-      cooldownRegistry: cooldown,
-    );
+    final client = createAppTmdbHttpClient(_ref, config);
     final tmdb = TmdbService(httpClient: client);
     try {
       return await tmdb.getWorkDetail(
@@ -219,13 +194,7 @@ class KonataActionsCoordinator {
     int seasonNumber,
   ) async {
     final config = await _ref.read(tmdbNetworkConfigProvider.future);
-    final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final cooldown = _ref.read(domainCooldownRegistryProvider);
-    final client = TmdbHttpClient(
-      config: config,
-      scheduler: scheduler,
-      cooldownRegistry: cooldown,
-    );
+    final client = createAppTmdbHttpClient(_ref, config);
     final tmdb = TmdbService(httpClient: client);
     try {
       return await tmdb.getSeasonDetail(
@@ -238,11 +207,12 @@ class KonataActionsCoordinator {
     }
   }
 
-  /// 保存网络与凭证配置并重置域名冷却与 Fanart 熔断状态，立即刷新生效。
+  /// 保存网络与凭证配置并重置域名冷却、Fanart 熔断及整包艺术图缓存，立即刷新生效。
   Future<void> saveNetworkConfig(TmdbNetworkConfig config) async {
     await _ref.read(networkConfigRepositoryProvider).save(config);
     _ref.read(domainCooldownRegistryProvider).clearAll();
     _ref.read(fanartCircuitBreakerProvider).reset();
+    _ref.read(fanartArtworkCacheProvider).clear();
     _ref.read(fanartRelayHealthProvider.notifier).state =
         FanartRelayHealthSnapshot.ok;
     _ref.invalidate(tmdbNetworkConfigProvider);
@@ -256,13 +226,7 @@ class KonataActionsCoordinator {
   Future<ConnectivityReport> testTmdbApiConnectivity(
     TmdbNetworkConfig config,
   ) async {
-    final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final cooldown = _ref.read(domainCooldownRegistryProvider);
-    final client = TmdbHttpClient(
-      config: config,
-      scheduler: scheduler,
-      cooldownRegistry: cooldown,
-    );
+    final client = createAppTmdbHttpClient(_ref, config);
     try {
       return await client.testTmdbApiConnectivity();
     } finally {
@@ -274,13 +238,7 @@ class KonataActionsCoordinator {
   Future<ConnectivityReport> testTmdbImageConnectivity(
     TmdbNetworkConfig config,
   ) async {
-    final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final cooldown = _ref.read(domainCooldownRegistryProvider);
-    final client = TmdbHttpClient(
-      config: config,
-      scheduler: scheduler,
-      cooldownRegistry: cooldown,
-    );
+    final client = createAppTmdbHttpClient(_ref, config);
     try {
       return await client.testTmdbImageConnectivity();
     } finally {
@@ -292,13 +250,7 @@ class KonataActionsCoordinator {
   Future<ConnectivityReport> testBangumiApiConnectivity(
     TmdbNetworkConfig config,
   ) async {
-    final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final cooldown = _ref.read(domainCooldownRegistryProvider);
-    final client = TmdbHttpClient(
-      config: config,
-      scheduler: scheduler,
-      cooldownRegistry: cooldown,
-    );
+    final client = createAppTmdbHttpClient(_ref, config);
     try {
       return await client.testBangumiApiConnectivity();
     } finally {
@@ -310,13 +262,7 @@ class KonataActionsCoordinator {
   Future<ConnectivityReport> testBangumiImageConnectivity(
     TmdbNetworkConfig config,
   ) async {
-    final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final cooldown = _ref.read(domainCooldownRegistryProvider);
-    final client = TmdbHttpClient(
-      config: config,
-      scheduler: scheduler,
-      cooldownRegistry: cooldown,
-    );
+    final client = createAppTmdbHttpClient(_ref, config);
     try {
       return await client.testBangumiImageConnectivity();
     } finally {
@@ -328,13 +274,7 @@ class KonataActionsCoordinator {
   Future<ConnectivityReport> testFanartApiConnectivity(
     TmdbNetworkConfig config,
   ) async {
-    final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final cooldown = _ref.read(domainCooldownRegistryProvider);
-    final client = TmdbHttpClient(
-      config: config,
-      scheduler: scheduler,
-      cooldownRegistry: cooldown,
-    );
+    final client = createAppTmdbHttpClient(_ref, config);
     try {
       final report = await client.testFanartApiConnectivity();
       if (report.reachable) {
@@ -352,13 +292,7 @@ class KonataActionsCoordinator {
   Future<ConnectivityReport> testFanartImageConnectivity(
     TmdbNetworkConfig config,
   ) async {
-    final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final cooldown = _ref.read(domainCooldownRegistryProvider);
-    final client = TmdbHttpClient(
-      config: config,
-      scheduler: scheduler,
-      cooldownRegistry: cooldown,
-    );
+    final client = createAppTmdbHttpClient(_ref, config);
     try {
       return await client.testFanartImageConnectivity();
     } finally {

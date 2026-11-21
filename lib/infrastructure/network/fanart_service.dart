@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:developer' as developer;
 
@@ -7,6 +8,68 @@ import '../../domain/models/work.dart';
 import 'priority_http_scheduler.dart';
 import 'tmdb_http_client.dart';
 import 'tmdb_service.dart';
+
+/// Fanart.tv 整包艺术图（徽标 + 封面 + 无字背景）内存有界 LRU 与并发去重缓存（由 Riverpod 托管）。
+///
+/// 同作品连续打开「编辑封面」「编辑背景图」「编辑标题徽标」或触发自动补全时共享单次上游响应，避免重复请求。
+class FanartArtworkCache {
+  /// 创建整包缓存容器。
+  FanartArtworkCache({
+    this.maxEntries = 128,
+    this.ttl = const Duration(minutes: 15),
+  });
+
+  /// 内存缓存最大条目数。
+  final int maxEntries;
+
+  /// 单条整包结果内存有效期。
+  final Duration ttl;
+
+  final LinkedHashMap<String, ({FanartArtworkResult result, DateTime expiresAt})>
+  _entries = LinkedHashMap();
+  final Map<String, Future<FanartArtworkResult>> _inFlight = {};
+
+  /// 读取未过期的整包缓存，并刷新 LRU 访问顺序。
+  FanartArtworkResult? get(String key, DateTime now) {
+    final hit = _entries.remove(key);
+    if (hit == null) return null;
+    if (!now.isBefore(hit.expiresAt)) {
+      return null;
+    }
+    _entries[key] = hit;
+    return hit.result;
+  }
+
+  /// 写入整包缓存（仅缓存有效响应或确认 404，瞬态鉴权/限流拒绝绝不缓存）。
+  void put(String key, FanartArtworkResult result, DateTime now) {
+    if (result.authRejected || maxEntries <= 0) return;
+    _entries.remove(key);
+    while (_entries.length >= maxEntries && _entries.isNotEmpty) {
+      _entries.remove(_entries.keys.first);
+    }
+    _entries[key] = (result: result, expiresAt: now.add(ttl));
+  }
+
+  /// 对同键并发请求执行 Single-Flight 合并，消除同时打开弹窗与后台补全产生的重复上游请求。
+  Future<FanartArtworkResult> deduplicate(
+    String key,
+    Future<FanartArtworkResult> Function() loader,
+  ) {
+    final existing = _inFlight[key];
+    if (existing != null) return existing;
+    final future = loader().whenComplete(() {
+      _inFlight.remove(key);
+    });
+    _inFlight[key] = future;
+    return future;
+  }
+
+  /// 清空整包缓存与在途记录（例如用户修改 Fanart Key 或中继配置后立即生效）。
+  void clear() {
+    _entries.clear();
+    _inFlight.clear();
+  }
+}
 
 /// Fanart.tv 内置中继健康状态枚举（供设置页状态条与「编辑标题徽标」弹窗精准提示）。
 enum FanartRelayStatus {
@@ -157,6 +220,7 @@ class FanartService {
   FanartService({
     required TmdbHttpClient httpClient,
     FanartCircuitBreaker? circuitBreaker,
+    this._artworkCache,
     DateTime Function()? nowProvider,
   }) : _http = httpClient,
        _circuitBreaker = circuitBreaker ?? FanartCircuitBreaker(),
@@ -164,6 +228,7 @@ class FanartService {
 
   final TmdbHttpClient _http;
   final FanartCircuitBreaker _circuitBreaker;
+  final FanartArtworkCache? _artworkCache;
   final DateTime Function() _now;
 
   static const String _fanartBucketKey = 'fanart';
@@ -217,88 +282,132 @@ class FanartService {
     return '$trimmed/v3/$segment/$id';
   }
 
-  /// 按媒体类型拉取透明标题徽标候选集（电影传 `tmdbId`，剧集传 `tvdbId`）。
-  Future<FanartArtworkResult> fetchLogos({
+  /// 按媒体类型拉取 Fanart.tv 完整艺术图集（透明徽标 + 竖版封面/分季封面 + 无字 1080p 背景图）。
+  ///
+  /// 当挂载 [FanartArtworkCache] 时，按 `segment:targetId:hasClientKey` 共享单次响应整包并合并并发请求。
+  Future<FanartArtworkResult> fetchArtworkBundle({
     required TmdbMediaType mediaType,
     int? tmdbId,
     int? tvdbId,
     RequestPriority priority = RequestPriority.background,
     bool bypassCircuitBreaker = false,
+    bool forceRefresh = false,
   }) async {
     final config = _http.config;
     if (!config.isFanartAvailable) {
       return const FanartArtworkResult();
     }
-    if (isUsingRelay && !bypassCircuitBreaker && _circuitBreaker.isOpen(_now())) {
-      return const FanartArtworkResult(authRejected: true);
-    }
-
     final int? targetId = mediaType == TmdbMediaType.movie ? tmdbId : tvdbId;
     if (targetId == null || targetId <= 0) {
       return const FanartArtworkResult();
     }
 
     final segment = mediaType == TmdbMediaType.movie ? 'movies' : 'tv';
-    final ({Uri primary, Uri? backup, Map<String, String> headers}) route;
-    try {
-      route = _buildRequestRoute(config, segment: segment, id: targetId);
-    } catch (_) {
-      return const FanartArtworkResult();
-    }
-
-    final httpResponse = await _dispatchWithQuotaGuard(
-      route: route,
-      segment: segment,
-      targetId: targetId,
-      priority: priority,
-      hasClientKey: config.hasFanartClientKey,
-    );
-    if (httpResponse == null) {
-      return const FanartArtworkResult(authRejected: true);
-    }
-
-    if (httpResponse.statusCode == 404) {
-      if (isUsingRelay) _circuitBreaker.recordSuccess();
-      return const FanartArtworkResult(notFound: true);
-    }
-    if (httpResponse.statusCode == 401 || httpResponse.statusCode == 403) {
-      final relayReason = _extractHeader(
-        httpResponse.headers,
-        'x-konata-relay-error',
-      );
-      if (isUsingRelay && relayReason != 'client_key_invalid') {
-        _circuitBreaker.recordRelayUnavailable(_now());
+    final cacheKey =
+        '$segment:$targetId:${config.hasFanartClientKey ? 1 : 0}:${config.hasCustomFanartApiKey ? 1 : 0}';
+    final cache = _artworkCache;
+    if (cache != null && !forceRefresh) {
+      final cached = cache.get(cacheKey, _now());
+      if (cached != null) {
+        return cached;
       }
-      return const FanartArtworkResult(authRejected: true);
-    }
-    if (httpResponse.statusCode == 503) {
-      if (isUsingRelay) {
-        _circuitBreaker.recordRelayUnavailable(_now());
-      }
-      return const FanartArtworkResult(authRejected: true);
-    }
-    if (httpResponse.statusCode != 200) {
-      throw StateError('Fanart.tv 请求失败: HTTP ${httpResponse.statusCode}');
     }
 
-    if (isUsingRelay) _circuitBreaker.recordSuccess();
-    try {
-      final decoded = jsonDecode(utf8.decode(httpResponse.bodyBytes));
-      if (decoded is! Map) {
+    if (isUsingRelay && !bypassCircuitBreaker && _circuitBreaker.isOpen(_now())) {
+      return const FanartArtworkResult(authRejected: true);
+    }
+
+    Future<FanartArtworkResult> runFetch() async {
+      final ({Uri primary, Uri? backup, Map<String, String> headers}) route;
+      try {
+        route = _buildRequestRoute(config, segment: segment, id: targetId);
+      } catch (_) {
         return const FanartArtworkResult();
       }
-      final map = decoded.map((k, v) => MapEntry(k.toString(), v));
-      final logos = parseAndSortLogos(map, mediaType: mediaType);
-      return FanartArtworkResult(logos: logos);
-    } catch (error) {
-      developer.log(
-        '解析 Fanart.tv 透明徽标响应失败',
-        name: 'konata.fanart_service',
-        error: error,
+
+      final httpResponse = await _dispatchWithQuotaGuard(
+        route: route,
+        segment: segment,
+        targetId: targetId,
+        priority: priority,
+        hasClientKey: config.hasFanartClientKey,
       );
-      return const FanartArtworkResult();
+      if (httpResponse == null) {
+        return const FanartArtworkResult(authRejected: true);
+      }
+
+      if (httpResponse.statusCode == 404) {
+        if (isUsingRelay) _circuitBreaker.recordSuccess();
+        const notFoundResult = FanartArtworkResult(notFound: true);
+        cache?.put(cacheKey, notFoundResult, _now());
+        return notFoundResult;
+      }
+      if (httpResponse.statusCode == 401 || httpResponse.statusCode == 403) {
+        final relayReason = _extractHeader(
+          httpResponse.headers,
+          'x-konata-relay-error',
+        );
+        if (isUsingRelay && relayReason != 'client_key_invalid') {
+          _circuitBreaker.recordRelayUnavailable(_now());
+        }
+        return const FanartArtworkResult(authRejected: true);
+      }
+      if (httpResponse.statusCode == 503) {
+        if (isUsingRelay) {
+          _circuitBreaker.recordRelayUnavailable(_now());
+        }
+        return const FanartArtworkResult(authRejected: true);
+      }
+      if (httpResponse.statusCode != 200) {
+        throw StateError('Fanart.tv 请求失败: HTTP ${httpResponse.statusCode}');
+      }
+
+      if (isUsingRelay) _circuitBreaker.recordSuccess();
+      try {
+        final decoded = jsonDecode(utf8.decode(httpResponse.bodyBytes));
+        if (decoded is! Map) {
+          return const FanartArtworkResult();
+        }
+        final map = decoded.map((k, v) => MapEntry(k.toString(), v));
+        final result = FanartArtworkResult(
+          logos: parseAndSortLogos(map, mediaType: mediaType),
+          posters: parseAndSortPosters(map, mediaType: mediaType),
+          backgrounds: parseAndSortBackgrounds(map, mediaType: mediaType),
+        );
+        cache?.put(cacheKey, result, _now());
+        return result;
+      } catch (error) {
+        developer.log(
+          '解析 Fanart.tv 艺术图整包响应失败',
+          name: 'konata.fanart_service',
+          error: error,
+        );
+        return const FanartArtworkResult();
+      }
     }
+
+    if (cache != null && !forceRefresh) {
+      return cache.deduplicate(cacheKey, runFetch);
+    }
+    return runFetch();
   }
+
+  /// 兼容接口：拉取整包艺术图集（返回结果包含透明徽标、竖版封面与无字背景图）。
+  Future<FanartArtworkResult> fetchLogos({
+    required TmdbMediaType mediaType,
+    int? tmdbId,
+    int? tvdbId,
+    RequestPriority priority = RequestPriority.background,
+    bool bypassCircuitBreaker = false,
+    bool forceRefresh = false,
+  }) => fetchArtworkBundle(
+    mediaType: mediaType,
+    tmdbId: tmdbId,
+    tvdbId: tvdbId,
+    priority: priority,
+    bypassCircuitBreaker: bypassCircuitBreaker,
+    forceRefresh: forceRefresh,
+  );
 
   /// 解析并按语言优先级、高清档位与社区点赞数排序 Fanart.tv 透明徽标候选列表。
   static List<FanartLogoCandidate> parseAndSortLogos(
@@ -346,6 +455,91 @@ class FanartService {
       return b.likes.compareTo(a.likes);
     });
     return List<FanartLogoCandidate>.unmodifiable(parsed.take(24));
+  }
+
+  /// 解析并排序 Fanart.tv 竖版封面候选（剧集：`tvposter` + `seasonposter`；电影：`movieposter`）。
+  static List<FanartPosterCandidate> parseAndSortPosters(
+    Map<String, Object?> json, {
+    required TmdbMediaType mediaType,
+  }) {
+    final keys = mediaType == TmdbMediaType.movie
+        ? const [('movieposter', false)]
+        : const [('tvposter', false), ('seasonposter', true)];
+
+    final parsed = <FanartPosterCandidate>[];
+    final seenUrls = <String>{};
+
+    for (final (jsonKey, hasSeason) in keys) {
+      final rawList = json[jsonKey];
+      if (rawList is! List) continue;
+      for (final item in rawList) {
+        if (item is! Map) continue;
+        final rawUrl = item['url']?.toString().trim() ?? '';
+        if (rawUrl.isEmpty) continue;
+        final normalizedUrl = FanartUrlHelper.normalizeOriginalUrl(rawUrl);
+        if (!seenUrls.add(normalizedUrl)) continue;
+        final id = item['id']?.toString().trim() ?? normalizedUrl;
+        final lang = _normalizeFanartLang(item['lang']?.toString());
+        final likes = _parseInt(item['likes']);
+        final int? season = hasSeason
+            ? _parseOptionalSeason(item['season'])
+            : null;
+        parsed.add(
+          FanartPosterCandidate(
+            id: id,
+            url: normalizedUrl,
+            lang: lang,
+            likes: likes,
+            season: season,
+          ),
+        );
+      }
+    }
+
+    parsed.sort((a, b) {
+      final aType = a.isSeasonPoster ? 1 : 0;
+      final bType = b.isSeasonPoster ? 1 : 0;
+      if (aType != bType) return aType.compareTo(bType);
+      if (a.isSeasonPoster && b.isSeasonPoster) {
+        final sCmp = (a.season ?? 999).compareTo(b.season ?? 999);
+        if (sCmp != 0) return sCmp;
+      }
+      final langCmp = fanartLanguageRank(a.lang).compareTo(
+        fanartLanguageRank(b.lang),
+      );
+      if (langCmp != 0) return langCmp;
+      return b.likes.compareTo(a.likes);
+    });
+    return List<FanartPosterCandidate>.unmodifiable(parsed.take(36));
+  }
+
+  /// 解析并按点赞数降序排列 Fanart.tv 无字 `1920×1080` 横版背景图（严禁混入 `tvthumb`/`moviethumb`）。
+  static List<FanartBackgroundCandidate> parseAndSortBackgrounds(
+    Map<String, Object?> json, {
+    required TmdbMediaType mediaType,
+  }) {
+    final jsonKey = mediaType == TmdbMediaType.movie
+        ? 'moviebackground'
+        : 'showbackground';
+    final rawList = json[jsonKey];
+    if (rawList is! List) return const [];
+
+    final parsed = <FanartBackgroundCandidate>[];
+    final seenUrls = <String>{};
+    for (final item in rawList) {
+      if (item is! Map) continue;
+      final rawUrl = item['url']?.toString().trim() ?? '';
+      if (rawUrl.isEmpty) continue;
+      final normalizedUrl = FanartUrlHelper.normalizeOriginalUrl(rawUrl);
+      if (!seenUrls.add(normalizedUrl)) continue;
+      final id = item['id']?.toString().trim() ?? normalizedUrl;
+      final likes = _parseInt(item['likes']);
+      parsed.add(
+        FanartBackgroundCandidate(id: id, url: normalizedUrl, likes: likes),
+      );
+    }
+    parsed.sort((a, b) => b.likes.compareTo(a.likes));
+    return List<FanartBackgroundCandidate>.unmodifiable(parsed.take(24));
   }
 
   /// 语言排序与 TMDB 严格保持一致（0:中文, 2:日文, 3:英文, 4:无语言, 5:其他）。
@@ -439,10 +633,7 @@ class FanartService {
           id: id,
         ),
       );
-      final backupRaw = config.fanartBackupApiBase.trim().replaceAll(
-        RegExp(r'/+$'),
-        '',
-      );
+      final backupRaw = config.normalizedFanartDirectBackupApiBase;
       final backup = backupRaw.isNotEmpty
           ? Uri.tryParse(
               buildDirectEndpointUrl(backupRaw, segment: segment, id: id),
@@ -474,11 +665,15 @@ class FanartService {
     return null;
   }
 
-  static String _normalizeFanartUrl(String raw) {
-    if (raw.startsWith('http://assets.fanart.tv/')) {
-      return raw.replaceFirst('http://', 'https://');
-    }
-    return raw;
+  static String _normalizeFanartUrl(String raw) =>
+      FanartUrlHelper.normalizeOriginalUrl(raw);
+
+  static int? _parseOptionalSeason(Object? raw) {
+    final text = (raw ?? '').toString().trim().toLowerCase();
+    if (text.isEmpty || text == 'all') return null;
+    final parsed = int.tryParse(text);
+    if (parsed == null || parsed < 0) return null;
+    return parsed;
   }
 
   static String? _normalizeFanartLang(String? raw) {

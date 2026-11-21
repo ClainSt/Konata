@@ -156,28 +156,66 @@ class _PosterCardState extends State<PosterCard> {
                             ),
                           ),
                         ),
-                      if (widget.item.hasMultiVariants)
+                      if (widget.item.crossSourceBadgeLabel != null ||
+                          widget.item.hasMultiVariants)
                         Positioned(
                           top: 8,
                           right: 8,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 7,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: p.glassOverlay,
-                              borderRadius: KonataTheme.borderRadiusChip,
-                              border: Border.all(color: p.posterBorder),
-                            ),
-                            child: Text(
-                              '${widget.item.maxEpisodeVariantCount}版本',
-                              style: TextStyle(
-                                color: p.textPrimary,
-                                fontSize: KonataTheme.fontSizeBadge,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (widget.item.crossSourceBadgeLabel != null)
+                                Container(
+                                  key: ValueKey(
+                                    'poster_source_badge_${work.id}',
+                                  ),
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 92,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 7,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: p.glassOverlay,
+                                    borderRadius: KonataTheme.borderRadiusChip,
+                                    border: Border.all(color: p.posterBorder),
+                                  ),
+                                  child: Text(
+                                    widget.item.crossSourceBadgeLabel!,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: p.textPrimary,
+                                      fontSize: KonataTheme.fontSizeBadge,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              if (widget.item.crossSourceBadgeLabel != null &&
+                                  widget.item.hasMultiVariants)
+                                const SizedBox(width: 4),
+                              if (widget.item.hasMultiVariants)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 7,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: p.glassOverlay,
+                                    borderRadius: KonataTheme.borderRadiusChip,
+                                    border: Border.all(color: p.posterBorder),
+                                  ),
+                                  child: Text(
+                                    '${widget.item.maxEpisodeVariantCount}版本',
+                                    style: TextStyle(
+                                      color: p.textPrimary,
+                                      fontSize: KonataTheme.fontSizeBadge,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                     ],

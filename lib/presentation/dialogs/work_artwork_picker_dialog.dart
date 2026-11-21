@@ -6,6 +6,7 @@ import '../../application/playback/audio_playback_notifier.dart';
 import '../../application/providers/artwork_provider.dart';
 import '../../application/providers/scraping_providers.dart';
 import '../../application/providers/work_management_provider.dart';
+import '../../domain/models/fanart_models.dart';
 import '../../domain/models/work.dart';
 import '../../domain/sources/artwork_crop_math.dart';
 import '../theme/konata_palette.dart';
@@ -76,10 +77,10 @@ class _WorkArtworkPickerDialogState
     super.dispose();
   }
 
-  /// 兼容 TMDB 相对路径（`/abc.jpg`）、完整 HTTPS URL 与本地反斜杠路径的等价匹配。
+  /// 兼容 TMDB 相对路径（`/abc.jpg`）、Fanart 预览/原图 URL 与本地反斜杠路径的等价匹配。
   bool _isSameArtworkPath(String? a, String b) {
-    final left = (a ?? '').trim();
-    final right = b.trim();
+    final left = FanartUrlHelper.toOriginalUrl((a ?? '').trim());
+    final right = FanartUrlHelper.toOriginalUrl(b.trim());
     if (left.isEmpty || right.isEmpty) return false;
     if (left == right) return true;
 
@@ -108,11 +109,10 @@ class _WorkArtworkPickerDialogState
   Future<void> _loadArtworkCandidates() async {
     final hasRemoteArtwork =
         widget.work.tmdbId != null ||
-        (widget.kind == WorkArtworkKind.logo &&
-            (widget.work.tvdbId != null || widget.work.bangumiId != null)) ||
+        widget.work.tvdbId != null ||
+        widget.work.bangumiId != null ||
         (widget.kind == WorkArtworkKind.poster &&
-            (widget.work.bangumiId != null ||
-                (widget.work.bangumiPosterPath?.trim().isNotEmpty ?? false)));
+            (widget.work.bangumiPosterPath?.trim().isNotEmpty ?? false));
     if (!hasRemoteArtwork) {
       return;
     }
@@ -300,7 +300,11 @@ class _WorkArtworkPickerDialogState
       WorkArtworkKind.backdrop => widget.work.backdropLocked,
       WorkArtworkKind.logo => widget.work.logoLocked,
     };
-    final canResetToAuto = widget.work.tmdbId != null && isLocked;
+    final canResetToAuto =
+        (widget.work.tmdbId != null ||
+            widget.work.bangumiId != null ||
+            widget.work.tvdbId != null) &&
+        isLocked;
 
     final selectedIndex = _findMatchedCandidateIndex(
       _selectedPath,
@@ -367,7 +371,7 @@ class _WorkArtworkPickerDialogState
               ),
             ],
           ),
-          if (isLogo && relayHealth.isDegraded && relayHealth.message != null) ...[
+          if (relayHealth.isDegraded && relayHealth.message != null) ...[
             const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
@@ -424,7 +428,6 @@ class _WorkArtworkPickerDialogState
                         final item = _candidates[index];
                         return _ArtworkGridTile(
                           option: item,
-                          workId: widget.work.id,
                           kind: widget.kind,
                           selected: index == selectedIndex,
                           isCurrentSaved: index == currentSavedIndex,
@@ -454,7 +457,7 @@ class _WorkArtworkPickerDialogState
       }
       return switch (widget.kind) {
         WorkArtworkKind.poster => '暂无可用候选封面',
-        WorkArtworkKind.backdrop => 'TMDB 官方候选背景图 (0)',
+        WorkArtworkKind.backdrop => 'TMDB / Fanart.tv 候选背景图 (0)',
         WorkArtworkKind.logo => '暂无可用在线透明标题徽标（详情页将自动使用风格化文字兜底）',
       };
     }
@@ -470,10 +473,27 @@ class _WorkArtworkPickerDialogState
       return 'TMDB 透明标题徽标候选 (${_candidates.length})';
     }
     if (widget.kind == WorkArtworkKind.backdrop) {
-      return 'TMDB 官方候选背景图 (${_candidates.length})';
+      final hasTmdb = _candidates.any((e) => !e.isFanart);
+      final hasFanart = _candidates.any((e) => e.isFanart);
+      if (hasTmdb && hasFanart) {
+        return 'TMDB / Fanart.tv 候选背景图 (${_candidates.length})';
+      }
+      if (hasFanart) {
+        return 'Fanart.tv 候选背景图 (${_candidates.length})';
+      }
+      return 'TMDB / Fanart.tv 候选背景图 (${_candidates.length})';
     }
     final hasBgm = _candidates.any((e) => e.isBangumi);
-    final hasTmdb = _candidates.any((e) => !e.isBangumi);
+    final hasFanart = _candidates.any((e) => e.isFanart);
+    final hasTmdb = _candidates.any((e) => !e.isBangumi && !e.isFanart);
+    if (hasFanart) {
+      final sources = <String>[
+        if (hasBgm) 'Bangumi',
+        if (hasTmdb) 'TMDB',
+        'Fanart.tv',
+      ];
+      return '${sources.join(' / ')} 候选封面 (${_candidates.length})';
+    }
     if (hasBgm && hasTmdb) {
       return 'Bangumi / TMDB 官方候选封面 (${_candidates.length})';
     }
@@ -539,7 +559,6 @@ class _WorkArtworkPickerDialogState
 class _ArtworkGridTile extends ConsumerStatefulWidget {
   const _ArtworkGridTile({
     required this.option,
-    required this.workId,
     required this.kind,
     required this.selected,
     required this.isCurrentSaved,
@@ -548,7 +567,6 @@ class _ArtworkGridTile extends ConsumerStatefulWidget {
   });
 
   final WorkArtworkOption option;
-  final String workId;
   final WorkArtworkKind kind;
   final bool selected;
   final bool isCurrentSaved;
@@ -627,9 +645,9 @@ class _ArtworkGridTileState extends ConsumerState<_ArtworkGridTile> {
                       ? const EdgeInsets.fromLTRB(12, 24, 12, 22)
                       : EdgeInsets.zero,
                   child: ManagedImage(
-                    widget.option.filePath,
+                    widget.option.previewPath ?? widget.option.filePath,
                     loader: widget.imageLoader,
-                    owner: widget.workId,
+                    owner: null,
                     artwork: isLogo
                         ? ManagedArtwork.logo
                         : (isPoster
@@ -764,7 +782,7 @@ class _ArtworkGridTileState extends ConsumerState<_ArtworkGridTile> {
     }
     if (option.isFanart || displayLabel.startsWith('Fanart')) {
       return _OverlayMiniBadge(
-        text: 'Fanart.tv',
+        text: displayLabel,
         backgroundColor: KonataTheme.specReleaseBlue.withValues(alpha: 0.24),
         textColor: KonataTheme.pureWhite,
         fontWeight: FontWeight.w700,

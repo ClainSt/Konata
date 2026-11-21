@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'dart:developer' as developer;
+
+import 'package:path/path.dart' as p;
+
 import '../../domain/formatting/network_error_sanitizer.dart';
 import '../../domain/matching/directory_grouper.dart';
 import '../../domain/matching/episode_remapper.dart';
 import '../../domain/matching/work_matcher.dart';
 import '../../domain/models/episode.dart';
+import '../../domain/models/fanart_models.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/tmdb_models.dart';
@@ -14,13 +18,16 @@ import '../../domain/repositories/library_repository.dart';
 import '../../domain/scraping/bangumi_models.dart';
 import '../../domain/scraping/bangumi_tmdb_index.dart';
 import '../../domain/scraping/scrape_domain_adapter.dart';
+import '../../domain/scraping/work_wall_eligibility.dart';
 import '../../infrastructure/cache/photos_storage.dart';
 import '../../infrastructure/network/bangumi_service.dart';
+import '../../infrastructure/network/fanart_service.dart';
 import '../../infrastructure/network/priority_http_scheduler.dart';
 import '../../infrastructure/network/tmdb_service.dart';
 import '../../infrastructure/sources/directory_scanner.dart';
 import '../../infrastructure/sources/source_access_error.dart';
 import 'clear_logo_resolver.dart';
+import 'scrape_artwork_enricher.dart';
 import 'scrape_candidate_fetcher.dart';
 import 'scrape_compute_worker.dart';
 import 'scrape_match_resolver.dart';
@@ -43,6 +50,7 @@ class ScrapeOrchestrator {
     required LibraryRepository repository,
     required TmdbService tmdbService,
     BangumiService? bangumiService,
+    this._fanartService,
     this._clearLogoResolver,
     required this._gatewayBuilder,
     this._scanner = const DirectoryScanner(),
@@ -63,6 +71,10 @@ class ScrapeOrchestrator {
       computeWorker: _computeWorker,
       mappingIndex: _mappingIndex,
     );
+    _artworkEnricher = ScrapeArtworkEnricher(
+      fanartService: _fanartService,
+      mappingIndex: _mappingIndex,
+    );
   }
 
   /// 阶段 3 跨作品并发刮削默认并发度（仅并发在线元数据请求，写库与进度串行保护）。
@@ -71,6 +83,7 @@ class ScrapeOrchestrator {
   final LibraryRepository _repository;
   final TmdbService _tmdbService;
   final BangumiService? _bangumiService;
+  final FanartService? _fanartService;
   final ClearLogoResolver? _clearLogoResolver;
   final PhotosStorage? _photosStorage;
   final BangumiTmdbIndex? _mappingIndex;
@@ -81,6 +94,7 @@ class ScrapeOrchestrator {
   final ScrapeCandidateFetcher _candidateFetcher;
   final ScrapeComputeWorker _computeWorker;
   late final ScrapeMatchResolver _matchResolver;
+  late final ScrapeArtworkEnricher _artworkEnricher;
   final Map<int, int> _tmdbCollectionIdByTmdbId = <int, int>{};
 
   /// 对指定媒体源执行完整的扫描 + 四段漏斗刮削流水线。
@@ -108,6 +122,7 @@ class ScrapeOrchestrator {
       final scanResult = await _scanner.scan(
         gateway,
         scanRoots: effectiveRoots,
+        detectLocalCovers: source.kind == MediaSourceKind.local,
         isCancelled: isCancelled,
         onFolderVisited: tracker.recordFolderVisited,
         onProgress: (dir, dirCount, fileCount) {
@@ -185,10 +200,27 @@ class ScrapeOrchestrator {
         }
       }
 
+      final localCoverAbsByFolder = <String, String>{};
+      if (source.kind == MediaSourceKind.local &&
+          scanResult.localCoverByFolder.isNotEmpty) {
+        for (final entry in scanResult.localCoverByFolder.entries) {
+          final segments = entry.value
+              .split('/')
+              .where((seg) => seg.isNotEmpty)
+              .toList(growable: false);
+          if (segments.isEmpty) continue;
+          localCoverAbsByFolder[entry.key] = p.joinAll([
+            source.location,
+            ...segments,
+          ]);
+        }
+      }
+
       final groupedWorksAll = await computeSession.groupFiles(
         sourceId: source.id,
         files: unlockedScanFiles,
         nfoByFolder: scanResult.nfoByFolder,
+        localCoverByFolder: localCoverAbsByFolder,
       );
       final ignoredFolders = (await _repository.getIgnoredFolders(source.id))
           .map((e) => e.trim().replaceAll('\\', '/'))
@@ -407,22 +439,37 @@ class ScrapeOrchestrator {
           );
           return (status: existing.scrapeStatus, workId: workId);
         }
-        final fallbackWork = Work(
-          id: workId,
-          title: folder.cleanTitle,
-          year: folder.year,
-          folderTmdbHint: folder.explicitTmdbId,
-          isManualLocked: false,
-          isHidden: existing?.keepHidden == true
-              ? true
-              : (existing?.isHidden ?? false),
-          keepHidden: existing?.keepHidden ?? false,
-          scrapeStatus: ScrapeStatus.needsReview,
-          reviewReason: NetworkErrorSanitizer.toUserMessage(
-            error,
-            prefix: 'TMDB 网络异常，已使用本地目录降级入库',
-          ),
-        );
+        final canPromoteLocalCover =
+            WorkWallEligibility.shouldPromoteCoverFallback(
+              folder: folder,
+              coverPath: folder.localPosterPath,
+            );
+        final fallbackWork = canPromoteLocalCover
+            ? ScrapeWorkPersister.buildCoverFallbackWork(
+                id: workId,
+                folder: folder,
+                posterPath: folder.localPosterPath!,
+                isHidden: existing?.keepHidden == true
+                    ? true
+                    : (existing?.isHidden ?? false),
+                keepHidden: existing?.keepHidden ?? false,
+              )
+            : Work(
+                id: workId,
+                title: folder.cleanTitle,
+                year: folder.year,
+                folderTmdbHint: folder.explicitTmdbId,
+                isManualLocked: false,
+                isHidden: existing?.keepHidden == true
+                    ? true
+                    : (existing?.isHidden ?? false),
+                keepHidden: existing?.keepHidden ?? false,
+                scrapeStatus: ScrapeStatus.needsReview,
+                reviewReason: NetworkErrorSanitizer.toUserMessage(
+                  error,
+                  prefix: 'TMDB 网络异常，已使用本地目录降级入库',
+                ),
+              );
         await _repository.upsertWork(fallbackWork);
         scanContext.worksById[fallbackWork.id] = fallbackWork;
         await _photosStorage?.renameWorkFolderIfNeeded(
@@ -435,7 +482,7 @@ class ScrapeOrchestrator {
           tmdbEpisodes: const [],
           preloadedSourceVariantsById: scanContext.sourceVariantById,
         );
-        return (status: ScrapeStatus.needsReview, workId: workId);
+        return (status: fallbackWork.scrapeStatus, workId: workId);
       });
     }
   }
@@ -458,12 +505,19 @@ class ScrapeOrchestrator {
           '$sourceId::${folder.folderRelativePath}',
         );
 
-    // 增量重扫零请求快跳：已成功绑定 TMDB（或人工锁定）且目录物理文件集与字幕列表未发生变化、
-    // 且未出现新的显式 ID/季提示时，直接沿用既有入库结果并跳过全部在线 API 与重复写库；
-    // 仅命中 Bangumi 而缺少 TMDB ID 的非锁定条目仍允许重扫补绑，详情页也始终保留手动重抓入口。
+    // 增量重扫零请求快跳：已成功入库（TMDB / Bangumi 独立条目 / Fanart / 本地封面 / 人工锁定）且物理文件集与字幕未变化、
+    // 且未出现新的显式 ID/季提示时，直接沿用既有入库结果并跳过全部在线 API 与重复写库；详情页始终保留手动重抓与补绑入口。
+    final hasMatchedIdentityOrCover =
+        existing != null &&
+        (existing.tmdbId != null ||
+            existing.bangumiId != null ||
+            existing.tvdbId != null ||
+            existing.isManualLocked ||
+            (existing.posterPath != null &&
+                existing.posterPath!.trim().isNotEmpty));
     if (existing != null &&
         existing.scrapeStatus == ScrapeStatus.matched &&
-        (existing.tmdbId != null || existing.isManualLocked) &&
+        hasMatchedIdentityOrCover &&
         _canFastSkipUnchangedMatchedWork(
           existing: existing,
           folder: folder,
@@ -673,27 +727,45 @@ class ScrapeOrchestrator {
         decision.bestBangumi ??
         (tmdbNetworkError != null ? resolution.bestBangumi : null);
     if (decision.best == null && fallbackBgmCandidate != null) {
+      final bgmWall = await _artworkEnricher.evaluateBangumiOnly(
+        folder: effectiveFolder,
+        bangumiCandidate: fallbackBgmCandidate,
+        bangumiTier: resolution.bangumiTier,
+        priority: RequestPriority.background,
+      );
       final bgmStatus =
-          (tmdbNetworkError == null && decision.level == MatchLevel.autoBind)
+          (bgmWall.canPromote ||
+              (tmdbNetworkError == null &&
+                  decision.level == MatchLevel.autoBind))
           ? ScrapeStatus.matched
           : ScrapeStatus.needsReview;
-      final bgmReviewReason = tmdbNetworkError != null
-          ? NetworkErrorSanitizer.toUserMessage(
-              tmdbNetworkError!,
-              prefix: 'TMDB 网络异常，已降级使用 Bangumi 元数据入库',
-            )
-          : decision.reviewReason;
-      final work = ScrapeWorkPersister.buildBangumiOnlyWork(
+      final bgmReviewReason = bgmStatus == ScrapeStatus.matched
+          ? null
+          : (tmdbNetworkError != null
+                ? NetworkErrorSanitizer.toUserMessage(
+                    tmdbNetworkError!,
+                    prefix: 'TMDB 网络异常，已降级使用 Bangumi 元数据入库',
+                  )
+                : decision.reviewReason);
+      final builtBgmWork = ScrapeWorkPersister.buildBangumiOnlyWork(
         id: workId,
         folder: effectiveFolder,
         bangumiCandidate: fallbackBgmCandidate,
         status: bgmStatus,
         reviewReason: bgmReviewReason,
+        tvdbId: bgmWall.tvdbId,
+        posterPathOverride: bgmWall.fanartPoster,
+        backdropPath: bgmWall.fanartBackdrop,
+        logoPath: bgmWall.fanartLogo,
         isManualLocked: false,
         isHidden: existing?.keepHidden == true
             ? true
             : (existing?.isHidden ?? false),
         keepHidden: existing?.keepHidden ?? false,
+      );
+      final work = ScrapeWorkPersister.mergeWorkWithLocks(
+        existing: existing,
+        candidate: builtBgmWork,
       );
       final bgmEpisodes =
           (bgmStatus == ScrapeStatus.matched || tmdbNetworkError != null)
@@ -719,6 +791,44 @@ class ScrapeOrchestrator {
         );
       });
       return (status: bgmStatus, workId: workId);
+    }
+
+    // 条件 C / D：无 TMDB 与 Bangumi 主匹配，但具备 Fanart.tv 有效封面或本地目录封面且含有效正片时独立上墙。
+    final coverFallback = await _artworkEnricher.evaluateCoverFallback(
+      folder: effectiveFolder,
+      existingTvdbId: existing?.tvdbId,
+      priority: RequestPriority.background,
+    );
+    if (coverFallback.canPromote && coverFallback.posterPath != null) {
+      final builtFallback = ScrapeWorkPersister.buildCoverFallbackWork(
+        id: workId,
+        folder: effectiveFolder,
+        posterPath: coverFallback.posterPath!,
+        tvdbId: coverFallback.tvdbId,
+        backdropPath: coverFallback.backdropPath,
+        logoPath: coverFallback.logoPath,
+        isHidden: existing?.keepHidden == true
+            ? true
+            : (existing?.isHidden ?? false),
+        keepHidden: existing?.keepHidden ?? false,
+      );
+      final work = ScrapeWorkPersister.mergeWorkWithLocks(
+        existing: existing,
+        candidate: builtFallback,
+      );
+      await scanContext.persistMutex.synchronized(() async {
+        await _repository.upsertWork(work);
+        scanContext.worksById[work.id] = work;
+        await _photosStorage?.renameWorkFolderIfNeeded(work.id, work.title);
+        await _persister.saveTopCandidates(workId, decision.topCandidates);
+        await _persister.syncEpisodesAndVariants(
+          work: work,
+          folder: effectiveFolder,
+          tmdbEpisodes: const [],
+          preloadedSourceVariantsById: scanContext.sourceVariantById,
+        );
+      });
+      return (status: ScrapeStatus.matched, workId: workId);
     }
 
     final status =
@@ -828,6 +938,14 @@ class ScrapeOrchestrator {
         ? bundle.seasonDetails[matchedSeason]
         : null;
 
+    final fanartEnrich = await _artworkEnricher.enrichTmdbDetail(
+      detail: effectiveDetail,
+      seasonDetail: seasonDetail,
+      matchedSeason: matchedSeason,
+      bangumiCandidate: bangumiCandidate,
+      priority: RequestPriority.background,
+    );
+
     final candidateWork = ScrapeWorkPersister.buildMatchedWork(
       id: workId,
       detail: effectiveDetail,
@@ -835,9 +953,15 @@ class ScrapeOrchestrator {
       matchedSeason: matchedSeason,
       seasonDetail: seasonDetail,
       bangumiCandidate: bangumiCandidate,
+      tvdbIdOverride: fanartEnrich.tvdbId,
+      fanartPosterFallback: fanartEnrich.posterFallback,
+      fanartBackdropOverride: fanartEnrich.backdropOverride,
+      fanartLogoOverride: fanartEnrich.logoOverride,
+      localPosterFallback: folder.localPosterPath,
       fallbackYear: folder.year,
       folderTmdbHint: folder.explicitTmdbId,
       isManualLocked: isManualLocked,
+      logoNegativeMask: fanartEnrich.logoNegativeMask,
       isHidden: isHidden,
       keepHidden: keepHidden,
     );
@@ -917,6 +1041,11 @@ class ScrapeOrchestrator {
         existing.tmdbMediaType == TmdbMediaType.tv &&
         existing.matchedSeason == null &&
         folder.seasonHint != null) {
+      return false;
+    }
+    if ((existing.posterPath == null || existing.posterPath!.trim().isEmpty) &&
+        folder.localPosterPath != null &&
+        folder.localPosterPath!.trim().isNotEmpty) {
       return false;
     }
 
@@ -1043,6 +1172,14 @@ class ScrapeOrchestrator {
           ? bundle.seasonDetails[matchedSeason]
           : null;
 
+      final fanartEnrich = await _artworkEnricher.enrichTmdbDetail(
+        detail: detail,
+        seasonDetail: seasonDetail,
+        matchedSeason: matchedSeason,
+        bangumiCandidate: matchDecision.bestBangumi,
+        priority: RequestPriority.interactive,
+      );
+
       final built = ScrapeWorkPersister.buildMatchedWork(
         id: existing.id,
         detail: detail,
@@ -1050,9 +1187,14 @@ class ScrapeOrchestrator {
         matchedSeason: matchedSeason,
         seasonDetail: seasonDetail,
         bangumiCandidate: matchDecision.bestBangumi,
+        tvdbIdOverride: fanartEnrich.tvdbId,
+        fanartPosterFallback: fanartEnrich.posterFallback,
+        fanartBackdropOverride: fanartEnrich.backdropOverride,
+        fanartLogoOverride: fanartEnrich.logoOverride,
         fallbackYear: existing.year,
         folderTmdbHint: tmdbId,
         isManualLocked: markManualLocked || existing.isManualLocked,
+        logoNegativeMask: fanartEnrich.logoNegativeMask,
         isHidden: existing.isHidden,
         keepHidden: existing.keepHidden,
       );
@@ -1079,9 +1221,13 @@ class ScrapeOrchestrator {
             );
           }
         } catch (error) {
-      // Bangumi 评分补全失败不阻断 TMDB 重绑定流程。
-      developer.log('可恢复异常已记录', name: 'konata.scrape_orchestrator', error: error);
-    }
+          // Bangumi 评分补全失败不阻断 TMDB 重绑定流程。
+          developer.log(
+            '可恢复异常已记录',
+            name: 'konata.scrape_orchestrator',
+            error: error,
+          );
+        }
       }
       await _repository.upsertWork(updated);
       await _photosStorage?.renameWorkFolderIfNeeded(updated.id, updated.title);
@@ -1131,12 +1277,24 @@ class ScrapeOrchestrator {
       return updated;
     }
 
+    final fanartFallback = await _artworkEnricher.enrichTmdbDetail(
+      detail: detail,
+      seasonDetail: null,
+      matchedSeason: existing.matchedSeason,
+      bangumiCandidate: null,
+      priority: RequestPriority.interactive,
+    );
     final builtFallback = ScrapeWorkPersister.buildMatchedWork(
       id: existing.id,
       detail: detail,
+      tvdbIdOverride: fanartFallback.tvdbId,
+      fanartPosterFallback: fanartFallback.posterFallback,
+      fanartBackdropOverride: fanartFallback.backdropOverride,
+      fanartLogoOverride: fanartFallback.logoOverride,
       fallbackYear: existing.year,
       folderTmdbHint: tmdbId,
       isManualLocked: markManualLocked || existing.isManualLocked,
+      logoNegativeMask: fanartFallback.logoNegativeMask,
       isHidden: existing.isHidden,
       keepHidden: existing.keepHidden,
     );
@@ -1175,26 +1333,51 @@ class ScrapeOrchestrator {
           existing.tmdbId!,
           existing.tmdbMediaType!,
         );
-        final stillMissingLogo =
-            !rebound.logoLocked &&
-            (rebound.logoPath == null || rebound.logoPath!.trim().isEmpty);
-        if (stillMissingLogo && _clearLogoResolver != null) {
+        final needsInteractiveLogoOrArt =
+            _clearLogoResolver != null &&
+            ((!rebound.logoLocked &&
+                    (rebound.logoPath == null ||
+                        rebound.logoPath!.trim().isEmpty ||
+                        rebound.logoPath!.trim().startsWith('/'))) ||
+                (!rebound.backdropLocked &&
+                    (rebound.backdropPath == null ||
+                        rebound.backdropPath!.trim().isEmpty)) ||
+                (!rebound.posterLocked &&
+                    (rebound.posterPath == null ||
+                        rebound.posterPath!.trim().isEmpty)));
+        if (needsInteractiveLogoOrArt) {
           final outcome = await _clearLogoResolver.resolveForWork(
             rebound,
             forceRefresh: true,
-            skipTmdb: true,
+            allowUpgradeExisting: true,
+            upgradeBackdropIfSuboptimal: true,
+            fillPosterIfMissing: true,
             priority: RequestPriority.interactive,
           );
+          final nextLogo = rebound.logoLocked
+              ? rebound.logoPath
+              : (outcome.logoPath ?? rebound.logoPath);
+          final nextBackdrop = rebound.backdropLocked
+              ? rebound.backdropPath
+              : (outcome.upgradedBackdropPath ?? rebound.backdropPath);
+          final nextPoster = rebound.posterLocked
+              ? rebound.posterPath
+              : ((rebound.posterPath == null ||
+                        rebound.posterPath!.trim().isEmpty)
+                    ? (outcome.fallbackPosterPath ?? rebound.posterPath)
+                    : rebound.posterPath);
+          final clearNeg =
+              nextLogo != null &&
+              nextLogo.trim().isNotEmpty &&
+              outcome.negativeMask == 0;
           rebound = rebound.copyWith(
-            logoPath: outcome.logoPath ?? rebound.logoPath,
+            logoPath: nextLogo,
+            backdropPath: nextBackdrop,
+            posterPath: nextPoster,
             tvdbId: outcome.resolvedTvdbId ?? rebound.tvdbId,
-            clearLogoNegative: outcome.logoPath != null,
-            logoNegativeUntil: outcome.logoPath != null
-                ? null
-                : outcome.negativeUntil,
-            logoNegativeMask: outcome.logoPath != null
-                ? 0
-                : outcome.negativeMask,
+            clearLogoNegative: clearNeg,
+            logoNegativeUntil: outcome.negativeUntil,
+            logoNegativeMask: outcome.negativeMask,
           );
           await _repository.upsertWork(rebound);
         }
@@ -1204,54 +1387,115 @@ class ScrapeOrchestrator {
       final missingLogo =
           !existing.logoLocked &&
           (existing.logoPath == null || existing.logoPath!.trim().isEmpty);
+      final canUpgradeLogo =
+          !existing.logoLocked &&
+          existing.logoPath != null &&
+          existing.logoPath!.trim().startsWith('/') &&
+          (existing.logoNegativeMask &
+                  ClearLogoNegativeMask.multiSourceUpgraded) ==
+              0 &&
+          _clearLogoResolver != null;
       final missingBackdrop =
           !existing.backdropLocked &&
           (existing.backdropPath == null ||
               existing.backdropPath!.trim().isEmpty);
-      if (!missingLogo && !missingBackdrop) {
+      final missingPoster =
+          !existing.posterLocked &&
+          (existing.posterPath == null || existing.posterPath!.trim().isEmpty);
+      if (!missingLogo && !canUpgradeLogo && !missingBackdrop && !missingPoster) {
         return existing;
       }
 
-      if (missingLogo && !missingBackdrop && _clearLogoResolver != null) {
+      TmdbWorkDetail? detail;
+      try {
+        detail = await _tmdbService.getWorkDetail(
+          existing.tmdbId!,
+          existing.tmdbMediaType!,
+          priority: RequestPriority.background,
+          includeImages: true,
+        );
+      } catch (error) {
+        developer.log(
+          '后台拉取 TMDB 详情失败，继续尝试 Fanart 艺术图补全',
+          name: 'konata.scrape_orchestrator',
+          error: error,
+        );
+      }
+
+      if (_clearLogoResolver != null) {
         final outcome = await _clearLogoResolver.resolveForWork(
           existing,
+          preloadedTmdbDetail: detail,
+          skipTmdb: detail == null,
+          allowUpgradeExisting: canUpgradeLogo,
+          upgradeBackdropIfSuboptimal: !existing.backdropLocked,
+          fillPosterIfMissing: missingPoster,
           priority: RequestPriority.background,
         );
-        final nextLogo = outcome.logoPath ?? existing.logoPath;
-        final nextTvdb = outcome.resolvedTvdbId ?? existing.tvdbId;
-        final nextNegUntil = outcome.logoPath != null
-            ? null
-            : outcome.negativeUntil;
-        final nextNegMask = outcome.logoPath != null ? 0 : outcome.negativeMask;
+        final nextLogo = existing.logoLocked
+            ? existing.logoPath
+            : (outcome.logoPath ?? existing.logoPath);
+        final nextTvdb =
+            outcome.resolvedTvdbId ?? detail?.tvdbId ?? existing.tvdbId;
+        final canUpgradeRemoteBackdrop =
+            !existing.backdropLocked &&
+            (missingBackdrop ||
+                (missingLogo &&
+                    (existing.backdropPath?.startsWith('/') ?? false) &&
+                    (detail?.backdropPath?.trim().isNotEmpty ?? false)));
+        final nextBackdrop = existing.backdropLocked
+            ? existing.backdropPath
+            : (outcome.upgradedBackdropPath ??
+                  (canUpgradeRemoteBackdrop
+                      ? (detail?.backdropPath ?? existing.backdropPath)
+                      : existing.backdropPath));
+        final nextPoster = existing.posterLocked
+            ? existing.posterPath
+            : (missingPoster
+                  ? (detail?.posterPath ??
+                        outcome.fallbackPosterPath ??
+                        existing.posterPath)
+                  : existing.posterPath);
+        final nextNegUntil = outcome.negativeUntil;
+        final nextNegMask = outcome.negativeMask;
         final changed =
             nextLogo != existing.logoPath ||
+            nextBackdrop != existing.backdropPath ||
+            nextPoster != existing.posterPath ||
             nextTvdb != existing.tvdbId ||
             nextNegUntil != existing.logoNegativeUntil ||
             nextNegMask != existing.logoNegativeMask;
         if (!changed) return existing;
         final updated = existing.copyWith(
           logoPath: nextLogo,
+          backdropPath: nextBackdrop,
+          posterPath: nextPoster,
           tvdbId: nextTvdb,
-          clearLogoNegative: outcome.logoPath != null,
+          clearLogoNegative:
+              nextLogo != null &&
+              nextLogo.trim().isNotEmpty &&
+              nextNegMask == 0 &&
+              nextNegUntil == null,
           logoNegativeUntil: nextNegUntil,
           logoNegativeMask: nextNegMask,
         );
         await _repository.upsertWork(updated);
+        if (detail != null) {
+          await SeriesAutoLinker.reconcileAll(
+            repository: _repository,
+            bangumiService: _bangumiService,
+            tmdbService: _tmdbService,
+            tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
+          );
+        }
         return await _repository.findWorkById(workId) ?? updated;
       }
 
-      final detail = await _tmdbService.getWorkDetail(
-        existing.tmdbId!,
-        existing.tmdbMediaType!,
-        priority: RequestPriority.background,
-      );
       if (detail == null) return existing;
-      var nextLogo = missingLogo
+      final nextLogo = missingLogo
           ? (detail.logoPath ?? existing.logoPath)
           : existing.logoPath;
-      var nextTvdb = detail.tvdbId ?? existing.tvdbId;
-      DateTime? nextNegUntil = existing.logoNegativeUntil;
-      int nextNegMask = existing.logoNegativeMask;
+      final nextTvdb = detail.tvdbId ?? existing.tvdbId;
       final canUpgradeRemoteBackdrop =
           !existing.backdropLocked &&
           (missingBackdrop ||
@@ -1261,38 +1505,22 @@ class ScrapeOrchestrator {
       final nextBackdrop = canUpgradeRemoteBackdrop
           ? (detail.backdropPath ?? existing.backdropPath)
           : existing.backdropPath;
-
-      if (missingLogo &&
-          (nextLogo == null || nextLogo.trim().isEmpty) &&
-          _clearLogoResolver != null) {
-        final outcome = await _clearLogoResolver.resolveForWork(
-          existing.copyWith(tvdbId: nextTvdb),
-          skipTmdb: true,
-          priority: RequestPriority.background,
-        );
-        nextLogo = outcome.logoPath ?? nextLogo;
-        nextTvdb = outcome.resolvedTvdbId ?? nextTvdb;
-        nextNegUntil = outcome.logoPath != null ? null : outcome.negativeUntil;
-        nextNegMask = outcome.logoPath != null ? 0 : outcome.negativeMask;
-      } else if (nextLogo != null && nextLogo.trim().isNotEmpty) {
-        nextNegUntil = null;
-        nextNegMask = 0;
-      }
+      final nextPoster = (!existing.posterLocked && missingPoster)
+          ? (detail.posterPath ?? existing.posterPath)
+          : existing.posterPath;
 
       if (nextLogo == existing.logoPath &&
           nextBackdrop == existing.backdropPath &&
-          nextTvdb == existing.tvdbId &&
-          nextNegUntil == existing.logoNegativeUntil &&
-          nextNegMask == existing.logoNegativeMask) {
+          nextPoster == existing.posterPath &&
+          nextTvdb == existing.tvdbId) {
         return existing;
       }
       final updated = existing.copyWith(
         logoPath: nextLogo,
         backdropPath: nextBackdrop,
+        posterPath: nextPoster,
         tvdbId: nextTvdb,
         clearLogoNegative: nextLogo != null && nextLogo.trim().isNotEmpty,
-        logoNegativeUntil: nextNegUntil,
-        logoNegativeMask: nextNegMask,
       );
       await _repository.upsertWork(updated);
       await SeriesAutoLinker.reconcileAll(
@@ -1305,7 +1533,10 @@ class ScrapeOrchestrator {
     }
 
     if (!interactive && existing.metadataLocked) {
-      return existing;
+      return _refreshNonTmdbWork(
+        existing,
+        interactive: false,
+      );
     }
 
     final variants = await _repository.getVariantsByWork(workId);
@@ -1381,9 +1612,18 @@ class ScrapeOrchestrator {
               titleHints: folder.titleHints,
               extraSearchQueries: extraQueries,
             );
-      final explicitDetail = await _candidateFetcher.fetchExplicitDetail(
-        explicitFolder,
-      );
+      TmdbWorkDetail? explicitDetail;
+      try {
+        explicitDetail = await _candidateFetcher.fetchExplicitDetail(
+          explicitFolder,
+        );
+      } catch (error) {
+        developer.log(
+          '显式 TMDB 补绑查询失败，回退 Bangumi/Fanart 刷新',
+          name: 'konata.scrape_orchestrator',
+          error: error,
+        );
+      }
       if (explicitDetail != null) {
         return rebindWorkToTmdb(
           workId,
@@ -1407,8 +1647,12 @@ class ScrapeOrchestrator {
           bgmById[bgmDetail.id] = bgmDetail;
         }
       } catch (error) {
-      developer.log('可恢复异常已记录', name: 'konata.scrape_orchestrator', error: error);
-    }
+        developer.log(
+          '可恢复异常已记录',
+          name: 'konata.scrape_orchestrator',
+          error: error,
+        );
+      }
     }
     final searchedBgm = await _candidateFetcher.fetchBangumiCandidates(
       folder,
@@ -1423,11 +1667,20 @@ class ScrapeOrchestrator {
       bgmCandidates,
     );
 
-    var candidates = await _candidateFetcher.fetchCandidateDetails(
-      folder,
-      bangumiCandidate: bgmEval.best,
-      extraQueries: extraQueries,
-    );
+    var candidates = const <TmdbWorkDetail>[];
+    try {
+      candidates = await _candidateFetcher.fetchCandidateDetails(
+        folder,
+        bangumiCandidate: bgmEval.best,
+        extraQueries: extraQueries,
+      );
+    } catch (error) {
+      developer.log(
+        'TMDB 候选拉取不可用，继续执行 Bangumi 与 Fanart 补全',
+        name: 'konata.scrape_orchestrator',
+        error: error,
+      );
+    }
     var decision = await _computeWorker.evaluateMatch(
       folder,
       candidates,
@@ -1442,18 +1695,26 @@ class ScrapeOrchestrator {
     if (rescueTarget != null &&
         (decision.best == null ||
             (decision.best!.detail.backdropPath?.trim().isEmpty ?? true))) {
-      final rescued = await _candidateFetcher.rescueTmdbByBangumi(
-        folder,
-        rescueTarget,
-        existingDetails: candidates,
-      );
-      if (rescued.length > candidates.length) {
-        candidates = rescued;
-        decision = await _computeWorker.evaluateMatch(
+      try {
+        final rescued = await _candidateFetcher.rescueTmdbByBangumi(
           folder,
-          candidates,
-          bangumiCandidates: bgmCandidates,
-          mappingIndex: _mappingIndex,
+          rescueTarget,
+          existingDetails: candidates,
+        );
+        if (rescued.length > candidates.length) {
+          candidates = rescued;
+          decision = await _computeWorker.evaluateMatch(
+            folder,
+            candidates,
+            bangumiCandidates: bgmCandidates,
+            mappingIndex: _mappingIndex,
+          );
+        }
+      } catch (error) {
+        developer.log(
+          'TMDB 交叉救回不可用，保留 Bangumi/Fanart 刷新',
+          name: 'konata.scrape_orchestrator',
+          error: error,
         );
       }
     }
@@ -1465,15 +1726,159 @@ class ScrapeOrchestrator {
             (existing.bangumiId != null &&
                 decision.level != MatchLevel.unmatched) ||
             (interactive && decision.level != MatchLevel.unmatched));
-    if (!allowBind) {
+    if (allowBind) {
+      return rebindWorkToTmdb(
+        workId,
+        best.detail.tmdbId,
+        best.detail.mediaType,
+        markManualLocked: interactive || existing.isManualLocked,
+      );
+    }
+
+    // 无 TMDB 匹配时仍支持刷新 Bangumi 元数据/分集及 Fanart.tv 封面/背景/透明徽标。
+    return _refreshNonTmdbWork(
+      existing,
+      bgmSubject: rescueTarget,
+      folder: folder,
+      interactive: interactive,
+    );
+  }
+
+  Future<Work?> _refreshNonTmdbWork(
+    Work existing, {
+    BangumiSubjectCandidate? bgmSubject,
+    GroupedWorkFolder? folder,
+    required bool interactive,
+  }) async {
+    final resolvedTvdbId =
+        existing.tvdbId ??
+        ScrapeArtworkEnricher.lookupOfflineTvdbId(
+          mappingIndex: _mappingIndex,
+          bangumiId: bgmSubject?.id ?? existing.bangumiId,
+        );
+    final missingLogo =
+        !existing.logoLocked &&
+        (existing.logoPath == null || existing.logoPath!.trim().isEmpty);
+    final missingBackdrop =
+        !existing.backdropLocked &&
+        (existing.backdropPath == null ||
+            existing.backdropPath!.trim().isEmpty);
+    final missingPoster =
+        !existing.posterLocked &&
+        (existing.posterPath == null || existing.posterPath!.trim().isEmpty);
+
+    FanartArtworkResult? fanartBundle;
+    if (resolvedTvdbId != null &&
+        _fanartService != null &&
+        _fanartService.isConfigured &&
+        (interactive || missingLogo || missingBackdrop || missingPoster)) {
+      fanartBundle = await _artworkEnricher.fetchFanartBundleIfAvailable(
+        mediaType: TmdbMediaType.tv,
+        tvdbId: resolvedTvdbId,
+        priority: interactive
+            ? RequestPriority.interactive
+            : RequestPriority.background,
+        forceRefresh: interactive,
+      );
+    }
+
+    final fanartPoster = fanartBundle?.bestPosterUrlForSeason(
+      existing.matchedSeason,
+    );
+    final fanartBackdrop = fanartBundle?.bestBackgroundUrl;
+    final fanartLogo = fanartBundle?.bestLogoUrl;
+
+    final nextTitle = (!existing.metadataLocked && bgmSubject != null)
+        ? (bgmSubject.displayTitle.trim().isNotEmpty
+              ? bgmSubject.displayTitle.trim()
+              : existing.title)
+        : existing.title;
+    final nextOverview = (!existing.metadataLocked && bgmSubject != null)
+        ? (_nonEmpty(bgmSubject.summary) ?? existing.overview)
+        : existing.overview;
+    final nextYear = (!existing.metadataLocked && bgmSubject != null)
+        ? (bgmSubject.year ?? existing.year)
+        : existing.year;
+    final nextBgmPoster =
+        _nonEmpty(bgmSubject?.posterUrl) ?? existing.bangumiPosterPath;
+    final nextPoster = existing.posterLocked
+        ? existing.posterPath
+        : (missingPoster
+              ? (nextBgmPoster ?? fanartPoster ?? existing.posterPath)
+              : existing.posterPath);
+    final nextBackdrop = existing.backdropLocked
+        ? existing.backdropPath
+        : (missingBackdrop
+              ? (fanartBackdrop ?? existing.backdropPath)
+              : existing.backdropPath);
+    final nextLogo = existing.logoLocked
+        ? existing.logoPath
+        : (missingLogo ? (fanartLogo ?? existing.logoPath) : existing.logoPath);
+    final nextScore = bgmSubject?.score ?? existing.bangumiScore;
+    final nextStatus =
+        (existing.scrapeStatus != ScrapeStatus.matched &&
+            nextPoster != null &&
+            nextPoster.trim().isNotEmpty &&
+            (bgmSubject != null || resolvedTvdbId != null))
+        ? ScrapeStatus.matched
+        : existing.scrapeStatus;
+
+    final changed =
+        resolvedTvdbId != existing.tvdbId ||
+        nextTitle != existing.title ||
+        nextOverview != existing.overview ||
+        nextYear != existing.year ||
+        nextBgmPoster != existing.bangumiPosterPath ||
+        nextPoster != existing.posterPath ||
+        nextBackdrop != existing.backdropPath ||
+        nextLogo != existing.logoPath ||
+        nextScore != existing.bangumiScore ||
+        nextStatus != existing.scrapeStatus;
+
+    if (!changed && !interactive) {
       return null;
     }
-    return rebindWorkToTmdb(
-      workId,
-      best.detail.tmdbId,
-      best.detail.mediaType,
-      markManualLocked: interactive || existing.isManualLocked,
+
+    final updated = existing.copyWith(
+      tvdbId: resolvedTvdbId,
+      title: nextTitle,
+      overview: nextOverview,
+      year: nextYear,
+      posterPath: nextPoster,
+      bangumiPosterPath: nextBgmPoster,
+      backdropPath: nextBackdrop,
+      logoPath: nextLogo,
+      bangumiScore: nextScore,
+      scrapeStatus: nextStatus,
+      clearLogoNegative: nextLogo != null && nextLogo.trim().isNotEmpty,
     );
+    await _repository.upsertWork(updated);
+    await _photosStorage?.renameWorkFolderIfNeeded(updated.id, updated.title);
+
+    if (interactive &&
+        updated.bangumiId != null &&
+        folder != null &&
+        folder.variants.isNotEmpty) {
+      final bgmEpisodes = await _candidateFetcher.fetchBangumiEpisodes(
+        updated.bangumiId!,
+        type: null,
+      );
+      if (bgmEpisodes.isNotEmpty) {
+        await _persister.syncEpisodesAndVariants(
+          work: updated,
+          folder: folder,
+          tmdbEpisodes: const [],
+          bangumiEpisodes: bgmEpisodes,
+        );
+      }
+    }
+    return await _repository.findWorkById(existing.id) ?? updated;
+  }
+
+  static String? _nonEmpty(String? raw) {
+    final trimmed = raw?.trim();
+    if (trimmed == null || trimmed.isEmpty) return null;
+    return trimmed;
   }
 
   /// 仅针对与本次新扫入作品同身份（相同 TMDB/Bangumi 或同名同文件）的同源旧作品核实源目录存活性，自动清理因目录改名产生的幽灵重复卡片。

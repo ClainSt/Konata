@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart' as sq;
 
+import '../../domain/models/artwork_storage.dart';
 import '../../domain/models/tmdb_models.dart';
 import 'photos_storage.dart';
 
@@ -16,7 +17,7 @@ import 'photos_storage.dart';
 /// - 拥有明确 `ownerWorkId` 的图片按作品与类别落盘至
 ///   `photos/<作品名> [<tag>]/<posters|backdrops|logos|thumbnails>/`。
 /// - 无归属的候选预览图（`owner == null`）仅保留在内存有界 LRU 中，绝不在磁盘建夹写入。
-class ArtworkCache {
+class ArtworkCache implements ArtworkCacheStore {
   /// 使用指定的缓存根目录创建独立图片缓存管理器（兼容纯临时目录单元测试）。
   ArtworkCache(
     this.root, {
@@ -65,11 +66,8 @@ class ArtworkCache {
       sha256.convert(utf8.encode(value)).toString();
 
   /// 构建带尺寸档位隔离的标准 TMDB 图片缓存键（例如 `original_/abc.jpg` 与 `w500_/abc.jpg`）。
-  static String buildSizedKey(TmdbImageSize size, String imagePath) {
-    final trimmed = imagePath.trim();
-    final normalized = trimmed.startsWith('/') ? trimmed : '/$trimmed';
-    return '${size.name}_$normalized';
-  }
+  static String buildSizedKey(TmdbImageSize size, String imagePath) =>
+      buildSizedArtworkCacheKey(size, imagePath);
 
   sq.Database _ensureOpen() {
     final existing = _db;
@@ -153,6 +151,7 @@ class ArtworkCache {
   }
 
   /// 写入或更新缓存图片并关联所有者（同步更新内存 LRU 缓存）。
+  @override
   Future<void> write(
     String key,
     Uint8List bytes, {
@@ -196,6 +195,7 @@ class ArtworkCache {
   }
 
   /// 读取满足最低质量分档要求的本地缓存图片字节（优先命中内存 LRU 缓存）。
+  @override
   Future<Uint8List?> read(
     String key, {
     int minimumQuality = 0,

@@ -364,8 +364,8 @@ Future<WorkMergeOutcome> _transferVariantsToTargetInRepo(
   );
 }
 
-/// 当待复核/待绑定的作品自身无任何正片（`正片 (0)`），且库内已存在匹配的正片或已入库条目时，
-/// 返回应当自动并入的目标作品实体（避免生成重复 `正片 (0)` 空壳卡片）。
+/// 当待复核/待绑定的作品自身无任何正片（`正片 (0)`），且同媒体源内已存在匹配的正片或已入库条目时，
+/// 返回应当自动并入的目标作品实体（避免同源生成重复 `正片 (0)` 空壳卡片；严格禁止跨不同媒体源自动合并）。
 Future<Work?> findAutoMergeTargetInRepo(
   LibraryRepository repo, {
   required String sourceWorkId,
@@ -379,6 +379,9 @@ Future<Work?> findAutoMergeTargetInRepo(
     (e) => e.category == EpisodeCategory.main,
   );
   if (hasMainEpisode) return null;
+
+  final sourceVariants = await repo.getVariantsByWork(sourceWorkId);
+  final sourceIds = {for (final v in sourceVariants) v.sourceId};
 
   final allWorks = await repo.getAllWorks();
   final candidates = <Work>[];
@@ -403,6 +406,13 @@ Future<Work?> findAutoMergeTargetInRepo(
             w.matchedSeason == matchedSeason);
 
     if (matchesBgm || matchesTmdb) {
+      if (sourceIds.isNotEmpty) {
+        final targetVariants = await repo.getVariantsByWork(w.id);
+        final sharesSameSource = targetVariants.any(
+          (v) => sourceIds.contains(v.sourceId),
+        );
+        if (!sharesSameSource) continue;
+      }
       candidates.add(w);
     }
   }

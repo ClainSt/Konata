@@ -7,31 +7,11 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/painting.dart';
 import 'package:path/path.dart' as p;
 
+import '../../domain/models/artwork_storage.dart';
 import '../../domain/models/work.dart';
 import '../storage/storage_root_provider.dart';
 
-/// 统一 `photos/` 根目录下的五类规范图片子目录。
-enum PhotoSubfolder {
-  /// 作品竖版封面图。
-  posters('posters'),
-
-  /// 作品详情页横版背景画作。
-  backdrops('backdrops'),
-
-  /// 作品官方透明标题 Logo。
-  logos('logos'),
-
-  /// 单集分集剧照缩略图（可再生）。
-  thumbnails('thumbnails'),
-
-  /// Scan 扫图微缩图（`.webp`，可再生）。
-  scans('scans');
-
-  const PhotoSubfolder(this.dirName);
-
-  /// 磁盘子目录名。
-  final String dirName;
-}
+export '../../domain/models/artwork_storage.dart' show PhotoSubfolder;
 
 /// 自定义图片统计与精准清理的五类图片分类。
 enum PhotoStorageCategory {

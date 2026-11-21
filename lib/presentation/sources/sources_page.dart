@@ -110,7 +110,11 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
       _openProgressDialog();
       return;
     }
-    if (!await ensureTmdbConfiguredForScrape(context, ref)) {
+    if (!await ensureTmdbConfiguredForScrape(
+      context,
+      ref,
+      allowBangumiFallback: true,
+    )) {
       return;
     }
     if (mounted) {

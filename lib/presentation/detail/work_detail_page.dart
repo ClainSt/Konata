@@ -128,9 +128,11 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
         work.tmdbId == null &&
         (work.bangumiId != null || work.folderTmdbHint != null);
     final missingBackdrop =
-        work.tmdbId != null &&
         !work.backdropLocked &&
-        (work.backdropPath == null || work.backdropPath!.trim().isEmpty);
+        (work.backdropPath == null || work.backdropPath!.trim().isEmpty) &&
+        (work.tmdbId != null ||
+            ((work.tvdbId != null || work.bangumiId != null) &&
+                (config?.isFanartAvailable ?? false)));
     final needLogoBackfill =
         config != null &&
         ClearLogoResolver.shouldAttemptDetailLogoBackfill(
@@ -197,9 +199,6 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
   }
 
   Future<void> _handleOpenManualMatch(WorkDetailBundle bundle) async {
-    if (!await ensureTmdbConfiguredForScrape(context, ref) || !mounted) {
-      return;
-    }
     final matched = await DetailActionHandlers.openManualMatch(context, bundle);
     if (!mounted || matched == null) return;
     if (matched.id != _activeWorkId) {
@@ -211,11 +210,11 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
   }
 
   Future<void> _handleRescrape(WorkDetailBundle bundle) async {
-    if (!await ensureTmdbConfiguredForScrape(context, ref) || !mounted) {
-      return;
-    }
     final work = bundle.work;
     if (work.tmdbId != null && work.tmdbMediaType != null) {
+      if (!await ensureTmdbConfiguredForScrape(context, ref) || !mounted) {
+        return;
+      }
       final updated = await ref
           .read(scrapeControllerProvider.notifier)
           .rebindWork(
@@ -237,8 +236,8 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
         .read(scrapeControllerProvider.notifier)
         .ensureOrRescrapeWork(workId: work.id, interactive: true);
     if (!mounted) return;
-    if (bound == null || bound.tmdbId == null) {
-      _showToast('未能自动定位唯一 TMDB 条目，请使用绑定元数据匹配');
+    if (bound == null) {
+      _showToast('未能自动定位匹配条目，请使用绑定元数据匹配');
       return;
     }
     if (bound.id != work.id) {
@@ -246,8 +245,10 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
         bound.id,
         toastMessage: '已自动并入已有作品「${bound.title}」',
       );
-    } else {
+    } else if (bound.tmdbId != null) {
       _showToast('已自动补绑 TMDB 数据并更新图片');
+    } else {
+      _showToast('已刷新 Bangumi 与 Fanart.tv 元数据及图片');
     }
   }
 

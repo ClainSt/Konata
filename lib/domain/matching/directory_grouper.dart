@@ -86,6 +86,7 @@ class GroupedWorkFolder {
     this.allowParentTmdbCandidate = false,
     this.ignoreExplicitTmdb = false,
     this.assetScopesByPath = const {},
+    this.localPosterPath,
   });
 
   /// 作品根目录相对路径（合集拆分时为虚拟簇标识如 `dir::movie`）。
@@ -154,6 +155,9 @@ class GroupedWorkFolder {
   /// 各物理文件在系列中的默认共享/独占作用域预设。
   final Map<String, SupplementaryAssetScope> assetScopesByPath;
 
+  /// 仅限本地磁盘源单作根目录识别到的本地封面图片绝对路径（WebDAV/SMB 恒为 `null`；合集拆簇不继承父目录封面）。
+  final String? localPosterPath;
+
   /// 当目录存在正片集号（或已识别为 TV 剧集）且未显式标记为电影或覆写媒体类型时，
   /// TMDB 候选检索仅锁定 `/search/tv`，避免同名冷门电影（如无背景图条目）污染结果。
   bool get prefersTvSearch =>
@@ -186,6 +190,7 @@ class GroupedWorkFolder {
       allowParentTmdbCandidate: allowParentTmdbCandidate,
       ignoreExplicitTmdb: true,
       assetScopesByPath: assetScopesByPath,
+      localPosterPath: localPosterPath,
     );
   }
 }

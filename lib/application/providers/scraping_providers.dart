@@ -2,6 +2,7 @@ import 'dart:developer' as developer;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../composition/platform_composition.dart';
 import '../../domain/formatting/network_error_sanitizer.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/network_config.dart';
@@ -46,11 +47,28 @@ final domainCooldownRegistryProvider = Provider<DomainCooldownRegistry>(
   (ref) => DomainCooldownRegistry(),
 );
 
+/// 统一构建绑定共享调度器、域名冷却与平台系统代理通道的 [TmdbHttpClient]。
+TmdbHttpClient createAppTmdbHttpClient(Ref ref, TmdbNetworkConfig config) {
+  return TmdbHttpClient(
+    config: config,
+    scheduler: ref.read(priorityHttpSchedulerProvider),
+    cooldownRegistry: ref.read(domainCooldownRegistryProvider),
+    systemProxyResolver: ref.read(systemProxyResolverProvider),
+  );
+}
+
 /// 全应用共享的 Fanart.tv 内置无状态中继熔断器 Provider（区分 429 频率限流与日额度耗尽）。
 final fanartCircuitBreakerProvider = Provider<FanartCircuitBreaker>((ref) {
   final breaker = FanartCircuitBreaker();
   ref.onDispose(breaker.reset);
   return breaker;
+});
+
+/// 全应用共享的 Fanart.tv 整包艺术图（徽标 + 封面 + 无字背景）有界内存缓存 Provider。
+final fanartArtworkCacheProvider = Provider<FanartArtworkCache>((ref) {
+  final cache = FanartArtworkCache();
+  ref.onDispose(cache.clear);
+  return cache;
 });
 
 /// 全应用共享的透明徽标在途去重注册表 Provider（防止详情页重建或同系列多季并发重复探测）。
@@ -135,16 +153,10 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
     BangumiTmdbIndex? mappingIndex,
   }) async {
     final config = await _ref.read(tmdbNetworkConfigProvider.future);
-    final scheduler = _ref.read(priorityHttpSchedulerProvider);
-    final cooldown = _ref.read(domainCooldownRegistryProvider);
     final cache = await _ref.read(artworkCacheProvider.future);
     final repository = _ref.read(libraryRepositoryProvider);
     final activeIndex = mappingIndex ?? await _resolveActiveMappingIndex();
-    final httpClient = TmdbHttpClient(
-      config: config,
-      scheduler: scheduler,
-      cooldownRegistry: cooldown,
-    );
+    final httpClient = createAppTmdbHttpClient(_ref, config);
     final tmdbService = TmdbService(
       httpClient: httpClient,
       artworkCache: cache,
@@ -153,6 +165,7 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
     final fanartService = FanartService(
       httpClient: httpClient,
       circuitBreaker: _ref.read(fanartCircuitBreakerProvider),
+      artworkCache: _ref.read(fanartArtworkCacheProvider),
     );
     final clearLogoResolver = ClearLogoResolver(
       tmdbService: tmdbService,
@@ -166,6 +179,7 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
       repository: repository,
       tmdbService: tmdbService,
       bangumiService: bangumiService,
+      fanartService: fanartService,
       clearLogoResolver: clearLogoResolver,
       gatewayBuilder: gatewayFactory.create,
       photosStorage: _ref.read(photosStorageProvider),
@@ -319,9 +333,13 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
 
       final changed =
           updated.tmdbId != before.tmdbId ||
+          updated.tvdbId != before.tvdbId ||
+          updated.posterPath != before.posterPath ||
           updated.logoPath != before.logoPath ||
           updated.backdropPath != before.backdropPath ||
           updated.title != before.title ||
+          updated.overview != before.overview ||
+          updated.bangumiScore != before.bangumiScore ||
           interactive;
       if (changed) {
         await _ref

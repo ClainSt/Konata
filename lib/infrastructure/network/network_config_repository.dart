@@ -84,9 +84,12 @@ class NetworkConfigRepository {
       ),
       fanartClientKey: fanartClientKey,
       fanartApiKeyOverride: fanartApiKeyOverride,
-      fanartBackupApiBase:
-          prefs.getString(_keyFanartBackupApi) ??
-          TmdbNetworkConfig.builtInFanartRelayBase,
+      fanartBackupApiBase: () {
+        final stored = (prefs.getString(_keyFanartBackupApi) ?? '').trim();
+        return stored.isNotEmpty
+            ? stored
+            : TmdbNetworkConfig.builtInFanartRelayBase;
+      }(),
       fanartBackupImageBase: prefs.getString(_keyFanartBackupImage) ?? '',
       proxyMode: proxyMode,
       proxyUrl: proxyUrl,

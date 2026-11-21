@@ -13,6 +13,7 @@ import '../../domain/models/work.dart';
 import '../../domain/parsing/bdrip_parser.dart';
 import '../../domain/repositories/library_repository.dart';
 import '../../domain/scraping/scrape_domain_adapter.dart';
+import '../../domain/scraping/work_wall_eligibility.dart';
 import '../../infrastructure/cache/photos_storage.dart';
 import '../../infrastructure/database/drift_library_repository.dart';
 import '../../infrastructure/database/konata_database.dart';
@@ -35,7 +36,7 @@ enum KonataNavSection {
   settings,
 }
 
-/// 作品列表项聚合视图模型（含版本数与主力压制组摘要，供海报卡片与搜索过滤使用）。
+/// 作品列表项聚合视图模型（含版本数、媒体源归属与主力压制组摘要，供海报卡片与搜索过滤使用）。
 class WorkLibraryItem {
   /// 创建媒体库列表项。
   const WorkLibraryItem({
@@ -44,6 +45,10 @@ class WorkLibraryItem {
     required this.episodeCount,
     required this.releaseGroups,
     this.maxEpisodeVariantCount = 1,
+    this.sourceIds = const [],
+    this.primarySourceKind,
+    this.primarySourceLabel,
+    this.crossSourceBadgeLabel,
   });
 
   /// 作品实体。
@@ -61,8 +66,36 @@ class WorkLibraryItem {
   /// 压制组/字幕组摘要集合。
   final List<String> releaseGroups;
 
+  /// 关联的去重媒体源 ID 列表。
+  final List<String> sourceIds;
+
+  /// 主媒体源协议类型（本地 / WebDAV / SMB）。
+  final MediaSourceKind? primarySourceKind;
+
+  /// 主媒体源显示名称（同协议多源同名冲突时用于区分）。
+  final String? primarySourceLabel;
+
+  /// 仅当不同媒体源存在相同作品卡片时计算出的右上角来源角标文案（单源唯一作品恒为 `null`）。
+  final String? crossSourceBadgeLabel;
+
   /// 是否包含同一正片剧集的真实多版本压制文件。
   bool get hasMultiVariants => maxEpisodeVariantCount > 1;
+
+  /// 复制并更新跨来源角标文案。
+  WorkLibraryItem copyWithCrossSourceBadge(String? badgeLabel) {
+    if (badgeLabel == crossSourceBadgeLabel) return this;
+    return WorkLibraryItem(
+      work: work,
+      variants: variants,
+      episodeCount: episodeCount,
+      releaseGroups: releaseGroups,
+      maxEpisodeVariantCount: maxEpisodeVariantCount,
+      sourceIds: sourceIds,
+      primarySourceKind: primarySourceKind,
+      primarySourceLabel: primarySourceLabel,
+      crossSourceBadgeLabel: badgeLabel,
+    );
+  }
 }
 
 /// 可在手动编辑弹窗中调整共享/独享作用域的附属条目描述。
@@ -192,6 +225,10 @@ final libraryItemsProvider = FutureProvider<List<WorkLibraryItem>>((ref) async {
       developer.log('可恢复异常已记录', name: 'konata.library_providers', error: error);
     }
   }
+  final sources = await repo.getMediaSources();
+  final sourcesById = <String, MediaSource>{
+    for (final s in sources) s.id: s,
+  };
   final items = <WorkLibraryItem>[];
   for (final work in works) {
     photos.cacheWorkTitle(work.id, work.title);
@@ -221,6 +258,14 @@ final libraryItemsProvider = FutureProvider<List<WorkLibraryItem>>((ref) async {
         if (v.releaseGroup != null && v.releaseGroup!.isNotEmpty)
           v.releaseGroup!,
     };
+    final sourceIdSet = <String>{
+      for (final v in variants)
+        if (v.sourceId.isNotEmpty) v.sourceId,
+    };
+    final sourceIds = sourceIdSet.toList(growable: false);
+    final primarySource = sourceIds.isNotEmpty
+        ? sourcesById[sourceIds.first]
+        : null;
     items.add(
       WorkLibraryItem(
         work: work,
@@ -228,25 +273,83 @@ final libraryItemsProvider = FutureProvider<List<WorkLibraryItem>>((ref) async {
         episodeCount: mainEpisodes.length,
         maxEpisodeVariantCount: maxVariantCount,
         releaseGroups: groups.toList(growable: false),
+        sourceIds: sourceIds,
+        primarySourceKind: primarySource?.kind,
+        primarySourceLabel: primarySource?.label,
       ),
     );
   }
   return items;
 });
 
-/// 媒体库海报墙正式入库作品列表（严格排除尚未确认的 `needsReview` / `unmatched` 条目）。
+/// 为跨不同媒体源并存相同作品卡片的条目按需标注右上角来源角标（单源唯一卡片保持干净无角标）。
+List<WorkLibraryItem> annotateCrossSourceBadges(List<WorkLibraryItem> items) {
+  if (items.length < 2) return items;
+  final buckets = <String, List<int>>{};
+  for (var i = 0; i < items.length; i++) {
+    final key = WorkWallEligibility.buildCrossSourceIdentityKey(items[i].work);
+    buckets.putIfAbsent(key, () => <int>[]).add(i);
+  }
+
+  List<WorkLibraryItem>? updated;
+  for (final indices in buckets.values) {
+    if (indices.length < 2) continue;
+    final distinctSources = <String>{};
+    for (final idx in indices) {
+      distinctSources.addAll(items[idx].sourceIds);
+    }
+    if (distinctSources.length < 2) continue;
+
+    final kindCounts = <MediaSourceKind, int>{};
+    for (final idx in indices) {
+      final kind = items[idx].primarySourceKind;
+      if (kind != null) {
+        kindCounts[kind] = (kindCounts[kind] ?? 0) + 1;
+      }
+    }
+
+    updated ??= List<WorkLibraryItem>.of(items);
+    for (final idx in indices) {
+      final item = items[idx];
+      final String? badge;
+      if (item.sourceIds.length > 1) {
+        badge = '多源';
+      } else if (item.primarySourceKind != null) {
+        final kind = item.primarySourceKind!;
+        final kindText = switch (kind) {
+          MediaSourceKind.local => '本地',
+          MediaSourceKind.webdav => 'WebDAV',
+          MediaSourceKind.smb => 'SMB',
+        };
+        final sameKindCollision = (kindCounts[kind] ?? 0) > 1;
+        final label = item.primarySourceLabel?.trim() ?? '';
+        badge = (sameKindCollision && label.isNotEmpty) ? label : kindText;
+      } else {
+        final label = item.primarySourceLabel?.trim() ?? '';
+        badge = label.isNotEmpty ? label : null;
+      }
+      if (badge != null) {
+        updated[idx] = item.copyWithCrossSourceBadge(badge);
+      }
+    }
+  }
+  return updated == null ? items : List<WorkLibraryItem>.unmodifiable(updated);
+}
+
+/// 媒体库海报墙正式入库作品列表（严格排除尚未确认的 `needsReview` / `unmatched` 条目，并仅为跨源重复作品标注来源角标）。
 final confirmedLibraryItemsProvider =
     Provider<AsyncValue<List<WorkLibraryItem>>>((ref) {
       final itemsAsync = ref.watch(libraryItemsProvider);
-      return itemsAsync.whenData(
-        (items) => items
+      return itemsAsync.whenData((items) {
+        final confirmed = items
             .where(
               (item) =>
                   item.work.scrapeStatus == ScrapeStatus.matched ||
                   item.work.isManualLocked,
             )
-            .toList(growable: false),
-      );
+            .toList(growable: false);
+        return annotateCrossSourceBadges(confirmed);
+      });
     });
 
 /// 媒体库海报墙当前实际可见的已确认作品数量 Provider。

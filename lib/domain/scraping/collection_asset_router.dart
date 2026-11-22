@@ -104,15 +104,16 @@ abstract final class CollectionAssetRouter {
       final parentFiles = buckets[parentKey];
       if (parentFiles == null || parentFiles.isEmpty) continue;
 
-      final childKeys = buckets.keys
-          .where(
-            (k) =>
-                k != parentKey &&
-                k.startsWith('$parentKey/') &&
-                buckets[k]!.any((f) => f.assetKind == AssetKind.video),
-          )
-          .toList()
-        ..sort();
+      final childKeys =
+          buckets.keys
+              .where(
+                (k) =>
+                    k != parentKey &&
+                    k.startsWith('$parentKey/') &&
+                    buckets[k]!.any((f) => f.assetKind == AssetKind.video),
+              )
+              .toList()
+            ..sort();
       if (childKeys.isEmpty) continue;
 
       final parentHasNonExtraMainVideo = parentFiles.any((f) {
@@ -329,12 +330,19 @@ abstract final class CollectionAssetRouter {
     return raw == null ? null : int.tryParse(raw);
   }
 
+  static final RegExp _squareBrackets = RegExp(r'\[[^\]]*\]');
+  static final RegExp _curlyBrackets = RegExp(r'\{[^}]*\}');
+  static final RegExp _meaningfulTokenPattern = RegExp(
+    r'[a-z]{3,}|[\u4e00-\u9fff]{2,}',
+  );
+  static final RegExp _edgeSlashes = RegExp(r'^/+|/+$');
+
   static Set<String> _extractMeaningfulTokens(String raw) {
     final cleaned = raw
         .toLowerCase()
-        .replaceAll(RegExp(r'\[[^\]]*\]'), ' ')
-        .replaceAll(RegExp(r'\{[^}]*\}'), ' ');
-    final matches = RegExp(r'[a-z]{3,}|[\u4e00-\u9fff]{2,}').allMatches(cleaned);
+        .replaceAll(_squareBrackets, ' ')
+        .replaceAll(_curlyBrackets, ' ');
+    final matches = _meaningfulTokenPattern.allMatches(cleaned);
     final tokens = <String>{};
     for (final m in matches) {
       final tok = m.group(0)!;
@@ -349,7 +357,7 @@ abstract final class CollectionAssetRouter {
     final normPath = path.replaceAll('\\', '/');
     final normPrefix = prefix
         .replaceAll('\\', '/')
-        .replaceAll(RegExp(r'^/+|/+$'), '');
+        .replaceAll(_edgeSlashes, '');
     if (normPrefix.isEmpty) return normPath;
     if (normPath.startsWith('$normPrefix/')) {
       return normPath.substring(normPrefix.length + 1);

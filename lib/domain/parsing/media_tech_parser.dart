@@ -71,7 +71,9 @@ class MediaTechParser {
     caseSensitive: false,
   );
 
-  static final RegExp _crcRegex = RegExp(r'\[[0-9A-Fa-f]{8}\]|\([0-9A-Fa-f]{8}\)');
+  static final RegExp _crcRegex = RegExp(
+    r'\[[0-9A-Fa-f]{8}\]|\([0-9A-Fa-f]{8}\)',
+  );
 
   /// 仅当位于场景串尾部且前置技术字段或点号分词时剥离 `-Group` 无括号尾缀（如 `-Shiniori`）。
   static final RegExp _trailingSceneGroupRegex = RegExp(
@@ -87,6 +89,8 @@ class MediaTechParser {
     r'Chap|rev|v[2-9])(?=$|[\s._\-\]\)】）/／+])',
     caseSensitive: false,
   );
+
+  static final RegExp _bitDepthCompact = RegExp(r'[\s-]');
 
   /// 从不含扩展名的文件名主干中解析全部技术参数并给出剥离标签后的残余文本。
   static ParsedMediaTechSpecs parse(String stem) {
@@ -118,6 +122,35 @@ class MediaTechParser {
       mediaSourceTag: sourceTag,
       strippedText: stripped,
     );
+  }
+
+  /// 仅解析技术规格字段而不执行整串剥离替换（供调用方不读取 `strippedText` 时跳过昂贵正则替换）。
+  static ParsedMediaTechSpecs parseSpecsOnly(String stem) =>
+      ParsedMediaTechSpecs(
+        resolution: _parseResolution(stem),
+        videoCodec: _parseVideoCodec(stem),
+        bitDepth: _parseBitDepth(stem),
+        audioCodec: _parseAudioCodec(stem),
+        dynamicRange: _parseDynamicRange(stem),
+        mediaSourceTag: _parseSourceTag(stem),
+        strippedText: '',
+      );
+
+  /// 短路探测文本是否包含任一核心技术参数，同时返回剥离技术标签后的残余文本（供括号块纯技术判定与集号预处理复用）。
+  static ({bool hasSpec, String strippedText}) stripTechTokens(String stem) {
+    final hadTechTail =
+        _resolutionRegex.hasMatch(stem) ||
+        _videoCodecRegex.hasMatch(stem) ||
+        _audioCodecRegex.hasMatch(stem) ||
+        _sourceTagRegex.hasMatch(stem) ||
+        _bitDepthRegex.hasMatch(stem);
+    final hasSpec = hadTechTail || _dynamicRangeRegex.hasMatch(stem);
+    var stripped = stem.replaceAll(_crcRegex, ' ');
+    if (hadTechTail && _trailingSceneGroupRegex.hasMatch(stripped)) {
+      stripped = stripped.replaceFirst(_trailingSceneGroupRegex, '');
+    }
+    stripped = stripped.replaceAll(_techTokenStripper, ' ');
+    return (hasSpec: hasSpec, strippedText: stripped);
   }
 
   /// 若无括号 Scene 文件名末尾存在 `-Group`（前置技术标识），提取发布组名。
@@ -158,7 +191,7 @@ class MediaTechParser {
   static String? _parseBitDepth(String text) {
     final m = _bitDepthRegex.firstMatch(text);
     if (m == null) return null;
-    final raw = m.group(1)!.toLowerCase().replaceAll(RegExp(r'[\s-]'), '');
+    final raw = m.group(1)!.toLowerCase().replaceAll(_bitDepthCompact, '');
     if (raw == 'hi10p' ||
         raw == 'hi10' ||
         raw == 'ma10p' ||
@@ -181,7 +214,9 @@ class MediaTechParser {
     if (raw == 'LPCM' || raw == 'PCM') return 'PCM';
     if (raw.startsWith('FLAC')) return 'FLAC';
     if (raw.startsWith('AAC')) return 'AAC';
-    if (raw.startsWith('EAC3') || raw.startsWith('E-AC-3') || raw.startsWith('DDP')) {
+    if (raw.startsWith('EAC3') ||
+        raw.startsWith('E-AC-3') ||
+        raw.startsWith('DDP')) {
       return 'DD+';
     }
     if (raw == 'AC-3' || raw == 'AC3') return 'AC3';

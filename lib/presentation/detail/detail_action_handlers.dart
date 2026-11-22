@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:developer' as developer;
+
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -6,6 +8,7 @@ import '../../application/playback/playback_dispatcher.dart';
 import '../../application/playback/playback_preferences_provider.dart';
 import '../../application/providers/library_providers.dart';
 import '../../application/providers/playback_providers.dart';
+import '../../application/providers/scraping_providers.dart';
 import '../../application/providers/source_actions_provider.dart';
 import '../../application/providers/work_management_provider.dart';
 import '../../domain/matching/episode_title_formatter.dart';
@@ -78,7 +81,12 @@ class DetailActionHandlers {
   }) async {
     final variants = bundle.variantsForEpisode(episode.id);
     if (variants.isEmpty) {
-      showKonataToast(context, '该剧集暂无可用视频文件', isError: true);
+      unawaited(
+        ref
+            .read(scrapeControllerProvider.notifier)
+            .syncWorkDirectorySilently(bundle.work.id, force: true),
+      );
+      showKonataToast(context, '该剧集暂无可用视频文件，已触发目录同步', isError: true);
       return;
     }
     PlaybackRecord? saved = bundle.playbackByEpisodeId[episode.id];
@@ -96,8 +104,12 @@ class DetailActionHandlers {
           }
         }
       } catch (error) {
-      developer.log('可恢复异常已记录', name: 'konata.detail_action_handlers', error: error);
-    }
+        developer.log(
+          '可恢复异常已记录',
+          name: 'konata.detail_action_handlers',
+          error: error,
+        );
+      }
       if (!context.mounted) {
         return;
       }
@@ -183,10 +195,27 @@ class DetailActionHandlers {
       case OpenBuiltinVideoDecision(:final request):
         await EmbeddedVideoPage.push(navigator, request, ref: ref);
       case LaunchedExternalVideoDecision(:final result):
+        if (!result.launched && _looksLikeMissingFileError(result.message)) {
+          unawaited(
+            ref
+                .read(scrapeControllerProvider.notifier)
+                .syncWorkDirectorySilently(bundle.work.id, force: true),
+          );
+        }
         if (context.mounted && result.message.isNotEmpty) {
           showKonataToast(context, result.message, isError: !result.launched);
         }
     }
+  }
+
+  static bool _looksLikeMissingFileError(String message) {
+    final lower = message.toLowerCase();
+    return lower.contains('不存在') ||
+        lower.contains('未找到') ||
+        lower.contains('找不到') ||
+        lower.contains('已删除') ||
+        lower.contains('404') ||
+        lower.contains('not found');
   }
 
   /// 手动将剧集标记为「已看完」。

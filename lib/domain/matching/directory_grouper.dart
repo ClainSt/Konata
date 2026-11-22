@@ -3,6 +3,7 @@ import '../models/media_variant.dart';
 import '../models/work.dart';
 import '../parsing/bdrip_parser.dart';
 import '../scraping/directory_analyzer.dart';
+import '../scraping/match_difficulty_classifier.dart';
 import 'supplementary_folder_rules.dart';
 
 /// 连续正片序列防误降级保护：当仅命中弱特典词（如 `Recap`/`Special`/`総集編`）
@@ -87,6 +88,7 @@ class GroupedWorkFolder {
     this.ignoreExplicitTmdb = false,
     this.assetScopesByPath = const {},
     this.localPosterPath,
+    this.matchDifficulty = MatchDifficulty.medium,
   });
 
   /// 作品根目录相对路径（合集拆分时为虚拟簇标识如 `dir::movie`）。
@@ -158,6 +160,12 @@ class GroupedWorkFolder {
   /// 仅限本地磁盘源单作根目录识别到的本地封面图片绝对路径（WebDAV/SMB 恒为 `null`；合集拆簇不继承父目录封面）。
   final String? localPosterPath;
 
+  /// 扫描归组期零开销判定的匹配难度档位（简单 → 中等 → 困难）。
+  final MatchDifficulty matchDifficulty;
+
+  /// 从文件夹或文件名提取的显式 Bangumi ID（盲测或失效回退时屏蔽）。
+  int? get explicitBangumiId => ignoreExplicitTmdb ? null : inventory?.bangumiId;
+
   /// 当目录存在正片集号（或已识别为 TV 剧集）且未显式标记为电影或覆写媒体类型时，
   /// TMDB 候选检索仅锁定 `/search/tv`，避免同名冷门电影（如无背景图条目）污染结果。
   bool get prefersTvSearch =>
@@ -165,9 +173,40 @@ class GroupedWorkFolder {
       explicitMediaType == null &&
       (mainEpisodeNumbers.isNotEmpty || inventory?.shape == WorkShape.series);
 
-  /// 返回清除失效显式 TMDB 约束后的拷贝（用于 404 回落搜索时消除误罚分）。
-  GroupedWorkFolder withoutExplicitTmdb() {
+  /// 返回更新匹配难度后的浅拷贝。
+  GroupedWorkFolder withMatchDifficulty(MatchDifficulty difficulty) {
+    if (difficulty == matchDifficulty) return this;
     return GroupedWorkFolder(
+      folderRelativePath: folderRelativePath,
+      folderName: folderName,
+      cleanTitle: cleanTitle,
+      explicitTmdbId: explicitTmdbId,
+      explicitMediaType: explicitMediaType,
+      year: year,
+      seasonHint: seasonHint,
+      mainEpisodeNumbers: mainEpisodeNumbers,
+      isMovieHint: isMovieHint,
+      variants: variants,
+      inventory: inventory,
+      slotAssignmentsByPath: slotAssignmentsByPath,
+      physicalRootFolder: physicalRootFolder,
+      isSplitCluster: isSplitCluster,
+      titleHints: titleHints,
+      fileHints: fileHints,
+      extraSearchQueries: extraSearchQueries,
+      parentTmdbId: parentTmdbId,
+      parentTmdbType: parentTmdbType,
+      allowParentTmdbCandidate: allowParentTmdbCandidate,
+      ignoreExplicitTmdb: ignoreExplicitTmdb,
+      assetScopesByPath: assetScopesByPath,
+      localPosterPath: localPosterPath,
+      matchDifficulty: difficulty,
+    );
+  }
+
+  /// 返回清除失效显式 TMDB 约束后的拷贝（用于 404 回落搜索时消除误罚分并重评难度）。
+  GroupedWorkFolder withoutExplicitTmdb() {
+    final base = GroupedWorkFolder(
       folderRelativePath: folderRelativePath,
       folderName: folderName,
       cleanTitle: cleanTitle,
@@ -192,6 +231,7 @@ class GroupedWorkFolder {
       assetScopesByPath: assetScopesByPath,
       localPosterPath: localPosterPath,
     );
+    return base.withMatchDifficulty(MatchDifficultyClassifier.classify(base));
   }
 }
 

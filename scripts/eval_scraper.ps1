@@ -1,12 +1,14 @@
 ﻿# Konata 零落盘密钥与本地 CD2 目录只读刮削评测启动器（Windows）。
 # 所有评测资产严格隔离在 .gitignore 忽略的 local_eval/ 目录下，绝不进入仓库或发布产物。
 param(
-    [ValidateSet('ParseOnly', 'InitGolden', 'Golden', 'OnlyFailed', 'AcceptBaseline')]
+    [ValidateSet('ParseOnly', 'InitGolden', 'Golden', 'OnlyFailed', 'CorpusNoId', 'CorpusAll', 'AcceptBaseline')]
     [string]$Mode = 'Golden',
 
     [switch]$RefreshSnapshot,
 
     [string]$MediaRoot = '',
+
+    [string]$ImportListing = '',
 
     [string]$SubPath = '',
 
@@ -23,7 +25,11 @@ param(
 
     [switch]$Offline,
 
+    [switch]$OfflineSoft,
+
     [switch]$WithExplicit,
+
+    [switch]$MessyFolders,
 
     [switch]$PromptKeys,
 
@@ -31,8 +37,8 @@ param(
 
     [string]$Only = '',
 
-    [ValidateRange(1, 5)]
-    [int]$Workers = 4,
+    [ValidateRange(1, 12)]
+    [int]$Workers = 8,
 
     [ValidateRange(20, 1000)]
     [int]$SampleSize = 180,
@@ -58,6 +64,24 @@ $resolvedEvalDir = if ([string]::IsNullOrWhiteSpace($EvalDir)) {
 $manifestPath = Join-Path $resolvedEvalDir 'corpus_manifest.tsv'
 $metaPath = Join-Path $resolvedEvalDir 'corpus_meta.json'
 $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+
+# 与 lib/domain/models/media_extensions.dart 保持一致的媒体与本地封面扩展名及忽略目录唯一常量。
+$script:AllowedEvalExts = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+foreach ($ext in @(
+    '.mkv', '.mp4', '.m2ts', '.ts', '.avi', '.webm', '.mov', '.m4v',
+    '.flv', '.wmv', '.mpg', '.mpeg', '.vob', '.ogm', '.rmvb', '.iso',
+    '.cue', '.flac', '.wav', '.alac', '.m4a', '.aac', '.opus', '.ogg',
+    '.mp3', '.ac3', '.eac3', '.ec3', '.dts', '.dtshd', '.thd', '.ape',
+    '.tak', '.tta', '.wv', '.dsf', '.dff', '.aiff', '.aif', '.mka',
+    '.ass', '.ssa', '.srt', '.vtt', '.sup', '.idx', '.sub',
+    '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.avif'
+)) { [void]$script:AllowedEvalExts.Add($ext) }
+
+$script:IgnoredEvalDirs = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+foreach ($d in @(
+    '@eadir', '$recycle.bin', 'system volume information',
+    'fonts', 'font', '.git', '.@__thumb'
+)) { [void]$script:IgnoredEvalDirs.Add($d) }
 
 # 定位本机 Dart 工具链（依次检查 PATH、local.properties 与标准 SDK 目录）。
 function Resolve-DartExecutable {
@@ -132,23 +156,8 @@ function Invoke-ReadOnlyCorpusSnapshot {
         throw "局部扫描子目录不存在：$scanStartDir"
     }
 
-    # 与 lib/domain/models/media_extensions.dart 保持一致的媒体与本地封面扩展名集合。
-    $allowedExts = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($ext in @(
-        '.mkv', '.mp4', '.m2ts', '.ts', '.avi', '.webm', '.mov', '.m4v',
-        '.flv', '.wmv', '.mpg', '.mpeg', '.vob', '.ogm', '.rmvb', '.iso',
-        '.cue', '.flac', '.wav', '.alac', '.m4a', '.aac', '.opus', '.ogg',
-        '.mp3', '.ac3', '.eac3', '.ec3', '.dts', '.dtshd', '.thd', '.ape',
-        '.tak', '.tta', '.wv', '.dsf', '.dff', '.aiff', '.aif', '.mka',
-        '.ass', '.ssa', '.srt', '.vtt', '.sup', '.idx', '.sub',
-        '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.avif'
-    )) { [void]$allowedExts.Add($ext) }
-
-    $ignoredDirs = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($d in @(
-        '@eadir', '$recycle.bin', 'system volume information',
-        'fonts', 'font', '.git', '.@__thumb'
-    )) { [void]$ignoredDirs.Add($d) }
+    $allowedExts = $script:AllowedEvalExts
+    $ignoredDirs = $script:IgnoredEvalDirs
 
     $queue = [System.Collections.Generic.Queue[string]]::new()
     $queue.Enqueue($scanStartDir)
@@ -262,6 +271,7 @@ function Show-ZeroDiskKeyPrompt {
 
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
+    [System.Windows.Forms.Application]::EnableVisualStyles()
 
     $form = [System.Windows.Forms.Form]::new()
     $form.Text = 'Konata 评测零落盘密钥输入'
@@ -270,6 +280,7 @@ function Show-ZeroDiskKeyPrompt {
     $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
     $form.MaximizeBox = $false
     $form.MinimizeBox = $false
+    $form.ShowInTaskbar = $true
     $form.TopMost = $true
 
     $infoLabel = [System.Windows.Forms.Label]::new()
@@ -330,7 +341,7 @@ function Show-ZeroDiskKeyPrompt {
     $form.CancelButton = $btnCancel
     $form.Controls.Add($btnCancel)
 
-    $form.Add_Shown({ $form.Activate(); $txtTmdb.Focus() })
+    $form.Add_Shown({ $form.TopMost = $true; $form.BringToFront(); $form.Activate(); $txtTmdb.Focus() })
 
     try {
         $dialogResult = $form.ShowDialog()
@@ -350,8 +361,62 @@ function Show-ZeroDiskKeyPrompt {
     }
 }
 
-# 步骤 1：按需刷新本地 CD2 目录快照。
-if ($RefreshSnapshot) {
+# 步骤 1：按需导入外部清单或刷新本地 CD2 目录快照。
+if (-not [string]::IsNullOrWhiteSpace($ImportListing)) {
+    if (-not (Test-Path -LiteralPath $ImportListing -PathType Leaf)) {
+        throw "待导入的云盘清单文件不存在：$ImportListing"
+    }
+    $allowedExts = $script:AllowedEvalExts
+    $ignoredDirs = $script:IgnoredEvalDirs
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $imported = [System.Collections.Generic.List[string]]::new(260000)
+    foreach ($raw in [System.IO.File]::ReadLines($ImportListing)) {
+        $line = $raw.TrimEnd("`r", "`n")
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        $tab = $line.LastIndexOf("`t")
+        $fullPath = if ($tab -ge 0) { $line.Substring(0, $tab) } else { $line }
+        $sizeStr = if ($tab -ge 0) { $line.Substring($tab + 1).Trim() } else { '0' }
+        $rel = $fullPath.Replace('\', '/')
+        if ($rel.Length -ge 3 -and $rel[1] -eq ':' -and $rel[2] -eq '/') {
+            $rel = $rel.Substring(3)
+        }
+        $rel = $rel.TrimStart('/')
+        if ([string]::IsNullOrEmpty($rel)) { continue }
+        $segs = $rel.Split('/')
+        $skip = $false
+        for ($i = 0; $i -lt $segs.Length - 1; $i++) {
+            if ($segs[$i].StartsWith('.') -or $ignoredDirs.Contains($segs[$i])) {
+                $skip = $true
+                break
+            }
+        }
+        if ($skip) { continue }
+        $fileName = $segs[$segs.Length - 1]
+        if ($fileName.StartsWith('.')) { continue }
+        $dot = $fileName.LastIndexOf('.')
+        if ($dot -lt 0 -or (-not $allowedExts.Contains($fileName.Substring($dot)))) { continue }
+        $imported.Add("$rel`t$sizeStr")
+    }
+    $imported.Sort([System.StringComparer]::Ordinal)
+    [System.IO.Directory]::CreateDirectory($resolvedEvalDir) | Out-Null
+    $tmpManifest = "$manifestPath.tmp.$PID"
+    try {
+        [System.IO.File]::WriteAllLines($tmpManifest, $imported, $utf8NoBom)
+        if (Test-Path -LiteralPath $manifestPath) { Remove-Item -LiteralPath $manifestPath -Force }
+        Move-Item -LiteralPath $tmpManifest -Destination $manifestPath -Force
+    } finally {
+        if (Test-Path -LiteralPath $tmpManifest) { Remove-Item -LiteralPath $tmpManifest -Force -ErrorAction SilentlyContinue }
+    }
+    $sw.Stop()
+    $metaObj = [ordered]@{
+        updatedAt       = [DateTime]::UtcNow.ToString('o')
+        importedFrom    = $ImportListing
+        totalFiles      = $imported.Count
+        elapsedMs       = [int]$sw.ElapsedMilliseconds
+    }
+    [System.IO.File]::WriteAllText($metaPath, ($metaObj | ConvertTo-Json -Depth 4), $utf8NoBom)
+    Write-Host ("清单导入完成：共 {0} 媒体文件（耗时 {1:N1}s），已写入 {2}" -f $imported.Count, $sw.Elapsed.TotalSeconds, $manifestPath) -ForegroundColor Green
+} elseif ($RefreshSnapshot) {
     if ([string]::IsNullOrWhiteSpace($MediaRoot)) {
         throw '使用 -RefreshSnapshot 时必须通过 -MediaRoot 指定本地 CD2 挂载根目录。'
     }
@@ -368,6 +433,8 @@ $modeArg = switch ($Mode) {
     'InitGolden'     { '--mode=init-golden' }
     'Golden'         { '--mode=golden' }
     'OnlyFailed'     { '--mode=only-failed' }
+    'CorpusNoId'     { '--mode=corpus-no-id' }
+    'CorpusAll'      { '--mode=corpus-all' }
     'AcceptBaseline' { '--mode=accept-baseline' }
 }
 
@@ -383,7 +450,9 @@ $cliArgs.Add("--workers=$Workers")
 $cliArgs.Add("--sample-size=$SampleSize")
 if ($AllowFanartRelay) { $cliArgs.Add('--allow-fanart-relay') }
 if ($Offline) { $cliArgs.Add('--offline') }
+if ($OfflineSoft) { $cliArgs.Add('--offline-soft') }
 if ($WithExplicit) { $cliArgs.Add('--with-explicit') }
+if ($MessyFolders) { $cliArgs.Add('--messy-folders') }
 if ($Force) { $cliArgs.Add('--force') }
 if (-not [string]::IsNullOrWhiteSpace($Only)) { $cliArgs.Add("--only=$Only") }
 
@@ -394,7 +463,7 @@ if ($NoProxy) {
     $cliArgs.Add("--proxy=$effectiveProxy")
 }
 
-$isOnlineMode = ($Mode -eq 'Golden' -or $Mode -eq 'OnlyFailed')
+$isOnlineMode = ($Mode -eq 'Golden' -or $Mode -eq 'OnlyFailed' -or $Mode -eq 'CorpusNoId' -or $Mode -eq 'CorpusAll')
 
 # 步骤 3：仅在当次子进程内存注入密钥并在退出时彻底销毁。
 $keys = $null
@@ -403,7 +472,7 @@ try {
     Remove-Item Env:KONATA_EVAL_FANART_API_KEY -ErrorAction SilentlyContinue
     Remove-Item Env:KONATA_EVAL_FANART_CLIENT_KEY -ErrorAction SilentlyContinue
 
-    if ($isOnlineMode -and $PromptKeys -and (-not $Offline)) {
+    if ($isOnlineMode -and $PromptKeys -and (-not $Offline) -and (-not $OfflineSoft)) {
         $keys = Show-ZeroDiskKeyPrompt -ReasonText '已指定提前输入密钥，请粘贴当次评测所需凭据：'
         if ($null -eq $keys) {
             Write-Warning '用户已取消密钥输入，评测中止。'
@@ -418,7 +487,7 @@ try {
     $code = $LASTEXITCODE
 
     # 按需延迟弹窗：仅当本地 VCR 缓存未命中且缺密钥（约定退出码 42）时弹窗一次并自动续跑。
-    if ($code -eq 42 -and $isOnlineMode -and (-not $Offline) -and $null -eq $keys) {
+    if ($code -eq 42 -and $isOnlineMode -and (-not $Offline) -and (-not $OfflineSoft) -and $null -eq $keys) {
         $keys = Show-ZeroDiskKeyPrompt -ReasonText '检测到有新增查询未命中本地 VCR 缓存，请临时输入密钥以继续回源：'
         if ($null -eq $keys -or [string]::IsNullOrWhiteSpace($keys.TmdbKey)) {
             Write-Warning '未提供 TMDB 密钥，已中止本次在线回源。'

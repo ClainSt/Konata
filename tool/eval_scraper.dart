@@ -14,7 +14,9 @@ import 'package:konata/domain/models/network_config.dart';
 import 'package:konata/domain/models/tmdb_models.dart';
 import 'package:konata/domain/models/work.dart';
 import 'package:konata/domain/scraping/bangumi_tmdb_index.dart';
+import 'package:konata/domain/scraping/directory_analyzer.dart';
 import 'package:konata/domain/scraping/scrape_domain_adapter.dart';
+import 'package:konata/domain/scraping/work_wall_eligibility.dart';
 import 'package:konata/infrastructure/network/bangumi_service.dart';
 import 'package:konata/infrastructure/network/fanart_service.dart';
 import 'package:konata/infrastructure/network/priority_http_scheduler.dart';
@@ -112,9 +114,37 @@ Future<int> runEvalCli(
 
   final totalClock = Stopwatch()..start();
   final detectLocalCovers = options.sourceKind == EvalSourceKind.local;
+
+  final goldenCases = _loadGoldenCasesIfNeeded(
+    mode: options.mode,
+    goldenFile: goldenFile,
+  );
+  if (options.mode == EvalMode.golden && goldenCases.isEmpty) {
+    stderr.writeln(
+      '黄金集文件不存在或为空：${goldenFile.path}。请先执行 --mode=init-golden 抽样生成。',
+    );
+    return 2;
+  }
+
+  final prefilterRoots = _computePrefilterPhysicalRoots(
+    mode: options.mode,
+    manifestFile: manifestFile,
+    goldenCases: goldenCases,
+    failedKeysFile: failedKeysFile,
+    onlyFilters: options.onlyFilters,
+  );
+  if (options.mode == EvalMode.onlyFailed &&
+      options.onlyFilters.isEmpty &&
+      prefilterRoots != null &&
+      prefilterRoots.isEmpty) {
+    stderr.writeln('目标评测集合为空（若运行 --only-failed，说明当前错题本已清空）。');
+    return 0;
+  }
+
   final grouped = await groupListing(
     manifestFile.path,
     detectLocalCovers: detectLocalCovers,
+    physicalRootPrefixes: prefilterRoots,
   );
   stderr.writeln(
     '快照载入完成：${grouped.files} 媒体文件（${grouped.scanMs}ms），'
@@ -129,28 +159,19 @@ Future<int> runEvalCli(
     );
   }
 
-  final goldenCases = _loadGoldenCasesIfNeeded(
-    mode: options.mode,
-    goldenFile: goldenFile,
-  );
-  if (options.mode == EvalMode.golden && goldenCases.isEmpty) {
-    stderr.writeln(
-      '黄金集文件不存在或为空：${goldenFile.path}。请先执行 --mode=init-golden 抽样生成。',
-    );
-    return 2;
-  }
-
   final targets = _selectTargetGroups(
     mode: options.mode,
     groups: grouped.groups,
     goldenCases: goldenCases,
     failedKeysFile: failedKeysFile,
     onlyFilters: options.onlyFilters,
+    messyFolders: options.messyFolders,
   );
   final activeGoldenCases = _filterGoldenCasesForTargets(
     mode: options.mode,
     goldenCases: goldenCases,
     targets: targets,
+    messyFolders: options.messyFolders,
   );
 
   if (targets.isEmpty) {
@@ -210,12 +231,17 @@ Future<int> runEvalCli(
           fanartRelayAllowed: fanartRelayAllowed,
         );
 
-    final workers = options.workers.clamp(1, 5);
+    final workers = options.workers.clamp(1, 12);
     final tmdbHttp = TmdbHttpClient(
       config: netConfig,
       httpClient: vcrClient,
       scheduler: PriorityHttpScheduler(
-        backgroundConcurrency: workers,
+        backgroundConcurrency: workers * 2,
+        backgroundBucketConcurrency: const <String, int>{
+          'tmdb': 6,
+          'bangumi': 4,
+          'fanart': 2,
+        },
         maxRetries: 1,
       ),
       primaryTimeout: const Duration(seconds: 25),
@@ -255,14 +281,25 @@ Future<int> runEvalCli(
         targets: targets,
         workers: workers,
         artworkMode: artworkMode,
-        withExplicit: options.withExplicit,
+        withExplicit: options.withExplicit && !options.messyFolders,
+        messyFolders: options.messyFolders,
         tmdbService: tmdbService,
         fetcher: fetcher,
         resolver: resolver,
         enricher: enricher,
+        mappingIndex: mapping.index,
       );
       records.addAll(results);
       networkStatsJson = vcrClient.stats.toJson();
+      if (options.offlineSoft && vcrClient.missedKeys.isNotEmpty) {
+        final uniqueMissed = vcrClient.missedKeys.toSet().toList();
+        stderr.writeln(
+          '离线软回退提示：共 ${vcrClient.missedKeys.length} 次缓存未命中（去重 ${uniqueMissed.length} 个键），前 10 个示例：',
+        );
+        for (final key in uniqueMissed.take(10)) {
+          stderr.writeln('  - $key');
+        }
+      }
     } finally {
       tmdbHttp.close();
       if (injectedVcrClient == null) {
@@ -295,24 +332,20 @@ Future<int> runEvalCli(
   );
 
   // 落盘当次完整明细与精简对比摘要。
-  final jsonlSink = File(
-    '${runDir.path}${Platform.pathSeparator}results.jsonl',
-  ).openWrite();
+  final jsonlSink = File('${runDir.path}${Platform.pathSeparator}results.jsonl')
+      .openWrite();
   for (final r in records) {
     jsonlSink.writeln(jsonEncode(r.toJson()));
   }
   await jsonlSink.close();
 
-  final summaryText = const JsonEncoder.withIndent(
-    '  ',
-  ).convert(report.toJson());
-  File(
-    '${runDir.path}${Platform.pathSeparator}summary.json',
-  ).writeAsStringSync(summaryText, flush: true);
+  final summaryText = const JsonEncoder.withIndent('  ')
+      .convert(report.toJson());
+  File('${runDir.path}${Platform.pathSeparator}summary.json')
+      .writeAsStringSync(summaryText, flush: true);
   latestSummaryFile.writeAsStringSync(summaryText, flush: true);
-  File(
-    '${runDir.path}${Platform.pathSeparator}diff.md',
-  ).writeAsStringSync(diffMd, flush: true);
+  File('${runDir.path}${Platform.pathSeparator}diff.md')
+      .writeAsStringSync(diffMd, flush: true);
   latestDiffFile.writeAsStringSync(diffMd, flush: true);
 
   EvalScorerAndReporter.writeFailedKeys(
@@ -322,6 +355,30 @@ Future<int> runEvalCli(
   );
 
   stdout.writeln(diffMd);
+  if (options.mode == EvalMode.corpusNoId ||
+      options.mode == EvalMode.corpusAll) {
+    final total = records.length;
+    final autoCount = records.where((r) => r.matchLevel == 'autoBind').length;
+    final reviewCount = records
+        .where((r) => r.matchLevel == 'reviewRequired')
+        .length;
+    final unmatchedCount = total - autoCount - reviewCount;
+    final pct = total == 0 ? 0.0 : autoCount * 100.0 / total;
+    stdout.writeln(
+      '\n## 全库绑定分布（${options.mode.name}，共 $total 部）\n'
+      '- 自动绑定（autoBind）：`$autoCount / $total`（`${pct.toStringAsFixed(2)}%`）\n'
+      '- 待复核（reviewRequired）：`$reviewCount` ｜ 未命中（unmatched）：`$unmatchedCount`',
+    );
+    final nonAuto = records.where((r) => r.matchLevel != 'autoBind').toList();
+    if (nonAuto.isNotEmpty) {
+      stdout.writeln('- 非自动绑定明细（最多展示 40 条）：');
+      for (final r in nonAuto.take(40)) {
+        stdout.writeln(
+          '  - [${r.matchLevel}] `${r.folderKey}` | tmdb=${r.bestTmdbKey ?? 'none'} S${r.matchedSeason} | bgm=${r.bestBangumiId ?? 'none'}(${r.bangumiTier}) | reason=${r.primaryReason}',
+        );
+      }
+    }
+  }
   stdout.writeln('精简差异报告已写入：${latestDiffFile.path}');
   return 0;
 }
@@ -346,9 +403,7 @@ int _runInitGolden({
   for (final c in sample) {
     bucketCounts[c.bucket] = (bucketCounts[c.bucket] ?? 0) + 1;
   }
-  stdout.writeln(
-    '已按目录结构特征分层抽样生成 ${sample.length} 条黄金集用例：${goldenFile.path}',
-  );
+  stdout.writeln('已按目录结构特征分层抽样生成 ${sample.length} 条黄金集用例：${goldenFile.path}');
   stdout.writeln('各分桶分布：$bucketCounts');
   stdout.writeln('请使用 Excel 或 VS Code 打开核对并将已确认行的 verified 列改为 1。');
   return 0;
@@ -359,10 +414,12 @@ Future<List<EvalClusterRecord>> _evaluateOnlineBatch({
   required int workers,
   required EvalArtworkMode artworkMode,
   required bool withExplicit,
+  required bool messyFolders,
   required TmdbService tmdbService,
   required ScrapeCandidateFetcher fetcher,
   required ScrapeMatchResolver resolver,
   required ScrapeArtworkEnricher enricher,
+  required BangumiTmdbIndex? mappingIndex,
 }) async {
   final outputs = List<EvalClusterRecord?>.filled(targets.length, null);
   var nextIndex = 0;
@@ -379,12 +436,15 @@ Future<List<EvalClusterRecord>> _evaluateOnlineBatch({
       try {
         outputs[idx] = await _evaluateSingleOnline(
           folder: folder,
+          index: idx,
           artworkMode: artworkMode,
           withExplicit: withExplicit,
+          messyFolders: messyFolders,
           tmdbService: tmdbService,
           fetcher: fetcher,
           resolver: resolver,
           enricher: enricher,
+          mappingIndex: mappingIndex,
         );
       } on EvalKeyRequiredException catch (e) {
         keyRequired ??= e;
@@ -403,21 +463,78 @@ Future<List<EvalClusterRecord>> _evaluateOnlineBatch({
   if (keyRequired != null) {
     throw keyRequired!;
   }
-  return [for (final item in outputs) if (item != null) item];
+  return [
+    for (final item in outputs)
+      if (item != null) item,
+  ];
+}
+
+const List<String> _messyFolderNames = [
+  '新建文件夹 (3)',
+  '2026年7月新番',
+  'BDMV_1080p_x265_FLAC',
+  '阿伟推荐的神作2 (2026)',
+  '周末补番_硬盘A组',
+  '【高清蓝光】我的动画收藏合集',
+  'Downloads_042',
+  '经典老番_未整理_2025',
+  'SourceUnknown.MKV.1080p',
+  '随便命名的测试目录',
+];
+
+/// 将单作目录的目录名与父级路径全部替换为不规范乱目录名，仅保留原始内部视频文件名用于档位 3 真实压力评测。
+GroupedWorkFolder _buildMessyEvalFolder(GroupedWorkFolder folder, int index) {
+  final root = _normalizePhysicalRoot(folder);
+  var hash = 2166136261;
+  for (final code in root.codeUnits) {
+    hash ^= code;
+    hash = (hash * 16777619) & 0x7fffffff;
+  }
+  final messyName = _messyFolderNames[hash % _messyFolderNames.length];
+  final rootPrefix = '$root/';
+  final entries = <({String path, int? size})>[];
+  for (final v in folder.variants) {
+    final norm = v.relativePath.replaceAll('\\', '/');
+    final rel = norm.startsWith(rootPrefix)
+        ? norm.substring(rootPrefix.length)
+        : v.fileName;
+    entries.add((path: rel, size: v.fileSize));
+  }
+  final messyPath = '乱目录测试/$messyName';
+  final messyInv = DirectoryAnalyzer.analyze(messyPath, entries);
+  final eps = messyInv.episodes.toList()..sort();
+  return GroupedWorkFolder(
+    folderRelativePath: messyPath,
+    folderName: messyName,
+    cleanTitle: messyInv.title,
+    year: messyInv.year,
+    seasonHint: messyInv.season,
+    mainEpisodeNumbers: eps,
+    isMovieHint: messyInv.folderMovieMarker || messyInv.fileMovieMarker,
+    inventory: messyInv,
+    titleHints: messyInv.titleHints,
+    fileHints: messyInv.fileHints,
+    variants: folder.variants,
+  );
 }
 
 Future<EvalClusterRecord> _evaluateSingleOnline({
   required GroupedWorkFolder folder,
+  required int index,
   required EvalArtworkMode artworkMode,
   required bool withExplicit,
+  required bool messyFolders,
   required TmdbService tmdbService,
   required ScrapeCandidateFetcher fetcher,
   required ScrapeMatchResolver resolver,
   required ScrapeArtworkEnricher enricher,
+  required BangumiTmdbIndex? mappingIndex,
 }) async {
   final info = GoldenSetSampler.inspectFolder(folder);
   final physicalRoot = _normalizePhysicalRoot(folder);
-  final evalFolder = withExplicit ? folder : folder.withoutExplicitTmdb();
+  final evalFolder = messyFolders
+      ? _buildMessyEvalFolder(folder, index)
+      : (withExplicit ? folder : folder.withoutExplicitTmdb());
   final queries = ScrapeDomainAdapter.buildSearchQueries(evalFolder);
 
   TmdbWorkDetail? explicitDetail;
@@ -452,11 +569,26 @@ Future<EvalClusterRecord> _evaluateSingleOnline({
 
   try {
     if (explicitDetail != null) {
+      // 与生产 ScrapeOrchestrator 阶段 2 对齐：同步检索 Bangumi 并运行完整季级消歧与双源艺术图补全。
+      final bgmCandidates = await fetcher.fetchBangumiCandidates(
+        evalFolder,
+        extraQueries: [explicitDetail.title, ...explicitDetail.aliases.take(2)],
+      );
+      final explicitDecision = ScrapeDomainAdapter.evaluateMatch(
+        evalFolder,
+        [explicitDetail],
+        bangumiCandidates: bgmCandidates,
+        mappingIndex: mappingIndex,
+      );
       matchLevel = MatchLevel.autoBind.name;
       bestTmdbKey = '${explicitDetail.mediaType.name}:${explicitDetail.tmdbId}';
       bestTmdbTitle = explicitDetail.title;
       bestTmdbYear = explicitDetail.year;
+      bestBangumiId = explicitDecision.bestBangumi?.subject.id;
+      bestBangumiTitle = explicitDecision.bestBangumi?.subject.displayTitle;
+      bangumiTier = explicitDecision.bestBangumi != null ? 'high' : 'none';
       matchedSeason =
+          explicitDecision.matchedSeason ??
           evalFolder.seasonHint ??
           ScrapeDomainAdapter.fallbackResolveSeason(
             folder: evalFolder,
@@ -477,7 +609,7 @@ Future<EvalClusterRecord> _evaluateSingleOnline({
           detail: hydrated,
           seasonDetail: null,
           matchedSeason: matchedSeason,
-          bangumiCandidate: null,
+          bangumiCandidate: explicitDecision.bestBangumi,
           priority: RequestPriority.background,
           upgradeNonZhCnLogo: artworkMode == EvalArtworkMode.full,
         );
@@ -705,7 +837,10 @@ EvalVcrHttpClient _createVcrClient({
   required TmdbNetworkConfig netConfig,
   required bool fanartRelayAllowed,
 }) {
-  final io = HttpClient()..connectionTimeout = const Duration(seconds: 25);
+  final io = HttpClient()
+    ..connectionTimeout = const Duration(seconds: 10)
+    ..idleTimeout = const Duration(seconds: 4)
+    ..maxConnectionsPerHost = 12;
   io.findProxy = (uri) {
     if (netConfig.proxyMode == ProxyMode.none) return 'DIRECT';
     if (netConfig.proxyMode == ProxyMode.custom &&
@@ -731,6 +866,7 @@ EvalVcrHttpClient _createVcrClient({
     cacheDir: cacheDir,
     refreshPolicy: options.refreshPolicy,
     offlineOnly: options.offlineOnly,
+    offlineSoft: options.offlineSoft,
     allowFanartRelay: fanartRelayAllowed,
   );
 }
@@ -795,12 +931,116 @@ List<GoldenCase> _loadGoldenCasesIfNeeded({
   return const [];
 }
 
+Set<String>? _computePrefilterPhysicalRoots({
+  required EvalMode mode,
+  required File manifestFile,
+  required List<GoldenCase> goldenCases,
+  required File failedKeysFile,
+  required List<String> onlyFilters,
+}) {
+  if (mode == EvalMode.golden) {
+    final roots = <String>{
+      for (final c in goldenCases)
+        if (c.physicalRoot.trim().isNotEmpty) c.physicalRoot.trim(),
+    };
+    if (onlyFilters.isEmpty) return roots;
+    return {
+      for (final r in roots)
+        if (onlyFilters.any((f) => r.toLowerCase().contains(f))) r,
+    };
+  }
+  if (mode == EvalMode.onlyFailed && onlyFilters.isEmpty) {
+    final failedJson = _tryReadJsonMap(failedKeysFile);
+    final rawKeys = <String>{
+      for (final key
+          in ((failedJson?['failed_folder_keys'] as List?) ?? const []))
+        key.toString(),
+      for (final key
+          in ((failedJson?['recently_fixed_keys'] as List?) ?? const []))
+        key.toString(),
+    };
+    final roots = <String>{};
+    for (final raw in rawKeys) {
+      final sep = raw.indexOf('::');
+      final root = (sep > 0 ? raw.substring(0, sep) : raw).trim();
+      if (root.isNotEmpty) roots.add(root);
+    }
+    return roots;
+  }
+  // 无 ID 全量摸底或指定 --only 过滤时，直接按清单行秒级预筛目标目录，避免全量解析 30 万文件耗时 2 分钟。
+  if (mode == EvalMode.corpusNoId || onlyFilters.isNotEmpty) {
+    final tmdbMarker = RegExp(r'[\[{（(]\s*tmdb', caseSensitive: false);
+    final auxSegment = RegExp(
+      r'^(sps?|extras?|bonus|cds?|ost|music|soundtrack|scans?|bk|booklet|'
+      r'menus?|nc|ncop|nced|pv|cm|op|ed|fonts?|subs?|subtitles?|scripts?|'
+      r'artwork|images?|pics?|videos?|bd|dvd|disc\s*\d*|vol\.?\s*\d*|'
+      r'cd\s*\d*|season\s*\d+|s\d+|ova|oad|specials?|movies?|preview|'
+      r'trailer|teaser|tokuten|特典|扫图|原声|音乐|字幕|菜单|花絮|剧场版)$',
+      caseSensitive: false,
+    );
+    final splitCue = RegExp(
+      r'(?:movie|剧场版|劇場版|前[编編]|后[编編]|後[编編]|zenpen|kouhen|'
+      r'の巻|之巻|第[一二三1-3]章|film|超电影版)',
+      caseSensitive: false,
+    );
+    final videoExt = RegExp(
+      r'\.(?:mkv|mp4|avi|m2ts|ts|flv|wmv|mov|webm|m4v)$',
+      caseSensitive: false,
+    );
+    final roots = <String>{};
+    for (final rawLine in manifestFile.readAsLinesSync()) {
+      final tab = rawLine.indexOf('\t');
+      final path = (tab > 0 ? rawLine.substring(0, tab) : rawLine)
+          .replaceAll('\\', '/')
+          .trim();
+      if (path.isEmpty) continue;
+      if (onlyFilters.isNotEmpty) {
+        final lower = path.toLowerCase();
+        if (!onlyFilters.any(lower.contains)) continue;
+      }
+      final parts = path.split('/');
+      if (parts.length < 2) continue;
+      final parentParts = parts.sublist(0, parts.length - 1);
+      final fileName = parts.last;
+      if (mode == EvalMode.corpusNoId) {
+        var tmdbIdx = -1;
+        for (var i = 0; i < parentParts.length; i++) {
+          if (tmdbMarker.hasMatch(parentParts[i])) {
+            tmdbIdx = i;
+            break;
+          }
+        }
+        if (tmdbIdx < 0) {
+          roots.add(parentParts.join('/'));
+        } else {
+          final tmdbRoot = parentParts.sublist(0, tmdbIdx + 1).join('/');
+          if (tmdbIdx == parentParts.length - 1) {
+            if (videoExt.hasMatch(fileName) && splitCue.hasMatch(fileName)) {
+              roots.add(tmdbRoot);
+            }
+          } else {
+            final nextSeg = parentParts[tmdbIdx + 1];
+            if (!auxSegment.hasMatch(nextSeg) && videoExt.hasMatch(fileName)) {
+              roots.add(parentParts.sublist(0, tmdbIdx + 2).join('/'));
+            }
+          }
+        }
+      } else {
+        roots.add(parentParts.join('/'));
+      }
+    }
+    return roots;
+  }
+  return null;
+}
+
 List<GroupedWorkFolder> _selectTargetGroups({
   required EvalMode mode,
   required List<GroupedWorkFolder> groups,
   required List<GoldenCase> goldenCases,
   required File failedKeysFile,
   required List<String> onlyFilters,
+  bool messyFolders = false,
 }) {
   Iterable<GroupedWorkFolder> selected = groups;
   if (mode == EvalMode.golden) {
@@ -821,16 +1061,31 @@ List<GroupedWorkFolder> _selectTargetGroups({
     selected = groups.where(
       (g) => allowedRoots.contains(_normalizePhysicalRoot(g)),
     );
+  } else if (mode == EvalMode.corpusNoId) {
+    selected = groups.where(
+      (g) =>
+          g.explicitTmdbId == null &&
+          WorkWallEligibility.hasMainPlayableContent(g),
+    );
+  }
+
+  if (messyFolders) {
+    selected = selected.where(
+      (g) =>
+          !g.isSplitCluster &&
+          WorkWallEligibility.hasMainPlayableContent(g) &&
+          (g.inventory?.fileHints.isNotEmpty ?? g.fileHints.isNotEmpty),
+    );
   }
 
   if (onlyFilters.isNotEmpty) {
-    selected = selected.where(
-      (g) => onlyFilters.any(
-        (f) =>
-            g.folderRelativePath.contains(f) ||
-            _normalizePhysicalRoot(g).contains(f),
-      ),
-    );
+    selected = selected.where((g) {
+      final relLower = g.folderRelativePath.toLowerCase();
+      final rootLower = _normalizePhysicalRoot(g).toLowerCase();
+      return onlyFilters.any(
+        (f) => relLower.contains(f) || rootLower.contains(f),
+      );
+    });
   }
   return selected.toList(growable: false);
 }
@@ -839,27 +1094,23 @@ List<GoldenCase> _filterGoldenCasesForTargets({
   required EvalMode mode,
   required List<GoldenCase> goldenCases,
   required List<GroupedWorkFolder> targets,
+  bool messyFolders = false,
 }) {
   if (goldenCases.isEmpty) return const [];
-  if (mode == EvalMode.parseOnly) {
-    // 离线解析模式下仅当黄金集存在时对覆盖项顺带核验。
-    final roots = {for (final g in targets) _normalizePhysicalRoot(g)};
-    return [
-      for (final c in goldenCases)
-        if (roots.contains(c.physicalRoot)) c,
-    ];
-  }
   final targetRoots = {for (final g in targets) _normalizePhysicalRoot(g)};
   return [
     for (final c in goldenCases)
-      if (targetRoots.contains(c.physicalRoot)) c,
+      if (targetRoots.contains(c.physicalRoot) &&
+          (!messyFolders || c.clusterHint == '*'))
+        c,
   ];
 }
 
 String _normalizePhysicalRoot(GroupedWorkFolder g) {
-  final raw = (g.physicalRootFolder ?? g.folderRelativePath)
-      .trim()
-      .replaceAll('\\', '/');
+  final raw = (g.physicalRootFolder ?? g.folderRelativePath).trim().replaceAll(
+    '\\',
+    '/',
+  );
   final idx = raw.indexOf('::');
   return idx > 0 ? raw.substring(0, idx) : raw;
 }
@@ -910,7 +1161,9 @@ class _EvalCliOptions {
     required this.refreshPolicy,
     required this.allowFanartRelay,
     required this.offlineOnly,
+    required this.offlineSoft,
     required this.withExplicit,
+    required this.messyFolders,
     required this.onlyFilters,
     required this.workers,
     required this.sampleSize,
@@ -929,7 +1182,9 @@ class _EvalCliOptions {
   final EvalCacheRefreshPolicy refreshPolicy;
   final bool allowFanartRelay;
   final bool offlineOnly;
+  final bool offlineSoft;
   final bool withExplicit;
+  final bool messyFolders;
   final List<String> onlyFilters;
   final int workers;
   final int sampleSize;
@@ -950,6 +1205,8 @@ class _EvalCliOptions {
         return switch (mode) {
           EvalMode.parseOnly ||
           EvalMode.initGolden ||
+          EvalMode.corpusNoId ||
+          EvalMode.corpusAll ||
           EvalMode.acceptBaseline => EvalArtworkMode.off,
           EvalMode.golden || EvalMode.onlyFailed => EvalArtworkMode.full,
         };
@@ -966,9 +1223,11 @@ class _EvalCliOptions {
     var refreshPolicy = EvalCacheRefreshPolicy.none;
     var allowFanartRelay = false;
     var offlineOnly = false;
+    var offlineSoft = false;
     var withExplicit = false;
+    var messyFolders = false;
     var onlyFilters = <String>[];
-    var workers = 4;
+    var workers = 8;
     var sampleSize = 180;
     var force = false;
     var proxyUrl = '';
@@ -986,6 +1245,10 @@ class _EvalCliOptions {
         mode = EvalMode.golden;
       } else if (raw == '--only-failed') {
         mode = EvalMode.onlyFailed;
+      } else if (raw == '--corpus-no-id') {
+        mode = EvalMode.corpusNoId;
+      } else if (raw == '--corpus-all') {
+        mode = EvalMode.corpusAll;
       } else if (raw == '--accept-baseline') {
         mode = EvalMode.acceptBaseline;
       } else if (raw.startsWith('--mode=')) {
@@ -1011,17 +1274,22 @@ class _EvalCliOptions {
         allowFanartRelay = true;
       } else if (raw == '--offline') {
         offlineOnly = true;
+      } else if (raw == '--offline-soft') {
+        offlineOnly = true;
+        offlineSoft = true;
       } else if (raw == '--with-explicit') {
         withExplicit = true;
+      } else if (raw == '--messy-folders') {
+        messyFolders = true;
       } else if (raw.startsWith('--only=')) {
         onlyFilters = raw
             .substring(7)
-            .split('|')
-            .map((e) => e.trim())
+            .split(RegExp(r'[|,]'))
+            .map((e) => e.trim().toLowerCase())
             .where((e) => e.isNotEmpty)
             .toList(growable: false);
       } else if (raw.startsWith('--workers=')) {
-        workers = int.tryParse(raw.substring(10)) ?? 4;
+        workers = int.tryParse(raw.substring(10)) ?? 8;
       } else if (raw.startsWith('--sample-size=')) {
         sampleSize = int.tryParse(raw.substring(14)) ?? 180;
       } else if (raw == '--force') {
@@ -1045,7 +1313,9 @@ class _EvalCliOptions {
       refreshPolicy: refreshPolicy,
       allowFanartRelay: allowFanartRelay,
       offlineOnly: offlineOnly,
+      offlineSoft: offlineSoft,
       withExplicit: withExplicit,
+      messyFolders: messyFolders,
       onlyFilters: onlyFilters,
       workers: workers,
       sampleSize: sampleSize,
@@ -1062,6 +1332,8 @@ class _EvalCliOptions {
       'init-golden' || 'initgolden' => EvalMode.initGolden,
       'golden' => EvalMode.golden,
       'only-failed' || 'onlyfailed' => EvalMode.onlyFailed,
+      'corpus-no-id' || 'corpusnoid' => EvalMode.corpusNoId,
+      'corpus-all' || 'corpusall' => EvalMode.corpusAll,
       'accept-baseline' || 'acceptbaseline' => EvalMode.acceptBaseline,
       _ => throw FormatException('不支持的运行模式：$raw'),
     };
@@ -1095,7 +1367,7 @@ void _printUsage() {
     '  --offline                     纯离线回放模式（不触网）\n'
     '  --with-explicit               保留目录已有 {tmdb-N}（默认盲测剥离显式 ID）\n'
     '  --only=<A|B>                  仅评测路径包含指定子串的作品\n'
-    '  --workers=<1..5>              在线并发度上限（默认 4，最大 5）\n'
+    '  --workers=<1..12>             在线并发度上限（默认 8，受分域限流保护）\n'
     '  --proxy=<url> / --no-proxy    显式覆盖或禁用代理',
   );
 }

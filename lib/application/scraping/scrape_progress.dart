@@ -1,3 +1,5 @@
+import '../../domain/scraping/match_difficulty_classifier.dart';
+
 /// 刮削调度阶段枚举。
 enum ScrapePhase {
   /// 空闲就绪状态。
@@ -37,6 +39,12 @@ class ScrapeProgress {
     this.matchedWorks = 0,
     this.reviewWorks = 0,
     this.unmatchedWorks = 0,
+    this.easyWorks = 0,
+    this.mediumWorks = 0,
+    this.hardWorks = 0,
+    this.currentDifficulty,
+    this.hardRescuedWorks = 0,
+    this.lastMatchedTitle,
     this.selectedRoots = const [],
     this.folderVideoCounts = const {},
     this.completedFolders = const {},
@@ -76,6 +84,24 @@ class ScrapeProgress {
 
   /// 未识别到匹配条目的作品数。
   final int unmatchedWorks;
+
+  /// 归组判定为「简单」档位的作品总数。
+  final int easyWorks;
+
+  /// 归组判定为「中等」档位的作品总数。
+  final int mediumWorks;
+
+  /// 归组判定为「困难」档位的作品总数。
+  final int hardWorks;
+
+  /// 当前正在调度执行的匹配难度档位（简单 → 中等 → 困难）。
+  final MatchDifficulty? currentDifficulty;
+
+  /// 经由第二套困难目录专属规则成功挽救并自动绑定的作品数。
+  final int hardRescuedWorks;
+
+  /// 最近一部成功匹配并实时推送至媒体库的作品名称。
+  final String? lastMatchedTitle;
 
   /// 本次扫描所选的相对子目录作用域（空表示全库根目录）。
   final List<String> selectedRoots;
@@ -147,6 +173,12 @@ class ScrapeProgress {
     int? matchedWorks,
     int? reviewWorks,
     int? unmatchedWorks,
+    int? easyWorks,
+    int? mediumWorks,
+    int? hardWorks,
+    MatchDifficulty? currentDifficulty,
+    int? hardRescuedWorks,
+    String? lastMatchedTitle,
     List<String>? selectedRoots,
     Map<String, int>? folderVideoCounts,
     Set<String>? completedFolders,
@@ -165,6 +197,12 @@ class ScrapeProgress {
       matchedWorks: matchedWorks ?? this.matchedWorks,
       reviewWorks: reviewWorks ?? this.reviewWorks,
       unmatchedWorks: unmatchedWorks ?? this.unmatchedWorks,
+      easyWorks: easyWorks ?? this.easyWorks,
+      mediumWorks: mediumWorks ?? this.mediumWorks,
+      hardWorks: hardWorks ?? this.hardWorks,
+      currentDifficulty: currentDifficulty ?? this.currentDifficulty,
+      hardRescuedWorks: hardRescuedWorks ?? this.hardRescuedWorks,
+      lastMatchedTitle: lastMatchedTitle ?? this.lastMatchedTitle,
       selectedRoots: selectedRoots ?? this.selectedRoots,
       folderVideoCounts: folderVideoCounts ?? this.folderVideoCounts,
       completedFolders: completedFolders ?? this.completedFolders,

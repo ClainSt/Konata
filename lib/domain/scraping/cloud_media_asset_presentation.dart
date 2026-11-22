@@ -52,12 +52,9 @@ class CloudMediaAssetPresentation {
   static bool _isTechnicalOrReleaseSegment(String rawValue) {
     final trimmed = rawValue.trim();
     if (trimmed.isEmpty) return true;
-    if (RegExp(r'^[A-Fa-f0-9]{8}$').hasMatch(trimmed)) return true;
+    if (_reHot1.hasMatch(trimmed)) return true;
     if (_releaseBracketGroup.hasMatch(trimmed)) return true;
-    final tokens = trimmed
-        .split(RegExp(r'[\s_./,+&-]+'))
-        .where((t) => t.isNotEmpty)
-        .toList();
+    final tokens = trimmed.split(_reHot2).where((t) => t.isNotEmpty).toList();
     if (tokens.isEmpty) return true;
     return tokens.every(_technicalBracketToken.hasMatch);
   }
@@ -72,33 +69,24 @@ class CloudMediaAssetPresentation {
             .replaceAll('\\', '/')
             .split('/')
             .last;
-    final base = path.replaceFirst(
-      RegExp(r'\.(?:mkv|mp4|avi|mov|m4v|ts|m2ts|webm)$', caseSensitive: false),
-      '',
-    );
-    var name = base.replaceAllMapped(
-      RegExp(r'\[([^\]]*)\]|【([^】]*)】|\(([^)]*)\)'),
-      (match) {
-        final value = match.group(1) ?? match.group(2) ?? match.group(3)!;
-        final release = RegExp(
-          r'(?:字幕组|字幕組|压制组|壓製組|VCB-Studio|SweetSub|sub(?:s)?\b|Encode|Rip)',
-          caseSensitive: false,
-        ).hasMatch(value);
-        final checksum = RegExp(r'^[A-Fa-f0-9]{8}$').hasMatch(value.trim());
-        return _technicalTag.hasMatch(value.replaceAll('_', ' ')) ||
-                _isTechnicalOrReleaseSegment(value) ||
-                release ||
-                checksum
-            ? ' '
-            : ' $value ';
-      },
-    );
+    final base = path.replaceFirst(_reHot3, '');
+    var name = base.replaceAllMapped(_reHot4, (match) {
+      final value = match.group(1) ?? match.group(2) ?? match.group(3)!;
+      final release = _reHot5.hasMatch(value);
+      final checksum = _reHot1.hasMatch(value.trim());
+      return _technicalTag.hasMatch(value.replaceAll('_', ' ')) ||
+              _isTechnicalOrReleaseSegment(value) ||
+              release ||
+              checksum
+          ? ' '
+          : ' $value ';
+    });
     name = name
-        .replaceAll(RegExp(r'_|(?<!\d)\.|\.(?!\d)'), ' ')
+        .replaceAll(_reHot6, ' ')
         .replaceAll(_technicalTag, ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceAll(_reHot7, ' ')
         .trim()
-        .replaceAll(RegExp(r'^[\s-]+|[\s-]+$'), '');
+        .replaceAll(_reHot8, '');
     return name.isEmpty ? base : name;
   }
 
@@ -127,58 +115,35 @@ class CloudMediaAssetPresentation {
   // 置于括号内容说明前；若仅有裸 `[SP01]` 而无额外描述，则仍保留为 SP。
   static String? _groupedSpecialContent(String name) {
     var bracketedGroup = true;
-    var group = RegExp(r'\[SP\d{1,3}\]', caseSensitive: false).firstMatch(name);
+    var group = _reHot9.firstMatch(name);
     if (group == null) {
       bracketedGroup = false;
-      group = RegExp(
-        r'(?:^|[\s._\-–—])SP\d{1,3}\s*(?=\[)',
-        caseSensitive: false,
-      ).firstMatch(name);
+      group = _reHot10.firstMatch(name);
     }
     if (group == null) return null;
-    final rawSuffix = name
-        .substring(group.end)
-        .replaceFirst(
-          RegExp(
-            r'\.(?:mkv|mp4|avi|mov|m4v|ts|m2ts|webm|png|jpe?g)$',
-            caseSensitive: false,
-          ),
-          '',
-        );
-    final bracketPattern = RegExp(r'\[([^\]]*)\]|【([^】]*)】|\(([^)]*)\)');
+    final rawSuffix = name.substring(group.end).replaceFirst(_reHot11, '');
+    final bracketPattern = _reHot4;
     final bracketContents = <String>[
       for (final m in bracketPattern.allMatches(rawSuffix))
         (m.group(1) ?? m.group(2) ?? m.group(3) ?? '').trim(),
     ];
     final outsideBrackets = rawSuffix
         .replaceAll(bracketPattern, ' ')
-        .replaceAll(RegExp(r'^[\s_-]+|[\s_-]+$'), '')
+        .replaceAll(_reHot12, '')
         .trim();
-    if (!RegExp(r'[a-z\u3040-\u9fff]', caseSensitive: false).hasMatch(outsideBrackets) &&
+    if (!_reHot13.hasMatch(outsideBrackets) &&
         bracketContents.isNotEmpty &&
         bracketContents.every(_isTechnicalOrReleaseSegment)) {
       return null;
     }
 
     final suffix = rawSuffix
-        .replaceAll(
-          RegExp(
-            r'\([^)]*(?:\bBD\b|1080|1920|x\.?26[45]|Flac)[^)]*\)',
-            caseSensitive: false,
-          ),
-          '',
-        )
-        .replaceAll(RegExp(r'\[\s*(?:PNG|JPEG)\s*\]', caseSensitive: false), '')
-        .replaceAll(
-          RegExp(
-            r'\[(?:\d{3,4}p|HEVC\d*|FLAC\d*|Hi10p|x26[45])\]',
-            caseSensitive: false,
-          ),
-          '',
-        )
-        .replaceAll(RegExp(r'^[\s_-]+|[\s_-]+$'), '')
+        .replaceAll(_reHot14, '')
+        .replaceAll(_reHot15, '')
+        .replaceAll(_reHot16, '')
+        .replaceAll(_reHot12, '')
         .trim();
-    if (!RegExp(r'[a-z\u3040-\u9fff]', caseSensitive: false).hasMatch(suffix)) {
+    if (!_reHot13.hasMatch(suffix)) {
       return null;
     }
     // 仅包含编码参数信息的尾部标签不能代表独立特典条目。
@@ -195,17 +160,41 @@ class CloudMediaAssetPresentation {
     return cleaned;
   }
 
-  static String? extraTitle(Map<String, Object?> asset) {
-    final original = asset['name']?.toString() ?? '';
-    final fractional = RegExp(
-      r'\[(\d{1,3}\.\d{1,2})(?=\]|\()',
-    ).firstMatch(original);
+  static const _ignoredTechPrefixes = <String>{
+    'H',
+    'X',
+    'AV',
+    'AVC',
+    'HEVC',
+    'HI',
+    'HI10P',
+    'AAC',
+    'FLAC',
+    'DTS',
+    'AC',
+    'DD',
+    'CH',
+    'PCM',
+    'VP',
+    'CRC',
+    'BD',
+    'BDRIP',
+    'WEB',
+    'WEBRIP',
+    'VOL',
+    'DISC',
+    'DVD',
+  };
+
+  /// 从原始文件名与相对路径解析特典标题（纯字符串直调，零 Map 分配）。
+  static String? extraTitleFromName(String original, {String? relativePath}) {
+    final fractional = _reHot17.firstMatch(original);
     if (fractional != null) return 'SP${fractional[1]}';
     final content = _groupedSpecialContent(original);
     final name = content ?? original;
     final qualified = SupplementarySubclassifier.extractQualifiedExtraTitle(
       name,
-      relativePath: asset['relative_path']?.toString(),
+      relativePath: relativePath,
     );
     if (qualified != null) return qualified;
     if (CloudMediaFileClassifier.isPreview(name)) return null;
@@ -213,51 +202,21 @@ class CloudMediaAssetPresentation {
     if (noCredit != null) return noCredit;
     final match = _extraToken.firstMatch(name);
     if (match == null) {
-      final interview = RegExp(
-        r'(^|[^a-z0-9])(IV)[ ._-]?(\d{1,3})(?=[^a-z0-9]|$)',
-        caseSensitive: false,
-      ).firstMatch(name);
+      final interview = _reHot18.firstMatch(name);
       if (interview != null) return 'IV${interview.group(3)}';
       // 仅采信独立且明确的内容发布标签；编码器与分辨率标签绝不能
       // 充当未识别特典的显示标题。
-      final labels = RegExp(
-        r'\[([a-z]{1,8})[ ._-]?(\d{1,3}[a-z]?)\]',
-        caseSensitive: false,
-      ).allMatches(name);
+      final labels = _reHot19.allMatches(name);
       for (final label in labels) {
         final prefix = label.group(1)!.toUpperCase();
-        if (const {
-          'H',
-          'X',
-          'AV',
-          'AVC',
-          'HEVC',
-          'HI',
-          'HI10P',
-          'AAC',
-          'FLAC',
-          'DTS',
-          'AC',
-          'DD',
-          'CH',
-          'PCM',
-          'VP',
-          'CRC',
-          'BD',
-          'BDRIP',
-          'WEB',
-          'WEBRIP',
-          'VOL',
-          'DISC',
-          'DVD',
-        }.contains(prefix)) {
+        if (_ignoredTechPrefixes.contains(prefix)) {
           continue;
         }
         return '$prefix${label.group(2)!.toUpperCase()}';
       }
       return content;
     }
-    final number = (match.group(3) ?? '').replaceAll(RegExp(r'[ ._-]'), '');
+    final number = (match.group(3) ?? '').replaceAll(_reHot20, '');
     final type = match.group(2)!.toUpperCase();
     if (_matchableSpecialTypes.contains(type)) {
       final promo = _promoOverrideToken.firstMatch(name);
@@ -265,15 +224,17 @@ class CloudMediaAssetPresentation {
         if (content != null) return content;
         final promoRaw = promo.group(2)!.toUpperCase();
         final promoType = promoRaw == 'PV' ? 'PV' : 'CM';
-        final promoNum = (promo.group(3) ?? '').replaceAll(
-          RegExp(r'[ ._-]'),
-          '',
-        );
+        final promoNum = (promo.group(3) ?? '').replaceAll(_reHot20, '');
         return '$promoType$promoNum';
       }
     }
     return '${type == 'INFORMATION' ? 'INFO' : type}$number';
   }
+
+  static String? extraTitle(Map<String, Object?> asset) => extraTitleFromName(
+    asset['name']?.toString() ?? '',
+    relativePath: asset['relative_path']?.toString(),
+  );
 
   static String extraDisplayTitle(Map<String, Object?> asset) {
     final extracted = extraTitle(asset);
@@ -287,33 +248,42 @@ class CloudMediaAssetPresentation {
         '未命名视频';
   }
 
-  static bool _isNarrativeSpecialDirAsset(Map<String, Object?> asset, String name) {
-    final path = '${asset['relative_path'] ?? ''}'.replaceAll('\\', '/');
+  static bool _isNarrativeSpecialDirAssetPath(String path, String name) {
     final segments = path.split('/').where((s) => s.isNotEmpty).toList();
     if (segments.length <= 1) return false;
     final parentDirs = segments.sublist(0, segments.length - 1);
-    final inSpecialDir = parentDirs.any(
-      (seg) => RegExp(r'^specials?$', caseSensitive: false).hasMatch(seg),
-    );
+    final inSpecialDir = parentDirs.any((seg) => _reHot21.hasMatch(seg));
     if (!inSpecialDir) return false;
-    if (CloudMediaFileClassifier.isPreview(name) || _noCreditLabel(name) != null) {
+    if (CloudMediaFileClassifier.isPreview(name) ||
+        _noCreditLabel(name) != null) {
       return false;
     }
     if (_alternateEndingPattern.hasMatch(name)) {
-      return !RegExp(
-        r'(?<![a-z])(?:ncop(?:ed)?|nced|opening|menu|pv|cm|tvcm|bdcm|pvcm|trailer|preview|teaser)(?![a-z])',
-        caseSensitive: false,
-      ).hasMatch(name);
+      return !_reHot22.hasMatch(name);
     }
-    return !RegExp(
-      r'(?<![a-z0-9])(?:ncop(?:ed)?|nced|op\d*|ed\d*|opening\d*|ending\d*|menu\d*|pv\d*|cm\d*|tvcm|bdcm|pvcm|spot|trailer|preview|teaser|making|interview|promotion|promo|info|information|logo|eyecatch|artwork|digest|creditless|textless|mv|live|voice|audio|drama|commentary)(?![a-z0-9])',
-      caseSensitive: false,
-    ).hasMatch(name);
+    return !_reHot23.hasMatch(name);
   }
 
-  static String extraType(Map<String, Object?> asset) {
-    final original = asset['name']?.toString() ?? '';
-    if (RegExp(r'\[\d{1,3}\.\d{1,2}(?=\]|\()').hasMatch(original)) return 'SP';
+  static const _dirExtraTypeMap = <String, String>{
+    'music': 'MV',
+    'music video': 'MV',
+    'music videos': 'MV',
+    'mv': 'MV',
+    'mvs': 'MV',
+    'bonus': 'BONUS',
+    'extra': 'EXTRA',
+    'extras': 'EXTRA',
+    'voices': 'VOICE',
+    'voice': 'VOICE',
+    'live part': 'LIVE',
+    'creditless': 'CREDITLESS',
+    '映像特典': '映像特典',
+    '特典': '特典',
+  };
+
+  /// 从原始文件名与相对路径解析特典分类（纯字符串直调，零 Map 分配）。
+  static String extraTypeFromName(String original, {String? relativePath}) {
+    if (_reHot24.hasMatch(original)) return 'SP';
     final content = _groupedSpecialContent(original);
     final name = content ?? original;
     if (CloudMediaFileClassifier.isPreview(name)) {
@@ -321,10 +291,7 @@ class CloudMediaAssetPresentation {
     }
     final noCredit = _noCreditLabel(name);
     if (noCredit != null) return noCredit;
-    final bundledExtra = RegExp(
-      r'\[\s*\d{1,3}\s*[\(（]\s*(OAD|OVA|SP|Special)\s*[\)）]\s*\]',
-      caseSensitive: false,
-    ).firstMatch(name);
+    final bundledExtra = _reHot25.firstMatch(name);
     if (bundledExtra != null) {
       final raw = bundledExtra.group(1)!.toUpperCase();
       return raw == 'SPECIAL' ? 'SP' : raw;
@@ -342,44 +309,27 @@ class CloudMediaAssetPresentation {
       if (type.startsWith('MUSIC') || type.startsWith('MV')) return 'MV';
       return type == 'INFORMATION' ? 'INFO' : type;
     }
-    if (_alternateEndingPattern.hasMatch(name) &&
-        !RegExp(
-          r'(?<![a-z])(?:ncop(?:ed)?|nced|opening|menu|pv|cm|tvcm|bdcm|pvcm|trailer|preview|teaser)(?![a-z])',
-          caseSensitive: false,
-        ).hasMatch(name)) {
+    if (_alternateEndingPattern.hasMatch(name) && !_reHot26.hasMatch(name)) {
       return 'SP';
     }
-    if (_isNarrativeSpecialDirAsset(asset, name)) return 'SP';
+    final path = (relativePath ?? '').replaceAll('\\', '/');
+    if (_isNarrativeSpecialDirAssetPath(path, name)) return 'SP';
     if (content != null) return '其他';
-    final path = '${asset['relative_path'] ?? ''}'.replaceAll('\\', '/');
-    if (RegExp(r'(^|/)menus?(/|$)', caseSensitive: false).hasMatch(path)) {
+    if (_reHot27.hasMatch(path)) {
       return 'MENU';
     }
-    for (final entry in const {
-      'music': 'MV',
-      'music video': 'MV',
-      'music videos': 'MV',
-      'mv': 'MV',
-      'mvs': 'MV',
-      'bonus': 'BONUS',
-      'extra': 'EXTRA',
-      'extras': 'EXTRA',
-      'voices': 'VOICE',
-      'voice': 'VOICE',
-      'live part': 'LIVE',
-      'creditless': 'CREDITLESS',
-      '映像特典': '映像特典',
-      '特典': '特典',
-    }.entries) {
-      if (RegExp(
-        '(^|/)${RegExp.escape(entry.key)}(/|\$)',
-        caseSensitive: false,
-      ).hasMatch(path)) {
-        return entry.value;
-      }
+    final segments = path.split('/');
+    for (final seg in segments) {
+      final mapped = _dirExtraTypeMap[seg.trim().toLowerCase()];
+      if (mapped != null) return mapped;
     }
     return '其他';
   }
+
+  static String extraType(Map<String, Object?> asset) => extraTypeFromName(
+    asset['name']?.toString() ?? '',
+    relativePath: asset['relative_path']?.toString(),
+  );
 
   static String? _noCreditLabel(String name) {
     final match = _noCreditToken.firstMatch(name);
@@ -390,7 +340,7 @@ class CloudMediaAssetPresentation {
       final value => value.toUpperCase(),
     };
     final rawSuffix = (match.group(2) ?? '')
-        .replaceAll(RegExp(r'[ ._-]+'), '')
+        .replaceAll(_reHot28, '')
         .toLowerCase();
     return 'NC$type$rawSuffix';
   }
@@ -430,28 +380,14 @@ class CloudMediaAssetPresentation {
     // 如 `S1+S2`、`S01-S02` 等合集标识涵盖多个季度，而非单文件所属季号；
     // 此处需继续检索其余线索，确保文件名中显式的 `S02E01` 仍能
     // 优先覆盖外层合集目录标记。
-    if (RegExp(
-          r'(?<![a-z0-9])S(\d{1,2})[ ._]*(?:[+&~～]|[-–—])[ ._]*S?(\d{1,2})(?![a-z0-9])',
-          caseSensitive: false,
-        )
+    if (_reHot29
         .allMatches(text)
         .any(
           (match) => int.parse(match.group(1)!) != int.parse(match.group(2)!),
         )) {
       return null;
     }
-    final patterns = [
-      RegExp(
-        r'(?<![a-z0-9])S(\d{1,2})(?=E\d|[^a-z0-9]|$)',
-        caseSensitive: false,
-      ),
-      RegExp(r'(?<![a-z])Season[ ._-]*(\d{1,2})(?!\d)', caseSensitive: false),
-      RegExp(
-        r'(?<![a-z0-9])(\d{1,2})(?:st|nd|rd|th)[ ._-]+Season\b',
-        caseSensitive: false,
-      ),
-      RegExp(r'第[ ._-]*([0-9一二三四五六七八九十两]+)[ ._-]*[季期]'),
-    ];
+    final patterns = [_reHot30, _reHot31, _reHot32, _reHot33];
     for (final pattern in patterns) {
       final token = pattern.firstMatch(text)?.group(1);
       if (token == null) continue;
@@ -494,7 +430,9 @@ class CloudMediaAssetPresentation {
     final counts =
         seasons['season_episode_counts'] ?? seasons['seasonEpisodeCounts'];
     int? alignCumulative(int targetSeason) {
-      if (targetSeason <= 1 || asset['manual_mapping'] == true || counts is! Map) {
+      if (targetSeason <= 1 ||
+          asset['manual_mapping'] == true ||
+          counts is! Map) {
         return null;
       }
       final targetCount = int.tryParse('${counts['$targetSeason'] ?? ''}');
@@ -559,14 +497,10 @@ class CloudMediaAssetPresentation {
     final name = (_groupedSpecialContent(original) ?? original).toLowerCase();
     // 靠后出现的宣传片词条权重覆盖先前的 OVA/OAD 标签。
     // 严格按完整单词边界匹配词条，防止误伤含 `CM` 等子串的标题。
-    if (RegExp(
-      r'(^|[^a-z0-9])(?:tvcm|bdcm|pvcm|cm|pv)(?:[\s._-]*\d+)?(?=[^a-z0-9]|$)',
-    ).hasMatch(name)) {
+    if (_reHot34.hasMatch(name)) {
       return false;
     }
-    if (RegExp(
-      r'menu|trailer|preview|teaser|opening|ncop|nced',
-    ).hasMatch(name)) {
+    if (_reHot35.hasMatch(name)) {
       return false;
     }
     if (name.contains('ending') && !_alternateEndingPattern.hasMatch(name)) {
@@ -575,68 +509,58 @@ class CloudMediaAssetPresentation {
     return true;
   }
 
-  static int? explicitSpecialNumber(Map<String, Object?> asset) {
-    final original = asset['name']?.toString() ?? '';
+  /// 从原始文件名直接解析显式特典编号（纯字符串直调，零 Map 分配）。
+  static int? explicitSpecialNumberFromName(String original) {
     final content = _groupedSpecialContent(original);
     final name = content ?? original;
-    final patterns = <RegExp>[
-      RegExp(
-        r'\b(?:OVA|OAD|SP)(?:[\s._]*[-–—][\s._]*|[\s._-]+|\s*)(\d{1,3})\b',
-        caseSensitive: false,
-      ),
-      RegExp(
-        r'[\[(](?:OVA|OAD|SP)(?:[\s._]*[-–—][\s._]*|[\s._-]+|\s*)(\d{1,3})[\])]',
-        caseSensitive: false,
-      ),
-      RegExp(
-        r'[\[(]\d+\((?:OVA|OAD|SP)[\s._-]*(\d{1,3})\)[\])]',
-        caseSensitive: false,
-      ),
-    ];
-    for (final pattern in patterns) {
-      final number = int.tryParse(pattern.firstMatch(name)?.group(1) ?? '');
+    final m1 = _reHot36.firstMatch(name);
+    if (m1 != null) {
+      final number = int.tryParse(m1.group(1) ?? '');
       if (number != null && number > 0) return number;
     }
-    if (RegExp(r'\b(?:OVA|OAD)\b', caseSensitive: false).hasMatch(name)) {
-      final bonus = RegExp(
-        r'(?:Special|映像特典|特典)[\s._-]*(\d{1,3})(?![\d])',
-        caseSensitive: false,
-      ).firstMatch(name);
+    final m2 = _reHot37.firstMatch(name);
+    if (m2 != null) {
+      final number = int.tryParse(m2.group(1) ?? '');
+      if (number != null && number > 0) return number;
+    }
+    final m3 = _reHot38.firstMatch(name);
+    if (m3 != null) {
+      final number = int.tryParse(m3.group(1) ?? '');
+      if (number != null && number > 0) return number;
+    }
+    if (_reHot39.hasMatch(name)) {
+      final bonus = _reHot40.firstMatch(name);
       final number = int.tryParse(bonus?.group(1) ?? '');
       if (number != null && number > 0 && number < 1900) return number;
     }
-    if (!RegExp(r'menu[._-]*ex', caseSensitive: false).hasMatch(name)) {
-      final exPatterns = <RegExp>[
-        RegExp(
-          r'[\[(（【]\s*ex(?:[\s._]*[-–—][\s._]*|[\s._-]+|\s*)0*(\d{1,2})\s*[\])）】]',
-          caseSensitive: false,
-        ),
-        RegExp(
-          r'\bex(?:[\s._]*[-–—][\s._]*|[\s._-]+|\s*)0*(\d{1,2})(?![a-z0-9])',
-          caseSensitive: false,
-        ),
-      ];
-      for (final pattern in exPatterns) {
-        final number = int.tryParse(pattern.firstMatch(name)?.group(1) ?? '');
+    if (!_reHot41.hasMatch(name)) {
+      final m4 = _reHot42.firstMatch(name);
+      if (m4 != null) {
+        final number = int.tryParse(m4.group(1) ?? '');
+        if (number != null && number > 0 && number < 100) return number;
+      }
+      final m5 = _reHot43.firstMatch(name);
+      if (m5 != null) {
+        final number = int.tryParse(m5.group(1) ?? '');
         if (number != null && number > 0 && number < 100) return number;
       }
     }
     return null;
   }
 
+  static int? explicitSpecialNumber(Map<String, Object?> asset) =>
+      explicitSpecialNumberFromName(asset['name']?.toString() ?? '');
+
   static int? _specialAirYear(Map<String, dynamic> entry) => int.tryParse(
-    RegExp(
-          r'^((?:19|20)\d{2})',
-        ).firstMatch(entry['air_date']?.toString() ?? '')?.group(1) ??
-        '',
+    _reHot44.firstMatch(entry['air_date']?.toString() ?? '')?.group(1) ?? '',
   );
 
   /// 将英文与罗马篇章数字（`I..X`、`ONE..SIX`）归一化为阿拉伯数字，
   /// 同时保持词边界校验，使副标题比对能正确等价 `Stage I` 与 `Stage 1`。
   static String normalizeWithNumerals(String value) {
-    var text = PersonalFilenameParser.unifyIdentityPunctuation(value)
-        .replaceAll(RegExp(r'\{tmdb-\d+\}', caseSensitive: false), ' ')
-        .replaceAll(RegExp(r'\((?:19|20)\d{2}\)'), ' ');
+    var text = PersonalFilenameParser.unifyIdentityPunctuation(
+      value,
+    ).replaceAll(_reHot45, ' ').replaceAll(_reHot46, ' ');
     const multiRomans = {
       'VIII': '8',
       'VII': '7',
@@ -648,24 +572,18 @@ class CloudMediaAssetPresentation {
     };
     for (final entry in multiRomans.entries) {
       text = text.replaceAll(
-        RegExp(
-          '(?<![a-z0-9])${entry.key}(?![a-z0-9])',
-          caseSensitive: false,
-        ),
+        RegExp('(?<![a-z0-9])${entry.key}(?![a-z0-9])', caseSensitive: false),
         entry.value,
       );
     }
     const singleMap = {'I': '1', 'V': '5', 'X': '10'};
     // 对紧跟在标题关键词后或位于末尾边界的罗马数字 `I/V/X` 做上下文保护归一化。
     text = text.replaceAllMapped(
-      RegExp(
-        r'\b(stage|part|pt|vol|volume|act|phase|chapter|season|series|ova|oad|sp|special|disc|disk|episode|ep|alternative|alter|story|arc|movie|film)\s+(I|V|X)\b',
-        caseSensitive: false,
-      ),
+      _reHot47,
       (m) => '${m.group(1)} ${singleMap[m.group(2)!.toUpperCase()]!}',
     );
     text = text.replaceAllMapped(
-      RegExp(r'(?:^|\s)(I|V|X)(?=\s*(?:$|[:\-–—~()\[\]/／]))'),
+      _reHot48,
       (m) => ' ${singleMap[m.group(1)!]!}',
     );
     text = text.toLowerCase();
@@ -687,22 +605,14 @@ class CloudMediaAssetPresentation {
         entry.value,
       );
     }
-    text = text.replaceAllMapped(
-      RegExp(
-        r'\b(stage|part|pt|vol|volume|act|phase|chapter|season|series|ova|oad|sp|special|disc|disk|episode|ep|alternative|alter)\s+(?:one|first)\b',
-      ),
-      (m) => '${m.group(1)} 1',
-    );
-    text = text.replaceAll(RegExp(r'\b(?:one|first)\s*$'), '1');
-    return text
-        .replaceAll(RegExp(r'[\-_—–:：.()（）\[\]【】{}!?！？・·,，、/／|]+'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
+    text = text.replaceAllMapped(_reHot49, (m) => '${m.group(1)} 1');
+    text = text.replaceAll(_reHot50, '1');
+    return text.replaceAll(_reHot51, ' ').replaceAll(_reHot7, ' ').trim();
   }
 
   static List<int> _partNumbersFromNormalized(String normalized) {
     final numbers = <int>[];
-    for (final match in RegExp(r'(?<!\d)(\d{1,2})(?!\d)').allMatches(normalized)) {
+    for (final match in _reHot52.allMatches(normalized)) {
       final n = int.tryParse(match.group(1)!);
       if (n != null && n >= 1 && n <= 30) numbers.add(n);
     }
@@ -732,10 +642,12 @@ class CloudMediaAssetPresentation {
     // 系列首作常省略编号 `1` / `I`（如 `Side Story I` 与 `Side Story` 视为同指）。
     if ((numsA.isNotEmpty && numsB.isEmpty && numsA.last == 1) ||
         (numsB.isNotEmpty && numsA.isEmpty && numsB.last == 1)) {
-      final strippedA =
-          numsA.isNotEmpty ? normA.replaceFirst(RegExp(r'\b1\b\s*$'), '').trim() : normA;
-      final strippedB =
-          numsB.isNotEmpty ? normB.replaceFirst(RegExp(r'\b1\b\s*$'), '').trim() : normB;
+      final strippedA = numsA.isNotEmpty
+          ? normA.replaceFirst(_reHot53, '').trim()
+          : normA;
+      final strippedB = numsB.isNotEmpty
+          ? normB.replaceFirst(_reHot53, '').trim()
+          : normB;
       final stemSim = WorkMatcher.similarity(
         strippedA.replaceAll(' ', ''),
         strippedB.replaceAll(' ', ''),
@@ -748,8 +660,25 @@ class CloudMediaAssetPresentation {
 
     if (!hasConflict) {
       const stopWords = {
-        'the', 'a', 'an', 'of', 'to', 'in', 'on', 'at', 'for', 'with', 'way',
-        'no', 'and', 'or', 'ova', 'oad', 'sp', 'special', 'extra',
+        'the',
+        'a',
+        'an',
+        'of',
+        'to',
+        'in',
+        'on',
+        'at',
+        'for',
+        'with',
+        'way',
+        'no',
+        'and',
+        'or',
+        'ova',
+        'oad',
+        'sp',
+        'special',
+        'extra',
       };
       final tokensA = normA
           .split(' ')
@@ -761,17 +690,18 @@ class CloudMediaAssetPresentation {
           .toList();
       if (tokensA.isNotEmpty && tokensB.isNotEmpty) {
         final shorter = tokensA.length <= tokensB.length ? tokensA : tokensB;
-        final longer = identical(shorter, tokensA) ? tokensB.toSet() : tokensA.toSet();
+        final longer = identical(shorter, tokensA)
+            ? tokensB.toSet()
+            : tokensA.toSet();
         final matched = shorter.where(longer.contains).length;
         final hasSubstantive = shorter.any(
           (t) =>
               t.length >= 2 ||
-              RegExp(r'[\u3040-\u9fff]').hasMatch(t) ||
+              _reHot54.hasMatch(t) ||
               (shorter.length >= 2 && matched == shorter.length),
         );
         if (hasSubstantive && matched == shorter.length) {
-          final containScore =
-              0.76 + 0.19 * (shorter.length / longer.length);
+          final containScore = 0.76 + 0.19 * (shorter.length / longer.length);
           if (containScore > best) best = containScore;
         }
       }
@@ -784,27 +714,108 @@ class CloudMediaAssetPresentation {
   }
 
   static const _genericSubtitleTokens = <String>{
-    'ova', 'oad', 'sp', 'ex', 'special', 'specials', 'extra', 'extras', 'bonus',
-    'disc', 'disk', 'vol', 'volume', 'part', 'pt', 'episode', 'ep',
-    'chapter', 'movie', 'film', 'animation', 'anime', 'tv', 'bd', 'dvd',
-    'bdrip', 'dvdrip', 'bluray', 'web', 'webrip', 'remux', 'digest', 'recap',
-    'summary', 'commentary', 'drama', 'audio', 'preview', 'teaser', 'trailer',
-    'opening', 'ending', 'menu', 'ncop', 'nced', 'pv', 'cm', 'the', 'a', 'an',
-    'of', 'in', 'on', 'at', 'to', 'for', 'with', 'no', 'and', 'or', 'ver',
-    'version', 'edition', 'complete', 'collection', 'hevc', 'avc', 'x264',
-    'x265', 'flac', 'aac', 'opus', 'ma10p', 'hi10p', '10bit', '8bit', '1080p',
-    '720p', '2160p', 'chs', 'cht', 'jpsc', 'jptc', 'sub', 'subs',
+    'ova',
+    'oad',
+    'sp',
+    'ex',
+    'special',
+    'specials',
+    'extra',
+    'extras',
+    'bonus',
+    'disc',
+    'disk',
+    'vol',
+    'volume',
+    'part',
+    'pt',
+    'episode',
+    'ep',
+    'chapter',
+    'movie',
+    'film',
+    'animation',
+    'anime',
+    'tv',
+    'bd',
+    'dvd',
+    'bdrip',
+    'dvdrip',
+    'bluray',
+    'web',
+    'webrip',
+    'remux',
+    'digest',
+    'recap',
+    'summary',
+    'commentary',
+    'drama',
+    'audio',
+    'preview',
+    'teaser',
+    'trailer',
+    'opening',
+    'ending',
+    'menu',
+    'ncop',
+    'nced',
+    'pv',
+    'cm',
+    'the',
+    'a',
+    'an',
+    'of',
+    'in',
+    'on',
+    'at',
+    'to',
+    'for',
+    'with',
+    'no',
+    'and',
+    'or',
+    'ver',
+    'version',
+    'edition',
+    'complete',
+    'collection',
+    'hevc',
+    'avc',
+    'x264',
+    'x265',
+    'flac',
+    'aac',
+    'opus',
+    'ma10p',
+    'hi10p',
+    '10bit',
+    '8bit',
+    '1080p',
+    '720p',
+    '2160p',
+    'chs',
+    'cht',
+    'jpsc',
+    'jptc',
+    'sub',
+    'subs',
   };
 
   static const _endingStopTokens = <String>{
-    'alter', 'alternate', 'alternative', 'another', 'true', 'different',
-    'epilogue', 'end', 'ending', 'ed',
+    'alter',
+    'alternate',
+    'alternative',
+    'another',
+    'true',
+    'different',
+    'epilogue',
+    'end',
+    'ending',
+    'ed',
   };
 
-  static Set<String> _tokensFromText(String text) => normalizeWithNumerals(text)
-      .split(' ')
-      .where((t) => t.isNotEmpty)
-      .toSet();
+  static Set<String> _tokensFromText(String text) =>
+      normalizeWithNumerals(text).split(' ').where((t) => t.isNotEmpty).toSet();
 
   static List<String> _exclusiveSubtitleTokens(
     Map<String, Object?> asset,
@@ -814,10 +825,7 @@ class CloudMediaAssetPresentation {
     final content = _groupedSpecialContent(original);
     final prefixStrip = <String>{...workBaseTokens};
     if (content != null) {
-      final spGroup = RegExp(
-        r'(?:\[SP\d{1,3}\]|(?:^|[\s._\-–—])SP\d{1,3}\s*(?=\[))',
-        caseSensitive: false,
-      ).firstMatch(original);
+      final spGroup = _reHot55.firstMatch(original);
       if (spGroup != null) {
         final prefix = cleanedExtraFilename({
           'name': '${original.substring(0, spGroup.start)}.mkv',
@@ -836,8 +844,8 @@ class CloudMediaAssetPresentation {
     for (final raw in normalized.split(' ')) {
       final token = raw.trim();
       if (token.isEmpty) continue;
-      if (RegExp(r'^\d+$').hasMatch(token)) continue;
-      if (RegExp(r'^(?:ova|oad|sp|ex)\d+$').hasMatch(token)) continue;
+      if (_reHot56.hasMatch(token)) continue;
+      if (_reHot57.hasMatch(token)) continue;
       if (_genericSubtitleTokens.contains(token)) continue;
       if (prefixStrip.contains(token)) continue;
       result.add(token);
@@ -846,14 +854,12 @@ class CloudMediaAssetPresentation {
   }
 
   static bool _hasExplicitOadOrOvaVolumeTag(Map<String, Object?> asset) {
-    final name = (_groupedSpecialContent(asset['name']?.toString() ?? '') ??
-            asset['name']?.toString() ??
-            '')
-        .toLowerCase();
-    return RegExp(
-      r'(?:^|[^a-z])(?:oad|ova)(?:[^a-z]|$)',
-      caseSensitive: false,
-    ).hasMatch(name);
+    final name =
+        (_groupedSpecialContent(asset['name']?.toString() ?? '') ??
+                asset['name']?.toString() ??
+                '')
+            .toLowerCase();
+    return _reHot58.hasMatch(name);
   }
 
   static String _specialAssetSubfamily(Map<String, Object?> asset) {
@@ -862,32 +868,21 @@ class CloudMediaAssetPresentation {
     if (family != 'OVA' && family != 'SP') return family;
     final original = asset['name']?.toString() ?? '';
     final effective = _groupedSpecialContent(original) ?? original;
-    final hasOvaInText = RegExp(
-      r'(?:^|[^a-z])(?:OVA|OAD)(?=[^a-z]|$)',
-      caseSensitive: false,
-    ).hasMatch(effective);
-    final hasSpInText = RegExp(
-      r'(?:^|[^a-z])(?:SP|Specials?)(?=[^a-z0-9]|$)|\bSP\d+\b|映像特典|特典',
-      caseSensitive: false,
-    ).hasMatch(effective);
+    final hasOvaInText = _reHot59.hasMatch(effective);
+    final hasSpInText = _reHot60.hasMatch(effective);
     if (hasOvaInText && hasSpInText) return 'OVA_SP';
     if (!hasSpInText &&
-        !RegExp(r'menu[._-]*ex', caseSensitive: false).hasMatch(effective) &&
-        RegExp(
-          r'(?:^|[^a-z0-9])ex(?:[\s._-]*0*\d{1,2})?(?=[^a-z0-9]|$)',
-          caseSensitive: false,
-        ).hasMatch(effective)) {
+        !_reHot41.hasMatch(effective) &&
+        _reHot61.hasMatch(effective)) {
       return 'OVA';
     }
     if (family == 'SP') {
       final path = '${asset['relative_path'] ?? ''}'.replaceAll('\\', '/');
       final segments = path.split('/');
-      final parentDirs =
-          segments.length > 1 ? segments.sublist(0, segments.length - 1) : const <String>[];
-      if (parentDirs.any(
-        (s) => RegExp(r'(?:^|[^a-z])(?:OVA|OAD)(?=[^a-z]|$)', caseSensitive: false)
-            .hasMatch(s),
-      )) {
+      final parentDirs = segments.length > 1
+          ? segments.sublist(0, segments.length - 1)
+          : const <String>[];
+      if (parentDirs.any((s) => _reHot62.hasMatch(s))) {
         return 'OVA_SP';
       }
     }
@@ -896,24 +891,14 @@ class CloudMediaAssetPresentation {
 
   static String _specialEntrySubfamily(Map<String, dynamic> entry) {
     final name = entry['name']?.toString() ?? '';
-    final hasOva = RegExp(
-      r'(?:^|[^a-z])(?:OVA|OAD)(?=[^a-z]|$)',
-      caseSensitive: false,
-    ).hasMatch(name);
-    final hasSp = RegExp(
-      r'(?:^|[^a-z])(?:SP|Specials?)(?=[^a-z0-9]|$)|\bSP\d+\b|映像特典|特典',
-      caseSensitive: false,
-    ).hasMatch(name);
+    final hasOva = _reHot59.hasMatch(name);
+    final hasSp = _reHot60.hasMatch(name);
     if (hasOva && hasSp) return 'OVA_SP';
     if (hasOva) return 'OVA';
     if (hasSp) return 'SP';
     final runtime = (entry['runtime'] as num?)?.toInt() ?? 0;
     final overviewText = entry['overview']?.toString() ?? '';
-    if (runtime >= 15 &&
-        RegExp(
-          r'(?:^|[^a-z])(?:OVA|OAD)(?=[^a-z]|$)',
-          caseSensitive: false,
-        ).hasMatch(overviewText)) {
+    if (runtime >= 15 && _reHot63.hasMatch(overviewText)) {
       return 'OVA';
     }
     final combined = '$name ${entry['overview'] ?? ''}';
@@ -925,10 +910,10 @@ class CloudMediaAssetPresentation {
     final original = asset['name']?.toString() ?? '';
     var text = _groupedSpecialContent(original) ?? cleanedExtraFilename(asset);
     text = text
-        .replaceAll(RegExp(r'\b(?:19|20)\d{2}\b'), ' ')
-        .replaceAll(RegExp(r'\b(?:OVA|OAD|SP)[ ._-]*\d+\b', caseSensitive: false), ' ')
-        .replaceAll(RegExp(r'\bv\d+\b', caseSensitive: false), ' ');
-    final match = RegExp(r'(?<!\d)(\d{1,3})(?!\d)').firstMatch(text);
+        .replaceAll(_reHot64, ' ')
+        .replaceAll(_reHot65, ' ')
+        .replaceAll(_reHot66, ' ');
+    final match = _reHot67.firstMatch(text);
     final value = int.tryParse(match?.group(1) ?? '');
     if (value == null || value <= 0 || value >= 1900) return null;
     return value;
@@ -938,21 +923,27 @@ class CloudMediaAssetPresentation {
     final numeric = int.tryParse(token);
     if (numeric != null) return numeric;
     const digits = {
-      '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5,
-      '六': 6, '七': 7, '八': 8, '九': 9, 'Ⅰ': 1, 'Ⅱ': 2, 'Ⅲ': 3, 'Ⅳ': 4,
+      '一': 1,
+      '二': 2,
+      '两': 2,
+      '三': 3,
+      '四': 4,
+      '五': 5,
+      '六': 6,
+      '七': 7,
+      '八': 8,
+      '九': 9,
+      'Ⅰ': 1,
+      'Ⅱ': 2,
+      'Ⅲ': 3,
+      'Ⅳ': 4,
     };
     return digits[token];
   }
 
   static Set<int> _explicitSeasonMarkersInMetadata(String text) {
     final found = <int>{};
-    final patterns = <RegExp>[
-      RegExp(r'\bSeason[ ._-]*(\d{1,2})\b', caseSensitive: false),
-      RegExp(r'(?<![a-z0-9])S(\d{1,2})(?![a-z0-9])', caseSensitive: false),
-      RegExp(r'\b(\d{1,2})(?:st|nd|rd|th)[ ._-]+Season\b', caseSensitive: false),
-      RegExp(r'第[ ._-]*([0-9一二三四五六七八九]+)[ ._-]*[期季]'),
-      RegExp(r'(?<!\d)(\d{1,2})期(?![\d])'),
-    ];
+    final patterns = <RegExp>[_reHot68, _reHot69, _reHot70, _reHot71, _reHot72];
     for (final p in patterns) {
       for (final m in p.allMatches(text)) {
         final parsed = _parseChineseOrArabicSeasonNumber(m.group(1)!);
@@ -980,16 +971,12 @@ class CloudMediaAssetPresentation {
       }
     }
     final rawSeasonName = seasonName?.trim() ?? '';
-    if (rawSeasonName.isNotEmpty &&
-        !RegExp(
-          r'^(?:Season\s*\d+|第\s*[0-9一二三四五六七八九十]+\s*[季期]|Specials?|特別編)$',
-          caseSensitive: false,
-        ).hasMatch(rawSeasonName)) {
+    if (rawSeasonName.isNotEmpty && !_reHot73.hasMatch(rawSeasonName)) {
       final tokens = _tokensFromText(rawSeasonName)
           .where(
             (t) =>
                 !_genericSubtitleTokens.contains(t) &&
-                (t.length >= 3 || RegExp(r'[\u3040-\u9fff]').hasMatch(t)),
+                (t.length >= 3 || _reHot54.hasMatch(t)),
           )
           .toList();
       if (tokens.isNotEmpty) {
@@ -1005,10 +992,10 @@ class CloudMediaAssetPresentation {
 
   static int? _relativeSpecialNumberFromTitle(String title) {
     final stripped = title
-        .replaceAll(RegExp(r'\bSeason[ ._-]*\d{1,2}\b', caseSensitive: false), ' ')
-        .replaceAll(RegExp(r'\b\d{1,2}(?:st|nd|rd|th)[ ._-]+Season\b', caseSensitive: false), ' ')
-        .replaceAll(RegExp(r'第[ ._-]*[0-9一二三四五六七八九]+[ ._-]*[期季]'), ' ')
-        .replaceAll(RegExp(r'\b\d{1,2}期\b'), ' ');
+        .replaceAll(_reHot74, ' ')
+        .replaceAll(_reHot75, ' ')
+        .replaceAll(_reHot76, ' ')
+        .replaceAll(_reHot77, ' ');
     return explicitSpecialNumber({'name': stripped});
   }
 
@@ -1032,10 +1019,7 @@ class CloudMediaAssetPresentation {
         asset['relative_path']?.toString() ?? asset['name']?.toString() ?? '';
 
     final yearInt = int.tryParse(
-      RegExp(
-            r'(?<!\d)((?:19|20)\d{2})(?!\d)',
-          ).firstMatch(yearHint ?? '')?.group(1) ??
-          '',
+      _reHot78.firstMatch(yearHint ?? '')?.group(1) ?? '',
     );
     final effectiveSeason =
         seasonNumber ?? _seasonFromText('${workTitle ?? ''} ${yearHint ?? ''}');
@@ -1046,17 +1030,15 @@ class CloudMediaAssetPresentation {
       if (yearHint != null && yearHint.trim().isNotEmpty)
         ..._tokensFromText(
           yearHint
-              .replaceAll(RegExp(r'\{tmdb-\d+\}', caseSensitive: false), ' ')
-              .replaceAll(RegExp(r'\((?:19|20)\d{2}\)'), ' ')
-              .replaceAll(RegExp(r'\bSeason[ ._-]*\d+\b', caseSensitive: false), ' ')
-              .replaceAll(RegExp(r'第[ ._-]*[0-9一二三四五六七八九十]+[ ._-]*[季期]'), ' '),
+              .replaceAll(_reHot45, ' ')
+              .replaceAll(_reHot46, ' ')
+              .replaceAll(_reHot79, ' ')
+              .replaceAll(_reHot80, ' '),
         ),
     };
 
-    bool isRecap(Map<String, dynamic> entry) => RegExp(
-      r'総集編|总集篇|recap|summary|digest',
-      caseSensitive: false,
-    ).hasMatch('${entry['name'] ?? ''}');
+    bool isRecap(Map<String, dynamic> entry) =>
+        _reHot81.hasMatch('${entry['name'] ?? ''}');
 
     bool inYearWindow(Map<String, dynamic> entry) {
       if (yearInt == null) return true;
@@ -1075,12 +1057,13 @@ class CloudMediaAssetPresentation {
           .toList();
       if (distinctive.isEmpty) continue;
       final hasSubstantiveToken = distinctive.any(
-        (t) => t.length >= 3 || RegExp(r'[\u3040-\u9fff]').hasMatch(t),
+        (t) => t.length >= 3 || _reHot54.hasMatch(t),
       );
       if (!hasSubstantiveToken) continue;
 
       final original = asset['name']?.toString() ?? '';
-      final assetSub = _groupedSpecialContent(original) ?? cleanedExtraFilename(asset);
+      final assetSub =
+          _groupedSpecialContent(original) ?? cleanedExtraFilename(asset);
       final subfamily = _specialAssetSubfamily(asset);
 
       Map<String, dynamic>? bestInYear;
@@ -1100,7 +1083,7 @@ class CloudMediaAssetPresentation {
         final hasSubstantiveHit = distinctive.any(
           (t) =>
               entryTokens.contains(t) &&
-              (t.length >= 3 || RegExp(r'[\u3040-\u9fff]').hasMatch(t)),
+              (t.length >= 3 || _reHot54.hasMatch(t)),
         );
         final sim = subtitleSimilarity(assetSub, entryName);
         final coverage = hits / distinctive.length;
@@ -1125,7 +1108,8 @@ class CloudMediaAssetPresentation {
         }
       }
 
-      final chosen = bestInYear ?? (bestCrossYearScore >= 0.7 ? bestCrossYear : null);
+      final chosen =
+          bestInYear ?? (bestCrossYearScore >= 0.7 ? bestCrossYear : null);
       if (chosen != null) {
         final key = assetKey(asset);
         claimed.add(_specialOrder(chosen));
@@ -1143,7 +1127,10 @@ class CloudMediaAssetPresentation {
           .add(asset);
     }
 
-    int compareWithSeasonAffinity(Map<String, dynamic> a, Map<String, dynamic> b) {
+    int compareWithSeasonAffinity(
+      Map<String, dynamic> a,
+      Map<String, dynamic> b,
+    ) {
       final affA = _entrySeasonAffinity(a, effectiveSeason, seasonName);
       final affB = _entrySeasonAffinity(b, effectiveSeason, seasonName);
       if (affA != affB) return affB.compareTo(affA);
@@ -1155,15 +1142,20 @@ class CloudMediaAssetPresentation {
       int minCount,
     ) {
       if (pool.length <= minCount ||
-          (effectiveSeason == null && (seasonName == null || seasonName.trim().isEmpty))) {
+          (effectiveSeason == null &&
+              (seasonName == null || seasonName.trim().isEmpty))) {
         return pool;
       }
       final preferred = pool
-          .where((e) => _entrySeasonAffinity(e, effectiveSeason, seasonName) > 0)
+          .where(
+            (e) => _entrySeasonAffinity(e, effectiveSeason, seasonName) > 0,
+          )
           .toList();
       if (preferred.length >= minCount) return preferred;
       final compatible = pool
-          .where((e) => _entrySeasonAffinity(e, effectiveSeason, seasonName) >= 0)
+          .where(
+            (e) => _entrySeasonAffinity(e, effectiveSeason, seasonName) >= 0,
+          )
           .toList();
       if (compatible.length >= minCount) return compatible;
       return pool;
@@ -1181,18 +1173,13 @@ class CloudMediaAssetPresentation {
       // 检测第 0 季中连续编号的短篇子系列（便于成段按序对齐）。
       // "小加速世界 1..8" spanning S00E01,02,04..07,09,10 around interleaved OVAs).
       final prefixBuckets = <String, Map<int, List<Map<String, dynamic>>>>{};
-      final prefixRegex = RegExp(
-        r'^(.+?)\s*[#＃第]?\s*0*([1-9]\d?)\s*[話话集]?$',
-      );
+      final prefixRegex = _reHot82;
       for (final e in sortedPool) {
         if (claimed.contains(_specialOrder(e))) continue;
         final name = e['name']?.toString().trim() ?? '';
         final m = prefixRegex.firstMatch(name);
         if (m == null) continue;
-        final normPrefix = m
-            .group(1)!
-            .toLowerCase()
-            .replaceAll(RegExp(r'[^a-z0-9\u3040-\u9fff]+'), '');
+        final normPrefix = m.group(1)!.toLowerCase().replaceAll(_reHot83, '');
         final numVal = int.tryParse(m.group(2)!);
         if (normPrefix.isEmpty || numVal == null) continue;
         (prefixBuckets.putIfAbsent(normPrefix, () => {})[numVal] ??= []).add(e);
@@ -1225,7 +1212,9 @@ class CloudMediaAssetPresentation {
           !allowDirectEpisodeMatch &&
           group.any((a) => explicitSpecialNumber(a) != null) &&
           sortedPool.any((e) {
-            final rel = _relativeSpecialNumberFromTitle(e['name']?.toString() ?? '');
+            final rel = _relativeSpecialNumberFromTitle(
+              e['name']?.toString() ?? '',
+            );
             return rel != null && rel != _specialOrder(e);
           });
 
@@ -1251,7 +1240,9 @@ class CloudMediaAssetPresentation {
           for (var i = 0; i < sortedPool.length; i++) {
             final entry = sortedPool[i];
             if (claimed.contains(_specialOrder(entry))) continue;
-            if (_relativeSpecialNumberFromTitle(entry['name']?.toString() ?? '') ==
+            if (_relativeSpecialNumberFromTitle(
+                  entry['name']?.toString() ?? '',
+                ) ==
                 explicit) {
               matches.add(i);
             }
@@ -1285,22 +1276,27 @@ class CloudMediaAssetPresentation {
             ..sort(compareWithSeasonAffinity);
       if (remainingPool.isEmpty) return;
 
-      double semanticScore(Map<String, Object?> asset, Map<String, dynamic> entry) {
+      double semanticScore(
+        Map<String, Object?> asset,
+        Map<String, dynamic> entry,
+      ) {
         final original = asset['name']?.toString() ?? '';
-        final assetText = _groupedSpecialContent(original) ?? cleanedExtraFilename(asset);
+        final assetText =
+            _groupedSpecialContent(original) ?? cleanedExtraFilename(asset);
         final epClue = _extractEpisodeClueFromSpecialAsset(asset);
         final isAltEnd = _alternateEndingPattern.hasMatch(assetText);
 
         final entryName = entry['name']?.toString() ?? '';
         final entryOverview = entry['overview']?.toString() ?? '';
         final entryCombined = '$entryName $entryOverview';
-        var score = _entrySeasonAffinity(entry, effectiveSeason, seasonName).toDouble();
+        var score = _entrySeasonAffinity(
+          entry,
+          effectiveSeason,
+          seasonName,
+        ).toDouble();
 
         if (epClue != null) {
-          final strippedCombined = entryCombined.replaceAll(
-            RegExp(r'\b(?:19|20)\d{2}\b'),
-            ' ',
-          );
+          final strippedCombined = entryCombined.replaceAll(_reHot64, ' ');
           final epRegex = RegExp(
             '(?:\\b(?:episode|ep|special|#)\\s*0?$epClue\\b|第\\s*0?$epClue\\s*[话話集]|(?<!\\d)0?$epClue(?!\\d))',
             caseSensitive: false,
@@ -1308,10 +1304,7 @@ class CloudMediaAssetPresentation {
           if (epRegex.hasMatch(strippedCombined)) {
             score += 80;
           } else {
-            final otherEp = RegExp(
-              r'(?:\b(?:episode|ep|special)\s*0?(\d{1,3})\b|第\s*0?(\d{1,3})\s*[话話集])',
-              caseSensitive: false,
-            ).firstMatch(strippedCombined);
+            final otherEp = _reHot84.firstMatch(strippedCombined);
             final foundEp = int.tryParse(
               otherEp?.group(1) ?? otherEp?.group(2) ?? '',
             );
@@ -1323,10 +1316,7 @@ class CloudMediaAssetPresentation {
 
         if (isAltEnd) {
           if (_alternateEndingPattern.hasMatch(entryCombined) ||
-              RegExp(
-                r'(?:another|alter|alternative|true|別|アナザー).{0,16}(?:end|ending|結末|结局)|ending|結末|结局',
-                caseSensitive: false,
-              ).hasMatch(entryCombined)) {
+              _reHot85.hasMatch(entryCombined)) {
             score += 70;
           }
         }
@@ -1348,7 +1338,8 @@ class CloudMediaAssetPresentation {
       // 检查资源是否包含语义或集数线索，决定是否需按最高分最优配对。
       final hasClues = group.any((a) {
         final original = a['name']?.toString() ?? '';
-        final text = _groupedSpecialContent(original) ?? cleanedExtraFilename(a);
+        final text =
+            _groupedSpecialContent(original) ?? cleanedExtraFilename(a);
         return _extractEpisodeClueFromSpecialAsset(a) != null ||
             _alternateEndingPattern.hasMatch(text);
       });
@@ -1372,8 +1363,9 @@ class CloudMediaAssetPresentation {
       pairs.sort((a, b) {
         final cmp = b.score.compareTo(a.score);
         if (cmp != 0) return cmp;
-        final epCmp = _specialOrder(remainingPool[a.entryIdx])
-            .compareTo(_specialOrder(remainingPool[b.entryIdx]));
+        final epCmp = _specialOrder(
+          remainingPool[a.entryIdx],
+        ).compareTo(_specialOrder(remainingPool[b.entryIdx]));
         if (epCmp != 0) return epCmp;
         return a.assetIdx.compareTo(b.assetIdx);
       });
@@ -1512,8 +1504,9 @@ class CloudMediaAssetPresentation {
           unnumberedAssets.any(_hasExplicitOadOrOvaVolumeTag);
 
       if (preemptStandaloneOad) {
-        final standaloneOads =
-            unnumberedAssets.where(_hasExplicitOadOrOvaVolumeTag).toList();
+        final standaloneOads = unnumberedAssets
+            .where(_hasExplicitOadOrOvaVolumeTag)
+            .toList();
         final standalonePool = yearInt != null
             ? unnumberedPoolForYear(
                 allTypeSpecials,
@@ -1642,18 +1635,21 @@ class CloudMediaAssetPresentation {
               );
         // 对于带有分支结局或特典集线索的 SP，额外检索 `yearInt ± 1` 区间内
         // 尚未被认领且简介提及结局或对应话数的第 0 季条目。
-        if (family == 'SP' && unnumberedPool.length < remainingUnnumbered.length) {
+        if (family == 'SP' &&
+            unnumberedPool.length < remainingUnnumbered.length) {
           final extraCandidates = specials.where((e) {
             if (claimed.contains(_specialOrder(e)) || isRecap(e)) return false;
             final sub = _specialEntrySubfamily(e);
             if (sub == 'OVA') return false;
             if (!inYearWindow(e)) return false;
-            return !unnumberedPool.any((u) => _specialOrder(u) == _specialOrder(e));
+            return !unnumberedPool.any(
+              (u) => _specialOrder(u) == _specialOrder(e),
+            );
           }).toList();
-          unnumberedPool = narrowBySeasonAffinity(
-            [...unnumberedPool, ...extraCandidates],
-            remainingUnnumbered.length,
-          );
+          unnumberedPool = narrowBySeasonAffinity([
+            ...unnumberedPool,
+            ...extraCandidates,
+          ], remainingUnnumbered.length);
         }
         assignUnnumberedWithSemantics(remainingUnnumbered, unnumberedPool);
       }
@@ -1665,28 +1661,30 @@ class CloudMediaAssetPresentation {
             .where((a) => !matchedPaths.contains(assetKey(a)))
             .toList();
         if (leftOver.isNotEmpty) {
-          final fallbackPool = specials.where((e) {
-            if (claimed.contains(_specialOrder(e)) || isRecap(e)) return false;
-            final sub = _specialEntrySubfamily(e);
-            if (sub != 'SP' && sub.isNotEmpty) return false;
-            return inYearWindow(e);
-          }).toList()
-            ..sort((a, b) {
-              final ovaHintA = RegExp(
-                r'OVA|OAD|映像特典|特典',
-                caseSensitive: false,
-              ).hasMatch('${a['name'] ?? ''} ${a['overview'] ?? ''}')
-                  ? 1
-                  : 0;
-              final ovaHintB = RegExp(
-                r'OVA|OAD|映像特典|特典',
-                caseSensitive: false,
-              ).hasMatch('${b['name'] ?? ''} ${b['overview'] ?? ''}')
-                  ? 1
-                  : 0;
-              if (ovaHintA != ovaHintB) return ovaHintB.compareTo(ovaHintA);
-              return compareWithSeasonAffinity(a, b);
-            });
+          final fallbackPool =
+              specials.where((e) {
+                if (claimed.contains(_specialOrder(e)) || isRecap(e)) {
+                  return false;
+                }
+                final sub = _specialEntrySubfamily(e);
+                if (sub != 'SP' && sub.isNotEmpty) return false;
+                return inYearWindow(e);
+              }).toList()..sort((a, b) {
+                final ovaHintA =
+                    _reHot86.hasMatch(
+                      '${a['name'] ?? ''} ${a['overview'] ?? ''}',
+                    )
+                    ? 1
+                    : 0;
+                final ovaHintB =
+                    _reHot86.hasMatch(
+                      '${b['name'] ?? ''} ${b['overview'] ?? ''}',
+                    )
+                    ? 1
+                    : 0;
+                if (ovaHintA != ovaHintB) return ovaHintB.compareTo(ovaHintA);
+                return compareWithSeasonAffinity(a, b);
+              });
           assignAssets(
             leftOver,
             narrowBySeasonAffinity(fallbackPool, leftOver.length),
@@ -1722,10 +1720,7 @@ class CloudMediaAssetPresentation {
   }
 
   static String? specialTypeFromTitle(String value) {
-    final match = RegExp(
-      r'(^|[^a-z])(OVA|OAD|SP)(?=[^a-z]|$)',
-      caseSensitive: false,
-    ).firstMatch(value);
+    final match = _reHot87.firstMatch(value);
     return match?.group(2)?.toUpperCase();
   }
 
@@ -1741,4 +1736,248 @@ class CloudMediaAssetPresentation {
     Map<String, dynamic> a,
     Map<String, dynamic> b,
   ) => _specialOrder(a).compareTo(_specialOrder(b));
+
+  /// 预编译热点正则表达式（避免在逐文件遍历与归组打分热路径中重复编译）。
+  static final RegExp _reHot1 = RegExp(r'^[A-Fa-f0-9]{8}$');
+  static final RegExp _reHot2 = RegExp(r'[\s_./,+&-]+');
+  static final RegExp _reHot3 = RegExp(
+    r'\.(?:mkv|mp4|avi|mov|m4v|ts|m2ts|webm)$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot4 = RegExp(r'\[([^\]]*)\]|【([^】]*)】|\(([^)]*)\)');
+  static final RegExp _reHot5 = RegExp(
+    r'(?:字幕组|字幕組|压制组|壓製組|VCB-Studio|SweetSub|sub(?:s)?\b|Encode|Rip)',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot6 = RegExp(r'_|(?<!\d)\.|\.(?!\d)');
+  static final RegExp _reHot7 = RegExp(r'\s+');
+  static final RegExp _reHot8 = RegExp(r'^[\s-]+|[\s-]+$');
+  static final RegExp _reHot9 = RegExp(r'\[SP\d{1,3}\]', caseSensitive: false);
+  static final RegExp _reHot10 = RegExp(
+    r'(?:^|[\s._\-–—])SP\d{1,3}\s*(?=\[)',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot11 = RegExp(
+    r'\.(?:mkv|mp4|avi|mov|m4v|ts|m2ts|webm|png|jpe?g)$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot12 = RegExp(r'^[\s_-]+|[\s_-]+$');
+  static final RegExp _reHot13 = RegExp(
+    r'[a-z\u3040-\u9fff]',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot14 = RegExp(
+    r'\([^)]*(?:\bBD\b|1080|1920|x\.?26[45]|Flac)[^)]*\)',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot15 = RegExp(
+    r'\[\s*(?:PNG|JPEG)\s*\]',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot16 = RegExp(
+    r'\[(?:\d{3,4}p|HEVC\d*|FLAC\d*|Hi10p|x26[45])\]',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot17 = RegExp(r'\[(\d{1,3}\.\d{1,2})(?=\]|\()');
+  static final RegExp _reHot18 = RegExp(
+    r'(^|[^a-z0-9])(IV)[ ._-]?(\d{1,3})(?=[^a-z0-9]|$)',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot19 = RegExp(
+    r'\[([a-z]{1,8})[ ._-]?(\d{1,3}[a-z]?)\]',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot20 = RegExp(r'[ ._-]');
+  static final RegExp _reHot21 = RegExp(r'^specials?$', caseSensitive: false);
+  static final RegExp _reHot22 = RegExp(
+    r'(?<![a-z])(?:ncop(?:ed)?|nced|opening|menu|pv|cm|tvcm|bdcm|pvcm|trailer|preview|teaser)(?![a-z])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot23 = RegExp(
+    r'(?<![a-z0-9])(?:ncop(?:ed)?|nced|op\d*|ed\d*|opening\d*|ending\d*|menu\d*|pv\d*|cm\d*|tvcm|bdcm|pvcm|spot|trailer|preview|teaser|making|interview|promotion|promo|info|information|logo|eyecatch|artwork|digest|creditless|textless|mv|live|voice|audio|drama|commentary)(?![a-z0-9])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot24 = RegExp(r'\[\d{1,3}\.\d{1,2}(?=\]|\()');
+  static final RegExp _reHot25 = RegExp(
+    r'\[\s*\d{1,3}\s*[\(（]\s*(OAD|OVA|SP|Special)\s*[\)）]\s*\]',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot26 = RegExp(
+    r'(?<![a-z])(?:ncop(?:ed)?|nced|opening|menu|pv|cm|tvcm|bdcm|pvcm|trailer|preview|teaser)(?![a-z])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot27 = RegExp(
+    r'(^|/)menus?(/|$)',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot28 = RegExp(r'[ ._-]+');
+  static final RegExp _reHot29 = RegExp(
+    r'(?<![a-z0-9])S(\d{1,2})[ ._]*(?:[+&~～]|[-–—])[ ._]*S?(\d{1,2})(?![a-z0-9])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot30 = RegExp(
+    r'(?<![a-z0-9])S(\d{1,2})(?=E\d|[^a-z0-9]|$)',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot31 = RegExp(
+    r'(?<![a-z])Season[ ._-]*(\d{1,2})(?!\d)',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot32 = RegExp(
+    r'(?<![a-z0-9])(\d{1,2})(?:st|nd|rd|th)[ ._-]+Season\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot33 = RegExp(
+    r'第[ ._-]*([0-9一二三四五六七八九十两]+)[ ._-]*[季期]',
+  );
+  static final RegExp _reHot34 = RegExp(
+    r'(^|[^a-z0-9])(?:tvcm|bdcm|pvcm|cm|pv)(?:[\s._-]*\d+)?(?=[^a-z0-9]|$)',
+  );
+  static final RegExp _reHot35 = RegExp(
+    r'menu|trailer|preview|teaser|opening|ncop|nced',
+  );
+  static final RegExp _reHot36 = RegExp(
+    r'\b(?:OVA|OAD|SP)(?:[\s._]*[-–—][\s._]*|[\s._-]+|\s*)(\d{1,3})\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot37 = RegExp(
+    r'[\[(](?:OVA|OAD|SP)(?:[\s._]*[-–—][\s._]*|[\s._-]+|\s*)(\d{1,3})[\])]',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot38 = RegExp(
+    r'[\[(]\d+\((?:OVA|OAD|SP)[\s._-]*(\d{1,3})\)[\])]',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot39 = RegExp(
+    r'\b(?:OVA|OAD)\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot40 = RegExp(
+    r'(?:Special|映像特典|特典)[\s._-]*(\d{1,3})(?![\d])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot41 = RegExp(r'menu[._-]*ex', caseSensitive: false);
+  static final RegExp _reHot42 = RegExp(
+    r'[\[(（【]\s*ex(?:[\s._]*[-–—][\s._]*|[\s._-]+|\s*)0*(\d{1,2})\s*[\])）】]',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot43 = RegExp(
+    r'\bex(?:[\s._]*[-–—][\s._]*|[\s._-]+|\s*)0*(\d{1,2})(?![a-z0-9])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot44 = RegExp(r'^((?:19|20)\d{2})');
+  static final RegExp _reHot45 = RegExp(r'\{tmdb-\d+\}', caseSensitive: false);
+  static final RegExp _reHot46 = RegExp(r'\((?:19|20)\d{2}\)');
+  static final RegExp _reHot47 = RegExp(
+    r'\b(stage|part|pt|vol|volume|act|phase|chapter|season|series|ova|oad|sp|special|disc|disk|episode|ep|alternative|alter|story|arc|movie|film)\s+(I|V|X)\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot48 = RegExp(
+    r'(?:^|\s)(I|V|X)(?=\s*(?:$|[:\-–—~()\[\]/／]))',
+  );
+  static final RegExp _reHot49 = RegExp(
+    r'\b(stage|part|pt|vol|volume|act|phase|chapter|season|series|ova|oad|sp|special|disc|disk|episode|ep|alternative|alter)\s+(?:one|first)\b',
+  );
+  static final RegExp _reHot50 = RegExp(r'\b(?:one|first)\s*$');
+  static final RegExp _reHot51 = RegExp(r'[\-_—–:：.()（）\[\]【】{}!?！？・·,，、/／|]+');
+  static final RegExp _reHot52 = RegExp(r'(?<!\d)(\d{1,2})(?!\d)');
+  static final RegExp _reHot53 = RegExp(r'\b1\b\s*$');
+  static final RegExp _reHot54 = RegExp(r'[\u3040-\u9fff]');
+  static final RegExp _reHot55 = RegExp(
+    r'(?:\[SP\d{1,3}\]|(?:^|[\s._\-–—])SP\d{1,3}\s*(?=\[))',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot56 = RegExp(r'^\d+$');
+  static final RegExp _reHot57 = RegExp(r'^(?:ova|oad|sp|ex)\d+$');
+  static final RegExp _reHot58 = RegExp(
+    r'(?:^|[^a-z])(?:oad|ova)(?:[^a-z]|$)',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot59 = RegExp(
+    r'(?:^|[^a-z])(?:OVA|OAD)(?=[^a-z]|$)',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot60 = RegExp(
+    r'(?:^|[^a-z])(?:SP|Specials?)(?=[^a-z0-9]|$)|\bSP\d+\b|映像特典|特典',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot61 = RegExp(
+    r'(?:^|[^a-z0-9])ex(?:[\s._-]*0*\d{1,2})?(?=[^a-z0-9]|$)',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot62 = RegExp(
+    r'(?:^|[^a-z])(?:OVA|OAD)(?=[^a-z]|$)',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot63 = RegExp(
+    r'(?:^|[^a-z])(?:OVA|OAD)(?=[^a-z]|$)',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot64 = RegExp(r'\b(?:19|20)\d{2}\b');
+  static final RegExp _reHot65 = RegExp(
+    r'\b(?:OVA|OAD|SP)[ ._-]*\d+\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot66 = RegExp(r'\bv\d+\b', caseSensitive: false);
+  static final RegExp _reHot67 = RegExp(r'(?<!\d)(\d{1,3})(?!\d)');
+  static final RegExp _reHot68 = RegExp(
+    r'\bSeason[ ._-]*(\d{1,2})\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot69 = RegExp(
+    r'(?<![a-z0-9])S(\d{1,2})(?![a-z0-9])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot70 = RegExp(
+    r'\b(\d{1,2})(?:st|nd|rd|th)[ ._-]+Season\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot71 = RegExp(
+    r'第[ ._-]*([0-9一二三四五六七八九]+)[ ._-]*[期季]',
+  );
+  static final RegExp _reHot72 = RegExp(r'(?<!\d)(\d{1,2})期(?![\d])');
+  static final RegExp _reHot73 = RegExp(
+    r'^(?:Season\s*\d+|第\s*[0-9一二三四五六七八九十]+\s*[季期]|Specials?|特別編)$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot74 = RegExp(
+    r'\bSeason[ ._-]*\d{1,2}\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot75 = RegExp(
+    r'\b\d{1,2}(?:st|nd|rd|th)[ ._-]+Season\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot76 = RegExp(r'第[ ._-]*[0-9一二三四五六七八九]+[ ._-]*[期季]');
+  static final RegExp _reHot77 = RegExp(r'\b\d{1,2}期\b');
+  static final RegExp _reHot78 = RegExp(r'(?<!\d)((?:19|20)\d{2})(?!\d)');
+  static final RegExp _reHot79 = RegExp(
+    r'\bSeason[ ._-]*\d+\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot80 = RegExp(r'第[ ._-]*[0-9一二三四五六七八九十]+[ ._-]*[季期]');
+  static final RegExp _reHot81 = RegExp(
+    r'総集編|总集篇|recap|summary|digest',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot82 = RegExp(
+    r'^(.+?)\s*[#＃第]?\s*0*([1-9]\d?)\s*[話话集]?$',
+  );
+  static final RegExp _reHot83 = RegExp(r'[^a-z0-9\u3040-\u9fff]+');
+  static final RegExp _reHot84 = RegExp(
+    r'(?:\b(?:episode|ep|special)\s*0?(\d{1,3})\b|第\s*0?(\d{1,3})\s*[话話集])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot85 = RegExp(
+    r'(?:another|alter|alternative|true|別|アナザー).{0,16}(?:end|ending|結末|结局)|ending|結末|结局',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot86 = RegExp(
+    r'OVA|OAD|映像特典|特典',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot87 = RegExp(
+    r'(^|[^a-z])(OVA|OAD|SP)(?=[^a-z]|$)',
+    caseSensitive: false,
+  );
 }

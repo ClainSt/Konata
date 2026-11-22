@@ -9,10 +9,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/playback/audio_playback_notifier.dart';
 import '../widgets/managed_image.dart';
 
-/// 封面智能框选对齐锚点 LRU 缓存（由 Riverpod 托管，消除静态全局状态）。
+/// 封面智能框选对齐锚点 LRU 缓存（由 Riverpod 托管，消除静态全局状态并支持同图单飞去重）。
 class SmartCoverAlignmentCache {
-  static const int _maxCacheEntries = 64;
+  static const int _maxCacheEntries = 96;
   final Map<String, Alignment> _entries = <String, Alignment>{};
+  final Map<String, Future<Alignment>> _inFlight =
+      <String, Future<Alignment>>{};
 
   /// 同步读取已缓存的对齐锚点。
   Alignment? peek(String key) => _entries[key];
@@ -25,21 +27,38 @@ class SmartCoverAlignmentCache {
       _entries.remove(_entries.keys.first);
     }
   }
+
+  /// 对同一缓存键合并并发取景计算，避免多张卡片回退同一作品海报时重复解码与采样。
+  Future<Alignment> deduplicate(
+    String key,
+    Future<Alignment> Function() compute,
+  ) {
+    final cached = _entries[key];
+    if (cached != null) return Future<Alignment>.value(cached);
+    final running = _inFlight[key];
+    if (running != null) return running;
+    final future = compute().whenComplete(() {
+      _inFlight.remove(key);
+    });
+    _inFlight[key] = future;
+    return future;
+  }
 }
 
-/// 音频封面智能框选缓存 Provider。
+/// 封面智能框选缓存 Provider。
 final smartCoverAlignmentCacheProvider = Provider<SmartCoverAlignmentCache>(
   (ref) => SmartCoverAlignmentCache(),
 );
 
-/// 音频封面智能主体框选算法（离线毫秒级边缘梯度 + 面部暖肤色显著度 + 防切头惩罚）。
+/// 跨形态封面智能主体框选算法（离线毫秒级边缘梯度 + 面部暖肤色显著度 + 防切头惩罚）。
 ///
-/// 解决将 `2:3` 竖版动漫海报或宽幅扫图裁入 `1:1` 正方形 CD 封面框时，默认居中裁剪截断角色头部的问题。
+/// 统一解决将 `2:3` 竖版动漫海报或宽幅扫图裁入 `1:1` 音频封面、`16:9` 详情背景回退及
+/// `16:9` 单集剧照卡片时，默认居中裁剪截断角色头部的问题。
 abstract final class SmartCoverFraming {
   /// 竖版作品海报在采样完成前的黄金上偏保护锚点（优先完整保留上方角色头部与面部）。
   static const Alignment defaultPosterAlignment = Alignment(0.0, -0.72);
 
-  /// 生成封面唯一缓存键。
+  /// 生成音频封面唯一缓存键（固定按 `1:1` 比例）。
   static String cacheKeyFor(AudioCoverSource cover) {
     return switch (cover) {
       MemoryAudioCover(:final bytes, :final contentHash) =>
@@ -50,11 +69,46 @@ abstract final class SmartCoverFraming {
     };
   }
 
-  /// 对封面字节进行快速低分辨率显著度分析，计算最佳 `1:1` 正方形取景对齐锚点。
+  /// 生成受管图片按目标画幅分桶的唯一缓存键（避免 `1:1` 与 `16:9` 取景锚点互相覆盖）。
+  static String managedCacheKey({
+    required String url,
+    String? owner,
+    double targetAspectRatio = 1.0,
+  }) {
+    final arBucket = (targetAspectRatio.clamp(0.25, 4.0) * 100).round();
+    return 'managed:${owner ?? ''}:$url@ar$arBucket';
+  }
+
+  /// 对低分辨率 RGBA 像素缓冲执行纯内存主体滑窗寻优，计算对应 [targetAspectRatio] 的最佳取景锚点。
+  static Alignment solveRgbaAlignment(
+    Uint8List rgba,
+    int w,
+    int h, {
+    double targetAspectRatio = 1.0,
+  }) {
+    if (w <= 4 || h <= 4 || rgba.length < w * h * 4) {
+      return Alignment.center;
+    }
+    final safeTarget = targetAspectRatio.clamp(0.25, 4.0);
+    final aspect = w / h;
+    // 原图比例已接近目标画幅时直接正中对齐，避免不必要的轻微偏移。
+    if ((aspect - safeTarget).abs() / safeTarget <= 0.09) {
+      return Alignment.center;
+    }
+    if (aspect < safeTarget) {
+      final winH = (w / safeTarget).round().clamp(1, h);
+      return _solveVerticalWindow(rgba, w, h, winH: winH);
+    }
+    final winW = (h * safeTarget).round().clamp(1, w);
+    return _solveHorizontalWindow(rgba, w, h, winW: winW);
+  }
+
+  /// 对封面字节进行快速低分辨率显著度分析，计算指定目标画幅 [targetAspectRatio] 的最佳取景对齐锚点。
   static Future<Alignment> computeAndCache(
     String key,
     Uint8List bytes, {
     required bool isPosterFallback,
+    double targetAspectRatio = 1.0,
     SmartCoverAlignmentCache? cache,
   }) async {
     final existing = cache?.peek(key);
@@ -79,9 +133,9 @@ abstract final class SmartCoverFraming {
         return fallback;
       }
 
+      final safeTarget = targetAspectRatio.clamp(0.25, 4.0);
       final aspect = w / h;
-      // 本身接近 1:1 的标准专辑封面无需偏移，直接正中对齐
-      if (aspect >= 0.91 && aspect <= 1.10) {
+      if ((aspect - safeTarget).abs() / safeTarget <= 0.09) {
         cache?.put(key, Alignment.center);
         return Alignment.center;
       }
@@ -91,10 +145,12 @@ abstract final class SmartCoverFraming {
         return fallback;
       }
       final rgba = bd.buffer.asUint8List();
-
-      final Alignment resolved = aspect < 0.91
-          ? _solveVerticalWindow(rgba, w, h)
-          : _solveHorizontalWindow(rgba, w, h);
+      final resolved = solveRgbaAlignment(
+        rgba,
+        w,
+        h,
+        targetAspectRatio: safeTarget,
+      );
       cache?.put(key, resolved);
       return resolved;
     } catch (_) {
@@ -106,8 +162,12 @@ abstract final class SmartCoverFraming {
   }
 
   /// 竖图（如 2:3 海报）垂直滑窗寻优：最大化框内主体细节与面部权重，严厉惩罚切断上方角色头部。
-  static Alignment _solveVerticalWindow(Uint8List rgba, int w, int h) {
-    final winH = w;
+  static Alignment _solveVerticalWindow(
+    Uint8List rgba,
+    int w,
+    int h, {
+    required int winH,
+  }) {
     final maxTop = h - winH;
     if (maxTop <= 0) return Alignment.center;
 
@@ -182,8 +242,12 @@ abstract final class SmartCoverFraming {
   }
 
   /// 横图（如双页展开 Booklet 扫图）水平滑窗寻优：锁定人物主封皮所在侧。
-  static Alignment _solveHorizontalWindow(Uint8List rgba, int w, int h) {
-    final winW = h;
+  static Alignment _solveHorizontalWindow(
+    Uint8List rgba,
+    int w,
+    int h, {
+    required int winW,
+  }) {
     final maxLeft = w - winW;
     if (maxLeft <= 0) return Alignment.center;
 
@@ -239,6 +303,199 @@ abstract final class SmartCoverFraming {
     final rawAlignX = -1.0 + 2.0 * (bestLeft / maxLeft);
     return Alignment(rawAlignX.clamp(-1.0, 1.0), 0.0);
   }
+}
+
+Future<Uint8List> _loadSmartFrameBytes({
+  required ManagedImageLoader loader,
+  required String url,
+  String? owner,
+  ManagedArtwork artwork = ManagedArtwork.poster,
+}) {
+  if (loader is ManagedArtworkLoader) {
+    return loader(
+      url,
+      targetWidth: 160,
+      ownerWorkId: owner,
+      artwork: artwork,
+    );
+  }
+  return loader(url, targetWidth: 160);
+}
+
+/// 响应式受管图片智能框选对齐构建器（供详情页背景海报回退、16:9 正片剧照回退与历史记录缩略图统一复用）。
+///
+/// 当 [enabled] 为 `false` 时直接零开销透传 [Alignment.center]；启用后首帧即施加防切头黄金锚点，
+/// 后台按目标画幅 [targetAspectRatio] 单飞采样并缓存精细对齐锚点，多张同作品卡片共享唯一一次计算。
+class SmartManagedImageAlignmentBuilder extends StatefulWidget {
+  /// 创建受管图片智能框选对齐构建器。
+  const SmartManagedImageAlignmentBuilder({
+    super.key,
+    required this.url,
+    required this.loader,
+    required this.builder,
+    this.owner,
+    this.artwork = ManagedArtwork.poster,
+    this.targetAspectRatio = 16 / 9,
+    this.enabled = true,
+    this.isPosterFallback = true,
+  });
+
+  /// 图片地址或本地缓存标识。
+  final String url;
+
+  /// 受管图片字节加载器。
+  final ManagedImageLoader loader;
+
+  /// 所属作品 ID（命中本地 `photos/` 磁盘缓存目录）。
+  final String? owner;
+
+  /// 图片资产分类（默认作品海报）。
+  final ManagedArtwork artwork;
+
+  /// 目标展示容器宽高比（详情背景与正片剧照卡片默认 `16 / 9`）。
+  final double targetAspectRatio;
+
+  /// 是否启用智能取景（原生横版背景/真实剧照传 `false` 保持正中零开销）。
+  final bool enabled;
+
+  /// 采样未就绪或异常回退时是否启用上偏防切头锚点。
+  final bool isPosterFallback;
+
+  /// 携带计算出的最佳 [Alignment] 构建目标图片组件。
+  final Widget Function(BuildContext context, Alignment alignment) builder;
+
+  @override
+  State<SmartManagedImageAlignmentBuilder> createState() =>
+      _SmartManagedImageAlignmentBuilderState();
+}
+
+class _SmartManagedImageAlignmentBuilderState
+    extends State<SmartManagedImageAlignmentBuilder> {
+  String _activeKey = '';
+  Alignment _alignment = Alignment.center;
+  SmartCoverAlignmentCache? _boundCache;
+  bool _initialized = false;
+  int _epoch = 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final nextCache = _tryResolveCache();
+    if (!_initialized || !identical(_boundCache, nextCache)) {
+      _boundCache = nextCache;
+      _sync(initial: !_initialized);
+      _initialized = true;
+    }
+  }
+
+  @override
+  void didUpdateWidget(
+    covariant SmartManagedImageAlignmentBuilder oldWidget,
+  ) {
+    super.didUpdateWidget(oldWidget);
+    final oldKey = _keyOf(oldWidget);
+    final nextKey = _keyOf(widget);
+    if (oldWidget.enabled != widget.enabled ||
+        oldWidget.isPosterFallback != widget.isPosterFallback ||
+        oldKey != nextKey) {
+      _sync(initial: false);
+    }
+  }
+
+  SmartCoverAlignmentCache? _tryResolveCache() {
+    try {
+      return ProviderScope.containerOf(
+        context,
+        listen: false,
+      ).read(smartCoverAlignmentCacheProvider);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _keyOf(SmartManagedImageAlignmentBuilder w) {
+    if (!w.enabled || w.url.trim().isEmpty) return '';
+    return SmartCoverFraming.managedCacheKey(
+      url: w.url.trim(),
+      owner: w.owner,
+      targetAspectRatio: w.targetAspectRatio,
+    );
+  }
+
+  void _sync({required bool initial}) {
+    final key = _keyOf(widget);
+    _activeKey = key;
+    if (key.isEmpty) {
+      if (initial) {
+        _alignment = Alignment.center;
+      } else if (_alignment != Alignment.center) {
+        setState(() => _alignment = Alignment.center);
+      }
+      return;
+    }
+
+    final cache = _boundCache;
+    final cached = cache?.peek(key);
+    final nextInitial =
+        cached ??
+        (widget.isPosterFallback
+            ? SmartCoverFraming.defaultPosterAlignment
+            : Alignment.center);
+    if (initial) {
+      _alignment = nextInitial;
+    } else if (_alignment != nextInitial) {
+      setState(() => _alignment = nextInitial);
+    }
+    if (cached == null) {
+      unawaited(_resolveAsync(key, ++_epoch, cache));
+    }
+  }
+
+  Future<void> _resolveAsync(
+    String key,
+    int epoch,
+    SmartCoverAlignmentCache? cache,
+  ) async {
+    Future<Alignment> compute() async {
+      final Uint8List bytes;
+      try {
+        bytes = await _loadSmartFrameBytes(
+          loader: widget.loader,
+          url: widget.url.trim(),
+          owner: widget.owner,
+          artwork: widget.artwork,
+        );
+      } catch (_) {
+        return widget.isPosterFallback
+            ? SmartCoverFraming.defaultPosterAlignment
+            : Alignment.center;
+      }
+      if (bytes.isEmpty) {
+        return widget.isPosterFallback
+            ? SmartCoverFraming.defaultPosterAlignment
+            : Alignment.center;
+      }
+      return SmartCoverFraming.computeAndCache(
+        key,
+        bytes,
+        isPosterFallback: widget.isPosterFallback,
+        targetAspectRatio: widget.targetAspectRatio,
+        cache: cache,
+      );
+    }
+
+    final computed = cache != null
+        ? await cache.deduplicate(key, compute)
+        : await compute();
+    if (!mounted || epoch != _epoch || key != _activeKey) return;
+    if ((computed.x - _alignment.x).abs() > 0.01 ||
+        (computed.y - _alignment.y).abs() > 0.01) {
+      setState(() => _alignment = computed);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, _alignment);
 }
 
 /// 响应式封面智能框选对齐构建器（供全屏流光大封面、镜像倒影与迷你栏缩略图统一复用）。
@@ -316,10 +573,15 @@ class _SmartCoverAlignmentBuilderState
     switch (widget.cover) {
       case MemoryAudioCover(bytes: final mem):
         bytes = mem;
-      case ManagedPosterAudioCover(:final url):
+      case ManagedPosterAudioCover(:final url, :final workId):
         isPoster = true;
         try {
-          bytes = await widget.loader(url, targetWidth: 160);
+          bytes = await _loadSmartFrameBytes(
+            loader: widget.loader,
+            url: url,
+            owner: workId,
+            artwork: ManagedArtwork.poster,
+          );
         } catch (_) {
           return;
         }

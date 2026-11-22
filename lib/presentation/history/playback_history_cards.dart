@@ -753,14 +753,23 @@ class _HistoryExpandedEntryRow extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             if (source != null)
-              ManagedImage(
-                source,
+              SmartManagedImageAlignmentBuilder(
+                url: source,
                 loader: imageLoader,
                 owner: work?.id ?? record.workId,
                 artwork: artwork,
-                decodeWidth: 280,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => _mediaPlaceholder(p),
+                targetAspectRatio: 16 / 9,
+                enabled: artwork == ManagedArtwork.poster,
+                builder: (_, alignment) => ManagedImage(
+                  source!,
+                  loader: imageLoader,
+                  owner: work?.id ?? record.workId,
+                  artwork: artwork,
+                  decodeWidth: 280,
+                  fit: BoxFit.cover,
+                  alignment: alignment,
+                  errorBuilder: (_, _, _) => _mediaPlaceholder(p),
+                ),
               )
             else
               _mediaPlaceholder(p),

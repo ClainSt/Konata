@@ -129,13 +129,20 @@ class DetailPortraitHeroHeader extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  ManagedImage(
-                    posterPath,
+                  SmartManagedImageAlignmentBuilder(
+                    url: posterPath,
                     loader: imageLoader,
                     owner: work.id,
                     artwork: ManagedArtwork.poster,
-                    fit: BoxFit.cover,
-                    alignment: SmartCoverFraming.defaultPosterAlignment,
+                    targetAspectRatio: 16 / 9,
+                    builder: (_, alignment) => ManagedImage(
+                      posterPath,
+                      loader: imageLoader,
+                      owner: work.id,
+                      artwork: ManagedArtwork.poster,
+                      fit: BoxFit.cover,
+                      alignment: alignment,
+                    ),
                   ),
                   BackdropFilter(
                     filter: KonataTheme.blurFilterMedium,
@@ -340,13 +347,20 @@ class DetailLandscapeHeroBanner extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    ManagedImage(
-                      posterPath,
+                    SmartManagedImageAlignmentBuilder(
+                      url: posterPath,
                       loader: imageLoader,
                       owner: work.id,
                       artwork: ManagedArtwork.poster,
-                      fit: BoxFit.cover,
-                      alignment: SmartCoverFraming.defaultPosterAlignment,
+                      targetAspectRatio: 16 / 9,
+                      builder: (_, alignment) => ManagedImage(
+                        posterPath,
+                        loader: imageLoader,
+                        owner: work.id,
+                        artwork: ManagedArtwork.poster,
+                        fit: BoxFit.cover,
+                        alignment: alignment,
+                      ),
                     ),
                     BackdropFilter(
                       filter: KonataTheme.blurFilterMedium,
@@ -710,14 +724,27 @@ class DetailWideBackdropStage extends StatelessWidget {
         fit: StackFit.expand,
         children: [
         if (bgPath.isNotEmpty)
-          ManagedImage(
-            bgPath,
+          SmartManagedImageAlignmentBuilder(
+            url: bgPath,
             loader: imageLoader,
             owner: workId,
-            artwork: ManagedArtwork.backdrop,
-            isHeroBackdrop: true,
-            imageSize: TmdbImageSize.original,
-            fit: BoxFit.cover,
+            artwork: hasBackdrop
+                ? ManagedArtwork.backdrop
+                : ManagedArtwork.poster,
+            targetAspectRatio: 16 / 9,
+            enabled: !hasBackdrop,
+            builder: (_, alignment) => ManagedImage(
+              bgPath,
+              loader: imageLoader,
+              owner: workId,
+              artwork: hasBackdrop
+                  ? ManagedArtwork.backdrop
+                  : ManagedArtwork.poster,
+              isHeroBackdrop: true,
+              imageSize: TmdbImageSize.original,
+              fit: BoxFit.cover,
+              alignment: alignment,
+            ),
           ),
         if (!hasBackdrop && bgPath.isNotEmpty)
           BackdropFilter(

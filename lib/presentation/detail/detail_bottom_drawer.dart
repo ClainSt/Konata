@@ -903,13 +903,18 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
     final variants = widget.bundle.variantsForEpisode(ep.id);
     final playback = widget.bundle.playbackByEpisodeId[ep.id];
     final markHandler = widget.onEpisodeMarkCompleted;
+    final work = widget.bundle.work;
+    final hasWorkBackdrop =
+        work.backdropPath != null && work.backdropPath!.trim().isNotEmpty;
     return EpisodeDrawerCard(
       episode: ep,
       variants: variants,
       cardWidth: cardWidth,
       compactMeta: compactMeta,
-      fallbackBackdropPath:
-          widget.bundle.work.backdropPath ?? widget.bundle.work.posterPath,
+      fallbackBackdropPath: hasWorkBackdrop
+          ? work.backdropPath
+          : work.posterPath,
+      fallbackIsPoster: !hasWorkBackdrop,
       imageLoader: widget.imageLoader,
       workTitle: widget.bundle.work.title,
       workMediaType: widget.bundle.work.tmdbMediaType,

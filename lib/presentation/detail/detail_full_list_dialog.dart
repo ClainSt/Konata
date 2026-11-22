@@ -687,13 +687,17 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
           final variants = widget.bundle.variantsForEpisode(ep.id);
           final playback = widget.bundle.playbackByEpisodeId[ep.id];
           final markHandler = widget.onEpisodeMarkCompleted;
+          final work = widget.bundle.work;
+          final hasWorkBackdrop =
+              work.backdropPath != null && work.backdropPath!.trim().isNotEmpty;
           return EpisodeDrawerCard(
             key: ValueKey('full_list_ep_${ep.id}'),
             episode: ep,
             variants: variants,
-            fallbackBackdropPath:
-                widget.bundle.work.backdropPath ??
-                widget.bundle.work.posterPath,
+            fallbackBackdropPath: hasWorkBackdrop
+                ? work.backdropPath
+                : work.posterPath,
+            fallbackIsPoster: !hasWorkBackdrop,
             imageLoader: widget.imageLoader,
             workTitle: widget.bundle.work.title,
             workMediaType: widget.bundle.work.tmdbMediaType,

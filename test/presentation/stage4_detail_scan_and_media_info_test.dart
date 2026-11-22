@@ -23,6 +23,7 @@ import 'package:konata/infrastructure/cache/photos_storage.dart';
 import 'package:konata/infrastructure/cache/scan_thumbnail_scheduler.dart';
 import 'package:konata/infrastructure/database/drift_library_repository.dart';
 import 'package:konata/infrastructure/database/konata_database.dart';
+import 'package:konata/presentation/audio/smart_cover_framing.dart';
 import 'package:konata/presentation/detail/detail_bottom_drawer.dart';
 import 'package:konata/presentation/detail/detail_full_list_dialog.dart';
 import 'package:konata/presentation/detail/detail_hero_info.dart';
@@ -30,6 +31,7 @@ import 'package:konata/presentation/detail/episode_drawer_card.dart';
 import 'package:konata/presentation/detail/episode_media_info_dialog.dart';
 import 'package:konata/presentation/detail/supplementary_asset_cards.dart';
 import 'package:konata/presentation/detail/work_detail_page.dart';
+import 'package:konata/presentation/detail/work_detail_sub_views.dart';
 import 'package:konata/presentation/theme/konata_theme.dart';
 import 'package:konata/presentation/widgets/managed_image.dart';
 
@@ -664,6 +666,161 @@ void main() {
 
         expect(tester.binding.hasScheduledFrame, isFalse);
         expect(tester.binding.transientCallbackCount, equals(0));
+      },
+    );
+
+    test('SmartCoverFraming 16:9 滑窗自动保留竖版海报上方人物头部，原生横版图保持正中', () {
+      // 构造 72x108 (2:3) 竖版海报：顶部留白背景，y=10..34 为暖肤色人物头部与高对比头发，下方为深色衣身。
+      const w = 72;
+      const h = 108;
+      final rgba = Uint8List(w * h * 4);
+      for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) {
+          final i = (y * w + x) * 4;
+          var r = 24;
+          var g = 28;
+          var b = 36;
+          if (y >= 10 && y <= 34 && x >= 22 && x <= 50) {
+            // 人物面部暖肤色 + 眉眼边缘对比
+            r = (x + y).isEven ? 242 : 210;
+            g = (x + y).isEven ? 202 : 168;
+            b = (x + y).isEven ? 182 : 146;
+          } else if (y > 34 && y <= 92 && x >= 18 && x <= 54) {
+            // 衣领与躯干轮廓
+            r = 68;
+            g = 72;
+            b = 84;
+          }
+          rgba[i] = r;
+          rgba[i + 1] = g;
+          rgba[i + 2] = b;
+          rgba[i + 3] = 255;
+        }
+      }
+
+      final align169 = SmartCoverFraming.solveRgbaAlignment(
+        rgba,
+        w,
+        h,
+        targetAspectRatio: 16 / 9,
+      );
+      expect(align169.y, lessThan(-0.5));
+
+      // 原生 16:9 横版图无需偏移，保持 Alignment.center。
+      const lw = 128;
+      const lh = 72;
+      final landscapeRgba = Uint8List(lw * lh * 4)..fillRange(0, lw * lh * 4, 200);
+      final alignLandscape = SmartCoverFraming.solveRgbaAlignment(
+        landscapeRgba,
+        lw,
+        lh,
+        targetAspectRatio: 16 / 9,
+      );
+      expect(alignLandscape, equals(Alignment.center));
+    });
+
+    testWidgets(
+      '详情页宽屏背景与正片剧照回退竖版海报时启用防切头对齐，有真实横版图时保持居中',
+      (tester) async {
+        tester.view.physicalSize = const Size(1280, 720);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+
+        Future<Uint8List> loader(
+          String url, {
+          int? targetWidth,
+          TmdbImageSize? imageSize,
+        }) async => _sample1x1Png;
+
+        const ep = Episode(
+          id: 'ep_fallback_1',
+          workId: 'w_dr25',
+          seasonNumber: 1,
+          episodeNumber: 1,
+          title: 'SP 2.5',
+        );
+
+        await tester.pumpWidget(
+          _wrapApp(
+            Column(
+              children: [
+                Expanded(
+                  child: DetailWideBackdropStage(
+                    workId: 'w_dr25',
+                    bgPath: '/poster_dr25.jpg',
+                    hasBackdrop: false,
+                    isDrawerExpanded: true,
+                    imageLoader: loader,
+                  ),
+                ),
+                EpisodeDrawerCard(
+                  episode: ep,
+                  variants: const [],
+                  fallbackBackdropPath: '/poster_dr25.jpg',
+                  fallbackIsPoster: true,
+                  imageLoader: loader,
+                  onTap: () {},
+                  onAdjustSlot: () {},
+                ),
+              ],
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final images = tester
+            .widgetList<ManagedImage>(find.byType(ManagedImage))
+            .toList();
+        expect(images, hasLength(2));
+        expect(images[0].artwork, ManagedArtwork.poster);
+        expect(
+          images[0].alignment,
+          equals(SmartCoverFraming.defaultPosterAlignment),
+        );
+        expect(images[1].artwork, ManagedArtwork.poster);
+        expect(
+          images[1].alignment,
+          equals(SmartCoverFraming.defaultPosterAlignment),
+        );
+
+        // 当存在真实横版背景图时，两者均保持 Alignment.center 与 ManagedArtwork.backdrop。
+        await tester.pumpWidget(
+          _wrapApp(
+            Column(
+              children: [
+                Expanded(
+                  child: DetailWideBackdropStage(
+                    workId: 'w_dr25',
+                    bgPath: '/backdrop_dr25.jpg',
+                    hasBackdrop: true,
+                    isDrawerExpanded: true,
+                    imageLoader: loader,
+                  ),
+                ),
+                EpisodeDrawerCard(
+                  episode: ep,
+                  variants: const [],
+                  fallbackBackdropPath: '/backdrop_dr25.jpg',
+                  fallbackIsPoster: false,
+                  imageLoader: loader,
+                  onTap: () {},
+                  onAdjustSlot: () {},
+                ),
+              ],
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final backdropImages = tester
+            .widgetList<ManagedImage>(find.byType(ManagedImage))
+            .toList();
+        expect(backdropImages, hasLength(2));
+        expect(backdropImages[0].artwork, ManagedArtwork.backdrop);
+        expect(backdropImages[0].alignment, equals(Alignment.center));
+        expect(backdropImages[1].artwork, ManagedArtwork.backdrop);
+        expect(backdropImages[1].alignment, equals(Alignment.center));
+        expect(tester.binding.hasScheduledFrame, isFalse);
       },
     );
   });

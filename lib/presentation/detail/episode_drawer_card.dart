@@ -6,6 +6,7 @@ import '../../domain/models/episode.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/playback_record.dart';
 import '../../domain/models/work.dart';
+import '../audio/smart_cover_framing.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
@@ -26,6 +27,7 @@ class EpisodeDrawerCard extends StatefulWidget {
     required this.episode,
     required this.variants,
     required this.fallbackBackdropPath,
+    this.fallbackIsPoster = false,
     required this.imageLoader,
     required this.onTap,
     required this.onAdjustSlot,
@@ -47,6 +49,10 @@ class EpisodeDrawerCard extends StatefulWidget {
   final Episode episode;
   final List<MediaVariant> variants;
   final String? fallbackBackdropPath;
+
+  /// 无单集剧照时 [fallbackBackdropPath] 是否为竖版作品海报（为真时自动启用防切头智能 16:9 取景）。
+  final bool fallbackIsPoster;
+
   final ManagedImageLoader imageLoader;
   final VoidCallback onTap;
   final VoidCallback onAdjustSlot;
@@ -336,14 +342,29 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                       fit: StackFit.expand,
                       children: [
                         thumbPath.isNotEmpty
-                            ? ManagedImage(
-                                thumbPath,
+                            ? SmartManagedImageAlignmentBuilder(
+                                url: thumbPath,
                                 loader: widget.imageLoader,
                                 owner: ep.workId,
                                 artwork: hasStill
                                     ? ManagedArtwork.still
-                                    : ManagedArtwork.backdrop,
-                                fit: BoxFit.cover,
+                                    : (widget.fallbackIsPoster
+                                          ? ManagedArtwork.poster
+                                          : ManagedArtwork.backdrop),
+                                targetAspectRatio: 16 / 9,
+                                enabled: !hasStill && widget.fallbackIsPoster,
+                                builder: (_, alignment) => ManagedImage(
+                                  thumbPath,
+                                  loader: widget.imageLoader,
+                                  owner: ep.workId,
+                                  artwork: hasStill
+                                      ? ManagedArtwork.still
+                                      : (widget.fallbackIsPoster
+                                            ? ManagedArtwork.poster
+                                            : ManagedArtwork.backdrop),
+                                  fit: BoxFit.cover,
+                                  alignment: alignment,
+                                ),
                               )
                             : Container(
                                 color: KonataTheme.scrimBlackMedium,

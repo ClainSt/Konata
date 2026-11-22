@@ -14,6 +14,7 @@ import 'cloud_media_asset_presentation.dart';
 import 'cloud_media_file_classifier.dart';
 import 'collection_asset_router.dart';
 import 'directory_analyzer.dart';
+import 'match_difficulty_classifier.dart';
 import 'multi_work_splitter.dart';
 import 'personal_filename_parser.dart';
 import 'search_query_sanitizer.dart';
@@ -610,40 +611,43 @@ abstract final class ScrapeDomainAdapter {
               localCoverByFolder: localCoverByFolder,
             );
 
+            final groupedCluster = GroupedWorkFolder(
+              folderRelativePath: clusterFolderId,
+              physicalRootFolder:
+                  foldedExtras.physicalRootByBucket[folderPath] ?? folderPath,
+              folderName: clusterTitle,
+              cleanTitle: clusterTitle,
+              explicitTmdbId: cluster.inventory.tmdbId,
+              explicitMediaType: _parseTmdbMediaType(
+                cluster.inventory.tmdbType,
+              ),
+              year: cluster.inventory.year,
+              seasonHint: cluster.inventory.season,
+              mainEpisodeNumbers: List.unmodifiable(sortedEps),
+              isMovieHint: isMovieCluster,
+              variants: variants,
+              inventory: cluster.inventory,
+              slotAssignmentsByPath: Map.unmodifiable(slotMap),
+              isSplitCluster: true,
+              titleHints: List.unmodifiable(
+                _dedupePreserveOrder([
+                  ...cluster.inventory.titleHints,
+                  ...clusterExtraHints.extraTitleHints,
+                ]),
+              ),
+              fileHints: List.unmodifiable(cluster.inventory.fileHints),
+              extraSearchQueries: List.unmodifiable(
+                clusterExtraHints.extraQueries,
+              ),
+              parentTmdbId: passParentTmdb ? parentTmdbId : null,
+              parentTmdbType: passParentTmdb ? parentTmdbType : null,
+              allowParentTmdbCandidate: clusterExtraHints.isSpecial,
+              assetScopesByPath: Map.unmodifiable(clusterScopeMap),
+              localPosterPath: clusterLocalCover,
+            );
             result.add(
-              GroupedWorkFolder(
-                folderRelativePath: clusterFolderId,
-                physicalRootFolder:
-                    foldedExtras.physicalRootByBucket[folderPath] ?? folderPath,
-                folderName: clusterTitle,
-                cleanTitle: clusterTitle,
-                explicitTmdbId: cluster.inventory.tmdbId,
-                explicitMediaType: _parseTmdbMediaType(
-                  cluster.inventory.tmdbType,
-                ),
-                year: cluster.inventory.year,
-                seasonHint: cluster.inventory.season,
-                mainEpisodeNumbers: List.unmodifiable(sortedEps),
-                isMovieHint: isMovieCluster,
-                variants: variants,
-                inventory: cluster.inventory,
-                slotAssignmentsByPath: Map.unmodifiable(slotMap),
-                isSplitCluster: true,
-                titleHints: List.unmodifiable(
-                  _dedupePreserveOrder([
-                    ...cluster.inventory.titleHints,
-                    ...clusterExtraHints.extraTitleHints,
-                  ]),
-                ),
-                fileHints: List.unmodifiable(cluster.inventory.fileHints),
-                extraSearchQueries: List.unmodifiable(
-                  clusterExtraHints.extraQueries,
-                ),
-                parentTmdbId: passParentTmdb ? parentTmdbId : null,
-                parentTmdbType: passParentTmdb ? parentTmdbType : null,
-                allowParentTmdbCandidate: clusterExtraHints.isSpecial,
-                assetScopesByPath: Map.unmodifiable(clusterScopeMap),
-                localPosterPath: clusterLocalCover,
+              groupedCluster.withMatchDifficulty(
+                MatchDifficultyClassifier.classify(groupedCluster),
               ),
             );
           }
@@ -682,6 +686,7 @@ abstract final class ScrapeDomainAdapter {
           folder: inventory.folder,
           title: inventory.title,
           year: inventory.year,
+          fileYear: inventory.fileYear,
           tmdbId: inventory.tmdbId,
           tmdbType: inventory.tmdbType,
           bangumiId: inventory.bangumiId,
@@ -724,31 +729,34 @@ abstract final class ScrapeDomainAdapter {
               inventory.season != 0 &&
               !_ovaOrSpMarker.hasMatch(cleanTitle));
 
+      final groupedSingle = GroupedWorkFolder(
+        folderRelativePath: folderPath,
+        physicalRootFolder:
+            foldedExtras.physicalRootByBucket[folderPath] ?? folderPath,
+        folderName: folderName,
+        cleanTitle: cleanTitle,
+        explicitTmdbId: nfoHint.tmdbId ?? inventory.tmdbId,
+        explicitMediaType: explicitType,
+        year: inventory.year,
+        seasonHint: inventory.season,
+        mainEpisodeNumbers: List.unmodifiable(sortedEps),
+        isMovieHint: isMovieHint,
+        variants: variants,
+        inventory: inventory,
+        slotAssignmentsByPath: Map.unmodifiable(slotMap),
+        isSplitCluster: false,
+        titleHints: List.unmodifiable(uniqueTitleHints),
+        fileHints: List.unmodifiable(inventory.fileHints),
+        assetScopesByPath: Map.unmodifiable({
+          for (final f in allFiles)
+            if (foldedExtras.assetScopeByPath.containsKey(f.relativePath))
+              f.relativePath: foldedExtras.assetScopeByPath[f.relativePath]!,
+        }),
+        localPosterPath: localCoverByFolder[folderPath],
+      );
       result.add(
-        GroupedWorkFolder(
-          folderRelativePath: folderPath,
-          physicalRootFolder:
-              foldedExtras.physicalRootByBucket[folderPath] ?? folderPath,
-          folderName: folderName,
-          cleanTitle: cleanTitle,
-          explicitTmdbId: nfoHint.tmdbId ?? inventory.tmdbId,
-          explicitMediaType: explicitType,
-          year: inventory.year,
-          seasonHint: inventory.season,
-          mainEpisodeNumbers: List.unmodifiable(sortedEps),
-          isMovieHint: isMovieHint,
-          variants: variants,
-          inventory: inventory,
-          slotAssignmentsByPath: Map.unmodifiable(slotMap),
-          isSplitCluster: false,
-          titleHints: List.unmodifiable(uniqueTitleHints),
-          fileHints: List.unmodifiable(inventory.fileHints),
-          assetScopesByPath: Map.unmodifiable({
-            for (final f in allFiles)
-              if (foldedExtras.assetScopeByPath.containsKey(f.relativePath))
-                f.relativePath: foldedExtras.assetScopeByPath[f.relativePath]!,
-          }),
-          localPosterPath: localCoverByFolder[folderPath],
+        groupedSingle.withMatchDifficulty(
+          MatchDifficultyClassifier.classify(groupedSingle),
         ),
       );
     }

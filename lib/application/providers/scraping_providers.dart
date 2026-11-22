@@ -22,6 +22,7 @@ import '../../infrastructure/storage/storage_root_provider.dart';
 import '../scraping/clear_logo_resolver.dart';
 import '../scraping/scrape_orchestrator.dart';
 import '../scraping/scrape_progress.dart';
+import '../scraping/scrape_progress_tracker.dart';
 import 'library_providers.dart';
 import 'work_merge_actions.dart';
 
@@ -213,6 +214,16 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
       selectedRoots: List.unmodifiable(effectiveRoots),
     );
 
+    // 实时流式上墙刷新器：首批匹配成功作品立即刷新媒体库展示，后续按 800ms / 8 部节流刷新，
+    // 让用户在长扫描期间实时看到海报墙持续增长而不拖慢数据库与 UI。
+    final liveRefresher = ScrapeLibraryRefreshThrottler(
+      onRefresh: () {
+        _ref.invalidate(libraryItemsProvider);
+        _ref.invalidate(worksCountProvider);
+        _ref.invalidate(seriesGroupsProvider);
+      },
+    );
+
     try {
       final activeIndex = await _resolveActiveMappingIndex(
         checkUpdateIfDue: true,
@@ -225,6 +236,11 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
         onProgress: (progress) {
           state = progress;
         },
+        onWorkPersisted: (workId, status, displayTitle) {
+          if (status == ScrapeStatus.matched) {
+            liveRefresher.notifyMatched();
+          }
+        },
       );
     } catch (error) {
       if (state.phase != ScrapePhase.failed) {
@@ -235,6 +251,7 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
       }
       rethrow;
     } finally {
+      liveRefresher.dispose();
       _cancelRequested = false;
       _ref.invalidate(libraryItemsProvider);
       _ref.invalidate(worksCountProvider);

@@ -664,7 +664,7 @@ abstract final class DirectoryAnalyzer {
           (items.length == 1 && topNorm.length >= 3);
       if (isConsistent &&
           !RegExp(r'^\d+$').hasMatch(topNorm) &&
-          !_isGenericOrIrregularFolderName(topStem)) {
+          !isGenericOrIrregularFolderName(topStem)) {
         consistentFileStem = topStem;
       }
     }
@@ -678,7 +678,7 @@ abstract final class DirectoryAnalyzer {
         tmdbId == null &&
         bangumiId == null &&
         consistentFileStem != null &&
-        _isGenericOrIrregularFolderName(title);
+        isGenericOrIrregularFolderName(title);
 
     final effectiveTitle = useConsistentFileAsPrimary
         ? consistentFileStem
@@ -1663,7 +1663,7 @@ abstract final class DirectoryAnalyzer {
     String? best;
     for (final entry in prefixCounts.entries) {
       if (entry.value * 5 < samples.length * 4) continue;
-      if (_isGenericOrIrregularFolderName(entry.key)) continue;
+      if (isGenericOrIrregularFolderName(entry.key)) continue;
       if (best == null || entry.key.length > best.length) {
         best = entry.key;
       }
@@ -1720,7 +1720,7 @@ abstract final class DirectoryAnalyzer {
   /// 判定目录名是否属于不含真实番名信息的通用整理/下载桶（如 `新建文件夹`、`2025年7月新番`、`BDMV_042`）
   /// 或纯压制规格/编码技术串（如 `SourceUnknown.AVI.702x480.enHard (1)`）。
   /// 纯数字片名（如 `86`）不视作通用桶，避免误伤数字番。
-  static bool _isGenericOrIrregularFolderName(String raw) {
+  static bool isGenericOrIrregularFolderName(String raw) {
     final stripped = raw
         .replaceAll(RegExp(r'[\[\]【】()（）{}「」『』<>《》]'), ' ')
         .replaceAll(RegExp(r'[\s._\-–—~～/\\|&+]+'), ' ')

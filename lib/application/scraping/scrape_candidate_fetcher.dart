@@ -25,6 +25,8 @@ class ScrapeCandidateFetcher {
   /// Bangumi 首波检索全部失败后整体重试前的等待时长。
   static const Duration _bangumiWaveRetryDelay = Duration(seconds: 2);
 
+  static final RegExp _latinWordPattern = RegExp(r'[A-Za-z]{3,}');
+
   /// 并发发起一组互不依赖的请求（实际并发度由后台网络调度器限制），再按原顺序还原逐条串行的语义：
   /// 遇到首个瞬时网络异常即上报并丢弃其后的结果，非瞬时异常按顺序原样抛出，空结果跳过。
   /// 每部作品原本要逐条等待的候选详情、季详情往返因此可以重叠，刮削总耗时随之下降。
@@ -807,6 +809,157 @@ class ScrapeCandidateFetcher {
       for (final detail in rescued.results)
         if (seenIds.add('${detail.mediaType.name}:${detail.tmdbId}')) detail,
     ];
+  }
+
+  /// 第二套困难目录救援专用补充检索：仅对首轮未覆盖的新净化查询词拉取增量 Bangumi 与 TMDB 候选，
+  /// 自动跳过已拉取条目，常规首轮命中作品零调用。
+  Future<
+    ({
+      List<BangumiSubjectCandidate> bangumiCandidates,
+      List<TmdbWorkDetail> tmdbDetails,
+      bool networkAborted,
+    })
+  >
+  fetchHardRescueSupplements(
+    GroupedWorkFolder rescuedFolder, {
+    required List<String> newQueries,
+    required List<BangumiSubjectCandidate> existingBangumi,
+    required List<TmdbWorkDetail> existingTmdb,
+    void Function(Object error)? onNetworkError,
+  }) async {
+    if (newQueries.isEmpty) {
+      return (
+        bangumiCandidates: const <BangumiSubjectCandidate>[],
+        tmdbDetails: const <TmdbWorkDetail>[],
+        networkAborted: false,
+      );
+    }
+    final limitedQueries = newQueries.take(3).toList(growable: false);
+    final existingBgmIds = <int>{for (final b in existingBangumi) b.id};
+    final addedBgm = <int, BangumiSubjectCandidate>{};
+
+    final bgm = bangumiService;
+    if (bgm != null) {
+      final bgmLists = await Future.wait(
+        limitedQueries.map((q) async {
+          try {
+            return await bgm.searchSubjects(
+              q,
+              priority: RequestPriority.background,
+            );
+          } catch (_) {
+            return const <BangumiSubjectCandidate>[];
+          }
+        }),
+      );
+      for (final list in bgmLists) {
+        for (final item in list) {
+          if (item.id > 0 && !existingBgmIds.contains(item.id)) {
+            addedBgm.putIfAbsent(item.id, () => item);
+          }
+        }
+      }
+      if (addedBgm.isNotEmpty) {
+        final prelim = ScrapeDomainAdapter.evaluateBangumiMatch(
+          rescuedFolder,
+          [...existingBangumi, ...addedBgm.values],
+        );
+        final topNewIds = prelim.topCandidates
+            .map((e) => e.subject.id)
+            .where(addedBgm.containsKey)
+            .take(2)
+            .toList(growable: false);
+        await Future.wait(
+          topNewIds.map((id) async {
+            try {
+              final full = await bgm.getSubjectDetail(
+                id,
+                priority: RequestPriority.background,
+              );
+              if (full != null) addedBgm[id] = full;
+            } catch (error, stackTrace) {
+              developer.log(
+                '二轮救援补拉 Bangumi 详情失败（id=$id），沿用检索摘要',
+                name: 'konata.scrape_candidate_fetcher',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            }
+          }),
+        );
+      }
+    }
+
+    final existingTmdbKeys = <String>{
+      for (final d in existingTmdb) '${d.mediaType.name}:${d.tmdbId}',
+    };
+    final hitMap = <String, TmdbSearchResult>{};
+    final typeFilter = _tvOnlyFilter(rescuedFolder, null);
+    var aborted = false;
+
+    Future<void> runTmdbLang(String language) async {
+      if (aborted) return;
+      final res = await _fetchAllInOrder(
+        limitedQueries,
+        (q) => _tmdbService.searchAnime(
+          q,
+          language: language,
+          mediaTypeFilter: typeFilter,
+          priority: RequestPriority.background,
+        ),
+        onNetworkError: onNetworkError,
+      );
+      if (res.aborted) {
+        aborted = true;
+        return;
+      }
+      for (final list in res.results) {
+        for (final h in list) {
+          final k = '${h.mediaType.name}:${h.tmdbId}';
+          if (!existingTmdbKeys.contains(k)) {
+            hitMap.putIfAbsent(k, () => h);
+          }
+        }
+      }
+    }
+
+    await runTmdbLang('zh-CN');
+    if (!aborted &&
+        !hitMap.values.any((h) => h.genreIds.contains(16)) &&
+        limitedQueries.any(_latinWordPattern.hasMatch)) {
+      await runTmdbLang('en-US');
+    }
+
+    if (aborted || hitMap.isEmpty) {
+      return (
+        bangumiCandidates: addedBgm.values.toList(growable: false),
+        tmdbDetails: const <TmdbWorkDetail>[],
+        networkAborted: aborted,
+      );
+    }
+
+    final rankedHits = hitMap.values.toList(growable: false)
+      ..sort(
+        (a, b) => ScrapeDomainAdapter.scoreSearchHitPreview(
+          rescuedFolder,
+          b,
+        ).compareTo(ScrapeDomainAdapter.scoreSearchHitPreview(rescuedFolder, a)),
+      );
+    final fetched = await _fetchAllInOrder(
+      rankedHits.take(4),
+      (h) => _tmdbService.getWorkDetail(
+        h.tmdbId,
+        h.mediaType,
+        priority: RequestPriority.background,
+        includeImages: false,
+      ),
+      onNetworkError: onNetworkError,
+    );
+    return (
+      bangumiCandidates: addedBgm.values.toList(growable: false),
+      tmdbDetails: fetched.results,
+      networkAborted: fetched.aborted,
+    );
   }
 
   /// 一次拉取各引用季完整详情（含单季专属封面、季名、简介与分集列表）。

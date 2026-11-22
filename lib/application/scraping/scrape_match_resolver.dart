@@ -5,6 +5,7 @@ import '../../domain/models/work.dart';
 import '../../domain/scraping/bangumi_models.dart';
 import '../../domain/scraping/bangumi_tmdb_index.dart';
 import '../../domain/scraping/work_matcher.dart' as legacy;
+import 'hard_work_rescue_engine.dart';
 import 'scrape_candidate_fetcher.dart';
 import 'scrape_compute_worker.dart';
 
@@ -17,6 +18,7 @@ class ScrapeMatchResolution {
     required this.bestBangumi,
     required this.bangumiCandidates,
     required this.candidates,
+    this.rescuedByHardRules = false,
     this.networkError,
   });
 
@@ -34,6 +36,9 @@ class ScrapeMatchResolution {
 
   /// 参与决策的全部 TMDB 候选详情。
   final List<TmdbWorkDetail> candidates;
+
+  /// 是否经由第二套困难目录专属救援规则成功升格自动绑定。
+  final bool rescuedByHardRules;
 
   /// 本阶段首个 TMDB 瞬时网络异常（无异常时为空）。
   final Object? networkError;
@@ -272,12 +277,37 @@ class ScrapeMatchResolver {
       }
     }
 
+    // 第二套困难目录专属救援规则（Pass 2）：仅在首轮未达成 autoBind 且网络可用时按需触发，
+    // 首轮高置信命中作品零开销；通过深度去噪、文件名主干接管、增量补搜与安全门禁挽救高难目录。
+    var rescuedByHardRules = false;
+    if (!tmdbBlocked() && decision.level != MatchLevel.autoBind) {
+      final rescueEngine = HardWorkRescueEngine(
+        fetcher: _fetcher,
+        mappingIndex: _mappingIndex,
+      );
+      final rescueOutcome = await rescueEngine.rescue(
+        originalFolder: folder,
+        pass1Decision: decision,
+        existingBangumi: bgmCandidates,
+        existingTmdb: candidates,
+        computeWorker: compute,
+        onNetworkError: recordError,
+      );
+      bgmCandidates = rescueOutcome.bangumiCandidates;
+      candidates = rescueOutcome.candidates;
+      if (rescueOutcome.adopted) {
+        decision = rescueOutcome.decision;
+        rescuedByHardRules = rescueOutcome.rescuedToAutoBind;
+      }
+    }
+
     return ScrapeMatchResolution(
       decision: decision,
       bangumiTier: bgmEval.tier,
       bestBangumi: bgmEval.best,
       bangumiCandidates: bgmCandidates,
       candidates: candidates,
+      rescuedByHardRules: rescuedByHardRules,
       networkError: networkError,
     );
   }

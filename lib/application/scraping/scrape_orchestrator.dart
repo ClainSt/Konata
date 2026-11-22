@@ -17,6 +17,7 @@ import '../../domain/repositories/file_system_gateway.dart';
 import '../../domain/repositories/library_repository.dart';
 import '../../domain/scraping/bangumi_models.dart';
 import '../../domain/scraping/bangumi_tmdb_index.dart';
+import '../../domain/scraping/match_difficulty_classifier.dart';
 import '../../domain/scraping/scrape_domain_adapter.dart';
 import '../../domain/scraping/work_wall_eligibility.dart';
 import '../../infrastructure/cache/photos_storage.dart';
@@ -38,6 +39,10 @@ import 'series_auto_linker.dart';
 
 /// 进度状态回调。
 typedef ScrapeProgressListener = void Function(ScrapeProgress progress);
+
+/// 单部作品完成落库后的实时通知回调（供媒体库即刻展示已匹配成果）。
+typedef ScrapeWorkPersistedListener =
+    void Function(String workId, ScrapeStatus status, String displayTitle);
 
 /// 媒体源网关构建函数。
 typedef GatewayBuilder =
@@ -103,6 +108,7 @@ class ScrapeOrchestrator {
     List<String>? scanRootsOverride,
     bool Function()? isCancelled,
     ScrapeProgressListener? onProgress,
+    ScrapeWorkPersistedListener? onWorkPersisted,
   }) async {
     // 独立包装回调，避免 Dart `?.call(tracker.advance(...))` 在监听器为空时短路跳过状态推进。
     void emit(ScrapeProgress s) => onProgress?.call(s);
@@ -226,7 +232,7 @@ class ScrapeOrchestrator {
           .map((e) => e.trim().replaceAll('\\', '/'))
           .where((e) => e.isNotEmpty)
           .toSet();
-      final groupedWorks = groupedWorksAll
+      final filteredWorks = groupedWorksAll
           .where((folder) {
             final norm = folder.folderRelativePath.trim().replaceAll('\\', '/');
             return !ignoredFolders.any(
@@ -234,12 +240,26 @@ class ScrapeOrchestrator {
             );
           })
           .toList(growable: false);
+      // 零开销三级难度排程：按「简单（显式 ID）→ 中等（常规无 ID）→ 困难（乱目录/高歧义）」稳定排序，
+      // 让简单目录最先瞬间匹配并实时上墙展示，困难目录排在末尾并按需启动第二套专属救援规则。
+      final groupedWorks = MatchDifficultyClassifier.sortByDifficulty(
+        filteredWorks,
+      );
+      final tierCounts = MatchDifficultyClassifier.countByDifficulty(
+        groupedWorks,
+      );
 
       emit(
         tracker.advance(
           phase: ScrapePhase.scraping,
           totalWorks: groupedWorks.length,
           processedWorks: 0,
+          easyWorks: tierCounts.easy,
+          mediumWorks: tierCounts.medium,
+          hardWorks: tierCounts.hard,
+          currentDifficulty: groupedWorks.isEmpty
+              ? null
+              : groupedWorks.first.matchDifficulty,
         ),
       );
 
@@ -275,9 +295,14 @@ class ScrapeOrchestrator {
           }
           if (nextIndex >= groupedWorks.length) return;
           final folder = groupedWorks[nextIndex++];
-          emit(tracker.advance(currentItemName: folder.cleanTitle));
+          emit(
+            tracker.advance(
+              currentItemName: folder.cleanTitle,
+              currentDifficulty: folder.matchDifficulty,
+            ),
+          );
 
-          final ({ScrapeStatus status, String workId}) result;
+          final _FolderProcessResult result;
           try {
             result = await _processSingleFolderSafe(
               source.id,
@@ -304,6 +329,13 @@ class ScrapeOrchestrator {
               ),
             );
           }
+          if (result.didPersist) {
+            onWorkPersisted?.call(
+              result.workId,
+              result.status,
+              result.displayTitle,
+            );
+          }
           final snap = tracker.snapshot;
           emit(
             tracker.advance(
@@ -317,6 +349,11 @@ class ScrapeOrchestrator {
               unmatchedWorks:
                   snap.unmatchedWorks +
                   (result.status == ScrapeStatus.unmatched ? 1 : 0),
+              hardRescuedWorks:
+                  snap.hardRescuedWorks + (result.rescuedByHardRules ? 1 : 0),
+              lastMatchedTitle: result.status == ScrapeStatus.matched
+                  ? result.displayTitle
+                  : null,
             ),
           );
         }
@@ -393,7 +430,7 @@ class ScrapeOrchestrator {
     }
   }
 
-  Future<({ScrapeStatus status, String workId})> _processSingleFolderSafe(
+  Future<_FolderProcessResult> _processSingleFolderSafe(
     String sourceId,
     GroupedWorkFolder folder, {
     required _ScanBatchContext scanContext,
@@ -411,11 +448,13 @@ class ScrapeOrchestrator {
         rethrow;
       }
       if (isCancelled?.call() ?? false) {
-        return (
+        return _FolderProcessResult(
           status: ScrapeStatus.needsReview,
           workId: ScrapeWorkPersister.deterministicId(
             '$sourceId::${folder.folderRelativePath}',
           ),
+          displayTitle: folder.cleanTitle,
+          didPersist: false,
         );
       }
       return scanContext.persistMutex.synchronized(() async {
@@ -437,7 +476,12 @@ class ScrapeOrchestrator {
             tmdbEpisodes: const [],
             preloadedSourceVariantsById: scanContext.sourceVariantById,
           );
-          return (status: existing.scrapeStatus, workId: workId);
+          return _FolderProcessResult(
+            status: existing.scrapeStatus,
+            workId: workId,
+            displayTitle: existing.title,
+            didPersist: true,
+          );
         }
         final canPromoteLocalCover =
             WorkWallEligibility.shouldPromoteCoverFallback(
@@ -482,12 +526,17 @@ class ScrapeOrchestrator {
           tmdbEpisodes: const [],
           preloadedSourceVariantsById: scanContext.sourceVariantById,
         );
-        return (status: fallbackWork.scrapeStatus, workId: workId);
+        return _FolderProcessResult(
+          status: fallbackWork.scrapeStatus,
+          workId: workId,
+          displayTitle: fallbackWork.title,
+          didPersist: true,
+        );
       });
     }
   }
 
-  Future<({ScrapeStatus status, String workId})> _processSingleFolder(
+  Future<_FolderProcessResult> _processSingleFolder(
     String sourceId,
     GroupedWorkFolder folder, {
     required _ScanBatchContext scanContext,
@@ -524,7 +573,12 @@ class ScrapeOrchestrator {
           existingUnlockedVariants:
               scanContext.unlockedVariantsByWorkId[existing.id] ?? const [],
         )) {
-      return (status: existing.scrapeStatus, workId: workId);
+      return _FolderProcessResult(
+        status: existing.scrapeStatus,
+        workId: workId,
+        displayTitle: existing.title,
+        didPersist: false,
+      );
     }
 
     final seasons = _extractReferencedSeasons(folder);
@@ -603,7 +657,12 @@ class ScrapeOrchestrator {
             )
           : preRemap;
       if (isCancelled?.call() ?? false) {
-        return (status: existing.scrapeStatus, workId: workId);
+        return _FolderProcessResult(
+          status: existing.scrapeStatus,
+          workId: workId,
+          displayTitle: existing.title,
+          didPersist: false,
+        );
       }
       await scanContext.persistMutex.synchronized(() async {
         await _persister.syncEpisodesAndVariants(
@@ -615,7 +674,12 @@ class ScrapeOrchestrator {
           preloadedSourceVariantsById: scanContext.sourceVariantById,
         );
       });
-      return (status: existing.scrapeStatus, workId: workId);
+      return _FolderProcessResult(
+        status: existing.scrapeStatus,
+        workId: workId,
+        displayTitle: existing.title,
+        didPersist: true,
+      );
     }
 
     Object? tmdbNetworkError;
@@ -642,7 +706,12 @@ class ScrapeOrchestrator {
           mappingIndex: _mappingIndex,
         );
         if (isCancelled?.call() ?? false) {
-          return (status: ScrapeStatus.unmatched, workId: workId);
+          return _FolderProcessResult(
+            status: ScrapeStatus.unmatched,
+            workId: workId,
+            displayTitle: folder.cleanTitle,
+            didPersist: false,
+          );
         }
         final status = await _bindAndPersistDetail(
           workId: workId,
@@ -666,7 +735,12 @@ class ScrapeOrchestrator {
           scanContext: scanContext,
           isCancelled: isCancelled,
         );
-        return (status: status, workId: workId);
+        return _FolderProcessResult(
+          status: status,
+          workId: workId,
+          displayTitle: scanContext.worksById[workId]?.title ?? detail.title,
+          didPersist: status == ScrapeStatus.matched,
+        );
       }
       // 仅在无网络异常（即双侧真实 404）时清除失效的 explicitTmdbId，防止网络故障误抹除目录显式提示。
       if (tmdbNetworkError == null) {
@@ -674,14 +748,19 @@ class ScrapeOrchestrator {
       }
     }
 
-    // 阶段 3：Bangumi 在线优先匹配 -> 离线映射直连快通道 -> 交叉关键词救回 TMDB 搜索 -> 合集父系列兜底 -> 双向互保重评。
+    // 阶段 3：Bangumi 在线优先匹配 -> 离线映射直连快通道 -> 交叉关键词救回 TMDB 搜索 -> 合集父系列兜底 -> 双向互保重评（未命中时自动触发困难目录第二套规则）。
     final resolution = await _matchResolver.resolve(
       effectiveFolder,
       tmdbUnavailable: tmdbNetworkError != null,
       computeWorker: scanContext.computeWorker,
     );
     if (isCancelled?.call() ?? false) {
-      return (status: ScrapeStatus.unmatched, workId: workId);
+      return _FolderProcessResult(
+        status: ScrapeStatus.unmatched,
+        workId: workId,
+        displayTitle: effectiveFolder.cleanTitle,
+        didPersist: false,
+      );
     }
     if (resolution.networkError != null) {
       recordTmdbError(resolution.networkError!);
@@ -705,7 +784,14 @@ class ScrapeOrchestrator {
         scanContext: scanContext,
         isCancelled: isCancelled,
       );
-      return (status: status, workId: workId);
+      return _FolderProcessResult(
+        status: status,
+        workId: workId,
+        displayTitle:
+            scanContext.worksById[workId]?.title ?? decision.best!.detail.title,
+        didPersist: status == ScrapeStatus.matched,
+        rescuedByHardRules: resolution.rescuedByHardRules,
+      );
     }
 
     // 若本次因 TMDB 网络异常未能获取候选，但本地已存在成功匹配的旧记录，保留既有元数据并同步分集文件。
@@ -720,7 +806,12 @@ class ScrapeOrchestrator {
           preloadedSourceVariantsById: scanContext.sourceVariantById,
         );
       });
-      return (status: existing.scrapeStatus, workId: workId);
+      return _FolderProcessResult(
+        status: existing.scrapeStatus,
+        workId: workId,
+        displayTitle: existing.title,
+        didPersist: true,
+      );
     }
 
     final fallbackBgmCandidate =
@@ -775,7 +866,12 @@ class ScrapeOrchestrator {
             )
           : const <BangumiEpisodeEntry>[];
       if (isCancelled?.call() ?? false) {
-        return (status: bgmStatus, workId: workId);
+        return _FolderProcessResult(
+          status: bgmStatus,
+          workId: workId,
+          displayTitle: work.title,
+          didPersist: false,
+        );
       }
       await scanContext.persistMutex.synchronized(() async {
         await _repository.upsertWork(work);
@@ -790,7 +886,13 @@ class ScrapeOrchestrator {
           preloadedSourceVariantsById: scanContext.sourceVariantById,
         );
       });
-      return (status: bgmStatus, workId: workId);
+      return _FolderProcessResult(
+        status: bgmStatus,
+        workId: workId,
+        displayTitle: work.title,
+        didPersist: true,
+        rescuedByHardRules: resolution.rescuedByHardRules,
+      );
     }
 
     // 条件 C / D：无 TMDB 与 Bangumi 主匹配，但具备 Fanart.tv 有效封面或本地目录封面且含有效正片时独立上墙。
@@ -828,7 +930,12 @@ class ScrapeOrchestrator {
           preloadedSourceVariantsById: scanContext.sourceVariantById,
         );
       });
-      return (status: ScrapeStatus.matched, workId: workId);
+      return _FolderProcessResult(
+        status: ScrapeStatus.matched,
+        workId: workId,
+        displayTitle: work.title,
+        didPersist: true,
+      );
     }
 
     final status =
@@ -867,7 +974,12 @@ class ScrapeOrchestrator {
         preloadedSourceVariantsById: scanContext.sourceVariantById,
       );
     });
-    return (status: status, workId: workId);
+    return _FolderProcessResult(
+      status: status,
+      workId: workId,
+      displayTitle: work.title,
+      didPersist: true,
+    );
   }
 
   Future<ScrapeStatus> _bindAndPersistDetail({
@@ -2034,6 +2146,23 @@ class ScrapeOrchestrator {
         .replaceAll(RegExp(r'^/+|/+$'), '')
         .toLowerCase();
   }
+}
+
+/// 单部作品目录刮削处理的内部返回值。
+class _FolderProcessResult {
+  const _FolderProcessResult({
+    required this.status,
+    required this.workId,
+    required this.displayTitle,
+    required this.didPersist,
+    this.rescuedByHardRules = false,
+  });
+
+  final ScrapeStatus status;
+  final String workId;
+  final String displayTitle;
+  final bool didPersist;
+  final bool rescuedByHardRules;
 }
 
 /// 单次扫描会话内共享的预载索引与串行写库互斥锁（避免跨作品并发时的 SQLite 写锁竞争与重复查表）。

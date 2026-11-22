@@ -730,7 +730,7 @@ $uueFont
             source: source,
           );
 
-          late EmbeddedMpvSession createdSession;
+          EmbeddedMpvSession? createdSession;
           late final ProviderContainer container;
           container = ProviderContainer(
             overrides: [
@@ -742,7 +742,7 @@ $uueFont
                 () => VideoPlaybackController(
                   req,
                   sessionFactory: () {
-                    createdSession = EmbeddedMpvSession(
+                    final session = EmbeddedMpvSession(
                       storageRoot: storage,
                       streamBridge: bridge,
                       clientFactory: () => fakeClient,
@@ -750,7 +750,8 @@ $uueFont
                         subtitleFontPoolManagerProvider,
                       ),
                     );
-                    return createdSession;
+                    createdSession = session;
+                    return session;
                   },
                 ),
               ),
@@ -772,16 +773,44 @@ $uueFont
           final ctrl = container.read(videoPlaybackProvider(req).notifier);
 
           try {
-            await Future<void>.delayed(const Duration(milliseconds: 120));
-            // 1. 本地起播同级 Fonts.zip 已自动解包入池并写入 sub-fonts-dir。
-            expect(createdSession.activeSubFontsDir, isNotEmpty);
             final pool = container.read(subtitleFontPoolManagerProvider);
+            // 等待本地起播同级 Fonts.zip 真正解包入池并写入 sub-fonts-dir，避免高负载 CI 虚拟机误报。
+            for (
+              var i = 0;
+              i < 150 &&
+                  (createdSession == null ||
+                      createdSession!.activeSubFontsDir.isEmpty ||
+                      pool.activeLeaseHashes.isEmpty);
+              i++
+            ) {
+              await Future<void>.delayed(const Duration(milliseconds: 20));
+            }
+            expect(createdSession, isNotNull);
+            final session = createdSession!;
+            // 1. 本地起播同级 Fonts.zip 已自动解包入池并写入 sub-fonts-dir。
+            expect(session.activeSubFontsDir, isNotEmpty);
             expect(pool.activeLeaseHashes, isNotEmpty);
-            final initialFontsDir = createdSession.activeSubFontsDir;
+            final initialFontsDir = session.activeSubFontsDir;
 
             // 2. 手动加载 GBK 外挂 ASS：经单一 SubtitleMemoryEngine 编码归一 + 云端子集化 + ASS [Fonts] 入池 + `cached` 挂载。
             ctrl.addExternalSubtitleFile(gbkSubFile.path);
-            await Future<void>.delayed(const Duration(milliseconds: 220));
+            for (
+              var i = 0;
+              i < 150 &&
+                  (cloudPostCount < 1 ||
+                      pool.activeLeaseHashes.length < 2 ||
+                      session.activeSubFontsDir == initialFontsDir ||
+                      !fakeClient.commands.any(
+                        (c) =>
+                            c.length >= 3 &&
+                            c[0] == 'sub-add' &&
+                            c[1].startsWith('memory://') &&
+                            c[2] == 'cached',
+                      ));
+              i++
+            ) {
+              await Future<void>.delayed(const Duration(milliseconds: 20));
+            }
 
             expect(cloudPostCount, greaterThanOrEqualTo(1));
             expect(
@@ -805,7 +834,7 @@ $uueFont
             );
             expect(fakeClient.stringProps.containsKey('sub-codepage'), isFalse);
             // 云端返回 ASS 携带 [Fonts] UUE 字体入池后已刷新 sub-fonts-dir。
-            expect(createdSession.activeSubFontsDir, isNot(equals(initialFontsDir)));
+            expect(session.activeSubFontsDir, isNot(equals(initialFontsDir)));
             expect(pool.activeLeaseHashes.length, greaterThanOrEqualTo(2));
           } finally {
             await ctrl.closeAndRelease();

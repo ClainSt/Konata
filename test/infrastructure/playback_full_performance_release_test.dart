@@ -923,8 +923,8 @@ void main() {
           doubleValue: 1120.0,
         ),
       );
-      for (var i = 0; i < 40 && ctrl.prewarmedNextEpisodeId == null; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 15));
+      for (var i = 0; i < 120 && ctrl.prewarmedNextEpisodeId == null; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
       }
       expect(ctrl.prewarmedNextEpisodeId, equals('e2'));
 

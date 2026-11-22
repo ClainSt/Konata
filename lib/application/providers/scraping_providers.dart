@@ -9,6 +9,7 @@ import '../../domain/models/media_variant.dart';
 import '../../domain/models/network_config.dart';
 import '../../domain/models/tmdb_models.dart';
 import '../../domain/models/work.dart';
+import '../../domain/scraping/bangumi_models.dart';
 import '../../domain/scraping/bangumi_tmdb_index.dart';
 import '../../infrastructure/cache/artwork_cache.dart';
 import '../../infrastructure/network/bangumi_service.dart';
@@ -135,6 +136,8 @@ class ScrapeController extends Notifier<ScrapeProgress> {
   final Set<String> _autoBackfillInFlight = <String>{};
   final Set<String> _workSyncInFlight = <String>{};
   final Map<String, DateTime> _lastWorkSyncAt = <String, DateTime>{};
+  final Map<int, List<BangumiRelatedSubject>> _bangumiRelationCache =
+      <int, List<BangumiRelatedSubject>>{};
   DateTime? _lastOngoingAutoSyncAt;
   bool _ongoingAutoSyncRunning = false;
 
@@ -216,6 +219,7 @@ class ScrapeController extends Notifier<ScrapeProgress> {
       ),
       photosStorage: ref.read(photosStorageProvider),
       mappingIndex: activeIndex,
+      bangumiRelationCache: _bangumiRelationCache,
     );
   }
 

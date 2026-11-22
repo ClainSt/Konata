@@ -174,7 +174,9 @@ class _ScanProgressDialogState extends ConsumerState<ScanProgressDialog> {
       ScrapePhase.scanning => '正在遍历媒体源目录...',
       ScrapePhase.grouping => '后台 Isolate 归组与 BDRip 词法解析中...',
       ScrapePhase.scraping =>
-        '正在匹配 TMDB 元数据 (${progress.processedWorks}/${progress.totalWorks})',
+        progress.totalWorks > 0 && progress.processedWorks >= progress.totalWorks
+            ? '正在收尾与系列归组 (${progress.processedWorks}/${progress.totalWorks})'
+            : '正在匹配 TMDB 元数据 (${progress.processedWorks}/${progress.totalWorks})',
       ScrapePhase.completed => '本次扫描与刮削已完成',
       ScrapePhase.cancelled => '已根据请求中止扫描任务',
       ScrapePhase.failed => '扫描或刮削过程中发生异常',

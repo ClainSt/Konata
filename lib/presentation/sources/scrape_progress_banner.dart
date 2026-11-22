@@ -39,7 +39,9 @@ class ScrapeProgressBanner extends StatelessWidget {
         '正在遍历目录 (${progress.scannedDirectories} 目录 · ${progress.totalVideos} 视频)',
       ScrapePhase.grouping => '后台 Isolate 归组解析中...',
       ScrapePhase.scraping =>
-        '正在刮削 (${progress.processedWorks}/${progress.totalWorks})',
+        progress.totalWorks > 0 && progress.processedWorks >= progress.totalWorks
+            ? '正在收尾与系列归组 (${progress.processedWorks}/${progress.totalWorks})'
+            : '正在刮削 (${progress.processedWorks}/${progress.totalWorks})',
       ScrapePhase.completed =>
         '扫描刮削完成：已匹配 ${progress.matchedWorks}，待复核 ${progress.reviewWorks}，未识别 ${progress.unmatchedWorks}',
       ScrapePhase.cancelled =>

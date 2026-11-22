@@ -2,10 +2,12 @@ import 'dart:developer' as developer;
 
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/series_group.dart';
+import '../../domain/models/tmdb_models.dart';
 import '../../domain/models/work.dart';
 import '../../domain/repositories/library_repository.dart';
 import '../../domain/scraping/bangumi_models.dart';
 import '../../infrastructure/network/bangumi_service.dart';
+import '../../infrastructure/network/priority_http_scheduler.dart';
 import '../../infrastructure/network/tmdb_service.dart';
 
 /// 系列（Series）自动编组协同器。
@@ -131,8 +133,11 @@ class SeriesAutoLinker {
   ///
   /// 支持传入调用方已预载的 [preloadedWorks] 与 [preloadedVariants] 以避免启动期重复全表扫描。
   /// - 传入非空 [focusBangumiIds] 时，仅对本次新增或发生身份变动的 Bangumi ID 发起关联查询，
-  ///   避免 3,500 部大库在增量重扫收尾时重复对全部老作品发起数千次 Bangumi API 请求；
-  /// - 传入 [relationCache] 可在多次扫描间复用已查过的关联结果。
+  ///   避免大库在增量重扫或单作品重绑收尾时重复对全部老作品发起冗余 Bangumi API 请求；
+  /// - 传入非空 [focusWorkIds] 时，在线 TMDB 剧场版 ClearLogo 交叉校验仅针对含本次变更成员或新合并成员的
+  ///   TV+电影混合系列执行，彻底消除扫描收尾对全库无关电影的串行网络请求；
+  /// - 传入 [relationCache] 可在多次扫描间复用已查过的关联结果；
+  /// - 传入 [isCancelled] 时在收尾在线请求间隙及时响应取消。
   /// 返回本次是否对作品归属、ClearLogo 或系列编组产生了持久化变更。
   static Future<bool> reconcileAll({
     required LibraryRepository repository,
@@ -142,7 +147,10 @@ class SeriesAutoLinker {
     List<Work>? preloadedWorks,
     List<MediaVariant>? preloadedVariants,
     Set<int>? focusBangumiIds,
+    Set<String>? focusWorkIds,
     Map<int, List<BangumiRelatedSubject>>? relationCache,
+    bool Function()? isCancelled,
+    void Function(int completed, int total)? onRelationProgress,
   }) async {
     final allWorks = preloadedWorks ?? await repository.getAllWorks();
     final existingGroups = await repository.getAllSeriesGroups();
@@ -280,14 +288,23 @@ class SeriesAutoLinker {
         }
       }
       const maxConcurrency = 5;
+      const maxRelationCacheEntries = 600;
       var cursor = 0;
+      var completedCount = 0;
 
       Future<void> worker() async {
         while (cursor < idsToFetch.length) {
+          if (isCancelled?.call() ?? false) return;
           final bgmId = idsToFetch[cursor++];
           try {
             final relations = await bangumiService.getRelatedSubjects(bgmId);
-            relationCache?[bgmId] = relations;
+            if (relationCache != null) {
+              if (relationCache.length >= maxRelationCacheEntries &&
+                  !relationCache.containsKey(bgmId)) {
+                relationCache.remove(relationCache.keys.first);
+              }
+              relationCache[bgmId] = relations;
+            }
             if (relations.isNotEmpty) {
               relationsByBgmId[bgmId] = relations;
             }
@@ -298,11 +315,15 @@ class SeriesAutoLinker {
               name: 'konata.series_auto_linker',
               error: error,
             );
+          } finally {
+            completedCount++;
+            onRelationProgress?.call(completedCount, idsToFetch.length);
           }
         }
       }
 
-      if (idsToFetch.isNotEmpty) {
+      if (idsToFetch.isNotEmpty && !(isCancelled?.call() ?? false)) {
+        onRelationProgress?.call(0, idsToFetch.length);
         final workerCount = idsToFetch.length < maxConcurrency
             ? idsToFetch.length
             : maxConcurrency;
@@ -377,9 +398,14 @@ class SeriesAutoLinker {
     final updatedWorkIds = <String>{};
 
     for (final rawMembers in components.values) {
+      final componentTouched = _shouldRunOnlineLogoReconcile(
+        rawMembers,
+        focusWorkIds: focusWorkIds,
+      );
       final logoHealResult = await _reconcileSeriesClearLogos(
         members: rawMembers,
-        tmdbService: tmdbService,
+        tmdbService: componentTouched ? tmdbService : null,
+        isCancelled: isCancelled,
       );
       final members = logoHealResult.healedMembers;
       final healedWorkIds = logoHealResult.healedWorkIds;
@@ -574,51 +600,106 @@ class SeriesAutoLinker {
     return false;
   }
 
+  /// 判断连通分量是否需要发起在线 TMDB ClearLogo 交叉校验。
+  ///
+  /// 仅当未指定变更范围、分量包含本次变更成员，或本轮编组刚将尚未共享同一 `seriesId` 的成员合并时返回真；
+  /// 离线已知误传表与已落库路径碰撞检查始终在内存中 0 耗时执行，不受此门控限制。
+  static bool _shouldRunOnlineLogoReconcile(
+    List<Work> members, {
+    Set<String>? focusWorkIds,
+  }) {
+    if (focusWorkIds == null) return true;
+    for (final w in members) {
+      if (focusWorkIds.contains(w.id)) return true;
+    }
+    if (members.length < 2) return false;
+    final firstSeriesId = members.first.seriesId;
+    if (firstSeriesId == null || firstSeriesId.isEmpty) return true;
+    for (final w in members.skip(1)) {
+      if (w.seriesId != firstSeriesId) return true;
+    }
+    return false;
+  }
+
   static Future<({List<Work> healedMembers, Set<String> healedWorkIds})>
   _reconcileSeriesClearLogos({
     required List<Work> members,
     TmdbService? tmdbService,
+    bool Function()? isCancelled,
   }) async {
     final working = List<Work>.of(members);
     final healedIds = <String>{};
 
     final movieLogoPaths = <String>{};
+    final movieIndicesToProbe = <int>[];
+    var hasUnlockedTvWithLogo = false;
     for (var i = 0; i < working.length; i++) {
-      final m = working[i];
-      if (m.tmdbMediaType != TmdbMediaType.movie) continue;
-      final existingLogo = m.logoPath?.trim() ?? '';
-      if (existingLogo.isNotEmpty) {
-        movieLogoPaths.add(existingLogo);
+      final w = working[i];
+      if (w.tmdbMediaType == TmdbMediaType.tv) {
+        final logo = w.logoPath?.trim() ?? '';
+        if (logo.isNotEmpty && !w.posterLocked && !w.metadataLocked) {
+          hasUnlockedTvWithLogo = true;
+        }
+      } else if (w.tmdbMediaType == TmdbMediaType.movie) {
+        final existingLogo = w.logoPath?.trim() ?? '';
+        if (existingLogo.isNotEmpty) {
+          movieLogoPaths.add(existingLogo);
+        }
+        if (w.tmdbId != null && w.tmdbId! > 0) {
+          movieIndicesToProbe.add(i);
+        }
       }
-      if (tmdbService != null && m.tmdbId != null && m.tmdbId! > 0) {
-        try {
-          final detail = await tmdbService.getWorkDetail(
-            m.tmdbId!,
-            TmdbMediaType.movie,
-          );
-          if (detail != null) {
-            for (final logo in detail.candidateLogos) {
-              if (logo.filePath.trim().isNotEmpty) {
-                movieLogoPaths.add(logo.filePath.trim());
-              }
+    }
+
+    // 仅当同系列同时存在剧场版与未锁定带徽标 TV 作品时，才并发拉取剧场版候选徽标集合进行跨类型碰撞纠偏；
+    // 独立电影或无 TV 碰撞风险的分量零网络请求。
+    if (tmdbService != null &&
+        hasUnlockedTvWithLogo &&
+        movieIndicesToProbe.isNotEmpty &&
+        !(isCancelled?.call() ?? false)) {
+      final probed = await Future.wait<({int index, TmdbWorkDetail? detail})>([
+        for (final idx in movieIndicesToProbe)
+          () async {
+            if (isCancelled?.call() ?? false) {
+              return (index: idx, detail: null);
             }
-            if (existingLogo.isEmpty &&
-                !m.posterLocked &&
-                !m.metadataLocked &&
-                detail.logoPath != null &&
-                detail.logoPath!.trim().isNotEmpty) {
-              working[i] = m.copyWith(logoPath: detail.logoPath!.trim());
-              healedIds.add(m.id);
-              movieLogoPaths.add(detail.logoPath!.trim());
+            final m = working[idx];
+            try {
+              final detail = await tmdbService.getWorkDetail(
+                m.tmdbId!,
+                TmdbMediaType.movie,
+                priority: RequestPriority.background,
+              );
+              return (index: idx, detail: detail);
+            } catch (error) {
+              // 离线或接口异常时不阻断本地编组修复。
+              developer.log(
+                '可恢复异常已记录',
+                name: 'konata.series_auto_linker',
+                error: error,
+              );
+              return (index: idx, detail: null);
             }
+          }(),
+      ]);
+      for (final entry in probed) {
+        final detail = entry.detail;
+        if (detail == null) continue;
+        final m = working[entry.index];
+        final existingLogo = m.logoPath?.trim() ?? '';
+        for (final logo in detail.candidateLogos) {
+          if (logo.filePath.trim().isNotEmpty) {
+            movieLogoPaths.add(logo.filePath.trim());
           }
-        } catch (error) {
-          // 离线或接口异常时不阻断本地编组修复。
-          developer.log(
-            '可恢复异常已记录',
-            name: 'konata.series_auto_linker',
-            error: error,
-          );
+        }
+        if (existingLogo.isEmpty &&
+            !m.posterLocked &&
+            !m.metadataLocked &&
+            detail.logoPath != null &&
+            detail.logoPath!.trim().isNotEmpty) {
+          working[entry.index] = m.copyWith(logoPath: detail.logoPath!.trim());
+          healedIds.add(m.id);
+          movieLogoPaths.add(detail.logoPath!.trim());
         }
       }
     }
@@ -662,11 +743,15 @@ class SeriesAutoLinker {
       }
 
       String? replacementLogo;
-      if (tmdbService != null && tv.tmdbId != null && tv.tmdbId! > 0) {
+      if (tmdbService != null &&
+          tv.tmdbId != null &&
+          tv.tmdbId! > 0 &&
+          !(isCancelled?.call() ?? false)) {
         try {
           final detail = await tmdbService.getWorkDetail(
             tv.tmdbId!,
             TmdbMediaType.tv,
+            priority: RequestPriority.background,
           );
           if (detail != null) {
             for (final candidate in detail.candidateLogos) {

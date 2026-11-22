@@ -68,9 +68,12 @@ class ScrapeOrchestrator {
     this._mappingIndex,
     this._snapshotStore,
     this._maxWorkConcurrency = defaultWorkConcurrency,
+    Map<int, List<BangumiRelatedSubject>>? bangumiRelationCache,
   }) : _repository = repository,
        _tmdbService = tmdbService,
        _bangumiService = bangumiService,
+       _bangumiRelationCache =
+           bangumiRelationCache ?? <int, List<BangumiRelatedSubject>>{},
        _persister = ScrapeWorkPersister(repository),
        _candidateFetcher = ScrapeCandidateFetcher(
          tmdbService,
@@ -118,8 +121,7 @@ class ScrapeOrchestrator {
   late final ScrapeArtworkEnricher _artworkEnricher;
   late final WorkDirectorySyncService _workDirectorySync;
   final Map<int, int> _tmdbCollectionIdByTmdbId = <int, int>{};
-  final Map<int, List<BangumiRelatedSubject>> _bangumiRelationCache =
-      <int, List<BangumiRelatedSubject>>{};
+  final Map<int, List<BangumiRelatedSubject>> _bangumiRelationCache;
 
   /// 对单个作品所在目录执行轻量自动同步（自动追加追番新集、清理已删失效集与孤儿剧集）。
   Future<SingleWorkSyncResult> syncSingleWorkDirectory(
@@ -443,6 +445,12 @@ class ScrapeOrchestrator {
         return cancelled;
       }
 
+      emit(
+        tracker.advance(
+          currentItemName: '正在整理系列归组与收尾...',
+        ),
+      );
+
       // 支持全量与局部 scanRoots 范围修剪：非空 scopedRoots 仅清理对应目录前缀下的失联条目，绝不误删未选目录作品。
       // 断点续扫期间已完成目录可能被单作品自动同步更新，留待后续校验确认缺失项。
       final canPruneStale = !scanResult.resumedFromCheckpoint;
@@ -475,18 +483,31 @@ class ScrapeOrchestrator {
       }
 
       // 当局部扫描新入库的作品在同源范围外存在同身份/同名旧副本，且旧目录已在源端消失时，自动清除该幽灵重复作品。
-      if (effectiveRoots.isNotEmpty && activeWorkIds.isNotEmpty) {
+      if (effectiveRoots.isNotEmpty &&
+          activeWorkIds.isNotEmpty &&
+          !(isCancelled?.call() ?? false)) {
         await _pruneMovedOutOfScopeGhostWorks(
           gateway: gateway,
           sourceId: source.id,
           sourceKind: source.kind,
           newlyActiveWorkIds: activeWorkIds,
           scopedRoots: effectiveRoots,
+          isCancelled: isCancelled,
         );
       }
 
+      if (isCancelled?.call() ?? false) {
+        final cancelled = tracker.advance(
+          phase: ScrapePhase.cancelled,
+          currentItemName: '已取消刮削',
+          cancelRequested: true,
+        );
+        emit(cancelled);
+        return cancelled;
+      }
+
       // 变更门控：仅当本次存在新增/身份变更/归并/修剪作品时才运行系列自动编组，
-      // 且仅对本次发生身份变动的 Bangumi ID 发起关联查询，消除大库重扫收尾数千次冗余 Bangumi 请求。
+      // 且仅对本次发生身份变动的作品发起 Bangumi 关联与 ClearLogo 交叉校验，消除大库收尾冗余网络风暴。
       if (identityMutatedWorkIds.isNotEmpty ||
           mergedAnyWork ||
           hadStaleSourceVariant) {
@@ -502,13 +523,34 @@ class ScrapeOrchestrator {
             tmdbService: _tmdbService,
             tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
             focusBangumiIds: focusBangumiIds,
+            focusWorkIds: identityMutatedWorkIds,
             relationCache: _bangumiRelationCache,
+            isCancelled: isCancelled,
+            onRelationProgress: (done, total) {
+              if (total > 0 && !(isCancelled?.call() ?? false)) {
+                emit(
+                  tracker.advance(
+                    currentItemName: '正在整理系列归组 ($done/$total)...',
+                  ),
+                );
+              }
+            },
           );
         } catch (linkError) {
           if (!NetworkErrorSanitizer.isTransientNetworkError(linkError)) {
             rethrow;
           }
         }
+      }
+
+      if (isCancelled?.call() ?? false) {
+        final cancelled = tracker.advance(
+          phase: ScrapePhase.cancelled,
+          currentItemName: '已取消刮削',
+          cancelRequested: true,
+        );
+        emit(cancelled);
+        return cancelled;
       }
 
       final completed = tracker.advance(
@@ -1610,6 +1652,11 @@ class ScrapeOrchestrator {
         bangumiService: _bangumiService,
         tmdbService: _tmdbService,
         tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
+        focusBangumiIds: {
+          if ((updated.bangumiId ?? 0) > 0) updated.bangumiId!,
+        },
+        focusWorkIds: {updated.id},
+        relationCache: _bangumiRelationCache,
       );
       return updated;
     }
@@ -1651,6 +1698,11 @@ class ScrapeOrchestrator {
       bangumiService: _bangumiService,
       tmdbService: _tmdbService,
       tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
+      focusBangumiIds: {
+        if ((updated.bangumiId ?? 0) > 0) updated.bangumiId!,
+      },
+      focusWorkIds: {updated.id},
+      relationCache: _bangumiRelationCache,
     );
     return updated;
   }
@@ -1826,6 +1878,11 @@ class ScrapeOrchestrator {
             bangumiService: _bangumiService,
             tmdbService: _tmdbService,
             tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
+            focusBangumiIds: {
+              if ((updated.bangumiId ?? 0) > 0) updated.bangumiId!,
+            },
+            focusWorkIds: {updated.id},
+            relationCache: _bangumiRelationCache,
           );
         }
         return await _repository.findWorkById(workId) ?? updated;
@@ -1868,6 +1925,11 @@ class ScrapeOrchestrator {
         bangumiService: _bangumiService,
         tmdbService: _tmdbService,
         tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
+        focusBangumiIds: {
+          if ((updated.bangumiId ?? 0) > 0) updated.bangumiId!,
+        },
+        focusWorkIds: {updated.id},
+        relationCache: _bangumiRelationCache,
       );
       return await _repository.findWorkById(workId) ?? updated;
     }
@@ -2226,6 +2288,7 @@ class ScrapeOrchestrator {
     required MediaSourceKind sourceKind,
     required Set<String> newlyActiveWorkIds,
     required List<String> scopedRoots,
+    bool Function()? isCancelled,
   }) async {
     final normScoped = scopedRoots
         .map(
@@ -2323,14 +2386,14 @@ class ScrapeOrchestrator {
     }
 
     for (final w in allWorks) {
+      if (isCancelled?.call() ?? false) return;
       if (newlyActiveWorkIds.contains(w.id)) continue;
       final oldVars = variantsByWork[w.id];
       if (oldVars == null || oldVars.isEmpty) continue;
       if (oldVars.any((v) => v.workLocked || v.scopeLocked)) continue;
 
-      // 确保该旧作品未关联其他媒体源且全部位于本次局部扫描范围之外
-      final fullWorkVars = await _repository.getVariantsByWork(w.id);
-      if (fullWorkVars.any((v) => v.sourceId != sourceId)) continue;
+      // 先在内存中过滤同身份与扫描范围外目录，仅对真正疑似幽灵重复项查全库变体与源端目录存活性。
+      if (!matchesAnyNewWork(w, oldVars)) continue;
       final outOfScopeDirs = <String>{};
       var anyInScope = false;
       for (final v in oldVars) {
@@ -2349,10 +2412,13 @@ class ScrapeOrchestrator {
         }
       }
       if (anyInScope || outOfScopeDirs.isEmpty) continue;
-      if (!matchesAnyNewWork(w, oldVars)) continue;
+
+      final fullWorkVars = await _repository.getVariantsByWork(w.id);
+      if (fullWorkVars.any((v) => v.sourceId != sourceId)) continue;
 
       var allMissing = true;
       for (final d in outOfScopeDirs) {
+        if (isCancelled?.call() ?? false) return;
         if (!await isDirDefinitelyMissing(d)) {
           allMissing = false;
           break;

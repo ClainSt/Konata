@@ -153,6 +153,10 @@ Future<Work> executeHybridBind(
         if (tmdbDetail.collectionId != null && tmdbDetail.collectionId! > 0)
           tmdbDetail.tmdbId: tmdbDetail.collectionId!,
       },
+      focusBangumiIds: {
+        if ((updated.bangumiId ?? 0) > 0) updated.bangumiId!,
+      },
+      focusWorkIds: {updated.id},
     );
     return (await repo.findWorkById(workId)) ?? updated;
   } finally {
@@ -305,6 +309,10 @@ Future<Work> executeBangumiOnlyBind(
     await SeriesAutoLinker.reconcileAll(
       repository: repo,
       bangumiService: bgm,
+      focusBangumiIds: {
+        if ((updated.bangumiId ?? 0) > 0) updated.bangumiId!,
+      },
+      focusWorkIds: {updated.id},
     );
     return (await repo.findWorkById(workId)) ?? updated;
   } finally {
@@ -512,6 +520,10 @@ Future<Work> executeSplitVariantsToIndependentWork(
   await SeriesAutoLinker.reconcileAll(
     repository: repo,
     bangumiService: bangumiServiceOverride,
+    focusBangumiIds: {
+      if ((boundWork.bangumiId ?? 0) > 0) boundWork.bangumiId!,
+    },
+    focusWorkIds: {boundWork.id, if (!sourceDeleted) sourceWork.id},
   );
   final resolvedTarget = (await repo.findWorkById(newWorkId)) ?? boundWork;
   if (sourceDeleted) {

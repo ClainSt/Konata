@@ -1272,7 +1272,9 @@ abstract final class WorkMatcher {
               (inventory.season == null || inventory.season! <= 1)) {
             cumulativeWithoutYear = true;
           } else if (matchedSeason.count == inventory.episodeCount &&
-              inventory.episodeCount >= 4) {
+              inventory.episodeCount >= 4 &&
+              minEp <= 1 &&
+              maxEp <= matchedSeason.count) {
             exactSeasonCount = true;
           }
         }
@@ -1350,6 +1352,22 @@ abstract final class WorkMatcher {
           inventory.episodeCount >= 6 &&
           topTitleScore >= 40.0 &&
           margin >= 35.0;
+      // 追番初期（仅 1~3 集/Vol.1）或分段洗版/稀疏跳集（集号合法落在 S1 容量内）：
+      // 当标题精确命中（>= 44）、无竞争对手（margin >= 25）且为有效动画 S1 时允许安全自动绑定。
+      final exactUncontestedPartialTvS1 =
+          top.candidate.type == 'tv' &&
+          top.season == 1 &&
+          inventory.shape == WorkShape.series &&
+          inventory.episodes.isNotEmpty &&
+          topTitleScore >= 44.0 &&
+          margin >= 25.0 &&
+          (top.candidate.voteCount ?? 1) > 0 &&
+          top.candidate.seasons.any(
+            (s) =>
+                s.number == 1 &&
+                s.count > 0 &&
+                inventory.episodes.reduce((a, b) => a > b ? a : b) <= s.count,
+          );
       final soleTvExactSuffixSequel =
           ranking.length == 1 &&
           top.candidate.type == 'tv' &&
@@ -1415,7 +1433,8 @@ abstract final class WorkMatcher {
                     ? 51.0
                     : (soleTvExactSuffixSequel
                           ? 52.0
-                          : (exactSequelSeasonWinner
+                          : (exactSequelSeasonWinner ||
+                                    exactUncontestedPartialTvS1
                                 ? 52.5
                                 : (uncontestedHighTitleS1 ? 55.0 : 59.5))));
       if (topValidGenre &&
@@ -1613,18 +1632,19 @@ abstract final class WorkMatcher {
             regular.length == 1 &&
             specials.isNotEmpty &&
             season.count + specials.first.count == episodes;
-        final continuousSingleSeasonPart =
-            regular.length == 1 &&
+        final continuousSeasonTailPart =
             minEp != null &&
             minEp > 1 &&
             maxEp != null &&
             maxEp <= season.count &&
-            ((season.count >= 50 && episodes >= 12) ||
-                (maxEp == season.count && episodes >= 10));
+            ((regular.length == 1 && season.count >= 50 && episodes >= 12) ||
+                (maxEp == season.count &&
+                    episodes >= (season.count * 0.5).ceil() &&
+                    episodes >= 6));
         scored.add(
           season.count == episodes ||
                   exactWithSpecials ||
-                  continuousSingleSeasonPart
+                  continuousSeasonTailPart
               ? 15
               : 8,
           'season count',
@@ -2193,24 +2213,6 @@ abstract final class WorkMatcher {
           score -= 10;
         }
       }
-      if (season.count == episodes) {
-        score += 3;
-      } else if ((season.count - episodes).abs() <= 1) {
-        score += 2;
-      } else if (sortedRegular.length == 1 &&
-          episodes >= 4 &&
-          ((season.count - episodes).abs() <= 2 ||
-              (minEp != null &&
-                  minEp >= 1 &&
-                  maxEp != null &&
-                  maxEp <= season.count &&
-                  episodes >= 6))) {
-        score += 2;
-      } else if (localIsRemaster &&
-          season.count >= episodes &&
-          season.count - episodes <= 4) {
-        score += 2;
-      }
       // 分割放送作品常沿用累计集号编码（例如第 2 季文件仍从 13 编至 24 话）。
       var cumOffset = false;
       if (priorCount > 0 &&
@@ -2226,6 +2228,49 @@ abstract final class WorkMatcher {
           score += 6;
           cumOffset = true;
         }
+      }
+      // 残缺起始集（如 3..12）或稀疏跳集（如 1,3,5）判定：物理最大集号超出短季总集数且非累计偏移时，
+      // 绝不因文件个数巧合相等误判短季，优先匹配能完整容纳最大集号的正片季。
+      final isPartialOrSparse =
+          minEp != null && maxEp != null && (minEp > 1 || maxEp > episodes);
+      final exceedsSeasonCapacity =
+          !cumOffset &&
+          maxEp != null &&
+          season.count > 0 &&
+          maxEp > season.count + 1 &&
+          (isPartialOrSparse || sortedRegular.length >= 2);
+      if (!exceedsSeasonCapacity) {
+        if (!isPartialOrSparse) {
+          if (season.count == episodes) {
+            score += 3;
+          } else if ((season.count - episodes).abs() <= 1) {
+            score += 2;
+          } else if (sortedRegular.length == 1 &&
+              ((episodes >= 4 && (season.count - episodes).abs() <= 2) ||
+                  (minEp != null &&
+                      minEp >= 1 &&
+                      maxEp != null &&
+                      maxEp <= season.count &&
+                      episodes >= 1))) {
+            score += 2;
+          } else if (localIsRemaster &&
+              season.count >= episodes &&
+              season.count - episodes <= 4) {
+            score += 2;
+          }
+        } else if (!cumOffset && maxEp <= season.count) {
+          if (maxEp == season.count) {
+            score += 3;
+          } else if (season.number == 1 &&
+              explicit == null &&
+              invSeq == null &&
+              bestNameScore < 0.72) {
+            score += 2;
+          }
+        }
+      } else if (isPartialOrSparse &&
+          sortedRegular.any((s) => s.count >= maxEp)) {
+        score -= 2;
       }
       final diff = _yearDiff(year, season.year);
       if (diff == 0) {

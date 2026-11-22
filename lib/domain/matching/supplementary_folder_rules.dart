@@ -83,6 +83,11 @@ class SupplementaryFolderRules {
 
   static final RegExp _leadingGroupBracket = RegExp(r'^\s*[\[【]');
 
+  /// 目录名开头连续的压制组/发布组括号块（如 `[ANK-Raws] SPs`、`[EAC][221228] CDs`、`【字幕组】特典`）。
+  static final RegExp _leadingBracketTag = RegExp(
+    r'^\s*(?:\[[^\]]*\]|【[^】]*】)\s*',
+  );
+
   /// 常见附加技术括号后缀（用于清理目录名后再次判定如 `SPs [Ma10p_1080p]`）。
   static final RegExp _trailingBracketTag = RegExp(
     r'\s*(?:\[[^\]]*\]|【[^】]*】|\([^)]*\)|（[^）]*）)\s*$',
@@ -91,6 +96,24 @@ class SupplementaryFolderRules {
   static final RegExp _lastBracketBlock = RegExp(
     r'[\[(（【]([^\[\]()（）【】]*)[\])）】]\s*$',
   );
+
+  /// 剥离前导压制组括号块与尾部技术括号块后得到核心子目录词（最多剥离前导 2 块，防误伤全括号片名）。
+  static String _stripOuterBracketTags(String segment) {
+    var stripped = segment.trim();
+    for (var i = 0; i < 2; i++) {
+      final m = _leadingBracketTag.firstMatch(stripped);
+      if (m == null) break;
+      final next = stripped.substring(m.end).trim();
+      if (next.isEmpty) break;
+      stripped = next;
+    }
+    while (_trailingBracketTag.hasMatch(stripped)) {
+      final next = stripped.replaceFirst(_trailingBracketTag, '').trim();
+      if (next == stripped || next.isEmpty) break;
+      stripped = next;
+    }
+    return stripped;
+  }
 
   /// 全方括号发布目录末尾的分卷块（如 `[组名][片名][BDrip_1]`、`[...][Disc_2]`）。
   static bool _endsWithVolumeBlock(String segment) {
@@ -116,6 +139,12 @@ class SupplementaryFolderRules {
       if (next == stripped || next.isEmpty) break;
       stripped = next;
       if (_volumeOrSeasonDir.hasMatch(stripped)) return true;
+    }
+    final outerStripped = _stripOuterBracketTags(trimmed);
+    if (outerStripped.isNotEmpty &&
+        outerStripped != trimmed &&
+        _volumeOrSeasonDir.hasMatch(outerStripped)) {
+      return true;
     }
     return false;
   }
@@ -172,6 +201,18 @@ class SupplementaryFolderRules {
         return true;
       }
     }
+
+    // 剥离前导压制组/发布组括号及尾部规格标签后，仅对精确附属关键词放行折叠
+    // （如 `[ANK-Raws] SPs`、`[Moozzi2] Bonus`、`[EAC] CDs`、`[QTS] Scans`、`[VCB-Studio] Vol.1`），
+    // 严禁把带正式片名的独立压制组包（如 `[VCB-Studio] Bocchi the Rock!`）误折叠为附属目录。
+    final outerStripped = _stripOuterBracketTags(trimmed);
+    if (outerStripped.isNotEmpty &&
+        outerStripped != trimmed &&
+        (_extraVideoDir.hasMatch(outerStripped) ||
+            _volumeOrSeasonDir.hasMatch(outerStripped) ||
+            _audioOrScanDir.hasMatch(outerStripped))) {
+      return true;
+    }
     return false;
   }
 
@@ -183,7 +224,9 @@ class SupplementaryFolderRules {
         .map((s) => s.trim())
         .where((s) => s.isNotEmpty);
     for (final seg in segments) {
+      final outerStripped = _stripOuterBracketTags(seg);
       if (_audioOrScanDir.hasMatch(seg) ||
+          (outerStripped.isNotEmpty && _audioOrScanDir.hasMatch(outerStripped)) ||
           _datedReleaseDir.hasMatch(seg) ||
           _jpCatalogNumberDir.hasMatch(seg) ||
           _mediaFormatPackageSuffix.hasMatch(seg) ||

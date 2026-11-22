@@ -28,6 +28,7 @@ import '../../infrastructure/network/tmdb_service.dart';
 import '../../infrastructure/sources/directory_scanner.dart';
 import '../../infrastructure/sources/source_access_error.dart';
 import 'clear_logo_resolver.dart';
+import 'release_group_work_merger.dart';
 import 'scrape_artwork_enricher.dart';
 import 'scrape_candidate_fetcher.dart';
 import 'scrape_compute_worker.dart';
@@ -274,6 +275,7 @@ class ScrapeOrchestrator {
 
       final activeWorkIds = <String>{...lockedActiveWorkIds};
       final activeVariantIds = <String>{...lockedActiveVariantIds};
+      final workIdByFolderPath = <String, String>{};
 
       // 阶段 3 受控跨作品并发池：重叠多部作品的在线元数据往返，同时对写库与进度上报串行加锁防竞态。
       final effectiveConcurrency = _maxWorkConcurrency < 1
@@ -322,6 +324,7 @@ class ScrapeOrchestrator {
           }
 
           activeWorkIds.add(result.workId);
+          workIdByFolderPath[folder.folderRelativePath] = result.workId;
           for (final v in folder.variants) {
             activeVariantIds.add(
               ScrapeWorkPersister.deterministicId(
@@ -385,6 +388,20 @@ class ScrapeOrchestrator {
         activeVariantIds: activeVariantIds,
         scopedRoots: effectiveRoots,
       );
+
+      // 自动归并同一作品父目录下多个压制组子目录洗版产出的同身份重复卡片（保留多版本、特典、CD、Scan 与播放进度）。
+      if (workIdByFolderPath.length >= 2) {
+        final absorbedIds =
+            await ReleaseGroupWorkMerger.mergeSameParentReleaseGroupWorks(
+              repository: _repository,
+              groupedWorks: groupedWorks,
+              workIdByFolderPath: workIdByFolderPath,
+              photosStorage: _photosStorage,
+            );
+        if (absorbedIds.isNotEmpty) {
+          activeWorkIds.removeAll(absorbedIds);
+        }
+      }
 
       // 当局部扫描新入库的作品在同源范围外存在同身份/同名旧副本，且旧目录已在源端消失时，自动清除该幽灵重复作品。
       if (effectiveRoots.isNotEmpty && activeWorkIds.isNotEmpty) {
@@ -1136,13 +1153,34 @@ class ScrapeOrchestrator {
   }
 
   /// 判断已成功匹配的作品在增量重扫时其未锁定文件集是否完全未变化，允许零网络请求直接快跳。
+  ///
+  /// 当同一作品已由同父目录多个压制组子目录归并时，按当前文件夹物理目录前缀隔离比对，
+  /// 确保单目录新增追番集数/分卷必被精准感知，同时已归并的无变更子目录亦能零请求快跳。
   static bool _canFastSkipUnchangedMatchedWork({
     required Work existing,
     required GroupedWorkFolder folder,
     required List<MediaVariant> existingUnlockedVariants,
   }) {
-    if (existingUnlockedVariants.isEmpty ||
-        existingUnlockedVariants.length != folder.variants.length) {
+    if (existingUnlockedVariants.isEmpty) {
+      return false;
+    }
+    var scopedExisting = existingUnlockedVariants;
+    if (existingUnlockedVariants.length > folder.variants.length &&
+        !folder.isSplitCluster) {
+      final rawRoot = (folder.physicalRootFolder ?? folder.folderRelativePath)
+          .trim()
+          .replaceAll('\\', '/');
+      if (rawRoot.isNotEmpty) {
+        final prefix = '$rawRoot/';
+        final inFolder = existingUnlockedVariants
+            .where((v) => v.relativePath.replaceAll('\\', '/').startsWith(prefix))
+            .toList(growable: false);
+        if (inFolder.length == folder.variants.length) {
+          scopedExisting = inFolder;
+        }
+      }
+    }
+    if (scopedExisting.length != folder.variants.length) {
       return false;
     }
     if (folder.explicitTmdbId != null &&
@@ -1167,8 +1205,8 @@ class ScrapeOrchestrator {
           '${v.assetKind.index}\u0000${subs.join('\u0001')}';
     }
 
-    final existingSigs = {for (final v in existingUnlockedVariants) signatureOf(v)};
-    if (existingSigs.length != existingUnlockedVariants.length) {
+    final existingSigs = {for (final v in scopedExisting) signatureOf(v)};
+    if (existingSigs.length != scopedExisting.length) {
       return false;
     }
     for (final v in folder.variants) {

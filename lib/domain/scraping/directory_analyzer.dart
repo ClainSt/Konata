@@ -248,6 +248,54 @@ abstract final class DirectoryAnalyzer {
     caseSensitive: false,
   );
 
+  /// 纯数字单集追番文件名（如 `01.mkv`、`1.mp4`、`012.mkv`，自动排除 5 位蓝光原盘流 `00000.m2ts` 与 `00`）。
+  static final _bareEpisodeFileName = RegExp(
+    r'^0*[1-9]\d{0,2}\.[a-z0-9]{2,5}$',
+    caseSensitive: false,
+  );
+
+  /// 片名末尾以空格接前导零两位集号的单集追番命名（如 `Bocchi the Rock 01.mkv`、`Frieren 01 [1080p].mkv`）。
+  static final _leadingZeroStandaloneEp = RegExp(
+    r'\s0[1-9](?=$|\s*(?:\[|\(|【|\.[a-z0-9]{2,5}$))',
+    caseSensitive: false,
+  );
+
+  /// 紧邻数字前的序篇/卷号/电影编号词（避免把 `Legend 01`、`Part 01`、`OVA 01` 误当成追番第 1 集）。
+  static final _ordinalTitleBeforeEp = RegExp(
+    r'(?:^|[\s._\-])(?:legend|part|vol(?:ume)?|dis[ck]|movie|film|ova|oad|oav|ver(?:sion)?|mk|no\.?|season|chapter|stage|act|phase)\s+0[1-9](?=$|\s*(?:\[|\(|【|\.[a-z0-9]{2,5}$))',
+    caseSensitive: false,
+  );
+
+  /// 显式合集目录特征（`A & B`、`TV+Movie`、`作品集`、`合集`），绝不视作同作多组洗版。
+  static final _explicitAnthologyFolderHint = RegExp(
+    r'\s+[&＆＋]\s+|(?<![a-z0-9])(?:tv\s*[+&＆＋]\s*(?:movie|ova)|(?:movie|ova)s?\s*[+&＆＋]\s*(?:tv|ova|movie))(?![a-z0-9])|'
+    r'合集|作品集',
+    caseSensitive: false,
+  );
+
+  /// 多压制组洗版排除词：若文件主干包含独立分作/分季/外传序号标记，不视作同作单季洗版。
+  static final _independentSubworkToken = RegExp(
+    r'(?<![a-z0-9])(?:ova\d*|oad\d*|mk\s*\d+|part\s*\d+|vol(?:ume)?\s*\d+|season\s*\d+|s\d{1,2}|movie|film)(?![a-z0-9])|'
+    r'剧场版|劇場版|外传|外傳',
+    caseSensitive: false,
+  );
+
+  /// 目录名末尾的独立蓝光分卷标签（如 `孤独摇滚 Vol.1`、`葬送的芙莉莲 第1卷`、`xxx BD Vol.01`）。
+  static final _trailingDiscVolumeSuffix = RegExp(
+    r'^(.*?)\s*(?:[-–—:：]\s*|\s+)(?:(?:bd|dvd)\s*)?(?:vol(?:ume)?\.?\s*0*\d{1,2}|第\s*[0-9一二三四五六七八九十]+\s*[卷巻])\s*$',
+    caseSensitive: false,
+  );
+
+  /// 自身以分卷为独立条目的 OVA/外传保护词（如 `Milky Holmes Alternative Vol.1`），保留原分卷名不强行剥离。
+  static final _independentVolumeTitleGuard = RegExp(
+    r'(?<![a-z0-9])(?:alternative|ova|oad|oav|sp\d*|special)(?![a-z0-9])',
+    caseSensitive: false,
+  );
+
+  static final _cjkScriptPattern = RegExp(r'[\u3040-\u9fff]');
+  static final _kanaScriptPattern = RegExp(r'[\u3040-\u30ff]');
+  static final _hanScriptPattern = RegExp(r'[\u4e00-\u9fff]');
+
   /// 从纯特典合集目录中提取干净基础标题
   /// （如 `<标题> Extras`、`<标题> Specials`、`<标题> SPs`、`<标题> 特典` 或 `<标题> Extra`），
   /// 同时完整保留诸如 `Extra Stage` 等自身即带 Extra 的专有作品名称。
@@ -485,7 +533,21 @@ abstract final class DirectoryAnalyzer {
             r'(?:\s[-–—]\s+|#)0*\d{1,3}(?=$|\s*(?:\[|\(|【|\.[a-z0-9]{2,5}$))',
             caseSensitive: false,
           ).hasMatch(soleBase);
-      if (!hasStrictEpisodicMarker && !hasBracketOrHyphenEpisode) {
+      // 追番刚开播仅有第 1 集时的两种常见命名：
+      // 1) 纯数字单集（`01.mkv`、`1.mp4`，排除蓝光原盘 `.m2ts` 流）；
+      // 2) 片名后接前导零两位集号（`Bocchi the Rock 01.mkv`，排除 `Legend 01`/`Part 01`/`Movie` 等序号片名）。
+      final isBareEpisodeFile =
+          !hasMovieHint &&
+          !soleBase.toLowerCase().endsWith('.m2ts') &&
+          _bareEpisodeFileName.hasMatch(soleBase);
+      final hasLeadingZeroStandaloneEp =
+          !hasMovieHint &&
+          _leadingZeroStandaloneEp.hasMatch(soleBase) &&
+          !_ordinalTitleBeforeEp.hasMatch(soleBase);
+      if (!hasStrictEpisodicMarker &&
+          !hasBracketOrHyphenEpisode &&
+          !isBareEpisodeFile &&
+          !hasLeadingZeroStandaloneEp) {
         final only = numbered.single;
         final core = versionKey(soleBase);
         final feature = LogicalItem('f:$core', core, null, only.season)
@@ -509,9 +571,20 @@ abstract final class DirectoryAnalyzer {
     // 主干清晰、仅混有少量总集篇或短片花絮的目录仍属单一作品；
     // 只有同时包含多段规模相当的独立系列时才判定为混杂合集。
     final perSeries = <String, int>{};
+    final epsBySeries = <String, Set<int>>{};
+    final releaseGroups = <String>{};
     for (final item in items.where((i) => i.episode != null)) {
+      final ep = item.episode!;
+      for (final file in item.files) {
+        final gm = _leadingReleaseGroup.firstMatch(p.posix.basename(file));
+        if (gm != null) {
+          final g = gm.group(1)!.trim().toLowerCase();
+          if (g.isNotEmpty) releaseGroups.add(g);
+        }
+      }
       for (final title in item.titles.where(meaningful)) {
         perSeries.update(title, (n) => n + 1, ifAbsent: () => 1);
+        epsBySeries.putIfAbsent(title, () => <int>{}).add(ep);
       }
     }
     final episodic = perSeries.values.fold<int>(0, (a, b) => a + b);
@@ -534,6 +607,40 @@ abstract final class DirectoryAnalyzer {
             caseSensitive: false,
           ).hasMatch(k),
         );
+    // 多压制组/多字幕组择优分段洗版：同一部番不同集数由不同压制组使用罗马音/英文/中文/日文混放，
+    // 其集号集合互补（至多 1 个主干含第 1 集且跨主干重合集数占比 <= 25%），且无独立分作/分季标记，
+    // 必须识别为单一连续剧而非多作合集，防止误拆成多张重复卡片。
+    final complementaryMixedGroupEpisodes = () {
+      if (epsBySeries.length < 2) return false;
+      if (_explicitAnthologyFolderHint.hasMatch(name)) return false;
+      if (epsBySeries.keys.any(_independentSubworkToken.hasMatch)) {
+        return false;
+      }
+      var seriesStartingFrom1And2 = 0;
+      final epSeriesCount = <int, int>{};
+      for (final eps in epsBySeries.values) {
+        if (eps.contains(1) && eps.contains(2)) seriesStartingFrom1And2++;
+        for (final ep in eps) {
+          epSeriesCount.update(ep, (n) => n + 1, ifAbsent: () => 1);
+        }
+      }
+      // 真正的多作合集通常多个子系列各自从第 1、2 集连续起编；
+      // 同作洗版允许在第 1 集等少量集数保留双压制组对比（总重合占比 <= 25%）。
+      if (seriesStartingFrom1And2 > 1 || epSeriesCount.isEmpty) return false;
+      final overlappingEps = epSeriesCount.values.where((c) => c > 1).length;
+      if (overlappingEps * 4 > epSeriesCount.length) return false;
+      if (releaseGroups.length >= 2) return true;
+      final scripts = <String>{
+        for (final k in epsBySeries.keys)
+          if (_kanaScriptPattern.hasMatch(k))
+            'kana'
+          else if (_hanScriptPattern.hasMatch(k))
+            'han'
+          else if (!_cjkScriptPattern.hasMatch(k))
+            'latin',
+      };
+      return scripts.length >= 2;
+    }();
     final WorkShape shape;
     if (items.isEmpty) {
       shape = WorkShape.empty;
@@ -541,7 +648,8 @@ abstract final class DirectoryAnalyzer {
         (episodeTitles.length >= 4 &&
                 dominant < episodic * 0.5 &&
                 !perEpisodeSubtitles &&
-                !parallelSameShowVersions ||
+                !parallelSameShowVersions &&
+                !complementaryMixedGroupEpisodes ||
             featureTitles.length >= 6 &&
                 featureTitles.length > episodeTitles.length * 4 &&
                 numberedItemCount < 6)) {
@@ -696,6 +804,15 @@ abstract final class DirectoryAnalyzer {
     if (!multiSeasonFolder) inferredSeason ??= folderSplit.season;
     if (folderSplit.baseTitle != effectiveTitle) {
       hint(titleHints, folderSplit.baseTitle);
+    }
+    // 根目录仅附带蓝光单卷标记（如 `孤独摇滚 Vol.1`、`葬送的芙莉莲 第1卷`，排除 `Alternative Vol.1` 等独立卷条目）时，
+    // 同步产出剥离分卷后的母片名提示，确保单卷发售先扫时也能高置信召回并精准匹配母剧。
+    if (!_independentVolumeTitleGuard.hasMatch(effectiveTitle)) {
+      final volMatch = _trailingDiscVolumeSuffix.firstMatch(effectiveTitle);
+      final baseWithoutVol = volMatch?.group(1)?.trim() ?? '';
+      if (baseWithoutVol.length >= 2) {
+        hint(titleHints, baseWithoutVol);
+      }
     }
     // 对 `S1+S2` / `S1-S4` 等多季合装后缀同时产出剥离后的纯净剧名提示，避免主标题相似度被后缀拉低。
     if (multiSeasonFolder) {
@@ -1748,11 +1865,11 @@ abstract final class DirectoryAnalyzer {
         .replaceAll(_bangumiMarker, ' ')
         .replaceAll(RegExp(r'[(（]\s*(?:19|20)\d{2}\s*[)）]'), ' ')
         .replaceAll(RegExp(r'\{[^}]*\}'), ' ');
-    // 先移除纯技术规格括号块（如 `[Ma10p_1080p]`、`[WEBDL]`、`[x265_flac]`）。
+    // 先移除纯技术规格括号块（方括号与圆括号均覆盖，如 `[Ma10p_1080p]`、`(BD 1920x1080)`、`[x265_flac]`）。
     title = title.replaceAllMapped(
-      RegExp(r'\[([^\]]+)\]|【([^】]+)】'),
+      RegExp(r'\[([^\]]+)\]|【([^】]+)】|\(([^)]+)\)|（([^）]+)）'),
       (m) {
-        final inner = (m[1] ?? m[2] ?? '').trim();
+        final inner = (m[1] ?? m[2] ?? m[3] ?? m[4] ?? '').trim();
         return PersonalFilenameParser.isTechnicalBracketBlock(inner)
             ? ' '
             : m[0]!;

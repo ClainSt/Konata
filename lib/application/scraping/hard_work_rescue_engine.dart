@@ -86,6 +86,8 @@ class HardWorkRescueEngine {
   static final RegExp _pass2StripNoise = RegExp(
     r'(?<![a-z0-9])(?:sp\d+|10bit|8bit|hi10p|hevc|avc|x264|x265|club|extra|edition|'
     r'collection|selection|video|bonus|invitation|tvsp|ova\d*|oads?|oav\d*)(?![a-z0-9])|'
+    r'(?:(?<!alternative\s)(?:bd|dvd)\s*)?(?<![a-z0-9])vol(?:ume)?\.?\s*0*\d{1,2}\s*$|'
+    r'第\s*[0-9一二三四五六七八九十]+\s*[卷巻]\s*$|'
     r'テレビアニメ|TVアニメ|电视动画|ゲーム|系列$|作品集$|合集$',
     caseSensitive: false,
   );

@@ -2,6 +2,13 @@
   "mpv": "0.42.0",
   "ffmpeg": "9.0.2",
   "platform": "windows-x64",
+  "release": {
+    "repository": "https://github.com/ClainSt/Konata-Native",
+    "tag": "r1-mpv0.42.0-ff9.0.2",
+    "archive": "konata-native-windows-x64-r1.zip",
+    "sha256": "ccddc4bc2f445bfb0fd8f3f5f9ce881170f3857948daa02b03bd888774b06e96",
+    "bytes": 29016042
+  },
   "files": {
     "windows/LICENSE.LGPL": {
       "sha256": "72b672113d642cbb8ef5dcc76938db801983c56e50b1400ab930f1a64d6dc8d9",

@@ -1,0 +1,46 @@
+name: 功能建议 (Feature Request)
+description: 提出新功能想法或体验改进建议
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Konata 坚持「简洁、只读媒体源、Windows 绿色便携与双端一致体验」的定位。欢迎提出与该定位契合的改进建议。
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 涉及模块
+      options:
+        - 媒体库与刮削识别
+        - 视频播放与字幕
+        - 音乐播放与歌词
+        - Scan 画册浏览
+        - 媒体源（本地 / WebDAV / SMB）
+        - 界面与跨端交互
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 使用场景与痛点
+      description: 你在什么场景下遇到了什么不便？
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望的实现方式
+      description: 描述你期望的交互方式或效果。
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: 补充参考（可选）
+      description: 可补充截图、参考软件行为或边界情况说明。

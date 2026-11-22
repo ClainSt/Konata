@@ -1,0 +1,66 @@
+name: 缺陷反馈 (Bug Report)
+description: 反馈程序崩溃、播放异常、刮削误匹配或界面显示问题
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！提交前请先搜索是否已有相同 Issue。**上传日志或截图前，请务必确认已移除个人地址、密码与 API Key 等敏感信息。**
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 运行平台
+      options:
+        - Windows x64
+        - Android ARM64（手机）
+        - Android ARM64（平板）
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Konata 版本与系统版本
+      placeholder: 例如：Konata 1.0.0+2006 / Windows 11 24H2 或 Android 15
+    validations:
+      required: true
+
+  - type: dropdown
+    id: source_type
+    attributes:
+      label: 涉及的媒体源类型（如适用）
+      options:
+        - 不涉及特定媒体源
+        - 本地磁盘 / SAF
+        - WebDAV
+        - SMB
+      default: 0
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 清晰描述实际现象与你的预期行为。
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 列出稳定复现该问题的操作步骤（如涉及刮削误匹配，可提供脱敏后的目录结构与文件名示例）。
+      placeholder: |
+        1. 打开「...」
+        2. 点击「...」
+        3. 观察到异常...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 诊断日志与截图
+      description: 可在应用「设置 -> 关于 -> 开启详细调试日志」复现后点击「导出最近异常日志」，粘贴脱敏后的文本或拖入截图。
+      render: text

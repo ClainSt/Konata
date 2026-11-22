@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 参与贡献指南
+    url: https://github.com/ClainSt/Konata/blob/main/CONTRIBUTING.md
+    about: 提交代码前请先查阅架构规范与本地门禁要求

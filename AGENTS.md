@@ -106,7 +106,7 @@
 
 ### 5. 文档极简主义与防过期治理（Code as Single Source of Truth）
 - **严禁文档泛滥**：除非用户在当前对话中明确下令创建指定文档，否则 Agent **绝对禁止**在仓库根目录或 `docs/` 下新建任何方案书、设计草稿、重构记录、审计报告、退役说明或阶段总结 `.md` 文件（分析报告与改动清单仅在对话消息中直接输出）。
-- **过期即删**：仓库内仅保留 `AGENTS.md`（面向开发与 Agent）、`SHARED_ASSETS.md`（公共资产索引）与必要的 `README.md`。一旦架构演进导致文档与当前代码不符，必须立即更新仍有用途的文档或删除已废弃的文档，并同步修订 `AGENTS.md`。
+- **过期即删**：仓库内仅保留 `AGENTS.md`（面向开发与 Agent）、`SHARED_ASSETS.md`（公共资产索引）、`README.md`、`LICENSE`、`THIRD_PARTY_NOTICES`、`CONTRIBUTING.md`、`.github/ISSUE_TEMPLATE/` 及 `docs/images/` 展示截图。一旦架构演进导致文档与当前代码不符，必须立即更新仍有用途的文档或删除已废弃的文档，并同步修订 `AGENTS.md`。
 
 ---
 

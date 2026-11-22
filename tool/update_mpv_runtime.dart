@@ -246,6 +246,8 @@ Future<void> _processWindows(Directory root, _CliOptions options) async {
     'mpv': mpvVer,
     'ffmpeg': ffmpegVer,
     'platform': 'windows-x64',
+    if (existingManifest['release'] != null)
+      'release': existingManifest['release'],
     'files': filesMap,
     if (existingManifest['patches'] != null)
       'patches': existingManifest['patches'],
@@ -341,6 +343,8 @@ Future<void> _processAndroid(Directory root, _CliOptions options) async {
     'mpv': mpvVer,
     'ffmpeg': ffmpegVer,
     'platform': 'android-arm64',
+    if (existingManifest['release'] != null)
+      'release': existingManifest['release'],
     'files': filesMap,
     if (existingManifest['patches'] != null)
       'patches': existingManifest['patches'],

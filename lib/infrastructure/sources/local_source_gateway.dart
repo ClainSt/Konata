@@ -49,17 +49,28 @@ class LocalSourceGateway
 
     final entries = <RemoteEntry>[];
     await for (final entity in dir.list(followLinks: false)) {
+      if (entity is Directory) {
+        // 目录项直接利用枚举类型，免去额外 `stat()` 系统调用（大幅降低 Windows CD2 挂载盘符的元数据开销）。
+        entries.add(
+          RemoteEntry(
+            relativePath: _toRelativePosix(entity.path),
+            name: p.basename(entity.path),
+            isDirectory: true,
+            size: 0,
+          ),
+        );
+        continue;
+      }
+      if (entity is! File) continue;
       final stat = await entity.stat();
-      final isDir = stat.type == FileSystemEntityType.directory;
-      final isFile = stat.type == FileSystemEntityType.file;
-      if (!isDir && !isFile) continue;
+      if (stat.type != FileSystemEntityType.file) continue;
 
       entries.add(
         RemoteEntry(
           relativePath: _toRelativePosix(entity.path),
           name: p.basename(entity.path),
-          isDirectory: isDir,
-          size: isDir ? 0 : stat.size,
+          isDirectory: false,
+          size: stat.size,
           modifiedAt: stat.modified,
         ),
       );

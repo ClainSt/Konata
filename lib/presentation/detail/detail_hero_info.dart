@@ -42,6 +42,7 @@ class DetailLockedClearLogo extends ConsumerStatefulWidget {
     required this.maxHeight,
     required this.maxWidth,
     this.alignment = Alignment.bottomLeft,
+    this.lockHeight = false,
     this.errorBuilder,
   });
 
@@ -60,6 +61,9 @@ class DetailLockedClearLogo extends ConsumerStatefulWidget {
   /// 徽标在边界盒内的对齐方式（默认左下 `Alignment.bottomLeft`）。
   final Alignment alignment;
 
+  /// 徽标正常加载或渲染时是否锁定固定槽位高度（回退至文字标题时自动解除高度约束）。
+  final bool lockHeight;
+
   /// 图片加载失败时的占位回退构造器。
   final Widget Function(BuildContext, Object, StackTrace?)? errorBuilder;
 
@@ -75,6 +79,9 @@ class _DetailLockedClearLogoState extends ConsumerState<DetailLockedClearLogo> {
   ImageProvider? _resolvedProvider;
   String? _inFlightCacheKey;
   int _sampleGeneration = 0;
+  bool _imageFailed = false;
+  Object? _lastError;
+  StackTrace? _lastStackTrace;
 
   String get _cacheKey =>
       '${widget.work.id}|${widget.work.logoPath?.trim() ?? ''}';
@@ -89,6 +96,9 @@ class _DetailLockedClearLogoState extends ConsumerState<DetailLockedClearLogo> {
       _resolvedMode = null;
       _resolvedProvider = null;
       _inFlightCacheKey = null;
+      _imageFailed = false;
+      _lastError = null;
+      _lastStackTrace = null;
     }
   }
 
@@ -214,6 +224,15 @@ class _DetailLockedClearLogoState extends ConsumerState<DetailLockedClearLogo> {
     if (path.isEmpty) {
       return const SizedBox.shrink();
     }
+    // 透明徽标加载失败后跳出限高图片盒与背晕叠加层，确保风格化多行文字标题拥有自然排版空间而不溢出。
+    if (_imageFailed) {
+      return widget.errorBuilder?.call(
+            context,
+            _lastError ?? StateError('透明徽标加载失败'),
+            _lastStackTrace,
+          ) ??
+          const SizedBox.shrink();
+    }
 
     final cachedMode = ref.read(clearLogoLegibilityCacheProvider).get(_cacheKey);
     final mode =
@@ -242,8 +261,14 @@ class _DetailLockedClearLogoState extends ConsumerState<DetailLockedClearLogo> {
       fit: BoxFit.contain,
       alignment: widget.alignment,
       onImageResolved: _handleImageResolved,
-      errorBuilder:
-          widget.errorBuilder ?? (_, _, _) => const SizedBox.shrink(),
+      errorBuilder: (context, error, stackTrace) {
+        if (!_imageFailed) {
+          _lastError = error;
+          _lastStackTrace = stackTrace;
+          _scheduleStateUpdate(() => _imageFailed = true);
+        }
+        return const SizedBox.shrink();
+      },
     );
 
     Widget rendered;
@@ -302,7 +327,7 @@ class _DetailLockedClearLogoState extends ConsumerState<DetailLockedClearLogo> {
         );
     }
 
-    return RepaintBoundary(
+    final bounded = RepaintBoundary(
       child: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: widget.maxWidth,
@@ -310,6 +335,13 @@ class _DetailLockedClearLogoState extends ConsumerState<DetailLockedClearLogo> {
         ),
         child: rendered,
       ),
+    );
+    if (!widget.lockHeight) {
+      return bounded;
+    }
+    return SizedBox(
+      height: widget.maxHeight,
+      child: Align(alignment: widget.alignment, child: bounded),
     );
   }
 }
@@ -432,45 +464,23 @@ class DetailHeroInfo extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (renderLogoInFlow)
-          lockInFlowLogoHeight
-              ? SizedBox(
-                  height: logoMaxHeight,
-                  child: Align(
-                    alignment: Alignment.bottomLeft,
-                    child: DetailLockedClearLogo(
-                      key: const ValueKey('detail_hero_locked_logo'),
-                      work: work,
-                      imageLoader: imageLoader,
-                      maxWidth: logoMaxWidth,
-                      maxHeight: logoMaxHeight,
-                      alignment: Alignment.bottomLeft,
-                      errorBuilder: (_, _, _) => showTitleText
-                          ? const SizedBox.shrink()
-                          : DetailStylizedTitleBlock(
-                              work: work,
-                              viewport: viewportProfile,
-                              mode: DetailTitlePresentationMode.heroEmblem,
-                              onBackdrop: onBackdrop,
-                            ),
-                    ),
+          DetailLockedClearLogo(
+            key: const ValueKey('detail_hero_locked_logo'),
+            work: work,
+            imageLoader: imageLoader,
+            maxWidth: logoMaxWidth,
+            maxHeight: logoMaxHeight,
+            alignment: Alignment.bottomLeft,
+            lockHeight: lockInFlowLogoHeight,
+            errorBuilder: (_, _, _) => showTitleText
+                ? const SizedBox.shrink()
+                : DetailStylizedTitleBlock(
+                    work: work,
+                    viewport: viewportProfile,
+                    mode: DetailTitlePresentationMode.heroEmblem,
+                    onBackdrop: onBackdrop,
                   ),
-                )
-              : DetailLockedClearLogo(
-                  key: const ValueKey('detail_hero_locked_logo'),
-                  work: work,
-                  imageLoader: imageLoader,
-                  maxWidth: logoMaxWidth,
-                  maxHeight: logoMaxHeight,
-                  alignment: Alignment.bottomLeft,
-                  errorBuilder: (_, _, _) => showTitleText
-                      ? const SizedBox.shrink()
-                      : DetailStylizedTitleBlock(
-                          work: work,
-                          viewport: viewportProfile,
-                          mode: DetailTitlePresentationMode.heroEmblem,
-                          onBackdrop: onBackdrop,
-                        ),
-                ),
+          ),
         if (renderLogoInFlow && renderTextTitle) const SizedBox(height: 10),
         if (renderTextTitle)
           DetailStylizedTitleBlock(

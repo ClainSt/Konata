@@ -264,5 +264,122 @@ void main() {
       expect(apiProbe.usedBackup, isTrue);
       expect(apiProbe.displayText, contains('已自动回退备用地址连通'));
     });
+
+    test('备用链路瞬态握手异常自动重试一次且不因单次异常过早清除主域名冷却', () async {
+      final requestedHosts = <String>[];
+      final fakeNow = DateTime(2026, 11, 23, 5, 45);
+      final cooldown = DomainCooldownRegistry(
+        cooldownDuration: const Duration(minutes: 10),
+      )..markBlocked('api.themoviedb.org', fakeNow);
+
+      var backupCalls = 0;
+      final mockClient = MockClient((request) async {
+        requestedHosts.add(request.url.host);
+        if (request.url.host == 'api.tmdb.org') {
+          backupCalls++;
+          if (backupCalls == 1) {
+            throw const HandshakeException('Connection terminated during handshake');
+          }
+          if (backupCalls == 2) {
+            return _jsonResponse({'results': []});
+          }
+          throw const HandshakeException('still flaky');
+        }
+        return _jsonResponse({'results': []});
+      });
+
+      final client = TmdbHttpClient(
+        config: const TmdbNetworkConfig(credential: 'v3_test'),
+        scheduler: PriorityHttpScheduler(),
+        httpClient: mockClient,
+        cooldownRegistry: cooldown,
+        maxTransientTransportRetries: 1,
+        transientRetryDelay: Duration.zero,
+        nowProvider: () => fakeNow,
+      );
+
+      // 第 1 次请求：备用首次握手异常自动重试一次即成功，全程零打扰主域名
+      final okResp = await client.getWithFallback(
+        Uri.parse('https://api.themoviedb.org/3/search/tv?query=test'),
+        backupUri: Uri.parse('https://api.tmdb.org/3/search/tv?query=test'),
+      );
+      expect(okResp.statusCode, 200);
+      expect(backupCalls, 2);
+      expect(requestedHosts, everyElement('api.tmdb.org'));
+      expect(cooldown.isCoolingDown('api.themoviedb.org', fakeNow), isTrue);
+
+      // 第 2 次请求：备用两次握手失败后抛出，但主域名冷却需连续 3 次失败才解除，单次失败不立刻解除
+      await expectLater(
+        client.getWithFallback(
+          Uri.parse('https://api.themoviedb.org/3/search/tv?query=fail1'),
+          backupUri: Uri.parse('https://api.tmdb.org/3/search/tv?query=fail1'),
+        ),
+        throwsA(isA<HandshakeException>()),
+      );
+      expect(cooldown.isCoolingDown('api.themoviedb.org', fakeNow), isTrue);
+    });
+
+    test('PriorityHttpScheduler 排队等待槽位的请求在 429 冷却后才发包，且支持 retryOnRateLimit=false 立即熔断', () async {
+      final scheduler = PriorityHttpScheduler(
+        backgroundConcurrency: 1,
+        maxRetries: 2,
+      );
+      final events = <String>[];
+      DateTime? secondStartedAt;
+      DateTime? rateLimitedAt;
+
+      final first = scheduler.schedule<String>(
+        RequestPriority.background,
+        () async {
+          if (rateLimitedAt == null) {
+            rateLimitedAt = DateTime.now();
+            events.add('first_429');
+            throw const RateLimitedHttpException(Duration(milliseconds: 220));
+          }
+          events.add('first_ok');
+          return 'ok1';
+        },
+        bucketKey: 'test_bucket',
+      );
+      // 第二个请求在首个请求触发 429 前已进入等待队列，放行时必须遵守新写入的冷却窗口
+      final second = scheduler.schedule<String>(
+        RequestPriority.background,
+        () async {
+          secondStartedAt = DateTime.now();
+          events.add('second_ok');
+          return 'ok2';
+        },
+        bucketKey: 'test_bucket',
+      );
+
+      expect(await first, 'ok1');
+      expect(await second, 'ok2');
+      expect(rateLimitedAt, isNotNull);
+      expect(secondStartedAt, isNotNull);
+      expect(
+        secondStartedAt!.difference(rateLimitedAt!).inMilliseconds,
+        greaterThanOrEqualTo(180),
+        reason: '队列中已有待发请求也必须等待 429 冷却结束再发包',
+      );
+
+      // retryOnRateLimit=false 应首次 429 即直接上抛，不触发退避休眠
+      var fastFailCalls = 0;
+      final sw = Stopwatch()..start();
+      await expectLater(
+        scheduler.schedule<void>(
+          RequestPriority.background,
+          () async {
+            fastFailCalls++;
+            throw const RateLimitedHttpException(Duration(seconds: 30));
+          },
+          bucketKey: 'fast_fail_bucket',
+          retryOnRateLimit: false,
+        ),
+        throwsA(isA<RateLimitedHttpException>()),
+      );
+      sw.stop();
+      expect(fastFailCalls, 1);
+      expect(sw.elapsedMilliseconds, lessThan(200));
+    });
   });
 }

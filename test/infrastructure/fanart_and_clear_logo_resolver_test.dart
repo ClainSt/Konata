@@ -138,14 +138,16 @@ void main() {
       var now = DateTime.utc(2026, 11, 21, 10, 0, 0);
       final breaker = FanartCircuitBreaker();
 
-      // 1. 频率限流
+      // 1. 频率限流：即便调度器 maxRetries=3，无状态中继仍必须首次 429 即刻熔断（0 退避阻塞）
+      var rateLimitCalls = 0;
       final rateLimitClient = TmdbHttpClient(
         config: const TmdbNetworkConfig(
           fanartBackupApiBase: 'https://relay.konata.example',
         ),
-        scheduler: PriorityHttpScheduler(maxRetries: 0),
-        httpClient: MockClient(
-          (_) async => http.Response(
+        scheduler: PriorityHttpScheduler(maxRetries: 3),
+        httpClient: MockClient((_) async {
+          rateLimitCalls++;
+          return http.Response(
             '{"error":"rate_limited","retryAfter":60}',
             429,
             headers: const {
@@ -153,20 +155,48 @@ void main() {
               'x-konata-relay-error': 'rate_limited',
               'retry-after': '60',
             },
-          ),
-        ),
+          );
+        }),
       );
       final svc1 = FanartService(
         httpClient: rateLimitClient,
         circuitBreaker: breaker,
         nowProvider: () => now,
       );
+      final sw = Stopwatch()..start();
       final res1 = await svc1.fetchLogos(
         mediaType: TmdbMediaType.movie,
         tmdbId: 129,
       );
+      sw.stop();
+      expect(rateLimitCalls, 1);
+      expect(sw.elapsedMilliseconds, lessThan(300));
       expect(res1.authRejected, isTrue);
       expect(breaker.snapshot(now).status, FanartRelayStatus.rateLimited);
+
+      // 1b. 中继连续瞬态握手异常达到阈值后同样自动熔断，避免阻塞批量刮削
+      breaker.reset();
+      var transportErrCalls = 0;
+      final flakyRelayClient = TmdbHttpClient(
+        config: const TmdbNetworkConfig(
+          fanartBackupApiBase: 'https://relay.konata.example',
+        ),
+        scheduler: PriorityHttpScheduler(maxRetries: 2),
+        httpClient: MockClient((_) async {
+          transportErrCalls++;
+          throw const HandshakeException('relay tls reset');
+        }),
+      );
+      final svcFlaky = FanartService(
+        httpClient: flakyRelayClient,
+        circuitBreaker: breaker,
+        nowProvider: () => now,
+      );
+      await svcFlaky.fetchLogos(mediaType: TmdbMediaType.movie, tmdbId: 201);
+      await svcFlaky.fetchLogos(mediaType: TmdbMediaType.movie, tmdbId: 202);
+      expect(breaker.isOpen(now), isTrue);
+      await svcFlaky.fetchLogos(mediaType: TmdbMediaType.movie, tmdbId: 203);
+      expect(transportErrCalls, 2);
 
       // 2. 重置后模拟 Cloudflare 免费日额度耗尽（1027 非 JSON 429）
       breaker.reset();

@@ -9,6 +9,7 @@ import 'package:konata/domain/models/tmdb_models.dart';
 import 'package:konata/domain/models/work.dart';
 import 'package:konata/infrastructure/network/fanart_service.dart';
 import 'package:konata/presentation/detail/detail_gear_menu.dart';
+import 'package:konata/presentation/detail/detail_hero_info.dart';
 import 'package:konata/presentation/detail/detail_stylized_title_block.dart';
 import 'package:konata/presentation/detail/work_detail_sub_views.dart';
 import 'package:konata/presentation/dialogs/work_artwork_picker_dialog.dart';
@@ -178,6 +179,94 @@ void main() {
 
       expect(find.text('葬送的芙莉莲'), findsOneWidget);
       expect(find.byKey(const ValueKey('detail_stylized_title_block')), findsOneWidget);
+    });
+
+    testWidgets('桌面端与手机竖屏透明徽标加载失败回退多行风格化标题且带季别眉标时零像素溢出', (
+      tester,
+    ) async {
+      const work = Work(
+        id: 'w_milky_td',
+        title: '侦探歌剧 少女福尔摩斯 TD',
+        year: 2014,
+        bangumiScore: 6.1,
+        matchedSeason: 4,
+        tmdbMediaType: TmdbMediaType.tv,
+        logoPath: '/broken_td_logo.png',
+      );
+      const bundle = WorkDetailBundle(
+        work: work,
+        episodes: [],
+        variants: [],
+        sourcesById: {},
+        latestPlayback: null,
+        playbackByEpisodeId: {},
+      );
+      Future<Uint8List> failingLoader(
+        String path, {
+        int? targetWidth,
+        TmdbImageSize? imageSize,
+      }) async {
+        throw StateError('HTTP 404');
+      }
+
+      // 1. 桌面端 DetailHeroInfo（maxHeight: 80）徽标加载失败后跳出限高图片盒，零溢出。
+      await tester.binding.setSurfaceSize(const Size(1280, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        _wrapTestApp(
+          Align(
+            alignment: Alignment.bottomLeft,
+            child: Padding(
+              padding: const EdgeInsets.all(36),
+              child: DetailHeroInfo(
+                bundle: bundle,
+                imageLoader: failingLoader,
+                showTitleLogo: true,
+                showTitleText: false,
+                logoMaxHeight: 80.0,
+                logoMaxWidth: 340.0,
+                viewportProfile: DetailTitleViewportProfile.desktop,
+                onPrimaryPlay: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('第 4 季'), findsOneWidget);
+      expect(find.text('侦探歌剧 少女福尔摩斯 TD'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('detail_stylized_title_block')),
+        findsOneWidget,
+      );
+
+      // 2. 手机竖屏 lockInFlowLogoHeight=true 场景下同样自动解除固定槽位高度约束，零溢出。
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      await tester.pumpWidget(
+        _wrapTestApp(
+          SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: DetailHeroInfo(
+                bundle: bundle,
+                imageLoader: failingLoader,
+                showTitleLogo: true,
+                showTitleText: false,
+                lockInFlowLogoHeight: true,
+                logoMaxHeight: 56.0,
+                logoMaxWidth: 260.0,
+                viewportProfile: DetailTitleViewportProfile.phonePortrait,
+                onBackdrop: false,
+                onPrimaryPlay: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('侦探歌剧 少女福尔摩斯 TD'), findsOneWidget);
     });
 
     testWidgets('手机横屏头图尊重 showTitleLogo 与 showTitleText 组合开关并复用风格化标题', (

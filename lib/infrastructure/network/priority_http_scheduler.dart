@@ -111,12 +111,14 @@ class PriorityHttpScheduler {
   /// 在指定优先级通道与可选上游域桶中调度请求。
   ///
   /// 当 [priority] 为 [RequestPriority.background] 且提供了 [dedupeKey] 时，
-  /// 在途相同的 [dedupeKey] 会自动合并为一次真实网络请求。
+  /// 在途相同的 [dedupeKey] 会自动合并为一次真实网络请求；
+  /// [retryOnRateLimit] 为 `false` 时遇到 HTTP 429 立即向调用方上抛（供外层自有熔断器快速降级）。
   Future<T> schedule<T>(
     RequestPriority priority,
     Future<T> Function() task, {
     String? dedupeKey,
     String? bucketKey,
+    bool retryOnRateLimit = true,
   }) async {
     if (priority == RequestPriority.interactive) {
       return _runInChannel(
@@ -139,7 +141,11 @@ class PriorityHttpScheduler {
       () => _BackgroundBucket(limit: concurrencyLimitForBucket(bucketName)),
     );
 
-    final future = _runBackgroundWithRetry(bucket, task);
+    final future = _runBackgroundWithRetry(
+      bucket,
+      task,
+      retryOnRateLimit: retryOnRateLimit,
+    );
     if (dedupeKey != null) {
       _inflightBackground[dedupeKey] = future;
     }
@@ -152,16 +158,24 @@ class PriorityHttpScheduler {
     }
   }
 
-  Future<T> _runBackgroundWithRetry<T>(
-    _BackgroundBucket bucket,
-    Future<T> Function() task,
-  ) async {
-    var attempt = 0;
+  Future<void> _awaitBucketCooldown(_BackgroundBucket bucket) async {
     while (true) {
       final now = DateTime.now();
-      if (bucket.cooldownUntil.isAfter(now)) {
-        await Future<void>.delayed(bucket.cooldownUntil.difference(now));
+      if (!bucket.cooldownUntil.isAfter(now)) {
+        return;
       }
+      await Future<void>.delayed(bucket.cooldownUntil.difference(now));
+    }
+  }
+
+  Future<T> _runBackgroundWithRetry<T>(
+    _BackgroundBucket bucket,
+    Future<T> Function() task, {
+    required bool retryOnRateLimit,
+  }) async {
+    var attempt = 0;
+    while (true) {
+      await _awaitBucketCooldown(bucket);
 
       try {
         return await _runInChannel(
@@ -169,10 +183,14 @@ class PriorityHttpScheduler {
           isFull: () => bucket.active >= bucket.limit,
           increment: () => bucket.active++,
           decrement: () => bucket.active--,
-          action: task,
+          action: () async {
+            // 排队等待槽位期间若已有同桶请求触发 429 冷却，须在真正发包前再次对齐冷却截止时刻。
+            await _awaitBucketCooldown(bucket);
+            return task();
+          },
         );
       } on RateLimitedHttpException catch (e) {
-        if (e.isQuotaExhausted) rethrow;
+        if (e.isQuotaExhausted || !retryOnRateLimit) rethrow;
         attempt++;
         if (attempt > maxRetries) rethrow;
         final backoffMs = e.retryAfter.inMilliseconds * (1 << (attempt - 1));

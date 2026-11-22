@@ -185,7 +185,7 @@ class ScrapeController extends Notifier<ScrapeProgress> {
     final cache = await ref.read(artworkCacheProvider.future);
     final repository = ref.read(libraryRepositoryProvider);
     final activeIndex = mappingIndex ?? await _resolveActiveMappingIndex();
-    final httpClient = createAppTmdbHttpClient(ref, config);
+    final httpClient = await ref.read(appTmdbHttpClientProvider.future);
     final tmdbService = TmdbService(
       httpClient: httpClient,
       artworkCache: cache,

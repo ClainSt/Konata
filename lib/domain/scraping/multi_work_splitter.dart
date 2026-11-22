@@ -185,7 +185,73 @@ abstract final class MultiWorkSplitter {
         return true;
       }
     }
+    // 同目录混放多部独立篇章剧集（如 `弹丸论破3` 内同存 `Mirai Hen 01..12`、`Zetsubou Hen 01..11` 与 `Kibou Hen`）：
+    // 仅当存在至少两部各自从第 1、2 集起编、集号重叠 >= 3 且携带互异显式篇章标识（`hen:`/`stage:`）的非剧场版剧集时自动拆簇，
+    // 严格避开 `S1+S2` 多季合集与同作双语多压制组洗版。
+    if (_hasParallelArcSeriesClusters(folder, preview)) {
+      return true;
+    }
     return false;
+  }
+
+  static bool _hasParallelArcSeriesClusters(
+    String folder,
+    List<SubWorkCluster> preview,
+  ) {
+    final leaf = folder
+        .replaceAll('\\', '/')
+        .split('/')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .lastOrNull;
+    if (leaf != null &&
+        _seasonJoiner.hasMatch(leaf) &&
+        !_explicitJoiner.hasMatch(leaf)) {
+      return false;
+    }
+    final arcSeries =
+        <({String titleNorm, String arcKey, Set<int> eps})>[];
+    for (final c in preview) {
+      if (c.inventory.movieMarker ||
+          c.inventory.shape != WorkShape.series ||
+          c.inventory.episodeCount < 3) {
+        continue;
+      }
+      final eps = c.inventory.episodes;
+      if (!eps.contains(1) || !eps.contains(2)) continue;
+      final arcKey = _extractClusterArcKey(c);
+      if (arcKey == null) continue;
+      final titleNorm = DirectoryAnalyzer.normalize(c.inventory.title);
+      if (titleNorm.isEmpty) continue;
+      arcSeries.add((titleNorm: titleNorm, arcKey: arcKey, eps: eps));
+    }
+    if (arcSeries.length < 2) return false;
+    for (var i = 0; i < arcSeries.length; i++) {
+      for (var j = i + 1; j < arcSeries.length; j++) {
+        final a = arcSeries[i];
+        final b = arcSeries[j];
+        if (a.arcKey == b.arcKey || a.titleNorm == b.titleNorm) continue;
+        if (a.eps.intersection(b.eps).length >= 3) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  static String? _extractClusterArcKey(SubWorkCluster cluster) {
+    for (final candidate in <String>[
+      cluster.virtualFolder,
+      cluster.inventory.title,
+      ...cluster.inventory.fileHints,
+    ]) {
+      final key = _detectPartKey(candidate);
+      if (key != null &&
+          (key.startsWith('hen:') || key.startsWith('stage:'))) {
+        return key;
+      }
+    }
+    return null;
   }
 
   static List<SubWorkCluster> split(

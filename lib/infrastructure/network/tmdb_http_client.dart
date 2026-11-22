@@ -100,11 +100,15 @@ class TmdbHttpClient {
     DomainCooldownRegistry? cooldownRegistry,
     this.primaryTimeout = const Duration(seconds: 3, milliseconds: 500),
     this.backupTimeout = const Duration(seconds: 12),
+    int? maxTransientTransportRetries,
+    this.transientRetryDelay = const Duration(milliseconds: 250),
     DateTime Function()? nowProvider,
     this._systemProxyResolver,
   }) : _scheduler = scheduler ?? PriorityHttpScheduler(),
        _injectedClient = httpClient,
        _cooldown = cooldownRegistry ?? DomainCooldownRegistry(),
+       maxTransientTransportRetries =
+           maxTransientTransportRetries ?? (httpClient == null ? 1 : 0),
        _now = nowProvider ?? DateTime.now;
 
   TmdbNetworkConfig _config;
@@ -119,6 +123,12 @@ class TmdbHttpClient {
 
   /// 备用链路及无备选单链路超时阈值。
   final Duration backupTimeout;
+
+  /// 备用或单链路遇到瞬态 TLS 握手/连接中断时的快速重试次数（超时不重试）。
+  final int maxTransientTransportRetries;
+
+  /// 瞬态传输中断重试前的短暂等待间隔。
+  final Duration transientRetryDelay;
 
   http.Client? _cachedIoClient;
 
@@ -172,6 +182,8 @@ class TmdbHttpClient {
     RequestPriority priority = RequestPriority.background,
     String? dedupeKey,
     String? bucketKey,
+    bool retryOnRateLimit = true,
+    Duration? timeoutOverride,
   }) {
     return _scheduler.schedule<http.Response>(
       priority,
@@ -180,9 +192,11 @@ class TmdbHttpClient {
         primaryUri: primaryUri,
         backupUri: backupUri,
         headers: headers,
+        timeoutOverride: timeoutOverride,
       ),
       dedupeKey: dedupeKey ?? primaryUri.toString(),
       bucketKey: bucketKey,
+      retryOnRateLimit: retryOnRateLimit,
     );
   }
 
@@ -214,6 +228,8 @@ class TmdbHttpClient {
     RequestPriority priority = RequestPriority.background,
     String? dedupeKey,
     String? bucketKey,
+    bool retryOnRateLimit = true,
+    Duration? timeoutOverride,
   }) {
     return _scheduler.schedule<http.Response>(
       priority,
@@ -223,9 +239,11 @@ class TmdbHttpClient {
         backupUri: backupUri,
         headers: headers,
         body: body,
+        timeoutOverride: timeoutOverride,
       ),
       dedupeKey: dedupeKey,
       bucketKey: bucketKey,
+      retryOnRateLimit: retryOnRateLimit,
     );
   }
 
@@ -235,31 +253,38 @@ class TmdbHttpClient {
     required Uri? backupUri,
     required Map<String, String> headers,
     Object? body,
+    Duration? timeoutOverride,
   }) async {
     final effectiveBackup = _usableBackup(primaryUri, backupUri);
+    final effectiveBackupTimeout = timeoutOverride ?? backupTimeout;
+    final effectivePrimaryTimeout =
+        (timeoutOverride != null && timeoutOverride < primaryTimeout)
+        ? timeoutOverride
+        : primaryTimeout;
     if (effectiveBackup == null) {
-      return _sendSingle(
+      return _sendWithTransientRetry(
         method: method,
         uri: primaryUri,
         headers: headers,
         body: body,
-        timeout: backupTimeout,
+        timeout: effectiveBackupTimeout,
       );
     }
 
     if (_cooldown.isCoolingDown(primaryUri.host, _now())) {
       final http.Response viaBackup;
       try {
-        viaBackup = await _sendSingle(
+        viaBackup = await _sendWithTransientRetry(
           method: method,
           uri: effectiveBackup,
           headers: headers,
           body: body,
-          timeout: backupTimeout,
+          timeout: effectiveBackupTimeout,
         );
       } catch (e) {
+        // 备用链路偶发单次 TLS 握手或套接字波动不立即解除主域名冷却，连续多次异常再重新探活主域名，避免整批请求反复卡死在 3.5 秒主链路超时。
         if (_isFallbackTriggerError(e)) {
-          _cooldown.clearHost(primaryUri.host);
+          _cooldown.recordBackupServerError(primaryUri.host);
         }
         rethrow;
       }
@@ -284,17 +309,17 @@ class TmdbHttpClient {
         uri: primaryUri,
         headers: headers,
         body: body,
-        timeout: primaryTimeout,
+        timeout: effectivePrimaryTimeout,
       );
     } catch (e) {
       if (_isFallbackTriggerError(e)) {
         _cooldown.markBlocked(primaryUri.host, _now());
-        return _sendSingle(
+        return _sendWithTransientRetry(
           method: method,
           uri: effectiveBackup,
           headers: headers,
           body: body,
-          timeout: backupTimeout,
+          timeout: effectiveBackupTimeout,
         );
       }
       rethrow;
@@ -302,15 +327,57 @@ class TmdbHttpClient {
     // 主链路返回 5xx 时切向备用地址；备用请求放在 try 之外，其异常直接上抛而不会被上面的回退分支重复处理。
     if (response.statusCode >= 500) {
       _cooldown.markBlocked(primaryUri.host, _now());
-      return _sendSingle(
+      return _sendWithTransientRetry(
         method: method,
         uri: effectiveBackup,
         headers: headers,
         body: body,
-        timeout: backupTimeout,
+        timeout: effectiveBackupTimeout,
       );
     }
     return response;
+  }
+
+  /// 对备用或单链路执行受限瞬态传输重试（仅针对 TLS 握手/连接中断，超时与 429 不重试）。
+  Future<http.Response> _sendWithTransientRetry({
+    required String method,
+    required Uri uri,
+    required Map<String, String> headers,
+    required Duration timeout,
+    Object? body,
+  }) async {
+    var attempt = 0;
+    while (true) {
+      try {
+        return await _sendSingle(
+          method: method,
+          uri: uri,
+          headers: headers,
+          body: body,
+          timeout: timeout,
+        );
+      } catch (error) {
+        if (attempt >= maxTransientTransportRetries ||
+            !_isTransientTransportReset(error)) {
+          rethrow;
+        }
+        attempt++;
+        if (transientRetryDelay > Duration.zero) {
+          await Future<void>.delayed(transientRetryDelay);
+        }
+      }
+    }
+  }
+
+  bool _isTransientTransportReset(Object error) {
+    if (error is RateLimitedHttpException || error is TimeoutException) {
+      return false;
+    }
+    return error is HandshakeException ||
+        error is TlsException ||
+        error is SocketException ||
+        error is HttpException ||
+        error is http.ClientException;
   }
 
   Future<http.Response> _sendSingle({
@@ -874,7 +941,10 @@ class TmdbHttpClient {
     if (_injectedClient != null) return _injectedClient;
     if (_cachedIoClient != null) return _cachedIoClient!;
 
-    final ioClient = HttpClient()..connectionTimeout = backupTimeout;
+    final ioClient = HttpClient()
+      ..connectionTimeout = backupTimeout
+      ..maxConnectionsPerHost = 8
+      ..idleTimeout = const Duration(seconds: 10);
     ioClient.findProxy = _effectiveProxyDirectiveForUri;
     ioClient.connectionFactory = (Uri url, String? proxyHost, int? proxyPort) {
       if (proxyHost != null && proxyPort != null) {

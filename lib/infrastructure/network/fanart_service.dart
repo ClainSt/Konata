@@ -2,6 +2,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:developer' as developer;
 
+import '../../domain/formatting/network_error_sanitizer.dart';
 import '../../domain/models/fanart_models.dart';
 import '../../domain/models/network_config.dart';
 import '../../domain/models/work.dart';
@@ -584,6 +585,11 @@ class FanartService {
         priority: priority,
         dedupeKey: 'fanart:$segment:$targetId:${hasClientKey ? 1 : 0}',
         bucketKey: _fanartBucketKey,
+        // 无状态中继自带频率限流与熔断策略，首次 429 立即转交熔断器短暂停用，避免调度器长时退避拖垮全库刮削。
+        retryOnRateLimit: !isUsingRelay,
+        timeoutOverride: priority == RequestPriority.background
+            ? const Duration(seconds: 5)
+            : null,
       );
       return (
         statusCode: resp.statusCode,
@@ -610,6 +616,12 @@ class FanartService {
         }
       }
       return null;
+    } catch (error) {
+      if (isUsingRelay && NetworkErrorSanitizer.isTransientNetworkError(error)) {
+        _circuitBreaker.recordRelayUnavailable(_now());
+        return null;
+      }
+      rethrow;
     }
   }
 

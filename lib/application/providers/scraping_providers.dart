@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../composition/platform_composition.dart';
 import '../../domain/formatting/network_error_sanitizer.dart';
 import '../../domain/models/media_source.dart';
+import '../../domain/models/media_variant.dart';
 import '../../domain/models/network_config.dart';
 import '../../domain/models/tmdb_models.dart';
 import '../../domain/models/work.dart';
@@ -20,9 +21,11 @@ import '../../infrastructure/scraping/bangumi_tmdb_map_updater.dart';
 import '../../infrastructure/sources/source_gateway_factory.dart';
 import '../../infrastructure/storage/storage_root_provider.dart';
 import '../scraping/clear_logo_resolver.dart';
+import '../scraping/ongoing_work_auto_sync.dart';
 import '../scraping/scrape_orchestrator.dart';
 import '../scraping/scrape_progress.dart';
 import '../scraping/scrape_progress_tracker.dart';
+import '../scraping/work_directory_sync_service.dart';
 import 'library_providers.dart';
 import 'work_merge_actions.dart';
 
@@ -112,6 +115,10 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
   final Ref _ref;
   bool _cancelRequested = false;
   final Set<String> _autoBackfillInFlight = <String>{};
+  final Set<String> _workSyncInFlight = <String>{};
+  final Map<String, DateTime> _lastWorkSyncAt = <String, DateTime>{};
+  DateTime? _lastOngoingAutoSyncAt;
+  bool _ongoingAutoSyncRunning = false;
 
   Future<BangumiTmdbIndex> _resolveActiveMappingIndex({
     bool checkUpdateIfDue = false,
@@ -376,6 +383,136 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
       if (!interactive) {
         _autoBackfillInFlight.remove(workId);
       }
+    }
+  }
+
+  /// 详情页打开或起播发现文件缺失时，对单个作品目录执行轻量静默同步（自动追加新集与清理删集）。
+  Future<SingleWorkSyncResult> syncWorkDirectorySilently(
+    String workId, {
+    bool force = false,
+  }) async {
+    if (state.isRunning) return SingleWorkSyncResult.unchanged;
+    final now = DateTime.now();
+    final lastAt = _lastWorkSyncAt[workId];
+    if (!force &&
+        lastAt != null &&
+        now.difference(lastAt) <
+            OngoingWorkAutoSyncConfig.perWorkDetailSyncCooldown) {
+      return SingleWorkSyncResult.unchanged;
+    }
+    if (!_workSyncInFlight.add(workId)) {
+      return SingleWorkSyncResult.unchanged;
+    }
+    try {
+      final orchestrator = await _buildOrchestrator();
+      final result = await orchestrator.syncSingleWorkDirectory(workId);
+      _lastWorkSyncAt[workId] = DateTime.now();
+      if (result.changed) {
+        _ref.invalidate(workDetailBundleProvider(workId));
+        _ref.invalidate(libraryItemsProvider);
+        _ref.invalidate(worksCountProvider);
+        _ref.invalidate(seriesGroupsProvider);
+        _ref.invalidate(playbackHistoryProvider);
+      }
+      return result;
+    } catch (error) {
+      developer.log(
+        '详情页静默同步作品目录失败，已忽略不影响浏览（workId=$workId）',
+        name: 'konata.scraping_providers',
+        error: error,
+      );
+      return SingleWorkSyncResult.errorSkipped;
+    } finally {
+      _workSyncInFlight.remove(workId);
+    }
+  }
+
+  /// 应用启动与切回前台时对近期追番/活跃作品执行受控后台自动巡检（最多 12 部、10 分钟冷却，防网盘风控）。
+  Future<int> runOngoingWorksAutoSyncIfDue({bool force = false}) async {
+    if (state.isRunning || _ongoingAutoSyncRunning) return 0;
+    final now = DateTime.now();
+    if (!force &&
+        _lastOngoingAutoSyncAt != null &&
+        now.difference(_lastOngoingAutoSyncAt!) <
+            OngoingWorkAutoSyncConfig.minAutoSyncInterval) {
+      return 0;
+    }
+    _ongoingAutoSyncRunning = true;
+    var changedWorks = 0;
+    try {
+      final repository = _ref.read(libraryRepositoryProvider);
+      final sources = await repository.getMediaSources();
+      if (sources.isEmpty) return 0;
+      final works = await repository.getAllWorks();
+      if (works.isEmpty) return 0;
+      final recentPlaybacks = await repository.getPlaybackHistory(limit: 40);
+      final allVariants = await repository.getAllVariants();
+      final episodeSetByWork = <String, Set<String>>{};
+      for (final v in allVariants) {
+        if (v.assetKind != AssetKind.video) continue;
+        final epId = v.episodeId;
+        if (epId == null || epId.isEmpty) continue;
+        episodeSetByWork.putIfAbsent(v.workId, () => <String>{}).add(epId);
+      }
+      final mainCountByWork = <String, int>{
+        for (final e in episodeSetByWork.entries) e.key: e.value.length,
+      };
+      final targetIds = OngoingWorkAutoSyncPlanner.selectCandidateWorkIds(
+        works: works,
+        recentPlaybacks: recentPlaybacks,
+        mainEpisodeCountByWorkId: mainCountByWork,
+        now: now,
+      );
+      if (targetIds.isEmpty) return 0;
+
+      final orchestrator = await _buildOrchestrator();
+      for (var i = 0; i < targetIds.length; i++) {
+        if (state.isRunning) break;
+        final workId = targetIds[i];
+        if (!_workSyncInFlight.add(workId)) continue;
+        try {
+          final res = await orchestrator.syncSingleWorkDirectory(
+            workId,
+            isCancelled: () => state.isRunning,
+          );
+          _lastWorkSyncAt[workId] = DateTime.now();
+          if (res.changed) {
+            changedWorks++;
+            _ref.invalidate(workDetailBundleProvider(workId));
+          }
+        } catch (error) {
+          developer.log(
+            '后台追番自动巡检单作品失败，跳过继续（workId=$workId）',
+            name: 'konata.scraping_providers',
+            error: error,
+          );
+        } finally {
+          _workSyncInFlight.remove(workId);
+        }
+        if (i + 1 < targetIds.length && !state.isRunning) {
+          await Future<void>.delayed(
+            OngoingWorkAutoSyncConfig.betweenWorksPacing,
+          );
+        }
+      }
+
+      if (changedWorks > 0) {
+        _ref.invalidate(libraryItemsProvider);
+        _ref.invalidate(worksCountProvider);
+        _ref.invalidate(seriesGroupsProvider);
+        _ref.invalidate(playbackHistoryProvider);
+      }
+      return changedWorks;
+    } catch (error) {
+      developer.log(
+        '后台追番自动巡检异常，等待下一周期重试',
+        name: 'konata.scraping_providers',
+        error: error,
+      );
+      return changedWorks;
+    } finally {
+      _lastOngoingAutoSyncAt = DateTime.now();
+      _ongoingAutoSyncRunning = false;
     }
   }
 }

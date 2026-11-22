@@ -41,6 +41,9 @@ abstract interface class LibraryRepository {
   /// 在单个批量语句中写入或更新多条物理文件版本记录。
   Future<void> upsertMediaVariantsBatch(List<MediaVariant> variants);
 
+  /// 按 ID 批量删除源目录中已移除的失效物理文件版本记录。
+  Future<void> deleteMediaVariantsBatch(List<String> variantIds);
+
   /// 查询指定作品关联的全部物理文件版本。
   Future<List<MediaVariant>> getVariantsByWork(String workId);
 

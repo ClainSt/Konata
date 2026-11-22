@@ -1375,6 +1375,314 @@ void main() {
       expect(jashinDec.best?.detail.tmdbId, 80713);
       expect(jashinDec.matchedSeason, 2);
     });
+
+    test('第 8 轮通用防退化：TVSP/[SP]+完结篇/fileYear 覆盖伪年份/冒号前主名隔离/Wave4 首词裁剪与跨源互证', () async {
+      // 1) TVSP 识别为载体词与 OVA/SP 标记，准确归入母剧第 0 季。
+      final iseleve = _buildGroupedFolder(
+        folderPath: '乱目录测试/Downloads_042',
+        fileNames: const [
+          '[LoliHouse] Iseleve - TVSP [WebRip 1080p HEVC-10bit AAC].mkv',
+        ],
+      );
+      expect(DirectoryAnalyzer.isOva(iseleve.inventory!), isTrue);
+      const iseleveTmdb = TmdbWorkDetail(
+        tmdbId: 208493,
+        mediaType: TmdbMediaType.tv,
+        title: '在异世界获得超强能力的我',
+        originalTitle: '異世界でチート能力を手にした俺は',
+        aliases: ['Iseleve'],
+        year: 2023,
+        voteCount: 80,
+        genreIds: [16, 10759],
+        seasons: [
+          TmdbSeasonSummary(seasonNumber: 0, name: '特别篇', episodeCount: 1),
+          TmdbSeasonSummary(seasonNumber: 1, name: '第 1 季', episodeCount: 13),
+        ],
+      );
+      final iseleveDec = ScrapeDomainAdapter.evaluateMatch(
+        iseleve,
+        const [iseleveTmdb],
+      );
+      expect(iseleveDec.level, MatchLevel.autoBind);
+      expect(iseleveDec.best?.detail.tmdbId, 208493);
+      expect(iseleveDec.matchedSeason, 0);
+
+      // 2) [SP] 括号标记与 Kanketsuhen 完结篇母系列提取，精准落入母剧第 0 季。
+      final saiki = _buildGroupedFolder(
+        folderPath: '乱目录测试/随便命名的测试目录',
+        fileNames: const [
+          '[BeanSub&FZSD][Saiki_Kusuo_no_Ψ-nan_Kanketsuhen][SP][1080P_Ma10P].mkv',
+        ],
+      );
+      expect(DirectoryAnalyzer.isOva(saiki.inventory!), isTrue);
+      expect(saiki.fileHints, contains('Saiki Kusuo no Ψ-nan'));
+      const saikiTmdb = TmdbWorkDetail(
+        tmdbId: 67676,
+        mediaType: TmdbMediaType.tv,
+        title: '齐木楠雄的灾难',
+        originalTitle: '斉木楠雄のΨ難',
+        aliases: ['Saiki Kusuo no Ψ-nan'],
+        year: 2016,
+        voteCount: 300,
+        genreIds: [16, 35],
+        seasons: [
+          TmdbSeasonSummary(seasonNumber: 0, name: '特别篇', episodeCount: 2),
+          TmdbSeasonSummary(seasonNumber: 1, name: '第 1 季', episodeCount: 24),
+        ],
+      );
+      final saikiDec = ScrapeDomainAdapter.evaluateMatch(
+        saiki,
+        const [saikiTmdb],
+      );
+      expect(saikiDec.level, MatchLevel.autoBind);
+      expect(saikiDec.best?.detail.tmdbId, 67676);
+      expect(saikiDec.matchedSeason, 0);
+
+      // 3) 乱目录携带伪年份 (2026) 时仍提取文件名真实发行年份 (1988)，检索与打分均以文件年份为准。
+      final seiya = _buildGroupedFolder(
+        folderPath: '乱目录测试/阿伟推荐的神作2 (2026)',
+        fileNames: const [
+          '[Kagura] Saint Seiya the Movie 2 - Kamigami no Atsuki Tatakai (1988) [BDRip 1080p].mkv',
+        ],
+      );
+      expect(seiya.inventory!.fileYear, 1988);
+      expect(ScrapeDomainAdapter.extractSearchYear(seiya), 1988);
+      const seiyaMovie = TmdbWorkDetail(
+        tmdbId: 83091,
+        mediaType: TmdbMediaType.movie,
+        title: '圣斗士星矢：众神的激战',
+        originalTitle: '聖闘士星矢 神々の熱き戦い',
+        aliases: [
+          'Saint Seiya: Kamigami no Atsuki Tatakai',
+          "I Cavalieri Dello Zodiaco - Movie II - L'Ardente Scontro degli Dei",
+        ],
+        year: 1988,
+        voteCount: 180,
+        genreIds: [16, 28],
+      );
+      final seiyaDec = ScrapeDomainAdapter.evaluateMatch(
+        seiya,
+        const [seiyaMovie],
+      );
+      expect(seiyaDec.level, MatchLevel.autoBind);
+      expect(seiyaDec.best?.detail.tmdbId, 83091);
+
+      // 4) 冒号前主片名加分严格隔离：唯一动画候选可升格，存在无副标正主时绝不抬高副标衍生作压低分差。
+      final magia = _buildGroupedFolder(
+        folderPath: '乱目录测试/BDMV_1080p_x265_FLAC',
+        fileNames: [
+          for (var i = 1; i <= 13; i++)
+            '[VCB-Studio] Magia Record [${i.toString().padLeft(2, '0')}][1080p].mkv',
+        ],
+      );
+      const magiaTv = TmdbWorkDetail(
+        tmdbId: 94523,
+        mediaType: TmdbMediaType.tv,
+        title: '魔法纪录 魔法少女小圆外传',
+        originalTitle: 'マギアレコード 魔法少女まどか☆マギカ外伝',
+        aliases: ['Magia Record: Mahō Shōjo Madoka Magica Gaiden'],
+        year: 2020,
+        voteCount: 60,
+        genreIds: [16, 18],
+        seasons: [
+          TmdbSeasonSummary(seasonNumber: 1, name: '第 1 季', episodeCount: 13),
+        ],
+      );
+      const liveNoise = TmdbWorkDetail(
+        tmdbId: 204490,
+        mediaType: TmdbMediaType.tv,
+        title: 'Criminal Record',
+        originalTitle: 'Criminal Record',
+        year: 2024,
+        voteCount: 90,
+        genreIds: [80, 18],
+        seasons: [
+          TmdbSeasonSummary(seasonNumber: 1, name: '第 1 季', episodeCount: 8),
+        ],
+      );
+      final magiaDec = ScrapeDomainAdapter.evaluateMatch(
+        magia,
+        const [magiaTv, liveNoise],
+      );
+      expect(magiaDec.level, MatchLevel.autoBind);
+      expect(magiaDec.best?.detail.tmdbId, 94523);
+      expect(magiaDec.matchedSeason, 1);
+
+      // 无副标正主与带冒号副标同台竞争时，正主必须保持充足领先分差自动绑定。
+      final mfkz = _buildGroupedFolder(
+        folderPath: '乱目录测试/新建文件夹 (3)',
+        fileNames: const ['[VCB-Studio] Mutafukaz [Ma10p_1080p].mkv'],
+      );
+      const mfkzMain = TmdbWorkDetail(
+        tmdbId: 461615,
+        mediaType: TmdbMediaType.movie,
+        title: '外星人狙击战',
+        originalTitle: 'Mutafukaz',
+        aliases: ['Mutafukaz'],
+        year: 2018,
+        voteCount: 450,
+        genreIds: [16, 28],
+      );
+      const mfkzSub = TmdbWorkDetail(
+        tmdbId: 621926,
+        mediaType: TmdbMediaType.movie,
+        title: 'Mutafukaz : Operation Blackhead',
+        originalTitle: 'Mutafukaz : Operation Blackhead',
+        aliases: ['Mutafukaz : Operation Blackhead'],
+        year: 2014,
+        voteCount: 20,
+        genreIds: [16],
+      );
+      final mfkzDec = ScrapeDomainAdapter.evaluateMatch(
+        mfkz,
+        const [mfkzMain, mfkzSub],
+      );
+      expect(mfkzDec.level, MatchLevel.autoBind);
+      expect(mfkzDec.best?.detail.tmdbId, 461615);
+
+      // 5) 含续作序号文件不被第 2 集误截断且正确命中续季 S2。
+      final ddHokuto = _buildGroupedFolder(
+        folderPath: '乱目录测试/周末补番_硬盘A组',
+        fileNames: [
+          for (var i = 1; i <= 12; i++)
+            '[HorribleSubs] DD Hokuto no Ken 2 - Ichigo Aji+ - ${i.toString().padLeft(2, '0')} [1080p].mkv',
+        ],
+      );
+      expect(ddHokuto.fileHints, ['DD Hokuto no Ken 2 - Ichigo Aji+']);
+      const ddTv = TmdbWorkDetail(
+        tmdbId: 130728,
+        mediaType: TmdbMediaType.tv,
+        title: 'DD北斗神拳',
+        originalTitle: 'DD北斗の拳',
+        aliases: ['DD Hokuto no Ken 2: Ichigo Aji+', 'DD Hokuto no Ken'],
+        year: 2013,
+        voteCount: 18,
+        genreIds: [16, 35],
+        seasons: [
+          TmdbSeasonSummary(seasonNumber: 1, name: '本篇', episodeCount: 26),
+          TmdbSeasonSummary(seasonNumber: 2, name: '草莓味+', episodeCount: 36),
+        ],
+      );
+      final ddDec = ScrapeDomainAdapter.evaluateMatch(ddHokuto, const [ddTv]);
+      expect(ddDec.level, MatchLevel.autoBind);
+      expect(ddDec.best?.detail.tmdbId, 130728);
+      expect(ddDec.matchedSeason, 2);
+
+      // 6) 高占比假名覆盖免除单处片假名外来词误罚（快盗天使 Twin Angel OVA -> S0）。
+      final rSim = TitleNormalizer.romajiKanaSimilarity(
+        'Kaitou Tenshi Twin Angel Kyun Kyun Tokimeki Paradise!!',
+        '快盗天使ツインエンジェル 〜キュンキュン☆ときめきパラダイス!!〜',
+      );
+      expect(rSim, greaterThanOrEqualTo(0.74));
+
+      // 7) 简写文件名五重守卫唯一动画候选跨源互证（Maou Gun -> tv:248951 S1）。
+      final maouGun = _buildGroupedFolder(
+        folderPath: '乱目录测试/【高清蓝光】我的动画收藏合集',
+        fileNames: [
+          for (var i = 1; i <= 12; i++)
+            '[Judas] Maou Gun - S01E${i.toString().padLeft(2, '0')}.mkv',
+        ],
+      );
+      const maouTmdb = TmdbWorkDetail(
+        tmdbId: 248951,
+        mediaType: TmdbMediaType.tv,
+        title: '魔王军最强的魔术师是人类',
+        originalTitle: '魔王軍最強の魔術師は人間だった',
+        aliases: ['Maou Gun Saikyou no Majutsushi wa Ningen datta'],
+        year: 2024,
+        voteCount: 40,
+        genreIds: [16, 10759],
+        seasons: [
+          TmdbSeasonSummary(seasonNumber: 1, name: '第 1 季', episodeCount: 12),
+        ],
+      );
+      const maouBgm = BangumiSubjectCandidate(
+        id: 475933,
+        name: '魔王軍最強の魔術師は人間だった',
+        nameCn: '魔王军最强的魔术师是人类',
+        aliases: ['Maou Gun Saikyou no Majutsushi wa Ningen datta'],
+        year: 2024,
+        totalEpisodes: 12,
+        platform: 'TV',
+      );
+      final maouMap = BangumiTmdbIndex.fromBytes(
+        BangumiTmdbIndex.encode(
+          const [
+            BangumiTmdbRecord(
+              bangumiId: 475933,
+              type: TmdbMediaType.tv,
+              tmdbId: 248951,
+              season: 1,
+            ),
+          ],
+          snapshotDateYyyymmdd: 20261121,
+        ),
+      );
+      final maouDec = ScrapeDomainAdapter.evaluateMatch(
+        maouGun,
+        const [maouTmdb],
+        bangumiCandidates: const [maouBgm],
+        mappingIndex: maouMap,
+      );
+      expect(maouDec.level, MatchLevel.autoBind);
+      expect(maouDec.best?.detail.tmdbId, 248951);
+      expect(maouDec.matchedSeason, 1);
+
+      // 8) Wave 4 零召回首词裁剪回退（合体首词 / 续作前置词零命中时自动裁去首词召回）。
+      final wave4Queries = <String>[];
+      final fakeWave4 = _RecordingTmdbService(
+        onSearch: (query, year, lang) {
+          wave4Queries.add(query);
+          if (query == 'Mamotte Shugogetten') {
+            return const [
+              TmdbSearchResult(
+                tmdbId: 24019,
+                mediaType: TmdbMediaType.tv,
+                title: '守护月天',
+                year: 1998,
+                genreIds: [16, 35],
+              ),
+            ];
+          }
+          return const [];
+        },
+        details: const {
+          'tv:24019': TmdbWorkDetail(
+            tmdbId: 24019,
+            mediaType: TmdbMediaType.tv,
+            title: '守护月天',
+            originalTitle: 'まもって守護月天!',
+            aliases: ['Mamotte Shugogetten'],
+            year: 1998,
+            voteCount: 30,
+            genreIds: [16, 35],
+            seasons: [
+              TmdbSeasonSummary(seasonNumber: 1, name: '第 1 季', episodeCount: 22),
+              TmdbSeasonSummary(seasonNumber: 2, name: '第 2 季', episodeCount: 8),
+            ],
+          ),
+        },
+      );
+      final denshin = _buildGroupedFolder(
+        folderPath: '乱目录测试/周末补番_硬盘A组',
+        fileNames: [
+          for (var i = 1; i <= 8; i++)
+            '[SFEO-Raws] Denshin Mamotte Shugogetten - ${i.toString().padLeft(2, '0')} (BD 1080P).mkv',
+        ],
+      );
+      final wave4Details = await ScrapeCandidateFetcher(
+        fakeWave4,
+      ).fetchCandidateDetails(denshin);
+      expect(wave4Queries, contains('Mamotte Shugogetten'));
+      expect(wave4Details.map((d) => d.tmdbId), contains(24019));
+      final denshinDec = ScrapeDomainAdapter.evaluateMatch(
+        denshin,
+        wave4Details,
+      );
+      expect(denshinDec.level, MatchLevel.autoBind);
+      expect(denshinDec.best?.detail.tmdbId, 24019);
+      expect(denshinDec.matchedSeason, 2);
+    });
   });
 }
 

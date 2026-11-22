@@ -1076,10 +1076,21 @@ abstract final class ScrapeDomainAdapter {
   }
 
   /// 提取高置信度目录括号年份提示（用于 TMDB 首波精确年份检索）；
-  /// 当目录分析器已主动清空通用乱目录伪年份时不再从路径中强行复活该伪年份。
+  /// 当目录分析器已主动清空通用乱目录伪年份时不再从路径中强行复活该伪年份；
+  /// 当目录名与文件主干显著偏离且文件自身携带一致发行年份时，优先采用文件年份。
   static int? extractSearchYear(GroupedWorkFolder folder) {
-    if (folder.inventory != null && folder.inventory!.year == null) {
+    final inv = folder.inventory;
+    if (inv != null && inv.year == null) {
       return null;
+    }
+    if (inv != null && inv.fileYear != null && inv.fileHints.isNotEmpty) {
+      final sim = legacy.WorkMatcher.similarity(
+        DirectoryAnalyzer.normalize(inv.title),
+        DirectoryAnalyzer.normalize(inv.fileHints.first),
+      );
+      if (sim < 0.45) {
+        return inv.fileYear;
+      }
     }
     final physPath = (folder.physicalRootFolder ?? folder.folderRelativePath)
         .replaceAll('\\', '/');
@@ -1247,13 +1258,35 @@ abstract final class ScrapeDomainAdapter {
               bgmPlatform == 'OAD' ||
               (inv.shape == WorkShape.feature &&
                   (isBgmMovie || (bgmEps > 0 && bgmEps <= 2))));
+      final isExactSpecialOrOna =
+          bgmScored.score >= 45.0 &&
+          bgmTitlePts >= 36.0 &&
+          inv.parentFolderTmdbId == null &&
+          (bgmPlatform == 'WEB' ||
+              bgmPlatform == 'OVA' ||
+              bgmPlatform == 'OAD' ||
+              bgmPlatform == 'ONA') &&
+          inv.shape == WorkShape.series &&
+          inv.episodeCount > 0 &&
+          inv.episodeCount <= 12 &&
+          bgmEps == inv.episodeCount;
+      final isMultiPartMovie =
+          bgmTitleTrustworthy &&
+          isBgmMovie &&
+          inv.shape == WorkShape.series &&
+          inv.episodeCount > 0 &&
+          inv.episodeCount <= 4 &&
+          bgmEps == inv.episodeCount;
       final seqMatch = RegExp(r'(?<!\d)([2-9])(?!\d)').firstMatch(inv.title);
       final localSeqDigit = seqMatch?.group(1);
       final isSequelCorroboratedTv =
           localSeqDigit != null &&
           bgmSubj.displayTitle.contains(localSeqDigit) &&
           inv.shape == WorkShape.series;
-      if (isSpecialLocalOrBgm || isSequelCorroboratedTv) {
+      if (isSpecialLocalOrBgm ||
+          isExactSpecialOrOna ||
+          isMultiPartMovie ||
+          isSequelCorroboratedTv) {
         mappedTargets = bangumiMappedTmdbTargets(
           bgmSubj,
           eligibleMappedKeys,
@@ -1262,15 +1295,26 @@ abstract final class ScrapeDomainAdapter {
             .where((t) {
               final detail = byKey[t.key];
               if (detail == null || !detail.genreIds.contains(16)) return false;
-              if (isSpecialLocalOrBgm &&
+              if ((isSpecialLocalOrBgm || isExactSpecialOrOna) &&
                   t.type == TmdbMediaType.tv &&
                   t.season == 0) {
+                if (isExactSpecialOrOna &&
+                    !detail.seasons.any(
+                      (s) =>
+                          s.seasonNumber == 0 &&
+                          s.episodeCount >= inv.episodeCount,
+                    )) {
+                  return false;
+                }
                 return true;
               }
-              if (isSpecialLocalOrBgm &&
+              if ((isSpecialLocalOrBgm || isMultiPartMovie) &&
                   t.type == TmdbMediaType.movie &&
-                  inv.shape == WorkShape.feature &&
-                  (isBgmMovie || bgmPlatform == 'OVA' || bgmPlatform == 'OAD')) {
+                  (isMultiPartMovie ||
+                      (inv.shape == WorkShape.feature &&
+                          (isBgmMovie ||
+                              bgmPlatform == 'OVA' ||
+                              bgmPlatform == 'OAD')))) {
                 return true;
               }
               if (isSequelCorroboratedTv &&
@@ -1281,6 +1325,87 @@ abstract final class ScrapeDomainAdapter {
               return false;
             })
             .toList(growable: false);
+      }
+    }
+    // 强跨源唯一动画候选互证：当 TMDB 候选池仅含 1 个动画 TV 候选、本地多集片名（>= 2 词）
+    // 为其别名的词边界前缀、Bangumi 首选显著领先次名（>= 20 分）且双库集数完全一致、
+    // 且离线映射表精确指向该唯一 TMDB 条目与季号时，采纳该跨源映射锚定（如简写压制名）。
+    if (mappedTargets.isEmpty &&
+        inv.shape == WorkShape.series &&
+        inv.episodeCount >= 6 &&
+        bgmEval.topCandidates.isNotEmpty) {
+      final animTvs = byKey.values
+          .where(
+            (d) =>
+                d.mediaType == TmdbMediaType.tv &&
+                d.genreIds.contains(16) &&
+                (d.voteCount ?? 1) > 0,
+          )
+          .toList(growable: false);
+      final bgmTop = bgmEval.topCandidates.first;
+      final bgmSecondScore = bgmEval.topCandidates.length >= 2
+          ? bgmEval.topCandidates[1].score
+          : 0.0;
+      if (animTvs.length == 1 &&
+          bgmTop.score >= 34.0 &&
+          bgmTop.score - bgmSecondScore >= 20.0 &&
+          bgmTop.subject.totalEpisodes == inv.episodeCount) {
+        final soleTv = animTvs.single;
+        final soleKey = _detailKey(soleTv);
+        final localPrefixSeeds = <String>[
+          inv.title,
+          ...inv.fileHints.take(1),
+        ]
+            .map(
+              (s) => s
+                  .toLowerCase()
+                  .replaceAll(RegExp(r'[^a-z0-9\u3040-\u9fff]+'), ' ')
+                  .trim(),
+            )
+            .where((s) => s.length >= 6 && s.split(' ').length >= 2)
+            .toList(growable: false);
+        final candNormSpaced = <String>[
+          soleTv.title,
+          if (soleTv.originalTitle != null) soleTv.originalTitle!,
+          ...soleTv.aliases,
+        ]
+            .map(
+              (s) => s
+                  .toLowerCase()
+                  .replaceAll(RegExp(r'[^a-z0-9\u3040-\u9fff]+'), ' ')
+                  .trim(),
+            )
+            .where((s) => s.isNotEmpty)
+            .toList(growable: false);
+        final isWordPrefix = localPrefixSeeds.any(
+          (lp) => candNormSpaced.any(
+            (cn) =>
+                cn == lp ||
+                cn.startsWith('$lp ') ||
+                (cn.length >= 10 &&
+                    cn.split(' ').length >= 2 &&
+                    lp.endsWith(' $cn')),
+          ),
+        );
+        if (isWordPrefix) {
+          final corroborated = bangumiMappedTmdbTargets(
+            bgmTop.subject,
+            eligibleMappedKeys,
+            mappingIndex: mappingIndex,
+          ).where((t) {
+            if (t.key != soleKey || t.season == null || t.season! <= 0) {
+              return false;
+            }
+            return soleTv.seasons.any(
+              (s) =>
+                  s.seasonNumber == t.season &&
+                  s.episodeCount == inv.episodeCount,
+            );
+          }).toList(growable: false);
+          if (corroborated.isNotEmpty) {
+            mappedTargets = corroborated;
+          }
+        }
       }
     }
     final mappedKeys = {

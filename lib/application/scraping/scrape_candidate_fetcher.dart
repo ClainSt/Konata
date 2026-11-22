@@ -446,7 +446,8 @@ class ScrapeCandidateFetcher {
       await collectWave(queries.take(3), language: 'ja-JP', cap: 12);
     }
 
-    // Wave 4（零召回兜底）：前 3 波均彻底零召回时，先对多词英文/罗马音查询逐级裁去尾部外传/版本词，
+    // Wave 4（零召回兜底）：前 3 波均彻底零召回时，先对多词英文/罗马音查询逐级裁去尾部外传/版本词
+    // 或首部前缀词（如合体首词/副标前置词 `Denshin Mamotte Shugogetten` -> `Mamotte Shugogetten`），
     // 仍零召回且短集数（<=4 集）曾锁定仅搜 TV 时，再放开电影检索一次（如分篇剧场版）。
     // 正常已有候选的作品完全零开销。
     if (!networkAborted && candidatesMap.isEmpty) {
@@ -466,9 +467,21 @@ class ScrapeCandidateFetcher {
             trimmedFallbacks.add(cand);
           }
         }
+        final headDropped = tokens.skip(1).join(' ').trim();
+        if (headDropped.length >= 8 &&
+            seenTrim.add(headDropped.toLowerCase())) {
+          trimmedFallbacks.add(headDropped);
+        }
       }
       if (trimmedFallbacks.isNotEmpty) {
-        await collectWave(trimmedFallbacks.take(4), cap: 8);
+        await collectWave(trimmedFallbacks.take(6), cap: 8);
+        if (!networkAborted && candidatesMap.isEmpty) {
+          await collectWave(
+            trimmedFallbacks.take(3),
+            language: 'en-US',
+            cap: 8,
+          );
+        }
       }
       if (!networkAborted &&
           candidatesMap.isEmpty &&

@@ -578,7 +578,10 @@ class TitleNormalizer {
 
     var remoteCovered = 0;
     var uncoveredDistinctiveRemote = 0;
+    var coveredKanaChars = 0;
+    var totalKanaChars = 0;
     for (final wfItem in target.wordFolds) {
+      totalKanaChars += wfItem.folded.length;
       final hit = localTokens.any(
         (lt) => phoneticTokenCovered(
           lt,
@@ -589,6 +592,7 @@ class TitleNormalizer {
       );
       if (hit) {
         remoteCovered++;
+        coveredKanaChars += wfItem.folded.length;
       } else if (wfItem.folded.length >= 4) {
         uncoveredDistinctiveRemote++;
       }
@@ -604,8 +608,17 @@ class TitleNormalizer {
         0.24 * alignment +
         0.22 * (skelDice > foldDice ? skelDice : foldDice);
     // 当远程片名包含本地未覆盖的显著假名副标题词时按未覆盖数衰减，避免同系列兄弟作（如两部特别篇）
-    // 仅凭共享主标题假名互相抵消分差；反之假名全覆盖且本地覆盖度高时给予上限微增。
-    if (uncoveredDistinctiveRemote > 0 && remoteRatio < 0.70) {
+    // 仅凭共享主标题假名互相抵消分差；若已覆盖 >= 4 个拉丁词且覆盖 >= 65% 假名音长（仅余 1 处
+    // 外来语片假名拼写差异如 `ツインエンジェル`），则免除单段惩罚；假名全覆盖且覆盖度高时给予微增。
+    final dominantKanaCoverage =
+        uncoveredDistinctiveRemote == 1 &&
+        covered >= 4 &&
+        remoteCovered >= 2 &&
+        totalKanaChars > 0 &&
+        coveredKanaChars * 100 >= totalKanaChars * 65;
+    if (uncoveredDistinctiveRemote > 0 &&
+        remoteRatio < 0.70 &&
+        !dominantKanaCoverage) {
       score -= 0.14 * uncoveredDistinctiveRemote;
       if (score < 0) score = 0;
     } else if (uncoveredDistinctiveRemote == 0 &&

@@ -141,8 +141,12 @@ class BangumiTmdbMapUpdater {
     );
 
     String? lastFailure;
+    final orderedMirrors = _prioritizeLastMirror(
+      _mirrorBases,
+      current.lastMirrorBase,
+    );
     try {
-      for (final rawBase in _mirrorBases) {
+      for (final rawBase in orderedMirrors) {
         final base = rawBase.trim().replaceAll(RegExp(r'/+$'), '');
         if (base.isEmpty) continue;
         final remaining = deadline.difference(_now());
@@ -180,7 +184,10 @@ class BangumiTmdbMapUpdater {
             final manifestUri = Uri.parse('$base/${cand.manifestFile}');
             final mirrorKey =
                 cand.channel == 'v2' ? '$base#v2' : base;
-            final headers = <String, String>{'Accept': 'application/json'};
+            final headers = <String, String>{
+              'Accept': 'application/json',
+              'Accept-Encoding': 'gzip',
+            };
             final canSendEtag =
                 current.etag != null &&
                 current.etag!.isNotEmpty &&
@@ -287,7 +294,10 @@ class BangumiTmdbMapUpdater {
           final binResp = await downloadClient
               .get(
                 binUri,
-                headers: const {'Accept': 'application/octet-stream'},
+                headers: const {
+                  'Accept': 'application/octet-stream',
+                  'Accept-Encoding': 'gzip',
+                },
                 priority: RequestPriority.interactive,
               )
               .timeout(downloadTimeout);
@@ -574,6 +584,33 @@ class BangumiTmdbMapUpdater {
         error: error,
       );
     }
+  }
+
+  /// 将上次校验成功的镜像置顶，减少弱网环境下重复等待首节点超时的耗时。
+  static List<String> _prioritizeLastMirror(
+    List<String> mirrors,
+    String? lastMirrorKey,
+  ) {
+    if (lastMirrorKey == null || lastMirrorKey.trim().isEmpty) {
+      return mirrors;
+    }
+    final preferredBase = lastMirrorKey
+        .split('#')
+        .first
+        .trim()
+        .replaceAll(RegExp(r'/+$'), '');
+    if (preferredBase.isEmpty) return mirrors;
+    final prioritized = <String>[];
+    final rest = <String>[];
+    for (final raw in mirrors) {
+      final norm = raw.trim().replaceAll(RegExp(r'/+$'), '');
+      if (norm == preferredBase) {
+        prioritized.add(raw);
+      } else {
+        rest.add(raw);
+      }
+    }
+    return prioritized.isEmpty ? mirrors : [...prioritized, ...rest];
   }
 
   static _ParsedManifest? _parseManifest(List<int> bodyBytes) {

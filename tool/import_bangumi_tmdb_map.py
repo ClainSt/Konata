@@ -21,6 +21,7 @@ import csv
 import datetime
 import hashlib
 import json
+import os
 import re
 import struct
 import sys
@@ -40,10 +41,16 @@ RECORD_SIZE_V2 = 16
 FLAG_WIKIDATA = 1 << 0
 FLAG_OPEN_ANI = 1 << 1
 FLAG_ANIME_LISTS_TVDB = 1 << 2
+FLAG_ANIME_LISTS_MAP = 1 << 3
+FLAG_BANGUMI_DATA = 1 << 4
 MOVIE_BIT = 0x80000000
 MAX_TMDB_ID = 0x7FFFFFFF
 ANIME_LISTS_URL = (
     'https://raw.githubusercontent.com/Fribb/anime-lists/master/anime-list-full.json'
+)
+BANGUMI_DATA_URLS = (
+    'https://cdn.jsdelivr.net/npm/bangumi-data@0.3/dist/data.json',
+    'https://unpkg.com/bangumi-data@0.3/dist/data.json',
 )
 
 TEMPLATE = '''// 由 tool/import_bangumi_tmdb_map.py 自动生成，请勿手动修改映射表。
@@ -128,24 +135,35 @@ def fetch_latest_open_ani() -> tuple[bytes, dict]:
         'User-Agent': 'Konata-Mapping-Builder/1.0',
         'Accept': 'application/vnd.github+json',
     }
-    req = urllib.request.Request(
-        'https://api.github.com/repos/open-ani/bangumi-tmdb/releases/latest',
-        headers=headers,
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        release = json.loads(resp.read().decode('utf-8'))
-    assets = {a['name']: a['browser_download_url'] for a in release.get('assets', [])}
-    if 'manifest.json' not in assets or 'subjects.json' not in assets:
-        raise RuntimeError('上游 open-ani/bangumi-tmdb Release 缺少 manifest.json 或 subjects.json')
+    token = os.environ.get('GITHUB_TOKEN') or os.environ.get('GH_TOKEN')
+    if token:
+        headers['Authorization'] = f'Bearer {token.strip()}'
 
     def download(url: str) -> bytes:
         r = urllib.request.Request(url, headers={'User-Agent': 'Konata-Mapping-Builder/1.0'})
         with urllib.request.urlopen(r, timeout=60) as f:
             return f.read()
 
-    manifest_bytes = download(assets['manifest.json'])
+    manifest_url = 'https://github.com/open-ani/bangumi-tmdb/releases/latest/download/manifest.json'
+    subjects_url = 'https://github.com/open-ani/bangumi-tmdb/releases/latest/download/subjects.json'
+    try:
+        req = urllib.request.Request(
+            'https://api.github.com/repos/open-ani/bangumi-tmdb/releases/latest',
+            headers=headers,
+        )
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            release = json.loads(resp.read().decode('utf-8'))
+        assets = {a['name']: a['browser_download_url'] for a in release.get('assets', [])}
+        if 'manifest.json' in assets and 'subjects.json' in assets:
+            manifest_url = assets['manifest.json']
+            subjects_url = assets['subjects.json']
+    except Exception:
+        # 匿名访问 GitHub REST API 触发 403 限流时，自动回退免配额的 latest/download 直链。
+        pass
+
+    manifest_bytes = download(manifest_url)
     manifest = json.loads(manifest_bytes.decode('utf-8'))
-    subjects_bytes = download(assets['subjects.json'])
+    subjects_bytes = download(subjects_url)
     expected_sha = (manifest.get('files', {}).get('subjects.json') or {}).get('sha256')
     actual_sha = hashlib.sha256(subjects_bytes).hexdigest()
     if expected_sha and actual_sha != expected_sha:
@@ -153,15 +171,159 @@ def fetch_latest_open_ani() -> tuple[bytes, dict]:
     return subjects_bytes, manifest
 
 
-def fetch_anime_lists_tvdb() -> tuple[dict[int, int], dict[int, int]]:
-    """拉取 Fribb/anime-lists（MIT）提取 TheTVDB 剧集 ID 辅助映射（按 TMDB TV ID 与 Bangumi ID 双索引）。"""
+def fetch_bangumi_data_json() -> dict:
+    """拉取开源社区 bangumi-data（MIT）最新全量快照（多 CDN 自动回退）。"""
+    last_err: Exception | None = None
+    for url in BANGUMI_DATA_URLS:
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={'User-Agent': 'Konata-Mapping-Builder/1.0'},
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return json.loads(resp.read().decode('utf-8'))
+        except Exception as err:
+            last_err = err
+    raise RuntimeError(f'无法拉取 bangumi-data 快照: {last_err}')
+
+
+def parse_bangumi_data_bridge(
+    bangumi_data_doc: object,
+    anime_lists_items: object = None,
+) -> tuple[dict[int, list[tuple[str, int, int, int]]], dict[int, int]]:
+    """融合 bangumi-data（MIT）与 Fribb/anime-lists（MIT），提取补充 Bangumi→TMDB(含季号) 与额外 TVDB ID。
+
+    返回 `(bgm_targets, extra_tvdb_by_bgm)`：
+    - `bgm_targets[bgm_id]` 元素为 `(media_type, tmdb_id, season, source_flag)`，`season == -1` 表示未知；
+    - `extra_tvdb_by_bgm[bgm_id]` 为经 `mal`/`aniList`/`anidb` 桥接回填的 TheTVDB 剧集 ID。
+    """
+    al_by_mal: dict[int, dict] = {}
+    al_by_anilist: dict[int, dict] = {}
+    al_by_anidb: dict[int, dict] = {}
+    if isinstance(anime_lists_items, list):
+        for it in anime_lists_items:
+            if not isinstance(it, dict):
+                continue
+            mal = _parse_positive_int(it.get('mal_id'))
+            ani = _parse_positive_int(it.get('anilist_id'))
+            adb = _parse_positive_int(it.get('anidb_id'))
+            if mal is not None and mal not in al_by_mal:
+                al_by_mal[mal] = it
+            if ani is not None and ani not in al_by_anilist:
+                al_by_anilist[ani] = it
+            if adb is not None and adb not in al_by_anidb:
+                al_by_anidb[adb] = it
+
+    bgm_targets: dict[int, list[tuple[str, int, int, int]]] = {}
+    extra_tvdb_by_bgm: dict[int, int] = {}
+    if not isinstance(bangumi_data_doc, dict):
+        return bgm_targets, extra_tvdb_by_bgm
+
+    items = bangumi_data_doc.get('items')
+    if not isinstance(items, list):
+        return bgm_targets, extra_tvdb_by_bgm
+
+    tmdb_path_re = re.compile(
+        r'^(tv|movie)/(\d+)(?:/season/(\d+))?$',
+        re.IGNORECASE,
+    )
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        sites_raw = item.get('sites')
+        if not isinstance(sites_raw, list):
+            continue
+        sites: dict[str, str] = {}
+        for s in sites_raw:
+            if isinstance(s, dict) and s.get('site') and s.get('id') is not None:
+                sites[str(s['site'])] = str(s['id']).strip()
+        bgm_id = _parse_positive_int(sites.get('bangumi'))
+        if bgm_id is None:
+            continue
+
+        al_rec: dict | None = None
+        for key, table in (('mal', al_by_mal), ('aniList', al_by_anilist), ('anidb', al_by_anidb)):
+            ext_id = _parse_positive_int(sites.get(key))
+            if ext_id is not None and ext_id in table:
+                al_rec = table[ext_id]
+                break
+
+        if al_rec is not None:
+            tvdb_val = _parse_positive_int(al_rec.get('tvdb_id')) or _parse_positive_int(
+                al_rec.get('thetvdb_id')
+            )
+            if tvdb_val is not None and bgm_id not in extra_tvdb_by_bgm:
+                extra_tvdb_by_bgm[bgm_id] = tvdb_val
+
+        # 优先采用 bangumi-data 直接给出的 `tv/<id>(/season/<n>)` 或 `movie/<id>`。
+        tmdb_str = sites.get('tmdb', '')
+        m = tmdb_path_re.match(tmdb_str)
+        if m:
+            media_type = m.group(1).lower()
+            tmdb_id = int(m.group(2))
+            season = int(m.group(3)) if m.group(3) is not None else -1
+            if 0 < tmdb_id <= MAX_TMDB_ID:
+                season_clean = season if 0 <= season <= 32767 else -1
+                bgm_targets.setdefault(bgm_id, []).append(
+                    (media_type, tmdb_id, season_clean, FLAG_BANGUMI_DATA)
+                )
+            continue
+
+        # 次选通过 mal/aniList/anidb 桥接 Fribb/anime-lists 的 themoviedb_id 与 season.tmdb。
+        if al_rec is not None:
+            tf = al_rec.get('themoviedb_id')
+            raw_type = str(al_rec.get('type') or '').strip().upper()
+            season_obj = al_rec.get('season')
+            tmdb_season = (
+                _parse_positive_int(season_obj.get('tmdb'))
+                if isinstance(season_obj, dict)
+                else None
+            )
+            season_clean = tmdb_season if tmdb_season is not None and tmdb_season <= 32767 else -1
+            if isinstance(tf, dict):
+                tv_id = _parse_positive_int(tf.get('tv'))
+                mv_id = _parse_positive_int(tf.get('movie'))
+                if tv_id is not None and tv_id <= MAX_TMDB_ID:
+                    bgm_targets.setdefault(bgm_id, []).append(
+                        ('tv', tv_id, season_clean, FLAG_ANIME_LISTS_MAP)
+                    )
+                if mv_id is not None and mv_id <= MAX_TMDB_ID:
+                    bgm_targets.setdefault(bgm_id, []).append(
+                        ('movie', mv_id, -1, FLAG_ANIME_LISTS_MAP)
+                    )
+            else:
+                scalar = _parse_positive_int(tf)
+                if scalar is not None and scalar <= MAX_TMDB_ID:
+                    media_type = 'movie' if raw_type == 'MOVIE' else 'tv'
+                    bgm_targets.setdefault(bgm_id, []).append(
+                        (media_type, scalar, -1 if media_type == 'movie' else season_clean, FLAG_ANIME_LISTS_MAP)
+                    )
+
+    return bgm_targets, extra_tvdb_by_bgm
+
+
+def fetch_anime_lists_raw() -> list:
+    """拉取 Fribb/anime-lists（MIT）原始 JSON 列表。"""
     req = urllib.request.Request(
         ANIME_LISTS_URL,
         headers={'User-Agent': 'Konata-Mapping-Builder/1.0'},
     )
     with urllib.request.urlopen(req, timeout=60) as resp:
         raw = json.loads(resp.read().decode('utf-8'))
-    return parse_anime_lists_tvdb(raw)
+    return raw if isinstance(raw, list) else []
+
+
+def fetch_anime_lists_data() -> (
+    tuple[dict[int, int], dict[int, int], dict[int, list[tuple[str, int]]]]
+):
+    """拉取 Fribb/anime-lists（MIT）提取 TheTVDB ID 与补充 Bangumi ↔ TMDB 跨站映射。"""
+    return parse_anime_lists_data(fetch_anime_lists_raw())
+
+
+def fetch_anime_lists_tvdb() -> tuple[dict[int, int], dict[int, int]]:
+    """兼容入口：仅返回 TheTVDB 辅助索引（按 TMDB TV ID 与 Bangumi ID）。"""
+    tvdb_by_tmdb, tvdb_by_bgm, _ = fetch_anime_lists_data()
+    return tvdb_by_tmdb, tvdb_by_bgm
 
 
 def _parse_positive_int(raw: object) -> int | None:
@@ -177,32 +339,59 @@ def _parse_positive_int(raw: object) -> int | None:
     return None
 
 
-def parse_anime_lists_tvdb(items: object) -> tuple[dict[int, int], dict[int, int]]:
+def parse_anime_lists_data(
+    items: object,
+) -> tuple[dict[int, int], dict[int, int], dict[int, list[tuple[str, int]]]]:
+    """解析 Fribb/anime-lists 全量表，产出 TVDB 双索引与 Bangumi→TMDB 补漏映射（TV 与 Movie）。"""
     tvdb_by_tmdb: dict[int, int] = {}
     tvdb_by_bgm: dict[int, int] = {}
+    bgm_tmdb_pairs: dict[int, list[tuple[str, int]]] = {}
     if not isinstance(items, list):
-        return tvdb_by_tmdb, tvdb_by_bgm
+        return tvdb_by_tmdb, tvdb_by_bgm, bgm_tmdb_pairs
     for item in items:
         if not isinstance(item, dict):
             continue
-        # 兼容 Fribb/anime-lists 新版 `tvdb_id` 与旧版 `thetvdb_id` 字段。
+        raw_bgm = _parse_positive_int(item.get('bangumi_id'))
         raw_tvdb = _parse_positive_int(item.get('tvdb_id')) or _parse_positive_int(
             item.get('thetvdb_id')
         )
-        if raw_tvdb is None:
-            continue
-        # 兼容新版 `themoviedb_id: {"tv": 26209}` 对象结构与旧版裸整型字段。
         raw_tmdb_field = item.get('themoviedb_id')
-        raw_tmdb = (
-            _parse_positive_int(raw_tmdb_field.get('tv'))
-            if isinstance(raw_tmdb_field, dict)
-            else _parse_positive_int(raw_tmdb_field)
-        )
-        if raw_tmdb is not None and raw_tmdb not in tvdb_by_tmdb:
-            tvdb_by_tmdb[raw_tmdb] = raw_tvdb
-        raw_bgm = _parse_positive_int(item.get('bangumi_id'))
-        if raw_bgm is not None and raw_bgm not in tvdb_by_bgm:
-            tvdb_by_bgm[raw_bgm] = raw_tvdb
+        raw_type = str(item.get('type') or '').strip().upper()
+
+        tv_id: int | None = None
+        movie_id: int | None = None
+        if isinstance(raw_tmdb_field, dict):
+            tv_id = _parse_positive_int(raw_tmdb_field.get('tv'))
+            movie_id = _parse_positive_int(raw_tmdb_field.get('movie'))
+        else:
+            scalar_tmdb = _parse_positive_int(raw_tmdb_field)
+            if scalar_tmdb is not None:
+                if raw_type == 'MOVIE':
+                    movie_id = scalar_tmdb
+                else:
+                    tv_id = scalar_tmdb
+
+        if raw_tvdb is not None:
+            if tv_id is not None and tv_id not in tvdb_by_tmdb:
+                tvdb_by_tmdb[tv_id] = raw_tvdb
+            if raw_bgm is not None and raw_bgm not in tvdb_by_bgm:
+                tvdb_by_bgm[raw_bgm] = raw_tvdb
+
+        if raw_bgm is not None:
+            targets = bgm_tmdb_pairs.setdefault(raw_bgm, [])
+            if tv_id is not None and tv_id <= MAX_TMDB_ID and ('tv', tv_id) not in targets:
+                targets.append(('tv', tv_id))
+            if (
+                movie_id is not None
+                and movie_id <= MAX_TMDB_ID
+                and ('movie', movie_id) not in targets
+            ):
+                targets.append(('movie', movie_id))
+    return tvdb_by_tmdb, tvdb_by_bgm, {k: v for k, v in bgm_tmdb_pairs.items() if v}
+
+
+def parse_anime_lists_tvdb(items: object) -> tuple[dict[int, int], dict[int, int]]:
+    tvdb_by_tmdb, tvdb_by_bgm, _ = parse_anime_lists_data(items)
     return tvdb_by_tmdb, tvdb_by_bgm
 
 
@@ -228,6 +417,8 @@ def build_compact_binary(
     out_manifest_v2: Path | None = None,
     tvdb_by_tmdb: dict[int, int] | None = None,
     tvdb_by_bgm: dict[int, int] | None = None,
+    anime_lists_bgm_tmdb: dict[int, list[tuple[str, int]]] | None = None,
+    bangumi_data_targets: dict[int, list[tuple[str, int, int, int]]] | None = None,
 ) -> dict:
     doc = json.loads(subjects_bytes.decode('utf-8'))
     subjects = doc.get('subjects', [])
@@ -281,6 +472,42 @@ def build_compact_binary(
             else:
                 merged[key] = (prev[0], prev[1] | FLAG_WIKIDATA)
 
+    # 第三/第四补充数据源：先并入 bangumi-data（MIT，常含精确季号）与跨站桥接目标，再并入 anime-lists 补漏。
+    # 绝不向已有高精度季号的 open-ani 条目注入无季号冗余记录，并同步补标交叉验证位。
+    existing_bgm_ids = {k[0] for k in merged}
+    bangumi_data_added = 0
+    if bangumi_data_targets:
+        for bgm_id, bd_targets in bangumi_data_targets.items():
+            already_mapped = bgm_id in existing_bgm_ids
+            for media_type, tmdb_id, season, src_flag in bd_targets:
+                if tmdb_id <= 0 or tmdb_id > MAX_TMDB_ID:
+                    continue
+                key = (bgm_id, media_type, tmdb_id)
+                prev = merged.get(key)
+                if prev is not None:
+                    prev_season, prev_flags = prev
+                    next_season = prev_season if prev_season >= 0 else season
+                    merged[key] = (next_season, prev_flags | src_flag)
+                elif not already_mapped:
+                    merged[key] = (season, src_flag)
+                    bangumi_data_added += 1
+                    existing_bgm_ids.add(bgm_id)
+
+    anime_lists_added = 0
+    if anime_lists_bgm_tmdb:
+        for bgm_id, al_targets in anime_lists_bgm_tmdb.items():
+            already_mapped = bgm_id in existing_bgm_ids
+            for media_type, tmdb_id in al_targets:
+                if tmdb_id <= 0 or tmdb_id > MAX_TMDB_ID:
+                    continue
+                key = (bgm_id, media_type, tmdb_id)
+                prev = merged.get(key)
+                if prev is not None:
+                    merged[key] = (prev[0], prev[1] | FLAG_ANIME_LISTS_MAP)
+                elif not already_mapped:
+                    merged[key] = (-1, FLAG_ANIME_LISTS_MAP)
+                    anime_lists_added += 1
+
     ordered_keys = sorted(
         merged.keys(),
         key=lambda k: (k[0], 1 if k[1] == 'movie' else 0, k[2]),
@@ -331,7 +558,9 @@ def build_compact_binary(
         target_bin.write_bytes(bin_bytes)
 
         upstream_desc = 'open-ani/bangumi-tmdb (CC BY 4.0) + Wikidata (CC0 1.0)'
-        if version == FORMAT_VERSION_V2 and tvdb_hits > 0:
+        if bangumi_data_added > 0:
+            upstream_desc += ' + bangumi-data (MIT)'
+        if anime_lists_added > 0 or (version == FORMAT_VERSION_V2 and tvdb_hits > 0):
             upstream_desc += ' + Fribb/anime-lists (MIT)'
         manifest_payload = {
             'schemaVersion': version,
@@ -345,6 +574,10 @@ def build_compact_binary(
             'upstreamCommit': (upstream_manifest or {}).get('sourceCommit', ''),
             'generatedAt': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
         }
+        if bangumi_data_added > 0:
+            manifest_payload['bangumiDataAddedCount'] = bangumi_data_added
+        if anime_lists_added > 0:
+            manifest_payload['animeListsAddedCount'] = anime_lists_added
         if version == FORMAT_VERSION_V2:
             manifest_payload['tvdbLinkedCount'] = tvdb_hits
         target_manifest.parent.mkdir(parents=True, exist_ok=True)
@@ -381,7 +614,9 @@ def main() -> int:
     parser.add_argument('--open-ani-manifest', type=Path, help='本地 open-ani/bangumi-tmdb manifest.json 路径')
     parser.add_argument('--fetch-open-ani', action='store_true', help='在线拉取 open-ani/bangumi-tmdb 最新 Release')
     parser.add_argument('--fetch-anime-lists', action='store_true', help='在线拉取 Fribb/anime-lists 回填 TheTVDB ID')
+    parser.add_argument('--fetch-bangumi-data', action='store_true', help='在线拉取 bangumi-data（MIT）补充新老番映射与跨站 TVDB 桥接')
     parser.add_argument('--anime-lists', type=Path, help='本地 anime-list-full.json 路径')
+    parser.add_argument('--bangumi-data', type=Path, help='本地 bangumi-data data.json 路径')
     parser.add_argument('--wikidata-dart', type=Path, default=WIKIDATA_DART, help='内置 Wikidata Dart 映射路径')
     parser.add_argument('--out-bin', type=Path, default=DEFAULT_OUT_BIN, help='输出 v1 二进制表路径')
     parser.add_argument('--out-manifest', type=Path, default=DEFAULT_OUT_MANIFEST, help='输出 v1 manifest.json 路径')
@@ -403,12 +638,33 @@ def main() -> int:
             parser.error('--build-binary 需要指定 --open-ani 或 --fetch-open-ani')
         tvdb_by_tmdb: dict[int, int] = {}
         tvdb_by_bgm: dict[int, int] = {}
+        anime_lists_bgm_tmdb: dict[int, list[tuple[str, int]]] = {}
+        anime_lists_raw: list = []
         if args.fetch_anime_lists:
-            tvdb_by_tmdb, tvdb_by_bgm = fetch_anime_lists_tvdb()
+            anime_lists_raw = fetch_anime_lists_raw()
         elif args.anime_lists and args.anime_lists.is_file():
-            tvdb_by_tmdb, tvdb_by_bgm = parse_anime_lists_tvdb(
-                json.loads(args.anime_lists.read_text(encoding='utf-8'))
+            loaded_al = json.loads(args.anime_lists.read_text(encoding='utf-8'))
+            if isinstance(loaded_al, list):
+                anime_lists_raw = loaded_al
+        if anime_lists_raw:
+            tvdb_by_tmdb, tvdb_by_bgm, anime_lists_bgm_tmdb = parse_anime_lists_data(
+                anime_lists_raw
             )
+
+        bangumi_data_targets: dict[int, list[tuple[str, int, int, int]]] = {}
+        bd_doc: object = None
+        if args.fetch_bangumi_data:
+            bd_doc = fetch_bangumi_data_json()
+        elif args.bangumi_data and args.bangumi_data.is_file():
+            bd_doc = json.loads(args.bangumi_data.read_text(encoding='utf-8'))
+        if bd_doc is not None:
+            bangumi_data_targets, extra_tvdb_by_bgm = parse_bangumi_data_bridge(
+                bd_doc,
+                anime_lists_raw,
+            )
+            for bgm_id, tvdb_val in extra_tvdb_by_bgm.items():
+                tvdb_by_bgm.setdefault(bgm_id, tvdb_val)
+
         info = build_compact_binary(
             subjects_bytes=subjects_bytes,
             upstream_manifest=upstream_manifest,
@@ -419,6 +675,8 @@ def main() -> int:
             out_manifest_v2=args.out_manifest_v2,
             tvdb_by_tmdb=tvdb_by_tmdb,
             tvdb_by_bgm=tvdb_by_bgm,
+            anime_lists_bgm_tmdb=anime_lists_bgm_tmdb,
+            bangumi_data_targets=bangumi_data_targets,
         )
         print(
             f"已生成 {args.out_bin.name}：{info['uniqueBangumiCount']} 部动画 / "

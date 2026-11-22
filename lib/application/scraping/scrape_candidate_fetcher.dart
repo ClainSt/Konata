@@ -999,6 +999,47 @@ class ScrapeCandidateFetcher {
     return (episodes: allEpisodes, seasonDetails: details);
   }
 
+  /// 按离线映射反查或目录显式标注的 Bangumi ID 直接并发拉取条目详情（跳过关键词模糊搜索）。
+  Future<List<BangumiSubjectCandidate>> fetchBangumiSubjectsByIds(
+    List<int> subjectIds, {
+    void Function(Object error)? onNetworkError,
+  }) async {
+    final bgm = bangumiService;
+    if (bgm == null || subjectIds.isEmpty) return const [];
+    final uniqueIds = <int>[];
+    final seen = <int>{};
+    for (final id in subjectIds) {
+      if (id > 0 && seen.add(id)) {
+        uniqueIds.add(id);
+      }
+    }
+    if (uniqueIds.isEmpty) return const [];
+    final fetched = await _fetchAllInOrder(
+      uniqueIds,
+      (id) async {
+        try {
+          return await bgm.getSubjectDetail(
+            id,
+            priority: RequestPriority.background,
+          );
+        } catch (error, stackTrace) {
+          if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+            rethrow;
+          }
+          developer.log(
+            '离线反查直拉 Bangumi 条目详情失败（id=$id），准备回退关键词检索',
+            name: 'konata.scrape_candidate_fetcher',
+            error: error,
+            stackTrace: stackTrace,
+          );
+          return null;
+        }
+      },
+      onNetworkError: onNetworkError,
+    );
+    return fetched.results;
+  }
+
   /// 拉取指定 Bangumi 条目的分集标题与集号映射（传 `type: null` 可同时获取正片与 SP）。
   Future<List<BangumiEpisodeEntry>> fetchBangumiEpisodes(
     int subjectId, {

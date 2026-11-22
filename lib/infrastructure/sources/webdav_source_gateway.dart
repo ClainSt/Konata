@@ -537,6 +537,18 @@ class WebDavSourceGateway
     final response = await http.Response.fromStream(
       streamed,
     ).timeout(requestTimeout);
+    if (response.statusCode == 429 ||
+        response.statusCode == 503 ||
+        response.statusCode == 509) {
+      throw SourceRateLimitException(
+        statusCode: response.statusCode,
+        message: 'WebDAV PROPFIND 触发限流: HTTP ${response.statusCode}',
+        retryAfter: SourceAccessErrorClassifier.parseRetryAfterHeader(
+          response.headers,
+        ),
+        uri: targetUri,
+      );
+    }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw HttpException(
         'WebDAV PROPFIND 失败: HTTP ${response.statusCode}',
@@ -667,6 +679,18 @@ class WebDavSourceGateway
       streamed,
     ).timeout(requestTimeout);
     if (response.statusCode == 404) return null;
+    if (response.statusCode == 429 ||
+        response.statusCode == 503 ||
+        response.statusCode == 509) {
+      throw SourceRateLimitException(
+        statusCode: response.statusCode,
+        message: 'WebDAV 读取文本触发限流: HTTP ${response.statusCode}',
+        retryAfter: SourceAccessErrorClassifier.parseRetryAfterHeader(
+          response.headers,
+        ),
+        uri: uri,
+      );
+    }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw HttpException(
         'WebDAV 读取文本失败: HTTP ${response.statusCode}',

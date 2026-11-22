@@ -712,16 +712,64 @@ class ScrapeOrchestrator {
         onNetworkError: recordTmdbError,
       );
       if (detail != null) {
-        final bgmCandidates = await _candidateFetcher.fetchBangumiCandidates(
-          folder,
-          extraQueries: [detail.title, ...detail.aliases.take(2)],
-        );
-        final explicitDecision = await scanContext.computeWorker.evaluateMatch(
+        final preSeason =
+            folder.seasonHint ??
+            ScrapeDomainAdapter.fallbackResolveSeason(
+              folder: folder,
+              detail: detail,
+            );
+        // 显式 TMDB 目录优先通过离线双向索引 O(log N) 反查精准 Bangumi ID 直拉详情，
+        // 避免对海量显式 ID 目录逐部发起模糊关键词 POST 搜索；未命中时平滑回退常规搜索。
+        final reverseMatches =
+            _mappingIndex?.lookupBangumiIdsByTmdb(
+              mediaType: detail.mediaType,
+              tmdbId: detail.tmdbId,
+              season: preSeason,
+              strictSeason: true,
+            ) ??
+            const <BangumiReverseMatch>[];
+        // 电影或已锁定季号时直接取前 3 条（覆盖分割放送上下季）；多季剧集未定季时仅在候选数 <= 3 才直拉，
+        // 避免长篇多季番（如 5+ 季）只取前两季遗漏真实季条目。
+        final allowReverseDirect =
+            preSeason != null ||
+            detail.mediaType == TmdbMediaType.movie ||
+            reverseMatches.length <= 3;
+        final directBgmIds = <int>[
+          if (folder.explicitBangumiId != null) folder.explicitBangumiId!,
+          if (allowReverseDirect)
+            for (final match in reverseMatches.take(3))
+              if (match.bangumiId != folder.explicitBangumiId) match.bangumiId,
+        ];
+        final usedDirectBgm = directBgmIds.isNotEmpty;
+        var bgmCandidates = usedDirectBgm
+            ? await _candidateFetcher.fetchBangumiSubjectsByIds(directBgmIds)
+            : const <BangumiSubjectCandidate>[];
+        if (bgmCandidates.isEmpty) {
+          bgmCandidates = await _candidateFetcher.fetchBangumiCandidates(
+            folder,
+            extraQueries: [detail.title, ...detail.aliases.take(2)],
+          );
+        }
+        var explicitDecision = await scanContext.computeWorker.evaluateMatch(
           folder,
           [detail],
           bangumiCandidates: bgmCandidates,
           mappingIndex: _mappingIndex,
         );
+        if (usedDirectBgm && explicitDecision.bestBangumi == null) {
+          final fallbackBgm = await _candidateFetcher.fetchBangumiCandidates(
+            folder,
+            extraQueries: [detail.title, ...detail.aliases.take(2)],
+          );
+          if (fallbackBgm.isNotEmpty) {
+            explicitDecision = await scanContext.computeWorker.evaluateMatch(
+              folder,
+              [detail],
+              bangumiCandidates: fallbackBgm,
+              mappingIndex: _mappingIndex,
+            );
+          }
+        }
         if (isCancelled?.call() ?? false) {
           return _FolderProcessResult(
             status: ScrapeStatus.unmatched,

@@ -2,6 +2,13 @@
   "mpv": "0.42.0",
   "ffmpeg": "9.0.2",
   "platform": "android-arm64",
+  "release": {
+    "repository": "https://github.com/ClainSt/Konata-Native",
+    "tag": "r1-mpv0.42.0-ff9.0.2",
+    "archive": "konata-native-android-arm64-r1.zip",
+    "sha256": "578506f1007050485780f4729bdbc41722d05e86045899585adce43d96a27da2",
+    "bytes": 14599121
+  },
   "files": {
     "android/arm64-v8a/libavcodec.so": {
       "sha256": "4f783d7547d7ed4ae836025b7be1d29e1a847d51c93fbf5c3c2784790d48e12f",

@@ -2,7 +2,7 @@ include: package:flutter_lints/flutter.yaml
 
 analyzer:
   exclude:
-    # Upstream NipaPlay-vendored SMB client, retained with its own license.
+    # 嵌入式 SMB 客户端子包（独立维护）
     - packages/smb_connect/**
     # 本地原生编译子包（含待接管的内置 libmpv 适配层）、构建产物与独立脚本目录
     - packages/**

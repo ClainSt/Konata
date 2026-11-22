@@ -54,16 +54,12 @@ app.*.map.json
 android/.kotlin/
 
 
-# Native runtime binaries (track manifest-verified windows & android runtimes; keep reference/ & unpacked C headers untracked)
+# 原生运行时二进制托管于 Konata-Native（Git 仅跟踪清单与头文件归档，通过 dart run tool/fetch_native.dart 拉取）
 /native/*
 !/native/konata-native/
 /native/konata-native/*
 !/native/konata-native/*-manifest.json
 !/native/konata-native/windows-headers.zip
-!/native/konata-native/windows/
-/native/konata-native/windows/include/
-/native/konata-native/windows/reference/
-!/native/konata-native/android/
 
 # Portable runtime data & local debug databases
 /userdata/
@@ -78,8 +74,11 @@ android/.kotlin/
 *.[mM][dD]
 !/AGENTS.md
 !/README.md
+!/CONTRIBUTING.md
+!/.github/**/*.md
 !/packages/**/KONATA_PATCH*.md
-!/tool/native/README.md
+!/docs/images/
+!/docs/images/**
 /photos/
 /.agent-work/
 

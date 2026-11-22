@@ -47,9 +47,7 @@ abstract final class WorkMatcher {
     caseSensitive: false,
   );
 
-  static final _chapterInfixPattern = RegExp(
-    r'(?:前篇|后篇|後篇|中篇|前編|後編|上篇|下篇)',
-  );
+  static final _chapterInfixPattern = RegExp(r'(?:前篇|后篇|後篇|中篇|前編|後編|上篇|下篇)');
 
   static String _stripSeasonLabelDecor(String raw) {
     var s = raw.trim();
@@ -107,7 +105,7 @@ abstract final class WorkMatcher {
     final out = <String>[];
     final seen = <String>{trimmed.toLowerCase()};
     void add(String candidate) {
-      final clean = candidate.replaceAll(RegExp(r'\s+'), ' ').trim();
+      final clean = candidate.replaceAll(_reHot1, ' ').trim();
       if (clean.isEmpty) return;
       if (seen.add(clean.toLowerCase())) out.add(clean);
     }
@@ -133,8 +131,7 @@ abstract final class WorkMatcher {
     return out;
   }
 
-  static RegExp _romajiArcPattern(String romaji, String stem) =>
-      stem.isNotEmpty
+  static RegExp _romajiArcPattern(String romaji, String stem) => stem.isNotEmpty
       ? RegExp(
           '(?<![a-z0-9])${RegExp.escape(stem)}[\\s\\-]*hen(?![a-z0-9])',
           caseSensitive: false,
@@ -263,17 +260,12 @@ abstract final class WorkMatcher {
         changed = true;
       }
     });
-    replaced = replaced.replaceAllMapped(
-      RegExp(
-        r'(?:^|(?<=[\s\u3040-\u9fff\-:：]))(II|III|IV|VI{0,3}|IX|V|X)(?=$|[\s\u3040-\u9fff\-:：])',
-      ),
-      (m) {
-        final mapped = asciiRomanMap[m.group(1)!.toLowerCase()];
-        if (mapped == null) return m.group(0)!;
-        changed = true;
-        return ' $mapped ';
-      },
-    );
+    replaced = replaced.replaceAllMapped(_reHot2, (m) {
+      final mapped = asciiRomanMap[m.group(1)!.toLowerCase()];
+      if (mapped == null) return m.group(0)!;
+      changed = true;
+      return ' $mapped ';
+    });
     if (!changed) return null;
     final out = DirectoryAnalyzer.normalize(replaced);
     return out.isNotEmpty && out != norm ? out : null;
@@ -281,15 +273,15 @@ abstract final class WorkMatcher {
 
   static List<String> _significantLatinTokens(String raw) {
     final cleaned = raw
-        .replaceAll(RegExp(r'\{[^}]*\}'), ' ')
-        .replaceAll(RegExp(r'\(\s*(?:19|20)\d{2}\s*\)'), ' ')
+        .replaceAll(_reHot3, ' ')
+        .replaceAll(_reHot4, ' ')
         .replaceAll(_latinMediaCarrier, ' ')
         .toLowerCase();
     final out = <String>[];
     final seen = <String>{};
-    for (final tok in cleaned.split(RegExp(r'[^a-z0-9]+'))) {
+    for (final tok in cleaned.split(_reHot5)) {
       if (tok.length < 3) continue;
-      if (RegExp(r'^\d+$').hasMatch(tok)) continue;
+      if (_reHot6.hasMatch(tok)) continue;
       if (_latinStopwords.contains(tok)) continue;
       if (seen.add(tok)) out.add(tok);
     }
@@ -297,7 +289,7 @@ abstract final class WorkMatcher {
   }
 
   static Set<String> _rawLatinTokens(String raw) => {
-    for (final t in raw.toLowerCase().split(RegExp(r'[^a-z0-9]+')))
+    for (final t in raw.toLowerCase().split(_reHot5))
       if (t.length >= 2) t,
   };
 
@@ -318,8 +310,8 @@ abstract final class WorkMatcher {
   }
 
   static bool _hasSharedCjk(String a, String b) {
-    final ac = _canonCjk(a).replaceAll(RegExp(r'[^\u3040-\u9fff]'), '');
-    final bc = _canonCjk(b).replaceAll(RegExp(r'[^\u3040-\u9fff]'), '');
+    final ac = _canonCjk(a).replaceAll(_reHot7, '');
+    final bc = _canonCjk(b).replaceAll(_reHot7, '');
     if (ac.length < 2 || bc.length < 2) return false;
     final grams = <String>{};
     for (var i = 0; i < ac.length - 1; i++) {
@@ -337,19 +329,11 @@ abstract final class WorkMatcher {
 
   static int? _installmentSlotNumber(Iterable<String> texts) {
     final slots = <int>{};
-    final exStageRe = RegExp(
-      r'(?:^|[\s:：._\-/\[(\【])(?:ex|stage)[\s:：._\-#]*0*([1-9])(?![0-9])',
-      caseSensitive: false,
-    );
-    final altWordRe = RegExp(
-      r'(?:alternative|オルタナティブ|アルタネイティヴ)[\s:：._-]*(one|1|Ⅰ|two|2|Ⅱ)(?![a-z0-9])',
-      caseSensitive: false,
-    );
+    final exStageRe = _reHot8;
+    final altWordRe = _reHot9;
     for (final raw in texts) {
       if (raw.trim().isEmpty) continue;
-      final cleaned = raw
-          .replaceAll(RegExp(r'\{[^}]*\}'), ' ')
-          .replaceAll(RegExp(r'\(\s*(?:19|20)\d{2}\s*\)'), ' ');
+      final cleaned = raw.replaceAll(_reHot3, ' ').replaceAll(_reHot4, ' ');
       for (final m in exStageRe.allMatches(cleaned)) {
         final n = int.tryParse(m.group(1)!);
         if (n != null) slots.add(n);
@@ -368,48 +352,39 @@ abstract final class WorkMatcher {
 
   /// 提取中置序数续季标记（如 `2nd SEASON -觉醒前夜-`、`SAC 2nd GIG`），供未要求续季时的反向防串季惩罚使用。
   static int? _infixOrdinalSeason(String raw) {
-    final m = RegExp(
-      r'(?:^|[\s:：\-～~])([2-9])(?:nd|rd|th)\s*(?:season|series|gig)\b',
-      caseSensitive: false,
-    ).firstMatch(raw);
+    final m = _reHot10.firstMatch(raw);
     return m == null ? null : int.tryParse(m.group(1)!);
   }
 
   static int? _explicitSequelNumber(String raw) {
     final cleaned = raw
-        .replaceAll(RegExp(r'\{[^}]*\}'), ' ')
-        .replaceAll(RegExp(r'\(\s*(?:19|20)\d{2}\s*\)'), ' ')
-        .replaceAll(RegExp(r'（\s*(?:19|20)\d{2}\s*）'), ' ')
-        .replaceAll(RegExp(r'\[[^\]]*\]'), ' ')
-        .replaceAll(RegExp(r'\b\d+\.\d+\b'), ' ')
-        .replaceAll(RegExp(r'\bs\d{1,2}e\d{1,3}\b', caseSensitive: false), ' ')
-        .replaceAll(RegExp(r'\bex\d{1,2}\b', caseSensitive: false), ' ')
+        .replaceAll(_reHot3, ' ')
+        .replaceAll(_reHot4, ' ')
+        .replaceAll(_reHot11, ' ')
+        .replaceAll(_reHot12, ' ')
+        .replaceAll(_reHot13, ' ')
+        .replaceAll(_reHot14, ' ')
+        .replaceAll(_reHot15, ' ')
         .trim();
     if (cleaned.isEmpty) return null;
 
     final cleanedTitle = cleaned
-        .replaceAll(RegExp(r'第\s*[2-9]\s*季'), ' ')
-        .replaceAll(
-          RegExp(r'(?:^|[\s\-:：])(?:season|s)\s*0*[1-9](?![0-9a-z])', caseSensitive: false),
-          ' ',
-        )
+        .replaceAll(_reHot16, ' ')
+        .replaceAll(_reHot17, ' ')
         .trim();
     if (cleanedTitle.isEmpty) return null;
 
-    final zhPart = RegExp(
-      r'第\s*([2-9])\s*(?:部分|部|幕|期|クール)',
-    ).firstMatch(cleanedTitle);
+    final zhPart = _reHot18.firstMatch(cleanedTitle);
     if (zhPart != null) return int.tryParse(zhPart.group(1)!);
 
-    final enPart = RegExp(
-      r'(?:^|[\s:：\-～~])(?:part\s*([2-9])|cour\s*([2-9])|([2-9])(?:nd|rd|th)?\s*cour)(?=[\s:：\-～~]|$)',
-      caseSensitive: false,
-    ).firstMatch(cleanedTitle);
+    final enPart = _reHot19.firstMatch(cleanedTitle);
     if (enPart != null) {
-      return int.tryParse(enPart.group(1) ?? enPart.group(2) ?? enPart.group(3)!);
+      return int.tryParse(
+        enPart.group(1) ?? enPart.group(2) ?? enPart.group(3)!,
+      );
     }
 
-    if (RegExp(r'(?:^|[\s\-–—])(?:後半|后半)$').hasMatch(cleanedTitle)) {
+    if (_reHot20.hasMatch(cleanedTitle)) {
       return 2;
     }
 
@@ -423,9 +398,7 @@ abstract final class WorkMatcher {
       'IV': 4,
       'V': 5,
     };
-    final romanMatch = RegExp(
-      r'(?:^|[\s:：\-～~])(Ⅱ|Ⅲ|Ⅳ|Ⅴ|II|III|IV|V)(?=[\s:：\-～~]|$)',
-    ).firstMatch(cleanedTitle);
+    final romanMatch = _reHot21.firstMatch(cleanedTitle);
     if (romanMatch != null) {
       final n = romanMap[romanMatch.group(1)!];
       if (n != null) return n;
@@ -439,9 +412,7 @@ abstract final class WorkMatcher {
       return split.season;
     }
 
-    final cjkDigit = RegExp(
-      r'(?<=[\u3040-\u9fff])([2-9])(?=$|[\s:：\-～~]|[^\d.a-zA-Z年月日话集枚人名点倍回章卷季期%])',
-    ).firstMatch(cleanedTitle);
+    final cjkDigit = _reHot22.firstMatch(cleanedTitle);
     if (cjkDigit != null) return int.tryParse(cjkDigit.group(1)!);
 
     const excludedPreWords = <String>{
@@ -464,10 +435,7 @@ abstract final class WorkMatcher {
       'vol',
       'alternative',
     };
-    for (final m in RegExp(
-      r'([a-z]{3,})\s+([2-9])(?![a-z0-9.])(?=$|\s*[-:：～~]|\s+[\u3040-\u9fffA-Za-z])',
-      caseSensitive: false,
-    ).allMatches(cleanedTitle)) {
+    for (final m in _reHot23.allMatches(cleanedTitle)) {
       if (!excludedPreWords.contains(m.group(1)!.toLowerCase())) {
         return int.tryParse(m.group(2)!);
       }
@@ -552,15 +520,17 @@ abstract final class WorkMatcher {
     return false;
   }
 
-  static final List<String> _canonCjkArcSuffixes = List<String>.unmodifiable(() {
-    final out = <String>{
-      for (final (_, queryArc, cjkNorms) in _romajiArcBridges) ...[
-        _canonCjk(queryArc),
-        for (final c in cjkNorms) _canonCjk(c),
-      ],
-    }.toList()..sort((a, b) => b.length.compareTo(a.length));
-    return out;
-  }());
+  static final List<String> _canonCjkArcSuffixes = List<String>.unmodifiable(
+    () {
+      final out = <String>{
+        for (final (_, queryArc, cjkNorms) in _romajiArcBridges) ...[
+          _canonCjk(queryArc),
+          for (final c in cjkNorms) _canonCjk(c),
+        ],
+      }.toList()..sort((a, b) => b.length.compareTo(a.length));
+      return out;
+    }(),
+  );
 
   static final List<String> _allArcSuffixes = List<String>.unmodifiable(() {
     final out = <String>{
@@ -588,10 +558,8 @@ abstract final class WorkMatcher {
       _hasRemasterTag(candidate.title) ||
       candidate.aliases.any(_hasRemasterTag);
 
-  static String _stripRemaster(String value) => value
-      .replaceAll(_remasterPattern, ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
+  static String _stripRemaster(String value) =>
+      value.replaceAll(_remasterPattern, ' ').replaceAll(_reHot1, ' ').trim();
 
   /// 计算一组本地标题提示词与候选条目的最高名称相似度（同时覆盖拉丁罗马音↔假名语音匹配）。
   static double _hintsMatchScore(
@@ -775,8 +743,9 @@ abstract final class WorkMatcher {
       if (localIsEx &&
           !_candidateHasExTag(candidate) &&
           !(localInst != null && localInst == candInst)) {
-        final remoteEps =
-            candidate.seasons.isEmpty ? 0 : candidate.seasons.first.count;
+        final remoteEps = candidate.seasons.isEmpty
+            ? 0
+            : candidate.seasons.first.count;
         final localEps = inventory.shape == WorkShape.feature
             ? inventory.featureCount
             : inventory.episodeCount;
@@ -886,8 +855,9 @@ abstract final class WorkMatcher {
     // 仅从高置信 Bangumi 借用年份，防止中置信未核验条目借用错误年份误杀精确匹配的 TMDB 候选。
     final year = inventory.year ?? verifiedBgm?.year;
     final borrowed = inventory.year == null;
-    final matchedBgm =
-        bangumi != null && bangumi.tier != MatchTier.none ? linked : null;
+    final matchedBgm = bangumi != null && bangumi.tier != MatchTier.none
+        ? linked
+        : null;
     final invSeq = _inventorySequelNumber(inventory);
     final fileOnlySeq = inventory.fileHints.isEmpty
         ? null
@@ -1008,7 +978,11 @@ abstract final class WorkMatcher {
                   matchedBgm.seasons.first.count == inventory.episodeCount));
       final parentTvSpecial =
           (verifiedBgm != null &&
-              _isParentTvForBangumiSpecial(inventory, candidate, verifiedBgm)) ||
+              _isParentTvForBangumiSpecial(
+                inventory,
+                candidate,
+                verifiedBgm,
+              )) ||
           (isMapped &&
               mappedTarget.season == 0 &&
               candidate.type == 'tv' &&
@@ -1031,7 +1005,7 @@ abstract final class WorkMatcher {
         final candNorm = DirectoryAnalyzer.normalize(candidate.title);
         final exactCjkPrefixParent =
             localOvaParentTv &&
-            RegExp(r'[\u3040-\u9fff]').allMatches(candNorm).length >= 3 &&
+            _reHot24.allMatches(candNorm).length >= 3 &&
             localNormsForParent.any((ln) => ln.startsWith(candNorm));
         final exactLatinPrefixParent =
             localOvaParentTv &&
@@ -1182,7 +1156,8 @@ abstract final class WorkMatcher {
             inventory,
             candidate,
             verifiedBangumi: verifiedBgm,
-            localTitleOverride: batchFileDriven && inventory.fileHints.isNotEmpty
+            localTitleOverride:
+                batchFileDriven && inventory.fileHints.isNotEmpty
                 ? inventory.fileHints.first
                 : null,
           );
@@ -1209,8 +1184,7 @@ abstract final class WorkMatcher {
             if (inventory.episodeCount <= 0) return true;
             return other.seasons.any(
               (s) =>
-                  s.number > 0 &&
-                  (s.count - inventory.episodeCount).abs() <= 1,
+                  s.number > 0 && (s.count - inventory.episodeCount).abs() <= 1,
             );
           });
       if (verifiedBgm != null ||
@@ -1304,9 +1278,7 @@ abstract final class WorkMatcher {
                 ranking[1].candidate.title,
                 ...ranking[1].candidate.aliases,
               ])
-                if (DirectoryAnalyzer.normalize(
-                      n.replaceAll(_movieWord, ' '),
-                    )
+                if (DirectoryAnalyzer.normalize(n.replaceAll(_movieWord, ' '))
                     case final sn when sn.length >= 3)
                   sn,
             }
@@ -1383,13 +1355,10 @@ abstract final class WorkMatcher {
           ].any((rawLocal) {
             final lSpaced = rawLocal
                 .toLowerCase()
-                .replaceAll(RegExp(r'[^a-z0-9\u3040-\u9fff]+'), ' ')
+                .replaceAll(_reHot25, ' ')
                 .trim();
             return [top.candidate.title, ...top.candidate.aliases].any((cn) {
-              final cSpaced = cn
-                  .toLowerCase()
-                  .replaceAll(RegExp(r'[^a-z0-9\u3040-\u9fff]+'), ' ')
-                  .trim();
+              final cSpaced = cn.toLowerCase().replaceAll(_reHot25, ' ').trim();
               return cSpaced.length >= 10 &&
                   cSpaced.split(' ').length >= 2 &&
                   lSpaced.endsWith(' $cSpaced');
@@ -1426,17 +1395,16 @@ abstract final class WorkMatcher {
                       : (exactSeasonCount ? 18.0 : 20.0)));
       final minPromoteScore =
           (top.candidate.type == 'tv' &&
-                  top.seasonNameMatched &&
-                  ranking.length == 1)
-              ? 47.0
-              : (soleLocalOvaParent
-                    ? 51.0
-                    : (soleTvExactSuffixSequel
-                          ? 52.0
-                          : (exactSequelSeasonWinner ||
-                                    exactUncontestedPartialTvS1
-                                ? 52.5
-                                : (uncontestedHighTitleS1 ? 55.0 : 59.5))));
+              top.seasonNameMatched &&
+              ranking.length == 1)
+          ? 47.0
+          : (soleLocalOvaParent
+                ? 51.0
+                : (soleTvExactSuffixSequel
+                      ? 52.0
+                      : (exactSequelSeasonWinner || exactUncontestedPartialTvS1
+                            ? 52.5
+                            : (uncontestedHighTitleS1 ? 55.0 : 59.5))));
       if (topValidGenre &&
           !cumulativeWithoutYear &&
           top.score >= minPromoteScore &&
@@ -1681,7 +1649,10 @@ abstract final class WorkMatcher {
         scored.add(5, 'series');
       }
 
-      if (!scored.cumulativeOffsetMatched && minEp != null && minEp > 1 && maxEp != null) {
+      if (!scored.cumulativeOffsetMatched &&
+          minEp != null &&
+          minEp > 1 &&
+          maxEp != null) {
         final totalRegular = regular.fold<int>(0, (n, s) => n + s.count);
         if (regular.length == 1 &&
             totalRegular > 0 &&
@@ -1890,8 +1861,7 @@ abstract final class WorkMatcher {
             sNorm.length > baseNorm.length + 1
         ? sNorm.substring(baseNorm.length)
         : sNorm;
-    final combinedNorm =
-        baseNorm.isNotEmpty && !sNorm.startsWith(baseNorm)
+    final combinedNorm = baseNorm.isNotEmpty && !sNorm.startsWith(baseNorm)
         ? '$baseNorm$sNorm'
         : sNorm;
 
@@ -1926,7 +1896,9 @@ abstract final class WorkMatcher {
       for (final f in inventory.fileHints.take(2))
         _canonCjk(DirectoryAnalyzer.normalize(_stripRemaster(f))),
       if (linkedBangumi != null) ...[
-        _canonCjk(DirectoryAnalyzer.normalize(_stripRemaster(linkedBangumi.title))),
+        _canonCjk(
+          DirectoryAnalyzer.normalize(_stripRemaster(linkedBangumi.title)),
+        ),
         for (final a in linkedBangumi.aliases.take(2))
           _canonCjk(DirectoryAnalyzer.normalize(_stripRemaster(a))),
       ],
@@ -2034,10 +2006,7 @@ abstract final class WorkMatcher {
         : (overrideInvSeq ?? _inventorySequelNumber(inventory));
     final candHasSeq =
         invSeq == null ||
-        _namesHaveSequelNumber(invSeq, [
-          candidate.title,
-          ...candidate.aliases,
-        ]);
+        _namesHaveSequelNumber(invSeq, [candidate.title, ...candidate.aliases]);
     final primaryTitleHasSeq =
         invSeq != null &&
         _namesHaveSequelNumber(invSeq, [
@@ -2096,7 +2065,8 @@ abstract final class WorkMatcher {
       final singleExactMatch = sortedRegular.any(
         (s) =>
             s.count == episodes &&
-            (_yearDiff(year, s.year) == 0 || (nameScores[s.number] ?? 0) >= 0.72),
+            (_yearDiff(year, s.year) == 0 ||
+                (nameScores[s.number] ?? 0) >= 0.72),
       );
       if (!singleExactMatch &&
           ((allSum > 0 && episodes == allSum) ||
@@ -2114,15 +2084,13 @@ abstract final class WorkMatcher {
         minEp == 1 &&
         invSeq == null &&
         bestNameScore < 0.72 &&
-        [
-          inventory.title,
-          if (fileDriven) ...inventory.fileHints,
-        ].any((h) {
+        [inventory.title, if (fileDriven) ...inventory.fileHints].any((h) {
           final hn = DirectoryAnalyzer.normalize(h);
           return hn.isNotEmpty &&
-              [candidate.title, ...candidate.aliases].any(
-                (n) => DirectoryAnalyzer.normalize(n) == hn,
-              );
+              [
+                candidate.title,
+                ...candidate.aliases,
+              ].any((n) => DirectoryAnalyzer.normalize(n) == hn);
         });
     final parentInfo = inventory.parentFolderInfo;
     final parentNorm = parentInfo == null
@@ -2298,7 +2266,8 @@ abstract final class WorkMatcher {
       if (bestNameScore < 0.72 &&
           year == null &&
           parentNorm.length >= 4 &&
-          parentNorm != _canonCjk(DirectoryAnalyzer.normalize(candidate.title)) &&
+          parentNorm !=
+              _canonCjk(DirectoryAnalyzer.normalize(candidate.title)) &&
           season.name != null &&
           season.name!.trim().isNotEmpty &&
           !_genericSeasonName.hasMatch(season.name!.trim())) {
@@ -2310,13 +2279,10 @@ abstract final class WorkMatcher {
         );
         final parentSeasonSim = [rawSeasonNorm, strippedSeasonNorm]
             .where((s) => s.length >= 4)
-            .fold<double>(
-              0.0,
-              (m, s) {
-                final v = similarity(parentNorm, s);
-                return v > m ? v : m;
-              },
-            );
+            .fold<double>(0.0, (m, s) {
+              final v = similarity(parentNorm, s);
+              return v > m ? v : m;
+            });
         if (parentSeasonSim >= 0.92) {
           final pYearDiff = _yearDiff(parentInfo?.year, season.year);
           if (pYearDiff <= 1 || pYearDiff == 99) {
@@ -2398,10 +2364,10 @@ abstract final class WorkMatcher {
     bool parentTvSpecial = false,
   }) {
     final remote = <String>{
-      for (final name in [scored.candidate.title, ...scored.candidate.aliases]) ...[
-        DirectoryAnalyzer.normalize(name),
-        canonTitleKey(name),
-      ],
+      for (final name in [
+        scored.candidate.title,
+        ...scored.candidate.aliases,
+      ]) ...[DirectoryAnalyzer.normalize(name), canonTitleKey(name)],
     }..remove('');
     final originalRaw = bangumi.aliases.isEmpty ? '' : bangumi.aliases.first;
     final original = originalRaw.isEmpty
@@ -2434,9 +2400,7 @@ abstract final class WorkMatcher {
       final cKey = canonTitleKey(name);
       final bKey = strippedSeasonKey(name);
       if ((key.isNotEmpty && key != original && remote.contains(key)) ||
-          (cKey.isNotEmpty &&
-              cKey != originalCanon &&
-              remote.contains(cKey)) ||
+          (cKey.isNotEmpty && cKey != originalCanon && remote.contains(cKey)) ||
           (bKey.isNotEmpty && bKey != originalBase && remote.contains(bKey))) {
         others++;
       }
@@ -2466,8 +2430,9 @@ abstract final class WorkMatcher {
         : inventory.shape == WorkShape.feature
         ? inventory.featureCount
         : 0;
-    final maxCount =
-        verifiedBangumi.isSpecialFormat || inventory.season == 0 ? 12 : 4;
+    final maxCount = verifiedBangumi.isSpecialFormat || inventory.season == 0
+        ? 12
+        : 4;
     if (localCount < 1 || localCount > maxCount) return false;
     if ((verifiedBangumi.seasons.firstOrNull?.count ?? 0) > maxCount) {
       return false;
@@ -2489,11 +2454,7 @@ abstract final class WorkMatcher {
 
     final candNorms = [candidate.title, ...candidate.aliases]
         .map(DirectoryAnalyzer.normalize)
-        .where(
-          (s) =>
-              RegExp(r'[\u3040-\u9fff]').allMatches(s).length >= 4 ||
-              s.length >= 8,
-        )
+        .where((s) => _reHot24.allMatches(s).length >= 4 || s.length >= 8)
         .toList();
     if (candNorms.isEmpty) return false;
 
@@ -2557,11 +2518,7 @@ abstract final class WorkMatcher {
     final localNorm = DirectoryAnalyzer.normalize(inventory.title);
     final candNorms = [candidate.title, ...candidate.aliases]
         .map(DirectoryAnalyzer.normalize)
-        .where(
-          (s) =>
-              RegExp(r'[\u3040-\u9fff]').allMatches(s).length >= 2 ||
-              s.length >= 6,
-        );
+        .where((s) => _reHot24.allMatches(s).length >= 2 || s.length >= 6);
     return candNorms.any(
       (c) => localNorm.startsWith(c) && localNorm.length > c.length,
     );
@@ -2604,9 +2561,7 @@ abstract final class WorkMatcher {
     // 卷章型单字副标题对立（如 `雪の巻` vs `月の巻` vs `華の巻`、`前篇` vs `后篇`、`上卷` vs `下卷`）：
     // 若本地片名与候选全部名称均以同类单字卷/章/篇后缀结尾、且没有任何别名与本地卷字一致，直接判冲突。
     ({String head, String unit})? extractVolumeTail(String norm) {
-      final m = RegExp(
-        r'([\u4e00-\u9fff])(?:の|之)?([巻卷篇編章部])$',
-      ).firstMatch(norm);
+      final m = _reHot26.firstMatch(norm);
       if (m == null) return null;
       final unit = switch (m.group(2)!) {
         '巻' => '卷',
@@ -2632,25 +2587,26 @@ abstract final class WorkMatcher {
       }
     }
 
-    final remoteNames = [
-      candidate.title,
-      ...candidate.aliases,
-      if (candidate.type == 'tv')
-        for (final s in candidate.seasons)
-          if (s.name != null &&
-              s.name!.trim().isNotEmpty &&
-              !_genericSeasonName.hasMatch(s.name!.trim())) ...[
-            s.name!.trim(),
-            '${candidate.title} ${s.name!.trim()}',
-          ],
-    ]
-        .map(
-          (n) => DirectoryAnalyzer.normalize(
-            _stripRemaster(n.replaceAll(_movieWord, ' ')),
-          ),
-        )
-        .where((n) => n.isNotEmpty)
-        .toList();
+    final remoteNames =
+        [
+              candidate.title,
+              ...candidate.aliases,
+              if (candidate.type == 'tv')
+                for (final s in candidate.seasons)
+                  if (s.name != null &&
+                      s.name!.trim().isNotEmpty &&
+                      !_genericSeasonName.hasMatch(s.name!.trim())) ...[
+                    s.name!.trim(),
+                    '${candidate.title} ${s.name!.trim()}',
+                  ],
+            ]
+            .map(
+              (n) => DirectoryAnalyzer.normalize(
+                _stripRemaster(n.replaceAll(_movieWord, ' ')),
+              ),
+            )
+            .where((n) => n.isNotEmpty)
+            .toList();
     if (remoteNames.any((r) => similarity(localPrimary, r) >= 0.80)) {
       return 0;
     }
@@ -2700,8 +2656,7 @@ abstract final class WorkMatcher {
       prefixLen++;
     }
     final prefix = localPrimary.substring(0, prefixLen);
-    final hasCjkPrefix =
-        RegExp(r'[\u3040-\u9fff]').allMatches(prefix).length >= 3;
+    final hasCjkPrefix = _reHot24.allMatches(prefix).length >= 3;
     if (!hasCjkPrefix && prefixLen < 6) return 0;
 
     var localRem = localPrimary.substring(prefixLen);
@@ -2718,10 +2673,7 @@ abstract final class WorkMatcher {
         localRem.length >= 2 &&
         inventory.season == null &&
         (inventory.shape == WorkShape.feature || inventory.episodeCount <= 4) &&
-        !RegExp(
-          r'^(?:ova|oad|sp|specials?)$',
-          caseSensitive: false,
-        ).hasMatch(localRem)) {
+        !_reHot27.hasMatch(localRem)) {
       return -18;
     }
     if (localRem.length < 2 || candRem.length < 2) return 0;
@@ -2738,9 +2690,8 @@ abstract final class WorkMatcher {
   }
 
   static bool _hasConflictingCjkTitle(String localTitle, String candTitle) {
-    String cjkOnly(String s) => RegExp(
-      r'[\u4e00-\u9fff]+',
-    ).allMatches(s).map((m) => m.group(0)!).join();
+    String cjkOnly(String s) =>
+        _reHot28.allMatches(s).map((m) => m.group(0)!).join();
     final a = cjkOnly(localTitle);
     final b = cjkOnly(candTitle);
     if (a.length < 4 || b.length < 4) return false;
@@ -2753,9 +2704,24 @@ abstract final class WorkMatcher {
     const prefix = r'(?:stage|ova|oad|vol|volume|ep|part|act|chapter|第)?0*';
     const tail = r'(?:部|巻|卷|话|話|期|幕|章|[^a-z0-9]|$)';
     final patterns = <(RegExp, int)>[
-      (RegExp('^$prefix(?:one|1(?!\\d)|i|前篇|前編|上篇?|前章)$tail', caseSensitive: false), 1),
-      (RegExp('^$prefix(?:two|2(?!\\d)|ii|后篇|後編|下篇?|后章|後章)$tail', caseSensitive: false), 2),
-      (RegExp('^$prefix(?:three|3(?!\\d)|iii|中篇?)$tail', caseSensitive: false), 3),
+      (
+        RegExp(
+          '^$prefix(?:one|1(?!\\d)|i|前篇|前編|上篇?|前章)$tail',
+          caseSensitive: false,
+        ),
+        1,
+      ),
+      (
+        RegExp(
+          '^$prefix(?:two|2(?!\\d)|ii|后篇|後編|下篇?|后章|後章)$tail',
+          caseSensitive: false,
+        ),
+        2,
+      ),
+      (
+        RegExp('^$prefix(?:three|3(?!\\d)|iii|中篇?)$tail', caseSensitive: false),
+        3,
+      ),
       (RegExp('^$prefix(?:four|4(?!\\d)|iv)$tail', caseSensitive: false), 4),
     ];
     for (final (re, part) in patterns) {
@@ -2827,7 +2793,7 @@ abstract final class WorkMatcher {
         if (TitleNormalizer.containsKana(raw))
           TitleNormalizer.kanaToRomaji(raw),
     ].join(' ');
-    final romajiWords = RegExp(r'[a-z0-9]{2,}')
+    final romajiWords = _reHot29
         .allMatches(romajiRuns.toLowerCase())
         .map((m) => m.group(0)!)
         .toList();
@@ -2891,7 +2857,7 @@ abstract final class WorkMatcher {
     ];
     final remote = <String>{};
     final preColonHeads = <String>{};
-    final colonSubPat = RegExp(r'^(.+?)\s*[:：]\s*(.+)$');
+    final colonSubPat = _reHot30;
     for (final name in remoteRaw) {
       final norm = DirectoryAnalyzer.normalize(name);
       if (norm.isEmpty) continue;
@@ -2916,14 +2882,8 @@ abstract final class WorkMatcher {
       // 消除 `剧场版 偶像活动` 与 `偶像活动 剧场版` 的语序差异。
       if (candidate.type == 'movie') {
         final strippedMovie = name
-            .replaceAll(
-              RegExp(
-                r'剧场版|劇場版|総集編|总集篇|\b(?:the\s+movie|movie|ova|oad|oab)\b',
-                caseSensitive: false,
-              ),
-              ' ',
-            )
-            .replaceAll(RegExp(r'\s+'), ' ')
+            .replaceAll(_reHot31, ' ')
+            .replaceAll(_reHot1, ' ')
             .trim();
         final strippedNorm = DirectoryAnalyzer.normalize(strippedMovie);
         if (strippedNorm.length >= 2 && strippedNorm != norm) {
@@ -3021,16 +2981,14 @@ abstract final class WorkMatcher {
                 (_sequelOrSpinoffSuffix.hasMatch(
                       name.substring(local.length),
                     ) ||
-                    (RegExp(r'^[\u3040-\u9fff]{3,}$').hasMatch(local) &&
-                        RegExp(r'^[a-z]{3,}').hasMatch(
-                          name.substring(local.length),
-                        )))) {
+                    (_reHot32.hasMatch(local) &&
+                        _reHot33.hasMatch(name.substring(local.length))))) {
               pairSim *= 0.62;
             } else if (inventory.shape == WorkShape.feature &&
                 inventory.featureCount == 1 &&
                 weight == 1.0 &&
                 local == primaryNorm &&
-                RegExp(r'[\u3040-\u9fff]').allMatches(local).length >= 5 &&
+                _reHot24.allMatches(local).length >= 5 &&
                 name.startsWith(local) &&
                 name.length > local.length &&
                 !_sequelOrSpinoffSuffix.hasMatch(
@@ -3176,7 +3134,7 @@ abstract final class WorkMatcher {
   }) {
     final orig = candidate.originalTitle?.trim() ?? '';
     if (orig.isEmpty) return 0.0;
-    final prefixPat = RegExp(r'^([a-z]{2,5})\s+(\S.*)$', caseSensitive: false);
+    final prefixPat = _reHot34;
     final m1 = prefixPat.firstMatch(candidate.title.trim());
     final m2 = prefixPat.firstMatch(orig);
     if (m1 == null || m2 == null) return 0.0;
@@ -3188,7 +3146,10 @@ abstract final class WorkMatcher {
     final localHints = batchFileDriven
         ? inventory.fileHints
         : [inventory.title, ...inventory.titleHints, ...inventory.fileHints];
-    final wordPat = RegExp(r'(?<![a-z])' + RegExp.escape(p1) + r'(?![a-z])', caseSensitive: false);
+    final wordPat = RegExp(
+      r'(?<![a-z])' + RegExp.escape(p1) + r'(?![a-z])',
+      caseSensitive: false,
+    );
     if (localHints.any(wordPat.hasMatch)) return 0.0;
     return -18.0;
   }
@@ -3207,28 +3168,19 @@ abstract final class WorkMatcher {
     final orig = candidate.originalTitle?.trim() ?? '';
     final candHead = '$primary $orig';
     final eventChecks = <(RegExp, RegExp)>[
-      (RegExp(r'前夜祭'), RegExp(r'前夜祭')),
-      (
-        RegExp(r'\bmusic\s+award\b|ミュージックアワード', caseSensitive: false),
-        RegExp(r'\bmusic\s+award\b|ミュージックアワード', caseSensitive: false),
-      ),
-      (
-        RegExp(r'(?<=\s)extra(?=\s)', caseSensitive: false),
-        RegExp(r'\bextra\b', caseSensitive: false),
-      ),
+      (_reHot35, _reHot35),
+      (_reHot36, _reHot36),
+      (_reHot37, _reHot38),
     ];
     for (final (candPat, localPat) in eventChecks) {
       if (candPat.hasMatch(candHead) && !localPat.hasMatch(localText)) {
         return -22.0;
       }
     }
-    final subSplit = RegExp(r'^(.+?)\s*(?:[:：]|[-–—]\s*)(.+)$');
+    final subSplit = _reHot39;
     final mp = subSplit.firstMatch(primary);
     final mo = orig.isEmpty ? mp : subSplit.firstMatch(orig);
-    final stripMovie = RegExp(
-                r'剧场版|劇場版|総集編|总集篇|\b(?:the\s+movie|movie|ova|oad|oab)\b',
-                caseSensitive: false,
-              );
+    final stripMovie = _reHot31;
     final localNorms = [
       for (final h in localHints)
         DirectoryAnalyzer.normalize(h.replaceAll(stripMovie, ' ')),
@@ -3251,10 +3203,9 @@ abstract final class WorkMatcher {
         );
         if (headMatchedExactly) {
           final tailTokens = <String>[
-            for (final m in RegExp(r'[a-z]{4,}', caseSensitive: false).allMatches('$pTail $oTail'))
+            for (final m in _reHot40.allMatches('$pTail $oTail'))
               m.group(0)!.toLowerCase(),
-            for (final m in RegExp(r'[\u3040-\u9fff]{2,}').allMatches('$pTail $oTail'))
-              m.group(0)!,
+            for (final m in _reHot41.allMatches('$pTail $oTail')) m.group(0)!,
           ];
           if (tailTokens.isNotEmpty) {
             final localLower = localText.toLowerCase();
@@ -3275,7 +3226,7 @@ abstract final class WorkMatcher {
     // 当原名或主名比本地主干多出独立副标题词段、且本地未出现该副标题任何词汇时扣分。
     final strippedLocalHints = [
       for (final h in localHints)
-        h.replaceAll(stripMovie, ' ').replaceAll(RegExp(r'\s+'), ' ').trim(),
+        h.replaceAll(stripMovie, ' ').replaceAll(_reHot1, ' ').trim(),
     ].where((s) => s.isNotEmpty).toList();
     final localLower = localText.toLowerCase();
     final candTitlePool = <String>[
@@ -3287,7 +3238,9 @@ abstract final class WorkMatcher {
           (orig.isNotEmpty &&
               similarity(
                     ln,
-                    DirectoryAnalyzer.normalize(orig.replaceAll(stripMovie, ' ')),
+                    DirectoryAnalyzer.normalize(
+                      orig.replaceAll(stripMovie, ' '),
+                    ),
                   ) >=
                   0.85) ||
           (primary.isNotEmpty &&
@@ -3304,7 +3257,7 @@ abstract final class WorkMatcher {
         final parts = rawCand
             .replaceAll(stripMovie, ' ')
             .trim()
-            .split(RegExp(r'\s+'))
+            .split(_reHot1)
             .where((s) => s.isNotEmpty)
             .toList();
         if (parts.length < 2) continue;
@@ -3317,14 +3270,14 @@ abstract final class WorkMatcher {
           final localMatchesHead =
               localNorms.any((ln) => similarity(ln, headNorm) >= 0.88) ||
               strippedLocalHints.any(
-                (lh) => TitleNormalizer.romajiKanaSimilarity(lh, headStr) >= 0.86,
+                (lh) =>
+                    TitleNormalizer.romajiKanaSimilarity(lh, headStr) >= 0.86,
               );
           if (!localMatchesHead) continue;
           final tailTokens = <String>[
-            for (final m in RegExp(r'[a-z]{4,}', caseSensitive: false).allMatches(tailStr))
+            for (final m in _reHot40.allMatches(tailStr))
               m.group(0)!.toLowerCase(),
-            for (final m in RegExp(r'[\u3040-\u9fff]{2,}').allMatches(tailStr))
-              m.group(0)!,
+            for (final m in _reHot41.allMatches(tailStr)) m.group(0)!,
           ];
           if (tailTokens.isNotEmpty &&
               !tailTokens.any(
@@ -3401,4 +3354,91 @@ abstract final class WorkMatcher {
         : MatchTier.none;
     return MatchResult(tier, ranking);
   }
+
+  /// 预编译热点正则表达式（避免在逐文件遍历与归组打分热路径中重复编译）。
+  static final RegExp _reHot1 = RegExp(r'\s+');
+  static final RegExp _reHot2 = RegExp(
+    r'(?:^|(?<=[\s\u3040-\u9fff\-:：]))(II|III|IV|VI{0,3}|IX|V|X)(?=$|[\s\u3040-\u9fff\-:：])',
+  );
+  static final RegExp _reHot3 = RegExp(r'\{[^}]*\}');
+  static final RegExp _reHot4 = RegExp(r'\(\s*(?:19|20)\d{2}\s*\)');
+  static final RegExp _reHot5 = RegExp(r'[^a-z0-9]+');
+  static final RegExp _reHot6 = RegExp(r'^\d+$');
+  static final RegExp _reHot7 = RegExp(r'[^\u3040-\u9fff]');
+  static final RegExp _reHot8 = RegExp(
+    r'(?:^|[\s:：._\-/\[(\【])(?:ex|stage)[\s:：._\-#]*0*([1-9])(?![0-9])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot9 = RegExp(
+    r'(?:alternative|オルタナティブ|アルタネイティヴ)[\s:：._-]*(one|1|Ⅰ|two|2|Ⅱ)(?![a-z0-9])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot10 = RegExp(
+    r'(?:^|[\s:：\-～~])([2-9])(?:nd|rd|th)\s*(?:season|series|gig)\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot11 = RegExp(r'（\s*(?:19|20)\d{2}\s*）');
+  static final RegExp _reHot12 = RegExp(r'\[[^\]]*\]');
+  static final RegExp _reHot13 = RegExp(r'\b\d+\.\d+\b');
+  static final RegExp _reHot14 = RegExp(
+    r'\bs\d{1,2}e\d{1,3}\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot15 = RegExp(r'\bex\d{1,2}\b', caseSensitive: false);
+  static final RegExp _reHot16 = RegExp(r'第\s*[2-9]\s*季');
+  static final RegExp _reHot17 = RegExp(
+    r'(?:^|[\s\-:：])(?:season|s)\s*0*[1-9](?![0-9a-z])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot18 = RegExp(r'第\s*([2-9])\s*(?:部分|部|幕|期|クール)');
+  static final RegExp _reHot19 = RegExp(
+    r'(?:^|[\s:：\-～~])(?:part\s*([2-9])|cour\s*([2-9])|([2-9])(?:nd|rd|th)?\s*cour)(?=[\s:：\-～~]|$)',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot20 = RegExp(r'(?:^|[\s\-–—])(?:後半|后半)$');
+  static final RegExp _reHot21 = RegExp(
+    r'(?:^|[\s:：\-～~])(Ⅱ|Ⅲ|Ⅳ|Ⅴ|II|III|IV|V)(?=[\s:：\-～~]|$)',
+  );
+  static final RegExp _reHot22 = RegExp(
+    r'(?<=[\u3040-\u9fff])([2-9])(?=$|[\s:：\-～~]|[^\d.a-zA-Z年月日话集枚人名点倍回章卷季期%])',
+  );
+  static final RegExp _reHot23 = RegExp(
+    r'([a-z]{3,})\s+([2-9])(?![a-z0-9.])(?=$|\s*[-:：～~]|\s+[\u3040-\u9fffA-Za-z])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot24 = RegExp(r'[\u3040-\u9fff]');
+  static final RegExp _reHot25 = RegExp(r'[^a-z0-9\u3040-\u9fff]+');
+  static final RegExp _reHot26 = RegExp(
+    r'([\u4e00-\u9fff])(?:の|之)?([巻卷篇編章部])$',
+  );
+  static final RegExp _reHot27 = RegExp(
+    r'^(?:ova|oad|sp|specials?)$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot28 = RegExp(r'[\u4e00-\u9fff]+');
+  static final RegExp _reHot29 = RegExp(r'[a-z0-9]{2,}');
+  static final RegExp _reHot30 = RegExp(r'^(.+?)\s*[:：]\s*(.+)$');
+  static final RegExp _reHot31 = RegExp(
+    r'剧场版|劇場版|総集編|总集篇|\b(?:the\s+movie|movie|ova|oad|oab)\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot32 = RegExp(r'^[\u3040-\u9fff]{3,}$');
+  static final RegExp _reHot33 = RegExp(r'^[a-z]{3,}');
+  static final RegExp _reHot34 = RegExp(
+    r'^([a-z]{2,5})\s+(\S.*)$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot35 = RegExp(r'前夜祭');
+  static final RegExp _reHot36 = RegExp(
+    r'\bmusic\s+award\b|ミュージックアワード',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot37 = RegExp(
+    r'(?<=\s)extra(?=\s)',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot38 = RegExp(r'\bextra\b', caseSensitive: false);
+  static final RegExp _reHot39 = RegExp(r'^(.+?)\s*(?:[:：]|[-–—]\s*)(.+)$');
+  static final RegExp _reHot40 = RegExp(r'[a-z]{4,}', caseSensitive: false);
+  static final RegExp _reHot41 = RegExp(r'[\u3040-\u9fff]{2,}');
 }

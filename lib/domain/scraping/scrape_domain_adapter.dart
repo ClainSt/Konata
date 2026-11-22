@@ -115,7 +115,10 @@ abstract final class ScrapeDomainAdapter {
         _bangumiMarker.hasMatch(trimmed)) {
       return 2;
     }
-    if (!_trailingYearAnchor.hasMatch(trimmed)) return 0;
+    if ((!trimmed.contains('(') && !trimmed.contains('（')) ||
+        !_trailingYearAnchor.hasMatch(trimmed)) {
+      return 0;
+    }
     if (_categoryFolderPattern.hasMatch(trimmed) ||
         SupplementaryFolderRules.isSupplementarySegment(trimmed)) {
       return 0;
@@ -131,16 +134,13 @@ abstract final class ScrapeDomainAdapter {
     List<ScannedFileInput> videos,
   ) {
     final segments = DirectoryAnalyzer.cleanTitle(folderLeaf)
-        .split(RegExp(r'\s+[&＆]\s+'))
+        .split(_reHot1)
         .map((s) => s.trim())
         .where((s) => s.isNotEmpty)
         .toList(growable: false);
     if (segments.length < 2) return false;
-    Set<String> tokens(String value) => value
-        .toLowerCase()
-        .split(RegExp(r'[^a-z0-9぀-鿿]+'))
-        .where((t) => t.length >= 2)
-        .toSet();
+    Set<String> tokens(String value) =>
+        value.toLowerCase().split(_reHot2).where((t) => t.length >= 2).toSet();
     final segmentTokens = segments.map(tokens).toList(growable: false);
     final fileTokens = [for (final v in videos) tokens(v.fileName)];
     final hitSets = <Set<int>>[];
@@ -176,9 +176,7 @@ abstract final class ScrapeDomainAdapter {
     if (_singleIndexedMovieFolderPattern.hasMatch(folderLeafName)) {
       return false;
     }
-    final normFolder = folderPath
-        .replaceAll('\\', '/')
-        .replaceAll(RegExp(r'^/+|/+$'), '');
+    final normFolder = folderPath.replaceAll('\\', '/').replaceAll(_reHot3, '');
     var bigMovieCount = 0;
     var bigChapterCount = 0;
     final chapterMarkers = <String>{};
@@ -201,10 +199,7 @@ abstract final class ScrapeDomainAdapter {
       if (CloudMediaFileClassifier.isPreview(name) ||
           CloudMediaFileClassifier.isNoCredit(name) ||
           CloudMediaFileClassifier.contextualJapanBdExtra.hasMatch(name) ||
-          RegExp(
-            r'ncop|nced|menu|pv|cm|spot|making|digest|予告|預告|预告|特報',
-            caseSensitive: false,
-          ).hasMatch(name)) {
+          _reHot4.hasMatch(name)) {
         continue;
       }
       final isLarge =
@@ -225,9 +220,7 @@ abstract final class ScrapeDomainAdapter {
       }
       if (chapterMatch != null) {
         bigChapterCount++;
-        chapterMarkers.add(
-          DirectoryAnalyzer.normalize(chapterMatch.group(0)!),
-        );
+        chapterMarkers.add(DirectoryAnalyzer.normalize(chapterMatch.group(0)!));
       }
     }
 
@@ -261,11 +254,8 @@ abstract final class ScrapeDomainAdapter {
   ) {
     final childMainVideos = <String, Map<String, int>>{};
     final childSuppDirs = <String, Set<String>>{};
-    final groupPrefix = RegExp(r'^[\[【]');
-    final discOrLang = RegExp(
-      r'^(?:vol(?:ume)?|disc|disk|bd|dvd|cd|part|chs|cht|sc|tc|jp|en|sub|subs|subtitles|fonts?)\b',
-      caseSensitive: false,
-    );
+    final groupPrefix = _reHot5;
+    final discOrLang = _reHot6;
 
     final seenNonVideoDirs = <String>{};
     for (final file in files) {
@@ -430,14 +420,14 @@ abstract final class ScrapeDomainAdapter {
       if (splitAllowed && videoFiles.length >= 2) {
         final rawAssets = [
           for (final v in videoFiles)
-            <String, Object?>{
-              'id': v.relativePath,
-              'relative_path': v.relativePath,
-              'name': v.fileName,
-              'size': v.fileSize,
-            },
+            (
+              relativePath: v.relativePath,
+              name: v.fileName,
+              size: v.fileSize,
+              assetId: v.relativePath,
+            ),
         ];
-        final preview = MultiWorkSplitter.split(folderPath, rawAssets);
+        final preview = MultiWorkSplitter.splitEntries(folderPath, rawAssets);
         final shouldSplit =
             (inventory.tmdbId == null && inventory.bangumiId == null)
             ? MultiWorkSplitter.shouldAutoSplitUnboundFolder(
@@ -468,7 +458,7 @@ abstract final class ScrapeDomainAdapter {
           final splitTargets = <CollectionTargetDescriptor>[];
           final splitParentTokens = folderPath
               .toLowerCase()
-              .split(RegExp(r'[^a-z0-9\u4e00-\u9fff]+'))
+              .split(_reHot7)
               .where((t) => t.length >= 3)
               .toSet();
           for (final c in preview) {
@@ -480,7 +470,7 @@ abstract final class ScrapeDomainAdapter {
                     c.inventory.season != 0);
             final leafTokens = c.inventory.title
                 .toLowerCase()
-                .split(RegExp(r'[^a-z0-9\u4e00-\u9fff]+'))
+                .split(_reHot7)
                 .where((t) => t.length >= 3 && !splitParentTokens.contains(t))
                 .toSet();
             splitTargets.add(
@@ -529,14 +519,31 @@ abstract final class ScrapeDomainAdapter {
               if (raw == null) continue;
               clusterFiles.add(raw);
               final isExtra = item.category == 'extra';
-              final parsed = BdripParser.parseFileName(
-                raw.fileName,
-                relativePath: raw.relativePath,
-                folderTitle: cluster.inventory.title,
-                folderSeasonHint: cluster.inventory.season,
-              );
-              clusterParsedCache[raw.relativePath] = parsed;
               if (isExtra) {
+                final legacyTypeStr =
+                    CloudMediaAssetPresentation.extraTypeFromName(
+                      raw.fileName,
+                      relativePath: raw.relativePath,
+                    );
+                final mappedLegacyKind = _mapExtraKindFromName(legacyTypeStr);
+                final explicitSpecialNum =
+                    item.episode ??
+                    CloudMediaAssetPresentation.explicitSpecialNumberFromName(
+                      raw.fileName,
+                    );
+                final parsed = BdripParser.parseFileName(
+                  raw.fileName,
+                  relativePath: raw.relativePath,
+                  folderTitle: cluster.inventory.title,
+                  folderSeasonHint: cluster.inventory.season,
+                  resolveEpisode:
+                      explicitSpecialNum == null || raw.fileName.contains('.5'),
+                  resolveExtraClassification:
+                      (item.extraType == null && mappedLegacyKind == null) ||
+                      explicitSpecialNum == null,
+                  resolveTitleAndSeason: false,
+                );
+                clusterParsedCache[raw.relativePath] = parsed;
                 slotMap[raw.relativePath] = resolveExtraSlotAssignment(
                   fileName: raw.fileName,
                   relativePath: raw.relativePath,
@@ -546,8 +553,21 @@ abstract final class ScrapeDomainAdapter {
                   overrideEpisode: item.episode,
                   workVideoEntries: clusterVideoEntries,
                   cdAlbumPaths: clusterCdPaths,
+                  preLegacyTypeStr: legacyTypeStr,
+                  preExplicitSpecialNum: explicitSpecialNum,
+                  hasPreExplicitSpecialNum: true,
                 );
               } else {
+                final parsed = BdripParser.parseFileName(
+                  raw.fileName,
+                  relativePath: raw.relativePath,
+                  folderTitle: cluster.inventory.title,
+                  folderSeasonHint: cluster.inventory.season,
+                  resolveEpisode: raw.fileName.contains('.5'),
+                  resolveExtraClassification: false,
+                  resolveTitleAndSeason: false,
+                );
+                clusterParsedCache[raw.relativePath] = parsed;
                 slotMap[raw.relativePath] = EpisodeSlotAssignment(
                   category: EpisodeCategory.main,
                   seasonNumber: item.season > 0
@@ -775,7 +795,7 @@ abstract final class ScrapeDomainAdapter {
     final normParent = parentFolderPath
         .trim()
         .replaceAll('\\', '/')
-        .replaceAll(RegExp(r'^/+|/+$'), '');
+        .replaceAll(_reHot3, '');
     final mainDirs = <String>{};
     for (final f in clusterFiles) {
       if (f.assetKind != AssetKind.video) continue;
@@ -784,7 +804,7 @@ abstract final class ScrapeDomainAdapter {
       final normRel = f.relativePath
           .trim()
           .replaceAll('\\', '/')
-          .replaceAll(RegExp(r'^/+|/+$'), '');
+          .replaceAll(_reHot3, '');
       final slash = normRel.lastIndexOf('/');
       final dir = slash > 0 ? normRel.substring(0, slash) : '';
       mainDirs.add(dir);
@@ -807,10 +827,10 @@ abstract final class ScrapeDomainAdapter {
 
     void addSingle(String raw, {bool allowGroupHomonym = false}) {
       final stripped = raw
-          .replaceAll(RegExp(r'\{[^}]*\}'), ' ')
-          .replaceAll(RegExp(r'\(\s*(?:19|20)\d{2}\s*\)'), ' ')
-          .replaceAll(RegExp(r'（\s*(?:19|20)\d{2}\s*）'), ' ')
-          .replaceAll(RegExp(r'\s+'), ' ')
+          .replaceAll(_reHot8, ' ')
+          .replaceAll(_reHot9, ' ')
+          .replaceAll(_reHot10, ' ')
+          .replaceAll(_reHot11, ' ')
           .trim();
       final sanitized = SearchQuerySanitizer.sanitize(
         _cutTechnicalTail(stripped),
@@ -821,10 +841,7 @@ abstract final class ScrapeDomainAdapter {
           _isJunkQuery(stripped, allowGroupHomonym: allowGroupHomonym)) {
         return;
       }
-      final key = clean.toLowerCase().replaceAll(
-        RegExp(r'[\s:：\-～~·・･/—]+'),
-        '',
-      );
+      final key = clean.toLowerCase().replaceAll(_reHot12, '');
       if (key.isEmpty || !seen.add(key)) return;
       out.add(clean);
     }
@@ -849,31 +866,19 @@ abstract final class ScrapeDomainAdapter {
 
       // 根目录仅附带蓝光单卷标签（如 `孤独摇滚 Vol.1`、`葬送的芙莉莲 第1卷`，排除 `Alternative Vol.1`/`OVA Vol.1` 独立卷）时，
       // 立即补充剥离分卷后的纯净母剧名检索词，避免单卷先扫时在线检索漏召回。
-      if (!RegExp(
-        r'(?<![a-z0-9])(?:alternative|ova|oad|oav|sp\d*|special)(?![a-z0-9])',
-        caseSensitive: false,
-      ).hasMatch(raw)) {
-        final volTail = RegExp(
-          r'^(.*?)\s*(?:[-–—:：]\s*|\s+)(?:(?:bd|dvd)\s*)?(?:vol(?:ume)?\.?\s*0*\d{1,2}|第\s*[0-9一二三四五六七八九十]+\s*[卷巻])\s*$',
-          caseSensitive: false,
-        ).firstMatch(raw.trim());
+      if (!_reHot13.hasMatch(raw)) {
+        final volTail = _reHot14.firstMatch(raw.trim());
         final baseNoVol = volTail?.group(1)?.trim() ?? '';
         if (baseNoVol.length >= 2) {
           addSingle(baseNoVol, allowGroupHomonym: allowGroupHomonym);
         }
       }
       // 剥离尾部或中置 OVA/OAD/OADs/OVA1/TVSP/The Movie 及其后副标题，提炼母系列检索词。
-      final beforeSpecial = RegExp(
-        r'^(.+?)\s+(?:the\s+movie|movie|ova\d*|oads?|oav\d*|tvsp|sp\d+|special\s+ride)\b',
-        caseSensitive: false,
-      ).firstMatch(raw.trim());
+      final beforeSpecial = _reHot15.firstMatch(raw.trim());
       if (beforeSpecial != null) {
         final baseSeries = beforeSpecial
             .group(1)!
-            .replaceFirst(
-              RegExp(r'\s+the\s+animation$', caseSensitive: false),
-              '',
-            )
+            .replaceFirst(_reHot16, '')
             .trim();
         if (baseSeries.length >= 4 || _hasCjk(baseSeries)) {
           emitFallback(baseSeries);
@@ -881,37 +886,21 @@ abstract final class ScrapeDomainAdapter {
       }
       // 罗马音 + 日文假名双语拼接文件名（如 `Yowamushi Pedal 弱虫ペダル`、`Himouto! Umaru chan 干物妹! うまるちゃん`、`Yuyushiki ゆゆ式`）：
       // 仅当日文段含平/片假名时拆出拉丁段与日文段，绝不误拆 `Code Geass 亡国的阿基德` 这类单语中英混合正式片名。
-      final bilingual = RegExp(
-        r'^([A-Za-z0-9][A-Za-z0-9\s!\-’\x27.,]{3,}?)\s+([\u3040-\u9fff][^\r\n]{1,})$',
-      ).firstMatch(raw.trim());
-      if (bilingual != null &&
-          RegExp(r'[\u3040-\u30ff]').hasMatch(bilingual.group(2)!)) {
+      final bilingual = _reHot17.firstMatch(raw.trim());
+      if (bilingual != null && _reHot18.hasMatch(bilingual.group(2)!)) {
         final latinSeg = bilingual.group(1)!.trim();
-        final cjkSeg = bilingual
-            .group(2)!
-            .split(
-              RegExp(
-                r'\s+(?:ova\d*|oads?|oab|sp\d*|special|「|『)',
-                caseSensitive: false,
-              ),
-            )
-            .first
-            .trim();
+        final cjkSeg = bilingual.group(2)!.split(_reHot19).first.trim();
         if (latinSeg.length >= 4) {
           emitFallback(latinSeg);
         }
         if (cjkSeg.length >= 2 &&
-            (RegExp(r'[\u4e00-\u9fff]').hasMatch(cjkSeg) ||
-                cjkSeg.length >= 5)) {
+            (_reHot20.hasMatch(cjkSeg) || cjkSeg.length >= 5)) {
           emitFallback(cjkSeg);
         }
       }
       final withoutInfixOva = raw
-          .replaceAll(
-            RegExp(r'(?<=\s)(?:OVA|OAD|OAV)(?=\s+\S)', caseSensitive: false),
-            ' ',
-          )
-          .replaceAll(RegExp(r'\s+'), ' ')
+          .replaceAll(_reHot21, ' ')
+          .replaceAll(_reHot11, ' ')
           .trim();
       if (withoutInfixOva != raw && withoutInfixOva.length >= 4) {
         addSingle(withoutInfixOva);
@@ -941,10 +930,7 @@ abstract final class ScrapeDomainAdapter {
       for (final a in bgm.aliases.take(2)) {
         add(a);
       }
-      final base = bgm.displayTitle
-          .split(RegExp(r'\s+|[:：～~—\-/·・･]+'))
-          .first
-          .trim();
+      final base = bgm.displayTitle.split(_reHot22).first.trim();
       if (base.isNotEmpty && _isSafeFirstToken(base, bgm.displayTitle)) {
         add(base, expandVariants: false);
       }
@@ -977,15 +963,7 @@ abstract final class ScrapeDomainAdapter {
       }
       final strippedPart = WorkSeason.withoutPart(hint);
       if (strippedPart != hint) add(strippedPart, expandVariants: false);
-      final strippedMultiSeason = hint
-          .replaceFirst(
-            RegExp(
-              r'\s+s\d{1,2}(?:\s*[+&~～\-]\s*(?:s?\d{1,2}|ova|oad|sp|movie))+\s*$',
-              caseSensitive: false,
-            ),
-            '',
-          )
-          .trim();
+      final strippedMultiSeason = hint.replaceFirst(_reHot23, '').trim();
       if (strippedMultiSeason != hint && strippedMultiSeason.isNotEmpty) {
         add(strippedMultiSeason, expandVariants: false);
       }
@@ -999,11 +977,8 @@ abstract final class ScrapeDomainAdapter {
       add(eq, expandVariants: true);
     }
 
-    if (RegExp(r'\balternative\b', caseSensitive: false).hasMatch(inv.title) &&
-        !RegExp(
-          r'\balternative\s+(?:one|two)\b',
-          caseSensitive: false,
-        ).hasMatch(inv.titleHints.join(' ')) &&
+    if (_reHot24.hasMatch(inv.title) &&
+        !_reHot25.hasMatch(inv.titleHints.join(' ')) &&
         (inv.episodeCount <= 2 || inv.featureCount <= 2)) {
       add('${inv.title} ONE');
       add('${inv.title} TWO');
@@ -1032,15 +1007,7 @@ abstract final class ScrapeDomainAdapter {
         idx >= 0 && idx >= parts.length - 3;
         idx--
       ) {
-        final parent = parts[idx]
-            .replaceFirst(
-              RegExp(
-                r'\s*(?:系列|作品集|合集|全集|Series|Collection)$',
-                caseSensitive: false,
-              ),
-              '',
-            )
-            .trim();
+        final parent = parts[idx].replaceFirst(_reHot26, '').trim();
         if (parent.isNotEmpty &&
             !_categoryFolderPattern.hasMatch(parent) &&
             !_genericSeasonName.hasMatch(parent)) {
@@ -1051,7 +1018,7 @@ abstract final class ScrapeDomainAdapter {
 
     // 主系列词干与尾部副标题剥离（如 `系列名：副标题` / `前辈 主标题`）。
     for (final base in [...inv.titleHints.take(2), ...inv.fileHints.take(2)]) {
-      final beforePunct = base.split(RegExp(r'[:：～~—/·・･]+')).first.trim();
+      final beforePunct = base.split(_reHot27).first.trim();
       if (beforePunct.isNotEmpty &&
           beforePunct != base &&
           (_hasCjk(beforePunct)
@@ -1059,10 +1026,7 @@ abstract final class ScrapeDomainAdapter {
               : beforePunct.length >= 4)) {
         add(beforePunct, expandVariants: false);
       }
-      final tokens = base
-          .split(RegExp(r'\s+|[:：～~—\-/·・･]+'))
-          .where((t) => t.isNotEmpty)
-          .toList();
+      final tokens = base.split(_reHot22).where((t) => t.isNotEmpty).toList();
       if (tokens.length >= 2) {
         final first = tokens.first.trim();
         if (first != base && _isSafeFirstToken(first, base)) {
@@ -1084,9 +1048,9 @@ abstract final class ScrapeDomainAdapter {
     // 极短真片名兜底（如 `W'Z`、`86`、`K`、`C`）：避免全部候选词被长度门限滤空导致零检索。
     if (out.isEmpty) {
       final rawFallback = (inv.title.isNotEmpty ? inv.title : folder.cleanTitle)
-          .replaceAll(RegExp(r'\{[^}]*\}'), ' ')
-          .replaceAll(RegExp(r'\(\s*(?:19|20)\d{2}\s*\)'), ' ')
-          .replaceAll(RegExp(r'\s+'), ' ')
+          .replaceAll(_reHot8, ' ')
+          .replaceAll(_reHot9, ' ')
+          .replaceAll(_reHot11, ' ')
           .trim();
       final cleanFallback = SearchQuerySanitizer.sanitize(rawFallback);
       final chosen = cleanFallback.isNotEmpty ? cleanFallback : rawFallback;
@@ -1152,11 +1116,9 @@ abstract final class ScrapeDomainAdapter {
     final byId = <int, BangumiSubjectCandidate>{
       for (final c in candidates) c.id: c,
     };
-    final result = legacy.WorkMatcher.bangumi(
-      inv,
-      [for (final c in candidates) c.toMatchCandidate()],
-      ignoreBangumiMarker: folder.ignoreExplicitTmdb,
-    );
+    final result = legacy.WorkMatcher.bangumi(inv, [
+      for (final c in candidates) c.toMatchCandidate(),
+    ], ignoreBangumiMarker: folder.ignoreExplicitTmdb);
     final scored = <ScoredBangumiCandidate>[];
     for (final s in result.ranking) {
       final subject = byId[s.candidate.id];
@@ -1300,7 +1262,7 @@ abstract final class ScrapeDomainAdapter {
           inv.episodeCount > 0 &&
           inv.episodeCount <= 4 &&
           bgmEps == inv.episodeCount;
-      final seqMatch = RegExp(r'(?<!\d)([2-9])(?!\d)').firstMatch(inv.title);
+      final seqMatch = _reHot28.firstMatch(inv.title);
       final localSeqDigit = seqMatch?.group(1);
       final isSequelCorroboratedTv =
           localSeqDigit != null &&
@@ -1310,44 +1272,47 @@ abstract final class ScrapeDomainAdapter {
           isExactSpecialOrOna ||
           isMultiPartMovie ||
           isSequelCorroboratedTv) {
-        mappedTargets = bangumiMappedTmdbTargets(
-          bgmSubj,
-          eligibleMappedKeys,
-          mappingIndex: mappingIndex,
-        )
-            .where((t) {
-              final detail = byKey[t.key];
-              if (detail == null || !detail.genreIds.contains(16)) return false;
-              if ((isSpecialLocalOrBgm || isExactSpecialOrOna) &&
-                  t.type == TmdbMediaType.tv &&
-                  t.season == 0) {
-                if (isExactSpecialOrOna &&
-                    !detail.seasons.any(
-                      (s) =>
-                          s.seasonNumber == 0 &&
-                          s.episodeCount >= inv.episodeCount,
-                    )) {
+        mappedTargets =
+            bangumiMappedTmdbTargets(
+                  bgmSubj,
+                  eligibleMappedKeys,
+                  mappingIndex: mappingIndex,
+                )
+                .where((t) {
+                  final detail = byKey[t.key];
+                  if (detail == null || !detail.genreIds.contains(16)) {
+                    return false;
+                  }
+                  if ((isSpecialLocalOrBgm || isExactSpecialOrOna) &&
+                      t.type == TmdbMediaType.tv &&
+                      t.season == 0) {
+                    if (isExactSpecialOrOna &&
+                        !detail.seasons.any(
+                          (s) =>
+                              s.seasonNumber == 0 &&
+                              s.episodeCount >= inv.episodeCount,
+                        )) {
+                      return false;
+                    }
+                    return true;
+                  }
+                  if ((isSpecialLocalOrBgm || isMultiPartMovie) &&
+                      t.type == TmdbMediaType.movie &&
+                      (isMultiPartMovie ||
+                          (inv.shape == WorkShape.feature &&
+                              (isBgmMovie ||
+                                  bgmPlatform == 'OVA' ||
+                                  bgmPlatform == 'OAD')))) {
+                    return true;
+                  }
+                  if (isSequelCorroboratedTv &&
+                      t.type == TmdbMediaType.tv &&
+                      detail.title.contains(localSeqDigit)) {
+                    return true;
+                  }
                   return false;
-                }
-                return true;
-              }
-              if ((isSpecialLocalOrBgm || isMultiPartMovie) &&
-                  t.type == TmdbMediaType.movie &&
-                  (isMultiPartMovie ||
-                      (inv.shape == WorkShape.feature &&
-                          (isBgmMovie ||
-                              bgmPlatform == 'OVA' ||
-                              bgmPlatform == 'OAD')))) {
-                return true;
-              }
-              if (isSequelCorroboratedTv &&
-                  t.type == TmdbMediaType.tv &&
-                  detail.title.contains(localSeqDigit)) {
-                return true;
-              }
-              return false;
-            })
-            .toList(growable: false);
+                })
+                .toList(growable: false);
       }
     }
     // 强跨源唯一动画候选互证：当 TMDB 候选池仅含 1 个动画 TV 候选、本地多集片名（>= 2 词）
@@ -1375,31 +1340,19 @@ abstract final class ScrapeDomainAdapter {
           bgmTop.subject.totalEpisodes == inv.episodeCount) {
         final soleTv = animTvs.single;
         final soleKey = _detailKey(soleTv);
-        final localPrefixSeeds = <String>[
-          inv.title,
-          ...inv.fileHints.take(1),
-        ]
-            .map(
-              (s) => s
-                  .toLowerCase()
-                  .replaceAll(RegExp(r'[^a-z0-9\u3040-\u9fff]+'), ' ')
-                  .trim(),
-            )
+        final localPrefixSeeds = <String>[inv.title, ...inv.fileHints.take(1)]
+            .map((s) => s.toLowerCase().replaceAll(_reHot29, ' ').trim())
             .where((s) => s.length >= 6 && s.split(' ').length >= 2)
             .toList(growable: false);
-        final candNormSpaced = <String>[
-          soleTv.title,
-          if (soleTv.originalTitle != null) soleTv.originalTitle!,
-          ...soleTv.aliases,
-        ]
-            .map(
-              (s) => s
-                  .toLowerCase()
-                  .replaceAll(RegExp(r'[^a-z0-9\u3040-\u9fff]+'), ' ')
-                  .trim(),
-            )
-            .where((s) => s.isNotEmpty)
-            .toList(growable: false);
+        final candNormSpaced =
+            <String>[
+                  soleTv.title,
+                  if (soleTv.originalTitle != null) soleTv.originalTitle!,
+                  ...soleTv.aliases,
+                ]
+                .map((s) => s.toLowerCase().replaceAll(_reHot29, ' ').trim())
+                .where((s) => s.isNotEmpty)
+                .toList(growable: false);
         final isWordPrefix = localPrefixSeeds.any(
           (lp) => candNormSpaced.any(
             (cn) =>
@@ -1411,20 +1364,25 @@ abstract final class ScrapeDomainAdapter {
           ),
         );
         if (isWordPrefix) {
-          final corroborated = bangumiMappedTmdbTargets(
-            bgmTop.subject,
-            eligibleMappedKeys,
-            mappingIndex: mappingIndex,
-          ).where((t) {
-            if (t.key != soleKey || t.season == null || t.season! <= 0) {
-              return false;
-            }
-            return soleTv.seasons.any(
-              (s) =>
-                  s.seasonNumber == t.season &&
-                  s.episodeCount == inv.episodeCount,
-            );
-          }).toList(growable: false);
+          final corroborated =
+              bangumiMappedTmdbTargets(
+                    bgmTop.subject,
+                    eligibleMappedKeys,
+                    mappingIndex: mappingIndex,
+                  )
+                  .where((t) {
+                    if (t.key != soleKey ||
+                        t.season == null ||
+                        t.season! <= 0) {
+                      return false;
+                    }
+                    return soleTv.seasons.any(
+                      (s) =>
+                          s.seasonNumber == t.season &&
+                          s.episodeCount == inv.episodeCount,
+                    );
+                  })
+                  .toList(growable: false);
           if (corroborated.isNotEmpty) {
             mappedTargets = corroborated;
           }
@@ -2215,11 +2173,20 @@ abstract final class ScrapeDomainAdapter {
       for (final subRel in item.files) {
         final raw = relToRaw[subRel];
         if (raw == null) continue;
+        final needsSeason =
+            (item.season == null || item.season! <= 0) &&
+            (inventory.season == null || inventory.season! <= 0) &&
+            !multiSeasonFolder;
+        final needsEpisode =
+            item.episode == null || needsSeason || raw.fileName.contains('.5');
         final parsed = BdripParser.parseFileName(
           raw.fileName,
           relativePath: raw.relativePath,
           folderTitle: cleanTitle,
           folderSeasonHint: inventory.season,
+          resolveEpisode: needsEpisode,
+          resolveExtraClassification: item.episode == null || needsSeason,
+          resolveTitleAndSeason: needsSeason,
         );
         if (parsedCache != null) parsedCache[raw.relativePath] = parsed;
         final epNum = item.episode ?? parsed.episode;
@@ -2247,11 +2214,25 @@ abstract final class ScrapeDomainAdapter {
     for (final subRel in inventory.extras) {
       final raw = relToRaw[subRel];
       if (raw == null) continue;
+      final legacyTypeStr = CloudMediaAssetPresentation.extraTypeFromName(
+        raw.fileName,
+        relativePath: raw.relativePath,
+      );
+      final mappedLegacyKind = _mapExtraKindFromName(legacyTypeStr);
+      final explicitSpecialNum =
+          CloudMediaAssetPresentation.explicitSpecialNumberFromName(
+            raw.fileName,
+          );
       final parsed = BdripParser.parseFileName(
         raw.fileName,
         relativePath: raw.relativePath,
         folderTitle: cleanTitle,
         folderSeasonHint: inventory.season,
+        resolveEpisode:
+            explicitSpecialNum == null || raw.fileName.contains('.5'),
+        resolveExtraClassification:
+            mappedLegacyKind == null || explicitSpecialNum == null,
+        resolveTitleAndSeason: false,
       );
       if (parsedCache != null) parsedCache[raw.relativePath] = parsed;
       slotMap[raw.relativePath] = resolveExtraSlotAssignment(
@@ -2260,6 +2241,9 @@ abstract final class ScrapeDomainAdapter {
         parsed: parsed,
         folderCleanTitle: cleanTitle,
         workVideoEntries: workVideoEntries,
+        preLegacyTypeStr: legacyTypeStr,
+        preExplicitSpecialNum: explicitSpecialNum,
+        hasPreExplicitSpecialNum: true,
       );
     }
 
@@ -2277,13 +2261,16 @@ abstract final class ScrapeDomainAdapter {
     List<({String fileName, String relativePath})> workVideoEntries =
         const <({String fileName, String relativePath})>[],
     List<String> cdAlbumPaths = const <String>[],
+    String? preLegacyTypeStr,
+    int? preExplicitSpecialNum,
+    bool hasPreExplicitSpecialNum = false,
   }) {
-    final assetMap = <String, Object?>{
-      'name': fileName,
-      'relative_path': relativePath,
-      'category': 'extra',
-    };
-    final legacyTypeStr = CloudMediaAssetPresentation.extraType(assetMap);
+    final legacyTypeStr =
+        preLegacyTypeStr ??
+        CloudMediaAssetPresentation.extraTypeFromName(
+          fileName,
+          relativePath: relativePath,
+        );
     final fallbackKind =
         _mapExtraKindFromName(legacyTypeStr) ?? parsed.extraType;
     final extraKind = overrideExtraType != null
@@ -2296,9 +2283,16 @@ abstract final class ScrapeDomainAdapter {
     final typeStr = overrideExtraType ?? extraKind?.name.toUpperCase() ?? 'SP';
     final explicitNum =
         overrideEpisode ??
-        CloudMediaAssetPresentation.explicitSpecialNumber(assetMap) ??
+        (hasPreExplicitSpecialNum
+            ? preExplicitSpecialNum
+            : CloudMediaAssetPresentation.explicitSpecialNumberFromName(
+                fileName,
+              )) ??
         parsed.episode;
-    final extractedTitle = CloudMediaAssetPresentation.extraTitle(assetMap);
+    final extractedTitle = CloudMediaAssetPresentation.extraTitleFromName(
+      fileName,
+      relativePath: relativePath,
+    );
     final cdBundledTitle =
         SupplementarySubclassifier.formatCdBundledExtraTitleFromRaw(
           fileName: fileName,
@@ -2394,7 +2388,7 @@ abstract final class ScrapeDomainAdapter {
     final trimmedExtracted = extractedTitle?.trim() ?? '';
     if (trimmedExtracted.isNotEmpty) {
       // 若短标签仅提取了分类词（如 `MENU`/`CM`）且不含序号，保留文件名/父目录中的 `(Vol.1)`/`Disc 1` 区分卷次。
-      if (!RegExp(r'\d').hasMatch(trimmedExtracted)) {
+      if (!_reHot30.hasMatch(trimmedExtracted)) {
         final volSuffix = _extractVolumeOrDiscSuffix(fileName, relativePath);
         if (volSuffix != null) {
           return '$trimmedExtracted $volSuffix';
@@ -2403,11 +2397,7 @@ abstract final class ScrapeDomainAdapter {
       return trimmedExtracted;
     }
 
-    final previewMatch = RegExp(
-      r'(?:\b(web)[ ._-]+)?\b(preview|teaser|trailer)\b(?:[ ._-]*(\d{1,3}))?|'
-      r'([予預]告)(?:[ ._-]*(\d{1,3}))?',
-      caseSensitive: false,
-    ).firstMatch(fileName);
+    final previewMatch = _reHot31.firstMatch(fileName);
     if (previewMatch != null) {
       final webPrefix = previewMatch.group(1) != null ? 'Web ' : '';
       final word = (previewMatch.group(2) ?? previewMatch.group(4))!;
@@ -2423,15 +2413,9 @@ abstract final class ScrapeDomainAdapter {
       return volSuffix != null ? '$normalizedWord $volSuffix' : normalizedWord;
     }
 
-    final promoMatch = RegExp(
-      r'(?<![a-z0-9])(TV[ ._-]*CM|BD[ ._-]*CM|PV[ ._-]*CM|CM|PV)(?:[ ._-]*0*(\d{1,3}))?(?![a-z0-9])',
-      caseSensitive: false,
-    ).firstMatch(fileName);
+    final promoMatch = _reHot32.firstMatch(fileName);
     if (promoMatch != null) {
-      final tag = promoMatch
-          .group(1)!
-          .toUpperCase()
-          .replaceAll(RegExp(r'[ ._-]+'), '');
+      final tag = promoMatch.group(1)!.toUpperCase().replaceAll(_reHot33, '');
       final numPart = promoMatch.group(2) ?? '';
       return numPart.isEmpty ? tag : '$tag$numPart';
     }
@@ -2448,7 +2432,7 @@ abstract final class ScrapeDomainAdapter {
       );
       final stripped = cleaned
           .replaceFirst(prefixPattern, '')
-          .replaceFirst(RegExp(r'^[\s\-–—_:：]+'), '')
+          .replaceFirst(_reHot34, '')
           .trim();
       if (stripped.isNotEmpty && stripped.length >= 2) {
         cleaned = stripped;
@@ -2473,11 +2457,8 @@ abstract final class ScrapeDomainAdapter {
     required ParsedBdripRelease parsed,
     required String? shortTitle,
   }) {
-    final normShort = (shortTitle ?? '').toLowerCase().replaceAll(
-      RegExp(r'[^a-z0-9\u3040-\u9fff]+'),
-      '',
-    );
-    var stem = fileName.replaceFirst(RegExp(r'\.[^.]+$'), '');
+    final normShort = (shortTitle ?? '').toLowerCase().replaceAll(_reHot29, '');
+    var stem = fileName.replaceFirst(_reHot35, '');
     for (final grp in [parsed.releaseGroup, parsed.subtitleGroup]) {
       if (grp != null && grp.trim().isNotEmpty) {
         final esc = RegExp.escape(grp.trim());
@@ -2491,17 +2472,17 @@ abstract final class ScrapeDomainAdapter {
       }
     }
     // 剔除 CRC32 与常见技术规格参数块，仅保留作品/特典本体内容标识。
-    stem = stem.replaceAll(RegExp(r'\[[0-9a-fA-F]{8}\]'), ' ');
-    stem = MediaTechParser.parse(stem).strippedText;
+    stem = stem.replaceAll(_reHot36, ' ');
+    stem = MediaTechParser.stripTechTokens(stem).strippedText;
     final normStem = stem
         .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9\u3040-\u9fff]+'), '_')
-        .replaceAll(RegExp(r'_+'), '_')
-        .replaceAll(RegExp(r'^_+|_+$'), '');
+        .replaceAll(_reHot29, '_')
+        .replaceAll(_reHot37, '_')
+        .replaceAll(_reHot38, '');
     final volSuffix = _extractVolumeOrDiscSuffix(
       fileName,
       relativePath,
-    )?.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '');
+    )?.toLowerCase().replaceAll(_reHot39, '');
     final parts = <String>[
       if (normShort.isNotEmpty) normShort,
       if (volSuffix != null && volSuffix.isNotEmpty) volSuffix,
@@ -2528,6 +2509,9 @@ abstract final class ScrapeDomainAdapter {
                   relativePath: file.relativePath,
                   folderTitle: folderTitle,
                   folderSeasonHint: seasonHint,
+                  resolveEpisode: false,
+                  resolveExtraClassification: false,
+                  resolveTitleAndSeason: false,
                 ))
           : null;
       out.add(
@@ -2560,13 +2544,17 @@ abstract final class ScrapeDomainAdapter {
     required Map<String, String> nfoByFolder,
   }) {
     final childSegsByParent = <String, Set<String>>{};
+    final visitedVideoDirs = <String>{};
     for (final file in files) {
       if (file.assetKind != AssetKind.video) continue;
-      final segments = file.relativePath
-          .replaceAll('\\', '/')
-          .split('/')
-          .where((s) => s.isNotEmpty)
-          .toList();
+      final path = file.relativePath.replaceAll('\\', '/');
+      final slash = path.lastIndexOf('/');
+      if (slash <= 0 ||
+          (slash < path.length - 1 &&
+              !visitedVideoDirs.add(path.substring(0, slash)))) {
+        continue;
+      }
+      final segments = path.split('/').where((s) => s.isNotEmpty).toList();
       if (segments.length < 3) continue;
       final dirSegs = segments.sublist(0, segments.length - 1);
       for (var k = 1; k < dirSegs.length; k++) {
@@ -2777,9 +2765,7 @@ abstract final class ScrapeDomainAdapter {
 
   static String _stripFolderPrefix(String relativePath, String folderPath) {
     final normRel = relativePath.replaceAll('\\', '/');
-    final normFolder = folderPath
-        .replaceAll('\\', '/')
-        .replaceAll(RegExp(r'^/+|/+$'), '');
+    final normFolder = folderPath.replaceAll('\\', '/').replaceAll(_reHot3, '');
     if (normFolder.isEmpty) return normRel;
     if (normRel.startsWith('$normFolder/')) {
       return normRel.substring(normFolder.length + 1);
@@ -2853,7 +2839,7 @@ abstract final class ScrapeDomainAdapter {
       if (seen.add(code)) out.add(code);
     }
 
-    final scoredPrefixRe = RegExp(r'^([+-]?\d+)\s+(.+)$');
+    final scoredPrefixRe = _reHot40;
     for (final raw in rawReasons) {
       final trimmed = raw.trim();
       if (trimmed.isEmpty) continue;
@@ -2999,12 +2985,10 @@ abstract final class ScrapeDomainAdapter {
     caseSensitive: false,
   );
 
-  static String _stripRemasterTag(String value) => value
-      .replaceAll(_remasterPattern, ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
+  static String _stripRemasterTag(String value) =>
+      value.replaceAll(_remasterPattern, ' ').replaceAll(_reHot11, ' ').trim();
 
-  static bool _hasCjk(String s) => RegExp(r'[\u3040-\u9fff]').hasMatch(s);
+  static bool _hasCjk(String s) => _reHot41.hasMatch(s);
 
   /// 场景式命名在标题后紧跟合理发行年份（1950~2029）、分辨率、编码或季集标记，搜索词从首个此类标记处截断（标记不在开头时）；
   /// 科幻片名自带的未来年份（如 `Demon Lord 2099`）不被截断。
@@ -3017,16 +3001,7 @@ abstract final class ScrapeDomainAdapter {
   static String _cutTechnicalTail(String query) {
     final m = _queryTechnicalTail.firstMatch(query);
     if (m == null || m.start == 0) {
-      return query
-          .replaceAll(
-            RegExp(
-              r'(?<![a-z0-9])(?:\d{3,4}[pi]|[248]k)(?![a-z0-9])',
-              caseSensitive: false,
-            ),
-            ' ',
-          )
-          .replaceAll(RegExp(r'\s+'), ' ')
-          .trim();
+      return query.replaceAll(_reHot42, ' ').replaceAll(_reHot11, ' ').trim();
     }
     return query.substring(0, m.start).trim();
   }
@@ -3045,29 +3020,19 @@ abstract final class ScrapeDomainAdapter {
     if (_genericQueryWord.hasMatch(trimmed)) return true;
     if (!allowGroupHomonym &&
         PersonalFilenameParser.isReleaseGroupTag(trimmed) &&
-        !_hasCjk(
-          trimmed.replaceAll(RegExp(r'字幕[组組社]|[汉漢]化[组組]|[压壓]制[组組]'), ''),
-        )) {
+        !_hasCjk(trimmed.replaceAll(_reHot43, ''))) {
       return true;
     }
-    final letters = trimmed.replaceAll(RegExp(r'[\W_]+', unicode: true), '');
+    final letters = trimmed.replaceAll(_reHot44, '');
     if (!_hasCjk(trimmed) && letters.length <= 2) return true;
     return false;
   }
 
   static bool _isSafeFirstToken(String firstToken, String fullQuery) {
     if (_hasCjk(firstToken)) return firstToken.length >= 2;
-    final stripped = fullQuery
-        .replaceAll(
-          RegExp(
-            r'(?<![a-z0-9])(?:oad|ova|ona|sp|specials?|ex\d{0,2}|the\s+movie|movie|tv)(?![a-z0-9])',
-            caseSensitive: false,
-          ),
-          ' ',
-        )
-        .toLowerCase();
+    final stripped = fullQuery.replaceAll(_reHot45, ' ').toLowerCase();
     final latinWords = stripped
-        .split(RegExp(r'[^a-z0-9]+'))
+        .split(_reHot39)
         .where((w) => w.length >= 3)
         .toList();
     return latinWords.length <= 1 && firstToken.length >= 4;
@@ -3092,44 +3057,26 @@ abstract final class ScrapeDomainAdapter {
 
     if (altPart != null) {
       final vol = altPart == 1 ? 'ONE' : 'TWO';
-      final hasVolSuffix = RegExp(
-        r'(?:^|\s)(?:one|two|[12])$',
-        caseSensitive: false,
-      );
+      final hasVolSuffix = _reHot46;
       for (final hint in [
         cluster.inventory.title,
         ...cluster.inventory.titleHints,
       ]) {
         final trimmed = hint.trim();
-        if (RegExp(
-              r'\balternative\b',
-              caseSensitive: false,
-            ).hasMatch(trimmed) &&
-            !hasVolSuffix.hasMatch(trimmed)) {
+        if (_reHot47.hasMatch(trimmed) && !hasVolSuffix.hasMatch(trimmed)) {
           extraTitleHints.add('$trimmed $vol');
           extraQueries.add('$trimmed $vol');
         }
       }
       if (parentSeriesTitle.isNotEmpty) {
         final trimmedParent = parentSeriesTitle.trim();
-        final hasAltWord = RegExp(
-              r'\balternative\b',
-              caseSensitive: false,
-            ).hasMatch(trimmedParent);
+        final hasAltWord = _reHot47.hasMatch(trimmedParent);
         if (hasAltWord) {
           if (!hasVolSuffix.hasMatch(trimmedParent)) {
             extraTitleHints.add('$trimmedParent $vol');
             extraQueries.add('$trimmedParent $vol');
           }
-          final pureParent = trimmedParent
-              .replaceFirst(
-                RegExp(
-                  r'\s*\balternative(?:\s+(?:one|two|[12]))?\s*$',
-                  caseSensitive: false,
-                ),
-                '',
-              )
-              .trim();
+          final pureParent = trimmedParent.replaceFirst(_reHot48, '').trim();
           if (pureParent.isNotEmpty && pureParent != trimmedParent) {
             extraQueries.add(pureParent);
           }
@@ -3203,16 +3150,13 @@ abstract final class ScrapeDomainAdapter {
         .toList();
     if (segments.isEmpty) return '';
     var raw = segments.last
-        .replaceAll(RegExp(r'\{[^}]*\}'), ' ')
-        .replaceAll(RegExp(r'\(\s*(?:19|20)\d{2}\s*\)'), ' ')
-        .replaceAll(RegExp(r'（\s*(?:19|20)\d{2}\s*）'), ' ')
-        .replaceAll(RegExp(r'\[[^\]]*\]'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceAll(_reHot8, ' ')
+        .replaceAll(_reHot9, ' ')
+        .replaceAll(_reHot10, ' ')
+        .replaceAll(_reHot49, ' ')
+        .replaceAll(_reHot11, ' ')
         .trim();
-    final suffixRe = RegExp(
-      r'[\s\-+_,]*(?:TV\s*\+\s*Movie|TV\s*\+\s*OVA|TV|OVA|OAD|SP|Movies?|系列|作品集|合集|全集|Series|Collection)\s*$',
-      caseSensitive: false,
-    );
+    final suffixRe = _reHot50;
     for (var i = 0; i < 3; i++) {
       final next = raw.replaceFirst(suffixRe, '').trim();
       if (next == raw) break;
@@ -3232,12 +3176,7 @@ abstract final class ScrapeDomainAdapter {
       ...cluster.inventory.titleHints,
       ...cluster.inventory.fileHints,
     ];
-    return texts.any(
-      (t) => RegExp(
-        r'(?<![a-z0-9])ex(?:\d{1,2})?(?![a-z0-9])',
-        caseSensitive: false,
-      ).hasMatch(t),
-    );
+    return texts.any((t) => _reHot51.hasMatch(t));
   }
 
   static bool _isClusterSpecial(SubWorkCluster cluster) {
@@ -3246,10 +3185,7 @@ abstract final class ScrapeDomainAdapter {
       return false;
     }
     if (cluster.inventory.season == 0 || _isClusterEx(cluster)) return true;
-    final specialRe = RegExp(
-      r'(?<![a-z0-9])(?:ova|oad|sp|specials?)(?![a-z0-9])|特典|特别篇|番外',
-      caseSensitive: false,
-    );
+    final specialRe = _reHot52;
     return [
       cluster.inventory.title,
       ...cluster.inventory.titleHints,
@@ -3266,15 +3202,10 @@ abstract final class ScrapeDomainAdapter {
       ...cluster.inventory.titleHints,
       ...cluster.inventory.fileHints,
     ];
-    final hasAlt = allTexts.any(
-      (t) => RegExp(r'\balternative\b', caseSensitive: false).hasMatch(t),
-    );
+    final hasAlt = allTexts.any((t) => _reHot24.hasMatch(t));
     if (!hasAlt) return null;
     final alreadyPart = cluster.inventory.titleHints.any(
-      (h) => RegExp(
-          r'\balternative\s+(?:one|two)\b',
-          caseSensitive: false,
-        ).hasMatch(h),
+      (h) => _reHot25.hasMatch(h),
     );
     if (alreadyPart) return null;
     if (cluster.inventory.episodes.length == 1) {
@@ -3291,8 +3222,8 @@ abstract final class ScrapeDomainAdapter {
     }
     for (final a in cluster.assignments.where((a) => a.category == 'main')) {
       final name = fileByRelPath[a.relativePath]?.fileName ?? '';
-      if (RegExp(r'(?:^|[^0-9])0?1(?:[^0-9]|$)').hasMatch(name)) return 1;
-      if (RegExp(r'(?:^|[^0-9])0?2(?:[^0-9]|$)').hasMatch(name)) return 2;
+      if (_reHot53.hasMatch(name)) return 1;
+      if (_reHot54.hasMatch(name)) return 2;
     }
     return null;
   }
@@ -3527,10 +3458,10 @@ abstract final class ScrapeDomainAdapter {
     targets.sort((a, b) {
       int typeRank(BangumiTmdbTarget t) =>
           (preferMovie
-                  ? t.type == TmdbMediaType.movie
-                  : t.type == TmdbMediaType.tv)
-              ? 0
-              : 1;
+              ? t.type == TmdbMediaType.movie
+              : t.type == TmdbMediaType.tv)
+          ? 0
+          : 1;
       final byType = typeRank(a).compareTo(typeRank(b));
       if (byType != 0) return byType;
       final aHasSeason = a.season != null && a.season! > 0 ? 0 : 1;
@@ -3749,25 +3680,20 @@ abstract final class ScrapeDomainAdapter {
         arabicChanged = true;
       }
     });
-    arabic = arabic.replaceAllMapped(
-      RegExp(
-        r'(?:^|(?<=[\s\u3040-\u9fff\-:：]))(II|III|IV|VI{0,3}|IX|V|X)(?=$|[\s\u3040-\u9fff\-:：])',
-      ),
-      (m) {
-        final rep = asciiToArabic[m.group(1)!];
-        if (rep == null) return m.group(0)!;
-        arabicChanged = true;
-        return ' $rep ';
-      },
-    );
+    arabic = arabic.replaceAllMapped(_reHot55, (m) {
+      final rep = asciiToArabic[m.group(1)!];
+      if (rep == null) return m.group(0)!;
+      arabicChanged = true;
+      return ' $rep ';
+    });
 
     final out = <String>[];
     if (asciiChanged) {
-      final clean = ascii.replaceAll(RegExp(r'\s+'), ' ').trim();
+      final clean = ascii.replaceAll(_reHot11, ' ').trim();
       if (clean.isNotEmpty) out.add(clean);
     }
     if (arabicChanged) {
-      final clean = arabic.replaceAll(RegExp(r'\s+'), ' ').trim();
+      final clean = arabic.replaceAll(_reHot11, ' ').trim();
       if (clean.isNotEmpty && !out.contains(clean)) out.add(clean);
     }
     return out;
@@ -3775,7 +3701,7 @@ abstract final class ScrapeDomainAdapter {
 
   static int? _parseYear(String? raw) {
     if (raw == null || raw.isEmpty) return null;
-    final m = RegExp(r'(19|20)\d{2}').firstMatch(raw);
+    final m = _reHot56.firstMatch(raw);
     return m == null ? null : int.tryParse(m.group(0)!);
   }
 
@@ -3783,4 +3709,133 @@ abstract final class ScrapeDomainAdapter {
     final trimmed = raw?.trim();
     return (trimmed == null || trimmed.isEmpty) ? null : trimmed;
   }
+
+  /// 预编译热点正则表达式（避免在逐文件遍历与归组打分热路径中重复编译）。
+  static final RegExp _reHot1 = RegExp(r'\s+[&＆]\s+');
+  static final RegExp _reHot2 = RegExp(r'[^a-z0-9぀-鿿]+');
+  static final RegExp _reHot3 = RegExp(r'^/+|/+$');
+  static final RegExp _reHot4 = RegExp(
+    r'ncop|nced|menu|pv|cm|spot|making|digest|予告|預告|预告|特報',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot5 = RegExp(r'^[\[【]');
+  static final RegExp _reHot6 = RegExp(
+    r'^(?:vol(?:ume)?|disc|disk|bd|dvd|cd|part|chs|cht|sc|tc|jp|en|sub|subs|subtitles|fonts?)\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot7 = RegExp(r'[^a-z0-9\u4e00-\u9fff]+');
+  static final RegExp _reHot8 = RegExp(r'\{[^}]*\}');
+  static final RegExp _reHot9 = RegExp(r'\(\s*(?:19|20)\d{2}\s*\)');
+  static final RegExp _reHot10 = RegExp(r'（\s*(?:19|20)\d{2}\s*）');
+  static final RegExp _reHot11 = RegExp(r'\s+');
+  static final RegExp _reHot12 = RegExp(r'[\s:：\-～~·・･/—]+');
+  static final RegExp _reHot13 = RegExp(
+    r'(?<![a-z0-9])(?:alternative|ova|oad|oav|sp\d*|special)(?![a-z0-9])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot14 = RegExp(
+    r'^(.*?)\s*(?:[-–—:：]\s*|\s+)(?:(?:bd|dvd)\s*)?(?:vol(?:ume)?\.?\s*0*\d{1,2}|第\s*[0-9一二三四五六七八九十]+\s*[卷巻])\s*$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot15 = RegExp(
+    r'^(.+?)\s+(?:the\s+movie|movie|ova\d*|oads?|oav\d*|tvsp|sp\d+|special\s+ride)\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot16 = RegExp(
+    r'\s+the\s+animation$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot17 = RegExp(
+    r'^([A-Za-z0-9][A-Za-z0-9\s!\-’\x27.,]{3,}?)\s+([\u3040-\u9fff][^\r\n]{1,})$',
+  );
+  static final RegExp _reHot18 = RegExp(r'[\u3040-\u30ff]');
+  static final RegExp _reHot19 = RegExp(
+    r'\s+(?:ova\d*|oads?|oab|sp\d*|special|「|『)',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot20 = RegExp(r'[\u4e00-\u9fff]');
+  static final RegExp _reHot21 = RegExp(
+    r'(?<=\s)(?:OVA|OAD|OAV)(?=\s+\S)',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot22 = RegExp(r'\s+|[:：～~—\-/·・･]+');
+  static final RegExp _reHot23 = RegExp(
+    r'\s+s\d{1,2}(?:\s*[+&~～\-]\s*(?:s?\d{1,2}|ova|oad|sp|movie))+\s*$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot24 = RegExp(
+    r'\balternative\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot25 = RegExp(
+    r'\balternative\s+(?:one|two)\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot26 = RegExp(
+    r'\s*(?:系列|作品集|合集|全集|Series|Collection)$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot27 = RegExp(r'[:：～~—/·・･]+');
+  static final RegExp _reHot28 = RegExp(r'(?<!\d)([2-9])(?!\d)');
+  static final RegExp _reHot29 = RegExp(r'[^a-z0-9\u3040-\u9fff]+');
+  static final RegExp _reHot30 = RegExp(r'\d');
+  static final RegExp _reHot31 = RegExp(
+    r'(?:\b(web)[ ._-]+)?\b(preview|teaser|trailer)\b(?:[ ._-]*(\d{1,3}))?|'
+    r'([予預]告)(?:[ ._-]*(\d{1,3}))?',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot32 = RegExp(
+    r'(?<![a-z0-9])(TV[ ._-]*CM|BD[ ._-]*CM|PV[ ._-]*CM|CM|PV)(?:[ ._-]*0*(\d{1,3}))?(?![a-z0-9])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot33 = RegExp(r'[ ._-]+');
+  static final RegExp _reHot34 = RegExp(r'^[\s\-–—_:：]+');
+  static final RegExp _reHot35 = RegExp(r'\.[^.]+$');
+  static final RegExp _reHot36 = RegExp(r'\[[0-9a-fA-F]{8}\]');
+  static final RegExp _reHot37 = RegExp(r'_+');
+  static final RegExp _reHot38 = RegExp(r'^_+|_+$');
+  static final RegExp _reHot39 = RegExp(r'[^a-z0-9]+');
+  static final RegExp _reHot40 = RegExp(r'^([+-]?\d+)\s+(.+)$');
+  static final RegExp _reHot41 = RegExp(r'[\u3040-\u9fff]');
+  static final RegExp _reHot42 = RegExp(
+    r'(?<![a-z0-9])(?:\d{3,4}[pi]|[248]k)(?![a-z0-9])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot43 = RegExp(r'字幕[组組社]|[汉漢]化[组組]|[压壓]制[组組]');
+  static final RegExp _reHot44 = RegExp(r'[\W_]+', unicode: true);
+  static final RegExp _reHot45 = RegExp(
+    r'(?<![a-z0-9])(?:oad|ova|ona|sp|specials?|ex\d{0,2}|the\s+movie|movie|tv)(?![a-z0-9])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot46 = RegExp(
+    r'(?:^|\s)(?:one|two|[12])$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot47 = RegExp(
+    r'\balternative\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot48 = RegExp(
+    r'\s*\balternative(?:\s+(?:one|two|[12]))?\s*$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot49 = RegExp(r'\[[^\]]*\]');
+  static final RegExp _reHot50 = RegExp(
+    r'[\s\-+_,]*(?:TV\s*\+\s*Movie|TV\s*\+\s*OVA|TV|OVA|OAD|SP|Movies?|系列|作品集|合集|全集|Series|Collection)\s*$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot51 = RegExp(
+    r'(?<![a-z0-9])ex(?:\d{1,2})?(?![a-z0-9])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot52 = RegExp(
+    r'(?<![a-z0-9])(?:ova|oad|sp|specials?)(?![a-z0-9])|特典|特别篇|番外',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot53 = RegExp(r'(?:^|[^0-9])0?1(?:[^0-9]|$)');
+  static final RegExp _reHot54 = RegExp(r'(?:^|[^0-9])0?2(?:[^0-9]|$)');
+  static final RegExp _reHot55 = RegExp(
+    r'(?:^|(?<=[\s\u3040-\u9fff\-:：]))(II|III|IV|VI{0,3}|IX|V|X)(?=$|[\s\u3040-\u9fff\-:：])',
+  );
+  static final RegExp _reHot56 = RegExp(r'(19|20)\d{2}');
 }

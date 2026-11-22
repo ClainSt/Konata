@@ -89,7 +89,9 @@ class BdripFolderCleaner {
     working = working.replaceAll(_bangumiMarker, ' ');
 
     int? year;
-    final yearMatches = _bracketYear.allMatches(working).toList(growable: false);
+    final yearMatches = _bracketYear
+        .allMatches(working)
+        .toList(growable: false);
     if (yearMatches.isNotEmpty) {
       final parsedYears = yearMatches
           .map((m) => int.tryParse(m.group(1) ?? ''))
@@ -134,41 +136,47 @@ class BdripFolderCleaner {
   static FolderTmdbHint parse(String rawFolderName) =>
       parseFolderName(rawFolderName);
 
+  static final RegExp _groupSepPattern = RegExp(r'[&×+/,]');
+  static final RegExp _techResidueSep = RegExp(r'[\s._\-+&,]+');
+  static final RegExp _groupHintPattern = RegExp(
+    r'字幕|压制|Sub|Raws|Studio|Fansub',
+    caseSensitive: false,
+  );
+  static final RegExp _collectionTagPattern = RegExp(
+    r'^(?:合集|全集|全\d+[集话話]|完结|Complete|Fin|BD|TV|OVA|SP|1080p|2160p|720p)$',
+    caseSensitive: false,
+  );
+  static final RegExp _edgePunctPattern = RegExp(
+    r'^[\s._\-/\\+|]+|[\s._\-/\\+|]+$',
+  );
+  static final RegExp _multiSpacePattern = RegExp(r'\s{2,}');
+
   static bool _isGroupOrTechBlock(String inner, bool seenContentBefore) {
     if (ReleaseGroups.contains(inner)) return true;
     final parts = inner
-        .split(RegExp(r'[&×+/,]'))
+        .split(_groupSepPattern)
         .map((e) => e.trim())
         .where((e) => e.isNotEmpty)
         .toList();
     if (parts.isNotEmpty && parts.every(ReleaseGroups.contains)) {
       return true;
     }
-    final tech = MediaTechParser.parse(inner);
-    if (tech.resolution != null ||
-        tech.videoCodec != null ||
-        tech.bitDepth != null ||
-        tech.audioCodec != null ||
-        tech.dynamicRange != null ||
-        tech.mediaSourceTag != null) {
-      return tech.strippedText.replaceAll(RegExp(r'[\s._\-+&,]+'), '').isEmpty;
+    final tech = MediaTechParser.stripTechTokens(inner);
+    if (tech.hasSpec) {
+      return tech.strippedText.replaceAll(_techResidueSep, '').isEmpty;
     }
     if (!seenContentBefore && parts.length <= 2 && inner.length <= 24) {
-      if (RegExp(r'字幕|压制|Sub|Raws|Studio|Fansub', caseSensitive: false)
-          .hasMatch(inner)) {
+      if (_groupHintPattern.hasMatch(inner)) {
         return true;
       }
     }
-    return RegExp(
-      r'^(?:合集|全集|全\d+[集话話]|完结|Complete|Fin|BD|TV|OVA|SP|1080p|2160p|720p)$',
-      caseSensitive: false,
-    ).hasMatch(inner);
+    return _collectionTagPattern.hasMatch(inner);
   }
 
   static String _normalizeSpaces(String input) {
     return input
-        .replaceAll(RegExp(r'^[\s._\-/\\+|]+|[\s._\-/\\+|]+$'), '')
-        .replaceAll(RegExp(r'\s{2,}'), ' ')
+        .replaceAll(_edgePunctPattern, '')
+        .replaceAll(_multiSpacePattern, ' ')
         .trim();
   }
 }

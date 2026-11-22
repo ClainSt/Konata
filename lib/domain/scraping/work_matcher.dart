@@ -88,7 +88,7 @@ abstract final class WorkMatcher {
   }
 
   static final _latinMediaCarrier = RegExp(
-    r'(?<![a-z0-9])(?:oad|ova|ona|sp|specials?|ex\d{0,2}|the\s+movie|movie|tv|bd|dvd|rip)(?![a-z0-9])',
+    r'(?<![a-z0-9])(?:oad|ova|ona|tvsp|sp|specials?|ex\d{0,2}|the\s+movie|movie|tv|bd|dvd|rip)(?![a-z0-9])',
     caseSensitive: false,
   );
 
@@ -664,7 +664,21 @@ abstract final class WorkMatcher {
           ? _hintsMatchScore(inventory.fileHints, candidate)
           : 0.0;
       final fileDriven = batchFileDriven && filePrimarySim >= 0.60;
-      var titleSim = _title(inventory, candidate);
+      final soleAnimSameType =
+          (candidate.genreIds.isEmpty || candidate.genreIds.contains(16)) &&
+          candidates
+                  .where(
+                    (c) =>
+                        c.type == candidate.type &&
+                        (c.genreIds.isEmpty || c.genreIds.contains(16)),
+                  )
+                  .length ==
+              1;
+      var titleSim = _title(
+        inventory,
+        candidate,
+        allowPreColonBoost: soleAnimSameType,
+      );
       if (fileDriven && filePrimarySim > titleSim) {
         titleSim = filePrimarySim;
       }
@@ -686,11 +700,14 @@ abstract final class WorkMatcher {
           'conflicting subtitle',
         );
       }
-      final bgmYearInput =
-          (batchFileDriven &&
-              inventory.year != null &&
-              !_fileHintsMentionYear(inventory, inventory.year!))
-          ? null
+      final bgmFolderOwnYear = WorkSeason.year({'title': inventory.folder});
+      final bgmDropMessyYear =
+          batchFileDriven &&
+          inventory.year != null &&
+          bgmFolderOwnYear == inventory.year &&
+          !_fileHintsMentionYear(inventory, inventory.year!);
+      final bgmYearInput = bgmDropMessyYear
+          ? inventory.fileYear
           : inventory.year;
       _year(scored, bgmYearInput, candidate.year);
       if (inventory.shape == WorkShape.series &&
@@ -825,13 +842,17 @@ abstract final class WorkMatcher {
         final margin = ranking.length < 2
             ? double.infinity
             : top.score - ranking[1].score;
+        final topTitlePts = top.reasons
+            .where((r) => r.endsWith(' title'))
+            .map((r) => double.tryParse(r.split(' ').first) ?? 0.0)
+            .fold<double>(0.0, (m, v) => v > m ? v : m);
         final exactPrimaryTitle =
             DirectoryAnalyzer.normalize(inventory.title) ==
                 DirectoryAnalyzer.normalize(top.candidate.title) ||
             (batchFileDriven &&
                 _hintsMatchScore(inventory.fileHints, top.candidate) >= 0.90);
         final sameTitleEpWinner =
-            exactPrimaryTitle &&
+            (exactPrimaryTitle || topTitlePts >= 36.0) &&
             ranking.length >= 2 &&
             DirectoryAnalyzer.normalize(top.candidate.title) ==
                 DirectoryAnalyzer.normalize(ranking[1].candidate.title) &&
@@ -839,8 +860,7 @@ abstract final class WorkMatcher {
             !ranking[1].reasons.any((r) => r.contains('episode count')) &&
             margin >= 7.5;
         if (top.score >= 44.5 &&
-            exactPrimaryTitle &&
-            (margin >= 12.0 || sameTitleEpWinner)) {
+            ((exactPrimaryTitle && margin >= 12.0) || sameTitleEpWinner)) {
           return MatchResult(MatchTier.high, ranking);
         }
       }
@@ -956,7 +976,21 @@ abstract final class WorkMatcher {
           ? _hintsMatchScore(inventory.fileHints, candidate)
           : 0.0;
       final fileDriven = batchFileDriven && filePrimarySim >= 0.60;
-      var titleSim = _title(inventory, candidate);
+      final soleAnimSameType =
+          (candidate.genreIds.isEmpty || candidate.genreIds.contains(16)) &&
+          candidates
+                  .where(
+                    (c) =>
+                        c.type == candidate.type &&
+                        (c.genreIds.isEmpty || c.genreIds.contains(16)),
+                  )
+                  .length ==
+              1;
+      var titleSim = _title(
+        inventory,
+        candidate,
+        allowPreColonBoost: soleAnimSameType,
+      );
       if (fileDriven && filePrimarySim > titleSim) {
         titleSim = filePrimarySim;
       }
@@ -966,7 +1000,12 @@ abstract final class WorkMatcher {
               (inventory.shape == WorkShape.feature &&
                   matchedBgm.seasons.isNotEmpty &&
                   matchedBgm.seasons.first.count > 0 &&
-                  matchedBgm.seasons.first.count <= 2));
+                  matchedBgm.seasons.first.count <= 2) ||
+              (inventory.shape == WorkShape.series &&
+                  inventory.episodeCount > 0 &&
+                  inventory.episodeCount <= 12 &&
+                  matchedBgm.seasons.isNotEmpty &&
+                  matchedBgm.seasons.first.count == inventory.episodeCount));
       final parentTvSpecial =
           (verifiedBgm != null &&
               _isParentTvForBangumiSpecial(inventory, candidate, verifiedBgm)) ||
@@ -1046,8 +1085,12 @@ abstract final class WorkMatcher {
           inventory.year != null &&
           folderOwnYear == inventory.year &&
           !_fileHintsMentionYear(inventory, inventory.year!);
-      final effYear = dropMessyFolderYear ? verifiedBgm?.year : year;
-      final effBorrowed = borrowed || dropMessyFolderYear;
+      final effYear = dropMessyFolderYear
+          ? (inventory.fileYear ?? verifiedBgm?.year)
+          : year;
+      final effBorrowed =
+          (borrowed || dropMessyFolderYear) &&
+          !(dropMessyFolderYear && inventory.fileYear != null);
       final effInvSeq = batchFileDriven ? fileOnlySeq : invSeq;
       var subtitleConflict = 0.0;
       if (candidate.type == 'movie') {
@@ -1132,7 +1175,6 @@ abstract final class WorkMatcher {
         }
         if (!isMapped &&
             !effectiveParentTvSpecial &&
-            !batchFileDriven &&
             titleSim < 0.9 &&
             !scored.seasonNameMatched &&
             !scored.tmdbMarkerSeasonMatched) {
@@ -1140,6 +1182,9 @@ abstract final class WorkMatcher {
             inventory,
             candidate,
             verifiedBangumi: verifiedBgm,
+            localTitleOverride: batchFileDriven && inventory.fileHints.isNotEmpty
+                ? inventory.fileHints.first
+                : null,
           );
           scored.add(subtitleConflict, 'conflicting subtitle');
         }
@@ -1193,6 +1238,7 @@ abstract final class WorkMatcher {
     final folderOwnYearForPromo = WorkSeason.year({'title': inventory.folder});
     final promoIgnoreMessyYear =
         batchFileDriven &&
+        inventory.fileYear == null &&
         verifiedBgm?.year == null &&
         inventory.year != null &&
         folderOwnYearForPromo == inventory.year &&
@@ -1263,9 +1309,17 @@ abstract final class WorkMatcher {
                   sn,
             }
           : const <String>{};
-      final topHasExactTitleScore = top.reasons.any(
-        (r) => r.endsWith(' title') && (double.tryParse(r.split(' ').first) ?? 0) >= 42,
-      );
+      final topTitleScore = top.reasons
+          .where((r) => r.endsWith(' title'))
+          .map((r) => double.tryParse(r.split(' ').first) ?? 0.0)
+          .fold<double>(0.0, (m, v) => v > m ? v : m);
+      final secondTitleScore = ranking.length >= 2
+          ? ranking[1].reasons
+                .where((r) => r.endsWith(' title'))
+                .map((r) => double.tryParse(r.split(' ').first) ?? 0.0)
+                .fold<double>(0.0, (m, v) => v > m ? v : m)
+          : 0.0;
+      final topHasExactTitleScore = topTitleScore >= 42.0;
       final exactMovieOverShorterPeer =
           top.candidate.type == 'movie' &&
           ranking.length >= 2 &&
@@ -1281,17 +1335,89 @@ abstract final class WorkMatcher {
           top.season! > 0 &&
           ranking.length >= 2 &&
           ranking[1].season == null;
+      final exactTitleOverPartialPeer =
+          exactSeasonCount &&
+          top.season != null &&
+          top.season! > 0 &&
+          topHasExactTitleScore &&
+          ranking.length >= 2 &&
+          secondTitleScore < 36.0;
+      final promoEffSeq = batchFileDriven ? fileOnlySeq : invSeq;
+      final uncontestedHighTitleS1 =
+          top.candidate.type == 'tv' &&
+          top.season == 1 &&
+          exactSeasonCount &&
+          inventory.episodeCount >= 6 &&
+          topTitleScore >= 40.0 &&
+          margin >= 35.0;
+      final soleTvExactSuffixSequel =
+          ranking.length == 1 &&
+          top.candidate.type == 'tv' &&
+          top.season != null &&
+          top.season! >= 2 &&
+          exactSeasonCount &&
+          inventory.episodeCount >= 6 &&
+          topTitleScore >= 37.0 &&
+          [
+            batchFileDriven && inventory.fileHints.isNotEmpty
+                ? inventory.fileHints.first
+                : inventory.title,
+          ].any((rawLocal) {
+            final lSpaced = rawLocal
+                .toLowerCase()
+                .replaceAll(RegExp(r'[^a-z0-9\u3040-\u9fff]+'), ' ')
+                .trim();
+            return [top.candidate.title, ...top.candidate.aliases].any((cn) {
+              final cSpaced = cn
+                  .toLowerCase()
+                  .replaceAll(RegExp(r'[^a-z0-9\u3040-\u9fff]+'), ' ')
+                  .trim();
+              return cSpaced.length >= 10 &&
+                  cSpaced.split(' ').length >= 2 &&
+                  lSpaced.endsWith(' $cSpaced');
+            });
+          });
+      final exactSequelSeasonWinner =
+          top.candidate.type == 'tv' &&
+          promoEffSeq != null &&
+          promoEffSeq >= 2 &&
+          top.season == promoEffSeq &&
+          topTitleScore >= 44.0 &&
+          margin >= 25.0;
+      final soleLocalOvaParent =
+          top.candidate.type == 'tv' &&
+          top.season == 0 &&
+          !inventory.folderMovieMarker &&
+          !inventory.fileMovieMarker &&
+          (DirectoryAnalyzer.isOvaText(inventory.title) ||
+              DirectoryAnalyzer.isOvaText(inventory.folder) ||
+              inventory.fileHints.any(DirectoryAnalyzer.isOvaText) ||
+              DirectoryAnalyzer.isOva(inventory)) &&
+          !(_inventoryHasExTag(inventory) &&
+              !_candidateHasExTag(top.candidate)) &&
+          ranking.length == 1 &&
+          !DirectoryAnalyzer.isOvaText(top.candidate.title) &&
+          !top.candidate.aliases.any(DirectoryAnalyzer.isOvaText) &&
+          topTitleScore >= 36.0;
       final minMargin = exactMovieOverShorterPeer
           ? (ranking[1].candidate.type == 'movie' ? 9.5 : 12.0)
           : (exactSeasonOverUnmatchedPeer
                 ? 9.5
-                : (exactSeasonCount ? 18.0 : 20.0));
+                : (exactTitleOverPartialPeer
+                      ? 11.5
+                      : (exactSeasonCount ? 18.0 : 20.0)));
       final minPromoteScore =
           (top.candidate.type == 'tv' &&
                   top.seasonNameMatched &&
                   ranking.length == 1)
               ? 47.0
-              : 59.5;
+              : (soleLocalOvaParent
+                    ? 51.0
+                    : (soleTvExactSuffixSequel
+                          ? 52.0
+                          : (exactSequelSeasonWinner
+                                ? 52.5
+                                : (uncontestedHighTitleS1 ? 55.0 : 59.5))));
       if (topValidGenre &&
           !cumulativeWithoutYear &&
           top.score >= minPromoteScore &&
@@ -1638,8 +1764,14 @@ abstract final class WorkMatcher {
           episodes > 0 &&
           invSeq >= 2 &&
           (year == null || yearOf == null || year >= yearOf);
+      final hasMatchingSeqSeason = regular.any((s) => s.number == invSeq);
       final validSequelSeason =
-          (chosen != null && chosen >= 2) ||
+          (chosen != null &&
+              chosen >= 2 &&
+              (!hasMatchingSeqSeason ||
+                  chosen == invSeq ||
+                  scored.seasonNameMatched ||
+                  mappedSeason == chosen)) ||
           (chosen == 0 &&
               (parentTvSpecial ||
                   bridgedSpecial ||
@@ -1886,6 +2018,12 @@ abstract final class WorkMatcher {
           candidate.title,
           ...candidate.aliases,
         ]);
+    final primaryTitleHasSeq =
+        invSeq != null &&
+        _namesHaveSequelNumber(invSeq, [
+          candidate.title,
+          if (candidate.originalTitle != null) candidate.originalTitle!,
+        ]);
     final localArcs = <String>{
       for (final raw in [
         inventory.title,
@@ -2028,6 +2166,21 @@ abstract final class WorkMatcher {
         score += season.number == explicit
             ? 6
             : (isMergedContinuousS1 ? 0 : -6);
+      } else if (invSeq != null &&
+          invSeq >= 2 &&
+          !primaryTitleHasSeq &&
+          sortedRegular.length >= 2 &&
+          sortedRegular.any((s) => s.number == invSeq)) {
+        // 剧集主名未带续作序号（仅别名汇总了续季名如 `DD北斗神拳` 含 `DD Hokuto no Ken 2`）时，
+        // 优先将对应续季号（如 `S2`）作为默认季候选项。
+        if (season.number == invSeq) {
+          score += 4;
+        } else if (season.number == 1 &&
+            (nameScores[1] ?? 0.0) < 0.72 &&
+            !(season.name != null &&
+                _namesHaveSequelNumber(invSeq, [season.name!]))) {
+          score -= 4;
+        }
       }
       if (isMergedContinuousS1) {
         score += 6;
@@ -2390,13 +2543,16 @@ abstract final class WorkMatcher {
     DirectoryInventory inventory,
     MatchCandidate candidate, {
     MatchCandidate? verifiedBangumi,
+    String? localTitleOverride,
   }) {
     if (verifiedBangumi != null &&
         _bridgedTitle(verifiedBangumi, candidate) >= 0.70) {
       return 0;
     }
     final localPrimary = DirectoryAnalyzer.normalize(
-      _stripRemaster(inventory.title.replaceAll(_movieWord, ' ')),
+      _stripRemaster(
+        (localTitleOverride ?? inventory.title).replaceAll(_movieWord, ' '),
+      ),
     );
     if (localPrimary.length < 4) return 0;
 
@@ -2651,7 +2807,11 @@ abstract final class WorkMatcher {
 
   /// 计算本地片名列表与远程候选别名间的最优相似度（`0..1`）；
   /// 其中目录推导名称的权重信任度高于文件名推导名称。
-  static double _title(DirectoryInventory inventory, MatchCandidate candidate) {
+  static double _title(
+    DirectoryInventory inventory,
+    MatchCandidate candidate, {
+    bool allowPreColonBoost = false,
+  }) {
     final primaryNorm = DirectoryAnalyzer.normalize(inventory.title);
     final baseCandNorm = DirectoryAnalyzer.normalize(candidate.title);
     final sharesBase =
@@ -2685,10 +2845,26 @@ abstract final class WorkMatcher {
           ],
     ];
     final remote = <String>{};
+    final preColonHeads = <String>{};
+    final colonSubPat = RegExp(r'^(.+?)\s*[:：]\s*(.+)$');
     for (final name in remoteRaw) {
       final norm = DirectoryAnalyzer.normalize(name);
       if (norm.isEmpty) continue;
       remote.addAll(_expandNormArcs(norm));
+      final cm = colonSubPat.firstMatch(name.trim());
+      if (cm != null) {
+        final headRaw = cm.group(1)!.trim();
+        final tailRaw = cm.group(2)!.trim();
+        final headNorm = DirectoryAnalyzer.normalize(headRaw);
+        final tailNorm = DirectoryAnalyzer.normalize(tailRaw);
+        if (headNorm.length >= 4 &&
+            tailNorm.length >= 4 &&
+            !_sequelOrSpinoffSuffix.hasMatch(tailNorm) &&
+            _explicitSequelNumber(tailRaw) == null &&
+            _infixOrdinalSeason(tailRaw) == null) {
+          preColonHeads.add(headNorm);
+        }
+      }
       final arabic = _romanArabicVariant(name, norm);
       if (arabic != null) remote.addAll(_expandNormArcs(arabic));
       // 剧场版/总集篇候选剥离前后置 `剧场版`/`劇場版`/`The Movie`/`総集編` 后同步纳入比对，
@@ -2825,6 +3001,17 @@ abstract final class WorkMatcher {
                 localPrefix != null &&
                 name.startsWith(localPrefix) &&
                 name.endsWith(localArc) &&
+                pairSim < 0.90) {
+              pairSim = 0.90;
+            }
+            if (allowPreColonBoost &&
+                !localHasSequel &&
+                !latinPrefixOnly &&
+                preColonHeads.contains(local) &&
+                (local.length >= 8 ||
+                    (local.length >= 4 &&
+                        inventory.year != null &&
+                        candidate.year == inventory.year)) &&
                 pairSim < 0.90) {
               pairSim = 0.90;
             }

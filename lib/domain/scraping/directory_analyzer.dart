@@ -47,6 +47,7 @@ class DirectoryInventory {
     required this.folder,
     required this.title,
     required this.year,
+    this.fileYear,
     required this.tmdbId,
     required this.tmdbType,
     required this.bangumiId,
@@ -64,6 +65,7 @@ class DirectoryInventory {
     required String folder,
     required String title,
     int? year,
+    int? fileYear,
     int? tmdbId,
     String? tmdbType,
     int? bangumiId,
@@ -79,6 +81,7 @@ class DirectoryInventory {
          folder: folder,
          title: title,
          year: year,
+         fileYear: fileYear,
          tmdbId: tmdbId,
          tmdbType: tmdbType,
          bangumiId: bangumiId,
@@ -93,10 +96,10 @@ class DirectoryInventory {
        );
 
   final String folder, title;
-  final int? year, tmdbId, bangumiId, season;
+  final int? year, fileYear, tmdbId, bangumiId, season;
   final String? tmdbType;
 
-  /// The user wrote 剧场版 / Movie in the folder name.
+  /// 目录名显式标注剧场版 / Movie。
   final bool folderMovieMarker;
 
   /// 仅文件名包含剧场版关键词的弱电影特征信号。
@@ -168,6 +171,7 @@ class DirectoryInventory {
     folder: folder,
     title: title,
     year: year,
+    fileYear: fileYear,
     tmdbId: this.tmdbId ?? tmdbId,
     tmdbType: this.tmdbType ?? tmdbType,
     bangumiId: this.bangumiId ?? bangumiId,
@@ -194,7 +198,11 @@ abstract final class DirectoryAnalyzer {
     caseSensitive: false,
   );
   static final _ovaMarker = RegExp(
-    r'(?:^|[^a-z])(?:ova|oad|oav|oab)(?:[^a-z]|$)',
+    r'(?:^|[^a-z])(?:ova|oad|oav|oab|tvsp)(?:[^a-z]|$)',
+    caseSensitive: false,
+  );
+  static final _bracketedSpMarker = RegExp(
+    r'[\[【(]\s*sp\d*\s*[\]】)]',
     caseSensitive: false,
   );
 
@@ -707,11 +715,12 @@ abstract final class DirectoryAnalyzer {
     final withoutMarker = effectiveTitle
         .replaceAll(
           RegExp(
-            r'剧场版|劇場版|総集編|总集篇|\b(?:the\s+movie|movie|ova|oad|oab)\b',
+            r'剧场版|劇場版|総集編|总集篇|\b(?:the\s+movie|movie|ova|oad|oab|tvsp)\b',
             caseSensitive: false,
           ),
           ' ',
         )
+        .replaceAll(RegExp(r'\s*[-–—]\s*$'), '')
         .trim();
     hint(titleHints, withoutMarker);
 
@@ -753,14 +762,25 @@ abstract final class DirectoryAnalyzer {
       final fileWithoutMarker = value
           .replaceAll(
             RegExp(
-              r'剧场版|劇場版|総集編|总集篇|\b(?:the\s+movie|movie|ova\d*|oads?|oav\d*|oab)\b',
+              r'剧场版|劇場版|総集編|总集篇|\b(?:the\s+movie|movie|ova\d*|oads?|oav\d*|oab|tvsp)\b',
               caseSensitive: false,
             ),
             ' ',
           )
+          .replaceAll(RegExp(r'\s*[-–—]\s*$'), '')
           .trim();
       if (fileWithoutMarker != value) {
         hint(fileHints, fileWithoutMarker);
+      }
+      // 含编号剧场版副标题（如 `Saint Seiya the Movie 2 - Kamigami no Atsuki Tatakai`）
+      // 同步剥离 `the Movie N` 产出 `主标题 - 副标题`，对齐 TMDB 冒号副标题别名。
+      final movieSeqSub = RegExp(
+        r'^(.+?)\s+(?:the\s+)?movie\s*\d+\s*[-–—:]\s*(.+)$',
+        caseSensitive: false,
+      ).firstMatch(value.trim());
+      if (movieSeqSub != null) {
+        final merged = '${movieSeqSub.group(1)!.trim()} - ${movieSeqSub.group(2)!.trim()}';
+        hint(fileHints, merged);
       }
       // 提取文件名中 `OVA`/`OAD`/`The Animation` 之前的母系列基础片名作为次级提示，
       // 确保乱目录下含单集副标题的 OVA/OAD（如 `Seraph of the End - OVA - Shahar`、`Neptune The Animation OVA1`）可精确命中母剧。
@@ -779,6 +799,22 @@ abstract final class DirectoryAnalyzer {
         if (baseSeries.length >= 4 ||
             RegExp(r'[\u3040-\u9fff]').hasMatch(baseSeries)) {
           hint(fileHints, baseSeries);
+        }
+      }
+      // 单集特别篇/完结篇文件名（带 `[SP]` 或完结篇罗马音后缀如 `Kanketsuhen`）同步产出母系列词干，
+      // 便于匹配托管在母剧第 0 季的电视特别篇。
+      if (shape == WorkShape.feature ||
+          allMain.any((f) => _ovaMarker.hasMatch(f) || _bracketedSpMarker.hasMatch(f))) {
+        final beforeFinaleArc = RegExp(
+          r'^(.+?)(?:\s*[-–—]\s*|\s+)(?:kanketsu|tokubetsu|bangai)[ -]?hen$',
+          caseSensitive: false,
+        ).firstMatch(value.trim());
+        if (beforeFinaleArc != null) {
+          final baseSeries = beforeFinaleArc.group(1)!.trim();
+          if (baseSeries.length >= 4 ||
+              RegExp(r'[\u3040-\u9fff]').hasMatch(baseSeries)) {
+            hint(fileHints, baseSeries);
+          }
         }
       }
       // 罗马音 + 含假名日文双语拼接文件名（如 `Yuyushiki ゆゆ式 OVA 「...」`）同步拆出独立拉丁段与日文段，
@@ -812,7 +848,7 @@ abstract final class DirectoryAnalyzer {
         ? null
         : WorkSeason.year({'title': name});
     int? fileYear;
-    if (folderYear == null && allMain.isNotEmpty) {
+    if (allMain.isNotEmpty) {
       final yearCounts = <int, int>{};
       final yearRegex = RegExp(
         shape == WorkShape.feature || useConsistentFileAsPrimary
@@ -839,6 +875,7 @@ abstract final class DirectoryAnalyzer {
       folder: normalizedFolder,
       title: effectiveTitle,
       year: folderYear ?? fileYear,
+      fileYear: fileYear,
       tmdbId: tmdbId,
       tmdbType: tmdbType,
       bangumiId: bangumiId,
@@ -909,12 +946,16 @@ abstract final class DirectoryAnalyzer {
     return (baseTitle: trimmed, season: null);
   }
 
-  /// 路径或文件名是否显式携带 OVA / OAD / OAV 标记。
+  /// 路径或文件名是否显式携带 OVA / OAD / OAV / TVSP / 括号 `[SP]` 标记。
   static bool isOvaText(String text) => _ovaMarker.hasMatch(text);
 
   static bool isOva(DirectoryInventory inventory) =>
       _ovaMarker.hasMatch(inventory.folder) ||
-      inventory.main.any((i) => i.files.any((f) => _ovaMarker.hasMatch(f)));
+      inventory.main.any(
+        (i) => i.files.any(
+          (f) => _ovaMarker.hasMatch(f) || _bracketedSpMarker.hasMatch(f),
+        ),
+      );
 
   /// 保留位于主目录内且处于连续 `1..N` 整数序列中的正片剧集，
   /// 防止仅因附带括号注记或回顾提示就被误降级为特典。
@@ -1584,7 +1625,9 @@ abstract final class DirectoryAnalyzer {
     final stripped = PersonalFilenameParser.withoutKnownReleaseGroups(file);
     if (stripped != null) {
       final value = PersonalFilenameParser.extractAnimeSearchKeyword(stripped);
-      if (value.isNotEmpty) yield _trimTechnical(seriesTitle(value, episode));
+      if (value.isNotEmpty) {
+        yield _trimTechnical(seriesTitle(value, episode, rawFile: stripped));
+      }
     }
   }
 

@@ -302,7 +302,8 @@ FILE "\\\\evil-host\\share\\x.flac" WAVE
           title: title,
           artist: 'YOASOBI',
           durationSeconds: duration,
-          lrcContent: '[00:01.00]$title',
+          lrcContent:
+              '[00:01.00]$title ライン一\n[00:05.00]$title ライン二\n[00:10.00]$title ライン三',
         );
       }
 

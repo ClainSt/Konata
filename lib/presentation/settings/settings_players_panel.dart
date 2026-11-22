@@ -27,6 +27,7 @@ import '../widgets/design_system/konata_system_file_picker.dart';
 import '../widgets/design_system/konata_toast.dart';
 import '../widgets/playback/konata_audiophile_unlock_dialog.dart';
 import '../widgets/playback/konata_spec_badge.dart';
+import 'settings_lyrics_card.dart';
 
 /// 播放器设置面板：
 /// 内置 `libmpv` 引擎路由、动漫音画精细参数、可选云端字体子集化与异步 `shaders/` 着色器发现。
@@ -217,13 +218,23 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
           notifier,
           shaders,
         );
+        const lyricsCard = SettingsLyricsCard();
         if (constraints.maxWidth >= 780) {
           return Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(child: videoCard),
               const SizedBox(width: KonataAdaptiveTokens.settingsGap),
-              Expanded(child: audioCard),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    audioCard,
+                    const SizedBox(height: KonataAdaptiveTokens.settingsGap),
+                    lyricsCard,
+                  ],
+                ),
+              ),
             ],
           );
         }
@@ -233,6 +244,8 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
             videoCard,
             const SizedBox(height: KonataAdaptiveTokens.settingsGap),
             audioCard,
+            const SizedBox(height: KonataAdaptiveTokens.settingsGap),
+            lyricsCard,
           ],
         );
       },

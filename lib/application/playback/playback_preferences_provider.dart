@@ -55,6 +55,12 @@ class PlaybackPreferencesState {
     this.cloudSubsetEndpoint = defaultCloudSubsetEndpoint,
     this.foobarBeefwebPort = FoobarBeefwebConfig.defaultPort,
     this.skipFoobarBeefwebPrompt = false,
+    this.lyricSourceNeteaseEnabled = true,
+    this.lyricSourceAmllEnabled = true,
+    this.lyricSourceLrclibEnabled = true,
+    this.lyricSourceQqEnabled = false,
+    this.qqLyricDisclaimerAccepted = false,
+    this.showLyricRomaji = false,
   });
 
   /// 默认视频（正片 / 特典）播放引擎。
@@ -102,6 +108,24 @@ class PlaybackPreferencesState {
   /// 用户是否已确认在未安装 `foo_beefweb` 时跳过引导弹窗并仅执行单文件拉起。
   final bool skipFoobarBeefwebPrompt;
 
+  /// 是否启用网易云音乐在线歌词源（默认开启）。
+  final bool lyricSourceNeteaseEnabled;
+
+  /// 是否启用 AMLL 开源逐字歌词源（按歌曲 ID 直取，默认开启）。
+  final bool lyricSourceAmllEnabled;
+
+  /// 是否启用 LRCLIB 开源同步歌词源（默认开启）。
+  final bool lyricSourceLrclibEnabled;
+
+  /// 是否启用 QQ 音乐非官方歌词源（默认关闭，首次开启需确认免责声明）。
+  final bool lyricSourceQqEnabled;
+
+  /// 用户是否已阅读并同意 QQ 音乐非官方歌词源免责提示。
+  final bool qqLyricDisclaimerAccepted;
+
+  /// 是否在沉浸歌词视口中额外显示罗马音注音行（默认关闭，不与译文混排）。
+  final bool showLyricRomaji;
+
   /// 复制并修改局部偏好字段。
   PlaybackPreferencesState copyWith({
     PreferredPlaybackEngine? defaultVideoEngine,
@@ -119,6 +143,12 @@ class PlaybackPreferencesState {
     String? cloudSubsetEndpoint,
     int? foobarBeefwebPort,
     bool? skipFoobarBeefwebPrompt,
+    bool? lyricSourceNeteaseEnabled,
+    bool? lyricSourceAmllEnabled,
+    bool? lyricSourceLrclibEnabled,
+    bool? lyricSourceQqEnabled,
+    bool? qqLyricDisclaimerAccepted,
+    bool? showLyricRomaji,
   }) {
     return PlaybackPreferencesState(
       defaultVideoEngine: defaultVideoEngine ?? this.defaultVideoEngine,
@@ -138,6 +168,16 @@ class PlaybackPreferencesState {
       foobarBeefwebPort: foobarBeefwebPort ?? this.foobarBeefwebPort,
       skipFoobarBeefwebPrompt:
           skipFoobarBeefwebPrompt ?? this.skipFoobarBeefwebPrompt,
+      lyricSourceNeteaseEnabled:
+          lyricSourceNeteaseEnabled ?? this.lyricSourceNeteaseEnabled,
+      lyricSourceAmllEnabled:
+          lyricSourceAmllEnabled ?? this.lyricSourceAmllEnabled,
+      lyricSourceLrclibEnabled:
+          lyricSourceLrclibEnabled ?? this.lyricSourceLrclibEnabled,
+      lyricSourceQqEnabled: lyricSourceQqEnabled ?? this.lyricSourceQqEnabled,
+      qqLyricDisclaimerAccepted:
+          qqLyricDisclaimerAccepted ?? this.qqLyricDisclaimerAccepted,
+      showLyricRomaji: showLyricRomaji ?? this.showLyricRomaji,
     );
   }
 
@@ -158,11 +198,17 @@ class PlaybackPreferencesState {
         other.cloudSubsetEnabled == cloudSubsetEnabled &&
         other.cloudSubsetEndpoint == cloudSubsetEndpoint &&
         other.foobarBeefwebPort == foobarBeefwebPort &&
-        other.skipFoobarBeefwebPrompt == skipFoobarBeefwebPrompt;
+        other.skipFoobarBeefwebPrompt == skipFoobarBeefwebPrompt &&
+        other.lyricSourceNeteaseEnabled == lyricSourceNeteaseEnabled &&
+        other.lyricSourceAmllEnabled == lyricSourceAmllEnabled &&
+        other.lyricSourceLrclibEnabled == lyricSourceLrclibEnabled &&
+        other.lyricSourceQqEnabled == lyricSourceQqEnabled &&
+        other.qqLyricDisclaimerAccepted == qqLyricDisclaimerAccepted &&
+        other.showLyricRomaji == showLyricRomaji;
   }
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     defaultVideoEngine,
     defaultAudioEngine,
     preferredRelayKindKey,
@@ -178,7 +224,13 @@ class PlaybackPreferencesState {
     cloudSubsetEndpoint,
     foobarBeefwebPort,
     skipFoobarBeefwebPrompt,
-  );
+    lyricSourceNeteaseEnabled,
+    lyricSourceAmllEnabled,
+    lyricSourceLrclibEnabled,
+    lyricSourceQqEnabled,
+    qqLyricDisclaimerAccepted,
+    showLyricRomaji,
+  ]);
 }
 
 /// 全局音视频播放与音画还原偏好状态管理器（`SharedPreferences` 本地持久化）。
@@ -408,6 +460,51 @@ class PlaybackPreferencesNotifier extends Notifier<PlaybackPreferencesState> {
     await _persist();
   }
 
+  /// 切换网易云音乐歌词来源开关。
+  Future<void> setLyricSourceNeteaseEnabled(bool enabled) async {
+    if (state.lyricSourceNeteaseEnabled == enabled) return;
+    state = state.copyWith(lyricSourceNeteaseEnabled: enabled);
+    await _persist();
+  }
+
+  /// 切换 AMLL 逐字歌词来源开关。
+  Future<void> setLyricSourceAmllEnabled(bool enabled) async {
+    if (state.lyricSourceAmllEnabled == enabled) return;
+    state = state.copyWith(lyricSourceAmllEnabled: enabled);
+    await _persist();
+  }
+
+  /// 切换 LRCLIB 开源歌词来源开关。
+  Future<void> setLyricSourceLrclibEnabled(bool enabled) async {
+    if (state.lyricSourceLrclibEnabled == enabled) return;
+    state = state.copyWith(lyricSourceLrclibEnabled: enabled);
+    await _persist();
+  }
+
+  /// 切换 QQ 音乐非官方歌词来源开关（支持同步记录首次免责确认状态）。
+  Future<void> setLyricSourceQqEnabled(
+    bool enabled, {
+    bool? disclaimerAccepted,
+  }) async {
+    final nextAccepted = disclaimerAccepted ?? state.qqLyricDisclaimerAccepted;
+    if (state.lyricSourceQqEnabled == enabled &&
+        state.qqLyricDisclaimerAccepted == nextAccepted) {
+      return;
+    }
+    state = state.copyWith(
+      lyricSourceQqEnabled: enabled,
+      qqLyricDisclaimerAccepted: nextAccepted,
+    );
+    await _persist();
+  }
+
+  /// 切换歌词视口罗马音注音显示开关。
+  Future<void> setShowLyricRomaji(bool show) async {
+    if (state.showLyricRomaji == show) return;
+    state = state.copyWith(showLyricRomaji: show);
+    await _persist();
+  }
+
   Future<void> _persist() async {
     if (!enablePersistence) return;
     try {
@@ -435,6 +532,12 @@ class PlaybackPreferencesNotifier extends Notifier<PlaybackPreferencesState> {
       'cloudSubsetEndpoint': s.cloudSubsetEndpoint,
       'foobarBeefwebPort': s.foobarBeefwebPort,
       'skipFoobarBeefwebPrompt': s.skipFoobarBeefwebPrompt,
+      'lyricSourceNeteaseEnabled': s.lyricSourceNeteaseEnabled,
+      'lyricSourceAmllEnabled': s.lyricSourceAmllEnabled,
+      'lyricSourceLrclibEnabled': s.lyricSourceLrclibEnabled,
+      'lyricSourceQqEnabled': s.lyricSourceQqEnabled,
+      'qqLyricDisclaimerAccepted': s.qqLyricDisclaimerAccepted,
+      'showLyricRomaji': s.showLyricRomaji,
       'preset': q.preset.name,
       'outputPipelineMode': q.outputPipelineMode.bridgeKey,
       'outputPipelineSchemaVersion': 2,
@@ -538,6 +641,24 @@ class PlaybackPreferencesNotifier extends Notifier<PlaybackPreferencesState> {
       ),
       skipFoobarBeefwebPrompt: map['skipFoobarBeefwebPrompt'] is bool
           ? map['skipFoobarBeefwebPrompt'] as bool
+          : false,
+      lyricSourceNeteaseEnabled: map['lyricSourceNeteaseEnabled'] is bool
+          ? map['lyricSourceNeteaseEnabled'] as bool
+          : true,
+      lyricSourceAmllEnabled: map['lyricSourceAmllEnabled'] is bool
+          ? map['lyricSourceAmllEnabled'] as bool
+          : true,
+      lyricSourceLrclibEnabled: map['lyricSourceLrclibEnabled'] is bool
+          ? map['lyricSourceLrclibEnabled'] as bool
+          : true,
+      lyricSourceQqEnabled: map['lyricSourceQqEnabled'] is bool
+          ? map['lyricSourceQqEnabled'] as bool
+          : false,
+      qqLyricDisclaimerAccepted: map['qqLyricDisclaimerAccepted'] is bool
+          ? map['qqLyricDisclaimerAccepted'] as bool
+          : false,
+      showLyricRomaji: map['showLyricRomaji'] is bool
+          ? map['showLyricRomaji'] as bool
           : false,
       qualityConfig: PlaybackQualityConfig(
         preset: parseEnum(

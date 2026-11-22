@@ -21,4 +21,21 @@ class AppNetworkLyricTransport implements LyricHttpTransport {
         .get(uri, headers: headers, priority: RequestPriority.interactive)
         .timeout(timeout);
   }
+
+  @override
+  Future<http.Response> post(
+    Uri uri, {
+    Map<String, String> headers = const {},
+    Object? body,
+    required Duration timeout,
+  }) {
+    return _client
+        .post(
+          uri,
+          headers: headers,
+          body: body,
+          priority: RequestPriority.interactive,
+        )
+        .timeout(timeout);
+  }
 }

@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import '../../composition/platform_composition.dart';
+import '../../domain/lyrics/lyric_candidate.dart';
+import '../../domain/lyrics/lyric_search_query.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/playback_record.dart';
@@ -25,7 +27,6 @@ import '../../infrastructure/players/android/android_media_session_bridge.dart';
 import '../../infrastructure/players/audio_art_extractor.dart';
 import '../../infrastructure/players/libmpv_ffi.dart';
 import '../../infrastructure/players/mpv_quality_profile.dart';
-import '../../infrastructure/players/online_lyric_lookup_service.dart';
 import '../../infrastructure/sources/byte_stream_source_gateway.dart';
 import '../../infrastructure/sources/local_source_gateway.dart';
 import '../../infrastructure/sources/source_access_error.dart';
@@ -40,7 +41,7 @@ import '../providers/memory_coordinator.dart';
 import '../providers/platform_capability.dart';
 import '../providers/playback_providers.dart';
 import 'audiophile_safety_coordinator.dart';
-import 'lyric_lookup_coordinator.dart';
+import 'lyrics_resolver.dart';
 import 'playback_preferences_provider.dart';
 import 'unified_playback_coordinator.dart';
 import 'unified_playback_engine.dart';
@@ -322,7 +323,9 @@ class AudioPlaybackNotifier extends Notifier<AudioPlaybackState> {
   String _rawAudioFormat = '';
   double _rawFileDurationSeconds = 0.0;
   double? _volumeBeforeDuck;
-  bool _mobileAmllLyricConfirmed = false;
+
+  /// 已由本地外挂歌词上屏的加载代数（同代数在线歌词结果直接丢弃，保证本地优先）。
+  int _localLyricGeneration = -1;
 
   /// 判断文件名是否为受支持的音频物理轨。
   static bool isPlayableAudioFile(String fileName) =>

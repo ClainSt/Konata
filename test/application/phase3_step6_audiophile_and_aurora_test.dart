@@ -5,6 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ccplayer/application/playback/audio_playback_notifier.dart';
+import 'package:ccplayer/domain/lyrics/lyric_candidate.dart';
+import 'package:ccplayer/domain/lyrics/lyric_candidate_scorer.dart';
+import 'package:ccplayer/domain/lyrics/lyric_search_query.dart';
 import 'package:ccplayer/domain/playback/audiophile_safety_policy.dart';
 import 'package:ccplayer/domain/playback/cue_and_lrc_parser.dart';
 import 'package:ccplayer/domain/playback/cue_variant_resolver.dart';
@@ -273,59 +276,49 @@ FILE "\\\\evil-host\\share\\x.flac" WAVE
   });
 
   group('Step 6.3 版本消歧和声歌词与 0 MB 显存 GPU 径向流光舞台', () {
-    test('伴奏先行短路、移动网络 AMLL 保护、TV Size/Live 版本时长消歧与 Active Span Set 主唱和声并行扫光', () {
+    test('伴奏先行短路、TV Size/Live 版本时长消歧与 Active Span Set 主唱和声并行扫光', () {
       expect(
-        LyricVersionMatcher.evaluateLookupDirective(
-          title: '勇者 (Instrumental)',
-        ),
-        equals(LyricLookupDirective.shortCircuitInstrumental),
+        LyricVersionMatcher.isInstrumentalTrack(title: '勇者 (Instrumental)'),
+        isTrue,
       );
       expect(
-        LyricVersionMatcher.evaluateLookupDirective(
+        LyricVersionMatcher.isInstrumentalTrack(
           title: 'アイドル',
           fileName: '04. アイドル - Off Vocal.flac',
         ),
-        equals(LyricLookupDirective.shortCircuitInstrumental),
+        isTrue,
       );
-      expect(
-        LyricVersionMatcher.evaluateLookupDirective(
-          title: '勇者',
-          targetingAmllIndex: true,
-          isMeteredMobileNetwork: true,
-          mobileAmllConfirmed: false,
-        ),
-        equals(LyricLookupDirective.promptMobileAmllConfirmation),
-      );
+      expect(LyricVersionMatcher.isInstrumentalTrack(title: '勇者'), isFalse);
 
-      final best = LyricVersionMatcher.selectBestCandidate(
-        trackTitle: '勇者 (TV Size)',
-        trackArtist: 'YOASOBI',
-        trackDurationSeconds: 90.0,
-        candidates: const [
-          LyricCandidateMeta(
-            id: 'full',
-            title: '勇者 (Full Ver.)',
-            artist: 'YOASOBI',
-            durationSeconds: 194.0,
-            sourcePriority: 50,
-          ),
-          LyricCandidateMeta(
-            id: 'live',
-            title: '勇者 (Live)',
-            artist: 'YOASOBI',
-            durationSeconds: 92.0,
-            sourcePriority: 40,
-          ),
-          LyricCandidateMeta(
-            id: 'tv',
-            title: '勇者 (TV Size)',
-            artist: 'YOASOBI',
-            durationSeconds: 89.5,
-            sourcePriority: 10,
-          ),
-        ],
+      final query = LyricSearchQuery(
+        title: '勇者 (TV Size)',
+        artist: 'YOASOBI',
+        durationSeconds: 90.0,
       );
-      expect(best?.id, equals('tv'));
+      LyricCandidate candidate(String id, String title, double duration) {
+        return LyricCandidate(
+          source: LyricSource.lrclib,
+          sourceId: id,
+          title: title,
+          artist: 'YOASOBI',
+          durationSeconds: duration,
+          lrcContent: '[00:01.00]$title',
+        );
+      }
+
+      final scored = <String, double?>{
+        for (final c in [
+          candidate('full', '勇者 (Full Ver.)', 194.0),
+          candidate('live', '勇者 (Live)', 92.0),
+          candidate('tv', '勇者 (TV Size)', 89.5),
+        ])
+          c.sourceId: LyricCandidateScorer.score(query, c),
+      };
+      // Full 版时长差超过 25 秒直接淘汰；Live 版因版本冲突被重罚；TV Size 胜出并达到自动采用阈值。
+      expect(scored['full'], isNull);
+      expect(scored['tv']!, greaterThan(scored['live']!));
+      expect(scored['tv']!, greaterThanOrEqualTo(LyricMatchThresholds.autoAccept));
+      expect(scored['live']!, lessThan(LyricMatchThresholds.autoAccept));
 
       // Active Span Set：同一时刻主唱与和声并行激活且各自计算独立扫光进度。
       const duetLrc = '''

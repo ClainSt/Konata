@@ -79,12 +79,13 @@ FILE "Disc1.flac" WAVE
       expect(doc.offsetMillis, equals(500));
       expect(doc.lines, hasLength(3));
 
-      expect(doc.lines[0].startSeconds, closeTo(10.5, 0.001));
+      // LRC 通行约定：`[offset:+500]` 表示歌词整体提前 0.5 秒显示。
+      expect(doc.lines[0].startSeconds, closeTo(9.5, 0.001));
       expect(doc.lines[0].primaryText, equals('まるで御伽の話'));
       expect(doc.lines[0].secondaryLines, equals(['宛如童话般的故事']));
 
-      expect(doc.lines[1].startSeconds, closeTo(20.5, 0.001));
-      expect(doc.lines[2].startSeconds, closeTo(66.0, 0.001));
+      expect(doc.lines[1].startSeconds, closeTo(19.5, 0.001));
+      expect(doc.lines[2].startSeconds, closeTo(65.0, 0.001));
 
       expect(doc.activeIndexAt(5.0), equals(-1));
       expect(doc.activeIndexAt(15.0), equals(0));

@@ -14,12 +14,13 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:ccplayer/application/playback/audio_playback_notifier.dart';
-import 'package:ccplayer/application/playback/lyric_lookup_coordinator.dart';
+import 'package:ccplayer/application/playback/lyrics_resolver.dart';
 import 'package:ccplayer/application/playback/playback_preferences_provider.dart';
 import 'package:ccplayer/application/playback/unified_playback_engine.dart';
 import 'package:ccplayer/application/playback/video_playback_controller.dart';
 import 'package:ccplayer/application/providers/library_providers.dart';
 import 'package:ccplayer/application/providers/playback_providers.dart';
+import 'package:ccplayer/domain/lyrics/lyric_candidate.dart';
 import 'package:ccplayer/domain/models/episode.dart';
 import 'package:ccplayer/domain/models/media_source.dart';
 import 'package:ccplayer/domain/models/media_variant.dart';
@@ -35,10 +36,12 @@ import 'package:ccplayer/domain/repositories/file_system_gateway.dart';
 import 'package:ccplayer/domain/text/big5_cp950_table.dart';
 import 'package:ccplayer/domain/text/multibyte_text_decoder.dart';
 import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
+import 'package:ccplayer/infrastructure/database/drift_lyric_cache_repository.dart';
 import 'package:ccplayer/infrastructure/database/konata_database.dart';
+import 'package:ccplayer/infrastructure/lyrics/lyric_http_transport.dart';
+import 'package:ccplayer/infrastructure/network/metered_network_detector.dart';
 import 'package:ccplayer/infrastructure/players/embedded_mpv_session.dart';
 import 'package:ccplayer/infrastructure/players/libmpv_ffi.dart';
-import 'package:ccplayer/infrastructure/players/online_lyric_lookup_service.dart';
 import 'package:ccplayer/infrastructure/sources/byte_stream_source_gateway.dart';
 import 'package:ccplayer/infrastructure/sources/source_gateway_factory.dart';
 import 'package:ccplayer/infrastructure/sources/subtitle_matcher.dart';
@@ -821,100 +824,69 @@ $uueFont
     });
   });
 
-  group('批次 R4 [#4] 四级开源歌词检索协调器、伴奏短路、移动计量 AMLL 弹窗与切歌分域取消', () {
-    test('伴奏轨 0 网络短路，LRCLIB 版本消歧精确选中 TV Size，移动计量网络拦截 AMLL 待用户确认后拉取逐字和声', () async {
-      final requestedHosts = <String>[];
-      var isMetered = true;
+  group('批次 R4 [#4] 在线歌词并行竞速、伴奏短路、AMLL 按网易云 ID 直取与持久缓存', () {
+    test('真实播放链路：移动计量网络下零弹窗直取 AMLL 逐字和声，不再下载全量索引，结果写入持久缓存', () async {
+      final requestedUrls = <Uri>[];
       final mockHttp = MockClient((req) async {
-        requestedHosts.add(req.url.host);
+        requestedUrls.add(req.url);
         if (req.url.host == 'lrclib.net') {
-          final trackName = req.url.queryParameters['track_name'] ?? '';
-          if (trackName.contains('Idol')) {
-            return http.Response(
-              jsonEncode([
-                {
-                  'id': 1,
-                  'trackName': 'Idol (Full Ver.)',
-                  'artistName': 'YOASOBI',
-                  'duration': 213.0,
-                  'syncedLyrics': '[00:01.00]Full version line',
-                },
-                {
-                  'id': 2,
-                  'trackName': 'Idol (TV Size)',
-                  'artistName': 'YOASOBI',
-                  'duration': 89.5,
-                  'syncedLyrics': '[00:01.00]TV size matched line',
-                },
-              ]),
-              200,
-              headers: {'content-type': 'application/json; charset=utf-8'},
-            );
-          }
-          // AMLL 测试曲目让 LRCLIB 返回空，以自然回落至第三级 AMLL。
           return http.Response('[]', 200);
         }
-        if (req.url.host == 'raw.githubusercontent.com') {
-          if (req.url.path.endsWith('raw-lyrics-index.jsonl')) {
-            final row = jsonEncode({
-              'rawLyricFile': 'brave_amll.ttml',
-              'metadata': [
-                ['musicName', ['Yusha']],
-                ['artists', ['YOASOBI']],
-                ['duration', ['195000']],
-              ],
-            });
-            return http.Response(row, 200);
-          }
-          if (req.url.path.endsWith('brave_amll.ttml')) {
-            const ttml = '''
+        if (req.url.host == 'music.163.com' &&
+            req.url.path.endsWith('/search/get')) {
+          return http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'result': {
+                  'songs': [
+                    {
+                      'id': 777,
+                      'name': 'Yusha',
+                      'artists': [
+                        {'name': 'YOASOBI'},
+                      ],
+                      'album': {'name': 'Yusha'},
+                      'duration': 195000,
+                    },
+                  ],
+                },
+              }),
+            ),
+            200,
+          );
+        }
+        if (req.url.host == 'music.163.com' &&
+            req.url.path.endsWith('/song/lyric')) {
+          return http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'lrc': {'lyric': '[00:01.00]勇者の旅'},
+              }),
+            ),
+            200,
+          );
+        }
+        if (req.url.host == 'raw.githubusercontent.com' &&
+            req.url.path.endsWith('/ncm-lyrics/777.ttml')) {
+          const ttml = '''
 <tt><body><div>
   <p begin="00:01.00" end="00:04.00">
     <span begin="00:01.00" end="00:02.00">勇者</span>
     <span begin="00:02.00" end="00:03.50">の旅</span>
     <span ttm:role="x-bg" begin="00:01.50" end="00:03.00">Ah~</span>
+    <span ttm:role="x-translation">勇者之旅</span>
   </p>
 </div></body></tt>
 ''';
-            return http.Response.bytes(utf8.encode(ttml), 200);
-          }
+          return http.Response.bytes(utf8.encode(ttml), 200);
         }
         return http.Response('not found', 404);
       });
 
       final engine = UnifiedPlaybackEngine();
-      final service = OnlineLyricLookupService(httpClient: mockHttp);
-      final coordinator = LyricLookupCoordinator(
-        playbackEngine: engine,
-        lookupService: service,
-        meteredNetworkDetector: MeteredNetworkDetector(
-          overrideProbe: () async => isMetered,
-        ),
-      );
-
-      // 1. 伴奏 / Off Vocal 严格 0 网络短路。
-      final instRes = await coordinator.lookupForTrack(
-        trackTitle: 'Idol (Off Vocal)',
-        fileName: '04_Idol_Instrumental.flac',
-      );
-      expect(instRes.shortCircuitedInstrumental, isTrue);
-      expect(requestedHosts, isEmpty);
-
-      // 2. 第二级 LRCLIB：版本消歧精准选中 TV Size (89.5s) 而非 Full Ver. (213s)。
-      final tvRes = await coordinator.lookupForTrack(
-        trackTitle: 'Idol (TV Size)',
-        fileName: '01_Idol_TV_Size.flac',
-        artist: 'YOASOBI',
-        durationSeconds: 90.0,
-      );
-      expect(tvRes.matchedTier, equals(LyricLookupTier.lrclib));
-      expect(tvRes.matchedCandidate?.id, equals('lrclib:2'));
-      expect(tvRes.lrcDocument?.lines.first.primaryText, equals('TV size matched line'));
-
-      // 3. 第三级 AMLL：在 AudioPlaybackNotifier 真实播放链路中遇移动计量网络弹窗待确认，确认后加载逐字+和声。
-      requestedHosts.clear();
       final db = KonataDatabase(NativeDatabase.memory());
       final repo = DriftLibraryRepository(db);
+      final lyricCache = DriftLyricCacheRepository(db);
       final tempAudioRoot = await Directory.systemTemp.createTemp(
         'konata_r4_audio_',
       );
@@ -926,10 +898,13 @@ $uueFont
             StorageRootService(overrideRoot: tempAudioRoot),
           ),
           unifiedPlaybackEngineProvider.overrideWithValue(engine),
-          onlineLyricLookupServiceProvider.overrideWithValue(service),
-          meteredNetworkDetectorProvider.overrideWithValue(
-            MeteredNetworkDetector(overrideProbe: () async => isMetered),
+          lyricHttpTransportProvider.overrideWith(
+            (ref) async => ClientLyricTransport(mockHttp),
           ),
+          meteredNetworkDetectorProvider.overrideWithValue(
+            MeteredNetworkDetector(overrideProbe: () async => true),
+          ),
+          lyricCacheRepositoryProvider.overrideWithValue(lyricCache),
           libraryItemsProvider.overrideWith((ref) async => const []),
           audioPlaybackProvider.overrideWith(
             () => AudioPlaybackNotifier(clientFactory: () => fakeAudioMpv),
@@ -954,31 +929,37 @@ $uueFont
           initialVariant: variant,
           sourcesById: const {},
         );
-        await Future<void>.delayed(const Duration(milliseconds: 120));
+        await Future<void>.delayed(const Duration(milliseconds: 900));
 
-        // 移动计量网络未确认前，严禁触碰 AMLL 索引，并向 UI 抛出确认状态。
-        expect(
-          container.read(audioPlaybackProvider).needsMobileAmllLyricConfirmation,
-          isTrue,
-        );
-        expect(requestedHosts.contains('raw.githubusercontent.com'), isFalse);
-
-        // 用户确认后，放行 AMLL TTML 逐字与和声歌词加载。
-        await audioNotifier.confirmMobileAmllLyricLookup();
         final audioState = container.read(audioPlaybackProvider);
-        expect(audioState.needsMobileAmllLyricConfirmation, isFalse);
-        expect(audioState.activeLyricTier, equals(LyricLookupTier.amllTtmlDb));
+        expect(audioState.activeLyricSource, equals(LyricSource.amll));
+        expect(audioState.isLyricLookupInFlight, isFalse);
         expect(audioState.lrcDocument, isNotNull);
+        expect(
+          audioState.lrcDocument!.lines.first.secondaryLines,
+          contains('勇者之旅'),
+        );
         expect(audioState.activeSpanLines, isNotEmpty);
         expect(
           audioState.activeSpanLines.first.spans.any((s) => s.isHarmony),
           isTrue,
         );
-        expect(requestedHosts.contains('raw.githubusercontent.com'), isTrue);
+        // 只按 ID 直取单首 TTML，严禁再下载 AMLL 全量索引。
+        expect(
+          requestedUrls.any((u) => u.path.endsWith('/ncm-lyrics/777.ttml')),
+          isTrue,
+        );
+        expect(
+          requestedUrls.any((u) => u.path.contains('raw-lyrics-index')),
+          isFalse,
+        );
+
+        final cachedRows = await db.select(db.lyricCacheEntries).get();
+        expect(cachedRows, hasLength(1));
+        expect(cachedRows.single.source, equals(LyricSource.amll));
       } finally {
         container.dispose();
         await db.close();
-        service.dispose();
         if (await tempAudioRoot.exists()) {
           await tempAudioRoot.delete(recursive: true);
         }

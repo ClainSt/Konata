@@ -143,7 +143,7 @@ class LrcCueLine {
     this.secondaryLines = const [],
   });
 
-  /// 触发起始时间（秒，已叠加 `[offset:]` 并校准 >= 0）。
+  /// 触发起始时间（秒，已按 `[offset:]` 校正并钳制 >= 0）。
   final double startSeconds;
 
   /// 结束时间（由下一行触发时间推导，末行可为空）。
@@ -186,7 +186,7 @@ class LrcDocument {
   /// 专辑名称 `[al:]`。
   final String album;
 
-  /// 全局时间偏移（毫秒，正值延后、负值提前）。
+  /// 全局时间偏移 `[offset:]`（毫秒，按 LRC 通行约定正值使歌词提前、负值使歌词延后）。
   final int offsetMillis;
 
   /// 按时间升序排列且同时间戳已分组的多行歌词列表。
@@ -586,9 +586,9 @@ class LrcParser {
     final adjusted = entries
         .map(
           (e) => (
-            timeSeconds: (e.timeSeconds + offsetSeconds) < 0
+            timeSeconds: (e.timeSeconds - offsetSeconds) < 0
                 ? 0.0
-                : (e.timeSeconds + offsetSeconds),
+                : (e.timeSeconds - offsetSeconds),
             text: e.text,
           ),
         )

@@ -40,13 +40,37 @@ Future<void> pruneStaleSourceEntriesInDb(
     )..where((t) => t.sourceId.equals(sourceId))).get();
 
     final affectedWorkIds = <String>{};
+    final worksWithDeletedVariants = <String>{};
     for (final v in existingVariants) {
       if (!inScope(v.relativePath)) continue;
       affectedWorkIds.add(v.workId);
       if (!activeVariantIds.contains(v.id)) {
+        worksWithDeletedVariants.add(v.workId);
         await (db.delete(
           db.mediaVariants,
         )..where((t) => t.id.equals(v.id))).go();
+      }
+    }
+
+    // 活跃作品若有单集文件被删除，立即在同一事务内清掉失去关联的孤儿剧集，杜绝详情页残留不可播幽灵集。
+    for (final workId in worksWithDeletedVariants) {
+      if (!activeWorkIds.contains(workId)) continue;
+      final remaining = await (db.select(
+        db.mediaVariants,
+      )..where((t) => t.workId.equals(workId))).get();
+      final referencedEpisodeIds = {
+        for (final v in remaining)
+          if (v.episodeId != null) v.episodeId!,
+      };
+      final episodes = await (db.select(
+        db.episodes,
+      )..where((t) => t.workId.equals(workId))).get();
+      for (final ep in episodes) {
+        if (!referencedEpisodeIds.contains(ep.id)) {
+          await (db.delete(
+            db.episodes,
+          )..where((t) => t.id.equals(ep.id))).go();
+        }
       }
     }
 
@@ -79,6 +103,26 @@ Future<void> pruneStaleSourceEntriesInDb(
       await (db.delete(
         db.works,
       )..where((t) => t.id.equals(w.id))).go();
+    }
+  });
+}
+
+/// 按 ID 批量删除已从物理目录移除的失效文件变体（分块防 SQLite 参数上限）。
+Future<void> deleteMediaVariantsBatchInDb(
+  KonataDatabase db,
+  List<String> variantIds,
+) async {
+  if (variantIds.isEmpty) return;
+  const chunkSize = 200;
+  await db.transaction(() async {
+    for (var i = 0; i < variantIds.length; i += chunkSize) {
+      final end = (i + chunkSize < variantIds.length)
+          ? i + chunkSize
+          : variantIds.length;
+      final chunk = variantIds.sublist(i, end);
+      await (db.delete(
+        db.mediaVariants,
+      )..where((t) => t.id.isIn(chunk))).go();
     }
   });
 }

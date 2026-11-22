@@ -392,6 +392,10 @@ class DriftLibraryRepository implements LibraryRepository {
       deleteOrphanEpisodesInDb(_db, workId);
 
   @override
+  Future<void> deleteMediaVariantsBatch(List<String> variantIds) =>
+      deleteMediaVariantsBatchInDb(_db, variantIds);
+
+  @override
   Future<void> addIgnoredFolder(String sourceId, String relativePath) =>
       addIgnoredFolderInDb(_db, sourceId, relativePath);
 

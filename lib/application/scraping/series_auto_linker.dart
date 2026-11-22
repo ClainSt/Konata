@@ -123,12 +123,17 @@ class SeriesAutoLinker {
 
   /// 在全库或局部分析后，对媒体库作品执行自动系列编组与 ClearLogo 交叉纠偏。
   ///
+  /// - 传入非空 [focusBangumiIds] 时，仅对本次新增或发生身份变动的 Bangumi ID 发起关联查询，
+  ///   避免 3,500 部大库在增量重扫收尾时重复对全部老作品发起数千次 Bangumi API 请求；
+  /// - 传入 [relationCache] 可在多次扫描间复用已查过的关联结果。
   /// 返回本次是否对作品归属、ClearLogo 或系列编组产生了持久化变更。
   static Future<bool> reconcileAll({
     required LibraryRepository repository,
     BangumiService? bangumiService,
     TmdbService? tmdbService,
     Map<int, int> tmdbCollectionIdByTmdbId = const {},
+    Set<int>? focusBangumiIds,
+    Map<int, List<BangumiRelatedSubject>>? relationCache,
   }) async {
     final allWorks = await repository.getAllWorks();
     final existingGroups = await repository.getAllSeriesGroups();
@@ -245,18 +250,35 @@ class SeriesAutoLinker {
       }
     }
 
-    // 6. Bangumi 条目关联分组（受控 5 并发拉取关联条目，保持结果合并确定性）。
+    // 6. Bangumi 条目关联分组（支持按 focusBangumiIds 增量查询与跨次缓存复用，避免大库收尾重复打爆接口）。
     if (bangumiService != null && byBangumiId.length >= 2) {
-      final uniqueBgmIds = byBangumiId.keys.toList(growable: false);
+      final candidateIds = focusBangumiIds == null
+          ? byBangumiId.keys.toList(growable: false)
+          : [
+              for (final id in byBangumiId.keys)
+                if (focusBangumiIds.contains(id)) id,
+            ];
       final relationsByBgmId = <int, List<BangumiRelatedSubject>>{};
+      final idsToFetch = <int>[];
+      for (final bgmId in candidateIds) {
+        final cached = relationCache?[bgmId];
+        if (cached != null) {
+          if (cached.isNotEmpty) {
+            relationsByBgmId[bgmId] = cached;
+          }
+        } else {
+          idsToFetch.add(bgmId);
+        }
+      }
       const maxConcurrency = 5;
       var cursor = 0;
 
       Future<void> worker() async {
-        while (cursor < uniqueBgmIds.length) {
-          final bgmId = uniqueBgmIds[cursor++];
+        while (cursor < idsToFetch.length) {
+          final bgmId = idsToFetch[cursor++];
           try {
             final relations = await bangumiService.getRelatedSubjects(bgmId);
+            relationCache?[bgmId] = relations;
             if (relations.isNotEmpty) {
               relationsByBgmId[bgmId] = relations;
             }
@@ -271,12 +293,14 @@ class SeriesAutoLinker {
         }
       }
 
-      final workerCount = uniqueBgmIds.length < maxConcurrency
-          ? uniqueBgmIds.length
-          : maxConcurrency;
-      await Future.wait([for (var i = 0; i < workerCount; i++) worker()]);
+      if (idsToFetch.isNotEmpty) {
+        final workerCount = idsToFetch.length < maxConcurrency
+            ? idsToFetch.length
+            : maxConcurrency;
+        await Future.wait([for (var i = 0; i < workerCount; i++) worker()]);
+      }
 
-      for (final bgmId in uniqueBgmIds) {
+      for (final bgmId in candidateIds) {
         final relations = relationsByBgmId[bgmId];
         if (relations == null) continue;
         for (final rel in relations) {

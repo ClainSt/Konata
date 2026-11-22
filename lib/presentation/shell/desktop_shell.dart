@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/playback/playback_preferences_provider.dart';
 import '../../application/providers/library_providers.dart';
+import '../../application/providers/scraping_providers.dart';
 import '../../application/providers/theme_providers.dart';
+import '../../application/scraping/ongoing_work_auto_sync.dart';
 import '../../composition/platform_composition.dart';
 import '../audio/mini_audio_bar.dart';
 import '../history/playback_history_page.dart';
@@ -28,7 +32,8 @@ class DesktopShell extends ConsumerStatefulWidget {
   ConsumerState<DesktopShell> createState() => _DesktopShellState();
 }
 
-class _DesktopShellState extends ConsumerState<DesktopShell> {
+class _DesktopShellState extends ConsumerState<DesktopShell>
+    with WidgetsBindingObserver {
   static const List<Widget> _mainPages = <Widget>[
     LibraryPage(),
     SourcesPage(),
@@ -38,9 +43,37 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
 
   final FocusNode _searchFocusNode = FocusNode();
   bool _searchExpanded = false;
+  Timer? _autoSyncStartupTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _autoSyncStartupTimer = Timer(
+      OngoingWorkAutoSyncConfig.startupDelay,
+      _triggerBackgroundOngoingSync,
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _triggerBackgroundOngoingSync();
+    }
+  }
+
+  void _triggerBackgroundOngoingSync() {
+    if (!mounted) return;
+    if (ref.read(videoPlaybackActiveProvider)) return;
+    unawaited(
+      ref.read(scrapeControllerProvider.notifier).runOngoingWorksAutoSyncIfDue(),
+    );
+  }
 
   @override
   void dispose() {
+    _autoSyncStartupTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _searchFocusNode.dispose();
     super.dispose();
   }

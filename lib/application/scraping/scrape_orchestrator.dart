@@ -37,6 +37,7 @@ import 'scrape_progress.dart';
 import 'scrape_progress_tracker.dart';
 import 'scrape_work_persister.dart';
 import 'series_auto_linker.dart';
+import 'work_directory_sync_service.dart';
 
 /// 进度状态回调。
 typedef ScrapeProgressListener = void Function(ScrapeProgress progress);
@@ -81,6 +82,16 @@ class ScrapeOrchestrator {
       fanartService: _fanartService,
       mappingIndex: _mappingIndex,
     );
+    _workDirectorySync = WorkDirectorySyncService(
+      repository: _repository,
+      tmdbService: _tmdbService,
+      candidateFetcher: _candidateFetcher,
+      persister: _persister,
+      gatewayBuilder: _gatewayBuilder,
+      scanner: _scanner,
+      computeWorker: _computeWorker,
+      photosStorage: _photosStorage,
+    );
   }
 
   /// 阶段 3 跨作品并发刮削默认并发度（仅并发在线元数据请求，写库与进度串行保护）。
@@ -101,7 +112,16 @@ class ScrapeOrchestrator {
   final ScrapeComputeWorker _computeWorker;
   late final ScrapeMatchResolver _matchResolver;
   late final ScrapeArtworkEnricher _artworkEnricher;
+  late final WorkDirectorySyncService _workDirectorySync;
   final Map<int, int> _tmdbCollectionIdByTmdbId = <int, int>{};
+  final Map<int, List<BangumiRelatedSubject>> _bangumiRelationCache =
+      <int, List<BangumiRelatedSubject>>{};
+
+  /// 对单个作品所在目录执行轻量自动同步（自动追加追番新集、清理已删失效集与孤儿剧集）。
+  Future<SingleWorkSyncResult> syncSingleWorkDirectory(
+    String workId, {
+    bool Function()? isCancelled,
+  }) => _workDirectorySync.syncSingleWork(workId, isCancelled: isCancelled);
 
   /// 对指定媒体源执行完整的扫描 + 四段漏斗刮削流水线。
   Future<ScrapeProgress> scanAndScrapeSource(
@@ -276,6 +296,7 @@ class ScrapeOrchestrator {
       final activeWorkIds = <String>{...lockedActiveWorkIds};
       final activeVariantIds = <String>{...lockedActiveVariantIds};
       final workIdByFolderPath = <String, String>{};
+      final identityMutatedWorkIds = <String>{};
 
       // 阶段 3 受控跨作品并发池：重叠多部作品的在线元数据往返，同时对写库与进度上报串行加锁防竞态。
       final effectiveConcurrency = _maxWorkConcurrency < 1
@@ -333,6 +354,9 @@ class ScrapeOrchestrator {
             );
           }
           if (result.didPersist) {
+            if (!result.episodeSyncOnly) {
+              identityMutatedWorkIds.add(result.workId);
+            }
             onWorkPersisted?.call(
               result.workId,
               result.status,
@@ -382,6 +406,9 @@ class ScrapeOrchestrator {
       }
 
       // 支持全量与局部 scanRoots 范围修剪：非空 scopedRoots 仅清理对应目录前缀下的失联条目，绝不误删未选目录作品。
+      final hadStaleSourceVariant = existingSourceVariants.any(
+        (v) => !activeVariantIds.contains(v.id),
+      );
       await _repository.pruneStaleSourceEntries(
         sourceId: source.id,
         activeWorkIds: activeWorkIds,
@@ -390,6 +417,7 @@ class ScrapeOrchestrator {
       );
 
       // 自动归并同一作品父目录下多个压制组子目录洗版产出的同身份重复卡片（保留多版本、特典、CD、Scan 与播放进度）。
+      var mergedAnyWork = false;
       if (workIdByFolderPath.length >= 2) {
         final absorbedIds =
             await ReleaseGroupWorkMerger.mergeSameParentReleaseGroupWorks(
@@ -399,6 +427,7 @@ class ScrapeOrchestrator {
               photosStorage: _photosStorage,
             );
         if (absorbedIds.isNotEmpty) {
+          mergedAnyWork = true;
           activeWorkIds.removeAll(absorbedIds);
         }
       }
@@ -414,16 +443,29 @@ class ScrapeOrchestrator {
         );
       }
 
-      try {
-        await SeriesAutoLinker.reconcileAll(
-          repository: _repository,
-          bangumiService: _bangumiService,
-          tmdbService: _tmdbService,
-          tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
-        );
-      } catch (linkError) {
-        if (!NetworkErrorSanitizer.isTransientNetworkError(linkError)) {
-          rethrow;
+      // 变更门控：仅当本次存在新增/身份变更/归并/修剪作品时才运行系列自动编组，
+      // 且仅对本次发生身份变动的 Bangumi ID 发起关联查询，消除大库重扫收尾数千次冗余 Bangumi 请求。
+      if (identityMutatedWorkIds.isNotEmpty ||
+          mergedAnyWork ||
+          hadStaleSourceVariant) {
+        final focusBangumiIds = <int>{
+          for (final id in identityMutatedWorkIds)
+            if ((scanContext.worksById[id]?.bangumiId ?? 0) > 0)
+              scanContext.worksById[id]!.bangumiId!,
+        };
+        try {
+          await SeriesAutoLinker.reconcileAll(
+            repository: _repository,
+            bangumiService: _bangumiService,
+            tmdbService: _tmdbService,
+            tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
+            focusBangumiIds: focusBangumiIds,
+            relationCache: _bangumiRelationCache,
+          );
+        } catch (linkError) {
+          if (!NetworkErrorSanitizer.isTransientNetworkError(linkError)) {
+            rethrow;
+          }
         }
       }
 
@@ -595,6 +637,28 @@ class ScrapeOrchestrator {
         workId: workId,
         displayTitle: existing.title,
         didPersist: false,
+      );
+    }
+
+    // 阶段 1A：已自动匹配作品的增量加集 / 删集快通道：
+    // 追番目录新增一集、删集或换字幕时跳过全部 TMDB/Bangumi 搜索与艺术图重抓，仅按需同步目标季剧集与文件。
+    if (existing != null &&
+        !existing.isManualLocked &&
+        existing.scrapeStatus == ScrapeStatus.matched &&
+        _canUseIncrementalEpisodeFastPath(existing: existing, folder: folder)) {
+      await _workDirectorySync.syncMatchedWorkEpisodesOnly(
+        work: existing,
+        folder: folder,
+        preloadedSourceVariantsById: scanContext.sourceVariantById,
+        runPersist: scanContext.persistMutex.synchronized,
+        isCancelled: isCancelled,
+      );
+      return _FolderProcessResult(
+        status: existing.scrapeStatus,
+        workId: workId,
+        displayTitle: existing.title,
+        didPersist: true,
+        episodeSyncOnly: true,
       );
     }
 
@@ -1198,6 +1262,37 @@ class ScrapeOrchestrator {
       await persist();
     }
     return ScrapeStatus.matched;
+  }
+
+  /// 判断已自动匹配的作品发生文件增删时是否可走零搜索增量剧集同步快通道。
+  static bool _canUseIncrementalEpisodeFastPath({
+    required Work existing,
+    required GroupedWorkFolder folder,
+  }) {
+    final hasIdentity =
+        (existing.tmdbId != null && existing.tmdbMediaType != null) ||
+        existing.bangumiId != null;
+    if (!hasIdentity) return false;
+    if (folder.explicitTmdbId != null &&
+        folder.explicitTmdbId != existing.tmdbId) {
+      return false;
+    }
+    if (folder.explicitBangumiId != null &&
+        folder.explicitBangumiId != existing.bangumiId) {
+      return false;
+    }
+    if (existing.tmdbId != null &&
+        existing.tmdbMediaType == TmdbMediaType.tv &&
+        existing.matchedSeason == null &&
+        folder.seasonHint != null) {
+      return false;
+    }
+    if ((existing.posterPath == null || existing.posterPath!.trim().isEmpty) &&
+        folder.localPosterPath != null &&
+        folder.localPosterPath!.trim().isNotEmpty) {
+      return false;
+    }
+    return true;
   }
 
   /// 判断已成功匹配的作品在增量重扫时其未锁定文件集是否完全未变化，允许零网络请求直接快跳。
@@ -2242,6 +2337,7 @@ class _FolderProcessResult {
     required this.displayTitle,
     required this.didPersist,
     this.rescuedByHardRules = false,
+    this.episodeSyncOnly = false,
   });
 
   final ScrapeStatus status;
@@ -2249,6 +2345,7 @@ class _FolderProcessResult {
   final String displayTitle;
   final bool didPersist;
   final bool rescuedByHardRules;
+  final bool episodeSyncOnly;
 }
 
 /// 单次扫描会话内共享的预载索引与串行写库互斥锁（避免跨作品并发时的 SQLite 写锁竞争与重复查表）。

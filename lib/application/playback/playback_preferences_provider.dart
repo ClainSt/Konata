@@ -48,6 +48,8 @@ class PlaybackPreferencesState {
     this.promptChapterSkip = true,
     this.autoSkipChapter = false,
     this.autoEnterPip = true,
+    this.videoFloatingMiniEnabled = true,
+    this.audioFloatingMiniEnabled = true,
     this.defaultVolume = 100.0,
     this.bitstreamPassthrough = false,
     this.androidBitPerfectUsb = false,
@@ -86,6 +88,12 @@ class PlaybackPreferencesState {
 
   /// Android 视频播放期间切入系统后台时是否自动开启画中画（默认开启）。
   final bool autoEnterPip;
+
+  /// 是否允许全屏视频收起为可拖拽悬浮小窗（默认开启；关闭后返回将直接停止并退出）。
+  final bool videoFloatingMiniEnabled;
+
+  /// 是否允许全屏音频收起为可拖拽悬浮小窗（默认开启；关闭后退出全屏将直接停止播放）。
+  final bool audioFloatingMiniEnabled;
 
   /// 内置播放器默认初始音量（`0 ~ 100`）。
   final double defaultVolume;
@@ -136,6 +144,8 @@ class PlaybackPreferencesState {
     bool? promptChapterSkip,
     bool? autoSkipChapter,
     bool? autoEnterPip,
+    bool? videoFloatingMiniEnabled,
+    bool? audioFloatingMiniEnabled,
     double? defaultVolume,
     bool? bitstreamPassthrough,
     bool? androidBitPerfectUsb,
@@ -160,6 +170,10 @@ class PlaybackPreferencesState {
       promptChapterSkip: promptChapterSkip ?? this.promptChapterSkip,
       autoSkipChapter: autoSkipChapter ?? this.autoSkipChapter,
       autoEnterPip: autoEnterPip ?? this.autoEnterPip,
+      videoFloatingMiniEnabled:
+          videoFloatingMiniEnabled ?? this.videoFloatingMiniEnabled,
+      audioFloatingMiniEnabled:
+          audioFloatingMiniEnabled ?? this.audioFloatingMiniEnabled,
       defaultVolume: defaultVolume ?? this.defaultVolume,
       bitstreamPassthrough: bitstreamPassthrough ?? this.bitstreamPassthrough,
       androidBitPerfectUsb: androidBitPerfectUsb ?? this.androidBitPerfectUsb,
@@ -192,6 +206,8 @@ class PlaybackPreferencesState {
         other.promptChapterSkip == promptChapterSkip &&
         other.autoSkipChapter == autoSkipChapter &&
         other.autoEnterPip == autoEnterPip &&
+        other.videoFloatingMiniEnabled == videoFloatingMiniEnabled &&
+        other.audioFloatingMiniEnabled == audioFloatingMiniEnabled &&
         other.defaultVolume == defaultVolume &&
         other.bitstreamPassthrough == bitstreamPassthrough &&
         other.androidBitPerfectUsb == androidBitPerfectUsb &&
@@ -217,6 +233,8 @@ class PlaybackPreferencesState {
     promptChapterSkip,
     autoSkipChapter,
     autoEnterPip,
+    videoFloatingMiniEnabled,
+    audioFloatingMiniEnabled,
     defaultVolume,
     bitstreamPassthrough,
     androidBitPerfectUsb,
@@ -415,6 +433,20 @@ class PlaybackPreferencesNotifier extends Notifier<PlaybackPreferencesState> {
     await _persist();
   }
 
+  /// 切换视频悬浮小窗功能开关。
+  Future<void> setVideoFloatingMiniEnabled(bool value) async {
+    if (state.videoFloatingMiniEnabled == value) return;
+    state = state.copyWith(videoFloatingMiniEnabled: value);
+    await _persist();
+  }
+
+  /// 切换音频悬浮小窗功能开关。
+  Future<void> setAudioFloatingMiniEnabled(bool value) async {
+    if (state.audioFloatingMiniEnabled == value) return;
+    state = state.copyWith(audioFloatingMiniEnabled: value);
+    await _persist();
+  }
+
   /// 更新默认音量。
   Future<void> setDefaultVolume(double value) async {
     state = state.copyWith(defaultVolume: value.clamp(0.0, 100.0));
@@ -525,6 +557,8 @@ class PlaybackPreferencesNotifier extends Notifier<PlaybackPreferencesState> {
       'promptChapterSkip': s.promptChapterSkip,
       'autoSkipChapter': s.autoSkipChapter,
       'autoEnterPip': s.autoEnterPip,
+      'videoFloatingMiniEnabled': s.videoFloatingMiniEnabled,
+      'audioFloatingMiniEnabled': s.audioFloatingMiniEnabled,
       'defaultVolume': s.defaultVolume,
       'bitstreamPassthrough': s.bitstreamPassthrough,
       'androidBitPerfectUsb': s.androidBitPerfectUsb,
@@ -618,6 +652,12 @@ class PlaybackPreferencesNotifier extends Notifier<PlaybackPreferencesState> {
           : false,
       autoEnterPip: map['autoEnterPip'] is bool
           ? map['autoEnterPip'] as bool
+          : true,
+      videoFloatingMiniEnabled: map['videoFloatingMiniEnabled'] is bool
+          ? map['videoFloatingMiniEnabled'] as bool
+          : true,
+      audioFloatingMiniEnabled: map['audioFloatingMiniEnabled'] is bool
+          ? map['audioFloatingMiniEnabled'] as bool
           : true,
       defaultVolume: parseDouble(map['defaultVolume'], 100.0, 0.0, 100.0),
       bitstreamPassthrough: map['bitstreamPassthrough'] is bool

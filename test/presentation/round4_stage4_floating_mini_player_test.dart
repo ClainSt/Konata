@@ -16,12 +16,14 @@ import 'package:konata/domain/playback/playback_probe_stats.dart';
 import 'package:konata/domain/repositories/file_system_gateway.dart';
 import 'package:konata/infrastructure/database/drift_library_repository.dart';
 import 'package:konata/infrastructure/database/konata_database.dart';
+import 'package:konata/presentation/audio/immersive_audio_page.dart';
 import 'package:konata/presentation/audio/mini_audio_bar.dart';
 import 'package:konata/presentation/detail/detail_bottom_drawer.dart';
 import 'package:konata/presentation/detail/detail_full_list_dialog.dart';
 import 'package:konata/presentation/detail/detail_gear_menu.dart';
 import 'package:konata/presentation/dialogs/series_manage_dialog.dart';
 import 'package:konata/presentation/dialogs/work_merge_target_dialog.dart';
+import 'package:konata/presentation/settings/settings_players_panel.dart';
 import 'package:konata/presentation/shell/adaptive_capsule_layout.dart';
 import 'package:konata/presentation/shell/capsule_navigation.dart';
 import 'package:konata/presentation/sources/source_folder_picker_dialog.dart';
@@ -30,6 +32,7 @@ import 'package:konata/presentation/theme/konata_theme.dart';
 import 'package:konata/presentation/video/embedded_video_page.dart';
 import 'package:konata/presentation/video/video_hardware_surface.dart';
 import 'package:konata/presentation/widgets/design_system/konata_glass_dialog.dart';
+import 'package:konata/presentation/widgets/design_system/konata_switch.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
@@ -124,6 +127,7 @@ class _StubAudioNotifier extends AudioPlaybackNotifier {
   Future<void> stopAndClose() async {
     stopCloseCount += 1;
     state = const AudioPlaybackState();
+    ref.read(immersiveAudioExpandedProvider.notifier).state = false;
   }
 }
 
@@ -914,6 +918,259 @@ void main() {
           await tester.tap(find.byTooltip('作品管理选项'));
         });
         debugDefaultTargetPlatformOverride = null;
+      },
+    );
+
+    testWidgets(
+      '全屏音频页四形态均提供左上角停止关闭按钮，点击直接停播且不生成音频小窗',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        const cases = <(String, TargetPlatform, Size)>[
+          ('桌面端', TargetPlatform.windows, Size(1280, 800)),
+          ('Android 平板', TargetPlatform.android, Size(1024, 700)),
+          ('Android 手机竖屏', TargetPlatform.android, Size(390, 820)),
+          ('Android 手机横屏', TargetPlatform.android, Size(844, 390)),
+        ];
+
+        for (final (label, platform, size) in cases) {
+          debugDefaultTargetPlatformOverride = platform;
+          tester.view.physicalSize = size;
+          tester.view.devicePixelRatio = 1.0;
+
+          final audioStub = _StubAudioNotifier(_buildSampleAudioState());
+          final container = ProviderContainer(
+            overrides: [
+              audioPlaybackProvider.overrideWith(() => audioStub),
+              tmdbImageLoaderProvider.overrideWithValue(
+                (_, {targetWidth, imageSize}) async => _samplePng,
+              ),
+              playbackPreferencesProvider.overrideWith(
+                () => PlaybackPreferencesNotifier(enablePersistence: false),
+              ),
+            ],
+          );
+
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: MaterialApp(
+                navigatorKey: container.read(rootNavigatorKeyProvider),
+                navigatorObservers: [
+                  container.read(rootRouteObserverProvider),
+                ],
+                theme: KonataTheme.darkTheme(),
+                locale: const Locale('zh', 'CN'),
+                supportedLocales: const [Locale('zh', 'CN')],
+                localizationsDelegates: GlobalMaterialLocalizations.delegates,
+                builder: (_, child) => MiniAudioOverlayHost(child: child!),
+                home: const Scaffold(body: Center(child: Text('主页'))),
+              ),
+            ),
+          );
+          container.read(immersiveAudioExpandedProvider.notifier).state = true;
+          await tester.pumpAndSettle();
+
+          expect(find.byType(ImmersiveAudioPage), findsOneWidget, reason: label);
+          final collapseBtn = find.byKey(
+            const ValueKey('immersive_collapse_button'),
+          );
+          final closeBtn = find.byKey(
+            const ValueKey('immersive_close_session_button'),
+          );
+          expect(collapseBtn, findsOneWidget, reason: '$label 应保留收起按钮');
+          expect(closeBtn, findsOneWidget, reason: '$label 应显示左上角停止关闭按钮');
+          if (platform == TargetPlatform.android) {
+            final closeSize = tester.getSize(closeBtn);
+            expect(closeSize.width, greaterThanOrEqualTo(48.0), reason: label);
+            expect(closeSize.height, greaterThanOrEqualTo(48.0), reason: label);
+          }
+
+          await tester.tap(closeBtn);
+          await tester.pumpAndSettle();
+
+          expect(audioStub.stopCloseCount, equals(1), reason: label);
+          expect(
+            container.read(audioPlaybackProvider).isActive,
+            isFalse,
+            reason: label,
+          );
+          expect(
+            container.read(immersiveAudioExpandedProvider),
+            isFalse,
+            reason: label,
+          );
+          expect(
+            container.read(activeFloatingMiniPlayerKindProvider),
+            equals(FloatingMiniPlayerKind.none),
+            reason: '$label 点击停止关闭后不应派生音频悬浮小窗',
+          );
+          expect(
+            find.byKey(const ValueKey('konata_floating_mini_player')),
+            findsNothing,
+            reason: label,
+          );
+
+          await tester.pumpWidget(const SizedBox.shrink());
+          container.dispose();
+        }
+
+        tester.view.reset();
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
+
+    testWidgets(
+      '设置页视频/音频悬浮小窗开关默认开启，关闭后即时清理活跃小窗并使退出全屏直接停播',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        tester.view.physicalSize = const Size(1280, 900);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+
+        final req = _buildSampleVideoRequest();
+        var videoCloseCount = 0;
+        final audioStub = _StubAudioNotifier(_buildSampleAudioState());
+
+        final container = ProviderContainer(
+          overrides: [
+            audioPlaybackProvider.overrideWith(() => audioStub),
+            tmdbImageLoaderProvider.overrideWithValue(
+              (_, {targetWidth, imageSize}) async => _samplePng,
+            ),
+            videoPlaybackProvider(req).overrideWith(
+              () => _StubVideoController(
+                req,
+                onConstructed: () {},
+                onClosed: () => videoCloseCount += 1,
+              ),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              navigatorKey: container.read(rootNavigatorKeyProvider),
+              navigatorObservers: [container.read(rootRouteObserverProvider)],
+              theme: KonataTheme.darkTheme(),
+              locale: const Locale('zh', 'CN'),
+              supportedLocales: const [Locale('zh', 'CN')],
+              localizationsDelegates: GlobalMaterialLocalizations.delegates,
+              builder: (_, child) => MiniAudioOverlayHost(child: child!),
+              home: const Scaffold(
+                body: SingleChildScrollView(
+                  padding: EdgeInsets.all(20),
+                  child: SettingsPlayersPanel(),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // 1. 默认开启，且处于非全屏的活跃音频应显示音频小窗
+        expect(
+          container.read(playbackPreferencesProvider).videoFloatingMiniEnabled,
+          isTrue,
+        );
+        expect(
+          container.read(playbackPreferencesProvider).audioFloatingMiniEnabled,
+          isTrue,
+        );
+        expect(
+          container.read(activeFloatingMiniPlayerKindProvider),
+          equals(FloatingMiniPlayerKind.audio),
+        );
+        expect(
+          find.byKey(const ValueKey('konata_floating_mini_player')),
+          findsOneWidget,
+        );
+
+        final videoSwitchTile = find.byKey(
+          const ValueKey('settings_video_floating_mini_switch'),
+        );
+        final audioSwitchTile = find.byKey(
+          const ValueKey('settings_audio_floating_mini_switch'),
+        );
+        expect(videoSwitchTile, findsOneWidget);
+        expect(audioSwitchTile, findsOneWidget);
+
+        // 2. 在设置页关闭音频悬浮小窗：已收起的小窗音频应立即停止并关闭，防止后台幽灵发声
+        final audioSwitch = find.descendant(
+          of: audioSwitchTile,
+          matching: find.byType(KonataSwitch),
+        );
+        await tester.ensureVisible(audioSwitch);
+        await tester.tap(audioSwitch);
+        await tester.pumpAndSettle();
+
+        expect(
+          container.read(playbackPreferencesProvider).audioFloatingMiniEnabled,
+          isFalse,
+        );
+        expect(audioStub.stopCloseCount, equals(1));
+        expect(
+          container.read(activeFloatingMiniPlayerKindProvider),
+          equals(FloatingMiniPlayerKind.none),
+        );
+
+        // 3. 音频小窗关闭态下重新打开全屏音频页：左上角只保留停止关闭按钮，不再显示收起至小窗按钮
+        audioStub.emit(_buildSampleAudioState());
+        container.read(immersiveAudioExpandedProvider.notifier).state = true;
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('immersive_collapse_button')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const ValueKey('immersive_close_session_button')),
+          findsOneWidget,
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('immersive_close_session_button')),
+        );
+        await tester.pumpAndSettle();
+        expect(audioStub.stopCloseCount, equals(2));
+
+        // 4. 关闭视频悬浮小窗后打开视频：顶栏不展示收起双按钮，collapseToMini 直接停止关闭视频
+        final videoSwitch = find.descendant(
+          of: videoSwitchTile,
+          matching: find.byType(KonataSwitch),
+        );
+        await tester.ensureVisible(videoSwitch);
+        await tester.tap(videoSwitch);
+        await tester.pumpAndSettle();
+        expect(
+          container.read(playbackPreferencesProvider).videoFloatingMiniEnabled,
+          isFalse,
+        );
+
+        await container.read(activeVideoSessionProvider.notifier).openVideo(req);
+        await tester.pumpAndSettle();
+        expect(find.byType(EmbeddedVideoPage), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('video_collapse_button')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('video_close_session_button')),
+          findsNothing,
+        );
+
+        await container
+            .read(activeVideoSessionProvider.notifier)
+            .collapseToMini();
+        await tester.pumpAndSettle();
+        expect(videoCloseCount, equals(1));
+        expect(container.read(activeVideoSessionProvider).isActive, isFalse);
+        expect(
+          container.read(activeFloatingMiniPlayerKindProvider),
+          equals(FloatingMiniPlayerKind.none),
+        );
       },
     );
   });

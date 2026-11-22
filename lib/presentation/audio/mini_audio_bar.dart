@@ -67,16 +67,25 @@ final _hasActivePlaybackOverlayProvider = Provider<bool>((ref) {
 final activeFloatingMiniPlayerKindProvider = Provider<FloatingMiniPlayerKind>((
   ref,
 ) {
+  final videoMiniEnabled = ref.watch(
+    playbackPreferencesProvider.select((s) => s.videoFloatingMiniEnabled),
+  );
+  final audioMiniEnabled = ref.watch(
+    playbackPreferencesProvider.select((s) => s.audioFloatingMiniEnabled),
+  );
   final audioActive = ref.watch(
     audioPlaybackProvider.select((s) => s.isActive),
   );
   final videoSession = ref.watch(activeVideoSessionProvider);
   final videoActiveFlag = ref.watch(videoPlaybackActiveProvider);
   final audioExpanded = ref.watch(immersiveAudioExpandedProvider);
-  if (videoSession.isMinimized && videoSession.request != null) {
+  if (videoMiniEnabled &&
+      videoSession.isMinimized &&
+      videoSession.request != null) {
     return FloatingMiniPlayerKind.video;
   }
-  if (audioActive &&
+  if (audioMiniEnabled &&
+      audioActive &&
       !videoActiveFlag &&
       !videoSession.isActive &&
       !audioExpanded) {
@@ -653,6 +662,31 @@ class _PlaybackSessionCoordinator extends ConsumerWidget {
     ref.listen<FloatingMiniVisualState>(floatingMiniVisualStateProvider, (_, _) {
       syncForegroundAudioObservation();
     });
+    // 关闭视频/音频悬浮小窗开关时，若当前存在处于收起小窗态的会话则立即停止，避免无界面后台发声。
+    ref.listen<bool>(
+      playbackPreferencesProvider.select((s) => s.videoFloatingMiniEnabled),
+      (prev, next) {
+        if (prev == true && !next) {
+          final current = ref.read(activeVideoSessionProvider);
+          if (current.isMinimized) {
+            unawaited(ref.read(activeVideoSessionProvider.notifier).closeVideo());
+          }
+        }
+      },
+    );
+    ref.listen<bool>(
+      playbackPreferencesProvider.select((s) => s.audioFloatingMiniEnabled),
+      (prev, next) {
+        if (prev == true && !next) {
+          final audioActive = ref.read(audioPlaybackProvider).isActive;
+          final expanded = ref.read(immersiveAudioExpandedProvider);
+          final videoActive = ref.read(activeVideoSessionProvider).isActive;
+          if (audioActive && !expanded && !videoActive) {
+            unawaited(ref.read(audioPlaybackProvider.notifier).stopAndClose());
+          }
+        }
+      },
+    );
 
     return _OverlayBackInterceptor(
       handlesSystemBack: shouldHandleSystemBack,
@@ -686,7 +720,11 @@ class _PlaybackSessionCoordinator extends ConsumerWidget {
                 .setSideSheetOpen(false);
             return true;
           }
-          await ref.read(activeVideoSessionProvider.notifier).collapseToMini();
+          if (ref.read(playbackPreferencesProvider).videoFloatingMiniEnabled) {
+            await ref.read(activeVideoSessionProvider.notifier).collapseToMini();
+          } else {
+            await ref.read(activeVideoSessionProvider.notifier).closeVideo();
+          }
           return true;
         }
         if (audioExpanded) {
@@ -700,7 +738,11 @@ class _PlaybackSessionCoordinator extends ConsumerWidget {
                 false;
             return true;
           }
-          ref.read(immersiveAudioExpandedProvider.notifier).state = false;
+          if (ref.read(playbackPreferencesProvider).audioFloatingMiniEnabled) {
+            ref.read(immersiveAudioExpandedProvider.notifier).state = false;
+          } else {
+            await ref.read(audioPlaybackProvider.notifier).stopAndClose();
+          }
           return true;
         }
         return false;
@@ -911,9 +953,17 @@ class _FullscreenPlayerOverlaySlotState
         if (!mounted) return;
         final audioActive = ref.read(audioPlaybackProvider).isActive;
         final videoActive = ref.read(activeVideoSessionProvider).isActive;
+        final audioMiniEnabled = ref
+            .read(playbackPreferencesProvider)
+            .audioFloatingMiniEnabled;
         final disableAnim = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
 
-        if (prev == true && !next && audioActive && !videoActive && !disableAnim) {
+        if (prev == true &&
+            !next &&
+            audioActive &&
+            !videoActive &&
+            audioMiniEnabled &&
+            !disableAnim) {
           widget.onOpaqueChanged?.call(false);
           final targetRect = _computeTargetMiniRect(FloatingMiniPlayerKind.audio);
           final releaseVel = ref.read(stageMorphReleaseVelocityProvider);
@@ -1042,6 +1092,9 @@ class _FullscreenPlayerOverlaySlotState
     final videoSession = ref.watch(activeVideoSessionProvider);
     final videoReq = videoSession.request;
     final audioExpanded = ref.watch(immersiveAudioExpandedProvider);
+    final videoMiniEnabled = ref.watch(
+      playbackPreferencesProvider.select((s) => s.videoFloatingMiniEnabled),
+    );
 
     final showImmersiveAudio = audioExpanded && !videoSession.isActive;
     final showAudioCollapsing = _collapsingAudio && !showImmersiveAudio;
@@ -1156,11 +1209,13 @@ class _FullscreenPlayerOverlaySlotState
                   miniPreview: showVideoCollapsing,
                 ),
                 inPipMode: videoSession.isInPipMode,
-                onCollapseToMini: () => unawaited(
-                  ref
-                      .read(activeVideoSessionProvider.notifier)
-                      .collapseToMini(),
-                ),
+                onCollapseToMini: videoMiniEnabled
+                    ? () => unawaited(
+                        ref
+                            .read(activeVideoSessionProvider.notifier)
+                            .collapseToMini(),
+                      )
+                    : null,
                 onCloseSession: () =>
                     ref.read(activeVideoSessionProvider.notifier).closeVideo(),
               ),

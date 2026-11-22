@@ -367,6 +367,16 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
               onChanged: notifier.setAutoSkipChapter,
             ),
           ),
+          Divider(height: 1, color: p.hairline, indent: 18, endIndent: 18),
+          KonataListTile(
+            key: const ValueKey('settings_video_floating_mini_switch'),
+            title: '视频悬浮小窗',
+            subtitle: '开启后可将全屏视频收起为可拖拽悬浮小窗继续播放；关闭后返回将直接停止播放',
+            trailing: KonataSwitch(
+              value: prefs.videoFloatingMiniEnabled,
+              onChanged: notifier.setVideoFloatingMiniEnabled,
+            ),
+          ),
           if (KonataAdaptiveTokens.isAndroid) ...[
             Divider(height: 1, color: p.hairline, indent: 18, endIndent: 18),
             KonataListTile(
@@ -740,6 +750,16 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
             trailing: KonataSwitch(
               value: q.keepPitch,
               onChanged: notifier.setKeepPitch,
+            ),
+          ),
+          Divider(height: 1, color: p.hairline, indent: 18, endIndent: 18),
+          KonataListTile(
+            key: const ValueKey('settings_audio_floating_mini_switch'),
+            title: '音频悬浮小窗',
+            subtitle: '开启后可将全屏音频收起为悬浮进度圆盘继续播放；关闭后退出全屏将直接停止播放',
+            trailing: KonataSwitch(
+              value: prefs.audioFloatingMiniEnabled,
+              onChanged: notifier.setAudioFloatingMiniEnabled,
             ),
           ),
           Divider(height: 1, color: p.hairline, indent: 18, endIndent: 18),

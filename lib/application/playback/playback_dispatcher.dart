@@ -186,7 +186,7 @@ class PlaybackDispatcher {
               initialCueTrackNumber: initialCueTrackNumber,
               initialTrackOffsetSeconds: initialOffset,
             );
-        if (expandImmersive) {
+        if (expandImmersive || !prefs.audioFloatingMiniEnabled) {
           _ref.read(immersiveAudioExpandedProvider.notifier).state = true;
         }
         return const LaunchPlaybackResult(launched: true, message: '');

@@ -1,3 +1,7 @@
+import 'dart:math' as math;
+
+import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -30,11 +34,17 @@ typedef HistoryGroupMenuCallback =
 
 /// 播放记录时间轴与展开明细卡片的统一几何常量。
 abstract final class PlaybackHistoryCardMetrics {
-  /// 时间轴宽屏最大内容宽度（防止桌面超宽屏列表过度拉伸）。
-  static const double maxTimelineWidth = 960.0;
+  /// 单日作品卡片区切为双列并排的可用宽度阈值（空间充足时一行展示两个作品）。
+  static const double twoColumnWorkBreakpoint = 860.0;
 
-  /// 展开明细区切为双列排布的容器宽度阈值。
-  static const double expandedTwoColumnBreakpoint = 640.0;
+  /// 双列作品卡片之间的水平间距。
+  static const double workColumnGap = 12.0;
+
+  /// 展开明细横向条带中子卡片之间的水平间距。
+  static const double entryRailGap = 10.0;
+
+  /// 展开明细横向条带在宽卡下直接并排展示两张且露出探头的宽度阈值。
+  static const double expandedTwoVisibleBreakpoint = 500.0;
 
   /// 左侧时间轴轨宽（容纳圆点与垂直连线）。
   static const double timelineRailWidth = 22.0;
@@ -191,6 +201,81 @@ class PlaybackHistoryDayHeader extends StatelessWidget {
   }
 }
 
+/// 时间轴单行作品槽位容器（统一绘制左侧时间轴竖线并承接单列或宽屏双列作品卡片）。
+class PlaybackHistoryTimelineRow extends StatelessWidget {
+  /// 创建时间轴作品行容器。
+  const PlaybackHistoryTimelineRow({
+    super.key,
+    required this.children,
+    required this.columns,
+    required this.isLastRowInDay,
+    required this.isLastSection,
+  });
+
+  /// 本行包含的 1 或 2 张作品卡片。
+  final List<Widget> children;
+
+  /// 当前布局列数（1 或 2）。
+  final int columns;
+
+  /// 是否为该日期分组的最后一行。
+  final bool isLastRowInDay;
+
+  /// 是否为整个时间轴的最后一个日期分组。
+  final bool isLastSection;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    const railW = PlaybackHistoryCardMetrics.timelineRailWidth;
+    const lineW = PlaybackHistoryCardMetrics.timelineLineWidth;
+    final lineLeft = (railW - lineW) / 2;
+    final showBottomRail = !(isLastRowInDay && isLastSection);
+
+    final Widget rowContent;
+    if (columns <= 1) {
+      rowContent = children.first;
+    } else {
+      rowContent = Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: children.first),
+          const SizedBox(width: PlaybackHistoryCardMetrics.workColumnGap),
+          Expanded(
+            child: children.length > 1
+                ? children[1]
+                : const SizedBox.shrink(),
+          ),
+        ],
+      );
+    }
+
+    return Stack(
+      children: [
+        Positioned(
+          left: lineLeft,
+          top: 0,
+          bottom: showBottomRail ? 0 : null,
+          height: showBottomRail ? null : 24,
+          child: ColoredBox(
+            color: p.hairline,
+            child: const SizedBox(width: lineW),
+          ),
+        ),
+        Padding(
+          padding: EdgeInsets.fromLTRB(
+            railW + 10,
+            0,
+            0,
+            isLastRowInDay ? 14 : 10,
+          ),
+          child: rowContent,
+        ),
+      ],
+    );
+  }
+}
+
 /// 日记时间轴中的单日作品聚合卡片（点击封面进详情，点击卡片原地展开当日分集/曲目）。
 class PlaybackHistoryWorkGroupCard extends StatelessWidget {
   /// 创建单日作品聚合卡片。
@@ -212,6 +297,7 @@ class PlaybackHistoryWorkGroupCard extends StatelessWidget {
     required this.onTapEntry,
     required this.onShowGroupMenu,
     required this.onShowEntryMenu,
+    this.showTimelineRail = true,
   });
 
   /// 单日内按作品聚合的数据分组。
@@ -261,6 +347,9 @@ class PlaybackHistoryWorkGroupCard extends StatelessWidget {
 
   /// 展开子行右键/长按/更多菜单回调。
   final HistoryRowMenuCallback onShowEntryMenu;
+
+  /// 是否在卡片自身外侧绘制左侧时间轴竖线（交由 [PlaybackHistoryTimelineRow] 统一承接时置为 `false`）。
+  final bool showTimelineRail;
 
   Widget _posterFallback(KonataPalette p) {
     return DecoratedBox(
@@ -509,6 +598,10 @@ class PlaybackHistoryWorkGroupCard extends StatelessWidget {
       ),
     );
 
+    if (!showTimelineRail) {
+      return cardContent;
+    }
+
     return Stack(
       children: [
         Positioned(
@@ -535,8 +628,22 @@ class PlaybackHistoryWorkGroupCard extends StatelessWidget {
   }
 }
 
-/// 展开态下的单日明细区（懒加载对应作品的单集剧照，音频复用专辑封面提取器）。
-class _ExpandedHistoryWorkEntries extends ConsumerWidget {
+/// 支持鼠标、触控与触控板水平拖拽的轻量滚动行为。
+class _HistoryHorizontalDragScrollBehavior extends MaterialScrollBehavior {
+  const _HistoryHorizontalDragScrollBehavior();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => const <PointerDeviceKind>{
+    PointerDeviceKind.touch,
+    PointerDeviceKind.mouse,
+    PointerDeviceKind.trackpad,
+    PointerDeviceKind.stylus,
+    PointerDeviceKind.unknown,
+  };
+}
+
+/// 展开态下的单日明细横向可拖拽条带（懒加载对应作品的单集剧照，音频复用专辑封面提取器，三端统一横向单行排布避免纵向堆积）。
+class _ExpandedHistoryWorkEntries extends ConsumerStatefulWidget {
   const _ExpandedHistoryWorkEntries({
     required this.group,
     required this.workItem,
@@ -562,123 +669,178 @@ class _ExpandedHistoryWorkEntries extends ConsumerWidget {
   final HistoryRowMenuCallback onShowEntryMenu;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ExpandedHistoryWorkEntries> createState() =>
+      _ExpandedHistoryWorkEntriesState();
+}
+
+class _ExpandedHistoryWorkEntriesState
+    extends ConsumerState<_ExpandedHistoryWorkEntries> {
+  final ScrollController _railCtrl = ScrollController();
+
+  @override
+  void dispose() {
+    _railCtrl.dispose();
+    super.dispose();
+  }
+
+  /// 计算横向单行剧集子卡片宽度：单条撑满卡片内宽，双条在宽卡下工整平分，多条或窄卡自动留出下一张探头提示左右拖动。
+  double _resolveTileWidth(double availableWidth, int count) {
+    if (count <= 1) {
+      return availableWidth;
+    }
+    const gap = PlaybackHistoryCardMetrics.entryRailGap;
+    if (availableWidth >=
+        PlaybackHistoryCardMetrics.expandedTwoVisibleBreakpoint) {
+      if (count == 2) {
+        return (availableWidth - gap) / 2.0;
+      }
+      return ((availableWidth - gap * 2) / 2.22).clamp(248.0, 310.0);
+    }
+    if (availableWidth < 252.0) {
+      return math.max(180.0, availableWidth - 16.0);
+    }
+    return (availableWidth * 0.82).clamp(236.0, 296.0);
+  }
+
+  void _handleRailPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent || !_railCtrl.hasClients) return;
+    final maxExtent = _railCtrl.position.maxScrollExtent;
+    if (maxExtent <= 0.5) return;
+    final dx = event.scrollDelta.dx;
+    final dy = event.scrollDelta.dy;
+    final useShiftWheel =
+        dx == 0 && dy != 0 && HardwareKeyboard.instance.isShiftPressed;
+    final delta = dx != 0 ? dx : (useShiftWheel ? dy : 0.0);
+    if (delta == 0.0) return;
+    final target = (_railCtrl.offset + delta).clamp(0.0, maxExtent);
+    if ((target - _railCtrl.offset).abs() > 0.5) {
+      _railCtrl.jumpTo(target);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final p = context.palette;
-    final bundle = isAudio
+    final bundle = widget.isAudio
         ? null
-        : ref.watch(workDetailBundleProvider(group.workId)).value;
+        : ref.watch(workDetailBundleProvider(widget.group.workId)).value;
     final episodesById = <String, Episode>{
       if (bundle != null)
         for (final ep in bundle.episodes) ep.id: ep,
     };
+    final compact =
+        MediaQuery.sizeOf(context).width <
+        KonataAdaptiveTokens.tabletBreakpoint;
+    final mediaHeight = widget.isAudio
+        ? (compact
+              ? PlaybackHistoryCardMetrics.compactAudioAlbumCoverSize
+              : PlaybackHistoryCardMetrics.audioAlbumCoverSize)
+        : (compact
+              ? PlaybackHistoryCardMetrics.compactEpisodeStillHeight
+              : PlaybackHistoryCardMetrics.episodeStillHeight);
+    final textScale = (MediaQuery.textScalerOf(context).scale(14.0) / 14.0)
+        .clamp(1.0, 1.5);
+    final innerHeight = math.max(mediaHeight, (54.0 * textScale) + 16.0);
+    final tileHeight = innerHeight + 18.0;
+    final records = widget.group.records;
+    final showRailBottomSpace = records.length > 1;
+    // 深色模式采用轻度沉降暗腔，浅色模式采用柔和石板灰凹槽，与子卡片自然形成同源层次。
+    final trayBg = p.isDark
+        ? KonataTheme.scrimBlackHairline
+        : p.secondaryButtonBg;
 
-    return Container(
-      key: ValueKey('history_expanded_${group.groupKey}'),
-      decoration: BoxDecoration(
-        border: Border(top: BorderSide(color: p.hairline, width: 1)),
-        color: p.softFill,
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(
+        bottom: Radius.circular(KonataTheme.radiusCard - 1),
       ),
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final useTwoColumns =
-              group.records.length >= 2 &&
-              constraints.maxWidth >=
-                  PlaybackHistoryCardMetrics.expandedTwoColumnBreakpoint;
-          if (!useTwoColumns) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (var i = 0; i < group.records.length; i++) ...[
-                  if (i > 0) const SizedBox(height: 8),
-                  _HistoryExpandedEntryRow(
-                    record: group.records[i],
-                    episode: episodesById[group.records[i].episodeId],
-                    workItem: workItem,
-                    imageLoader: imageLoader,
-                    isAudio: isAudio,
-                    inSelection: inSelection,
-                    selected: selectedIds.contains(group.records[i].id),
-                    isDeleteMode: isDeleteMode,
-                    audioDirLabel: isAudio
-                        ? audioDirLabelResolver(group.records[i])
-                        : null,
-                    onTap: () => onTapEntry(group.records[i]),
-                    onShowMenu: onShowEntryMenu,
-                  ),
-                ],
-              ],
+      child: Container(
+        key: ValueKey('history_expanded_${widget.group.groupKey}'),
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(
+              color: KonataTheme.subtleOutlineBorder(p),
+              width: 1,
+            ),
+          ),
+          color: trayBg,
+        ),
+        padding: EdgeInsets.fromLTRB(
+          10,
+          8,
+          10,
+          showRailBottomSpace ? 6 : 10,
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final tileWidth = _resolveTileWidth(
+              constraints.maxWidth,
+              records.length,
             );
-          }
+            final listHeight = tileHeight + (showRailBottomSpace ? 8.0 : 0.0);
 
-          final rowCount = (group.records.length + 1) ~/ 2;
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (var r = 0; r < rowCount; r++) ...[
-                if (r > 0) const SizedBox(height: 8),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: _HistoryExpandedEntryRow(
-                        record: group.records[r * 2],
-                        episode: episodesById[group.records[r * 2].episodeId],
-                        workItem: workItem,
-                        imageLoader: imageLoader,
-                        isAudio: isAudio,
-                        inSelection: inSelection,
-                        selected: selectedIds.contains(group.records[r * 2].id),
-                        isDeleteMode: isDeleteMode,
-                        audioDirLabel: isAudio
-                            ? audioDirLabelResolver(group.records[r * 2])
-                            : null,
-                        onTap: () => onTapEntry(group.records[r * 2]),
-                        onShowMenu: onShowEntryMenu,
+            return Listener(
+              onPointerSignal: _handleRailPointerSignal,
+              child: ScrollConfiguration(
+                behavior: const _HistoryHorizontalDragScrollBehavior(),
+                child: SizedBox(
+                  height: listHeight,
+                  child: Scrollbar(
+                    controller: _railCtrl,
+                    interactive: true,
+                    thumbVisibility: false,
+                    scrollbarOrientation: ScrollbarOrientation.bottom,
+                    child: ListView.separated(
+                      key: ValueKey(
+                        'history_expanded_rail_${widget.group.groupKey}',
                       ),
+                      controller: _railCtrl,
+                      scrollDirection: Axis.horizontal,
+                      physics: const BouncingScrollPhysics(
+                        parent: AlwaysScrollableScrollPhysics(),
+                      ),
+                      padding: EdgeInsets.only(
+                        bottom: showRailBottomSpace ? 8.0 : 0.0,
+                      ),
+                      itemCount: records.length,
+                      separatorBuilder: (_, _) => const SizedBox(
+                        width: PlaybackHistoryCardMetrics.entryRailGap,
+                      ),
+                      itemBuilder: (_, index) {
+                        final rec = records[index];
+                        return SizedBox(
+                          width: tileWidth,
+                          height: tileHeight,
+                          child: _HistoryExpandedEntryRow(
+                            record: rec,
+                            episode: episodesById[rec.episodeId],
+                            workItem: widget.workItem,
+                            imageLoader: widget.imageLoader,
+                            isAudio: widget.isAudio,
+                            inSelection: widget.inSelection,
+                            selected: widget.selectedIds.contains(rec.id),
+                            isDeleteMode: widget.isDeleteMode,
+                            audioDirLabel: widget.isAudio
+                                ? widget.audioDirLabelResolver(rec)
+                                : null,
+                            onTap: () => widget.onTapEntry(rec),
+                            onShowMenu: widget.onShowEntryMenu,
+                          ),
+                        );
+                      },
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: (r * 2 + 1) < group.records.length
-                          ? _HistoryExpandedEntryRow(
-                              record: group.records[r * 2 + 1],
-                              episode:
-                                  episodesById[group
-                                      .records[r * 2 + 1]
-                                      .episodeId],
-                              workItem: workItem,
-                              imageLoader: imageLoader,
-                              isAudio: isAudio,
-                              inSelection: inSelection,
-                              selected: selectedIds.contains(
-                                group.records[r * 2 + 1].id,
-                              ),
-                              isDeleteMode: isDeleteMode,
-                              audioDirLabel: isAudio
-                                  ? audioDirLabelResolver(
-                                      group.records[r * 2 + 1],
-                                    )
-                                  : null,
-                              onTap: () => onTapEntry(group.records[r * 2 + 1]),
-                              onShowMenu: onShowEntryMenu,
-                            )
-                          : const SizedBox.shrink(),
-                    ),
-                  ],
+                  ),
                 ),
-              ],
-            ],
-          );
-        },
+              ),
+            );
+          },
+        ),
       ),
     );
   }
 }
 
-/// 展开明细中的单集/单曲子行（视频展示 16:9 剧照，音频展示 1:1 专辑封面，均含标题、进度条与 24 小时制时间）。
-class _HistoryExpandedEntryRow extends StatelessWidget {
+/// 展开明细中的单集/单曲子卡（视频展示 16:9 剧照，音频展示 1:1 专辑封面，深浅模式严格复用 `p.surface` 光学玻璃层）。
+class _HistoryExpandedEntryRow extends StatefulWidget {
   const _HistoryExpandedEntryRow({
     required this.record,
     required this.episode,
@@ -705,6 +867,14 @@ class _HistoryExpandedEntryRow extends StatelessWidget {
   final VoidCallback onTap;
   final HistoryRowMenuCallback onShowMenu;
 
+  @override
+  State<_HistoryExpandedEntryRow> createState() =>
+      _HistoryExpandedEntryRowState();
+}
+
+class _HistoryExpandedEntryRowState extends State<_HistoryExpandedEntryRow> {
+  bool _hovered = false;
+
   Widget _mediaPlaceholder(KonataPalette p) {
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -713,7 +883,9 @@ class _HistoryExpandedEntryRow extends StatelessWidget {
       ),
       child: Center(
         child: Icon(
-          isAudio ? Icons.album_outlined : Icons.play_circle_outline_rounded,
+          widget.isAudio
+              ? Icons.album_outlined
+              : Icons.play_circle_outline_rounded,
           size: 22,
           color: p.textMuted,
         ),
@@ -722,8 +894,8 @@ class _HistoryExpandedEntryRow extends StatelessWidget {
   }
 
   Widget _buildVideoStill(KonataPalette p, double width, double height) {
-    final work = workItem?.work;
-    final still = episode?.stillPath?.trim();
+    final work = widget.workItem?.work;
+    final still = widget.episode?.stillPath?.trim();
     final backdrop = work?.backdropPath?.trim();
     final poster =
         work?.posterPath?.trim() ??
@@ -746,7 +918,7 @@ class _HistoryExpandedEntryRow extends StatelessWidget {
     return ClipRRect(
       borderRadius: KonataTheme.borderRadiusChip,
       child: SizedBox(
-        key: ValueKey('history_video_still_${record.id}'),
+        key: ValueKey('history_video_still_${widget.record.id}'),
         width: width,
         height: height,
         child: Stack(
@@ -755,15 +927,15 @@ class _HistoryExpandedEntryRow extends StatelessWidget {
             if (source != null)
               SmartManagedImageAlignmentBuilder(
                 url: source,
-                loader: imageLoader,
-                owner: work?.id ?? record.workId,
+                loader: widget.imageLoader,
+                owner: work?.id ?? widget.record.workId,
                 artwork: artwork,
                 targetAspectRatio: 16 / 9,
                 enabled: artwork == ManagedArtwork.poster,
                 builder: (_, alignment) => ManagedImage(
                   source!,
-                  loader: imageLoader,
-                  owner: work?.id ?? record.workId,
+                  loader: widget.imageLoader,
+                  owner: work?.id ?? widget.record.workId,
                   artwork: artwork,
                   decodeWidth: 280,
                   fit: BoxFit.cover,
@@ -790,57 +962,69 @@ class _HistoryExpandedEntryRow extends StatelessWidget {
   }
 
   String _resolveEntryTitle() {
-    final work = workItem?.work;
-    if (!isAudio && episode != null) {
+    final work = widget.workItem?.work;
+    if (!widget.isAudio && widget.episode != null) {
       return EpisodeTitleFormatter.formatCardTitle(
-        episode: episode!,
+        episode: widget.episode!,
         workMediaType: work?.tmdbMediaType,
         workTitle: work?.title,
-        mainEpisodeCount: workItem?.episodeCount,
+        mainEpisodeCount: widget.workItem?.episodeCount,
       );
     }
     return EpisodeTitleFormatter.formatHistorySubtitle(
-      record: record,
+      record: widget.record,
       work: work,
-      mainEpisodeCount: workItem?.episodeCount,
+      mainEpisodeCount: widget.workItem?.episodeCount,
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final record = widget.record;
     final compact =
         MediaQuery.sizeOf(context).width <
         KonataAdaptiveTokens.tabletBreakpoint;
-    final mediaWidth = isAudio
+    final mediaWidth = widget.isAudio
         ? (compact
               ? PlaybackHistoryCardMetrics.compactAudioAlbumCoverSize
               : PlaybackHistoryCardMetrics.audioAlbumCoverSize)
         : (compact
               ? PlaybackHistoryCardMetrics.compactEpisodeStillWidth
               : PlaybackHistoryCardMetrics.episodeStillWidth);
-    final mediaHeight = isAudio
+    final mediaHeight = widget.isAudio
         ? mediaWidth
         : (compact
               ? PlaybackHistoryCardMetrics.compactEpisodeStillHeight
               : PlaybackHistoryCardMetrics.episodeStillHeight);
 
-    final work = workItem?.work;
+    final work = widget.workItem?.work;
     final fallbackPoster =
         work?.posterPath ?? work?.bangumiPosterPath ?? work?.posterFallback;
     final entryTitle = _resolveEntryTitle();
     final progressLabel = PlaybackHistoryCardMetrics.formatProgressLabel(
       record,
-      isAudio: isAudio,
+      isAudio: widget.isAudio,
       includeVerb: false,
     );
     final clockText = PlaybackHistoryTimelineBuilder.formatClockHm(
       record.playedAt,
     );
-    final selectedAccent = isDeleteMode ? p.danger : p.accent;
-    final trimmedDir = audioDirLabel?.trim() ?? '';
+    final selectedAccent = widget.isDeleteMode ? p.danger : p.accent;
+    final trimmedDir = widget.audioDirLabel?.trim() ?? '';
+    final isInteractiveHover = _hovered && !KonataAdaptiveTokens.isAndroid;
+    final cardBg = widget.selected
+        ? selectedAccent.withValues(alpha: p.isDark ? 0.16 : 0.10)
+        : (isInteractiveHover ? p.surfaceHover : p.surface);
+    final cardBorder = widget.selected
+        ? selectedAccent.withValues(alpha: 0.72)
+        : (p.isDark
+              ? (isInteractiveHover ? p.hoverBorder : p.hairline)
+              : (isInteractiveHover
+                    ? KonataTheme.subtleControlBorder(p)
+                    : KonataTheme.subtleOutlineBorder(p)));
 
-    final mediaBox = isAudio
+    final mediaBox = widget.isAudio
         ? ClipRRect(
             borderRadius: KonataTheme.borderRadiusChip,
             child: SizedBox(
@@ -854,7 +1038,7 @@ class _HistoryExpandedEntryRow extends StatelessWidget {
                     workId: record.workId,
                     variantId: record.variantId,
                     fallbackPoster: fallbackPoster,
-                    imageLoader: imageLoader,
+                    imageLoader: widget.imageLoader,
                     size: mediaHeight,
                   ),
                   Positioned.fill(
@@ -876,28 +1060,30 @@ class _HistoryExpandedEntryRow extends StatelessWidget {
     return GestureDetector(
       key: ValueKey('history_entry_${record.id}'),
       behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      onSecondaryTapUp: inSelection
+      onTap: widget.onTap,
+      onSecondaryTapUp: widget.inSelection
           ? null
-          : (details) => onShowMenu(details.globalPosition, record, isAudio),
-      onLongPressStart: inSelection
+          : (details) =>
+                widget.onShowMenu(details.globalPosition, record, widget.isAudio),
+      onLongPressStart: widget.inSelection
           ? null
-          : (details) => onShowMenu(details.globalPosition, record, isAudio),
+          : (details) =>
+                widget.onShowMenu(details.globalPosition, record, widget.isAudio),
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
+        onEnter: KonataAdaptiveTokens.isAndroid
+            ? null
+            : (_) => setState(() => _hovered = true),
+        onExit: KonataAdaptiveTokens.isAndroid
+            ? null
+            : (_) => setState(() => _hovered = false),
         child: Container(
+          key: ValueKey('history_entry_surface_${record.id}'),
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: selected
-                ? selectedAccent.withValues(alpha: p.isDark ? 0.16 : 0.10)
-                : p.surface.withValues(alpha: p.isDark ? 0.55 : 0.72),
+            color: cardBg,
             borderRadius: KonataTheme.borderRadiusSm,
-            border: Border.all(
-              color: selected
-                  ? selectedAccent.withValues(alpha: 0.72)
-                  : p.hairline,
-              width: 1,
-            ),
+            border: Border.all(color: cardBorder, width: 1),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -905,112 +1091,107 @@ class _HistoryExpandedEntryRow extends StatelessWidget {
               mediaBox,
               const SizedBox(width: 10),
               Expanded(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minHeight: mediaHeight),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        EllipsisTextWithTooltip(
+                          text: entryTitle,
+                          maxLines:
+                              widget.isAudio && trimmedDir.isNotEmpty ? 1 : 2,
+                          style: TextStyle(
+                            color: p.textPrimary,
+                            fontSize: compact ? 13.0 : 13.6,
+                            fontWeight: FontWeight.w600,
+                            height: 1.22,
+                          ),
+                        ),
+                        if (widget.isAudio && trimmedDir.isNotEmpty) ...[
+                          const SizedBox(height: 2),
                           EllipsisTextWithTooltip(
-                            text: entryTitle,
-                            maxLines: isAudio && trimmedDir.isNotEmpty ? 1 : 2,
+                            text: trimmedDir,
+                            maxLines: 1,
                             style: TextStyle(
-                              color: p.textPrimary,
-                              fontSize: compact ? 13.0 : 13.6,
-                              fontWeight: FontWeight.w600,
-                              height: 1.22,
+                              color: p.textMuted,
+                              fontSize: 11.4,
+                              height: 1.15,
                             ),
                           ),
-                          if (isAudio && trimmedDir.isNotEmpty) ...[
-                            const SizedBox(height: 2),
-                            EllipsisTextWithTooltip(
-                              text: trimmedDir,
-                              maxLines: 1,
-                              style: TextStyle(
-                                color: p.textMuted,
-                                fontSize: 11.4,
-                                height: 1.15,
+                        ],
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          height: PlaybackHistoryCardMetrics.progressBarHeight,
+                          child: ClipRRect(
+                            borderRadius: KonataTheme.borderRadiusPill,
+                            child: LinearProgressIndicator(
+                              value: record.isCompleted
+                                  ? 1.0
+                                  : record.progressRatio,
+                              backgroundColor: p.progressTrack,
+                              valueColor: AlwaysStoppedAnimation(
+                                record.isCompleted
+                                    ? p.success
+                                    : p.progressFill,
                               ),
                             ),
-                          ],
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          SizedBox(
-                            height:
-                                PlaybackHistoryCardMetrics.progressBarHeight,
-                            child: ClipRRect(
-                              borderRadius: KonataTheme.borderRadiusPill,
-                              child: LinearProgressIndicator(
-                                value: record.isCompleted
-                                    ? 1.0
-                                    : record.progressRatio,
-                                backgroundColor: p.progressTrack,
-                                valueColor: AlwaysStoppedAnimation(
-                                  record.isCompleted
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          key: ValueKey('history_progress_row_${record.id}'),
+                          children: [
+                            Expanded(
+                              child: Text(
+                                progressLabel,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: KonataTheme.textStyle(
+                                  color: record.isCompleted
                                       ? p.success
                                       : p.progressFill,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            key: ValueKey('history_progress_row_${record.id}'),
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  progressLabel,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: KonataTheme.textStyle(
-                                    color: record.isCompleted
-                                        ? p.success
-                                        : p.progressFill,
-                                    fontSize: compact ? 11.2 : 11.8,
-                                    weight: 600,
-                                    height: 1.0,
-                                    tabularFigures: true,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                clockText,
-                                style: KonataTheme.textStyle(
-                                  color: p.textMuted,
-                                  fontSize: compact ? 11.0 : 11.5,
-                                  weight: 500,
+                                  fontSize: compact ? 11.2 : 11.8,
+                                  weight: 600,
                                   height: 1.0,
                                   tabularFigures: true,
                                 ),
                               ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              clockText,
+                              style: KonataTheme.textStyle(
+                                color: p.textMuted,
+                                fontSize: compact ? 11.0 : 11.5,
+                                weight: 500,
+                                height: 1.0,
+                                tabularFigures: true,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-              if (inSelection)
+              if (widget.inSelection)
                 Padding(
                   padding: const EdgeInsets.only(left: 6),
                   child: Icon(
-                    selected
+                    widget.selected
                         ? Icons.check_circle_rounded
                         : Icons.radio_button_unchecked_rounded,
                     size: 18,
-                    color: selected ? selectedAccent : p.textMuted,
+                    color: widget.selected ? selectedAccent : p.textMuted,
                   ),
                 ),
             ],

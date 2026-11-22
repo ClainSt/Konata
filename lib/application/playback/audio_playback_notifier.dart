@@ -867,10 +867,11 @@ class AudioPlaybackNotifier extends Notifier<AudioPlaybackState> {
     await _mediaSessionBridge.stopSession();
     await _ref.read(androidAudioFocusServiceProvider).abandonAudioFocus();
     await _releaseActiveStreamSession();
-    _ref.read(immersiveAudioExpandedProvider.notifier).state = false;
+    // 先置空活跃音频状态再收起全屏标记，避免全屏覆盖层监听误判为收起至悬浮小窗。
     if (mounted) {
       state = const AudioPlaybackState();
     }
+    _ref.read(immersiveAudioExpandedProvider.notifier).state = false;
     _ref.read(konataMemoryCoordinatorProvider).schedulePostPlaybackTrim();
   }
 

@@ -662,9 +662,14 @@ class ActiveVideoSessionNotifier extends Notifier<ActiveVideoSessionState> {
     );
   }
 
-  /// 将当前视频从全屏收起至常驻播放胶囊圆角预览（保持解码器与播放状态不断流）。
+  /// 将当前视频从全屏收起至常驻播放胶囊圆角预览（保持解码器与播放状态不断流）；
+  /// 若已关闭视频悬浮小窗偏好，则直接停止并释放视频会话。
   Future<void> collapseToMini() async {
     if (state.request == null) return;
+    if (!_ref.read(playbackPreferencesProvider).videoFloatingMiniEnabled) {
+      await closeVideo();
+      return;
+    }
     state = state.copyWith(isExpanded: false, isInPipMode: false);
     _ref.read(videoPlaybackActiveProvider.notifier).state = false;
     unawaited(

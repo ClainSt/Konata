@@ -13,6 +13,7 @@ import 'package:konata/infrastructure/database/drift_library_repository.dart';
 import 'package:konata/infrastructure/database/konata_database.dart';
 import 'package:konata/presentation/detail/work_detail_page.dart';
 import 'package:konata/presentation/history/playback_history_page.dart';
+import 'package:konata/presentation/theme/konata_palette.dart';
 import 'package:konata/presentation/theme/konata_theme.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -32,6 +33,7 @@ final Uint8List _tinyPng = Uint8List.fromList(<int>[
 Widget _wrapTimelineApp(
   Widget child, {
   List<dynamic> overrides = const [],
+  ThemeData? theme,
 }) {
   return ProviderScope(
     overrides: overrides.cast(),
@@ -39,7 +41,7 @@ Widget _wrapTimelineApp(
       locale: const Locale('zh', 'CN'),
       supportedLocales: const [Locale('zh', 'CN')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      theme: KonataTheme.darkTheme(),
+      theme: theme ?? KonataTheme.darkTheme(),
       home: Scaffold(body: child),
     ),
   );
@@ -389,6 +391,248 @@ void main() {
           .pixels;
       expect(returnedOffset, closeTo(offsetAfterExpand, 1.0));
       expect(find.byKey(ValueKey('history_expanded_$groupKey')), findsOneWidget);
+    });
+
+    testWidgets(
+      '播放记录左对齐铺开，宽屏单日一行双作品、窄屏退化单列，展开多集单行横向排列可左右拖动且不纵向堆积',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        SharedPreferences.setMockInitialValues({});
+        tester.view.physicalSize = const Size(1280, 820);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+
+        final db = KonataDatabase(NativeDatabase.memory());
+        addTearDown(db.close);
+        final repo = DriftLibraryRepository(db);
+
+        await repo.upsertMediaSource(
+          const MediaSource(
+            id: 'src_1',
+            kind: MediaSourceKind.local,
+            label: '本地',
+            location: 'D:/Anime',
+          ),
+        );
+        await repo.upsertWork(
+          const Work(
+            id: 'w_multi',
+            title: '弹丸论破3 绝望篇',
+            posterPath: '/p_multi.jpg',
+            tmdbMediaType: TmdbMediaType.tv,
+            scrapeStatus: ScrapeStatus.matched,
+          ),
+        );
+        await repo.upsertWork(
+          const Work(
+            id: 'w_second',
+            title: '超级弹丸论破2.5',
+            posterPath: '/p_second.jpg',
+            tmdbMediaType: TmdbMediaType.movie,
+            scrapeStatus: ScrapeStatus.matched,
+          ),
+        );
+        final eps = <Episode>[
+          for (var i = 1; i <= 5; i++)
+            Episode(
+              id: 'ep_m_$i',
+              workId: 'w_multi',
+              seasonNumber: 1,
+              episodeNumber: i,
+              category: EpisodeCategory.main,
+              title: '绝望第 $i 话',
+              stillPath: '/still_m_$i.jpg',
+            ),
+        ];
+        await repo.upsertEpisodesBatch(eps);
+
+        for (var i = 1; i <= 5; i++) {
+          await repo.recordPlayback(
+            PlaybackRecord(
+              id: 'rec_m_$i',
+              workId: 'w_multi',
+              episodeId: 'ep_m_$i',
+              variantId: 'v_m_$i',
+              seasonNumber: 1,
+              episodeNumber: i,
+              episodeTitle: '绝望第 $i 话',
+              sourceType: MediaSourceKind.local,
+              playedAt: DateTime(2026, 11, 23, 7, i),
+              positionSeconds: 120 * i,
+              durationSeconds: 1420,
+            ),
+          );
+        }
+        await repo.recordPlayback(
+          PlaybackRecord(
+            id: 'rec_s_1',
+            workId: 'w_second',
+            episodeId: 'ep_s_1',
+            variantId: 'v_s_1',
+            seasonNumber: 1,
+            episodeNumber: 1,
+            episodeTitle: '正片',
+            sourceType: MediaSourceKind.local,
+            playedAt: DateTime(2026, 11, 23, 6, 54),
+            positionSeconds: 300,
+            durationSeconds: 1500,
+          ),
+        );
+
+        await tester.pumpWidget(
+          _wrapTimelineApp(
+            const PlaybackHistoryPage(),
+            overrides: [
+              libraryRepositoryProvider.overrideWithValue(repo),
+              tmdbImageLoaderProvider.overrideWithValue(
+                (_, {targetWidth, imageSize}) async => _tinyPng,
+              ),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // 1. 左对齐铺开：时间轴圆点紧贴页面标准左边距，不再居中缩窄
+        final dotRect = tester.getRect(
+          find.byKey(const ValueKey('history_day_dot_2026-11-23')),
+        );
+        expect(
+          dotRect.left,
+          lessThan(KonataTheme.pageHorizontalPadding + 20.0),
+        );
+
+        // 2. 宽屏单日双列：同日两部作品并排处于同一水平行
+        final cardMultiRect = tester.getRect(
+          find.byKey(const ValueKey('history_work_card_2026-11-23::w_multi')),
+        );
+        final cardSecondRect = tester.getRect(
+          find.byKey(const ValueKey('history_work_card_2026-11-23::w_second')),
+        );
+        expect((cardMultiRect.top - cardSecondRect.top).abs(), lessThan(1.0));
+        expect(cardSecondRect.left, greaterThan(cardMultiRect.right));
+
+        // 3. 展开 5 集作品卡：单行横向排布，总高度紧凑不纵向累积，左右拖动可滑出最早一集
+        await tester.tap(
+          find.byKey(const ValueKey('history_work_card_2026-11-23::w_multi')),
+        );
+        await tester.pumpAndSettle();
+
+        final expandedRect = tester.getRect(
+          find.byKey(const ValueKey('history_expanded_2026-11-23::w_multi')),
+        );
+        expect(expandedRect.height, lessThan(140.0));
+
+        final ep5Rect = tester.getRect(
+          find.byKey(const ValueKey('history_entry_rec_m_5')),
+        );
+        final ep4Rect = tester.getRect(
+          find.byKey(const ValueKey('history_entry_rec_m_4')),
+        );
+        expect((ep5Rect.top - ep4Rect.top).abs(), lessThan(1.0));
+        expect(ep4Rect.left, greaterThan(ep5Rect.right));
+
+        final railFinder = find.byKey(
+          const ValueKey('history_expanded_rail_2026-11-23::w_multi'),
+        );
+        expect(railFinder, findsOneWidget);
+        await tester.drag(railFinder, const Offset(-900, 0));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('history_video_still_rec_m_1')),
+          findsOneWidget,
+        );
+
+        // 4. 窄屏（手机竖屏 390x844）自动切为单列，同时保持展开单行横向紧凑
+        tester.view.physicalSize = const Size(390, 844);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        final narrowMultiRect = tester.getRect(
+          find.byKey(const ValueKey('history_work_card_2026-11-23::w_multi')),
+        );
+        final narrowSecondRect = tester.getRect(
+          find.byKey(const ValueKey('history_work_card_2026-11-23::w_second')),
+        );
+        expect(narrowSecondRect.top, greaterThan(narrowMultiRect.bottom));
+      },
+    );
+
+    testWidgets('播放记录展开剧集子卡片在深色与浅色模式下分别复用对应主题 surface 令牌，杜绝深色泛白割裂', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = const Size(1280, 820);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final db = KonataDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final repo = DriftLibraryRepository(db);
+      await repo.upsertWork(
+        const Work(
+          id: 'w_theme',
+          title: '配色验收番剧',
+          posterPath: '/p_theme.jpg',
+          tmdbMediaType: TmdbMediaType.tv,
+          scrapeStatus: ScrapeStatus.matched,
+        ),
+      );
+      await repo.recordPlayback(
+        PlaybackRecord(
+          id: 'rec_theme_1',
+          workId: 'w_theme',
+          episodeId: 'ep_theme_1',
+          variantId: 'v_theme_1',
+          seasonNumber: 1,
+          episodeNumber: 1,
+          episodeTitle: '第 1 话',
+          sourceType: MediaSourceKind.local,
+          playedAt: DateTime(2026, 11, 23, 7, 10),
+          positionSeconds: 120,
+          durationSeconds: 1420,
+        ),
+      );
+
+      for (final (isDark, theme, expectedSurface) in [
+        (true, KonataTheme.darkTheme(), KonataPalette.dark.surface),
+        (false, KonataTheme.lightTheme(), KonataPalette.light.surface),
+      ]) {
+        await tester.pumpWidget(
+          _wrapTimelineApp(
+            const PlaybackHistoryPage(),
+            theme: theme,
+            overrides: [
+              libraryRepositoryProvider.overrideWithValue(repo),
+              tmdbImageLoaderProvider.overrideWithValue(
+                (_, {targetWidth, imageSize}) async => _tinyPng,
+              ),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey('history_work_card_2026-11-23::w_theme')),
+        );
+        await tester.pumpAndSettle();
+
+        final entryContainer = tester.widget<Container>(
+          find.byKey(const ValueKey('history_entry_surface_rec_theme_1')),
+        );
+        final decoration = entryContainer.decoration! as BoxDecoration;
+        expect(
+          decoration.color,
+          equals(expectedSurface),
+          reason: isDark ? '深色模式子卡片应复用通透暗色 surface 而非高不透明泛白底色' : '浅色模式应复用亮色 surface',
+        );
+        if (isDark) {
+          expect(decoration.color!.a, lessThan(0.15));
+        }
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
     });
   });
 }

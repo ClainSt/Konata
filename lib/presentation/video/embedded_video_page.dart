@@ -186,7 +186,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage>
         });
       }
     }
-    if (KonataAdaptiveTokens.isAndroid && widget.onCollapseToMini == null) {
+    if (KonataAdaptiveTokens.isAndroid && widget.onCloseSession == null) {
       unawaited(
         AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
           landscape: false,
@@ -380,7 +380,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage>
     if (event is! PointerScrollEvent || _screenLocked) return;
     final state = ref.read(videoPlaybackProvider(widget.request));
     if (state.sideSheetOpen) return;
-    if (widget.onCollapseToMini == null &&
+    if (widget.onCloseSession == null &&
         ModalRoute.of(context)?.isCurrent != true) {
       return;
     }

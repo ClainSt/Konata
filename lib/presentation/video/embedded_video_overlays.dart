@@ -76,7 +76,9 @@ extension _EmbeddedVideoTopOverlays on _EmbeddedVideoPageState {
                 icon: widget.onCollapseToMini != null
                     ? Icons.keyboard_arrow_down_rounded
                     : Icons.arrow_back_rounded,
-                tooltip: widget.onCollapseToMini != null ? '收起至小窗胶囊' : '返回',
+                tooltip: widget.onCollapseToMini != null
+                    ? '收起为悬浮小窗'
+                    : '停止并关闭视频',
                 color: p.textPrimary,
                 size: 24,
                 fixedSize: KonataAdaptiveTokens.touchTarget,
@@ -235,12 +237,13 @@ extension _EmbeddedVideoTopOverlays on _EmbeddedVideoPageState {
       child: Row(
         children: [
           KonataCapsuleIconButton(
+            key: const ValueKey('video_collapse_button'),
             icon: widget.onCollapseToMini != null
                 ? Icons.keyboard_arrow_down_rounded
                 : Icons.arrow_back_rounded,
             tooltip: widget.onCollapseToMini != null
-                ? '收起为小窗播放胶囊 (Esc)'
-                : '返回作品详情 (Esc)',
+                ? '收起为悬浮小窗 (Esc)'
+                : '停止并关闭视频 (Esc)',
             color: p.textPrimary,
             size: 22,
             fixedSize: 34,
@@ -249,6 +252,7 @@ extension _EmbeddedVideoTopOverlays on _EmbeddedVideoPageState {
           ),
           if (widget.onCollapseToMini != null)
             KonataCapsuleIconButton(
+              key: const ValueKey('video_close_session_button'),
               icon: Icons.close_rounded,
               tooltip: '停止并关闭视频',
               color: p.textPrimary,

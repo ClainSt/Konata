@@ -15,6 +15,7 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
     required String specLabel,
     required _ImmersiveRightPane effectivePane,
     required AudioPlaybackNotifier notifier,
+    required bool audioMiniEnabled,
   }) {
     final p = context.palette;
     final snapshotState = ref.read(audioPlaybackProvider);
@@ -59,20 +60,17 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
       ),
       child: Column(
         children: [
-          // 手机横屏沿用桌面/平板同源双栏 + 底部居中光学长胶囊，顶栏仅保留收起按钮保持通透。
+          // 手机横屏沿用桌面/平板同源双栏 + 底部居中光学长胶囊，顶栏提供收起与停止关闭入口。
           SizedBox(
             key: const ValueKey('short_phone_audio_top_bar'),
-            height: 40,
+            height: KonataAdaptiveTokens.touchTarget,
             child: Row(
               children: [
-                KonataCapsuleIconButton(
-                  key: const ValueKey('immersive_collapse_button'),
-                  icon: Icons.keyboard_arrow_down_rounded,
-                  tooltip: '收起全屏播放页',
-                  color: p.textSecondary,
-                  size: 24,
-                  fixedSize: KonataAdaptiveTokens.touchTarget,
-                  onTap: _collapseToMiniBar,
+                ..._buildTopLeadingActions(
+                  p,
+                  audioMiniEnabled: audioMiniEnabled,
+                  isAndroid: true,
+                  showEscHint: false,
                 ),
                 const Spacer(),
               ],
@@ -162,6 +160,7 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
     required AudioLoopMode loopMode,
     required String specLabel,
     required AudioPlaybackNotifier notifier,
+    required bool audioMiniEnabled,
   }) {
     final p = context.palette;
 
@@ -169,23 +168,32 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 顶部极简留白：支持下拉收起与左上 48dp 收起按钮
+          // 顶部极简留白：开启小窗时支持下拉收起与左上 48dp 收起/关闭按钮，关闭小窗时仅保留停止关闭入口。
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onVerticalDragStart: (_) => _pullDownDy = 0.0,
-            onVerticalDragUpdate: (details) {
-              if (details.delta.dy > 0) {
-                _pullDownDy += details.delta.dy;
-              }
-            },
-            onVerticalDragEnd: (details) {
-              final velocity = details.primaryVelocity ?? 0.0;
-              if (_pullDownDy > 48.0 || velocity > 420.0) {
-                _collapseToMiniBar(releaseVelocityPxPerSec: velocity);
-              }
-              _pullDownDy = 0.0;
-            },
-            child: _buildTopBar(topPadding: 2),
+            onVerticalDragStart: audioMiniEnabled
+                ? (_) => _pullDownDy = 0.0
+                : null,
+            onVerticalDragUpdate: audioMiniEnabled
+                ? (details) {
+                    if (details.delta.dy > 0) {
+                      _pullDownDy += details.delta.dy;
+                    }
+                  }
+                : null,
+            onVerticalDragEnd: audioMiniEnabled
+                ? (details) {
+                    final velocity = details.primaryVelocity ?? 0.0;
+                    if (_pullDownDy > 48.0 || velocity > 420.0) {
+                      _collapseToMiniBar(releaseVelocityPxPerSec: velocity);
+                    }
+                    _pullDownDy = 0.0;
+                  }
+                : null,
+            child: _buildTopBar(
+              topPadding: 2,
+              audioMiniEnabled: audioMiniEnabled,
+            ),
           ),
           // 第一段：带柔雾镜像倒影的专辑封面 ↔ 滚动歌词原位淡入淡出切换（轻触封面直达歌词）
           Expanded(
@@ -231,19 +239,25 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
                           onTap: () => _mutateState(
                             () => _portraitShowLyricsInPlace = true,
                           ),
-                          onVerticalDragStart: (_) => _pullDownDy = 0.0,
-                          onVerticalDragUpdate: (d) {
-                            if (d.delta.dy > 0) _pullDownDy += d.delta.dy;
-                          },
-                          onVerticalDragEnd: (d) {
-                            final velocity = d.primaryVelocity ?? 0.0;
-                            if (_pullDownDy > 54.0 || velocity > 460.0) {
-                              _collapseToMiniBar(
-                                releaseVelocityPxPerSec: velocity,
-                              );
-                            }
-                            _pullDownDy = 0.0;
-                          },
+                          onVerticalDragStart: audioMiniEnabled
+                              ? (_) => _pullDownDy = 0.0
+                              : null,
+                          onVerticalDragUpdate: audioMiniEnabled
+                              ? (d) {
+                                  if (d.delta.dy > 0) _pullDownDy += d.delta.dy;
+                                }
+                              : null,
+                          onVerticalDragEnd: audioMiniEnabled
+                              ? (d) {
+                                  final velocity = d.primaryVelocity ?? 0.0;
+                                  if (_pullDownDy > 54.0 || velocity > 460.0) {
+                                    _collapseToMiniBar(
+                                      releaseVelocityPxPerSec: velocity,
+                                    );
+                                  }
+                                  _pullDownDy = 0.0;
+                                }
+                              : null,
                           child: Center(
                             child: ImmersiveCoverWithReflection(
                               cover: cover,
@@ -366,7 +380,44 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
     );
   }
 
-  Widget _buildTopBar({required double topPadding}) {
+  List<Widget> _buildTopLeadingActions(
+    KonataPalette p, {
+    required bool audioMiniEnabled,
+    required bool isAndroid,
+    required bool showEscHint,
+  }) {
+    final btnSize = isAndroid ? KonataAdaptiveTokens.touchTarget : 38.0;
+    return [
+      if (audioMiniEnabled) ...[
+        KonataCapsuleIconButton(
+          key: const ValueKey('immersive_collapse_button'),
+          icon: Icons.keyboard_arrow_down_rounded,
+          tooltip: showEscHint ? '收起为悬浮小窗 (Esc)' : '收起为悬浮小窗',
+          color: p.textSecondary,
+          size: 24,
+          fixedSize: btnSize,
+          onTap: _collapseToMiniBar,
+        ),
+        SizedBox(width: isAndroid ? 4 : 2),
+      ],
+      KonataCapsuleIconButton(
+        key: const ValueKey('immersive_close_session_button'),
+        icon: Icons.close_rounded,
+        tooltip: !audioMiniEnabled && showEscHint
+            ? '停止并关闭音频 (Esc)'
+            : '停止并关闭音频',
+        color: p.textSecondary,
+        size: isAndroid ? 20 : 19,
+        fixedSize: btnSize,
+        onTap: () => unawaited(_closeAudioSession()),
+      ),
+    ];
+  }
+
+  Widget _buildTopBar({
+    required double topPadding,
+    required bool audioMiniEnabled,
+  }) {
     final p = context.palette;
     final isWindows = KonataAdaptiveTokens.isWindows;
     final isAndroid = KonataAdaptiveTokens.isAndroid;
@@ -381,14 +432,11 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
             children: [
-              KonataCapsuleIconButton(
-                key: const ValueKey('immersive_collapse_button'),
-                icon: Icons.keyboard_arrow_down_rounded,
-                tooltip: '收起全屏播放页 (Esc)',
-                color: p.textSecondary,
-                size: 24,
-                fixedSize: isAndroid ? KonataAdaptiveTokens.touchTarget : 38,
-                onTap: _collapseToMiniBar,
+              ..._buildTopLeadingActions(
+                p,
+                audioMiniEnabled: audioMiniEnabled,
+                isAndroid: isAndroid,
+                showEscHint: !isAndroid,
               ),
               const Spacer(),
               if (canRelayExternal) ...[

@@ -168,7 +168,16 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     }
   }
 
+  Future<void> _closeAudioSession() async {
+    _closePortraitQueueSheet();
+    await ref.read(audioPlaybackProvider.notifier).stopAndClose();
+  }
+
   void _collapseToMiniBar({double releaseVelocityPxPerSec = 0.0}) {
+    if (!ref.read(playbackPreferencesProvider).audioFloatingMiniEnabled) {
+      unawaited(_closeAudioSession());
+      return;
+    }
     _closePortraitQueueSheet();
     ref.read(stageMorphReleaseVelocityProvider.notifier).state =
         releaseVelocityPxPerSec;
@@ -323,6 +332,9 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     });
 
     final notifier = ref.read(audioPlaybackProvider.notifier);
+    final audioMiniEnabled = ref.watch(
+      playbackPreferencesProvider.select((s) => s.audioFloatingMiniEnabled),
+    );
     final item = snap.item;
     if (item == null) return const SizedBox.shrink();
 
@@ -378,6 +390,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
         specLabel: specLabel,
         effectivePane: effectivePane,
         notifier: notifier,
+        audioMiniEnabled: audioMiniEnabled,
       );
     } else if (isTablet) {
       stageContent = _buildAndroidTabletStage(
@@ -393,6 +406,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
         specLabel: specLabel,
         effectivePane: effectivePane,
         notifier: notifier,
+        audioMiniEnabled: audioMiniEnabled,
       );
     } else if (isShortPhone) {
       stageContent = _buildAndroidShortPhoneStage(
@@ -408,6 +422,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
         specLabel: specLabel,
         effectivePane: effectivePane,
         notifier: notifier,
+        audioMiniEnabled: audioMiniEnabled,
       );
     } else {
       stageContent = _buildAndroidPortraitPhoneStage(
@@ -419,6 +434,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
         loopMode: snap.loopMode,
         specLabel: specLabel,
         notifier: notifier,
+        audioMiniEnabled: audioMiniEnabled,
       );
     }
 
@@ -460,6 +476,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     required String specLabel,
     required _ImmersiveRightPane effectivePane,
     required AudioPlaybackNotifier notifier,
+    required bool audioMiniEnabled,
   }) {
     final screenWidth = MediaQuery.sizeOf(context).width;
     final isWide = screenWidth >= 820;
@@ -510,7 +527,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     return SafeArea(
       child: Column(
         children: [
-          _buildTopBar(topPadding: 0),
+          _buildTopBar(topPadding: 0, audioMiniEnabled: audioMiniEnabled),
           Expanded(
             child: Padding(
               padding: EdgeInsets.fromLTRB(
@@ -593,6 +610,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     required String specLabel,
     required _ImmersiveRightPane effectivePane,
     required AudioPlaybackNotifier notifier,
+    required bool audioMiniEnabled,
   }) {
     final p = context.palette;
     final snapshotState = ref.read(audioPlaybackProvider);
@@ -637,7 +655,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
       ),
       child: Column(
         children: [
-          _buildTopBar(topPadding: 0),
+          _buildTopBar(topPadding: 0, audioMiniEnabled: audioMiniEnabled),
           const SizedBox(height: 4),
           Expanded(
             child: Row(

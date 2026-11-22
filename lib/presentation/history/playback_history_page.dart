@@ -47,15 +47,15 @@ final class _DayHeaderItem extends _TimelineListItem {
   final bool showTopConnector;
 }
 
-final class _WorkGroupItem extends _TimelineListItem {
-  const _WorkGroupItem({
-    required this.group,
-    required this.isLastInDay,
+final class _WorkGroupRowItem extends _TimelineListItem {
+  const _WorkGroupRowItem({
+    required this.groups,
+    required this.isLastRowInDay,
     required this.isLastSection,
   });
 
-  final PlaybackHistoryWorkGroup group;
-  final bool isLastInDay;
+  final List<PlaybackHistoryWorkGroup> groups;
+  final bool isLastRowInDay;
   final bool isLastSection;
 }
 
@@ -711,24 +711,104 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
   }
 
   List<_TimelineListItem> _flattenSections(
-    List<PlaybackHistoryDaySection> sections,
-  ) {
+    List<PlaybackHistoryDaySection> sections, {
+    required int columns,
+  }) {
+    final safeColumns = columns <= 1 ? 1 : 2;
     final flat = <_TimelineListItem>[];
     for (var sIdx = 0; sIdx < sections.length; sIdx++) {
       final section = sections[sIdx];
       final isLastSection = sIdx == sections.length - 1;
       flat.add(_DayHeaderItem(section: section, showTopConnector: sIdx > 0));
-      for (var wIdx = 0; wIdx < section.works.length; wIdx++) {
+      for (var wIdx = 0; wIdx < section.works.length; wIdx += safeColumns) {
+        final end = (wIdx + safeColumns).clamp(0, section.works.length);
         flat.add(
-          _WorkGroupItem(
-            group: section.works[wIdx],
-            isLastInDay: wIdx == section.works.length - 1,
+          _WorkGroupRowItem(
+            groups: section.works.sublist(wIdx, end),
+            isLastRowInDay: end >= section.works.length,
             isLastSection: isLastSection,
           ),
         );
       }
     }
     return flat;
+  }
+
+  Widget _buildWorkGroupCard({
+    required BuildContext context,
+    required PlaybackHistoryWorkGroup group,
+    required Map<String, WorkLibraryItem> workById,
+    required ManagedImageLoader imageLoader,
+    required bool isAudioTab,
+    required Set<String> expandedGroups,
+    required bool isLastRowInDay,
+    required bool isLastSection,
+    required bool inSelection,
+    required bool isDeleteMode,
+    required Map<String, CdAlbumGroupSummary> cdSummaryCache,
+  }) {
+    return PlaybackHistoryWorkGroupCard(
+      group: group,
+      workItem: workById[group.workId],
+      imageLoader: imageLoader,
+      isAudio: isAudioTab,
+      isExpanded: expandedGroups.contains(group.groupKey),
+      isLastInDay: isLastRowInDay,
+      isLastSection: isLastSection,
+      inSelection: inSelection,
+      selectedIds: _selectedIds,
+      isDeleteMode: isDeleteMode,
+      showTimelineRail: false,
+      audioDirLabelResolver: (rec) => _resolveAudioDirectoryLabel(
+        rec,
+        workById[rec.workId],
+        cdSummaryCache,
+      ),
+      onTapCover: () {
+        if (inSelection) {
+          _toggleSelectedGroup(group);
+        } else {
+          _openWorkDetail(
+            context,
+            group.latestRecord,
+            workById[group.workId],
+          );
+        }
+      },
+      onTapCardBody: () {
+        if (inSelection) {
+          _toggleSelectedGroup(group);
+        } else {
+          _toggleExpanded(group.groupKey);
+        }
+      },
+      onTapEntry: (rec) {
+        if (inSelection) {
+          _toggleSelectedRecord(rec.id);
+        } else if (isAudioTab) {
+          _resumeAudioRecord(context: context, ref: ref, rec: rec);
+        } else {
+          _resumeRecord(context: context, ref: ref, rec: rec);
+        }
+      },
+      onShowGroupMenu: (globalPos, targetGroup, targetAudio) =>
+          _showGroupMenu(
+            context: context,
+            ref: ref,
+            globalPos: globalPos,
+            group: targetGroup,
+            workItem: workById[targetGroup.workId],
+            isAudio: targetAudio,
+          ),
+      onShowEntryMenu: (globalPos, targetRec, targetAudio) =>
+          _showEntryMenu(
+            context: context,
+            ref: ref,
+            globalPos: globalPos,
+            rec: targetRec,
+            isAudio: targetAudio,
+          ),
+    );
   }
 
   Widget _buildTimelineBody({
@@ -780,7 +860,6 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     }
 
     final sections = PlaybackHistoryTimelineBuilder.build(records);
-    final flatItems = _flattenSections(sections);
     final cdSummaryCache = <String, CdAlbumGroupSummary>{};
     final scrollCtrl = _activeScrollCtrl;
     final expandedGroups = _activeExpandedGroups;
@@ -791,15 +870,19 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
         final compactList =
             KonataAdaptiveTokens.isAndroid &&
             constraints.maxWidth < KonataAdaptiveTokens.tabletBreakpoint;
-        final basePadH = compactList
+        final listPadH = compactList
             ? KonataAdaptiveTokens.horizontalInset
             : KonataTheme.pageHorizontalPadding;
-        final contentWidth = constraints.maxWidth - basePadH * 2;
-        final extraPadH =
-            contentWidth > PlaybackHistoryCardMetrics.maxTimelineWidth
-            ? (contentWidth - PlaybackHistoryCardMetrics.maxTimelineWidth) / 2
-            : 0.0;
-        final listPadH = basePadH + extraPadH;
+        final cardsAreaWidth =
+            constraints.maxWidth -
+            listPadH * 2 -
+            PlaybackHistoryCardMetrics.timelineRailWidth -
+            10.0;
+        final columns =
+            cardsAreaWidth >= PlaybackHistoryCardMetrics.twoColumnWorkBreakpoint
+            ? 2
+            : 1;
+        final flatItems = _flattenSections(sections, columns: columns);
 
         return KonataDraggableScrollbar(
           controller: scrollCtrl,
@@ -825,71 +908,31 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                     section: section,
                     showTopConnector: showTopConnector,
                   ),
-                _WorkGroupItem(
-                  :final group,
-                  :final isLastInDay,
+                _WorkGroupRowItem(
+                  :final groups,
+                  :final isLastRowInDay,
                   :final isLastSection,
                 ) =>
-                  PlaybackHistoryWorkGroupCard(
-                    group: group,
-                    workItem: workById[group.workId],
-                    imageLoader: imageLoader,
-                    isAudio: isAudioTab,
-                    isExpanded: expandedGroups.contains(group.groupKey),
-                    isLastInDay: isLastInDay,
+                  PlaybackHistoryTimelineRow(
+                    columns: columns,
+                    isLastRowInDay: isLastRowInDay,
                     isLastSection: isLastSection,
-                    inSelection: inSelection,
-                    selectedIds: _selectedIds,
-                    isDeleteMode: isDeleteMode,
-                    audioDirLabelResolver: (rec) => _resolveAudioDirectoryLabel(
-                      rec,
-                      workById[rec.workId],
-                      cdSummaryCache,
-                    ),
-                    onTapCover: () {
-                      if (inSelection) {
-                        _toggleSelectedGroup(group);
-                      } else {
-                        _openWorkDetail(
-                          context,
-                          group.latestRecord,
-                          workById[group.workId],
-                        );
-                      }
-                    },
-                    onTapCardBody: () {
-                      if (inSelection) {
-                        _toggleSelectedGroup(group);
-                      } else {
-                        _toggleExpanded(group.groupKey);
-                      }
-                    },
-                    onTapEntry: (rec) {
-                      if (inSelection) {
-                        _toggleSelectedRecord(rec.id);
-                      } else if (isAudioTab) {
-                        _resumeAudioRecord(context: context, ref: ref, rec: rec);
-                      } else {
-                        _resumeRecord(context: context, ref: ref, rec: rec);
-                      }
-                    },
-                    onShowGroupMenu: (globalPos, targetGroup, targetAudio) =>
-                        _showGroupMenu(
+                    children: [
+                      for (final group in groups)
+                        _buildWorkGroupCard(
                           context: context,
-                          ref: ref,
-                          globalPos: globalPos,
-                          group: targetGroup,
-                          workItem: workById[targetGroup.workId],
-                          isAudio: targetAudio,
+                          group: group,
+                          workById: workById,
+                          imageLoader: imageLoader,
+                          isAudioTab: isAudioTab,
+                          expandedGroups: expandedGroups,
+                          isLastRowInDay: isLastRowInDay,
+                          isLastSection: isLastSection,
+                          inSelection: inSelection,
+                          isDeleteMode: isDeleteMode,
+                          cdSummaryCache: cdSummaryCache,
                         ),
-                    onShowEntryMenu: (globalPos, targetRec, targetAudio) =>
-                        _showEntryMenu(
-                          context: context,
-                          ref: ref,
-                          globalPos: globalPos,
-                          rec: targetRec,
-                          isAudio: targetAudio,
-                        ),
+                    ],
                   ),
               };
             },

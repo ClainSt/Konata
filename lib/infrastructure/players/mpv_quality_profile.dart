@@ -722,7 +722,17 @@ class MpvQualityProfile {
     setter.setOption(client, 'sub-font-size', '${subParams.fontSize}');
     setter.setOption(client, 'sub-scale', subParams.scale.toStringAsFixed(4));
     setter.setOption(client, 'sub-margin-y', '${subParams.marginY}');
-    setter.setOption(client, 'sub-pos', '${subParams.subPos}');
+    setter.setOption(client, 'sub-pos', subParams.subPos.toStringAsFixed(1));
+    setter.setOption(
+      client,
+      'secondary-sub-pos',
+      subParams.secondarySubPos.toStringAsFixed(1),
+    );
+    setter.setOption(
+      client,
+      'secondary-sub-ass-override',
+      subParams.secondaryAssOverride,
+    );
     setter.setOption(client, 'sub-use-margins', 'yes');
     setter.setOption(
       client,
@@ -755,6 +765,7 @@ class MpvQualityProfile {
   static void applyPostInitVideoProperties(
     LibMpvClient client, {
     required PlaybackQualityConfig config,
+    bool hasSecondarySubtitle = false,
     bool? isWindowsOverride,
     MpvPlatformProfileDelegate? desktopDelegate,
     void Function(String message)? onExclusiveFallbackNotice,
@@ -765,7 +776,12 @@ class MpvQualityProfile {
 
     setter.setDouble(client, 'speed', config.defaultSpeed);
     setter.setBool(client, 'audio-pitch-correction', config.keepPitch);
-    _applySubtitleRuntimeProperties(client, config: config, setter: setter);
+    _applySubtitleRuntimeProperties(
+      client,
+      config: config,
+      hasSecondarySubtitle: hasSecondarySubtitle,
+      setter: setter,
+    );
 
     if (isWindows && desktopDelegate != null) {
       desktopDelegate.applyDesktopAudioExclusivePostInit(
@@ -777,33 +793,63 @@ class MpvQualityProfile {
     }
   }
 
-  /// 解析当前字幕配置对应的 `libmpv` 标准参数组合（区分 `no` / `scale` / `force`）。
-  static ({String assOverride, double fontSize, double scale, int marginY, double subPos})
-  resolveSubtitleParameters(PlaybackQualityConfig config) {
+  /// 解析当前字幕配置对应的 `libmpv` 标准参数组合（区分 `no` / `scale` / `force`，并支持双语主上副下底部叠排）。
+  static ({
+    String assOverride,
+    double fontSize,
+    double scale,
+    int marginY,
+    double subPos,
+    double secondarySubPos,
+    String secondaryAssOverride,
+  })
+  resolveSubtitleParameters(
+    PlaybackQualityConfig config, {
+    bool hasSecondarySubtitle = false,
+  }) {
     final clampedSize = config.subFontSize.clamp(24, 96);
     final clampedMargin = config.subBottomMargin.clamp(0, 120);
     final dynamicSubPos = (100.0 - clampedMargin * 0.20).clamp(70.0, 100.0);
+    final baseBottomPos =
+        config.subOverrideMode == SubtitleAssOverrideMode.preserveAss
+        ? 100.0
+        : dynamicSubPos;
+    // 启用双语副字幕时，副字幕固定位于画面最下方基准位，主字幕按当前等效字号占高向上抬升一层，
+    // 复刻常规单文件中日双语（主字幕在上、副字幕在下）的底部紧凑排布并避免两行重叠。
+    final bilingualPrimaryLift = ((clampedSize / 720.0) * 100.0 * 1.25).clamp(
+      6.0,
+      16.0,
+    );
+    final effectivePrimarySubPos = hasSecondarySubtitle
+        ? (baseBottomPos - bilingualPrimaryLift).clamp(50.0, 96.0)
+        : baseBottomPos;
     return switch (config.subOverrideMode) {
       SubtitleAssOverrideMode.preserveAss => (
         assOverride: 'no',
         fontSize: clampedSize.toDouble(),
         scale: 1.0,
         marginY: clampedMargin,
-        subPos: 100.0,
+        subPos: effectivePrimarySubPos,
+        secondarySubPos: baseBottomPos,
+        secondaryAssOverride: 'strip',
       ),
       SubtitleAssOverrideMode.scaleOnly => (
         assOverride: 'scale',
         fontSize: PlaybackQualityConfig.defaultSubFontSize.toDouble(),
         scale: clampedSize / PlaybackQualityConfig.defaultSubFontSize,
         marginY: clampedMargin,
-        subPos: dynamicSubPos,
+        subPos: effectivePrimarySubPos,
+        secondarySubPos: baseBottomPos,
+        secondaryAssOverride: 'strip',
       ),
       SubtitleAssOverrideMode.forceStyle => (
         assOverride: 'force',
         fontSize: clampedSize.toDouble(),
         scale: 1.0,
         marginY: clampedMargin,
-        subPos: dynamicSubPos,
+        subPos: effectivePrimarySubPos,
+        secondarySubPos: baseBottomPos,
+        secondaryAssOverride: 'strip',
       ),
     };
   }
@@ -812,13 +858,23 @@ class MpvQualityProfile {
     LibMpvClient client, {
     required PlaybackQualityConfig config,
     required MpvSafePropertySetter setter,
+    bool hasSecondarySubtitle = false,
   }) {
-    final subParams = resolveSubtitleParameters(config);
-    // 先写入字号、缩放倍率、垂直边距与动态垂直定位（sub-pos），再同步 ASS 样式覆写并刷新 sub-ass-override 即时重绘。
+    final subParams = resolveSubtitleParameters(
+      config,
+      hasSecondarySubtitle: hasSecondarySubtitle,
+    );
+    // 先写入字号、缩放倍率、垂直边距与主/副字幕垂直定位，再同步 ASS 样式覆写并刷新即时重绘。
     setter.setDouble(client, 'sub-font-size', subParams.fontSize);
     setter.setDouble(client, 'sub-scale', subParams.scale);
     setter.setInt(client, 'sub-margin-y', subParams.marginY);
     setter.setDouble(client, 'sub-pos', subParams.subPos);
+    setter.setDouble(client, 'secondary-sub-pos', subParams.secondarySubPos);
+    setter.setString(
+      client,
+      'secondary-sub-ass-override',
+      subParams.secondaryAssOverride,
+    );
     setter.setBool(client, 'sub-use-margins', true);
     final isForce = config.subOverrideMode == SubtitleAssOverrideMode.forceStyle;
     setter.setBool(client, 'sub-ass-force-margins', isForce);
@@ -838,14 +894,16 @@ class MpvQualityProfile {
     setter.setString(client, 'sub-ass-override', subParams.assOverride);
   }
 
-  /// 轻量同步热更新字幕字号、底部边距与 ASS 样式覆写模式（零磁盘校验、绝不重置解码器/着色器/音频设备）。
+  /// 轻量同步热更新字幕字号、底部边距、双语底部排布与 ASS 样式覆写模式（零磁盘校验、绝不重置解码器/着色器/音频设备）。
   static void applyLiveSubtitleStyleUpdate(
     LibMpvClient client, {
     required PlaybackQualityConfig config,
+    bool hasSecondarySubtitle = false,
     DiagnosticsLogStore? logStore,
   }) => _applySubtitleRuntimeProperties(
     client,
     config: config,
+    hasSecondarySubtitle: hasSecondarySubtitle,
     setter: MpvSafePropertySetter(logStore: logStore),
   );
 
@@ -854,6 +912,7 @@ class MpvQualityProfile {
     LibMpvClient client, {
     required PlaybackQualityConfig config,
     bool isHdrSource = false,
+    bool hasSecondarySubtitle = false,
     bool? isWindowsOverride,
     bool? isAndroidOverride,
     MpvPlatformProfileDelegate? desktopDelegate,
@@ -893,7 +952,12 @@ class MpvQualityProfile {
     );
     setter.setString(client, 'glsl-shaders', shaders);
 
-    _applySubtitleRuntimeProperties(client, config: config, setter: setter);
+    _applySubtitleRuntimeProperties(
+      client,
+      config: config,
+      hasSecondarySubtitle: hasSecondarySubtitle,
+      setter: setter,
+    );
 
     if (config.audioDevice.trim().isNotEmpty) {
       setter.setString(client, 'audio-device', config.audioDevice);

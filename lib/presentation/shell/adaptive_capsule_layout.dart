@@ -677,15 +677,18 @@ class AdaptiveCapsuleLayout {
     );
   }
 
-  /// 松手后计算最近合法停靠坐标：横向吸附至左右安全边缘，并避开主导航胶囊。
+  /// 松手后计算最近合法停靠坐标：移动端横向吸附至左右安全边缘并避开主导航胶囊，桌面端支持窗口安全区内任意位置自由停放。
   Offset snapMiniWindowOffset(Offset rawTopLeft, Size miniSize) {
     final b = safeBoundsFor(miniSize);
     final clamped = clampMiniWindowOffset(rawTopLeft, miniSize);
+    if (!android) {
+      return clamped;
+    }
     final centerX = clamped.dx + miniSize.width / 2.0;
     final snappedX = centerX < size.width / 2.0 ? b.minX : b.maxX;
     final primary = Offset(snappedX, clamped.dy);
 
-    if (!android || !navigationVisible) {
+    if (!navigationVisible) {
       return primary;
     }
 

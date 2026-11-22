@@ -328,12 +328,27 @@ void main() {
         final padding = listView.padding! as EdgeInsets;
         expect(padding.top, greaterThanOrEqualTo(96.0));
 
-        // 2. 前奏期（activeLyricIndex == -1）各行已具有景深模糊，不再全量清晰
+        // 2. 前奏期（activeLyricIndex == -1）首行清晰就绪但暂不扫白，后续行逐级景深模糊
         final leafFinders = find.byType(ImmersiveLyricLineLeaf);
         expect(leafFinders, findsNWidgets(3));
         expect(
+          find.byKey(const ValueKey('intro_standby_first_lyric')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('active_line_karaoke')),
+          findsNothing,
+        );
+        expect(
           find.descendant(
             of: leafFinders.first,
+            matching: find.byType(ImageFiltered),
+          ),
+          findsNothing,
+        );
+        expect(
+          find.descendant(
+            of: leafFinders.at(1),
             matching: find.byType(ImageFiltered),
           ),
           findsOneWidget,

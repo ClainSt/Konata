@@ -319,25 +319,8 @@ class _ImmersiveLyricsViewportState
 
     final pos = _scrollCtrl.position;
     final idx = _lastActiveLyricIndex;
-    if (idx < 0) {
-      if (pos.pixels > 1.0) {
-        _beginProgrammaticScroll(animated: animated);
-        if (animated) {
-          unawaited(
-            _scrollCtrl.animateTo(
-              0.0,
-              duration: KonataTheme.motionEmphasis,
-              curve: Curves.easeOutCubic,
-            ),
-          );
-        } else {
-          _scrollCtrl.jumpTo(0.0);
-        }
-      }
-      return;
-    }
-
-    final clampedIdx = idx.clamp(0, total - 1);
+    // 前奏期（activeLyricIndex < 0）将第 0 句清晰对齐至中央锚点，开唱切换至索引 0 时零垂直跳动。
+    final clampedIdx = (idx < 0 ? 0 : idx).clamp(0, total - 1);
     final vpObj = _viewportKey.currentContext?.findRenderObject();
     final hasVp = vpObj is RenderBox && vpObj.hasSize && vpObj.size.height > 1;
     final anchorY = hasVp ? _resolveAnchorY(vpObj.size.height) : _lastAnchorY;

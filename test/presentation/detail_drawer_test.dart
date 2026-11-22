@@ -254,4 +254,84 @@ void main() {
     expect(find.textContaining('CD'), findsNothing);
     expect(find.textContaining('Scan'), findsNothing);
   });
+
+  testWidgets('特典数量为 0 时隐藏「特典 (0)」页签，仅显示正片', (tester) async {
+    final mainOnlyBundle = WorkDetailBundle(
+      work: const Work(id: 'w_no_extra', title: '想星的大天使'),
+      episodes: const [
+        Episode(
+          id: 'e_m1',
+          workId: 'w_no_extra',
+          seasonNumber: 1,
+          episodeNumber: 1,
+          category: EpisodeCategory.main,
+          title: '第 1 话',
+        ),
+        Episode(
+          id: 'e_m2',
+          workId: 'w_no_extra',
+          seasonNumber: 1,
+          episodeNumber: 2,
+          category: EpisodeCategory.main,
+          title: '第 2 话',
+        ),
+      ],
+      variants: const [
+        MediaVariant(
+          id: 'v_m1',
+          workId: 'w_no_extra',
+          episodeId: 'e_m1',
+          sourceId: 's1',
+          relativePath: '01.mkv',
+          fileName: '01.mkv',
+          fileSize: 1024,
+        ),
+        MediaVariant(
+          id: 'v_m2',
+          workId: 'w_no_extra',
+          episodeId: 'e_m2',
+          sourceId: 's1',
+          relativePath: '02.mkv',
+          fileName: '02.mkv',
+          fileSize: 1024,
+        ),
+      ],
+      sourcesById: const {},
+      latestPlayback: null,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: KonataTheme.darkTheme(),
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.bottomCenter,
+            child: DetailBottomDrawer(
+              bundle: mainOnlyBundle,
+              activeTab: DetailDrawerTab.extra,
+              imageLoader: _mockLoader,
+              onToggleTab: (_) {},
+              onCollapse: () {},
+              onEpisodeTap: (_) {},
+              onEpisodeAdjustSlot: (_) {},
+              onOpenManualMatch: () {},
+              onOpenManualEdit: () {},
+              onOpenPosterPicker: () {},
+              onOpenBackdropPicker: () {},
+              onHideWork: () {},
+              onDeleteWork: () {},
+              onRescrape: () {},
+              onOpenLocalDir: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('正片 (2)'), findsOneWidget);
+    expect(find.textContaining('特典'), findsNothing);
+    expect(find.textContaining('CD'), findsNothing);
+    expect(find.textContaining('Scan'), findsNothing);
+  });
 }

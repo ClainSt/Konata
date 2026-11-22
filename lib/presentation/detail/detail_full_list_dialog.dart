@@ -179,6 +179,9 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
   }
 
   DetailDrawerTab _resolveAvailableTab(DetailDrawerTab candidate) {
+    final extraAllowed = widget.bundle.episodes.any(
+      (e) => e.category == EpisodeCategory.extra,
+    );
     final cdAllowed =
         widget.showCdTab &&
         widget.bundle.cdVariants.any(
@@ -186,6 +189,9 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
         );
     final scanAllowed =
         widget.showScanTab && widget.bundle.scanVariants.isNotEmpty;
+    if (candidate == DetailDrawerTab.extra && !extraAllowed) {
+      return DetailDrawerTab.main;
+    }
     if (candidate == DetailDrawerTab.cd && !cdAllowed) {
       return DetailDrawerTab.main;
     }
@@ -569,12 +575,14 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
                             active: _activeTab == DetailDrawerTab.main,
                             onTap: () => _selectTab(DetailDrawerTab.main),
                           ),
-                          const SizedBox(width: 4),
-                          DetailDrawerTabChip(
-                            label: '特典 (${extraEps.length})',
-                            active: _activeTab == DetailDrawerTab.extra,
-                            onTap: () => _selectTab(DetailDrawerTab.extra),
-                          ),
+                          if (extraEps.isNotEmpty) ...[
+                            const SizedBox(width: 4),
+                            DetailDrawerTabChip(
+                              label: '特典 (${extraEps.length})',
+                              active: _activeTab == DetailDrawerTab.extra,
+                              onTap: () => _selectTab(DetailDrawerTab.extra),
+                            ),
+                          ],
                           if (cdList.isNotEmpty) ...[
                             const SizedBox(width: 4),
                             DetailDrawerTabChip(

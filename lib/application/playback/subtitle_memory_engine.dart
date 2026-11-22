@@ -81,14 +81,19 @@ class AuthoritativeSubtitleIntent {
     this.secondary,
     this.updateSecondary = false,
     this.instantSubDelaySeconds,
+    this.beforeSelectPrimary,
+    this.forceRebindPrimaryDecoder = false,
   });
 
   /// 关闭主字幕意图（若 [alsoDisableSecondary] 为真则同时关闭副字幕）。
-  const AuthoritativeSubtitleIntent.disable({bool alsoDisableSecondary = false})
-    : primary = null,
-      secondary = null,
-      updateSecondary = alsoDisableSecondary,
-      instantSubDelaySeconds = null;
+  const AuthoritativeSubtitleIntent.disable({
+    bool alsoDisableSecondary = false,
+    this.beforeSelectPrimary,
+  }) : primary = null,
+       secondary = null,
+       updateSecondary = alsoDisableSecondary,
+       instantSubDelaySeconds = null,
+       forceRebindPrimaryDecoder = false;
 
   /// 主字幕槽位目标；为 `null` 时设置 `sid = no`。
   final SubtitleSlotRequest? primary;
@@ -101,6 +106,12 @@ class AuthoritativeSubtitleIntent {
 
   /// 可选同步写入的瞬时 `sub-delay`（秒）；若本次挂载了离线重映射轨则自动强制归零 `0.0`。
   final double? instantSubDelaySeconds;
+
+  /// 在串行提交临界区内、正式写入主字幕 `sid` 之前同步执行的钩子（如原子切换 `sub-fonts-dir`）。
+  final void Function(int? primaryTrackId)? beforeSelectPrimary;
+
+  /// 是否强制先写 `sid = no` 卸载当前字幕解码器再切换字体目录并绑定目标轨，用于确保 `libass` 即时刷新字库。
+  final bool forceRebindPrimaryDecoder;
 }
 
 /// 内存直注字幕引擎单次意图执行结果。
@@ -605,7 +616,27 @@ class SubtitleMemoryEngine {
 
       if (primaryTrackId == null) {
         client.setPropertyString('sid', 'no');
+        intent.beforeSelectPrimary?.call(null);
       } else {
+        final rawCurrentSid = client.getPropertyString('sid')?.trim();
+        final currentSid = rawCurrentSid != null
+            ? int.tryParse(rawCurrentSid)
+            : null;
+        final crossesCloudSubset =
+            (preparedPrimary?.cloudSubsetApplied ?? false) ||
+            (currentSid != primaryTrackId &&
+                (_cloudSubsetTrackIds.contains(primaryTrackId) ||
+                    (currentSid != null &&
+                        _cloudSubsetTrackIds.contains(currentSid))));
+        // 跨云端子集化轨与原字幕轨切换（或字体目录变更）时，严格在串行临界区内执行
+        // `sid = no -> 切换 sub-fonts-dir -> sid = target` 原子重绑，彻底销毁旧 libass 字体缓存，
+        // 避免必须手动先切「关闭字幕」才能对比原字幕，且杜绝异步 sub-reload 破坏 memory:// 轨道。
+        if ((intent.forceRebindPrimaryDecoder || crossesCloudSubset) &&
+            currentSid != null &&
+            currentSid > 0) {
+          client.setPropertyString('sid', 'no');
+        }
+        intent.beforeSelectPrimary?.call(primaryTrackId);
         final rc = client.setPropertyInt64('sid', primaryTrackId);
         if (rc < 0) {
           client.setPropertyString('sid', '$primaryTrackId');

@@ -367,6 +367,35 @@ void main() {
     expect(detail.bottomClearance, lessThan(normal.bottomClearance));
   });
 
+  test('桌面宽屏悬浮小窗支持窗口安全区内任意位置自由停放，移动端维持侧边吸附', () {
+    final desktop = AdaptiveCapsuleLayout(
+      size: const Size(1440, 900),
+      safe: safe,
+      android: false,
+      miniKind: FloatingMiniPlayerKind.video,
+      normalizedMiniAnchor: const Offset(0.42, 0.35),
+    );
+    final desktopRect = desktop.floatingMiniWindowRect!;
+    final desktopBounds = desktop.safeBoundsFor(desktopRect.size);
+    final expectedX =
+        desktopBounds.minX + 0.42 * (desktopBounds.maxX - desktopBounds.minX);
+    final expectedY =
+        desktopBounds.minY + 0.35 * (desktopBounds.maxY - desktopBounds.minY);
+    expect(desktopRect.left, closeTo(expectedX, 0.5));
+    expect(desktopRect.top, closeTo(expectedY, 0.5));
+
+    final mobile = AdaptiveCapsuleLayout(
+      size: const Size(390, 844),
+      safe: safe,
+      android: true,
+      miniKind: FloatingMiniPlayerKind.video,
+      normalizedMiniAnchor: const Offset(0.42, 0.35),
+    );
+    final mobileRect = mobile.floatingMiniWindowRect!;
+    final mobileBounds = mobile.safeBoundsFor(mobileRect.size);
+    expect(mobileRect.left, closeTo(mobileBounds.minX, 0.5));
+  });
+
   test('桌面宽屏仍为桌面导航且无活跃小窗时零底距', () {
     final layout = AdaptiveCapsuleLayout(
       size: const Size(1920, 1080),

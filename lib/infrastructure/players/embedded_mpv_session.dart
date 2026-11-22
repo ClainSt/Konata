@@ -158,6 +158,7 @@ class EmbeddedMpvSession {
   String _defaultSubFontsDir = '';
   String _baselineSubFontsDir = '';
   String _activeSubFontsDir = '';
+  bool _hasSecondarySubtitle = false;
 
   final ValueNotifier<int?> _textureId = ValueNotifier<int?>(null);
   final ValueNotifier<bool> _underlayActive = ValueNotifier<bool>(false);
@@ -369,6 +370,7 @@ class EmbeddedMpvSession {
     _defaultSubFontsDir = p.join(mpvDir.path, 'fonts');
     _baselineSubFontsDir = _defaultSubFontsDir;
     _activeSubFontsDir = _defaultSubFontsDir;
+    _hasSecondarySubtitle = false;
     final verifiedShaders = await MpvQualityProfile.filterExistingShaderPaths(
       qualityConfig.activeShaderPaths,
     );
@@ -939,6 +941,7 @@ class EmbeddedMpvSession {
       client,
       config: config,
       isHdrSource: _lastDynamicHdrActive ?? false,
+      hasSecondarySubtitle: _hasSecondarySubtitle,
       desktopDelegate: desktopProfileDelegate,
       verifiedShaderPaths: verifiedShaders,
       onExclusiveFallbackNotice: onNotice,

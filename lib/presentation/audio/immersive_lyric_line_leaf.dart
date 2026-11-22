@@ -67,7 +67,11 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
       audioPlaybackProvider.select(
         (s) => (
           isActive: s.activeLyricIndex == index,
-          bucket: _distanceBucket(index, s.activeLyricIndex),
+          isIntroStandby: s.activeLyricIndex < 0 && index == 0,
+          bucket: _distanceBucket(
+            index,
+            s.activeLyricIndex < 0 ? 0 : s.activeLyricIndex,
+          ),
         ),
       ),
     );
@@ -76,6 +80,8 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
     );
     final romajiText = showRomaji ? line.romajiText.trim() : '';
     final isActive = status.isActive;
+    final isIntroStandby = status.isIntroStandby;
+    final isFocused = isActive || isIntroStandby;
     final blurSigma = userScrolling
         ? 0.0
         : switch (status.bucket) {
@@ -85,7 +91,7 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
             _ => KonataPlaybackTokens.lyricBlurStepFar,
           };
     final lineOpacity = userScrolling
-        ? ((isActive || isScrubFocused) ? 1.0 : 0.78)
+        ? ((isFocused || isScrubFocused) ? 1.0 : 0.78)
         : switch (status.bucket) {
             0 => 1.0,
             1 => 0.56,
@@ -141,6 +147,49 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
         palette: p,
         centerAligned: centerAligned,
       );
+    } else if (isIntroStandby) {
+      // 前奏期第 0 句以与开唱首帧一致的大字号未扫白样式清晰就绪，进入演唱时间戳后再原位启动扫白，零尺寸与色阶跳变。
+      final unlitAlpha = p.isDark
+          ? KonataPlaybackTokens.lyricKaraokeUnlitAlphaDark
+          : KonataPlaybackTokens.lyricKaraokeUnlitAlphaLight;
+      final standbyLeadColor =
+          (p.isDark ? KonataTheme.pureWhite : p.textPrimary).withValues(
+            alpha: unlitAlpha,
+          );
+      final standbyHarmonyText = harmonySpans.map((s) => s.text).join();
+      primaryBody = Column(
+        key: const ValueKey('intro_standby_first_lyric'),
+        crossAxisAlignment: columnAlign,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (effectiveLeadText.isNotEmpty)
+            Text(
+              effectiveLeadText,
+              textAlign: textAlign,
+              softWrap: true,
+              style: TextStyle(
+                color: isScrubFocused ? p.textPrimary : standbyLeadColor,
+                fontSize: activeSize,
+                fontWeight: FontWeight.w700,
+                height: 1.36,
+              ),
+            ),
+          if (standbyHarmonyText.isNotEmpty) ...[
+            const SizedBox(height: 5),
+            Text(
+              standbyHarmonyText,
+              textAlign: textAlign,
+              softWrap: true,
+              style: TextStyle(
+                color: p.textMuted.withValues(alpha: p.isDark ? 0.45 : 0.42),
+                fontSize: KonataPlaybackTokens.lyricSecondaryFontSize,
+                fontWeight: FontWeight.w500,
+                height: 1.28,
+              ),
+            ),
+          ],
+        ],
+      );
     } else if (hasSpanData) {
       final inactiveHarmonyText = harmonySpans.map((s) => s.text).join();
       primaryBody = Column(
@@ -188,7 +237,7 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
       );
     }
 
-    final secondaryFontSize = isActive
+    final secondaryFontSize = isFocused
         ? (compact
               ? KonataPlaybackTokens.lyricSecondaryFontSize
               : KonataPlaybackTokens.lyricActiveSecondaryFontSize)
@@ -203,7 +252,7 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
       child: Padding(
         padding: EdgeInsets.symmetric(
           horizontal: 8,
-          vertical: isActive ? (compact ? 9 : 13) : (compact ? 6 : 9),
+          vertical: isFocused ? (compact ? 9 : 13) : (compact ? 6 : 9),
         ),
         child: Column(
           crossAxisAlignment: columnAlign,
@@ -211,14 +260,14 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
           children: [
             primaryBody,
             if (romajiText.isNotEmpty) ...[
-              SizedBox(height: isActive ? 4 : 3),
+              SizedBox(height: isFocused ? 4 : 3),
               Text(
                 romajiText,
                 key: ValueKey('lyric_line_romaji_$index'),
                 textAlign: textAlign,
                 softWrap: true,
                 style: TextStyle(
-                  color: (isActive || isScrubFocused)
+                  color: (isFocused || isScrubFocused)
                       ? p.textMuted.withValues(alpha: p.isDark ? 0.85 : 0.80)
                       : p.textMuted.withValues(alpha: p.isDark ? 0.65 : 0.62),
                   fontSize: KonataTheme.fontSizeCaption,
@@ -228,17 +277,17 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
               ),
             ],
             for (final sec in filteredSecondary) ...[
-              SizedBox(height: isActive ? 6 : 4),
+              SizedBox(height: isFocused ? 6 : 4),
               Text(
                 sec,
                 textAlign: textAlign,
                 softWrap: true,
                 style: TextStyle(
-                  color: (isActive || isScrubFocused)
+                  color: (isFocused || isScrubFocused)
                       ? p.textSecondary
                       : p.textMuted,
                   fontSize: secondaryFontSize,
-                  fontWeight: (isActive || isScrubFocused)
+                  fontWeight: (isFocused || isScrubFocused)
                       ? FontWeight.w500
                       : FontWeight.w400,
                   height: 1.34,

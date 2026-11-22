@@ -268,7 +268,8 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
 
     final isExpanded = widget.activeTab != null;
     var currentTab = widget.activeTab ?? widget.preferredTab;
-    if ((currentTab == DetailDrawerTab.cd && cdList.isEmpty) ||
+    if ((currentTab == DetailDrawerTab.extra && extraEps.isEmpty) ||
+        (currentTab == DetailDrawerTab.cd && cdList.isEmpty) ||
         (currentTab == DetailDrawerTab.scan && scanList.isEmpty)) {
       currentTab = DetailDrawerTab.main;
     }
@@ -448,13 +449,15 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
                     active: isExpanded && currentTab == DetailDrawerTab.main,
                     onTap: () => widget.onToggleTab(DetailDrawerTab.main),
                   ),
-                  SizedBox(width: isPhoneMode ? 2 : 4),
-                  DetailDrawerTabChip(
-                    label: '特典 (${extraEps.length})',
-                    compact: isPhoneMode,
-                    active: isExpanded && currentTab == DetailDrawerTab.extra,
-                    onTap: () => widget.onToggleTab(DetailDrawerTab.extra),
-                  ),
+                  if (extraEps.isNotEmpty) ...[
+                    SizedBox(width: isPhoneMode ? 2 : 4),
+                    DetailDrawerTabChip(
+                      label: '特典 (${extraEps.length})',
+                      compact: isPhoneMode,
+                      active: isExpanded && currentTab == DetailDrawerTab.extra,
+                      onTap: () => widget.onToggleTab(DetailDrawerTab.extra),
+                    ),
+                  ],
                   if (cdList.isNotEmpty) ...[
                     SizedBox(width: isPhoneMode ? 2 : 4),
                     DetailDrawerTabChip(

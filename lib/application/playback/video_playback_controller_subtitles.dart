@@ -63,12 +63,14 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
       if (resolved != null && mounted && !(_state.isClosing)) {
         final isCloudSubset = _state.isApplyingCloudSubset;
         if (isCloudSubset) {
+          // 云端子集化字库延后至串行选轨临界区内（`sid = no` 之后）原子切换，避免提前污染当前活跃原字幕字库。
           _lastIngestedCloudSubsetFontsDir = resolved.directoryPath;
+        } else {
+          _session?.applySubFontsDir(
+            resolved.directoryPath,
+            isCloudSubsetOverride: false,
+          );
         }
-        _session?.applySubFontsDir(
-          resolved.directoryPath,
-          isCloudSubsetOverride: isCloudSubset,
-        );
         _logStore.record(
           'mpv-fonts',
           'ASS [Fonts] 内嵌字库入池成功（${resolved.fontCount} 个字体，复用=${resolved.reusedFromLease}）',
@@ -233,22 +235,21 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
             enableCloudSubset: true,
           ),
           instantSubDelaySeconds: _state.subtitleDelaySeconds,
+          forceRebindPrimaryDecoder: true,
+          beforeSelectPrimary: (trackId) {
+            final subsetDir = _lastIngestedCloudSubsetFontsDir;
+            if (trackId != null && subsetDir != null && subsetDir.isNotEmpty) {
+              memEngine.registerCloudSubsetFontsDir(trackId, subsetDir);
+              _session?.applySubFontsDir(
+                subsetDir,
+                isCloudSubsetOverride: true,
+              );
+            }
+          },
         ),
       );
       if (mounted && result.applied) {
         if (result.cloudSubsetApplied && result.primaryTrackId != null) {
-          final subsetDir = _lastIngestedCloudSubsetFontsDir;
-          if (subsetDir != null && subsetDir.isNotEmpty) {
-            memEngine.registerCloudSubsetFontsDir(
-              result.primaryTrackId!,
-              subsetDir,
-            );
-            _session?.applySubFontsDir(
-              subsetDir,
-              isCloudSubsetOverride: true,
-              reloadSubtitles: true,
-            );
-          }
           _session?.refreshMetadata();
           showTransientBanner('已切换到经语义核验的子集化字幕');
         } else {
@@ -423,6 +424,8 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
         primary: primarySlot,
         secondary: secondarySlot,
         updateSecondary: true,
+        beforeSelectPrimary: (_) =>
+            _session?.applySecondarySubtitleLayout(secondarySlot != null),
       ),
     );
     if (mounted && result.applied) {
@@ -445,9 +448,12 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
       _activeExternalSubtitleSourcePath = null;
       _activeOriginalSubtitleTrackId = null;
       _activeExternalSubtitleTitle = null;
-      _session?.restoreBaselineSubFontsDir();
       unawaited(
-        applyMemorySubtitleIntent(const AuthoritativeSubtitleIntent.disable()),
+        applyMemorySubtitleIntent(
+          AuthoritativeSubtitleIntent.disable(
+            beforeSelectPrimary: (_) => _session?.restoreBaselineSubFontsDir(),
+          ),
+        ),
       );
     } else if (choice.isCloudSubset && choice.mpvTrackId != null) {
       final trackId = choice.mpvTrackId!;
@@ -465,13 +471,6 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
           ? p.basename(mappedSource)
           : choice.primaryTitle;
       final subsetDir = memEngine.lookupCloudSubsetFontsDirForTrackId(trackId);
-      if (subsetDir != null && subsetDir.isNotEmpty) {
-        _session?.applySubFontsDir(
-          subsetDir,
-          isCloudSubsetOverride: true,
-          reloadSubtitles: true,
-        );
-      }
       unawaited(
         applyMemorySubtitleIntent(
           AuthoritativeSubtitleIntent(
@@ -480,6 +479,15 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
               displayTitle: choice.primaryTitle,
             ),
             instantSubDelaySeconds: _state.subtitleDelaySeconds,
+            forceRebindPrimaryDecoder: true,
+            beforeSelectPrimary: (_) {
+              if (subsetDir != null && subsetDir.isNotEmpty) {
+                _session?.applySubFontsDir(
+                  subsetDir,
+                  isCloudSubsetOverride: true,
+                );
+              }
+            },
           ),
         ),
       );
@@ -501,7 +509,9 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
       _activeExternalSubtitleSourcePath = path;
       _activeOriginalSubtitleTrackId = existingMountedId;
       _activeExternalSubtitleTitle = p.basename(path);
-      _session?.restoreBaselineSubFontsDir(reloadSubtitles: true);
+      final needsFontsDirRestore =
+          _session != null &&
+          _session!.activeSubFontsDir != _session!.baselineSubFontsDir;
       final slot = existingMountedId != null
           ? SubtitleSlotRequest.existingTrack(
               existingMountedId,
@@ -518,6 +528,8 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
           AuthoritativeSubtitleIntent(
             primary: slot,
             instantSubDelaySeconds: _state.subtitleDelaySeconds,
+            forceRebindPrimaryDecoder: needsFontsDirRestore,
+            beforeSelectPrimary: (_) => _session?.restoreBaselineSubFontsDir(),
           ),
         ),
       );
@@ -530,7 +542,9 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
       _activeExternalSubtitleTitle = mappedSource != null
           ? choice.primaryTitle
           : null;
-      _session?.restoreBaselineSubFontsDir(reloadSubtitles: true);
+      final needsFontsDirRestore =
+          _session != null &&
+          _session!.activeSubFontsDir != _session!.baselineSubFontsDir;
       unawaited(
         applyMemorySubtitleIntent(
           AuthoritativeSubtitleIntent(
@@ -539,6 +553,8 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
               displayTitle: choice.primaryTitle,
             ),
             instantSubDelaySeconds: _state.subtitleDelaySeconds,
+            forceRebindPrimaryDecoder: needsFontsDirRestore,
+            beforeSelectPrimary: (_) => _session?.restoreBaselineSubFontsDir(),
           ),
         ),
       );
@@ -635,24 +651,23 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
             enableCloudSubset: true,
           ),
           instantSubDelaySeconds: _state.subtitleDelaySeconds,
+          forceRebindPrimaryDecoder: true,
+          beforeSelectPrimary: (trackId) {
+            final subsetDir = _lastIngestedCloudSubsetFontsDir;
+            if (trackId != null && subsetDir != null && subsetDir.isNotEmpty) {
+              memEngine.registerCloudSubsetFontsDir(trackId, subsetDir);
+              _session?.applySubFontsDir(
+                subsetDir,
+                isCloudSubsetOverride: true,
+              );
+            }
+          },
         ),
       );
       if (mounted &&
           subsetResult.applied &&
           subsetResult.cloudSubsetApplied &&
           subsetResult.primaryTrackId != null) {
-        final subsetDir = _lastIngestedCloudSubsetFontsDir;
-        if (subsetDir != null && subsetDir.isNotEmpty) {
-          memEngine.registerCloudSubsetFontsDir(
-            subsetResult.primaryTrackId!,
-            subsetDir,
-          );
-          _session?.applySubFontsDir(
-            subsetDir,
-            isCloudSubsetOverride: true,
-            reloadSubtitles: true,
-          );
-        }
         _session?.refreshMetadata();
       }
     } finally {

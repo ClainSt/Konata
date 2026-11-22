@@ -50,6 +50,7 @@ class _PassthroughHttpOverrides extends HttpOverrides {}
 /// 完整模拟字幕内存直注、字库目录切换与样式属性热更新的轻量 `LibMpvClient`。
 class _RegressionFakeMpvClient implements LibMpvClient, LibMpvUnobservable {
   final List<List<String>> commands = <List<String>>[];
+  final List<String> propTrace = <String>[];
   final Map<String, String> stringProps = <String, String>{};
   final Map<String, double> doubleProps = <String, double>{
     'time-pos': 15.0,
@@ -190,6 +191,9 @@ class _RegressionFakeMpvClient implements LibMpvClient, LibMpvUnobservable {
   @override
   int setPropertyInt64(String name, int value) {
     intProps[name] = value;
+    if (name == 'sid' || name == 'secondary-sid') {
+      propTrace.add('$name=$value');
+    }
     if (name == 'sid') {
       stringProps['sid'] = '$value';
       for (var i = 0; i < tracks.length; i++) {
@@ -214,6 +218,9 @@ class _RegressionFakeMpvClient implements LibMpvClient, LibMpvUnobservable {
   @override
   int setPropertyString(String name, String value) {
     stringProps[name] = value;
+    if (name == 'sid' || name == 'secondary-sid' || name == 'sub-fonts-dir') {
+      propTrace.add('$name=$value');
+    }
     if (name == 'sid') {
       final parsed = value == 'no' ? null : int.tryParse(value);
       for (var i = 0; i < tracks.length; i++) {
@@ -801,21 +808,76 @@ void main() {
             final subsetFontsDir = createdSession.activeSubFontsDir;
             expect(subsetFontsDir, isNot(equals(baselineFontsDir)));
 
-            // 切回原字幕：sid 切回原轨且 sub-fonts-dir 恢复基准目录。
+            // 直接从「子集化」切回「原字幕」（无需先关闭字幕）：严格按 sid=no -> 恢复基准字库 -> sid=原轨 执行，且零 sub-reload。
+            fakeClient.propTrace.clear();
+            fakeClient.commands.clear();
             ctrl.selectSubtitle(stateAfterSubset.subtitles[0]);
             await Future<void>.delayed(const Duration(milliseconds: 60));
             final stateAfterOrig = container.read(videoPlaybackProvider(req));
             expect(stateAfterOrig.subtitles[0].selected, isTrue);
             expect(stateAfterOrig.subtitles[1].selected, isFalse);
             expect(createdSession.activeSubFontsDir, equals(baselineFontsDir));
+            expect(
+              fakeClient.commands.where((c) => c.isNotEmpty && c.first == 'sub-reload'),
+              isEmpty,
+            );
+            final origTrackId = stateAfterSubset.subtitles[0].mpvTrackId;
+            expect(
+              fakeClient.propTrace,
+              containsAllInOrder([
+                'sid=no',
+                'sub-fonts-dir=$baselineFontsDir',
+                'sid=$origTrackId',
+              ]),
+            );
 
-            // 再次切回子集化字幕：sid 切回子集轨且 sub-fonts-dir 恢复子集字体池。
+            // 直接从「原字幕」切回「子集化字幕」：严格按 sid=no -> 切换子集字库 -> sid=子集轨 执行，实时往返对比。
+            fakeClient.propTrace.clear();
+            fakeClient.commands.clear();
             ctrl.selectSubtitle(stateAfterOrig.subtitles[1]);
             await Future<void>.delayed(const Duration(milliseconds: 60));
             final stateAfterBack = container.read(videoPlaybackProvider(req));
             expect(stateAfterBack.subtitles[0].selected, isFalse);
             expect(stateAfterBack.subtitles[1].selected, isTrue);
             expect(createdSession.activeSubFontsDir, equals(subsetFontsDir));
+            expect(
+              fakeClient.commands.where((c) => c.isNotEmpty && c.first == 'sub-reload'),
+              isEmpty,
+            );
+            final subsetTrackId = stateAfterOrig.subtitles[1].mpvTrackId;
+            expect(
+              fakeClient.propTrace,
+              containsAllInOrder([
+                'sid=no',
+                'sub-fonts-dir=$subsetFontsDir',
+                'sid=$subsetTrackId',
+              ]),
+            );
+
+            // 启用双语副字幕：副字幕位于底部基准位且主字幕自动上抬一层（主上副下）；关闭后主字幕立即复位。
+            await ctrl.selectSecondarySubtitle(stateAfterBack.subtitles[0]);
+            await Future<void>.delayed(const Duration(milliseconds: 40));
+            expect(
+              container.read(videoPlaybackProvider(req)).secondarySubtitleTrackId,
+              equals(origTrackId),
+            );
+            expect(fakeClient.doubleProps['secondary-sub-pos'], closeTo(100.0, 0.1));
+            expect(
+              fakeClient.doubleProps['sub-pos'],
+              lessThan(fakeClient.doubleProps['secondary-sub-pos']!),
+            );
+            expect(
+              fakeClient.stringProps['secondary-sub-ass-override'],
+              equals('strip'),
+            );
+
+            await ctrl.selectSecondarySubtitle(null);
+            await Future<void>.delayed(const Duration(milliseconds: 40));
+            expect(
+              container.read(videoPlaybackProvider(req)).secondarySubtitleTrackId,
+              isNull,
+            );
+            expect(fakeClient.doubleProps['sub-pos'], closeTo(100.0, 0.1));
           } finally {
             await ctrl.closeAndRelease();
             sub.close();
@@ -1054,6 +1116,40 @@ void main() {
           expect(client.getPropertyString('sub-ass-override'), equals('force'));
           expect(client.getPropertyDouble('sub-font-size'), closeTo(44.0, 0.1));
           expect(client.getPropertyDouble('sub-pos'), closeTo(80.0, 0.5));
+
+          // 验证双语副字幕底部排布在真实 libmpv-2.dll 上零错误生效（副字幕在最下方，主字幕上抬一层，关闭后复位）。
+          MpvQualityProfile.applyLiveSubtitleStyleUpdate(
+            client,
+            config: const PlaybackQualityConfig(
+              subFontSize: 52,
+              subBottomMargin: 22,
+              subOverrideMode: SubtitleAssOverrideMode.preserveAss,
+            ),
+            hasSecondarySubtitle: true,
+            logStore: logStore,
+          );
+          final realSecondaryPos = client.getPropertyDouble('secondary-sub-pos');
+          final realPrimaryPos = client.getPropertyDouble('sub-pos');
+          expect(realSecondaryPos, closeTo(100.0, 0.5));
+          expect(realPrimaryPos, isNotNull);
+          expect(realPrimaryPos!, lessThan(95.0));
+          expect(realPrimaryPos, greaterThan(80.0));
+          expect(
+            client.getPropertyString('secondary-sub-ass-override'),
+            equals('strip'),
+          );
+
+          MpvQualityProfile.applyLiveSubtitleStyleUpdate(
+            client,
+            config: const PlaybackQualityConfig(
+              subFontSize: 52,
+              subBottomMargin: 22,
+              subOverrideMode: SubtitleAssOverrideMode.preserveAss,
+            ),
+            hasSecondarySubtitle: false,
+            logStore: logStore,
+          );
+          expect(client.getPropertyDouble('sub-pos'), closeTo(100.0, 0.5));
           expect(logStore.buildRecentIncidentReport(), isNot(contains('skipped')));
         } finally {
           await client.dispose();

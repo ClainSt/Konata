@@ -399,16 +399,23 @@ class _KonataFloatingMiniPlayerState
     }
 
     final velocity = details?.velocity.pixelsPerSecond ?? Offset.zero;
-    final projectedOffset =
-        _liveOffsetNotifier.value +
-        velocity * KonataPlaybackTokens.floatingMiniFlickProjectionSeconds;
-    final clampedProjected = layout.clampMiniWindowOffset(
-      projectedOffset,
-      miniSize,
-    );
-    final settled = layout.snapMiniWindowOffset(clampedProjected, miniSize);
+    // 桌面端鼠标拖拽松手即精准停靠在用户摆放的任意坐标，移动端保留轻拂惯性投影与侧边吸附。
+    final settled = layout.android
+        ? layout.snapMiniWindowOffset(
+            layout.clampMiniWindowOffset(
+              _liveOffsetNotifier.value +
+                  velocity *
+                      KonataPlaybackTokens.floatingMiniFlickProjectionSeconds,
+              miniSize,
+            ),
+            miniSize,
+          )
+        : layout.clampMiniWindowOffset(_liveOffsetNotifier.value, miniSize);
     _publishMiniRect(settled & miniSize);
-    _animateToOffset(settled, releaseVelocityPxPerSec: velocity);
+    _animateToOffset(
+      settled,
+      releaseVelocityPxPerSec: layout.android ? velocity : Offset.zero,
+    );
     final nextSide = _inferCurrentEdgeSide(settled, miniSize);
     if (ref.read(floatingMiniEdgeSideProvider) != nextSide) {
       ref.read(floatingMiniEdgeSideProvider.notifier).state = nextSide;

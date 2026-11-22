@@ -721,14 +721,26 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
     }
     final client = _client;
     if (_disposed || client == null || client.isDisposed) return;
-    if (trimmed != _activeSubFontsDir) {
+    final changedDir = trimmed != _activeSubFontsDir;
+    final rawSid = reloadSubtitles
+        ? client.getPropertyString('sid')?.trim()
+        : null;
+    final activeSid = rawSid != null ? int.tryParse(rawSid) : null;
+    if (reloadSubtitles && activeSid != null && activeSid > 0) {
+      // 通过同步卸载再重绑当前 sid 刷新 libass 字体扫描，严禁对 memory:// 轨道发 sub-reload。
+      client.setPropertyString('sid', 'no');
+    }
+    if (changedDir) {
       client.setPropertyString('sub-fonts-dir', trimmed);
       _activeSubFontsDir = trimmed;
     }
-    if (reloadSubtitles) {
-      client.commandAsync(0, ['sub-reload']);
+    if (reloadSubtitles && activeSid != null && activeSid > 0) {
+      final rc = client.setPropertyInt64('sid', activeSid);
+      if (rc < 0) {
+        client.setPropertyString('sid', '$activeSid');
+      }
       if (client.getPropertyFlag('pause') ?? false) {
-        client.commandAsync(0, ['seek', '0', 'relative', 'exact']);
+        client.command(['seek', '0', 'relative', 'exact']);
       }
     }
   }
@@ -744,14 +756,34 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
     );
   }
 
-  /// 同步零延迟热更新字幕字号、底部边距与 ASS 样式覆写模式（拖动滑块时 60fps 即时生效，零解复用 Seek 与磁盘抖动）。
-  void applyLiveSubtitleStyle(PlaybackQualityConfig config) {
+  /// 同步零延迟热更新字幕字号、底部边距、双语主上副下排布与 ASS 样式覆写模式（拖动滑块时 60fps 即时生效，零解复用 Seek 与磁盘抖动）。
+  void applyLiveSubtitleStyle(
+    PlaybackQualityConfig config, {
+    bool? hasSecondarySubtitle,
+  }) {
     _lastQualityConfig = config;
+    if (hasSecondarySubtitle != null) {
+      _hasSecondarySubtitle = hasSecondarySubtitle;
+    }
     final client = _client;
     if (_disposed || client == null || client.isDisposed) return;
     MpvQualityProfile.applyLiveSubtitleStyleUpdate(
       client,
       config: config,
+      hasSecondarySubtitle: _hasSecondarySubtitle,
+      logStore: logStore,
+    );
+  }
+
+  /// 同步双语副字幕启用态对应的底部主上副下排版定位（主字幕自动上抬一层，关闭副字幕后立即复位）。
+  void applySecondarySubtitleLayout(bool active) {
+    _hasSecondarySubtitle = active;
+    final client = _client;
+    if (_disposed || client == null || client.isDisposed) return;
+    MpvQualityProfile.applyLiveSubtitleStyleUpdate(
+      client,
+      config: _lastQualityConfig,
+      hasSecondarySubtitle: _hasSecondarySubtitle,
       logStore: logStore,
     );
   }

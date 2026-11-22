@@ -37,7 +37,7 @@ Konata 聚焦简洁高颜值的二次元动画收藏、BDRip 资料库管理与�
 - **严格只读媒体源**：对本地磁盘、WebDAV（Basic / Digest）与 SMB 媒体源保持只读；删改作品仅作用于本地数据库与图片缓存，绝不删改用户物理文件。
 - **单一 `libmpv` 内核双舞台 + 桌面外部热接力**：
   - 默认由内置 `libmpv` 统一驱动「原画视频舞台」、「流光音乐舞台」与三端可拖拽悬浮小窗，收起/展开不重建解码会话、不断音黑屏；
-  - Windows 桌面端支持 **MPV（JSON IPC）/ PotPlayer（Win32 消息）/ foobar2000（`foo_beefweb` 分轨双向同步）/ 自定义外部音视频程序** 作为全局备选或单次快捷唤起，支持携带时间戳热接力；Android 端自动裁剪全部桌面外部调用入口；
+  - Windows 桌面端适配 **MPV（JSON IPC）/ PotPlayer（Win32 消息）/ foobar2000（`foo_beefweb` 分轨双向同步）** 作为全局备选或单次快捷唤起，支持携带时间戳热接力；Android 端自动裁剪全部桌面外部调用入口；
   - 远程 WebDAV / SMB 媒体经由本地 `127.0.0.1` `LocalStreamBridge`（支持强验证器 HTTP `206 Range` 续传与断连即时取消）零落盘流式透传。
 - **全端内置 Scan 画册灯箱**：按源分级限流（本地并发 4、SMB 并发 2、WebDAV 严格单连接串行 + LIFO）仅落盘轻量 `360px` WebP 微缩图，高清浏览统一由内置 `ScanLightboxDialog` 流式解码且原图零落盘（Windows 保留对本地原图调用系统看图的轻量入口）。
 
@@ -103,7 +103,7 @@ flutter build windows --release
 flutter build apk --release -t lib/main_android.dart --target-platform android-arm64 --split-per-abi
 ```
 
-Android 正式签名需本机发布密钥及 `KONATA_SIGNING_PASSWORD` 环境变量（向下兼容旧密钥及 `CCPLAYER_SIGNING_PASSWORD`），可运行 `tool/build_signed_android.ps1`。
+Android 正式签名需本机发布密钥及 `KONATA_SIGNING_PASSWORD` 环境变量，可运行 `tool/build_signed_android.ps1`。
 
 ## 许可证与版权说明
 

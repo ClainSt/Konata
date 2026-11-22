@@ -18,7 +18,7 @@ Future<Directory> preparePortableData(
       try {
         // 存在另一个运行中实例时 SQLite 会持有文件锁，此时拒绝并发迁移以免拷贝脏库。
         for (final name in [
-          for (final database in ['ccplayer.db', 'artwork/cache-index.sqlite'])
+          for (final database in ['konata_v2.sqlite', 'artwork/cache-index.sqlite'])
             for (final suffix in ['', '-wal', '-shm', '-journal'])
               '$database$suffix',
         ]) {

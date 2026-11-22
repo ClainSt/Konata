@@ -91,7 +91,6 @@ try {
     throw
 } finally {
     Remove-Item Env:KONATA_SIGNING_PASSWORD -ErrorAction SilentlyContinue
-    Remove-Item Env:CCPLAYER_SIGNING_PASSWORD -ErrorAction SilentlyContinue
     $secret.Dispose()
     Remove-Item -LiteralPath $certFile
 }

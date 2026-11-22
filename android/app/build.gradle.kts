@@ -42,7 +42,6 @@ val usesKonataKeystore = konataKeystore.isFile
 val publicKeystore = if (usesKonataKeystore) konataKeystore else legacyKeystore
 val publicKeyAlias = if (usesKonataKeystore) "konata" else "ccplayer"
 val publicKeyPassword = providers.environmentVariable("KONATA_SIGNING_PASSWORD")
-    .orElse(providers.environmentVariable("CCPLAYER_SIGNING_PASSWORD"))
 val scraperPackage = providers.environmentVariable("KONATA_SCRAPER_PACKAGE").orNull == "1"
 val isolatedReleaseValidation = scraperPackage ||
     providers.environmentVariable("KONATA_RELEASE_VALIDATION").orNull == "1"
@@ -94,10 +93,8 @@ android {
     }
     buildTypes {
         debug {
-            val isolatedValidation =
-                System.getenv("KONATA_ISOLATED_VALIDATION") == "1" ||
-                    System.getenv("CCPLAYER_ISOLATED_VALIDATION") == "1"
-            val debugBaseSuffix = if (isolatedValidation) ".validation" else ".debug"
+            val debugBaseSuffix =
+                if (System.getenv("KONATA_ISOLATED_VALIDATION") == "1") ".validation" else ".debug"
             applicationIdSuffix = "$laneIdSuffix$debugBaseSuffix"
             resValue("string", "konata_app_name", debugAppLabel)
         }
@@ -123,7 +120,7 @@ android {
 tasks.matching { it.name == "preReleaseBuild" }.configureEach {
     doFirst {
         check(isolatedReleaseValidation || (publicKeystore.isFile && !publicKeyPassword.orNull.isNullOrBlank())) {
-            "正式签名构建需要 ~/.konata/konata-release.p12（或兼容旧密钥 ~/.ccplayer/ccplayer-release.p12）及 KONATA_SIGNING_PASSWORD。"
+            "正式签名构建需要本机发布密钥 ~/.konata/konata-release.p12 及 KONATA_SIGNING_PASSWORD。"
         }
     }
 }

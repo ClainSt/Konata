@@ -1,0 +1,79 @@
+import 'package:http/http.dart' as http;
+
+/// 在线歌词检索集中配置（端点、镜像、超时、竞速预算与缓存有效期）。
+abstract final class LyricLookupConfig {
+  /// 歌词引擎版本（缓存条目版本不一致时重新检索）。
+  static const int engineVersion = 1;
+
+  /// LRCLIB 同步歌词搜索端点。
+  static const String lrclibSearchEndpoint = 'https://lrclib.net/api/search';
+
+  /// 网易云歌曲搜索端点。
+  static const String neteaseSearchEndpoint =
+      'https://music.163.com/api/search/get';
+
+  /// 网易云歌词正文端点。
+  static const String neteaseLyricEndpoint =
+      'https://music.163.com/api/song/lyric';
+
+  /// 网易云搜索结果条数上限。
+  static const int neteaseSearchLimit = 8;
+
+  /// AMLL TTML 按网易云歌曲 ID 直取的镜像基址（按优先级排列，后者作为对冲请求）。
+  static const List<String> amllNcmLyricMirrors = <String>[
+    'https://raw.githubusercontent.com/amll-dev/amll-ttml-db/main/ncm-lyrics/',
+    'https://fastly.jsdelivr.net/gh/amll-dev/amll-ttml-db@main/ncm-lyrics/',
+  ];
+
+  /// 主镜像未返回时发起下一镜像对冲请求的等待时长。
+  static const Duration amllHedgeDelay = Duration(milliseconds: 700);
+
+  /// 移动计量网络下的对冲等待时长（减少重复流量）。
+  static const Duration amllMeteredHedgeDelay = Duration(milliseconds: 1600);
+
+  /// 单次歌词 HTTP 请求超时。
+  static const Duration requestTimeout = Duration(milliseconds: 3500);
+
+  /// 首个可自动采用的候选出现后，继续等待更优候选的宽限期。
+  static const Duration firstPaintGrace = Duration(milliseconds: 300);
+
+  /// 仅有低置信度合格候选时，自竞速开始起的首屏软截止。
+  static const Duration lowConfidencePaintAfter = Duration(milliseconds: 1200);
+
+  /// 单次竞速总预算（到期后以当前最优候选收束）。
+  static const Duration raceDeadline = Duration(milliseconds: 4500);
+
+  /// 负缓存（未找到）重新检索间隔。
+  static const Duration notFoundRetryAfter = Duration(days: 7);
+
+  /// LRCLIB 要求的应用标识用户代理。
+  static const String userAgent =
+      'Konata/2.0 (+https://github.com/konata-player)';
+}
+
+/// 歌词检索 HTTP 传输抽象（生产环境复用全局代理 / DoH / 调度网络栈，测试注入模拟客户端）。
+abstract interface class LyricHttpTransport {
+  /// 发起 GET 请求，超过 [timeout] 抛出超时异常。
+  Future<http.Response> get(
+    Uri uri, {
+    Map<String, String> headers = const {},
+    required Duration timeout,
+  });
+}
+
+/// 基于普通 `http.Client` 的歌词传输实现。
+class ClientLyricTransport implements LyricHttpTransport {
+  /// 创建传输实例。
+  ClientLyricTransport(this._client);
+
+  final http.Client _client;
+
+  @override
+  Future<http.Response> get(
+    Uri uri, {
+    Map<String, String> headers = const {},
+    required Duration timeout,
+  }) {
+    return _client.get(uri, headers: headers).timeout(timeout);
+  }
+}

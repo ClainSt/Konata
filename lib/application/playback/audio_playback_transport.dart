@@ -32,7 +32,7 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
   }) async {
     if (index < 0 || index >= _state.queue.length || !mounted) return;
     _clearPendingGaplessAppendTransition();
-    _ref.read(lyricLookupCoordinatorProvider).cancelPendingLookups();
+    _ref.read(lyricsResolverProvider).cancelPendingLookups();
     if (!isRetryAttempt) {
       _trackRetryCount = 0;
     }

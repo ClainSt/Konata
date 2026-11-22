@@ -18,7 +18,6 @@ import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
-import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/playback/konata_cached_artwork_backdrop.dart';
 import '../widgets/playback/konata_foobar_beefweb_dialog.dart';
@@ -60,8 +59,6 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
   final GlobalKey _activeQueueItemKey = GlobalKey();
   String? _lastItemId;
   _ImmersiveRightPane? _lastEffectivePane;
-  bool _amllConfirmDialogShowing = false;
-  String? _amllPromptedItemId;
 
   @override
   void initState() {
@@ -176,75 +173,6 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     ref.read(stageMorphReleaseVelocityProvider.notifier).state =
         releaseVelocityPxPerSec;
     ref.read(immersiveAudioExpandedProvider.notifier).state = false;
-  }
-
-  /// 移动计量网络触发 AMLL 逐字歌词索引确认时，弹出全站统一毛玻璃确认框（确保竖屏封面态立即可见）。
-  Future<void> _promptMobileAmllConfirmationDialog(
-    AudioPlaybackNotifier notifier,
-  ) async {
-    final currentState = ref.read(audioPlaybackProvider);
-    final currentItemId = currentState.currentItem?.id;
-    if (!mounted ||
-        _amllConfirmDialogShowing ||
-        !currentState.needsMobileAmllLyricConfirmation ||
-        currentItemId == null ||
-        _amllPromptedItemId == currentItemId) {
-      return;
-    }
-    _amllConfirmDialogShowing = true;
-    _amllPromptedItemId = currentItemId;
-    try {
-      final approved = await showKonataGlassDialog<bool>(
-        context: context,
-        builder: (dialogCtx) {
-          final dp = dialogCtx.palette;
-          return KonataGlassDialog(
-            key: const ValueKey('mobile_amll_confirm_glass_dialog'),
-            title: '移动网络歌词流量提示',
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '当前处于移动计量网络，拉取 AMLL 逐字歌词开源索引需消耗额外移动流量，是否允许继续加载？',
-                  style: KonataTheme.bodyLabelStyle(
-                    dp,
-                    fontSize: KonataTheme.fontSizeBodySm,
-                    color: dp.textSecondary,
-                  ).copyWith(height: 1.5),
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    KonataPillButton.secondary(
-                      key: const ValueKey('mobile_amll_dialog_cancel'),
-                      label: '暂不加载',
-                      compact: true,
-                      onPressed: () => Navigator.of(dialogCtx).pop(false),
-                    ),
-                    const SizedBox(width: 10),
-                    KonataPillButton.primary(
-                      key: const ValueKey('mobile_amll_dialog_confirm'),
-                      label: '允许加载',
-                      icon: Icons.cloud_download_outlined,
-                      compact: true,
-                      onPressed: () => Navigator.of(dialogCtx).pop(true),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          );
-        },
-      );
-      if (approved == true && mounted) {
-        await notifier.confirmMobileAmllLyricLookup();
-      }
-    } finally {
-      _amllConfirmDialogShowing = false;
-    }
   }
 
   KeyEventResult _handleKeyEvent(FocusNode _, KeyEvent event) {
@@ -395,29 +323,8 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     });
 
     final notifier = ref.read(audioPlaybackProvider.notifier);
-    ref.listen<bool>(
-      audioPlaybackProvider.select((s) => s.needsMobileAmllLyricConfirmation),
-      (prev, next) {
-        if (next && prev != true) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              unawaited(_promptMobileAmllConfirmationDialog(notifier));
-            }
-          });
-        }
-      },
-    );
     final item = snap.item;
     if (item == null) return const SizedBox.shrink();
-    if (ref.read(audioPlaybackProvider).needsMobileAmllLyricConfirmation &&
-        !_amllConfirmDialogShowing &&
-        _amllPromptedItemId != item.id) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          unawaited(_promptMobileAmllConfirmationDialog(notifier));
-        }
-      });
-    }
 
     final lrc = snap.lrc;
     final hasLyrics = lrc != null && lrc.lines.isNotEmpty;

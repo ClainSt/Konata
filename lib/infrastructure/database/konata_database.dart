@@ -6,10 +6,12 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/sqlite3.dart' as sq;
 
+import '../../domain/lyrics/lyric_candidate.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/work.dart';
+import '../../domain/repositories/lyric_cache_repository.dart';
 
 part 'konata_database.g.dart';
 
@@ -389,6 +391,40 @@ class SeriesGroups extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
+/// 在线歌词检索结果持久化缓存表（命中永久复用，未命中按有效期重试）。
+@DataClassName('LyricCacheRow')
+class LyricCacheEntries extends Table {
+  /// 物理曲目键（媒体源 + 相对路径 + 文件大小 + CUE 分轨起点）。
+  TextColumn get trackKey => text()();
+
+  /// 跨文件共享的歌曲身份键。
+  TextColumn get songKey => text().nullable()();
+
+  /// 缓存状态。
+  TextColumn get status => textEnum<LyricCacheStatus>()();
+
+  /// 命中来源。
+  TextColumn get source => textEnum<LyricSource>().nullable()();
+
+  /// 来源内部歌曲标识。
+  TextColumn get sourceId => text().withDefault(const Constant(''))();
+
+  /// 增强 LRC 正文。
+  TextColumn get lrcContent => text().withDefault(const Constant(''))();
+
+  /// 命中候选得分。
+  RealColumn get score => real().withDefault(const Constant(0.0))();
+
+  /// 歌词引擎版本。
+  IntColumn get engineVersion => integer()();
+
+  /// 最近写入时间。
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {trackKey};
+}
+
 /// Konata 2.0 强类型 Drift 数据库（默认存储为 `konata_v2.sqlite`）。
 @DriftDatabase(
   tables: [
@@ -400,6 +436,7 @@ class SeriesGroups extends Table {
     PlaybackRecords,
     IgnoredFolders,
     SeriesGroups,
+    LyricCacheEntries,
   ],
 )
 class KonataDatabase extends _$KonataDatabase {
@@ -410,7 +447,7 @@ class KonataDatabase extends _$KonataDatabase {
   factory KonataDatabase.openDefault() => KonataDatabase(_openConnection());
 
   @override
-  int get schemaVersion => 13;
+  int get schemaVersion => 14;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -475,6 +512,9 @@ class KonataDatabase extends _$KonataDatabase {
         await m.addColumn(works, works.logoNegativeUntil);
         await m.addColumn(works, works.logoNegativeMask);
       }
+      if (from < 14) {
+        await m.createTable(lyricCacheEntries);
+      }
     },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON');
@@ -521,6 +561,8 @@ class KonataDatabase extends _$KonataDatabase {
         'ON works (is_hidden)',
     'CREATE INDEX IF NOT EXISTS idx_ignored_folders_source '
         'ON ignored_folders (source_id)',
+    'CREATE INDEX IF NOT EXISTS idx_lyric_cache_song '
+        'ON lyric_cache_entries (song_key)',
   ];
 }
 

@@ -1,8 +1,8 @@
-// 自动生成的 Drift 数据库映射代码，请勿手动修改。
+// GENERATED CODE - DO NOT MODIFY BY HAND
 
 part of 'konata_database.dart';
 
-/* Drift 自动生成的数据库映射代码，沿用内置规则豁免。 */ // ignore_for_file: type=lint
+// ignore_for_file: type=lint
 class $MediaSourcesTable extends MediaSources
     with TableInfo<$MediaSourcesTable, MediaSourceRow> {
   @override
@@ -6413,6 +6413,602 @@ class SeriesGroupsCompanion extends UpdateCompanion<SeriesGroupRow> {
   }
 }
 
+class $LyricCacheEntriesTable extends LyricCacheEntries
+    with TableInfo<$LyricCacheEntriesTable, LyricCacheRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $LyricCacheEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _trackKeyMeta = const VerificationMeta(
+    'trackKey',
+  );
+  @override
+  late final GeneratedColumn<String> trackKey = GeneratedColumn<String>(
+    'track_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _songKeyMeta = const VerificationMeta(
+    'songKey',
+  );
+  @override
+  late final GeneratedColumn<String> songKey = GeneratedColumn<String>(
+    'song_key',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  late final GeneratedColumnWithTypeConverter<LyricCacheStatus, String> status =
+      GeneratedColumn<String>(
+        'status',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+      ).withConverter<LyricCacheStatus>(
+        $LyricCacheEntriesTable.$converterstatus,
+      );
+  @override
+  late final GeneratedColumnWithTypeConverter<LyricSource?, String> source =
+      GeneratedColumn<String>(
+        'source',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      ).withConverter<LyricSource?>($LyricCacheEntriesTable.$convertersourcen);
+  static const VerificationMeta _sourceIdMeta = const VerificationMeta(
+    'sourceId',
+  );
+  @override
+  late final GeneratedColumn<String> sourceId = GeneratedColumn<String>(
+    'source_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _lrcContentMeta = const VerificationMeta(
+    'lrcContent',
+  );
+  @override
+  late final GeneratedColumn<String> lrcContent = GeneratedColumn<String>(
+    'lrc_content',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _scoreMeta = const VerificationMeta('score');
+  @override
+  late final GeneratedColumn<double> score = GeneratedColumn<double>(
+    'score',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0.0),
+  );
+  static const VerificationMeta _engineVersionMeta = const VerificationMeta(
+    'engineVersion',
+  );
+  @override
+  late final GeneratedColumn<int> engineVersion = GeneratedColumn<int>(
+    'engine_version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    trackKey,
+    songKey,
+    status,
+    source,
+    sourceId,
+    lrcContent,
+    score,
+    engineVersion,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'lyric_cache_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<LyricCacheRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('track_key')) {
+      context.handle(
+        _trackKeyMeta,
+        trackKey.isAcceptableOrUnknown(data['track_key']!, _trackKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_trackKeyMeta);
+    }
+    if (data.containsKey('song_key')) {
+      context.handle(
+        _songKeyMeta,
+        songKey.isAcceptableOrUnknown(data['song_key']!, _songKeyMeta),
+      );
+    }
+    if (data.containsKey('source_id')) {
+      context.handle(
+        _sourceIdMeta,
+        sourceId.isAcceptableOrUnknown(data['source_id']!, _sourceIdMeta),
+      );
+    }
+    if (data.containsKey('lrc_content')) {
+      context.handle(
+        _lrcContentMeta,
+        lrcContent.isAcceptableOrUnknown(data['lrc_content']!, _lrcContentMeta),
+      );
+    }
+    if (data.containsKey('score')) {
+      context.handle(
+        _scoreMeta,
+        score.isAcceptableOrUnknown(data['score']!, _scoreMeta),
+      );
+    }
+    if (data.containsKey('engine_version')) {
+      context.handle(
+        _engineVersionMeta,
+        engineVersion.isAcceptableOrUnknown(
+          data['engine_version']!,
+          _engineVersionMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_engineVersionMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {trackKey};
+  @override
+  LyricCacheRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return LyricCacheRow(
+      trackKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}track_key'],
+      )!,
+      songKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}song_key'],
+      ),
+      status: $LyricCacheEntriesTable.$converterstatus.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}status'],
+        )!,
+      ),
+      source: $LyricCacheEntriesTable.$convertersourcen.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}source'],
+        ),
+      ),
+      sourceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_id'],
+      )!,
+      lrcContent: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}lrc_content'],
+      )!,
+      score: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}score'],
+      )!,
+      engineVersion: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}engine_version'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $LyricCacheEntriesTable createAlias(String alias) {
+    return $LyricCacheEntriesTable(attachedDatabase, alias);
+  }
+
+  static JsonTypeConverter2<LyricCacheStatus, String, String> $converterstatus =
+      const EnumNameConverter<LyricCacheStatus>(LyricCacheStatus.values);
+  static JsonTypeConverter2<LyricSource, String, String> $convertersource =
+      const EnumNameConverter<LyricSource>(LyricSource.values);
+  static JsonTypeConverter2<LyricSource?, String?, String?> $convertersourcen =
+      JsonTypeConverter2.asNullable($convertersource);
+}
+
+class LyricCacheRow extends DataClass implements Insertable<LyricCacheRow> {
+  /// 物理曲目键（媒体源 + 相对路径 + 文件大小 + CUE 分轨起点）。
+  final String trackKey;
+
+  /// 跨文件共享的歌曲身份键。
+  final String? songKey;
+
+  /// 缓存状态。
+  final LyricCacheStatus status;
+
+  /// 命中来源。
+  final LyricSource? source;
+
+  /// 来源内部歌曲标识。
+  final String sourceId;
+
+  /// 增强 LRC 正文。
+  final String lrcContent;
+
+  /// 命中候选得分。
+  final double score;
+
+  /// 歌词引擎版本。
+  final int engineVersion;
+
+  /// 最近写入时间。
+  final DateTime updatedAt;
+  const LyricCacheRow({
+    required this.trackKey,
+    this.songKey,
+    required this.status,
+    this.source,
+    required this.sourceId,
+    required this.lrcContent,
+    required this.score,
+    required this.engineVersion,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['track_key'] = Variable<String>(trackKey);
+    if (!nullToAbsent || songKey != null) {
+      map['song_key'] = Variable<String>(songKey);
+    }
+    {
+      map['status'] = Variable<String>(
+        $LyricCacheEntriesTable.$converterstatus.toSql(status),
+      );
+    }
+    if (!nullToAbsent || source != null) {
+      map['source'] = Variable<String>(
+        $LyricCacheEntriesTable.$convertersourcen.toSql(source),
+      );
+    }
+    map['source_id'] = Variable<String>(sourceId);
+    map['lrc_content'] = Variable<String>(lrcContent);
+    map['score'] = Variable<double>(score);
+    map['engine_version'] = Variable<int>(engineVersion);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  LyricCacheEntriesCompanion toCompanion(bool nullToAbsent) {
+    return LyricCacheEntriesCompanion(
+      trackKey: Value(trackKey),
+      songKey: songKey == null && nullToAbsent
+          ? const Value.absent()
+          : Value(songKey),
+      status: Value(status),
+      source: source == null && nullToAbsent
+          ? const Value.absent()
+          : Value(source),
+      sourceId: Value(sourceId),
+      lrcContent: Value(lrcContent),
+      score: Value(score),
+      engineVersion: Value(engineVersion),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory LyricCacheRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return LyricCacheRow(
+      trackKey: serializer.fromJson<String>(json['trackKey']),
+      songKey: serializer.fromJson<String?>(json['songKey']),
+      status: $LyricCacheEntriesTable.$converterstatus.fromJson(
+        serializer.fromJson<String>(json['status']),
+      ),
+      source: $LyricCacheEntriesTable.$convertersourcen.fromJson(
+        serializer.fromJson<String?>(json['source']),
+      ),
+      sourceId: serializer.fromJson<String>(json['sourceId']),
+      lrcContent: serializer.fromJson<String>(json['lrcContent']),
+      score: serializer.fromJson<double>(json['score']),
+      engineVersion: serializer.fromJson<int>(json['engineVersion']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'trackKey': serializer.toJson<String>(trackKey),
+      'songKey': serializer.toJson<String?>(songKey),
+      'status': serializer.toJson<String>(
+        $LyricCacheEntriesTable.$converterstatus.toJson(status),
+      ),
+      'source': serializer.toJson<String?>(
+        $LyricCacheEntriesTable.$convertersourcen.toJson(source),
+      ),
+      'sourceId': serializer.toJson<String>(sourceId),
+      'lrcContent': serializer.toJson<String>(lrcContent),
+      'score': serializer.toJson<double>(score),
+      'engineVersion': serializer.toJson<int>(engineVersion),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  LyricCacheRow copyWith({
+    String? trackKey,
+    Value<String?> songKey = const Value.absent(),
+    LyricCacheStatus? status,
+    Value<LyricSource?> source = const Value.absent(),
+    String? sourceId,
+    String? lrcContent,
+    double? score,
+    int? engineVersion,
+    DateTime? updatedAt,
+  }) => LyricCacheRow(
+    trackKey: trackKey ?? this.trackKey,
+    songKey: songKey.present ? songKey.value : this.songKey,
+    status: status ?? this.status,
+    source: source.present ? source.value : this.source,
+    sourceId: sourceId ?? this.sourceId,
+    lrcContent: lrcContent ?? this.lrcContent,
+    score: score ?? this.score,
+    engineVersion: engineVersion ?? this.engineVersion,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  LyricCacheRow copyWithCompanion(LyricCacheEntriesCompanion data) {
+    return LyricCacheRow(
+      trackKey: data.trackKey.present ? data.trackKey.value : this.trackKey,
+      songKey: data.songKey.present ? data.songKey.value : this.songKey,
+      status: data.status.present ? data.status.value : this.status,
+      source: data.source.present ? data.source.value : this.source,
+      sourceId: data.sourceId.present ? data.sourceId.value : this.sourceId,
+      lrcContent: data.lrcContent.present
+          ? data.lrcContent.value
+          : this.lrcContent,
+      score: data.score.present ? data.score.value : this.score,
+      engineVersion: data.engineVersion.present
+          ? data.engineVersion.value
+          : this.engineVersion,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('LyricCacheRow(')
+          ..write('trackKey: $trackKey, ')
+          ..write('songKey: $songKey, ')
+          ..write('status: $status, ')
+          ..write('source: $source, ')
+          ..write('sourceId: $sourceId, ')
+          ..write('lrcContent: $lrcContent, ')
+          ..write('score: $score, ')
+          ..write('engineVersion: $engineVersion, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    trackKey,
+    songKey,
+    status,
+    source,
+    sourceId,
+    lrcContent,
+    score,
+    engineVersion,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is LyricCacheRow &&
+          other.trackKey == this.trackKey &&
+          other.songKey == this.songKey &&
+          other.status == this.status &&
+          other.source == this.source &&
+          other.sourceId == this.sourceId &&
+          other.lrcContent == this.lrcContent &&
+          other.score == this.score &&
+          other.engineVersion == this.engineVersion &&
+          other.updatedAt == this.updatedAt);
+}
+
+class LyricCacheEntriesCompanion extends UpdateCompanion<LyricCacheRow> {
+  final Value<String> trackKey;
+  final Value<String?> songKey;
+  final Value<LyricCacheStatus> status;
+  final Value<LyricSource?> source;
+  final Value<String> sourceId;
+  final Value<String> lrcContent;
+  final Value<double> score;
+  final Value<int> engineVersion;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const LyricCacheEntriesCompanion({
+    this.trackKey = const Value.absent(),
+    this.songKey = const Value.absent(),
+    this.status = const Value.absent(),
+    this.source = const Value.absent(),
+    this.sourceId = const Value.absent(),
+    this.lrcContent = const Value.absent(),
+    this.score = const Value.absent(),
+    this.engineVersion = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  LyricCacheEntriesCompanion.insert({
+    required String trackKey,
+    this.songKey = const Value.absent(),
+    required LyricCacheStatus status,
+    this.source = const Value.absent(),
+    this.sourceId = const Value.absent(),
+    this.lrcContent = const Value.absent(),
+    this.score = const Value.absent(),
+    required int engineVersion,
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  }) : trackKey = Value(trackKey),
+       status = Value(status),
+       engineVersion = Value(engineVersion),
+       updatedAt = Value(updatedAt);
+  static Insertable<LyricCacheRow> custom({
+    Expression<String>? trackKey,
+    Expression<String>? songKey,
+    Expression<String>? status,
+    Expression<String>? source,
+    Expression<String>? sourceId,
+    Expression<String>? lrcContent,
+    Expression<double>? score,
+    Expression<int>? engineVersion,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (trackKey != null) 'track_key': trackKey,
+      if (songKey != null) 'song_key': songKey,
+      if (status != null) 'status': status,
+      if (source != null) 'source': source,
+      if (sourceId != null) 'source_id': sourceId,
+      if (lrcContent != null) 'lrc_content': lrcContent,
+      if (score != null) 'score': score,
+      if (engineVersion != null) 'engine_version': engineVersion,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  LyricCacheEntriesCompanion copyWith({
+    Value<String>? trackKey,
+    Value<String?>? songKey,
+    Value<LyricCacheStatus>? status,
+    Value<LyricSource?>? source,
+    Value<String>? sourceId,
+    Value<String>? lrcContent,
+    Value<double>? score,
+    Value<int>? engineVersion,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return LyricCacheEntriesCompanion(
+      trackKey: trackKey ?? this.trackKey,
+      songKey: songKey ?? this.songKey,
+      status: status ?? this.status,
+      source: source ?? this.source,
+      sourceId: sourceId ?? this.sourceId,
+      lrcContent: lrcContent ?? this.lrcContent,
+      score: score ?? this.score,
+      engineVersion: engineVersion ?? this.engineVersion,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (trackKey.present) {
+      map['track_key'] = Variable<String>(trackKey.value);
+    }
+    if (songKey.present) {
+      map['song_key'] = Variable<String>(songKey.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(
+        $LyricCacheEntriesTable.$converterstatus.toSql(status.value),
+      );
+    }
+    if (source.present) {
+      map['source'] = Variable<String>(
+        $LyricCacheEntriesTable.$convertersourcen.toSql(source.value),
+      );
+    }
+    if (sourceId.present) {
+      map['source_id'] = Variable<String>(sourceId.value);
+    }
+    if (lrcContent.present) {
+      map['lrc_content'] = Variable<String>(lrcContent.value);
+    }
+    if (score.present) {
+      map['score'] = Variable<double>(score.value);
+    }
+    if (engineVersion.present) {
+      map['engine_version'] = Variable<int>(engineVersion.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('LyricCacheEntriesCompanion(')
+          ..write('trackKey: $trackKey, ')
+          ..write('songKey: $songKey, ')
+          ..write('status: $status, ')
+          ..write('source: $source, ')
+          ..write('sourceId: $sourceId, ')
+          ..write('lrcContent: $lrcContent, ')
+          ..write('score: $score, ')
+          ..write('engineVersion: $engineVersion, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$KonataDatabase extends GeneratedDatabase {
   _$KonataDatabase(QueryExecutor e) : super(e);
   $KonataDatabaseManager get managers => $KonataDatabaseManager(this);
@@ -6428,6 +7024,8 @@ abstract class _$KonataDatabase extends GeneratedDatabase {
   );
   late final $IgnoredFoldersTable ignoredFolders = $IgnoredFoldersTable(this);
   late final $SeriesGroupsTable seriesGroups = $SeriesGroupsTable(this);
+  late final $LyricCacheEntriesTable lyricCacheEntries =
+      $LyricCacheEntriesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -6441,6 +7039,7 @@ abstract class _$KonataDatabase extends GeneratedDatabase {
     playbackRecords,
     ignoredFolders,
     seriesGroups,
+    lyricCacheEntries,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -10884,6 +11483,310 @@ typedef $$SeriesGroupsTableProcessedTableManager =
       SeriesGroupRow,
       PrefetchHooks Function()
     >;
+typedef $$LyricCacheEntriesTableCreateCompanionBuilder =
+    LyricCacheEntriesCompanion Function({
+      required String trackKey,
+      Value<String?> songKey,
+      required LyricCacheStatus status,
+      Value<LyricSource?> source,
+      Value<String> sourceId,
+      Value<String> lrcContent,
+      Value<double> score,
+      required int engineVersion,
+      required DateTime updatedAt,
+      Value<int> rowid,
+    });
+typedef $$LyricCacheEntriesTableUpdateCompanionBuilder =
+    LyricCacheEntriesCompanion Function({
+      Value<String> trackKey,
+      Value<String?> songKey,
+      Value<LyricCacheStatus> status,
+      Value<LyricSource?> source,
+      Value<String> sourceId,
+      Value<String> lrcContent,
+      Value<double> score,
+      Value<int> engineVersion,
+      Value<DateTime> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$LyricCacheEntriesTableFilterComposer
+    extends Composer<_$KonataDatabase, $LyricCacheEntriesTable> {
+  $$LyricCacheEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get trackKey => $composableBuilder(
+    column: $table.trackKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get songKey => $composableBuilder(
+    column: $table.songKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnWithTypeConverterFilters<LyricCacheStatus, LyricCacheStatus, String>
+  get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnWithTypeConverterFilters(column),
+  );
+
+  ColumnWithTypeConverterFilters<LyricSource?, LyricSource, String>
+  get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnWithTypeConverterFilters(column),
+  );
+
+  ColumnFilters<String> get sourceId => $composableBuilder(
+    column: $table.sourceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lrcContent => $composableBuilder(
+    column: $table.lrcContent,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get score => $composableBuilder(
+    column: $table.score,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get engineVersion => $composableBuilder(
+    column: $table.engineVersion,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$LyricCacheEntriesTableOrderingComposer
+    extends Composer<_$KonataDatabase, $LyricCacheEntriesTable> {
+  $$LyricCacheEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get trackKey => $composableBuilder(
+    column: $table.trackKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get songKey => $composableBuilder(
+    column: $table.songKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceId => $composableBuilder(
+    column: $table.sourceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lrcContent => $composableBuilder(
+    column: $table.lrcContent,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get score => $composableBuilder(
+    column: $table.score,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get engineVersion => $composableBuilder(
+    column: $table.engineVersion,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$LyricCacheEntriesTableAnnotationComposer
+    extends Composer<_$KonataDatabase, $LyricCacheEntriesTable> {
+  $$LyricCacheEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get trackKey =>
+      $composableBuilder(column: $table.trackKey, builder: (column) => column);
+
+  GeneratedColumn<String> get songKey =>
+      $composableBuilder(column: $table.songKey, builder: (column) => column);
+
+  GeneratedColumnWithTypeConverter<LyricCacheStatus, String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumnWithTypeConverter<LyricSource?, String> get source =>
+      $composableBuilder(column: $table.source, builder: (column) => column);
+
+  GeneratedColumn<String> get sourceId =>
+      $composableBuilder(column: $table.sourceId, builder: (column) => column);
+
+  GeneratedColumn<String> get lrcContent => $composableBuilder(
+    column: $table.lrcContent,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<double> get score =>
+      $composableBuilder(column: $table.score, builder: (column) => column);
+
+  GeneratedColumn<int> get engineVersion => $composableBuilder(
+    column: $table.engineVersion,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$LyricCacheEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$KonataDatabase,
+          $LyricCacheEntriesTable,
+          LyricCacheRow,
+          $$LyricCacheEntriesTableFilterComposer,
+          $$LyricCacheEntriesTableOrderingComposer,
+          $$LyricCacheEntriesTableAnnotationComposer,
+          $$LyricCacheEntriesTableCreateCompanionBuilder,
+          $$LyricCacheEntriesTableUpdateCompanionBuilder,
+          (
+            LyricCacheRow,
+            BaseReferences<
+              _$KonataDatabase,
+              $LyricCacheEntriesTable,
+              LyricCacheRow
+            >,
+          ),
+          LyricCacheRow,
+          PrefetchHooks Function()
+        > {
+  $$LyricCacheEntriesTableTableManager(
+    _$KonataDatabase db,
+    $LyricCacheEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$LyricCacheEntriesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$LyricCacheEntriesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$LyricCacheEntriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> trackKey = const Value.absent(),
+                Value<String?> songKey = const Value.absent(),
+                Value<LyricCacheStatus> status = const Value.absent(),
+                Value<LyricSource?> source = const Value.absent(),
+                Value<String> sourceId = const Value.absent(),
+                Value<String> lrcContent = const Value.absent(),
+                Value<double> score = const Value.absent(),
+                Value<int> engineVersion = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => LyricCacheEntriesCompanion(
+                trackKey: trackKey,
+                songKey: songKey,
+                status: status,
+                source: source,
+                sourceId: sourceId,
+                lrcContent: lrcContent,
+                score: score,
+                engineVersion: engineVersion,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String trackKey,
+                Value<String?> songKey = const Value.absent(),
+                required LyricCacheStatus status,
+                Value<LyricSource?> source = const Value.absent(),
+                Value<String> sourceId = const Value.absent(),
+                Value<String> lrcContent = const Value.absent(),
+                Value<double> score = const Value.absent(),
+                required int engineVersion,
+                required DateTime updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => LyricCacheEntriesCompanion.insert(
+                trackKey: trackKey,
+                songKey: songKey,
+                status: status,
+                source: source,
+                sourceId: sourceId,
+                lrcContent: lrcContent,
+                score: score,
+                engineVersion: engineVersion,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$LyricCacheEntriesTable, LyricCacheRow>(table),
+                  BaseReferences<
+                    _$KonataDatabase,
+                    $LyricCacheEntriesTable,
+                    LyricCacheRow
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$LyricCacheEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$KonataDatabase,
+      $LyricCacheEntriesTable,
+      LyricCacheRow,
+      $$LyricCacheEntriesTableFilterComposer,
+      $$LyricCacheEntriesTableOrderingComposer,
+      $$LyricCacheEntriesTableAnnotationComposer,
+      $$LyricCacheEntriesTableCreateCompanionBuilder,
+      $$LyricCacheEntriesTableUpdateCompanionBuilder,
+      (
+        LyricCacheRow,
+        BaseReferences<
+          _$KonataDatabase,
+          $LyricCacheEntriesTable,
+          LyricCacheRow
+        >,
+      ),
+      LyricCacheRow,
+      PrefetchHooks Function()
+    >;
 
 class $KonataDatabaseManager {
   final _$KonataDatabase _db;
@@ -10904,4 +11807,6 @@ class $KonataDatabaseManager {
       $$IgnoredFoldersTableTableManager(_db, _db.ignoredFolders);
   $$SeriesGroupsTableTableManager get seriesGroups =>
       $$SeriesGroupsTableTableManager(_db, _db.seriesGroups);
+  $$LyricCacheEntriesTableTableManager get lyricCacheEntries =>
+      $$LyricCacheEntriesTableTableManager(_db, _db.lyricCacheEntries);
 }

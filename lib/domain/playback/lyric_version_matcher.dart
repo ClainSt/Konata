@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-/// 动漫音乐曲目版本标签（用于四级歌词检索版本消歧）。
+/// 动漫音乐曲目版本标签（用于歌词候选版本消歧）。
 enum TrackVersionTag {
   tvSize,
   shortVer,
@@ -10,38 +10,6 @@ enum TrackVersionTag {
   remix,
   characterVoice,
   featuring,
-}
-
-/// 歌词网络检索前导决策指令。
-enum LyricLookupDirective {
-  /// 正常执行多源版本消歧检索。
-  proceed,
-
-  /// 识别为伴奏/纯音乐/Off Vocal，直接短路跳过远端歌词抓取。
-  shortCircuitInstrumental,
-
-  /// 移动计量网络下访问 AMLL 索引前必须弹窗征求用户确认。
-  promptMobileAmllConfirmation,
-}
-
-/// 待匹配的歌词候选条目元数据。
-class LyricCandidateMeta {
-  /// 创建歌词候选条目。
-  const LyricCandidateMeta({
-    required this.id,
-    required this.title,
-    this.artist = '',
-    this.durationSeconds,
-    this.sourcePriority = 0,
-  });
-
-  final String id;
-  final String title;
-  final String artist;
-  final double? durationSeconds;
-
-  /// 来源优先级附加分（例如本地同级 > 精确元数据源 > 社区索引）。
-  final int sourcePriority;
 }
 
 /// 单个时间跨度逐字/和声歌词片段（支持 Active Span Set 主唱与和声并行扫光）。
@@ -145,6 +113,8 @@ class LyricVersionMatcher {
     r'^\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]\s*bg:',
     multiLine: true,
   );
+  static final RegExp _bracketPunctRegex = RegExp(r'[\(\)\[\]（）【】\-_]+');
+  static final RegExp _spacesRegex = RegExp(r'\s+');
 
   /// 判断原始歌词文本是否包含显式逐字时间戳 `<mm:ss.xx>` 或并行和声层 `bg:` 标记。
   ///
@@ -160,25 +130,6 @@ class LyricVersionMatcher {
   }) {
     return _instrumentalRegex.hasMatch(title) ||
         _instrumentalRegex.hasMatch(fileName);
-  }
-
-  /// 在发起网络歌词检索前评估前导指令（伴奏短路 + 移动网络下 AMLL 索引弹窗保护）。
-  static LyricLookupDirective evaluateLookupDirective({
-    required String title,
-    String fileName = '',
-    bool targetingAmllIndex = false,
-    bool isMeteredMobileNetwork = false,
-    bool mobileAmllConfirmed = false,
-  }) {
-    if (isInstrumentalTrack(title: title, fileName: fileName)) {
-      return LyricLookupDirective.shortCircuitInstrumental;
-    }
-    if (targetingAmllIndex &&
-        isMeteredMobileNetwork &&
-        !mobileAmllConfirmed) {
-      return LyricLookupDirective.promptMobileAmllConfirmation;
-    }
-    return LyricLookupDirective.proceed;
   }
 
   /// 从曲目标题与歌手名中提取版本消歧标签集合（保留 `TV Size / Short Ver. / Live / feat. / CV`）。
@@ -199,82 +150,19 @@ class LyricVersionMatcher {
     return tags;
   }
 
-  /// 从候选列表中挑选版本与时长综合最优的歌词候选；若全部因版本或时长严重失配则返回 `null`。
-  static LyricCandidateMeta? selectBestCandidate({
-    required String trackTitle,
-    String trackArtist = '',
-    double? trackDurationSeconds,
-    required List<LyricCandidateMeta> candidates,
-  }) {
-    if (candidates.isEmpty) return null;
-    final queryTags = extractVersionTags(
-      title: trackTitle,
-      artist: trackArtist,
-    );
-    final queryCore = _normalizeCoreTitle(trackTitle);
-
-    LyricCandidateMeta? best;
-    var bestScore = -100000;
-
-    for (final candidate in candidates) {
-      final candTags = extractVersionTags(
-        title: candidate.title,
-        artist: candidate.artist,
-      );
-      final candCore = _normalizeCoreTitle(candidate.title);
-      var score = candidate.sourcePriority;
-
-      // 1. 核心曲名相似度
-      if (candCore == queryCore) {
-        score += 120;
-      } else if (candCore.contains(queryCore) || queryCore.contains(candCore)) {
-        score += 70;
-      } else {
-        score -= 80;
-      }
-
-      // 2. 版本标签消歧（TV Size / Short Ver. / Live / CV / feat.）
-      for (final tag in TrackVersionTag.values) {
-        final inQuery = queryTags.contains(tag);
-        final inCand = candTags.contains(tag);
-        if (inQuery && inCand) {
-          score += 90;
-        } else if (inQuery != inCand) {
-          // 明确请求 TV Size / Short Ver. / Live / CV 却匹配到异版本时重罚。
-          final isCriticalVersion =
-              tag == TrackVersionTag.tvSize ||
-              tag == TrackVersionTag.shortVer ||
-              tag == TrackVersionTag.live ||
-              tag == TrackVersionTag.characterVoice;
-          score -= isCriticalVersion ? 110 : 40;
-        }
-      }
-
-      // 3. 精确时长容差校验（防 TV Size 90s 错配 Full 240s）
-      if (trackDurationSeconds != null &&
-          trackDurationSeconds > 0 &&
-          candidate.durationSeconds != null &&
-          candidate.durationSeconds! > 0) {
-        final diff = (trackDurationSeconds - candidate.durationSeconds!).abs();
-        if (diff <= 2.5) {
-          score += 100;
-        } else if (diff <= 6.0) {
-          score += 50;
-        } else if (diff > 25.0) {
-          // 时长差距超过 25 秒直接淘汰（如 1:30 TV Size 与 4:00 Full Ver.）。
-          continue;
-        } else {
-          score -= (diff * 4).round();
-        }
-      }
-
-      if (score > bestScore) {
-        bestScore = score;
-        best = candidate;
-      }
-    }
-
-    return bestScore >= 20 ? best : null;
+  /// 去除 TV Size / Short / Full / Live / Acoustic / Remix 版本后缀与括号后的核心曲名（小写）。
+  static String coreTitle(String raw) {
+    return raw
+        .toLowerCase()
+        .replaceAll(_tvSizeRegex, ' ')
+        .replaceAll(_shortVerRegex, ' ')
+        .replaceAll(_fullVerRegex, ' ')
+        .replaceAll(_liveRegex, ' ')
+        .replaceAll(_acousticRegex, ' ')
+        .replaceAll(_remixRegex, ' ')
+        .replaceAll(_bracketPunctRegex, ' ')
+        .replaceAll(_spacesRegex, ' ')
+        .trim();
   }
 
   /// 解析支持逐字 `<mm:ss.xx>` 与并行和声层 (`bg:` 前缀行) 的增强歌词为 Active Span Set 列表。
@@ -461,19 +349,5 @@ class LyricVersionMatcher {
       _ => (int.tryParse(f.padRight(3, '0').substring(0, 3)) ?? 0) / 1000.0,
     };
     return mins * 60.0 + secs + fracSec;
-  }
-
-  static String _normalizeCoreTitle(String raw) {
-    return raw
-        .toLowerCase()
-        .replaceAll(_tvSizeRegex, ' ')
-        .replaceAll(_shortVerRegex, ' ')
-        .replaceAll(_fullVerRegex, ' ')
-        .replaceAll(_liveRegex, ' ')
-        .replaceAll(_acousticRegex, ' ')
-        .replaceAll(_remixRegex, ' ')
-        .replaceAll(RegExp(r'[\(\)\[\]（）【】\-_]+'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
   }
 }

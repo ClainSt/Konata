@@ -14,7 +14,6 @@ import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
-import '../widgets/design_system/konata_pill_button.dart';
 import 'immersive_audio_sub_widgets.dart';
 
 /// 独立自托管滚动歌词视口组件（全端共享）。
@@ -455,10 +454,8 @@ class _ImmersiveLyricsViewportState
         child: Center(
           child: Consumer(
             builder: (ctx, cRef, _) {
-              final needsAmllConfirm = cRef.watch(
-                audioPlaybackProvider.select(
-                  (s) => s.needsMobileAmllLyricConfirmation,
-                ),
+              final searching = cRef.watch(
+                audioPlaybackProvider.select((s) => s.isLyricLookupInFlight),
               );
               return Column(
                 mainAxisSize: MainAxisSize.min,
@@ -466,27 +463,13 @@ class _ImmersiveLyricsViewportState
                   Icon(Icons.lyrics_outlined, size: 40, color: p.textMuted),
                   const SizedBox(height: 12),
                   Text(
-                    needsAmllConfirm
-                        ? '当前处于移动计量网络，拉取 AMLL 逐字歌词索引需消耗流量'
-                        : '当前曲目暂无同步歌词',
+                    searching ? '正在查找歌词…' : '当前曲目暂无同步歌词',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: p.textSecondary,
                       fontSize: KonataTheme.fontSizeBodyMd,
                     ),
                   ),
-                  if (needsAmllConfirm) ...[
-                    const SizedBox(height: 12),
-                    KonataPillButton.primary(
-                      key: const ValueKey('confirm_mobile_amll_lyric_button'),
-                      label: '允许加载 AMLL 歌词',
-                      icon: Icons.cloud_download_outlined,
-                      compact: true,
-                      onPressed: () => unawaited(
-                        widget.notifier.confirmMobileAmllLyricLookup(),
-                      ),
-                    ),
-                  ],
                 ],
               );
             },

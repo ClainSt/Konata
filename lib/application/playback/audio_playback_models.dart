@@ -236,8 +236,8 @@ class AudioPlaybackState {
     this.lrcDocument,
     this.activeSpanLines = const [],
     this.activeLyricIndex = -1,
-    this.activeLyricTier,
-    this.needsMobileAmllLyricConfirmation = false,
+    this.activeLyricSource,
+    this.isLyricLookupInFlight = false,
     this.audioCodecLabel = '',
     this.sampleRateAndBitDepthLabel = '',
     this.bitrateLabel = '',
@@ -261,11 +261,11 @@ class AudioPlaybackState {
   final List<ActiveSpanLyricLine> activeSpanLines;
   final int activeLyricIndex;
 
-  /// 当前生效歌词命中的四级来源层级（本地 / LRCLIB / AMLL / 社区兜底）。
-  final LyricLookupTier? activeLyricTier;
+  /// 当前生效歌词的命中来源（本地 / LRCLIB / 网易云 / AMLL）。
+  final LyricSource? activeLyricSource;
 
-  /// 移动计量网络下是否正等待用户确认拉取 AMLL 逐字歌词索引。
-  final bool needsMobileAmllLyricConfirmation;
+  /// 缓存未命中、正在进行在线歌词竞速检索。
+  final bool isLyricLookupInFlight;
   final String audioCodecLabel;
   final String sampleRateAndBitDepthLabel;
   final String bitrateLabel;
@@ -416,9 +416,8 @@ class AudioPlaybackState {
     List<ActiveSpanLyricLine>? activeSpanLines,
     bool clearLrcDocument = false,
     int? activeLyricIndex,
-    LyricLookupTier? activeLyricTier,
-    bool clearActiveLyricTier = false,
-    bool? needsMobileAmllLyricConfirmation,
+    LyricSource? activeLyricSource,
+    bool? isLyricLookupInFlight,
     String? audioCodecLabel,
     String? sampleRateAndBitDepthLabel,
     String? bitrateLabel,
@@ -442,13 +441,12 @@ class AudioPlaybackState {
           ? const []
           : (activeSpanLines ?? this.activeSpanLines),
       activeLyricIndex: activeLyricIndex ?? this.activeLyricIndex,
-      activeLyricTier: (clearLrcDocument || clearActiveLyricTier)
-          ? null
-          : (activeLyricTier ?? this.activeLyricTier),
-      needsMobileAmllLyricConfirmation: clearLrcDocument
-          ? (needsMobileAmllLyricConfirmation ?? false)
-          : (needsMobileAmllLyricConfirmation ??
-                this.needsMobileAmllLyricConfirmation),
+      activeLyricSource: clearLrcDocument
+          ? activeLyricSource
+          : (activeLyricSource ?? this.activeLyricSource),
+      isLyricLookupInFlight: clearLrcDocument
+          ? (isLyricLookupInFlight ?? false)
+          : (isLyricLookupInFlight ?? this.isLyricLookupInFlight),
       audioCodecLabel: audioCodecLabel ?? this.audioCodecLabel,
       sampleRateAndBitDepthLabel:
           sampleRateAndBitDepthLabel ?? this.sampleRateAndBitDepthLabel,

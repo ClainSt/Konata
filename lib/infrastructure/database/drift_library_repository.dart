@@ -22,6 +22,9 @@ class DriftLibraryRepository implements LibraryRepository {
 
   final KonataDatabase _db;
 
+  /// 底层 Drift 数据库连接（供同库其它仓储复用同一连接，避免重复打开）。
+  KonataDatabase get database => _db;
+
   @override
   Future<void> upsertMediaSource(MediaSource source) async {
     await _db

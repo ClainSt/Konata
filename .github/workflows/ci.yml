@@ -58,14 +58,11 @@ jobs:
           fi
 
   analyze-and-test:
-    name: 静态分析与单元测试 (Ubuntu)
-    runs-on: ubuntu-latest
+    name: analyze-and-test
+    runs-on: windows-latest
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
-
-      - name: 安装 SQLite 运行库
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libsqlite3-dev
 
       - name: 配置 Flutter 环境
         uses: subosito/flutter-action@v2
@@ -73,17 +70,19 @@ jobs:
           channel: stable
           cache: true
 
-      - name: 缓存 Android 原生运行时
+      - name: 缓存 Windows 与 Android 原生运行时
         uses: actions/cache@v4
         with:
-          path: native/konata-native/android
-          key: konata-native-android-${{ hashFiles('native/konata-native/android-manifest.json') }}
+          path: |
+            native/konata-native/windows
+            native/konata-native/android
+          key: konata-native-${{ runner.os }}-${{ hashFiles('native/konata-native/windows-manifest.json', 'native/konata-native/android-manifest.json') }}
 
       - name: 拉取 Dart 依赖
         run: flutter pub get
 
-      - name: 校验并拉取 Android 原生库（供符号探针单测使用）
-        run: dart run tool/fetch_native.dart android
+      - name: 校验并拉取 Windows 与 Android 原生库
+        run: dart run tool/fetch_native.dart all
 
       - name: 静态分析（0 error / 0 warning / 0 info）
         run: flutter analyze
@@ -101,6 +100,13 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
+
+      - name: 安装 Linux 原生构建依赖
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq pkg-config libsqlite3-dev libgtk-3-dev libx11-dev libxi-dev
+          pkg-config --print-errors --exists gtk+-3.0 x11 xi
 
       - name: 配置 JDK 17
         uses: actions/setup-java@v4

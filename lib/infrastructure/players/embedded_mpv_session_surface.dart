@@ -3,7 +3,7 @@ part of 'embedded_mpv_session.dart';
 /// `EmbeddedMpvSession` 硬件表面热重绑、Windows D3D11 缩放与双模原画截图扩展。
 extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
   static const MethodChannel _mediaStoreChannel = MethodChannel(
-    'ccplayer/media_store',
+    'konata/media_store',
   );
 
   /// 经统一播放内核互斥申请唯一原生 `LibMpvClient`（禁止在会话层私自实例化 `FfiLibMpvClient`）。

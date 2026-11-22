@@ -4,22 +4,22 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ccplayer/application/playback/audio_playback_notifier.dart';
-import 'package:ccplayer/domain/lyrics/lyric_candidate.dart';
-import 'package:ccplayer/domain/lyrics/lyric_candidate_scorer.dart';
-import 'package:ccplayer/domain/lyrics/lyric_search_query.dart';
-import 'package:ccplayer/domain/playback/audiophile_safety_policy.dart';
-import 'package:ccplayer/domain/playback/cue_and_lrc_parser.dart';
-import 'package:ccplayer/domain/playback/cue_variant_resolver.dart';
-import 'package:ccplayer/domain/playback/lyric_version_matcher.dart';
-import 'package:ccplayer/domain/playback/playback_probe_stats.dart';
-import 'package:ccplayer/domain/playback/track_preferences.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/infrastructure/players/libmpv_ffi.dart';
-import 'package:ccplayer/infrastructure/players/mpv_ipc_tracker.dart';
-import 'package:ccplayer/infrastructure/players/mpv_quality_profile.dart';
-import 'package:ccplayer/presentation/theme/konata_theme.dart';
-import 'package:ccplayer/presentation/widgets/playback/konata_cached_artwork_backdrop.dart';
+import 'package:konata/application/playback/audio_playback_notifier.dart';
+import 'package:konata/domain/lyrics/lyric_candidate.dart';
+import 'package:konata/domain/lyrics/lyric_candidate_scorer.dart';
+import 'package:konata/domain/lyrics/lyric_search_query.dart';
+import 'package:konata/domain/playback/audiophile_safety_policy.dart';
+import 'package:konata/domain/playback/cue_and_lrc_parser.dart';
+import 'package:konata/domain/playback/cue_variant_resolver.dart';
+import 'package:konata/domain/playback/lyric_version_matcher.dart';
+import 'package:konata/domain/playback/playback_probe_stats.dart';
+import 'package:konata/domain/playback/track_preferences.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/infrastructure/players/libmpv_ffi.dart';
+import 'package:konata/infrastructure/players/mpv_ipc_tracker.dart';
+import 'package:konata/infrastructure/players/mpv_quality_profile.dart';
+import 'package:konata/presentation/theme/konata_theme.dart';
+import 'package:konata/presentation/widgets/playback/konata_cached_artwork_backdrop.dart';
 
 class _RecordingAudioMpvClient implements LibMpvClient {
   final Map<String, String> properties = {};

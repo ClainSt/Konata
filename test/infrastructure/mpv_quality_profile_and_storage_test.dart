@@ -4,17 +4,17 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/playback/playback_probe_stats.dart';
-import 'package:ccplayer/domain/playback/track_preferences.dart';
-import 'package:ccplayer/infrastructure/logging/diagnostics_log_store.dart';
-import 'package:ccplayer/infrastructure/players/android/android_video_surface_controller.dart';
-import 'package:ccplayer/infrastructure/players/embedded_mpv_session.dart';
-import 'package:ccplayer/infrastructure/players/libmpv_ffi.dart';
-import 'package:ccplayer/infrastructure/players/mpv_quality_profile.dart';
-import 'package:ccplayer/infrastructure/players/windows_mpv_profile_adapter.dart';
-import 'package:ccplayer/infrastructure/storage/storage_root_provider.dart';
-import 'package:ccplayer/infrastructure/stream_bridge/local_stream_bridge.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/playback/playback_probe_stats.dart';
+import 'package:konata/domain/playback/track_preferences.dart';
+import 'package:konata/infrastructure/logging/diagnostics_log_store.dart';
+import 'package:konata/infrastructure/players/android/android_video_surface_controller.dart';
+import 'package:konata/infrastructure/players/embedded_mpv_session.dart';
+import 'package:konata/infrastructure/players/libmpv_ffi.dart';
+import 'package:konata/infrastructure/players/mpv_quality_profile.dart';
+import 'package:konata/infrastructure/players/windows_mpv_profile_adapter.dart';
+import 'package:konata/infrastructure/storage/storage_root_provider.dart';
+import 'package:konata/infrastructure/stream_bridge/local_stream_bridge.dart';
 
 class _FakeLibMpvClient implements LibMpvClient {
   final Map<String, String> options = <String, String>{};

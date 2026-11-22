@@ -35,8 +35,14 @@ fun resolveKonataLane(): String {
 
 val konataLane = resolveKonataLane()
 val laneIdSuffix = if (konataLane.isEmpty()) "" else ".$konataLane"
-val publicKeystore = File(System.getProperty("user.home"), ".ccplayer/ccplayer-release.p12")
-val publicKeyPassword = providers.environmentVariable("CCPLAYER_SIGNING_PASSWORD")
+// 优先使用新版 Konata 发布密钥；若未迁移则自动回退兼容历史签名密钥，保证覆盖安装不断链。
+val konataKeystore = File(System.getProperty("user.home"), ".konata/konata-release.p12")
+val legacyKeystore = File(System.getProperty("user.home"), ".ccplayer/ccplayer-release.p12")
+val usesKonataKeystore = konataKeystore.isFile
+val publicKeystore = if (usesKonataKeystore) konataKeystore else legacyKeystore
+val publicKeyAlias = if (usesKonataKeystore) "konata" else "ccplayer"
+val publicKeyPassword = providers.environmentVariable("KONATA_SIGNING_PASSWORD")
+    .orElse(providers.environmentVariable("CCPLAYER_SIGNING_PASSWORD"))
 val scraperPackage = providers.environmentVariable("KONATA_SCRAPER_PACKAGE").orNull == "1"
 val isolatedReleaseValidation = scraperPackage ||
     providers.environmentVariable("KONATA_RELEASE_VALIDATION").orNull == "1"
@@ -82,14 +88,16 @@ android {
         create("publicRelease") {
             storeFile = publicKeystore
             storePassword = publicKeyPassword.orNull
-            keyAlias = "ccplayer"
+            keyAlias = publicKeyAlias
             keyPassword = publicKeyPassword.orNull
         }
     }
     buildTypes {
         debug {
-            val debugBaseSuffix =
-                if (System.getenv("CCPLAYER_ISOLATED_VALIDATION") == "1") ".validation" else ".debug"
+            val isolatedValidation =
+                System.getenv("KONATA_ISOLATED_VALIDATION") == "1" ||
+                    System.getenv("CCPLAYER_ISOLATED_VALIDATION") == "1"
+            val debugBaseSuffix = if (isolatedValidation) ".validation" else ".debug"
             applicationIdSuffix = "$laneIdSuffix$debugBaseSuffix"
             resValue("string", "konata_app_name", debugAppLabel)
         }
@@ -115,7 +123,7 @@ android {
 tasks.matching { it.name == "preReleaseBuild" }.configureEach {
     doFirst {
         check(isolatedReleaseValidation || (publicKeystore.isFile && !publicKeyPassword.orNull.isNullOrBlank())) {
-            "Public release signing requires ~/.ccplayer/ccplayer-release.p12 and CCPLAYER_SIGNING_PASSWORD."
+            "正式签名构建需要 ~/.konata/konata-release.p12（或兼容旧密钥 ~/.ccplayer/ccplayer-release.p12）及 KONATA_SIGNING_PASSWORD。"
         }
     }
 }

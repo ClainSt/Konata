@@ -6,7 +6,7 @@ import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
-import 'package:ccplayer/application/providers/konata_value_notifier.dart';
+import 'package:konata/application/providers/konata_value_notifier.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
@@ -14,46 +14,46 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:ccplayer/application/playback/audio_playback_notifier.dart';
-import 'package:ccplayer/application/playback/playback_preferences_provider.dart';
-import 'package:ccplayer/application/playback/unified_playback_coordinator.dart';
-import 'package:ccplayer/application/playback/video_playback_controller.dart';
-import 'package:ccplayer/application/providers/artwork_provider.dart';
-import 'package:ccplayer/application/providers/library_providers.dart';
-import 'package:ccplayer/application/providers/source_actions_provider.dart';
-import 'package:ccplayer/application/scraping/scrape_compute_worker.dart';
-import 'package:ccplayer/application/scraping/scrape_orchestrator.dart';
-import 'package:ccplayer/domain/formatting/network_error_sanitizer.dart';
-import 'package:ccplayer/domain/models/episode.dart';
-import 'package:ccplayer/domain/models/media_source.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/models/network_config.dart';
-import 'package:ccplayer/domain/models/playback_record.dart';
-import 'package:ccplayer/domain/models/series_group.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/domain/repositories/file_system_gateway.dart';
-import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
-import 'package:ccplayer/infrastructure/database/konata_database.dart';
-import 'package:ccplayer/infrastructure/logging/diagnostics_log_store.dart';
-import 'package:ccplayer/infrastructure/network/bangumi_service.dart';
-import 'package:ccplayer/infrastructure/network/priority_http_scheduler.dart';
-import 'package:ccplayer/infrastructure/network/tmdb_http_client.dart';
-import 'package:ccplayer/infrastructure/network/tmdb_service.dart';
-import 'package:ccplayer/infrastructure/players/android/android_media_session_bridge.dart';
-import 'package:ccplayer/presentation/audio/mini_audio_bar.dart';
-import 'package:ccplayer/presentation/detail/detail_bottom_drawer.dart';
-import 'package:ccplayer/presentation/detail/work_detail_page.dart';
-import 'package:ccplayer/presentation/history/playback_history_page.dart';
-import 'package:ccplayer/presentation/library/library_page.dart';
-import 'package:ccplayer/presentation/shell/adaptive_capsule_layout.dart';
-import 'package:ccplayer/presentation/sources/source_folder_picker_dialog.dart';
-import 'package:ccplayer/presentation/sources/sources_page.dart';
-import 'package:ccplayer/presentation/theme/konata_palette.dart';
-import 'package:ccplayer/presentation/theme/konata_theme.dart';
-import 'package:ccplayer/presentation/video/embedded_video_page.dart';
-import 'package:ccplayer/presentation/video/video_cutout_symmetry.dart';
-import 'package:ccplayer/presentation/widgets/playback/konata_playback_capsule.dart';
-import 'package:ccplayer/presentation/widgets/playback/konata_volume_control.dart';
+import 'package:konata/application/playback/audio_playback_notifier.dart';
+import 'package:konata/application/playback/playback_preferences_provider.dart';
+import 'package:konata/application/playback/unified_playback_coordinator.dart';
+import 'package:konata/application/playback/video_playback_controller.dart';
+import 'package:konata/application/providers/artwork_provider.dart';
+import 'package:konata/application/providers/library_providers.dart';
+import 'package:konata/application/providers/source_actions_provider.dart';
+import 'package:konata/application/scraping/scrape_compute_worker.dart';
+import 'package:konata/application/scraping/scrape_orchestrator.dart';
+import 'package:konata/domain/formatting/network_error_sanitizer.dart';
+import 'package:konata/domain/models/episode.dart';
+import 'package:konata/domain/models/media_source.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/models/network_config.dart';
+import 'package:konata/domain/models/playback_record.dart';
+import 'package:konata/domain/models/series_group.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/domain/repositories/file_system_gateway.dart';
+import 'package:konata/infrastructure/database/drift_library_repository.dart';
+import 'package:konata/infrastructure/database/konata_database.dart';
+import 'package:konata/infrastructure/logging/diagnostics_log_store.dart';
+import 'package:konata/infrastructure/network/bangumi_service.dart';
+import 'package:konata/infrastructure/network/priority_http_scheduler.dart';
+import 'package:konata/infrastructure/network/tmdb_http_client.dart';
+import 'package:konata/infrastructure/network/tmdb_service.dart';
+import 'package:konata/infrastructure/players/android/android_media_session_bridge.dart';
+import 'package:konata/presentation/audio/mini_audio_bar.dart';
+import 'package:konata/presentation/detail/detail_bottom_drawer.dart';
+import 'package:konata/presentation/detail/work_detail_page.dart';
+import 'package:konata/presentation/history/playback_history_page.dart';
+import 'package:konata/presentation/library/library_page.dart';
+import 'package:konata/presentation/shell/adaptive_capsule_layout.dart';
+import 'package:konata/presentation/sources/source_folder_picker_dialog.dart';
+import 'package:konata/presentation/sources/sources_page.dart';
+import 'package:konata/presentation/theme/konata_palette.dart';
+import 'package:konata/presentation/theme/konata_theme.dart';
+import 'package:konata/presentation/video/embedded_video_page.dart';
+import 'package:konata/presentation/video/video_cutout_symmetry.dart';
+import 'package:konata/presentation/widgets/playback/konata_playback_capsule.dart';
+import 'package:konata/presentation/widgets/playback/konata_volume_control.dart';
 
 final Uint8List _sample1x1Png = Uint8List.fromList(const <int>[
   0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
@@ -926,7 +926,7 @@ void main() {
               }
               return null;
             });
-        const playbackWindowChannel = MethodChannel('ccplayer/playback_window');
+        const playbackWindowChannel = MethodChannel('konata/playback_window');
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .setMockMethodCallHandler(playbackWindowChannel, (_) async => null);
         addTearDown(() {
@@ -1252,7 +1252,7 @@ void main() {
         debugDefaultTargetPlatformOverride = TargetPlatform.android;
         addTearDown(() => debugDefaultTargetPlatformOverride = null);
 
-        const mediaChannel = MethodChannel('ccplayer/media_session_test');
+        const mediaChannel = MethodChannel('konata/media_session_test');
         final sentCalls = <MethodCall>[];
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .setMockMethodCallHandler(mediaChannel, (call) async {

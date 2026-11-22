@@ -2,11 +2,11 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ccplayer/domain/models/episode.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/presentation/dialogs/episode_slot_picker_popover.dart';
-import 'package:ccplayer/presentation/dialogs/file_mapping_panel.dart';
-import 'package:ccplayer/presentation/theme/konata_theme.dart';
+import 'package:konata/domain/models/episode.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/presentation/dialogs/episode_slot_picker_popover.dart';
+import 'package:konata/presentation/dialogs/file_mapping_panel.dart';
+import 'package:konata/presentation/theme/konata_theme.dart';
 
 Widget _wrapPanelTest(Widget child) {
   return MaterialApp(

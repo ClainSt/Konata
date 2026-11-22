@@ -4,26 +4,26 @@ import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_localizations/flutter_localizations.dart' show GlobalWidgetsLocalizations;
-import 'package:ccplayer/application/providers/konata_value_notifier.dart';
+import 'package:konata/application/providers/konata_value_notifier.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:ccplayer/application/playback/audio_playback_notifier.dart';
-import 'package:ccplayer/application/playback/playback_preferences_provider.dart';
-import 'package:ccplayer/application/providers/artwork_provider.dart';
-import 'package:ccplayer/application/providers/library_providers.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/infrastructure/database/konata_database.dart';
-import 'package:ccplayer/presentation/audio/immersive_audio_page.dart';
-import 'package:ccplayer/presentation/audio/mini_audio_bar.dart';
-import 'package:ccplayer/presentation/detail/detail_gear_menu.dart';
-import 'package:ccplayer/presentation/theme/konata_theme.dart';
-import 'package:ccplayer/presentation/widgets/design_system/konata_glass_dialog.dart';
-import 'package:ccplayer/presentation/widgets/playback/konata_playback_capsule.dart';
-import 'package:ccplayer/presentation/widgets/playback/konata_spec_badge.dart';
-import 'package:ccplayer/presentation/widgets/playback/konata_volume_control.dart';
+import 'package:konata/application/playback/audio_playback_notifier.dart';
+import 'package:konata/application/playback/playback_preferences_provider.dart';
+import 'package:konata/application/providers/artwork_provider.dart';
+import 'package:konata/application/providers/library_providers.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/infrastructure/database/konata_database.dart';
+import 'package:konata/presentation/audio/immersive_audio_page.dart';
+import 'package:konata/presentation/audio/mini_audio_bar.dart';
+import 'package:konata/presentation/detail/detail_gear_menu.dart';
+import 'package:konata/presentation/theme/konata_theme.dart';
+import 'package:konata/presentation/widgets/design_system/konata_glass_dialog.dart';
+import 'package:konata/presentation/widgets/playback/konata_playback_capsule.dart';
+import 'package:konata/presentation/widgets/playback/konata_spec_badge.dart';
+import 'package:konata/presentation/widgets/playback/konata_volume_control.dart';
 
 final Uint8List _testCoverPng = Uint8List.fromList([
   0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,

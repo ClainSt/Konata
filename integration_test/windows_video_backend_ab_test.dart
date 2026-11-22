@@ -10,25 +10,25 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path/path.dart' as p;
 
-import 'package:ccplayer/application/playback/video_playback_controller.dart';
-import 'package:ccplayer/application/providers/library_providers.dart';
-import 'package:ccplayer/application/providers/theme_providers.dart';
-import 'package:ccplayer/domain/models/episode.dart';
-import 'package:ccplayer/domain/models/media_source.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/domain/playback/playback_probe_stats.dart';
-import 'package:ccplayer/infrastructure/players/d3d11_video_bridge.dart';
-import 'package:ccplayer/infrastructure/players/libmpv_ffi.dart';
-import 'package:ccplayer/infrastructure/players/mpv_quality_profile.dart';
-import 'package:ccplayer/infrastructure/players/windows_mpv_profile_adapter.dart';
-import 'package:ccplayer/presentation/shell/adaptive_capsule_layout.dart';
-import 'package:ccplayer/presentation/theme/konata_playback_tokens.dart';
-import 'package:ccplayer/presentation/theme/konata_theme.dart';
-import 'package:ccplayer/presentation/theme/window_material_controller.dart';
-import 'package:ccplayer/presentation/video/video_hardware_surface.dart';
-import 'package:ccplayer/presentation/widgets/design_system/konata_glass_dialog.dart';
-import 'package:ccplayer/presentation/widgets/playback/konata_floating_mini_player.dart';
+import 'package:konata/application/playback/video_playback_controller.dart';
+import 'package:konata/application/providers/library_providers.dart';
+import 'package:konata/application/providers/theme_providers.dart';
+import 'package:konata/domain/models/episode.dart';
+import 'package:konata/domain/models/media_source.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/domain/playback/playback_probe_stats.dart';
+import 'package:konata/infrastructure/players/d3d11_video_bridge.dart';
+import 'package:konata/infrastructure/players/libmpv_ffi.dart';
+import 'package:konata/infrastructure/players/mpv_quality_profile.dart';
+import 'package:konata/infrastructure/players/windows_mpv_profile_adapter.dart';
+import 'package:konata/presentation/shell/adaptive_capsule_layout.dart';
+import 'package:konata/presentation/theme/konata_playback_tokens.dart';
+import 'package:konata/presentation/theme/konata_theme.dart';
+import 'package:konata/presentation/theme/window_material_controller.dart';
+import 'package:konata/presentation/video/video_hardware_surface.dart';
+import 'package:konata/presentation/widgets/design_system/konata_glass_dialog.dart';
+import 'package:konata/presentation/widgets/playback/konata_floating_mini_player.dart';
 
 /// 生成真实 10-bit (`yuv420p10le` / `C420p10`) 60fps YUV4MPEG2 测试视频流，
 /// 用于在无外部媒体依赖的前提下端到端压测 10-bit 上传、EWA Lanczos 缩放与高色深 GPU 管线。

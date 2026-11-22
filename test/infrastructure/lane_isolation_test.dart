@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:ccplayer/domain/config/konata_lane_config.dart';
-import 'package:ccplayer/infrastructure/storage/storage_root_provider.dart';
+import 'package:konata/domain/config/konata_lane_config.dart';
+import 'package:konata/infrastructure/storage/storage_root_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider_windows/path_provider_windows.dart';

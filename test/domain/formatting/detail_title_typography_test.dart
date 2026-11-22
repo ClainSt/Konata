@@ -1,5 +1,5 @@
-import 'package:ccplayer/domain/formatting/detail_title_typography.dart';
-import 'package:ccplayer/domain/models/work.dart';
+import 'package:konata/domain/formatting/detail_title_typography.dart';
+import 'package:konata/domain/models/work.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

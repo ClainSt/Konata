@@ -10,7 +10,7 @@ class AndroidMediaSessionBridge {
   AndroidMediaSessionBridge({
     MethodChannel? channel,
     bool Function()? isSupported,
-  }) : _channel = channel ?? const MethodChannel('ccplayer/media_session'),
+  }) : _channel = channel ?? const MethodChannel('konata/media_session'),
        _isSupported =
            isSupported ??
            (() => !kIsWeb && defaultTargetPlatform == TargetPlatform.android);

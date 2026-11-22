@@ -3,18 +3,18 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ccplayer/domain/lyrics/lyric_candidate.dart';
-import 'package:ccplayer/domain/lyrics/lyric_candidate_scorer.dart';
-import 'package:ccplayer/domain/lyrics/lyric_cleaner.dart';
-import 'package:ccplayer/domain/lyrics/lyric_merger.dart';
-import 'package:ccplayer/domain/lyrics/lyric_search_query.dart';
-import 'package:ccplayer/domain/models/media_source.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/playback/cue_and_lrc_parser.dart';
-import 'package:ccplayer/domain/repositories/file_system_gateway.dart';
-import 'package:ccplayer/infrastructure/players/audio_art_extractor.dart';
-import 'package:ccplayer/infrastructure/sources/byte_stream_source_gateway.dart';
-import 'package:ccplayer/infrastructure/sources/source_gateway_factory.dart';
+import 'package:konata/domain/lyrics/lyric_candidate.dart';
+import 'package:konata/domain/lyrics/lyric_candidate_scorer.dart';
+import 'package:konata/domain/lyrics/lyric_cleaner.dart';
+import 'package:konata/domain/lyrics/lyric_merger.dart';
+import 'package:konata/domain/lyrics/lyric_search_query.dart';
+import 'package:konata/domain/models/media_source.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/playback/cue_and_lrc_parser.dart';
+import 'package:konata/domain/repositories/file_system_gateway.dart';
+import 'package:konata/infrastructure/players/audio_art_extractor.dart';
+import 'package:konata/infrastructure/sources/byte_stream_source_gateway.dart';
+import 'package:konata/infrastructure/sources/source_gateway_factory.dart';
 
 /// 构造包含单个 `VORBIS_COMMENT` 块的合法 FLAC 字节头。
 Uint8List _buildFlacWithVorbisComments(List<String> comments) {

@@ -1,15 +1,15 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ccplayer/domain/models/media_extensions.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/parsing/media_tech_parser.dart';
-import 'package:ccplayer/domain/playback/cue_variant_resolver.dart';
-import 'package:ccplayer/domain/playback/subtitle_and_audio_choices.dart';
-import 'package:ccplayer/domain/scraping/cloud_media_file_classifier.dart';
-import 'package:ccplayer/domain/scraping/personal_filename_parser.dart';
-import 'package:ccplayer/infrastructure/sources/directory_scanner.dart';
-import 'package:ccplayer/infrastructure/sources/subtitle_matcher.dart';
-import 'package:ccplayer/domain/repositories/file_system_gateway.dart';
+import 'package:konata/domain/models/media_extensions.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/parsing/media_tech_parser.dart';
+import 'package:konata/domain/playback/cue_variant_resolver.dart';
+import 'package:konata/domain/playback/subtitle_and_audio_choices.dart';
+import 'package:konata/domain/scraping/cloud_media_file_classifier.dart';
+import 'package:konata/domain/scraping/personal_filename_parser.dart';
+import 'package:konata/infrastructure/sources/directory_scanner.dart';
+import 'package:konata/infrastructure/sources/subtitle_matcher.dart';
+import 'package:konata/domain/repositories/file_system_gateway.dart';
 
 class _InMemoryGateway implements MediaSourceGateway {
   _InMemoryGateway(this._entriesByDir);

@@ -1,10 +1,10 @@
 import 'dart:io';
 
-import 'package:ccplayer/domain/matching/directory_grouper.dart';
-import 'package:ccplayer/domain/models/episode.dart';
-import 'package:ccplayer/domain/repositories/file_system_gateway.dart';
-import 'package:ccplayer/domain/scraping/scrape_domain_adapter.dart';
-import 'package:ccplayer/infrastructure/sources/directory_scanner.dart';
+import 'package:konata/domain/matching/directory_grouper.dart';
+import 'package:konata/domain/models/episode.dart';
+import 'package:konata/domain/repositories/file_system_gateway.dart';
+import 'package:konata/domain/scraping/scrape_domain_adapter.dart';
+import 'package:konata/infrastructure/sources/directory_scanner.dart';
 
 /// 读取清单并经真实扫描器与归组拆分器得到作品分组，同时返回扫描与归组耗时（毫秒）。
 Future<({List<GroupedWorkFolder> groups, int files, int scanMs, int groupMs})>

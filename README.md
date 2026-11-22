@@ -103,7 +103,7 @@ flutter build windows --release
 flutter build apk --release -t lib/main_android.dart --target-platform android-arm64 --split-per-abi
 ```
 
-Android 正式签名需本机发布密钥及 `CCPLAYER_SIGNING_PASSWORD` 环境变量，可运行 `tool/build_signed_android.ps1`。
+Android 正式签名需本机发布密钥及 `KONATA_SIGNING_PASSWORD` 环境变量（向下兼容旧密钥及 `CCPLAYER_SIGNING_PASSWORD`），可运行 `tool/build_signed_android.ps1`。
 
 ## 许可证与版权说明
 

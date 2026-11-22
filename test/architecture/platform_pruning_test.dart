@@ -262,7 +262,7 @@ _collectStaticImportGraph(String repoRoot, String entryRelativePath) {
         final slash = rest.indexOf('/');
         if (slash <= 0) continue;
         final pkgName = rest.substring(0, slash);
-        if (pkgName == 'ccplayer') {
+        if (pkgName == 'konata') {
           final targetRel = 'lib/${rest.substring(slash + 1)}';
           if (!visitedFiles.contains(targetRel)) {
             queue.add(targetRel);
@@ -321,7 +321,7 @@ library sample_lib;
 
 @Deprecated('kept for test')
 import
-    'package:ccplayer/domain/base.dart'
+    'package:konata/domain/base.dart'
     if (dart.library.io)
       'package:flutter_acrylic/flutter_acrylic.dart'
     if (dart.library.ffi)
@@ -344,7 +344,7 @@ void main() {
       expect(
         uris,
         containsAll(<String>[
-          'package:ccplayer/domain/base.dart',
+          'package:konata/domain/base.dart',
           'package:flutter_acrylic/flutter_acrylic.dart',
           'package:window_manager/window_manager.dart',
           'sub/helper.dart',

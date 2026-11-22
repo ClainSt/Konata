@@ -3,7 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:ccplayer/domain/formatting/network_error_sanitizer.dart';
+import 'package:konata/domain/formatting/network_error_sanitizer.dart';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 

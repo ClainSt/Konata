@@ -2,9 +2,9 @@ import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ccplayer/presentation/theme/konata_theme.dart';
-import 'package:ccplayer/presentation/widgets/design_system/konata_draggable_scrollbar.dart';
-import 'package:ccplayer/presentation/widgets/design_system/konata_dropdown.dart';
+import 'package:konata/presentation/theme/konata_theme.dart';
+import 'package:konata/presentation/widgets/design_system/konata_draggable_scrollbar.dart';
+import 'package:konata/presentation/widgets/design_system/konata_dropdown.dart';
 
 Widget _wrapTestApp(Widget child) {
   final base = KonataTheme.darkTheme();

@@ -1,13 +1,13 @@
 import 'dart:convert';
 
-import 'package:ccplayer/application/scraping/scrape_candidate_fetcher.dart';
-import 'package:ccplayer/domain/matching/directory_grouper.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/models/network_config.dart';
-import 'package:ccplayer/infrastructure/network/bangumi_service.dart';
-import 'package:ccplayer/infrastructure/network/priority_http_scheduler.dart';
-import 'package:ccplayer/infrastructure/network/tmdb_http_client.dart';
-import 'package:ccplayer/infrastructure/network/tmdb_service.dart';
+import 'package:konata/application/scraping/scrape_candidate_fetcher.dart';
+import 'package:konata/domain/matching/directory_grouper.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/models/network_config.dart';
+import 'package:konata/infrastructure/network/bangumi_service.dart';
+import 'package:konata/infrastructure/network/priority_http_scheduler.dart';
+import 'package:konata/infrastructure/network/tmdb_http_client.dart';
+import 'package:konata/infrastructure/network/tmdb_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';

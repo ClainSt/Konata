@@ -30,7 +30,7 @@ class AndroidBitPerfectNegotiationResult {
   final String detail;
 }
 
-/// Android 原生音频路由与外设拔出瞬态静音通道桥接（`ccplayer/audio_route`）。
+/// Android 原生音频路由与外设拔出瞬态静音通道桥接（`konata/audio_route`）。
 ///
 /// 采用可实例化对象由 Riverpod Provider 托管生命周期，消除全局可变静态回调与多容器冲突：
 /// 1. 在 Android 14+ (API 34+) 上通过 `AudioManager.getSupportedMixerAttributes` 协商 USB DAC 逐位直通；
@@ -44,7 +44,7 @@ class AndroidAudioRouteBridge {
   }) : _channel = channel ?? const MethodChannel(_channelName),
        _isSupported = isSupported ?? (() => Platform.isAndroid);
 
-  static const String _channelName = 'ccplayer/audio_route';
+  static const String _channelName = 'konata/audio_route';
 
   final MethodChannel _channel;
   final bool Function() _isSupported;

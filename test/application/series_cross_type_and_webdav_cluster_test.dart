@@ -5,16 +5,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-import 'package:ccplayer/application/scraping/series_auto_linker.dart';
-import 'package:ccplayer/domain/models/media_source.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/models/network_config.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
-import 'package:ccplayer/infrastructure/database/konata_database.dart';
-import 'package:ccplayer/infrastructure/network/priority_http_scheduler.dart';
-import 'package:ccplayer/infrastructure/network/tmdb_http_client.dart';
-import 'package:ccplayer/infrastructure/network/tmdb_service.dart';
+import 'package:konata/application/scraping/series_auto_linker.dart';
+import 'package:konata/domain/models/media_source.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/models/network_config.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/infrastructure/database/drift_library_repository.dart';
+import 'package:konata/infrastructure/database/konata_database.dart';
+import 'package:konata/infrastructure/network/priority_http_scheduler.dart';
+import 'package:konata/infrastructure/network/tmdb_http_client.dart';
+import 'package:konata/infrastructure/network/tmdb_service.dart';
 
 void main() {
   group('WebDAV 同系列 TV+Movie 自动归组与 ClearLogo 交叉纠偏测试', () {

@@ -126,7 +126,7 @@ class _AttachedAudioSession {
 /// 1. HDMI `audio-spdif` 互斥旁路与软件 DSP 清零；
 /// 2. Android 14+ USB DAC `MIXER_BEHAVIOR_BIT_PERFECT` 逐位协商；
 /// 3. 非直通路径 Post-DSP 最末级 `-12 dBFS` 安全限幅与 150 ms S 型微淡入；
-/// 4. Windows（`audio-device-list`/`audio-device` 变更）与 Android（`ccplayer/audio_route`）双端热拔出瞬态静音与重连安全衰减复位；
+/// 4. Windows（`audio-device-list`/`audio-device` 变更）与 Android（`konata/audio_route`）双端热拔出瞬态静音与重连安全衰减复位；
 /// 5. 当次会话 `confirmSessionFullScaleUnlock` 二次确认满幅解锁闭环。
 class AudiophileSafetyCoordinator {
   /// 创建音视频共享发烧音频安全协调器。

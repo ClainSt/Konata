@@ -4,14 +4,14 @@ import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ccplayer/application/providers/library_providers.dart';
-import 'package:ccplayer/domain/models/episode.dart';
-import 'package:ccplayer/domain/models/media_source.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/models/tmdb_models.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/presentation/detail/detail_bottom_drawer.dart';
-import 'package:ccplayer/presentation/theme/konata_theme.dart';
+import 'package:konata/application/providers/library_providers.dart';
+import 'package:konata/domain/models/episode.dart';
+import 'package:konata/domain/models/media_source.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/models/tmdb_models.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/presentation/detail/detail_bottom_drawer.dart';
+import 'package:konata/presentation/theme/konata_theme.dart';
 
 Future<Uint8List> _mockLoader(
   String path, {

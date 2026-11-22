@@ -1,11 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ccplayer/domain/matching/supplementary_subclassifier.dart';
-import 'package:ccplayer/domain/models/episode.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/parsing/bdrip_parser.dart';
-import 'package:ccplayer/domain/parsing/cloud_media_classifier.dart';
-import 'package:ccplayer/domain/scraping/scrape_domain_adapter.dart';
+import 'package:konata/domain/matching/supplementary_subclassifier.dart';
+import 'package:konata/domain/models/episode.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/parsing/bdrip_parser.dart';
+import 'package:konata/domain/parsing/cloud_media_classifier.dart';
+import 'package:konata/domain/scraping/scrape_domain_adapter.dart';
 
 MediaVariant _variant(
   String id,

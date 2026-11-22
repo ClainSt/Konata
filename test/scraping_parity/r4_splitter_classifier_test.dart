@@ -1,6 +1,6 @@
-import 'package:ccplayer/domain/scraping/cloud_media_file_classifier.dart';
-import 'package:ccplayer/domain/scraping/directory_analyzer.dart';
-import 'package:ccplayer/domain/scraping/multi_work_splitter.dart';
+import 'package:konata/domain/scraping/cloud_media_file_classifier.dart';
+import 'package:konata/domain/scraping/directory_analyzer.dart';
+import 'package:konata/domain/scraping/multi_work_splitter.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Map<String, Object?> _asset(

@@ -8,7 +8,7 @@ class MeteredNetworkDetector {
   const MeteredNetworkDetector({this.overrideProbe});
 
   static const MethodChannel _networkChannel = MethodChannel(
-    'ccplayer/network',
+    'konata/network',
   );
 
   /// 可选测试注入探针。

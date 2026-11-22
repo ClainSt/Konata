@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:ccplayer/domain/playback/track_preferences.dart';
-import 'package:ccplayer/infrastructure/players/libmpv_ffi.dart';
-import 'package:ccplayer/infrastructure/sources/webdav_source_gateway.dart';
+import 'package:konata/domain/playback/track_preferences.dart';
+import 'package:konata/infrastructure/players/libmpv_ffi.dart';
+import 'package:konata/infrastructure/sources/webdav_source_gateway.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 

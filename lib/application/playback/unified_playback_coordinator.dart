@@ -74,7 +74,7 @@ class UnifiedPlaybackControlSnapshot {
 /// Android 音频焦点原生通道服务（由 Riverpod 托管，消除全局静态可变回调）。
 class AndroidAudioFocusService {
   static const MethodChannel _audioFocusChannel = MethodChannel(
-    'ccplayer/audio_focus',
+    'konata/audio_focus',
   );
 
   VoidCallback? _onAudioFocusLoss;
@@ -161,7 +161,7 @@ class AndroidPlaybackWindowBridge {
   const AndroidPlaybackWindowBridge._();
 
   static const MethodChannel _windowChannel = MethodChannel(
-    'ccplayer/playback_window',
+    'konata/playback_window',
   );
 
   /// 统一协同 `SystemChrome` 与原生窗口方向控制，视频播放强制横屏、退出或收起时立即释放全向旋转。
@@ -340,7 +340,7 @@ class AndroidPipSyncPayload {
 class AndroidPipChannelClient {
   /// 创建画中画通道客户端。
   AndroidPipChannelClient({MethodChannel? channel})
-    : _channel = channel ?? const MethodChannel('ccplayer/pip');
+    : _channel = channel ?? const MethodChannel('konata/pip');
 
   final MethodChannel _channel;
   AndroidPipSyncPayload? _lastSentPayload;

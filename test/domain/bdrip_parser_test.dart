@@ -1,7 +1,7 @@
-import 'package:ccplayer/domain/models/episode.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/domain/parsing/bdrip_parser.dart';
-import 'package:ccplayer/domain/parsing/title_normalizer.dart';
+import 'package:konata/domain/models/episode.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/domain/parsing/bdrip_parser.dart';
+import 'package:konata/domain/parsing/title_normalizer.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:ccplayer/domain/models/network_config.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/infrastructure/network/fanart_service.dart';
-import 'package:ccplayer/infrastructure/network/priority_http_scheduler.dart';
-import 'package:ccplayer/infrastructure/network/tmdb_http_client.dart';
+import 'package:konata/domain/models/network_config.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/infrastructure/network/fanart_service.dart';
+import 'package:konata/infrastructure/network/priority_http_scheduler.dart';
+import 'package:konata/infrastructure/network/tmdb_http_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 本地联调密钥解析结果（严禁在日志或断言中输出明文密钥）。

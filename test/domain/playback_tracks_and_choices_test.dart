@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ccplayer/domain/models/episode.dart';
-import 'package:ccplayer/domain/playback/playback_formatters.dart';
-import 'package:ccplayer/domain/playback/subtitle_and_audio_choices.dart';
-import 'package:ccplayer/domain/playback/track_preferences.dart';
-import 'package:ccplayer/domain/playback/watched_tracker.dart';
+import 'package:konata/domain/models/episode.dart';
+import 'package:konata/domain/playback/playback_formatters.dart';
+import 'package:konata/domain/playback/subtitle_and_audio_choices.dart';
+import 'package:konata/domain/playback/track_preferences.dart';
+import 'package:konata/domain/playback/watched_tracker.dart';
 
 void main() {
   group('TrackPreferences 与 CrossEpisodeTrackMemory 测试', () {

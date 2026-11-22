@@ -1,8 +1,8 @@
 import 'dart:io';
 
-import 'package:ccplayer/main.dart' as desktop_app;
-import 'package:ccplayer/main_android.dart' as android_app;
-import 'package:ccplayer/presentation/shell/top_nav_bar.dart';
+import 'package:konata/main.dart' as desktop_app;
+import 'package:konata/main_android.dart' as android_app;
+import 'package:konata/presentation/shell/top_nav_bar.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'runtime_workload_body.dart';

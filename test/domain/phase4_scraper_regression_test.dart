@@ -1,13 +1,13 @@
-import 'package:ccplayer/domain/matching/directory_grouper.dart';
-import 'package:ccplayer/domain/matching/work_matcher.dart';
-import 'package:ccplayer/domain/models/episode.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/models/tmdb_models.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/domain/parsing/bdrip_parser.dart';
-import 'package:ccplayer/domain/parsing/season_number_parser.dart';
-import 'package:ccplayer/domain/parsing/title_normalizer.dart';
-import 'package:ccplayer/presentation/library/review_reason_labels.dart';
+import 'package:konata/domain/matching/directory_grouper.dart';
+import 'package:konata/domain/matching/work_matcher.dart';
+import 'package:konata/domain/models/episode.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/models/tmdb_models.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/domain/parsing/bdrip_parser.dart';
+import 'package:konata/domain/parsing/season_number_parser.dart';
+import 'package:konata/domain/parsing/title_normalizer.dart';
+import 'package:konata/presentation/library/review_reason_labels.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

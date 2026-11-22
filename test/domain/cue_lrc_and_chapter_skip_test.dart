@@ -3,9 +3,9 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ccplayer/domain/playback/chapter_skip_analyzer.dart';
-import 'package:ccplayer/domain/playback/cue_and_lrc_parser.dart';
-import 'package:ccplayer/domain/playback/playback_probe_stats.dart';
+import 'package:konata/domain/playback/chapter_skip_analyzer.dart';
+import 'package:konata/domain/playback/cue_and_lrc_parser.dart';
+import 'package:konata/domain/playback/playback_probe_stats.dart';
 
 void main() {
   group('CueParser 分轨解析与多编码解码测试', () {

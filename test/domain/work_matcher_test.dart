@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ccplayer/domain/matching/directory_grouper.dart';
-import 'package:ccplayer/domain/matching/work_matcher.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/models/tmdb_models.dart';
-import 'package:ccplayer/domain/models/work.dart';
+import 'package:konata/domain/matching/directory_grouper.dart';
+import 'package:konata/domain/matching/work_matcher.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/models/tmdb_models.dart';
+import 'package:konata/domain/models/work.dart';
 
 void main() {
   group('WorkMatcher & DirectoryGrouper', () {

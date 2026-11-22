@@ -3,20 +3,20 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:ccplayer/application/playback/lyric_candidate_sources.dart';
-import 'package:ccplayer/application/playback/lyric_race_engine.dart';
-import 'package:ccplayer/domain/lyrics/lyric_candidate.dart';
-import 'package:ccplayer/domain/lyrics/lyric_candidate_scorer.dart';
-import 'package:ccplayer/domain/lyrics/lyric_search_query.dart';
-import 'package:ccplayer/domain/lyrics/ttml_lyric_converter.dart';
-import 'package:ccplayer/domain/matching/work_matcher_scoring.dart';
-import 'package:ccplayer/domain/playback/cue_and_lrc_parser.dart';
-import 'package:ccplayer/domain/playback/lyric_version_matcher.dart';
-import 'package:ccplayer/infrastructure/lyrics/amll_lyric_provider.dart';
-import 'package:ccplayer/infrastructure/lyrics/lrclib_lyric_provider.dart';
-import 'package:ccplayer/infrastructure/lyrics/lyric_http_transport.dart';
-import 'package:ccplayer/infrastructure/lyrics/netease_lyric_provider.dart';
-import 'package:ccplayer/infrastructure/lyrics/qqmusic_lyric_provider.dart';
+import 'package:konata/application/playback/lyric_candidate_sources.dart';
+import 'package:konata/application/playback/lyric_race_engine.dart';
+import 'package:konata/domain/lyrics/lyric_candidate.dart';
+import 'package:konata/domain/lyrics/lyric_candidate_scorer.dart';
+import 'package:konata/domain/lyrics/lyric_search_query.dart';
+import 'package:konata/domain/lyrics/ttml_lyric_converter.dart';
+import 'package:konata/domain/matching/work_matcher_scoring.dart';
+import 'package:konata/domain/playback/cue_and_lrc_parser.dart';
+import 'package:konata/domain/playback/lyric_version_matcher.dart';
+import 'package:konata/infrastructure/lyrics/amll_lyric_provider.dart';
+import 'package:konata/infrastructure/lyrics/lrclib_lyric_provider.dart';
+import 'package:konata/infrastructure/lyrics/lyric_http_transport.dart';
+import 'package:konata/infrastructure/lyrics/netease_lyric_provider.dart';
+import 'package:konata/infrastructure/lyrics/qqmusic_lyric_provider.dart';
 import 'package:http/http.dart' as http;
 
 /// 单条离线评测用例。

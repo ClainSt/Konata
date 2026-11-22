@@ -504,7 +504,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
-        MethodChannel(messenger, "ccplayer/network").setMethodCallHandler { call, result ->
+        MethodChannel(messenger, "konata/network").setMethodCallHandler { call, result ->
             if (call.method == "isMeteredNetwork") {
                 try {
                     val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
@@ -555,7 +555,7 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
-        audioFocusChannel = MethodChannel(messenger, "ccplayer/audio_focus").also { channel ->
+        audioFocusChannel = MethodChannel(messenger, "konata/audio_focus").also { channel ->
             channel.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "request" -> result.success(requestPlaybackAudioFocus())
@@ -564,7 +564,7 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
-        audioRouteChannel = MethodChannel(messenger, "ccplayer/audio_route").also { channel ->
+        audioRouteChannel = MethodChannel(messenger, "konata/audio_route").also { channel ->
             channel.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "startMonitoring" -> {
@@ -581,7 +581,7 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
-        mediaSessionChannel = MethodChannel(messenger, "ccplayer/media_session").also { channel ->
+        mediaSessionChannel = MethodChannel(messenger, "konata/media_session").also { channel ->
             KonataMediaSessionDispatcher.onTransportCommand = { command, positionMs ->
                 runOnUiThread {
                     val payload = HashMap<String, Any?>(2)
@@ -609,7 +609,7 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
-        pipChannel = MethodChannel(messenger, "ccplayer/pip").also { channel ->
+        pipChannel = MethodChannel(messenger, "konata/pip").also { channel ->
             channel.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "syncState" -> {
@@ -653,7 +653,7 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
-        MethodChannel(messenger, "ccplayer/artwork").setMethodCallHandler { call, result ->
+        MethodChannel(messenger, "konata/artwork").setMethodCallHandler { call, result ->
             if (call.method != "openDirectory") {
                 result.notImplemented()
             } else try {
@@ -672,7 +672,7 @@ class MainActivity : FlutterActivity() {
         }
         underlaySurfaceHost?.destroy()
         underlaySurfaceHost = AndroidUnderlaySurfaceHost(this, messenger)
-        MethodChannel(messenger, "ccplayer/media_store").setMethodCallHandler { call, result ->
+        MethodChannel(messenger, "konata/media_store").setMethodCallHandler { call, result ->
             if (call.method != "saveImageToGallery") {
                 result.notImplemented()
                 return@setMethodCallHandler
@@ -707,7 +707,7 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
-        MethodChannel(messenger, "ccplayer/playback_window").setMethodCallHandler { call, result ->
+        MethodChannel(messenger, "konata/playback_window").setMethodCallHandler { call, result ->
             when (call.method) {
                 "begin" -> {
                     result.success(null)
@@ -757,7 +757,7 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
-        scrollCaptureChannel = MethodChannel(messenger, "ccplayer/scroll_capture").also { channel ->
+        scrollCaptureChannel = MethodChannel(messenger, "konata/scroll_capture").also { channel ->
             channel.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "updateScrollTarget" -> {
@@ -789,7 +789,7 @@ class MainActivity : FlutterActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             installScrollCaptureCallback()
         }
-        MethodChannel(messenger, "ccplayer/mpv_profile", StandardMethodCodec.INSTANCE,
+        MethodChannel(messenger, "konata/mpv_profile", StandardMethodCodec.INSTANCE,
             messenger.makeBackgroundTaskQueue()).setMethodCallHandler { call, result ->
             if (call.method != "read") {
                 result.notImplemented()
@@ -803,7 +803,7 @@ class MainActivity : FlutterActivity() {
                 result.error("profile_unavailable", "Cannot read configuration folder", null)
             }
         }
-        MethodChannel(messenger, "ccplayer/local_media", StandardMethodCodec.INSTANCE,
+        MethodChannel(messenger, "konata/local_media", StandardMethodCodec.INSTANCE,
             messenger.makeBackgroundTaskQueue()).setMethodCallHandler { call, result ->
             if (call.method != "list" && call.method != "resolve") {
                 result.notImplemented()

@@ -1,8 +1,8 @@
 import 'dart:io';
 
-import 'package:ccplayer/domain/repositories/file_system_gateway.dart';
-import 'package:ccplayer/infrastructure/sources/directory_scanner.dart';
-import 'package:ccplayer/infrastructure/sources/subtitle_matcher.dart';
+import 'package:konata/domain/repositories/file_system_gateway.dart';
+import 'package:konata/infrastructure/sources/directory_scanner.dart';
+import 'package:konata/infrastructure/sources/subtitle_matcher.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 内存目录树网关；可指定某目录前若干次列举抛出的异常。

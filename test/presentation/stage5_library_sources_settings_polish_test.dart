@@ -10,20 +10,20 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:ccplayer/application/playback/playback_preferences_provider.dart';
-import 'package:ccplayer/application/providers/desktop_external_tools_providers.dart';
-import 'package:ccplayer/application/providers/library_providers.dart';
-import 'package:ccplayer/application/providers/theme_providers.dart';
-import 'package:ccplayer/domain/models/external_player_config.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/infrastructure/storage/storage_root_provider.dart';
-import 'package:ccplayer/presentation/library/poster_card.dart';
-import 'package:ccplayer/presentation/settings/settings_appearance_panel.dart';
-import 'package:ccplayer/presentation/settings/settings_external_tools_panel.dart';
-import 'package:ccplayer/presentation/settings/settings_players_panel.dart';
-import 'package:ccplayer/presentation/theme/konata_theme.dart';
-import 'package:ccplayer/presentation/widgets/design_system/bangumi_score_wordmark_badge.dart';
-import 'package:ccplayer/presentation/widgets/design_system/konata_system_file_picker.dart';
+import 'package:konata/application/playback/playback_preferences_provider.dart';
+import 'package:konata/application/providers/desktop_external_tools_providers.dart';
+import 'package:konata/application/providers/library_providers.dart';
+import 'package:konata/application/providers/theme_providers.dart';
+import 'package:konata/domain/models/external_player_config.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/infrastructure/storage/storage_root_provider.dart';
+import 'package:konata/presentation/library/poster_card.dart';
+import 'package:konata/presentation/settings/settings_appearance_panel.dart';
+import 'package:konata/presentation/settings/settings_external_tools_panel.dart';
+import 'package:konata/presentation/settings/settings_players_panel.dart';
+import 'package:konata/presentation/theme/konata_theme.dart';
+import 'package:konata/presentation/widgets/design_system/bangumi_score_wordmark_badge.dart';
+import 'package:konata/presentation/widgets/design_system/konata_system_file_picker.dart';
 
 final class _MemoryPlatformFile extends PlatformFile {
   _MemoryPlatformFile({required this.name, required Uint8List content})

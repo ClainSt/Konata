@@ -37,7 +37,7 @@ class AndroidUnderlaySurfaceHost(
     messenger: BinaryMessenger
 ) : SurfaceHolder.Callback {
     companion object {
-        const val CHANNEL_NAME = "ccplayer/android_underlay_surface"
+        const val CHANNEL_NAME = "konata/android_underlay_surface"
     }
 
     private var surfaceView: SurfaceView? = null

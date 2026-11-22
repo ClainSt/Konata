@@ -1,21 +1,21 @@
 import 'dart:typed_data';
 
-import 'package:ccplayer/application/providers/artwork_provider.dart';
-import 'package:ccplayer/application/providers/library_providers.dart';
-import 'package:ccplayer/application/providers/scraping_providers.dart';
-import 'package:ccplayer/application/providers/work_management_provider.dart';
-import 'package:ccplayer/domain/models/fanart_models.dart';
-import 'package:ccplayer/domain/models/managed_artwork.dart';
-import 'package:ccplayer/domain/models/media_source.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/models/tmdb_models.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/infrastructure/network/fanart_service.dart';
-import 'package:ccplayer/presentation/dialogs/work_artwork_picker_dialog.dart';
-import 'package:ccplayer/presentation/library/poster_card.dart';
-import 'package:ccplayer/presentation/theme/konata_theme.dart';
+import 'package:konata/application/providers/artwork_provider.dart';
+import 'package:konata/application/providers/library_providers.dart';
+import 'package:konata/application/providers/scraping_providers.dart';
+import 'package:konata/application/providers/work_management_provider.dart';
+import 'package:konata/domain/models/fanart_models.dart';
+import 'package:konata/domain/models/managed_artwork.dart';
+import 'package:konata/domain/models/media_source.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/models/tmdb_models.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/infrastructure/network/fanart_service.dart';
+import 'package:konata/presentation/dialogs/work_artwork_picker_dialog.dart';
+import 'package:konata/presentation/library/poster_card.dart';
+import 'package:konata/presentation/theme/konata_theme.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:ccplayer/application/providers/konata_value_notifier.dart';
+import 'package:konata/application/providers/konata_value_notifier.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 

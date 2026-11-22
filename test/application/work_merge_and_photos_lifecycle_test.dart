@@ -6,16 +6,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
-import 'package:ccplayer/application/providers/library_providers.dart';
-import 'package:ccplayer/application/providers/work_management_provider.dart';
-import 'package:ccplayer/domain/models/episode.dart';
-import 'package:ccplayer/domain/models/media_source.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/infrastructure/cache/artwork_cache.dart';
-import 'package:ccplayer/infrastructure/cache/photos_storage.dart';
-import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
-import 'package:ccplayer/infrastructure/database/konata_database.dart';
+import 'package:konata/application/providers/library_providers.dart';
+import 'package:konata/application/providers/work_management_provider.dart';
+import 'package:konata/domain/models/episode.dart';
+import 'package:konata/domain/models/media_source.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/infrastructure/cache/artwork_cache.dart';
+import 'package:konata/infrastructure/cache/photos_storage.dart';
+import 'package:konata/infrastructure/database/drift_library_repository.dart';
+import 'package:konata/infrastructure/database/konata_database.dart';
 
 void main() {
   group('PhotosStorage 懒创建与作品重命名/合并/删除生命周期测试', () {

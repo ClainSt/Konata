@@ -1,10 +1,10 @@
 import 'dart:convert';
 
-import 'package:ccplayer/domain/models/network_config.dart';
-import 'package:ccplayer/infrastructure/network/bangumi_service.dart';
-import 'package:ccplayer/infrastructure/network/network_config_repository.dart';
-import 'package:ccplayer/infrastructure/network/priority_http_scheduler.dart';
-import 'package:ccplayer/infrastructure/network/tmdb_http_client.dart';
+import 'package:konata/domain/models/network_config.dart';
+import 'package:konata/infrastructure/network/bangumi_service.dart';
+import 'package:konata/infrastructure/network/network_config_repository.dart';
+import 'package:konata/infrastructure/network/priority_http_scheduler.dart';
+import 'package:konata/infrastructure/network/tmdb_http_client.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;

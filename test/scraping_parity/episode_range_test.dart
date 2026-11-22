@@ -1,11 +1,11 @@
-import 'package:ccplayer/domain/matching/directory_grouper.dart';
-import 'package:ccplayer/domain/matching/episode_remapper.dart';
-import 'package:ccplayer/domain/matching/episode_title_formatter.dart';
-import 'package:ccplayer/domain/models/episode.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/domain/scraping/cloud_media_file_classifier.dart';
-import 'package:ccplayer/domain/scraping/scrape_domain_adapter.dart';
+import 'package:konata/domain/matching/directory_grouper.dart';
+import 'package:konata/domain/matching/episode_remapper.dart';
+import 'package:konata/domain/matching/episode_title_formatter.dart';
+import 'package:konata/domain/models/episode.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/domain/scraping/cloud_media_file_classifier.dart';
+import 'package:konata/domain/scraping/scrape_domain_adapter.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _mb = 1024 * 1024;

@@ -1,15 +1,15 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:ccplayer/application/playback/unified_playback_engine.dart';
-import 'package:ccplayer/domain/models/media_source.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/infrastructure/sources/byte_stream_source_gateway.dart';
-import 'package:ccplayer/infrastructure/sources/source_credential_store.dart';
-import 'package:ccplayer/infrastructure/sources/source_gateway_factory.dart';
-import 'package:ccplayer/infrastructure/sources/webdav_source_gateway.dart';
-import 'package:ccplayer/infrastructure/sources/work_detail_warmup_service.dart';
-import 'package:ccplayer/infrastructure/stream_bridge/remote_window_reader.dart';
+import 'package:konata/application/playback/unified_playback_engine.dart';
+import 'package:konata/domain/models/media_source.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/infrastructure/sources/byte_stream_source_gateway.dart';
+import 'package:konata/infrastructure/sources/source_credential_store.dart';
+import 'package:konata/infrastructure/sources/source_gateway_factory.dart';
+import 'package:konata/infrastructure/sources/webdav_source_gateway.dart';
+import 'package:konata/infrastructure/sources/work_detail_warmup_service.dart';
+import 'package:konata/infrastructure/stream_bridge/remote_window_reader.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/phase3_test_fixtures.dart';

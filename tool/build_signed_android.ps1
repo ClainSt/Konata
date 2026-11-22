@@ -24,8 +24,17 @@ if (-not $jdk) {
 }
 if ($jdk) { $env:JAVA_HOME = $jdk }
 $keytool = if ($jdk) { Join-Path $jdk 'bin/keytool.exe' } else { 'keytool.exe' }
-$store = Join-Path $env:USERPROFILE '.ccplayer/ccplayer-release.p12'
-if (!(Test-Path -LiteralPath $store -PathType Leaf)) { throw "找不到发布密钥 $store" }
+$konataStore = Join-Path $env:USERPROFILE '.konata/konata-release.p12'
+$legacyStore = Join-Path $env:USERPROFILE '.ccplayer/ccplayer-release.p12'
+if (Test-Path -LiteralPath $konataStore -PathType Leaf) {
+    $store = $konataStore
+    $keyAlias = 'konata'
+} elseif (Test-Path -LiteralPath $legacyStore -PathType Leaf) {
+    $store = $legacyStore
+    $keyAlias = 'ccplayer'
+} else {
+    throw "找不到发布密钥 $konataStore（或兼容旧密钥 $legacyStore）"
+}
 $statusDir = Join-Path $project 'build'
 $null = New-Item -ItemType Directory -Force -Path $statusDir
 $statusFile = Join-Path $statusDir 'android-signing-status.txt'
@@ -46,9 +55,9 @@ $secret = Read-Host '请输入你的 Android 发布密钥密码，然后按回�
 $certFile = [IO.Path]::GetTempFileName()
 try {
     Set-BuildStage 'checking-certificate'
-    $env:CCPLAYER_SIGNING_PASSWORD = [Net.NetworkCredential]::new('', $secret).Password
-    & $keytool -exportcert -keystore $store -alias ccplayer -storepass:env CCPLAYER_SIGNING_PASSWORD -file $certFile
-    if ($LASTEXITCODE) { throw '无法打开密钥，请核对密码和别名 ccplayer。' }
+    $env:KONATA_SIGNING_PASSWORD = [Net.NetworkCredential]::new('', $secret).Password
+    & $keytool -exportcert -keystore $store -alias $keyAlias -storepass:env KONATA_SIGNING_PASSWORD -file $certFile
+    if ($LASTEXITCODE) { throw "无法打开密钥，请核对密码和别名 $keyAlias。" }
     $fingerprint = (Get-FileHash -LiteralPath $certFile -Algorithm SHA256).Hash
     if ($fingerprint -ne $previous.androidCertificateSha256) {
         throw '密钥证书与现有发布版本不一致，已停止构建。'
@@ -81,6 +90,7 @@ try {
     Set-BuildStage 'failed-see-signing-window'
     throw
 } finally {
+    Remove-Item Env:KONATA_SIGNING_PASSWORD -ErrorAction SilentlyContinue
     Remove-Item Env:CCPLAYER_SIGNING_PASSWORD -ErrorAction SilentlyContinue
     $secret.Dispose()
     Remove-Item -LiteralPath $certFile

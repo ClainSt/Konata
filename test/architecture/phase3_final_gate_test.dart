@@ -3,10 +3,12 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
-import 'package:ccplayer/domain/models/media_extensions.dart';
+import 'package:konata/domain/models/media_extensions.dart';
 
 /// 剔除 Dart 单行与块级注释，可选同时清空字符串内容以避免正则误判多行词表文本。
 String _stripDartComments(String source, {bool blankStrings = false}) {
+  // 统一归一化换行符，避免 Windows CRLF 检出导致跨行源码静态契约误报。
+  source = source.replaceAll('\r\n', '\n');
   final out = StringBuffer();
   var i = 0;
   var inSingle = false;
@@ -479,8 +481,8 @@ void main() {
           if (m == null) continue;
           final uri = m.group(1)!;
           if (uri.startsWith('dart:') || uri.startsWith('package:')) {
-            if (uri.startsWith('package:ccplayer/')) {
-              referencedTargets.add('lib/${uri.substring('package:ccplayer/'.length)}');
+            if (uri.startsWith('package:konata/')) {
+              referencedTargets.add('lib/${uri.substring('package:konata/'.length)}');
             }
             continue;
           }

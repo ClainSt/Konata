@@ -4,19 +4,19 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:ccplayer/application/providers/library_providers.dart';
-import 'package:ccplayer/application/playback/playback_preferences_provider.dart';
-import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
-import 'package:ccplayer/infrastructure/database/konata_database.dart';
-import 'package:ccplayer/presentation/audio/mini_audio_bar.dart';
-import 'package:ccplayer/presentation/settings/settings_page.dart';
-import 'package:ccplayer/presentation/settings/settings_appearance_panel.dart';
-import 'package:ccplayer/presentation/shell/adaptive_capsule_layout.dart';
-import 'package:ccplayer/presentation/theme/konata_theme.dart';
-import 'package:ccplayer/presentation/widgets/design_system/konata_dropdown.dart';
-import 'package:ccplayer/presentation/widgets/design_system/konata_pill_button.dart';
-import 'package:ccplayer/presentation/widgets/design_system/konata_segmented_capsule.dart';
-import 'package:ccplayer/infrastructure/players/mpv_quality_profile.dart';
+import 'package:konata/application/providers/library_providers.dart';
+import 'package:konata/application/playback/playback_preferences_provider.dart';
+import 'package:konata/infrastructure/database/drift_library_repository.dart';
+import 'package:konata/infrastructure/database/konata_database.dart';
+import 'package:konata/presentation/audio/mini_audio_bar.dart';
+import 'package:konata/presentation/settings/settings_page.dart';
+import 'package:konata/presentation/settings/settings_appearance_panel.dart';
+import 'package:konata/presentation/shell/adaptive_capsule_layout.dart';
+import 'package:konata/presentation/theme/konata_theme.dart';
+import 'package:konata/presentation/widgets/design_system/konata_dropdown.dart';
+import 'package:konata/presentation/widgets/design_system/konata_pill_button.dart';
+import 'package:konata/presentation/widgets/design_system/konata_segmented_capsule.dart';
+import 'package:konata/infrastructure/players/mpv_quality_profile.dart';
 
 void main() {
   testWidgets('设置共用控件触屏热区与窄列折行', (tester) async {

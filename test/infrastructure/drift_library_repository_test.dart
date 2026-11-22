@@ -1,11 +1,11 @@
-import 'package:ccplayer/domain/models/episode.dart';
-import 'package:ccplayer/domain/models/external_player_config.dart';
-import 'package:ccplayer/domain/models/media_source.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
-import 'package:ccplayer/infrastructure/database/konata_database.dart';
-import 'package:ccplayer/infrastructure/players/desktop_external_player_store.dart';
+import 'package:konata/domain/models/episode.dart';
+import 'package:konata/domain/models/external_player_config.dart';
+import 'package:konata/domain/models/media_source.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/infrastructure/database/drift_library_repository.dart';
+import 'package:konata/infrastructure/database/konata_database.dart';
+import 'package:konata/infrastructure/players/desktop_external_player_store.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 

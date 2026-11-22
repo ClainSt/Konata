@@ -33,7 +33,7 @@ class AndroidSurfaceDescriptor {
 
 /// Android 10-bit (`RGBA_1010102`) 根窗口 Underlay 硬件表面控制器。
 ///
-/// 通过 `ccplayer/android_underlay_surface` 直接驱动挂载于透明 Flutter 画布之下的底层 `SurfaceView`，
+/// 通过 `konata/android_underlay_surface` 直接驱动挂载于透明 Flutter 画布之下的底层 `SurfaceView`，
 /// 实现零 `PlatformView` 跨线程同步损耗与全类弹窗天然置顶覆盖。
 class AndroidVideoSurfaceController {
   /// 创建根窗口底层表面通道控制器。
@@ -43,7 +43,7 @@ class AndroidVideoSurfaceController {
   }
 
   /// Kotlin 端注册的根窗口 Underlay 唯一通道名。
-  static const String underlayChannelName = 'ccplayer/android_underlay_surface';
+  static const String underlayChannelName = 'konata/android_underlay_surface';
 
   final MethodChannel _channel;
   final StreamController<AndroidSurfaceDescriptor?> _surfaceChanges =

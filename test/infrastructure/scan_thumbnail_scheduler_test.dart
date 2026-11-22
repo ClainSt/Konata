@@ -8,19 +8,19 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
-import 'package:ccplayer/application/providers/scan_lightbox_loader.dart';
-import 'package:ccplayer/domain/formatting/image_header_parser.dart';
-import 'package:ccplayer/domain/models/media_source.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/infrastructure/cache/compact_webp_encoder.dart';
-import 'package:ccplayer/infrastructure/cache/photos_storage.dart';
-import 'package:ccplayer/infrastructure/cache/scan_thumbnail_scheduler.dart';
-import 'package:ccplayer/infrastructure/database/konata_database.dart';
-import 'package:ccplayer/infrastructure/logging/diagnostics_log_store.dart';
-import 'package:ccplayer/infrastructure/players/desktop_external_player_store.dart';
-import 'package:ccplayer/infrastructure/sources/source_credential_store.dart';
-import 'package:ccplayer/infrastructure/sources/source_gateway_factory.dart';
-import 'package:ccplayer/infrastructure/sources/webdav_source_gateway.dart';
+import 'package:konata/application/providers/scan_lightbox_loader.dart';
+import 'package:konata/domain/formatting/image_header_parser.dart';
+import 'package:konata/domain/models/media_source.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/infrastructure/cache/compact_webp_encoder.dart';
+import 'package:konata/infrastructure/cache/photos_storage.dart';
+import 'package:konata/infrastructure/cache/scan_thumbnail_scheduler.dart';
+import 'package:konata/infrastructure/database/konata_database.dart';
+import 'package:konata/infrastructure/logging/diagnostics_log_store.dart';
+import 'package:konata/infrastructure/players/desktop_external_player_store.dart';
+import 'package:konata/infrastructure/sources/source_credential_store.dart';
+import 'package:konata/infrastructure/sources/source_gateway_factory.dart';
+import 'package:konata/infrastructure/sources/webdav_source_gateway.dart';
 
 class _PassthroughHttpOverrides extends HttpOverrides {}
 

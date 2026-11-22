@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:ccplayer/domain/scraping/directory_analyzer.dart';
-import 'package:ccplayer/domain/scraping/work_matcher.dart';
+import 'package:konata/domain/scraping/directory_analyzer.dart';
+import 'package:konata/domain/scraping/work_matcher.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 基于真实 r7 验收库（182 部作品，含已保存 TMDB/Bangumi 候选）的离线基准测试；

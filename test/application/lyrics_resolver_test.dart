@@ -6,21 +6,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-import 'package:ccplayer/application/playback/lyric_candidate_sources.dart';
-import 'package:ccplayer/application/playback/lyric_race_engine.dart';
-import 'package:ccplayer/application/playback/lyrics_resolver.dart';
-import 'package:ccplayer/application/playback/unified_playback_engine.dart';
-import 'package:ccplayer/domain/lyrics/lyric_candidate.dart';
-import 'package:ccplayer/domain/lyrics/lyric_candidate_scorer.dart';
-import 'package:ccplayer/domain/lyrics/lyric_search_query.dart';
-import 'package:ccplayer/domain/lyrics/ttml_lyric_converter.dart';
-import 'package:ccplayer/domain/repositories/lyric_cache_repository.dart';
-import 'package:ccplayer/infrastructure/database/drift_lyric_cache_repository.dart';
-import 'package:ccplayer/infrastructure/database/konata_database.dart';
-import 'package:ccplayer/infrastructure/lyrics/amll_lyric_provider.dart';
-import 'package:ccplayer/infrastructure/lyrics/lrclib_lyric_provider.dart';
-import 'package:ccplayer/infrastructure/lyrics/lyric_http_transport.dart';
-import 'package:ccplayer/infrastructure/lyrics/netease_lyric_provider.dart';
+import 'package:konata/application/playback/lyric_candidate_sources.dart';
+import 'package:konata/application/playback/lyric_race_engine.dart';
+import 'package:konata/application/playback/lyrics_resolver.dart';
+import 'package:konata/application/playback/unified_playback_engine.dart';
+import 'package:konata/domain/lyrics/lyric_candidate.dart';
+import 'package:konata/domain/lyrics/lyric_candidate_scorer.dart';
+import 'package:konata/domain/lyrics/lyric_search_query.dart';
+import 'package:konata/domain/lyrics/ttml_lyric_converter.dart';
+import 'package:konata/domain/repositories/lyric_cache_repository.dart';
+import 'package:konata/infrastructure/database/drift_lyric_cache_repository.dart';
+import 'package:konata/infrastructure/database/konata_database.dart';
+import 'package:konata/infrastructure/lyrics/amll_lyric_provider.dart';
+import 'package:konata/infrastructure/lyrics/lrclib_lyric_provider.dart';
+import 'package:konata/infrastructure/lyrics/lyric_http_transport.dart';
+import 'package:konata/infrastructure/lyrics/netease_lyric_provider.dart';
 
 /// 按固定延迟产出预设候选的测试来源。
 class _FakeSource implements LyricCandidateSource {

@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:ccplayer/domain/matching/directory_grouper.dart';
-import 'package:ccplayer/domain/models/episode.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/scraping/work_wall_eligibility.dart';
+import 'package:konata/domain/matching/directory_grouper.dart';
+import 'package:konata/domain/models/episode.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/scraping/work_wall_eligibility.dart';
 
 /// 评测运行模式。
 enum EvalMode {

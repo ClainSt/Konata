@@ -12,21 +12,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:ccplayer/application/playback/audio_playback_notifier.dart';
-import 'package:ccplayer/application/playback/playback_preferences_provider.dart';
-import 'package:ccplayer/application/providers/library_providers.dart';
-import 'package:ccplayer/domain/models/media_source.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/domain/playback/playback_probe_stats.dart';
-import 'package:ccplayer/domain/playback/track_preferences.dart';
-import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
-import 'package:ccplayer/infrastructure/database/konata_database.dart';
-import 'package:ccplayer/infrastructure/players/libmpv_ffi.dart';
-import 'package:ccplayer/infrastructure/storage/storage_root_provider.dart';
-import 'package:ccplayer/presentation/audio/mini_audio_bar.dart';
-import 'package:ccplayer/presentation/theme/konata_theme.dart';
-import 'package:ccplayer/presentation/widgets/design_system/konata_toast.dart';
+import 'package:konata/application/playback/audio_playback_notifier.dart';
+import 'package:konata/application/playback/playback_preferences_provider.dart';
+import 'package:konata/application/providers/library_providers.dart';
+import 'package:konata/domain/models/media_source.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/domain/playback/playback_probe_stats.dart';
+import 'package:konata/domain/playback/track_preferences.dart';
+import 'package:konata/infrastructure/database/drift_library_repository.dart';
+import 'package:konata/infrastructure/database/konata_database.dart';
+import 'package:konata/infrastructure/players/libmpv_ffi.dart';
+import 'package:konata/infrastructure/storage/storage_root_provider.dart';
+import 'package:konata/presentation/audio/mini_audio_bar.dart';
+import 'package:konata/presentation/theme/konata_theme.dart';
+import 'package:konata/presentation/widgets/design_system/konata_toast.dart';
 
 class _ControlledAudioMpvClient implements LibMpvClient {
   final Map<String, String> options = {};

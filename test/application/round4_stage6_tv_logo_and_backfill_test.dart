@@ -5,19 +5,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-import 'package:ccplayer/application/scraping/scrape_orchestrator.dart';
-import 'package:ccplayer/domain/models/episode.dart';
-import 'package:ccplayer/domain/models/media_source.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/models/network_config.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
-import 'package:ccplayer/infrastructure/database/konata_database.dart';
-import 'package:ccplayer/infrastructure/network/bangumi_service.dart';
-import 'package:ccplayer/infrastructure/network/priority_http_scheduler.dart';
-import 'package:ccplayer/infrastructure/network/tmdb_http_client.dart';
-import 'package:ccplayer/infrastructure/network/tmdb_service.dart';
-import 'package:ccplayer/infrastructure/sources/source_gateway_factory.dart';
+import 'package:konata/application/scraping/scrape_orchestrator.dart';
+import 'package:konata/domain/models/episode.dart';
+import 'package:konata/domain/models/media_source.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/models/network_config.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/infrastructure/database/drift_library_repository.dart';
+import 'package:konata/infrastructure/database/konata_database.dart';
+import 'package:konata/infrastructure/network/bangumi_service.dart';
+import 'package:konata/infrastructure/network/priority_http_scheduler.dart';
+import 'package:konata/infrastructure/network/tmdb_http_client.dart';
+import 'package:konata/infrastructure/network/tmdb_service.dart';
+import 'package:konata/infrastructure/sources/source_gateway_factory.dart';
 
 http.Response _jsonResp(Object body) {
   return http.Response.bytes(

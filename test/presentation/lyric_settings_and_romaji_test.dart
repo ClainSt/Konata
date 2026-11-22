@@ -7,20 +7,20 @@ import 'package:http/testing.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:ccplayer/application/playback/audio_playback_notifier.dart';
-import 'package:ccplayer/application/playback/lyrics_resolver.dart';
-import 'package:ccplayer/application/playback/playback_preferences_provider.dart';
-import 'package:ccplayer/domain/lyrics/lyric_candidate.dart';
-import 'package:ccplayer/domain/lyrics/lyric_search_query.dart';
-import 'package:ccplayer/domain/playback/cue_and_lrc_parser.dart';
-import 'package:ccplayer/infrastructure/lyrics/lrclib_lyric_provider.dart';
-import 'package:ccplayer/infrastructure/lyrics/lyric_http_transport.dart';
-import 'package:ccplayer/infrastructure/lyrics/netease_lyric_provider.dart';
-import 'package:ccplayer/infrastructure/lyrics/qqmusic_lyric_provider.dart';
-import 'package:ccplayer/infrastructure/network/metered_network_detector.dart';
-import 'package:ccplayer/presentation/audio/immersive_audio_sub_widgets.dart';
-import 'package:ccplayer/presentation/settings/settings_lyrics_card.dart';
-import 'package:ccplayer/presentation/theme/konata_theme.dart';
+import 'package:konata/application/playback/audio_playback_notifier.dart';
+import 'package:konata/application/playback/lyrics_resolver.dart';
+import 'package:konata/application/playback/playback_preferences_provider.dart';
+import 'package:konata/domain/lyrics/lyric_candidate.dart';
+import 'package:konata/domain/lyrics/lyric_search_query.dart';
+import 'package:konata/domain/playback/cue_and_lrc_parser.dart';
+import 'package:konata/infrastructure/lyrics/lrclib_lyric_provider.dart';
+import 'package:konata/infrastructure/lyrics/lyric_http_transport.dart';
+import 'package:konata/infrastructure/lyrics/netease_lyric_provider.dart';
+import 'package:konata/infrastructure/lyrics/qqmusic_lyric_provider.dart';
+import 'package:konata/infrastructure/network/metered_network_detector.dart';
+import 'package:konata/presentation/audio/immersive_audio_sub_widgets.dart';
+import 'package:konata/presentation/settings/settings_lyrics_card.dart';
+import 'package:konata/presentation/theme/konata_theme.dart';
 
 void main() {
   group('S2 提供者与开关联动（QQ 音乐 / LRCLIB get / 网易云 rv=1）', () {

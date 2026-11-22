@@ -3,19 +3,19 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:ccplayer/domain/models/external_player_config.dart';
-import 'package:ccplayer/domain/models/media_source.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/domain/playback/cue_and_lrc_parser.dart';
-import 'package:ccplayer/domain/repositories/desktop_relay_service.dart';
-import 'package:ccplayer/domain/repositories/file_system_gateway.dart';
-import 'package:ccplayer/infrastructure/players/foobar_beefweb_tracker.dart';
-import 'package:ccplayer/infrastructure/players/real_external_player_launcher.dart';
-import 'package:ccplayer/infrastructure/sources/byte_stream_source_gateway.dart';
-import 'package:ccplayer/infrastructure/sources/source_gateway_factory.dart';
-import 'package:ccplayer/infrastructure/storage/storage_root_provider.dart';
-import 'package:ccplayer/infrastructure/stream_bridge/local_stream_bridge.dart';
+import 'package:konata/domain/models/external_player_config.dart';
+import 'package:konata/domain/models/media_source.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/domain/playback/cue_and_lrc_parser.dart';
+import 'package:konata/domain/repositories/desktop_relay_service.dart';
+import 'package:konata/domain/repositories/file_system_gateway.dart';
+import 'package:konata/infrastructure/players/foobar_beefweb_tracker.dart';
+import 'package:konata/infrastructure/players/real_external_player_launcher.dart';
+import 'package:konata/infrastructure/sources/byte_stream_source_gateway.dart';
+import 'package:konata/infrastructure/sources/source_gateway_factory.dart';
+import 'package:konata/infrastructure/storage/storage_root_provider.dart';
+import 'package:konata/infrastructure/stream_bridge/local_stream_bridge.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _InMemoryWebDavGateway

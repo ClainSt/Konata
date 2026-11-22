@@ -71,7 +71,7 @@ class AndroidScrollCaptureScope extends StatefulWidget {
 
 class _AndroidScrollCaptureScopeState extends State<AndroidScrollCaptureScope>
     with WidgetsBindingObserver {
-  static const MethodChannel _channel = MethodChannel('ccplayer/scroll_capture');
+  static const MethodChannel _channel = MethodChannel('konata/scroll_capture');
 
   Timer? _syncDebounceTimer;
   bool _syncScheduled = false;

@@ -14,35 +14,35 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:ccplayer/application/playback/artwork_palette_service.dart';
-import 'package:ccplayer/application/playback/audio_playback_notifier.dart';
-import 'package:ccplayer/application/playback/playback_preferences_provider.dart';
-import 'package:ccplayer/application/playback/unified_playback_engine.dart';
-import 'package:ccplayer/application/playback/video_playback_controller.dart';
-import 'package:ccplayer/application/providers/library_providers.dart';
-import 'package:ccplayer/domain/models/episode.dart';
-import 'package:ccplayer/domain/models/media_source.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/domain/playback/audiophile_safety_policy.dart';
-import 'package:ccplayer/domain/playback/cue_and_lrc_parser.dart';
-import 'package:ccplayer/domain/playback/lyric_version_matcher.dart';
-import 'package:ccplayer/domain/playback/playback_probe_stats.dart';
-import 'package:ccplayer/domain/playback/subtitle_content_processor.dart';
-import 'package:ccplayer/domain/playback/track_preferences.dart';
-import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
-import 'package:ccplayer/infrastructure/database/konata_database.dart';
-import 'package:ccplayer/infrastructure/players/android/android_audio_route_bridge.dart';
-import 'package:ccplayer/infrastructure/players/embedded_mpv_session.dart';
-import 'package:ccplayer/infrastructure/players/libmpv_ffi.dart';
-import 'package:ccplayer/infrastructure/storage/storage_root_provider.dart';
-import 'package:ccplayer/infrastructure/stream_bridge/local_stream_bridge.dart';
-import 'package:ccplayer/presentation/audio/immersive_audio_sub_widgets.dart';
-import 'package:ccplayer/presentation/settings/settings_players_panel.dart';
-import 'package:ccplayer/presentation/theme/konata_theme.dart';
-import 'package:ccplayer/presentation/video/video_side_sheet.dart';
-import 'package:ccplayer/presentation/widgets/design_system/konata_switch.dart';
-import 'package:ccplayer/presentation/widgets/design_system/konata_toast.dart';
+import 'package:konata/application/playback/artwork_palette_service.dart';
+import 'package:konata/application/playback/audio_playback_notifier.dart';
+import 'package:konata/application/playback/playback_preferences_provider.dart';
+import 'package:konata/application/playback/unified_playback_engine.dart';
+import 'package:konata/application/playback/video_playback_controller.dart';
+import 'package:konata/application/providers/library_providers.dart';
+import 'package:konata/domain/models/episode.dart';
+import 'package:konata/domain/models/media_source.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/domain/playback/audiophile_safety_policy.dart';
+import 'package:konata/domain/playback/cue_and_lrc_parser.dart';
+import 'package:konata/domain/playback/lyric_version_matcher.dart';
+import 'package:konata/domain/playback/playback_probe_stats.dart';
+import 'package:konata/domain/playback/subtitle_content_processor.dart';
+import 'package:konata/domain/playback/track_preferences.dart';
+import 'package:konata/infrastructure/database/drift_library_repository.dart';
+import 'package:konata/infrastructure/database/konata_database.dart';
+import 'package:konata/infrastructure/players/android/android_audio_route_bridge.dart';
+import 'package:konata/infrastructure/players/embedded_mpv_session.dart';
+import 'package:konata/infrastructure/players/libmpv_ffi.dart';
+import 'package:konata/infrastructure/storage/storage_root_provider.dart';
+import 'package:konata/infrastructure/stream_bridge/local_stream_bridge.dart';
+import 'package:konata/presentation/audio/immersive_audio_sub_widgets.dart';
+import 'package:konata/presentation/settings/settings_players_panel.dart';
+import 'package:konata/presentation/theme/konata_theme.dart';
+import 'package:konata/presentation/video/video_side_sheet.dart';
+import 'package:konata/presentation/widgets/design_system/konata_switch.dart';
+import 'package:konata/presentation/widgets/design_system/konata_toast.dart';
 
 /// 面向端到端联调测试的轻量模拟 `libmpv` 客户端（完整记录音量斜坡、字幕内存直注与滤镜属性）。
 class _EndToEndFakeMpvClient implements LibMpvClient {
@@ -916,7 +916,7 @@ void main() {
 
     test('AndroidAudioRouteBridge 可实例化多监听隔离且 dispose 自动清理', () async {
       TestWidgetsFlutterBinding.ensureInitialized();
-      const channel = MethodChannel('ccplayer/audio_route_unit_test');
+      const channel = MethodChannel('konata/audio_route_unit_test');
       final bridge = AndroidAudioRouteBridge(
         channel: channel,
         isSupported: () => true,

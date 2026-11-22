@@ -1,16 +1,16 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:ccplayer/domain/models/media_source.dart';
-import 'package:ccplayer/infrastructure/sources/byte_stream_source_gateway.dart';
-import 'package:ccplayer/infrastructure/sources/source_credential_store.dart';
-import 'package:ccplayer/infrastructure/sources/source_gateway_factory.dart';
-import 'package:ccplayer/infrastructure/sources/subtitle_matcher.dart';
-import 'package:ccplayer/infrastructure/sources/webdav_digest_auth.dart';
-import 'package:ccplayer/infrastructure/sources/webdav_source_gateway.dart';
-import 'package:ccplayer/infrastructure/storage/storage_root_provider.dart';
-import 'package:ccplayer/infrastructure/stream_bridge/local_stream_bridge.dart';
-import 'package:ccplayer/infrastructure/stream_bridge/remote_window_reader.dart';
+import 'package:konata/domain/models/media_source.dart';
+import 'package:konata/infrastructure/sources/byte_stream_source_gateway.dart';
+import 'package:konata/infrastructure/sources/source_credential_store.dart';
+import 'package:konata/infrastructure/sources/source_gateway_factory.dart';
+import 'package:konata/infrastructure/sources/subtitle_matcher.dart';
+import 'package:konata/infrastructure/sources/webdav_digest_auth.dart';
+import 'package:konata/infrastructure/sources/webdav_source_gateway.dart';
+import 'package:konata/infrastructure/storage/storage_root_provider.dart';
+import 'package:konata/infrastructure/stream_bridge/local_stream_bridge.dart';
+import 'package:konata/infrastructure/stream_bridge/remote_window_reader.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';

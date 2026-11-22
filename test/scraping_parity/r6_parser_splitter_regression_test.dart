@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ccplayer/domain/scraping/cloud_media_asset_presentation.dart';
-import 'package:ccplayer/domain/scraping/cloud_media_file_classifier.dart';
-import 'package:ccplayer/domain/scraping/directory_analyzer.dart';
-import 'package:ccplayer/domain/scraping/multi_work_splitter.dart';
-import 'package:ccplayer/domain/scraping/personal_filename_parser.dart';
-import 'package:ccplayer/domain/scraping/title_normalizer.dart';
+import 'package:konata/domain/scraping/cloud_media_asset_presentation.dart';
+import 'package:konata/domain/scraping/cloud_media_file_classifier.dart';
+import 'package:konata/domain/scraping/directory_analyzer.dart';
+import 'package:konata/domain/scraping/multi_work_splitter.dart';
+import 'package:konata/domain/scraping/personal_filename_parser.dart';
+import 'package:konata/domain/scraping/title_normalizer.dart';
 
 Map<String, Object?> _asset(
   String id,

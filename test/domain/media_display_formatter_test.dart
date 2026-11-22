@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ccplayer/domain/formatting/media_display_formatter.dart';
+import 'package:konata/domain/formatting/media_display_formatter.dart';
 
 void main() {
   group('MediaDisplayFormatter', () {

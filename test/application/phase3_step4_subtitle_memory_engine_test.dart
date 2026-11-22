@@ -8,19 +8,19 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
-import 'package:ccplayer/application/playback/subtitle_memory_engine.dart';
-import 'package:ccplayer/application/playback/unified_playback_engine.dart';
-import 'package:ccplayer/domain/playback/cue_and_lrc_parser.dart';
-import 'package:ccplayer/domain/playback/playback_probe_stats.dart';
-import 'package:ccplayer/domain/playback/subtitle_and_audio_choices.dart';
-import 'package:ccplayer/domain/playback/subtitle_content_processor.dart';
-import 'package:ccplayer/domain/playback/subtitle_timeline_remapper.dart';
-import 'package:ccplayer/domain/playback/track_preferences.dart';
-import 'package:ccplayer/infrastructure/players/libmpv_ffi.dart';
-import 'package:ccplayer/infrastructure/sources/byte_stream_source_gateway.dart';
-import 'package:ccplayer/infrastructure/sources/work_detail_warmup_service.dart';
-import 'package:ccplayer/infrastructure/storage/storage_root_provider.dart';
-import 'package:ccplayer/infrastructure/stream_bridge/local_stream_bridge.dart';
+import 'package:konata/application/playback/subtitle_memory_engine.dart';
+import 'package:konata/application/playback/unified_playback_engine.dart';
+import 'package:konata/domain/playback/cue_and_lrc_parser.dart';
+import 'package:konata/domain/playback/playback_probe_stats.dart';
+import 'package:konata/domain/playback/subtitle_and_audio_choices.dart';
+import 'package:konata/domain/playback/subtitle_content_processor.dart';
+import 'package:konata/domain/playback/subtitle_timeline_remapper.dart';
+import 'package:konata/domain/playback/track_preferences.dart';
+import 'package:konata/infrastructure/players/libmpv_ffi.dart';
+import 'package:konata/infrastructure/sources/byte_stream_source_gateway.dart';
+import 'package:konata/infrastructure/sources/work_detail_warmup_service.dart';
+import 'package:konata/infrastructure/storage/storage_root_provider.dart';
+import 'package:konata/infrastructure/stream_bridge/local_stream_bridge.dart';
 
 import '../support/phase3_test_fixtures.dart';
 

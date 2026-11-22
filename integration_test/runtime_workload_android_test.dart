@@ -1,4 +1,4 @@
-import 'package:ccplayer/main_android.dart' as android_app;
+import 'package:konata/main_android.dart' as android_app;
 
 import 'runtime_workload_body.dart';
 

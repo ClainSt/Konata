@@ -1,6 +1,6 @@
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/playback/cue_and_lrc_parser.dart';
-import 'package:ccplayer/domain/playback/cue_variant_resolver.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/playback/cue_and_lrc_parser.dart';
+import 'package:konata/domain/playback/cue_variant_resolver.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

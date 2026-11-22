@@ -5,19 +5,19 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ccplayer/application/providers/library_providers.dart';
-import 'package:ccplayer/application/scraping/scrape_work_persister.dart';
-import 'package:ccplayer/domain/matching/directory_grouper.dart';
-import 'package:ccplayer/domain/models/episode.dart';
-import 'package:ccplayer/domain/models/media_source.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/models/tmdb_models.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/domain/parsing/title_normalizer.dart';
-import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
-import 'package:ccplayer/infrastructure/database/konata_database.dart';
-import 'package:ccplayer/presentation/library/poster_card.dart';
-import 'package:ccplayer/presentation/theme/konata_theme.dart';
+import 'package:konata/application/providers/library_providers.dart';
+import 'package:konata/application/scraping/scrape_work_persister.dart';
+import 'package:konata/domain/matching/directory_grouper.dart';
+import 'package:konata/domain/models/episode.dart';
+import 'package:konata/domain/models/media_source.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/models/tmdb_models.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/domain/parsing/title_normalizer.dart';
+import 'package:konata/infrastructure/database/drift_library_repository.dart';
+import 'package:konata/infrastructure/database/konata_database.dart';
+import 'package:konata/presentation/library/poster_card.dart';
+import 'package:konata/presentation/theme/konata_theme.dart';
 
 Future<Uint8List> _dummyImageLoader(
   String? path, {

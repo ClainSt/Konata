@@ -1,5 +1,5 @@
-import 'package:ccplayer/domain/matching/episode_remapper.dart';
-import 'package:ccplayer/domain/models/tmdb_models.dart';
+import 'package:konata/domain/matching/episode_remapper.dart';
+import 'package:konata/domain/models/tmdb_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:ccplayer/domain/text/big5_cp950_table.dart';
-import 'package:ccplayer/domain/text/multibyte_text_decoder.dart';
+import 'package:konata/domain/text/big5_cp950_table.dart';
+import 'package:konata/domain/text/multibyte_text_decoder.dart';
 import 'package:path/path.dart' as p;
 
 /// 生成 Konata G01~G12 真实压缩编码微样本集（覆盖 1917~2026 番剧收藏片库压制形态）及清单。

@@ -1,13 +1,13 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:ccplayer/domain/matching/playback_resume_resolver.dart';
-import 'package:ccplayer/domain/models/episode.dart';
-import 'package:ccplayer/domain/models/media_source.dart';
-import 'package:ccplayer/domain/models/playback_record.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/infrastructure/players/mpv_ipc_tracker.dart';
-import 'package:ccplayer/infrastructure/players/potplayer_win32_tracker.dart';
+import 'package:konata/domain/matching/playback_resume_resolver.dart';
+import 'package:konata/domain/models/episode.dart';
+import 'package:konata/domain/models/media_source.dart';
+import 'package:konata/domain/models/playback_record.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/infrastructure/players/mpv_ipc_tracker.dart';
+import 'package:konata/infrastructure/players/potplayer_win32_tracker.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _SequenceMpvPipeClient implements MpvPipeClient {

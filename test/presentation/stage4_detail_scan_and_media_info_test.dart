@@ -10,27 +10,27 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:ccplayer/application/playback/artwork_palette_service.dart';
-import 'package:ccplayer/application/providers/artwork_provider.dart';
-import 'package:ccplayer/application/providers/library_providers.dart';
-import 'package:ccplayer/domain/formatting/clear_logo_legibility.dart';
-import 'package:ccplayer/domain/models/episode.dart';
-import 'package:ccplayer/domain/models/media_source.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/infrastructure/cache/photos_storage.dart';
-import 'package:ccplayer/infrastructure/cache/scan_thumbnail_scheduler.dart';
-import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
-import 'package:ccplayer/infrastructure/database/konata_database.dart';
-import 'package:ccplayer/presentation/detail/detail_bottom_drawer.dart';
-import 'package:ccplayer/presentation/detail/detail_full_list_dialog.dart';
-import 'package:ccplayer/presentation/detail/detail_hero_info.dart';
-import 'package:ccplayer/presentation/detail/episode_drawer_card.dart';
-import 'package:ccplayer/presentation/detail/episode_media_info_dialog.dart';
-import 'package:ccplayer/presentation/detail/supplementary_asset_cards.dart';
-import 'package:ccplayer/presentation/detail/work_detail_page.dart';
-import 'package:ccplayer/presentation/theme/konata_theme.dart';
-import 'package:ccplayer/presentation/widgets/managed_image.dart';
+import 'package:konata/application/playback/artwork_palette_service.dart';
+import 'package:konata/application/providers/artwork_provider.dart';
+import 'package:konata/application/providers/library_providers.dart';
+import 'package:konata/domain/formatting/clear_logo_legibility.dart';
+import 'package:konata/domain/models/episode.dart';
+import 'package:konata/domain/models/media_source.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/infrastructure/cache/photos_storage.dart';
+import 'package:konata/infrastructure/cache/scan_thumbnail_scheduler.dart';
+import 'package:konata/infrastructure/database/drift_library_repository.dart';
+import 'package:konata/infrastructure/database/konata_database.dart';
+import 'package:konata/presentation/detail/detail_bottom_drawer.dart';
+import 'package:konata/presentation/detail/detail_full_list_dialog.dart';
+import 'package:konata/presentation/detail/detail_hero_info.dart';
+import 'package:konata/presentation/detail/episode_drawer_card.dart';
+import 'package:konata/presentation/detail/episode_media_info_dialog.dart';
+import 'package:konata/presentation/detail/supplementary_asset_cards.dart';
+import 'package:konata/presentation/detail/work_detail_page.dart';
+import 'package:konata/presentation/theme/konata_theme.dart';
+import 'package:konata/presentation/widgets/managed_image.dart';
 
 final Uint8List _sample1x1Png = Uint8List.fromList(const <int>[
   0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,

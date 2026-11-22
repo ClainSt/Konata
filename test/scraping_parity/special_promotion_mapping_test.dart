@@ -1,9 +1,9 @@
-import 'package:ccplayer/domain/models/episode.dart';
-import 'package:ccplayer/domain/models/media_variant.dart';
-import 'package:ccplayer/domain/models/tmdb_models.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/domain/scraping/cloud_media_asset_presentation.dart';
-import 'package:ccplayer/domain/scraping/scrape_domain_adapter.dart';
+import 'package:konata/domain/models/episode.dart';
+import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/models/tmdb_models.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/domain/scraping/cloud_media_asset_presentation.dart';
+import 'package:konata/domain/scraping/scrape_domain_adapter.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

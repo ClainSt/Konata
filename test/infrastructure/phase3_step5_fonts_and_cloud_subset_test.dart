@@ -6,13 +6,13 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
-import 'package:ccplayer/application/playback/cloud_subset_coordinator.dart';
-import 'package:ccplayer/application/playback/unified_playback_engine.dart';
-import 'package:ccplayer/domain/playback/ass_uue_font_decoder.dart';
-import 'package:ccplayer/infrastructure/players/android/android_video_surface_controller.dart';
-import 'package:ccplayer/infrastructure/storage/storage_root_provider.dart';
-import 'package:ccplayer/infrastructure/subtitles/fontinass_cloud_client.dart';
-import 'package:ccplayer/infrastructure/subtitles/subtitle_font_pool_manager.dart';
+import 'package:konata/application/playback/cloud_subset_coordinator.dart';
+import 'package:konata/application/playback/unified_playback_engine.dart';
+import 'package:konata/domain/playback/ass_uue_font_decoder.dart';
+import 'package:konata/infrastructure/players/android/android_video_surface_controller.dart';
+import 'package:konata/infrastructure/storage/storage_root_provider.dart';
+import 'package:konata/infrastructure/subtitles/fontinass_cloud_client.dart';
+import 'package:konata/infrastructure/subtitles/subtitle_font_pool_manager.dart';
 
 import '../support/phase3_test_fixtures.dart';
 

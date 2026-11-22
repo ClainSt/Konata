@@ -5,12 +5,12 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:ccplayer/domain/models/network_config.dart';
-import 'package:ccplayer/domain/models/work.dart';
-import 'package:ccplayer/infrastructure/cache/artwork_cache.dart';
-import 'package:ccplayer/infrastructure/network/priority_http_scheduler.dart';
-import 'package:ccplayer/infrastructure/network/tmdb_http_client.dart';
-import 'package:ccplayer/infrastructure/network/tmdb_service.dart';
+import 'package:konata/domain/models/network_config.dart';
+import 'package:konata/domain/models/work.dart';
+import 'package:konata/infrastructure/cache/artwork_cache.dart';
+import 'package:konata/infrastructure/network/priority_http_scheduler.dart';
+import 'package:konata/infrastructure/network/tmdb_http_client.dart';
+import 'package:konata/infrastructure/network/tmdb_service.dart';
 
 http.Response _jsonResponse(Object data, [int statusCode = 200]) {
   return http.Response.bytes(

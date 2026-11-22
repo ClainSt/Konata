@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../../domain/lyrics/lyric_candidate.dart';
 import '../../domain/lyrics/lyric_candidate_scorer.dart';
+import '../../domain/lyrics/lyric_merger.dart';
 import '../../domain/lyrics/lyric_search_query.dart';
 import 'lyric_candidate_sources.dart';
 
@@ -13,10 +14,18 @@ class LyricRaceSettlement {
     required this.anySourceResponded,
     required this.allSourcesFinished,
     required this.cancelled,
+    this.plainFallback,
+    this.allCandidates = const [],
   });
 
-  /// 全程最优合格候选（低于低置信度阈值时为空）。
+  /// 全程最优合格同步候选（经跨源验证与借译文/借罗马音增强；低于低置信度阈值时为空）。
   final ScoredLyricCandidate? best;
+
+  /// 无同步歌词时的最佳纯文本候选（保留供后续展示或对齐使用）。
+  final ScoredLyricCandidate? plainFallback;
+
+  /// 本次竞速收集到的全部合格同步候选。
+  final List<ScoredLyricCandidate> allCandidates;
 
   /// 是否至少一个来源完整正常响应。
   final bool anySourceResponded;
@@ -27,13 +36,13 @@ class LyricRaceSettlement {
   /// 是否被外部取消。
   final bool cancelled;
 
-  /// 能否写入“未找到”负缓存：全部来源结束、至少一个正常响应且无合格候选。
+  /// 能否写入“未找到”负缓存：全部来源结束、至少一个正常响应且无合格同步候选。
   bool get isConfirmedNotFound =>
       best == null && allSourcesFinished && anySourceResponded && !cancelled;
 }
 
 /// 多来源并行歌词竞速器：首个可自动采用候选出现后经短暂宽限期即上屏；
-/// 仅有低置信度候选时到达软截止即上屏；其余来源继续收集至总预算截止。
+/// 仅有低置信度候选时到达软截止即上屏；其余来源继续收集并在收束时执行跨源一致性验证与借译文/罗马音合并。
 class LyricRaceEngine {
   /// 创建竞速器。
   const LyricRaceEngine({
@@ -75,15 +84,17 @@ class LyricRaceSession {
   final Completer<ScoredLyricCandidate?> _firstPaint = Completer();
   final Completer<LyricRaceSettlement> _settled = Completer();
   final List<StreamSubscription<LyricCandidate>> _subs = [];
+  final List<LyricCandidate> _qualifiedSynced = [];
   Timer? _graceTimer;
   Timer? _softPaintTimer;
   Timer? _deadlineTimer;
   ScoredLyricCandidate? _best;
+  ScoredLyricCandidate? _bestPlain;
   var _finishedSources = 0;
   var _anyResponded = false;
   var _softPaintDue = false;
 
-  /// 首屏可显示候选（无合格候选时为空）。
+  /// 首屏可显示候选（无合格同步候选时为空）。
   Future<ScoredLyricCandidate?> get firstPaint => _firstPaint.future;
 
   /// 全部来源结束或预算截止后的最终收束结果。
@@ -122,13 +133,25 @@ class LyricRaceSession {
 
   void _onCandidate(LyricCandidate candidate) {
     if (_settled.isCompleted) return;
-    final score = LyricCandidateScorer.score(_query, candidate);
-    if (score == null || score < LyricMatchThresholds.lowConfidence) return;
-    final current = _best;
-    if (current == null || _isBetter(score, candidate, current)) {
-      _best = ScoredLyricCandidate(candidate, score);
+    final baseScore = LyricCandidateScorer.score(_query, candidate);
+    if (baseScore == null || baseScore < LyricMatchThresholds.lowConfidence) {
+      return;
     }
-    if (score >= LyricMatchThresholds.autoAccept &&
+
+    if (!candidate.isSynced) {
+      final currentPlain = _bestPlain;
+      if (currentPlain == null || baseScore > currentPlain.score) {
+        _bestPlain = ScoredLyricCandidate(candidate, baseScore);
+      }
+      return;
+    }
+
+    _qualifiedSynced.add(candidate);
+    _recomputeBest();
+
+    final best = _best;
+    if (best != null &&
+        best.score >= LyricMatchThresholds.autoAccept &&
         _graceTimer == null &&
         !_firstPaint.isCompleted) {
       _graceTimer = Timer(_engine.firstPaintGrace, _completeFirstPaintIfAny);
@@ -136,12 +159,52 @@ class LyricRaceSession {
     if (_softPaintDue) _completeFirstPaintIfAny();
   }
 
+  /// 基于已收集的全部合格同步候选执行跨源验证与借译文/借罗马音合并，并刷新当前最优候选。
+  void _recomputeBest() {
+    if (_qualifiedSynced.isEmpty) {
+      _best = null;
+      return;
+    }
+
+    ScoredLyricCandidate? best;
+    for (var i = 0; i < _qualifiedSynced.length; i++) {
+      final raw = _qualifiedSynced[i];
+      final others = <LyricCandidate>[
+        for (var j = 0; j < _qualifiedSynced.length; j++)
+          if (j != i) _qualifiedSynced[j],
+      ];
+      final enriched = others.isEmpty
+          ? CrossSourceEnrichment(
+              candidate: raw,
+              crossSourceAgreed: false,
+              borrowedTranslation: false,
+              borrowedRomaji: false,
+            )
+          : LyricMerger.enrichWithCrossSource(raw, others);
+      final score = LyricCandidateScorer.score(
+        _query,
+        enriched.candidate,
+        crossSourceAgree: enriched.crossSourceAgreed,
+      );
+      if (score == null || score < LyricMatchThresholds.lowConfidence) continue;
+      final scored = ScoredLyricCandidate(
+        enriched.candidate,
+        score,
+        crossSourceAgreed: enriched.crossSourceAgreed,
+      );
+      if (best == null || _isBetter(scored.score, scored.candidate, best)) {
+        best = scored;
+      }
+    }
+    _best = best;
+  }
+
   void _completeFirstPaintIfAny() {
     final best = _best;
     if (best != null && !_firstPaint.isCompleted) _firstPaint.complete(best);
   }
 
-  /// 得分更高者胜；得分封顶持平时按能力（逐字 > 译文）择优，保证满分候选间仍偏好更丰富的歌词。
+  /// 得分更高者胜；得分持平时按能力（逐字 > 译文 > 罗马音）择优，保证高分候选间仍偏好更丰富的歌词。
   static bool _isBetter(
     double score,
     LyricCandidate candidate,
@@ -154,7 +217,9 @@ class LyricRaceSession {
   }
 
   static int _capabilityRank(LyricCandidate c) =>
-      (c.hasWordTiming ? 2 : 0) + (c.hasTranslation ? 1 : 0);
+      (c.hasWordTiming ? 4 : 0) +
+      (c.hasTranslation ? 2 : 0) +
+      (c.hasRomaji ? 1 : 0);
 
   void _settle({bool cancelled = false}) {
     if (_settled.isCompleted) return;
@@ -162,12 +227,22 @@ class LyricRaceSession {
     _softPaintTimer?.cancel();
     _deadlineTimer?.cancel();
     for (final sub in _subs) {
-      unawaited(sub.cancel());
+      unawaited(sub.cancel().catchError((Object _) {}));
     }
+    _recomputeBest();
     if (!_firstPaint.isCompleted) _firstPaint.complete(_best);
+    final allScored = <ScoredLyricCandidate>[
+      for (final c in _qualifiedSynced)
+        if (LyricCandidateScorer.score(_query, c) case final double s
+            when s >= LyricMatchThresholds.lowConfidence)
+          ScoredLyricCandidate(c, s),
+    ]..sort((a, b) => b.score.compareTo(a.score));
+
     _settled.complete(
       LyricRaceSettlement(
         best: _best,
+        plainFallback: _bestPlain,
+        allCandidates: allScored,
         anySourceResponded: _anyResponded,
         allSourcesFinished: _finishedSources >= _sources.length,
         cancelled: cancelled,

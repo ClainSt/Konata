@@ -860,7 +860,10 @@ $uueFont
           return http.Response.bytes(
             utf8.encode(
               jsonEncode({
-                'lrc': {'lyric': '[00:01.00]勇者の旅'},
+                'lrc': {
+                  'lyric':
+                      '[00:01.00]勇者の旅\n[00:05.00]終わらない物語\n[00:09.00]記憶の中に',
+                },
               }),
             ),
             200,
@@ -875,6 +878,16 @@ $uueFont
     <span begin="00:02.00" end="00:03.50">の旅</span>
     <span ttm:role="x-bg" begin="00:01.50" end="00:03.00">Ah~</span>
     <span ttm:role="x-translation">勇者之旅</span>
+  </p>
+  <p begin="00:05.00" end="00:08.00">
+    <span begin="00:05.00" end="00:06.50">終わらない</span>
+    <span begin="00:06.50" end="00:08.00">物語</span>
+    <span ttm:role="x-translation">永不终结的故事</span>
+  </p>
+  <p begin="00:09.00" end="00:12.00">
+    <span begin="00:09.00" end="00:10.50">記憶の</span>
+    <span begin="00:10.50" end="00:12.00">中に</span>
+    <span ttm:role="x-translation">铭刻在记忆中</span>
   </p>
 </div></body></tt>
 ''';

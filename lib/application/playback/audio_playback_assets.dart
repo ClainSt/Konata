@@ -396,6 +396,7 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
         gatewayFactory: gatewayFactory,
         cueTrackTitle: item.isCueTrack ? item.title : null,
         probeEmbeddedCover: needEmbeddedProbe,
+        probeEmbeddedLyrics: !item.isCueTrack,
         probeFolderCover: needFolderCoverProbe,
         cachedSiblings: cachedSiblings,
         legacyDecoder: _ref.read(legacyCodePageDecoderProvider),
@@ -455,14 +456,22 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
         );
       }
 
-      final lrc = aux.lrc;
+      var lrc = aux.lrc;
+      var activeSpanLines = aux.activeSpanLines;
+      if ((lrc == null || lrc.lines.isEmpty) && !item.isCueTrack) {
+        final mpvEmbedded = _readMpvMetadataEmbeddedLyrics(item);
+        if (mpvEmbedded != null) {
+          lrc = mpvEmbedded.lrc;
+          activeSpanLines = mpvEmbedded.activeSpanLines;
+        }
+      }
       final hasLocalLrc = lrc != null && lrc.lines.isNotEmpty;
       if (hasLocalLrc) {
         _localLyricGeneration = generation;
         _state = _state.copyWith(
           cover: resolvedCover,
           lrcDocument: lrc,
-          activeSpanLines: aux.activeSpanLines,
+          activeSpanLines: activeSpanLines,
           activeLyricIndex: lrc.activeIndexAt(_state.positionSeconds),
           activeLyricSource: LyricSource.local,
           isLyricLookupInFlight: false,
@@ -492,6 +501,35 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
         await _resolveTrackLyrics(item, generation: generation);
       }
     }
+  }
+
+  /// 从已打开的 `libmpv` 容器元数据兜底读取 M4A/Opus 等格式的内嵌同步歌词（零额外文件读取）。
+  ({LrcDocument lrc, List<ActiveSpanLyricLine> activeSpanLines})?
+  _readMpvMetadataEmbeddedLyrics(AudioQueueItem item) {
+    final client = _client;
+    if (client == null ||
+        client.isDisposed ||
+        !client.isInitialized ||
+        _loadedPhysicalKey != item.physicalFileKey) {
+      return null;
+    }
+    const keys = <String>[
+      'metadata/by-key/lyrics',
+      'metadata/by-key/LYRICS',
+      'metadata/by-key/unsyncedlyrics',
+      'metadata/by-key/UNSYNCEDLYRICS',
+    ];
+    for (final key in keys) {
+      final raw = client.getPropertyString(key)?.trim();
+      if (raw == null || raw.isEmpty) continue;
+      final parsed = LrcParser.parseText(raw);
+      if (parsed.lines.isEmpty) continue;
+      final spans = LyricVersionMatcher.hasExplicitEnhancedTags(raw)
+          ? LyricVersionMatcher.parseActiveSpanLines(raw)
+          : const <ActiveSpanLyricLine>[];
+      return (lrc: parsed, activeSpanLines: spans);
+    }
+    return null;
   }
 
   AudioCoverSource _resolvePosterFallback(Work work) {

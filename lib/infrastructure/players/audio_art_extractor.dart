@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:isolate';
 import 'dart:typed_data';
@@ -55,6 +56,315 @@ class AudioAssetExtractor {
       return _extractId3v2Picture(bytes);
     }
     return null;
+  }
+
+  static final RegExp _lrcTimestampProbe = RegExp(r'\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]');
+
+  /// 从音乐文件前缀字节提取内嵌歌词标签文本（优先带时间戳的同步歌词，其次纯文本歌词）。
+  ///
+  /// 支持：
+  /// - **FLAC (`fLaC`)**：解析 Metadata Block Type 4 (`VORBIS_COMMENT`) 中的 `LYRICS`、`SYNCEDLYRICS`、`UNSYNCEDLYRICS`；
+  /// - **ID3v2 (`ID3` v2.2 / v2.3 / v2.4)**：解析 `USLT` / `ULT` 与自定义 `TXXX`（描述为 `LYRICS` / `UNSYNCEDLYRICS`）。
+  static String? extractEmbeddedLyricsFromHeaderBytes(
+    Uint8List bytes, {
+    LegacyCodePageDecoder? legacyDecoder,
+  }) {
+    if (bytes.length < 16) return null;
+    if (bytes[0] == 0x66 &&
+        bytes[1] == 0x4C &&
+        bytes[2] == 0x61 &&
+        bytes[3] == 0x43) {
+      return _extractFlacVorbisLyrics(bytes);
+    }
+    if (bytes[0] == 0x49 && bytes[1] == 0x44 && bytes[2] == 0x33) {
+      return _extractId3v2Lyrics(bytes, legacyDecoder: legacyDecoder);
+    }
+    return null;
+  }
+
+  /// 从同一批头部字节中同时提取内嵌封面与内嵌歌词，避免重复解析或重复读取文件头部。
+  static ({Uint8List? cover, String? lyrics})
+  extractEmbeddedHeaderAssetsFromBytes(
+    Uint8List bytes, {
+    bool probeCover = true,
+    bool probeLyrics = true,
+    LegacyCodePageDecoder? legacyDecoder,
+  }) {
+    return (
+      cover: probeCover ? extractEmbeddedCoverFromHeaderBytes(bytes) : null,
+      lyrics: probeLyrics
+          ? extractEmbeddedLyricsFromHeaderBytes(
+              bytes,
+              legacyDecoder: legacyDecoder,
+            )
+          : null,
+    );
+  }
+
+  static String? _extractFlacVorbisLyrics(Uint8List bytes) {
+    var offset = 4;
+    String? syncedBest;
+    String? lyricsTag;
+    String? unsyncedTag;
+
+    while (offset + 4 <= bytes.length) {
+      final header = bytes[offset];
+      final isLast = (header & 0x80) != 0;
+      final blockType = header & 0x7F;
+      final length =
+          (bytes[offset + 1] << 16) |
+          (bytes[offset + 2] << 8) |
+          bytes[offset + 3];
+      offset += 4;
+      if (length <= 0 || offset + length > bytes.length) break;
+      if (blockType == 4) {
+        final block = Uint8List.sublistView(bytes, offset, offset + length);
+        final found = _parseFlacVorbisCommentLyrics(block);
+        if (found.synced != null) syncedBest ??= found.synced;
+        if (found.lyrics != null) lyricsTag ??= found.lyrics;
+        if (found.unsynced != null) unsyncedTag ??= found.unsynced;
+      }
+      offset += length;
+      if (isLast) break;
+    }
+    return syncedBest ?? lyricsTag ?? unsyncedTag;
+  }
+
+  static ({String? synced, String? lyrics, String? unsynced})
+  _parseFlacVorbisCommentLyrics(Uint8List block) {
+    if (block.length < 8) return (synced: null, lyrics: null, unsynced: null);
+    final vendorLen = _readUint32Le(block, 0);
+    var cursor = 4 + vendorLen;
+    if (cursor < 4 || cursor + 4 > block.length) {
+      return (synced: null, lyrics: null, unsynced: null);
+    }
+    final count = _readUint32Le(block, cursor);
+    cursor += 4;
+
+    String? synced;
+    String? lyrics;
+    String? unsynced;
+    for (var i = 0; i < count && cursor + 4 <= block.length; i++) {
+      final len = _readUint32Le(block, cursor);
+      cursor += 4;
+      if (len <= 0 || cursor + len > block.length) break;
+      final raw = utf8.decode(
+        Uint8List.sublistView(block, cursor, cursor + len),
+        allowMalformed: true,
+      );
+      cursor += len;
+      final eq = raw.indexOf('=');
+      if (eq <= 0) continue;
+      final key = raw.substring(0, eq).trim().toUpperCase();
+      final value = raw.substring(eq + 1).trim();
+      if (value.isEmpty) continue;
+      final isLyricKey =
+          key == 'LYRICS' ||
+          key == 'SYNCEDLYRICS' ||
+          key == 'UNSYNCEDLYRICS' ||
+          key == 'UNSYNCED LYRICS';
+      if (!isLyricKey) continue;
+      if (_lrcTimestampProbe.hasMatch(value)) {
+        synced ??= value;
+      } else if (key == 'LYRICS' || key == 'SYNCEDLYRICS') {
+        lyrics ??= value;
+      } else {
+        unsynced ??= value;
+      }
+    }
+    return (synced: synced, lyrics: lyrics, unsynced: unsynced);
+  }
+
+  static String? _extractId3v2Lyrics(
+    Uint8List bytes, {
+    LegacyCodePageDecoder? legacyDecoder,
+  }) {
+    if (bytes.length < 10) return null;
+    final majorVersion = bytes[3];
+    final flags = bytes[5];
+    final tagSize = _readSyncSafeInt(bytes, 6);
+    var offset = 10;
+    if ((flags & 0x40) != 0 && offset + 4 <= bytes.length) {
+      final extSize = majorVersion >= 4
+          ? _readSyncSafeInt(bytes, offset)
+          : _readUint32Be(bytes, offset);
+      offset += extSize + (majorVersion >= 4 ? 0 : 4);
+    }
+    final tagEnd = (10 + tagSize) <= bytes.length
+        ? (10 + tagSize)
+        : bytes.length;
+
+    String? syncedBest;
+    String? plainBest;
+
+    while (offset + (majorVersion == 2 ? 6 : 10) <= tagEnd) {
+      if (bytes[offset] == 0) break;
+      final String frameId;
+      final int frameSize;
+      final int headerLen;
+      var frameFlags2 = 0;
+      if (majorVersion == 2) {
+        frameId = String.fromCharCodes(bytes.sublist(offset, offset + 3));
+        frameSize =
+            (bytes[offset + 3] << 16) |
+            (bytes[offset + 4] << 8) |
+            bytes[offset + 5];
+        headerLen = 6;
+      } else {
+        frameId = String.fromCharCodes(bytes.sublist(offset, offset + 4));
+        frameSize = majorVersion >= 4
+            ? _readSyncSafeInt(bytes, offset + 4)
+            : _readUint32Be(bytes, offset + 4);
+        frameFlags2 = bytes[offset + 9];
+        headerLen = 10;
+      }
+      offset += headerLen;
+      if (frameSize <= 0 || offset + frameSize > tagEnd) break;
+
+      if (frameId == 'USLT' || frameId == 'ULT' || frameId == 'TXXX') {
+        var payloadStart = offset;
+        // ID3v2.4 若开启数据长度指示标志，帧负载开头多出 4 字节同步安全整数。
+        if (majorVersion >= 4 && (frameFlags2 & 0x01) != 0) {
+          payloadStart += 4;
+        }
+        if (payloadStart < offset + frameSize) {
+          final frameData = Uint8List.sublistView(
+            bytes,
+            payloadStart,
+            offset + frameSize,
+          );
+          final text = frameId == 'TXXX'
+              ? _parseId3TxxxLyrics(frameData, legacyDecoder: legacyDecoder)
+              : _parseId3UsltPayload(frameData, legacyDecoder: legacyDecoder);
+          if (text != null && text.trim().isNotEmpty) {
+            final trimmed = text.trim();
+            if (_lrcTimestampProbe.hasMatch(trimmed)) {
+              syncedBest ??= trimmed;
+            } else {
+              plainBest ??= trimmed;
+            }
+          }
+        }
+      }
+      offset += frameSize;
+    }
+    return syncedBest ?? plainBest;
+  }
+
+  static String? _parseId3UsltPayload(
+    Uint8List frame, {
+    LegacyCodePageDecoder? legacyDecoder,
+  }) {
+    if (frame.length < 5) return null;
+    final encoding = frame[0];
+    // 跳过 3 字节语言码，再跳过按编码终止的描述文本。
+    var cursor = 4;
+    cursor = _skipId3EncodedString(frame, cursor, encoding);
+    if (cursor >= frame.length) return null;
+    return _decodeId3StringBytes(
+      Uint8List.sublistView(frame, cursor),
+      encoding,
+      legacyDecoder: legacyDecoder,
+    );
+  }
+
+  static String? _parseId3TxxxLyrics(
+    Uint8List frame, {
+    LegacyCodePageDecoder? legacyDecoder,
+  }) {
+    if (frame.length < 3) return null;
+    final encoding = frame[0];
+    final valueStart = _skipId3EncodedString(frame, 1, encoding);
+    if (valueStart >= frame.length) return null;
+    final termLen = (encoding == 1 || encoding == 2) ? 2 : 1;
+    final descEnd = (valueStart - termLen).clamp(1, frame.length);
+    final desc = _decodeId3StringBytes(
+      Uint8List.sublistView(frame, 1, descEnd),
+      encoding,
+      legacyDecoder: legacyDecoder,
+    ).trim().toUpperCase();
+    if (desc != 'LYRICS' &&
+        desc != 'UNSYNCEDLYRICS' &&
+        desc != 'UNSYNCED LYRICS' &&
+        desc != 'SYNCEDLYRICS') {
+      return null;
+    }
+    return _decodeId3StringBytes(
+      Uint8List.sublistView(frame, valueStart),
+      encoding,
+      legacyDecoder: legacyDecoder,
+    );
+  }
+
+  static int _skipId3EncodedString(Uint8List frame, int start, int encoding) {
+    var cursor = start;
+    if (encoding == 1 || encoding == 2) {
+      while (cursor + 1 < frame.length) {
+        if (frame[cursor] == 0 && frame[cursor + 1] == 0) {
+          return cursor + 2;
+        }
+        cursor += 2;
+      }
+      return frame.length;
+    }
+    while (cursor < frame.length && frame[cursor] != 0) {
+      cursor++;
+    }
+    return cursor < frame.length ? cursor + 1 : frame.length;
+  }
+
+  static String _decodeId3StringBytes(
+    Uint8List bytes,
+    int encoding, {
+    LegacyCodePageDecoder? legacyDecoder,
+  }) {
+    if (bytes.isEmpty) return '';
+    // 去掉尾部零填充字节，防止解码结果残留空字符。
+    var end = bytes.length;
+    if (encoding == 1 || encoding == 2) {
+      while (end >= 2 && bytes[end - 1] == 0 && bytes[end - 2] == 0) {
+        end -= 2;
+      }
+      final slice = Uint8List.sublistView(bytes, 0, end);
+      return _decodeUtf16Bytes(slice, defaultBigEndian: encoding == 2);
+    }
+    while (end > 0 && bytes[end - 1] == 0) {
+      end--;
+    }
+    final slice = Uint8List.sublistView(bytes, 0, end);
+    if (encoding == 3) {
+      return utf8.decode(slice, allowMalformed: true);
+    }
+    // 编码 0（标称 ISO-8859-1）在实际动漫曲库中常存放 GBK / Shift-JIS / UTF-8，交由多字节探测解码器兼容还原。
+    return MultibyteTextDecoder.decodeBytes(
+      slice,
+      legacyDecoder: legacyDecoder,
+    );
+  }
+
+  static String _decodeUtf16Bytes(
+    Uint8List bytes, {
+    required bool defaultBigEndian,
+  }) {
+    if (bytes.length < 2) return '';
+    var offset = 0;
+    var bigEndian = defaultBigEndian;
+    if (bytes[0] == 0xFF && bytes[1] == 0xFE) {
+      bigEndian = false;
+      offset = 2;
+    } else if (bytes[0] == 0xFE && bytes[1] == 0xFF) {
+      bigEndian = true;
+      offset = 2;
+    }
+    final codeUnits = <int>[];
+    for (var i = offset; i + 1 < bytes.length; i += 2) {
+      final unit = bigEndian
+          ? ((bytes[i] << 8) | bytes[i + 1])
+          : (bytes[i] | (bytes[i + 1] << 8));
+      if (unit == 0) continue;
+      codeUnits.add(unit);
+    }
+    return String.fromCharCodes(codeUnits);
   }
 
   static Uint8List? _extractFlacPicture(Uint8List bytes) {
@@ -191,6 +501,9 @@ class AudioAssetExtractor {
     return Uint8List.fromList(frame.sublist(cursor));
   }
 
+  /// 仅探测内嵌歌词（不探测封面）时的首段读取上限（64 KiB，覆盖 Vorbis Comment 与常规 USLT）。
+  static const int _fastEmbeddedLyricsOnlyProbeBytes = 64 * 1024;
+
   /// 两段式封面探测首段读取上限（256 KiB，覆盖大多数内嵌 JPEG 且大幅降低无封面文件的远程拉取量）。
   static const int _fastEmbeddedCoverProbeBytes = 256 * 1024;
 
@@ -233,29 +546,53 @@ class AudioAssetExtractor {
     int maxBytes = 1536 * 1024,
   }) => readBoundedRange(gateway, relativePath, start: 0, maxBytes: maxBytes);
 
-  /// 探测音频头部所需精确字节数：先拉取 256 KiB，仅在确有更大封面块时按需续读余段，无封面文件零冗余拉流。
-  static Future<Uint8List?> readEmbeddedCoverBytes(
+  /// 探测音频头部并按需一次提取内嵌封面与内嵌歌词，无封面或只需歌词时绝不冗余拉流。
+  static Future<({Uint8List? cover, String? lyrics})> readEmbeddedHeaderAssets(
     ByteRangeReadableGateway gateway,
-    String relativePath,
-  ) async {
+    String relativePath, {
+    required bool probeCover,
+    required bool probeLyrics,
+    LegacyCodePageDecoder? legacyDecoder,
+  }) async {
+    if (!probeCover && !probeLyrics) {
+      return (cover: null, lyrics: null);
+    }
+    final initialLimit = probeCover
+        ? _fastEmbeddedCoverProbeBytes
+        : _fastEmbeddedLyricsOnlyProbeBytes;
     final head = await readBoundedRange(
       gateway,
       relativePath,
       start: 0,
-      maxBytes: _fastEmbeddedCoverProbeBytes,
+      maxBytes: initialLimit,
     );
-    if (head == null || head.length < 16) return null;
+    if (head == null || head.length < 16) {
+      return (cover: null, lyrics: null);
+    }
 
-    final fastHit = head.length >= 64 * 1024
-        ? await Isolate.run(() => extractEmbeddedCoverFromHeaderBytes(head))
-        : extractEmbeddedCoverFromHeaderBytes(head);
-    if (fastHit != null && fastHit.isNotEmpty) {
-      return fastHit;
+    final canUseIsolate = head.length >= 64 * 1024 && legacyDecoder == null;
+    final firstPass = canUseIsolate
+        ? await Isolate.run(
+            () => extractEmbeddedHeaderAssetsFromBytes(
+              head,
+              probeCover: probeCover,
+              probeLyrics: probeLyrics,
+            ),
+          )
+        : extractEmbeddedHeaderAssetsFromBytes(
+            head,
+            probeCover: probeCover,
+            probeLyrics: probeLyrics,
+            legacyDecoder: legacyDecoder,
+          );
+
+    if (!probeCover || (firstPass.cover != null && firstPass.cover!.isNotEmpty)) {
+      return firstPass;
     }
 
     final requiredTotal = _estimateRequiredCoverHeaderBytes(head);
     if (requiredTotal <= head.length) {
-      return null;
+      return firstPass;
     }
     final remaining = requiredTotal - head.length;
     final tail = await readBoundedRange(
@@ -265,12 +602,44 @@ class AudioAssetExtractor {
       maxBytes: remaining,
     );
     if (tail == null || tail.isEmpty) {
-      return null;
+      return firstPass;
     }
     final merged = Uint8List(head.length + tail.length);
     merged.setRange(0, head.length, head);
     merged.setRange(head.length, merged.length, tail);
-    return Isolate.run(() => extractEmbeddedCoverFromHeaderBytes(merged));
+    final needLyricsRetry = probeLyrics && firstPass.lyrics == null;
+    final secondPass = legacyDecoder == null
+        ? await Isolate.run(
+            () => extractEmbeddedHeaderAssetsFromBytes(
+              merged,
+              probeCover: true,
+              probeLyrics: needLyricsRetry,
+            ),
+          )
+        : extractEmbeddedHeaderAssetsFromBytes(
+            merged,
+            probeCover: true,
+            probeLyrics: needLyricsRetry,
+            legacyDecoder: legacyDecoder,
+          );
+    return (
+      cover: secondPass.cover,
+      lyrics: firstPass.lyrics ?? secondPass.lyrics,
+    );
+  }
+
+  /// 探测音频头部所需精确字节数：先拉取 256 KiB，仅在确有更大封面块时按需续读余段，无封面文件零冗余拉流。
+  static Future<Uint8List?> readEmbeddedCoverBytes(
+    ByteRangeReadableGateway gateway,
+    String relativePath,
+  ) async {
+    final res = await readEmbeddedHeaderAssets(
+      gateway,
+      relativePath,
+      probeCover: true,
+      probeLyrics: false,
+    );
+    return res.cover;
   }
 
   /// 根据首段 256 KiB 容器头部判断是否存在跨段未读完的封面块及所需总字节数；确认无封面时返回 `0`。
@@ -321,16 +690,17 @@ class AudioAssetExtractor {
     return 0;
   }
 
-  /// 为当前 CD 曲目按需读取：1) 头部内嵌封面；2) 同目录封面图；3) 同名 `.lrc` 歌词。
+  /// 为当前 CD 曲目按需读取：1) 头部内嵌封面与内嵌歌词标签；2) 同目录封面图；3) 同名 `.lrc` 歌词。
   ///
-  /// 支持传入 [cachedSiblings] 及 [probeEmbeddedCover] / [probeFolderCover] 开关，
-  /// 供同专辑或同母文件 `.cue` 切轨时跳过重复头部/目录图下载，零阻塞仅探测本轨 `.lrc`。
+  /// 外挂 `.lrc` 优先于内嵌歌词标签；支持传入 [cachedSiblings] 及 [probeEmbeddedCover] /
+  /// [probeEmbeddedLyrics] / [probeFolderCover] 开关，避免同专辑或 `.cue` 切轨重复拉流。
   static Future<
     ({
       Uint8List? embeddedCover,
       Uint8List? folderCover,
       LrcDocument? lrc,
       List<ActiveSpanLyricLine> activeSpanLines,
+      String? embeddedPlainLyrics,
       List<RemoteEntry>? siblings,
     })
   >
@@ -340,6 +710,7 @@ class AudioAssetExtractor {
     required MediaSourceGatewayFactory gatewayFactory,
     String? cueTrackTitle,
     bool probeEmbeddedCover = true,
+    bool probeEmbeddedLyrics = true,
     bool probeFolderCover = true,
     List<RemoteEntry>? cachedSiblings,
     LegacyCodePageDecoder? legacyDecoder,
@@ -347,6 +718,8 @@ class AudioAssetExtractor {
     final gateway = await gatewayFactory.create(source);
     try {
       Uint8List? embeddedCover;
+      String? embeddedRawLyrics;
+      String? embeddedPlainLyrics;
       Uint8List? folderCover;
       LrcDocument? lrc;
       var activeSpanLines = const <ActiveSpanLyricLine>[];
@@ -354,11 +727,16 @@ class AudioAssetExtractor {
 
       if (gateway is ByteRangeReadableGateway) {
         final byteGateway = gateway as ByteRangeReadableGateway;
-        if (probeEmbeddedCover) {
-          embeddedCover = await readEmbeddedCoverBytes(
+        if (probeEmbeddedCover || probeEmbeddedLyrics) {
+          final embedded = await readEmbeddedHeaderAssets(
             byteGateway,
             variant.relativePath,
+            probeCover: probeEmbeddedCover,
+            probeLyrics: probeEmbeddedLyrics,
+            legacyDecoder: legacyDecoder,
           );
+          embeddedCover = embedded.cover;
+          embeddedRawLyrics = embedded.lyrics;
         }
 
         // 查找同目录封面或歌词文件（优先复用缓存目录项，避免同专辑切歌重复列举）
@@ -436,8 +814,29 @@ class AudioAssetExtractor {
             }
           }
         } catch (error) {
-      developer.log('可恢复异常已记录', name: 'konata.audio_art_extractor', error: error);
-    }
+          developer.log(
+            '可恢复异常已记录',
+            name: 'konata.audio_art_extractor',
+            error: error,
+          );
+        }
+      }
+
+      // 若未找到同目录外挂 `.lrc` 且音轨自带内嵌歌词，按本地优先级回填同步歌词或保留纯文本。
+      if ((lrc == null || lrc.lines.isEmpty) &&
+          embeddedRawLyrics != null &&
+          embeddedRawLyrics.trim().isNotEmpty) {
+        final parsed = LrcParser.parseText(embeddedRawLyrics);
+        if (parsed.lines.isNotEmpty) {
+          lrc = parsed;
+          if (LyricVersionMatcher.hasExplicitEnhancedTags(embeddedRawLyrics)) {
+            activeSpanLines = LyricVersionMatcher.parseActiveSpanLines(
+              embeddedRawLyrics,
+            );
+          }
+        } else {
+          embeddedPlainLyrics = embeddedRawLyrics.trim();
+        }
       }
 
       return (
@@ -445,6 +844,7 @@ class AudioAssetExtractor {
         folderCover: folderCover,
         lrc: lrc,
         activeSpanLines: activeSpanLines,
+        embeddedPlainLyrics: embeddedPlainLyrics,
         siblings: siblings,
       );
     } finally {
@@ -575,6 +975,9 @@ class AudioAssetExtractor {
 
   static int _readUint32Be(Uint8List b, int o) =>
       (b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3];
+
+  static int _readUint32Le(Uint8List b, int o) =>
+      b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24);
 
   static int _readSyncSafeInt(Uint8List b, int o) =>
       ((b[o] & 0x7F) << 21) |

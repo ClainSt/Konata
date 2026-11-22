@@ -2,8 +2,11 @@ import 'package:http/http.dart' as http;
 
 /// 在线歌词检索集中配置（端点、镜像、超时、竞速预算与缓存有效期）。
 abstract final class LyricLookupConfig {
-  /// 歌词引擎版本（缓存条目版本不一致时重新检索）。
-  static const int engineVersion = 1;
+  /// 歌词引擎版本（缓存条目版本不一致时自动重新检索，确保 S2 清洗与合并规则生效）。
+  static const int engineVersion = 2;
+
+  /// LRCLIB 精确时长匹配端点。
+  static const String lrclibGetEndpoint = 'https://lrclib.net/api/get';
 
   /// LRCLIB 同步歌词搜索端点。
   static const String lrclibSearchEndpoint = 'https://lrclib.net/api/search';
@@ -18,6 +21,16 @@ abstract final class LyricLookupConfig {
 
   /// 网易云搜索结果条数上限。
   static const int neteaseSearchLimit = 8;
+
+  /// QQ 音乐统一网关端点（移动端搜索与明文 LRC/译文拉取）。
+  static const String qqMusicUnifiedEndpoint =
+      'https://u.y.qq.com/cgi-bin/musicu.fcg';
+
+  /// QQ 音乐请求来源头（防盗链必需）。
+  static const String qqMusicReferer = 'https://y.qq.com/';
+
+  /// QQ 音乐单次搜索条数上限。
+  static const int qqSearchLimit = 8;
 
   /// AMLL TTML 按网易云歌曲 ID 直取的镜像基址（按优先级排列，后者作为对冲请求）。
   static const List<String> amllNcmLyricMirrors = <String>[
@@ -59,6 +72,14 @@ abstract interface class LyricHttpTransport {
     Map<String, String> headers = const {},
     required Duration timeout,
   });
+
+  /// 发起 POST 请求，超过 [timeout] 抛出超时异常。
+  Future<http.Response> post(
+    Uri uri, {
+    Map<String, String> headers = const {},
+    Object? body,
+    required Duration timeout,
+  });
 }
 
 /// 基于普通 `http.Client` 的歌词传输实现。
@@ -75,5 +96,15 @@ class ClientLyricTransport implements LyricHttpTransport {
     required Duration timeout,
   }) {
     return _client.get(uri, headers: headers).timeout(timeout);
+  }
+
+  @override
+  Future<http.Response> post(
+    Uri uri, {
+    Map<String, String> headers = const {},
+    Object? body,
+    required Duration timeout,
+  }) {
+    return _client.post(uri, headers: headers, body: body).timeout(timeout);
   }
 }

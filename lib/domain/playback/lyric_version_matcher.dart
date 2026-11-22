@@ -194,7 +194,7 @@ class LyricVersionMatcher {
         match.group(3),
       );
       var body = match.group(4)!.trim();
-      if (body.isEmpty) continue;
+      if (body.isEmpty || body.startsWith('roma:')) continue;
 
       final isHarmony = body.startsWith('bg:');
       if (isHarmony) {

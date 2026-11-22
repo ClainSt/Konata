@@ -48,9 +48,15 @@ LyricCandidate _candidate(
   String title = 'アイドル',
   String artist = 'YOASOBI',
   double duration = 213,
-  String lrc = '[00:01.00]無敵の笑顔で荒らすメディア',
+  String lrc =
+      '[00:01.00]無敵の笑顔で荒らすメディア\n'
+      '[00:05.00]知りたいその秘密ミステリアス\n'
+      '[00:09.00]抜けてるとこさえ彼女のエリア',
   bool translation = false,
   bool words = false,
+  bool romaji = false,
+  bool isSynced = true,
+  String plainLyrics = '',
 }) {
   return LyricCandidate(
     source: source,
@@ -61,6 +67,9 @@ LyricCandidate _candidate(
     lrcContent: lrc,
     hasTranslation: translation,
     hasWordTiming: words,
+    hasRomaji: romaji,
+    isSynced: isSynced,
+    plainLyrics: plainLyrics,
   );
 }
 
@@ -227,17 +236,26 @@ void main() {
       expect(settled.allSourcesFinished, isTrue);
     });
 
-    test('预算截止或取消时不判定为未找到', () async {
-      final hanging = _FakeSource('hang', const [], delay: const Duration(seconds: 5));
+    test('预算截止或取消时不判定为未找到，且在途 HTTP 超时不会抛出未捕获异常', () async {
+      final slowTimeoutTransport = ClientLyricTransport(
+        MockClient((req) async {
+          await Future<void>.delayed(const Duration(milliseconds: 120));
+          throw TimeoutException('mock timeout after cancel');
+        }),
+      );
       const engine = LyricRaceEngine(
         firstPaintGrace: Duration(milliseconds: 10),
-        lowConfidencePaintAfter: Duration(milliseconds: 40),
-        deadline: Duration(milliseconds: 80),
+        lowConfidencePaintAfter: Duration(milliseconds: 30),
+        deadline: Duration(milliseconds: 50),
       );
       final query = LyricSearchQuery(title: 'アイドル');
-      final settled = await engine.start(query, [hanging]).settled;
+      final settled = await engine.start(query, [
+        LrclibCandidateSource(LrclibLyricProvider(slowTimeoutTransport)),
+      ]).settled;
       expect(settled.best, isNull);
       expect(settled.isConfirmedNotFound, isFalse);
+      // 等待在途请求抛出超时异常，验证已被流守卫吞净且不触发未捕获异常。
+      await Future<void>.delayed(const Duration(milliseconds: 160));
     });
   });
 
@@ -347,14 +365,16 @@ void main() {
                   'trackName': 'Idol (Full Ver.)',
                   'artistName': 'YOASOBI',
                   'duration': 213.0,
-                  'syncedLyrics': '[00:01.00]Full version line',
+                  'syncedLyrics':
+                      '[00:01.00]Full version line\n[00:05.00]Second line\n[00:09.00]Third line',
                 },
                 {
                   'id': 2,
                   'trackName': 'Idol (TV Size)',
                   'artistName': 'YOASOBI',
                   'duration': 89.5,
-                  'syncedLyrics': '[00:01.00]TV size matched line',
+                  'syncedLyrics':
+                      '[00:01.00]TV size matched line\n[00:05.00]TV second line\n[00:09.00]TV third line',
                 },
               ]),
             ),

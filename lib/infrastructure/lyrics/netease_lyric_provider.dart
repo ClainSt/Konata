@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../../domain/lyrics/lyric_candidate.dart';
+import '../../domain/lyrics/lyric_merger.dart';
 import '../../domain/lyrics/lyric_search_query.dart';
 import 'lyric_http_transport.dart';
 
@@ -31,18 +32,23 @@ class NeteaseSongHit {
   final double? durationSeconds;
 }
 
-/// 网易云音乐公开接口歌曲搜索与歌词拉取。
+/// 网易云音乐公开接口歌曲搜索与歌词拉取（支持原文、中文译文、罗马音 `rv=1` 与 DP 合并清洗）。
 class NeteaseLyricProvider {
   /// 创建检索器。
   const NeteaseLyricProvider(this._transport);
 
   final LyricHttpTransport _transport;
 
-  /// 按“原始曲名 + 歌手”关键词搜索歌曲。
-  Future<List<NeteaseSongHit>> searchSongs(LyricSearchQuery query) async {
+  /// 按“原始曲名 + 歌手”或覆盖关键词搜索歌曲。
+  Future<List<NeteaseSongHit>> searchSongs(
+    LyricSearchQuery query, {
+    String? keywordOverride,
+  }) async {
+    final keyword = (keywordOverride ?? query.keyword).trim();
+    if (keyword.isEmpty) return const [];
     final uri = Uri.parse(LyricLookupConfig.neteaseSearchEndpoint).replace(
       queryParameters: {
-        's': query.keyword,
+        's': keyword,
         'type': '1',
         'limit': '${LyricLookupConfig.neteaseSearchLimit}',
         'offset': '0',
@@ -53,7 +59,9 @@ class NeteaseLyricProvider {
       timeout: LyricLookupConfig.requestTimeout,
     );
     if (resp.statusCode != 200) return const [];
-    final decoded = jsonDecode(utf8.decode(resp.bodyBytes, allowMalformed: true));
+    final decoded = jsonDecode(
+      utf8.decode(resp.bodyBytes, allowMalformed: true),
+    );
     if (decoded is! Map) return const [];
     final result = decoded['result'];
     if (result is! Map) return const [];
@@ -88,22 +96,32 @@ class NeteaseLyricProvider {
     return hits;
   }
 
-  /// 拉取原文与中文译文（同时间戳拼接，由 LRC 解析器聚合为主行 + 译文行）；无原文返回 `null`。
+  /// 拉取原文、中文译文与罗马音（`lv=1&tv=1&rv=1`），经清洗与 DP 对齐合并后输出候选；占位或无原文返回 `null`。
   Future<LyricCandidate?> fetchLyric(NeteaseSongHit hit) async {
     final uri = Uri.parse(LyricLookupConfig.neteaseLyricEndpoint).replace(
-      queryParameters: {'id': hit.id, 'lv': '1', 'tv': '1'},
+      queryParameters: {'id': hit.id, 'lv': '1', 'tv': '1', 'rv': '1'},
     );
     final resp = await _transport.get(
       uri,
       timeout: LyricLookupConfig.requestTimeout,
     );
     if (resp.statusCode != 200) return null;
-    final decoded = jsonDecode(utf8.decode(resp.bodyBytes, allowMalformed: true));
+    final decoded = jsonDecode(
+      utf8.decode(resp.bodyBytes, allowMalformed: true),
+    );
     if (decoded is! Map) return null;
     final main = _lyricText(decoded['lrc']);
     if (main.trim().isEmpty) return null;
     final translation = _lyricText(decoded['tlyric']);
-    final hasTranslation = translation.trim().isNotEmpty;
+    final romaji = _lyricText(decoded['romalrc']);
+
+    final merged = LyricMerger.mergeSameSource(
+      mainLrc: main,
+      translationLrc: translation,
+      romajiLrc: romaji,
+    );
+    if (merged.lrcContent.isEmpty) return null;
+
     return LyricCandidate(
       source: LyricSource.netease,
       sourceId: hit.id,
@@ -111,8 +129,12 @@ class NeteaseLyricProvider {
       artist: hit.artist,
       album: hit.album,
       durationSeconds: hit.durationSeconds,
-      lrcContent: hasTranslation ? '$main\n$translation' : main,
-      hasTranslation: hasTranslation,
+      lrcContent: merged.lrcContent,
+      hasTranslation: merged.hasTranslation,
+      hasRomaji: merged.hasRomaji,
+      translationLrc: translation,
+      romajiLrc: romaji,
+      credits: merged.credits,
     );
   }
 

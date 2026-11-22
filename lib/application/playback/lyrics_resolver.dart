@@ -15,12 +15,14 @@ import '../../infrastructure/lyrics/app_network_lyric_transport.dart';
 import '../../infrastructure/lyrics/lrclib_lyric_provider.dart';
 import '../../infrastructure/lyrics/lyric_http_transport.dart';
 import '../../infrastructure/lyrics/netease_lyric_provider.dart';
+import '../../infrastructure/lyrics/qqmusic_lyric_provider.dart';
 import '../../infrastructure/network/metered_network_detector.dart';
 import '../providers/diagnostics_providers.dart';
 import '../providers/library_providers.dart';
 import '../providers/scraping_providers.dart';
 import 'lyric_candidate_sources.dart';
 import 'lyric_race_engine.dart';
+import 'playback_preferences_provider.dart';
 import 'unified_playback_engine.dart';
 
 /// 单曲歌词解析请求。
@@ -314,23 +316,36 @@ final lyricsResolverProvider = Provider<LyricsResolver>((ref) {
           logStore.record('AUDIO-LYRIC', '$label 歌词检索降级忽略：$error'),
     ),
     sourcesFactory: () async {
+      final prefs = ref.read(playbackPreferencesProvider);
+      final enableNetease = prefs.lyricSourceNeteaseEnabled;
+      final enableAmll = prefs.lyricSourceAmllEnabled;
+      final enableLrclib = prefs.lyricSourceLrclibEnabled;
+      final enableQq = prefs.lyricSourceQqEnabled;
+      if (!enableNetease && !enableAmll && !enableLrclib && !enableQq) {
+        return const [];
+      }
+
       final transport = await ref.read(lyricHttpTransportProvider.future);
       final metered = await ref
           .read(meteredNetworkDetectorProvider)
           .isMeteredMobileNetwork();
       return [
-        NeteaseAmllCandidateSource(
-          netease: NeteaseLyricProvider(transport),
-          amll: AmllLyricProvider(
-            transport,
-            hedgeDelay: metered
-                ? LyricLookupConfig.amllMeteredHedgeDelay
-                : LyricLookupConfig.amllHedgeDelay,
+        if (enableNetease || enableAmll)
+          NeteaseAmllCandidateSource(
+            netease: NeteaseLyricProvider(transport),
+            amll: AmllLyricProvider(
+              transport,
+              hedgeDelay: metered
+                  ? LyricLookupConfig.amllMeteredHedgeDelay
+                  : LyricLookupConfig.amllHedgeDelay,
+            ),
+            includeNetease: enableNetease,
+            includeAmll: enableAmll,
+            onAmllError: (error) =>
+                logStore.record('AUDIO-LYRIC', 'AMLL 逐字歌词降级忽略：$error'),
           ),
-          onAmllError: (error) =>
-              logStore.record('AUDIO-LYRIC', 'AMLL 逐字歌词降级忽略：$error'),
-        ),
-        LrclibCandidateSource(LrclibLyricProvider(transport)),
+        if (enableQq) QqMusicCandidateSource(QqMusicLyricProvider(transport)),
+        if (enableLrclib) LrclibCandidateSource(LrclibLyricProvider(transport)),
       ];
     },
   );

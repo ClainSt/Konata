@@ -24,17 +24,9 @@ if (-not $jdk) {
 }
 if ($jdk) { $env:JAVA_HOME = $jdk }
 $keytool = if ($jdk) { Join-Path $jdk 'bin/keytool.exe' } else { 'keytool.exe' }
-$konataStore = Join-Path $env:USERPROFILE '.konata/konata-release.p12'
-$legacyStore = Join-Path $env:USERPROFILE '.ccplayer/ccplayer-release.p12'
-if (Test-Path -LiteralPath $konataStore -PathType Leaf) {
-    $store = $konataStore
-    $keyAlias = 'konata'
-} elseif (Test-Path -LiteralPath $legacyStore -PathType Leaf) {
-    $store = $legacyStore
-    $keyAlias = 'ccplayer'
-} else {
-    throw "找不到发布密钥 $konataStore（或兼容旧密钥 $legacyStore）"
-}
+$store = Join-Path $env:USERPROFILE '.konata/konata-release.p12'
+$keyAlias = 'konata'
+if (!(Test-Path -LiteralPath $store -PathType Leaf)) { throw "找不到发布密钥 $store" }
 $statusDir = Join-Path $project 'build'
 $null = New-Item -ItemType Directory -Force -Path $statusDir
 $statusFile = Join-Path $statusDir 'android-signing-status.txt'

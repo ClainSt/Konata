@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/artwork_provider.dart';
@@ -70,7 +70,7 @@ class _HiddenWorksDialogState extends ConsumerState<HiddenWorksDialog> {
     final p = context.palette;
     final hiddenAsync = ref.watch(hiddenWorksProvider);
     final pathsAsync = ref.watch(_hiddenWorkSourcePathsProvider);
-    final pathMap = pathsAsync.valueOrNull ?? const <String, String>{};
+    final pathMap = pathsAsync.value ?? const <String, String>{};
     final imageLoader = ref.watch(tmdbImageLoaderProvider);
     final size = MediaQuery.sizeOf(context);
     final maxAllowedWidth = math.max(

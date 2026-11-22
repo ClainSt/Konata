@@ -4,6 +4,7 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:sqlite3/sqlite3.dart' as sq;
 
 import '../../domain/models/episode.dart';
 import '../../domain/models/media_source.dart';
@@ -477,8 +478,50 @@ class KonataDatabase extends _$KonataDatabase {
     },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON');
+      // 幂等创建核心高频查询与排序覆盖索引，消除全表扫描与临时 B-Tree 排序。
+      for (final sql in _secondaryIndexStatements) {
+        await customStatement(sql);
+      }
     },
   );
+
+  /// 本地数据库统一 SQLite 性能 PRAGMA 参数配置（WAL + 8 MiB 页缓存 + 内存临时表）。
+  static void configureSqlitePragmas(
+    sq.Database rawDb, {
+    int cacheSizeKib = 8192,
+    int mmapSizeBytes = 0,
+  }) {
+    rawDb.execute('PRAGMA journal_mode = WAL;');
+    rawDb.execute('PRAGMA synchronous = NORMAL;');
+    rawDb.execute('PRAGMA temp_store = MEMORY;');
+    rawDb.execute('PRAGMA cache_size = -$cacheSizeKib;');
+    if (mmapSizeBytes > 0) {
+      rawDb.execute('PRAGMA mmap_size = $mmapSizeBytes;');
+    }
+  }
+
+  static const List<String> _secondaryIndexStatements = <String>[
+    'CREATE INDEX IF NOT EXISTS idx_episodes_work_order '
+        'ON episodes (work_id, season_number, episode_number)',
+    'CREATE INDEX IF NOT EXISTS idx_media_variants_work '
+        'ON media_variants (work_id)',
+    'CREATE INDEX IF NOT EXISTS idx_media_variants_source '
+        'ON media_variants (source_id)',
+    'CREATE INDEX IF NOT EXISTS idx_media_variants_episode '
+        'ON media_variants (episode_id)',
+    'CREATE INDEX IF NOT EXISTS idx_playback_records_work_played '
+        'ON playback_records (work_id, played_at DESC)',
+    'CREATE INDEX IF NOT EXISTS idx_playback_records_work_episode '
+        'ON playback_records (work_id, episode_id)',
+    'CREATE INDEX IF NOT EXISTS idx_playback_records_played '
+        'ON playback_records (played_at DESC)',
+    'CREATE INDEX IF NOT EXISTS idx_works_series '
+        'ON works (series_id)',
+    'CREATE INDEX IF NOT EXISTS idx_works_hidden '
+        'ON works (is_hidden)',
+    'CREATE INDEX IF NOT EXISTS idx_ignored_folders_source '
+        'ON ignored_folders (source_id)',
+  ];
 }
 
 LazyDatabase _openConnection() {
@@ -489,12 +532,7 @@ LazyDatabase _openConnection() {
     // 直接通过 sqlite3 FFI + WAL 模式访问本地元数据库，消除常驻后台 Drift Isolate 堆拷贝与跨 Isolate 序列化开销。
     return NativeDatabase(
       file,
-      setup: (rawDb) {
-        rawDb.execute('PRAGMA journal_mode = WAL;');
-        rawDb.execute('PRAGMA synchronous = NORMAL;');
-        rawDb.execute('PRAGMA temp_store = MEMORY;');
-        rawDb.execute('PRAGMA cache_size = -128;');
-      },
+      setup: (rawDb) => KonataDatabase.configureSqlitePragmas(rawDb),
     );
   });
 }

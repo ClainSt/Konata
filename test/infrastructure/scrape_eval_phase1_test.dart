@@ -583,11 +583,20 @@ void main() {
         isTrue,
       );
 
+      // 预编译单次 Kernel 快照供后续 4 次独立子进程冒烟复用，避免 Dart 3.14 每次 `dart run` 重复触发原生资产构建钩子。
+      final dillPath =
+          '${tempDir.path}${Platform.pathSeparator}eval_scraper.dill';
+      final rCompile = await Process.run(
+        'dart',
+        ['compile', 'kernel', 'tool/eval_scraper.dart', '-o', dillPath],
+        runInShell: Platform.isWindows,
+      );
+      expect(rCompile.exitCode, 0, reason: '${rCompile.stderr}');
+
       final rParse = await Process.run(
         'dart',
         [
-          'run',
-          'tool/eval_scraper.dart',
+          dillPath,
           '--parse-only',
           '--eval-dir=${tempDir.path}',
         ],
@@ -604,8 +613,7 @@ void main() {
       final rInit = await Process.run(
         'dart',
         [
-          'run',
-          'tool/eval_scraper.dart',
+          dillPath,
           '--init-golden',
           '--sample-size=20',
           '--eval-dir=${tempDir.path}',
@@ -622,8 +630,7 @@ void main() {
       final rGolden = await Process.run(
         'dart',
         [
-          'run',
-          'tool/eval_scraper.dart',
+          dillPath,
           '--golden',
           '--offline',
           '--eval-dir=${tempDir.path}',
@@ -635,8 +642,7 @@ void main() {
       final rAccept = await Process.run(
         'dart',
         [
-          'run',
-          'tool/eval_scraper.dart',
+          dillPath,
           '--accept-baseline',
           '--eval-dir=${tempDir.path}',
         ],
@@ -649,6 +655,6 @@ void main() {
         ).existsSync(),
         isTrue,
       );
-    });
+    }, timeout: const Timeout(Duration(seconds: 90)));
   });
 }

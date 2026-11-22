@@ -31,6 +31,7 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
     bool preserveErrorToast = false,
   }) async {
     if (index < 0 || index >= _state.queue.length || !mounted) return;
+    _clearPendingGaplessAppendTransition();
     _ref.read(lyricLookupCoordinatorProvider).cancelPendingLookups();
     if (!isRetryAttempt) {
       _trackRetryCount = 0;
@@ -129,7 +130,7 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
           AudioPlaybackNotifier._cueSeekDebounceWindow,
         );
         client.setPropertyFlag('pause', false);
-        client.command(['seek', start.toStringAsFixed(3), 'absolute', 'exact']);
+        client.commandAsync(0, ['seek', start.toStringAsFixed(3), 'absolute', 'exact']);
         _syncAudioSpecBadges();
         if (mounted) {
           final lyricIdx =
@@ -151,6 +152,7 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
           ),
         );
         unawaited(_loadAuxiliaryAssets(item, generation: generation));
+        _syncAudioBackgroundTimers();
         return;
       }
 
@@ -184,7 +186,15 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
           target: prefetched.target,
           streamToken: prefetched.streamToken,
         );
-        displacedMainToken = _engine.promotePrefetchLeaseToMain();
+        if (prefetched.streamToken != null) {
+          displacedMainToken = _engine.promotePrefetchLeaseToMain();
+        } else {
+          _engine.beginPhysicalMedia(
+            nativeInstanceId: _boundNativeInstanceId,
+            stage: PlaybackStageKind.audio,
+          );
+          displacedMainToken = previousMainToken;
+        }
         _boundPhysicalEpoch = _engine.physicalMediaEpoch;
       } else {
         await _releasePrefetchLeaseIfAny();
@@ -235,7 +245,7 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
         client.setPropertyString('start', 'none');
       }
       client.setPropertyFlag('pause', false);
-      final cmdRc = client.command(['loadfile', resolved.target, 'replace']);
+      final cmdRc = client.commandAsync(0, ['loadfile', resolved.target, 'replace']);
       if (displacedMainToken != null &&
           displacedMainToken != resolved.streamToken) {
         unawaited(_unregisterStreamToken(displacedMainToken));
@@ -288,7 +298,8 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
     }
   }
 
-  /// 当前远程音轨装载成功后，按独立预取租约静默准备下一物理文件（严禁覆盖当前主流租约）。
+  /// 当前音轨装载成功后，为下一物理文件预备远程流租约并经 `loadfile ... append` 接入
+  /// `libmpv` 原生无缝播放列表（配合 `prefetch-playlist=yes` 与 `gapless-audio=weak` 实现 0 ms 硬件衔接）。
   Future<void> _scheduleGaplessNextTrackPrefetch({
     required int generation,
   }) async {
@@ -305,39 +316,74 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
     if (current == null || nextItem.physicalFileKey == current.physicalFileKey) {
       return;
     }
-    final nextSource = nextItem.source;
-    if (nextSource == null || nextSource.kind == MediaSourceKind.local) {
+    if (_prefetchedNextTrack?.physicalFileKey == nextItem.physicalFileKey &&
+        _prefetchedNextTrack?.queueIndex == nextIdx) {
       return;
     }
-    if (_prefetchedNextTrack?.physicalFileKey == nextItem.physicalFileKey) {
+    final nextSource = nextItem.source;
+    final isNextRemote =
+        nextSource != null && nextSource.kind != MediaSourceKind.local;
+    final canAppendMpvPlaylist =
+        !nextItem.isCueTrack || (nextItem.cueStartSeconds ?? 0.0) <= 0.001;
+    // 本地文件仅在允许原生 playlist append 时才预挂；远程文件则始终预备流租约以消除换曲建连延迟。
+    if (!isNextRemote && !canAppendMpvPlaylist) {
       return;
     }
     try {
       final resolved = await _resolvePlaybackTarget(nextItem);
-      if (!mounted ||
-          !_state.isActive ||
-          generation != _loadGeneration ||
-          resolved.streamToken == null) {
+      if (!mounted || !_state.isActive || generation != _loadGeneration) {
         if (resolved.streamToken != null) {
           unawaited(_unregisterStreamToken(resolved.streamToken!));
         }
         return;
       }
-      final displacedPrefetch = _engine.bindPrefetchStreamLease(
-        resolved.streamToken!,
-      );
+      if (isNextRemote && resolved.streamToken == null) {
+        return;
+      }
+      String? displacedPrefetch;
+      if (resolved.streamToken != null) {
+        displacedPrefetch = _engine.bindPrefetchStreamLease(
+          resolved.streamToken!,
+        );
+      }
+      var mpvPlaylistQueued = false;
+      final client = _client;
+      if (canAppendMpvPlaylist &&
+          client != null &&
+          !client.isDisposed &&
+          client.isInitialized) {
+        client.command(['playlist-clear']);
+        final appendRc = client.command(['loadfile', resolved.target, 'append']);
+        final playlistCount = client.getPropertyInt64('playlist-count') ?? 0;
+        mpvPlaylistQueued = appendRc >= 0 && playlistCount >= 2;
+      }
       _prefetchedNextTrack = (
+        queueIndex: nextIdx,
         physicalFileKey: nextItem.physicalFileKey,
         target: resolved.target,
-        streamToken: resolved.streamToken!,
+        streamToken: resolved.streamToken,
+        mpvPlaylistQueued: mpvPlaylistQueued,
       );
       if (displacedPrefetch != null &&
           displacedPrefetch != resolved.streamToken) {
         unawaited(_unregisterStreamToken(displacedPrefetch));
       }
     } catch (e) {
-      _logStore.record('AUDIO', '预取下一远程曲目流租约忽略：$e');
+      _logStore.record('AUDIO', '预取下一曲目无缝队列忽略：$e');
     }
+  }
+
+  void _clearMpvAppendedPlaylist() {
+    final c = _client;
+    if (c != null && !c.isDisposed && c.isInitialized) {
+      c.command(['playlist-clear']);
+    }
+  }
+
+  void _clearPendingGaplessAppendTransition() {
+    _gaplessAppendFallbackTimer?.cancel();
+    _gaplessAppendFallbackTimer = null;
+    _pendingGaplessAppendTransition = null;
   }
 
   Future<void> _releasePrefetchLeaseIfAny() async {
@@ -465,6 +511,16 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
     if (!mounted) return;
     switch (event) {
       case MpvStartFileEvent(:final playlistEntryId):
+        final pendingGapless = _pendingGaplessAppendTransition;
+        if (pendingGapless != null &&
+            playlistEntryId > 0 &&
+            playlistEntryId != (_engine.currentPlaylistEntryId ?? 0)) {
+          _completeGaplessAppendPromotion(
+            pendingGapless,
+            playlistEntryId: playlistEntryId,
+          );
+          return;
+        }
         if (playlistEntryId > 0) {
           _engine.bindPlaylistEntryId(playlistEntryId);
         }
@@ -485,6 +541,8 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
           _startMicroFadeInRamp(_client!);
         }
         _refreshProbeFromClient();
+        _syncAudioBackgroundTimers();
+        _scheduleEffectiveProgressCheckIfNeeded();
         final auxJob = _pendingRemoteAuxJob;
         if (auxJob != null && auxJob.generation == _loadGeneration) {
           _pendingRemoteAuxJob = null;
@@ -532,6 +590,10 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
   void _handlePropertyChange(MpvPropertyChangeEvent e) {
     switch (e.replyUserdata) {
       case AudioPlaybackNotifier._propTimePos:
+        if (_progressObservationMode ==
+            AudioProgressObservationMode.suspended) {
+          return;
+        }
         final rawPos = e.doubleValue;
         if (rawPos == null) return;
         _updateTrackProgress(rawPos);
@@ -539,10 +601,12 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
         final rawDur = e.doubleValue;
         if (rawDur == null || rawDur <= 0) return;
         _applyRawFileDuration(rawDur);
+        _syncAudioBackgroundTimers();
       case AudioPlaybackNotifier._propPause:
         final paused = e.boolValue;
         if (paused != null) {
           _state = _state.copyWith(isPlaying: !paused);
+          _syncAudioBackgroundTimers();
         }
       case AudioPlaybackNotifier._propCoreIdle:
         final idle = e.boolValue ?? false;
@@ -651,14 +715,30 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
       _engine.recordEffectiveProgress(audioAdvancedMs: advancedMs);
     }
     final lyricIdx = _state.lrcDocument?.activeIndexAt(relPos) ?? -1;
-    _state = _state.copyWith(positionSeconds: relPos, activeLyricIndex: lyricIdx);
-    unawaited(
-      _persistAudioProgress(
-        item,
+    // 始终通过轻量 ValueNotifier 以原始高频推送至进度条/扫白叶子；
+    // 主 Riverpod 状态仅在切行或跨整秒边界时同步，彻底消除 60Hz × 100 行歌词的无效选择器扇出。
+    _positionListenable.value = relPos;
+    if (lyricIdx != _state.activeLyricIndex ||
+        relPos.floor() != _state.positionSeconds.floor() ||
+        (relPos - _state.positionSeconds).abs() >= 1.0) {
+      _state = _state.copyWith(
         positionSeconds: relPos,
-        durationSeconds: _state.durationSeconds,
-      ),
-    );
+        activeLyricIndex: lyricIdx,
+      );
+    }
+    final lastPersist = _lastAudioPersistAt;
+    if (!_persistInFlight &&
+        (lastPersist == null ||
+            DateTime.now().difference(lastPersist) >=
+                const Duration(seconds: 5))) {
+      unawaited(
+        _persistAudioProgress(
+          item,
+          positionSeconds: relPos,
+          durationSeconds: _state.durationSeconds,
+        ),
+      );
+    }
   }
 
   /// 同母文件自然播放跨越 CUE 分轨边界时直接原子推进状态，严禁调用 seek/loadfile 引发爆音卡顿。
@@ -717,6 +797,7 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
       ),
     );
     unawaited(_loadAuxiliaryAssets(nextItem, generation: nextGen));
+    _syncAudioBackgroundTimers();
   }
 
   /// 统一按当前活跃装填世代与 `UnifiedPlaybackEngine` 校验去重处理音轨自然完播。
@@ -745,8 +826,47 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
     if (handledEntry > 0) {
       _eofHandledMpvEntryId = handledEntry;
     }
-    _loadedPhysicalKey = null;
     _isTransitioningCueBoundary = false;
+
+    // 若已向 libmpv 原生播放列表追加下一物理曲目（prefetch-playlist=yes），
+    // 等待 ~1ms 内的 MpvStartFileEvent 原地完成零间隙晋升，绝不调用 loadfile replace 打断硬件缓冲。
+    final nextIdx = _resolveNextSequentialIndex();
+    final prefetched = _prefetchedNextTrack;
+    if (nextIdx != null &&
+        prefetched != null &&
+        prefetched.mpvPlaylistQueued &&
+        prefetched.queueIndex == nextIdx &&
+        nextIdx < _state.queue.length &&
+        _state.queue[nextIdx].physicalFileKey == prefetched.physicalFileKey) {
+      _persistCompletedCurrentTrack();
+      _prefetchedNextTrack = null;
+      final expectedGen = _loadGeneration;
+      _pendingGaplessAppendTransition = (
+        expectedIndex: nextIdx,
+        physicalFileKey: prefetched.physicalFileKey,
+        streamToken: prefetched.streamToken,
+        generation: expectedGen,
+      );
+      _gaplessAppendFallbackTimer?.cancel();
+      _gaplessAppendFallbackTimer = Timer(
+        const Duration(milliseconds: 180),
+        () {
+          final stillPending = _pendingGaplessAppendTransition;
+          if (!mounted ||
+              stillPending == null ||
+              stillPending.generation != _loadGeneration) {
+            return;
+          }
+          _pendingGaplessAppendTransition = null;
+          _loadedPhysicalKey = null;
+          final gen = ++_loadGeneration;
+          unawaited(_startTrackAtIndex(stillPending.expectedIndex, generation: gen));
+        },
+      );
+      return;
+    }
+
+    _loadedPhysicalKey = null;
     unawaited(_advanceOnTrackCompleted());
   }
 

@@ -1,10 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_localizations/flutter_localizations.dart' show GlobalWidgetsLocalizations;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -35,22 +36,37 @@ import 'package:ccplayer/presentation/video/video_hardware_surface.dart';
 import 'package:ccplayer/presentation/video/video_side_sheet.dart';
 
 class _R3FakeVideoController extends VideoPlaybackController {
-  _R3FakeVideoController(super.ref, super.request)
-    : super(deferBootstrap: true) {
-    state = state.copyWith(
+  _R3FakeVideoController(
+    super.request, {
+    bool windowsUnderlay = false,
+    String? renderBackend,
+    List<ScreenshotCaptureMode>? capturedModes,
+  }) : _initialWindowsUnderlay = windowsUnderlay,
+       _initialRenderBackend = renderBackend,
+       capturedModes = capturedModes ?? <ScreenshotCaptureMode>[],
+       super(deferBootstrap: true);
+
+  final bool _initialWindowsUnderlay;
+  final String? _initialRenderBackend;
+  final List<ScreenshotCaptureMode> capturedModes;
+  final List<({int leftPx, int topPx, int rightPx, int bottomPx, double radiusPx, bool visible})>
+  windowsUnderlayCalls = [];
+
+  @override
+  VideoPlaybackState build() {
+    return super.build().copyWith(
       isInitializing: false,
       isBuffering: false,
       hasFirstFrame: true,
       isPlaying: true,
-      textureId: 101,
+      textureId: _initialWindowsUnderlay ? -1 : 101,
+      windowsUnderlayActive: _initialWindowsUnderlay,
+      renderBackend: _initialRenderBackend ??
+          (_initialWindowsUnderlay ? 'gpu_next' : null),
       durationSeconds: 1440.0,
       positionSeconds: 120.0,
     );
   }
-
-  final List<ScreenshotCaptureMode> capturedModes = <ScreenshotCaptureMode>[];
-  final List<({int leftPx, int topPx, int rightPx, int bottomPx, double radiusPx, bool visible})>
-  windowsUnderlayCalls = [];
 
   @override
   Future<void> syncWindowsUnderlayViewport({
@@ -98,9 +114,8 @@ class _R3FakeVideoController extends VideoPlaybackController {
 }
 
 class _R3StaticAudioNotifier extends AudioPlaybackNotifier {
-  _R3StaticAudioNotifier(super.ref, AudioPlaybackState initial) {
-    state = initial;
-  }
+  _R3StaticAudioNotifier(AudioPlaybackState initial)
+    : super(initialState: initial);
 }
 
 class _R3RecordingOptionClient implements LibMpvClient {
@@ -137,7 +152,7 @@ class _R3RecordingOptionClient implements LibMpvClient {
   int command(List<String> args) => 0;
 
   @override
-  int commandAsync(int replyUserdata, List<String> args) => 0;
+  int commandAsync(int replyUserdata, List<String> args) => command(args);
 
   @override
   Future<void> dispose() async {
@@ -266,7 +281,7 @@ void main() {
             ProviderScope(
               overrides: [
                 videoPlaybackProvider(req).overrideWith(
-                  (ref) => _R3FakeVideoController(ref, req),
+                  () => _R3FakeVideoController(req),
                 ),
               ],
               child: MaterialApp(
@@ -360,8 +375,8 @@ void main() {
           await tester.pumpWidget(
             ProviderScope(
               overrides: [
-                videoPlaybackProvider(req).overrideWith((ref) {
-                  fakeCtrl = _R3FakeVideoController(ref, req);
+                videoPlaybackProvider(req).overrideWith(() {
+                  fakeCtrl = _R3FakeVideoController(req);
                   return fakeCtrl;
                 }),
               ],
@@ -482,7 +497,7 @@ void main() {
           final container = ProviderContainer(
             overrides: [
               audioPlaybackProvider.overrideWith(
-                (ref) => _R3StaticAudioNotifier(ref, activeAudioState),
+                () => _R3StaticAudioNotifier(activeAudioState),
               ),
             ],
           );
@@ -620,9 +635,9 @@ void main() {
         expect(gpuNextRecorder.options['fbo-format'], equals('rgba16hf'));
         expect(gpuNextRecorder.options['target-colorspace-hint'], equals('auto'));
 
-        final fp16Recorder = _R3RecordingOptionClient();
+        final shared10BitRecorder = _R3RecordingOptionClient();
         MpvQualityProfile.applyPreInitVideoOptions(
-          fp16Recorder,
+          shared10BitRecorder,
           config: const PlaybackQualityConfig(
             outputPipelineMode: VideoOutputPipelineMode.legacyTextureFallback,
           ),
@@ -631,9 +646,26 @@ void main() {
           isAndroidOverride: false,
           desktopDelegate: const WindowsMpvProfileDelegate(),
         );
-        expect(fp16Recorder.options['vo'], equals('libmpv'));
-        expect(fp16Recorder.options['fbo-format'], equals('rgba16hf'));
-        expect(fp16Recorder.options['target-colorspace-hint'], equals('auto'));
+        expect(shared10BitRecorder.options['vo'], equals('libmpv'));
+        expect(shared10BitRecorder.options['fbo-format'], equals('rgb10_a2'));
+        expect(
+          shared10BitRecorder.options['target-colorspace-hint'],
+          equals('auto'),
+        );
+
+        final layeredFp16Recorder = _R3RecordingOptionClient();
+        MpvQualityProfile.applyPreInitVideoOptions(
+          layeredFp16Recorder,
+          config: const PlaybackQualityConfig(
+            outputPipelineMode: VideoOutputPipelineMode.layeredFp16,
+          ),
+          mpvConfigDir: tempDir,
+          isWindowsOverride: true,
+          isAndroidOverride: false,
+          desktopDelegate: const WindowsMpvProfileDelegate(),
+        );
+        expect(layeredFp16Recorder.options['vo'], equals('libmpv'));
+        expect(layeredFp16Recorder.options['fbo-format'], equals('rgba16hf'));
 
         // 2. 在 Windows 主机强制加载真实 native/konata-native/windows/libmpv-2.dll 实测校验参数接受度。
         if (Platform.isWindows) {
@@ -695,9 +727,12 @@ void main() {
           await tester.pumpWidget(
             ProviderScope(
               overrides: [
-                videoPlaybackProvider(req).overrideWith((ref) {
-                  fakeCtrl = _R3FakeVideoController(ref, req)
-                    ..enableWindowsUnderlay();
+                videoPlaybackProvider(req).overrideWith(() {
+                  fakeCtrl = _R3FakeVideoController(
+                    req,
+                    windowsUnderlay: true,
+                    renderBackend: 'gpu_next',
+                  );
                   return fakeCtrl;
                 }),
               ],
@@ -728,24 +763,44 @@ void main() {
 
           // 验证输出后端偏好经 SharedPreferences 持久化重载不丢失。
           await tester.runAsync(() async {
-            final prefsNotifier = PlaybackPreferencesNotifier(
-              enablePersistence: true,
-              desktopDelegate: const WindowsMpvProfileDelegate(),
+            final c1 = ProviderContainer(
+              overrides: [
+                playbackPreferencesProvider.overrideWith(
+                  () => PlaybackPreferencesNotifier(
+                    enablePersistence: true,
+                    desktopDelegate: const WindowsMpvProfileDelegate(),
+                  ),
+                ),
+              ],
             );
-            await prefsNotifier.setOutputPipelineMode(
-              VideoOutputPipelineMode.layered10Bit,
+            final c2 = ProviderContainer(
+              overrides: [
+                playbackPreferencesProvider.overrideWith(
+                  () => PlaybackPreferencesNotifier(
+                    enablePersistence: true,
+                    desktopDelegate: const WindowsMpvProfileDelegate(),
+                  ),
+                ),
+              ],
             );
-            final reloaded = PlaybackPreferencesNotifier(
-              enablePersistence: true,
-              desktopDelegate: const WindowsMpvProfileDelegate(),
-            );
-            await Future<void>.delayed(const Duration(milliseconds: 40));
-            expect(
-              reloaded.state.qualityConfig.outputPipelineMode,
-              equals(VideoOutputPipelineMode.layered10Bit),
-            );
-            prefsNotifier.dispose();
-            reloaded.dispose();
+            try {
+              await c1
+                  .read(playbackPreferencesProvider.notifier)
+                  .setOutputPipelineMode(VideoOutputPipelineMode.layered10Bit);
+              // 触发第二容器加载已持久化配置。
+              c2.read(playbackPreferencesProvider);
+              await Future<void>.delayed(const Duration(milliseconds: 40));
+              expect(
+                c2
+                    .read(playbackPreferencesProvider)
+                    .qualityConfig
+                    .outputPipelineMode,
+                equals(VideoOutputPipelineMode.layered10Bit),
+              );
+            } finally {
+              c1.dispose();
+              c2.dispose();
+            }
           });
 
           await tester.pumpWidget(const SizedBox.shrink());
@@ -770,8 +825,8 @@ void main() {
           var collapsedCount = 0;
           final container = ProviderContainer(
             overrides: [
-              videoPlaybackProvider(req).overrideWith((ref) {
-                fakeCtrl = _R3FakeVideoController(ref, req);
+              videoPlaybackProvider(req).overrideWith(() {
+                fakeCtrl = _R3FakeVideoController(req);
                 return fakeCtrl;
               }),
             ],
@@ -863,8 +918,8 @@ void main() {
           await tester.pumpWidget(
             ProviderScope(
               overrides: [
-                videoPlaybackProvider(req).overrideWith((ref) {
-                  fakeCtrl = _R3FakeVideoController(ref, req);
+                videoPlaybackProvider(req).overrideWith(() {
+                  fakeCtrl = _R3FakeVideoController(req);
                   return fakeCtrl;
                 }),
               ],
@@ -919,7 +974,12 @@ void main() {
           await tester.pumpWidget(
             ProviderScope(
               overrides: [
-                videoPlaybackProvider(req).overrideWith((ref) => fakeCtrl),
+                videoPlaybackProvider(req).overrideWith(
+                  () => _R3FakeVideoController(
+                    req,
+                    capturedModes: fakeCtrl.capturedModes,
+                  ),
+                ),
               ],
               child: MaterialApp(
                 theme: KonataTheme.darkTheme(),
@@ -994,14 +1054,13 @@ void main() {
           await tester.pumpWidget(
             ProviderScope(
               overrides: [
-                videoPlaybackProvider(req).overrideWith((ref) {
-                  final ctrl = _R3FakeVideoController(ref, req);
-                  ctrl.state = ctrl.state.copyWith(
-                    windowsUnderlayActive: true,
+                videoPlaybackProvider(req).overrideWith(
+                  () => _R3FakeVideoController(
+                    req,
+                    windowsUnderlay: true,
                     renderBackend: 'gpu_next',
-                  );
-                  return ctrl;
-                }),
+                  ),
+                ),
               ],
               child: MaterialApp(
                 theme: KonataTheme.darkTheme(),
@@ -1064,14 +1123,13 @@ void main() {
             ProviderScope(
               key: const ValueKey('fallback_texture_scope'),
               overrides: [
-                videoPlaybackProvider(req).overrideWith((ref) {
-                  final ctrl = _R3FakeVideoController(ref, req);
-                  ctrl.state = ctrl.state.copyWith(
-                    windowsUnderlayActive: false,
+                videoPlaybackProvider(req).overrideWith(
+                  () => _R3FakeVideoController(
+                    req,
+                    windowsUnderlay: false,
                     renderBackend: 'd3d11_fp16',
-                  );
-                  return ctrl;
-                }),
+                  ),
+                ),
               ],
               child: MaterialApp(
                 theme: KonataTheme.darkTheme(),

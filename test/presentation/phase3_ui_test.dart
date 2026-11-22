@@ -1,10 +1,10 @@
 import 'dart:convert';
 
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -686,7 +686,7 @@ void main() {
       );
     });
 
-    testWidgets('WindowControls 随 WindowListener 最大化与还原回调同步图标状态', (
+    testWidgets('WindowControls 随原生窗口最大化与还原事件同步图标状态', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -700,15 +700,16 @@ void main() {
       expect(find.byIcon(Icons.crop_square_rounded), findsOneWidget);
       expect(find.byIcon(Icons.filter_none_rounded), findsNothing);
 
-      final listener =
-          tester.state(find.byType(WindowControls)) as WindowListener;
-      listener.onWindowMaximize();
+      final controlsState = tester.state<WindowControlsState>(
+        find.byType(WindowControls),
+      );
+      controlsState.handleWindowEvent(const WindowMaximizedEvent(windowId: 1));
       await tester.pump();
 
       expect(find.byIcon(Icons.filter_none_rounded), findsOneWidget);
       expect(find.byIcon(Icons.crop_square_rounded), findsNothing);
 
-      listener.onWindowUnmaximize();
+      controlsState.handleWindowEvent(const WindowRestoredEvent(windowId: 1));
       await tester.pump();
 
       expect(find.byIcon(Icons.crop_square_rounded), findsOneWidget);

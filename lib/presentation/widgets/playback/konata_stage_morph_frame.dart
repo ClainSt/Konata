@@ -1,22 +1,46 @@
+import 'dart:async';
 import 'dart:ui';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../application/providers/konata_value_notifier.dart';
+import '../../shell/adaptive_capsule_layout.dart' show FloatingMiniPlayerKind;
 import '../../theme/konata_playback_tokens.dart';
 
+export '../../shell/adaptive_capsule_layout.dart' show FloatingMiniPlayerKind;
+
 /// 详情页源卡片起播时的全局矩形坐标（用于驱动「详情页源卡片 ↔ 全屏舞台」物理弹簧形变）。
-final stageMorphOriginRectProvider = StateProvider<Rect?>((ref) => null);
+final stageMorphOriginRectProvider =
+    NotifierProvider<KonataValueNotifier<Rect?>, Rect?>(
+      () => KonataValueNotifier<Rect?>.value(null),
+    );
+
+/// 详情页源卡片起播时记录的目标舞台类型（防止 CD/Scan 等非视频卡片矩形串扰视频展开形变）。
+final stageMorphOriginKindProvider =
+    NotifierProvider<
+      KonataValueNotifier<FloatingMiniPlayerKind?>,
+      FloatingMiniPlayerKind?
+    >(() => KonataValueNotifier<FloatingMiniPlayerKind?>.value(null));
 
 /// 下拉收起全屏舞台时记录的真实拖拽释放速度（逻辑像素/秒，传递给反向 `SpringSimulation` 继承惯性）。
-final stageMorphReleaseVelocityProvider = StateProvider<double>((ref) => 0.0);
+final stageMorphReleaseVelocityProvider =
+    NotifierProvider<KonataValueNotifier<double>, double>(
+      () => KonataValueNotifier<double>.value(0.0),
+    );
 
 /// 视频全屏舞台正处于反向弹簧收起过渡期标记（过渡结束当帧原子移交 `GlobalObjectKey` 至悬浮小窗）。
-final stageMorphReverseVideoActiveProvider = StateProvider<bool>((ref) => false);
+final stageMorphReverseVideoActiveProvider =
+    NotifierProvider<KonataValueNotifier<bool>, bool>(
+      () => KonataValueNotifier<bool>.value(false),
+    );
 
 /// 捕获详情页剧集/CD 源卡片当前的全局矩形并登记至舞台弹簧起点。
-void captureStageMorphOriginRect(BuildContext context) {
+void captureStageMorphOriginRect(
+  BuildContext context, {
+  FloatingMiniPlayerKind? kind,
+}) {
   final renderObject = context.findRenderObject();
   if (renderObject is! RenderBox || !renderObject.hasSize) return;
   final topLeft = renderObject.localToGlobal(Offset.zero);
@@ -24,8 +48,19 @@ void captureStageMorphOriginRect(BuildContext context) {
   if (size.width <= 0 || size.height <= 0) return;
   final scope = context.findAncestorWidgetOfExactType<UncontrolledProviderScope>();
   if (scope == null) return;
+  scope.container.read(stageMorphOriginKindProvider.notifier).state = kind;
   scope.container.read(stageMorphOriginRectProvider.notifier).state =
       topLeft & size;
+}
+
+/// 清空已消费的舞台形变起点记录，避免残留旧卡片坐标串扰后续无起点起播。
+void clearStageMorphOrigin(WidgetRef ref) {
+  if (ref.read(stageMorphOriginRectProvider) != null) {
+    ref.read(stageMorphOriginRectProvider.notifier).state = null;
+  }
+  if (ref.read(stageMorphOriginKindProvider) != null) {
+    ref.read(stageMorphOriginKindProvider.notifier).state = null;
+  }
 }
 
 /// 详情页源卡片 / 悬浮小窗与全屏舞台之间的双向临界阻尼 `SpringSimulation` 视口矩形与圆角连续形变容器。
@@ -42,6 +77,7 @@ class KonataStageMorphFrame extends StatefulWidget {
     required this.child,
     this.isCollapsing = false,
     this.releaseVelocityPxPerSec = 0.0,
+    this.onExpandCompleted,
     this.onCollapseCompleted,
   });
 
@@ -60,6 +96,9 @@ class KonataStageMorphFrame extends StatefulWidget {
   /// 手势松手瞬间的真实释放初速度（逻辑像素/秒）。
   final double releaseVelocityPxPerSec;
 
+  /// 展开弹簧到达全屏稳态并停钟后的回调（用于切入根 Overlay 不透明剪枝模式）。
+  final VoidCallback? onExpandCompleted;
+
   /// 反向收起弹簧到达终态并停钟后的原子移交回调。
   final VoidCallback? onCollapseCompleted;
 
@@ -72,9 +111,11 @@ class KonataStageMorphFrameState extends State<KonataStageMorphFrame>
     with SingleTickerProviderStateMixin {
   final GlobalKey _stableChildKey = GlobalKey();
   AnimationController? _controller;
+  Timer? _collapseFailsafeTimer;
   Rect? _anchorRect;
   bool _morphing = false;
   bool _runningCollapse = false;
+  bool _expandSettledNotified = false;
   double _lastAppliedNormalizedVelocity = 0.0;
 
   /// 最近一次驱动 `SpringSimulation` 传入的归一化初速度。
@@ -93,6 +134,21 @@ class KonataStageMorphFrameState extends State<KonataStageMorphFrame>
     _anchorRect = widget.originRect;
   }
 
+  void _cancelCollapseFailsafe() {
+    _collapseFailsafeTimer?.cancel();
+    _collapseFailsafeTimer = null;
+  }
+
+  void _finishCollapseNow() {
+    _cancelCollapseFailsafe();
+    _controller?.stop();
+    if (!mounted) return;
+    if (!_runningCollapse && !_morphing) return;
+    _runningCollapse = false;
+    _morphing = false;
+    widget.onCollapseCompleted?.call();
+  }
+
   double _normalizeVelocity(double velocityPxPerSec, double viewportHeight) {
     if (viewportHeight <= 0 || velocityPxPerSec == 0.0) return 0.0;
     return (velocityPxPerSec / viewportHeight).clamp(-12.0, 12.0);
@@ -103,11 +159,24 @@ class KonataStageMorphFrameState extends State<KonataStageMorphFrame>
       ..addStatusListener(_onStatusChanged);
   }
 
+  void _notifyExpandCompletedOnce() {
+    if (_expandSettledNotified || !mounted || widget.isCollapsing) return;
+    _expandSettledNotified = true;
+    widget.onExpandCompleted?.call();
+  }
+
   void _startForwardMorph(double initialVelocity) {
+    _cancelCollapseFailsafe();
     final anchor = _anchorRect;
-    if (anchor == null) return;
+    if (anchor == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _notifyExpandCompletedOnce();
+      });
+      return;
+    }
     _ensureController();
     _runningCollapse = false;
+    _expandSettledNotified = false;
     _morphing = true;
     _lastAppliedNormalizedVelocity = initialVelocity;
     final sim = SpringSimulation(
@@ -121,14 +190,20 @@ class KonataStageMorphFrameState extends State<KonataStageMorphFrame>
   }
 
   void _startCollapseMorph() {
+    _cancelCollapseFailsafe();
+    _expandSettledNotified = false;
     final disableAnimations =
         MediaQuery.maybeDisableAnimationsOf(context) ?? false;
     final targetRect = widget.originRect ?? _anchorRect;
     final fullSize = MediaQuery.maybeSizeOf(context) ?? Size.zero;
+    final current = (_morphing && _controller != null)
+        ? _controller!.value.clamp(0.0, 1.0)
+        : 1.0;
     if (disableAnimations ||
         targetRect == null ||
         fullSize.width <= 0 ||
-        fullSize.height <= 0) {
+        fullSize.height <= 0 ||
+        current <= 0.01) {
       _controller?.stop();
       _morphing = false;
       _runningCollapse = false;
@@ -141,7 +216,6 @@ class KonataStageMorphFrameState extends State<KonataStageMorphFrame>
     }
     _ensureController();
     _anchorRect = targetRect;
-    final current = _morphing ? _controller!.value.clamp(0.0, 1.0) : 1.0;
     // 下拉手势向下释放（primaryVelocity > 0）对应进度由 1.0 向 0.0 加速收拢（负向初速度）。
     final normalizedRelease = _normalizeVelocity(
       widget.releaseVelocityPxPerSec.abs(),
@@ -158,6 +232,14 @@ class KonataStageMorphFrameState extends State<KonataStageMorphFrame>
       tolerance: const Tolerance(distance: 1e-3, velocity: 1e-3),
     );
     _controller!.animateWith(sim);
+    _collapseFailsafeTimer = Timer(
+      KonataPlaybackTokens.stageMorphCollapseFailsafeTimeout,
+      () {
+        if (mounted && _runningCollapse) {
+          _finishCollapseNow();
+        }
+      },
+    );
   }
 
   @override
@@ -172,6 +254,10 @@ class KonataStageMorphFrameState extends State<KonataStageMorphFrame>
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) widget.onCollapseCompleted?.call();
         });
+      } else {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _notifyExpandCompletedOnce();
+        });
       }
       return;
     }
@@ -184,6 +270,10 @@ class KonataStageMorphFrameState extends State<KonataStageMorphFrame>
         fullSize.height,
       );
       _startForwardMorph(normalizedVel);
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _notifyExpandCompletedOnce();
+      });
     }
   }
 
@@ -206,6 +296,7 @@ class KonataStageMorphFrameState extends State<KonataStageMorphFrame>
   void _onStatusChanged(AnimationStatus status) {
     if (status == AnimationStatus.completed ||
         status == AnimationStatus.dismissed) {
+      _cancelCollapseFailsafe();
       _controller?.stop();
       if (!mounted) return;
       final wasCollapse = _runningCollapse;
@@ -218,12 +309,14 @@ class KonataStageMorphFrameState extends State<KonataStageMorphFrame>
           _morphing = false;
           _anchorRect = null;
         });
+        _notifyExpandCompletedOnce();
       }
     }
   }
 
   @override
   void dispose() {
+    _cancelCollapseFailsafe();
     _controller
       ?..removeStatusListener(_onStatusChanged)
       ..dispose();

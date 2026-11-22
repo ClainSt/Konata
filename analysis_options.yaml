@@ -9,6 +9,8 @@ analyzer:
     - build/**
     - tool/**
     - release/**
+    - android/**
+    - windows/**
 
 linter:
   rules:

@@ -1,9 +1,9 @@
 import 'dart:ui' show FontVariation, PointerDeviceKind;
 
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ccplayer/application/providers/library_providers.dart';
@@ -25,9 +25,7 @@ import 'package:ccplayer/presentation/widgets/design_system/konata_surface_card.
 import 'package:ccplayer/presentation/widgets/playback/konata_playback_capsule.dart';
 
 class _FakeScrapeController extends ScrapeController {
-  _FakeScrapeController(super.ref, ScrapeProgress initial) {
-    state = initial;
-  }
+  _FakeScrapeController(ScrapeProgress initial) : super(initialState: initial);
 }
 
 Widget _wrapUiApp(
@@ -128,8 +126,7 @@ void main() {
           overrides: [
             libraryRepositoryProvider.overrideWithValue(repo),
             scrapeControllerProvider.overrideWith(
-              (ref) => _FakeScrapeController(
-                ref,
+              () => _FakeScrapeController(
                 const ScrapeProgress(
                   phase: ScrapePhase.completed,
                   sourceId: 'src_1',

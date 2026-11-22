@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -48,6 +48,9 @@ class _KonataHardwareVideoSurfaceState
   VideoPlaybackController? _cachedVideoController;
   Size? _lastReportedSurfaceSize;
   double? _lastReportedDpr;
+  Size? _pendingMiniSurfaceSize;
+  double? _pendingMiniDpr;
+  Timer? _miniResizeDebounceTimer;
   bool _windowsUnderlayVisible = false;
 
   @override
@@ -68,6 +71,8 @@ class _KonataHardwareVideoSurfaceState
 
   @override
   void dispose() {
+    _miniResizeDebounceTimer?.cancel();
+    _miniResizeDebounceTimer = null;
     final ctrl = _androidUnderlayController;
     _androidUnderlayController = null;
     if (ctrl != null) {
@@ -226,24 +231,59 @@ class _KonataHardwareVideoSurfaceState
           builder: (context, constraints) {
             final dpr = MediaQuery.devicePixelRatioOf(context);
             final sz = Size(constraints.maxWidth, constraints.maxHeight);
-            if (!widget.miniPreview &&
-                (_lastReportedSurfaceSize != sz || _lastReportedDpr != dpr)) {
-              _lastReportedSurfaceSize = sz;
-              _lastReportedDpr = dpr;
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted && sz.width > 0 && sz.height > 0) {
+            if (!widget.miniPreview) {
+              _miniResizeDebounceTimer?.cancel();
+              _miniResizeDebounceTimer = null;
+              _pendingMiniSurfaceSize = null;
+              _pendingMiniDpr = null;
+              if (_lastReportedSurfaceSize != sz || _lastReportedDpr != dpr) {
+                _lastReportedSurfaceSize = sz;
+                _lastReportedDpr = dpr;
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted && sz.width > 0 && sz.height > 0) {
+                    controller.notifySurfaceViewportSize(
+                      sz.width,
+                      sz.height,
+                      dpr,
+                    );
+                  }
+                });
+              }
+            } else if (sz.width > 0 &&
+                sz.height > 0 &&
+                (_lastReportedSurfaceSize != sz || _lastReportedDpr != dpr) &&
+                (_pendingMiniSurfaceSize != sz || _pendingMiniDpr != dpr)) {
+              // 悬浮小窗稳态延迟缩降 D3D11 共享纹理分辨率，释放原全屏大尺寸显存与着色开销；
+              // 期间若迅速还原全屏则立即取消防抖并零延迟恢复 1:1 全屏分辨率。
+              _miniResizeDebounceTimer?.cancel();
+              _pendingMiniSurfaceSize = sz;
+              _pendingMiniDpr = dpr;
+              _miniResizeDebounceTimer = Timer(
+                KonataPlaybackTokens.miniSurfaceResizeDebounce,
+                () {
+                  _miniResizeDebounceTimer = null;
+                  _pendingMiniSurfaceSize = null;
+                  _pendingMiniDpr = null;
+                  if (!mounted || !widget.miniPreview) return;
+                  _lastReportedSurfaceSize = sz;
+                  _lastReportedDpr = dpr;
                   controller.notifySurfaceViewportSize(
                     sz.width,
                     sz.height,
                     dpr,
                   );
-                }
-              });
+                },
+              );
             }
             return SizedBox.expand(
-              child: Texture(
-                textureId: texId,
-                filterQuality: FilterQuality.medium,
+              child: RepaintBoundary(
+                child: Texture(
+                  textureId: texId,
+                  // 1:1 物理像素全屏纹理直出禁用二次重采样，更锐利且免去每帧 Mipmap 带宽；小窗缩降时保持中档抗锯齿。
+                  filterQuality: widget.miniPreview
+                      ? FilterQuality.medium
+                      : FilterQuality.none,
+                ),
               ),
             );
           },

@@ -1,8 +1,9 @@
 import 'dart:convert';
 
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -95,9 +96,7 @@ class _FakeBrowserActions extends KonataActionsCoordinator {
 }
 
 class _FakeScrapeController extends ScrapeController {
-  _FakeScrapeController(super.ref, ScrapeProgress initial) {
-    state = initial;
-  }
+  _FakeScrapeController(ScrapeProgress initial) : super(initialState: initial);
 
   bool cancelCalled = false;
   List<String>? lastScannedRoots;
@@ -279,8 +278,8 @@ void main() {
           const SourcesPage(),
           overrides: [
             libraryRepositoryProvider.overrideWithValue(repo),
-            scrapeControllerProvider.overrideWith((ref) {
-              controller = _FakeScrapeController(ref, initialProgress);
+            scrapeControllerProvider.overrideWith(() {
+              controller = _FakeScrapeController(initialProgress);
               return controller;
             }),
           ],
@@ -636,7 +635,7 @@ void main() {
       }
     });
 
-    testWidgets('showKonataToast 固定于底部安全区上方水平居中，4 秒自动淡出且支持 × 关闭', (
+    testWidgets('showKonataToast 在桌面窗口正中弹出毛玻璃胶囊，报错使用红色区分，4 秒自动淡出且支持 × 关闭', (
       tester,
     ) async {
       tester.view.physicalSize = const Size(1280, 720);
@@ -661,13 +660,14 @@ void main() {
       showKonataToast(capturedContext, '已完成元数据刷新');
       await tester.pumpAndSettle();
 
+      final capsuleFinder = find.byKey(const ValueKey('konata_toast_capsule'));
       final toastFinder = find.text('已完成元数据刷新');
+      expect(capsuleFinder, findsOneWidget);
       expect(toastFinder, findsOneWidget);
       expect(find.byKey(const ValueKey('konata_toast_close')), findsOneWidget);
-      final center = tester.getCenter(toastFinder);
-      expect(center.dx, closeTo(640, 40));
-      expect(center.dy, greaterThan(620));
-      expect(center.dy, lessThan(705));
+      final center = tester.getCenter(capsuleFinder);
+      expect(center.dx, closeTo(640, 20));
+      expect(center.dy, closeTo(360, 20));
 
       // 3 秒时仍可见，满 4 秒后自动淡出关闭。
       await tester.pump(const Duration(seconds: 3));
@@ -675,6 +675,28 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
       await tester.pumpAndSettle();
       expect(toastFinder, findsNothing);
+
+      // 报错复用完全一致的居中胶囊结构，仅以红色底色/边框/图标区分。
+      showKonataToast(capturedContext, '连通测试失败', isError: true);
+      await tester.pumpAndSettle();
+      final errCenter = tester.getCenter(capsuleFinder);
+      expect(errCenter.dx, closeTo(640, 20));
+      expect(errCenter.dy, closeTo(360, 20));
+      expect(
+        find.descendant(
+          of: capsuleFinder,
+          matching: find.byIcon(Icons.error_outline_rounded),
+        ),
+        findsOneWidget,
+      );
+      final decorated = tester.widget<DecoratedBox>(
+        find.descendant(of: capsuleFinder, matching: find.byType(DecoratedBox)),
+      );
+      final boxDec = decorated.decoration as BoxDecoration;
+      expect(boxDec.color, equals(KonataTheme.toastErrorDarkSurface));
+      await tester.tap(find.byKey(const ValueKey('konata_toast_close')));
+      await tester.pumpAndSettle();
+      expect(capsuleFinder, findsNothing);
     });
   });
 }

@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/playback/audio_playback_notifier.dart';
@@ -290,14 +290,25 @@ class _ActiveKaraokeSweepLeafState
   late final AnimationController _sweepController;
   late double _windowStart;
   late double _windowEnd;
+  AudioPlaybackNotifier? _boundNotifier;
+
+  void _onPositionTick() {
+    if (!mounted) return;
+    final pos = _boundNotifier?.currentPositionSeconds ?? 0.0;
+    final isPlaying = ref.read(audioPlaybackProvider.select((s) => s.isPlaying));
+    _syncAnimation(pos, isPlaying);
+  }
 
   @override
   void initState() {
     super.initState();
     _sweepController = AnimationController(vsync: this);
     _recomputeWindow();
+    final notifier = ref.read(audioPlaybackProvider.notifier);
+    _boundNotifier = notifier;
+    notifier.positionListenable.addListener(_onPositionTick);
     final snap = ref.read(audioPlaybackProvider);
-    _syncAnimation(snap.positionSeconds, snap.isPlaying);
+    _syncAnimation(notifier.currentPositionSeconds, snap.isPlaying);
   }
 
   @override
@@ -311,13 +322,16 @@ class _ActiveKaraokeSweepLeafState
         oldWidget.leadSpans != widget.leadSpans ||
         oldWidget.harmonySpans != widget.harmonySpans) {
       _recomputeWindow();
+      final notifier = ref.read(audioPlaybackProvider.notifier);
       final snap = ref.read(audioPlaybackProvider);
-      _syncAnimation(snap.positionSeconds, snap.isPlaying);
+      _syncAnimation(notifier.currentPositionSeconds, snap.isPlaying);
     }
   }
 
   @override
   void dispose() {
+    _boundNotifier?.positionListenable.removeListener(_onPositionTick);
+    _boundNotifier = null;
     _sweepController.dispose();
     super.dispose();
   }
@@ -392,11 +406,12 @@ class _ActiveKaraokeSweepLeafState
 
   @override
   Widget build(BuildContext context) {
-    ref.listen<({double pos, bool isPlaying})>(
-      audioPlaybackProvider.select(
-        (s) => (pos: s.positionSeconds, isPlaying: s.isPlaying),
+    ref.listen<bool>(
+      audioPlaybackProvider.select((s) => s.isPlaying),
+      (_, isPlaying) => _syncAnimation(
+        ref.read(audioPlaybackProvider.notifier).currentPositionSeconds,
+        isPlaying,
       ),
-      (_, next) => _syncAnimation(next.pos, next.isPlaying),
     );
 
     final p = widget.palette;
@@ -496,36 +511,37 @@ class ImmersiveAudioCapsuleDockLeaf extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final timing = ref.watch(
-      audioPlaybackProvider.select(
-        (s) => (pos: s.positionSeconds, dur: s.durationSeconds),
-      ),
+    final durationSeconds = ref.watch(
+      audioPlaybackProvider.select((s) => s.durationSeconds),
     );
-    return RepaintBoundary(
-      child: KonataPlaybackCapsule(
-        maxWidth: maxWidth,
-        leading: leading,
-        title: title,
-        positionSeconds: timing.pos,
-        durationSeconds: timing.dur,
-        isPlaying: isPlaying,
-        onTogglePlayPause: notifier.togglePlayPause,
-        onSeek: notifier.seekRelativeTrackSeconds,
-        onPrevious: notifier.previous,
-        onNext: notifier.next,
-        leadingCenterButton: KonataAudioLoopButton(
-          icon: switch (loopMode) {
-            AudioLoopMode.sequence => Icons.trending_flat_rounded,
-            AudioLoopMode.loopAll => Icons.repeat_rounded,
-            AudioLoopMode.loopOne => Icons.repeat_one_rounded,
-          },
-          tooltip: '循环模式：${loopMode.label}',
-          highlighted: loopMode != AudioLoopMode.sequence,
-          onTap: notifier.cycleLoopMode,
+    return ValueListenableBuilder<double>(
+      valueListenable: notifier.positionListenable,
+      builder: (_, posSeconds, _) => RepaintBoundary(
+        child: KonataPlaybackCapsule(
+          maxWidth: maxWidth,
+          leading: leading,
+          title: title,
+          positionSeconds: posSeconds,
+          durationSeconds: durationSeconds,
+          isPlaying: isPlaying,
+          onTogglePlayPause: notifier.togglePlayPause,
+          onSeek: notifier.seekRelativeTrackSeconds,
+          onPrevious: notifier.previous,
+          onNext: notifier.next,
+          leadingCenterButton: KonataAudioLoopButton(
+            icon: switch (loopMode) {
+              AudioLoopMode.sequence => Icons.trending_flat_rounded,
+              AudioLoopMode.loopAll => Icons.repeat_rounded,
+              AudioLoopMode.loopOne => Icons.repeat_one_rounded,
+            },
+            tooltip: '循环模式：${loopMode.label}',
+            highlighted: loopMode != AudioLoopMode.sequence,
+            onTap: notifier.cycleLoopMode,
+          ),
+          trailingCenterPrimaryButton: trailingCenterPrimaryButton,
+          trailingCenterButtons: trailingCenterButtons,
+          rightSlot: rightSlot,
         ),
-        trailingCenterPrimaryButton: trailingCenterPrimaryButton,
-        trailingCenterButtons: trailingCenterButtons,
-        rightSlot: rightSlot,
       ),
     );
   }
@@ -555,92 +571,98 @@ class _ImmersiveTouchAudioScrubberLeafState
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final timing = ref.watch(
-      audioPlaybackProvider.select(
-        (s) => (pos: s.positionSeconds, dur: s.durationSeconds),
-      ),
+    final durationSeconds = ref.watch(
+      audioPlaybackProvider.select((s) => s.durationSeconds),
     );
-    final total = timing.dur > 0 ? timing.dur : 0.0;
-    final effective = (_dragSeconds ?? timing.pos).clamp(
-      0.0,
-      total > 0 ? total : 1.0,
-    );
+    final total = durationSeconds > 0 ? durationSeconds : 0.0;
     final showHours = total >= 3600;
-    final posText = PlaybackFormatters.formatMediaDuration(
-      total > 0 ? effective : 0.0,
-      alwaysShowHours: showHours,
-    );
     final durText = PlaybackFormatters.formatMediaDuration(
       total,
       alwaysShowHours: showHours,
     );
 
-    return RepaintBoundary(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: KonataPlaybackTokens.touchScrubberTrackHeight,
-              thumbShape: const RoundSliderThumbShape(
-                enabledThumbRadius:
-                    KonataPlaybackTokens.touchScrubberThumbRadius,
-              ),
-              overlayShape: const RoundSliderOverlayShape(
-                overlayRadius: KonataPlaybackTokens.touchScrubberOverlayRadius,
-              ),
-              activeTrackColor: p.progressFill,
-              inactiveTrackColor: p.progressTrack,
-              thumbColor: p.textPrimary,
-            ),
-            child: SizedBox(
-              height: widget.compact
-                  ? KonataPlaybackTokens.touchScrubberCompactHeight
-                  : KonataPlaybackTokens.touchScrubberHeight,
-              child: Slider(
-                value: total > 0 ? (effective / total).clamp(0.0, 1.0) : 0.0,
-                onChangeStart: total > 0
-                    ? (v) => setState(() => _dragSeconds = v * total)
-                    : null,
-                onChanged: total > 0
-                    ? (v) => setState(() => _dragSeconds = v * total)
-                    : null,
-                onChangeEnd: total > 0
-                    ? (v) {
-                        final target = v * total;
-                        setState(() => _dragSeconds = null);
-                        widget.notifier.seekRelativeTrackSeconds(target);
-                      }
-                    : null,
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  posText,
-                  style: TextStyle(
-                    color: p.textSecondary,
-                    fontSize: KonataPlaybackTokens.touchScrubberTimeFontSize,
-                    fontFeatures: KonataPlaybackTokens.tabularNumbers,
+    return ValueListenableBuilder<double>(
+      valueListenable: widget.notifier.positionListenable,
+      builder: (context, livePos, _) {
+        final effective = (_dragSeconds ?? livePos).clamp(
+          0.0,
+          total > 0 ? total : 1.0,
+        );
+        final posText = PlaybackFormatters.formatMediaDuration(
+          total > 0 ? effective : 0.0,
+          alwaysShowHours: showHours,
+        );
+        return RepaintBoundary(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: KonataPlaybackTokens.touchScrubberTrackHeight,
+                  thumbShape: const RoundSliderThumbShape(
+                    enabledThumbRadius:
+                        KonataPlaybackTokens.touchScrubberThumbRadius,
+                  ),
+                  overlayShape: const RoundSliderOverlayShape(
+                    overlayRadius:
+                        KonataPlaybackTokens.touchScrubberOverlayRadius,
+                  ),
+                  activeTrackColor: p.progressFill,
+                  inactiveTrackColor: p.progressTrack,
+                  thumbColor: p.textPrimary,
+                ),
+                child: SizedBox(
+                  height: widget.compact
+                      ? KonataPlaybackTokens.touchScrubberCompactHeight
+                      : KonataPlaybackTokens.touchScrubberHeight,
+                  child: Slider(
+                    value: total > 0 ? (effective / total).clamp(0.0, 1.0) : 0.0,
+                    onChangeStart: total > 0
+                        ? (v) => setState(() => _dragSeconds = v * total)
+                        : null,
+                    onChanged: total > 0
+                        ? (v) => setState(() => _dragSeconds = v * total)
+                        : null,
+                    onChangeEnd: total > 0
+                        ? (v) {
+                            final target = v * total;
+                            setState(() => _dragSeconds = null);
+                            widget.notifier.seekRelativeTrackSeconds(target);
+                          }
+                        : null,
                   ),
                 ),
-                Text(
-                  durText,
-                  style: TextStyle(
-                    color: p.textSecondary,
-                    fontSize: KonataPlaybackTokens.touchScrubberTimeFontSize,
-                    fontFeatures: KonataPlaybackTokens.tabularNumbers,
-                  ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      posText,
+                      style: TextStyle(
+                        color: p.textSecondary,
+                        fontSize:
+                            KonataPlaybackTokens.touchScrubberTimeFontSize,
+                        fontFeatures: KonataPlaybackTokens.tabularNumbers,
+                      ),
+                    ),
+                    Text(
+                      durText,
+                      style: TextStyle(
+                        color: p.textSecondary,
+                        fontSize:
+                            KonataPlaybackTokens.touchScrubberTimeFontSize,
+                        fontFeatures: KonataPlaybackTokens.tabularNumbers,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

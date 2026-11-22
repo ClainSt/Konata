@@ -30,10 +30,13 @@ import '../../infrastructure/players/libmpv_ffi.dart';
 import '../../infrastructure/players/mpv_quality_profile.dart';
 import '../../infrastructure/players/mpv_thumbnail_service.dart';
 import '../../infrastructure/storage/storage_root_provider.dart';
+import '../../infrastructure/storage/temp_cache_pruner.dart';
+import '../../infrastructure/sources/byte_stream_source_gateway.dart';
 import '../../infrastructure/stream_bridge/local_stream_bridge.dart';
 import '../../infrastructure/subtitles/fontinass_cloud_client.dart';
 import '../providers/diagnostics_providers.dart';
 import '../providers/library_providers.dart';
+import '../providers/memory_coordinator.dart';
 import '../providers/platform_capability.dart';
 import '../providers/playback_providers.dart';
 import 'audio_playback_notifier.dart';
@@ -83,6 +86,14 @@ class VideoLaunchRequest {
   );
 }
 
+/// 视频播放器发往全站统一居中悬浮胶囊的瞬态提示载荷（递增序号确保同文案可重复触发）。
+typedef VideoTransientNotice = ({
+  int seq,
+  String message,
+  bool isError,
+  Duration duration,
+});
+
 /// 内置视频播放页面完整不可变视图状态。
 class VideoPlaybackState {
   /// 创建内置视频播放状态。
@@ -123,9 +134,10 @@ class VideoPlaybackState {
     this.subtitleOpenCcMode = SubtitleOpenCcMode.none,
     this.secondarySubtitleTrackId,
     this.activeSubtitleSubsetState,
+    this.isApplyingCloudSubset = false,
     this.trackMemory = const CrossEpisodeTrackMemory(),
     this.activeSkipWindow,
-    this.transientBanner,
+    this.transientNotice,
     this.errorMessage,
   });
 
@@ -171,10 +183,16 @@ class VideoPlaybackState {
 
   /// 当前外挂字幕探测到的字体子集三态分类（用于界面展示混淆子集防乱码保护徽标）。
   final SubtitleSubsetState? activeSubtitleSubsetState;
+
+  /// 当前是否正在执行云端字幕字体子集化请求（防止重复触发并驱动按钮加载反馈）。
+  final bool isApplyingCloudSubset;
   final CrossEpisodeTrackMemory trackMemory;
   final DetectedSkipWindow? activeSkipWindow;
-  final String? transientBanner;
+  final VideoTransientNotice? transientNotice;
   final String? errorMessage;
+
+  /// 最近一次瞬态提示文案（供外部轻量读取或日志检查）。
+  String? get transientBanner => transientNotice?.message;
 
   VideoPlaybackState copyWith({
     bool? isInitializing,
@@ -215,11 +233,12 @@ class VideoPlaybackState {
     bool clearSecondarySubtitleTrackId = false,
     SubtitleSubsetState? activeSubtitleSubsetState,
     bool clearActiveSubtitleSubsetState = false,
+    bool? isApplyingCloudSubset,
     CrossEpisodeTrackMemory? trackMemory,
     DetectedSkipWindow? activeSkipWindow,
     bool clearSkipWindow = false,
-    String? transientBanner,
-    bool clearTransientBanner = false,
+    VideoTransientNotice? transientNotice,
+    bool clearTransientNotice = false,
     String? errorMessage,
     bool clearError = false,
   }) {
@@ -266,13 +285,15 @@ class VideoPlaybackState {
       activeSubtitleSubsetState: clearActiveSubtitleSubsetState
           ? null
           : (activeSubtitleSubsetState ?? this.activeSubtitleSubsetState),
+      isApplyingCloudSubset:
+          isApplyingCloudSubset ?? this.isApplyingCloudSubset,
       trackMemory: trackMemory ?? this.trackMemory,
       activeSkipWindow: clearSkipWindow
           ? null
           : (activeSkipWindow ?? this.activeSkipWindow),
-      transientBanner: clearTransientBanner
+      transientNotice: clearTransientNotice
           ? null
-          : (transientBanner ?? this.transientBanner),
+          : (transientNotice ?? this.transientNotice),
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
     );
   }
@@ -280,49 +301,70 @@ class VideoPlaybackState {
 
 /// 内置 `libmpv` 视频播放控制器（收敛于 `UnifiedPlaybackEngine` 四维代数与熔断器、
 /// 音视频共享发烧音频安全链路、`WatchedTracker` 持久化、跨季连播与 1Hz 探针采集中枢）。
-class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
+class VideoPlaybackController extends Notifier<VideoPlaybackState> {
   /// 创建视频播放控制器。
   VideoPlaybackController(
-    this._ref,
     this.request, {
     this.sessionFactory,
     this.deferBootstrap = false,
-  }) : _sessionMutex = _ref.read(embeddedSessionMutexProvider),
-       _engine = _ref.read(unifiedPlaybackEngineProvider),
-       _safetyCoordinator = _ref.read(audiophileSafetyCoordinatorProvider),
-       _streamBridge = _ref.read(localStreamBridgeProvider),
-       _logStore = _ref.read(diagnosticsLogStoreProvider),
-       super(
-         VideoPlaybackState(
-           currentWork: request.work,
-           currentBundle: request.bundle,
-           currentEpisode: request.episode,
-           currentVariant: request.variant,
-           volume: _ref.read(playbackPreferencesProvider).defaultVolume,
-           speed: _ref
-               .read(playbackPreferencesProvider)
-               .qualityConfig
-               .defaultSpeed,
-         ),
-       ) {
-    _bundleCacheByWorkId[request.work.id] = request.bundle;
-    if (!deferBootstrap) {
-      _bootstrap();
-    }
-  }
+    this.initialState,
+  });
 
-  final Ref _ref;
   final VideoLaunchRequest request;
   final EmbeddedMpvSession Function()? sessionFactory;
   final bool deferBootstrap;
-  final EmbeddedSessionMutex _sessionMutex;
-  final UnifiedPlaybackEngine _engine;
-  final AudiophileSafetyCoordinator _safetyCoordinator;
-  final LocalStreamBridge _streamBridge;
-  final DiagnosticsLogStore _logStore;
+  final VideoPlaybackState? initialState;
+  late final EmbeddedSessionMutex _sessionMutex;
+  late final UnifiedPlaybackEngine _engine;
+  late final AudiophileSafetyCoordinator _safetyCoordinator;
+  late final LocalStreamBridge _streamBridge;
+  late final DiagnosticsLogStore _logStore;
 
+  Ref get _ref => ref;
+  bool get mounted => ref.mounted;
   VideoPlaybackState get _state => state;
   set _state(VideoPlaybackState value) => state = value;
+
+  @override
+  set state(VideoPlaybackState value) {
+    final prev = stateOrNull;
+    final positionChanged =
+        prev == null ||
+        (prev.positionSeconds - value.positionSeconds).abs() > 0.0005;
+    super.state = value;
+    if (positionChanged &&
+        (_positionListenable.value - value.positionSeconds).abs() > 0.0005) {
+      _positionListenable.value = value.positionSeconds;
+    }
+  }
+
+  @override
+  VideoPlaybackState build() {
+    _sessionMutex = ref.read(embeddedSessionMutexProvider);
+    _engine = ref.read(unifiedPlaybackEngineProvider);
+    _safetyCoordinator = ref.read(audiophileSafetyCoordinatorProvider);
+    _streamBridge = ref.read(localStreamBridgeProvider);
+    _logStore = ref.read(diagnosticsLogStoreProvider);
+    _bundleCacheByWorkId[request.work.id] = request.bundle;
+    ref.onDispose(_disposeResources);
+    final prefs = ref.read(playbackPreferencesProvider);
+    if (!deferBootstrap) {
+      unawaited(_bootstrap());
+    }
+    final seed =
+        initialState ??
+        VideoPlaybackState(
+          currentWork: request.work,
+          currentBundle: request.bundle,
+          currentEpisode: request.episode,
+          currentVariant: request.variant,
+          volume: prefs.defaultVolume,
+          speed: prefs.qualityConfig.defaultSpeed,
+        );
+    _positionListenable.value = seed.positionSeconds;
+    _latestPositionSeconds = seed.positionSeconds;
+    return seed;
+  }
 
   /// 是否存在可切换的下一集（含跨季正片连播越过本季特典）。
   bool get hasNextEpisodeAny => _hasNextEpisodeAnyImpl();
@@ -363,12 +405,12 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   SubtitleMemoryEngine? _subtitleMemoryEngine;
   MpvThumbnailService? _thumbnailService;
   final ValueNotifier<int> _thumbnailRevision = ValueNotifier<int>(0);
+  final ValueNotifier<double> _positionListenable = ValueNotifier<double>(0.0);
   Timer? _persistTimer;
   Timer? _probeTimer;
   Timer? _skipFadeTimer;
   Timer? _chapterSkipWakeTimer;
-  Timer? _bannerTimer;
-  Timer? _thumbnailWarmupTimer;
+  int _transientNoticeSeq = 0;
 
   ChapterSkipPlan _skipPlan = const ChapterSkipPlan();
   DetectedSkipWindow? _dismissedSkipWindow;
@@ -388,6 +430,19 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   String? _activeExternalSubtitleSourcePath;
   int? _activeOriginalSubtitleTrackId;
   String? _activeExternalSubtitleTitle;
+  String? _lastIngestedCloudSubsetFontsDir;
+  ({
+    String episodeId,
+    String variantId,
+    String streamToken,
+    String mediaTarget,
+  })?
+  _prewarmedNextEpisode;
+  String? _prewarmAttemptedForEpisodeId;
+  int _prewarmGeneration = 0;
+
+  /// 当前已完成后台静默预热的下一分集 ID（供自动化回归测试验证预热与接管生命周期）。
+  String? get prewarmedNextEpisodeId => _prewarmedNextEpisode?.episodeId;
 
   /// 当前正在播放的活跃作品实体（支持同系列跨季原地热切换）。
   Work get activeWork => state.currentWork ?? request.work;
@@ -409,9 +464,12 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   bool get isPositionObservationEnabled =>
       _session?.isPositionObservationEnabled ?? false;
 
+  /// 高频播放进度独立监听通道（仅 OSD 展开期推送至进度条叶子，免除 Riverpod 完整状态扇出）。
+  ValueListenable<double> get positionListenable => _positionListenable;
+
   /// 当前真实播放秒数（即使 OSD 隐藏静默期未刷新 `state.positionSeconds` 亦保持精确）。
   double get currentPositionSeconds =>
-      _hudProgressActive ? state.positionSeconds : _latestPositionSeconds;
+      _hudProgressActive ? _positionListenable.value : _latestPositionSeconds;
 
   /// 当前视频会话微淡入斜坡是否活跃（供回归测试验证终态即停钟）。
   bool get isMicroFadeActive => _microFadeDriver.isActive;
@@ -465,9 +523,9 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     return _thumbnailService?.resolvePreviewFrame(seconds);
   }
 
-  /// 通知后台 `thumbfast` 会话预取目标时间点缩略图（传 `null` 表示离开进度条）。
+  /// 通知后台 `thumbfast` 会话按需预取目标时间点缩略图（首次悬停才惰性建联，传 `null` 表示离开进度条）。
   void requestThumbnailPreview(double? seconds) {
-    _thumbnailService?.requestPreview(seconds);
+    _requestThumbnailPreviewLazy(seconds);
   }
 
   /// Android `PlatformView` / Underlay 表面创建后向控制器交付通道（支持热重绑）。
@@ -535,6 +593,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
   Future<void> _bootstrap() async {
     Future.microtask(() async {
       if (!mounted) return;
+      _ref.read(konataMemoryCoordinatorProvider).cancelPostPlaybackTrim();
       _ref.read(videoPlaybackActiveProvider.notifier).state = true;
       await _ref.read(audioPlaybackProvider.notifier).pauseForVideoSession();
       await AndroidPlaybackWindowBridge.beginWindow();
@@ -555,9 +614,9 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       _alreadyPersistedCompleted = saved?.isCompleted ?? false;
 
       final storageRoot = _ref.read(storageRootProvider);
-      final shadersDir = await storageRoot.ensureShadersDir();
-      final shaders = await MpvQualityProfile.discoverShaderFiles(shadersDir);
-
+      unawaited(_ref.read(tempCachePrunerProvider).pruneIfDue());
+      // 着色器扫描不阻塞视频首帧起播，后台并行异步发现后回填侧栏列表。
+      unawaited(_discoverAvailableShadersInBackground(storageRoot));
       _engine.recordManualSelection();
 
       final session = sessionFactory != null
@@ -610,13 +669,9 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
           _microFadeDriver.cancel();
           if (!mounted || state.isClosing) return;
           state = state.copyWith(isMuted: true, isPlaying: false);
-          showTransientBanner('检测到音频外设拔出，已瞬态静音并暂停防爆音');
+          showTransientBanner('检测到音频外设拔出，已瞬态静音并暂停防爆音', isError: true);
         },
       );
-
-      if (mounted) {
-        state = state.copyWith(availableShaders: shaders);
-      }
 
       try {
         final prefs = _ref.read(playbackPreferencesProvider);
@@ -645,7 +700,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
           windowsUnderlayActive: session.underlayActiveListenable.value,
           renderBackend: session.renderBackendListenable.value,
           adapterName: session.adapterNameListenable.value,
-          probeStats: session.collectProbeStats(),
+          probeStats: _collectAppropriateProbeStats(session),
         );
 
         _persistTimer?.cancel();
@@ -736,6 +791,7 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     session.onMountExternalTextSubtitles =
         _mountDiscoveredExternalTextSubtitles;
     session.mountedSubtitleSourcePathsReader = _readMountedSubtitleSourcePaths;
+    session.mountedCloudSubsetTrackIdsReader = _readMountedCloudSubsetTrackIds;
 
     session.textureIdListenable.addListener(() {
       if (mounted) {
@@ -784,10 +840,9 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       if (isInitialFrame || _hudProgressActive || state.probeOverlayVisible) {
         state = state.copyWith(
           hasFirstFrame: true,
-          probeStats: session.collectProbeStats(),
+          probeStats: _collectAppropriateProbeStats(session),
         );
       }
-      if (isInitialFrame) _scheduleThumbnailWarmup();
     };
     session.onHwdecChanged = (hw) {
       if (!mounted) return;
@@ -796,11 +851,12 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
           state.probeStats.hwdecCurrent == hw) {
         return;
       }
-      state = state.copyWith(probeStats: session.collectProbeStats());
+      state = state.copyWith(probeStats: _collectAppropriateProbeStats(session));
     };
     session.onMediaMetadataUpdated = _handleMetadataUpdated;
     session.onEndOfFile = _handleEndOfFile;
-    session.onNotice = showTransientBanner;
+    session.onNotice = (msg) =>
+        showTransientBanner(msg, isError: msg != '桌面视频渲染表面已重建');
     session.onFatalError = (msg) => unawaited(_handleFatalSessionError(msg));
   }
 
@@ -815,9 +871,14 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       speed: state.speed,
     );
     if (_hudProgressActive) {
-      state = state.copyWith(positionSeconds: posSeconds);
+      _positionListenable.value = posSeconds;
+      if (posSeconds.floor() != state.positionSeconds.floor() ||
+          (posSeconds - state.positionSeconds).abs() >= 1.0) {
+        state = state.copyWith(positionSeconds: posSeconds);
+      }
     }
     _evaluateChapterSkipWindow(posSeconds);
+    _maybeScheduleNextEpisodePrewarm(posSeconds);
   }
 
   void _handleDurationChanged(double durSeconds) {
@@ -848,67 +909,6 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       _persistDirty = false;
       unawaited(_persistProgress(isFinal: false));
     }
-  }
-
-  void _handleMetadataUpdated({
-    required List<SubtitleChoice> subtitles,
-    required List<AudioTrackChoice> audioTracks,
-    required List<PlaybackChapter> chapters,
-    required List<MpvAudioDevice> audioDevices,
-  }) {
-    if (!mounted) return;
-    final stats = _session?.collectProbeStats() ?? state.probeStats;
-    final silentHidden =
-        !_hudProgressActive &&
-        !state.probeOverlayVisible &&
-        !state.sideSheetOpen;
-    if (silentHidden &&
-        subtitles.length == state.subtitles.length &&
-        audioTracks.length == state.audioTracks.length &&
-        chapters.length == state.chapters.length &&
-        stats.videoWidth == state.probeStats.videoWidth &&
-        stats.videoHeight == state.probeStats.videoHeight &&
-        stats.hwdecCurrent == state.probeStats.hwdecCurrent) {
-      _pendingMetadataUiRefresh = true;
-      return;
-    }
-    _pendingMetadataUiRefresh = false;
-    state = state.copyWith(
-      subtitles: subtitles,
-      audioTracks: audioTracks,
-      chapters: chapters,
-      availableAudioDevices: audioDevices,
-      probeStats: stats,
-    );
-    if (KonataPlatform.isAndroid &&
-        !state.audioOnlyMode &&
-        (stats.videoWidth ?? 0) > 0 &&
-        _ref.read(activeVideoSessionProvider).isExpanded) {
-      unawaited(
-        AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
-          landscape: true,
-          hideSystemBars: true,
-        ),
-      );
-    }
-    _recomputeChapterSkipPlan();
-    _thumbnailService?.updateChapters(
-      chapters,
-      durationSeconds: state.durationSeconds > 0 ? state.durationSeconds : null,
-    );
-  }
-
-  /// 显示顶部轻提示并在指定时长后自动消退。
-  void showTransientBanner(
-    String message, {
-    Duration duration = const Duration(milliseconds: 2400),
-  }) {
-    if (!mounted) return;
-    _bannerTimer?.cancel();
-    state = state.copyWith(transientBanner: message);
-    _bannerTimer = Timer(duration, () {
-      if (mounted) state = state.copyWith(clearTransientBanner: true);
-    });
   }
 
   /// 通知 D3D11 桥接同步视频目标渲染分辨率（Windows 兼容共享纹理回退路径）。
@@ -1115,9 +1115,9 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     _probeTimer?.cancel();
     _skipFadeTimer?.cancel();
     _chapterSkipWakeTimer?.cancel();
-    _bannerTimer?.cancel();
     _subtitleMemoryEngine?.dispose();
     _subtitleMemoryEngine = null;
+    _disposePrewarmedNextEpisode();
     await _releaseThumbnailService(disposeNotifier: true);
 
     if (mounted) {
@@ -1154,20 +1154,19 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
     if (mounted) {
       _ref.read(videoPlaybackActiveProvider.notifier).state = false;
     }
+    _ref.read(konataMemoryCoordinatorProvider).schedulePostPlaybackTrim();
   }
 
-  @override
-  void dispose() {
+  void _disposeResources() {
     _microFadeDriver.cancel();
     _safetyCoordinator.detachSession(this);
     _persistTimer?.cancel();
     _probeTimer?.cancel();
     _skipFadeTimer?.cancel();
     _chapterSkipWakeTimer?.cancel();
-    _bannerTimer?.cancel();
-    _thumbnailWarmupTimer?.cancel();
     _subtitleMemoryEngine?.dispose();
     _subtitleMemoryEngine = null;
+    _disposePrewarmedNextEpisode();
 
     if (!_closedCleanly) {
       _closedCleanly = true;
@@ -1187,12 +1186,12 @@ class VideoPlaybackController extends StateNotifier<VideoPlaybackState> {
       }
     }
     _thumbnailRevision.dispose();
-    super.dispose();
+    _positionListenable.dispose();
   }
 }
 
 /// 内置视频播放控制器 Family Provider（按单次播放请求自动挂载与释放）。
-final videoPlaybackProvider = StateNotifierProvider.autoDispose
+final videoPlaybackProvider = NotifierProvider.autoDispose
     .family<VideoPlaybackController, VideoPlaybackState, VideoLaunchRequest>(
-      (ref, req) => VideoPlaybackController(ref, req),
+      VideoPlaybackController.new,
     );

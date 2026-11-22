@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_localizations/flutter_localizations.dart' show GlobalWidgetsLocalizations;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -272,9 +274,7 @@ class _FakeAudioLibMpvClient implements LibMpvClient {
 }
 
 class _StubAudioNotifier extends AudioPlaybackNotifier {
-  _StubAudioNotifier(super.ref, AudioPlaybackState initial) {
-    state = initial;
-  }
+  _StubAudioNotifier(AudioPlaybackState initial) : super(initialState: initial);
 
   int playQueueIndexCalls = 0;
   int? lastPlayedIndex;
@@ -390,11 +390,10 @@ void main() {
           storageRootProvider.overrideWithValue(storage),
           libraryRepositoryProvider.overrideWithValue(repo),
           playbackPreferencesProvider.overrideWith(
-            (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+            () => PlaybackPreferencesNotifier(enablePersistence: false),
           ),
           audioPlaybackProvider.overrideWith(
-            (ref) =>
-                AudioPlaybackNotifier(ref, clientFactory: () => fakeClient),
+            () => AudioPlaybackNotifier(clientFactory: () => fakeClient),
           ),
         ],
       );
@@ -595,11 +594,10 @@ void main() {
             storageRootProvider.overrideWithValue(storage),
             libraryRepositoryProvider.overrideWithValue(repo),
             playbackPreferencesProvider.overrideWith(
-              (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+              () => PlaybackPreferencesNotifier(enablePersistence: false),
             ),
             audioPlaybackProvider.overrideWith(
-              (ref) =>
-                  AudioPlaybackNotifier(ref, clientFactory: () => fakeClient),
+              () => AudioPlaybackNotifier(clientFactory: () => fakeClient),
             ),
           ],
         );
@@ -777,9 +775,8 @@ void main() {
             tmdbImageLoaderProvider.overrideWithValue(
               (_, {targetWidth, imageSize}) async => _sampleCoverPng,
             ),
-            audioPlaybackProvider.overrideWith((ref) {
+            audioPlaybackProvider.overrideWith(() {
               stubNotifier = _StubAudioNotifier(
-                ref,
                 AudioPlaybackState(
                   isActive: true,
                   isPlaying: true,
@@ -927,8 +924,7 @@ void main() {
               (_, {targetWidth, imageSize}) async => _sampleCoverPng,
             ),
             audioPlaybackProvider.overrideWith(
-              (ref) => _StubAudioNotifier(
-                ref,
+              () => _StubAudioNotifier(
                 AudioPlaybackState(
                   isActive: true,
                   isPlaying: true,
@@ -1060,11 +1056,10 @@ void main() {
           storageRootProvider.overrideWithValue(storage),
           libraryRepositoryProvider.overrideWithValue(repo),
           playbackPreferencesProvider.overrideWith(
-            (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+            () => PlaybackPreferencesNotifier(enablePersistence: false),
           ),
           audioPlaybackProvider.overrideWith(
-            (ref) =>
-                AudioPlaybackNotifier(ref, clientFactory: () => fakeClient),
+            () => AudioPlaybackNotifier(clientFactory: () => fakeClient),
           ),
         ],
       );

@@ -1,8 +1,10 @@
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:flutter_localizations/flutter_localizations.dart' show GlobalWidgetsLocalizations;
+import 'package:ccplayer/application/providers/konata_value_notifier.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -34,9 +36,8 @@ final Uint8List _testCoverPng = Uint8List.fromList([
 ]);
 
 class _Stage3StubAudioNotifier extends AudioPlaybackNotifier {
-  _Stage3StubAudioNotifier(super.ref, AudioPlaybackState initial) {
-    state = initial;
-  }
+  _Stage3StubAudioNotifier(AudioPlaybackState initial)
+    : super(initialState: initial);
 
   @override
   Future<void> togglePlayPause() async {
@@ -136,13 +137,13 @@ void main() {
                 return db;
               }),
               playbackPreferencesProvider.overrideWith(
-                (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+                () => PlaybackPreferencesNotifier(enablePersistence: false),
               ),
               tmdbImageLoaderProvider.overrideWithValue(
                 (_, {targetWidth, imageSize}) async => _testCoverPng,
               ),
               audioPlaybackProvider.overrideWith(
-                (ref) => _Stage3StubAudioNotifier(ref, _buildSampleAudioState()),
+                () => _Stage3StubAudioNotifier(_buildSampleAudioState()),
               ),
             ],
             child: MaterialApp(
@@ -275,15 +276,17 @@ void main() {
               return db;
             }),
             playbackPreferencesProvider.overrideWith(
-              (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+              () => PlaybackPreferencesNotifier(enablePersistence: false),
             ),
             tmdbImageLoaderProvider.overrideWithValue(
               (_, {targetWidth, imageSize}) async => _testCoverPng,
             ),
             audioPlaybackProvider.overrideWith(
-              (ref) => _Stage3StubAudioNotifier(ref, _buildSampleAudioState()),
+              () => _Stage3StubAudioNotifier(_buildSampleAudioState()),
             ),
-            immersiveAudioExpandedProvider.overrideWith((ref) => true),
+            immersiveAudioExpandedProvider.overrideWith(
+              () => KonataValueNotifier.value(true),
+            ),
           ],
         );
         addTearDown(container.dispose);

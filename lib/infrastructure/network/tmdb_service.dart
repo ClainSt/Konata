@@ -25,6 +25,7 @@ class TmdbService {
   final bool _alwaysMemoize;
   static const int _maxMemoEntries = 320;
   static const String _tmdbBucketKey = 'tmdb';
+  static final RegExp _windowsAbsPathPattern = RegExp(r'^[a-zA-Z]:[/\\]');
   final Map<String, Future<Object?>> _memo = {};
   int _sessionCacheDepth = 0;
 
@@ -306,6 +307,68 @@ class TmdbService {
     return detail?.episodes ?? const [];
   }
 
+  /// 优先从本地内存/磁盘缓存或显式本地磁盘路径读取图片字节（零网络请求与零 HTTP 客户端开销）。
+  ///
+  /// 命中时返回非空图片字节；未命中需要网络下载时返回 `null`。
+  static Future<Uint8List?> readCachedImageBytes(
+    String imagePath, {
+    required ArtworkCacheStore? artworkCache,
+    TmdbImageSize? size,
+    int? targetWidth,
+    String? ownerWorkId,
+    PhotoSubfolder? subfolder,
+  }) async {
+    final trimmed = imagePath.trim();
+    if (trimmed.isEmpty) return Uint8List(0);
+
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return artworkCache?.read(
+        'url:$trimmed',
+        owner: ownerWorkId,
+        subfolder: subfolder,
+      );
+    }
+
+    final localBytes = await _tryReadExplicitLocalImage(trimmed);
+    if (localBytes != null) return localBytes;
+
+    final effectiveSize = resolveImageSize(size: size, targetWidth: targetWidth);
+    final normalizedPath = trimmed.startsWith('/') ? trimmed : '/$trimmed';
+    final cacheKey = buildSizedArtworkCacheKey(effectiveSize, normalizedPath);
+    return artworkCache?.read(
+      cacheKey,
+      minimumQuality: effectiveSize.qualityRank,
+      owner: ownerWorkId,
+      subfolder: subfolder,
+    );
+  }
+
+  /// 识别并读取真实本地文件（Windows 绝对路径、`file://` URI、相对路径或多段 POSIX 绝对路径）。
+  ///
+  /// 单段前导 `/` 路径（如 `/abc123.jpg`）属于 TMDB 标准图片相对路径，直接跳过驱动器根目录 `stat` 系统调用。
+  static Future<Uint8List?> _tryReadExplicitLocalImage(String trimmed) async {
+    final isFileUri = trimmed.startsWith('file://');
+    final localPath = isFileUri ? Uri.parse(trimmed).toFilePath() : trimmed;
+    final isSingleSegmentTmdbPath =
+        !isFileUri &&
+        localPath.startsWith('/') &&
+        localPath.indexOf('/', 1) == -1 &&
+        !localPath.contains('\\');
+    if (isSingleSegmentTmdbPath) {
+      return null;
+    }
+    if (isFileUri ||
+        _windowsAbsPathPattern.hasMatch(localPath) ||
+        !localPath.startsWith('/') ||
+        localPath.indexOf('/', 1) > 0) {
+      final localFile = File(localPath);
+      if (await localFile.exists()) {
+        return localFile.readAsBytes();
+      }
+    }
+    return null;
+  }
+
   /// 按目标像素宽度或显式档位选择 TMDB 图片（或加载自定义 URL / 本地文件）拉取并写入隔离缓存。
   Future<Uint8List> fetchImageBytes(
     String imagePath, {
@@ -346,19 +409,9 @@ class TmdbService {
       return response.bodyBytes;
     }
 
-    // 2. 支持本地磁盘图片（如 `C:\...` 或 `file:///...`）
-    final localPath = trimmed.startsWith('file://')
-        ? Uri.parse(trimmed).toFilePath()
-        : trimmed;
-    final isWindowsAbs = RegExp(r'^[a-zA-Z]:[/\\]').hasMatch(localPath);
-    if (isWindowsAbs || !localPath.startsWith('/')) {
-      final localFile = File(localPath);
-      if (await localFile.exists()) {
-        return localFile.readAsBytes();
-      }
-    } else if (await File(localPath).exists()) {
-      return File(localPath).readAsBytes();
-    }
+    // 2. 支持本地磁盘图片（如 `C:\...`、`file:///...` 或多段 POSIX 路径；跳过 TMDB 单段 `/xxx.jpg` 误探测）
+    final localBytes = await _tryReadExplicitLocalImage(trimmed);
+    if (localBytes != null) return localBytes;
 
     // 3. 标准 TMDB 相对路径（官方优先 + 备用地址自动回退，并按尺寸档位与质量隔离缓存）
     final effectiveSize = resolveImageSize(size: size, targetWidth: targetWidth);

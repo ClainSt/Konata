@@ -255,18 +255,26 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
           source.id,
           item.effectiveRelativePath,
         );
-        unawaited(
-          _ref
-              .read(photosStorageProvider)
-              .writeArtwork(
-                workId: item.work.id,
-                title: item.work.title,
-                subfolder: PhotoSubfolder.thumbnails,
-                fileKey: diskKey,
-                bytes: cover.bytes,
-              )
-              .catchError((_) => null),
-        );
+        final workId = item.work.id;
+        final workTitle = item.work.title;
+        final rawCoverBytes = cover.bytes;
+        final photos = _ref.read(photosStorageProvider);
+        unawaited(() async {
+          try {
+            final compactBytes = await AlbumCoverCompactor.compactForDisk(
+              rawCoverBytes,
+            );
+            await photos.writeArtwork(
+              workId: workId,
+              title: workTitle,
+              subfolder: PhotoSubfolder.thumbnails,
+              fileKey: diskKey,
+              bytes: compactBytes,
+            );
+          } on Object catch (error) {
+            _logStore.record('AUDIO', '落盘持久化专辑封面忽略：$error');
+          }
+        }());
       }
     }
   }
@@ -556,6 +564,23 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
     } catch (e) {
       _logStore.record('AUDIO', '刷新作品海报回退缓存失败：$e');
     }
+  }
+
+  void _persistCompletedCurrentTrack() {
+    final finishedItem = _state.currentItem;
+    if (finishedItem == null) return;
+    final finishedDuration = _state.durationSeconds > 0
+        ? _state.durationSeconds
+        : currentPositionSeconds;
+    unawaited(
+      _persistAudioProgress(
+        finishedItem,
+        positionSeconds: finishedDuration,
+        durationSeconds: _state.durationSeconds,
+        completed: true,
+        force: true,
+      ),
+    );
   }
 
   Future<void> _persistAudioProgress(

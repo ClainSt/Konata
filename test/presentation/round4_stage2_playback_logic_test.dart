@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:flutter_localizations/flutter_localizations.dart' show GlobalWidgetsLocalizations;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -222,11 +223,10 @@ void main() {
             return DriftLibraryRepository(db);
           }),
           playbackPreferencesProvider.overrideWith(
-            (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+            () => PlaybackPreferencesNotifier(enablePersistence: false),
           ),
           audioPlaybackProvider.overrideWith(
-            (ref) => AudioPlaybackNotifier(
-              ref,
+            () => AudioPlaybackNotifier(
               clientFactory: () => fakeClient,
             ),
           ),
@@ -323,11 +323,10 @@ void main() {
             return DriftLibraryRepository(db);
           }),
           playbackPreferencesProvider.overrideWith(
-            (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+            () => PlaybackPreferencesNotifier(enablePersistence: false),
           ),
           audioPlaybackProvider.overrideWith(
-            (ref) => AudioPlaybackNotifier(
-              ref,
+            () => AudioPlaybackNotifier(
               clientFactory: () => fakeClient,
               retryDelayBuilder: (_) => Duration.zero,
             ),
@@ -458,11 +457,10 @@ void main() {
             return DriftLibraryRepository(db);
           }),
           playbackPreferencesProvider.overrideWith(
-            (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+            () => PlaybackPreferencesNotifier(enablePersistence: false),
           ),
           audioPlaybackProvider.overrideWith(
-            (ref) => AudioPlaybackNotifier(
-              ref,
+            () => AudioPlaybackNotifier(
               clientFactory: () => fakeClient,
             ),
           ),
@@ -546,7 +544,7 @@ void main() {
                 return db;
               }),
               playbackPreferencesProvider.overrideWith(
-                (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+                () => PlaybackPreferencesNotifier(enablePersistence: false),
               ),
             ],
             child: MaterialApp(
@@ -589,12 +587,14 @@ void main() {
         expect(capsuleFinder, findsOneWidget);
         final initialRect = tester.getRect(capsuleFinder);
 
-        // 1. 滚动页面列表，Toast 位置纹丝不动
+        // 1. 手机竖屏下初始即居于窗口正中，滚动页面列表时位置纹丝不动
+        expect(initialRect.center.dx, closeTo(390 / 2, 20));
+        expect(initialRect.center.dy, closeTo(844 / 2, 24));
         scrollController.jumpTo(600);
         await tester.pump();
         expect(tester.getRect(capsuleFinder), equals(initialRect));
 
-        // 2. 推入新页面路由，Toast 不随页面切换漂移或消失
+        // 2. 推入新页面路由，Toast 仍稳居窗口正中且不随页面切换漂移或消失
         unawaited(
           Navigator.of(pageContext).push<void>(
             MaterialPageRoute<void>(
@@ -605,24 +605,20 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 350));
         final afterRouteRect = tester.getRect(capsuleFinder);
-        // 推入二级页隐藏主导航后仍稳居底部安全区上方，不会跳到屏幕顶部或正中
-        expect(afterRouteRect.bottom, lessThanOrEqualTo(844 - 24));
-        expect(afterRouteRect.top, greaterThan(600));
+        expect(afterRouteRect.center.dx, closeTo(390 / 2, 20));
+        expect(afterRouteRect.center.dy, closeTo(844 / 2, 24));
 
-        // 3. 悬浮小窗落入底部重叠区时，Toast 自动抬升避开小窗
-        const simulatedMiniRect = Rect.fromLTWH(210, 680, 164, 92);
-        ProviderScope.containerOf(pageContext, listen: false)
-            .read(konataToastControllerProvider)
-            .floatingMiniWindowRect
-            .value = simulatedMiniRect;
-        await tester.pump();
-        final avoidedRect = tester.getRect(capsuleFinder);
-        expect(
-          avoidedRect.bottom,
-          lessThanOrEqualTo(simulatedMiniRect.top - 10.0),
+        // 3. 验证错误态使用红色毛玻璃胶囊视觉区分
+        final decorated = tester.widget<DecoratedBox>(
+          find.descendant(
+            of: capsuleFinder,
+            matching: find.byType(DecoratedBox),
+          ),
         );
+        final boxDec = decorated.decoration as BoxDecoration;
+        expect(boxDec.color, equals(KonataTheme.toastErrorDarkSurface));
 
-        // 4. 校验 × 关闭热区 >= 48dp 并测试 4 秒自动消失
+        // 4. 校验 Android 触屏 × 关闭热区 >= 48dp 并测试 4 秒自动消失
         final closeFinder = find.byKey(const ValueKey('konata_toast_close'));
         final closeRect = tester.getRect(closeFinder);
         expect(closeRect.width, greaterThanOrEqualTo(48.0));
@@ -633,11 +629,16 @@ void main() {
         await tester.pumpAndSettle();
         expect(capsuleFinder, findsNothing);
 
-        // 5. 再次弹出并验证点击 × 立即关闭
+        // 5. 切换平板横屏尺寸再次弹出，验证依然居于窗口正中且点击 × 立即关闭
+        tester.view.physicalSize = const Size(1280, 800);
+        await tester.pump();
         showKonataToast(pageContext, '手动立即关闭测试', isError: true);
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 220));
         expect(find.text('手动立即关闭测试'), findsOneWidget);
+        final tabletCenter = tester.getCenter(capsuleFinder);
+        expect(tabletCenter.dx, closeTo(1280 / 2, 20));
+        expect(tabletCenter.dy, closeTo(800 / 2, 24));
         await tester.tap(find.byKey(const ValueKey('konata_toast_close')));
         await tester.pumpAndSettle();
         expect(find.text('手动立即关闭测试'), findsNothing);

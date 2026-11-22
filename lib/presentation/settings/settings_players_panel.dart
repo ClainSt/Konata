@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -85,6 +85,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
           res.detail.isNotEmpty
               ? res.detail
               : '未检测到兼容逐位混音器的 USB DAC，已保持高精共享通道',
+          isError: true,
         );
       }
     } else {
@@ -401,7 +402,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
         KonataListTile(
           key: const ValueKey('settings_cloud_subset_toggle'),
           title: '云端字幕字体子集化 (FontInAss · 可选)',
-          subtitle: '默认关闭；开启并授权指定 Origin 后，可为缺字特效 ASS 按需生成子集字体缓存',
+          subtitle: '开启并授权指定 Origin 后，可为缺字特效 ASS 按需生成子集字体缓存',
           trailing: KonataSwitch(
             value: prefs.cloudSubsetEnabled,
             onChanged: (enabled) {
@@ -426,7 +427,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                   focusNode: cloudInputs.focusNode,
                   dense: true,
                   label: 'FontInAss 服务端点地址',
-                  hintText: 'https://fontinass.example.com/subset',
+                  hintText: PlaybackPreferencesState.defaultCloudSubsetEndpoint,
                   keyboardType: TextInputType.url,
                   onChanged: (v) =>
                       unawaited(notifier.setCloudSubsetEndpoint(v)),
@@ -495,22 +496,44 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                             );
                           },
                         ),
+                      if (rawEndpoint !=
+                          PlaybackPreferencesState.defaultCloudSubsetEndpoint)
+                        KonataPillButton.ghost(
+                          key: const ValueKey(
+                            'settings_cloud_subset_reset_default_button',
+                          ),
+                          label: '恢复默认',
+                          compact: true,
+                          onPressed: () {
+                            const def = PlaybackPreferencesState
+                                .defaultCloudSubsetEndpoint;
+                            cloudInputs.controller.text = def;
+                            unawaited(notifier.setCloudSubsetEndpoint(def));
+                          },
+                        ),
                     ],
                   )
-                else if (rawEndpoint.isNotEmpty)
-                  Text(
-                    '请输入合法的 http:// 或 https:// 服务地址',
-                    style: KonataTheme.captionStyle(p, color: p.danger),
+                else ...[
+                  if (rawEndpoint.isNotEmpty)
+                    Text(
+                      '请输入合法的 http:// 或 https:// 服务地址',
+                      style: KonataTheme.captionStyle(p, color: p.danger),
+                    ),
+                  const SizedBox(height: KonataAdaptiveTokens.safeGap),
+                  KonataPillButton.ghost(
+                    key: const ValueKey(
+                      'settings_cloud_subset_reset_default_button',
+                    ),
+                    label: '恢复默认地址',
+                    compact: true,
+                    onPressed: () {
+                      const def =
+                          PlaybackPreferencesState.defaultCloudSubsetEndpoint;
+                      cloudInputs.controller.text = def;
+                      unawaited(notifier.setCloudSubsetEndpoint(def));
+                    },
                   ),
-                const SizedBox(height: 6),
-                Text(
-                  '安全约束：授权绑定协议/主机/端口三元组，严禁跟随 3xx 跨源重定向，省略本地文件名且落盘前强制逐事件语义与 SFNT 字形检验。',
-                  style: KonataTheme.captionStyle(
-                    p,
-                    color: p.textMuted,
-                    height: 1.4,
-                  ),
-                ),
+                ],
               ],
             ),
           ),

@@ -37,17 +37,15 @@ import 'package:ccplayer/presentation/widgets/design_system/konata_surface_card.
 import 'package:ccplayer/presentation/widgets/playback/konata_floating_mini_player.dart';
 import 'package:ccplayer/presentation/widgets/playback/konata_playback_capsule.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:ccplayer/application/providers/konata_value_notifier.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _StubAudioNotifier extends AudioPlaybackNotifier {
-  _StubAudioNotifier(super.ref, AudioPlaybackState initial) {
-    state = initial;
-  }
+  _StubAudioNotifier(AudioPlaybackState initial) : super(initialState: initial);
 
   double? lastSeekTrackSeconds;
 
@@ -59,9 +57,8 @@ class _StubAudioNotifier extends AudioPlaybackNotifier {
 }
 
 class _StubVideoController extends VideoPlaybackController {
-  _StubVideoController(super.ref, super.req, VideoPlaybackState initial) {
-    state = initial;
-  }
+  _StubVideoController(super.req, VideoPlaybackState initial)
+    : super(deferBootstrap: true, initialState: initial);
 
   double? lastSeekSeconds;
 
@@ -133,8 +130,7 @@ void main() {
         ProviderScope(
           overrides: [
             audioPlaybackProvider.overrideWith(
-              (ref) => _StubAudioNotifier(
-                ref,
+              () => _StubAudioNotifier(
                 AudioPlaybackState(
                   isActive: true,
                   isPlaying: false,
@@ -213,9 +209,8 @@ void main() {
         await tester.pumpWidget(
           ProviderScope(
             overrides: [
-              videoPlaybackProvider(req).overrideWith((ref) {
+              videoPlaybackProvider(req).overrideWith(() {
                 ctrl = _StubVideoController(
-                  ref,
                   req,
                   VideoPlaybackState(
                     currentWork: req.work,
@@ -231,7 +226,9 @@ void main() {
                 return ctrl;
               }),
               floatingMiniVisualStateProvider.overrideWith(
-                (_) => FloatingMiniVisualState.collapsed,
+                () => KonataValueNotifier.value(
+                  FloatingMiniVisualState.collapsed,
+                ),
               ),
             ],
             child: MaterialApp(
@@ -355,9 +352,8 @@ void main() {
         await tester.pumpWidget(
           ProviderScope(
             overrides: [
-              videoPlaybackProvider(req).overrideWith((ref) {
+              videoPlaybackProvider(req).overrideWith(() {
                 ctrl = _StubVideoController(
-                  ref,
                   req,
                   VideoPlaybackState(
                     currentWork: req.work,
@@ -589,14 +585,13 @@ void main() {
           ProviderScope(
             overrides: [
               playbackPreferencesProvider.overrideWith(
-                (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+                () => PlaybackPreferencesNotifier(enablePersistence: false),
               ),
               tmdbImageLoaderProvider.overrideWithValue(
                 (_, {targetWidth, imageSize}) async => Uint8List(0),
               ),
-              audioPlaybackProvider.overrideWith((ref) {
+              audioPlaybackProvider.overrideWith(() {
                 audioNotifier = _StubAudioNotifier(
-                  ref,
                   AudioPlaybackState(
                     isActive: true,
                     isPlaying: true,
@@ -753,14 +748,13 @@ void main() {
             ProviderScope(
               overrides: [
                 playbackPreferencesProvider.overrideWith(
-                  (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+                  () => PlaybackPreferencesNotifier(enablePersistence: false),
                 ),
                 tmdbImageLoaderProvider.overrideWithValue(
                   (_, {targetWidth, imageSize}) async => Uint8List(0),
                 ),
                 audioPlaybackProvider.overrideWith(
-                  (ref) => _StubAudioNotifier(
-                    ref,
+                  () => _StubAudioNotifier(
                     AudioPlaybackState(
                       isActive: true,
                       isPlaying: true,
@@ -865,8 +859,7 @@ void main() {
           ProviderScope(
             overrides: [
               videoPlaybackProvider(req).overrideWith(
-                (ref) => _StubVideoController(
-                  ref,
+                () => _StubVideoController(
                   req,
                   VideoPlaybackState(
                     currentWork: req.work,
@@ -881,7 +874,9 @@ void main() {
                 ),
               ),
               floatingMiniVisualStateProvider.overrideWith(
-                (_) => FloatingMiniVisualState.collapsed,
+                () => KonataValueNotifier.value(
+                  FloatingMiniVisualState.collapsed,
+                ),
               ),
             ],
             child: MaterialApp(

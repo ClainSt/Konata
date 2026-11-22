@@ -13,8 +13,10 @@ import 'package:ccplayer/presentation/detail/detail_stylized_title_block.dart';
 import 'package:ccplayer/presentation/detail/work_detail_sub_views.dart';
 import 'package:ccplayer/presentation/dialogs/work_artwork_picker_dialog.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:ccplayer/application/providers/konata_value_notifier.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 
 final Uint8List _sample1x1Png = Uint8List.fromList(<int>[
@@ -302,9 +304,11 @@ void main() {
               (_, {targetWidth, imageSize}) async => _sample1x1Png,
             ),
             fanartRelayHealthProvider.overrideWith(
-              (ref) => const FanartRelayHealthSnapshot(
-                status: FanartRelayStatus.quotaExhausted,
-                message: '内置 Fanart.tv 中继今日免费额度已达上限，请填个人 Key',
+              () => KonataValueNotifier.value(
+                const FanartRelayHealthSnapshot(
+                  status: FanartRelayStatus.quotaExhausted,
+                  message: '内置 Fanart.tv 中继今日免费额度已达上限，请填个人 Key',
+                ),
               ),
             ),
           ],

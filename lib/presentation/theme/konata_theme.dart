@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'konata_palette.dart';
@@ -19,7 +19,7 @@ abstract final class KonataTheme {
   static const Color toastErrorLightSurface = Color(0xF5FEF2F2);
   static const Color toastErrorLightBorder = Color(0x66DC2626);
   static const Color toastErrorLightFg = Color(0xFF991B1B);
-  static const Color toastErrorDarkSurface = Color(0xEC3B0D14);
+  static const Color toastErrorDarkSurface = Color(0xDE3B0D14);
   static const Color toastErrorDarkBorder = Color(0x66FCA5A5);
   static const Color toastErrorDarkFg = Color(0xFFFECACA);
   static const Color ambientShellDarkGlowA = Color(0xFF7B3B69);

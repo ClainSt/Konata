@@ -1,4 +1,8 @@
 import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 
 import 'package:ccplayer/application/playback/audio_playback_notifier.dart';
 import 'package:ccplayer/application/playback/playback_preferences_provider.dart';
@@ -27,8 +31,8 @@ import 'package:ccplayer/presentation/widgets/playback/konata_playback_capsule.d
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:ccplayer/application/providers/konata_value_notifier.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -67,9 +71,7 @@ AudioQueueItem _makeTrack(String id, String title, {String album = 'CD'}) {
 
 /// 轻量静态音频播放状态通知器（隔离真实 libmpv，便于验证歌词、小窗与进度扫光表现）。
 class _TestAudioNotifier extends AudioPlaybackNotifier {
-  _TestAudioNotifier(super.ref, AudioPlaybackState initial) {
-    state = initial;
-  }
+  _TestAudioNotifier(AudioPlaybackState initial) : super(initialState: initial);
 
   void setStateForTest(AudioPlaybackState next) {
     state = next;
@@ -146,8 +148,7 @@ void main() {
           ProviderScope(
             overrides: [
               audioPlaybackProvider.overrideWith(
-                (ref) => _TestAudioNotifier(
-                  ref,
+                () => _TestAudioNotifier(
                   AudioPlaybackState(
                     isActive: true,
                     isPlaying: true,
@@ -159,7 +160,9 @@ void main() {
                 ),
               ),
               floatingMiniVisualStateProvider.overrideWith(
-                (_) => FloatingMiniVisualState.expanded,
+                () => KonataValueNotifier.value(
+                  FloatingMiniVisualState.expanded,
+                ),
               ),
             ],
             child: MaterialApp(
@@ -203,8 +206,7 @@ void main() {
           ProviderScope(
             overrides: [
               audioPlaybackProvider.overrideWith(
-                (ref) => _TestAudioNotifier(
-                  ref,
+                () => _TestAudioNotifier(
                   AudioPlaybackState(
                     isActive: true,
                     isPlaying: true,
@@ -216,7 +218,9 @@ void main() {
                 ),
               ),
               floatingMiniVisualStateProvider.overrideWith(
-                (_) => FloatingMiniVisualState.collapsed,
+                () => KonataValueNotifier.value(
+                  FloatingMiniVisualState.collapsed,
+                ),
               ),
             ],
             child: MaterialApp(
@@ -284,9 +288,8 @@ void main() {
         await tester.pumpWidget(
           ProviderScope(
             overrides: [
-              audioPlaybackProvider.overrideWith((ref) {
+              audioPlaybackProvider.overrideWith(() {
                 notifier = _TestAudioNotifier(
-                  ref,
                   AudioPlaybackState(
                     isActive: true,
                     isPlaying: false,
@@ -303,7 +306,9 @@ void main() {
               tmdbImageLoaderProvider.overrideWithValue(
                 (_, {targetWidth, imageSize}) async => _sample1x1Png,
               ),
-              immersiveAudioExpandedProvider.overrideWith((_) => true),
+              immersiveAudioExpandedProvider.overrideWith(
+                () => KonataValueNotifier.value(true),
+              ),
             ],
             child: MaterialApp(
               locale: const Locale('zh', 'CN'),
@@ -523,6 +528,74 @@ void main() {
       final dir = await nextPicker.getDirectoryPath(dialogTitle: '选择目录');
       expect(dir, equals(r'D:\Anime'));
       expect(capturedWinOptions?.lockParentWindow, isTrue);
+    });
+
+    test('KonataSystemFilePicker Windows 走同线程原生通道选文件/目录/保存且避免跨线程死锁', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final calls = <MethodCall>[];
+      final tempDir = await Directory.systemTemp.createTemp('konata_picker_');
+      addTearDown(() async {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+              KonataSystemFilePicker.windowsMethodChannel,
+              null,
+            );
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final sampleSub = File(p.join(tempDir.path, 'ep01.ass'));
+      await sampleSub.writeAsString('[Script Info]\nTitle: Test\n');
+      final saveOutPath = p.join(tempDir.path, 'exported_log.txt');
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            KonataSystemFilePicker.windowsMethodChannel,
+            (MethodCall call) async {
+              calls.add(call);
+              switch (call.method) {
+                case 'pickFiles':
+                  return <String>[sampleSub.path];
+                case 'pickDirectory':
+                  return tempDir.path;
+                case 'saveFile':
+                  return saveOutPath;
+                default:
+                  return null;
+              }
+            },
+          );
+
+      final picker = KonataSystemFilePicker(useWindowsNativeBridge: true);
+      final picked = await picker.pickFiles(
+        dialogTitle: '选择外挂字幕文件',
+        type: FileType.custom,
+        allowedExtensions: const <String>['ass', 'srt'],
+        allowMultiple: false,
+      );
+      expect(picked, hasLength(1));
+      expect(picked.first.path, equals(sampleSub.path));
+      expect(picked.first.name, equals('ep01.ass'));
+      expect(calls.last.method, equals('pickFiles'));
+      final pickArgs = Map<Object?, Object?>.from(
+        calls.last.arguments as Map<Object?, Object?>,
+      );
+      expect(pickArgs['allowMultiple'], isFalse);
+      expect(pickArgs['allowedExtensions'], equals(<String>['ass', 'srt']));
+
+      final pickedDir = await picker.getDirectoryPath(dialogTitle: '选择本地动画媒体目录');
+      expect(pickedDir, equals(tempDir.path));
+      expect(calls.last.method, equals('pickDirectory'));
+
+      final savedUri = await picker.saveFile(
+        fileName: 'exported_log.txt',
+        bytes: Uint8List.fromList('konata-log'.codeUnits),
+        dialogTitle: '导出日志',
+      );
+      expect(savedUri, equals(Uri.file(saveOutPath)));
+      expect(await File(saveOutPath).readAsString(), equals('konata-log'));
+      expect(calls.last.method, equals('saveFile'));
     });
 
     testWidgets('详情页退出后自动重置抽屉展开与分页状态，再次进入其他作品默认收起', (

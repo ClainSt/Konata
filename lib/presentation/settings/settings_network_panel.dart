@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/scraping_providers.dart';
@@ -176,6 +176,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
   }
 
   Future<void> _runProbe(
+    String label,
     Future<ConnectivityReport> Function(TmdbNetworkConfig cfg) runner,
     void Function(bool busy) setBusy,
     void Function(ConnectivityReport report) setReport,
@@ -191,6 +192,11 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
       setBusy(false);
       setReport(report);
     });
+    showKonataToast(
+      context,
+      '$label：${report.displayText}',
+      isError: !report.reachable,
+    );
   }
 
   Future<void> _checkMappingUpdate(KonataActionsCoordinator actions) async {
@@ -207,6 +213,11 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
       _updatingMapping = false;
       _mappingUpdateResult = result;
     });
+    showKonataToast(
+      context,
+      result.message,
+      isError: result.state == BangumiTmdbUpdateState.failed,
+    );
   }
 
   @override
@@ -358,6 +369,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
             onChanged: (_) => _scheduleAutoSave(),
             onSubmitted: (_) => unawaited(_flushAutoSave()),
             onTest: () => _runProbe(
+              'TMDB API',
               actions.testTmdbApiConnectivity,
               (b) => _testingTmdbApi = b,
               (r) => _tmdbApiReport = r,
@@ -376,6 +388,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
             onChanged: (_) => _scheduleAutoSave(),
             onSubmitted: (_) => unawaited(_flushAutoSave()),
             onTest: () => _runProbe(
+              'TMDB 图片服务器',
               actions.testTmdbImageConnectivity,
               (b) => _testingTmdbImage = b,
               (r) => _tmdbImageReport = r,
@@ -428,6 +441,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
             onChanged: (_) => _scheduleAutoSave(),
             onSubmitted: (_) => unawaited(_flushAutoSave()),
             onTest: () => _runProbe(
+              'Bangumi API',
               actions.testBangumiApiConnectivity,
               (b) => _testingBgmApi = b,
               (r) => _bgmApiReport = r,
@@ -446,6 +460,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
             onChanged: (_) => _scheduleAutoSave(),
             onSubmitted: (_) => unawaited(_flushAutoSave()),
             onTest: () => _runProbe(
+              'Bangumi 图片服务器',
               actions.testBangumiImageConnectivity,
               (b) => _testingBgmImage = b,
               (r) => _bgmImageReport = r,
@@ -609,6 +624,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
                           onChanged: (_) => _scheduleAutoSave(),
                           onSubmitted: (_) => unawaited(_flushAutoSave()),
                           onTest: () => _runProbe(
+                            'Fanart.tv API',
                             actions.testFanartApiConnectivity,
                             (b) => _testingFanartApi = b,
                             (r) => _fanartApiReport = r,
@@ -629,6 +645,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
                           onChanged: (_) => _scheduleAutoSave(),
                           onSubmitted: (_) => unawaited(_flushAutoSave()),
                           onTest: () => _runProbe(
+                            'Fanart.tv 图片服务器',
                             actions.testFanartImageConnectivity,
                             (b) => _testingFanartImage = b,
                             (r) => _fanartImageReport = r,
@@ -702,7 +719,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
     KonataActionsCoordinator actions,
   ) {
     final snapshotAsync = ref.watch(bangumiTmdbSnapshotProvider);
-    final snapshot = _mappingUpdateResult?.snapshot ?? snapshotAsync.valueOrNull;
+    final snapshot = _mappingUpdateResult?.snapshot ?? snapshotAsync.value;
     final statusLine = snapshot == null
         ? '正在读取本地离线映射表...'
         : [

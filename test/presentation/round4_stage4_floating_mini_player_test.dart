@@ -33,8 +33,7 @@ import 'package:ccplayer/presentation/widgets/design_system/konata_glass_dialog.
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -96,9 +95,7 @@ const List<_ViewportCase> _fiveViewports = <_ViewportCase>[
 ];
 
 class _StubAudioNotifier extends AudioPlaybackNotifier {
-  _StubAudioNotifier(super.ref, AudioPlaybackState initial) {
-    state = initial;
-  }
+  _StubAudioNotifier(AudioPlaybackState initial) : super(initialState: initial);
 
   int prevCount = 0;
   int nextCount = 0;
@@ -132,28 +129,29 @@ class _StubAudioNotifier extends AudioPlaybackNotifier {
 
 class _StubVideoController extends VideoPlaybackController {
   _StubVideoController(
-    super.ref,
     super.request, {
     required this.onConstructed,
     required this.onClosed,
-  }) : super(deferBootstrap: true) {
+  }) : super(
+         deferBootstrap: true,
+         initialState: VideoPlaybackState(
+           isInitializing: false,
+           isBuffering: false,
+           hasFirstFrame: true,
+           isPlaying: true,
+           currentWork: request.work,
+           currentBundle: request.bundle,
+           currentEpisode: request.episode,
+           currentVariant: request.variant,
+           durationSeconds: 1420.0,
+           positionSeconds: 180.0,
+           probeStats: const PlaybackProbeStats(
+             videoWidth: 1920,
+             videoHeight: 1080,
+           ),
+         ),
+       ) {
     onConstructed();
-    state = VideoPlaybackState(
-      isInitializing: false,
-      isBuffering: false,
-      hasFirstFrame: true,
-      isPlaying: true,
-      currentWork: request.work,
-      currentBundle: request.bundle,
-      currentEpisode: request.episode,
-      currentVariant: request.variant,
-      durationSeconds: 1420.0,
-      positionSeconds: 180.0,
-      probeStats: const PlaybackProbeStats(
-        videoWidth: 1920,
-        videoHeight: 1080,
-      ),
-    );
   }
 
   final VoidCallback onConstructed;
@@ -340,11 +338,8 @@ void main() {
                 tmdbImageLoaderProvider.overrideWithValue(
                   (_, {targetWidth, imageSize}) async => _samplePng,
                 ),
-                audioPlaybackProvider.overrideWith((ref) {
-                  audioNotifier = _StubAudioNotifier(
-                    ref,
-                    _buildSampleAudioState(),
-                  );
+                audioPlaybackProvider.overrideWith(() {
+                  audioNotifier = _StubAudioNotifier(_buildSampleAudioState());
                   return audioNotifier;
                 }),
               ],
@@ -557,8 +552,7 @@ void main() {
               (_, {targetWidth, imageSize}) async => _samplePng,
             ),
             videoPlaybackProvider(req).overrideWith(
-              (ref) => _StubVideoController(
-                ref,
+              () => _StubVideoController(
                 req,
                 onConstructed: () => constructCount += 1,
                 onClosed: () => closeCount += 1,
@@ -755,8 +749,8 @@ void main() {
             tmdbImageLoaderProvider.overrideWithValue(
               (_, {targetWidth, imageSize}) async => _samplePng,
             ),
-            audioPlaybackProvider.overrideWith((ref) {
-              audioNotifier = _StubAudioNotifier(ref, _buildSampleAudioState());
+            audioPlaybackProvider.overrideWith(() {
+              audioNotifier = _StubAudioNotifier(_buildSampleAudioState());
               return audioNotifier;
             }),
           ],

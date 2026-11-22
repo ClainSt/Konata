@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/library_providers.dart';
@@ -171,7 +171,7 @@ class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
-        showKonataToast(context, '保存失败: $e');
+        showKonataToast(context, '保存失败: $e', isError: true);
       }
     }
   }
@@ -198,7 +198,7 @@ class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
-        showKonataToast(context, '恢复默认失败: $e');
+        showKonataToast(context, '恢复默认失败: $e', isError: true);
       }
     }
   }
@@ -225,7 +225,7 @@ class _WorkManualEditDialogState extends ConsumerState<WorkManualEditDialog> {
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
-        showKonataToast(context, '恢复默认失败: $e');
+        showKonataToast(context, '恢复默认失败: $e', isError: true);
       }
     }
   }

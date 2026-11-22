@@ -9,7 +9,7 @@ import 'package:ccplayer/presentation/settings/settings_external_tools_panel.dar
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
 import 'package:ccplayer/presentation/widgets/playback/konata_foobar_beefweb_dialog.dart';
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -39,7 +39,7 @@ void main() {
       overrides: [
         konataDatabaseProvider.overrideWithValue(db),
         playbackPreferencesProvider.overrideWith(
-          (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+          () => PlaybackPreferencesNotifier(enablePersistence: false),
         ),
         foobarBeefwebStatusProvider.overrideWith(
           (_) async => const FoobarComponentStatusSnapshot(

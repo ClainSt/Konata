@@ -36,9 +36,6 @@ abstract final class KonataAdaptiveTokens {
   static const toastExitDuration = Duration(milliseconds: 160);
   static const toastMaxWidth = 540.0;
   static const toastHorizontalMargin = 16.0;
-  static const toastSafeBottomGapAndroid = 16.0;
-  static const toastSafeBottomGapDesktop = 20.0;
-  static const toastMiniWindowGap = 12.0;
   static const toastBlurSigma = 24.0;
   static const desktopToastCloseHitSize = 28.0;
 }

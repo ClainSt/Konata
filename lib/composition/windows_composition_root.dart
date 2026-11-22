@@ -1,11 +1,14 @@
 import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:window_manager/window_manager.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
+import 'package:window_manager/window_manager.dart' as wm;
 
 import '../application/providers/desktop_external_tools_providers.dart';
+import '../application/providers/konata_value_notifier.dart';
+import '../application/providers/memory_coordinator.dart';
 import '../application/providers/playback_providers.dart';
 import '../application/providers/theme_providers.dart';
 import '../domain/config/konata_lane_config.dart';
@@ -55,24 +58,40 @@ class WindowsKonataWindowHost implements KonataWindowHost {
     }
   }
 
+  wm.Window? _currentNativeWindow() {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) return null;
+    try {
+      return wm.WindowManager.instance.getCurrent();
+    } catch (error) {
+      developer.log(
+        '可恢复异常已记录',
+        name: 'konata.windows_composition_root',
+        error: error,
+      );
+      return null;
+    }
+  }
+
   @override
   Future<bool> isFullScreen() async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) return false;
-    try {
-      return await windowManager.isFullScreen();
-    } catch (_) {
-      return false;
-    }
+    return _currentNativeWindow()?.isFullScreen ?? false;
   }
 
   @override
   Future<void> setFullScreen(bool fullScreen) async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) return;
     try {
-      await windowManager.setFullScreen(fullScreen);
+      final win = _currentNativeWindow();
+      if (win != null) {
+        win.isFullScreen = fullScreen;
+      }
       await Window.hideWindowControls();
     } catch (error) {
-      developer.log('可恢复异常已记录', name: 'konata.windows_composition_root', error: error);
+      developer.log(
+        '可恢复异常已记录',
+        name: 'konata.windows_composition_root',
+        error: error,
+      );
     }
   }
 
@@ -80,9 +99,13 @@ class WindowsKonataWindowHost implements KonataWindowHost {
   Future<void> startDragging() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) return;
     try {
-      await windowManager.startDragging();
+      _currentNativeWindow()?.startDragging();
     } catch (error) {
-      developer.log('可恢复异常已记录', name: 'konata.windows_composition_root', error: error);
+      developer.log(
+        '可恢复异常已记录',
+        name: 'konata.windows_composition_root',
+        error: error,
+      );
     }
   }
 
@@ -90,14 +113,21 @@ class WindowsKonataWindowHost implements KonataWindowHost {
   Future<void> toggleMaximize() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) return;
     try {
-      if (await windowManager.isMaximized()) {
-        await windowManager.unmaximize();
-      } else {
-        await windowManager.maximize();
+      final win = _currentNativeWindow();
+      if (win != null) {
+        if (win.isMaximized) {
+          win.unmaximize();
+        } else {
+          win.maximize();
+        }
       }
       await Window.hideWindowControls();
     } catch (error) {
-      developer.log('可恢复异常已记录', name: 'konata.windows_composition_root', error: error);
+      developer.log(
+        '可恢复异常已记录',
+        name: 'konata.windows_composition_root',
+        error: error,
+      );
     }
   }
 
@@ -114,7 +144,7 @@ class WindowsKonataWindowHost implements KonataWindowHost {
 
   @override
   Widget buildDragToMoveArea({required Widget child}) {
-    return DragToMoveArea(child: child);
+    return wm.DragToMoveArea(child: child);
   }
 }
 
@@ -189,45 +219,81 @@ class WindowsCompositionRoot {
       legacyCodePageDecoderProvider.overrideWithValue(
         WindowsCodePageDecoder.decode,
       ),
+      konataUiImageCacheTrimmerProvider.overrideWithValue(
+        () => PaintingBinding.instance.imageCache.clear(),
+      ),
+      konataNativeMemoryTrimmerProvider.overrideWithValue(
+        D3D11VideoBridge.trimSystemMemory,
+      ),
     ];
   }
 
   /// 初始化 Windows 透明无框窗口并启动 Konata 根应用。
   static Future<void> run() async {
     WidgetsFlutterBinding.ensureInitialized();
+    final imageCache = PaintingBinding.instance.imageCache;
+    imageCache.maximumSizeBytes =
+        KonataMemoryCoordinator.desktopImageCacheMaxBytes;
+    imageCache.maximumSize =
+        KonataMemoryCoordinator.desktopImageCacheMaxEntries;
     final appWindowTitle = KonataLaneConfig.resolveDesktopWindowTitle();
 
     final materialController = WindowMaterialController();
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
       await Window.initialize();
       await Window.hideWindowControls();
-      await windowManager.ensureInitialized();
-      await windowManager.setBackgroundColor(Colors.transparent);
-      final options = WindowOptions(
-        size: const Size(1360, 820),
-        minimumSize: const Size(960, 620),
-        center: true,
-        title: appWindowTitle,
-        titleBarStyle: TitleBarStyle.hidden,
-        windowButtonVisibility: false,
-        backgroundColor: Colors.transparent,
-      );
-      await windowManager.waitUntilReadyToShow(options, () async {
-        await materialController.apply(
-          themeMode: ThemeMode.dark,
-          platformBrightness:
-              WidgetsBinding.instance.platformDispatcher.platformBrightness,
-          material: KonataWindowMaterial.acrylic,
+      wm.Window? nativeWin;
+      try {
+        nativeWin = wm.WindowManager.instance.getCurrent();
+      } catch (error) {
+        developer.log(
+          '可恢复异常已记录',
+          name: 'konata.windows_composition_root',
+          error: error,
         );
-        await windowManager.setTitle(appWindowTitle);
-        await Window.hideWindowControls();
-        await windowManager.show();
-        await windowManager.focus();
-      });
+      }
+      if (nativeWin != null) {
+        nativeWin.titleBarStyle = wm.TitleBarStyle.hidden;
+        nativeWin.isWindowControlButtonsVisible = false;
+        nativeWin.backgroundColor = wm.ColorToNative(
+          Colors.transparent,
+        ).toNative();
+        if (nativeWin.isFullScreen) {
+          nativeWin.isFullScreen = false;
+        }
+        if (nativeWin.isMaximized) {
+          nativeWin.unmaximize();
+        }
+        if (nativeWin.isMinimized) {
+          nativeWin.restore();
+        }
+        nativeWin.setSize(
+          wm.SizeToNative(const Size(1360, 820)).toNative(),
+          false,
+        );
+        nativeWin.minimumSize = wm.SizeToNative(
+          const Size(960, 620),
+        ).toNative();
+        nativeWin.center();
+        nativeWin.title = appWindowTitle;
+      }
+      await materialController.apply(
+        themeMode: ThemeMode.dark,
+        platformBrightness:
+            WidgetsBinding.instance.platformDispatcher.platformBrightness,
+        material: KonataWindowMaterial.acrylic,
+      );
+      if (nativeWin != null) {
+        nativeWin.title = appWindowTitle;
+      }
+      await Window.hideWindowControls();
+      nativeWin?.show();
+      nativeWin?.focus();
     }
 
     runApp(
       ProviderScope(
+        retry: konataNoProviderRetry,
         overrides: providerOverrides(materialController: materialController),
         child: const KonataApp(),
       ),

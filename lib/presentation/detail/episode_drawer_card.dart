@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../domain/formatting/media_display_formatter.dart';
 import '../../domain/matching/episode_title_formatter.dart';
@@ -174,7 +174,10 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
     if (!mounted || action == null) return;
     switch (action) {
       case 'builtin':
-        captureStageMorphOriginRect(context);
+        captureStageMorphOriginRect(
+          context,
+          kind: FloatingMiniPlayerKind.video,
+        );
         widget.onPlayBuiltin?.call();
       case 'external':
         widget.onPlayExternal?.call();
@@ -294,7 +297,10 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
         onExit: (_) => setState(() => _hovered = false),
         child: GestureDetector(
           onTap: () {
-            captureStageMorphOriginRect(context);
+            captureStageMorphOriginRect(
+              context,
+              kind: FloatingMiniPlayerKind.video,
+            );
             widget.onTap();
           },
           onSecondaryTapUp: (details) =>

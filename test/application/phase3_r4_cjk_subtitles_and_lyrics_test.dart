@@ -680,22 +680,6 @@ $uueFont
           final repo = DriftLibraryRepository(db);
           final storage = StorageRootService(overrideRoot: tempDir);
           final bridge = LocalStreamBridge(storageRoot: storage);
-          final container = ProviderContainer(
-            overrides: [
-              libraryRepositoryProvider.overrideWithValue(repo),
-              storageRootProvider.overrideWithValue(storage),
-              localStreamBridgeProvider.overrideWithValue(bridge),
-              libraryItemsProvider.overrideWith((ref) async => const []),
-            ],
-          );
-
-          final prefsNotifier = container.read(playbackPreferencesProvider.notifier);
-          await prefsNotifier.setCloudSubsetEnabled(true);
-          await prefsNotifier.setCloudSubsetEndpoint(endpointUri.toString());
-          container.read(cloudSubsetCoordinatorProvider).authorizeOrigin(endpointUri);
-          await container
-              .read(cloudSubsetAuthorizationStoreProvider)
-              .flushPendingPersistence();
 
           final source = MediaSource(
             id: 'src_local_r4',
@@ -744,19 +728,45 @@ $uueFont
           );
 
           late EmbeddedMpvSession createdSession;
-          final ctrl = VideoPlaybackController(
-            container.read(_refExtractorProvider),
-            req,
-            sessionFactory: () {
-              createdSession = EmbeddedMpvSession(
-                storageRoot: storage,
-                streamBridge: bridge,
-                clientFactory: () => fakeClient,
-                fontPoolManager: container.read(subtitleFontPoolManagerProvider),
-              );
-              return createdSession;
-            },
+          late final ProviderContainer container;
+          container = ProviderContainer(
+            overrides: [
+              libraryRepositoryProvider.overrideWithValue(repo),
+              storageRootProvider.overrideWithValue(storage),
+              localStreamBridgeProvider.overrideWithValue(bridge),
+              libraryItemsProvider.overrideWith((ref) async => const []),
+              videoPlaybackProvider(req).overrideWith(
+                () => VideoPlaybackController(
+                  req,
+                  sessionFactory: () {
+                    createdSession = EmbeddedMpvSession(
+                      storageRoot: storage,
+                      streamBridge: bridge,
+                      clientFactory: () => fakeClient,
+                      fontPoolManager: container.read(
+                        subtitleFontPoolManagerProvider,
+                      ),
+                    );
+                    return createdSession;
+                  },
+                ),
+              ),
+            ],
           );
+
+          final prefsNotifier = container.read(playbackPreferencesProvider.notifier);
+          await prefsNotifier.setCloudSubsetEnabled(true);
+          await prefsNotifier.setCloudSubsetEndpoint(endpointUri.toString());
+          container.read(cloudSubsetCoordinatorProvider).authorizeOrigin(endpointUri);
+          await container
+              .read(cloudSubsetAuthorizationStoreProvider)
+              .flushPendingPersistence();
+
+          final videoSub = container.listen(
+            videoPlaybackProvider(req),
+            (_, _) {},
+          );
+          final ctrl = container.read(videoPlaybackProvider(req).notifier);
 
           try {
             await Future<void>.delayed(const Duration(milliseconds: 120));
@@ -796,7 +806,7 @@ $uueFont
             expect(pool.activeLeaseHashes.length, greaterThanOrEqualTo(2));
           } finally {
             await ctrl.closeAndRelease();
-            ctrl.dispose();
+            videoSub.close();
             await bridge.dispose();
             container.dispose();
             await db.close();
@@ -908,6 +918,7 @@ $uueFont
       final tempAudioRoot = await Directory.systemTemp.createTemp(
         'konata_r4_audio_',
       );
+      final fakeAudioMpv = _R4FakeMpvClient();
       final container = ProviderContainer(
         overrides: [
           libraryRepositoryProvider.overrideWithValue(repo),
@@ -920,13 +931,12 @@ $uueFont
             MeteredNetworkDetector(overrideProbe: () async => isMetered),
           ),
           libraryItemsProvider.overrideWith((ref) async => const []),
+          audioPlaybackProvider.overrideWith(
+            () => AudioPlaybackNotifier(clientFactory: () => fakeAudioMpv),
+          ),
         ],
       );
-      final fakeAudioMpv = _R4FakeMpvClient();
-      final audioNotifier = AudioPlaybackNotifier(
-        container.read(_refExtractorProvider),
-        clientFactory: () => fakeAudioMpv,
-      );
+      final audioNotifier = container.read(audioPlaybackProvider.notifier);
       const work = Work(id: 'w_frieren', title: 'Frieren');
       const variant = MediaVariant(
         id: 'cd_yusha',
@@ -947,22 +957,25 @@ $uueFont
         await Future<void>.delayed(const Duration(milliseconds: 120));
 
         // 移动计量网络未确认前，严禁触碰 AMLL 索引，并向 UI 抛出确认状态。
-        expect(audioNotifier.state.needsMobileAmllLyricConfirmation, isTrue);
+        expect(
+          container.read(audioPlaybackProvider).needsMobileAmllLyricConfirmation,
+          isTrue,
+        );
         expect(requestedHosts.contains('raw.githubusercontent.com'), isFalse);
 
         // 用户确认后，放行 AMLL TTML 逐字与和声歌词加载。
         await audioNotifier.confirmMobileAmllLyricLookup();
-        expect(audioNotifier.state.needsMobileAmllLyricConfirmation, isFalse);
-        expect(audioNotifier.state.activeLyricTier, equals(LyricLookupTier.amllTtmlDb));
-        expect(audioNotifier.state.lrcDocument, isNotNull);
-        expect(audioNotifier.state.activeSpanLines, isNotEmpty);
+        final audioState = container.read(audioPlaybackProvider);
+        expect(audioState.needsMobileAmllLyricConfirmation, isFalse);
+        expect(audioState.activeLyricTier, equals(LyricLookupTier.amllTtmlDb));
+        expect(audioState.lrcDocument, isNotNull);
+        expect(audioState.activeSpanLines, isNotEmpty);
         expect(
-          audioNotifier.state.activeSpanLines.first.spans.any((s) => s.isHarmony),
+          audioState.activeSpanLines.first.spans.any((s) => s.isHarmony),
           isTrue,
         );
         expect(requestedHosts.contains('raw.githubusercontent.com'), isTrue);
       } finally {
-        audioNotifier.dispose();
         container.dispose();
         await db.close();
         service.dispose();
@@ -973,7 +986,5 @@ $uueFont
     });
   });
 }
-
-final _refExtractorProvider = Provider<Ref>((ref) => ref);
 
 class _PassthroughHttpOverrides extends HttpOverrides {}

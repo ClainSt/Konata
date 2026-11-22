@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -148,8 +148,7 @@ class _Step3FakeMpvClient implements LibMpvClient {
 }
 
 class _Step3ShortcutTestController extends VideoPlaybackController {
-  _Step3ShortcutTestController(super.ref, super.request)
-    : super(deferBootstrap: true);
+  _Step3ShortcutTestController(super.request) : super(deferBootstrap: true);
 
   final List<double> relativeSeeks = <double>[];
 
@@ -229,8 +228,7 @@ void main() {
           libraryRepositoryProvider.overrideWithValue(repo),
           pipRecoveryStoreProvider.overrideWithValue(store),
           videoPlaybackProvider(req).overrideWith(
-            (ref) => VideoPlaybackController(
-              ref,
+            () => VideoPlaybackController(
               req,
               sessionFactory: () => EmbeddedMpvSession(
                 storageRoot: storage,
@@ -289,9 +287,8 @@ void main() {
           libraryRepositoryProvider.overrideWithValue(repo),
           pipRecoveryStoreProvider.overrideWithValue(store),
           workDetailBundleProvider('w_pip').overrideWith((_) async => bundle),
-          videoPlaybackProvider.overrideWith(
-            (ref, coldReq) => VideoPlaybackController(
-              ref,
+          videoPlaybackProvider.overrideWith2(
+            (coldReq) => VideoPlaybackController(
               coldReq,
               sessionFactory: () => EmbeddedMpvSession(
                 storageRoot: storage,
@@ -357,8 +354,8 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           ...WindowsCompositionRoot.providerOverrides(),
-          videoPlaybackProvider(req).overrideWith((ref) {
-            controller = _Step3ShortcutTestController(ref, req);
+          videoPlaybackProvider(req).overrideWith(() {
+            controller = _Step3ShortcutTestController(req);
             return controller;
           }),
         ],

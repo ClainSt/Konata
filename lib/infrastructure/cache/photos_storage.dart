@@ -202,10 +202,15 @@ class PhotosStorage {
   final Directory? _instanceOverrideRoot;
   final StorageRootService _storageRoot;
   final Map<String, String> _knownTitleByWorkId = <String, String>{};
+  final Map<String, String> _workDirPathByTag = <String, String>{};
+  String? _indexedRootPath;
+  DateTime? _indexedRootModified;
+  Future<void>? _indexBuildInFlight;
 
   static final RegExp _invalidPathChars = RegExp(r'[<>:"/\\|?*\x00-\x1F]');
   static final RegExp _safePlainId = RegExp(r'^[A-Za-z0-9_-]{1,32}$');
   static final RegExp _nonTagChars = RegExp(r'[^A-Za-z0-9_-]+');
+  static final RegExp _whitespaceCollapse = RegExp(r'\s+');
 
   /// 解析当前运行环境对应的 `photos/` 根目录路径。
   Directory resolveRootDirectory() {
@@ -217,7 +222,7 @@ class PhotosStorage {
   /// 将作品名规范化为 Windows / POSIX 安全可读目录前缀。
   static String sanitizeTitle(String raw) {
     var cleaned = raw.replaceAll(_invalidPathChars, ' ');
-    cleaned = cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
+    cleaned = cleaned.replaceAll(_whitespaceCollapse, ' ').trim();
     while (cleaned.endsWith('.')) {
       cleaned = cleaned.substring(0, cleaned.length - 1).trim();
     }
@@ -296,6 +301,7 @@ class PhotosStorage {
       if (_pathsEqual(src.path, desiredDir.path)) continue;
       await _mergeOrRenameDirectory(src, desiredDir);
     }
+    _invalidateWorkDirIndex();
   }
 
   /// 定位作品目录（默认懒解析，仅返回路径对象，不自动建空目录）。
@@ -317,16 +323,17 @@ class PhotosStorage {
         ),
       );
       if (candidate.existsSync()) {
+        _recordIndexedWorkDir(root, cleanId, candidate.path);
         return candidate;
       }
-      final existing = await _findFirstWorkDirForId(cleanId);
+      final existing = await _lookupIndexedWorkDir(root, cleanId);
       if (existing != null) {
         return existing;
       }
       return candidate;
     }
 
-    final existing = await _findFirstWorkDirForId(cleanId);
+    final existing = await _lookupIndexedWorkDir(root, cleanId);
     if (existing != null) {
       return existing;
     }
@@ -365,6 +372,37 @@ class PhotosStorage {
     return File(p.join(dir.path, '${shortDigest(sig)}.webp'));
   }
 
+  /// 仅当作品目录在磁盘实际存在时返回该目录（只读路径专用，未命中直接返回 `null` 省去多余子目录 stat）。
+  Future<Directory?> _resolveExistingWorkDirectory(
+    String workId, {
+    String? title,
+  }) async {
+    final cleanId = workId.trim();
+    if (title != null && title.trim().isNotEmpty) {
+      _knownTitleByWorkId[cleanId] = title.trim();
+    }
+    final root = resolveRootDirectory();
+    final knownTitle = _knownTitleByWorkId[cleanId];
+    if (knownTitle != null) {
+      final candidate = Directory(
+        p.join(
+          root.path,
+          formatWorkFolderName(workId: cleanId, title: knownTitle),
+        ),
+      );
+      final tag = encodeWorkIdTag(cleanId);
+      if (_indexedRootPath == p.normalize(root.path) &&
+          _workDirPathByTag[tag] == candidate.path) {
+        return candidate;
+      }
+      if (candidate.existsSync()) {
+        _recordIndexedWorkDir(root, cleanId, candidate.path);
+        return candidate;
+      }
+    }
+    return _lookupIndexedWorkDir(root, cleanId);
+  }
+
   /// 查找并返回已缓存的 Scan `.webp` 字节（未命中返回 `null`，绝不建目录）。
   Future<Uint8List?> readScanThumbnail({
     required String workId,
@@ -373,17 +411,18 @@ class PhotosStorage {
     required int fileSize,
     String? title,
   }) async {
-    if (!resolveRootDirectory().existsSync()) return null;
-    final file = await scanThumbnailFile(
-      workId: workId,
-      variantId: variantId,
-      relativePath: relativePath,
-      fileSize: fileSize,
-      title: title,
+    final workDir = await _resolveExistingWorkDirectory(workId, title: title);
+    if (workDir == null) return null;
+    final sig = '${relativePath.replaceAll('\\', '/')}#$fileSize#$variantId';
+    final file = File(
+      p.join(workDir.path, PhotoSubfolder.scans.dirName, '${shortDigest(sig)}.webp'),
     );
-    if (!file.existsSync()) return null;
-    final bytes = await file.readAsBytes();
-    return bytes.isEmpty ? null : bytes;
+    try {
+      final bytes = await file.readAsBytes();
+      return bytes.isEmpty ? null : bytes;
+    } on FileSystemException {
+      return null;
+    }
   }
 
   /// 仅读取已缓存 Scan `.webp` 文件前 32 字节帧头（用于毫秒级解析宽高比，零整图读盘、绝不建目录）。
@@ -394,21 +433,21 @@ class PhotosStorage {
     required int fileSize,
     String? title,
   }) async {
-    if (!resolveRootDirectory().existsSync()) return null;
-    final file = await scanThumbnailFile(
-      workId: workId,
-      variantId: variantId,
-      relativePath: relativePath,
-      fileSize: fileSize,
-      title: title,
+    final workDir = await _resolveExistingWorkDirectory(workId, title: title);
+    if (workDir == null) return null;
+    final sig = '${relativePath.replaceAll('\\', '/')}#$fileSize#$variantId';
+    final file = File(
+      p.join(workDir.path, PhotoSubfolder.scans.dirName, '${shortDigest(sig)}.webp'),
     );
-    if (!file.existsSync()) return null;
-    final raf = await file.open();
+    RandomAccessFile? raf;
     try {
+      raf = await file.open();
       final header = await raf.read(32);
       return header.isEmpty ? null : header;
+    } on FileSystemException {
+      return null;
     } finally {
-      await raf.close();
+      await raf?.close();
     }
   }
 
@@ -430,6 +469,7 @@ class PhotosStorage {
     );
     await file.parent.create(recursive: true);
     await file.writeAsBytes(webpBytes, flush: true);
+    _recordIndexedWorkDir(resolveRootDirectory(), workId, file.parent.parent.path);
     return file;
   }
 
@@ -441,29 +481,37 @@ class PhotosStorage {
     int minimumQuality = 0,
     String? title,
   }) async {
-    if (!resolveRootDirectory().existsSync()) return null;
-    final dir = await resolveSubfolderDirectory(
-      workId,
-      subfolder,
-      title: title,
-    );
-    if (!dir.existsSync()) return null;
+    final workDir = await _resolveExistingWorkDirectory(workId, title: title);
+    if (workDir == null) return null;
+    final dirPath = p.join(workDir.path, subfolder.dirName);
 
-    // 精确前缀命中：<size>_<hash>.<ext> 或 url_<hash>.<ext>
-    final direct = File(p.join(dir.path, fileKey));
-    if (direct.existsSync()) {
-      final data = await direct.readAsBytes();
-      if (data.isNotEmpty) return data;
+    // 精确前缀直接读取：<size>_<hash>.<ext> 或 url_<hash>.<ext>（免去多余 existsSync 双重 stat 开销）。
+    final direct = File(p.join(dirPath, fileKey));
+    Uint8List? directData;
+    try {
+      directData = await direct.readAsBytes();
+    } on PathNotFoundException {
+      directData = null;
+    } on FileSystemException catch (e) {
+      developer.log(
+        '直接读取缓存图失败，回退至分档扫描：$fileKey ($e)',
+        name: 'PhotosStorage',
+      );
+      directData = null;
     }
+    if (directData != null && directData.isNotEmpty) return directData;
 
-    // 兼容性查找同资源高画质档位（fileKey 格式 `<tier>_<digest><ext>`）
+    // 仅对标准分档文件（w185..original / url，quality > 0）回退扫描同目录更高清晰度档位，
+    // 防止非分档文件（如 `album_cover_*.bin`）未命中时反复遍历整个子目录。
     final parsed = _parseTieredFileName(fileKey);
-    if (parsed == null) return null;
+    if (parsed == null || parsed.quality <= 0) return null;
+    final dir = Directory(dirPath);
+    if (!dir.existsSync()) return null;
     await for (final entity in dir.list(followLinks: false)) {
       if (entity is! File) continue;
       final name = p.basename(entity.path);
       final candidate = _parseTieredFileName(name);
-      if (candidate == null) continue;
+      if (candidate == null || candidate.quality <= 0) continue;
       if (candidate.digest == parsed.digest &&
           candidate.quality >= minimumQuality) {
         final data = await entity.readAsBytes();
@@ -490,6 +538,7 @@ class PhotosStorage {
     await dir.create(recursive: true);
     final file = File(p.join(dir.path, fileKey));
     await file.writeAsBytes(bytes, flush: true);
+    _recordIndexedWorkDir(resolveRootDirectory(), workId, dir.parent.path);
     return file;
   }
 
@@ -505,6 +554,7 @@ class PhotosStorage {
         await dir.delete(recursive: true);
       }
     }
+    _invalidateWorkDirIndex();
   }
 
   /// 合并/迁移两部作品时，将源作品名下全部已缓存图片无损合并迁入目标作品文件夹并清理源目录。
@@ -539,6 +589,7 @@ class PhotosStorage {
       await _mergeOrRenameDirectory(srcDir, targetDir);
     }
     _knownTitleByWorkId.remove(cleanSource);
+    _invalidateWorkDirIndex();
   }
 
   /// 扫描 `photos/` 根目录并统计总空间与 5 个子类占用详情。
@@ -798,6 +849,7 @@ class PhotosStorage {
       }
     }
 
+    _invalidateWorkDirIndex();
     return (deletedBytes: deletedBytes, deletedFiles: deletedFiles);
   }
 
@@ -851,12 +903,83 @@ class PhotosStorage {
       }
     }
 
+    _invalidateWorkDirIndex();
     return (deletedBytes: bytes, deletedFiles: files);
   }
 
-  Future<Directory?> _findFirstWorkDirForId(String workId) async {
-    final all = await _findAllWorkDirsForId(workId);
-    return all.isEmpty ? null : all.first;
+  /// 按 `workId` 走 O(1) 目录索引查找既有作品目录（自动感知根目录变更，彻底消除未命中 O(N) 扫盘）。
+  Future<Directory?> _lookupIndexedWorkDir(Directory root, String workId) async {
+    await _ensureWorkDirIndex(root);
+    final tag = encodeWorkIdTag(workId);
+    final cachedPath = _workDirPathByTag[tag] ?? _workDirPathByTag[workId];
+    if (cachedPath == null) return null;
+    return Directory(cachedPath);
+  }
+
+  Future<void> _ensureWorkDirIndex(Directory root) async {
+    final rootPath = p.normalize(root.path);
+    final stat = FileStat.statSync(rootPath);
+    if (stat.type != FileSystemEntityType.directory) {
+      _invalidateWorkDirIndex();
+      return;
+    }
+    final rootModified = stat.modified;
+    if (_indexedRootPath == rootPath &&
+        _indexedRootModified == rootModified) {
+      return;
+    }
+    final existing = _indexBuildInFlight;
+    if (existing != null) {
+      await existing;
+      if (_indexedRootPath == rootPath &&
+          _indexedRootModified == rootModified) {
+        return;
+      }
+    }
+    final future = _rebuildWorkDirIndex(root, rootPath);
+    _indexBuildInFlight = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_indexBuildInFlight, future)) {
+        _indexBuildInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _rebuildWorkDirIndex(Directory root, String rootPath) async {
+    final nextMap = <String, String>{};
+    await for (final entity in root.list(followLinks: false)) {
+      if (entity is! Directory) continue;
+      final tag = extractWorkTagFromFolderName(p.basename(entity.path));
+      if (tag != null && tag.isNotEmpty) {
+        nextMap.putIfAbsent(tag, () => entity.path);
+      }
+    }
+    _workDirPathByTag
+      ..clear()
+      ..addAll(nextMap);
+    _indexedRootPath = rootPath;
+    _indexedRootModified = root.existsSync() ? root.statSync().modified : null;
+  }
+
+  void _recordIndexedWorkDir(Directory root, String workId, String dirPath) {
+    final cleanId = workId.trim();
+    if (cleanId.isEmpty) return;
+    final rootPath = p.normalize(root.path);
+    if (_indexedRootPath == rootPath) {
+      _workDirPathByTag[encodeWorkIdTag(cleanId)] = dirPath;
+      _workDirPathByTag[cleanId] = dirPath;
+      if (root.existsSync()) {
+        _indexedRootModified = root.statSync().modified;
+      }
+    }
+  }
+
+  void _invalidateWorkDirIndex() {
+    _workDirPathByTag.clear();
+    _indexedRootPath = null;
+    _indexedRootModified = null;
   }
 
   Future<List<Directory>> _findAllWorkDirsForId(String workId) async {

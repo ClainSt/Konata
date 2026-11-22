@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -38,11 +38,11 @@ class SettingsPhotosStorageCard extends ConsumerWidget {
         mode: LaunchMode.externalApplication,
       );
       if (!ok && context.mounted) {
-        showKonataToast(context, '无法打开本地图片目录');
+        showKonataToast(context, '无法打开本地图片目录', isError: true);
       }
     } catch (err) {
       if (context.mounted) {
-        showKonataToast(context, '打开目录失败: $err');
+        showKonataToast(context, '打开目录失败: $err', isError: true);
       }
     }
   }
@@ -62,7 +62,7 @@ class SettingsPhotosStorageCard extends ConsumerWidget {
     final p = context.palette;
     final storage = ref.watch(photosStorageProvider);
     final snapshotAsync = ref.watch(photosStorageSnapshotProvider);
-    final snapshot = snapshotAsync.valueOrNull;
+    final snapshot = snapshotAsync.value;
     final stats = snapshot?.stats;
     final loading = snapshotAsync.isLoading || snapshotAsync.isRefreshing;
     final rootPath = stats?.rootPath ?? storage.resolveRootDirectory().path;

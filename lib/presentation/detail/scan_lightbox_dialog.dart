@@ -3,7 +3,7 @@ import 'dart:collection';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -767,7 +767,7 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
         .resolveExistingLocalPath(variant: current, source: source);
     if (existingPath == null) {
       if (!mounted) return;
-      showKonataToast(context, '本地原图文件不存在或不可访问');
+      showKonataToast(context, '本地原图文件不存在或不可访问', isError: true);
       return;
     }
 
@@ -776,7 +776,7 @@ class _ScanLightboxDialogState extends ConsumerState<ScanLightboxDialog> {
       mode: LaunchMode.externalApplication,
     );
     if (!ok && mounted) {
-      showKonataToast(context, '无法拉起系统图片查看器');
+      showKonataToast(context, '无法拉起系统图片查看器', isError: true);
     }
   }
 

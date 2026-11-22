@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../application/playback/playback_preferences_provider.dart';
 import '../../domain/formatting/media_display_formatter.dart';

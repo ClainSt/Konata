@@ -37,6 +37,15 @@ abstract final class WebDavGatewayConfig {
   /// 允许跟踪的最大 30x 重定向跳数（防重定向循环）。
   static const int maxRedirects = 5;
 
+  /// 302 直链 CDN 地址短周期缓存上限时长（避免每 4~16 MiB 分块都往返源站重复签发 302）。
+  static const Duration redirectCacheTtl = Duration(seconds: 180);
+
+  /// 解析直链查询参数中签名过期时间时预留的安全提前失效余量。
+  static const Duration redirectExpirySafetyMargin = Duration(seconds: 15);
+
+  /// 单个 WebDAV 槽位最多缓存的 302 重定向条目数（有界 LRU 防内存增长）。
+  static const int maxCachedRedirects = 64;
+
   /// 通用流媒体客户端标识（兼容各大网盘 302 CDN 与 WAF 放行策略）。
   static const String defaultUserAgent = 'VLC/3.0.20 LibVLC/3.0.20';
 
@@ -100,6 +109,16 @@ abstract final class WebDavGatewayConfig {
   }
 }
 
+class _CachedRedirectEntry {
+  const _CachedRedirectEntry({
+    required this.targetUri,
+    required this.expiresAt,
+  });
+
+  final Uri targetUri;
+  final DateTime expiresAt;
+}
+
 class _WebDavPoolSlot {
   _WebDavPoolSlot({required this.client, this.ioClient});
 
@@ -107,8 +126,10 @@ class _WebDavPoolSlot {
   final http.Client client;
   String? digestChallenge;
   int nonceCount = 0;
+  final Map<String, _CachedRedirectEntry> redirectCache = {};
 
   void close() {
+    redirectCache.clear();
     client.close();
     ioClient?.close(force: true);
   }
@@ -215,6 +236,20 @@ class WebDavConnectionPool {
     return slot.nonceCount;
   }
 
+  Map<String, _CachedRedirectEntry>? _redirectCacheFor({
+    required Uri rootUri,
+    String? username,
+    String? password,
+  }) {
+    if (_disposed) return null;
+    final key = buildOriginKey(
+      rootUri: rootUri,
+      username: username,
+      password: password,
+    );
+    return _ensureSlot(key).redirectCache;
+  }
+
   /// 释放所有池化 HTTP 连接句柄与缓存质询（随全局容器销毁调用）。
   void dispose() {
     if (_disposed) return;
@@ -269,7 +304,75 @@ class WebDavSourceGateway
 
   String? _lastDigestChallenge;
   int _nonceCount = 0;
+  final Map<String, _CachedRedirectEntry> _localRedirectCache = {};
   final Set<Future<void> Function()> _activeStreamAborters = {};
+
+  Map<String, _CachedRedirectEntry> get _redirectCache =>
+      _connectionPool?._redirectCacheFor(
+        rootUri: _rootUri,
+        username: username,
+        password: password,
+      ) ??
+      _localRedirectCache;
+
+  /// 解析直链查询参数中的签名过期时间，结合短 TTL 计算安全缓存截止时刻。
+  static DateTime? _computeRedirectExpiry(Uri targetUri, DateTime now) {
+    var expiresAt = now.add(WebDavGatewayConfig.redirectCacheTtl);
+    for (final entry in targetUri.queryParameters.entries) {
+      final key = entry.key.toLowerCase();
+      final value = int.tryParse(entry.value.trim());
+      if (value == null) continue;
+      if ((key == 'expires' || key == 'x-oss-expires' || key == 'e') &&
+          value > 1700000000 &&
+          value < 4102444800) {
+        final candidate = DateTime.fromMillisecondsSinceEpoch(
+          value * 1000,
+          isUtc: true,
+        ).toLocal().subtract(WebDavGatewayConfig.redirectExpirySafetyMargin);
+        if (candidate.isBefore(expiresAt)) expiresAt = candidate;
+      } else if (key == 'x-amz-expires' && value > 0 && value <= 604800) {
+        final candidate = now
+            .add(Duration(seconds: value))
+            .subtract(WebDavGatewayConfig.redirectExpirySafetyMargin);
+        if (candidate.isBefore(expiresAt)) expiresAt = candidate;
+      }
+    }
+    return expiresAt.isAfter(now) ? expiresAt : null;
+  }
+
+  Uri? _readCachedRedirect(Uri originUri) {
+    final cache = _redirectCache;
+    final key = originUri.toString();
+    final entry = cache[key];
+    if (entry == null) return null;
+    if (!entry.expiresAt.isAfter(DateTime.now())) {
+      cache.remove(key);
+      return null;
+    }
+    cache.remove(key);
+    cache[key] = entry;
+    return entry.targetUri;
+  }
+
+  void _rememberCachedRedirect(Uri originUri, Uri resolvedUri) {
+    if (originUri == resolvedUri) return;
+    final expiresAt = _computeRedirectExpiry(resolvedUri, DateTime.now());
+    if (expiresAt == null) return;
+    final cache = _redirectCache;
+    final key = originUri.toString();
+    cache.remove(key);
+    cache[key] = _CachedRedirectEntry(
+      targetUri: resolvedUri,
+      expiresAt: expiresAt,
+    );
+    while (cache.length > WebDavGatewayConfig.maxCachedRedirects) {
+      cache.remove(cache.keys.first);
+    }
+  }
+
+  void _evictCachedRedirect(Uri originUri) {
+    _redirectCache.remove(originUri.toString());
+  }
 
   /// 安全排空并释放轻量 HTTP 响应体；超时则直接取消订阅切断底层连接，防止池槽位长期占用。
   static Future<void> _safeDrainResponse(http.StreamedResponse response) async {
@@ -474,6 +577,7 @@ class WebDavSourceGateway
     String? body,
     http.Client? client,
     Duration? timeoutOverride,
+    void Function(Uri resolvedUri)? onFinalRedirectUri,
   }) async {
     final activeClient = client ?? _client;
     var currentUri = uri;
@@ -495,6 +599,11 @@ class WebDavSourceGateway
       );
 
       if (!_isRedirectStatus(streamed.statusCode)) {
+        if (hop > 0 &&
+            (streamed.statusCode == HttpStatus.ok ||
+                streamed.statusCode == HttpStatus.partialContent)) {
+          onFinalRedirectUri?.call(currentUri);
+        }
         return streamed;
       }
 
@@ -811,15 +920,56 @@ class WebDavSourceGateway
       extraHeaders[HttpHeaders.ifRangeHeader] = expectedStrongValidator;
     }
 
+    // 优先命中短 TTL 302 CDN 直链缓存（跨源绝不附带 WebDAV 凭据）；遇签名过期或失效状态码立即驱逐并回源重试一次。
+    http.StreamedResponse? cachedStreamed;
+    final cachedRedirectUri = _readCachedRedirect(uri);
+    if (cachedRedirectUri != null) {
+      try {
+        final directResp = await _sendWithDigestRetry(
+          (headers) => http.Request('GET', cachedRedirectUri)
+            ..headers.addAll(headers),
+          method: 'GET',
+          uri: cachedRedirectUri,
+          extraHeaders: extraHeaders,
+          client: _client,
+          timeoutOverride: streamTimeout,
+        );
+        final directCode = directResp.statusCode;
+        final shouldRetryOrigin =
+            directCode == HttpStatus.unauthorized ||
+            directCode == HttpStatus.forbidden ||
+            directCode == HttpStatus.notFound ||
+            directCode == HttpStatus.gone ||
+            directCode >= 500;
+        if (shouldRetryOrigin) {
+          await _safeDrainResponse(directResp);
+          _evictCachedRedirect(uri);
+        } else {
+          cachedStreamed = directResp;
+        }
+      } catch (error) {
+        developer.log(
+          'WebDAV 缓存 302 直链失效，自动回源重新签发',
+          name: 'konata.webdav_source_gateway',
+          error: error,
+        );
+        _evictCachedRedirect(uri);
+      }
+    }
+
     // 复用持久 Keep-Alive HTTP 连接池与 Digest 质询认证缓存，消除分段 Seek / 读取的 TLS 与 401 冷启动开销。
-    final http.StreamedResponse streamed = await _sendWithDigestRetry(
-      (headers) => http.Request('GET', uri)..headers.addAll(headers),
-      method: 'GET',
-      uri: uri,
-      extraHeaders: extraHeaders,
-      client: _client,
-      timeoutOverride: streamTimeout,
-    );
+    final http.StreamedResponse streamed =
+        cachedStreamed ??
+        await _sendWithDigestRetry(
+          (headers) => http.Request('GET', uri)..headers.addAll(headers),
+          method: 'GET',
+          uri: uri,
+          extraHeaders: extraHeaders,
+          client: _client,
+          timeoutOverride: streamTimeout,
+          onFinalRedirectUri: (resolved) =>
+              _rememberCachedRedirect(uri, resolved),
+        );
 
     final status = streamed.statusCode;
     if (status == HttpStatus.unauthorized || status == HttpStatus.forbidden) {
@@ -1013,6 +1163,7 @@ class WebDavSourceGateway
     for (final abort in pending) {
       await abort();
     }
+    _localRedirectCache.clear();
     if (_ownsClient) {
       _client.close();
     }

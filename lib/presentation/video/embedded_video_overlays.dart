@@ -399,17 +399,13 @@ class _VideoBottomHudLeaf extends ConsumerWidget {
     final isAndroid = KonataAdaptiveTokens.isAndroid;
     final btnSize = isAndroid ? KonataAdaptiveTokens.touchTarget : null;
 
-    // 关键门禁：OSD 隐藏期间停止订阅进度与时长，杜绝后台无谓 UI 重建与重绘。
-    final timing = subscribeProgress
+    // 关键门禁：OSD 隐藏期间停止订阅进度与时长，杜绝后台无谓 UI 重建与重绘；
+    // OSD 展开期间仅经轻量 `ValueListenable<double>` 驱动进度条，不随 60Hz `time-pos` 扇出完整状态。
+    final durationSeconds = subscribeProgress
         ? ref.watch(
-            videoPlaybackProvider(request).select(
-              (s) => (pos: s.positionSeconds, dur: s.durationSeconds),
-            ),
+            videoPlaybackProvider(request).select((s) => s.durationSeconds),
           )
-        : (
-            pos: ref.read(videoPlaybackProvider(request)).positionSeconds,
-            dur: ref.read(videoPlaybackProvider(request)).durationSeconds,
-          );
+        : ref.read(videoPlaybackProvider(request)).durationSeconds;
 
     final canPrev = controller.hasPreviousEpisodeAny;
     final canNext = controller.hasNextEpisodeAny;
@@ -418,13 +414,13 @@ class _VideoBottomHudLeaf extends ConsumerWidget {
     final narrowAndroidHud = isAndroid && screenWidth < 680;
     final ultraNarrowAndroidHud = isAndroid && screenWidth < 400;
 
-    return RepaintBoundary(
+    Widget buildCapsule(double posSeconds) => RepaintBoundary(
       child: KonataPlaybackCapsule(
         maxWidth: isTablet ? KonataAdaptiveTokens.tabletPlayerMaxWidth : null,
         enableBackdropBlur: !isAndroid || audioOnlyMode,
         title: null,
-        positionSeconds: timing.pos,
-        durationSeconds: timing.dur,
+        positionSeconds: posSeconds,
+        durationSeconds: durationSeconds,
         isPlaying: isPlaying,
         chapters: chapters.cast(),
         onTogglePlayPause: onTogglePlayPause,
@@ -527,6 +523,14 @@ class _VideoBottomHudLeaf extends ConsumerWidget {
           ],
         ),
       ),
+    );
+
+    if (!subscribeProgress) {
+      return buildCapsule(ref.read(videoPlaybackProvider(request)).positionSeconds);
+    }
+    return ValueListenableBuilder<double>(
+      valueListenable: controller.positionListenable,
+      builder: (_, posSeconds, _) => buildCapsule(posSeconds),
     );
   }
 }

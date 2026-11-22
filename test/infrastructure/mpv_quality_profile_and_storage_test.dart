@@ -119,7 +119,7 @@ class _FakeLibMpvClient implements LibMpvClient {
   int command(List<String> args) => 0;
 
   @override
-  int commandAsync(int replyUserdata, List<String> args) => 0;
+  int commandAsync(int replyUserdata, List<String> args) => command(args);
 
   @override
   Future<void> dispose() async {
@@ -295,7 +295,8 @@ void main() {
       expect(client.options['hwdec'], equals('d3d11va,d3d11va-copy,auto-safe'));
       expect(client.options['scale'], equals('ewa_lanczossharp'));
       expect(client.options['cscale'], equals('ewa_lanczossoft'));
-      expect(client.options['fbo-format'], equals('rgba16hf'));
+      expect(client.options['fbo-format'], equals('rgb10_a2'));
+      expect(client.options['hdr-compute-peak'], equals('no'));
       expect(client.options['cache-pause'], equals('no'));
       expect(client.options['deband'], equals('yes'));
       expect(
@@ -457,7 +458,7 @@ void main() {
       expect(client.options['gpu-api'], equals('opengl'));
       expect(client.options['opengl-es'], equals('yes'));
       expect(client.options['egl-output-format'], equals('rgb10_a2'));
-      expect(client.options['hwdec'], equals('auto-safe'));
+      expect(client.options['hwdec'], equals('mediacodec,mediacodec-copy,auto-safe'));
       expect(client.options['sub-font-provider'], equals('none'));
       expect(
         client.options['sub-font'],

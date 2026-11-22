@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/artwork_provider.dart';
@@ -19,6 +19,7 @@ import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/design_system/konata_surface_card.dart';
+import '../widgets/design_system/konata_toast.dart';
 import '../widgets/managed_image.dart';
 import 'hybrid_match_panel.dart';
 import '../theme/konata_theme.dart';
@@ -74,7 +75,6 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
   bool _searching = false;
   bool _searchingBgm = false;
   bool _binding = false;
-  String? _errorText;
   List<TmdbSearchResult> _searchResults = const [];
   List<BangumiSubjectCandidate> _bgmOnlyResults = const [];
 
@@ -86,7 +86,7 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
     if (widget.isSplitMode) {
       _mode = _ManualMatchMode.hybrid;
     } else {
-      final cfg = ref.read(tmdbNetworkConfigProvider).valueOrNull;
+      final cfg = ref.read(tmdbNetworkConfigProvider).value;
       if (cfg != null && cfg.credential.trim().isEmpty) {
         _mode = _ManualMatchMode.bangumiOnly;
       }
@@ -120,10 +120,7 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
   Future<void> _performSearch() async {
     final query = _queryController.text.trim();
     if (query.isEmpty) return;
-    setState(() {
-      _searching = true;
-      _errorText = null;
-    });
+    setState(() => _searching = true);
     try {
       final results = await ref
           .read(konataActionsProvider)
@@ -136,19 +133,18 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
       }
     } catch (error) {
       if (mounted) {
-        setState(() {
-          _errorText = NetworkErrorSanitizer.toUserMessage(
-            error,
-            prefix: 'TMDB 搜索失败',
-          );
-          _searching = false;
-        });
+        setState(() => _searching = false);
+        showKonataToast(
+          context,
+          NetworkErrorSanitizer.toUserMessage(error, prefix: 'TMDB 搜索失败'),
+          isError: true,
+        );
       }
     }
   }
 
   Future<void> _bindTarget(int tmdbId, TmdbMediaType mediaType) async {
-    final currentBundle = ref.read(workDetailBundleProvider(widget.workId)).valueOrNull;
+    final currentBundle = ref.read(workDetailBundleProvider(widget.workId)).value;
     var resetLocks = false;
     if (currentBundle != null &&
         currentBundle.work.tmdbId != null &&
@@ -194,10 +190,7 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
       }
     }
 
-    setState(() {
-      _binding = true;
-      _errorText = null;
-    });
+    setState(() => _binding = true);
     try {
       final Work resultWork;
       if (widget.isSplitMode) {
@@ -225,22 +218,18 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
       }
     } catch (error) {
       if (mounted) {
-        setState(() {
-          _errorText = NetworkErrorSanitizer.toUserMessage(
-            error,
-            prefix: '绑定失败',
-          );
-          _binding = false;
-        });
+        setState(() => _binding = false);
+        showKonataToast(
+          context,
+          NetworkErrorSanitizer.toUserMessage(error, prefix: '绑定失败'),
+          isError: true,
+        );
       }
     }
   }
 
   Future<void> _submitHybrid(HybridMatchRequest request) async {
-    setState(() {
-      _binding = true;
-      _errorText = null;
-    });
+    setState(() => _binding = true);
     try {
       final actions = ref.read(workManagementProvider);
       final resultWork = widget.isSplitMode
@@ -258,13 +247,12 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
       }
     } catch (error) {
       if (mounted) {
-        setState(() {
-          _errorText = NetworkErrorSanitizer.toUserMessage(
-            error,
-            prefix: '混合绑定失败',
-          );
-          _binding = false;
-        });
+        setState(() => _binding = false);
+        showKonataToast(
+          context,
+          NetworkErrorSanitizer.toUserMessage(error, prefix: '混合绑定失败'),
+          isError: true,
+        );
       }
     }
   }
@@ -272,10 +260,7 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
   Future<void> _searchBangumiOnly() async {
     final query = _bgmQueryController.text.trim();
     if (query.isEmpty) return;
-    setState(() {
-      _searchingBgm = true;
-      _errorText = null;
-    });
+    setState(() => _searchingBgm = true);
     try {
       final results = await ref
           .read(konataActionsProvider)
@@ -287,21 +272,17 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
       });
     } catch (error) {
       if (!mounted) return;
-      setState(() {
-        _errorText = NetworkErrorSanitizer.toUserMessage(
-          error,
-          prefix: 'Bangumi 搜索失败',
-        );
-        _searchingBgm = false;
-      });
+      setState(() => _searchingBgm = false);
+      showKonataToast(
+        context,
+        NetworkErrorSanitizer.toUserMessage(error, prefix: 'Bangumi 搜索失败'),
+        isError: true,
+      );
     }
   }
 
   Future<void> _bindBangumiOnly(BangumiSubjectCandidate subject) async {
-    setState(() {
-      _binding = true;
-      _errorText = null;
-    });
+    setState(() => _binding = true);
     try {
       final actions = ref.read(workManagementProvider);
       final resultWork = widget.isSplitMode
@@ -319,13 +300,12 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
       }
     } catch (error) {
       if (mounted) {
-        setState(() {
-          _errorText = NetworkErrorSanitizer.toUserMessage(
-            error,
-            prefix: '绑定失败',
-          );
-          _binding = false;
-        });
+        setState(() => _binding = false);
+        showKonataToast(
+          context,
+          NetworkErrorSanitizer.toUserMessage(error, prefix: '绑定失败'),
+          isError: true,
+        );
       }
     }
   }
@@ -338,7 +318,7 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
     );
     final variants = widget.isSplitMode
         ? widget.splitVariants
-        : (ref.watch(workDetailBundleProvider(widget.workId)).valueOrNull?.variants ??
+        : (ref.watch(workDetailBundleProvider(widget.workId)).value?.variants ??
               const <MediaVariant>[]);
     final quickTerms = SearchQuerySanitizer.buildQuickSourceTerms(
       variants.map((v) => (fileName: v.fileName, relativePath: v.relativePath)),
@@ -412,10 +392,7 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
                           ],
                           onChanged: _binding
                               ? (_) {}
-                              : (m) => setState(() {
-                                  _mode = m;
-                                  _errorText = null;
-                                }),
+                              : (m) => setState(() => _mode = m),
                         ),
                       ),
                     ),
@@ -525,9 +502,10 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
                                           if (id != null && id > 0) {
                                             _bindTarget(id, _directType);
                                           } else {
-                                            setState(
-                                              () => _errorText =
-                                                  '请输入有效的数字 TMDB ID',
+                                            showKonataToast(
+                                              context,
+                                              '请输入有效的数字 TMDB ID',
+                                              isError: true,
                                             );
                                           }
                                         },
@@ -559,14 +537,6 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
                           ],
                         ),
                       ),
-                      if (_errorText != null)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Text(
-                            _errorText!,
-                            style: TextStyle(color: p.danger, fontSize: KonataTheme.fontSizeCaption),
-                          ),
-                        ),
                       SizedBox(height: landscapeCompactInput ? 4 : 10),
                       Expanded(
                         child: _searchResults.isNotEmpty
@@ -724,10 +694,6 @@ class _ManualMatchDialogState extends ConsumerState<ManualMatchDialog> {
             );
           },
         ),
-        if (_errorText != null) ...[
-          const SizedBox(height: 8),
-          Text(_errorText!, style: TextStyle(color: p.danger, fontSize: KonataTheme.fontSizeCaption)),
-        ],
         SizedBox(height: landscapeCompactInput ? 4 : 10),
         Expanded(
           child: _bgmOnlyResults.isEmpty

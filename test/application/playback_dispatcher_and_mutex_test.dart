@@ -160,7 +160,7 @@ class _FakeAudioClient implements LibMpvClient {
   int command(List<String> args) => 0;
 
   @override
-  int commandAsync(int replyUserdata, List<String> args) => 0;
+  int commandAsync(int replyUserdata, List<String> args) => command(args);
 
   @override
   Future<void> dispose() async {
@@ -279,7 +279,7 @@ void main() {
             ),
           ),
           playbackPreferencesProvider.overrideWith(
-            (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+            () => PlaybackPreferencesNotifier(enablePersistence: false),
           ),
           mpvRuntimeVersionsProvider.overrideWith(
             (_) async => MpvRuntimeVersions(
@@ -289,8 +289,7 @@ void main() {
             ),
           ),
           audioPlaybackProvider.overrideWith(
-            (ref) => AudioPlaybackNotifier(
-              ref,
+            () => AudioPlaybackNotifier(
               clientFactory: () => _FakeAudioClient(),
             ),
           ),

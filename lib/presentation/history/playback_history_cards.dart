@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/artwork_provider.dart';
@@ -627,7 +627,7 @@ class _AudioHistoryCover extends ConsumerWidget {
     final albumBytesAsync = ref.watch(
       audioRecordAlbumCoverProvider((workId: workId, variantId: variantId)),
     );
-    final bytes = albumBytesAsync.valueOrNull;
+    final bytes = albumBytesAsync.value;
     if (bytes != null && bytes.isNotEmpty) {
       return Image.memory(
         bytes,

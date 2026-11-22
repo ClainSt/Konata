@@ -36,6 +36,17 @@ bool FlutterWindow::OnCreate() {
     d3d11_bridge_ = std::make_unique<D3D11TextureBridge>(
         GetHandle(), flutter_controller_->engine(), bridge_registrar);
   }
+  FlutterDesktopPluginRegistrarRef raw_picker_registrar =
+      flutter_controller_->engine()->GetRegistrarForPlugin(
+          "KonataWindowsFilePickerBridge");
+  if (raw_picker_registrar != nullptr) {
+    auto* picker_registrar =
+        flutter::PluginRegistrarManager::GetInstance()
+            ->GetRegistrar<flutter::PluginRegistrarWindows>(
+                raw_picker_registrar);
+    file_picker_bridge_ =
+        std::make_unique<WindowsFilePickerBridge>(GetHandle(), picker_registrar);
+  }
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -51,6 +62,10 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  if (file_picker_bridge_) {
+    file_picker_bridge_->Shutdown();
+    file_picker_bridge_.reset();
+  }
   if (d3d11_bridge_) {
     d3d11_bridge_->Shutdown();
     d3d11_bridge_.reset();
@@ -66,6 +81,11 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  // 窗口最小化时在无活跃视频会话的前提下即时回收闲置 D3D11 设备与系统工作集。
+  if (message == WM_SIZE && wparam == SIZE_MINIMIZED && d3d11_bridge_) {
+    d3d11_bridge_->TrimMemoryOnMinimize();
+  }
+
   // 优先交由 Flutter 引擎与已注册插件拦截处理窗口消息。
   if (flutter_controller_) {
     std::optional<LRESULT> result =
@@ -80,6 +100,11 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case D3D11TextureBridge::kNotifyWindowMessage:
       if (d3d11_bridge_) {
         d3d11_bridge_->ProcessPendingNotifications();
+      }
+      return 0;
+    case WindowsFilePickerBridge::kShowDialogWindowMessage:
+      if (file_picker_bridge_) {
+        file_picker_bridge_->ProcessPendingDialog();
       }
       return 0;
     case WM_FONTCHANGE:

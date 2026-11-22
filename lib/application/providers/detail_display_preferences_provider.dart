@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:developer' as developer;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -75,10 +76,25 @@ class DetailDisplayPreferences {
 
 /// 详情页展示偏好状态管理器。
 class DetailDisplayPreferencesNotifier
-    extends StateNotifier<DetailDisplayPreferences> {
-  /// 初始化并异步加载本地持久化配置。
-  DetailDisplayPreferencesNotifier() : super(const DetailDisplayPreferences()) {
-    _loadFromPrefs();
+    extends Notifier<DetailDisplayPreferences> {
+  /// 创建详情页展示偏好状态管理器。
+  DetailDisplayPreferencesNotifier({
+    this.initialState,
+    this.enablePersistence = true,
+  });
+
+  /// 可选初始状态（供单元测试直接注入预置展示偏好）。
+  final DetailDisplayPreferences? initialState;
+
+  /// 是否启用本地 SharedPreferences 持久化（单元测试可置 `false`）。
+  final bool enablePersistence;
+
+  @override
+  DetailDisplayPreferences build() {
+    if (enablePersistence) {
+      unawaited(_loadFromPrefs());
+    }
+    return initialState ?? const DetailDisplayPreferences();
   }
 
   static const String _keyShowTitleText = 'konata.detail.show_title_text';
@@ -92,7 +108,7 @@ class DetailDisplayPreferencesNotifier
   Future<void> _loadFromPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      if (!mounted) return;
+      if (!ref.mounted) return;
       state = DetailDisplayPreferences(
         showTitleText: prefs.getBool(_keyShowTitleText) ?? false,
         showTitleLogo: prefs.getBool(_keyShowTitleLogo) ?? true,
@@ -156,7 +172,7 @@ class DetailDisplayPreferencesNotifier
 
 /// 全局详情页展示偏好 Provider。
 final detailDisplayPreferencesProvider =
-    StateNotifierProvider<
+    NotifierProvider<
       DetailDisplayPreferencesNotifier,
       DetailDisplayPreferences
-    >((ref) => DetailDisplayPreferencesNotifier());
+    >(DetailDisplayPreferencesNotifier.new);

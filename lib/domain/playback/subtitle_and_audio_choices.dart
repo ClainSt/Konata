@@ -11,6 +11,7 @@ class SubtitleChoice {
     this.codec = '',
     this.externalPath,
     this.isExternal = false,
+    this.isCloudSubset = false,
     this.isDefault = false,
     this.isForced = false,
     this.selected = false,
@@ -33,6 +34,9 @@ class SubtitleChoice {
 
   /// 是否属于外挂字幕。
   final bool isExternal;
+
+  /// 是否为经云端字体子集化生成的独立内存对比轨道。
+  final bool isCloudSubset;
 
   /// 是否默认轨。
   final bool isDefault;
@@ -57,11 +61,13 @@ class SubtitleChoice {
   /// 界面主展示文本（例如 `简日双语 · UHA-WINGS&VCB-Studio`）。
   String get primaryTitle => semanticInfo.primaryTitle;
 
-  /// 右侧简洁来源/格式角标（例如 `外挂 ASS` / `内封 SRT`）。
-  String get sourceFormatBadge => semanticInfo.sourceFormatBadge;
+  /// 右侧简洁来源/格式角标（例如 `外挂 ASS` / `子集化` / `内封 SRT`）。
+  String get sourceFormatBadge =>
+      isCloudSubset ? '子集化' : semanticInfo.sourceFormatBadge;
 
   /// 悬停完整原始文件名或轨道详情提示文案。
-  String get rawTooltip => semanticInfo.rawTooltip;
+  String get rawTooltip =>
+      isCloudSubset ? '${semanticInfo.rawTooltip} · 云端子集化字库' : semanticInfo.rawTooltip;
 
   /// 面向 UI 菜单与无障碍读屏的完整语义描述。
   String get displayLabel =>
@@ -719,19 +725,23 @@ class SubtitleAndAudioChoices {
     return matched;
   }
 
-  /// 合并内嵌字幕与外挂字幕文件列表，对已作为 VobSub `.idx+.sub` 配对及同源文件派生的 `memory://` 内存轨（如 OpenCC 繁简转换）精准去重。
+  /// 合并内嵌字幕与外挂字幕文件列表，对已作为 VobSub `.idx+.sub` 配对及同源文件派生的 `memory://` 内存轨（如 OpenCC 繁简转换）精准去重，
+  /// 同时将云端子集化内存轨保留为独立对比条目（角标显示为「子集化」），便于原字幕与子集化字幕随时切换对比。
   static List<SubtitleChoice> mergeSubtitles({
     required List<MpvTrackInfo> mpvTracks,
     required List<String> discoveredExternalPaths,
     Map<int, String> mountedSourcePathsByTrackId = const {},
+    Set<int> cloudSubsetTrackIds = const {},
+    int? authoritativeSelectedTrackId,
   }) {
     final results = <SubtitleChoice>[];
     final mountedKeys = <String>{};
-    final indexByMountedSourceKey = <String, int>{};
+    final indexByMountedSlotKey = <String, int>{};
 
     for (final track in mpvTracks) {
       if (track.type != MpvTrackType.subtitle) continue;
       final mappedSource = mountedSourcePathsByTrackId[track.id];
+      final isCloudSubset = cloudSubsetTrackIds.contains(track.id);
       final rawExt = track.externalFilename;
       final isMemoryPseudoPath =
           rawExt != null && rawExt.trim().startsWith('memory://');
@@ -752,7 +762,7 @@ class SubtitleAndAudioChoices {
         mountedKeys.add(_normalizeDedupKey(trimmedTitle));
       }
 
-      // 经内存引擎由同一外挂物理文件派生的轨道统一保留原始文件名作为标题，避免 `[简]`/`[繁]` 后缀污染语种识别。
+      // 经内存引擎由同一外挂物理文件派生的轨道统一保留原始文件名作为标题，避免 `[简]`/`[繁]`/`[子集]` 后缀污染语种识别。
       final canonicalSourceFileName = hasMappedSource
           ? effectiveExtPath!.replaceAll('\\', '/').split('/').last
           : '';
@@ -764,6 +774,11 @@ class SubtitleAndAudioChoices {
                       ? effectiveExtPath.replaceAll('\\', '/').split('/').last
                       : ''));
 
+      final isSelected = authoritativeSelectedTrackId != null
+          ? (authoritativeSelectedTrackId > 0 &&
+                track.id == authoritativeSelectedTrackId)
+          : track.selected;
+
       final choice = SubtitleChoice(
         mpvTrackId: track.id,
         title: fallbackTitle,
@@ -772,21 +787,41 @@ class SubtitleAndAudioChoices {
         externalPath: effectiveExtPath,
         isExternal:
             track.isExternal || isMemoryPseudoPath || hasMappedSource,
+        isCloudSubset: isCloudSubset,
         isDefault: track.isDefault,
         isForced: track.isForced,
-        selected: track.selected,
+        selected: isSelected,
       );
 
-      // 同一外挂源文件同时存在原文轨与 OpenCC/调轴派生轨时合并为唯一一行，选中态实时同步至当前活跃轨。
+      // 同一外挂源文件同时存在原文轨与 OpenCC/调轴派生轨时合并为唯一一行；
+      // 云端子集化轨采用独立槽位键保留在原轨紧邻下方，实现原字幕与子集化字幕的真实往返对比。
       if (hasMappedSource && sourceDedupKey != null) {
-        final existingIdx = indexByMountedSourceKey[sourceDedupKey];
+        final slotKey = isCloudSubset
+            ? '$sourceDedupKey::cloud_subset'
+            : sourceDedupKey;
+        final existingIdx = indexByMountedSlotKey[slotKey];
         if (existingIdx != null) {
           if (choice.selected && !results[existingIdx].selected) {
             results[existingIdx] = choice;
           }
           continue;
         }
-        indexByMountedSourceKey[sourceDedupKey] = results.length;
+        if (isCloudSubset) {
+          final originalIdx = indexByMountedSlotKey[sourceDedupKey];
+          if (originalIdx != null && originalIdx + 1 <= results.length) {
+            final insertAt = originalIdx + 1;
+            results.insert(insertAt, choice);
+            // 同步后移索引，确保后续同源查找位置准确。
+            for (final entry in indexByMountedSlotKey.entries.toList()) {
+              if (entry.value >= insertAt) {
+                indexByMountedSlotKey[entry.key] = entry.value + 1;
+              }
+            }
+            indexByMountedSlotKey[slotKey] = insertAt;
+            continue;
+          }
+        }
+        indexByMountedSlotKey[slotKey] = results.length;
       }
 
       results.add(choice);

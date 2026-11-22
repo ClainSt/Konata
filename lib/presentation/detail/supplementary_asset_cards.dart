@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/playback/audio_playback_notifier.dart';
@@ -148,10 +148,16 @@ class _CdDrawerCardState extends ConsumerState<CdDrawerCard> {
     if (!mounted || action == null) return;
     switch (action) {
       case 'default':
-        captureStageMorphOriginRect(context);
+        captureStageMorphOriginRect(
+          context,
+          kind: FloatingMiniPlayerKind.audio,
+        );
         widget.onTap();
       case 'immersive':
-        captureStageMorphOriginRect(context);
+        captureStageMorphOriginRect(
+          context,
+          kind: FloatingMiniPlayerKind.audio,
+        );
         widget.onPlayImmersive?.call();
       case 'external':
         widget.onPlayExternal?.call();
@@ -191,7 +197,7 @@ class _CdDrawerCardState extends ConsumerState<CdDrawerCard> {
     final coverBytes = src != null
         ? ref
               .watch(cdCardAlbumCoverProvider((source: src, variant: v)))
-              .valueOrNull
+              .value
         : null;
 
     final borderColor = (isActiveTrack || _hovered)
@@ -206,7 +212,10 @@ class _CdDrawerCardState extends ConsumerState<CdDrawerCard> {
         onExit: (_) => setState(() => _hovered = false),
         child: GestureDetector(
           onTap: () {
-            captureStageMorphOriginRect(context);
+            captureStageMorphOriginRect(
+              context,
+              kind: FloatingMiniPlayerKind.audio,
+            );
             widget.onTap();
           },
           onSecondaryTapUp: (details) => _showCdMenu(details.globalPosition),
@@ -764,10 +773,7 @@ class _ScanDrawerCardState extends ConsumerState<ScanDrawerCard> {
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
         child: GestureDetector(
-          onTap: () {
-            captureStageMorphOriginRect(context);
-            widget.onTap();
-          },
+          onTap: widget.onTap,
           onLongPress: widget.onLongPressInfo,
           child: widget.fillAvailableWidth
               ? content

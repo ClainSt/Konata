@@ -26,6 +26,12 @@ abstract interface class LibraryRepository {
   /// 查询全部作品列表。
   Future<List<Work>> getAllWorks();
 
+  /// 按系列 ID 索引查询所属系列全部作品（避免全表扫描）。
+  Future<List<Work>> getWorksBySeries(String seriesId);
+
+  /// 按隐藏状态索引查询已隐藏作品列表（避免全表加载）。
+  Future<List<Work>> getHiddenWorks();
+
   /// 新增或更新逻辑剧集条目。
   Future<void> upsertEpisode(Episode episode);
 
@@ -35,6 +41,12 @@ abstract interface class LibraryRepository {
   /// 查询指定作品下的全部剧集与特典。
   Future<List<Episode>> getEpisodesByWork(String workId);
 
+  /// 一次性批量查询库内全部逻辑剧集（用于媒体库聚合消除 N+1 查询）。
+  Future<List<Episode>> getAllEpisodes();
+
+  /// 批量查询多个作品关联的全部逻辑剧集（用于系列详情页消除逐成员 N+1 查询）。
+  Future<List<Episode>> getEpisodesByWorkIds(List<String> workIds);
+
   /// 新增或更新物理文件版本记录。
   Future<void> upsertMediaVariant(MediaVariant variant);
 
@@ -43,6 +55,9 @@ abstract interface class LibraryRepository {
 
   /// 查询指定作品关联的全部物理文件版本。
   Future<List<MediaVariant>> getVariantsByWork(String workId);
+
+  /// 批量查询多个作品关联的全部物理文件版本（用于系列详情页消除逐成员 N+1 查询）。
+  Future<List<MediaVariant>> getVariantsByWorkIds(List<String> workIds);
 
   /// 查询指定媒体源下全部已入库的物理文件版本。
   Future<List<MediaVariant>> getVariantsBySource(String sourceId);

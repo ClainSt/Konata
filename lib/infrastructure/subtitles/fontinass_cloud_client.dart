@@ -247,6 +247,9 @@ class CloudSubsetResult {
 /// 3. 省略 `X-Filename` 保护隐私，附带 `X-Font-Name-Mode: alias` 与 `X-Fonts-Check: 0`；
 /// 4. 响应正文必须先通过 `AssSemanticVerifier` 逐事件语义与零退化检验，再经 `.part -> rename` 原子入库。
 class FontInAssCloudClient {
+  /// 官方默认 FontInAss 云端字幕字体子集化服务端点地址。
+  static const String defaultEndpointUrl = 'https://font.anibt.net/api/subset';
+
   /// 创建 FontInAss 云端子集化客户端。
   FontInAssCloudClient({
     required this.authorizationStore,
@@ -319,7 +322,7 @@ class FontInAssCloudClient {
       // 严禁任何自动跟随重定向，防止用户字幕正文被 307/308 转发至未授权第三方源。
       req.followRedirects = false;
       req.maxRedirects = 0;
-      req.headers.contentType = ContentType('text', 'plain', charset: 'utf-8');
+      req.headers.contentType = ContentType.binary;
       req.headers.set('X-Font-Name-Mode', 'alias');
       req.headers.set('X-Fonts-Check', '0');
       // 显式省略 X-Filename，避免泄露用户本地文件名隐私。

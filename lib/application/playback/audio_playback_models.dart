@@ -457,3 +457,24 @@ class AudioPlaybackState {
     );
   }
 }
+
+/// 音频底层 `time-pos` 订阅与界面进度派发频率档位（用于后台/收起零唤醒与迷你浮窗降频）。
+enum AudioProgressObservationMode {
+  /// 高频直推（全屏沉浸音频页实时歌词扫白与精细进度条使用）。
+  highFrequency,
+
+  /// 低频 1 Hz 采样（迷你圆盘/胶囊前台可见时退订高频 FFI 回调，降低 93% 状态重建与跨边界唤醒）。
+  lowFrequency,
+
+  /// 完全挂起（窗口最小化、应用退后台、Android 息屏或小窗贴边收起时退订 `time-pos`，零进度唤醒）。
+  suspended,
+}
+
+/// CUE 虚拟分轨边界越界异常。
+class _CueTrackBoundsException implements Exception {
+  const _CueTrackBoundsException(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
+}

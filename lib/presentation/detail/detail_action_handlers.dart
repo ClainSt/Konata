@@ -1,5 +1,5 @@
 import 'dart:developer' as developer;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/playback/playback_dispatcher.dart';
@@ -52,7 +52,7 @@ class DetailActionHandlers {
       workMediaType: bundle.work.tmdbMediaType,
     );
     if (plan == null) {
-      showKonataToast(context, '当前作品暂无可播放剧集');
+      showKonataToast(context, '当前作品暂无可播放剧集', isError: true);
       return;
     }
     await playEpisode(
@@ -78,7 +78,7 @@ class DetailActionHandlers {
   }) async {
     final variants = bundle.variantsForEpisode(episode.id);
     if (variants.isEmpty) {
-      showKonataToast(context, '该剧集暂无可用视频文件');
+      showKonataToast(context, '该剧集暂无可用视频文件', isError: true);
       return;
     }
     PlaybackRecord? saved = bundle.playbackByEpisodeId[episode.id];
@@ -422,7 +422,7 @@ class DetailActionHandlers {
       return bundle.sourcesById[v.sourceId]?.kind == MediaSourceKind.local;
     }).firstOrNull;
     if (firstLocal == null) {
-      showKonataToast(context, '当前作品不包含本地磁盘文件');
+      showKonataToast(context, '当前作品不包含本地磁盘文件', isError: true);
       return;
     }
     final source = bundle.sourcesById[firstLocal.sourceId]!;
@@ -433,7 +433,7 @@ class DetailActionHandlers {
           relativePath: firstLocal.relativePath,
         );
     if (!opened && context.mounted) {
-      showKonataToast(context, '无法定位本地目录: ${source.location}');
+      showKonataToast(context, '无法定位本地目录: ${source.location}', isError: true);
     }
   }
 

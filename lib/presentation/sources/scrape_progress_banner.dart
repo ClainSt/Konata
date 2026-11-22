@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../application/scraping/scrape_progress.dart';
 import '../../domain/formatting/network_error_sanitizer.dart';

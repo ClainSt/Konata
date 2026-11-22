@@ -1,9 +1,13 @@
 import 'dart:async';
-import 'dart:typed_data';
+import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
+
+import '../../theme/konata_adaptive_tokens.dart';
 
 /// 全局唯一系统文件/目录选择器 Provider（单飞互斥锁，全应用同一时刻至多弹出一个原生系统窗口）。
 final konataSystemFilePickerProvider = Provider<KonataSystemFilePicker>(
@@ -14,14 +18,64 @@ final konataSystemFilePickerProvider = Provider<KonataSystemFilePicker>(
 ///
 /// 职责：
 /// 1. 通过单飞互斥锁拦截连续点击导致的原生文件浏览窗口无限重复弹出；
-/// 2. 在 Windows 端自动启用 `WindowsOptions(lockParentWindow: true)` 绑定主窗口模态归属，
-///    防止系统对话框落到主窗口后方并引导焦点准确回落至已打开窗口。
+/// 2. 在 Windows 端优先经由主窗口同线程原生 COM 桥（`konata/win_file_picker`）拉起
+///    `IFileOpenDialog` / `IFileSaveDialog`，彻底规避 `windows_file_picker` 在后台隔离区
+///    跨线程锁定主窗口 `HWND` 引起的模态死锁卡死；
+/// 3. 兜底回退至 `FilePicker` 时在 Windows 上强制关闭跨线程父窗口锁，防止回退路径再次死锁。
 class KonataSystemFilePicker {
-  /// 创建系统文件选择器实例（支持在单测中注入替身实现验证并发互斥行为）。
+  /// Windows 同线程原生文件对话框通信通道。
+  static const MethodChannel windowsMethodChannel = MethodChannel(
+    'konata/win_file_picker',
+  );
+
+  /// 常见图像扩展名映射（供 `FileType.image` / `FileType.media` 构造原生过滤项）。
+  static const List<String> _imageExtensions = <String>[
+    'png',
+    'jpg',
+    'jpeg',
+    'webp',
+    'bmp',
+    'gif',
+    'tif',
+    'tiff',
+    'avif',
+  ];
+
+  /// 常见视频扩展名映射（供 `FileType.video` / `FileType.media` 构造原生过滤项）。
+  static const List<String> _videoExtensions = <String>[
+    'mp4',
+    'mkv',
+    'webm',
+    'mov',
+    'avi',
+    'm2ts',
+    'ts',
+    'flv',
+    'wmv',
+  ];
+
+  /// 常见音频扩展名映射（供 `FileType.audio` 构造原生过滤项）。
+  static const List<String> _audioExtensions = <String>[
+    'flac',
+    'wav',
+    'mp3',
+    'aac',
+    'm4a',
+    'ogg',
+    'opus',
+    'ape',
+    'wv',
+    'tak',
+    'dsf',
+    'dff',
+  ];
+
+  /// 创建系统文件选择器实例（支持在单测中注入替身实现验证并发互斥与跨端桥接行为）。
   KonataSystemFilePicker({
     this.pickFilesImpl,
     this.getDirectoryPathImpl,
     this.saveFileImpl,
+    this.useWindowsNativeBridge,
   });
 
   /// 可选文件选择替身实现（供测试注入验证单飞锁）。
@@ -52,10 +106,16 @@ class KonataSystemFilePicker {
   })?
   saveFileImpl;
 
+  /// 是否启用 Windows 同线程原生对话框桥（缺省按当前宿主平台自动判定）。
+  final bool? useWindowsNativeBridge;
+
   bool _isDialogOpen = false;
 
   /// 当前是否已有原生文件/目录选择窗口处于打开态。
   bool get isDialogOpen => _isDialogOpen;
+
+  bool get _shouldUseWindowsNativeBridge =>
+      useWindowsNativeBridge ?? KonataAdaptiveTokens.isWindows;
 
   /// 从最近的 `ProviderScope` 解析全局单飞选择器；无容器的轻量单测场景回退至调用方局部实例。
   static KonataSystemFilePicker resolve(
@@ -84,15 +144,84 @@ class KonataSystemFilePicker {
     }
   }
 
+  List<String> _resolveExtensions(FileType type, List<String>? custom) {
+    return switch (type) {
+      FileType.custom => custom ?? const <String>[],
+      FileType.image => _imageExtensions,
+      FileType.video => _videoExtensions,
+      FileType.audio => _audioExtensions,
+      FileType.media => const <String>[..._imageExtensions, ..._videoExtensions],
+      FileType.any => const <String>[],
+    };
+  }
+
+  Future<List<PlatformFile>> _fallbackPickFiles({
+    required String? dialogTitle,
+    required String? initialDirectory,
+    required FileType type,
+    required List<String>? allowedExtensions,
+    required bool allowMultiple,
+  }) async {
+    const safeFallbackWinOptions = WindowsOptions(lockParentWindow: false);
+    if (!allowMultiple) {
+      final single = await FilePicker.pickFile(
+        dialogTitle: dialogTitle,
+        initialDirectory: initialDirectory,
+        type: type,
+        allowedExtensions: allowedExtensions,
+        windowsOptions: safeFallbackWinOptions,
+      );
+      return single == null ? const <PlatformFile>[] : <PlatformFile>[single];
+    }
+    return FilePicker.pickFiles(
+      dialogTitle: dialogTitle,
+      initialDirectory: initialDirectory,
+      type: type,
+      allowedExtensions: allowedExtensions,
+      windowsOptions: safeFallbackWinOptions,
+    );
+  }
+
+  Future<String?> _fallbackGetDirectoryPath({
+    required String? dialogTitle,
+    required String? initialDirectory,
+  }) async {
+    const safeFallbackWinOptions = WindowsOptions(lockParentWindow: false);
+    final uri = await FilePicker.pickDirectory(
+      dialogTitle: dialogTitle,
+      initialDirectory: initialDirectory,
+      windowsOptions: safeFallbackWinOptions,
+    );
+    if (uri == null) return null;
+    return uri.isScheme('file') ? uri.toFilePath() : uri.toString();
+  }
+
+  Future<Uri?> _fallbackSaveFile({
+    required String fileName,
+    required Uint8List bytes,
+    required String? dialogTitle,
+    required String? initialDirectory,
+  }) {
+    const safeFallbackWinOptions = WindowsOptions(lockParentWindow: false);
+    return FilePicker.saveFile(
+      fileName: fileName,
+      bytes: bytes,
+      dialogTitle: dialogTitle,
+      initialDirectory: initialDirectory,
+      windowsOptions: safeFallbackWinOptions,
+    );
+  }
+
   /// 打开系统文件选择窗口（若已有窗口打开则直接忽略并返回空列表）。
   Future<List<PlatformFile>> pickFiles({
     String? dialogTitle,
     String? initialDirectory,
     FileType type = FileType.any,
     List<String>? allowedExtensions,
+    bool allowMultiple = true,
   }) async {
-    const winOptions = WindowsOptions(lockParentWindow: true);
-    final result = await _runSingleFlight<List<PlatformFile>>(() {
+    const customWinOptions = WindowsOptions(lockParentWindow: true);
+    final result = await _runSingleFlight<List<PlatformFile>>(() async {
       final custom = pickFilesImpl;
       if (custom != null) {
         return custom(
@@ -100,15 +229,41 @@ class KonataSystemFilePicker {
           initialDirectory: initialDirectory,
           type: type,
           allowedExtensions: allowedExtensions,
-          windowsOptions: winOptions,
+          windowsOptions: customWinOptions,
         );
       }
-      return FilePicker.pickFiles(
+      if (_shouldUseWindowsNativeBridge) {
+        try {
+          final rawPaths = await windowsMethodChannel
+              .invokeListMethod<String>('pickFiles', <String, Object?>{
+                'dialogTitle': dialogTitle,
+                'initialDirectory': initialDirectory,
+                'allowMultiple': allowMultiple,
+                'allowedExtensions': _resolveExtensions(type, allowedExtensions),
+              });
+          if (rawPaths == null || rawPaths.isEmpty) {
+            return const <PlatformFile>[];
+          }
+          return rawPaths
+              .where((path) => path.trim().isNotEmpty)
+              .map((path) => _WindowsPickedPlatformFile(path.trim()))
+              .toList(growable: false);
+        } on MissingPluginException {
+          return _fallbackPickFiles(
+            dialogTitle: dialogTitle,
+            initialDirectory: initialDirectory,
+            type: type,
+            allowedExtensions: allowedExtensions,
+            allowMultiple: allowMultiple,
+          );
+        }
+      }
+      return _fallbackPickFiles(
         dialogTitle: dialogTitle,
         initialDirectory: initialDirectory,
         type: type,
         allowedExtensions: allowedExtensions,
-        windowsOptions: winOptions,
+        allowMultiple: allowMultiple,
       );
     });
     return result ?? const <PlatformFile>[];
@@ -119,20 +274,39 @@ class KonataSystemFilePicker {
     String? dialogTitle,
     String? initialDirectory,
   }) {
-    const winOptions = WindowsOptions(lockParentWindow: true);
-    return _runSingleFlight<String?>(() {
+    const customWinOptions = WindowsOptions(lockParentWindow: true);
+    return _runSingleFlight<String?>(() async {
       final custom = getDirectoryPathImpl;
       if (custom != null) {
         return custom(
           dialogTitle: dialogTitle,
           initialDirectory: initialDirectory,
-          windowsOptions: winOptions,
+          windowsOptions: customWinOptions,
         );
       }
-      return FilePicker.getDirectoryPath(
+      if (_shouldUseWindowsNativeBridge) {
+        try {
+          final rawPath = await windowsMethodChannel.invokeMethod<String>(
+            'pickDirectory',
+            <String, Object?>{
+              'dialogTitle': dialogTitle,
+              'initialDirectory': initialDirectory,
+            },
+          );
+          if (rawPath == null || rawPath.trim().isEmpty) {
+            return null;
+          }
+          return rawPath.trim();
+        } on MissingPluginException {
+          return _fallbackGetDirectoryPath(
+            dialogTitle: dialogTitle,
+            initialDirectory: initialDirectory,
+          );
+        }
+      }
+      return _fallbackGetDirectoryPath(
         dialogTitle: dialogTitle,
         initialDirectory: initialDirectory,
-        windowsOptions: winOptions,
       );
     });
   }
@@ -144,8 +318,8 @@ class KonataSystemFilePicker {
     String? dialogTitle,
     String? initialDirectory,
   }) {
-    const winOptions = WindowsOptions(lockParentWindow: true);
-    return _runSingleFlight<Uri?>(() {
+    const customWinOptions = WindowsOptions(lockParentWindow: true);
+    return _runSingleFlight<Uri?>(() async {
       final custom = saveFileImpl;
       if (custom != null) {
         return custom(
@@ -153,16 +327,87 @@ class KonataSystemFilePicker {
           bytes: bytes,
           dialogTitle: dialogTitle,
           initialDirectory: initialDirectory,
-          windowsOptions: winOptions,
+          windowsOptions: customWinOptions,
         );
       }
-      return FilePicker.saveFile(
+      if (_shouldUseWindowsNativeBridge) {
+        try {
+          final ext = p.extension(fileName).replaceFirst('.', '');
+          final rawPath = await windowsMethodChannel.invokeMethod<String>(
+            'saveFile',
+            <String, Object?>{
+              'dialogTitle': dialogTitle,
+              'initialDirectory': initialDirectory,
+              'fileName': fileName,
+              'allowedExtensions': ext.isEmpty ? const <String>[] : <String>[ext],
+            },
+          );
+          if (rawPath == null || rawPath.trim().isEmpty) {
+            return null;
+          }
+          final targetFile = File(rawPath.trim());
+          await targetFile.writeAsBytes(bytes, flush: true);
+          return Uri.file(targetFile.path);
+        } on MissingPluginException {
+          return _fallbackSaveFile(
+            fileName: fileName,
+            bytes: bytes,
+            dialogTitle: dialogTitle,
+            initialDirectory: initialDirectory,
+          );
+        }
+      }
+      return _fallbackSaveFile(
         fileName: fileName,
         bytes: bytes,
         dialogTitle: dialogTitle,
         initialDirectory: initialDirectory,
-        windowsOptions: winOptions,
       );
     });
   }
+}
+
+/// Windows 原生文件对话框返回的本地文件适配器（避免额外引入传递依赖）。
+final class _WindowsPickedPlatformFile extends PlatformFile {
+  _WindowsPickedPlatformFile(this._filePath);
+
+  final String _filePath;
+
+  @override
+  String get name => p.basename(_filePath);
+
+  @override
+  String? get path => _filePath;
+
+  @override
+  Uri get uri => Uri.file(_filePath);
+
+  @override
+  int? lengthSync() {
+    try {
+      return File(_filePath).lengthSync();
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  @override
+  Future<int?> length() async {
+    try {
+      return await File(_filePath).length();
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  @override
+  Future<Uint8List> readAsBytes() => File(_filePath).readAsBytes();
+
+  @override
+  Stream<Uint8List> readAsByteStream() => File(_filePath).openRead().map(
+    (chunk) => chunk is Uint8List ? chunk : Uint8List.fromList(chunk),
+  );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

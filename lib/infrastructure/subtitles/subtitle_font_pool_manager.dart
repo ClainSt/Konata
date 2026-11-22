@@ -1,7 +1,8 @@
 import 'dart:convert';
-import 'dart:io';
-import 'dart:typed_data';
 import 'dart:developer' as developer;
+import 'dart:io';
+import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
@@ -118,25 +119,170 @@ class SubtitleFontPoolManager {
     return null;
   }
 
+  /// 大体积字体包转入后台 Isolate 解析解压的字节阈值（64 KiB，避免主 UI 线程掉帧）。
+  static const int _isolateOffloadBytes = 64 * 1024;
+
   /// 将 `Fonts.zip` 压缩包经 Zip-Slip 与体积炸弹安全校验后解包入单级哈希池（保留最近 3 集合热租约）。
+  ///
+  /// 大于等于 64 KiB 的字体包通过 `TransferableTypedData` 在单次后台 Isolate 内完成
+  /// SHA-256、安全解包与原子落盘，仅回传轻量元数据，避免跨线程拷贝数 MB 字体字节流。
   Future<ResolvedSubtitleFontSet> ingestFontZipBytes(
     Uint8List zipBytes,
   ) async {
-    final setHash = sha256.convert(zipBytes).toString().substring(0, 16);
-    final cached = await _tryReuseHotLease(setHash);
-    if (cached != null) return cached;
+    final poolRoot = await _storageRoot.ensureFontPoolDir();
+    if (zipBytes.length < _isolateOffloadBytes) {
+      final setHash = sha256.convert(zipBytes).toString().substring(0, 16);
+      final cached = await _tryReuseHotLease(setHash);
+      if (cached != null) return cached;
 
-    final entries = _parseAndValidateZipFonts(zipBytes);
+      final entries = _parseAndValidateZipFonts(zipBytes);
+      if (entries.isEmpty) {
+        throw const FormatException('字体压缩包内未发现合法 SFNT 字体文件');
+      }
+      return _commitFontEntriesToPool(setHash: setHash, entries: entries);
+    }
+
+    final transferable = TransferableTypedData.fromList([zipBytes]);
+    final poolRootPath = poolRoot.path;
+    final outcome = await Isolate.run(
+      () => _ingestFontZipInWorker(
+        transferable: transferable,
+        poolRootPath: poolRootPath,
+      ),
+    );
+    final setDirPath = p.join(poolRootPath, outcome.setHash);
+    final resolved = ResolvedSubtitleFontSet(
+      directoryPath: setDirPath,
+      kind: FontSetResolutionKind.hashedPoolLease,
+      fontCount: outcome.fontCount,
+      setHash: outcome.setHash,
+      reusedFromLease: outcome.reusedOnDisk,
+    );
+    _hotLeaseCache[outcome.setHash] = resolved;
+    _touchLease(outcome.setHash);
+    await _evictOverflowLeases(poolRoot);
+    return resolved;
+  }
+
+  static Future<({String setHash, int fontCount, bool reusedOnDisk})>
+  _ingestFontZipInWorker({
+    required TransferableTypedData transferable,
+    required String poolRootPath,
+  }) async {
+    final bytes = transferable.materialize().asUint8List();
+    final setHash = sha256.convert(bytes).toString().substring(0, 16);
+    final setDir = Directory(p.join(poolRootPath, setHash));
+    if (await setDir.exists()) {
+      final existing = await _countValidFontsInDirectory(setDir);
+      if (existing > 0) {
+        return (setHash: setHash, fontCount: existing, reusedOnDisk: true);
+      }
+    }
+    final entries = _parseAndValidateZipFonts(bytes);
     if (entries.isEmpty) {
       throw const FormatException('字体压缩包内未发现合法 SFNT 字体文件');
     }
-    return _commitFontEntriesToPool(setHash: setHash, entries: entries);
+    final written = await _writeFontEntriesAtomically(setDir, entries);
+    return (setHash: setHash, fontCount: written, reusedOnDisk: false);
   }
 
   /// 将 ASS `[Fonts]` UUEncode 内嵌字体提取并校验 SFNT 魔数后入单级哈希池。
   Future<ResolvedSubtitleFontSet?> ingestAssEmbeddedFonts(
     String assContent,
   ) async {
+    if (assContent.length < _isolateOffloadBytes) {
+      final prepared = _extractAndHashAssFonts(assContent);
+      if (prepared == null) return null;
+
+      final cached = await _tryReuseHotLease(prepared.setHash);
+      if (cached != null) return cached;
+
+      return _commitFontEntriesToPool(
+        setHash: prepared.setHash,
+        entries: prepared.validMap,
+      );
+    }
+
+    final poolRoot = await _storageRoot.ensureFontPoolDir();
+    final poolRootPath = poolRoot.path;
+    final outcome = await Isolate.run(
+      () => _ingestAssFontsInWorker(
+        assContent: assContent,
+        poolRootPath: poolRootPath,
+      ),
+    );
+    if (outcome == null) return null;
+    final resolved = ResolvedSubtitleFontSet(
+      directoryPath: p.join(poolRootPath, outcome.setHash),
+      kind: FontSetResolutionKind.hashedPoolLease,
+      fontCount: outcome.fontCount,
+      setHash: outcome.setHash,
+      reusedFromLease: outcome.reusedOnDisk,
+    );
+    _hotLeaseCache[outcome.setHash] = resolved;
+    _touchLease(outcome.setHash);
+    await _evictOverflowLeases(poolRoot);
+    return resolved;
+  }
+
+  static Future<({String setHash, int fontCount, bool reusedOnDisk})?>
+  _ingestAssFontsInWorker({
+    required String assContent,
+    required String poolRootPath,
+  }) async {
+    final prepared = _extractAndHashAssFonts(assContent);
+    if (prepared == null) return null;
+    final setDir = Directory(p.join(poolRootPath, prepared.setHash));
+    if (await setDir.exists()) {
+      final existing = await _countValidFontsInDirectory(setDir);
+      if (existing > 0) {
+        return (
+          setHash: prepared.setHash,
+          fontCount: existing,
+          reusedOnDisk: true,
+        );
+      }
+    }
+    final written = await _writeFontEntriesAtomically(
+      setDir,
+      prepared.validMap,
+    );
+    return (setHash: prepared.setHash, fontCount: written, reusedOnDisk: false);
+  }
+
+  static Future<int> _writeFontEntriesAtomically(
+    Directory setDir,
+    Map<String, Uint8List> entries,
+  ) async {
+    await setDir.create(recursive: true);
+    var written = 0;
+    for (final entry in entries.entries) {
+      final destFile = File(p.join(setDir.path, entry.key));
+      if (!await destFile.exists() ||
+          await destFile.length() != entry.value.length) {
+        final partFile = File(
+          '${destFile.path}.part.${DateTime.now().microsecondsSinceEpoch}',
+        );
+        try {
+          await partFile.writeAsBytes(entry.value, flush: false);
+          await AtomicFileWriter.replaceFile(
+            partFile,
+            destFile,
+            expectedLength: entry.value.length,
+          );
+        } finally {
+          if (await partFile.exists()) {
+            await partFile.delete().catchError((_) => partFile);
+          }
+        }
+      }
+      written += 1;
+    }
+    return written;
+  }
+
+  static ({String setHash, Map<String, Uint8List> validMap})?
+  _extractAndHashAssFonts(String assContent) {
     final extracted = AssUueFontDecoder.extractEmbeddedFonts(assContent);
     if (extracted.isEmpty) return null;
 
@@ -151,12 +297,8 @@ class SubtitleFontPoolManager {
       validMap[safeName] = entry.bytes;
     }
     if (validMap.isEmpty) return null;
-
     final setHash = _computeEntriesSetHash(validMap);
-    final cached = await _tryReuseHotLease(setHash);
-    if (cached != null) return cached;
-
-    return _commitFontEntriesToPool(setHash: setHash, entries: validMap);
+    return (setHash: setHash, validMap: validMap);
   }
 
   /// 将手动缓存的远程字体文件集合（`文件名 -> 原始字节`）校验后入单级哈希池。
@@ -334,31 +476,7 @@ class SubtitleFontPoolManager {
   }) async {
     final poolRoot = await _storageRoot.ensureFontPoolDir();
     final setDir = Directory(p.join(poolRoot.path, setHash));
-    await setDir.create(recursive: true);
-
-    var written = 0;
-    for (final entry in entries.entries) {
-      final destFile = File(p.join(setDir.path, entry.key));
-      if (!await destFile.exists() ||
-          await destFile.length() != entry.value.length) {
-        final partFile = File(
-          '${destFile.path}.part.${DateTime.now().microsecondsSinceEpoch}',
-        );
-        try {
-          await partFile.writeAsBytes(entry.value, flush: true);
-          await AtomicFileWriter.replaceFile(
-            partFile,
-            destFile,
-            expectedLength: entry.value.length,
-          );
-        } finally {
-          if (await partFile.exists()) {
-            await partFile.delete().catchError((_) => partFile);
-          }
-        }
-      }
-      written += 1;
-    }
+    final written = await _writeFontEntriesAtomically(setDir, entries);
 
     final resolved = ResolvedSubtitleFontSet(
       directoryPath: setDir.path,

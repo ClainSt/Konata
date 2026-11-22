@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
-import 'package:window_manager/window_manager.dart';
+import 'package:window_manager/window_manager.dart' as wm;
 
 import '../../application/providers/platform_capability.dart';
 import '../theme/konata_palette.dart';
@@ -28,26 +28,53 @@ class WindowControls extends StatefulWidget {
   final bool showGlassPill;
 
   @override
-  State<WindowControls> createState() => _WindowControlsState();
+  State<WindowControls> createState() => WindowControlsState();
 }
 
-class _WindowControlsState extends State<WindowControls>
-    with WindowListener, WidgetsBindingObserver {
+/// 窗口控制按钮组状态（负责订阅原生窗口事件并同步最大化/还原图标与标题栏按钮隐藏）。
+class WindowControlsState extends State<WindowControls>
+    with WidgetsBindingObserver {
   bool _isMaximized = false;
   Timer? _metricsSyncTimer;
+  wm.Window? _boundWindow;
+  wm.ListenerId? _windowListenerId;
 
   bool get _canControlWindow => KonataPlatform.isWindows;
+
+  wm.Window? _resolveNativeWindow() {
+    if (!_canControlWindow) {
+      return null;
+    }
+    try {
+      return _boundWindow ??= wm.WindowManager.instance.getCurrent();
+    } catch (error) {
+      // 测试环境无原生窗口宿主动态库时安全降级
+      developer.log('可恢复异常已记录', name: 'konata.window_controls', error: error);
+      return null;
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     if (_canControlWindow) {
-      windowManager.addListener(this);
-      unawaited(_syncMaximizedState());
+      final win = _resolveNativeWindow();
+      if (win != null) {
+        try {
+          _windowListenerId = win.addListener(handleWindowEvent);
+        } catch (error) {
+          developer.log(
+            '可恢复异常已记录',
+            name: 'konata.window_controls',
+            error: error,
+          );
+        }
+      }
+      _syncMaximizedState();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          unawaited(_syncMaximizedState());
+          _syncMaximizedState();
         }
       });
     }
@@ -57,8 +84,16 @@ class _WindowControlsState extends State<WindowControls>
   void dispose() {
     _metricsSyncTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
-    if (_canControlWindow) {
-      windowManager.removeListener(this);
+    final win = _boundWindow;
+    final listenerId = _windowListenerId;
+    _boundWindow = null;
+    _windowListenerId = null;
+    if (win != null && listenerId != null) {
+      try {
+        win.removeListener(listenerId);
+      } catch (error) {
+        developer.log('可恢复异常已记录', name: 'konata.window_controls', error: error);
+      }
     }
     super.dispose();
   }
@@ -68,23 +103,27 @@ class _WindowControlsState extends State<WindowControls>
     if (!_canControlWindow) {
       return;
     }
-    unawaited(_syncMaximizedState());
+    _syncMaximizedState();
     _metricsSyncTimer?.cancel();
     _metricsSyncTimer = Timer(KonataTheme.windowMetricsDebounce, () {
       if (mounted) {
-        unawaited(_syncMaximizedState());
+        _syncMaximizedState();
       }
     });
   }
 
-  Future<void> _syncMaximizedState() async {
+  void _syncMaximizedState() {
+    final win = _resolveNativeWindow();
+    if (win == null) {
+      return;
+    }
     try {
-      final maximized = await windowManager.isMaximized();
+      final maximized = win.isMaximized;
       if (mounted && maximized != _isMaximized) {
         setState(() => _isMaximized = maximized);
       }
     } catch (error) {
-      // 测试环境无 window_manager 宿主通道时安全忽略
+      // 测试环境无原生窗口宿主时安全忽略
       developer.log('可恢复异常已记录', name: 'konata.window_controls', error: error);
     }
   }
@@ -101,58 +140,27 @@ class _WindowControlsState extends State<WindowControls>
     }
   }
 
-  @override
-  void onWindowMaximize() {
-    unawaited(_ensureNativeControlsHidden());
-    if (mounted) {
-      setState(() => _isMaximized = true);
-    }
-  }
-
-  @override
-  void onWindowUnmaximize() {
-    unawaited(_ensureNativeControlsHidden());
-    if (mounted) {
-      setState(() => _isMaximized = false);
-    }
-  }
-
-  @override
-  void onWindowRestore() {
-    unawaited(_ensureNativeControlsHidden());
-    if (mounted) {
-      setState(() => _isMaximized = false);
-    }
-    if (_canControlWindow) {
-      unawaited(_syncMaximizedState());
-    }
-  }
-
-  @override
-  void onWindowResize() {
-    if (_canControlWindow) {
-      unawaited(_syncMaximizedState());
-    }
-  }
-
-  @override
-  void onWindowResized() {
-    if (_canControlWindow) {
-      unawaited(_syncMaximizedState());
-    }
-  }
-
-  @override
-  void onWindowMoved() {
-    if (_canControlWindow) {
-      unawaited(_syncMaximizedState());
-    }
-  }
-
-  @override
-  void onWindowFocus() {
-    if (_canControlWindow) {
-      unawaited(_syncMaximizedState());
+  /// 处理来自 `nativeapi` 的窗口生命周期事件并同步最大化状态图标。
+  void handleWindowEvent(wm.WindowEvent event) {
+    switch (event) {
+      case wm.WindowMaximizedEvent():
+        unawaited(_ensureNativeControlsHidden());
+        if (mounted) {
+          setState(() => _isMaximized = true);
+        }
+      case wm.WindowRestoredEvent():
+        unawaited(_ensureNativeControlsHidden());
+        if (mounted) {
+          setState(() => _isMaximized = false);
+        }
+        _syncMaximizedState();
+      case wm.WindowResizedEvent():
+      case wm.WindowMovedEvent():
+      case wm.WindowFocusedEvent():
+      case wm.WindowExitedFullScreenEvent():
+        _syncMaximizedState();
+      default:
+        break;
     }
   }
 
@@ -179,9 +187,7 @@ class _WindowControlsState extends State<WindowControls>
           iconColor: iconColor,
           hoverBg: hoverBg,
           onPressed: () {
-            if (_canControlWindow) {
-              windowManager.minimize();
-            }
+            _resolveNativeWindow()?.minimize();
           },
         ),
         _WindowControlButton(
@@ -192,20 +198,19 @@ class _WindowControlsState extends State<WindowControls>
           iconSize: _isMaximized ? 13.5 : 15,
           iconColor: iconColor,
           hoverBg: hoverBg,
-          onHoverEnter: _canControlWindow
-              ? () => unawaited(_syncMaximizedState())
-              : null,
+          onHoverEnter: _canControlWindow ? _syncMaximizedState : null,
           onPressed: () async {
-            if (!_canControlWindow) {
+            final win = _resolveNativeWindow();
+            if (win == null) {
               return;
             }
             if (_isMaximized) {
-              await windowManager.unmaximize();
+              win.unmaximize();
             } else {
-              await windowManager.maximize();
+              win.maximize();
             }
             await _ensureNativeControlsHidden();
-            await _syncMaximizedState();
+            _syncMaximizedState();
           },
         ),
         _WindowControlButton(
@@ -215,9 +220,7 @@ class _WindowControlsState extends State<WindowControls>
           hoverBg: hoverBg,
           isClose: true,
           onPressed: () {
-            if (_canControlWindow) {
-              windowManager.close();
-            }
+            _resolveNativeWindow()?.close();
           },
         ),
       ],

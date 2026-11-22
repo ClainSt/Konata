@@ -1,6 +1,7 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../application/providers/konata_value_notifier.dart';
 import '../../composition/platform_composition.dart';
 import '../audio/mini_audio_bar.dart';
 import '../shell/adaptive_capsule_layout.dart';
@@ -27,12 +28,18 @@ enum SettingsCategory {
 }
 
 /// 当前激活的设置二级分类 Provider（支持从外部提醒弹窗一键直达「刮削与网络」等面板）。
-final selectedSettingsCategoryProvider = StateProvider<SettingsCategory>(
-  (ref) => SettingsCategory.appearance,
-);
+final selectedSettingsCategoryProvider =
+    NotifierProvider<KonataValueNotifier<SettingsCategory>, SettingsCategory>(
+      () => KonataValueNotifier<SettingsCategory>.value(
+        SettingsCategory.appearance,
+      ),
+    );
 
 /// 外部深链直达设置子页的脉冲计数器（确保手机端即使目标分类已选中也能主动推入二级页面）。
-final settingsDeepLinkPulseProvider = StateProvider<int>((ref) => 0);
+final settingsDeepLinkPulseProvider =
+    NotifierProvider<KonataValueNotifier<int>, int>(
+      () => KonataValueNotifier<int>.value(0),
+    );
 
 /// 双栏布局设置页面（统一一级页头 + 左侧无框分类导航 + 右侧自适应全宽铺展面板）。
 class SettingsPage extends ConsumerStatefulWidget {

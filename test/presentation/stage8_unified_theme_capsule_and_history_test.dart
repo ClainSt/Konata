@@ -2,10 +2,10 @@ import 'dart:io';
 
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -145,9 +145,7 @@ Widget _wrapStage8App(
 }
 
 class _StubAudioNotifier extends AudioPlaybackNotifier {
-  _StubAudioNotifier(super.ref, AudioPlaybackState initial) {
-    state = initial;
-  }
+  _StubAudioNotifier(AudioPlaybackState initial) : super(initialState: initial);
 
   @override
   Future<void> togglePlayPause() async {}
@@ -164,7 +162,7 @@ class _StubAudioNotifier extends AudioPlaybackNotifier {
 }
 
 class _FakeVideoController extends VideoPlaybackController {
-  _FakeVideoController(super.ref, super.request);
+  _FakeVideoController(super.request) : super(deferBootstrap: true);
 
   @override
   void setVolume(double volume) {
@@ -274,10 +272,9 @@ void main() {
             ),
             videoPlaybackProvider(
               req,
-            ).overrideWith((ref) => _FakeVideoController(ref, req)),
+            ).overrideWith(() => _FakeVideoController(req)),
             audioPlaybackProvider.overrideWith(
-              (ref) => _StubAudioNotifier(
-                ref,
+              () => _StubAudioNotifier(
                 const AudioPlaybackState(
                   isActive: true,
                   isPlaying: true,

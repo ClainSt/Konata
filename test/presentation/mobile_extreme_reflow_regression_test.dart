@@ -1,9 +1,9 @@
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -80,28 +80,32 @@ const List<_ExtremeViewportSpec> _viewportMatrix = <_ExtremeViewportSpec>[
 ];
 
 class _StubVideoController extends VideoPlaybackController {
-  _StubVideoController(super.ref, super.request) : super(deferBootstrap: true) {
-    state = VideoPlaybackState(
-      isInitializing: false,
-      isBuffering: false,
-      hasFirstFrame: true,
-      isPlaying: true,
-      currentWork: request.work,
-      currentBundle: request.bundle,
-      currentEpisode: request.episode,
-      currentVariant: request.variant,
-      durationSeconds: 1440.0,
-      positionSeconds: 120.0,
-      probeStats: const PlaybackProbeStats(
-        videoWidth: 1920,
-        videoHeight: 1080,
-      ),
-    );
-  }
+  _StubVideoController(super.request)
+    : super(
+        deferBootstrap: true,
+        initialState: VideoPlaybackState(
+          isInitializing: false,
+          isBuffering: false,
+          hasFirstFrame: true,
+          isPlaying: true,
+          currentWork: request.work,
+          currentBundle: request.bundle,
+          currentEpisode: request.episode,
+          currentVariant: request.variant,
+          durationSeconds: 1440.0,
+          positionSeconds: 120.0,
+          probeStats: const PlaybackProbeStats(
+            videoWidth: 1920,
+            videoHeight: 1080,
+          ),
+        ),
+      );
 }
 
 class _ActiveAudioNotifier extends AudioPlaybackNotifier {
-  _ActiveAudioNotifier(super.ref) {
+  _ActiveAudioNotifier() : super(initialState: _buildInitial());
+
+  static AudioPlaybackState _buildInitial() {
     const work = Work(id: 'w_1', title: '葬送的芙莉莲原声音乐集');
     const variant = MediaVariant(
       id: 'v_cd_1',
@@ -119,7 +123,7 @@ class _ActiveAudioNotifier extends AudioPlaybackNotifier {
       work: work,
       variant: variant,
     );
-    state = const AudioPlaybackState(
+    return const AudioPlaybackState(
       isActive: true,
       isPlaying: true,
       queue: [track],
@@ -131,22 +135,23 @@ class _ActiveAudioNotifier extends AudioPlaybackNotifier {
 }
 
 class _FixedScrapeController extends ScrapeController {
-  _FixedScrapeController(super.ref) {
-    state = const ScrapeProgress(
-      phase: ScrapePhase.scraping,
-      sourceId: 'src_1',
-      sourceLabel: 'NAS 动画归档盘',
-      processedWorks: 3,
-      totalWorks: 12,
-      matchedWorks: 3,
-      reviewWorks: 1,
-      scannedDirectories: 42,
-      foundFiles: 184,
-      currentItemName: '[VCB-Studio] Sousou no Frieren [Ma10p_1080p][01].mkv',
-      folderVideoCounts: {'新番连载/葬送的芙莉莲': 12, '剧场版归档/轻音少女': 1},
-      completedFolders: {'新番连载/葬送的芙莉莲', '剧场版归档/轻音少女'},
-    );
-  }
+  _FixedScrapeController()
+    : super(
+        initialState: const ScrapeProgress(
+          phase: ScrapePhase.scraping,
+          sourceId: 'src_1',
+          sourceLabel: 'NAS 动画归档盘',
+          processedWorks: 3,
+          totalWorks: 12,
+          matchedWorks: 3,
+          reviewWorks: 1,
+          scannedDirectories: 42,
+          foundFiles: 184,
+          currentItemName: '[VCB-Studio] Sousou no Frieren [Ma10p_1080p][01].mkv',
+          folderVideoCounts: {'新番连载/葬送的芙莉莲': 12, '剧场版归档/轻音少女': 1},
+          completedFolders: {'新番连载/葬送的芙莉莲', '剧场版归档/轻音少女'},
+        ),
+      );
 }
 
 Future<DriftLibraryRepository> _seedRealisticDatabase(
@@ -366,12 +371,8 @@ void main() {
           tmdbImageLoaderProvider.overrideWithValue(
             (_, {targetWidth, imageSize}) async => _testPng1x1,
           ),
-          audioPlaybackProvider.overrideWith(
-            (ref) => _ActiveAudioNotifier(ref),
-          ),
-          scrapeControllerProvider.overrideWith(
-            (ref) => _FixedScrapeController(ref),
-          ),
+          audioPlaybackProvider.overrideWith(_ActiveAudioNotifier.new),
+          scrapeControllerProvider.overrideWith(_FixedScrapeController.new),
         ];
 
         Future<void> runPhase(
@@ -503,7 +504,7 @@ void main() {
                   builder: (_, ref, _) {
                     final b = ref
                         .watch(workDetailBundleProvider('w_1'))
-                        .valueOrNull;
+                        .value;
                     if (b == null) {
                       return const SizedBox.shrink();
                     }
@@ -594,7 +595,7 @@ void main() {
                 overrides: [
                   ...overrides,
                   videoPlaybackProvider(req).overrideWith(
-                    (ref) => _StubVideoController(ref, req),
+                    () => _StubVideoController(req),
                   ),
                 ],
               ),

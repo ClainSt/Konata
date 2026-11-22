@@ -1,13 +1,14 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/playback/audio_playback_notifier.dart';
 import '../../application/playback/playback_dispatcher.dart';
 import '../../application/playback/playback_preferences_provider.dart';
+import '../../application/providers/konata_value_notifier.dart';
 import '../../composition/platform_composition.dart';
 import '../../domain/playback/cue_and_lrc_parser.dart';
 import '../shell/adaptive_capsule_layout.dart';
@@ -31,9 +32,10 @@ import 'immersive_lyrics_viewport.dart';
 part 'immersive_audio_stages.dart';
 
 /// 手机竖屏全屏音频页内嵌播放队列底部抽屉开关状态（供根返回键拦截器优先收起抽屉）。
-final immersivePortraitQueueSheetOpenProvider = StateProvider<bool>(
-  (ref) => false,
-);
+final immersivePortraitQueueSheetOpenProvider =
+    NotifierProvider<KonataValueNotifier<bool>, bool>(
+      () => KonataValueNotifier<bool>.value(false),
+    );
 
 enum _ImmersiveRightPane { lyrics, queue }
 
@@ -249,7 +251,6 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final key = event.logicalKey;
     final notifier = ref.read(audioPlaybackProvider.notifier);
-    final state = ref.read(audioPlaybackProvider);
 
     if (key == LogicalKeyboardKey.escape) {
       if (ref.read(immersivePortraitQueueSheetOpenProvider)) {
@@ -264,11 +265,11 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.arrowLeft) {
-      notifier.seekRelativeTrackSeconds(state.positionSeconds - 5.0);
+      notifier.seekRelativeTrackSeconds(notifier.currentPositionSeconds - 5.0);
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.arrowRight) {
-      notifier.seekRelativeTrackSeconds(state.positionSeconds + 5.0);
+      notifier.seekRelativeTrackSeconds(notifier.currentPositionSeconds + 5.0);
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.keyM) {

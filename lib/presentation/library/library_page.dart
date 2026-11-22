@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -34,6 +34,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   final TextEditingController _searchCtrl = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   bool _searchBarOpen = false;
+  bool _searchHasText = false;
 
   @override
   void initState() {
@@ -42,13 +43,15 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     if (initialQuery.isNotEmpty) {
       _searchCtrl.text = initialQuery;
       _searchBarOpen = true;
+      _searchHasText = true;
     }
     _searchCtrl.addListener(_onSearchCtrlTextChanged);
   }
 
   void _onSearchCtrlTextChanged() {
-    if (mounted) {
-      setState(() {});
+    final hasText = _searchCtrl.text.isNotEmpty;
+    if (mounted && hasText != _searchHasText) {
+      setState(() => _searchHasText = hasText);
     }
   }
 
@@ -89,15 +92,19 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   Widget build(BuildContext context) {
     final p = context.palette;
     final filteredAsync = ref.watch(filteredLibraryItemsProvider);
-    final totalCountAsync = ref.watch(worksCountProvider);
-    final reviewCount =
-        ref.watch(needsReviewItemsProvider).valueOrNull?.length ?? 0;
-    final hiddenCount = ref.watch(hiddenWorksProvider).valueOrNull?.length ?? 0;
+    final totalCount = ref.watch(
+      worksCountProvider.select((async) => async.value ?? 0),
+    );
+    final reviewCount = ref.watch(
+      needsReviewItemsProvider.select((async) => async.value?.length ?? 0),
+    );
+    final hiddenCount = ref.watch(
+      hiddenWorksProvider.select((async) => async.value?.length ?? 0),
+    );
     final searchQuery = ref.watch(librarySearchQueryProvider);
-    final filteredCount = filteredAsync.valueOrNull?.length;
+    final filteredCount = filteredAsync.value?.length;
     final imageLoader = ref.watch(tmdbImageLoaderProvider);
     final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
-    final totalCount = totalCountAsync.valueOrNull ?? 0;
 
     if (searchQuery != _searchCtrl.text) {
       WidgetsBinding.instance.addPostFrameCallback((_) {

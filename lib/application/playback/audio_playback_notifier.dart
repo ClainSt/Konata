@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
@@ -18,6 +18,7 @@ import '../../domain/playback/cue_variant_resolver.dart';
 import '../../domain/playback/lyric_version_matcher.dart';
 import '../../domain/playback/playback_formatters.dart';
 import '../../domain/repositories/file_system_gateway.dart';
+import '../../infrastructure/cache/album_cover_compactor.dart';
 import '../../infrastructure/cache/photos_storage.dart';
 import '../../infrastructure/logging/diagnostics_log_store.dart';
 import '../../infrastructure/players/android/android_media_session_bridge.dart';
@@ -30,10 +31,12 @@ import '../../infrastructure/sources/local_source_gateway.dart';
 import '../../infrastructure/sources/source_access_error.dart';
 import '../../infrastructure/sources/source_gateway_factory.dart';
 import '../../infrastructure/storage/storage_root_provider.dart';
+import '../../infrastructure/storage/temp_cache_pruner.dart';
 import '../../infrastructure/stream_bridge/local_stream_bridge.dart';
 import '../providers/artwork_provider.dart';
 import '../providers/diagnostics_providers.dart';
 import '../providers/library_providers.dart';
+import '../providers/memory_coordinator.dart';
 import '../providers/platform_capability.dart';
 import '../providers/playback_providers.dart';
 import 'audiophile_safety_coordinator.dart';
@@ -49,20 +52,23 @@ part 'audio_playback_transport.dart';
 
 /// 基于 `libmpv`（`vid=no`, `vo=null`, `soxr`）并收敛于 `UnifiedPlaybackEngine` 与
 /// `AudiophileSafetyCoordinator` 的 CD / 无损音频播放器控制器。
-class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
-  AudioPlaybackNotifier(
-    this._ref, {
+class AudioPlaybackNotifier extends Notifier<AudioPlaybackState> {
+  /// 创建 CD / 无损音频播放控制器。
+  AudioPlaybackNotifier({
     this.clientFactory,
-    this.gatewayFactory = const MediaSourceGatewayFactory(),
+    MediaSourceGatewayFactory? gatewayFactory,
     this.retryDelayBuilder,
     this.microFadeStepInterval = const Duration(milliseconds: 25),
     AndroidMediaSessionBridge? mediaSessionBridge,
-  }) : _mediaSessionBridgeOverride = mediaSessionBridge,
-       super(const AudioPlaybackState());
+    this.initialState,
+  }) : _gatewayFactoryOverride = gatewayFactory,
+       _mediaSessionBridgeOverride = mediaSessionBridge;
 
   /// 非致命流加载异常的最大静默重试次数。
   static const int maxSilentRetries = 3;
 
+  Ref get _ref => ref;
+  bool get mounted => ref.mounted;
   AudioPlaybackState get _state => state;
   set _state(AudioPlaybackState value) => state = value;
 
@@ -81,15 +87,51 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   static const Duration _cueSeekDebounceWindow = Duration(milliseconds: 900);
   static const int _maxAlbumCacheEntries = 32;
 
-  final Ref _ref;
   final LibMpvClient Function()? clientFactory;
-  final MediaSourceGatewayFactory gatewayFactory;
+  final MediaSourceGatewayFactory? _gatewayFactoryOverride;
+  MediaSourceGatewayFactory? _gatewayFactoryInstance;
   final Duration Function(int attempt)? retryDelayBuilder;
 
   /// S 型微淡入斜坡的离散步进周期（默认 25 ms，约 6 步完成 150 ms 后即停钟）。
   final Duration microFadeStepInterval;
   final AndroidMediaSessionBridge? _mediaSessionBridgeOverride;
+  final AudioPlaybackState? initialState;
   AudiophileMicroFadeDriver? _microFadeDriverInstance;
+
+  /// 惰性解析媒体源网关工厂（空载冷启动零提前读取）。
+  MediaSourceGatewayFactory get gatewayFactory {
+    final existing = _gatewayFactoryInstance;
+    if (existing != null) return existing;
+    final override = _gatewayFactoryOverride;
+    if (override != null) {
+      _gatewayFactoryInstance = override;
+      return override;
+    }
+    final resolved = _ref.read(mediaSourceGatewayFactoryProvider);
+    _gatewayFactoryInstance = resolved;
+    return resolved;
+  }
+
+  @override
+  AudioPlaybackState build() {
+    ref.onDispose(_disposeResources);
+    final seed = initialState ?? const AudioPlaybackState();
+    _positionListenable.value = seed.positionSeconds;
+    if (seed.isActive || _mediaSessionBridgeOverride != null) {
+      Future<void>.microtask(() {
+        if (ref.mounted) _syncAndroidMediaSession();
+      });
+    }
+    return seed;
+  }
+
+  final ValueNotifier<double> _positionListenable = ValueNotifier<double>(0.0);
+
+  /// 高频音频进度独立通道（驱动胶囊、触控滑杆、迷你圆环与逐字扫白漂移校准，零 Riverpod 扇出）。
+  ValueListenable<double> get positionListenable => _positionListenable;
+
+  /// 当前精确曲目播放秒数。
+  double get currentPositionSeconds => _positionListenable.value;
 
   /// 惰性初始化微淡入驱动器（空载冷启动期零对象分配）。
   AudiophileMicroFadeDriver get _microFadeDriver =>
@@ -193,7 +235,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
         _,
         next,
       ) {
-        final items = next.valueOrNull;
+        final items = next.value;
         if (items != null) {
           syncUpdatedWorks([for (final e in items) e.work]);
         }
@@ -203,8 +245,16 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
 
   @override
   set state(AudioPlaybackState value) {
-    final wasActive = super.state.isActive;
+    final prev = stateOrNull;
+    final wasActive = prev?.isActive ?? false;
+    final positionChanged =
+        prev == null ||
+        (prev.positionSeconds - value.positionSeconds).abs() > 0.0005;
     super.state = value;
+    if (positionChanged &&
+        (_positionListenable.value - value.positionSeconds).abs() > 0.0005) {
+      _positionListenable.value = value.positionSeconds;
+    }
     if (value.isActive || wasActive || _mediaSessionBridgeInstance != null) {
       _syncAndroidMediaSession();
     }
@@ -212,8 +262,28 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
 
   LibMpvClient? _client;
   StreamSubscription<MpvClientEvent>? _eventSub;
-  ({String physicalFileKey, String target, String streamToken})?
+  ({
+    int queueIndex,
+    String physicalFileKey,
+    String target,
+    String? streamToken,
+    bool mpvPlaylistQueued,
+  })?
   _prefetchedNextTrack;
+  ({
+    int expectedIndex,
+    String physicalFileKey,
+    String? streamToken,
+    int generation,
+  })?
+  _pendingGaplessAppendTransition;
+  Timer? _gaplessAppendFallbackTimer;
+  Timer? _lowFreqProgressTimer;
+  Timer? _cueBoundaryTimer;
+  Timer? _effectiveProgressCheckTimer;
+  AudioProgressObservationMode _progressObservationMode =
+      AudioProgressObservationMode.highFrequency;
+  bool _timePosObserved = true;
   String? _loadedPhysicalKey;
   int _loadGeneration = 0;
   bool _isTransitioningCueBoundary = false;
@@ -268,6 +338,23 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   /// S 型微淡入斜坡计时器当前是否仍在推进（用于测试验证终态即停钟零空转）。
   bool get isMicroFadeActive => _microFadeDriverInstance?.isActive ?? false;
 
+  /// 当前音频进度订阅与界面更新档位。
+  AudioProgressObservationMode get progressObservationMode =>
+      _progressObservationMode;
+
+  /// 底层 `libmpv` 当前是否处于 `time-pos` 高频订阅态（退后台/贴边/迷你态为 `false`）。
+  bool get isTimePosObserved => _timePosObserved;
+
+  /// 切换音频 `time-pos` 订阅档位：
+  /// - `highFrequency`：恢复 `libmpv` 高频属性订阅并即时同步精确秒数；
+  /// - `lowFrequency`：退订 `time-pos` 高频 FFI 事件，仅在播控活跃期间以 1 Hz 轻量采样并由单次定时器守卫 CUE 边界；
+  /// - `suspended`：彻底退订 `time-pos` 与 1 Hz 定时器（0 次进度唤醒），仅靠单次 CUE 边界定时器守卫无损分轨衔接。
+  void setProgressObservationMode(AudioProgressObservationMode mode) {
+    if (!mounted || _progressObservationMode == mode) return;
+    _progressObservationMode = mode;
+    _syncTimePosObservationAndTimers();
+  }
+
   /// 以指定曲目（支持单轨物理音频与 `.cue` 按需动态拆轨）开启 CD 播放队列。
   Future<void> playCdCollection({
     required Work work,
@@ -277,6 +364,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     int? initialCueTrackNumber,
     double initialTrackOffsetSeconds = 0.0,
   }) async {
+    _ref.read(konataMemoryCoordinatorProvider).cancelPostPlaybackTrim();
     _ensureRuntimeListenersBound();
     final port = _ref.read(playbackPreferencesProvider).foobarBeefwebPort;
     unawaited(
@@ -344,6 +432,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     );
     final client = acquired.client;
     final storageRoot = _ref.read(storageRootProvider);
+    unawaited(_ref.read(tempCachePrunerProvider).pruneIfDue());
     final mpvDir = await storageRoot.ensureMpvConfigDir();
     final prefs = _ref.read(playbackPreferencesProvider);
 
@@ -378,7 +467,13 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     );
 
     client.requestLogMessages('warn');
-    client.observeProperty(_propTimePos, 'time-pos', MpvFormat.double_);
+    if (_progressObservationMode ==
+        AudioProgressObservationMode.highFrequency) {
+      client.observeProperty(_propTimePos, 'time-pos', MpvFormat.double_);
+      _timePosObserved = true;
+    } else {
+      _timePosObserved = false;
+    }
     client.observeProperty(_propDuration, 'duration', MpvFormat.double_);
     client.observeProperty(_propPause, 'pause', MpvFormat.flag);
     client.observeProperty(_propCoreIdle, 'core-idle', MpvFormat.flag);
@@ -490,6 +585,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     if (playing && !wasPlaying) {
       _startMicroFadeInRamp(c);
     }
+    _syncAudioBackgroundTimers();
     final item = state.currentItem;
     if (!playing && item != null) {
       unawaited(
@@ -533,6 +629,8 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   /// 经 `UnifiedPlaybackEngine` 重新申请唯一句柄并从断点无缝续播。
   Future<void> _evictAudioClientForStageSwitch() async {
     _cancelMicroFade();
+    _cancelAudioBackgroundTimers();
+    _clearPendingGaplessAppendTransition();
     final item = state.currentItem;
     final savedPos = state.positionSeconds;
     final savedDur = state.durationSeconds;
@@ -613,7 +711,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     }
     _pendingSeekRawTargetSeconds = rawTarget;
     _pendingSeekGuardUntil = DateTime.now().add(_cueSeekDebounceWindow);
-    c.command(['seek', rawTarget.toStringAsFixed(3), 'absolute', 'exact']);
+    c.commandAsync(0, ['seek', rawTarget.toStringAsFixed(3), 'absolute', 'exact']);
     if (state.isPlaying) {
       _startMicroFadeInRamp(c);
     }
@@ -623,6 +721,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
       activeLyricIndex: lyricIdx,
       isBuffering: cachedHit ? false : state.isBuffering,
     );
+    _syncAudioBackgroundTimers();
     _syncAndroidMediaSession(forcePositionSync: true);
     unawaited(
       _persistAudioProgress(
@@ -699,6 +798,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     final nextMode = state.loopMode.nextMode();
     state = state.copyWith(loopMode: nextMode);
     if (nextMode == AudioLoopMode.loopOne) {
+      _clearMpvAppendedPlaylist();
       unawaited(_releasePrefetchLeaseIfAny());
     } else {
       unawaited(_scheduleGaplessNextTrackPrefetch(generation: _loadGeneration));
@@ -715,6 +815,8 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
   /// 停止音频播放、释放主流与预取流并关闭迷你栏与沉浸页。
   Future<void> stopAndClose() async {
     _cancelMicroFade();
+    _cancelAudioBackgroundTimers();
+    _clearPendingGaplessAppendTransition();
     final closingItem = state.currentItem;
     final closingPos = state.positionSeconds;
     final closingDur = state.durationSeconds;
@@ -766,6 +868,7 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
     if (mounted) {
       state = const AudioPlaybackState();
     }
+    _ref.read(konataMemoryCoordinatorProvider).schedulePostPlaybackTrim();
   }
 
   /// 根据当前播放偏好与平台实时重编译并向全端共享协调器应用音频输出安全链路。
@@ -796,15 +899,258 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
 
   void _handleAudioDeviceRemovedTransientMute() {
     _cancelMicroFade();
+    _cancelAudioBackgroundTimers();
     if (mounted) {
       state = state.copyWith(isPlaying: false, isMuted: true);
     }
   }
 
-  @override
-  void dispose() {
+  int? _resolveNextSequentialIndex() {
+    if (state.loopMode == AudioLoopMode.loopOne || state.queue.isEmpty) {
+      return null;
+    }
+    final nextIdx = state.currentIndex + 1;
+    if (nextIdx < state.queue.length) return nextIdx;
+    if (state.loopMode == AudioLoopMode.loopAll) return 0;
+    return null;
+  }
+
+  /// 收到 `libmpv` 原生无缝续播的 `MpvStartFileEvent` 时原地晋升预取租约与队列状态（0 ms 硬件切换）。
+  void _completeGaplessAppendPromotion(
+    ({
+      int expectedIndex,
+      String physicalFileKey,
+      String? streamToken,
+      int generation,
+    })
+    pending, {
+    required int playlistEntryId,
+  }) {
+    _clearPendingGaplessAppendTransition();
+    if (!mounted ||
+        !state.isActive ||
+        pending.expectedIndex < 0 ||
+        pending.expectedIndex >= state.queue.length) {
+      return;
+    }
+    final previousItem = state.currentItem;
+    final nextItem = state.queue[pending.expectedIndex];
+    final previousEntry = _engine.currentPlaylistEntryId ?? 0;
+    if (previousEntry > _retiredMpvPlaylistEntryId) {
+      _retiredMpvPlaylistEntryId = previousEntry;
+    }
+    final previousMainToken = _engine.mainStreamLease?.leaseToken;
+    String? displacedMainToken;
+    if (pending.streamToken != null) {
+      displacedMainToken = _engine.promotePrefetchLeaseToMain(
+        playlistEntryId: playlistEntryId,
+      );
+    } else {
+      _engine.beginPhysicalMedia(
+        nativeInstanceId: _boundNativeInstanceId,
+        stage: PlaybackStageKind.audio,
+      );
+      _engine.bindPlaylistEntryId(playlistEntryId);
+      displacedMainToken = previousMainToken;
+    }
+    _boundPhysicalEpoch = _engine.physicalMediaEpoch;
+    if (displacedMainToken != null &&
+        displacedMainToken != pending.streamToken) {
+      unawaited(_unregisterStreamToken(displacedMainToken));
+    }
+
+    final nextGen = ++_loadGeneration;
+    _activeCommandedGeneration = nextGen;
+    _loadedPhysicalKey = pending.physicalFileKey;
+    _trackProgressBaselineSeconds = 0.0;
+    final cachedRawDuration =
+        _rawDurationByPhysicalKey[pending.physicalFileKey] ?? 0.0;
+    _rawFileDurationSeconds = cachedRawDuration;
+    final initialDuration = _resolveTrackDurationSeconds(
+      nextItem,
+      cachedRawDuration,
+    );
+    final initialCover = _resolveInitialCoverForTrack(
+      nextItem,
+      previousItem: previousItem,
+    );
+    state = state.copyWith(
+      currentIndex: pending.expectedIndex,
+      positionSeconds: 0.0,
+      durationSeconds: initialDuration,
+      isPlaying: true,
+      isBuffering: false,
+      cover: initialCover,
+      activeLyricIndex: -1,
+      clearLrcDocument: true,
+      clearError: true,
+    );
+    if (initialCover is EmptyAudioCover && nextItem.source != null) {
+      unawaited(_hydrateAlbumCoverFromDisk(nextItem, generation: nextGen));
+    }
+    unawaited(
+      _persistAudioProgress(
+        nextItem,
+        positionSeconds: 0.0,
+        durationSeconds: initialDuration,
+        force: true,
+      ),
+    );
+    final isRemote =
+        nextItem.source != null && nextItem.source!.kind != MediaSourceKind.local;
+    if (!isRemote || Platform.environment.containsKey('FLUTTER_TEST')) {
+      unawaited(_loadAuxiliaryAssets(nextItem, generation: nextGen));
+    } else {
+      _pendingRemoteAuxJob = (item: nextItem, generation: nextGen);
+    }
+    _syncAudioBackgroundTimers();
+  }
+
+  /// 按当前 [_progressObservationMode] 同步 `libmpv` `time-pos` 属性订阅与轻量后台定时器。
+  void _syncTimePosObservationAndTimers() {
+    final client = _client;
+    final wantNativeTimePos =
+        _progressObservationMode == AudioProgressObservationMode.highFrequency;
+    if (client != null && !client.isDisposed && client.isInitialized) {
+      if (wantNativeTimePos && !_timePosObserved) {
+        client.observeProperty(_propTimePos, 'time-pos', MpvFormat.double_);
+        _timePosObserved = true;
+        final latest = client.getPropertyDouble('time-pos');
+        if (latest != null && latest.isFinite) {
+          _updateTrackProgress(latest);
+        }
+      } else if (!wantNativeTimePos && _timePosObserved) {
+        if (client is LibMpvUnobservable) {
+          (client as LibMpvUnobservable).unobserveProperty(_propTimePos);
+        }
+        _timePosObserved = false;
+      }
+    } else {
+      _timePosObserved = wantNativeTimePos;
+    }
+    _syncAudioBackgroundTimers();
+  }
+
+  void _cancelAudioBackgroundTimers() {
+    _lowFreqProgressTimer?.cancel();
+    _lowFreqProgressTimer = null;
+    _cueBoundaryTimer?.cancel();
+    _cueBoundaryTimer = null;
+    _effectiveProgressCheckTimer?.cancel();
+    _effectiveProgressCheckTimer = null;
+  }
+
+  /// 同步低频 1 Hz 迷你进度采样器与单次 CUE 边界守卫定时器（非播放或高频模式下全部停钟）。
+  void _syncAudioBackgroundTimers() {
+    _lowFreqProgressTimer?.cancel();
+    _lowFreqProgressTimer = null;
+    _cueBoundaryTimer?.cancel();
+    _cueBoundaryTimer = null;
+
+    if (!mounted || !state.isActive || !state.isPlaying) {
+      return;
+    }
+    final client = _client;
+    if (client == null || client.isDisposed || !client.isInitialized) {
+      return;
+    }
+
+    if (_progressObservationMode == AudioProgressObservationMode.lowFrequency) {
+      _lowFreqProgressTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted || !state.isActive || !state.isPlaying) {
+          _lowFreqProgressTimer?.cancel();
+          _lowFreqProgressTimer = null;
+          return;
+        }
+        final c = _client;
+        if (c == null || c.isDisposed) return;
+        final rawPos = c.getPropertyDouble('time-pos');
+        if (rawPos != null && rawPos.isFinite) {
+          _updateTrackProgress(rawPos);
+        }
+      });
+    }
+
+    if (_progressObservationMode !=
+        AudioProgressObservationMode.highFrequency) {
+      _scheduleCueBoundaryTimer();
+    }
+  }
+
+  void _scheduleCueBoundaryTimer() {
+    _cueBoundaryTimer?.cancel();
+    _cueBoundaryTimer = null;
+    final item = state.currentItem;
+    final cueEnd = item?.cueEndSeconds;
+    final client = _client;
+    if (item == null ||
+        cueEnd == null ||
+        !state.isPlaying ||
+        client == null ||
+        client.isDisposed) {
+      return;
+    }
+    final currentRaw =
+        client.getPropertyDouble('time-pos') ??
+        ((item.cueStartSeconds ?? 0.0) + state.positionSeconds);
+    final remainingSec = cueEnd - currentRaw;
+    final delayMs = remainingSec <= 0.05
+        ? 50
+        : (remainingSec * 1000).round().clamp(50, 86400000);
+    _cueBoundaryTimer = Timer(Duration(milliseconds: delayMs), () {
+      _cueBoundaryTimer = null;
+      if (!mounted || !state.isActive || !state.isPlaying) return;
+      final c = _client;
+      if (c == null || c.isDisposed) return;
+      final latestRaw = c.getPropertyDouble('time-pos');
+      if (latestRaw != null && latestRaw.isFinite) {
+        _updateTrackProgress(latestRaw);
+      }
+      if (mounted &&
+          state.isPlaying &&
+          _progressObservationMode !=
+              AudioProgressObservationMode.highFrequency) {
+        _scheduleCueBoundaryTimer();
+      }
+    });
+  }
+
+  void _scheduleEffectiveProgressCheckIfNeeded() {
+    _effectiveProgressCheckTimer?.cancel();
+    _effectiveProgressCheckTimer = null;
+    if (_progressObservationMode ==
+            AudioProgressObservationMode.highFrequency ||
+        _engine.effectiveProgressConfirmed) {
+      return;
+    }
+    _effectiveProgressCheckTimer = Timer(
+      const Duration(milliseconds: 650),
+      () {
+        _effectiveProgressCheckTimer = null;
+        if (!mounted || !state.isActive || !state.isPlaying) return;
+        final c = _client;
+        final item = state.currentItem;
+        if (c == null || c.isDisposed || item == null) return;
+        final rawPos = c.getPropertyDouble('time-pos');
+        if (rawPos == null || !rawPos.isFinite) return;
+        final relPos = math.max(0.0, rawPos - (item.cueStartSeconds ?? 0.0));
+        final advancedMs = ((relPos - _trackProgressBaselineSeconds) * 1000)
+            .round();
+        if (_engine.fileLoadedInCurrentEpoch &&
+            !_engine.effectiveProgressConfirmed &&
+            advancedMs >=
+                UnifiedPlaybackEngine.effectiveAudioProgressThresholdMs) {
+          _engine.recordEffectiveProgress(audioAdvancedMs: advancedMs);
+        }
+      },
+    );
+  }
+
+  void _disposeResources() {
     ++_loadGeneration;
     _cancelMicroFade();
+    _cancelAudioBackgroundTimers();
+    _clearPendingGaplessAppendTransition();
     for (final sub in _runtimeSubscriptions) {
       sub.close();
     }
@@ -835,23 +1181,12 @@ class AudioPlaybackNotifier extends StateNotifier<AudioPlaybackState> {
         unawaited(c.dispose());
       }
     }
-    super.dispose();
+    _positionListenable.dispose();
   }
 }
 
 /// 全局持久 CD 纯音频播放器 Provider（静息冷启动零偏好/数据库/音频通道提前装配）。
 final audioPlaybackProvider =
-    StateNotifierProvider<AudioPlaybackNotifier, AudioPlaybackState>((ref) {
-      return AudioPlaybackNotifier(
-        ref,
-        gatewayFactory: ref.read(mediaSourceGatewayFactoryProvider),
-      );
-    });
-
-class _CueTrackBoundsException implements Exception {
-  const _CueTrackBoundsException(this.message);
-  final String message;
-
-  @override
-  String toString() => message;
-}
+    NotifierProvider<AudioPlaybackNotifier, AudioPlaybackState>(
+      AudioPlaybackNotifier.new,
+    );

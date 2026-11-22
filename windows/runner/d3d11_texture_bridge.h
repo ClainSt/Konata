@@ -9,6 +9,7 @@
 #include <flutter/standard_method_codec.h>
 #include <wrl/client.h>
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -43,6 +44,9 @@ class D3D11TextureBridge {
   // 在 Win32 平台主线程排空待处理的纹理与后端变更通知队列。
   void ProcessPendingNotifications();
 
+  // 窗口最小化且无活跃视频会话时即时释放闲置 D3D11 设备并回吐进程空闲工作集。
+  void TrimMemoryOnMinimize();
+
   // 在引擎销毁前中止全部活跃渲染会话、销毁子合成窗口并安全注销已注册纹理。
   void Shutdown();
 
@@ -65,10 +69,16 @@ class D3D11TextureBridge {
   void HandleGetSessionMetrics(
       const flutter::EncodableMap& args,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
+  void HandleSetHdrFboEnabled(
+      const flutter::EncodableMap& args,
+      std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
   void HandleDisposeSession(
       const flutter::EncodableMap& args,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
   void HandleGetAdapterInfo(
+      std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
+  void HandleTrimMemory(
+      const flutter::EncodableMap* args,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
 
   struct PendingNotification {
@@ -89,6 +99,21 @@ class D3D11TextureBridge {
                            const std::string& adapter_name,
                            const std::string& reason);
 
+  // 获取短期复用池中的温热 D3D11 设备（无可用或已失效时新建），消除切换作品重复创建驱动上下文的 50~120ms 延迟。
+  bool AcquireReusableD3D11Device(
+      Microsoft::WRL::ComPtr<ID3D11Device>* out_device,
+      Microsoft::WRL::ComPtr<ID3D11DeviceContext>* out_context,
+      std::string* out_adapter_name);
+
+  // 会话释放后将健康 D3D11 设备归还短期复用池，闲置满 8 秒后由系统线程池定时器彻底回收零驻留。
+  void RecycleD3D11Device(Microsoft::WRL::ComPtr<ID3D11Device> device,
+                          Microsoft::WRL::ComPtr<ID3D11DeviceContext> context,
+                          std::string adapter_name);
+
+  void ClearCachedD3D11Device(bool wait_for_timer);
+  static VOID CALLBACK OnIdleDeviceTimerCallback(PVOID param,
+                                                 BOOLEAN timer_or_wait_fired);
+
   HWND window_handle_ = nullptr;
   flutter::FlutterEngine* engine_;
   flutter::PluginRegistrarWindows* registrar_;
@@ -100,6 +125,13 @@ class D3D11TextureBridge {
   std::vector<PendingNotification> pending_notifications_;
   int64_t next_session_id_ = 1;
   bool shutdown_called_ = false;
+
+  std::mutex device_cache_mutex_;
+  Microsoft::WRL::ComPtr<ID3D11Device> cached_device_;
+  Microsoft::WRL::ComPtr<ID3D11DeviceContext> cached_context_;
+  std::string cached_adapter_name_;
+  std::chrono::steady_clock::time_point cached_device_at_{};
+  HANDLE idle_device_timer_ = nullptr;
 };
 
 #endif  // RUNNER_D3D11_TEXTURE_BRIDGE_H_

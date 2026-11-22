@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:file_picker/file_picker.dart' show FileType;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/playback/playback_preferences_provider.dart';
@@ -169,23 +169,30 @@ class _SettingsExternalToolsPanelState
     TextEditingController target, {
     required String dialogTitle,
   }) async {
-    final picker = ref.read(konataSystemFilePickerProvider);
-    final files = await picker.pickFiles(
-      dialogTitle: dialogTitle,
-      type: FileType.custom,
-      allowedExtensions: const ['exe'],
-    );
-    if (!mounted) {
-      return;
-    }
-    final path = files.firstOrNull?.path;
-    if (path != null && path.isNotEmpty) {
-      _initialized = true;
-      target.text = path;
-      _hasPendingSave = true;
-      await _flushAutoSave();
+    try {
+      final picker = ref.read(konataSystemFilePickerProvider);
+      final files = await picker.pickFiles(
+        dialogTitle: dialogTitle,
+        type: FileType.custom,
+        allowedExtensions: const ['exe'],
+        allowMultiple: false,
+      );
+      if (!mounted) {
+        return;
+      }
+      final path = files.firstOrNull?.path;
+      if (path != null && path.isNotEmpty) {
+        _initialized = true;
+        target.text = path;
+        _hasPendingSave = true;
+        await _flushAutoSave();
+        if (mounted) {
+          setState(() {});
+        }
+      }
+    } catch (e) {
       if (mounted) {
-        setState(() {});
+        showKonataToast(context, '打开系统文件选择器失败：$e', isError: true);
       }
     }
   }
@@ -471,7 +478,7 @@ _resolveFoobarStatusVisual(
   KonataPalette p,
   AsyncValue<FoobarComponentStatusSnapshot> statusAsync,
 ) {
-  final snap = statusAsync.valueOrNull;
+  final snap = statusAsync.value;
   final state = snap?.state ?? FoobarComponentState.unconfigured;
   final port = snap?.port ?? FoobarBeefwebConfig.defaultPort;
   return switch (state) {

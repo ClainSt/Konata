@@ -1,5 +1,5 @@
-import 'package:file_picker/file_picker.dart' show FileType;
-import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart' show FileType, PlatformFile;
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/playback/audio_playback_notifier.dart';
@@ -143,12 +143,21 @@ class _WorkArtworkPickerDialogState
   Future<void> _pickLocalImage() async {
     final isLogo = widget.kind == WorkArtworkKind.logo;
     final isPoster = widget.kind == WorkArtworkKind.poster;
-    final files = await ref.read(konataSystemFilePickerProvider).pickFiles(
-      dialogTitle: isLogo
-          ? '选择本地透明标题徽标（PNG / WebP）'
-          : (isPoster ? '选择本地封面海报图片' : '选择本地背景图片'),
-      type: FileType.image,
-    );
+    final List<PlatformFile> files;
+    try {
+      files = await ref.read(konataSystemFilePickerProvider).pickFiles(
+        dialogTitle: isLogo
+            ? '选择本地透明标题徽标（PNG / WebP）'
+            : (isPoster ? '选择本地封面海报图片' : '选择本地背景图片'),
+        type: FileType.image,
+        allowMultiple: false,
+      );
+    } catch (e) {
+      if (mounted) {
+        showKonataToast(context, '打开本地图片选择器失败：$e', isError: true);
+      }
+      return;
+    }
     final path = files.firstOrNull?.path;
     if (path == null || path.isEmpty || !mounted) return;
 
@@ -170,7 +179,7 @@ class _WorkArtworkPickerDialogState
       } catch (e) {
         if (mounted) {
           setState(() => _saving = false);
-          showKonataToast(context, '保存透明徽标失败: $e');
+          showKonataToast(context, '保存透明徽标失败: $e', isError: true);
         }
       }
       return;
@@ -207,7 +216,7 @@ class _WorkArtworkPickerDialogState
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
-        showKonataToast(context, '裁剪应用失败: $e');
+        showKonataToast(context, '裁剪应用失败: $e', isError: true);
       }
     } finally {
       loaded.dispose();
@@ -219,7 +228,7 @@ class _WorkArtworkPickerDialogState
         ? _customPathCtrl.text.trim()
         : (_selectedPath ?? '');
     if (target.isEmpty) {
-      showKonataToast(context, '请先选择候选图片、输入链接或挑选本地文件');
+      showKonataToast(context, '请先选择候选图片、输入链接或挑选本地文件', isError: true);
       return;
     }
     setState(() => _saving = true);
@@ -253,7 +262,7 @@ class _WorkArtworkPickerDialogState
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
-        showKonataToast(context, '更新失败: $e');
+        showKonataToast(context, '更新失败: $e', isError: true);
       }
     }
   }
@@ -283,7 +292,7 @@ class _WorkArtworkPickerDialogState
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
-        showKonataToast(context, '恢复默认失败: $e');
+        showKonataToast(context, '恢复默认失败: $e', isError: true);
       }
     }
   }
@@ -590,7 +599,7 @@ class _ArtworkGridTileState extends ConsumerState<_ArtworkGridTile> {
         ? null
         : ref
               .watch(artworkOriginalDimensionsProvider(widget.option.filePath))
-              .valueOrNull;
+              .value;
     final resolutionText =
         staticRes ??
         (asyncDims != null && asyncDims.$1 > 0 && asyncDims.$2 > 0
@@ -831,7 +840,7 @@ class _AsyncResolutionBadge extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final dims = ref.watch(artworkOriginalDimensionsProvider(path)).valueOrNull;
+    final dims = ref.watch(artworkOriginalDimensionsProvider(path)).value;
     if (dims == null || dims.$1 <= 0 || dims.$2 <= 0) {
       return const SizedBox.shrink();
     }

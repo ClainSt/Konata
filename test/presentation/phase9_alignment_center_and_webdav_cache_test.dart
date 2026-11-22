@@ -4,9 +4,9 @@ import 'dart:typed_data';
 
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -188,6 +188,12 @@ class _Phase9FakeD3D11VideoBridge implements D3D11VideoBridge {
   Future<NativeSessionMetrics?> getSessionMetrics(int sessionId) async => null;
 
   @override
+  Future<bool> setHdrFboEnabled({
+    required int sessionId,
+    required bool enabled,
+  }) async => true;
+
+  @override
   Future<void> disposeSession(int sessionId) async {}
 
   @override
@@ -217,9 +223,7 @@ class _Phase9FakeD3D11VideoBridge implements D3D11VideoBridge {
 }
 
 class _StubAudioNotifier extends AudioPlaybackNotifier {
-  _StubAudioNotifier(super.ref, AudioPlaybackState initial) {
-    state = initial;
-  }
+  _StubAudioNotifier(AudioPlaybackState initial) : super(initialState: initial);
 
   @override
   Future<void> togglePlayPause() async {
@@ -228,8 +232,11 @@ class _StubAudioNotifier extends AudioPlaybackNotifier {
 }
 
 class _StubVideoController extends VideoPlaybackController {
-  _StubVideoController(super.ref, super.request) : super(deferBootstrap: true) {
-    state = state.copyWith(
+  _StubVideoController(super.request) : super(deferBootstrap: true);
+
+  @override
+  VideoPlaybackState build() {
+    return super.build().copyWith(
       isInitializing: false,
       isBuffering: false,
       hasFirstFrame: true,
@@ -693,7 +700,7 @@ void main() {
           overrides: [
             videoPlaybackProvider(
               vidReq,
-            ).overrideWith((ref) => _StubVideoController(ref, vidReq)),
+            ).overrideWith(() => _StubVideoController(vidReq)),
           ],
         ),
       );
@@ -748,8 +755,7 @@ void main() {
               (_, {targetWidth, imageSize}) async => _sample1x1Png,
             ),
             audioPlaybackProvider.overrideWith(
-              (ref) => _StubAudioNotifier(
-                ref,
+              () => _StubAudioNotifier(
                 const AudioPlaybackState(
                   isActive: true,
                   isPlaying: true,
@@ -797,8 +803,7 @@ void main() {
               (_, {targetWidth, imageSize}) async => _sample1x1Png,
             ),
             audioPlaybackProvider.overrideWith(
-              (ref) => _StubAudioNotifier(
-                ref,
+              () => _StubAudioNotifier(
                 const AudioPlaybackState(
                   isActive: true,
                   isPlaying: false,
@@ -1013,8 +1018,8 @@ void main() {
         videoClient.options['demuxer-lavf-analyzeduration'],
         equals('1.5'),
       );
-      expect(videoClient.options['demuxer-max-bytes'], equals('180MiB'));
-      expect(videoClient.options['demuxer-max-back-bytes'], equals('120MiB'));
+      expect(videoClient.options['demuxer-max-bytes'], equals('48MiB'));
+      expect(videoClient.options['demuxer-max-back-bytes'], equals('16MiB'));
 
       final audioClient = _Phase9FakeMpvClient();
       MpvQualityProfile.applyPreInitAudioOptions(
@@ -1034,13 +1039,13 @@ void main() {
         audioClient.options['stream-lavf-o'],
         equals('reconnect=1,reconnect_streamed=1,reconnect_delay_max=2'),
       );
-      expect(audioClient.options['demuxer-lavf-probesize'], equals('8388608'));
+      expect(audioClient.options['demuxer-lavf-probesize'], equals('1048576'));
       expect(
         audioClient.options['demuxer-lavf-analyzeduration'],
-        equals('2.0'),
+        equals('1.0'),
       );
-      expect(audioClient.options['demuxer-max-bytes'], equals('64MiB'));
-      expect(audioClient.options['demuxer-max-back-bytes'], equals('48MiB'));
+      expect(audioClient.options['demuxer-max-bytes'], equals('24MiB'));
+      expect(audioClient.options['demuxer-max-back-bytes'], equals('8MiB'));
     });
 
     test(

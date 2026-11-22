@@ -22,6 +22,7 @@ import '../../infrastructure/storage/storage_root_provider.dart';
 import '../scraping/clear_logo_resolver.dart';
 import '../scraping/scrape_orchestrator.dart';
 import '../scraping/scrape_progress.dart';
+import 'konata_value_notifier.dart';
 import 'library_providers.dart';
 import 'work_merge_actions.dart';
 
@@ -57,6 +58,14 @@ TmdbHttpClient createAppTmdbHttpClient(Ref ref, TmdbNetworkConfig config) {
   );
 }
 
+/// 全应用复用的持久化 [TmdbHttpClient] Provider（复用 TCP/TLS Keep-Alive 连接池与 DoH 缓存，配置变更自动释放重建）。
+final appTmdbHttpClientProvider = FutureProvider<TmdbHttpClient>((ref) async {
+  final config = await ref.watch(tmdbNetworkConfigProvider.future);
+  final client = createAppTmdbHttpClient(ref, config);
+  ref.onDispose(client.close);
+  return client;
+});
+
 /// 全应用共享的 Fanart.tv 内置无状态中继熔断器 Provider（区分 429 频率限流与日额度耗尽）。
 final fanartCircuitBreakerProvider = Provider<FanartCircuitBreaker>((ref) {
   final breaker = FanartCircuitBreaker();
@@ -81,9 +90,15 @@ final clearLogoInFlightRegistryProvider = Provider<ClearLogoInFlightRegistry>((
 });
 
 /// Fanart.tv 内置中继健康与熔断 UI 状态 Provider（供设置页与「编辑标题徽标」弹窗实时展示引导）。
-final fanartRelayHealthProvider = StateProvider<FanartRelayHealthSnapshot>(
-  (ref) => FanartRelayHealthSnapshot.ok,
-);
+final fanartRelayHealthProvider =
+    NotifierProvider<
+      KonataValueNotifier<FanartRelayHealthSnapshot>,
+      FanartRelayHealthSnapshot
+    >(
+      () => KonataValueNotifier<FanartRelayHealthSnapshot>.value(
+        FanartRelayHealthSnapshot.ok,
+      ),
+    );
 
 /// 海报与剧照本地磁盘缓存异步 Provider（直连统一 `photos/` 目录，零系统用户缓存写入）。
 final artworkCacheProvider = FutureProvider<ArtworkCache>((ref) async {
@@ -104,28 +119,33 @@ final bangumiTmdbSnapshotProvider = FutureProvider<BangumiTmdbSnapshot>((ref) {
 });
 
 /// 刮削进度状态管理器。
-class ScrapeController extends StateNotifier<ScrapeProgress> {
-  /// 创建刮削控制器。
-  ScrapeController(this._ref) : super(const ScrapeProgress());
+class ScrapeController extends Notifier<ScrapeProgress> {
+  /// 创建刮削进度状态管理器。
+  ScrapeController({this.initialState});
 
-  final Ref _ref;
+  /// 可选初始状态（供单元测试直接注入预置进度）。
+  final ScrapeProgress? initialState;
+
   bool _cancelRequested = false;
   final Set<String> _autoBackfillInFlight = <String>{};
+
+  @override
+  ScrapeProgress build() => initialState ?? const ScrapeProgress();
 
   Future<BangumiTmdbIndex> _resolveActiveMappingIndex({
     bool checkUpdateIfDue = false,
   }) async {
-    final updater = _ref.read(bangumiTmdbMapUpdaterProvider);
+    final updater = ref.read(bangumiTmdbMapUpdaterProvider);
     if (checkUpdateIfDue) {
       try {
-        final config = await _ref.read(tmdbNetworkConfigProvider.future);
+        final config = await ref.read(tmdbNetworkConfigProvider.future);
         final res = await updater.checkAndUpdateIfDue(
           force: false,
           networkConfig: config,
         );
         if (res.state == BangumiTmdbUpdateState.updated ||
             res.state == BangumiTmdbUpdateState.upToDate) {
-          _ref.invalidate(bangumiTmdbSnapshotProvider);
+          ref.invalidate(bangumiTmdbSnapshotProvider);
         }
         return res.snapshot.index;
       } catch (error) {
@@ -137,7 +157,7 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
       }
     }
     try {
-      final snap = await _ref.read(bangumiTmdbSnapshotProvider.future);
+      final snap = await ref.read(bangumiTmdbSnapshotProvider.future);
       return snap.index;
     } catch (error) {
       developer.log(
@@ -152,11 +172,11 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
   Future<ScrapeOrchestrator> _buildOrchestrator({
     BangumiTmdbIndex? mappingIndex,
   }) async {
-    final config = await _ref.read(tmdbNetworkConfigProvider.future);
-    final cache = await _ref.read(artworkCacheProvider.future);
-    final repository = _ref.read(libraryRepositoryProvider);
+    final config = await ref.read(tmdbNetworkConfigProvider.future);
+    final cache = await ref.read(artworkCacheProvider.future);
+    final repository = ref.read(libraryRepositoryProvider);
     final activeIndex = mappingIndex ?? await _resolveActiveMappingIndex();
-    final httpClient = createAppTmdbHttpClient(_ref, config);
+    final httpClient = createAppTmdbHttpClient(ref, config);
     final tmdbService = TmdbService(
       httpClient: httpClient,
       artworkCache: cache,
@@ -164,15 +184,15 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
     final bangumiService = BangumiService(httpClient: httpClient);
     final fanartService = FanartService(
       httpClient: httpClient,
-      circuitBreaker: _ref.read(fanartCircuitBreakerProvider),
-      artworkCache: _ref.read(fanartArtworkCacheProvider),
+      circuitBreaker: ref.read(fanartCircuitBreakerProvider),
+      artworkCache: ref.read(fanartArtworkCacheProvider),
     );
     final clearLogoResolver = ClearLogoResolver(
       tmdbService: tmdbService,
       fanartService: fanartService,
       networkConfig: config,
       mappingIndex: activeIndex,
-      inFlightRegistry: _ref.read(clearLogoInFlightRegistryProvider),
+      inFlightRegistry: ref.read(clearLogoInFlightRegistryProvider),
     );
     const gatewayFactory = MediaSourceGatewayFactory();
     return ScrapeOrchestrator(
@@ -182,7 +202,7 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
       fanartService: fanartService,
       clearLogoResolver: clearLogoResolver,
       gatewayBuilder: gatewayFactory.create,
-      photosStorage: _ref.read(photosStorageProvider),
+      photosStorage: ref.read(photosStorageProvider),
       mappingIndex: activeIndex,
     );
   }
@@ -223,11 +243,13 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
         scanRootsOverride: scanRootsOverride,
         isCancelled: () => _cancelRequested,
         onProgress: (progress) {
-          state = progress;
+          if (ref.mounted) {
+            state = progress;
+          }
         },
       );
     } catch (error) {
-      if (state.phase != ScrapePhase.failed) {
+      if (ref.mounted && state.phase != ScrapePhase.failed) {
         state = state.copyWith(
           phase: ScrapePhase.failed,
           errorMessage: NetworkErrorSanitizer.toUserMessage(error),
@@ -236,9 +258,11 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
       rethrow;
     } finally {
       _cancelRequested = false;
-      _ref.invalidate(libraryItemsProvider);
-      _ref.invalidate(worksCountProvider);
-      _ref.invalidate(seriesGroupsProvider);
+      if (ref.mounted) {
+        ref.invalidate(libraryItemsProvider);
+        ref.invalidate(worksCountProvider);
+        ref.invalidate(seriesGroupsProvider);
+      }
     }
   }
 
@@ -260,7 +284,7 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
     );
     // 防空壳守卫：若当前条目无任何正片且同 TMDB(季)/Bangumi 主作品已在库，则直接自动并入
     final autoMerged = await tryAutoMergeSupplementaryWork(
-      _ref,
+      ref,
       sourceWorkId: workId,
       bangumiId: updated.bangumiId,
       tmdbId: updated.tmdbId ?? tmdbId,
@@ -268,19 +292,19 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
       matchedSeason: updated.matchedSeason,
     );
     if (autoMerged != null) {
-      await _ref
+      await ref
           .read(photosStorageProvider)
           .renameWorkFolderIfNeeded(autoMerged.id, autoMerged.title);
       return autoMerged;
     }
-    await _ref
+    await ref
         .read(photosStorageProvider)
         .renameWorkFolderIfNeeded(updated.id, updated.title);
-    _ref.invalidate(libraryItemsProvider);
-    _ref.invalidate(worksCountProvider);
-    _ref.invalidate(seriesGroupsProvider);
-    _ref.invalidate(workDetailBundleProvider(workId));
-    _ref.invalidate(workScrapeCandidatesProvider(workId));
+    ref.invalidate(libraryItemsProvider);
+    ref.invalidate(worksCountProvider);
+    ref.invalidate(seriesGroupsProvider);
+    ref.invalidate(workDetailBundleProvider(workId));
+    ref.invalidate(workScrapeCandidatesProvider(workId));
     return updated;
   }
 
@@ -293,13 +317,13 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
       return null;
     }
     try {
-      final config = await _ref.read(tmdbNetworkConfigProvider.future);
+      final config = await ref.read(tmdbNetworkConfigProvider.future);
       if (!interactive &&
           config.credentialKind == TmdbCredentialKind.none &&
           !config.isFanartAvailable) {
         return null;
       }
-      final before = await _ref
+      final before = await ref
           .read(libraryRepositoryProvider)
           .findWorkById(workId);
       if (before == null) return null;
@@ -309,14 +333,16 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
         workId,
         interactive: interactive,
       );
-      _ref.read(fanartRelayHealthProvider.notifier).state = _ref
-          .read(fanartCircuitBreakerProvider)
-          .snapshot();
+      if (ref.mounted) {
+        ref.read(fanartRelayHealthProvider.notifier).state = ref
+            .read(fanartCircuitBreakerProvider)
+            .snapshot();
+      }
       if (updated == null) return null;
 
       if (updated.tmdbId != null && updated.tmdbMediaType != null) {
         final autoMerged = await tryAutoMergeSupplementaryWork(
-          _ref,
+          ref,
           sourceWorkId: workId,
           bangumiId: updated.bangumiId,
           tmdbId: updated.tmdbId!,
@@ -324,7 +350,7 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
           matchedSeason: updated.matchedSeason,
         );
         if (autoMerged != null) {
-          await _ref
+          await ref
               .read(photosStorageProvider)
               .renameWorkFolderIfNeeded(autoMerged.id, autoMerged.title);
           return autoMerged;
@@ -341,15 +367,15 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
           updated.overview != before.overview ||
           updated.bangumiScore != before.bangumiScore ||
           interactive;
-      if (changed) {
-        await _ref
+      if (changed && ref.mounted) {
+        await ref
             .read(photosStorageProvider)
             .renameWorkFolderIfNeeded(updated.id, updated.title);
-        _ref.invalidate(libraryItemsProvider);
-        _ref.invalidate(worksCountProvider);
-        _ref.invalidate(seriesGroupsProvider);
-        _ref.invalidate(workDetailBundleProvider(workId));
-        _ref.invalidate(workScrapeCandidatesProvider(workId));
+        ref.invalidate(libraryItemsProvider);
+        ref.invalidate(worksCountProvider);
+        ref.invalidate(seriesGroupsProvider);
+        ref.invalidate(workDetailBundleProvider(workId));
+        ref.invalidate(workScrapeCandidatesProvider(workId));
       }
       return updated;
     } catch (_) {
@@ -365,6 +391,4 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
 
 /// 刮削进度与操作控制器 Provider。
 final scrapeControllerProvider =
-    StateNotifierProvider<ScrapeController, ScrapeProgress>((ref) {
-      return ScrapeController(ref);
-    });
+    NotifierProvider<ScrapeController, ScrapeProgress>(ScrapeController.new);

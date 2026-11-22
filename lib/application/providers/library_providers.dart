@@ -20,6 +20,7 @@ import '../../infrastructure/database/konata_database.dart';
 import '../../infrastructure/storage/storage_root_provider.dart';
 import '../scraping/scrape_work_persister.dart';
 import '../scraping/series_auto_linker.dart';
+import 'konata_value_notifier.dart';
 
 /// 顶部胶囊导航栏固定 4 个一级页面标签。
 enum KonataNavSection {
@@ -136,6 +137,7 @@ class WorkDetailBundle {
     this.cdVariants = const [],
     this.scanVariants = const [],
     this.editableSupplementaryItems = const [],
+    this.variantsByEpisodeId,
   });
 
   /// 作品实体。
@@ -171,9 +173,17 @@ class WorkDetailBundle {
   /// 当前系列/作品下所有可调整共享范围的特典、CD 与 Scan 条目。
   final List<SupplementaryEditableItem> editableSupplementaryItems;
 
+  /// 按 `episodeId` 预建的变体查找表（O(1) 访问，缺省时兼容回退线性过滤）。
+  final Map<String, List<MediaVariant>>? variantsByEpisodeId;
+
   /// 取得指定逻辑分集的物理文件变体。
-  List<MediaVariant> variantsForEpisode(String episodeId) =>
-      variants.where((v) => v.episodeId == episodeId).toList();
+  List<MediaVariant> variantsForEpisode(String episodeId) {
+    final indexed = variantsByEpisodeId;
+    if (indexed != null) {
+      return indexed[episodeId] ?? const <MediaVariant>[];
+    }
+    return variants.where((v) => v.episodeId == episodeId).toList();
+  }
 }
 
 /// 全局 Drift 数据库 Provider（生命周期随 ProviderScope 自动释放）。
@@ -196,25 +206,50 @@ final libraryRepositoryProvider = Provider<LibraryRepository>((ref) {
 });
 
 /// 当前激活的一级导航页面状态。
-final selectedNavSectionProvider = StateProvider<KonataNavSection>(
-  (ref) => KonataNavSection.library,
-);
+final selectedNavSectionProvider =
+    NotifierProvider<KonataValueNotifier<KonataNavSection>, KonataNavSection>(
+      () => KonataValueNotifier<KonataNavSection>.value(
+        KonataNavSection.library,
+      ),
+    );
 
 /// 媒体库实时搜索关键词。
-final librarySearchQueryProvider = StateProvider<String>((ref) => '');
+final librarySearchQueryProvider =
+    NotifierProvider<KonataValueNotifier<String>, String>(
+      () => KonataValueNotifier<String>.value(''),
+    );
 
 /// 启动期系列归组与 ClearLogo 一次无感自愈标记（由 Riverpod 托管，避免重复扫描数据库）。
-final _initialSeriesReconcileDoneProvider = StateProvider<bool>((ref) => false);
+final _initialSeriesReconcileDoneProvider =
+    NotifierProvider<KonataValueNotifier<bool>, bool>(
+      () => KonataValueNotifier<bool>.value(false),
+    );
 
 /// 媒体库全量作品列表（默认自动过滤已隐藏作品，含版本与压制组摘要）。
 final libraryItemsProvider = FutureProvider<List<WorkLibraryItem>>((ref) async {
   final repo = ref.watch(libraryRepositoryProvider);
   final photos = ref.watch(photosStorageProvider);
-  var works = await repo.getAllWorks();
+
+  // 4 条并行全量批量查询取代 2N+2 次逐作品 N+1 查询。
+  final initial = await Future.wait<Object>([
+    repo.getAllWorks(),
+    repo.getMediaSources(),
+    repo.getAllVariants(),
+    repo.getAllEpisodes(),
+  ]);
+  var works = initial[0] as List<Work>;
+  final sources = initial[1] as List<MediaSource>;
+  final allVariants = initial[2] as List<MediaVariant>;
+  final allEpisodes = initial[3] as List<Episode>;
+
   if (!ref.read(_initialSeriesReconcileDoneProvider) && works.isNotEmpty) {
     ref.read(_initialSeriesReconcileDoneProvider.notifier).state = true;
     try {
-      final changed = await SeriesAutoLinker.reconcileAll(repository: repo);
+      final changed = await SeriesAutoLinker.reconcileAll(
+        repository: repo,
+        preloadedWorks: works,
+        preloadedVariants: allVariants,
+      );
       if (changed) {
         ref.invalidate(seriesGroupsProvider);
         ref.invalidate(workDetailBundleProvider);
@@ -225,22 +260,40 @@ final libraryItemsProvider = FutureProvider<List<WorkLibraryItem>>((ref) async {
       developer.log('可恢复异常已记录', name: 'konata.library_providers', error: error);
     }
   }
-  final sources = await repo.getMediaSources();
+
   final sourcesById = <String, MediaSource>{
     for (final s in sources) s.id: s,
   };
+  final variantsByWorkId = <String, List<MediaVariant>>{};
+  for (final v in allVariants) {
+    variantsByWorkId.putIfAbsent(v.workId, () => <MediaVariant>[]).add(v);
+  }
+  final mainEpisodeIdsByWorkId = <String, Set<String>>{};
+  for (final ep in allEpisodes) {
+    if (ep.category == EpisodeCategory.main) {
+      mainEpisodeIdsByWorkId
+          .putIfAbsent(ep.workId, () => <String>{})
+          .add(ep.id);
+    }
+  }
+
   final items = <WorkLibraryItem>[];
   for (final work in works) {
     photos.cacheWorkTitle(work.id, work.title);
     if (work.isHidden) continue;
-    final variants = await repo.getVariantsByWork(work.id);
-    final episodes = await repo.getEpisodesByWork(work.id);
-    final mainEpisodes = episodes
-        .where((e) => e.category == EpisodeCategory.main)
-        .toList(growable: false);
-    final mainEpisodeIds = {for (final ep in mainEpisodes) ep.id};
+    final variants = variantsByWorkId[work.id] ?? const <MediaVariant>[];
+    final mainEpisodeIds =
+        mainEpisodeIdsByWorkId[work.id] ?? const <String>{};
     final countByEpisode = <String, int>{};
+    final groups = <String>{};
+    final sourceIdSet = <String>{};
     for (final v in variants) {
+      if (v.releaseGroup != null && v.releaseGroup!.isNotEmpty) {
+        groups.add(v.releaseGroup!);
+      }
+      if (v.sourceId.isNotEmpty) {
+        sourceIdSet.add(v.sourceId);
+      }
       if (v.assetKind != AssetKind.video) continue;
       final epId = v.episodeId;
       if (epId == null || !mainEpisodeIds.contains(epId)) continue;
@@ -253,15 +306,6 @@ final libraryItemsProvider = FutureProvider<List<WorkLibraryItem>>((ref) async {
       }
     }
 
-    final groups = <String>{
-      for (final v in variants)
-        if (v.releaseGroup != null && v.releaseGroup!.isNotEmpty)
-          v.releaseGroup!,
-    };
-    final sourceIdSet = <String>{
-      for (final v in variants)
-        if (v.sourceId.isNotEmpty) v.sourceId,
-    };
     final sourceIds = sourceIdSet.toList(growable: false);
     final primarySource = sourceIds.isNotEmpty
         ? sourcesById[sourceIds.first]
@@ -270,7 +314,7 @@ final libraryItemsProvider = FutureProvider<List<WorkLibraryItem>>((ref) async {
       WorkLibraryItem(
         work: work,
         variants: variants,
-        episodeCount: mainEpisodes.length,
+        episodeCount: mainEpisodeIds.length,
         maxEpisodeVariantCount: maxVariantCount,
         releaseGroups: groups.toList(growable: false),
         sourceIds: sourceIds,
@@ -364,10 +408,9 @@ final worksCountProvider = FutureProvider<int>((ref) async {
       .length;
 });
 
-/// 已隐藏作品列表 Provider（供设置页管理并恢复显示）。
-final hiddenWorksProvider = FutureProvider<List<Work>>((ref) async {
-  final works = await ref.watch(libraryRepositoryProvider).getAllWorks();
-  return works.where((w) => w.isHidden).toList(growable: false);
+/// 已隐藏作品列表 Provider（通过 `idx_works_hidden` 索引精准查询，避免全表读取）。
+final hiddenWorksProvider = FutureProvider<List<Work>>((ref) {
+  return ref.watch(libraryRepositoryProvider).getHiddenWorks();
 });
 
 /// 按关键词实时过滤后的正式入库作品列表（支持作品名、原名、压制组、TMDB ID）。
@@ -606,9 +649,10 @@ bool _matchExactOrTruncated(String? existingTitle, String resolvedTitle) {
 
 /// 记录因合并或文件全部拆出而被清理的 `sourceWorkId -> targetWorkId` 重定向表，
 /// 使详情页或历史跳转在遇到旧 ID 时能够无缝切入存活目标作品。
-final workRedirectMapProvider = StateProvider<Map<String, String>>(
-  (ref) => const {},
-);
+final workRedirectMapProvider =
+    NotifierProvider<KonataValueNotifier<Map<String, String>>, Map<String, String>>(
+      () => KonataValueNotifier<Map<String, String>>.value(const {}),
+    );
 
 /// 登记旧作品被合并或迁移至目标存活作品的重定向关系。
 void recordWorkRedirect(Ref ref, String sourceWorkId, String targetWorkId) {
@@ -651,35 +695,165 @@ String resolveWorkRedirectChain(Map<String, String> map, String workId) {
   return current;
 }
 
+/// 作品特典自愈状态签名缓存（由 Riverpod 托管生命周期，防止重复打开详情页反复执行高开销正则解析）。
+///
+/// 签名覆盖 `work.title`、全部未配剧照特典分集与视频变体关键字段；一旦重扫、改名、
+/// 人工编辑或合集拆分引起任意字段变化，签名即失配并自动重新执行自愈，零脏缓存风险。
+class ExtraReconcileSignatureCache {
+  static const int _maxEntries = 512;
+  final Map<String, int> _cleanSignatureByWorkId = <String, int>{};
+
+  /// 计算作品特典自愈输入集的确定性 64 位复合指纹。
+  static int computeSignature({
+    required Work work,
+    required List<Episode> episodes,
+    required List<MediaVariant> variants,
+  }) {
+    var h = work.title.hashCode;
+    var hasReconcilableExtra = false;
+    for (final ep in episodes) {
+      if (ep.category != EpisodeCategory.extra || ep.stillPath != null) {
+        continue;
+      }
+      hasReconcilableExtra = true;
+      h = Object.hash(
+        h,
+        ep.id,
+        ep.seasonNumber,
+        ep.episodeNumber,
+        ep.extraType,
+        ep.title,
+      );
+    }
+    if (!hasReconcilableExtra) return 0;
+    for (final v in variants) {
+      if (v.assetKind != AssetKind.video) continue;
+      h = Object.hash(
+        h,
+        v.id,
+        v.episodeId,
+        v.fileName,
+        v.relativePath,
+        v.mappingLocked,
+      );
+    }
+    return h == 0 ? 1 : h;
+  }
+
+  /// 判断作品当前特典集是否已与最近一次干净自愈状态完全一致。
+  bool isClean(String workId, int signature) {
+    if (signature == 0) return true;
+    return _cleanSignatureByWorkId[workId] == signature;
+  }
+
+  /// 记录作品最新一次自愈完成后的干净状态签名。
+  void markClean(String workId, int signature) {
+    if (signature == 0) return;
+    if (_cleanSignatureByWorkId.length >= _maxEntries &&
+        !_cleanSignatureByWorkId.containsKey(workId)) {
+      _cleanSignatureByWorkId.remove(_cleanSignatureByWorkId.keys.first);
+    }
+    _cleanSignatureByWorkId[workId] = signature;
+  }
+
+  /// 清理全部签名记录。
+  void clear() => _cleanSignatureByWorkId.clear();
+}
+
+/// 详情页特典自愈签名缓存 Provider。
+final extraReconcileSignatureCacheProvider =
+    Provider<ExtraReconcileSignatureCache>((ref) {
+      final cache = ExtraReconcileSignatureCache();
+      ref.onDispose(cache.clear);
+      return cache;
+    });
+
+Future<({List<Episode> episodes, List<MediaVariant> variants})>
+_reconcileWorkExtraEpisodesCached({
+  required Work work,
+  required List<Episode> episodes,
+  required List<MediaVariant> variants,
+  required LibraryRepository repo,
+  required ExtraReconcileSignatureCache cache,
+}) async {
+  final sig = ExtraReconcileSignatureCache.computeSignature(
+    work: work,
+    episodes: episodes,
+    variants: variants,
+  );
+  if (cache.isClean(work.id, sig)) {
+    return (episodes: episodes, variants: variants);
+  }
+  final reconciled = await reconcileWorkExtraEpisodes(
+    work: work,
+    episodes: episodes,
+    variants: variants,
+    repo: repo,
+  );
+  final postSig = ExtraReconcileSignatureCache.computeSignature(
+    work: work,
+    episodes: reconciled.episodes,
+    variants: reconciled.variants,
+  );
+  cache.markClean(work.id, postSig);
+  return reconciled;
+}
+
 /// 查询单部作品详情页所需的完整数据包。
 final workDetailBundleProvider =
     FutureProvider.family<WorkDetailBundle?, String>((ref, workId) async {
       final repo = ref.watch(libraryRepositoryProvider);
       final photos = ref.watch(photosStorageProvider);
+      final extraCache = ref.watch(extraReconcileSignatureCacheProvider);
       final work = await repo.findWorkById(workId);
       if (work == null) return null;
       photos.cacheWorkTitle(work.id, work.title);
-      final rawEpisodes = await repo.getEpisodesByWork(workId);
-      final rawVariants = await repo.getVariantsByWork(workId);
-      final reconciled = await reconcileWorkExtraEpisodes(
+
+      final hasSeries = work.seriesId != null && work.seriesId!.isNotEmpty;
+      final coreFutures = <Future<Object?>>[
+        repo.getEpisodesByWork(workId),
+        repo.getVariantsByWork(workId),
+        repo.getMediaSources(),
+        repo.getPlaybacksByWork(workId),
+        if (hasSeries) repo.findSeriesGroupById(work.seriesId!),
+        if (hasSeries) repo.getWorksBySeries(work.seriesId!),
+      ];
+      final coreResults = await Future.wait(coreFutures);
+      final rawEpisodes = coreResults[0]! as List<Episode>;
+      final rawVariants = coreResults[1]! as List<MediaVariant>;
+      final sources = coreResults[2]! as List<MediaSource>;
+      final allPlaybacks = coreResults[3]! as List<PlaybackRecord>;
+      final seriesGroup = hasSeries ? coreResults[4] as SeriesGroup? : null;
+      final rawSeriesWorks = hasSeries
+          ? coreResults[5]! as List<Work>
+          : const <Work>[];
+
+      final reconciled = await _reconcileWorkExtraEpisodesCached(
         work: work,
         episodes: rawEpisodes,
         variants: rawVariants,
         repo: repo,
+        cache: extraCache,
       );
       final episodes = reconciled.episodes;
       final variants = reconciled.variants;
-      final sources = await repo.getMediaSources();
-      final latestPlayback = await repo.getLatestPlaybackForWork(workId);
-      final allPlaybacks = await repo.getPlaybacksByWork(workId);
+
+      // `allPlaybacks` 已按 `playedAt DESC` 排序，直接单遍提取最新视频续播与分集映射表，省去重复 SQL 往返。
+      PlaybackRecord? latestPlayback;
       final playbackByEpisodeId = <String, PlaybackRecord>{};
       for (final record in allPlaybacks) {
+        if (latestPlayback == null && !record.episodeId.startsWith('cd::')) {
+          latestPlayback = record;
+        }
         playbackByEpisodeId.putIfAbsent(record.episodeId, () => record);
       }
       final sourcesById = {for (final s in sources) s.id: s};
 
-      SeriesGroup? seriesGroup;
-      var seriesMembers = const <Work>[];
+      final seriesMembers = hasSeries
+          ? SeriesSeasonFormatter.sortSeriesMembers(
+              rawSeriesWorks.where((w) => !w.isHidden),
+            )
+          : const <Work>[];
       final mergedEpisodes = List<Episode>.of(episodes);
       final mergedEpisodeIds = mergedEpisodes.map((e) => e.id).toSet();
       final mergedVariants = List<MediaVariant>.of(variants);
@@ -696,14 +870,6 @@ final workDetailBundleProvider =
         for (final v in variants)
           if (v.assetKind == AssetKind.scanGallery) v,
       ];
-
-      if (work.seriesId != null && work.seriesId!.isNotEmpty) {
-        seriesGroup = await repo.findSeriesGroupById(work.seriesId!);
-        final allWorks = await repo.getAllWorks();
-        seriesMembers = SeriesSeasonFormatter.sortSeriesMembers(
-          allWorks.where((w) => w.seriesId == work.seriesId && !w.isHidden),
-        );
-      }
 
       final disambiguationMembers = seriesMembers.isNotEmpty
           ? seriesMembers
@@ -732,6 +898,8 @@ final workDetailBundleProvider =
             ),
       ];
 
+      // 筛选需要读取附属条目的其他系列成员，合并为 2 次批量查询取代 2M 次串行往返。
+      final otherMembers = <({int index, Work work})>[];
       for (var i = 0; i < seriesMembers.length; i++) {
         final member = seriesMembers[i];
         photos.cacheWorkTitle(member.id, member.title);
@@ -742,56 +910,86 @@ final workDetailBundleProvider =
             member.tmdbMediaType == work.tmdbMediaType &&
             member.matchedSeason == work.matchedSeason;
         if (isDuplicateSameInstallment) continue;
-        final mRawEpisodes = await repo.getEpisodesByWork(member.id);
-        final mRawVariants = await repo.getVariantsByWork(member.id);
-        final mReconciled = await reconcileWorkExtraEpisodes(
-          work: member,
-          episodes: mRawEpisodes,
-          variants: mRawVariants,
-          repo: repo,
-        );
-        final mEpisodes = mReconciled.episodes;
-        final mVariants = mReconciled.variants;
-        final mEpById = {for (final e in mEpisodes) e.id: e};
-        final mLabel = SeriesSeasonFormatter.formatMemberLabel(
-          member,
-          seriesMembers,
-          seriesGroup: seriesGroup,
-          fallbackOrder: i + 1,
-        );
+        otherMembers.add((index: i, work: member));
+      }
 
-        for (final mv in mVariants) {
-          final ep = mv.episodeId != null ? mEpById[mv.episodeId] : null;
-          final isSupp =
-              mv.assetKind == AssetKind.cdAlbum ||
-              mv.assetKind == AssetKind.scanGallery ||
-              (mv.assetKind == AssetKind.video &&
-                  ep?.category == EpisodeCategory.extra);
-          if (!isSupp) continue;
+      if (otherMembers.isNotEmpty) {
+        final otherIds = [for (final item in otherMembers) item.work.id];
+        final batchResults = await Future.wait<Object>([
+          repo.getEpisodesByWorkIds(otherIds),
+          repo.getVariantsByWorkIds(otherIds),
+        ]);
+        final batchEpisodes = batchResults[0] as List<Episode>;
+        final batchVariants = batchResults[1] as List<MediaVariant>;
 
-          editableItems.add(
-            SupplementaryEditableItem(
-              variant: mv,
-              episode: ep,
-              ownerWorkId: member.id,
-              ownerLabel: mLabel,
-            ),
+        final episodesByMemberId = <String, List<Episode>>{};
+        for (final ep in batchEpisodes) {
+          episodesByMemberId.putIfAbsent(ep.workId, () => <Episode>[]).add(ep);
+        }
+        final variantsByMemberId = <String, List<MediaVariant>>{};
+        for (final v in batchVariants) {
+          variantsByMemberId
+              .putIfAbsent(v.workId, () => <MediaVariant>[])
+              .add(v);
+        }
+
+        for (final entry in otherMembers) {
+          final member = entry.work;
+          final mRawEpisodes = Episode.sortMainFirst(
+            episodesByMemberId[member.id] ?? const <Episode>[],
+          );
+          final mRawVariants =
+              variantsByMemberId[member.id] ?? const <MediaVariant>[];
+          final mReconciled = await _reconcileWorkExtraEpisodesCached(
+            work: member,
+            episodes: mRawEpisodes,
+            variants: mRawVariants,
+            repo: repo,
+            cache: extraCache,
+          );
+          final mEpisodes = mReconciled.episodes;
+          final mVariants = mReconciled.variants;
+          final mEpById = {for (final e in mEpisodes) e.id: e};
+          final mLabel = SeriesSeasonFormatter.formatMemberLabel(
+            member,
+            seriesMembers,
+            seriesGroup: seriesGroup,
+            fallbackOrder: entry.index + 1,
           );
 
-          if (mv.assetScope != SupplementaryAssetScope.seriesShared) {
-            continue;
-          }
-          final pathKey = '${mv.sourceId}::${mv.relativePath.toLowerCase()}';
-          if (!seenVariantPaths.add(pathKey)) continue;
+          for (final mv in mVariants) {
+            final ep = mv.episodeId != null ? mEpById[mv.episodeId] : null;
+            final isSupp =
+                mv.assetKind == AssetKind.cdAlbum ||
+                mv.assetKind == AssetKind.scanGallery ||
+                (mv.assetKind == AssetKind.video &&
+                    ep?.category == EpisodeCategory.extra);
+            if (!isSupp) continue;
 
-          if (mv.assetKind == AssetKind.cdAlbum) {
-            cdList.add(mv);
-          } else if (mv.assetKind == AssetKind.scanGallery) {
-            scanList.add(mv);
-          } else if (ep != null) {
-            mergedVariants.add(mv);
-            if (mergedEpisodeIds.add(ep.id)) {
-              mergedEpisodes.add(ep);
+            editableItems.add(
+              SupplementaryEditableItem(
+                variant: mv,
+                episode: ep,
+                ownerWorkId: member.id,
+                ownerLabel: mLabel,
+              ),
+            );
+
+            if (mv.assetScope != SupplementaryAssetScope.seriesShared) {
+              continue;
+            }
+            final pathKey = '${mv.sourceId}::${mv.relativePath.toLowerCase()}';
+            if (!seenVariantPaths.add(pathKey)) continue;
+
+            if (mv.assetKind == AssetKind.cdAlbum) {
+              cdList.add(mv);
+            } else if (mv.assetKind == AssetKind.scanGallery) {
+              scanList.add(mv);
+            } else if (ep != null) {
+              mergedVariants.add(mv);
+              if (mergedEpisodeIds.add(ep.id)) {
+                mergedEpisodes.add(ep);
+              }
             }
           }
         }
@@ -814,6 +1012,16 @@ final workDetailBundleProvider =
         );
       });
 
+      final variantsByEpisodeId = <String, List<MediaVariant>>{};
+      for (final v in mergedVariants) {
+        final epId = v.episodeId;
+        if (epId != null) {
+          variantsByEpisodeId
+              .putIfAbsent(epId, () => <MediaVariant>[])
+              .add(v);
+        }
+      }
+
       return WorkDetailBundle(
         work: work,
         episodes: mergedEpisodes,
@@ -826,6 +1034,10 @@ final workDetailBundleProvider =
         cdVariants: cdList,
         scanVariants: scanList,
         editableSupplementaryItems: editableItems,
+        variantsByEpisodeId: Map.unmodifiable({
+          for (final e in variantsByEpisodeId.entries)
+            e.key: List<MediaVariant>.unmodifiable(e.value),
+        }),
       );
     });
 

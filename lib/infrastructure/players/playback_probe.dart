@@ -5,6 +5,38 @@ import 'libmpv_ffi.dart';
 class PlaybackProbeCollector {
   const PlaybackProbeCollector();
 
+  /// 轻量采集顶栏角标与画幅比所需的 5 项核心属性（探针面板关闭时替代全量 65+ 项 FFI 读取）。
+  PlaybackProbeStats collectLight(
+    LibMpvClient client, {
+    String gpuApiOverride = '',
+    String? mpvVersionCache,
+    String? ffmpegVersionCache,
+    PlaybackProbeStats? previous,
+  }) {
+    if (client.isDisposed || !client.isInitialized) {
+      return previous ?? const PlaybackProbeStats();
+    }
+    final width = client.getPropertyInt64('video-params/w');
+    final height = client.getPropertyInt64('video-params/h');
+    final codec =
+        client.getPropertyString('video-codec') ??
+        (client.getPropertyString('video-format') ?? '');
+    final pixFmt = client.getPropertyString('video-params/pixelformat') ?? '';
+    final hwdec = client.getPropertyString('hwdec-current') ?? 'no';
+    return PlaybackProbeStats(
+      mpvVersion: mpvVersionCache ?? (previous?.mpvVersion ?? ''),
+      ffmpegVersion: ffmpegVersionCache ?? (previous?.ffmpegVersion ?? ''),
+      gpuApi: gpuApiOverride.isNotEmpty
+          ? gpuApiOverride
+          : (previous?.gpuApi ?? ''),
+      hwdecCurrent: hwdec,
+      videoCodec: codec,
+      videoPixelFormat: pixFmt,
+      videoWidth: width,
+      videoHeight: height,
+    );
+  }
+
   /// 从活跃的 [LibMpvClient] 采集当前瞬时遥测指标。
   PlaybackProbeStats collect(
     LibMpvClient client, {

@@ -42,8 +42,8 @@ enum VideoOutputPipelineMode {
   /// 底层 16-bit scRGB HDR 交换链视觉层直出。
   layeredFp16('comp_fp16', '16-bit HDR 底层合成交换链'),
 
-  /// 默认高精共享纹理合成：16-bit FP16 内部 FBO 经 IGN 抖动与 Flutter 场景树同层合成（零遮挡、圆角抗锯齿）。
-  legacyTextureFallback('texture_fallback', '16-bit 共享纹理合成（推荐，零遮挡）');
+  /// 默认高精共享纹理合成：SDR 使用 10-bit FBO 经 IGN 抖动与 Flutter 场景树同层合成（零遮挡、圆角抗锯齿），遇 HDR 视频自动升档 16-bit FP16。
+  legacyTextureFallback('texture_fallback', '10-bit 共享纹理合成（推荐，HDR 自动升档）');
 
   const VideoOutputPipelineMode(this.bridgeKey, this.label);
 
@@ -151,11 +151,11 @@ class PlaybackQualityConfig {
     this.subColorHex = defaultSubColorHex,
   });
 
-  /// 默认前向解复用缓冲上限（64 MiB）。
-  static const int defaultDemuxerMaxBytesMiB = 64;
+  /// 默认本地前向解复用缓冲上限（24 MiB）。
+  static const int defaultDemuxerMaxBytesMiB = 24;
 
-  /// 默认回溯解复用缓冲上限（32 MiB）。
-  static const int defaultDemuxerMaxBackBytesMiB = 32;
+  /// 默认本地回溯解复用缓冲上限（8 MiB）。
+  static const int defaultDemuxerMaxBackBytesMiB = 8;
 
   /// 默认流媒体预缓存秒数（120 秒）。
   static const int defaultCacheSecs = 120;
@@ -332,17 +332,122 @@ class MpvQualityProfile {
   static const String androidAudioDriver = 'aaudio,audiotrack,opensles';
   static const String defaultAndroidCjkSubFontFamily = 'Noto Sans CJK SC';
 
-  /// WebDAV / HTTP 本地流网桥回环重连与大封面/高码率头部加速探测参数。
+  /// WebDAV / HTTP 本地流网桥回环重连与头部加速探测参数（按端分档控制解复用内存占用）。
   static const String remoteStreamLavfOptions =
       'reconnect=1,reconnect_streamed=1,reconnect_delay_max=2';
   static const String remoteVideoProbesize = '2097152';
-  static const String remoteAudioProbesize = '8388608';
+  static const String remoteAudioProbesize = '1048576';
   static const String remoteVideoAnalyzeDuration = '1.5';
-  static const String remoteAudioAnalyzeDuration = '2.0';
-  static const int remoteVideoDemuxerMaxBytesMiB = 180;
-  static const int remoteVideoDemuxerMaxBackBytesMiB = 120;
-  static const int remoteAudioDemuxerMaxBytesMiB = 64;
-  static const int remoteAudioDemuxerMaxBackBytesMiB = 48;
+  static const String remoteAudioAnalyzeDuration = '1.0';
+  static const int remoteVideoDemuxerMaxBytesMiB = 48;
+  static const int remoteVideoDemuxerMaxBackBytesMiB = 16;
+  static const int remoteAndroidVideoDemuxerMaxBytesMiB = 32;
+  static const int remoteAndroidVideoDemuxerMaxBackBytesMiB = 12;
+  static const int localAudioDemuxerMaxBytesMiB = 16;
+  static const int localAudioDemuxerMaxBackBytesMiB = 8;
+  static const int remoteAudioDemuxerMaxBytesMiB = 24;
+  static const int remoteAudioDemuxerMaxBackBytesMiB = 8;
+  static const int defaultDemuxerReadaheadSecs = 15;
+  static const int highSpeedDemuxerReadaheadSecs = 30;
+  static const int androidDefaultDemuxerReadaheadSecs = 12;
+  static const int androidHighSpeedDemuxerReadaheadSecs = 24;
+  static const double highSpeedReadaheadThreshold = 1.5;
+
+  /// 根据倍速与流类型动态计算 `demuxer-readahead-secs`，在远程 2x 倍速期提前拉大预读窗口防卡顿。
+  static int resolveDemuxerReadaheadSecs({
+    required double playbackSpeed,
+    required bool isRemoteStream,
+    required bool isAndroid,
+  }) {
+    final base = isAndroid
+        ? androidDefaultDemuxerReadaheadSecs
+        : defaultDemuxerReadaheadSecs;
+    if (!isRemoteStream || playbackSpeed < highSpeedReadaheadThreshold) {
+      return base;
+    }
+    return isAndroid
+        ? androidHighSpeedDemuxerReadaheadSecs
+        : highSpeedDemuxerReadaheadSecs;
+  }
+
+  /// 按媒体类型、是否远程流与运行平台计算精准的解复用前向/回溯内存环形缓冲上限（MiB）。
+  static ({int maxBytesMiB, int backBytesMiB}) resolveDemuxerBufferMiB({
+    required PlaybackQualityConfig config,
+    required bool isRemoteStream,
+    required bool isAudio,
+    required bool isAndroid,
+  }) {
+    if (isAudio) {
+      if (isRemoteStream) {
+        return (
+          maxBytesMiB: remoteAudioDemuxerMaxBytesMiB,
+          backBytesMiB: remoteAudioDemuxerMaxBackBytesMiB,
+        );
+      }
+      return (
+        maxBytesMiB: localAudioDemuxerMaxBytesMiB,
+        backBytesMiB: localAudioDemuxerMaxBackBytesMiB,
+      );
+    }
+    if (isRemoteStream) {
+      if (isAndroid) {
+        final maxBytes =
+            config.demuxerMaxBytesMiB ==
+                PlaybackQualityConfig.defaultDemuxerMaxBytesMiB
+            ? remoteAndroidVideoDemuxerMaxBytesMiB
+            : config.demuxerMaxBytesMiB.clamp(
+                16,
+                remoteAndroidVideoDemuxerMaxBytesMiB,
+              );
+        final backBytes =
+            config.demuxerMaxBackBytesMiB ==
+                PlaybackQualityConfig.defaultDemuxerMaxBackBytesMiB
+            ? remoteAndroidVideoDemuxerMaxBackBytesMiB
+            : config.demuxerMaxBackBytesMiB.clamp(
+                4,
+                remoteAndroidVideoDemuxerMaxBackBytesMiB,
+              );
+        return (maxBytesMiB: maxBytes, backBytesMiB: backBytes);
+      }
+      return (
+        maxBytesMiB: math.max(
+          config.demuxerMaxBytesMiB,
+          remoteVideoDemuxerMaxBytesMiB,
+        ),
+        backBytesMiB: math.max(
+          config.demuxerMaxBackBytesMiB,
+          remoteVideoDemuxerMaxBackBytesMiB,
+        ),
+      );
+    }
+    return (
+      maxBytesMiB: config.demuxerMaxBytesMiB,
+      backBytesMiB: config.demuxerMaxBackBytesMiB,
+    );
+  }
+
+  /// 判定视频传输特性或信号峰值是否属于真 HDR 片源（PQ / HLG / 信号峰值 > 1.05）。
+  static bool isHdrTransfer({String? gamma, double? sigPeak}) {
+    final normalized = gamma?.trim().toLowerCase() ?? '';
+    if (normalized == 'pq' ||
+        normalized == 'hlg' ||
+        normalized == 'st2084' ||
+        normalized == 'arib-std-b67' ||
+        normalized == 'dolby-vision') {
+      return true;
+    }
+    return sigPeak != null && sigPeak.isFinite && sigPeak > 1.05;
+  }
+
+  /// 解析当前画质档位与片源动态范围是否启用动态 HDR 峰值计算（SDR 与省电/纯软解档关闭以省去逐帧 Compute Shader）。
+  static bool shouldEnableHdrComputePeak(
+    VideoQualityPreset preset, {
+    bool isHdrSource = true,
+  }) {
+    if (!isHdrSource) return false;
+    return preset == VideoQualityPreset.highFidelity ||
+        preset == VideoQualityPreset.standard;
+  }
 
   /// 解析当前平台与预设对应的最优硬件解码策略。
   static String resolveHwdecValue({
@@ -359,8 +464,8 @@ class MpvQualityProfile {
       return desktopDelegate.desktopHwdecValue;
     }
     if (isAndroid) {
-      // Android 优先尝试零拷贝硬解并在需要时自动回退至兼容拷贝路径
-      return 'auto-safe';
+      // Android 优先尝试零拷贝 MediaCodec Surface 直出，受限时平滑回退拷贝与安全自动路径。
+      return 'mediacodec,mediacodec-copy,auto-safe';
     }
     return 'auto-safe';
   }
@@ -441,6 +546,8 @@ class MpvQualityProfile {
     required PlaybackQualityConfig config,
     required Directory mpvConfigDir,
     Directory? screenshotDir,
+    Directory? gpuShaderCacheDir,
+    Directory? iccCacheDir,
     bool isRemoteStream = false,
     bool? isWindowsOverride,
     bool? isAndroidOverride,
@@ -500,9 +607,18 @@ class MpvQualityProfile {
     // 自动按物理核数并发软解，保障 Hi10P / HEVC Rext 拦截回落时满帧流畅。
     setter.setOption(client, 'vd-lavc-threads', '0');
 
-    // 高精色彩管理、libplacebo 动态 HDR 色调映射与抖动
+    // 高精色彩管理、便携着色器/ICC 磁盘缓存、libplacebo 动态 HDR 色调映射与抖动
+    if (gpuShaderCacheDir != null) {
+      setter.setOption(client, 'gpu-shader-cache', 'yes');
+      setter.setOption(client, 'gpu-shader-cache-dir', gpuShaderCacheDir.path);
+    }
+    if (iccCacheDir != null) {
+      setter.setOption(client, 'icc-cache', 'yes');
+      setter.setOption(client, 'icc-cache-dir', iccCacheDir.path);
+    }
     setter.setOption(client, 'tone-mapping', 'bt.2446a');
-    setter.setOption(client, 'hdr-compute-peak', 'yes');
+    // 启动前置默认关闭逐帧 HDR 峰值计算，待视频轨道就绪探测到真 HDR 信号后再动态开启。
+    setter.setOption(client, 'hdr-compute-peak', 'no');
     setter.setOption(client, 'gamut-mapping-mode', 'perceptual');
     setter.setOption(client, 'dither-depth', 'auto');
     setter.setOption(client, 'dither', 'fruit');
@@ -525,25 +641,34 @@ class MpvQualityProfile {
       setter.setOption(client, 'glsl-shaders', shaders);
     }
 
-    // 解复用前向 / 回溯纯内存环形缓冲控制（WebDAV / SMB 零写盘极速回跳）
+    // 解复用前向 / 回溯纯内存环形缓冲控制（WebDAV / SMB 零写盘极速回跳，按平台精准定额防内存虚高）
     setter.setOption(client, 'cache', 'yes');
     setter.setOption(client, 'cache-on-disk', 'no');
-    final maxBytesMiB = isRemoteStream
-        ? math.max(config.demuxerMaxBytesMiB, remoteVideoDemuxerMaxBytesMiB)
-        : config.demuxerMaxBytesMiB;
-    final backBytesMiB = isRemoteStream
-        ? math.max(
-            config.demuxerMaxBackBytesMiB,
-            remoteVideoDemuxerMaxBackBytesMiB,
-          )
-        : config.demuxerMaxBackBytesMiB;
-    setter.setOption(client, 'demuxer-max-bytes', '${maxBytesMiB}MiB');
-    setter.setOption(client, 'demuxer-max-back-bytes', '${backBytesMiB}MiB');
+    final videoBuffer = resolveDemuxerBufferMiB(
+      config: config,
+      isRemoteStream: isRemoteStream,
+      isAudio: false,
+      isAndroid: isAndroid,
+    );
+    setter.setOption(
+      client,
+      'demuxer-max-bytes',
+      '${videoBuffer.maxBytesMiB}MiB',
+    );
+    setter.setOption(
+      client,
+      'demuxer-max-back-bytes',
+      '${videoBuffer.backBytesMiB}MiB',
+    );
     setter.setOption(client, 'cache-secs', '${config.cacheSecs}');
     setter.setOption(client, 'cache-pause', 'no');
     setter.setOption(client, 'cache-pause-initial', 'no');
     setter.setOption(client, 'cache-pause-wait', '0.25');
-    setter.setOption(client, 'demuxer-readahead-secs', '20');
+    setter.setOption(
+      client,
+      'demuxer-readahead-secs',
+      '${isAndroid ? androidDefaultDemuxerReadaheadSecs : defaultDemuxerReadaheadSecs}',
+    );
     if (isRemoteStream) {
       setter.setOption(client, 'http-proxy', '');
       setter.setOption(client, 'stream-lavf-o', remoteStreamLavfOptions);
@@ -653,16 +778,11 @@ class MpvQualityProfile {
   }
 
   /// 解析当前字幕配置对应的 `libmpv` 标准参数组合（区分 `no` / `scale` / `force`）。
-  static ({
-    String assOverride,
-    double fontSize,
-    double scale,
-    int marginY,
-    double subPos,
-  })
+  static ({String assOverride, double fontSize, double scale, int marginY, double subPos})
   resolveSubtitleParameters(PlaybackQualityConfig config) {
     final clampedSize = config.subFontSize.clamp(24, 96);
     final clampedMargin = config.subBottomMargin.clamp(0, 120);
+    final dynamicSubPos = (100.0 - clampedMargin * 0.20).clamp(70.0, 100.0);
     return switch (config.subOverrideMode) {
       SubtitleAssOverrideMode.preserveAss => (
         assOverride: 'no',
@@ -676,14 +796,14 @@ class MpvQualityProfile {
         fontSize: PlaybackQualityConfig.defaultSubFontSize.toDouble(),
         scale: clampedSize / PlaybackQualityConfig.defaultSubFontSize,
         marginY: clampedMargin,
-        subPos: 100.0,
+        subPos: dynamicSubPos,
       ),
       SubtitleAssOverrideMode.forceStyle => (
         assOverride: 'force',
         fontSize: clampedSize.toDouble(),
         scale: 1.0,
         marginY: clampedMargin,
-        subPos: 100.0,
+        subPos: dynamicSubPos,
       ),
     };
   }
@@ -694,18 +814,16 @@ class MpvQualityProfile {
     required MpvSafePropertySetter setter,
   }) {
     final subParams = resolveSubtitleParameters(config);
-    // 先写入底层字号（double）、缩放倍率（sub-scale）、垂直边距与字体色彩，
-    // 最后写入/刷新 sub-ass-override 以确保 sd_ass 立即重建 ASS 轨道样式缓存并重绘 OSD。
+    // 先写入字号、缩放倍率、垂直边距与动态垂直定位（sub-pos），再同步 ASS 样式覆写并刷新 sub-ass-override 即时重绘。
     setter.setDouble(client, 'sub-font-size', subParams.fontSize);
     setter.setDouble(client, 'sub-scale', subParams.scale);
     setter.setInt(client, 'sub-margin-y', subParams.marginY);
     setter.setDouble(client, 'sub-pos', subParams.subPos);
     setter.setBool(client, 'sub-use-margins', true);
-    setter.setBool(
-      client,
-      'sub-ass-force-margins',
-      config.subOverrideMode == SubtitleAssOverrideMode.forceStyle,
-    );
+    final isForce = config.subOverrideMode == SubtitleAssOverrideMode.forceStyle;
+    setter.setBool(client, 'sub-ass-force-margins', isForce);
+    // 保持 sub-ass-style-overrides 为空，由 libmpv 自动按脚本 PlayResY 归一换算 sub-font-size 与 sub-margin-y，避免跨分辨率脚本字号畸变。
+    setter.setString(client, 'sub-ass-style-overrides', '');
     if (config.subFontName.trim().isNotEmpty) {
       setter.setString(client, 'sub-font', config.subFontName.trim());
     }
@@ -720,10 +838,22 @@ class MpvQualityProfile {
     setter.setString(client, 'sub-ass-override', subParams.assOverride);
   }
 
+  /// 轻量同步热更新字幕字号、底部边距与 ASS 样式覆写模式（零磁盘校验、绝不重置解码器/着色器/音频设备）。
+  static void applyLiveSubtitleStyleUpdate(
+    LibMpvClient client, {
+    required PlaybackQualityConfig config,
+    DiagnosticsLogStore? logStore,
+  }) => _applySubtitleRuntimeProperties(
+    client,
+    config: config,
+    setter: MpvSafePropertySetter(logStore: logStore),
+  );
+
   /// 在播放运行过程中热切换画质预设、去色带、着色器、硬解或字幕样式。
   static void applyLiveQualityUpdate(
     LibMpvClient client, {
     required PlaybackQualityConfig config,
+    bool isHdrSource = false,
     bool? isWindowsOverride,
     bool? isAndroidOverride,
     MpvPlatformProfileDelegate? desktopDelegate,
@@ -739,6 +869,11 @@ class MpvQualityProfile {
     setter.setString(client, 'scale', scalers.scale);
     setter.setString(client, 'cscale', scalers.cscale);
     setter.setString(client, 'dscale', scalers.dscale);
+    setter.setBool(
+      client,
+      'hdr-compute-peak',
+      shouldEnableHdrComputePeak(config.preset, isHdrSource: isHdrSource),
+    );
     setter.setBool(client, 'deband', config.debandEnabled);
     setter.setString(
       client,
@@ -830,17 +965,22 @@ class MpvQualityProfile {
     setter.setOption(client, 'cache-pause', 'no');
     setter.setOption(client, 'cache-pause-initial', 'no');
     setter.setOption(client, 'cache-pause-wait', '0.25');
-    final audioMaxMiB = isRemoteStream
-        ? math.max(config.demuxerMaxBytesMiB, remoteAudioDemuxerMaxBytesMiB)
-        : config.demuxerMaxBytesMiB;
-    final audioBackMiB = isRemoteStream
-        ? math.max(
-            config.demuxerMaxBackBytesMiB,
-            remoteAudioDemuxerMaxBackBytesMiB,
-          )
-        : config.demuxerMaxBackBytesMiB;
-    setter.setOption(client, 'demuxer-max-bytes', '${audioMaxMiB}MiB');
-    setter.setOption(client, 'demuxer-max-back-bytes', '${audioBackMiB}MiB');
+    final audioBuffer = resolveDemuxerBufferMiB(
+      config: config,
+      isRemoteStream: isRemoteStream,
+      isAudio: true,
+      isAndroid: !isWindows,
+    );
+    setter.setOption(
+      client,
+      'demuxer-max-bytes',
+      '${audioBuffer.maxBytesMiB}MiB',
+    );
+    setter.setOption(
+      client,
+      'demuxer-max-back-bytes',
+      '${audioBuffer.backBytesMiB}MiB',
+    );
     if (isRemoteStream) {
       setter.setOption(client, 'http-proxy', '');
       setter.setOption(client, 'stream-lavf-o', remoteStreamLavfOptions);
@@ -889,8 +1029,10 @@ class MpvQualityProfile {
     required bool isRemoteStream,
     required bool isAudio,
     required PlaybackQualityConfig config,
+    bool? isAndroidOverride,
     DiagnosticsLogStore? logStore,
   }) {
+    final isAndroid = isAndroidOverride ?? Platform.isAndroid;
     final setter = MpvSafePropertySetter(logStore: logStore);
     setter.setString(client, 'cache', 'yes');
     setter.setString(client, 'cache-on-disk', 'no');
@@ -902,19 +1044,13 @@ class MpvQualityProfile {
       resetAudioRangeAndLoopProperties(client, logStore: logStore);
     }
 
+    final buffer = resolveDemuxerBufferMiB(
+      config: config,
+      isRemoteStream: isRemoteStream,
+      isAudio: isAudio,
+      isAndroid: isAndroid,
+    );
     if (isRemoteStream) {
-      final maxMiB = isAudio
-          ? math.max(config.demuxerMaxBytesMiB, remoteAudioDemuxerMaxBytesMiB)
-          : math.max(config.demuxerMaxBytesMiB, remoteVideoDemuxerMaxBytesMiB);
-      final backMiB = isAudio
-          ? math.max(
-              config.demuxerMaxBackBytesMiB,
-              remoteAudioDemuxerMaxBackBytesMiB,
-            )
-          : math.max(
-              config.demuxerMaxBackBytesMiB,
-              remoteVideoDemuxerMaxBackBytesMiB,
-            );
       setter.setString(client, 'http-proxy', '');
       setter.setString(client, 'stream-lavf-o', remoteStreamLavfOptions);
       setter.setString(
@@ -927,20 +1063,13 @@ class MpvQualityProfile {
         'demuxer-lavf-analyzeduration',
         isAudio ? remoteAudioAnalyzeDuration : remoteVideoAnalyzeDuration,
       );
-      setter.setString(client, 'demuxer-max-bytes', '${maxMiB}MiB');
-      setter.setString(client, 'demuxer-max-back-bytes', '${backMiB}MiB');
-    } else {
-      setter.setString(
-        client,
-        'demuxer-max-bytes',
-        '${config.demuxerMaxBytesMiB}MiB',
-      );
-      setter.setString(
-        client,
-        'demuxer-max-back-bytes',
-        '${config.demuxerMaxBackBytesMiB}MiB',
-      );
     }
+    setter.setString(client, 'demuxer-max-bytes', '${buffer.maxBytesMiB}MiB');
+    setter.setString(
+      client,
+      'demuxer-max-back-bytes',
+      '${buffer.backBytesMiB}MiB',
+    );
   }
 
   /// 应用 `thumbfast` 级后台缩略图常驻会话前置选项（极致剥离远程重开销与微缓冲节流）。
@@ -975,8 +1104,9 @@ class MpvQualityProfile {
     setter.setOption(client, 'audio-file-auto', 'no');
     setter.setOption(client, 'cover-art-auto', 'no');
 
-    // 极速关键帧解码与轻量化缩放管线
+    // 极速关键帧解码与轻量化缩放管线（限制软解并发线程数防抢占主视频解码核心）
     setter.setOption(client, 'hr-seek', 'no');
+    setter.setOption(client, 'vd-lavc-threads', '2');
     setter.setOption(client, 'vd-lavc-fast', 'yes');
     setter.setOption(client, 'vd-lavc-skiploopfilter', 'all');
     setter.setOption(client, 'glsl-shaders', '');

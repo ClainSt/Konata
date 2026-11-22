@@ -18,6 +18,7 @@ import '../../infrastructure/network/priority_http_scheduler.dart';
 import '../../infrastructure/network/tmdb_http_client.dart';
 import '../../infrastructure/network/tmdb_service.dart';
 import '../../infrastructure/scraping/bangumi_tmdb_map_updater.dart';
+import '../../infrastructure/sources/directory_scan_snapshot_store.dart';
 import '../../infrastructure/sources/source_gateway_factory.dart';
 import '../../infrastructure/storage/storage_root_provider.dart';
 import '../scraping/clear_logo_resolver.dart';
@@ -190,6 +191,9 @@ class ScrapeController extends StateNotifier<ScrapeProgress> {
       fanartService: fanartService,
       clearLogoResolver: clearLogoResolver,
       gatewayBuilder: gatewayFactory.create,
+      snapshotStore: DirectoryScanSnapshotStore(
+        storageRoot: _ref.read(storageRootProvider),
+      ),
       photosStorage: _ref.read(photosStorageProvider),
       mappingIndex: activeIndex,
     );

@@ -1,8 +1,13 @@
 import 'dart:io';
 
+import 'package:ccplayer/domain/models/media_source.dart';
 import 'package:ccplayer/domain/repositories/file_system_gateway.dart';
+import 'package:ccplayer/infrastructure/sources/directory_scan_snapshot.dart';
+import 'package:ccplayer/infrastructure/sources/directory_scan_snapshot_store.dart';
 import 'package:ccplayer/infrastructure/sources/directory_scanner.dart';
+import 'package:ccplayer/infrastructure/sources/scan_throttle_policy.dart';
 import 'package:ccplayer/infrastructure/sources/subtitle_matcher.dart';
+import 'package:ccplayer/infrastructure/storage/storage_root_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 内存目录树网关；可指定某目录前若干次列举抛出的异常。
@@ -41,13 +46,158 @@ RemoteEntry _file(String path) => RemoteEntry(
   size: 1,
 );
 
-RemoteEntry _dir(String path) => RemoteEntry(
-  name: path.split('/').last,
-  relativePath: path,
-  isDirectory: true,
-);
+RemoteEntry _dir(String path, {String? etag, DateTime? modifiedAt}) =>
+    RemoteEntry(
+      name: path.split('/').last,
+      relativePath: path,
+      isDirectory: true,
+      etag: etag,
+      modifiedAt: modifiedAt,
+    );
 
 void main() {
+  group('远程目录扫描快照', () {
+    const scanner = DirectoryScanner();
+    final now = DateTime.utc(2026, 11, 23);
+
+    test('普通父目录不冒泡时仍能找到新增分集并识别删除', () async {
+      final source = {
+        '': [_dir('番剧', etag: '"根"')],
+        '番剧': [
+          _dir('番剧/S01', etag: '"初版"'),
+          _dir('番剧/Scans', modifiedAt: now),
+          _dir('番剧/无版本', modifiedAt: now),
+        ],
+        '番剧/S01': [_file('番剧/S01/Show - 01.mkv')],
+        '番剧/Scans': [_file('番剧/Scans/封面.jpg')],
+        '番剧/无版本': [_file('番剧/无版本/Show - 03.mkv')],
+      };
+      final initial = await scanner.scan(
+        _TreeGateway(source),
+        sourceId: '库',
+        clockNow: now,
+      );
+
+      source['番剧']![0] = _dir('番剧/S01', etag: '"新增"');
+      source['番剧/S01'] = [_file('番剧/S01/Show - 02.mkv')];
+      final gateway = _TreeGateway(source);
+      final incremental = await scanner.scan(
+        gateway,
+        sourceId: '库',
+        previousSnapshot: initial.snapshot,
+        clockNow: now.add(const Duration(days: 1)),
+      );
+
+      expect(
+        gateway.calls.keys,
+        unorderedEquals(['', '番剧', '番剧/S01', '番剧/无版本']),
+      );
+      expect(incremental.reusedDirectories, 1);
+      expect(
+        incremental.files.map((entry) => entry.relativePath),
+        unorderedEquals([
+          '番剧/S01/Show - 02.mkv',
+          '番剧/Scans/封面.jpg',
+          '番剧/无版本/Show - 03.mkv',
+        ]),
+      );
+
+      final unchanged = _TreeGateway(source);
+      final second = await scanner.scan(
+        unchanged,
+        sourceId: '库',
+        previousSnapshot: incremental.snapshot,
+        clockNow: now.add(const Duration(days: 6)),
+      );
+      expect(unchanged.calls, isNot(contains('番剧/S01')));
+      expect(second.snapshot!.lastFullScanAt, now);
+
+      final expired = _TreeGateway(source);
+      await scanner.scan(
+        expired,
+        sourceId: '库',
+        previousSnapshot: second.snapshot,
+        clockNow: now.add(const Duration(days: 8)),
+      );
+      expect(expired.calls.keys, unorderedEquals(source.keys));
+
+      final deep = _TreeGateway(source);
+      await scanner.scan(
+        deep,
+        sourceId: '库',
+        previousSnapshot: second.snapshot,
+        enableSnapshotReuse: false,
+        enableCheckpointResume: false,
+        clockNow: now,
+      );
+      expect(deep.calls.keys, unorderedEquals(source.keys));
+    });
+
+    test('断网后从磁盘恢复，重新列举出错分支并恢复字幕配对', () async {
+      final temp = await Directory.systemTemp.createTemp('konata_scan_');
+      addTearDown(() => temp.delete(recursive: true));
+      final storageRoot = StorageRootService(overrideRoot: temp);
+      final store = DirectoryScanSnapshotStore(storageRoot: storageRoot);
+      const source = MediaSource(
+        id: '媒体源',
+        kind: MediaSourceKind.webdav,
+        label: '番剧',
+        location: 'https://example.invalid/media/',
+        username: '账号',
+      );
+      final key = DirectoryScanSnapshotStore.keyFor(source, const ['']);
+      expect(
+        DirectoryScanSnapshotStore.keyFor(source.copyWith(username: '访客'), [
+          '',
+        ]),
+        isNot(key),
+      );
+      expect(DirectoryScanSnapshotStore.keyFor(source, ['第一部']), isNot(key));
+
+      final tree = {
+        '': [_dir('第一部'), _dir('第二部')],
+        '第一部': [_file('第一部/Show - 01.mkv'), _file('第一部/Show - 01.chs.ass')],
+        '第二部': [_file('第二部/Other - 01.mkv')],
+      };
+      final interrupted = _TreeGateway(
+        tree,
+        failures: {
+          '第二部': List<Object>.filled(3, const SocketException('连接已断开')),
+        },
+      );
+      await expectLater(
+        scanner.scan(
+          interrupted,
+          sourceId: key,
+          profileOverride: DirectoryScanProfile.smb,
+          onCheckpoint: store.save,
+          clockNow: now,
+        ),
+        throwsA(isA<SocketException>()),
+      );
+
+      final reopened = DirectoryScanSnapshotStore(storageRoot: storageRoot);
+      final checkpoint = await reopened.load(key);
+      expect(checkpoint, isA<DirectoryScanSnapshot>());
+      expect(checkpoint!.isComplete, isFalse);
+      expect(checkpoint.pendingQueue, ['第二部']);
+
+      final resumed = _TreeGateway(tree);
+      final result = await scanner.scan(
+        resumed,
+        sourceId: key,
+        previousSnapshot: checkpoint,
+        onCheckpoint: reopened.save,
+        clockNow: now.add(const Duration(hours: 1)),
+      );
+      expect(resumed.calls, {'第二部': 1});
+      expect(result.resumedFromCheckpoint, isTrue);
+      expect(result.files.first.externalSubtitles, ['第一部/Show - 01.chs.ass']);
+      expect(result.files, hasLength(2));
+      expect((await reopened.load(key))!.isComplete, isTrue);
+    });
+  });
+
   group('外挂字幕预处理匹配', () {
     test('预处理后的匹配结果与逐视频完整匹配逐条一致', () {
       const dir = '动画/孤独摇滚';

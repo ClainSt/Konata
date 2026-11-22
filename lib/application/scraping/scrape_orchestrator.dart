@@ -25,6 +25,8 @@ import '../../infrastructure/network/bangumi_service.dart';
 import '../../infrastructure/network/fanart_service.dart';
 import '../../infrastructure/network/priority_http_scheduler.dart';
 import '../../infrastructure/network/tmdb_service.dart';
+import '../../infrastructure/sources/directory_scan_snapshot.dart';
+import '../../infrastructure/sources/directory_scan_snapshot_store.dart';
 import '../../infrastructure/sources/directory_scanner.dart';
 import '../../infrastructure/sources/source_access_error.dart';
 import 'clear_logo_resolver.dart';
@@ -64,6 +66,7 @@ class ScrapeOrchestrator {
     this._computeWorker = const ScrapeComputeWorker(),
     this._photosStorage,
     this._mappingIndex,
+    this._snapshotStore,
     this._maxWorkConcurrency = defaultWorkConcurrency,
   }) : _repository = repository,
        _tmdbService = tmdbService,
@@ -104,6 +107,7 @@ class ScrapeOrchestrator {
   final ClearLogoResolver? _clearLogoResolver;
   final PhotosStorage? _photosStorage;
   final BangumiTmdbIndex? _mappingIndex;
+  final DirectoryScanSnapshotStore? _snapshotStore;
   final int _maxWorkConcurrency;
   final GatewayBuilder _gatewayBuilder;
   final DirectoryScanner _scanner;
@@ -124,9 +128,12 @@ class ScrapeOrchestrator {
   }) => _workDirectorySync.syncSingleWork(workId, isCancelled: isCancelled);
 
   /// 对指定媒体源执行完整的扫描 + 四段漏斗刮削流水线。
+  ///
+  /// 默认启用目录树快照增量复用与中断断点续扫；若需忽略历史快照执行全盘校准，可传 [forceFullRescan] 为真。
   Future<ScrapeProgress> scanAndScrapeSource(
     MediaSource source, {
     List<String>? scanRootsOverride,
+    bool forceFullRescan = false,
     bool Function()? isCancelled,
     ScrapeProgressListener? onProgress,
     ScrapeWorkPersistedListener? onWorkPersisted,
@@ -146,23 +153,54 @@ class ScrapeOrchestrator {
     final computeSession = _computeWorker.openSession();
     _tmdbService.beginSessionCache();
     try {
-      final scanResult = await _scanner.scan(
-        gateway,
-        scanRoots: effectiveRoots,
-        detectLocalCovers: source.kind == MediaSourceKind.local,
-        isCancelled: isCancelled,
-        onFolderVisited: tracker.recordFolderVisited,
-        onProgress: (dir, dirCount, fileCount) {
-          emit(
-            tracker.updateScanProgress(
-              currentDir: dir,
-              scannedDirectories: dirCount,
-              foundFiles: fileCount,
-              cancelRequested: isCancelled?.call() ?? false,
-            ),
+      final store = source.kind == MediaSourceKind.webdav
+          ? _snapshotStore
+          : null;
+      final snapshotKey = store == null
+          ? ''
+          : DirectoryScanSnapshotStore.keyFor(
+              source,
+              DirectoryScanner.normalizeScanRoots(effectiveRoots),
+            );
+      final previousSnapshot = store != null && !forceFullRescan
+          ? await store.load(snapshotKey)
+          : null;
+
+      Future<DirectoryScanResult> scan(DirectoryScanSnapshot? previous) =>
+          _scanner.scan(
+            gateway,
+            scanRoots: effectiveRoots,
+            detectLocalCovers: source.kind == MediaSourceKind.local,
+            sourceId: snapshotKey,
+            previousSnapshot: previous,
+            onCheckpoint: store?.save,
+            isCancelled: isCancelled,
+            onFolderVisited: tracker.recordFolderVisited,
+            onProgress: (dir, dirCount, fileCount) {
+              emit(
+                tracker.updateScanProgress(
+                  currentDir: dir,
+                  scannedDirectories: dirCount,
+                  foundFiles: fileCount,
+                  cancelRequested: isCancelled?.call() ?? false,
+                ),
+              );
+            },
           );
-        },
-      );
+
+      DirectoryScanResult scanResult;
+      try {
+        scanResult = await scan(previousSnapshot);
+      } catch (error) {
+        // 断点记录的待扫目录可能已被移除，重新列举父目录以确认当前拓扑。
+        if (previousSnapshot == null ||
+            previousSnapshot.isComplete ||
+            SourceAccessErrorClassifier.classify(error, source.kind).kind !=
+                SourceAccessProblemKind.path) {
+          rethrow;
+        }
+        scanResult = await scan(null);
+      }
 
       if (scanResult.cancelled || (isCancelled?.call() ?? false)) {
         final cancelled = tracker.advance(
@@ -406,15 +444,19 @@ class ScrapeOrchestrator {
       }
 
       // 支持全量与局部 scanRoots 范围修剪：非空 scopedRoots 仅清理对应目录前缀下的失联条目，绝不误删未选目录作品。
-      final hadStaleSourceVariant = existingSourceVariants.any(
-        (v) => !activeVariantIds.contains(v.id),
-      );
-      await _repository.pruneStaleSourceEntries(
-        sourceId: source.id,
-        activeWorkIds: activeWorkIds,
-        activeVariantIds: activeVariantIds,
-        scopedRoots: effectiveRoots,
-      );
+      // 断点续扫期间已完成目录可能被单作品自动同步更新，留待后续校验确认缺失项。
+      final canPruneStale = !scanResult.resumedFromCheckpoint;
+      final hadStaleSourceVariant =
+          canPruneStale &&
+          existingSourceVariants.any((v) => !activeVariantIds.contains(v.id));
+      if (canPruneStale) {
+        await _repository.pruneStaleSourceEntries(
+          sourceId: source.id,
+          activeWorkIds: activeWorkIds,
+          activeVariantIds: activeVariantIds,
+          scopedRoots: effectiveRoots,
+        );
+      }
 
       // 自动归并同一作品父目录下多个压制组子目录洗版产出的同身份重复卡片（保留多版本、特典、CD、Scan 与播放进度）。
       var mergedAnyWork = false;
@@ -1316,7 +1358,9 @@ class ScrapeOrchestrator {
       if (rawRoot.isNotEmpty) {
         final prefix = '$rawRoot/';
         final inFolder = existingUnlockedVariants
-            .where((v) => v.relativePath.replaceAll('\\', '/').startsWith(prefix))
+            .where(
+              (v) => v.relativePath.replaceAll('\\', '/').startsWith(prefix),
+            )
             .toList(growable: false);
         if (inFolder.length == folder.variants.length) {
           scopedExisting = inFolder;
@@ -1695,7 +1739,10 @@ class ScrapeOrchestrator {
       final missingPoster =
           !existing.posterLocked &&
           (existing.posterPath == null || existing.posterPath!.trim().isEmpty);
-      if (!missingLogo && !canUpgradeLogo && !missingBackdrop && !missingPoster) {
+      if (!missingLogo &&
+          !canUpgradeLogo &&
+          !missingBackdrop &&
+          !missingPoster) {
         return existing;
       }
 
@@ -1826,25 +1873,23 @@ class ScrapeOrchestrator {
     }
 
     if (!interactive && existing.metadataLocked) {
-      return _refreshNonTmdbWork(
-        existing,
-        interactive: false,
-      );
+      return _refreshNonTmdbWork(existing, interactive: false);
     }
 
     final variants = await _repository.getVariantsByWork(workId);
     final episodes = await _repository.getEpisodesByWork(workId);
-    final mainEpNums = episodes
-        .where(
-          (e) =>
-              e.category == EpisodeCategory.main &&
-              e.episodeNumber != null &&
-              e.episodeNumber! > 0,
-        )
-        .map((e) => e.episodeNumber!)
-        .toSet()
-        .toList()
-      ..sort();
+    final mainEpNums =
+        episodes
+            .where(
+              (e) =>
+                  e.category == EpisodeCategory.main &&
+                  e.episodeNumber != null &&
+                  e.episodeNumber! > 0,
+            )
+            .map((e) => e.episodeNumber!)
+            .toSet()
+            .toList()
+          ..sort();
     final extraQueries = <String>[
       existing.title.trim(),
       if (existing.originalTitle != null) existing.originalTitle!.trim(),

@@ -34,8 +34,8 @@ abstract final class MatchDifficultyClassifier {
   static final RegExp _wsPattern = RegExp(r'\s+');
 
   static final RegExp _hardOrganizerNoise = RegExp(
-    r'(?<![a-z0-9])(?:sp\d+|10bit|8bit|collection|selection|extra|club|edition|video)(?![a-z0-9])|'
-    r'系列$|合集$|作品集$|テレビアニメ|TVアニメ|电视动画',
+    r'(?<![a-z0-9])(?:sp\d+|10bit|8bit|collection|selection|extra|club|edition|video|vol(?:ume)?\.?\s*0*\d{1,2})(?![a-z0-9])|'
+    r'系列$|合集$|作品集$|第\s*[0-9一二三四五六七八九十]+\s*[卷巻]$|テレビアニメ|TVアニメ|电视动画',
     caseSensitive: false,
   );
 

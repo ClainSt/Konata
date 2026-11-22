@@ -847,6 +847,21 @@ abstract final class ScrapeDomainAdapter {
         }
       }
 
+      // 根目录仅附带蓝光单卷标签（如 `孤独摇滚 Vol.1`、`葬送的芙莉莲 第1卷`，排除 `Alternative Vol.1`/`OVA Vol.1` 独立卷）时，
+      // 立即补充剥离分卷后的纯净母剧名检索词，避免单卷先扫时在线检索漏召回。
+      if (!RegExp(
+        r'(?<![a-z0-9])(?:alternative|ova|oad|oav|sp\d*|special)(?![a-z0-9])',
+        caseSensitive: false,
+      ).hasMatch(raw)) {
+        final volTail = RegExp(
+          r'^(.*?)\s*(?:[-–—:：]\s*|\s+)(?:(?:bd|dvd)\s*)?(?:vol(?:ume)?\.?\s*0*\d{1,2}|第\s*[0-9一二三四五六七八九十]+\s*[卷巻])\s*$',
+          caseSensitive: false,
+        ).firstMatch(raw.trim());
+        final baseNoVol = volTail?.group(1)?.trim() ?? '';
+        if (baseNoVol.length >= 2) {
+          addSingle(baseNoVol, allowGroupHomonym: allowGroupHomonym);
+        }
+      }
       // 剥离尾部或中置 OVA/OAD/OADs/OVA1/TVSP/The Movie 及其后副标题，提炼母系列检索词。
       final beforeSpecial = RegExp(
         r'^(.+?)\s+(?:the\s+movie|movie|ova\d*|oads?|oav\d*|tvsp|sp\d+|special\s+ride)\b',
